@@ -21,6 +21,8 @@ import {
 
 import type {
   PointCommitAttemptScalarCommandV1,
+  PointCommitAuthorityPinsV1,
+  PointCommitDependencyV1,
   PointCommitFinishingTransitionCommandV1,
   PointCommitFinishingTransitionPortV1,
   PointCommitFinishingTransitionResultV1,
@@ -28,11 +30,14 @@ import type {
   PointCommitPublicationCommandV1,
   PointCommitPublicationResultV1,
   PointCommitPublicationV1Error,
-  PointCommitOutcomeResolutionForOccRerunV1Error,
+  PointCommitOutcomeResolutionV1Error,
   PointCommitOutcomeResolutionPortV1,
   PointCommitPublisherPortV1,
   PointCommitRollbackProofPortV1,
   PointCommitRollbackProofV1Error,
+  PointCommitRowIntentV1,
+  PointCommitSealIdentityV1,
+  PointCommitSuccessfulResultV1,
   PointCommitTransactionCommandV1,
   PointCommitWouldCommitV1,
   PointMutationAttemptReplacementCommandV1,
@@ -45,7 +50,8 @@ import {
   PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
-  RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1,
+  PointCommitDecisionUncertainV1Error,
+  RESOLVE_POINT_COMMIT_OUTCOME_V1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type {
   StoredOccExecutionEvidenceAuthorityV1,
@@ -89,6 +95,7 @@ import {
 } from "flarex-protocol/commit-protocol";
 import {
   encodeCanonicalJson,
+  jsonEqual,
   type Json,
   type JsonObject,
 } from "flarex-protocol/json";
@@ -142,6 +149,7 @@ import {
   TransactionSourcePackageSha256HexV1Schema,
   TransactionAttemptFenceSchema,
   TransactionSessionIdV1Schema,
+  storedTransactionSessionScalarsEqualV1,
   type TransactionAttemptFence,
   type TransactionSessionIdV1,
   type TransactionSessionLifecycleV1,
@@ -151,6 +159,7 @@ import {
   canonicalizeFlarexValueJsonV1,
   decodeFlarexValueCodecVersion,
   isCanonicalFlarexRuntimeObjectV1,
+  flarexValueToJsonV1,
   normalizeFlarexValueJsonV1,
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeValueV1,
@@ -296,6 +305,9 @@ const encodeCommitEnvelopeV1 = Schema.encodeSync(CommitEnvelopeV1Schema);
 const decodeTransactionArtifactRuntimeV1 = Schema.decodeUnknownSync(
   TransactionArtifactRuntimeV1Schema,
 );
+const decodeFlarexDbV1StorageGeneration = Schema.decodeUnknownSync(
+  FlarexDbV1StorageGenerationSchema,
+);
 
 export interface AuthenticatedStoredAttemptV1 {
   readonly [authenticatedStoredAttemptBrand]: true;
@@ -379,6 +391,45 @@ export class PointCommitKnownSettledSqlRetryExhaustedV1Error
       PointCommitKnownSettledSqlRetryFailureV1,
       PointCommitKnownSettledSqlRetryFailureV1,
     ];
+  }> {}
+
+type PointCommitOutcomeLookupSqlFailureV1 = Extract<
+  PointCommitOutcomeResolutionV1Error,
+  {
+    readonly _tag:
+      | "PointCommitSqlErrorV1"
+      | "CommittedPointOutcomeSqlErrorV1";
+  }
+>;
+
+export type PointCommitUncertainOutcomeSecondaryV1 =
+  | Readonly<{
+      readonly kind: "outcomeLookupFailed";
+      readonly error: PointCommitOutcomeLookupSqlFailureV1;
+    }>
+  | Readonly<{
+      readonly kind: "secondDecisionUncertain";
+      readonly error: PointCommitDecisionUncertainV1Error;
+    }>;
+
+/** Private O08-D terminal evidence. It carries no command or rerun authority. */
+export class PointCommitUncertainOutcomeUnresolvedV1Error
+  extends Data.TaggedError(
+    "PointCommitUncertainOutcomeUnresolvedV1Error",
+  )<{
+    readonly stage:
+      | "postSettlementOutcomeLookup"
+      | "alreadyCommittedOutcomeLookup"
+      | "guardedPublication";
+    readonly primary: PointCommitDecisionUncertainV1Error;
+    readonly secondary: PointCommitUncertainOutcomeSecondaryV1;
+  }> {}
+
+export class PointCommitUncertainOutcomeRecoveryCorruptionV1Error
+  extends Data.TaggedError(
+    "PointCommitUncertainOutcomeRecoveryCorruptionV1Error",
+  )<{
+    readonly reason: "reconstructedCommandMismatch";
   }> {}
 
 export interface PointCommitKnownSettledSqlRetryFailureV1 {
@@ -1000,6 +1051,13 @@ interface PointMutationOccConflictTicketStateV1 {
   readonly conflict: CapturedPointMutationOccConflictV1;
 }
 
+interface PointCommitDecisionUncertainTicketStateV1 {
+  readonly finishing: FinishingPreparedPointCommitV1;
+  readonly prepared: PreparedPointCommitCapabilityStateV1;
+  readonly selector: PointMutationSessionAttemptSelectorV1;
+  readonly command: PointCommitPublicationCommandV1;
+}
+
 interface AuthorizedPointMutationOccRerunStateV1 {
   readonly loadedAttempt: LoadedPointMutationSessionAttemptV1;
   readonly prepared: PreparedPointCommitCapabilityStateV1;
@@ -1059,8 +1117,14 @@ export interface StoredPointCommitFinishingTransitionConfigV1
   readonly pointCommitFinishing: PointCommitFinishingTransitionPortV1;
 }
 
-export interface StoredPointMutationAttemptReplacementConfigV1
+export interface StoredPointCommitExecutorConfigV1
   extends StoredPointCommitFinishingTransitionConfigV1 {
+  readonly pointCommit:
+    PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1;
+}
+
+export interface StoredPointMutationAttemptReplacementConfigV1
+  extends StoredPointCommitExecutorConfigV1 {
   readonly pointMutationAttemptReplacement:
     PointMutationAttemptReplacementPortV1;
 }
@@ -1153,10 +1217,6 @@ export interface StoredPointCommitFinishingTransitionV1
   >;
 }
 
-export type PointCommitFinishingCompositionV1Error =
-  | PointCommitFinishingExecutionV1Error
-  | PointCommitFinishingPublicationExecutionV1Error;
-
 export type PointCommitFinishingRecoveryV1Error =
   | InvalidPointMutationSessionAttemptSelectorV1Error
   | StoredAttemptAlreadyCommittedV1Error
@@ -1171,10 +1231,31 @@ export type PointCommitFinishingRecoveryV1Error =
 
 export type PointCommitFinishingRecoveryExecutionV1Error =
   | PointCommitFinishingRecoveryV1Error
-  | PointCommitFinishingPublicationExecutionV1Error;
+  | PointCommitRecoveredPublicationExecutionV1Error;
+
+export type PointCommitRecoveredPublicationExecutionV1Error =
+  | Exclude<
+      PointCommitFinishingPublicationExecutionV1Error,
+      PointCommitDecisionUncertainV1Error
+    >
+  | PointCommitUncertainOutcomeUnresolvedV1Error
+  | PointCommitUncertainOutcomeRecoveryCorruptionV1Error
+  | PointCommitFinishingRecoveryV1Error
+  | PointCommitOutcomeResolutionV1Error;
+
+export type PointCommitFinishingCompositionV1Error =
+  | PointCommitFinishingExecutionV1Error
+  | PointCommitRecoveredPublicationExecutionV1Error;
 
 export interface StoredPointCommitExecutorV1
-  extends StoredPointCommitFinishingTransitionV1 {
+  extends Omit<StoredPointCommitFinishingTransitionV1, "publishPointCommit"> {
+  readonly publishPointCommit: (
+    input: FinishingPreparedPointCommitV1,
+  ) => Effect.Effect<
+    PointCommitPublicationResultV1,
+    PointCommitRecoveredPublicationExecutionV1Error,
+    never
+  >;
   readonly reconstructPointCommitFinishing: (
     selector: unknown,
   ) => Effect.Effect<
@@ -1219,7 +1300,7 @@ export type PointMutationOccRerunAuthorizationV1Error =
   | PointMutationOccRerunOwnershipLostV1Error
   | PointMutationOccRerunFreshAttemptV1Error
   | PointMutationOccRerunAuthorityCorruptionV1Error
-  | PointCommitOutcomeResolutionForOccRerunV1Error
+  | PointCommitOutcomeResolutionV1Error
   | PointMutationAttemptReplacementExecutionV1Error
   | PointMutationSessionAttemptLoadingExecutionV1Error;
 
@@ -1255,7 +1336,7 @@ export type PointMutationOccRerunExecutionV1Error =
   | CommitInputVerificationV1Error
   | PointCommitPlanningV1Error
   | PointCommitFinishingExecutionV1Error
-  | PointCommitFinishingPublicationExecutionV1Error
+  | PointCommitRecoveredPublicationExecutionV1Error
   | PointMutationOccRerunAuthorizationV1Error;
 
 export interface StoredPointMutationOccRerunExecutionV1
@@ -1287,7 +1368,7 @@ function isPointCommitOutcomeResolutionPortV1(
 ): value is PointCommitOutcomeResolutionPortV1 {
   return isNonArrayRecord(value) && typeof Reflect.get(
     value,
-    RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1,
+    RESOLVE_POINT_COMMIT_OUTCOME_V1,
   ) === "function";
 }
 
@@ -1373,7 +1454,7 @@ export function createStoredAttemptAuthenticationV1(
 ): StoredPointMutationAttemptReplacementV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
-  commitAuthority: StoredPointCommitFinishingTransitionConfigV1,
+  commitAuthority: StoredPointCommitExecutorConfigV1,
 ): StoredPointCommitExecutorV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
@@ -1398,6 +1479,7 @@ export function createStoredAttemptAuthenticationV1(
     | StoredPointCommitRollbackProofConfigV1
     | StoredPointCommitPublisherConfigV1
     | StoredPointCommitFinishingTransitionConfigV1
+    | StoredPointCommitExecutorConfigV1
     | StoredPointMutationAttemptReplacementConfigV1
     | StoredPointMutationOccRerunAuthorizationConfigV1
     | StoredPointMutationOccRerunExecutionConfigV1,
@@ -1429,6 +1511,12 @@ export function createStoredAttemptAuthenticationV1(
     PreparedPointCommitCapabilityStateV1
   >();
   const finishingPreparedPointCommitStates = new WeakSet<object>();
+  const decisionUncertainTickets = new WeakMap<
+    object,
+    PointCommitDecisionUncertainTicketStateV1
+  >();
+  const capturedDecisionUncertainties = new WeakSet<object>();
+  const consumedDecisionUncertainties = new WeakSet<object>();
   const occConflictTickets = new WeakMap<
     object,
     PointMutationOccConflictTicketStateV1
@@ -2036,27 +2124,84 @@ export function createStoredAttemptAuthenticationV1(
       );
     });
 
-  const publishFinishingPointCommit:
-    StoredPointCommitFinishingTransitionV1["publishPointCommit"] = Effect.fn(
-      "StoredAttemptAuthentication.publishFinishingPointCommit",
-    )(function* (input) {
-      if (typeof input !== "object" || input === null) {
-        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
-          reason: "notSameFactory",
-        }));
-      }
-      const state = preparedPointCommitStates.get(input);
-      if (state === undefined) {
-        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
-          reason: "notSameFactory",
-        }));
-      }
-      if (!finishingPreparedPointCommitStates.has(input)) {
-        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
-          reason: "notFinishing",
-        }));
-      }
-      const command = capturePointCommitPublicationCommand(state);
+  const lookupFinishingPreparedPointCommit = (
+    input: unknown,
+  ): Result.Result<
+    Readonly<{
+      readonly finishing: FinishingPreparedPointCommitV1;
+      readonly prepared: PreparedPointCommitCapabilityStateV1;
+    }>,
+    InvalidPreparedPointCommitV1Error
+  > => {
+    if (typeof input !== "object" || input === null) {
+      return Result.fail(new InvalidPreparedPointCommitV1Error({
+        reason: "notSameFactory",
+      }));
+    }
+    const prepared = preparedPointCommitStates.get(input);
+    if (prepared === undefined) {
+      return Result.fail(new InvalidPreparedPointCommitV1Error({
+        reason: "notSameFactory",
+      }));
+    }
+    if (!finishingPreparedPointCommitStates.has(input)) {
+      return Result.fail(new InvalidPreparedPointCommitV1Error({
+        reason: "notFinishing",
+      }));
+    }
+    return Result.succeed(Object.freeze({
+      finishing: input as FinishingPreparedPointCommitV1,
+      prepared,
+    }));
+  };
+
+  const captureAndClaimDecisionUncertainTicket = (
+    error: PointCommitDecisionUncertainV1Error,
+    finishing: FinishingPreparedPointCommitV1,
+    prepared: PreparedPointCommitCapabilityStateV1,
+    command: PointCommitPublicationCommandV1,
+  ): PointCommitDecisionUncertainTicketStateV1 => {
+    if (
+      capturedDecisionUncertainties.has(error) ||
+      consumedDecisionUncertainties.has(error)
+    ) {
+      throw new Error(
+        "A point-commit decision-uncertainty ticket was already consumed.",
+      );
+    }
+    const ticket = Object.freeze({
+      finishing,
+      prepared,
+      selector: capturePointMutationSessionAttemptSelector(prepared),
+      command,
+    });
+    capturedDecisionUncertainties.add(error);
+    decisionUncertainTickets.set(error, ticket);
+    const claimed = decisionUncertainTickets.get(error);
+    decisionUncertainTickets.delete(error);
+    consumedDecisionUncertainties.add(error);
+    if (claimed === undefined) {
+      throw new Error(
+        "A point-commit decision-uncertainty ticket could not be claimed.",
+      );
+    }
+    return claimed;
+  };
+
+  type PublishCapturedFinishingPointCommitV1 = (
+    finishing: FinishingPreparedPointCommitV1,
+    prepared: PreparedPointCommitCapabilityStateV1,
+    command: PointCommitPublicationCommandV1,
+  ) => Effect.Effect<
+    PointCommitPublicationResultV1,
+    PointCommitKnownSettledSqlPublicationV1Error,
+    never
+  >;
+
+  const publishCapturedFinishingPointCommit:
+    PublishCapturedFinishingPointCommitV1 = Effect.fn(
+      "StoredAttemptAuthentication.publishCapturedFinishingPointCommit",
+    )(function* (finishing, prepared, command) {
       const failures: readonly [] = [];
       return yield* publishKnownSettledPointCommit(
         command,
@@ -2069,27 +2214,75 @@ export function createStoredAttemptAuthenticationV1(
           "PointCommitConflictV1Error",
           (error) => Effect.sync(() => {
             if (error instanceof PointCommitConflictV1Error) {
-              captureOccConflictTicket(input, state, error);
+              captureOccConflictTicket(finishing, prepared, error);
             }
           }),
         ),
       );
     });
 
+  const publishFinishingPointCommitOnce:
+    StoredPointCommitFinishingTransitionV1["publishPointCommit"] = Effect.fn(
+      "StoredAttemptAuthentication.publishFinishingPointCommitOnce",
+    )(function* (input) {
+      const captured = yield* Effect.fromResult(
+        lookupFinishingPreparedPointCommit(input),
+      );
+      return yield* publishCapturedFinishingPointCommit(
+        captured.finishing,
+        captured.prepared,
+        capturePointCommitPublicationCommand(captured.prepared),
+      );
+    });
+
   const finishingTransition = Object.freeze({
     ...publisher,
     enterPointCommitFinishing,
-    publishPointCommit: publishFinishingPointCommit,
+    publishPointCommit: publishFinishingPointCommitOnce,
   } satisfies StoredPointCommitFinishingTransitionV1);
   if (finishingEvidenceLoader === undefined) return finishingTransition;
+  if (pointCommitOutcomeResolution === undefined) return finishingTransition;
 
-  const reconstructPointCommitFinishing:
-    StoredPointCommitExecutorV1["reconstructPointCommitFinishing"] = Effect.fn(
-      "StoredAttemptAuthentication.reconstructPointCommitFinishing",
-    )(function* (input) {
-      const selector = yield* Effect.fromResult(
-        decodePointMutationSessionAttemptSelectorV1Result(input),
-      );
+  const resolvePointCommitOutcomeObservation = Effect.fn(
+    "StoredAttemptAuthentication.resolvePointCommitOutcomeObservation",
+  )(function* (prepared: PreparedPointCommitCapabilityStateV1) {
+    const pins = prepared.plan.authorityPins;
+    return yield* pointCommitOutcomeResolution[
+      RESOLVE_POINT_COMMIT_OUTCOME_V1
+    ](
+      pins.deploymentId,
+      Object.freeze({
+        scopeUuid: prepared.plan.sealIdentity.scopeUuid,
+        requestKey: TransactionRequestKeyV1Schema.make(pins.requestKey),
+        expectedIdentityAccessPolicySha256:
+          TransactionIdentityAccessPolicySha256V1Schema.make(
+            copyBytes(prepared.provenance.session.identityAccessPolicySha256),
+          ),
+        expectedFunctionPath: TransactionFunctionPathV1Schema.make(
+          pins.functionPath,
+        ),
+        expectedRequestSha256: TransactionRequestSha256V1Schema.make(
+          copyBytes(prepared.provenance.session.requestSha256),
+        ),
+      }),
+    );
+  });
+
+  const resolvePointCommitOutcomeForRecovery = Effect.fn(
+    "StoredAttemptAuthentication.resolvePointCommitOutcomeForRecovery",
+  )(function* (prepared: PreparedPointCommitCapabilityStateV1) {
+    const outcome = yield* resolvePointCommitOutcomeObservation(prepared);
+    if (!isCommittedPointOutcomeResolutionV1(outcome)) {
+      return yield* Effect.fail(new PointCommitCorruptionV1Error({
+        reason: "publishedOutcomeInvalid",
+      }));
+    }
+    return outcome;
+  });
+
+  const reconstructPointCommitFinishingFromSelector = Effect.fn(
+    "StoredAttemptAuthentication.reconstructPointCommitFinishingFromSelector",
+  )(function* (selector: PointMutationSessionAttemptSelectorV1) {
       const loadResult = yield* finishingEvidenceLoader.loadFinishingEffect(
         selector,
       ).pipe(Effect.mapError((error) =>
@@ -2124,6 +2317,175 @@ export function createStoredAttemptAuthenticationV1(
       );
     });
 
+  const reconstructPointCommitFinishing:
+    StoredPointCommitExecutorV1["reconstructPointCommitFinishing"] = Effect.fn(
+      "StoredAttemptAuthentication.reconstructPointCommitFinishing",
+    )(function* (input) {
+      const selector = yield* Effect.fromResult(
+        decodePointMutationSessionAttemptSelectorV1Result(input),
+      );
+      return yield* reconstructPointCommitFinishingFromSelector(selector);
+    });
+
+  const unresolvedFromOutcomeLookup = (
+    primary: PointCommitDecisionUncertainV1Error,
+    stage:
+      | "postSettlementOutcomeLookup"
+      | "alreadyCommittedOutcomeLookup",
+    error: PointCommitOutcomeLookupSqlFailureV1,
+  ): PointCommitUncertainOutcomeUnresolvedV1Error =>
+    new PointCommitUncertainOutcomeUnresolvedV1Error({
+      stage,
+      primary,
+      secondary: Object.freeze({
+        kind: "outcomeLookupFailed",
+        error,
+      }),
+    });
+
+  const resolveAlreadyCommittedUncertainOutcome = Effect.fn(
+    "StoredAttemptAuthentication.resolveAlreadyCommittedUncertainOutcome",
+  )(function* (
+    primary: PointCommitDecisionUncertainV1Error,
+    ticket: PointCommitDecisionUncertainTicketStateV1,
+  ) {
+    const outcome = yield* resolvePointCommitOutcomeForRecovery(
+      ticket.prepared,
+    ).pipe(
+      Effect.catchTags({
+        PointCommitSqlErrorV1: (error) => Effect.fail(
+          unresolvedFromOutcomeLookup(
+            primary,
+            "alreadyCommittedOutcomeLookup",
+            error,
+          ),
+        ),
+        CommittedPointOutcomeSqlErrorV1: (error) => Effect.fail(
+          unresolvedFromOutcomeLookup(
+            primary,
+            "alreadyCommittedOutcomeLookup",
+            error,
+          ),
+        ),
+      }),
+    );
+    if (outcome.kind === "missing") {
+      return yield* Effect.fail(new PointCommitCorruptionV1Error({
+        reason: "committedOutcomeMissing",
+      }));
+    }
+    return publicationResultFromCommittedOutcome(outcome);
+  });
+
+  const recoverPointCommitDecisionUncertain = Effect.fn(
+    "StoredAttemptAuthentication.recoverPointCommitDecisionUncertain",
+  )(function* (
+    primary: PointCommitDecisionUncertainV1Error,
+    ticket: PointCommitDecisionUncertainTicketStateV1,
+  ) {
+    if (primary.outcomeCheck.kind === "lookupFailed") {
+      return yield* Effect.fail(unresolvedFromOutcomeLookup(
+        primary,
+        "postSettlementOutcomeLookup",
+        primary.outcomeCheck.error,
+      ));
+    }
+
+    const reconstructed = yield* reconstructPointCommitFinishingFromSelector(
+      ticket.selector,
+    ).pipe(
+      Effect.catchTag(
+        "StoredAttemptAlreadyCommittedV1Error",
+        () => resolveAlreadyCommittedUncertainOutcome(primary, ticket),
+      ),
+    );
+    if (isPointCommitPublicationResultV1(reconstructed)) return reconstructed;
+
+    const recoveredPrepared = preparedPointCommitStates.get(reconstructed);
+    if (recoveredPrepared === undefined) {
+      return yield* Effect.die(new Error(
+        "Recovered finishing capability lost its factory-local state.",
+      ));
+    }
+    const recoveredCommand = capturePointCommitPublicationCommand(
+      recoveredPrepared,
+    );
+    if (!pointCommitPublicationCommandsEqual(
+      ticket.command,
+      recoveredCommand,
+    )) {
+      return yield* Effect.fail(
+        new PointCommitUncertainOutcomeRecoveryCorruptionV1Error({
+          reason: "reconstructedCommandMismatch",
+        }),
+      );
+    }
+
+    return yield* publishCapturedFinishingPointCommit(
+      reconstructed,
+      recoveredPrepared,
+      ticket.command,
+    ).pipe(
+      Effect.catchTag(
+        "PointCommitDecisionUncertainV1Error",
+        (secondary) => {
+          if (!(secondary instanceof PointCommitDecisionUncertainV1Error)) {
+            return Effect.die(secondary);
+          }
+          captureAndClaimDecisionUncertainTicket(
+            secondary,
+            reconstructed,
+            recoveredPrepared,
+            ticket.command,
+          );
+          return Effect.fail(
+            new PointCommitUncertainOutcomeUnresolvedV1Error({
+              stage: "guardedPublication",
+              primary,
+              secondary: Object.freeze({
+                kind: "secondDecisionUncertain",
+                error: secondary,
+              }),
+            }),
+          );
+        },
+      ),
+    );
+  });
+
+  const publishFinishingPointCommit:
+    StoredPointCommitExecutorV1["publishPointCommit"] = Effect.fn(
+      "StoredAttemptAuthentication.publishFinishingPointCommit",
+    )(function* (input) {
+      const captured = yield* Effect.fromResult(
+        lookupFinishingPreparedPointCommit(input),
+      );
+      const command = capturePointCommitPublicationCommand(
+        captured.prepared,
+      );
+      return yield* publishCapturedFinishingPointCommit(
+        captured.finishing,
+        captured.prepared,
+        command,
+      ).pipe(
+        Effect.catchTag(
+          "PointCommitDecisionUncertainV1Error",
+          (primary) => {
+            if (!(primary instanceof PointCommitDecisionUncertainV1Error)) {
+              return Effect.die(primary);
+            }
+            const ticket = captureAndClaimDecisionUncertainTicket(
+              primary,
+              captured.finishing,
+              captured.prepared,
+              command,
+            );
+            return recoverPointCommitDecisionUncertain(primary, ticket);
+          },
+        ),
+      );
+    });
+
   const finishPointCommit: StoredPointCommitExecutorV1["finishPointCommit"] =
     Effect.fn("StoredAttemptAuthentication.finishPointCommit")(
       function* (input) {
@@ -2142,6 +2504,7 @@ export function createStoredAttemptAuthenticationV1(
 
   const executor = Object.freeze({
     ...finishingTransition,
+    publishPointCommit: publishFinishingPointCommit,
     reconstructPointCommitFinishing,
     finishPointCommit,
     resumePointCommit,
@@ -2187,26 +2550,7 @@ export function createStoredAttemptAuthenticationV1(
   const resolvePointMutationOccOutcome = Effect.fn(
     "StoredAttemptAuthentication.resolvePointMutationOccOutcome",
   )(function* (prepared: PreparedPointCommitCapabilityStateV1) {
-    const pins = prepared.plan.authorityPins;
-    const outcome = yield* pointCommitOutcomeResolution[
-      RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1
-    ](
-      pins.deploymentId,
-      Object.freeze({
-        scopeUuid: prepared.plan.sealIdentity.scopeUuid,
-        requestKey: TransactionRequestKeyV1Schema.make(pins.requestKey),
-        expectedIdentityAccessPolicySha256:
-          TransactionIdentityAccessPolicySha256V1Schema.make(
-            copyBytes(prepared.provenance.session.identityAccessPolicySha256),
-          ),
-        expectedFunctionPath: TransactionFunctionPathV1Schema.make(
-          pins.functionPath,
-        ),
-        expectedRequestSha256: TransactionRequestSha256V1Schema.make(
-          copyBytes(prepared.provenance.session.requestSha256),
-        ),
-      }),
-    );
+    const outcome = yield* resolvePointCommitOutcomeObservation(prepared);
     if (
       !isNonArrayRecord(outcome) ||
       (outcome.kind !== "missing" &&
@@ -2483,7 +2827,7 @@ export function createStoredAttemptAuthenticationV1(
           rerunState.prepared,
         );
         if (initialOutcome.kind !== "missing") {
-          return publicationResultFromOccOutcome(initialOutcome);
+          return publicationResultFromCommittedOutcome(initialOutcome);
         }
 
         const executionAuthority =
@@ -2509,7 +2853,7 @@ export function createStoredAttemptAuthenticationV1(
               }),
             );
           }
-          return publicationResultFromOccOutcome(committedOutcome);
+          return publicationResultFromCommittedOutcome(committedOutcome);
         }
         const executionEvidence =
           yield* requireOccExecutionEvidenceEffect(loadResult);
@@ -2697,10 +3041,14 @@ export function createStoredAttemptAuthenticationV1(
           publication.error,
         );
         if (authorizationResult.kind === "replayed") {
-          return publicationResultFromOccOutcome(authorizationResult.outcome);
+          return publicationResultFromCommittedOutcome(
+            authorizationResult.outcome,
+          );
         }
         if (authorizationResult.kind === "expired") {
-          return publicationResultFromOccOutcome(authorizationResult.outcome);
+          return publicationResultFromCommittedOutcome(
+            authorizationResult.outcome,
+          );
         }
         const nextClaim = claimAuthorizedPointMutationOccRerun(
           authorizationResult.rerun,
@@ -2808,7 +3156,7 @@ function captureOccExecutionVerificationState(
   });
 }
 
-function publicationResultFromOccOutcome(
+function publicationResultFromCommittedOutcome(
   outcome: Exclude<
     CommittedPointOutcomeResolutionV1,
     { readonly kind: "missing" }
@@ -3383,6 +3731,238 @@ function capturePointCommitPublicationCommand(
   } satisfies PointCommitPublicationCommandV1);
 }
 
+function capturePointMutationSessionAttemptSelector(
+  state: PreparedPointCommitCapabilityStateV1,
+): PointMutationSessionAttemptSelectorV1 {
+  const pins = state.plan.authorityPins;
+  return Object.freeze({
+    deploymentId: pins.deploymentId,
+    scopeId: pins.scopeId,
+    sessionId: pins.sessionId,
+    attemptFence: pins.attemptFence,
+  });
+}
+
+function isCommittedPointOutcomeResolutionV1(
+  value: unknown,
+): value is CommittedPointOutcomeResolutionV1 {
+  return isNonArrayRecord(value) &&
+    (value.kind === "missing" ||
+      value.kind === "available" ||
+      value.kind === "expired");
+}
+
+function isPointCommitPublicationResultV1(
+  value: unknown,
+): value is PointCommitPublicationResultV1 {
+  return isNonArrayRecord(value) &&
+    (value.kind === "published" ||
+      value.kind === "replayed" ||
+      value.kind === "expired");
+}
+
+const POINT_COMMIT_AUTHORITY_PIN_SCALAR_FIELDS = [
+  "deploymentId",
+  "scopeId",
+  "sessionId",
+  "attemptFence",
+  "storageGeneration",
+  "storageGenerationFence",
+  "schemaVersionId",
+  "packageId",
+  "artifactRuntime",
+  "artifactId",
+  "sourcePackageHash",
+  "executionModule",
+  "functionPath",
+  "functionKind",
+  "policyVersion",
+  "authorizationRevocationEpoch",
+  "requestKey",
+] as const satisfies ReadonlyArray<
+  Exclude<keyof PointCommitAuthorityPinsV1, "snapshotToken">
+>;
+
+const POINT_COMMIT_SEAL_IDENTITY_SCALAR_FIELDS = [
+  "scopeUuid",
+  "lifecycle",
+  "sessionUpdatedAtMilliseconds",
+  "leaseExpiresAtMilliseconds",
+  "rootCreatedAtMilliseconds",
+  "rootUpdatedAtMilliseconds",
+  "sealedAtMilliseconds",
+  "finalSyscallSequence",
+  "creationTimeSeed",
+  "nextCreationTime",
+  "journalFormat",
+  "journalProtocolVersion",
+  "journalValueCodecVersion",
+  "journalByteLength",
+  "resultValueCodecVersion",
+  "resultSemanticBytes",
+  "resultByteLength",
+  "readDocuments",
+  "readSemanticBytes",
+  "pointDependencyCount",
+  "writeOperations",
+  "writeSemanticBytes",
+  "materialWriteEventEvidenceBytes",
+] as const satisfies ReadonlyArray<
+  Exclude<
+    keyof PointCommitSealIdentityV1,
+    "journalSha256" | "resultSha256"
+  >
+>;
+
+function pointCommitPublicationCommandsEqual(
+  left: PointCommitPublicationCommandV1,
+  right: PointCommitPublicationCommandV1,
+): boolean {
+  const commandFieldsAreExhaustive: Exclude<
+    keyof PointCommitPublicationCommandV1,
+    | "authorityPins"
+    | "session"
+    | "sealIdentity"
+    | "dependencies"
+    | "rowIntent"
+    | "successfulResult"
+  > extends never ? true : never = true;
+  void commandFieldsAreExhaustive;
+  if (!pointCommitAuthorityPinsEqual(
+    left.authorityPins,
+    right.authorityPins,
+  )) return false;
+  if (!storedTransactionSessionScalarsEqualV1(
+    left.session,
+    right.session,
+  )) return false;
+  if (!pointCommitSealIdentitiesEqual(
+    left.sealIdentity,
+    right.sealIdentity,
+  )) return false;
+  if (left.dependencies.length !== right.dependencies.length) return false;
+  for (let index = 0; index < left.dependencies.length; index += 1) {
+    const leftDependency = left.dependencies[index];
+    const rightDependency = right.dependencies[index];
+    if (
+      leftDependency === undefined ||
+      rightDependency === undefined ||
+      !pointCommitDependenciesEqual(leftDependency, rightDependency)
+    ) return false;
+  }
+  return pointCommitRowIntentsEqual(left.rowIntent, right.rowIntent) &&
+    pointCommitSuccessfulResultsEqual(
+      left.successfulResult,
+      right.successfulResult,
+    );
+}
+
+function pointCommitAuthorityPinsEqual(
+  left: PointCommitAuthorityPinsV1,
+  right: PointCommitAuthorityPinsV1,
+): boolean {
+  const fieldsAreExhaustive: Exclude<
+    keyof PointCommitAuthorityPinsV1,
+    | typeof POINT_COMMIT_AUTHORITY_PIN_SCALAR_FIELDS[number]
+    | "snapshotToken"
+  > extends never ? true : never = true;
+  void fieldsAreExhaustive;
+  for (const field of POINT_COMMIT_AUTHORITY_PIN_SCALAR_FIELDS) {
+    if (left[field] !== right[field]) return false;
+  }
+  return left.snapshotToken.scopeId === right.snapshotToken.scopeId &&
+    left.snapshotToken.epoch === right.snapshotToken.epoch &&
+    left.snapshotToken.commitSeq === right.snapshotToken.commitSeq;
+}
+
+function pointCommitSealIdentitiesEqual(
+  left: PointCommitSealIdentityV1,
+  right: PointCommitSealIdentityV1,
+): boolean {
+  const fieldsAreExhaustive: Exclude<
+    keyof PointCommitSealIdentityV1,
+    | typeof POINT_COMMIT_SEAL_IDENTITY_SCALAR_FIELDS[number]
+    | "journalSha256"
+    | "resultSha256"
+  > extends never ? true : never = true;
+  void fieldsAreExhaustive;
+  for (const field of POINT_COMMIT_SEAL_IDENTITY_SCALAR_FIELDS) {
+    if (left[field] !== right[field]) return false;
+  }
+  return bytesEqual(left.journalSha256, right.journalSha256) &&
+    bytesEqual(left.resultSha256, right.resultSha256);
+}
+
+function pointCommitDependenciesEqual(
+  left: PointCommitDependencyV1,
+  right: PointCommitDependencyV1,
+): boolean {
+  const fieldsAreExhaustive: Exclude<
+    keyof PointCommitDependencyV1,
+    "documentId" | "tableId" | "rowId" | "dependency"
+  > extends never ? true : never = true;
+  void fieldsAreExhaustive;
+  return left.documentId === right.documentId &&
+    left.tableId === right.tableId &&
+    left.rowId === right.rowId &&
+    dependenciesEqual(left.dependency, right.dependency);
+}
+
+function pointCommitRowIntentsEqual(
+  left: PointCommitRowIntentV1 | null,
+  right: PointCommitRowIntentV1 | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  if (
+    left.kind !== right.kind ||
+    !pointCommitDependenciesEqual(left, right)
+  ) return false;
+  if (left.kind === "deleted" && right.kind === "deleted") return true;
+  if (left.kind !== "live" || right.kind !== "live") return false;
+  const liveFieldsAreExhaustive: Exclude<
+    keyof Extract<PointCommitRowIntentV1, { readonly kind: "live" }>,
+    | keyof PointCommitDependencyV1
+    | "kind"
+    | "creationTime"
+    | "value"
+    | "canonicalBytes"
+    | "semanticSizeBytes"
+  > extends never ? true : never = true;
+  void liveFieldsAreExhaustive;
+  return left.creationTime === right.creationTime &&
+    left.semanticSizeBytes === right.semanticSizeBytes &&
+    bytesEqual(left.canonicalBytes, right.canonicalBytes) &&
+    jsonEqual(
+      flarexValueToJsonV1(left.value, "appDocument"),
+      flarexValueToJsonV1(right.value, "appDocument"),
+    );
+}
+
+function pointCommitSuccessfulResultsEqual(
+  left: PointCommitSuccessfulResultV1,
+  right: PointCommitSuccessfulResultV1,
+): boolean {
+  const fieldsAreExhaustive: Exclude<
+    keyof PointCommitSuccessfulResultV1,
+    | "valueCodecVersion"
+    | "value"
+    | "canonicalBytes"
+    | "semanticSizeBytes"
+    | "sha256Hex"
+  > extends never ? true : never = true;
+  void fieldsAreExhaustive;
+  const leftCanonicalBytes = left.canonicalBytes;
+  const rightCanonicalBytes = right.canonicalBytes;
+  return left.valueCodecVersion === right.valueCodecVersion &&
+    left.semanticSizeBytes === right.semanticSizeBytes &&
+    left.sha256Hex === right.sha256Hex &&
+    bytesEqual(leftCanonicalBytes, rightCanonicalBytes) &&
+    jsonEqual(
+      flarexValueToJsonV1(left.value),
+      flarexValueToJsonV1(right.value),
+    );
+}
+
 function serializeCommitAuthorityStateForTest(
   state: AuthenticatedCommitAuthorityStateV1,
 ): string {
@@ -3489,9 +4069,9 @@ const captureRecoveredAuthorityEffect = Effect.fn(
       scopeId: ReplacementScopeIdV1Schema.make(evidence.scopeId),
       sessionId: TransactionSessionIdV1Schema.make(evidence.sessionId),
       attemptFence: TransactionAttemptFenceSchema.make(evidence.attemptFence),
-      storageGeneration: Schema.decodeUnknownSync(
-        FlarexDbV1StorageGenerationSchema,
-      )(evidence.session.storageGeneration),
+      storageGeneration: decodeFlarexDbV1StorageGeneration(
+        evidence.session.storageGeneration,
+      ),
       storageGenerationFence: StorageGenerationFenceSchema.make(
         evidence.session.storageGenerationFence,
       ),

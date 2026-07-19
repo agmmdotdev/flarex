@@ -7,7 +7,7 @@ import {
   PointCommitDecisionUncertainV1Error,
   PointCommitSqlErrorV1,
   PointCommitStaleAuthorityV1Error,
-  RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1,
+  RESOLVE_POINT_COMMIT_OUTCOME_V1,
   type CommittedPointOutcomeResolutionV1,
   type PointCommitFinishingTransitionCommandV1,
   type PointCommitFinishingTransitionPortV1,
@@ -156,6 +156,8 @@ import {
   PointMutationOccRerunFreshAttemptV1Error,
   PointMutationOccRerunOwnershipLostV1Error,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
+  PointCommitUncertainOutcomeRecoveryCorruptionV1Error,
+  PointCommitUncertainOutcomeUnresolvedV1Error,
   InvalidVerifiedCommitInputV1Error,
   StoredCommitAuthorityCorruptionV1Error,
   StoredCommitAuthorityConfigurationV1Error,
@@ -2193,13 +2195,18 @@ describe("C04A stored-attempt authentication", () => {
     const publicationFailure = new PointCommitCorruptionV1Error({
       reason: "publicationInvariantInvalid",
     });
-    const pointCommit: PointCommitPublisherPortV1 = Object.freeze({
+    const pointCommit:
+      PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1 =
+      Object.freeze({
       prove: Effect.fn("TestO08A.prove")(
         () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
       ),
       publish: Effect.fn("TestO08A.publish")(
         () => Effect.fail(publicationFailure),
       ),
+      [RESOLVE_POINT_COMMIT_OUTCOME_V1]: Effect.fn(
+        "TestO08A.resolveOutcome",
+      )(() => Effect.succeed(Object.freeze({ kind: "missing" as const }))),
     });
     const pointCommitFinishing: PointCommitFinishingTransitionPortV1 =
       Object.freeze({
@@ -2943,7 +2950,9 @@ describe("C04A stored-attempt authentication", () => {
       reason: "publicationInvariantInvalid",
     });
     const commands: PointCommitPublicationCommandV1[] = [];
-    const pointCommit: PointCommitPublisherPortV1 = Object.freeze({
+    const pointCommit:
+      PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1 =
+      Object.freeze({
       prove: Effect.fn("TestC05B.prove")(
         () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
       ),
@@ -2951,6 +2960,9 @@ describe("C04A stored-attempt authentication", () => {
         commands.push(command);
         return yield* Effect.fail(publicationFailure);
       }),
+      [RESOLVE_POINT_COMMIT_OUTCOME_V1]: Effect.fn(
+        "TestC05B.resolveOutcome",
+      )(() => Effect.succeed(Object.freeze({ kind: "missing" as const }))),
     });
     const pointCommitFinishing: PointCommitFinishingTransitionPortV1 =
       Object.freeze({
@@ -3128,6 +3140,239 @@ describe("C04A stored-attempt authentication", () => {
       StoredAttemptStorageCorruptionV1Error,
     );
     expect(String(defectRejection)).toContain(defect.message);
+  });
+
+  it("closes one direct uncertain decision through exact C05-B reconstruction and one guarded publication", async () => {
+    const primary = pointCommitDecisionUncertainForTest(
+      "o08d first lost response",
+    );
+    const fixture = await pointCommitUncertainOutcomeFixture({
+      publicationFailures: [primary],
+    });
+    let randomCalls = 0;
+    const result = await runEffect(
+      fixture.authentication.publishPointCommit(fixture.finishing).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => {
+            randomCalls += 1;
+            return 0;
+          },
+          nextIntUnsafe: () => 0,
+        }),
+      ),
+    );
+
+    expect(result).toBe(fixture.successfulPublication);
+    expect(fixture.commands).toHaveLength(2);
+    expect(fixture.commands[1]).toBe(fixture.commands[0]);
+    expect(fixture.counts()).toEqual({
+      finishingLoads: 1,
+      authorityLoads: 2,
+      outcomeCalls: 0,
+    });
+    expect(randomCalls).toBe(0);
+  });
+
+  it("keeps lookup failure and a second uncertain decision terminal with the original uncertainty primary", async () => {
+    const lookupError = Object.freeze({
+      _tag: "CommittedPointOutcomeSqlErrorV1" as const,
+      operation: "resolve" as const,
+      cause: new Error("O08-D outcome lookup failed"),
+    });
+    const lookupPrimary = new PointCommitDecisionUncertainV1Error({
+      phase: "commitOrRelease",
+      cause: new Error("O08-D primary lost response"),
+      outcomeCheck: unsafeDecisionUncertainOutcomeCheckForTest({
+        kind: "lookupFailed",
+        error: lookupError,
+      }),
+    });
+    const lookupFixture = await pointCommitUncertainOutcomeFixture({
+      publicationFailures: [lookupPrimary],
+    });
+    const lookupFailure = await runFailure(
+      lookupFixture.authentication.publishPointCommit(
+        lookupFixture.finishing,
+      ),
+    );
+    expect(lookupFailure).toBeInstanceOf(
+      PointCommitUncertainOutcomeUnresolvedV1Error,
+    );
+    expect(lookupFailure).toMatchObject({
+      stage: "postSettlementOutcomeLookup",
+      primary: lookupPrimary,
+      secondary: { kind: "outcomeLookupFailed", error: lookupError },
+    });
+    expect(lookupFixture.counts()).toEqual({
+      finishingLoads: 0,
+      authorityLoads: 1,
+      outcomeCalls: 0,
+    });
+
+    const primary = pointCommitDecisionUncertainForTest(
+      "O08-D original uncertainty",
+    );
+    const secondary = pointCommitDecisionUncertainForTest(
+      "O08-D guarded uncertainty",
+    );
+    const secondFixture = await pointCommitUncertainOutcomeFixture({
+      publicationFailures: [primary, secondary],
+    });
+    const secondFailure = await runFailure(
+      secondFixture.authentication.publishPointCommit(
+        secondFixture.finishing,
+      ),
+    );
+    expect(secondFailure).toBeInstanceOf(
+      PointCommitUncertainOutcomeUnresolvedV1Error,
+    );
+    expect(secondFailure).toMatchObject({
+      stage: "guardedPublication",
+      primary,
+      secondary: { kind: "secondDecisionUncertain", error: secondary },
+    });
+    expect(secondFixture.commands).toHaveLength(2);
+    expect(secondFixture.commands[1]).toBe(secondFixture.commands[0]);
+  });
+
+  it("resolves an already-committed reconstruction only through the original authoritative outcome evidence", async () => {
+    const alreadyCommitted = Object.freeze({
+      kind: "alreadyCommitted" as const,
+      updatedAtMilliseconds: 1_721_234_567_890,
+    });
+    for (const outcomeKind of ["available", "expired"] as const) {
+      const primary = pointCommitDecisionUncertainForTest(
+        `O08-D already committed ${outcomeKind}`,
+      );
+      const fixture = await pointCommitUncertainOutcomeFixture({
+        publicationFailures: [primary],
+        finishingLoadResult: alreadyCommitted,
+        outcomeKind,
+      });
+      const result = await runEffect(
+        fixture.authentication.publishPointCommit(fixture.finishing),
+      );
+      expect(result.kind).toBe(
+        outcomeKind === "available" ? "replayed" : "expired",
+      );
+      expect(fixture.commands).toHaveLength(1);
+      expect(fixture.counts()).toEqual({
+        finishingLoads: 1,
+        authorityLoads: 1,
+        outcomeCalls: 1,
+      });
+    }
+
+    const missingPrimary = pointCommitDecisionUncertainForTest(
+      "O08-D committed without outcome",
+    );
+    const missing = await pointCommitUncertainOutcomeFixture({
+      publicationFailures: [missingPrimary],
+      finishingLoadResult: alreadyCommitted,
+      outcomeKind: "missing",
+    });
+    expect(await runFailure(
+      missing.authentication.publishPointCommit(missing.finishing),
+    )).toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "committedOutcomeMissing",
+    });
+
+    const resolverSql = new PointCommitSqlErrorV1({
+      operation: "resolveAuthority",
+      cause: new Error("O08-D final outcome lookup failed"),
+    });
+    const lookupPrimary = pointCommitDecisionUncertainForTest(
+      "O08-D committed final lookup",
+    );
+    const lookupFailed = await pointCommitUncertainOutcomeFixture({
+      publicationFailures: [lookupPrimary],
+      finishingLoadResult: alreadyCommitted,
+      resolveOutcome: Effect.fn("TestO08D.resolveOutcomeFailed")(
+        () => Effect.fail(resolverSql),
+      ),
+    });
+    expect(await runFailure(
+      lookupFailed.authentication.publishPointCommit(
+        lookupFailed.finishing,
+      ),
+    )).toMatchObject({
+      _tag: "PointCommitUncertainOutcomeUnresolvedV1Error",
+      stage: "alreadyCommittedOutcomeLookup",
+      primary: lookupPrimary,
+      secondary: { kind: "outcomeLookupFailed", error: resolverSql },
+    });
+  });
+
+  it("fails closed on reconstructed command drift and consumes each exact uncertainty only once", async () => {
+    const primary = pointCommitDecisionUncertainForTest(
+      "O08-D command comparison",
+    );
+    const mismatchFixture = await pointCommitUncertainOutcomeFixture({
+      publicationFailures: [primary],
+      mutateCommandBeforeFailure: (command, call) => {
+        if (call === 1) command.sealIdentity.journalSha256.fill(0);
+      },
+    });
+    const mismatch = await runFailure(
+      mismatchFixture.authentication.publishPointCommit(
+        mismatchFixture.finishing,
+      ),
+    );
+    expect(mismatch).toBeInstanceOf(
+      PointCommitUncertainOutcomeRecoveryCorruptionV1Error,
+    );
+    expect(mismatch).toMatchObject({
+      reason: "reconstructedCommandMismatch",
+    });
+    expect(mismatchFixture.commands).toHaveLength(1);
+
+    const reused = pointCommitDecisionUncertainForTest(
+      "O08-D reused exact uncertainty",
+    );
+    const reuseFixture = await pointCommitUncertainOutcomeFixture({
+      publicationFailures: [reused],
+      publicationFailureForCall: (call) =>
+        call === 1 || call === 3 ? reused : undefined,
+    });
+    await runEffect(
+      reuseFixture.authentication.publishPointCommit(reuseFixture.finishing),
+    );
+    let reusedDefect: unknown;
+    try {
+      await runEffect(
+        reuseFixture.authentication.publishPointCommit(
+          reuseFixture.finishing,
+        ),
+      );
+    } catch (cause) {
+      reusedDefect = cause;
+    }
+    expect(String(reusedDefect)).toContain("already consumed");
+  });
+
+  it("rejects structural uncertainty evidence as a defect before recovery", async () => {
+    const structural = unsafePointCommitPublicationFailureForTest(
+      Object.freeze({
+        _tag: "PointCommitDecisionUncertainV1Error",
+        phase: "commitOrRelease",
+        cause: new Error("structural O08-D uncertainty"),
+        outcomeCheck: Object.freeze({ kind: "missing" }),
+      }),
+    );
+    const fixture = await pointCommitUncertainOutcomeFixture({
+      publicationFailures: [structural],
+    });
+    let defect: unknown;
+    try {
+      await runEffect(
+        fixture.authentication.publishPointCommit(fixture.finishing),
+      );
+    } catch (cause) {
+      defect = cause;
+    }
+    expect(defect).toBe(structural);
+    expect(fixture.counts().finishingLoads).toBe(0);
   });
 
   it("composes every current point outcome through C04C1 without new I/O", async () => {
@@ -3894,6 +4139,22 @@ function unsafePointCommitPublicationFailureForTest(
   return value as PointCommitPublicationV1Error;
 }
 
+function pointCommitDecisionUncertainForTest(
+  message: string,
+): PointCommitDecisionUncertainV1Error {
+  return new PointCommitDecisionUncertainV1Error({
+    phase: "commitOrRelease",
+    cause: new Error(message),
+    outcomeCheck: Object.freeze({ kind: "missing" }),
+  });
+}
+
+function unsafeDecisionUncertainOutcomeCheckForTest(
+  value: unknown,
+): PointCommitDecisionUncertainV1Error["outcomeCheck"] {
+  return value as PointCommitDecisionUncertainV1Error["outcomeCheck"];
+}
+
 type PointCommitPublicationTestOutcomeV1 =
   | Readonly<{
       readonly kind: "success";
@@ -3948,9 +4209,185 @@ async function pointCommitSqlRetryFixture(
   return { ...fixture, finishing, commands };
 }
 
+async function pointCommitUncertainOutcomeFixture(
+  options: Readonly<{
+    readonly publicationFailures: ReadonlyArray<PointCommitPublicationV1Error>;
+    readonly publicationFailureForCall?: (
+      call: number,
+    ) => PointCommitPublicationV1Error | undefined;
+    readonly mutateCommandBeforeFailure?: (
+      command: PointCommitPublicationCommandV1,
+      call: number,
+    ) => void;
+    readonly resolveOutcome?: PointCommitOutcomeResolutionPortV1[
+      typeof RESOLVE_POINT_COMMIT_OUTCOME_V1
+    ];
+    readonly outcomeKind?: "missing" | "available" | "expired";
+    readonly finishingLoadResult?: StoredAttemptEvidenceLoadResultPortV1;
+    readonly mutateRecoveredEvidence?: (
+      evidence: StoredAttemptEvidencePortV1,
+      authorityEvidence: StoredCommitAuthorityEvidencePortV1,
+    ) => void;
+  }>,
+) {
+  const current = await commitAuthorityFixture({}, undefined, {
+    fixture: await emptyFixture("o08d"),
+    returnsValidator: { type: "string" },
+  });
+  const finishingUpdatedAtMilliseconds =
+    current.fixture.evidence.session.updatedAtMilliseconds + 1;
+  const recoveredEvidence = structuredClone(current.fixture.evidence);
+  Object.assign(recoveredEvidence.session, {
+    lifecycle: "finishing",
+    updatedAtMilliseconds: finishingUpdatedAtMilliseconds,
+  });
+  const recoveredAuthorityEvidence = structuredClone(current.commitEvidence);
+  Object.assign(recoveredAuthorityEvidence.session, {
+    lifecycle: "finishing",
+    updatedAtMilliseconds: finishingUpdatedAtMilliseconds,
+  });
+  options.mutateRecoveredEvidence?.(
+    recoveredEvidence,
+    recoveredAuthorityEvidence,
+  );
+
+  const commands: PointCommitPublicationCommandV1[] = [];
+  let finishingLoads = 0;
+  let authorityLoads = 0;
+  let outcomeCalls = 0;
+  const successfulPublication = pointCommitPublishedResultForTest(current);
+  const defaultResolveOutcome: PointCommitOutcomeResolutionPortV1[
+    typeof RESOLVE_POINT_COMMIT_OUTCOME_V1
+  ] = Effect.fn("TestO08D.resolveOutcome")(() => Effect.sync(
+    (): CommittedPointOutcomeResolutionV1 => {
+    if (options.outcomeKind === "available") {
+      if (successfulPublication.kind === "expired") {
+        throw new Error("O08-D fixture result was unavailable.");
+      }
+      return Object.freeze({
+        kind: "available" as const,
+        token: successfulPublication.token,
+        successfulResult: successfulPublication.successfulResult,
+      });
+    }
+    if (options.outcomeKind === "expired") {
+      return Object.freeze({
+        kind: "expired" as const,
+        token: successfulPublication.token,
+      });
+    }
+    return Object.freeze({ kind: "missing" as const });
+  }));
+  const resolveOutcome = options.resolveOutcome ?? defaultResolveOutcome;
+  const pointCommit = Object.freeze({
+    prove: Effect.fn("TestO08D.prove")(
+      () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
+    ),
+    publish: Effect.fn("TestO08D.publish")((command) => Effect.suspend(() => {
+      commands.push(command);
+      const call = commands.length;
+      const failure = options.publicationFailureForCall?.(call) ??
+        options.publicationFailures[call - 1];
+      if (failure !== undefined) {
+        options.mutateCommandBeforeFailure?.(command, call);
+      }
+      return failure === undefined
+        ? Effect.succeed(successfulPublication)
+        : Effect.fail(failure);
+    })),
+    [RESOLVE_POINT_COMMIT_OUTCOME_V1]: Effect.fn(
+      "TestO08D.resolveOutcome",
+    )((deploymentId, input) => Effect.suspend(() => {
+      outcomeCalls += 1;
+      return resolveOutcome(deploymentId, input);
+    })),
+  } satisfies PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1);
+  const pointCommitFinishing = pointCommitFinishingPortForTest();
+  const authentication = createStoredAttemptAuthenticationV1(
+    {
+      loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)),
+      loadFinishingEffect: () => Effect.sync(() => {
+        finishingLoads += 1;
+        return options.finishingLoadResult ?? loaded(recoveredEvidence);
+      }),
+    },
+    {
+      evidenceLoader: {
+        loadEffect: () => Effect.sync(() => {
+          authorityLoads += 1;
+          return {
+            kind: "loaded" as const,
+            evidence: authorityLoads === 1
+              ? current.commitEvidence
+              : recoveredAuthorityEvidence,
+          };
+        }),
+      },
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit,
+      pointCommitFinishing,
+    },
+  );
+  const authority = await deriveAuthority(authentication);
+  const storedAttempt = await runEffect(authentication.authenticate(
+    authority,
+    encodeEnvelope(current.fixture.envelope),
+  ));
+  const commitAuthority = await runEffect(
+    authentication.authenticateCommitAuthority(storedAttempt),
+  );
+  const verifiedInput = await runEffect(
+    authentication.verifyCommitInput(commitAuthority),
+  );
+  const prepared = await runEffect(
+    authentication.planPointCommit(verifiedInput),
+  );
+  const finishing = await runEffect(
+    authentication.enterPointCommitFinishing(prepared),
+  );
+  return {
+    authentication,
+    finishing,
+    commands,
+    successfulPublication,
+    counts: () => ({ finishingLoads, authorityLoads, outcomeCalls }),
+  };
+}
+
+function pointCommitPublishedResultForTest(
+  current: CommitAuthorityFixture,
+): PointCommitPublicationResultV1 {
+  const canonical = current.fixture.result;
+  return Object.freeze({
+    kind: "published" as const,
+    token: Object.freeze({
+      scopeUuid: SCOPE_UUID,
+      epochUuid: decodeScopeEpochUuidV1(
+        "92000000-0000-4000-8000-000000000008",
+      ),
+      commitSeq: CommitSeqSchema.make(8n),
+    }),
+    successfulResult: Object.freeze({
+      valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+      valueJson: structuredClone(canonical.valueJson),
+      semanticSizeBytes: canonical.semanticSizeBytes,
+      canonicalText: canonical.canonicalText,
+      canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(
+        new Uint8Array(canonical.canonicalBytes),
+      ),
+      sha256: FlarexValueSha256V1Schema.make(
+        hexBytes(canonical.evidence.sha256Hex),
+      ),
+    }),
+  });
+}
+
 async function pointCommitReplacementFixture(
   current: CommitAuthorityFixture,
-  pointCommit: PointCommitPublisherPortV1,
+  pointCommit: PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1,
   pointCommitFinishing: PointCommitFinishingTransitionPortV1,
   pointMutationAttemptReplacement: PointMutationAttemptReplacementPortV1,
 ) {
@@ -4085,7 +4522,7 @@ async function pointMutationOccAuthorizationFixture(
     publish: Effect.fn("TestO08B1.publish")(
       () => Effect.fail(conflict),
     ),
-    [RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1]: Effect.fn(
+    [RESOLVE_POINT_COMMIT_OUTCOME_V1]: Effect.fn(
       "TestO08B1.resolveOutcome",
     )(() => Effect.sync(() => {
       outcomeCalls += 1;

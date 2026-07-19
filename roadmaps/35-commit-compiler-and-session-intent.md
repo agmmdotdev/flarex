@@ -16,9 +16,9 @@ fresh-process reconstruction and private compiler/publisher composition are
 also complete. O08-A atomic exact-attempt replacement, O08-B1 bounded
 same-factory fresh-attempt handoff, and O08-B2a same-process runtime-neutral
 rerun composition, O08-B2b0's docs-only Postgres claim-authority decision, and
-O08-CD0 transaction-decision provenance and O08-C known-settled SQL retry are
-complete; B2b crash-safe redispatch and O08-D uncertainty policy remain pending;
-C04C2 remains conditional and unapproved.
+O08-CD0 transaction-decision provenance, O08-C known-settled SQL retry, and
+O08-D bounded uncertainty recovery are complete; B2b crash-safe redispatch
+remains pending; C04C2 remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
 
@@ -227,8 +227,8 @@ C06 orchestrates the stable finish endpoint. O07-B atomically
 deletes the exact lease and stores committed state plus the internal S09-A
 committed-success receipt and S09-B outbox, O08-A owns exact-attempt
 replacement, O08-B1 owns the bounded fresh-attempt handoff, O08-B2a owns
-same-process execution, O08-B2b/O08-C/O08-D own the remaining crash/retry
-coordinators, and O11
+same-process execution, O08-C owns known-settled SQL retry, O08-D owns bounded
+uncertainty recovery, O08-B2b retains crash-safe redispatch, and O11
 first consumes active floors.
 
 Temporary journal placement does not change this anchor. Reloading it
@@ -581,8 +581,13 @@ The replacement keeps one supporting primitive and three coordinators separate:
    below 10 ms and 20 ms. Every attempt re-derives transaction-owned facts. O06
    proves transaction settlement and rollback; neither O06 nor C04C1 exposes an
    immutable physical SQL plan.
-8. **O08-D uncertain outcome:** use O07-A/C05-B to resolve authoritative outcome
-   state before rerunning anything.
+8. **O08-D uncertain outcome (complete):** consume only a direct same-factory
+   finishing-publication uncertainty. Available replays; expired closes with
+   its retained token; mismatch/corruption fails closed; lookup failure remains
+   secondary to the original uncertainty. Missing permits one exact C05-B
+   reconstruction, hidden-command equivalence check, and one guarded outcome-
+   first publication. A second uncertainty is terminal, and neither attempt
+   replacement nor user-code rerun occurs.
 
 The B2b0 decision preserves the current B2a same-process runner contract. A
 future implementation must integrate B2a and recovered execution with the same
@@ -774,8 +779,8 @@ production validator authority, inline carriage, or conditional C04C2.
   C03's operational point-journal gate, C04A's private stored-attempt gate, and
   C04B1's private commit-authority gate and C04B2's private-C07 final-value gate
   are complete. Corrected C04C1, O06/O07, C05-A/B, O08-A, O08-B1, and
-  O08-B2a, B2b0's docs-only authority decision, O08-CD0, and O08-C are complete;
-  C04C2, B2b implementation, O08-D, C06, C07, C08, and C09 remain conditional or
+  O08-B2a, B2b0's docs-only authority decision, O08-CD0, O08-C, and O08-D are
+  complete; C04C2, B2b implementation, C06, C07, C08, and C09 remain conditional or
   incomplete as their
   statuses state.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
@@ -862,9 +867,9 @@ operational point-journal consumer, and C04A's private stored-attempt
   durable point publication, C05-A's finishing barrier, and C05-B's verified
   fresh-process reconstruction/composition, O08-A exact-attempt replacement,
   O08-B1 bounded fresh-attempt handoff, O08-B2a same-process rerun composition,
-  O08-B2b0's docs-only authority decision, O08-CD0 decision provenance, and
-  O08-C known-settled SQL retry are complete. B2b claim/dispatcher/crash-
-  redispatch implementation and O08-D remain pending,
+  O08-B2b0's docs-only authority decision, O08-CD0 decision provenance, O08-C
+  known-settled SQL retry, and O08-D bounded uncertainty recovery are complete.
+  B2b claim/dispatcher/crash-redispatch implementation remains pending,
   and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
@@ -872,8 +877,8 @@ retention consumer proves that a bounded attempt must outlive its initial lease.
 Operational revocation and hosted Worker/key adapters are deferred and do not
 block the private C07 proof.
 Hosted compiler execution still waits for coherent production validator and
-activation authority, O08-B2b/O08-D/C06/C07, the target-only caller and routing cutover,
-and the remaining hosted adapters. Shipped-state migration prerequisites are
+activation authority, O08-B2b/C06/C07, the target-only caller and routing
+cutover, and the remaining hosted adapters. Shipped-state migration prerequisites are
 conditional.
 
 The former C01 standalone port-extraction gate is retired. Its proposed

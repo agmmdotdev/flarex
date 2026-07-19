@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { Effect, Exit, Fiber, Random, Result, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { setTimeout as delay } from "node:timers/promises";
-import { Client } from "pg";
+import { Client, type PoolClient } from "pg";
 import { appRowIdHexV1ToBytes } from
   "flarex-protocol/app-document-id";
 import {
@@ -62,6 +62,7 @@ import {
   createStoredAttemptAuthenticationV1,
   InvalidAuthorizedPointMutationOccRerunV1Error,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
+  PointCommitUncertainOutcomeUnresolvedV1Error,
   PointMutationOccUserCodeV1Error,
   PointMutationOccRerunOwnershipLostV1Error,
   type PointMutationOccRuntimeNeutralRunnerV1,
@@ -80,12 +81,16 @@ import {
   PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
-  RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1,
+  RESOLVE_POINT_COMMIT_OUTCOME_V1,
   type PointCommitPublicationCommandV1,
   type PointCommitPublisherPortV1,
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
 } from "../src/pointCommitTransaction";
+import {
+  createPostgresLocatedReadCommittedTransactionRunnerV1,
+  type PostgresLocatedReadCommittedRunnerOptionsV1,
+} from "../src/postgresLocatedReadCommitted";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresSharedScopeAuthorityProvisioner,
@@ -117,6 +122,7 @@ import {
   type StoredAttemptEvidenceQueryV1,
 } from "../src/storedAttemptEvidence";
 import {
+  createLocatedPointMutationSessionActivationTargetV1,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
@@ -125,6 +131,10 @@ import {
   type PointMutationSessionAttemptLoadLockStepV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
+import {
+  LOCATED_READ_COMMITTED_RUNNER_V1,
+  LocatedReadCommittedTransactionFailureV1,
+} from "../src/transactionSessionAttemptKernel";
 import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
@@ -1603,6 +1613,331 @@ describePostgres("real Postgres stored-attempt authority", () => {
       }
     });
   }, 120_000);
+
+  it("distinguishes a forwarded lost COMMIT response from one not forwarded and publishes at most once", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const forwardedCurrent = await o08B1Scenario(
+        persistence,
+        "o08d_forwarded_commit",
+      );
+      let forwardedAcquisitions = 0;
+      const forwardedAuthentication = createO08DAuthentication(
+        persistence,
+        forwardedCurrent,
+        resolutionPortsWithRunner(persistence, {
+          afterAcquire: (client) => {
+            forwardedAcquisitions += 1;
+            if (forwardedAcquisitions !== 1) return;
+            installClientQueryFault(
+              client,
+              (statement, forward) => statement === "commit"
+                ? Promise.resolve(forward()).then(() => {
+                    throw new Error("O08-D forwarded COMMIT response lost");
+                  })
+                : forward(),
+            );
+          },
+        }),
+      );
+      const forwardedRunning = await preparePostgresO08CRunningPlan(
+        forwardedCurrent,
+        forwardedAuthentication,
+        "o08d forwarded commit",
+      );
+      await expect(runEffect(
+        forwardedAuthentication.finishPointCommit(forwardedRunning),
+      )).resolves.toMatchObject({
+        kind: "replayed",
+        token: { commitSeq: 1n },
+      });
+      expect(forwardedAcquisitions).toBe(1);
+      const forwardedScope = projectScopeIdUuidV1(
+        forwardedCurrent.anchor.scopeId,
+      ).scopeUuid;
+      expect(await o08CPublicationState(
+        persistence,
+        forwardedScope,
+      )).toMatchObject({
+        revisions: "1",
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+
+      const missingCurrent = await o08B1Scenario(
+        persistence,
+        "o08d_not_forwarded_commit",
+      );
+      let missingAcquisitions = 0;
+      const missingAuthentication = createO08DAuthentication(
+        persistence,
+        missingCurrent,
+        resolutionPortsWithRunner(persistence, {
+          afterAcquire: (client) => {
+            missingAcquisitions += 1;
+            if (missingAcquisitions !== 1) return;
+            installClientQueryFault(
+              client,
+              (statement, forward) => statement === "commit"
+                ? Promise.reject(new Error("O08-D COMMIT not forwarded"))
+                : forward(),
+            );
+          },
+        }),
+      );
+      const missingRunning = await preparePostgresO08CRunningPlan(
+        missingCurrent,
+        missingAuthentication,
+        "o08d not-forwarded commit",
+      );
+      await expect(runEffect(
+        missingAuthentication.finishPointCommit(missingRunning),
+      )).resolves.toMatchObject({
+        kind: "published",
+        token: { commitSeq: 1n },
+      });
+      expect(missingAcquisitions).toBe(2);
+      const missingScope = projectScopeIdUuidV1(
+        missingCurrent.anchor.scopeId,
+      ).scopeUuid;
+      expect(await o08CPublicationState(
+        persistence,
+        missingScope,
+      )).toMatchObject({
+        revisions: "1",
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+    });
+  }, 120_000);
+
+  it("converges a guarded publication with a same-scope recovery and stops after a second lost response", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const concurrentCurrent = await o08B1Scenario(
+        persistence,
+        "o08d_concurrent_recovery",
+      );
+      let concurrentAcquisitions = 0;
+      let competitorKind: string | undefined;
+      const concurrentAuthentication = createO08DAuthentication(
+        persistence,
+        concurrentCurrent,
+        resolutionPortsWithRunner(persistence, {
+          afterAcquire: async (client) => {
+            concurrentAcquisitions += 1;
+            if (concurrentAcquisitions === 1) {
+              installClientQueryFault(
+                client,
+                (statement, forward) => statement === "commit"
+                  ? Promise.reject(
+                      new Error("O08-D first COMMIT not forwarded"),
+                    )
+                  : forward(),
+              );
+              return;
+            }
+            if (concurrentAcquisitions !== 2) return;
+            const competitor = createO08DAuthentication(
+              persistence,
+              concurrentCurrent,
+              resolutionPorts(persistence),
+            );
+            const result = await runEffect(competitor.resumePointCommit(
+              selectorWire(concurrentCurrent.anchor),
+            ));
+            competitorKind = result.kind;
+          },
+        }),
+      );
+      const concurrentRunning = await preparePostgresO08CRunningPlan(
+        concurrentCurrent,
+        concurrentAuthentication,
+        "o08d concurrent recovery",
+      );
+      await expect(runEffect(
+        concurrentAuthentication.finishPointCommit(concurrentRunning),
+      )).resolves.toMatchObject({
+        kind: "replayed",
+        token: { commitSeq: 1n },
+      });
+      expect(competitorKind).toBe("published");
+      expect(concurrentAcquisitions).toBe(2);
+      const concurrentScope = projectScopeIdUuidV1(
+        concurrentCurrent.anchor.scopeId,
+      ).scopeUuid;
+      expect(await o08CPublicationState(
+        persistence,
+        concurrentScope,
+      )).toMatchObject({
+        revisions: "1",
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+
+      const unresolvedCurrent = await o08B1Scenario(
+        persistence,
+        "o08d_second_lost_response",
+      );
+      let unresolvedAcquisitions = 0;
+      const unresolvedAuthentication = createO08DAuthentication(
+        persistence,
+        unresolvedCurrent,
+        resolutionPortsWithRunner(persistence, {
+          afterAcquire: (client) => {
+            unresolvedAcquisitions += 1;
+            installClientQueryFault(
+              client,
+              (statement, forward) => statement === "commit"
+                ? Promise.reject(new Error(
+                    `O08-D COMMIT ${unresolvedAcquisitions} not forwarded`,
+                  ))
+                : forward(),
+            );
+          },
+        }),
+      );
+      const unresolvedRunning = await preparePostgresO08CRunningPlan(
+        unresolvedCurrent,
+        unresolvedAuthentication,
+        "o08d second lost response",
+      );
+      const unresolved = await runFailure(
+        unresolvedAuthentication.finishPointCommit(unresolvedRunning),
+      );
+      expect(unresolved).toBeInstanceOf(
+        PointCommitUncertainOutcomeUnresolvedV1Error,
+      );
+      expect(unresolved).toMatchObject({
+        stage: "guardedPublication",
+        secondary: { kind: "secondDecisionUncertain" },
+      });
+      expect(unresolvedAcquisitions).toBe(2);
+      const unresolvedScope = projectScopeIdUuidV1(
+        unresolvedCurrent.anchor.scopeId,
+      ).scopeUuid;
+      expect(await o08CPublicationState(
+        persistence,
+        unresolvedScope,
+      )).toMatchObject({
+        revisions: "0",
+        commit_headers: "0",
+        outcomes: "0",
+        wakes: "0",
+        last_commit_seq: "0",
+        last_outbox_seq: "0",
+      });
+      expect(await o08CAttemptState(
+        persistence,
+        unresolvedScope,
+        unresolvedCurrent.anchor.sessionId,
+      )).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
+    });
+  }, 120_000);
+
+  it("holds interruption through guarded settlement while an independent scope publishes", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(
+        persistence,
+        "o08d_interruption",
+      );
+      const guardedEntered = deferredSignal();
+      const guardedRelease = deferredSignal();
+      let acquisitions = 0;
+      const authentication = createO08DAuthentication(
+        persistence,
+        current,
+        resolutionPortsWithRunner(persistence, {
+          afterAcquire: async (client) => {
+            acquisitions += 1;
+            if (acquisitions === 1) {
+              installClientQueryFault(
+                client,
+                (statement, forward) => statement === "commit"
+                  ? Promise.reject(
+                      new Error("O08-D interruption COMMIT not forwarded"),
+                    )
+                  : forward(),
+              );
+              return;
+            }
+            guardedEntered.resolve();
+            await guardedRelease.promise;
+          },
+        }),
+      );
+      const running = await preparePostgresO08CRunningPlan(
+        current,
+        authentication,
+        "o08d interruption",
+      );
+      const fiber = Effect.runFork(
+        authentication.finishPointCommit(running),
+      );
+      await guardedEntered.promise;
+      let interruptionSettled = false;
+      const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+        interruptionSettled = true;
+        return exit;
+      });
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+
+      const independent = await o08B1Scenario(
+        persistence,
+        "o08d_independent_scope",
+      );
+      const independentAuthentication = createO08DAuthentication(
+        persistence,
+        independent,
+        resolutionPorts(persistence),
+      );
+      const independentRunning = await preparePostgresO08CRunningPlan(
+        independent,
+        independentAuthentication,
+        "o08d independent scope",
+      );
+      await expect(runEffect(
+        independentAuthentication.finishPointCommit(independentRunning),
+      )).resolves.toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+
+      guardedRelease.resolve();
+      await interruption;
+      expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(
+        true,
+      );
+      const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+      expect(await o08CPublicationState(persistence, scopeUuid)).toMatchObject({
+        revisions: "1",
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+      const independentScope = projectScopeIdUuidV1(
+        independent.anchor.scopeId,
+      ).scopeUuid;
+      expect(await o08CPublicationState(
+        persistence,
+        independentScope,
+      )).toMatchObject({
+        revisions: "1",
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+    });
+  }, 120_000);
 });
 
 interface Scenario {
@@ -1940,14 +2275,14 @@ function createO08B1Authentication(
   const publisher = createPointCommitPublisherPortV1(ports);
   const observedPublisher = Object.freeze({
     ...publisher,
-    [RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1]: (
+    [RESOLVE_POINT_COMMIT_OUTCOME_V1]: (
       ...args: Parameters<
         typeof publisher[
-          typeof RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1
+          typeof RESOLVE_POINT_COMMIT_OUTCOME_V1
         ]
       >
     ) => publisher[
-      RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1
+      RESOLVE_POINT_COMMIT_OUTCOME_V1
     ](...args).pipe(
       Effect.tap((outcome) => Effect.sync(() => {
         observedOutcomeKinds.push(outcome.kind);
@@ -2012,9 +2347,28 @@ function createO08CAuthentication(
   });
 }
 
+function createO08DAuthentication(
+  persistence: PostgresFlarexPersistence,
+  current: Awaited<ReturnType<typeof o08B1Scenario>>,
+  publisherPorts: PointMutationSessionAuthorityResolutionPortsV1,
+) {
+  const ports = resolutionPorts(persistence);
+  return createStoredAttemptAuthenticationV1(current.loader, {
+    evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+    transactionGrantVerifier: current.verifier,
+    functionMetadata: {
+      load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+    },
+    pointCommit: createPointCommitPublisherPortV1(publisherPorts),
+    pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+  });
+}
+
 async function preparePostgresO08CRunningPlan(
   current: Awaited<ReturnType<typeof o08B1Scenario>>,
-  authentication: ReturnType<typeof createO08CAuthentication>,
+  authentication:
+    | ReturnType<typeof createO08CAuthentication>
+    | ReturnType<typeof createO08DAuthentication>,
   documentName: string,
 ) {
   const table = await runEffect(
@@ -2473,6 +2827,30 @@ function resolutionPorts(
           persistence,
           physicalLocator,
           targetOptions,
+        ),
+    },
+  };
+}
+
+function resolutionPortsWithRunner(
+  persistence: PostgresFlarexPersistence,
+  runnerOptions: PostgresLocatedReadCommittedRunnerOptionsV1,
+): PointMutationSessionAuthorityResolutionPortsV1 {
+  const base = resolutionPorts(persistence);
+  return {
+    ...base,
+    scopeSessionTargets: {
+      resolve: async (physicalLocator): Promise<LocatedScopeClockReader> =>
+        createLocatedPointMutationSessionActivationTargetV1(
+          persistence.drizzle,
+          physicalLocator,
+          {
+            [LOCATED_READ_COMMITTED_RUNNER_V1]:
+              createPostgresLocatedReadCommittedTransactionRunnerV1(
+                persistence.pool,
+                runnerOptions,
+              ),
+          },
         ),
     },
   };
@@ -3261,6 +3639,38 @@ async function explainObserved(
     query.params,
   );
   return JSON.stringify(result.rows);
+}
+
+function installClientQueryFault(
+  client: PoolClient,
+  fault: (
+    statement: string,
+    forward: () => unknown,
+  ) => unknown,
+): void {
+  const originalQuery = client.query;
+  const installed = Reflect.set(
+    client,
+    "query",
+    (...args: ReadonlyArray<unknown>): unknown => fault(
+      postgresStatementText(args[0]),
+      () => Reflect.apply(originalQuery, client, args),
+    ),
+  );
+  if (!installed) throw new Error("Failed to install the client query fault.");
+}
+
+function postgresStatementText(statement: unknown): string {
+  if (typeof statement === "string") return statement.trim().toLowerCase();
+  if (
+    typeof statement === "object" &&
+    statement !== null &&
+    "text" in statement &&
+    typeof statement.text === "string"
+  ) {
+    return statement.text.trim().toLowerCase();
+  }
+  return "";
 }
 
 function deferredSignal(): Readonly<{

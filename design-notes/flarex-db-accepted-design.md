@@ -165,7 +165,7 @@ work continues.
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
 | Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07-A implements the private read-only committed-outcome resolver, and O07-B atomically publishes point rows, feed evidence, success receipts, and wakes. C06 replay orchestration/dispatch, payload expiry, sync activation, and retention advancement remain pending. |
-| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, C05-A's exact scalar-fenced transition, C05-B's fresh-process finishing reconstruction plus private compiler/publisher composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory OCC rerun authorization, and O08-B2a's same-process runtime-neutral rerun composition. O08-B2b0 freezes only the Postgres execution-ticket/claim authority model, O08-CD0 preserves source-owned transaction-decision provenance, and O08-C consumes only confirmed pre-decision rollback for bounded finishing-publication retries. B2b implementation, O08-D uncertain-outcome policy, C06 orchestration, production validator authority, and target routing remain pending. Durable `running + pristine` evidence alone never authorizes redispatch. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
+| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, C05-A's exact scalar-fenced transition, C05-B's fresh-process finishing reconstruction plus private compiler/publisher composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory OCC rerun authorization, and O08-B2a's same-process runtime-neutral rerun composition. O08-B2b0 freezes only the Postgres execution-ticket/claim authority model, O08-CD0 preserves source-owned transaction-decision provenance, O08-C consumes only confirmed pre-decision rollback for bounded finishing-publication retries, and O08-D closes one direct publication uncertainty through authoritative outcome evidence or one exact guarded C05-B recovery. B2b implementation, C06 orchestration, production validator authority, and target routing remain pending. Durable `running + pristine` evidence alone never authorizes redispatch. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -1243,8 +1243,9 @@ reconstructs the same factory-local finishing capability through C04A/B/C1 from
 exact live `finishing + sealed` evidence. Publication failure leaves that
 durable evidence intact. C05-B adds no retry, outcome, or endpoint policy;
 O08-B2a now owns only same-process runtime-neutral OCC execution and repeated-
-conflict composition. O08-B2b, O08-C/O08-D, and C06 retain crash redispatch,
-known-settled SQL retry, uncertainty, and endpoint orchestration.
+conflict composition. O08-C and O08-D now close known-settled SQL retry and
+bounded publication uncertainty respectively; O08-B2b and C06 retain crash
+redispatch and endpoint orchestration.
 
 Convex keeps `FunctionFinalTransaction` in process, checks committed mutation
 status before execution, and reruns user code after known OCC conflicts. Flarex's
@@ -1543,8 +1544,15 @@ Keep the supporting replacement primitive and three coordinators separate:
    current lowering, dense commit and outbox sequences, S08 header/change keys,
    the S09-A outcome token, the S09-B wake key, and the database-owned
    publication timestamp. It allocates no random physical publication ID.
-7. O08-D resolves an uncertain connection outcome through O07-A/C05-B before
-   any transaction retry or user-code rerun.
+7. O08-D consumes only a direct same-factory finishing-publication uncertainty.
+   The existing post-settlement O07-A observation is authoritative: available
+   replays, expired closes with its retained token, mismatch/corruption fails
+   closed, and lookup failure remains secondary to the original uncertainty.
+   Missing permits one exact C05-B reconstruction, byte/scalar-equivalent
+   hidden-command comparison, and one recursion-disabled outcome-first
+   publication. Committed plus missing outcome is corruption and a second
+   uncertainty is terminal. O08-D never replaces an attempt or reruns user
+   code.
 
 O08-B2b0 also freezes the recovery invariants without approving implementation:
 

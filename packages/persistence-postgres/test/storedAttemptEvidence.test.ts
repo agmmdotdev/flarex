@@ -81,6 +81,7 @@ import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJo
 import {
   createStoredAttemptAuthenticationV1,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
+  PointCommitUncertainOutcomeUnresolvedV1Error,
   PointMutationOccUserCodeV1Error,
   type PointMutationOccExecutionContextFactoryV1,
   type PointMutationOccRuntimeNeutralRunnerV1,
@@ -160,6 +161,7 @@ import {
   PointCommitStaleAuthorityV1Error,
   type PointMutationAttemptReplacementOptionsV1,
   type PointCommitPublicationCommandV1,
+  type PointCommitPublicationResultV1,
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
 } from "../src/pointCommitTransaction";
@@ -2038,6 +2040,354 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
+  it("recovers one not-forwarded uncertain publication through C05-B and publishes once", async () => {
+    let publicationTransactions = 0;
+    const publisherPorts = portsWithReadCommittedOverride(
+      async (target, work) => {
+        publicationTransactions += 1;
+        if (publicationTransactions === 1) {
+          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error("O08-D COMMIT was not forwarded"),
+          }));
+        }
+        return target[RUN_LOCATED_READ_COMMITTED_V1](work);
+      },
+    );
+    const prepared = await prepareO07BRunningScenario(
+      "o08d_pglite_not_forwarded",
+      undefined,
+      {},
+      publisherPorts,
+    );
+    const result = await runEffect(
+      prepared.authentication.finishPointCommit(prepared.runningPlan),
+    );
+    expect(result).toMatchObject({
+      kind: "published",
+      token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
+    });
+    expect(publicationTransactions).toBe(2);
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "1",
+      commit_changes: "0",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
+      last_outbox_seq: "1",
+    });
+    expect(await o07bTerminalState(
+      prepared.scopeUuid,
+      prepared.current.anchor.sessionId,
+    )).toMatchObject({ lifecycle: "committed", leases: "0", journals: "0" });
+  });
+
+  it("replays a forwarded lost response and terminates a second not-forwarded response without duplicate evidence", async () => {
+    let forwardedTransactions = 0;
+    const forwarded = await prepareO07BRunningScenario(
+      "o08d_pglite_forwarded",
+      undefined,
+      {},
+      portsWithReadCommittedOverride(async (target, work) => {
+        forwardedTransactions += 1;
+        await target[RUN_LOCATED_READ_COMMITTED_V1](work);
+        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+          kind: "decisionUncertain",
+          settlementCause: new Error("O08-D forwarded COMMIT response lost"),
+        }));
+      }),
+    );
+    await expect(runEffect(
+      forwarded.authentication.finishPointCommit(forwarded.runningPlan),
+    )).resolves.toMatchObject({
+      kind: "replayed",
+      token: { commitSeq: 1n },
+    });
+    expect(forwardedTransactions).toBe(1);
+    expect(await o06DurableState(forwarded.scopeUuid)).toMatchObject({
+      commit_headers: "1",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
+      last_outbox_seq: "1",
+    });
+
+    let missingTransactions = 0;
+    const missing = await prepareO07BRunningScenario(
+      "o08d_pglite_second_uncertain",
+      undefined,
+      {},
+      portsWithReadCommittedOverride(async () => {
+        missingTransactions += 1;
+        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+          kind: "decisionUncertain",
+          settlementCause: new Error(
+            `O08-D not-forwarded response ${missingTransactions}`,
+          ),
+        }));
+      }),
+    );
+    const failure = await runFailure(
+      missing.authentication.finishPointCommit(missing.runningPlan),
+    );
+    expect(failure).toBeInstanceOf(
+      PointCommitUncertainOutcomeUnresolvedV1Error,
+    );
+    expect(failure).toMatchObject({
+      stage: "guardedPublication",
+      secondary: { kind: "secondDecisionUncertain" },
+    });
+    expect(missingTransactions).toBe(2);
+    expect(await o06DurableState(missing.scopeUuid)).toEqual({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      commit_changes: "0",
+      outcomes: "0",
+      wakes: "0",
+      last_commit_seq: "0",
+      last_outbox_seq: "0",
+    });
+    expect(await o07bTerminalState(
+      missing.scopeUuid,
+      missing.current.anchor.sessionId,
+    )).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
+  });
+
+  it("uses the final O07-A lookup when a concurrent recovery commits after the stale missing observation", async () => {
+    let prepared:
+      | Awaited<ReturnType<typeof prepareO07BRunningScenario>>
+      | undefined;
+    let resolutionCalls = 0;
+    let competitorResult: PointCommitPublicationResultV1 | undefined;
+    const publisherPorts = portsWithReadCommittedOverride(
+      async () => {
+        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+          kind: "decisionUncertain",
+          settlementCause: new Error("O08-D stale missing response"),
+        }));
+      },
+      (target, input) => target[
+        RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1
+      ](input).pipe(Effect.flatMap((observed) => {
+        resolutionCalls += 1;
+        if (resolutionCalls !== 2) return Effect.succeed(observed);
+        if (prepared === undefined) {
+          return Effect.die(new Error("O08-D scenario was not initialized."));
+        }
+        const selector = {
+          deploymentId: prepared.current.anchor.deploymentId,
+          scopeId: prepared.current.anchor.scopeId,
+          sessionId: prepared.current.anchor.sessionId,
+          attemptFence: prepared.current.anchor.attemptFence.toString(),
+        };
+        return Effect.promise(async () => {
+          competitorResult = await runEffect(
+            createO07BAuthentication(prepared!.current).resumePointCommit(
+              selector,
+            ),
+          );
+          return observed;
+        });
+      })),
+    );
+    prepared = await prepareO07BRunningScenario(
+      "o08d_pglite_concurrent_recovery",
+      undefined,
+      {},
+      publisherPorts,
+    );
+    const result = await runEffect(
+      prepared.authentication.finishPointCommit(prepared.runningPlan),
+    );
+    expect(competitorResult).toMatchObject({
+      kind: "published",
+      token: { commitSeq: 1n },
+    });
+    expect(result).toMatchObject({
+      kind: "replayed",
+      token: { commitSeq: 1n },
+    });
+    expect(resolutionCalls).toBe(3);
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      commit_headers: "1",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
+      last_outbox_seq: "1",
+    });
+  });
+
+  it("keeps resolver failure uncertain and treats expired, mismatched, corrupt, or absent committed outcomes authoritatively", async () => {
+    const lookupFailure = new CommittedPointOutcomeSqlErrorV1({
+      operation: "resolve",
+      cause: new Error("O08-D PGlite outcome resolver unavailable"),
+    });
+    let lookupCalls = 0;
+    const lookupFailed = await prepareO07BRunningScenario(
+      "o08d_pglite_lookup_failed",
+      undefined,
+      {},
+      portsWithReadCommittedOverride(
+        async () => {
+          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error("O08-D lookup response lost"),
+          }));
+        },
+        (target, input) => {
+          lookupCalls += 1;
+          return lookupCalls === 2
+            ? Effect.fail(lookupFailure)
+            : target[RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1](input);
+        },
+      ),
+    );
+    expect(await runFailure(
+      lookupFailed.authentication.finishPointCommit(
+        lookupFailed.runningPlan,
+      ),
+    )).toMatchObject({
+      _tag: "PointCommitUncertainOutcomeUnresolvedV1Error",
+      stage: "postSettlementOutcomeLookup",
+      secondary: { kind: "outcomeLookupFailed", error: lookupFailure },
+    });
+    expect(await o07bTerminalState(
+      lookupFailed.scopeUuid,
+      lookupFailed.current.anchor.sessionId,
+    )).toMatchObject({ lifecycle: "finishing", leases: "1", journals: "1" });
+
+    const runCommittedMutationCase = async (
+      label: string,
+      mutation: "expired" | "mismatch" | "corrupt" | "missing",
+    ) => {
+      let prepared:
+        | Awaited<ReturnType<typeof prepareO07BRunningScenario>>
+        | undefined;
+      let resolutionCalls = 0;
+      const publisherPorts = portsWithReadCommittedOverride(
+        async () => {
+          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error(`O08-D ${mutation} stale missing`),
+          }));
+        },
+        (target, input) => target[
+          RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1
+        ](input).pipe(Effect.flatMap((observed) => {
+          resolutionCalls += 1;
+          if (resolutionCalls !== 2) return Effect.succeed(observed);
+          if (prepared === undefined) {
+            return Effect.die(new Error("O08-D case was not initialized."));
+          }
+          const selector = {
+            deploymentId: prepared.current.anchor.deploymentId,
+            scopeId: prepared.current.anchor.scopeId,
+            sessionId: prepared.current.anchor.sessionId,
+            attemptFence: prepared.current.anchor.attemptFence.toString(),
+          };
+          return Effect.promise(async () => {
+            await runEffect(
+              createO07BAuthentication(prepared!.current).resumePointCommit(
+                selector,
+              ),
+            );
+            if (mutation === "expired") {
+              await persistence.query(
+                `
+                  update fx_system_idempotency
+                  set result_state = 'expired',
+                    result_value_codec_version = null,
+                    result_semantic_bytes = null,
+                    result_bytes = null,
+                    result_sha256 = null,
+                    result_expired_at = clock_timestamp()
+                  where scope_uuid = $1
+                `,
+                [prepared!.scopeUuid],
+              );
+            } else if (mutation === "mismatch") {
+              await persistence.query(
+                `
+                  update fx_system_idempotency
+                  set identity_access_policy_sha256 =
+                    decode(repeat('aa', 32), 'hex')
+                  where scope_uuid = $1
+                `,
+                [prepared!.scopeUuid],
+              );
+            } else if (mutation === "corrupt") {
+              await persistence.query(
+                `
+                  update fx_system_idempotency
+                  set result_sha256 = decode(repeat('00', 32), 'hex')
+                  where scope_uuid = $1
+                `,
+                [prepared!.scopeUuid],
+              );
+            } else {
+              await persistence.query(
+                `delete from fx_system_idempotency where scope_uuid = $1`,
+                [prepared!.scopeUuid],
+              );
+            }
+            return observed;
+          });
+        })),
+      );
+      prepared = await prepareO07BRunningScenario(
+        label,
+        undefined,
+        {},
+        publisherPorts,
+      );
+      return {
+        prepared,
+        publication: prepared.authentication.finishPointCommit(
+          prepared.runningPlan,
+        ),
+        resolutionCalls: () => resolutionCalls,
+      };
+    };
+
+    const expired = await runCommittedMutationCase(
+      "o08d_pglite_expired",
+      "expired",
+    );
+    expect(await runEffect(expired.publication)).toMatchObject({
+      kind: "expired",
+      token: { commitSeq: 1n },
+    });
+    expect(expired.resolutionCalls()).toBe(3);
+
+    const mismatch = await runCommittedMutationCase(
+      "o08d_pglite_mismatch",
+      "mismatch",
+    );
+    expect(await runFailure(mismatch.publication)).toMatchObject({
+      _tag: "CommittedPointOutcomeRequestKeyReuseErrorV1",
+    });
+
+    const corrupt = await runCommittedMutationCase(
+      "o08d_pglite_corrupt",
+      "corrupt",
+    );
+    expect(await runFailure(corrupt.publication)).toMatchObject({
+      _tag: "CommittedPointOutcomeCorruptionErrorV1",
+    });
+
+    const missing = await runCommittedMutationCase(
+      "o08d_pglite_committed_missing",
+      "missing",
+    );
+    expect(await runFailure(missing.publication)).toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "committedOutcomeMissing",
+    });
+  });
+
   it("publishes a successful zero-row mutation as one zero-change commit", async () => {
     const prepared = await prepareO07BRunningScenario("o07b_zero_row");
     const published = await runEffect(
@@ -3657,6 +4007,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       table: PinnedPointTableV1,
     ) => Promise<void>,
     options: PointCommitTransactionProofOptionsV1 = {},
+    publisherPorts: PointMutationSessionAuthorityResolutionPortsV1 =
+      resolutionPorts(persistence),
   ) {
     const current = await c04b2Scenario(label);
     const table = await runEffect(
@@ -3670,7 +4022,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       sessionId: current.anchor.sessionId,
       attemptFence: current.anchor.attemptFence.toString(),
     }));
-    const authentication = createO07BAuthentication(current, options);
+    const authentication = createO07BAuthentication(
+      current,
+      options,
+      publisherPorts,
+    );
     const authority = await runEffect(
       authentication.deriveAuthority(loadedAttempt),
     );
@@ -3698,12 +4054,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   function createO07BAuthentication(
     current: Awaited<ReturnType<typeof c04b2Scenario>>,
     options: PointCommitTransactionProofOptionsV1 = {},
+    publisherPorts: PointMutationSessionAuthorityResolutionPortsV1 =
+      resolutionPorts(persistence),
   ) {
+    const ports = resolutionPorts(persistence);
     return createStoredAttemptAuthenticationV1(
       current.loader,
       {
         evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(
-          resolutionPorts(persistence),
+          ports,
         ),
         transactionGrantVerifier: current.verifier,
         functionMetadata: {
@@ -3711,11 +4070,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             Effect.succeed(structuredClone(current.functionSnapshot)),
         },
         pointCommit: createPointCommitPublisherPortV1(
-          resolutionPorts(persistence),
+          publisherPorts,
           options,
         ),
         pointCommitFinishing: createPointCommitFinishingTransitionPortV1(
-          resolutionPorts(persistence),
+          ports,
         ),
       },
     );

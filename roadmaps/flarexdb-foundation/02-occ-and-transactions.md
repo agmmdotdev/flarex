@@ -25,10 +25,10 @@ fresh-process finishing reconstruction/private publisher composition are
 complete. O08-A atomic exact-attempt replacement, O08-B1's bounded
 same-factory fresh-attempt handoff, and O08-B2a's same-process runtime-neutral
 user-code rerun composition are complete. O08-B2b0's docs-only Postgres claim-
-authority decision, O08-CD0's transaction-decision provenance, and O08-C's
-bounded known-settled SQL transaction retry are complete; B2b claim/
-dispatcher/crash-redispatch implementation and O08-D uncertain-outcome
-policy remain pending. C04C2
+authority decision, O08-CD0's transaction-decision provenance, O08-C's bounded
+known-settled SQL transaction retry, and O08-D's bounded uncertain-outcome
+recovery are complete; B2b claim/dispatcher/crash-redispatch implementation
+remains pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -1134,11 +1134,26 @@ S09-B wake key, and the database-owned publication timestamp. It never reruns
 user code, allocates no random physical publication ID, and cannot reuse a
 physical SQL plan.
 
-#### [ ] O08-D — Resolve Uncertain Outcomes
+#### [x] O08-D — Resolve Uncertain Outcomes
 
-An uncertain connection outcome consumes O07-A/C05-B before any retry or rerun.
-Matching success replays; mismatched, corrupt, or expired evidence fails closed;
-the coordinator does not duplicate the authoritative outcome resolver.
+Only the genuine same-factory finishing publisher may consume a direct source-
+class decision-uncertain failure. Its publisher has already performed the
+authoritative O07-A precheck and immediate post-settlement lookup, so O08-D
+adds no polling, sleep, or random policy. Matching available evidence replays;
+matching expired evidence closes as committed-result-expired with its retained
+token; mismatch or corruption fails closed; lookup failure preserves the
+original uncertainty as primary and the resolver failure as bounded secondary
+evidence.
+
+When the immediate result is still missing, O08-D performs exactly one C05-B
+finishing reconstruction, compares the recovered hidden publication command
+scalar-for-scalar and byte-for-byte with the originally captured command, and
+invokes the existing outcome-first publisher once with recursive uncertainty
+recovery disabled. A committed reconstruction receives one final O07-A lookup;
+committed plus missing outcome is corruption. A second decision uncertainty is
+terminal and retains both failures. O08-C remains limited to confirmed pre-
+decision rollback, OCC remains limited to O08-B, and O08-D never replaces an
+attempt or reruns user code.
 
 No request silently crosses a generation fence during an active OCC retry. The
 current clean-replacement path has no legacy request-rebind obligation. If

@@ -17,9 +17,9 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   also complete. O08-A atomic exact-attempt replacement, O08-B1 bounded
   same-factory fresh-attempt handoff, and O08-B2a same-process runtime-neutral
   rerun composition, O08-B2b0's docs-only Postgres claim-authority decision,
-  O08-CD0 transaction-decision provenance, and O08-C known-settled SQL retry are
-  complete; B2b crash-safe redispatch and O08-D uncertainty policy remain
-  pending, and
+  O08-CD0 transaction-decision provenance, O08-C known-settled SQL retry, and
+  O08-D bounded uncertainty recovery are complete; B2b crash-safe redispatch
+  remains pending, and
   C06 dispatch
   remains pending, while C04C2 remains conditional and unapproved.
 
@@ -545,16 +545,17 @@ Exit gate:
 - point CRUD and zero-row success, duplicate/concurrent publication, conflicts,
   rollback, and unsupported index/unique/relation rejection pass on PGlite and
   isolated real Postgres; and
-- publication failure leaves durable `finishing + sealed` authority for the
-  later O08-B2b/O08-C/O08-D and C06 recovery policy without rerunning user code.
+- publication failure leaves durable `finishing + sealed` authority for O08-D's
+  bounded same-request recovery and the later B2b/C06 orchestration without
+  rerunning user code.
 
 ### [ ] C06 — Add Idempotent Finish And Lost-Outcome Recovery
 
 Prerequisite: `O08-B2a` same-process OCC execution, O08-CD0 transaction-
-decision provenance, and O08-C bounded known-settled retry are complete.
-`O08-B2b/O08-D` must still complete crash redispatch and uncertain-outcome
-policy. This endpoint composes those policies; it does not define a competing
-retry coordinator.
+decision provenance, O08-C bounded known-settled retry, and O08-D bounded
+uncertain-outcome recovery are complete. `O08-B2b` must still establish crash-
+safe redispatch authority. This endpoint composes those policies; it does not
+define a competing retry coordinator.
 
 O08-B2b0 exposes a dependency contradiction in that order: crash-safe B2b needs
 an accepted durable dispatcher/dispatch-acceptance owner, but this C06 gate is
@@ -573,7 +574,8 @@ Outcome:
   O08-B1 owns only bounded fresh-attempt handoff; O08-B2a owns same-process
   user-code rerun; O08-CD0 preserves transaction-decision provenance without
   acting on it; O08-C consumes only confirmed rollback for SQL transaction
-  retry; O08-B2b/O08-D own crash redispatch and uncertainty policy:
+  retry; O08-D owns bounded publication uncertainty recovery and O08-B2b owns
+  the still-deferred crash redispatch authority:
 
 ```text
 atomic activation -> running -> finishing -> committed

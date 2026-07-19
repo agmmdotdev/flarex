@@ -616,25 +616,25 @@ export interface PointCommitPublisherPortV1
 }
 
 /**
- * Intentional internal O07-A seam for the O08-B1 coordinator. The deployment
- * id is only a locator; the resolver still derives the trusted target and the
+ * Intentional internal O07-A seam for the O08 coordinators. The deployment id
+ * is only a locator; the resolver still derives the trusted target and the
  * stored request evidence remains authoritative. This symbol is deliberately
  * absent from the persistence package root.
  */
-export const RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1: unique symbol =
-  Symbol("FlarexDB/resolvePointCommitOutcomeForOccRerunV1");
+export const RESOLVE_POINT_COMMIT_OUTCOME_V1: unique symbol =
+  Symbol("FlarexDB/resolvePointCommitOutcomeV1");
 
-export type PointCommitOutcomeResolutionForOccRerunV1Error =
+export type PointCommitOutcomeResolutionV1Error =
   | PointCommitFinishingTransitionV1Error
   | ResolveCommittedPointOutcomeErrorV1;
 
 export interface PointCommitOutcomeResolutionPortV1 {
-  readonly [RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1]: (
+  readonly [RESOLVE_POINT_COMMIT_OUTCOME_V1]: (
     deploymentId: TransactionGrantDeploymentIdV1,
     input: ResolveCommittedPointOutcomeInputV1,
   ) => Effect.Effect<
     CommittedPointOutcomeResolutionV1,
-    PointCommitOutcomeResolutionForOccRerunV1Error,
+    PointCommitOutcomeResolutionV1Error,
     never
   >;
 }
@@ -1051,10 +1051,10 @@ export function createPointCommitPublisherPortV1(
     );
   });
 
-  const resolveOutcomeForOccRerun: PointCommitOutcomeResolutionPortV1[
-    typeof RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1
+  const resolvePointCommitOutcome: PointCommitOutcomeResolutionPortV1[
+    typeof RESOLVE_POINT_COMMIT_OUTCOME_V1
   ] = Effect.fn(
-    "PointCommitTransaction.resolveOutcomeForOccRerun",
+    "PointCommitTransaction.resolvePointCommitOutcome",
   )(function* (deploymentId, input) {
     const located = yield* resolvePointCommitAuthority(deploymentId, ports);
     const target = isLocatedPointCommitPublicationTargetV1(located.target)
@@ -1071,8 +1071,7 @@ export function createPointCommitPublisherPortV1(
   return Object.freeze({
     ...rollback,
     publish,
-    [RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1]:
-      resolveOutcomeForOccRerun,
+    [RESOLVE_POINT_COMMIT_OUTCOME_V1]: resolvePointCommitOutcome,
   });
 }
 
