@@ -1,14 +1,14 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 import {
-  decodeCatalogSchemaVersion,
-  decodeCatalogSchemaVersionId,
+  CatalogSchemaVersionIdSchema,
+  CatalogSchemaVersionSchema,
   decodeSchemaManifestAppTableDeclarationsV1,
   decodeSchemaManifestJson,
   type CatalogSchemaVersion,
   type CatalogSchemaVersionId,
   type SchemaManifestAppTableDeclarationV1,
 } from "flarex-protocol/schema-manifest";
-import { Cause, Data, Effect, Exit, Result } from "effect";
+import { Cause, Data, Effect, Exit, Result, Schema } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
@@ -35,6 +35,13 @@ import { reconcileEffectTransactionFailure } from
   "./effectTransactionFailure";
 import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
+
+const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
+  CatalogSchemaVersionIdSchema,
+);
+const decodeCatalogSchemaVersionResult = Schema.decodeUnknownResult(
+  CatalogSchemaVersionSchema,
+);
 
 export const MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS = 3;
 
@@ -398,20 +405,18 @@ function validateAndSnapshotAppTableDefinitionsArtifactV1InputResult(
   }
 
   return Result.gen(function* () {
-    const schemaVersionId = yield* decodeInputFieldResult(
-      "schemaVersionId",
-      () => decodeCatalogSchemaVersionId(input.schemaVersionId),
-    );
-    const version = yield* decodeInputFieldResult(
-      "version",
-      () => decodeCatalogSchemaVersion(input.version),
-    );
-    const tables = yield* decodeInputFieldResult(
+    const schemaVersionId = yield* decodeCatalogSchemaVersionIdResult(
+      input.schemaVersionId,
+    ).pipe(Result.mapError((cause) => invalidField("schemaVersionId", cause)));
+    const version = yield* decodeCatalogSchemaVersionResult(
+      input.version,
+    ).pipe(Result.mapError((cause) => invalidField("version", cause)));
+    const decodedTables = yield* decodeThrowingInputFieldResult(
       "tables",
-      () => snapshotSchemaManifestValue(
-        decodeSchemaManifestAppTableDeclarationsV1(input.tables),
-      ),
+      input.tables,
+      decodeSchemaManifestAppTableDeclarationsV1,
     );
+    const tables = snapshotSchemaManifestValue(decodedTables);
     return Object.freeze({
       deploymentId,
       schemaVersionId,
@@ -421,16 +426,17 @@ function validateAndSnapshotAppTableDefinitionsArtifactV1InputResult(
   });
 }
 
-function decodeInputFieldResult<Value>(
-  field: Extract<
-    InvalidAppTableDefinitionsArtifactV1InputIssue,
-    { readonly reason: "invalidField" }
-  >["field"],
-  decode: () => Value,
+function decodeThrowingInputFieldResult<Value>(
+  field: "tables",
+  value: unknown,
+  decode: (value: unknown) => Value,
 ): Result.Result<Value, InvalidAppTableDefinitionsArtifactV1InputError> {
   return Result.try({
-    try: decode,
-    catch: (cause) => invalidField(field, cause),
+    try: () => decode(value),
+    catch: (cause) => {
+      if (!Schema.isSchemaError(cause)) throw cause;
+      return invalidField(field, cause);
+    },
   });
 }
 

@@ -9,7 +9,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import type {
   EnsureAppTableDefinitionsArtifactV1Input,
@@ -134,27 +134,113 @@ describe("table-only app definitions artifact compatibility", () => {
     expect(failure).toMatchObject({ cause: rejection });
   });
 
-  it("preserves input accessor failures as defects", async () => {
+  it("keeps table-only schema-owned field failures typed", async () => {
     const persistence = await migratedPersistence();
-    const defect = new Error("table artifact input ownKeys defect");
-    const input = new Proxy(
-      appSchemaInput("deployment_input_defect", "schema_input_defect", ["users"]),
-      {
+    const valid = appSchemaInput(
+      "deployment_table_artifact_invalid_fields",
+      "schema_table_artifact_invalid_fields",
+      ["users"],
+    );
+    const invalidFields: ReadonlyArray<readonly [string, unknown]> = [
+      ["schemaVersionId", { ...valid, schemaVersionId: "" }],
+      ["version", { ...valid, version: 0 }],
+      ["tables", { ...valid, tables: {} }],
+    ];
+
+    for (const [field, input] of invalidFields) {
+      await expect(
+        runEffect(Reflect.apply(
+          prepareAppTableDefinitionsArtifactV1Effect,
+          undefined,
+          [persistence.drizzle, input],
+        )),
+      ).rejects.toMatchObject({
+        name: "InvalidAppTableDefinitionsArtifactV1InputError",
+        issue: { reason: "invalidField", field },
+      });
+    }
+  });
+
+  it("preserves input reflection and field-access failures as defects", async () => {
+    const persistence = await migratedPersistence();
+    const reflectionDefect = new Error("table artifact input ownKeys defect");
+    const fieldDefect = new Error("table artifact input field defect");
+    const declarationDefect = new Error(
+      "table artifact declaration reflection defect",
+    );
+    const valid = appSchemaInput(
+      "deployment_input_defect",
+      "schema_input_defect",
+      ["users"],
+    );
+    const firstTable = valid.tables[0];
+    if (firstTable === undefined) throw new Error("Expected a table fixture.");
+    const cases: ReadonlyArray<
+      readonly [Error, EnsureAppTableDefinitionsArtifactV1Input]
+    > = [
+      [reflectionDefect, new Proxy(valid, {
         ownKeys(): never {
-          throw defect;
+          throw reflectionDefect;
         },
-      },
-    );
+      })],
+      [fieldDefect, new Proxy(valid, {
+        get(target, property, receiver): unknown {
+          if (property === "schemaVersionId") throw fieldDefect;
+          return Reflect.get(target, property, receiver);
+        },
+      })],
+      [declarationDefect, {
+        ...valid,
+        tables: [new Proxy(firstTable, {
+          ownKeys(): never {
+            throw declarationDefect;
+          },
+        })],
+      }],
+    ];
 
-    const exit = await Effect.runPromiseExit(
-      prepareAppTableDefinitionsArtifactV1Effect(persistence.drizzle, input),
-    );
+    for (const [defect, input] of cases) {
+      const exit = await Effect.runPromiseExit(
+        prepareAppTableDefinitionsArtifactV1Effect(persistence.drizzle, input),
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(Cause.hasDies(exit.cause)).toBe(true);
-      expect(Cause.hasFails(exit.cause)).toBe(false);
-      expect(exit.cause.toString()).toContain(defect.message);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(defect.message);
+      }
+    }
+  });
+
+  it("preserves schema snapshot failures as defects", async () => {
+    const persistence = await migratedPersistence();
+    const defect = new Error("table artifact schema snapshot defect");
+    const snapshot = vi.spyOn(globalThis, "structuredClone")
+      .mockImplementation((): never => {
+        throw defect;
+      });
+
+    try {
+      const exit = await Effect.runPromiseExit(
+        prepareAppTableDefinitionsArtifactV1Effect(
+          persistence.drizzle,
+          appSchemaInput(
+            "deployment_snapshot_defect",
+            "schema_snapshot_defect",
+            ["users"],
+          ),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(defect.message);
+      }
+    } finally {
+      snapshot.mockRestore();
     }
   });
 

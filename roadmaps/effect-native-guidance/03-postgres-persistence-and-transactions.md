@@ -289,6 +289,13 @@ Drizzle 0.45's transaction callback. Domain failures and stale retries retain
 their typed identity; transaction infrastructure rejection is a distinct
 tagged failure, and defects or interruption cannot be mistaken for business
 rejection.
+Full and table-only schema-publication input normalization now uses hoisted
+Schema `Result` decoders for catalog identity and version fields. The remaining
+declaration adapters catch only the protocol decoder's `SchemaError`, and
+caller snapshotting runs outside that catch. Invalid declarations therefore
+remain typed input failures, while unexpected field access, snapshot, or
+runtime failures remain defects. Quota order, catalog reads, retry, and
+transaction ownership are unchanged.
 
 Developer physical-index preparation and the package-root physical-definition
 readers are now Effect-native. Strict preparation and read input enters through

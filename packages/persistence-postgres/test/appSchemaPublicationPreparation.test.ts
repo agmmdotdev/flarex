@@ -9,7 +9,7 @@ import {
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 // @ts-expect-error D2a's prepared token must remain absent from the package root.
@@ -385,6 +385,77 @@ describe("app-schema V1 publication preparation", () => {
       );
     }
     expect(getterInvoked).toBe(false);
+  });
+
+  it("keeps schema-owned field failures typed", async () => {
+    const persistence = await migratedPersistence();
+    const valid = publicationInput(
+      "deployment_schema_publication_v1_invalid_fields",
+      "schema_publication_v1_invalid_fields",
+    );
+    const invalidFields: ReadonlyArray<readonly [string, unknown]> = [
+      ["schemaVersionId", { ...valid, schemaVersionId: "" }],
+      ["version", { ...valid, version: 0 }],
+      ["tables", { ...valid, tables: {} }],
+      ["indexes", { ...valid, indexes: {} }],
+    ];
+
+    for (const [field, input] of invalidFields) {
+      await expect(
+        Reflect.apply(prepareAppSchemaPublicationV1, undefined, [
+          persistence.drizzle,
+          input,
+        ]),
+      ).rejects.toMatchObject({
+        name: "InvalidAppSchemaPublicationV1InputError",
+        issue: { reason: "invalidField", field },
+      });
+    }
+  });
+
+  it("preserves unexpected publication input and declaration access as defects", async () => {
+    const persistence = await migratedPersistence();
+    const fieldDefect = new Error("schema publication input field defect");
+    const declarationDefect = new Error(
+      "schema publication declaration reflection defect",
+    );
+    const valid = publicationInput(
+      "deployment_schema_publication_v1_field_defect",
+      "schema_publication_v1_field_defect",
+    );
+    const firstTable = valid.tables[0];
+    if (firstTable === undefined) throw new Error("Expected a table fixture.");
+    const cases: ReadonlyArray<
+      readonly [Error, PrepareAppSchemaPublicationV1Input]
+    > = [
+      [fieldDefect, new Proxy(valid, {
+        get(target, property, receiver): unknown {
+          if (property === "schemaVersionId") throw fieldDefect;
+          return Reflect.get(target, property, receiver);
+        },
+      })],
+      [declarationDefect, {
+        ...valid,
+        tables: [new Proxy(firstTable, {
+          ownKeys(): never {
+            throw declarationDefect;
+          },
+        })],
+      }],
+    ];
+
+    for (const [defect, input] of cases) {
+      const exit = await Effect.runPromiseExit(
+        prepareAppSchemaPublicationV1Effect(persistence.drizzle, input),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(defect.message);
+      }
+    }
   });
 
   it("propagates D1 semantic failures without writing a partial plan", async () => {

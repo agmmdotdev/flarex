@@ -5,8 +5,8 @@ import {
   type CompiledAppSchemaCatalogRequirementsV1,
 } from "flarex-protocol/app-schema-catalog";
 import {
-  decodeCatalogSchemaVersion,
-  decodeCatalogSchemaVersionId,
+  CatalogSchemaVersionIdSchema,
+  CatalogSchemaVersionSchema,
   decodeSchemaManifestAppIndexDeclarationsV1,
   decodeSchemaManifestAppTableDeclarationsV1,
   decodeSchemaManifestJson,
@@ -15,7 +15,7 @@ import {
   type SchemaManifestAppIndexDeclarationV1,
   type SchemaManifestAppTableDeclarationV1,
 } from "flarex-protocol/schema-manifest";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
@@ -39,6 +39,13 @@ import {
   type PrepareSchemaVersionArtifactError,
   type PreparedSchemaVersionArtifact,
 } from "./schemaVersionArtifacts";
+
+const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
+  CatalogSchemaVersionIdSchema,
+);
+const decodeCatalogSchemaVersionResult = Schema.decodeUnknownResult(
+  CatalogSchemaVersionSchema,
+);
 
 const PREPARE_INPUT_KEYS = Object.freeze([
   "deploymentId",
@@ -342,29 +349,31 @@ function validateAndSnapshotInputResult(
       reason: "invalidInputShape",
     }));
   }
+  const tablesInput = input.tables;
+  const indexesInput = input.indexes;
   return enforceAppSchemaPublicationV1DeclarationQuotasResult(
-    input.tables,
-    input.indexes,
+    tablesInput,
+    indexesInput,
   ).pipe(Result.flatMap(() => Result.gen(function* () {
     const deploymentId = input.deploymentId;
     if (!isNonBlankString(deploymentId)) {
       return yield* Result.fail(invalidField("deploymentId"));
     }
-    const schemaVersionId = yield* decodePublicationInputFieldResult(
-      "schemaVersionId",
-      () => decodeCatalogSchemaVersionId(input.schemaVersionId),
-    );
-    const version = yield* decodePublicationInputFieldResult(
-      "version",
-      () => decodeCatalogSchemaVersion(input.version),
-    );
-    const decodedTables = yield* decodePublicationInputFieldResult(
+    const schemaVersionId = yield* decodeCatalogSchemaVersionIdResult(
+      input.schemaVersionId,
+    ).pipe(Result.mapError((cause) => invalidField("schemaVersionId", cause)));
+    const version = yield* decodeCatalogSchemaVersionResult(
+      input.version,
+    ).pipe(Result.mapError((cause) => invalidField("version", cause)));
+    const decodedTables = yield* decodeThrowingPublicationFieldResult(
       "tables",
-      () => decodeSchemaManifestAppTableDeclarationsV1(input.tables),
+      tablesInput,
+      decodeSchemaManifestAppTableDeclarationsV1,
     );
-    const decodedIndexes = yield* decodePublicationInputFieldResult(
+    const decodedIndexes = yield* decodeThrowingPublicationFieldResult(
       "indexes",
-      () => decodeSchemaManifestAppIndexDeclarationsV1(input.indexes),
+      indexesInput,
+      decodeSchemaManifestAppIndexDeclarationsV1,
     );
     yield* enforceAppSchemaPublicationV1CanonicalByteLowerBoundResult(
       decodedTables,
@@ -384,13 +393,17 @@ function validateAndSnapshotInputResult(
   })));
 }
 
-function decodePublicationInputFieldResult<Value>(
-  field: "schemaVersionId" | "version" | "tables" | "indexes",
-  decode: () => Value,
+function decodeThrowingPublicationFieldResult<Value>(
+  field: "tables" | "indexes",
+  value: unknown,
+  decode: (value: unknown) => Value,
 ): Result.Result<Value, InvalidAppSchemaPublicationV1InputError> {
   return Result.try({
-    try: decode,
-    catch: (cause) => invalidField(field, cause),
+    try: () => decode(value),
+    catch: (cause) => {
+      if (!Schema.isSchemaError(cause)) throw cause;
+      return invalidField(field, cause);
+    },
   });
 }
 
