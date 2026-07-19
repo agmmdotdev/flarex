@@ -1,10 +1,13 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { Result, Schema } from "effect";
 
 import type { CatalogTableId } from "../src/catalog";
 import {
   canonicalizeSchemaManifestV1,
   decodeSchemaManifestAppTableDeclarationsV1,
+  decodeSchemaManifestAppTableDeclarationsV1Result,
   decodeSchemaManifestTableDefinitionsV1,
+  decodeSchemaManifestTableDefinitionsV1Result,
   MAX_SCHEMA_MANIFEST_APP_TABLES,
   type SchemaManifestAppTableDeclarationInputV1,
   type SchemaManifestAppTableDeclarationV1,
@@ -65,6 +68,50 @@ describe("FlarexDB semantic table-definition manifest section", () => {
         appDeclaration("users"),
       ]),
     ).toThrow(/unique app table logical-name declarations/);
+  });
+
+  it("keeps table composite decoders Result-first without absorbing defects", () => {
+    const declarations = decodeSchemaManifestAppTableDeclarationsV1Result([
+      appDeclaration("users"),
+    ]);
+    expect(Result.isSuccess(declarations)).toBe(true);
+
+    const section = decodeSchemaManifestTableDefinitionsV1Result({
+      kind: "tableDefinitions",
+      sectionVersion: 1,
+      tables: [appTable(1, "users")],
+    });
+    expect(Result.isSuccess(section)).toBe(true);
+
+    const malformedDeclarations =
+      decodeSchemaManifestAppTableDeclarationsV1Result([null]);
+    expect(Result.isFailure(malformedDeclarations)).toBe(true);
+    if (Result.isFailure(malformedDeclarations)) {
+      expect(Schema.isSchemaError(malformedDeclarations.failure)).toBe(true);
+    }
+    const malformedSection = decodeSchemaManifestTableDefinitionsV1Result({});
+    expect(Result.isFailure(malformedSection)).toBe(true);
+    if (Result.isFailure(malformedSection)) {
+      expect(Schema.isSchemaError(malformedSection.failure)).toBe(true);
+    }
+
+    const defect = new Error("table decoder property defect");
+    const throwingDeclarations = new Proxy([null], {
+      get(target, property, receiver): unknown {
+        if (property === "length") throw defect;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const throwingSection = new Proxy({}, {
+      getOwnPropertyDescriptor(): never {
+        throw defect;
+      },
+    });
+    expect(() => decodeSchemaManifestAppTableDeclarationsV1Result(
+      throwingDeclarations,
+    )).toThrow(defect);
+    expect(() => decodeSchemaManifestTableDefinitionsV1Result(throwingSection))
+      .toThrow(defect);
   });
 
   it("caps app tables before recursively decoding their elements", () => {

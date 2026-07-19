@@ -150,12 +150,12 @@ const SchemaManifestAppTableCountSchema = Schema.Int.check(
   }),
 );
 
-const decodeSchemaManifestAppTableCount = Schema.decodeUnknownSync(
+const decodeSchemaManifestAppTableCountResult = Schema.decodeUnknownResult(
   SchemaManifestAppTableCountSchema,
 );
 
-const decodeSchemaManifestAppTableDeclarationsV1Shape =
-  Schema.decodeUnknownSync(
+const decodeSchemaManifestAppTableDeclarationsV1ShapeResult =
+  Schema.decodeUnknownResult(
     SchemaManifestAppTableDeclarationsV1Schema,
     StrictParseOptions,
   );
@@ -163,11 +163,26 @@ const decodeSchemaManifestAppTableDeclarationsV1Shape =
 export function decodeSchemaManifestAppTableDeclarationsV1(
   value: unknown,
 ): ReadonlyArray<SchemaManifestAppTableDeclarationV1> {
-  preflightSchemaManifestAppTableArray(value);
-  const wrapper = decodeSchemaManifestJson({ declarations: value });
-  return decodeSchemaManifestAppTableDeclarationsV1Shape(
-    wrapper.declarations,
+  return Result.getOrThrow(
+    decodeSchemaManifestAppTableDeclarationsV1Result(value),
   );
+}
+
+export function decodeSchemaManifestAppTableDeclarationsV1Result(
+  value: unknown,
+): Result.Result<
+  ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
+  Schema.SchemaError
+> {
+  return Result.gen(function* () {
+    yield* preflightSchemaManifestAppTableArrayResult(value);
+    const wrapper = yield* decodeSchemaManifestJsonResult({
+      declarations: value,
+    });
+    return yield* decodeSchemaManifestAppTableDeclarationsV1ShapeResult(
+      wrapper.declarations,
+    );
+  });
 }
 
 const SchemaManifestAppTableDefinitionsV1Schema = Schema.Array(
@@ -185,7 +200,7 @@ export const SchemaManifestTableDefinitionsV1Schema = Schema.Struct({
 export type SchemaManifestTableDefinitionsV1 =
   typeof SchemaManifestTableDefinitionsV1Schema.Type;
 
-const decodeSchemaManifestTableDefinitionsV1Shape = Schema.decodeUnknownSync(
+const decodeSchemaManifestTableDefinitionsV1ShapeResult = Schema.decodeUnknownResult(
   SchemaManifestTableDefinitionsV1Schema,
   StrictParseOptions,
 );
@@ -193,10 +208,19 @@ const decodeSchemaManifestTableDefinitionsV1Shape = Schema.decodeUnknownSync(
 export function decodeSchemaManifestTableDefinitionsV1(
   value: unknown,
 ): SchemaManifestTableDefinitionsV1 {
-  preflightSchemaManifestTableDefinitions(value);
-  return decodeSchemaManifestTableDefinitionsV1Shape(
-    decodeSchemaManifestJson(value),
+  return Result.getOrThrow(
+    decodeSchemaManifestTableDefinitionsV1Result(value),
   );
+}
+
+export function decodeSchemaManifestTableDefinitionsV1Result(
+  value: unknown,
+): Result.Result<SchemaManifestTableDefinitionsV1, Schema.SchemaError> {
+  return Result.gen(function* () {
+    yield* preflightSchemaManifestTableDefinitionsResult(value);
+    const manifest = yield* decodeSchemaManifestJsonResult(value);
+    return yield* decodeSchemaManifestTableDefinitionsV1ShapeResult(manifest);
+  });
 }
 
 export const SchemaManifestAppIndexDescriptorSchema =
@@ -286,7 +310,7 @@ const SchemaManifestAppIndexCountSchema = Schema.Int.check(
   }),
 );
 
-const decodeSchemaManifestAppIndexCount = Schema.decodeUnknownSync(
+const decodeSchemaManifestAppIndexCountResult = Schema.decodeUnknownResult(
   SchemaManifestAppIndexCountSchema,
 );
 
@@ -297,11 +321,11 @@ const SchemaManifestAppIndexDeclaredFieldCountSchema = Schema.Int.check(
   }),
 );
 
-const decodeSchemaManifestAppIndexDeclaredFieldCount =
-  Schema.decodeUnknownSync(SchemaManifestAppIndexDeclaredFieldCountSchema);
+const decodeSchemaManifestAppIndexDeclaredFieldCountResult =
+  Schema.decodeUnknownResult(SchemaManifestAppIndexDeclaredFieldCountSchema);
 
-const decodeSchemaManifestAppIndexDeclarationsV1Shape =
-  Schema.decodeUnknownSync(
+const decodeSchemaManifestAppIndexDeclarationsV1ShapeResult =
+  Schema.decodeUnknownResult(
     SchemaManifestAppIndexDeclarationsV1Schema,
     StrictParseOptions,
   );
@@ -309,11 +333,26 @@ const decodeSchemaManifestAppIndexDeclarationsV1Shape =
 export function decodeSchemaManifestAppIndexDeclarationsV1(
   value: unknown,
 ): ReadonlyArray<SchemaManifestAppIndexDeclarationV1> {
-  preflightSchemaManifestAppIndexArray(value);
-  const wrapper = decodeSchemaManifestJson({ declarations: value });
-  return decodeSchemaManifestAppIndexDeclarationsV1Shape(
-    wrapper.declarations,
+  return Result.getOrThrow(
+    decodeSchemaManifestAppIndexDeclarationsV1Result(value),
   );
+}
+
+export function decodeSchemaManifestAppIndexDeclarationsV1Result(
+  value: unknown,
+): Result.Result<
+  ReadonlyArray<SchemaManifestAppIndexDeclarationV1>,
+  Schema.SchemaError
+> {
+  return Result.gen(function* () {
+    yield* preflightSchemaManifestAppIndexArrayResult(value);
+    const wrapper = yield* decodeSchemaManifestJsonResult({
+      declarations: value,
+    });
+    return yield* decodeSchemaManifestAppIndexDeclarationsV1ShapeResult(
+      wrapper.declarations,
+    );
+  });
 }
 
 export const SchemaManifestAppIndexBindingV1Schema = Schema.Struct({
@@ -348,7 +387,7 @@ interface SchemaManifestAppSchemaReferences {
   readonly indexBindings: SchemaManifestIndexBindingsV1;
 }
 
-const decodeSchemaManifestIndexBindingsV1Shape = Schema.decodeUnknownSync(
+const decodeSchemaManifestIndexBindingsV1ShapeResult = Schema.decodeUnknownResult(
   SchemaManifestIndexBindingsV1Schema,
   StrictParseOptions,
 );
@@ -356,10 +395,19 @@ const decodeSchemaManifestIndexBindingsV1Shape = Schema.decodeUnknownSync(
 export function decodeSchemaManifestIndexBindingsV1(
   value: unknown,
 ): SchemaManifestIndexBindingsV1 {
-  preflightSchemaManifestIndexBindings(value);
-  return decodeSchemaManifestIndexBindingsV1Shape(
-    decodeSchemaManifestJson(value),
+  return Result.getOrThrow(
+    decodeSchemaManifestIndexBindingsV1Result(value),
   );
+}
+
+export function decodeSchemaManifestIndexBindingsV1Result(
+  value: unknown,
+): Result.Result<SchemaManifestIndexBindingsV1, Schema.SchemaError> {
+  return Result.gen(function* () {
+    yield* preflightSchemaManifestIndexBindingsResult(value);
+    const manifest = yield* decodeSchemaManifestJsonResult(value);
+    return yield* decodeSchemaManifestIndexBindingsV1ShapeResult(manifest);
+  });
 }
 
 export const SchemaManifestAppSchemaV1Schema = Schema.Struct({
@@ -375,7 +423,7 @@ export const SchemaManifestAppSchemaV1Schema = Schema.Struct({
 export type SchemaManifestAppSchemaV1 =
   typeof SchemaManifestAppSchemaV1Schema.Type;
 
-const decodeSchemaManifestAppSchemaV1Shape = Schema.decodeUnknownSync(
+const decodeSchemaManifestAppSchemaV1ShapeResult = Schema.decodeUnknownResult(
   SchemaManifestAppSchemaV1Schema,
   StrictParseOptions,
 );
@@ -389,17 +437,10 @@ export function decodeSchemaManifestAppSchemaV1(
 export function decodeSchemaManifestAppSchemaV1Result(
   value: unknown,
 ): Result.Result<SchemaManifestAppSchemaV1, Schema.SchemaError> {
-  return Result.try({
-    try: () => {
-      preflightSchemaManifestAppSchema(value);
-      return decodeSchemaManifestAppSchemaV1Shape(
-        decodeSchemaManifestJson(value),
-      );
-    },
-    catch: (cause) => {
-      if (!Schema.isSchemaError(cause)) throw cause;
-      return cause;
-    },
+  return Result.gen(function* () {
+    yield* preflightSchemaManifestAppSchemaResult(value);
+    const manifest = yield* decodeSchemaManifestJsonResult(value);
+    return yield* decodeSchemaManifestAppSchemaV1ShapeResult(manifest);
   });
 }
 
@@ -416,6 +457,9 @@ export const SchemaManifestJsonSchema = Schema.declare<SchemaManifestJson>(
   },
 );
 export const decodeSchemaManifestJson = Schema.decodeUnknownSync(
+  SchemaManifestJsonSchema,
+);
+const decodeSchemaManifestJsonResult = Schema.decodeUnknownResult(
   SchemaManifestJsonSchema,
 );
 
@@ -484,77 +528,114 @@ export function isSchemaManifestJson(
   return isCanonicalJsonValue(value, 0, new WeakSet()) && isJsonObject(value);
 }
 
-function preflightSchemaManifestTableDefinitions(value: unknown): void {
-  if (!isNonArrayRecord(value)) return;
+function preflightSchemaManifestTableDefinitionsResult(
+  value: unknown,
+): Result.Result<void, Schema.SchemaError> {
+  if (!isNonArrayRecord(value)) return Result.succeed(undefined);
   const descriptor = Object.getOwnPropertyDescriptor(value, "tables");
   if (descriptor !== undefined && "value" in descriptor) {
-    preflightSchemaManifestAppTableArray(descriptor.value);
+    return preflightSchemaManifestAppTableArrayResult(descriptor.value);
   }
+  return Result.succeed(undefined);
 }
 
-function preflightSchemaManifestAppTableArray(value: unknown): void {
+function preflightSchemaManifestAppTableArrayResult(
+  value: unknown,
+): Result.Result<void, Schema.SchemaError> {
   if (Array.isArray(value)) {
-    decodeSchemaManifestAppTableCount(value.length);
+    return decodeSchemaManifestAppTableCountResult(value.length).pipe(
+      Result.map(() => undefined),
+    );
   }
+  return Result.succeed(undefined);
 }
 
-function preflightSchemaManifestAppSchema(value: unknown): void {
-  if (!isNonArrayRecord(value)) return;
-  const tableDefinitions = Object.getOwnPropertyDescriptor(
-    value,
-    "tableDefinitions",
-  );
-  if (tableDefinitions !== undefined && "value" in tableDefinitions) {
-    preflightSchemaManifestTableDefinitions(tableDefinitions.value);
-  }
-  const indexBindings = Object.getOwnPropertyDescriptor(value, "indexBindings");
-  if (indexBindings !== undefined && "value" in indexBindings) {
-    preflightSchemaManifestIndexBindings(indexBindings.value);
-  }
+function preflightSchemaManifestAppSchemaResult(
+  value: unknown,
+): Result.Result<void, Schema.SchemaError> {
+  if (!isNonArrayRecord(value)) return Result.succeed(undefined);
+  return Result.gen(function* () {
+    const tableDefinitions = Object.getOwnPropertyDescriptor(
+      value,
+      "tableDefinitions",
+    );
+    if (tableDefinitions !== undefined && "value" in tableDefinitions) {
+      yield* preflightSchemaManifestTableDefinitionsResult(
+        tableDefinitions.value,
+      );
+    }
+    const indexBindings = Object.getOwnPropertyDescriptor(
+      value,
+      "indexBindings",
+    );
+    if (indexBindings !== undefined && "value" in indexBindings) {
+      yield* preflightSchemaManifestIndexBindingsResult(indexBindings.value);
+    }
+  });
 }
 
-function preflightSchemaManifestIndexBindings(value: unknown): void {
-  if (!isNonArrayRecord(value)) return;
+function preflightSchemaManifestIndexBindingsResult(
+  value: unknown,
+): Result.Result<void, Schema.SchemaError> {
+  if (!isNonArrayRecord(value)) return Result.succeed(undefined);
   const descriptor = Object.getOwnPropertyDescriptor(value, "indexes");
   if (descriptor !== undefined && "value" in descriptor) {
-    preflightSchemaManifestAppIndexArray(descriptor.value);
+    return preflightSchemaManifestAppIndexArrayResult(descriptor.value);
   }
+  return Result.succeed(undefined);
 }
 
-function preflightSchemaManifestAppIndexArray(value: unknown): void {
-  if (!Array.isArray(value)) return;
-  decodeSchemaManifestAppIndexCount(value.length);
-  for (let index = 0; index < value.length; index += 1) {
-    const item = Object.getOwnPropertyDescriptor(value, String(index));
-    if (item !== undefined && "value" in item) {
-      preflightSchemaManifestAppIndexFields(item.value);
+function preflightSchemaManifestAppIndexArrayResult(
+  value: unknown,
+): Result.Result<void, Schema.SchemaError> {
+  if (!Array.isArray(value)) return Result.succeed(undefined);
+  return Result.gen(function* () {
+    yield* decodeSchemaManifestAppIndexCountResult(value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      const item = Object.getOwnPropertyDescriptor(value, String(index));
+      if (item !== undefined && "value" in item) {
+        yield* preflightSchemaManifestAppIndexFieldsResult(item.value);
+      }
     }
-  }
+  });
 }
 
-function preflightSchemaManifestAppIndexFields(value: unknown): void {
-  if (!isNonArrayRecord(value)) return;
-  const directFields = Object.getOwnPropertyDescriptor(value, "fields");
-  if (directFields !== undefined && "value" in directFields) {
-    preflightSchemaManifestAppIndexFieldArray(directFields.value);
-  }
-  const spec = Object.getOwnPropertyDescriptor(value, "spec");
-  if (
-    spec !== undefined &&
-    "value" in spec &&
-    isNonArrayRecord(spec.value)
-  ) {
-    const specFields = Object.getOwnPropertyDescriptor(spec.value, "fields");
-    if (specFields !== undefined && "value" in specFields) {
-      preflightSchemaManifestAppIndexFieldArray(specFields.value);
+function preflightSchemaManifestAppIndexFieldsResult(
+  value: unknown,
+): Result.Result<void, Schema.SchemaError> {
+  if (!isNonArrayRecord(value)) return Result.succeed(undefined);
+  return Result.gen(function* () {
+    const directFields = Object.getOwnPropertyDescriptor(value, "fields");
+    if (directFields !== undefined && "value" in directFields) {
+      yield* preflightSchemaManifestAppIndexFieldArrayResult(
+        directFields.value,
+      );
     }
-  }
+    const spec = Object.getOwnPropertyDescriptor(value, "spec");
+    if (
+      spec !== undefined &&
+      "value" in spec &&
+      isNonArrayRecord(spec.value)
+    ) {
+      const specFields = Object.getOwnPropertyDescriptor(spec.value, "fields");
+      if (specFields !== undefined && "value" in specFields) {
+        yield* preflightSchemaManifestAppIndexFieldArrayResult(
+          specFields.value,
+        );
+      }
+    }
+  });
 }
 
-function preflightSchemaManifestAppIndexFieldArray(value: unknown): void {
+function preflightSchemaManifestAppIndexFieldArrayResult(
+  value: unknown,
+): Result.Result<void, Schema.SchemaError> {
   if (Array.isArray(value)) {
-    decodeSchemaManifestAppIndexDeclaredFieldCount(value.length);
+    return decodeSchemaManifestAppIndexDeclaredFieldCountResult(
+      value.length,
+    ).pipe(Result.map(() => undefined));
   }
+  return Result.succeed(undefined);
 }
 
 function validateSchemaManifestTableOrder(

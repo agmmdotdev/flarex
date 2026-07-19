@@ -5,12 +5,15 @@ import {
 import {
   canonicalizeSchemaManifestV1,
   decodeSchemaManifestAppIndexDeclarationsV1,
+  decodeSchemaManifestAppIndexDeclarationsV1Result,
   decodeSchemaManifestAppSchemaV1,
   decodeSchemaManifestAppSchemaV1Result,
   decodeSchemaManifestIndexBindingsV1,
+  decodeSchemaManifestIndexBindingsV1Result,
   MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS,
   MAX_SCHEMA_MANIFEST_APP_INDEXES,
   MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE,
+  MAX_SCHEMA_MANIFEST_APP_TABLES,
   type SchemaManifestAppIndexBindingV1,
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppIndexDeclarationV1,
@@ -85,6 +88,83 @@ describe("FlarexDB semantic app index bindings", () => {
         ]),
       ).toThrow();
     }
+  });
+
+  it("keeps index composite decoders Result-first without absorbing defects", () => {
+    const declarations = decodeSchemaManifestAppIndexDeclarationsV1Result([
+      appIndexDeclaration("users", "by_email", ["email"]),
+    ]);
+    expect(Result.isSuccess(declarations)).toBe(true);
+
+    const section = decodeSchemaManifestIndexBindingsV1Result({
+      kind: "indexBindings",
+      sectionVersion: 1,
+      indexes: [appIndexBinding(2, 1, "by_email", ["email"])],
+    });
+    expect(Result.isSuccess(section)).toBe(true);
+
+    const malformedDeclarations =
+      decodeSchemaManifestAppIndexDeclarationsV1Result([null]);
+    expect(Result.isFailure(malformedDeclarations)).toBe(true);
+    if (Result.isFailure(malformedDeclarations)) {
+      expect(Schema.isSchemaError(malformedDeclarations.failure)).toBe(true);
+    }
+    const malformedSection = decodeSchemaManifestIndexBindingsV1Result({});
+    expect(Result.isFailure(malformedSection)).toBe(true);
+    if (Result.isFailure(malformedSection)) {
+      expect(Schema.isSchemaError(malformedSection.failure)).toBe(true);
+    }
+
+    const defect = new Error("index decoder property defect");
+    const throwingDeclarations = new Proxy([null], {
+      get(target, property, receiver): unknown {
+        if (property === "length") throw defect;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const throwingSection = new Proxy({}, {
+      getOwnPropertyDescriptor(): never {
+        throw defect;
+      },
+    });
+    expect(() => decodeSchemaManifestAppIndexDeclarationsV1Result(
+      throwingDeclarations,
+    )).toThrow(defect);
+    expect(() => decodeSchemaManifestIndexBindingsV1Result(throwingSection))
+      .toThrow(defect);
+  });
+
+  it("preserves preflight first-failure order before later property defects", () => {
+    const laterDefect = new Error("later index field property defect");
+    const declaration = new Proxy({
+      fields: Array.from(
+        { length: MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS + 1 },
+        (_, index) => `field_${index}`,
+      ),
+    }, {
+      getOwnPropertyDescriptor(target, property) {
+        if (property === "spec") throw laterDefect;
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+    });
+    const declarationResult =
+      decodeSchemaManifestAppIndexDeclarationsV1Result([declaration]);
+    expect(Result.isFailure(declarationResult)).toBe(true);
+
+    const appSchema = new Proxy({
+      tableDefinitions: {
+        kind: "tableDefinitions",
+        sectionVersion: 1,
+        tables: new Array(MAX_SCHEMA_MANIFEST_APP_TABLES + 1),
+      },
+    }, {
+      getOwnPropertyDescriptor(target, property) {
+        if (property === "indexBindings") throw laterDefect;
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+    });
+    const appSchemaResult = decodeSchemaManifestAppSchemaV1Result(appSchema);
+    expect(Result.isFailure(appSchemaResult)).toBe(true);
   });
 
   it("ports Convex descriptor, field-path, and reserved-system rules", () => {

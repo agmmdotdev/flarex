@@ -7,8 +7,8 @@ import {
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
-  decodeSchemaManifestAppIndexDeclarationsV1,
-  decodeSchemaManifestAppTableDeclarationsV1,
+  decodeSchemaManifestAppIndexDeclarationsV1Result,
+  decodeSchemaManifestAppTableDeclarationsV1Result,
   decodeSchemaManifestJson,
   type CatalogSchemaVersion,
   type CatalogSchemaVersionId,
@@ -365,16 +365,12 @@ function validateAndSnapshotInputResult(
     const version = yield* decodeCatalogSchemaVersionResult(
       input.version,
     ).pipe(Result.mapError((cause) => invalidField("version", cause)));
-    const decodedTables = yield* decodeThrowingPublicationFieldResult(
-      "tables",
+    const decodedTables = yield* decodeSchemaManifestAppTableDeclarationsV1Result(
       tablesInput,
-      decodeSchemaManifestAppTableDeclarationsV1,
-    );
-    const decodedIndexes = yield* decodeThrowingPublicationFieldResult(
-      "indexes",
+    ).pipe(Result.mapError((cause) => invalidField("tables", cause)));
+    const decodedIndexes = yield* decodeSchemaManifestAppIndexDeclarationsV1Result(
       indexesInput,
-      decodeSchemaManifestAppIndexDeclarationsV1,
-    );
+    ).pipe(Result.mapError((cause) => invalidField("indexes", cause)));
     yield* enforceAppSchemaPublicationV1CanonicalByteLowerBoundResult(
       decodedTables,
       decodedIndexes,
@@ -391,20 +387,6 @@ function validateAndSnapshotInputResult(
       indexes,
     } satisfies ValidatedPrepareAppSchemaPublicationV1Input);
   })));
-}
-
-function decodeThrowingPublicationFieldResult<Value>(
-  field: "tables" | "indexes",
-  value: unknown,
-  decode: (value: unknown) => Value,
-): Result.Result<Value, InvalidAppSchemaPublicationV1InputError> {
-  return Result.try({
-    try: () => decode(value),
-    catch: (cause) => {
-      if (!Schema.isSchemaError(cause)) throw cause;
-      return invalidField(field, cause);
-    },
-  });
 }
 
 function invalidField(

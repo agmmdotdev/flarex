@@ -7,8 +7,8 @@ import {
 } from "flarex-protocol/catalog";
 import type { Json } from "flarex-protocol/json";
 import {
-  decodeSchemaManifestAppTableDeclarationsV1,
-  decodeSchemaManifestTableDefinitionsV1,
+  decodeSchemaManifestAppTableDeclarationsV1Result,
+  decodeSchemaManifestTableDefinitionsV1Result,
   SchemaManifestAppTableNameSchema,
   type SchemaManifestAppDocumentDefinitionV1,
   type SchemaManifestAppTableDeclarationInputV1,
@@ -334,13 +334,12 @@ function decodeDeclarationsResult(
   ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
   InvalidSchemaManifestTableBindingInputError
 > {
-  return Result.try({
-    try: () => decodeSchemaManifestAppTableDeclarationsV1(value),
-    catch: (cause) => new InvalidSchemaManifestTableBindingInputError(
+  return decodeSchemaManifestAppTableDeclarationsV1Result(value).pipe(
+    Result.mapError((cause) => new InvalidSchemaManifestTableBindingInputError(
       { reason: "invalidDeclarations" },
       { cause },
-    ),
-  });
+    )),
+  );
 }
 
 function compareDeclarationsByName(
@@ -618,18 +617,19 @@ function assembleSectionResult(
     }
     return tables.sort((left, right) => left.tableId - right.tableId);
   });
-  return tablesResult.pipe(Result.flatMap((tables) => Result.try({
-    try: () => decodeSchemaManifestTableDefinitionsV1({
+  return tablesResult.pipe(Result.flatMap((tables) =>
+    decodeSchemaManifestTableDefinitionsV1Result({
       kind: "tableDefinitions",
       sectionVersion: 1,
       tables,
-    }),
-    catch: (cause) => new SchemaManifestTableBindingCorruptionError(
-      deploymentId,
-      "planned bindings could not form a semantic table section",
-      { cause },
-    ),
-  })));
+    }).pipe(Result.mapError((cause) =>
+      new SchemaManifestTableBindingCorruptionError(
+        deploymentId,
+        "planned bindings could not form a semantic table section",
+        { cause },
+      )
+    )),
+  ));
 }
 
 function detachAndFreezeSection(

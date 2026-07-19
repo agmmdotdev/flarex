@@ -2,7 +2,7 @@ import { isNonBlankString } from "@flarex/utils/strings";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
-  decodeSchemaManifestAppTableDeclarationsV1,
+  decodeSchemaManifestAppTableDeclarationsV1Result,
   decodeSchemaManifestJson,
   type CatalogSchemaVersion,
   type CatalogSchemaVersionId,
@@ -411,11 +411,9 @@ function validateAndSnapshotAppTableDefinitionsArtifactV1InputResult(
     const version = yield* decodeCatalogSchemaVersionResult(
       input.version,
     ).pipe(Result.mapError((cause) => invalidField("version", cause)));
-    const decodedTables = yield* decodeThrowingInputFieldResult(
-      "tables",
+    const decodedTables = yield* decodeSchemaManifestAppTableDeclarationsV1Result(
       input.tables,
-      decodeSchemaManifestAppTableDeclarationsV1,
-    );
+    ).pipe(Result.mapError((cause) => invalidField("tables", cause)));
     const tables = snapshotSchemaManifestValue(decodedTables);
     return Object.freeze({
       deploymentId,
@@ -423,20 +421,6 @@ function validateAndSnapshotAppTableDefinitionsArtifactV1InputResult(
       version,
       tables,
     } satisfies ValidatedEnsureAppTableDefinitionsArtifactV1Input);
-  });
-}
-
-function decodeThrowingInputFieldResult<Value>(
-  field: "tables",
-  value: unknown,
-  decode: (value: unknown) => Value,
-): Result.Result<Value, InvalidAppTableDefinitionsArtifactV1InputError> {
-  return Result.try({
-    try: () => decode(value),
-    catch: (cause) => {
-      if (!Schema.isSchemaError(cause)) throw cause;
-      return invalidField(field, cause);
-    },
   });
 }
 

@@ -5,9 +5,9 @@ import type {
   CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
-  decodeSchemaManifestAppIndexDeclarationsV1,
-  decodeSchemaManifestAppSchemaV1,
-  decodeSchemaManifestAppTableDeclarationsV1,
+  decodeSchemaManifestAppIndexDeclarationsV1Result,
+  decodeSchemaManifestAppSchemaV1Result,
+  decodeSchemaManifestAppTableDeclarationsV1Result,
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppIndexDeclarationV1,
   type SchemaManifestAppIndexDescriptor,
@@ -415,13 +415,12 @@ function decodeTablesResult(
   ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
   InvalidSchemaManifestAppSchemaBindingInputError
 > {
-  return Result.try({
-    try: () => decodeSchemaManifestAppTableDeclarationsV1(value),
-    catch: (cause) => new InvalidSchemaManifestAppSchemaBindingInputError(
+  return decodeSchemaManifestAppTableDeclarationsV1Result(value).pipe(
+    Result.mapError((cause) => new InvalidSchemaManifestAppSchemaBindingInputError(
       { reason: "invalidTables" },
       { cause },
-    ),
-  });
+    )),
+  );
 }
 
 function decodeIndexesResult(
@@ -430,13 +429,12 @@ function decodeIndexesResult(
   ReadonlyArray<SchemaManifestAppIndexDeclarationV1>,
   InvalidSchemaManifestAppSchemaBindingInputError
 > {
-  return Result.try({
-    try: () => decodeSchemaManifestAppIndexDeclarationsV1(value),
-    catch: (cause) => new InvalidSchemaManifestAppSchemaBindingInputError(
+  return decodeSchemaManifestAppIndexDeclarationsV1Result(value).pipe(
+    Result.mapError((cause) => new InvalidSchemaManifestAppSchemaBindingInputError(
       { reason: "invalidIndexes" },
       { cause },
-    ),
-  });
+    )),
+  );
 }
 
 function validateIndexTableReferencesResult(
@@ -666,8 +664,7 @@ function assembleManifestResult(
   SchemaManifestAppSchemaV1,
   StableLogicalIndexCatalogCorruptionError
 > {
-  return Result.try({
-    try: () => decodeSchemaManifestAppSchemaV1({
+  return decodeSchemaManifestAppSchemaV1Result({
       kind: "appSchema",
       manifestVersion: 1,
       tableDefinitions: tableState.section,
@@ -690,13 +687,13 @@ function assembleManifestResult(
             left.logicalIndexId - right.logicalIndexId
           ),
       },
-    }),
-    catch: (cause) => new StableLogicalIndexCatalogCorruptionError(
-      deploymentId,
-      "planned bindings could not form a semantic app-schema manifest",
-      { cause },
-    ),
-  });
+    }).pipe(Result.mapError((cause) =>
+      new StableLogicalIndexCatalogCorruptionError(
+        deploymentId,
+        "planned bindings could not form a semantic app-schema manifest",
+        { cause },
+      )
+    ));
 }
 
 interface AppSchemaBindingClassification<Binding> {
