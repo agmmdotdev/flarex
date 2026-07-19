@@ -134,6 +134,16 @@ const UUID_V4_PATTERN =
 
 const INITIAL_ATTEMPT_FENCE = TransactionAttemptFenceSchema.make(1n);
 
+const ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1 = Symbol(
+  "flarex.persistence-postgres.activatePreparedPointMutationSessionEffectV1",
+);
+const LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1 = Symbol(
+  "flarex.persistence-postgres.loadExactPointMutationSessionAttemptEffectV1",
+);
+const TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1 = Symbol(
+  "flarex.persistence-postgres.terminalizeExactPointMutationSessionAttemptEffectV1",
+);
+
 const decodeAttemptDeploymentIdResult = Schema.decodeUnknownResult(
   Schema.toType(TransactionGrantDeploymentIdV1Schema),
 );
@@ -594,23 +604,38 @@ export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
 
 interface LocatedPointMutationSessionActivationTargetV1
   extends LocatedScopeClockReader {
-  readonly activatePreparedPointMutationSession: (
+  readonly [ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1]: (
     input: LocatedPointMutationSessionActivationInputV1,
-  ) => Promise<PointMutationSessionActivationResultV1>;
+  ) => Effect.Effect<
+    PointMutationSessionActivationResultV1,
+    | PointMutationSessionActivationV1Error
+    | PointMutationSessionAuthorityCorruptionV1Error
+    | PointMutationSessionActivationPersistenceV1Error
+  >;
 }
 
 interface LocatedPointMutationSessionAttemptLoadTargetV1
   extends LocatedScopeClockReader {
-  readonly loadExactPointMutationSessionAttempt: (
+  readonly [LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
     input: LocatedPointMutationSessionAttemptLoadInputV1,
-  ) => Promise<PointMutationSessionAttemptLoadResultV1>;
+  ) => Effect.Effect<
+    PointMutationSessionAttemptLoadResultV1,
+    | PointMutationSessionAttemptLoadV1Error
+    | PointMutationSessionAuthorityCorruptionV1Error
+    | PointMutationSessionAttemptLoadPersistenceV1Error
+  >;
 }
 
 interface LocatedPointMutationSessionAttemptTerminalizationTargetV1
   extends LocatedScopeClockReader {
-  readonly terminalizeExactPointMutationSessionAttempt: (
+  readonly [TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
     input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
-  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
+  ) => Effect.Effect<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    | PointMutationSessionAttemptTerminalizationV1Error
+    | PointMutationSessionAuthorityCorruptionV1Error
+    | PointMutationSessionAttemptTerminalizationPersistenceV1Error
+  >;
 }
 
 interface LocatedPointMutationSessionTargetV1
@@ -691,15 +716,12 @@ export function createPointMutationSessionActivationPersistenceV1(
         located.target,
         prepared.scopeId,
       ));
-      return yield* Effect.uninterruptible(Effect.tryPromise({
-        try: () => target.activatePreparedPointMutationSession({
-          prepared,
-          preliminaryAuthority: located.authority,
-          candidateSessionId,
-          leaseDurationMilliseconds,
-        }),
-        catch: mapActivationTransactionError,
-      }));
+      return yield* target[ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1]({
+        prepared,
+        preliminaryAuthority: located.authority,
+        candidateSessionId,
+        leaseDurationMilliseconds,
+      });
     },
   );
 
@@ -733,15 +755,10 @@ export function createPointMutationSessionAttemptLoadPersistenceV1(
       const target = yield* Effect.fromResult(
         requireAttemptLoadTarget(located.target, selector.scopeId),
       );
-      return yield* Effect.uninterruptible(
-        Effect.tryPromise({
-          try: () => target.loadExactPointMutationSessionAttempt({
-            selector,
-            preliminaryAuthority: located.authority,
-          }),
-          catch: mapAttemptLoadTransactionError,
-        }),
-      );
+      return yield* target[LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]({
+        selector,
+        preliminaryAuthority: located.authority,
+      });
     },
   );
 
@@ -776,18 +793,12 @@ export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
         input.selector.scopeId,
       ),
     );
-    return yield* Effect.uninterruptible(
-      Effect.tryPromise({
-        try: () => target.terminalizeExactPointMutationSessionAttempt({
-          ...input,
-          preliminaryAuthority: located.authority,
-        }),
-        catch: (cause) => mapAttemptTerminalizationTransactionError(
-          input.operation,
-          cause,
-        ),
-      }),
-    );
+    return yield* target[
+      TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1
+    ]({
+      ...input,
+      preliminaryAuthority: located.authority,
+    });
   });
 
   const abortEffect = Effect.fn(
@@ -841,13 +852,21 @@ export function createLocatedPointMutationSessionActivationTargetV1(
   const target = Object.freeze({
     physicalLocator: capturedLocator,
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
-    activatePreparedPointMutationSession: (
+    [ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1]: (
       input: LocatedPointMutationSessionActivationInputV1,
-    ) => db.transaction((tx) => activateInTransaction(tx, input, afterWrite)),
-    loadExactPointMutationSessionAttempt: (
+    ) => Effect.uninterruptible(Effect.tryPromise({
+      try: () =>
+        db.transaction((tx) => activateInTransaction(tx, input, afterWrite)),
+      catch: mapActivationTransactionError,
+    })),
+    [LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
       input: LocatedPointMutationSessionAttemptLoadInputV1,
-    ) => db.transaction((tx) =>
-      loadAttemptInTransaction(tx, input, afterLoadLock)),
+    ) => Effect.uninterruptible(Effect.tryPromise({
+      try: () =>
+        db.transaction((tx) =>
+          loadAttemptInTransaction(tx, input, afterLoadLock)),
+      catch: mapAttemptLoadTransactionError,
+    })),
     [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]: <Result, Failure>(
       input: ExactRunningAttemptKernelInputV1,
       work: ExactRunningAttemptEffectWorkV1<Result, Failure>,
@@ -877,14 +896,21 @@ export function createLocatedPointMutationSessionActivationTargetV1(
     [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
     [RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1]:
       committedOutcomeResolver.resolve,
-    terminalizeExactPointMutationSessionAttempt: (
+    [TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
       input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
-    ) => db.transaction((tx) =>
-      terminalizeAttemptInTransaction(
-        tx,
-        input,
-        afterTerminalizationEvent,
-      )),
+    ) => Effect.uninterruptible(Effect.tryPromise({
+      try: () =>
+        db.transaction((tx) =>
+          terminalizeAttemptInTransaction(
+            tx,
+            input,
+            afterTerminalizationEvent,
+          )),
+      catch: (cause) => mapAttemptTerminalizationTransactionError(
+        input.operation,
+        cause,
+      ),
+    })),
   } satisfies LocatedPointMutationSessionTargetV1);
   return target;
 }
@@ -2454,15 +2480,19 @@ function requireAttemptTerminalizationTarget(
 function isActivationTarget(
   target: LocatedScopeClockReader,
 ): target is LocatedPointMutationSessionActivationTargetV1 {
-  return typeof Reflect.get(target, "activatePreparedPointMutationSession") ===
-    "function";
+  return typeof Reflect.get(
+    target,
+    ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1,
+  ) === "function";
 }
 
 function isAttemptLoadTarget(
   target: LocatedScopeClockReader,
 ): target is LocatedPointMutationSessionAttemptLoadTargetV1 {
-  return typeof Reflect.get(target, "loadExactPointMutationSessionAttempt") ===
-    "function";
+  return typeof Reflect.get(
+    target,
+    LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1,
+  ) === "function";
 }
 
 function isAttemptTerminalizationTarget(
@@ -2470,7 +2500,7 @@ function isAttemptTerminalizationTarget(
 ): target is LocatedPointMutationSessionAttemptTerminalizationTargetV1 {
   return typeof Reflect.get(
     target,
-    "terminalizeExactPointMutationSessionAttempt",
+    TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1,
   ) === "function";
 }
 
