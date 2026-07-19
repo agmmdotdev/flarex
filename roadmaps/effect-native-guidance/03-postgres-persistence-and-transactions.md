@@ -317,9 +317,13 @@ Owned read-input and build-row normalization now use hoisted Schema `Result`
 decoders in exact field order. The former blanket build-row `Result.try` and
 throwing Schema projections are deleted; the ordered-index byte decoder remains
 one narrow foreign throwing edge, while unexpected row access or runtime throws
-remain defects. The shared scope-clock throwing decoder remains a temporary
-compatibility projection for this and its other consumers and belongs to a
-dedicated scope-clock boundary slice rather than this fenced-reader change.
+remain defects. Shared scope-clock row normalization now has one pure Schema
+`Result` authority for exact driver types, signed-int64 bounds, storage
+generation, blank identifiers, and owned timestamps. The fenced index reader
+consumes that Result directly, so its broad clock `Result.try` is deleted. A
+thin `Result.getOrThrow` projection remains only for `getScopeClock`, the
+transaction lock, and other still-Promise transaction consumers; delete it when
+those callers consume the Result or an Effect-native clock operation directly.
 
 The authoritative app-row snapshot and current-revision read kernel is now
 Effect-native. Caller identity and snapshot values enter through typed

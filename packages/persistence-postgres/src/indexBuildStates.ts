@@ -34,10 +34,7 @@ import {
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
-import {
-  decodeScopeClockRecord,
-  ScopeClockCorruptionError,
-} from "./scopeClock";
+import { decodeScopeClockRecordResult } from "./scopeClock";
 import {
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
@@ -320,18 +317,14 @@ function materializeFencedIndexBuildState(
         input.indexDefinitionId,
       ));
     }
-    const clock = yield* Result.try({
-      try: () => decodeScopeClockRecord(row.clock),
-      catch: (cause) => {
-        if (!(cause instanceof ScopeClockCorruptionError)) throw cause;
-        return new IndexBuildStateCorruptionError(
-          input.scopeId,
-          input.indexDefinitionId,
-          "stored scope clock is invalid",
-          { cause },
-        );
-      },
-    });
+    const clock = yield* decodeScopeClockRecordResult(row.clock).pipe(
+      Result.mapError((cause) => new IndexBuildStateCorruptionError(
+        input.scopeId,
+        input.indexDefinitionId,
+        "stored scope clock is invalid",
+        { cause },
+      )),
+    );
     const currentAuthority = freezeAuthority({
       scopeId: clock.scopeId,
       storageGeneration: clock.storageGeneration,

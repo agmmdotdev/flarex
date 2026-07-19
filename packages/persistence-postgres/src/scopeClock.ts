@@ -1,15 +1,14 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { eq, sql } from "drizzle-orm";
-import { Data, Effect, Result } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import {
   CommitSeqSchema,
-  FlarexDbV1StorageGenerationSchema,
-  LegacyV1StorageGenerationSchema,
   OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
+  StorageGenerationSchema,
   type CommitSeq,
   type OutboxSeq,
   type ScopeEpoch,
@@ -26,6 +25,25 @@ import {
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { fxSystemScopeClocks } from "./schema";
+
+const decodeCommitSeqResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitSeqSchema),
+);
+const decodeOutboxSeqResult = Schema.decodeUnknownResult(
+  Schema.toType(OutboxSeqSchema),
+);
+const decodeScopeEpochResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeEpochSchema),
+);
+const decodeScopeIdResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeIdSchema),
+);
+const decodeStorageGenerationFenceResult = Schema.decodeUnknownResult(
+  Schema.toType(StorageGenerationFenceSchema),
+);
+const decodeStorageGenerationResult = Schema.decodeUnknownResult(
+  Schema.toType(StorageGenerationSchema),
+);
 
 export interface ScopeClockRecord {
   readonly scopeId: ScopeId;
@@ -52,8 +70,9 @@ export class ScopeClockCorruptionError extends Error {
   constructor(
     readonly scopeId: string,
     readonly reason: string,
+    options?: ErrorOptions,
   ) {
-    super(`Scope clock ${scopeId} is invalid: ${reason}`);
+    super(`Scope clock ${scopeId} is invalid: ${reason}`, options);
     this.name = "ScopeClockCorruptionError";
   }
 }
@@ -301,66 +320,163 @@ type ScopeClockTransaction = FlarexMetadataTransaction;
 
 export type ScopeClockRow = typeof fxSystemScopeClocks.$inferSelect;
 
-type ScopeClockRecordRow = Pick<
-  ScopeClockRow,
-  | "scopeId"
-  | "storageGeneration"
-  | "storageGenerationFence"
-  | "lastCommitSeq"
-  | "lastOutboxSeq"
-  | "epoch"
-  | "updatedAt"
->;
+interface ScopeClockRecordRow {
+  readonly scopeId: unknown;
+  readonly storageGeneration: unknown;
+  readonly storageGenerationFence: unknown;
+  readonly lastCommitSeq: unknown;
+  readonly lastOutboxSeq: unknown;
+  readonly epoch: unknown;
+  readonly updatedAt: unknown;
+}
 
+export function decodeScopeClockRecordResult(
+  row: ScopeClockRecordRow,
+): Result.Result<ScopeClockRecord, ScopeClockCorruptionError> {
+  return Result.gen(function* () {
+    const rawScopeId = row.scopeId;
+    const diagnosticScopeId = typeof rawScopeId === "string"
+      ? rawScopeId
+      : "<invalid-scope-id>";
+    if (typeof rawScopeId !== "string") {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "scope ID is invalid",
+      ));
+    }
+    if (!isNonBlankString(rawScopeId)) {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "scope ID is empty",
+      ));
+    }
+
+    const rawEpoch = row.epoch;
+    if (typeof rawEpoch !== "string") {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "epoch is invalid",
+      ));
+    }
+    if (!isNonBlankString(rawEpoch)) {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "epoch is empty",
+      ));
+    }
+
+    const rawStorageGenerationFence = row.storageGenerationFence;
+    if (typeof rawStorageGenerationFence !== "bigint") {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "storage generation fence is invalid",
+      ));
+    }
+    if (rawStorageGenerationFence < 1n) {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "storage generation fence is not positive",
+      ));
+    }
+
+    const rawLastCommitSeq = row.lastCommitSeq;
+    if (typeof rawLastCommitSeq !== "bigint") {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "last commit sequence is invalid",
+      ));
+    }
+    if (rawLastCommitSeq < 0n) {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "last commit sequence is negative",
+      ));
+    }
+
+    const rawLastOutboxSeq = row.lastOutboxSeq;
+    if (typeof rawLastOutboxSeq !== "bigint") {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "last outbox sequence is invalid",
+      ));
+    }
+    if (rawLastOutboxSeq < 0n) {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "last outbox sequence is negative",
+      ));
+    }
+
+    const updatedAt = copyFiniteDate(row.updatedAt);
+    if (updatedAt === undefined) {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "updated timestamp is invalid",
+      ));
+    }
+
+    const scopeId = yield* decodeScopeClockFieldResult(
+      decodeScopeIdResult(rawScopeId),
+      diagnosticScopeId,
+      "scope ID is invalid",
+    );
+    const storageGeneration = yield* decodeScopeClockFieldResult(
+      decodeStorageGenerationResult(row.storageGeneration),
+      diagnosticScopeId,
+      "storage generation is unsupported",
+    );
+    const storageGenerationFence = yield* decodeScopeClockFieldResult(
+      decodeStorageGenerationFenceResult(rawStorageGenerationFence),
+      diagnosticScopeId,
+      "storage generation fence is outside the signed-bigint range",
+    );
+    const lastCommitSeq = yield* decodeScopeClockFieldResult(
+      decodeCommitSeqResult(rawLastCommitSeq),
+      diagnosticScopeId,
+      "last commit sequence is outside the signed-bigint range",
+    );
+    const lastOutboxSeq = yield* decodeScopeClockFieldResult(
+      decodeOutboxSeqResult(rawLastOutboxSeq),
+      diagnosticScopeId,
+      "last outbox sequence is outside the signed-bigint range",
+    );
+    const epoch = yield* decodeScopeClockFieldResult(
+      decodeScopeEpochResult(rawEpoch),
+      diagnosticScopeId,
+      "epoch is invalid",
+    );
+
+    return {
+      scopeId,
+      storageGeneration,
+      storageGenerationFence,
+      lastCommitSeq,
+      lastOutboxSeq,
+      epoch,
+      updatedAt,
+    } satisfies ScopeClockRecord;
+  });
+}
+
+/**
+ * Temporary unchecked compatibility projection for Promise transaction and
+ * repository consumers. Delete it after those callers consume the Result or
+ * an Effect-native scope-clock operation directly.
+ */
 export function decodeScopeClockRecord(
   row: ScopeClockRecordRow,
 ): ScopeClockRecord {
-  if (!isNonBlankString(row.scopeId)) {
-    throw new ScopeClockCorruptionError(row.scopeId, "scope ID is empty");
-  }
-  if (!isNonBlankString(row.epoch)) {
-    throw new ScopeClockCorruptionError(row.scopeId, "epoch is empty");
-  }
-  if (row.storageGenerationFence < 1n) {
-    throw new ScopeClockCorruptionError(
-      row.scopeId,
-      "storage generation fence is not positive",
-    );
-  }
-  if (row.lastCommitSeq < 0n) {
-    throw new ScopeClockCorruptionError(
-      row.scopeId,
-      "last commit sequence is negative",
-    );
-  }
-  if (row.lastOutboxSeq < 0n) {
-    throw new ScopeClockCorruptionError(
-      row.scopeId,
-      "last outbox sequence is negative",
-    );
-  }
-  const updatedAt = copyFiniteDate(row.updatedAt);
-  if (updatedAt === undefined) {
-    throw new ScopeClockCorruptionError(
-      row.scopeId,
-      "updated timestamp is invalid",
-    );
-  }
+  return Result.getOrThrow(decodeScopeClockRecordResult(row));
+}
 
-  return {
-    scopeId: ScopeIdSchema.make(row.scopeId),
-    storageGeneration: decodeStorageGeneration(
-      row.storageGeneration,
-      row.scopeId,
-    ),
-    storageGenerationFence: StorageGenerationFenceSchema.make(
-      row.storageGenerationFence,
-    ),
-    lastCommitSeq: CommitSeqSchema.make(row.lastCommitSeq),
-    lastOutboxSeq: OutboxSeqSchema.make(row.lastOutboxSeq),
-    epoch: ScopeEpochSchema.make(row.epoch),
-    updatedAt,
-  } satisfies ScopeClockRecord;
+function decodeScopeClockFieldResult<Value>(
+  result: Result.Result<Value, unknown>,
+  scopeId: string,
+  reason: string,
+): Result.Result<Value, ScopeClockCorruptionError> {
+  return result.pipe(Result.mapError((cause) =>
+    new ScopeClockCorruptionError(scopeId, reason, { cause })
+  ));
 }
 
 function decodeScopeAuthorizationRevocationEpochResult(
@@ -383,21 +499,4 @@ function decodeScopeAuthorizationRevocationEpochResult(
   return Result.succeed(
     TransactionAuthorizationRevocationEpochSchema.make(value),
   );
-}
-
-function decodeStorageGeneration(
-  value: StorageGeneration,
-  scopeId: string,
-): StorageGeneration {
-  switch (value) {
-    case "legacy_v1":
-      return LegacyV1StorageGenerationSchema.make(value);
-    case "flarexdb_v1":
-      return FlarexDbV1StorageGenerationSchema.make(value);
-    default:
-      throw new ScopeClockCorruptionError(
-        scopeId,
-        "storage generation is unsupported",
-      );
-  }
 }

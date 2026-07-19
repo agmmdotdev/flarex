@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
-import { Cause, Effect, Exit, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
   LegacyV1StorageGenerationSchema,
+  MAX_PERSISTED_SIGNED_INT64_V1,
   OutboxSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
@@ -32,6 +33,7 @@ import { createPGlitePersistence } from "../src/pglite";
 import {
   advanceScopeAuthorizationRevocationEpochInTransactionEffect,
   decodeScopeClockRecord,
+  decodeScopeClockRecordResult,
   lockScopeClockForUpdateInTransaction,
   requireScopeAuthorizationRevocationEpochInTransactionEffect,
   type AdvanceScopeAuthorizationRevocationEpochError,
@@ -124,6 +126,106 @@ describe("scope clock", () => {
     expect(decoded.updatedAt).not.toBe(source);
     expect(Object.getPrototypeOf(decoded.updatedAt)).toBe(Date.prototype);
     expect(source.calls).toBe(0);
+  });
+
+  it("returns typed corruption for malformed stored clock fields", () => {
+    const valid = validScopeClockRow();
+    const invalid = [
+      {
+        row: { ...valid, scopeId: 42 },
+        reason: "scope ID is invalid",
+      },
+      {
+        row: { ...valid, epoch: 42 },
+        reason: "epoch is invalid",
+      },
+      {
+        row: { ...valid, storageGeneration: "unknown_v1" },
+        reason: "storage generation is unsupported",
+      },
+      {
+        row: { ...valid, storageGenerationFence: 1 },
+        reason: "storage generation fence is invalid",
+      },
+      {
+        row: {
+          ...valid,
+          storageGenerationFence: MAX_PERSISTED_SIGNED_INT64_V1 + 1n,
+        },
+        reason: "storage generation fence is outside the signed-bigint range",
+      },
+      {
+        row: { ...valid, lastCommitSeq: 1 },
+        reason: "last commit sequence is invalid",
+      },
+      {
+        row: {
+          ...valid,
+          lastCommitSeq: MAX_PERSISTED_SIGNED_INT64_V1 + 1n,
+        },
+        reason: "last commit sequence is outside the signed-bigint range",
+      },
+      {
+        row: { ...valid, lastOutboxSeq: 1 },
+        reason: "last outbox sequence is invalid",
+      },
+      {
+        row: {
+          ...valid,
+          lastOutboxSeq: MAX_PERSISTED_SIGNED_INT64_V1 + 1n,
+        },
+        reason: "last outbox sequence is outside the signed-bigint range",
+      },
+      {
+        row: { ...valid, updatedAt: new Date(Number.NaN) },
+        reason: "updated timestamp is invalid",
+      },
+    ] as const;
+
+    for (const { row, reason } of invalid) {
+      const result = decodeScopeClockRecordResult(row);
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure).toBeInstanceOf(ScopeClockCorruptionError);
+        expect(result.failure).toMatchObject({ reason });
+      }
+      expect(() => decodeScopeClockRecord(row)).toThrow(
+        ScopeClockCorruptionError,
+      );
+    }
+  });
+
+  it("short-circuits typed clock corruption and preserves accessor defects", () => {
+    const laterDefect = new Error("later scope-clock epoch accessor defect");
+    const invalidScope = {
+      ...validScopeClockRow(),
+      scopeId: "\t\n",
+    };
+    Object.defineProperty(invalidScope, "epoch", {
+      enumerable: true,
+      get() {
+        throw laterDefect;
+      },
+    });
+
+    const earlyFailure = decodeScopeClockRecordResult(invalidScope);
+    expect(Result.isFailure(earlyFailure)).toBe(true);
+    if (Result.isFailure(earlyFailure)) {
+      expect(earlyFailure.failure).toMatchObject({
+        reason: "scope ID is empty",
+      });
+    }
+
+    const accessorDefect = new Error("scope-clock row accessor defect");
+    const defectiveRow = new Proxy(validScopeClockRow(), {
+      get(target, property, receiver) {
+        if (property === "epoch") throw accessorDefect;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(() => decodeScopeClockRecordResult(defectiveRow)).toThrow(
+      accessorDefect,
+    );
   });
 
   it("reads independent scope clocks with exact bigint values", async () => {
@@ -695,6 +797,18 @@ interface DefaultScopeClockFixture {
   readonly scopeId: ScopeId;
   readonly storageGeneration: StorageGeneration;
   readonly epoch: ScopeEpoch;
+}
+
+function validScopeClockRow() {
+  return {
+    scopeId: "scope_clock_result_decoder",
+    storageGeneration: "flarexdb_v1",
+    storageGenerationFence: 1n,
+    lastCommitSeq: 0n,
+    lastOutboxSeq: 0n,
+    epoch: "epoch-clock-result-decoder",
+    updatedAt: new Date("2026-07-10T00:00:00.000Z"),
+  } as const;
 }
 
 async function insertDefaultScopeClock(
