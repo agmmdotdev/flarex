@@ -163,7 +163,8 @@ const preparedBindingStates = new WeakMap<
   PreparedSchemaManifestAppTableBindingsState
 >();
 
-function getPreparedSchemaManifestAppTableBindingsStateResult(
+/** Pure package-internal decoder for the authenticated optimistic-plan state. */
+export function getPreparedSchemaManifestAppTableBindingsStateResult(
   prepared: PreparedSchemaManifestAppTableBindingsV1,
 ): Result.Result<
   PreparedSchemaManifestAppTableBindingsState,
@@ -173,15 +174,6 @@ function getPreparedSchemaManifestAppTableBindingsStateResult(
   return state === undefined
     ? Result.fail(new InvalidPreparedSchemaManifestTableBindingsError())
     : Result.succeed(state);
-}
-
-/** Internal composition seam for the full app-schema planner. */
-export function getPreparedSchemaManifestAppTableBindingsState(
-  prepared: PreparedSchemaManifestAppTableBindingsV1,
-): PreparedSchemaManifestAppTableBindingsState {
-  return Result.getOrThrow(
-    getPreparedSchemaManifestAppTableBindingsStateResult(prepared),
-  );
 }
 
 /** Build a deterministic optimistic binding plan without taking a SQL lock. */

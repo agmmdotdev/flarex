@@ -21,7 +21,7 @@ import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
-  getPreparedSchemaManifestAppTableBindingsState,
+  getPreparedSchemaManifestAppTableBindingsStateResult,
   insertPlannedSchemaManifestAppTableBindingsEffect,
   lockSchemaManifestBindingDeploymentEffect,
   prepareSchemaManifestAppTableBindingsV1Effect,
@@ -256,7 +256,9 @@ export const prepareSchemaManifestAppSchemaBindingsV1Effect = Effect.fn(
     deploymentId,
     tables,
   });
-  const tableState = getPreparedSchemaManifestAppTableBindingsState(tablePlan);
+  const tableState = yield* Effect.fromResult(
+    getPreparedSchemaManifestAppTableBindingsStateResult(tablePlan),
+  ).pipe(Effect.orDie);
   const resolvedIndexes = resolveAndSortIndexes(tableState, indexes);
   const observedBindings = yield* readAppIndexBindingsEffect(
     db,

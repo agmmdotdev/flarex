@@ -21,6 +21,7 @@ import { createPGlitePersistence } from "../src/pglite";
 import {
   applySchemaManifestAppTableBindingsV1InTransactionEffect,
   decodeSchemaManifestAppTableBindingRowsResult,
+  getPreparedSchemaManifestAppTableBindingsStateResult,
   InvalidPreparedSchemaManifestTableBindingsError,
   InvalidSchemaManifestTableBindingInputError,
   prepareSchemaManifestAppTableBindingsV1Effect,
@@ -65,11 +66,17 @@ type RawBindingReadExport = Extract<
   "selectSchemaManifestAppTableBindingRows"
 >;
 
+type ThrowingPreparedStateExport = Extract<
+  keyof typeof import("../src/schemaManifestTableBindings"),
+  "getPreparedSchemaManifestAppTableBindingsState"
+>;
+
 describe("schema manifest app table bindings", () => {
   it("keeps optimistic planning and allocation behind concrete boundaries", () => {
     expectTypeOf<PublicBindingMethod>().toEqualTypeOf<never>();
     expectTypeOf<PublicBindingExport>().toEqualTypeOf<never>();
     expectTypeOf<RawBindingReadExport>().toEqualTypeOf<never>();
+    expectTypeOf<ThrowingPreparedStateExport>().toEqualTypeOf<never>();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<
@@ -706,6 +713,22 @@ describe("schema manifest app table bindings", () => {
       persistence.drizzle,
       { deploymentId, tables: [] },
     );
+    expect(
+      Result.isSuccess(
+        getPreparedSchemaManifestAppTableBindingsStateResult(plan),
+      ),
+    ).toBe(true);
+    const forgedState = Reflect.apply(
+      getPreparedSchemaManifestAppTableBindingsStateResult,
+      undefined,
+      [{ deploymentId, section: plan.section }],
+    );
+    expect(Result.isFailure(forgedState)).toBe(true);
+    if (Result.isFailure(forgedState)) {
+      expect(forgedState.failure).toBeInstanceOf(
+        InvalidPreparedSchemaManifestTableBindingsError,
+      );
+    }
     await expect(apply(persistence, plan)).resolves.toMatchObject({
       kind: "tableDefinitions",
       sectionVersion: 1,

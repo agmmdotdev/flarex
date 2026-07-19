@@ -260,6 +260,11 @@ contract remains Promise-based. Protocol compilation and canonicalization
 remain narrow foreign Promise edges, and D2a still performs no SQL writes. The
 three quota policies now expose only their pure `Result` forms; their
 unconsumed throwing projections and facade-only assertions are deleted.
+At the C2-to-D2a composition seam, opaque table-plan state now enters through
+its pure `Result` decoder. Because D2a consumes the token it just created,
+impossible loss of repository authentication remains a defect instead of
+widening the recoverable preparation failure channel; the synchronous throwing
+projection is deleted.
 
 The retained table-only `ensureAppTableDefinitionsArtifactV1` compatibility
 operation is now Effect-native behind its unchanged public Promise contract.
