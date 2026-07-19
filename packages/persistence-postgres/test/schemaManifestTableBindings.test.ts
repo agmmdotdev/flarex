@@ -15,13 +15,12 @@ import type {
 import { getSchemaVersionArtifactByVersion } from "../src/schemaVersionArtifacts";
 import { createPGlitePersistence } from "../src/pglite";
 import {
-  applySchemaManifestAppTableBindingsV1InTransaction,
-  decodeSchemaManifestAppTableBindingRows,
+  applySchemaManifestAppTableBindingsV1InTransactionEffect,
   decodeSchemaManifestAppTableBindingRowsResult,
   InvalidPreparedSchemaManifestTableBindingsError,
   InvalidSchemaManifestTableBindingInputError,
   prepareSchemaManifestAppTableBindingsV1Effect,
-  prepareSchemaManifestAppTableBindingsV1,
+  type ApplySchemaManifestAppTableBindingsV1Error,
   type PrepareSchemaManifestAppTableBindingsV1Error,
   SchemaManifestTableBindingPersistenceError,
   SchemaManifestTableBindingCorruptionError,
@@ -42,14 +41,14 @@ type PublicBindingMethod = Extract<
   keyof FlarexPersistence,
   | "prepareSchemaManifestAppTableBindingsV1"
   | "prepareSchemaManifestAppTableBindingsV1Effect"
-  | "applySchemaManifestAppTableBindingsV1InTransaction"
+  | "applySchemaManifestAppTableBindingsV1InTransactionEffect"
 >;
 
 type PublicBindingExport = Extract<
   keyof typeof import("../src"),
   | "prepareSchemaManifestAppTableBindingsV1"
   | "prepareSchemaManifestAppTableBindingsV1Effect"
-  | "applySchemaManifestAppTableBindingsV1InTransaction"
+  | "applySchemaManifestAppTableBindingsV1InTransactionEffect"
 >;
 
 describe("schema manifest app table bindings", () => {
@@ -59,7 +58,7 @@ describe("schema manifest app table bindings", () => {
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<
-          typeof applySchemaManifestAppTableBindingsV1InTransaction
+          typeof applySchemaManifestAppTableBindingsV1InTransactionEffect
         >[0]
       >();
     expectTypeOf<PrepareSchemaManifestAppTableBindingsV1Input>()
@@ -72,6 +71,14 @@ describe("schema manifest app table bindings", () => {
     >().toEqualTypeOf<Effect.Effect<
       PreparedSchemaManifestAppTableBindingsV1,
       PrepareSchemaManifestAppTableBindingsV1Error
+    >>();
+    expectTypeOf<
+      ReturnType<
+        typeof applySchemaManifestAppTableBindingsV1InTransactionEffect
+      >
+    >().toEqualTypeOf<Effect.Effect<
+      SchemaManifestTableDefinitionsV1,
+      ApplySchemaManifestAppTableBindingsV1Error
     >>();
   });
 
@@ -201,12 +208,6 @@ describe("schema manifest app table bindings", () => {
       [logicalName],
       [invalidRow, unreachedRow],
     ))).toBe(true);
-    expect(() => decodeSchemaManifestAppTableBindingRows(
-      deploymentId,
-      [logicalName],
-      [invalidRow],
-    )).toThrow(SchemaManifestTableBindingCorruptionError);
-
     const cause = new Error("binding row accessor failed");
     const throwingRow = new Proxy(row, {
       get(target, property, receiver) {
@@ -565,7 +566,9 @@ describe("schema manifest app table bindings", () => {
 
     await expect(
       persistence.drizzle.transaction(async (tx) => {
-        await applySchemaManifestAppTableBindingsV1InTransaction(tx, plan);
+        await runEffect(
+          applySchemaManifestAppTableBindingsV1InTransactionEffect(tx, plan),
+        );
         throw new Error("injected rollback");
       }),
     ).rejects.toThrow("injected rollback");
@@ -644,13 +647,13 @@ describe("schema manifest app table bindings", () => {
     });
 
     await expect(
-      persistence.drizzle.transaction((tx) =>
+      persistence.drizzle.transaction((tx) => runEffect(
         Reflect.apply(
-          applySchemaManifestAppTableBindingsV1InTransaction,
+          applySchemaManifestAppTableBindingsV1InTransactionEffect,
           undefined,
           [tx, { deploymentId, section: plan.section }],
         ),
-      ),
+      )),
     ).rejects.toBeInstanceOf(InvalidPreparedSchemaManifestTableBindingsError);
   });
 });
@@ -763,8 +766,16 @@ function apply(
   prepared: PreparedSchemaManifestAppTableBindingsV1,
 ): Promise<SchemaManifestTableDefinitionsV1> {
   return persistence.drizzle.transaction((tx) =>
-    applySchemaManifestAppTableBindingsV1InTransaction(tx, prepared),
+    runEffect(
+      applySchemaManifestAppTableBindingsV1InTransactionEffect(tx, prepared),
+    ),
   );
+}
+
+function prepareSchemaManifestAppTableBindingsV1(
+  ...args: Parameters<typeof prepareSchemaManifestAppTableBindingsV1Effect>
+) {
+  return runEffect(prepareSchemaManifestAppTableBindingsV1Effect(...args));
 }
 
 function ensureTable(

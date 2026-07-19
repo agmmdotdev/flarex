@@ -32,8 +32,8 @@ import {
   verifyInsertedSchemaManifestAppIndexBindingRowsResult,
 } from "../src/schemaManifestAppSchemaBindings";
 import {
-  applySchemaManifestAppTableBindingsV1InTransaction,
-  prepareSchemaManifestAppTableBindingsV1,
+  applySchemaManifestAppTableBindingsV1InTransactionEffect,
+  prepareSchemaManifestAppTableBindingsV1Effect,
 } from "../src/schemaManifestTableBindings";
 import { StableLogicalIndexCatalogIdExhaustedError } from "../src/stableLogicalIndexCatalogAllocation";
 import { StableLogicalIndexCatalogCorruptionError } from "../src/stableLogicalIndexCatalogError";
@@ -737,12 +737,19 @@ describe("schema manifest app-schema bindings", () => {
         indexes: [appIndex("users", "by_name", ["name"])],
       },
     );
-    const separateTablePlan = await prepareSchemaManifestAppTableBindingsV1(
-      persistence.drizzle,
-      { deploymentId: partialDeployment, tables: [appTable("users")] },
+    const separateTablePlan = await runEffect(
+      prepareSchemaManifestAppTableBindingsV1Effect(persistence.drizzle, {
+        deploymentId: partialDeployment,
+        tables: [appTable("users")],
+      }),
     );
     await persistence.drizzle.transaction((tx) =>
-      applySchemaManifestAppTableBindingsV1InTransaction(tx, separateTablePlan),
+      runEffect(
+        applySchemaManifestAppTableBindingsV1InTransactionEffect(
+          tx,
+          separateTablePlan,
+        ),
+      ),
     );
     await expect(apply(persistence, combinedPlan)).rejects.toMatchObject({
       name: "SchemaManifestAppSchemaBindingPlanStaleError",

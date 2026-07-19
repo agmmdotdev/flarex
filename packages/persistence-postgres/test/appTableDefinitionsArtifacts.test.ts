@@ -8,6 +8,7 @@ import {
   type SchemaManifestTableDefinitionsV1,
 } from "flarex-protocol/schema-manifest";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
@@ -18,41 +19,45 @@ import type {
 } from "../src";
 import {
   AppTableDefinitionsArtifactV1RetryExhaustedError,
-  ensureAppTableDefinitionsArtifactV1WithRepository,
-  ensurePreparedAppTableDefinitionsArtifactV1InTransaction,
+  AppTableDefinitionsArtifactV1TransactionError,
+  ensureAppTableDefinitionsArtifactV1WithRepositoryEffect,
+  ensurePreparedAppTableDefinitionsArtifactV1InTransactionEffect,
   InvalidAppTableDefinitionsArtifactV1InputError,
   InvalidPreparedAppTableDefinitionsArtifactV1Error,
   MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS,
-  prepareAppTableDefinitionsArtifactV1,
-  runAppTableDefinitionsArtifactV1Attempts,
+  prepareAppTableDefinitionsArtifactV1Effect,
+  runAppTableDefinitionsArtifactV1AttemptsEffect,
   type AppTableDefinitionsArtifactV1Repository,
   type AppTableDefinitionsArtifactV1Transaction,
+  type EnsureAppTableDefinitionsArtifactV1Error,
+  type PrepareAppTableDefinitionsArtifactV1Error,
+  type PreparedAppTableDefinitionsArtifactV1,
 } from "../src/appTableDefinitionsArtifacts";
 import { createPGlitePersistence } from "../src/pglite";
 import {
-  prepareSchemaManifestAppTableBindingsV1,
+  prepareSchemaManifestAppTableBindingsV1Effect,
   SchemaManifestTableBindingPlanStaleError,
 } from "../src/schemaManifestTableBindings";
 import {
-  ensureSchemaVersionArtifactInTransaction,
+  ensureSchemaVersionArtifactInTransactionEffect,
   getSchemaVersionArtifactByVersion,
-  prepareSchemaVersionArtifact,
+  prepareSchemaVersionArtifactEffect,
   SchemaVersionArtifactConflictError,
 } from "../src/schemaVersionArtifacts";
 import {
   ensureStableTableIdentityEffect,
   getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 type PublicInternalCompatibilityExport = Extract<
   keyof typeof import("../src"),
-  | "prepareAppTableDefinitionsArtifactV1"
-  | "ensurePreparedAppTableDefinitionsArtifactV1InTransaction"
-  | "ensureAppTableDefinitionsArtifactV1WithRepository"
-  | "runAppTableDefinitionsArtifactV1Attempts"
-  | "prepareSchemaVersionArtifact"
-  | "ensureSchemaVersionArtifactInTransaction"
+  | "prepareAppTableDefinitionsArtifactV1Effect"
+  | "ensurePreparedAppTableDefinitionsArtifactV1InTransactionEffect"
+  | "ensureAppTableDefinitionsArtifactV1WithRepositoryEffect"
+  | "runAppTableDefinitionsArtifactV1AttemptsEffect"
+  | "prepareSchemaVersionArtifactEffect"
+  | "ensureSchemaVersionArtifactInTransactionEffect"
   | "ensureStableTableIdentityEffect"
 >;
 
@@ -84,6 +89,114 @@ describe("table-only app definitions artifact compatibility", () => {
         ReturnType<FlarexPersistence["ensureAppTableDefinitionsArtifactV1"]>
       >
     >().toEqualTypeOf<EnsureSchemaVersionArtifactResult>();
+    expectTypeOf<
+      ReturnType<typeof prepareAppTableDefinitionsArtifactV1Effect>
+    >().toEqualTypeOf<Effect.Effect<
+      PreparedAppTableDefinitionsArtifactV1,
+      PrepareAppTableDefinitionsArtifactV1Error
+    >>();
+    expectTypeOf<
+      ReturnType<
+        typeof ensureAppTableDefinitionsArtifactV1WithRepositoryEffect
+      >
+    >().toEqualTypeOf<Effect.Effect<
+      EnsureSchemaVersionArtifactResult,
+      EnsureAppTableDefinitionsArtifactV1Error
+    >>();
+  });
+
+  it("maps transaction infrastructure rejection once to its tagged failure", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_table_artifact_transaction_rejection";
+    await insertDeployment(persistence, deploymentId);
+    const rejection = new Error("table artifact transaction rejected");
+    const repository = {
+      db: persistence.drizzle,
+      runTransaction<Result>(): Promise<Result> {
+        return Promise.reject(rejection);
+      },
+    } satisfies AppTableDefinitionsArtifactV1Repository;
+
+    const failure = await runEffectFailure(
+      ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
+        repository,
+        appSchemaInput(deploymentId, "schema_transaction_rejection", ["users"]),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(
+      AppTableDefinitionsArtifactV1TransactionError,
+    );
+    expect(failure).toMatchObject({ cause: rejection });
+  });
+
+  it("preserves input accessor failures as defects", async () => {
+    const persistence = await migratedPersistence();
+    const defect = new Error("table artifact input ownKeys defect");
+    const input = new Proxy(
+      appSchemaInput("deployment_input_defect", "schema_input_defect", ["users"]),
+      {
+        ownKeys(): never {
+          throw defect;
+        },
+      },
+    );
+
+    const exit = await Effect.runPromiseExit(
+      prepareAppTableDefinitionsArtifactV1Effect(persistence.drizzle, input),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("waits for the transaction owner to settle before interruption completes", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_table_artifact_interruption";
+    await insertDeployment(persistence, deploymentId);
+    const entered = deferredValue<void>();
+    const release = deferredValue<void>();
+    const repository = {
+      db: persistence.drizzle,
+      async runTransaction<Result>(
+        run: (tx: AppTableDefinitionsArtifactV1Transaction) => Promise<Result>,
+      ): Promise<Result> {
+        const result = await persistence.drizzle.transaction(run);
+        entered.resolve(undefined);
+        await release.promise;
+        return result;
+      },
+    } satisfies AppTableDefinitionsArtifactV1Repository;
+    const fiber = Effect.runFork(
+      ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
+        repository,
+        appSchemaInput(deploymentId, "schema_interruption", ["users"]),
+      ),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve(undefined);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
   });
 
   it("atomically ensures coherent mappings and replays the exact artifact", async () => {
@@ -204,9 +317,11 @@ describe("table-only app definitions artifact compatibility", () => {
       "schema_app_retry",
       ["users"],
     );
-    const initialBindings = await prepareSchemaManifestAppTableBindingsV1(
-      persistence.drizzle,
-      { deploymentId, tables: input.tables },
+    const initialBindings = await runEffect(
+      prepareSchemaManifestAppTableBindingsV1Effect(persistence.drizzle, {
+        deploymentId,
+        tables: input.tables,
+      }),
     );
     const initialCanonical = await canonicalizeSchemaManifestV1(
       decodeSchemaManifestJson(initialBindings.section),
@@ -232,9 +347,11 @@ describe("table-only app definitions artifact compatibility", () => {
       },
     } satisfies AppTableDefinitionsArtifactV1Repository;
 
-    const result = await ensureAppTableDefinitionsArtifactV1WithRepository(
-      racingRepository,
-      input,
+    const result = await runEffect(
+      ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
+        racingRepository,
+        input,
+      ),
     );
 
     expect(result.status).toBe("created");
@@ -259,13 +376,13 @@ describe("table-only app definitions artifact compatibility", () => {
     });
     let staleAttempts = 0;
     await expect(
-      runAppTableDefinitionsArtifactV1Attempts(
+      runEffect(runAppTableDefinitionsArtifactV1AttemptsEffect(
         "deployment_retry_exhausted",
-        async () => {
+        () => {
           staleAttempts += 1;
-          throw stale;
+          return Effect.fail(stale);
         },
-      ),
+      )),
     ).rejects.toMatchObject({
       name: "AppTableDefinitionsArtifactV1RetryExhaustedError",
       deploymentId: "deployment_retry_exhausted",
@@ -283,13 +400,13 @@ describe("table-only app definitions artifact compatibility", () => {
     });
     let terminalAttempts = 0;
     await expect(
-      runAppTableDefinitionsArtifactV1Attempts(
+      runEffect(runAppTableDefinitionsArtifactV1AttemptsEffect(
         "deployment_terminal",
-        async () => {
+        () => {
           terminalAttempts += 1;
-          throw terminal;
+          return Effect.fail(terminal);
         },
-      ),
+      )),
     ).rejects.toBe(terminal);
     expect(terminalAttempts).toBe(1);
   });
@@ -305,22 +422,25 @@ describe("table-only app definitions artifact compatibility", () => {
     );
 
     await expect(
-      Reflect.apply(prepareAppTableDefinitionsArtifactV1, undefined, [
-        persistence.drizzle,
-        { ...input, manifest: { caller: true } },
-      ]),
+      runEffect(Reflect.apply(
+        prepareAppTableDefinitionsArtifactV1Effect,
+        undefined,
+        [persistence.drizzle, { ...input, manifest: { caller: true } }],
+      )),
     ).rejects.toBeInstanceOf(InvalidAppTableDefinitionsArtifactV1InputError);
 
-    const bindingToken = await prepareSchemaManifestAppTableBindingsV1(
-      persistence.drizzle,
-      { deploymentId, tables: input.tables },
+    const bindingToken = await runEffect(
+      prepareSchemaManifestAppTableBindingsV1Effect(persistence.drizzle, {
+        deploymentId,
+        tables: input.tables,
+      }),
     );
-    const artifactToken = await prepareSchemaVersionArtifact({
+    const artifactToken = await runEffect(prepareSchemaVersionArtifactEffect({
       deploymentId,
       schemaVersionId: input.schemaVersionId,
       version: input.version,
       manifest: decodeSchemaManifestJson(bindingToken.section),
-    });
+    }));
     const invalidTokens: ReadonlyArray<unknown> = [
       bindingToken,
       artifactToken,
@@ -332,13 +452,11 @@ describe("table-only app definitions artifact compatibility", () => {
     ];
     for (const invalidToken of invalidTokens) {
       await expect(
-        persistence.drizzle.transaction((tx) =>
-          Reflect.apply(
-            ensurePreparedAppTableDefinitionsArtifactV1InTransaction,
-            undefined,
-            [tx, invalidToken],
-          ),
-        ),
+        persistence.drizzle.transaction((tx) => runEffect(Reflect.apply(
+          ensurePreparedAppTableDefinitionsArtifactV1InTransactionEffect,
+          undefined,
+          [tx, invalidToken],
+        ))),
       ).rejects.toBeInstanceOf(
         InvalidPreparedAppTableDefinitionsArtifactV1Error,
       );
@@ -491,6 +609,29 @@ function publicationRepository(
   };
 }
 
+function deferredValue<Value>(): Readonly<{
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+}> {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve(value: Value) {
+      if (resolvePromise === undefined) {
+        throw new Error("Deferred value was not initialized.");
+      }
+      resolvePromise(value);
+    },
+  });
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 function ensureTable(
   persistence: PGlitePersistence,
   input: Parameters<typeof ensureStableTableIdentityEffect>[1],
@@ -502,8 +643,8 @@ async function ensureArtifact(
   persistence: PGlitePersistence,
   input: EnsureSchemaVersionArtifactInput,
 ) {
-  const prepared = await prepareSchemaVersionArtifact(input);
-  return persistence.drizzle.transaction((tx) =>
-    ensureSchemaVersionArtifactInTransaction(tx, prepared),
-  );
+  const prepared = await runEffect(prepareSchemaVersionArtifactEffect(input));
+  return persistence.drizzle.transaction((tx) => runEffect(
+    ensureSchemaVersionArtifactInTransactionEffect(tx, prepared),
+  ));
 }

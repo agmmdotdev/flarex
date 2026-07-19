@@ -44,7 +44,7 @@ import {
 } from "../src/appIndexDefinitions";
 import { createPGlitePersistence } from "../src/pglite";
 import {
-  ensureSchemaVersionArtifactInTransaction,
+  ensureSchemaVersionArtifactInTransactionEffect,
   SchemaVersionArtifactConflictError,
   SchemaVersionArtifactCorruptionError,
 } from "../src/schemaVersionArtifacts";
@@ -54,6 +54,10 @@ import { runEffect } from "./effectTestRuntime";
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
 ) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
+
+const ensureSchemaVersionArtifactInTransaction = (
+  ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
+) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
 
 type PublicInternalPublicationExport = Extract<
   keyof typeof import("../src"),

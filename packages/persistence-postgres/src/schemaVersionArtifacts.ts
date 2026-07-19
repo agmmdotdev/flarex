@@ -246,30 +246,7 @@ const preparedSchemaVersionArtifactStates = new WeakMap<
   PreparedSchemaVersionArtifactState
 >();
 
-/**
- * Validate, canonicalize, and hash one trusted artifact before opening SQL.
- *
- * The returned token is opaque and repository-owned. It exposes no canonical
- * bytes or checksum for callers to replace between preparation and commit.
- * This Promise form remains for table-only artifact compatibility and existing
- * package-internal Promise consumers; full app-schema preparation consumes the
- * Effect operation below.
- */
-export async function prepareSchemaVersionArtifact(
-  input: EnsureSchemaVersionArtifactInput,
-): Promise<PreparedSchemaVersionArtifact> {
-  const validated = Result.getOrThrow(validateEnsureInputResult(input));
-  let canonical: CanonicalSchemaManifestV1;
-  try {
-    canonical = await canonicalizeSchemaManifestV1(validated.manifest);
-  } catch (cause) {
-    throw new SchemaVersionArtifactPreparationError(validated.deploymentId, {
-      cause,
-    });
-  }
-  return makePreparedSchemaVersionArtifact(validated, canonical);
-}
-
+/** Validate, canonicalize, and hash one trusted artifact before opening SQL. */
 export const prepareSchemaVersionArtifactEffect = Effect.fn(
   "SchemaVersionArtifacts.prepare",
 )(function* (
@@ -382,20 +359,6 @@ export const ensureSchemaVersionArtifactInTransactionEffect = Effect.fn(
   );
   return { status: "existing", artifact: existing };
 });
-
-/**
- * Promise compatibility for the table-only publication transaction.
- * Delete this bridge when `ensurePreparedAppTableDefinitionsArtifactV1`
- * consumes the Effect operation and owns its transaction runtime boundary.
- */
-export function ensureSchemaVersionArtifactInTransaction(
-  tx: SchemaVersionArtifactTransaction,
-  artifact: PreparedSchemaVersionArtifact,
-): Promise<EnsureSchemaVersionArtifactResult> {
-  return Effect.runPromise(
-    ensureSchemaVersionArtifactInTransactionEffect(tx, artifact),
-  );
-}
 
 /**
  * Read back one prepared artifact using only its already-canonical evidence.

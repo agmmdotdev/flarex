@@ -15,11 +15,11 @@ import type {
   EnsureSchemaVersionArtifactInput,
 } from "../src";
 import type { PostgresFlarexPersistence } from "../src/postgres";
-import { prepareSchemaManifestAppTableBindingsV1 } from "../src/schemaManifestTableBindings";
+import { prepareSchemaManifestAppTableBindingsV1Effect } from "../src/schemaManifestTableBindings";
 import {
-  ensureSchemaVersionArtifactInTransaction,
+  ensureSchemaVersionArtifactInTransactionEffect,
   getSchemaVersionArtifactByVersion,
-  prepareSchemaVersionArtifact,
+  prepareSchemaVersionArtifactEffect,
 } from "../src/schemaVersionArtifacts";
 import {
   ensureStableTableIdentityEffect,
@@ -35,6 +35,18 @@ import {
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+
+const prepareSchemaManifestAppTableBindingsV1 = (
+  ...args: Parameters<typeof prepareSchemaManifestAppTableBindingsV1Effect>
+) => runEffect(prepareSchemaManifestAppTableBindingsV1Effect(...args));
+
+const prepareSchemaVersionArtifact = (
+  ...args: Parameters<typeof prepareSchemaVersionArtifactEffect>
+) => runEffect(prepareSchemaVersionArtifactEffect(...args));
+
+const ensureSchemaVersionArtifactInTransaction = (
+  ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
+) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
 
 describePostgres("real Postgres table-definitions artifact compatibility", () => {
   it("converges concurrent exact mapping and artifact publications", async () => {

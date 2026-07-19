@@ -61,8 +61,8 @@ import {
   fxControlIndexDefinitions,
 } from "../src/schema";
 import {
-  ensureSchemaVersionArtifactInTransaction,
-  prepareSchemaVersionArtifact,
+  ensureSchemaVersionArtifactInTransactionEffect,
+  prepareSchemaVersionArtifactEffect,
 } from "../src/schemaVersionArtifacts";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -70,6 +70,14 @@ import { runEffect, runEffectFailure } from "./effectTestRuntime";
 const prepareSchemaManifestAppSchemaBindingsV1 = (
   ...args: Parameters<typeof prepareSchemaManifestAppSchemaBindingsV1Effect>
 ) => runEffect(prepareSchemaManifestAppSchemaBindingsV1Effect(...args));
+
+const prepareSchemaVersionArtifact = (
+  ...args: Parameters<typeof prepareSchemaVersionArtifactEffect>
+) => runEffect(prepareSchemaVersionArtifactEffect(...args));
+
+const ensureSchemaVersionArtifactInTransaction = (
+  ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
+) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
 
 type PublicMutationMethod = Extract<
   keyof FlarexPersistence,

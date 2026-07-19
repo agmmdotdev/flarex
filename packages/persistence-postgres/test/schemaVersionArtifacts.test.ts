@@ -16,13 +16,11 @@ import type {
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { createPGlitePersistence } from "../src/pglite";
 import {
-  ensureSchemaVersionArtifactInTransaction,
   ensureSchemaVersionArtifactInTransactionEffect,
   getSchemaVersionArtifactById,
   getSchemaVersionArtifactByVersion,
   InvalidPreparedSchemaVersionArtifactError,
   InvalidSchemaVersionArtifactInputError,
-  prepareSchemaVersionArtifact,
   prepareSchemaVersionArtifactEffect,
   type PrepareSchemaVersionArtifactError,
   type PreparedSchemaVersionArtifact,
@@ -33,6 +31,14 @@ import {
   type SchemaVersionArtifactTransaction,
 } from "../src/schemaVersionArtifacts";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+
+const prepareSchemaVersionArtifact = (
+  ...args: Parameters<typeof prepareSchemaVersionArtifactEffect>
+) => runEffect(prepareSchemaVersionArtifactEffect(...args));
+
+const ensureSchemaVersionArtifactInTransaction = (
+  ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
+) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
 
 interface CallerComputedArtifactInput {
   readonly deploymentId: string;
@@ -72,11 +78,11 @@ describe("schema version artifacts", () => {
     expectTypeOf<PublicSchemaVersionWriter>().toEqualTypeOf<never>();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
-        Parameters<typeof ensureSchemaVersionArtifactInTransaction>[0]
+        Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>[0]
       >();
     expectTypeOf<EnsureSchemaVersionArtifactInput>()
       .not.toMatchTypeOf<
-        Parameters<typeof ensureSchemaVersionArtifactInTransaction>[1]
+        Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>[1]
       >();
     expectTypeOf<SchemaVersionArtifact["schemaVersionId"]>()
       .toEqualTypeOf<CatalogSchemaVersionId>();

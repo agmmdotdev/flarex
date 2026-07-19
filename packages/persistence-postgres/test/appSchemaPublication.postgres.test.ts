@@ -30,7 +30,7 @@ import {
 } from "../src/appIndexDefinitions";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { applySchemaManifestAppSchemaBindingsV1InTransactionEffect } from "../src/schemaManifestAppSchemaBindings";
-import { ensureSchemaVersionArtifactInTransaction } from "../src/schemaVersionArtifacts";
+import { ensureSchemaVersionArtifactInTransactionEffect } from "../src/schemaVersionArtifacts";
 import { ensureStableTableIdentityEffect } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
 import {
@@ -363,7 +363,12 @@ describePostgres("real Postgres app-schema V1 publication", () => {
             targetState.logicalBindings,
           ),
         );
-        await ensureSchemaVersionArtifactInTransaction(tx, targetState.artifact);
+        await runEffect(
+          ensureSchemaVersionArtifactInTransactionEffect(
+            tx,
+            targetState.artifact,
+          ),
+        );
       });
 
       const historical = await prepareAppSchemaPublicationV1(

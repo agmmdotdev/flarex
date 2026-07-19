@@ -11,11 +11,12 @@ import type {
 } from "../src";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
-  ensureSchemaVersionArtifactInTransaction,
+  ensureSchemaVersionArtifactInTransactionEffect,
   getSchemaVersionArtifactByVersion,
-  prepareSchemaVersionArtifact,
+  prepareSchemaVersionArtifactEffect,
   SchemaVersionArtifactConflictError,
 } from "../src/schemaVersionArtifacts";
+import { runEffect } from "./effectTestRuntime";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -23,6 +24,14 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const version1 = CatalogSchemaVersionSchema.make(1);
+
+const prepareSchemaVersionArtifact = (
+  ...args: Parameters<typeof prepareSchemaVersionArtifactEffect>
+) => runEffect(prepareSchemaVersionArtifactEffect(...args));
+
+const ensureSchemaVersionArtifactInTransaction = (
+  ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
+) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
 
 describePostgres("real Postgres schema version artifacts", () => {
   it("converges concurrent exact artifact replays", async () => {

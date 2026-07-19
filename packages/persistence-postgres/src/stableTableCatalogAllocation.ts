@@ -8,7 +8,6 @@ import { Effect, Result } from "effect";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { fxControlTables } from "./schema";
 import {
-  decodeStableTableCatalogId,
   decodeStableTableCatalogIdResult,
 } from "./stableTableCatalogDecoding";
 import { StableTableCatalogCorruptionError } from
@@ -70,22 +69,6 @@ export const readStableTableCatalogHighWaterEffect = Effect.fn(
       decodeStableTableCatalogIdResult(deploymentId, value),
     );
 });
-
-/**
- * Temporary Promise projection for table-only `appTableDefinitionsArtifacts`
- * preparation and revalidation. Delete it when that compatibility path
- * consumes the Effect operation directly.
- */
-export async function readStableTableCatalogHighWater(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-): Promise<CatalogTableId | null> {
-  const rows = await selectStableTableCatalogHighWater(db, deploymentId);
-  const value = rows[0]?.tableId;
-  return value === undefined
-    ? null
-    : decodeStableTableCatalogId(deploymentId, value);
-}
 
 function selectStableTableCatalogHighWater(
   db: FlarexMetadataDatabase,

@@ -17,17 +17,13 @@ import {
   type SchemaManifestTableDefinitionsV1,
 } from "flarex-protocol/schema-manifest";
 
-import {
-  getDeploymentMetadata,
-  type FlarexMetadataDatabase,
-} from "./deployments";
+import type { FlarexMetadataDatabase } from "./deployments";
 import {
   StableTableCatalogDeploymentNotFoundError,
   type StableTableCatalogTransaction,
 } from "./stableTableCatalog";
 import {
   nextStableTableCatalogIdResult,
-  readStableTableCatalogHighWater,
   readStableTableCatalogHighWaterEffect,
   type StableTableCatalogAllocationPersistenceError,
   StableTableCatalogIdExhaustedError,
@@ -140,6 +136,15 @@ export type PrepareSchemaManifestAppTableBindingsV1Error =
   | StableTableCatalogCorruptionError
   | StableTableCatalogIdExhaustedError;
 
+export type ApplySchemaManifestAppTableBindingsV1Error =
+  | InvalidPreparedSchemaManifestTableBindingsError
+  | SchemaManifestTableBindingPlanStaleError
+  | StableTableCatalogDeploymentNotFoundError
+  | SchemaManifestTableBindingPersistenceError
+  | SchemaManifestTableBindingCorruptionError
+  | StableTableCatalogAllocationPersistenceError
+  | StableTableCatalogCorruptionError;
+
 export interface PlannedAppTableBinding {
   readonly logicalName: SchemaManifestAppTableName;
   readonly tableId: CatalogTableId;
@@ -158,72 +163,28 @@ const preparedBindingStates = new WeakMap<
   PreparedSchemaManifestAppTableBindingsState
 >();
 
+function getPreparedSchemaManifestAppTableBindingsStateResult(
+  prepared: PreparedSchemaManifestAppTableBindingsV1,
+): Result.Result<
+  PreparedSchemaManifestAppTableBindingsState,
+  InvalidPreparedSchemaManifestTableBindingsError
+> {
+  const state = preparedBindingStates.get(prepared);
+  return state === undefined
+    ? Result.fail(new InvalidPreparedSchemaManifestTableBindingsError())
+    : Result.succeed(state);
+}
+
 /** Internal composition seam for the full app-schema planner. */
 export function getPreparedSchemaManifestAppTableBindingsState(
   prepared: PreparedSchemaManifestAppTableBindingsV1,
 ): PreparedSchemaManifestAppTableBindingsState {
-  const state = preparedBindingStates.get(prepared);
-  if (state === undefined) {
-    throw new InvalidPreparedSchemaManifestTableBindingsError();
-  }
-  return state;
-}
-
-/**
- * Build a deterministic optimistic binding plan without taking a database lock.
- *
- * The section is safe to canonicalize outside SQL. Applying the opaque plan in
- * a later short transaction revalidates the observed catalog state before any
- * planned ID is inserted. This Promise form remains only for the table-only
- * `appTableDefinitionsArtifacts` compatibility path; full app-schema
- * preparation consumes the Effect operation below.
- */
-export async function prepareSchemaManifestAppTableBindingsV1(
-  db: FlarexMetadataDatabase,
-  input: PrepareSchemaManifestAppTableBindingsV1Input,
-): Promise<PreparedSchemaManifestAppTableBindingsV1> {
-  const deploymentId = Result.getOrThrow(
-    validateDeploymentIdResult(input.deploymentId),
-  );
-  const declarations = Result.getOrThrow(
-    decodeDeclarationsResult(input.tables),
-  );
-  const sortedDeclarations = [...declarations].sort(compareDeclarationsByName);
-
-  if (await getDeploymentMetadata(db, deploymentId) === null) {
-    throw new StableTableCatalogDeploymentNotFoundError(deploymentId);
-  }
-
-  const observedBindings = await readSchemaManifestAppTableBindings(
-    db,
-    deploymentId,
-    sortedDeclarations.map((table) => table.logicalName),
-  );
-  const observedHighWater = await readStableTableCatalogHighWater(
-    db,
-    deploymentId,
-  );
-  const plannedTables = Result.getOrThrow(
-    planTableBindingsResult(
-      deploymentId,
-      sortedDeclarations,
-      observedBindings,
-      observedHighWater,
-    ),
-  );
-  const section = detachAndFreezeSection(
-    Result.getOrThrow(
-      assembleSectionResult(deploymentId, sortedDeclarations, plannedTables),
-    ),
-  );
-  return makePreparedTableBindings(
-    deploymentId,
-    observedHighWater,
-    plannedTables,
-    section,
+  return Result.getOrThrow(
+    getPreparedSchemaManifestAppTableBindingsStateResult(prepared),
   );
 }
 
+/** Build a deterministic optimistic binding plan without taking a SQL lock. */
 export const prepareSchemaManifestAppTableBindingsV1Effect = Effect.fn(
   "SchemaManifestTableBindings.prepareAppBindings",
 )(function* (
@@ -292,21 +253,23 @@ function makePreparedTableBindings(
   return prepared;
 }
 
-/**
- * Revalidate and apply one prepared binding plan inside a caller-owned tx.
- *
- * This helper never commits. The later artifact slice must call it in the same
- * transaction as immutable artifact insertion. Stale optimistic plans fail
- * before any planned row is inserted and must be rebuilt outside SQL.
- */
-export async function applySchemaManifestAppTableBindingsV1InTransaction(
+/** Revalidate and apply one prepared plan inside a caller-owned transaction. */
+export const applySchemaManifestAppTableBindingsV1InTransactionEffect =
+Effect.fn(
+  "SchemaManifestTableBindings.applyInTransaction",
+)(function* (
   tx: StableTableCatalogTransaction,
   prepared: PreparedSchemaManifestAppTableBindingsV1,
-): Promise<SchemaManifestTableDefinitionsV1> {
-  const state = getPreparedSchemaManifestAppTableBindingsState(prepared);
+): Effect.fn.Return<
+  SchemaManifestTableDefinitionsV1,
+  ApplySchemaManifestAppTableBindingsV1Error
+> {
+  const state = yield* Effect.fromResult(
+    getPreparedSchemaManifestAppTableBindingsStateResult(prepared),
+  );
 
-  await lockSchemaManifestBindingDeployment(tx, state.deploymentId);
-  const currentBindings = await readSchemaManifestAppTableBindings(
+  yield* lockSchemaManifestBindingDeploymentEffect(tx, state.deploymentId);
+  const currentBindings = yield* readSchemaManifestAppTableBindingsEffect(
     tx,
     state.deploymentId,
     state.tables.map((table) => table.logicalName),
@@ -319,7 +282,7 @@ export async function applySchemaManifestAppTableBindingsV1InTransaction(
     const currentTableId = currentBindings.get(table.logicalName) ?? null;
     if (!table.wasMissing) {
       if (currentTableId !== table.tableId) {
-        throw bindingChanged(table, currentTableId);
+        return yield* Effect.fail(bindingChanged(table, currentTableId));
       }
       continue;
     }
@@ -328,7 +291,7 @@ export async function applySchemaManifestAppTableBindingsV1InTransaction(
     } else if (currentTableId === null) {
       stillMissingNames.push(table.logicalName);
     } else {
-      throw bindingChanged(table, currentTableId);
+      return yield* Effect.fail(bindingChanged(table, currentTableId));
     }
   }
 
@@ -336,32 +299,32 @@ export async function applySchemaManifestAppTableBindingsV1InTransaction(
     return state.section;
   }
   if (appliedNames.length > 0) {
-    throw new SchemaManifestTableBindingPlanStaleError({
+    return yield* Effect.fail(new SchemaManifestTableBindingPlanStaleError({
       reason: "partiallyApplied",
       appliedLogicalNames: Object.freeze([...appliedNames]),
       missingLogicalNames: Object.freeze([...stillMissingNames]),
-    });
+    }));
   }
 
-  const currentHighWater = await readStableTableCatalogHighWater(
+  const currentHighWater = yield* readStableTableCatalogHighWaterEffect(
     tx,
     state.deploymentId,
   );
   if (currentHighWater !== state.observedHighWater) {
-    throw new SchemaManifestTableBindingPlanStaleError({
+    return yield* Effect.fail(new SchemaManifestTableBindingPlanStaleError({
       reason: "catalogHighWaterChanged",
       observedTableId: state.observedHighWater,
       currentTableId: currentHighWater,
-    });
+    }));
   }
 
-  await insertPlannedSchemaManifestAppTableBindings(
+  yield* insertPlannedSchemaManifestAppTableBindingsEffect(
     tx,
     state,
     missingAtPreparation,
   );
   return state.section;
-}
+});
 
 function validateDeploymentIdResult(
   deploymentId: string,
@@ -397,19 +360,6 @@ function compareDeclarationsByName(
     : left.logicalName > right.logicalName
       ? 1
       : 0;
-}
-
-export async function lockSchemaManifestBindingDeployment(
-  tx: StableTableCatalogTransaction,
-  deploymentId: string,
-): Promise<void> {
-  const rows = await selectLockedSchemaManifestBindingDeployment(
-    tx,
-    deploymentId,
-  );
-  if (rows[0] === undefined) {
-    throw new StableTableCatalogDeploymentNotFoundError(deploymentId);
-  }
 }
 
 export class SchemaManifestTableBindingPersistenceError extends Error {
@@ -507,23 +457,6 @@ function selectLockedSchemaManifestBindingDeployment(
     .for("update");
 }
 
-export async function readSchemaManifestAppTableBindings(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-  logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
-): Promise<ReadonlyMap<SchemaManifestAppTableName, CatalogTableId>> {
-  const rows = await selectSchemaManifestAppTableBindingRows(
-    db,
-    deploymentId,
-    logicalNames,
-  );
-  return decodeSchemaManifestAppTableBindingRows(
-    deploymentId,
-    logicalNames,
-    rows,
-  );
-}
-
 export const readSchemaManifestAppTableBindingsEffect = Effect.fn(
   "SchemaManifestTableBindings.readAppBindings",
 )(function* (
@@ -592,23 +525,6 @@ function selectSchemaManifestAppTableBindingRowsQuery(
         inArray(fxControlTables.logicalName, logicalNames),
       ),
     );
-}
-
-/** Package-internal decoder for rows acquired from the stable table catalog. */
-export function decodeSchemaManifestAppTableBindingRows(
-  deploymentId: string,
-  logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
-  rows: ReadonlyArray<SchemaManifestAppTableBindingRow>,
-): ReadonlyMap<SchemaManifestAppTableName, CatalogTableId> {
-  // Temporary throwing projection for this module's table-only Promise
-  // compatibility path. Delete it when that consumer owns Result or Effect.
-  return Result.getOrThrow(
-    decodeSchemaManifestAppTableBindingRowsResult(
-      deploymentId,
-      logicalNames,
-      rows,
-    ),
-  );
 }
 
 /** Pure recoverable decoder for rows acquired from the stable table catalog. */
@@ -785,25 +701,6 @@ export const insertPlannedSchemaManifestAppTableBindingsEffect = Effect.fn(
     ),
   );
 });
-
-/** Promise compatibility boundary for the table-only artifact flow. */
-export async function insertPlannedSchemaManifestAppTableBindings(
-  tx: StableTableCatalogTransaction,
-  state: PreparedSchemaManifestAppTableBindingsState,
-  missingTables: ReadonlyArray<PlannedAppTableBinding>,
-): Promise<void> {
-  if (missingTables.length === 0) return;
-  const rows = await insertPlannedSchemaManifestAppTableBindingsQuery(
-    tx,
-    state,
-    missingTables,
-  );
-  Result.getOrThrow(verifyInsertedSchemaManifestAppTableBindingRowsResult(
-    state.deploymentId,
-    missingTables,
-    rows,
-  ));
-}
 
 function insertPlannedSchemaManifestAppTableBindingsQuery(
   tx: StableTableCatalogTransaction,

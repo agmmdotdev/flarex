@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
-  applySchemaManifestAppTableBindingsV1InTransaction,
-  prepareSchemaManifestAppTableBindingsV1,
+  applySchemaManifestAppTableBindingsV1InTransactionEffect,
+  prepareSchemaManifestAppTableBindingsV1Effect,
   type PreparedSchemaManifestAppTableBindingsV1,
   SchemaManifestTableBindingPlanStaleError,
 } from "../src/schemaManifestTableBindings";
@@ -272,8 +272,16 @@ function apply(
   prepared: PreparedSchemaManifestAppTableBindingsV1,
 ): Promise<SchemaManifestTableDefinitionsV1> {
   return persistence.drizzle.transaction((tx) =>
-    applySchemaManifestAppTableBindingsV1InTransaction(tx, prepared),
+    runEffect(
+      applySchemaManifestAppTableBindingsV1InTransactionEffect(tx, prepared),
+    ),
   );
+}
+
+function prepareSchemaManifestAppTableBindingsV1(
+  ...args: Parameters<typeof prepareSchemaManifestAppTableBindingsV1Effect>
+) {
+  return runEffect(prepareSchemaManifestAppTableBindingsV1Effect(...args));
 }
 
 type ApplyAttempt =

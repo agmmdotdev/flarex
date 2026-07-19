@@ -95,7 +95,7 @@ import {
   recordLiveQueryDeliveryFailure as recordLiveQueryDeliveryFailureWithDb,
 } from "./liveQueryDeliveries";
 import {
-  ensureAppTableDefinitionsArtifactV1WithRepository,
+  ensureAppTableDefinitionsArtifactV1WithRepositoryEffect,
   type AppTableDefinitionsArtifactV1Repository,
 } from "./appTableDefinitionsArtifacts";
 import {
@@ -150,11 +150,14 @@ export function createFlarexRuntimePersistence(
       listDeploymentMetadataWithDb(drizzleDb, input),
     updateDeploymentMetadataActivation: (input) =>
       updateDeploymentMetadataActivationWithDb(drizzleDb, input),
-    ensureAppTableDefinitionsArtifactV1: (input) =>
-      ensureAppTableDefinitionsArtifactV1WithRepository(
+    // FlarexRuntimePersistence retains the table-only Promise compatibility
+    // contract. This runner is deleted with that public facade.
+    ensureAppTableDefinitionsArtifactV1: (input) => Effect.runPromise(
+      ensureAppTableDefinitionsArtifactV1WithRepositoryEffect(
         driver.appTableDefinitionsArtifactRepository,
         input,
       ),
+    ),
     // FlarexRuntimePersistence remains a Promise compatibility contract. This
     // is its single audited runtime bridge; delete it when that host-facing
     // interface accepts the Effect operation directly.

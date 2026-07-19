@@ -241,13 +241,24 @@ logical-index observations, high-water planning, requirement compilation,
 artifact canonicalization, exact quota checks, and typed stale-plan retries
 remain in one Effect graph. D2a-only Promise high-water readers, throwing
 allocators, combined planner APIs, and D2d's exception-based retry loop and
-outer runtime bridge were deleted. The single outer Promise runner now belongs
-to `FlarexRuntimePersistence.publishAppSchemaV1`, whose host-facing public
-contract remains Promise-based. Table-only planning, apply, stable-table
-high-water reading, and Promise artifact preparation remain compatibility
-surfaces owned by `appTableDefinitionsArtifacts`; delete them when that facade
-migrates. Protocol compilation and canonicalization remain narrow foreign
-Promise edges, and D2a still performs no SQL writes.
+outer runtime bridge were deleted. Its outer Promise runner now belongs to
+`FlarexRuntimePersistence.publishAppSchemaV1`, whose host-facing public
+contract remains Promise-based. Protocol compilation and canonicalization
+remain narrow foreign Promise edges, and D2a still performs no SQL writes.
+
+The retained table-only `ensureAppTableDefinitionsArtifactV1` compatibility
+operation is now Effect-native behind its unchanged public Promise contract.
+Input snapshotting enters through `Result`; optimistic table planning,
+canonical artifact preparation, typed stale retry, in-transaction binding
+application, and immutable artifact ensure compose directly. The former
+table-only Promise planner/apply/high-water readers, throwing row-decoder
+projection, artifact preparation/apply projections, and exception retry loop
+were deleted because no production consumer remains. The runtime facade owns
+the outer Promise runner, while one full-Cause-preserving runner remains at
+Drizzle 0.45's transaction callback. Domain failures and stale retries retain
+their typed identity; transaction infrastructure rejection is a distinct
+tagged failure, and defects or interruption cannot be mistaken for business
+rejection.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

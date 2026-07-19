@@ -34,8 +34,8 @@ import {
   prepareSchemaManifestAppSchemaBindingsV1Effect,
 } from "../src/schemaManifestAppSchemaBindings";
 import {
-  ensureSchemaVersionArtifactInTransaction,
-  prepareSchemaVersionArtifact,
+  ensureSchemaVersionArtifactInTransactionEffect,
+  prepareSchemaVersionArtifactEffect,
 } from "../src/schemaVersionArtifacts";
 import {
   acquirePostgresDeploymentLock,
@@ -54,6 +54,14 @@ const prepareAppSchemaPublicationV1 = (
 const prepareSchemaManifestAppSchemaBindingsV1 = (
   ...args: Parameters<typeof prepareSchemaManifestAppSchemaBindingsV1Effect>
 ) => runEffect(prepareSchemaManifestAppSchemaBindingsV1Effect(...args));
+
+const prepareSchemaVersionArtifact = (
+  ...args: Parameters<typeof prepareSchemaVersionArtifactEffect>
+) => runEffect(prepareSchemaVersionArtifactEffect(...args));
+
+const ensureSchemaVersionArtifactInTransaction = (
+  ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
+) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
 
 describePostgres("real Postgres immutable app index definitions", () => {
   it("converges concurrent exact definition and binding replay", async () => {
