@@ -435,10 +435,10 @@ hoisted `Schema.fromJsonString` and row-field Result decoders. JSON syntax,
 JSON-object membership, artifact identity, codec, canonical-byte, digest, and
 final app-schema rejection retain the existing session or schema corruption
 results. Ordered row decoding short-circuits before later fields, unexpected
-accessor/runtime failures remain defects, and the only synchronous `Result.try`
-left in this materializer narrowly adapts the protocol-owned throwing
-app-schema decoder while catching only `SchemaError`. Canonicalization remains
-the one narrow foreign Promise boundary after the repeatable-read capture has
+accessor/runtime failures remain defects, and final app-schema validation now
+consumes the protocol-owned `Result` decoder directly instead of routing
+through its throwing compatibility projection. Canonicalization remains the
+one narrow foreign Promise boundary after the repeatable-read capture has
 closed.
 
 The authoritative app-row snapshot and current-revision read kernel is now

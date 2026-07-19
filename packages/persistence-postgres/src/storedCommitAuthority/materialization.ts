@@ -23,7 +23,7 @@ import {
   SchemaManifestJsonSchema,
   SchemaManifestSha256Schema,
   canonicalizeSchemaManifestV1,
-  decodeSchemaManifestAppSchemaV1,
+  decodeSchemaManifestAppSchemaV1Result,
   type CanonicalSchemaManifestBytes,
   type CatalogSchemaVersionId,
   type SchemaManifestAppSchemaV1,
@@ -1276,13 +1276,9 @@ export function decodeStoredSchemaArtifactResult(
 export function decodeAppSchemaResult(
   value: unknown,
 ): Result.Result<SchemaManifestAppSchemaV1, "schemaArtifactInvalid"> {
-  return Result.try({
-    try: () => decodeSchemaManifestAppSchemaV1(value),
-    catch: (cause) => {
-      if (!Schema.isSchemaError(cause)) throw cause;
-      return "schemaArtifactInvalid" as const;
-    },
-  });
+  return decodeSchemaManifestAppSchemaV1Result(value).pipe(
+    Result.mapError(() => "schemaArtifactInvalid" as const),
+  );
 }
 
 function materializeBindings(

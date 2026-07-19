@@ -219,14 +219,11 @@ describe("stored commit-authority materialization decoders", () => {
 
     const schemaDefect = new Error("app schema accessor defect");
     const defectiveSchema = new Proxy(MINIMAL_APP_SCHEMA, {
-      get(target, property, receiver) {
-        if (property === "kind") throw schemaDefect;
-        return Reflect.get(target, property, receiver);
+      getOwnPropertyDescriptor(): never {
+        throw schemaDefect;
       },
     });
-    expect(() => decodeAppSchemaResult(defectiveSchema)).toThrow(
-      "Sync adapter can only throw schema errors",
-    );
+    expect(() => decodeAppSchemaResult(defectiveSchema)).toThrow(schemaDefect);
   });
 });
 
