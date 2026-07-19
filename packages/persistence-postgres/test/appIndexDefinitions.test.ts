@@ -30,25 +30,29 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   AppIndexDefinitionCatalogCorruptionError,
+  AppIndexDefinitionReadPersistenceError,
   AppSchemaVersionIndexBindingPersistenceError,
-  getAppIndexDefinitionById,
+  getAppIndexDefinitionByIdEffect,
   getAppSchemaVersionIndexBindingEffect,
-  listAppIndexDefinitionsForLogicalIndex,
+  listAppIndexDefinitionsForLogicalIndexEffect,
   listAppSchemaVersionIndexBindingsEffect,
   type AppSchemaVersionIndexBindingRecord,
   type FlarexPersistence,
+  type ReadAppIndexDefinitionError,
   type ReadAppSchemaVersionIndexBindingError,
 } from "../src";
 import {
   AppIndexDefinitionIdExhaustedError,
+  AppIndexDefinitionPreparationError,
   AppDeveloperIndexDefinitionPersistenceError,
   AppSchemaVersionIndexBindingConflictError,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   InvalidAppIndexDefinitionBindingInputError,
   InvalidPreparedAppIndexDefinitionBindingError,
-  prepareAppDeveloperIndexDefinitionBindingV1,
+  prepareAppDeveloperIndexDefinitionBindingV1Effect,
   type EnsureAppDeveloperIndexDefinitionBindingV1Result,
   type EnsureAppDeveloperIndexDefinitionBindingV1Error,
+  type PrepareAppDeveloperIndexDefinitionBindingV1Error,
   type PrepareAppDeveloperIndexDefinitionBindingV1Input,
   type PreparedAppDeveloperIndexDefinitionBindingV1,
 } from "../src/appIndexDefinitions";
@@ -78,6 +82,18 @@ const prepareSchemaVersionArtifact = (
 const ensureSchemaVersionArtifactInTransaction = (
   ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
 ) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
+
+const prepareAppDeveloperIndexDefinitionBindingV1 = (
+  ...args: Parameters<typeof prepareAppDeveloperIndexDefinitionBindingV1Effect>
+) => runEffect(prepareAppDeveloperIndexDefinitionBindingV1Effect(...args));
+
+const getAppIndexDefinitionById = (
+  ...args: Parameters<typeof getAppIndexDefinitionByIdEffect>
+) => runEffect(getAppIndexDefinitionByIdEffect(...args));
+
+const listAppIndexDefinitionsForLogicalIndex = (
+  ...args: Parameters<typeof listAppIndexDefinitionsForLogicalIndexEffect>
+) => runEffect(listAppIndexDefinitionsForLogicalIndexEffect(...args));
 
 type PublicMutationMethod = Extract<
   keyof FlarexPersistence,
@@ -147,6 +163,24 @@ describe("immutable app index definitions", () => {
     >().toEqualTypeOf<Effect.Effect<
       ReadonlyArray<AppSchemaVersionIndexBindingRecord>,
       ReadAppSchemaVersionIndexBindingError
+    >>();
+    expectTypeOf<
+      ReturnType<typeof prepareAppDeveloperIndexDefinitionBindingV1Effect>
+    >().toEqualTypeOf<Effect.Effect<
+      PreparedAppDeveloperIndexDefinitionBindingV1,
+      PrepareAppDeveloperIndexDefinitionBindingV1Error
+    >>();
+    expectTypeOf<
+      ReturnType<typeof getAppIndexDefinitionByIdEffect>
+    >().toEqualTypeOf<Effect.Effect<
+      import("../src").AppIndexDefinitionRecord | null,
+      ReadAppIndexDefinitionError
+    >>();
+    expectTypeOf<
+      ReturnType<typeof listAppIndexDefinitionsForLogicalIndexEffect>
+    >().toEqualTypeOf<Effect.Effect<
+      ReadonlyArray<import("../src").AppIndexDefinitionRecord>,
+      ReadAppIndexDefinitionError
     >>();
   });
 
@@ -410,6 +444,152 @@ describe("immutable app index definitions", () => {
         db,
         "deployment_index_definition_binding_interruption",
         schemaId("schema_definition_binding_interruption"),
+      ),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
+  });
+
+  it("rejects invalid definition-read input before constructing SQL", async () => {
+    let selected = false;
+    const db = {
+      select(): never {
+        selected = true;
+        throw new Error("Invalid input must not construct a query.");
+      },
+    } as unknown as StableTableCatalogTransaction;
+
+    const failure = await runEffectFailure(
+      getAppIndexDefinitionByIdEffect(
+        db,
+        "",
+        CatalogIndexDefinitionIdSchema.make(1),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(InvalidAppIndexDefinitionBindingInputError);
+    expect(failure).toMatchObject({
+      issue: { reason: "invalidDeploymentId" },
+    });
+    expect(selected).toBe(false);
+  });
+
+  it("maps physical-spec canonicalization rejection to typed preparation failure", async () => {
+    const rejection = new Error("physical index digest rejected");
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(
+      rejection,
+    );
+    try {
+      const failure = await runEffectFailure(
+        prepareAppDeveloperIndexDefinitionBindingV1Effect({
+          deploymentId: "deployment_index_definition_prepare_failure",
+          schemaVersionId: schemaId("schema_definition_prepare_failure"),
+          tableId: CatalogTableIdSchema.make(1),
+          logicalIndexId: CatalogIndexIdSchema.make(2),
+          logicalSpec: developerLogicalSpec(["email"]),
+        }),
+      );
+
+      expect(failure).toBeInstanceOf(AppIndexDefinitionPreparationError);
+      expect(failure).toMatchObject({
+        _tag: "AppIndexDefinitionPreparationError",
+        deploymentId: "deployment_index_definition_prepare_failure",
+        schemaVersionId: "schema_definition_prepare_failure",
+        logicalIndexId: 2,
+        cause: rejection,
+      });
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("maps rejected definition reads once at their SQL edge", async () => {
+    const readRejection = new Error("definition read query rejected");
+    const readFailure = await runEffectFailure(
+      getAppIndexDefinitionByIdEffect(
+        developerSelectTransaction(() => Promise.reject(readRejection)),
+        "deployment_index_definition_read_failure",
+        CatalogIndexDefinitionIdSchema.make(1),
+      ),
+    );
+    expect(readFailure).toBeInstanceOf(
+      AppIndexDefinitionReadPersistenceError,
+    );
+    expect(readFailure).toMatchObject({
+      _tag: "AppIndexDefinitionReadPersistenceError",
+      operation: "readByDefinitionId",
+      cause: readRejection,
+    });
+
+    const listRejection = new Error("definition list query rejected");
+    const listFailure = await runEffectFailure(
+      listAppIndexDefinitionsForLogicalIndexEffect(
+        developerSelectTransaction(() => Promise.reject(listRejection)),
+        "deployment_index_definition_list_failure",
+        CatalogIndexIdSchema.make(1),
+      ),
+    );
+    expect(listFailure).toMatchObject({
+      _tag: "AppIndexDefinitionReadPersistenceError",
+      operation: "listByLogicalIndexId",
+      cause: listRejection,
+    });
+  });
+
+  it("preserves definition-read query construction failures as defects", async () => {
+    const defect = new Error("definition read query construction defect");
+    const db = {
+      select(): never {
+        throw defect;
+      },
+    } as unknown as StableTableCatalogTransaction;
+
+    const exit = await Effect.runPromiseExit(
+      getAppIndexDefinitionByIdEffect(
+        db,
+        "deployment_index_definition_read_defect",
+        CatalogIndexDefinitionIdSchema.make(1),
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("waits for a pending definition read before interruption completes", async () => {
+    const entered = deferredValue<void>();
+    const query = deferredValue<ReadonlyArray<unknown>>();
+    const db = developerSelectTransaction(() => {
+      entered.resolve(undefined);
+      return query.promise;
+    });
+    const fiber = Effect.runFork(
+      listAppIndexDefinitionsForLogicalIndexEffect(
+        db,
+        "deployment_index_definition_read_interruption",
+        CatalogIndexIdSchema.make(1),
       ),
     );
 

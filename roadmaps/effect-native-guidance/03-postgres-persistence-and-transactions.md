@@ -260,6 +260,16 @@ their typed identity; transaction infrastructure rejection is a distinct
 tagged failure, and defects or interruption cannot be mistaken for business
 rejection.
 
+Developer physical-index preparation and the package-root physical-definition
+readers are now Effect-native. Strict preparation and read input enters through
+pure `Result`; Drizzle rejection is mapped once to an operation-specific typed
+read failure; stored definition decoding keeps catalog corruption distinct; and
+protocol canonicalization remains the one narrow Promise edge. Definition-list
+canonicalization preserves the former parallel behavior explicitly. The old
+Promise preparation and package-root read projections were deleted because the
+repository has no production compatibility consumer; focused tests own their
+explicit runtime bridge.
+
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader
 owns one interruption-masked Drizzle Promise edge and maps only query rejection

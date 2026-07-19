@@ -40,7 +40,7 @@ import {
 import type { PreparedAppTableDefinitionsArtifactV1 } from "../src/appTableDefinitionsArtifacts";
 import {
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
-  prepareAppDeveloperIndexDefinitionBindingV1,
+  prepareAppDeveloperIndexDefinitionBindingV1Effect,
 } from "../src/appIndexDefinitions";
 import { createPGlitePersistence } from "../src/pglite";
 import {
@@ -54,6 +54,10 @@ import { runEffect } from "./effectTestRuntime";
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
 ) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
+
+const prepareAppDeveloperIndexDefinitionBindingV1 = (
+  ...args: Parameters<typeof prepareAppDeveloperIndexDefinitionBindingV1Effect>
+) => runEffect(prepareAppDeveloperIndexDefinitionBindingV1Effect(...args));
 
 const ensureSchemaVersionArtifactInTransaction = (
   ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>

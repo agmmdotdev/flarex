@@ -26,7 +26,7 @@ import {
 } from "../src/appSchemaPublicationTransaction";
 import {
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
-  prepareAppDeveloperIndexDefinitionBindingV1,
+  prepareAppDeveloperIndexDefinitionBindingV1Effect,
 } from "../src/appIndexDefinitions";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { applySchemaManifestAppSchemaBindingsV1InTransactionEffect } from "../src/schemaManifestAppSchemaBindings";
@@ -45,6 +45,10 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
 ) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
+
+const prepareAppDeveloperIndexDefinitionBindingV1 = (
+  ...args: Parameters<typeof prepareAppDeveloperIndexDefinitionBindingV1Effect>
+) => runEffect(prepareAppDeveloperIndexDefinitionBindingV1Effect(...args));
 
 describePostgres("real Postgres app-schema V1 publication", () => {
   it("converges concurrent identical app-schema publications", async () => {

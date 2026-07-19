@@ -5,6 +5,7 @@ import { Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
   CatalogIndexIdSchema,
+  CatalogTableIdSchema,
   decodeCatalogIndexDefinitionId,
   decodeCatalogIndexId,
   decodeCatalogTableId,
@@ -40,7 +41,6 @@ import {
 } from "flarex-protocol/ordered-index";
 import {
   CatalogSchemaVersionIdSchema,
-  decodeCatalogSchemaVersionId,
   decodeSchemaManifestAppDeveloperOrderedIndexSpecV1,
   type CatalogSchemaVersionId,
   type SchemaManifestAppDeveloperOrderedIndexSpecV1,
@@ -88,6 +88,9 @@ const decodeCatalogIndexIdResult = Schema.decodeUnknownResult(
 );
 const decodeCatalogIndexDefinitionIdResult = Schema.decodeUnknownResult(
   CatalogIndexDefinitionIdSchema,
+);
+const decodeCatalogTableIdResult = Schema.decodeUnknownResult(
+  CatalogTableIdSchema,
 );
 
 export interface PrepareAppDeveloperIndexDefinitionBindingV1Input {
@@ -286,6 +289,8 @@ export class AppDeveloperIndexDefinitionRequirementError extends Error {
 }
 
 export class AppIndexDefinitionPreparationError extends Error {
+  readonly _tag = "AppIndexDefinitionPreparationError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly schemaVersionId: CatalogSchemaVersionId,
@@ -299,6 +304,10 @@ export class AppIndexDefinitionPreparationError extends Error {
     this.name = "AppIndexDefinitionPreparationError";
   }
 }
+
+export type PrepareAppDeveloperIndexDefinitionBindingV1Error =
+  | InvalidAppIndexDefinitionBindingInputError
+  | AppIndexDefinitionPreparationError;
 
 export type AppIndexDefinitionParentIssue =
   | { readonly reason: "schemaVersionNotFound" }
@@ -488,6 +497,28 @@ export class AppSchemaVersionIndexBindingPersistenceError extends Error {
   }
 }
 
+export class AppIndexDefinitionReadPersistenceError extends Error {
+  readonly _tag = "AppIndexDefinitionReadPersistenceError" as const;
+
+  constructor(
+    readonly operation: "readByDefinitionId" | "listByLogicalIndexId",
+    readonly cause: unknown,
+  ) {
+    super(
+      operation === "readByDefinitionId"
+        ? "Failed to read an app physical index definition."
+        : "Failed to list app physical index definitions.",
+      { cause },
+    );
+    this.name = "AppIndexDefinitionReadPersistenceError";
+  }
+}
+
+export type ReadAppIndexDefinitionError =
+  | InvalidAppIndexDefinitionBindingInputError
+  | AppIndexDefinitionReadPersistenceError
+  | AppIndexDefinitionCatalogCorruptionError;
+
 export type ReadAppSchemaVersionIndexBindingError =
   | InvalidAppIndexDefinitionBindingInputError
   | AppSchemaVersionIndexBindingPersistenceError
@@ -557,31 +588,33 @@ const preparedCreationTimeDefinitionStates = new WeakMap<
  * activation flag for a caller to forge. Current app indexes are always
  * required for activation; optional-index semantics are not part of v1.
  */
-export async function prepareAppDeveloperIndexDefinitionBindingV1(
+export const prepareAppDeveloperIndexDefinitionBindingV1Effect = Effect.fn(
+  "AppIndexDefinitions.prepareDeveloperBinding",
+)(function* (
   input: PrepareAppDeveloperIndexDefinitionBindingV1Input,
-): Promise<PreparedAppDeveloperIndexDefinitionBindingV1> {
-  if (!hasExactOwnDataKeys(input, PREPARE_INPUT_KEYS)) {
-    throw new InvalidAppIndexDefinitionBindingInputError({
-      reason: "invalidInputShape",
-    });
-  }
-  const deploymentId = decodeDeploymentId(input.deploymentId);
-  const schemaVersionId = decodeSchemaVersionIdInput(input.schemaVersionId);
-  const tableId = decodeTableIdInput(input.tableId);
-  const logicalIndexId = decodeLogicalIndexIdInput(input.logicalIndexId);
-  const logicalSpec = decodeLogicalSpecInput(input.logicalSpec);
+): Effect.fn.Return<
+  PreparedAppDeveloperIndexDefinitionBindingV1,
+  PrepareAppDeveloperIndexDefinitionBindingV1Error
+> {
+  const {
+    deploymentId,
+    schemaVersionId,
+    tableId,
+    logicalIndexId,
+    logicalSpec,
+  } = yield* Effect.fromResult(
+    decodePrepareAppDeveloperIndexDefinitionBindingV1InputResult(input),
+  );
   const physicalSpec = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec);
-  let canonical: CanonicalAppIndexPhysicalSpecV1;
-  try {
-    canonical = await canonicalizeAppIndexPhysicalSpecV1(physicalSpec);
-  } catch (cause) {
-    throw new AppIndexDefinitionPreparationError(
+  const canonical = yield* Effect.tryPromise({
+    try: () => canonicalizeAppIndexPhysicalSpecV1(physicalSpec),
+    catch: (cause) => new AppIndexDefinitionPreparationError(
       deploymentId,
       schemaVersionId,
       logicalIndexId,
       { cause },
-    );
-  }
+    ),
+  });
   const access = Object.freeze({
     kind: "developer",
     tableId,
@@ -596,7 +629,7 @@ export async function prepareAppDeveloperIndexDefinitionBindingV1(
     storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
     canonical,
   });
-}
+});
 
 /**
  * Derive the complete intrinsic definition-token set from one authenticated
@@ -908,56 +941,208 @@ export const ensureAppCreationTimeIndexDefinitionV1InTransaction = Effect.fn(
   } satisfies EnsureAppCreationTimeIndexDefinitionV1Result);
 });
 
-export async function getAppIndexDefinitionById(
+export const getAppIndexDefinitionByIdEffect = Effect.fn(
+  "AppIndexDefinitions.getDefinitionById",
+)(function* (
   db: FlarexMetadataDatabase,
   deploymentId: string,
   indexDefinitionId: CatalogIndexDefinitionId,
-): Promise<AppIndexDefinitionRecord | null> {
-  const decodedDeploymentId = decodeDeploymentId(deploymentId);
-  const decodedDefinitionId = decodeDefinitionIdInput(indexDefinitionId);
-  const rows = await db
+): Effect.fn.Return<
+  AppIndexDefinitionRecord | null,
+  ReadAppIndexDefinitionError
+> {
+  const decoded = yield* Effect.fromResult(
+    decodeAppIndexDefinitionReadInputResult(
+      deploymentId,
+      indexDefinitionId,
+    ),
+  );
+  const query = db
     .select()
     .from(fxControlIndexDefinitions)
     .where(
       and(
-        eq(fxControlIndexDefinitions.deploymentId, decodedDeploymentId),
+        eq(fxControlIndexDefinitions.deploymentId, decoded.deploymentId),
         eq(
           fxControlIndexDefinitions.indexDefinitionId,
-          decodedDefinitionId,
+          decoded.indexDefinitionId,
         ),
       ),
     )
     .limit(1);
+  const rows = yield* readDefinitionRowsEffect(
+    query,
+    (cause) => new AppIndexDefinitionReadPersistenceError(
+      "readByDefinitionId",
+      cause,
+    ),
+  );
   const row = rows[0];
-  return row === undefined ? null : decodeStoredDefinition(row);
-}
+  return row === undefined ? null : yield* decodeStoredDefinitionEffect(row);
+});
 
-export async function listAppIndexDefinitionsForLogicalIndex(
+export const listAppIndexDefinitionsForLogicalIndexEffect = Effect.fn(
+  "AppIndexDefinitions.listDefinitionsForLogicalIndex",
+)(function* (
   db: FlarexMetadataDatabase,
   deploymentId: string,
   logicalIndexId: CatalogIndexId,
-): Promise<ReadonlyArray<AppIndexDefinitionRecord>> {
-  const decodedDeploymentId = decodeDeploymentId(deploymentId);
-  const decodedLogicalIndexId = decodeLogicalIndexIdInput(logicalIndexId);
-  const rows = await db
+): Effect.fn.Return<
+  ReadonlyArray<AppIndexDefinitionRecord>,
+  ReadAppIndexDefinitionError
+> {
+  const decoded = yield* Effect.fromResult(
+    decodeAppIndexDefinitionsListInputResult(deploymentId, logicalIndexId),
+  );
+  const query = db
     .select()
     .from(fxControlIndexDefinitions)
     .where(
       and(
-        eq(fxControlIndexDefinitions.deploymentId, decodedDeploymentId),
+        eq(fxControlIndexDefinitions.deploymentId, decoded.deploymentId),
         eq(fxControlIndexDefinitions.accessKind, "developer"),
         eq(
           fxControlIndexDefinitions.accessIdentityId,
-          decodedLogicalIndexId,
+          decoded.logicalIndexId,
         ),
         eq(
           fxControlIndexDefinitions.logicalIndexId,
-          decodedLogicalIndexId,
+          decoded.logicalIndexId,
         ),
       ),
     )
     .orderBy(fxControlIndexDefinitions.indexDefinitionId);
-  return Object.freeze(await Promise.all(rows.map(decodeStoredDefinition)));
+  const rows = yield* readDefinitionRowsEffect(
+    query,
+    (cause) => new AppIndexDefinitionReadPersistenceError(
+      "listByLogicalIndexId",
+      cause,
+    ),
+  );
+  const definitions = yield* Effect.all(
+    rows.map(decodeStoredDefinitionEffect),
+    { concurrency: "unbounded" },
+  );
+  return Object.freeze(definitions);
+});
+
+function decodePrepareAppDeveloperIndexDefinitionBindingV1InputResult(
+  input: PrepareAppDeveloperIndexDefinitionBindingV1Input,
+): Result.Result<{
+  readonly deploymentId: string;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly tableId: CatalogTableId;
+  readonly logicalIndexId: CatalogIndexId;
+  readonly logicalSpec: SchemaManifestAppDeveloperOrderedIndexSpecV1;
+}, InvalidAppIndexDefinitionBindingInputError> {
+  if (!hasExactOwnDataKeys(input, PREPARE_INPUT_KEYS)) {
+    return Result.fail(new InvalidAppIndexDefinitionBindingInputError({
+      reason: "invalidInputShape",
+    }));
+  }
+  return Result.gen(function* () {
+    if (!isNonBlankString(input.deploymentId)) {
+      return yield* Result.fail(invalidAppIndexDefinitionInput(
+        "invalidDeploymentId",
+      ));
+    }
+    const schemaVersionId = yield* decodeCatalogSchemaVersionIdResult(
+      input.schemaVersionId,
+    ).pipe(Result.mapError((cause) => invalidAppIndexDefinitionInput(
+      "invalidSchemaVersionId",
+      cause,
+    )));
+    const tableId = yield* decodeCatalogTableIdResult(input.tableId).pipe(
+      Result.mapError((cause) => invalidAppIndexDefinitionInput(
+        "invalidTableId",
+        cause,
+      )),
+    );
+    const logicalIndexId = yield* decodeCatalogIndexIdResult(
+      input.logicalIndexId,
+    ).pipe(Result.mapError((cause) => invalidAppIndexDefinitionInput(
+      "invalidLogicalIndexId",
+      cause,
+    )));
+    const logicalSpec = yield* Result.try({
+      try: () => decodeSchemaManifestAppDeveloperOrderedIndexSpecV1(
+        input.logicalSpec,
+      ),
+      catch: (cause) => invalidAppIndexDefinitionInput(
+        "invalidLogicalSpec",
+        cause,
+      ),
+    });
+    return Object.freeze({
+      deploymentId: input.deploymentId,
+      schemaVersionId,
+      tableId,
+      logicalIndexId,
+      logicalSpec,
+    });
+  });
+}
+
+function decodeAppIndexDefinitionReadInputResult(
+  deploymentId: unknown,
+  indexDefinitionId: unknown,
+): Result.Result<{
+  readonly deploymentId: string;
+  readonly indexDefinitionId: CatalogIndexDefinitionId;
+}, InvalidAppIndexDefinitionBindingInputError> {
+  return Result.gen(function* () {
+    if (!isNonBlankString(deploymentId)) {
+      return yield* Result.fail(invalidAppIndexDefinitionInput(
+        "invalidDeploymentId",
+      ));
+    }
+    const decodedDefinitionId = yield* decodeCatalogIndexDefinitionIdResult(
+      indexDefinitionId,
+    ).pipe(Result.mapError((cause) => invalidAppIndexDefinitionInput(
+      "invalidIndexDefinitionId",
+      cause,
+    )));
+    return Object.freeze({
+      deploymentId,
+      indexDefinitionId: decodedDefinitionId,
+    });
+  });
+}
+
+function decodeAppIndexDefinitionsListInputResult(
+  deploymentId: unknown,
+  logicalIndexId: unknown,
+): Result.Result<{
+  readonly deploymentId: string;
+  readonly logicalIndexId: CatalogIndexId;
+}, InvalidAppIndexDefinitionBindingInputError> {
+  return Result.gen(function* () {
+    if (!isNonBlankString(deploymentId)) {
+      return yield* Result.fail(invalidAppIndexDefinitionInput(
+        "invalidDeploymentId",
+      ));
+    }
+    const decodedLogicalIndexId = yield* decodeCatalogIndexIdResult(
+      logicalIndexId,
+    ).pipe(Result.mapError((cause) => invalidAppIndexDefinitionInput(
+      "invalidLogicalIndexId",
+      cause,
+    )));
+    return Object.freeze({
+      deploymentId,
+      logicalIndexId: decodedLogicalIndexId,
+    });
+  });
+}
+
+function invalidAppIndexDefinitionInput(
+  reason: InvalidAppIndexDefinitionBindingInputIssue["reason"],
+  cause?: unknown,
+): InvalidAppIndexDefinitionBindingInputError {
+  return new InvalidAppIndexDefinitionBindingInputError(
+    { reason },
+    cause === undefined ? undefined : { cause },
+  );
 }
 
 export const getAppSchemaVersionIndexBindingEffect = Effect.fn(
@@ -1883,85 +2068,138 @@ function decodeStoredDefinitionAgainstPrepared<
   } satisfies AppIndexDefinitionRecordForAccessKindV1<Kind>);
 }
 
-async function decodeStoredDefinition(
+const decodeStoredDefinitionEffect = Effect.fn(
+  "AppIndexDefinitions.decodeStoredDefinition",
+)(function* (
   row: typeof fxControlIndexDefinitions.$inferSelect,
-): Promise<AppIndexDefinitionRecord> {
-  const deploymentId = decodeStoredDeploymentId(row.deploymentId);
-  const indexDefinitionId = decodeStoredDefinitionId(
-    deploymentId,
-    row.indexDefinitionId,
+): Effect.fn.Return<
+  AppIndexDefinitionRecord,
+  AppIndexDefinitionCatalogCorruptionError
+> {
+  const decoded = yield* Effect.fromResult(
+    decodeStoredDefinitionScalarsResult(row),
   );
-  const tableId = decodeStoredTableId(deploymentId, row.tableId);
-  const access = decodeStoredAccess(
-    deploymentId,
-    row.accessKind,
-    row.accessIdentityId,
-    tableId,
-    row.logicalIndexId,
-  );
-  let physicalSpecCodecVersion: AppIndexPhysicalSpecCodecVersion;
-  let physicalSpecBytesHex: CanonicalAppIndexPhysicalSpecBytesHexV1;
-  let physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1;
-  let canonical: CanonicalAppIndexPhysicalSpecV1;
-  try {
-    physicalSpecCodecVersion = decodeAppIndexPhysicalSpecCodecVersion(
-      row.physicalSpecCodecVersion,
-    );
-    physicalSpecBytesHex =
-      canonicalAppIndexPhysicalSpecBytesHexV1FromBytes(
-        row.physicalSpecBytes,
-      );
-    physicalSpecSha256Hex = appIndexPhysicalSpecSha256HexV1FromBytes(
-      row.physicalSpecSha256,
-    );
-    canonical = await canonicalizeAppIndexPhysicalSpecV1(row.physicalSpecJson);
-  } catch (cause) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `definition ${indexDefinitionId} has an invalid physical specification`,
+  const canonical = yield* Effect.tryPromise({
+    try: () => canonicalizeAppIndexPhysicalSpecV1(row.physicalSpecJson),
+    catch: (cause) => new AppIndexDefinitionCatalogCorruptionError(
+      decoded.deploymentId,
+      `definition ${decoded.indexDefinitionId} has an invalid physical specification`,
       { cause },
-    );
+    ),
+  });
+  if (canonical.physicalSpec.accessPath !== decoded.access.kind) {
+    return yield* Effect.fail(new AppIndexDefinitionCatalogCorruptionError(
+      decoded.deploymentId,
+      `definition ${decoded.indexDefinitionId} physical access path does not match its owner`,
+    ));
   }
-  if (canonical.physicalSpec.accessPath !== access.kind) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `definition ${indexDefinitionId} physical access path does not match its owner`,
-    );
+  if (decoded.physicalSpecCodecVersion !== canonical.codecVersion) {
+    return yield* Effect.fail(new AppIndexDefinitionCatalogCorruptionError(
+      decoded.deploymentId,
+      `definition ${decoded.indexDefinitionId} physical-spec codec does not match canonical bytes`,
+    ));
   }
-  if (physicalSpecCodecVersion !== canonical.codecVersion) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `definition ${indexDefinitionId} physical-spec codec does not match canonical bytes`,
-    );
+  if (decoded.physicalSpecBytesHex !== canonical.canonicalBytesHex) {
+    return yield* Effect.fail(new AppIndexDefinitionCatalogCorruptionError(
+      decoded.deploymentId,
+      `definition ${decoded.indexDefinitionId} canonical bytes do not match physical-spec JSON`,
+    ));
   }
-  if (physicalSpecBytesHex !== canonical.canonicalBytesHex) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `definition ${indexDefinitionId} canonical bytes do not match physical-spec JSON`,
-    );
+  if (decoded.physicalSpecSha256Hex !== canonical.sha256Hex) {
+    return yield* Effect.fail(new AppIndexDefinitionCatalogCorruptionError(
+      decoded.deploymentId,
+      `definition ${decoded.indexDefinitionId} SHA-256 does not match canonical bytes`,
+    ));
   }
-  if (physicalSpecSha256Hex !== canonical.sha256Hex) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `definition ${indexDefinitionId} SHA-256 does not match canonical bytes`,
-    );
-  }
-  const createdAt = decodeStoredTimestamp(
-    deploymentId,
-    indexDefinitionId,
-    row.createdAt,
+  const createdAt = yield* Effect.fromResult(
+    decodeStoredDefinitionResult(() => decodeStoredTimestamp(
+      decoded.deploymentId,
+      decoded.indexDefinitionId,
+      row.createdAt,
+    )),
   );
 
   return Object.freeze({
-    deploymentId,
-    indexDefinitionId,
-    access,
-    physicalSpecCodecVersion,
+    deploymentId: decoded.deploymentId,
+    indexDefinitionId: decoded.indexDefinitionId,
+    access: decoded.access,
+    physicalSpecCodecVersion: decoded.physicalSpecCodecVersion,
     physicalSpec: canonical.physicalSpec,
-    physicalSpecBytesHex,
-    physicalSpecSha256Hex,
+    physicalSpecBytesHex: decoded.physicalSpecBytesHex,
+    physicalSpecSha256Hex: decoded.physicalSpecSha256Hex,
     createdAt,
   } satisfies AppIndexDefinitionRecord);
+});
+
+function decodeStoredDefinitionScalarsResult(
+  row: typeof fxControlIndexDefinitions.$inferSelect,
+): Result.Result<{
+  readonly deploymentId: string;
+  readonly indexDefinitionId: CatalogIndexDefinitionId;
+  readonly access: AppPhysicalIndexAccessIdentityV1;
+  readonly physicalSpecCodecVersion: AppIndexPhysicalSpecCodecVersion;
+  readonly physicalSpecBytesHex: CanonicalAppIndexPhysicalSpecBytesHexV1;
+  readonly physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1;
+}, AppIndexDefinitionCatalogCorruptionError> {
+  return Result.gen(function* () {
+    const deploymentId = yield* decodeStoredDefinitionResult(
+      () => decodeStoredDeploymentId(row.deploymentId),
+    );
+    const indexDefinitionId = yield* decodeStoredDefinitionResult(
+      () => decodeStoredDefinitionId(deploymentId, row.indexDefinitionId),
+    );
+    const tableId = yield* decodeStoredDefinitionResult(
+      () => decodeStoredTableId(deploymentId, row.tableId),
+    );
+    const access = yield* decodeStoredDefinitionResult(
+      () => decodeStoredAccess(
+        deploymentId,
+        row.accessKind,
+        row.accessIdentityId,
+        tableId,
+        row.logicalIndexId,
+      ),
+    );
+    const physicalEvidence = yield* Result.try({
+      try: () => Object.freeze({
+        physicalSpecCodecVersion: decodeAppIndexPhysicalSpecCodecVersion(
+          row.physicalSpecCodecVersion,
+        ),
+        physicalSpecBytesHex:
+          canonicalAppIndexPhysicalSpecBytesHexV1FromBytes(
+            row.physicalSpecBytes,
+          ),
+        physicalSpecSha256Hex: appIndexPhysicalSpecSha256HexV1FromBytes(
+          row.physicalSpecSha256,
+        ),
+      }),
+      catch: (cause) => new AppIndexDefinitionCatalogCorruptionError(
+        deploymentId,
+        `definition ${indexDefinitionId} has an invalid physical specification`,
+        { cause },
+      ),
+    });
+    return Object.freeze({
+      deploymentId,
+      indexDefinitionId,
+      access,
+      ...physicalEvidence,
+    });
+  });
+}
+
+function decodeStoredDefinitionResult<Value>(
+  evaluate: () => Value,
+): Result.Result<Value, AppIndexDefinitionCatalogCorruptionError> {
+  return Result.try({
+    try: evaluate,
+    catch: (cause) => {
+      if (cause instanceof AppIndexDefinitionCatalogCorruptionError) {
+        return cause;
+      }
+      throw cause;
+    },
+  });
 }
 
 function appPhysicalIndexAccessIdentitiesEqual(
@@ -2050,72 +2288,6 @@ function decodeStoredAccess(
     throw new AppIndexDefinitionCatalogCorruptionError(
       deploymentId,
       "definition has an invalid access owner",
-      { cause },
-    );
-  }
-}
-
-function decodeDeploymentId(value: unknown): string {
-  if (!isNonBlankString(value)) {
-    throw new InvalidAppIndexDefinitionBindingInputError({
-      reason: "invalidDeploymentId",
-    });
-  }
-  return value;
-}
-
-function decodeSchemaVersionIdInput(value: unknown): CatalogSchemaVersionId {
-  try {
-    return decodeCatalogSchemaVersionId(value);
-  } catch (cause) {
-    throw new InvalidAppIndexDefinitionBindingInputError(
-      { reason: "invalidSchemaVersionId" },
-      { cause },
-    );
-  }
-}
-
-function decodeTableIdInput(value: unknown): CatalogTableId {
-  try {
-    return decodeCatalogTableId(value);
-  } catch (cause) {
-    throw new InvalidAppIndexDefinitionBindingInputError(
-      { reason: "invalidTableId" },
-      { cause },
-    );
-  }
-}
-
-function decodeLogicalIndexIdInput(value: unknown): CatalogIndexId {
-  try {
-    return decodeCatalogIndexId(value);
-  } catch (cause) {
-    throw new InvalidAppIndexDefinitionBindingInputError(
-      { reason: "invalidLogicalIndexId" },
-      { cause },
-    );
-  }
-}
-
-function decodeDefinitionIdInput(value: unknown): CatalogIndexDefinitionId {
-  try {
-    return decodeCatalogIndexDefinitionId(value);
-  } catch (cause) {
-    throw new InvalidAppIndexDefinitionBindingInputError(
-      { reason: "invalidIndexDefinitionId" },
-      { cause },
-    );
-  }
-}
-
-function decodeLogicalSpecInput(
-  value: unknown,
-): SchemaManifestAppDeveloperOrderedIndexSpecV1 {
-  try {
-    return decodeSchemaManifestAppDeveloperOrderedIndexSpecV1(value);
-  } catch (cause) {
-    throw new InvalidAppIndexDefinitionBindingInputError(
-      { reason: "invalidLogicalSpec" },
       { cause },
     );
   }

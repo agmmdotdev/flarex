@@ -23,7 +23,7 @@ import {
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   prepareAppCreationTimeIndexDefinitionsV1,
-  prepareAppDeveloperIndexDefinitionBindingV1,
+  prepareAppDeveloperIndexDefinitionBindingV1Effect,
   type PreparedAppCreationTimeIndexDefinitionV1,
   type PreparedAppDeveloperIndexDefinitionBindingV1,
 } from "../src/appIndexDefinitions";
@@ -50,6 +50,10 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
 ) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
+
+const prepareAppDeveloperIndexDefinitionBindingV1 = (
+  ...args: Parameters<typeof prepareAppDeveloperIndexDefinitionBindingV1Effect>
+) => runEffect(prepareAppDeveloperIndexDefinitionBindingV1Effect(...args));
 
 const prepareSchemaManifestAppSchemaBindingsV1 = (
   ...args: Parameters<typeof prepareSchemaManifestAppSchemaBindingsV1Effect>
