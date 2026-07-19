@@ -401,6 +401,70 @@ describe("table-owned app creation-time index definitions", () => {
     }
   });
 
+  it("preserves prepared replay snapshot failures as defects", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_creation_time_replay_snapshot_defect";
+    const fixture = await prepareFixture(
+      persistence,
+      deploymentId,
+      [appTable("users")],
+    );
+    const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+      APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+    );
+    const storedRow = {
+      deploymentId,
+      indexDefinitionId: 1,
+      accessKind: "by_creation_time",
+      accessIdentityId: 1,
+      tableId: 1,
+      logicalIndexId: null,
+      physicalSpecCodecVersion: canonical.codecVersion,
+      physicalSpecJson: canonical.physicalSpec,
+      physicalSpecBytes: canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
+        canonical.canonicalBytesHex,
+      ),
+      physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+        canonical.sha256Hex,
+      ),
+      createdAt: new Date("2026-07-19T00:00:00.000Z"),
+    };
+    const tx = creationTimeReadTransaction((selectCall) => {
+      switch (selectCall) {
+        case 1:
+          return Promise.resolve([{ deploymentId }]);
+        case 2:
+          return Promise.resolve([stableTableRow(deploymentId)]);
+        case 3:
+          return Promise.resolve([storedRow]);
+        default:
+          throw new Error(`Unexpected select call: ${selectCall}.`);
+      }
+    });
+    const defect = new Error("prepared replay snapshot defect");
+    const snapshot = vi.spyOn(globalThis, "structuredClone")
+      .mockImplementation((): never => {
+        throw defect;
+      });
+    try {
+      const exit = await Effect.runPromiseExit(
+        ensureAppCreationTimeIndexDefinitionV1InTransaction(
+          tx,
+          requiredToken(fixture.tokens, 0),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(defect.message);
+      }
+    } finally {
+      snapshot.mockRestore();
+    }
+  });
+
   it("labels rejected replay reads and rejects the caller-owned transaction", async () => {
     const persistence = await migratedPersistence();
     const deploymentId = "deployment_creation_time_sql_failure";

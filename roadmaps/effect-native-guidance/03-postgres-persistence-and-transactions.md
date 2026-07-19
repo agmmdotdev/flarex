@@ -308,22 +308,26 @@ repository has no production compatibility consumer; focused tests own their
 explicit runtime bridge.
 Stored physical-definition scalar decoding now also composes codec, canonical
 byte, and digest evidence through ordered `Result` operations. Each
-protocol-owned throwing conversion has one narrow adapter, while fresh object
-construction and row-field access remain outside those catches. Malformed
-stored evidence therefore stays typed catalog corruption, but unexpected
-accessor or runtime failures remain defects instead of being misclassified as
-recoverable database state. The canonical JSON input is likewise snapshotted
-before its foreign Promise adapter, so accessor failures do not enter the
-canonicalization failure channel.
+codec value enters through its Schema `Result`; the byte adapter first proves
+the driver value has the required intrinsic `Uint8Array` representation,
+including rejecting empty or detached canonical bytes and non-32-byte digests,
+then catches only Schema rejection. Fresh object construction and row-field access
+remain outside those catches. Malformed stored evidence therefore stays typed
+catalog corruption, but unexpected accessor or runtime failures remain defects
+instead of being misclassified as recoverable database state. Full-read
+canonicalization maps only Schema rejection to catalog corruption; unexpected
+snapshot or Web Crypto rejection remains a defect.
 Transaction-time physical-definition replay and insert verification now use one
 ordered `Result` decoder for both developer and creation-time access owners.
 The former broad prepared-evidence `try/catch` and its two exception-filtering
-Result projections are deleted. Protocol codec, byte, digest, and physical-spec
-decoders retain narrow adapters; deployment/access correlation, exact prepared
+Result projections are deleted. Protocol codec validation uses its Schema
+`Result`, while byte, access-owner, and physical-spec decoders retain
+failure-specific adapters; deployment/access correlation, exact prepared
 evidence comparison, owner-specific checksum collisions, and timestamp
 validation keep their prior order. Malformed rows remain typed corruption or
-the exact owner-specific collision, while unexpected row access and runtime
-failures remain defects. The deployment lock still performs no Web Crypto.
+the exact owner-specific collision, while unexpected row access, snapshot, and
+runtime failures remain defects. The deployment lock still performs no Web
+Crypto.
 Stored deployment, definition-ID, table-ID, access-owner, timestamp, and
 high-water allocation normalization now return `Result` directly. The former
 throwing helpers and exception-filtering Result projections are deleted;

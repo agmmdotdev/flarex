@@ -493,6 +493,63 @@ describe("immutable app index definitions", () => {
     expect(selected).toBe(false);
   });
 
+  it("maps a malformed developer logical spec to typed invalid input", async () => {
+    const effect: ReturnType<
+      typeof prepareAppDeveloperIndexDefinitionBindingV1Effect
+    > = Reflect.apply(
+      prepareAppDeveloperIndexDefinitionBindingV1Effect,
+      undefined,
+      [{
+        deploymentId: "deployment_index_definition_invalid_logical_spec",
+        schemaVersionId: schemaId("schema_definition_invalid_logical_spec"),
+        tableId: CatalogTableIdSchema.make(1),
+        logicalIndexId: CatalogIndexIdSchema.make(2),
+        logicalSpec: {},
+      }],
+    );
+
+    const failure = await runEffectFailure(effect);
+
+    expect(failure).toBeInstanceOf(InvalidAppIndexDefinitionBindingInputError);
+    expect(failure).toMatchObject({
+      issue: { reason: "invalidLogicalSpec" },
+    });
+  });
+
+  it("preserves developer logical-spec decoder faults as defects", async () => {
+    const defect = new Error("developer logical-spec decoder defect");
+    const logicalSpec = new Proxy({}, {
+      get(): never {
+        throw defect;
+      },
+      ownKeys(): never {
+        throw defect;
+      },
+    });
+    const effect: ReturnType<
+      typeof prepareAppDeveloperIndexDefinitionBindingV1Effect
+    > = Reflect.apply(
+      prepareAppDeveloperIndexDefinitionBindingV1Effect,
+      undefined,
+      [{
+        deploymentId: "deployment_index_definition_logical_spec_defect",
+        schemaVersionId: schemaId("schema_definition_logical_spec_defect"),
+        tableId: CatalogTableIdSchema.make(1),
+        logicalIndexId: CatalogIndexIdSchema.make(2),
+        logicalSpec,
+      }],
+    );
+
+    const exit = await Effect.runPromiseExit(effect);
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
   it("maps physical-spec canonicalization rejection to typed preparation failure", async () => {
     const rejection = new Error("physical index digest rejected");
     const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(
@@ -619,6 +676,140 @@ describe("immutable app index definitions", () => {
       });
     },
   );
+
+  it("maps invalid stored physical bytes to catalog corruption", async () => {
+    const deploymentId = "deployment_index_definition_bytes_corruption";
+    const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+      APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+    );
+    const detachedBuffer = new ArrayBuffer(8);
+    const detachedBytes = new Uint8Array(detachedBuffer);
+    structuredClone(detachedBuffer, { transfer: [detachedBuffer] });
+    const validPhysicalSpecBytes =
+      canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
+        canonical.canonicalBytesHex,
+      );
+    const validPhysicalSpecSha256 = appIndexPhysicalSpecSha256HexV1ToBytes(
+      canonical.sha256Hex,
+    );
+
+    for (
+      const [physicalSpecBytes, physicalSpecSha256] of [
+        ["not stored bytes", validPhysicalSpecSha256],
+        [new Uint8Array(), validPhysicalSpecSha256],
+        [detachedBytes, validPhysicalSpecSha256],
+        [validPhysicalSpecBytes, new Uint8Array(31)],
+      ]
+    ) {
+      const db = developerSelectTransaction(() => Promise.resolve([{
+        deploymentId,
+        indexDefinitionId: 1,
+        accessKind: "by_creation_time",
+        accessIdentityId: 1,
+        tableId: 1,
+        logicalIndexId: null,
+        physicalSpecCodecVersion: canonical.codecVersion,
+        physicalSpecJson: canonical.physicalSpec,
+        physicalSpecBytes,
+        physicalSpecSha256,
+        createdAt: new Date(),
+      }]));
+
+      const failure = await runEffectFailure(
+        getAppIndexDefinitionByIdEffect(
+          db,
+          deploymentId,
+          CatalogIndexDefinitionIdSchema.make(1),
+        ),
+      );
+
+      expect(failure).toBeInstanceOf(AppIndexDefinitionCatalogCorruptionError);
+      expect(failure).toMatchObject({
+        detail: "definition 1 has an invalid physical specification",
+      });
+    }
+  });
+
+  it("maps malformed stored physical JSON to catalog corruption", async () => {
+    const deploymentId = "deployment_index_definition_json_corruption";
+    const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+      APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+    );
+    const db = developerSelectTransaction(() => Promise.resolve([{
+      deploymentId,
+      indexDefinitionId: 1,
+      accessKind: "by_creation_time",
+      accessIdentityId: 1,
+      tableId: 1,
+      logicalIndexId: null,
+      physicalSpecCodecVersion: canonical.codecVersion,
+      physicalSpecJson: {},
+      physicalSpecBytes: canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
+        canonical.canonicalBytesHex,
+      ),
+      physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+        canonical.sha256Hex,
+      ),
+      createdAt: new Date(),
+    }]));
+
+    const failure = await runEffectFailure(
+      getAppIndexDefinitionByIdEffect(
+        db,
+        deploymentId,
+        CatalogIndexDefinitionIdSchema.make(1),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(AppIndexDefinitionCatalogCorruptionError);
+    expect(failure).toMatchObject({
+      detail: "definition 1 has an invalid physical specification",
+    });
+  });
+
+  it("preserves stored physical-spec crypto rejection as a defect", async () => {
+    const deploymentId = "deployment_index_definition_crypto_defect";
+    const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+      APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+    );
+    const db = developerSelectTransaction(() => Promise.resolve([{
+      deploymentId,
+      indexDefinitionId: 1,
+      accessKind: "by_creation_time",
+      accessIdentityId: 1,
+      tableId: 1,
+      logicalIndexId: null,
+      physicalSpecCodecVersion: canonical.codecVersion,
+      physicalSpecJson: canonical.physicalSpec,
+      physicalSpecBytes: canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
+        canonical.canonicalBytesHex,
+      ),
+      physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+        canonical.sha256Hex,
+      ),
+      createdAt: new Date(),
+    }]));
+    const defect = new Error("stored physical-spec digest defect");
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(defect);
+    try {
+      const exit = await Effect.runPromiseExit(
+        getAppIndexDefinitionByIdEffect(
+          db,
+          deploymentId,
+          CatalogIndexDefinitionIdSchema.make(1),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(defect.message);
+      }
+    } finally {
+      digest.mockRestore();
+    }
+  });
 
   it("maps malformed stored access identity to catalog corruption", async () => {
     const deploymentId = "deployment_index_definition_access_corruption";
