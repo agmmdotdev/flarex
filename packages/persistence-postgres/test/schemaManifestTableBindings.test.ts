@@ -1,7 +1,11 @@
-import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import {
+  decodeCatalogTableId,
+  type CatalogTableId,
+} from "flarex-protocol/catalog";
 import {
   CatalogSchemaVersionSchema,
   decodeSchemaManifestAppTableName,
+  type SchemaManifestAppTableName,
   type SchemaManifestAppTableDeclarationInputV1,
   type SchemaManifestTableDefinitionsV1,
 } from "flarex-protocol/schema-manifest";
@@ -20,6 +24,7 @@ import {
   InvalidPreparedSchemaManifestTableBindingsError,
   InvalidSchemaManifestTableBindingInputError,
   prepareSchemaManifestAppTableBindingsV1Effect,
+  readSchemaManifestAppTableBindingsEffect,
   type ApplySchemaManifestAppTableBindingsV1Error,
   type PrepareSchemaManifestAppTableBindingsV1Error,
   SchemaManifestTableBindingPersistenceError,
@@ -55,10 +60,16 @@ type PublicBindingExport = Extract<
   | "applySchemaManifestAppTableBindingsV1InTransactionEffect"
 >;
 
+type RawBindingReadExport = Extract<
+  keyof typeof import("../src/schemaManifestTableBindings"),
+  "selectSchemaManifestAppTableBindingRows"
+>;
+
 describe("schema manifest app table bindings", () => {
   it("keeps optimistic planning and allocation behind concrete boundaries", () => {
     expectTypeOf<PublicBindingMethod>().toEqualTypeOf<never>();
     expectTypeOf<PublicBindingExport>().toEqualTypeOf<never>();
+    expectTypeOf<RawBindingReadExport>().toEqualTypeOf<never>();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<
@@ -84,6 +95,57 @@ describe("schema manifest app table bindings", () => {
       SchemaManifestTableDefinitionsV1,
       ApplySchemaManifestAppTableBindingsV1Error
     >>();
+    expectTypeOf<
+      ReturnType<typeof readSchemaManifestAppTableBindingsEffect>
+    >().toEqualTypeOf<Effect.Effect<
+      ReadonlyMap<SchemaManifestAppTableName, CatalogTableId>,
+      | SchemaManifestTableBindingPersistenceError
+      | SchemaManifestTableBindingCorruptionError
+    >>();
+  });
+
+  it("maps direct binding-read rejection at the owning SQL edge", async () => {
+    const rejection = new Error("direct schema binding read rejected");
+    const logicalName = decodeSchemaManifestAppTableName("users");
+    const db = schemaBindingSelectDatabase(() => Promise.reject(rejection));
+
+    const failure = await runEffectFailure(
+      readSchemaManifestAppTableBindingsEffect(
+        db,
+        "deployment_binding_read_rejection",
+        [logicalName],
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(SchemaManifestTableBindingPersistenceError);
+    expect(failure).toMatchObject({
+      operation: "readBindings",
+      cause: rejection,
+    } satisfies Partial<SchemaManifestTableBindingPersistenceError>);
+  });
+
+  it("preserves direct binding query construction failures as defects", async () => {
+    const defect = new Error("direct schema binding query construction defect");
+    const db = {
+      select(): never {
+        throw defect;
+      },
+    } as unknown as FlarexMetadataDatabase;
+
+    const exit = await Effect.runPromiseExit(
+      readSchemaManifestAppTableBindingsEffect(
+        db,
+        "deployment_binding_read_defect",
+        [decodeSchemaManifestAppTableName("users")],
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
   });
 
   it("maps preparation deployment-read rejection to its tagged error", async () => {

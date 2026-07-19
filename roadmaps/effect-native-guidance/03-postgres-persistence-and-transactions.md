@@ -170,8 +170,12 @@ canonicalization, hashing, or owned stored-row validation. The resolver still
 never reads the mutable active-schema pointer. Stable-binding row validation
 now has one authoritative pure `Result` decoder, and the resolver consumes that
 failure channel directly instead of reconstructing owned throws through broad
-Effect catch logic. The package-root full-integrity schema-version artifact
-readers are now Effect-native. Reader identity and stored-row validation enter
+Effect catch logic. The resolver now also consumes the stable-binding owner's
+Effect reader directly; its duplicate query-level `tryPromise` and the raw
+Promise binding selector are deleted, so Drizzle rejection and stored-row
+decoding each have one persistence owner. The package-root full-integrity
+schema-version artifact readers are now Effect-native. Reader identity and
+stored-row validation enter
 through `Result`, query rejection maps once to the existing operation-specific
 persistence error, and canonical manifest verification remains one narrow
 foreign Promise edge. The pinned resolver consumes the internal

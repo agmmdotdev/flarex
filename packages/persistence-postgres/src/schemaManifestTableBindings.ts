@@ -492,20 +492,6 @@ export type SchemaManifestAppTableBindingRow = Pick<
   "deploymentId" | "tableId" | "logicalName"
 >;
 
-/** Package-internal raw row acquisition; callers own stored-row decoding. */
-export async function selectSchemaManifestAppTableBindingRows(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-  logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
-): Promise<ReadonlyArray<SchemaManifestAppTableBindingRow>> {
-  if (logicalNames.length === 0) return [];
-  return selectSchemaManifestAppTableBindingRowsQuery(
-    db,
-    deploymentId,
-    logicalNames,
-  );
-}
-
 function selectSchemaManifestAppTableBindingRowsQuery(
   db: FlarexMetadataDatabase,
   deploymentId: string,

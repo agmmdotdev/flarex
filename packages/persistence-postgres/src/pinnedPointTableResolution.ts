@@ -10,8 +10,8 @@ import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
-  decodeSchemaManifestAppTableBindingRowsResult,
-  selectSchemaManifestAppTableBindingRows,
+  readSchemaManifestAppTableBindingsEffect,
+  SchemaManifestTableBindingPersistenceError,
 } from "./schemaManifestTableBindings";
 import {
   SchemaVersionArtifactPersistenceError,
@@ -108,28 +108,22 @@ export const resolvePinnedPointTableIdV1Effect = Effect.fn(
   if (declared === undefined) {
     return yield* Effect.fail(new PinnedPointTableNotFoundV1Error(input));
   }
-  const bindingRows = yield* Effect.uninterruptible(Effect.tryPromise({
-    try: () => selectSchemaManifestAppTableBindingRows(
-      db,
-      input.deploymentId,
-      [input.tableName],
-    ),
-    catch: (cause) => new PinnedPointTablePersistenceV1Error({
-      operation: "loadStableBinding",
-      cause,
-    }),
-  }));
-  const bindings = yield* Effect.fromResult(
-    decodeSchemaManifestAppTableBindingRowsResult(
-      input.deploymentId,
-      [input.tableName],
-      bindingRows,
-    ).pipe(
-      Result.mapError((cause) => pinnedPointTableCorruption(
-        input,
-        "stableBindingInvalid",
-        cause,
-      )),
+  const bindings = yield* readSchemaManifestAppTableBindingsEffect(
+    db,
+    input.deploymentId,
+    [input.tableName],
+  ).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof SchemaManifestTableBindingPersistenceError
+        ? new PinnedPointTablePersistenceV1Error({
+            operation: "loadStableBinding",
+            cause: cause.cause,
+          })
+        : pinnedPointTableCorruption(
+            input,
+            "stableBindingInvalid",
+            cause,
+          )
     ),
   );
   const stableTableId = bindings.get(input.tableName);
