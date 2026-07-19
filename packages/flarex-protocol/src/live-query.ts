@@ -2,6 +2,7 @@ import {
   isNonArrayRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 import { executionIdentityFingerprint } from "./auth";
 import { isJson, type WritableJson } from "./json";
@@ -263,7 +264,7 @@ function requiredDeliveryString(
   value: unknown,
   field: string,
 ): Effect.Effect<string, LiveQueryDeliveryChangePayloadError> {
-  if (typeof value === "string" && value.length > 0) return Effect.succeed(value);
+  if (isNonEmptyString(value)) return Effect.succeed(value);
   return liveQueryDeliveryPayloadFailure(`${field} must be a non-empty string.`);
 }
 
@@ -308,7 +309,7 @@ function requiredWakeString(
   value: unknown,
   field: string,
 ): Effect.Effect<string, DeliveryWakePayloadError> {
-  if (typeof value === "string" && value.length > 0) return Effect.succeed(value);
+  if (isNonEmptyString(value)) return Effect.succeed(value);
   return deliveryWakePayloadFailure(`${field} must be a non-empty string.`);
 }
 

@@ -2,6 +2,7 @@ import {
   isNonArrayRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Effect } from "effect";
 
 import { normalizeDateString } from "./dateStringNormalization";
@@ -56,7 +57,7 @@ export function createResponsePayloadDecoders<Operation, Failure>(
     field: string,
     operation: Operation,
   ): Effect.Effect<string, Failure> =>
-    typeof value === "string" && value.length > 0
+    isNonEmptyString(value)
       ? Effect.succeed(value)
       : fail(operation, `${field} must be a non-empty string.`);
 

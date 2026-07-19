@@ -274,6 +274,13 @@ establish a domain identifier or secret policy. Keep those stronger checks,
 their order, messages, and brands with their owner. When a boundary needs the
 trimmed spelling itself, normalize once locally instead of validating and then
 trimming again through a generic predicate.
+Use `@flarex/utils/strings` to classify an unknown value as a primitive
+nonempty string only when the contract is exactly "at least one UTF-16 code
+unit". This predicate deliberately accepts whitespace-only strings, null
+bytes, zero-width characters, and unpaired surrogates, and does not normalize
+the value. Keep nonblank, Unicode, canonical text, URL/path, identifier,
+secret, byte-limit, and branded string rules with their owner. Do not replace
+a nonempty contract with the trim-based predicate or vice versa.
 Use `@flarex/utils/strings` for the exact lowercase hexadecimal 8-4-4-4-12 UUID
 text shape when that spelling alone is the contract. The predicate deliberately
 does not enforce UUID version or variant bits, generate an identifier, attach a

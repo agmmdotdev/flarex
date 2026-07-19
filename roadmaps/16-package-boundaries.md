@@ -432,11 +432,13 @@ semantics.
 - `@flarex/utils/strings` owns the tested ECMAScript UTF-16 string comparator
   reused by protocol canonicalization, deterministic ordering, executor
   stored-attempt verification, and persistence journal canonicalization paths,
-  plus primitive nonblank-string classification using exact ECMAScript `trim`
-  semantics across protocol, persistence, executor host, H05, and backend
-  boundaries. The predicate does not normalize its input or imply null-byte,
-  zero-width-character, Unicode, UTF-8 size, PostgreSQL/JSON, identifier,
-  secret, or branded text policy; those checks and failures remain local.
+  plus distinct primitive nonempty- and nonblank-string classification. The
+  nonempty predicate requires one UTF-16 code unit and deliberately accepts
+  whitespace-only strings, null bytes, zero-width characters, and unpaired
+  surrogates. The nonblank predicate uses exact ECMAScript `trim` semantics.
+  Neither predicate normalizes its input or implies Unicode, UTF-8 size,
+  PostgreSQL/JSON, identifier, secret, or branded text policy; those checks
+  and failures remain local.
   Narrower ordered-index comparators retain their domain-significant names.
 - `@flarex/utils/strings` also owns the exact lowercase hexadecimal
   8-4-4-4-12 UUID text-shape predicate shared by protocol identifiers and the

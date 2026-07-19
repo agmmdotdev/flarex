@@ -12,6 +12,18 @@ export function compareUtf16Strings(left: string, right: string): number {
 }
 
 /**
+ * Returns whether a value is a primitive string containing at least one
+ * UTF-16 code unit.
+ *
+ * This predicate does not trim or normalize its input. It deliberately accepts
+ * whitespace-only strings, null bytes, zero-width characters, and unpaired
+ * surrogates; stronger text contracts retain their own validation.
+ */
+export function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/**
  * Returns whether a value is a primitive string containing at least one code
  * unit after ECMAScript whitespace is trimmed from both ends.
  *

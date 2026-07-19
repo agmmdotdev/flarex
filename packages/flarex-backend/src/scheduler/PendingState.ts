@@ -1,4 +1,5 @@
 import { isNonArrayRecord, type UnknownRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Data, Effect, Result } from "effect";
 import { normalizeDateString } from "../dateStringNormalization";
 import { HttpError } from "../http";
@@ -259,7 +260,7 @@ function dateStringFromStorage(value: unknown, field: string): SchedulerPendingS
 }
 
 function nonEmptyStringFromStorage(value: unknown, field: string): SchedulerPendingStateResult<string> {
-  if (typeof value === "string" && value.length > 0) {
+  if (isNonEmptyString(value)) {
     return Result.succeed(value);
   }
   return schedulerPendingStateFailure(`${field} must be a non-empty string.`);

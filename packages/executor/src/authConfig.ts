@@ -1,4 +1,5 @@
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import {
   decodeAuthConfigPromise,
   type AuthConfig,
@@ -94,7 +95,7 @@ function storedAuthConfigModule(
       "Stored authConfigModule exists without stored authConfig.",
     );
   }
-  if (typeof value !== "string" || value.length === 0) {
+  if (!isNonEmptyString(value)) {
     throw new DeploymentAuthConfigMetadataUnavailableError(
       deploymentId,
       packageId,

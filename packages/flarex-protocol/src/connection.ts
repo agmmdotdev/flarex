@@ -1,4 +1,5 @@
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 import {
   decodeLiveQueryDeliveryChangesBodyEffect,
@@ -226,7 +227,7 @@ const ConnectionInteger = Schema.declare<number>(
 );
 
 const ConnectionNonEmptyString = Schema.declare<string>(
-  (value): value is string => typeof value === "string" && value.length > 0,
+  isNonEmptyString,
   { title: "ConnectionNonEmptyString" },
 );
 
@@ -617,7 +618,7 @@ function requiredInteger(value: unknown, field: string): number {
 }
 
 function requiredString(value: unknown, field: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
+  if (isNonEmptyString(value)) return value;
   throw new Error(`${field} must be a non-empty string.`);
 }
 

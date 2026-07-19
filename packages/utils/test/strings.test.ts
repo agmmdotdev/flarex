@@ -4,6 +4,7 @@ import {
   compareUtf16Strings,
   isLowercaseUuidText,
   isNonBlankString,
+  isNonEmptyString,
   trimToNonBlankOrNull,
 } from "@flarex/utils/strings";
 
@@ -41,6 +42,24 @@ describe("isNonBlankString", () => {
     expect(isNonBlankString("  value  ")).toBe(true);
     expect(isNonBlankString("\u200b")).toBe(true);
     expect(isNonBlankString("\u0000")).toBe(true);
+  });
+});
+
+describe("isNonEmptyString", () => {
+  it("rejects non-string values and the empty primitive string", () => {
+    expect(isNonEmptyString(undefined)).toBe(false);
+    expect(isNonEmptyString(null)).toBe(false);
+    expect(isNonEmptyString(1)).toBe(false);
+    expect(isNonEmptyString(new String("value"))).toBe(false);
+    expect(isNonEmptyString("")).toBe(false);
+  });
+
+  it("accepts every nonempty primitive spelling without normalization", () => {
+    expect(isNonEmptyString("value")).toBe(true);
+    expect(isNonEmptyString(" \t\r\n")).toBe(true);
+    expect(isNonEmptyString("\u200b")).toBe(true);
+    expect(isNonEmptyString("\u0000")).toBe(true);
+    expect(isNonEmptyString("\ud800")).toBe(true);
   });
 });
 

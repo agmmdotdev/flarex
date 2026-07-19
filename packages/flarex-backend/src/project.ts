@@ -1,3 +1,4 @@
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
 import { HttpError } from "./http";
 import type { Env } from "./types";
@@ -14,7 +15,7 @@ export class ProjectRequiredParameterError
 
 export const requireProjectIdEffect = Effect.fn("Project.requireProjectId")(
   function* (env: Env): Effect.fn.Return<string, ProjectRequiredParameterError> {
-    if (env.FLAREX_PROJECT_ID !== undefined && env.FLAREX_PROJECT_ID.length > 0) {
+    if (isNonEmptyString(env.FLAREX_PROJECT_ID)) {
       return env.FLAREX_PROJECT_ID;
     }
     return yield* Effect.fail(new ProjectRequiredParameterError({
@@ -30,7 +31,7 @@ export const projectIdFromRequestOrEnvEffect = Effect.fn("Project.projectIdFromR
     value: unknown,
     env: Env,
   ): Effect.fn.Return<string, ProjectRequiredParameterError> {
-    if (typeof value === "string" && value.length > 0) return value;
+    if (isNonEmptyString(value)) return value;
     if (value !== undefined) {
       return yield* Effect.fail(new ProjectRequiredParameterError({
         parameter: "projectId",
@@ -38,7 +39,7 @@ export const projectIdFromRequestOrEnvEffect = Effect.fn("Project.projectIdFromR
         message: "projectId must be a non-empty string.",
       }));
     }
-    if (env.FLAREX_PROJECT_ID !== undefined && env.FLAREX_PROJECT_ID.length > 0) {
+    if (isNonEmptyString(env.FLAREX_PROJECT_ID)) {
       return env.FLAREX_PROJECT_ID;
     }
     return yield* Effect.fail(new ProjectRequiredParameterError({

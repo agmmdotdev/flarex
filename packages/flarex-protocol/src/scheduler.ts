@@ -3,6 +3,7 @@ import {
   isNonArrayRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Data, DateTime, Effect, Result, Schema } from "effect";
 
 export const SCHEDULER_DEFAULT_DELIVERY_LIMIT = 100;
@@ -435,7 +436,7 @@ function dateString(value: unknown, field: string): SchedulerRoutePayloadValidat
 }
 
 function nonEmptyString(value: unknown, field: string): SchedulerRoutePayloadValidationResult<string> {
-  if (typeof value === "string" && value.length > 0) return Result.succeed(value);
+  if (isNonEmptyString(value)) return Result.succeed(value);
   return schedulerRoutePayloadValidationFailure(`${field} must be a non-empty string.`);
 }
 

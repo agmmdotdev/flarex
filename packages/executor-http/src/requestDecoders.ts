@@ -4,6 +4,7 @@ import {
   isNonArrayRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { decodeExecutionIdentityEffect } from "flarex-protocol/auth";
 import {
   isJson as isProtocolJson,
@@ -996,7 +997,7 @@ function requiredString(
   field: string,
 ): ExecutorHttpParseResult<string> {
   const value = record[field];
-  if (typeof value !== "string" || value.length === 0) {
+  if (!isNonEmptyString(value)) {
     return badRequest(`${field} must be a non-empty string.`);
   }
   return Result.succeed(value);
@@ -1025,7 +1026,7 @@ function optionalString(
   field: string,
 ): ExecutorHttpParseResult<string | undefined> {
   if (value === undefined) return Result.succeed(undefined);
-  if (typeof value === "string" && value.length > 0) {
+  if (isNonEmptyString(value)) {
     return Result.succeed(value);
   }
   return badRequest(`${field} must be a non-empty string.`);
@@ -1037,7 +1038,7 @@ function optionalNullableString(
 ): ExecutorHttpParseResult<string | null | undefined> {
   if (value === undefined) return Result.succeed(undefined);
   if (value === null) return Result.succeed(null);
-  if (typeof value === "string" && value.length > 0) {
+  if (isNonEmptyString(value)) {
     return Result.succeed(value);
   }
   return badRequest(`${field} must be a non-empty string or null.`);
@@ -1048,7 +1049,7 @@ function requiredDate(
   field: string,
 ): ExecutorHttpParseResult<Date> {
   const value = record[field];
-  if (typeof value !== "string" || value.length === 0) {
+  if (!isNonEmptyString(value)) {
     return badRequest(`${field} must be an ISO timestamp string.`);
   }
   const date = new Date(value);
@@ -1063,7 +1064,7 @@ function optionalDate(
   field: string,
 ): ExecutorHttpParseResult<Date | undefined> {
   if (value === undefined) return Result.succeed(undefined);
-  if (typeof value !== "string" || value.length === 0) {
+  if (!isNonEmptyString(value)) {
     return badRequest(`${field} must be an ISO timestamp string.`);
   }
   const date = new Date(value);
@@ -1079,7 +1080,7 @@ function requiredStringArray(
 ): ExecutorHttpParseResult<string[]> {
   if (
     Array.isArray(value) &&
-    value.every(item => typeof item === "string" && item.length > 0)
+    value.every(isNonEmptyString)
   ) {
     return Result.succeed(value);
   }

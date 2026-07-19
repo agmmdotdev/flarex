@@ -1,4 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Data, Effect, Result } from "effect";
 import { normalizeDateString } from "../dateStringNormalization";
 import { HttpError } from "../http";
@@ -101,7 +102,7 @@ function storageCursor(
 }
 
 function storageString(value: unknown, field: string): DeliveryPendingDrainStateResult<string> {
-  if (typeof value === "string" && value.length > 0) {
+  if (isNonEmptyString(value)) {
     return Result.succeed(value);
   }
   return deliveryPendingDrainStateFailure(`${field} must be a non-empty string.`);
