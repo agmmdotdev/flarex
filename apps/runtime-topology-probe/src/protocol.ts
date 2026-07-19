@@ -19,11 +19,10 @@ import {
   PROBE_ORDINAL_ZERO,
   type ProbeOrdinal,
 } from "./identity";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
-const StrictParseOptions = { onExcessProperty: "error" } as const;
+import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strictSchemaOptions";
 
 export const PROBE_LIMITS_V1 = {
   maxConcurrency: 25,

@@ -19,11 +19,10 @@ import {
   probeWorkerLoaderIdentityV1,
   type ProbeRunRequestV1,
 } from "./protocol";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
-const StrictParseOptions = { onExcessProperty: "error" } as const;
+import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strictSchemaOptions";
 
 export const PROBE_CAMPAIGN_LIMITS_V1 = {
   runCells: 32,

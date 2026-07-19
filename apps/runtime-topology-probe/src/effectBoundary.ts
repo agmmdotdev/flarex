@@ -1,5 +1,7 @@
 import { Effect, Option, Result, Schema } from "effect";
 
+import { StrictParseOptions } from "./strictSchemaOptions";
+
 export async function protocolValueOrNull<A, E>(
   effect: Effect.Effect<A, E>,
 ): Promise<A | null> {
@@ -16,9 +18,7 @@ export async function protocolValueOrNull<A, E>(
 export function strictSchemaValueOrNullDecoder<
   S extends Schema.ConstraintDecoder<unknown>,
 >(schema: S): (value: unknown) => S["Type"] | null {
-  const decode = Schema.decodeUnknownOption(schema, {
-    onExcessProperty: "error",
-  });
+  const decode = Schema.decodeUnknownOption(schema, StrictParseOptions);
   return value => Option.getOrNull(decode(value));
 }
 

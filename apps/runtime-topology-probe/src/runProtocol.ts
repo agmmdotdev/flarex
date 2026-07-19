@@ -22,11 +22,10 @@ import {
   ProbeMeasurementDispositionSchema,
   ProbeSyncWakeObservationV1Schema,
 } from "./runtimeProtocol";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
-const StrictParseOptions = { onExcessProperty: "error" } as const;
+import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strictSchemaOptions";
 
 const MAX_RUN_SAMPLES =
   PROBE_LIMITS_V1.maxRepetitions + PROBE_LIMITS_V1.maxWarmupRepetitions;

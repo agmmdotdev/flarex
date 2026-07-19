@@ -21,11 +21,10 @@ import {
   ProbeSessionModeSchema,
 } from "./protocol";
 import { sha256Hex } from "./sha256";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
-const StrictParseOptions = { onExcessProperty: "error" } as const;
+import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strictSchemaOptions";
 
 const FacetScenarioSchema = Schema.Literals(["facet_echo", "facet_journal"]);
 const SyntheticPayloadSchema = Schema.String.check(Schema.isPattern(/^x*$/));

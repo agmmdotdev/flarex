@@ -13,10 +13,7 @@ import {
   ProbeProtocolVersionV1Schema,
   ProbeScenarioSchema,
 } from "./protocol";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
+import { StrictStructOptions } from "./strictSchemaOptions";
 
 const DeletedFacetCountSchema = Schema.Int.check(
   Schema.makeFilter((value: number) =>

@@ -385,6 +385,11 @@ semantics.
   its operation union, messages, and tagged failure construction; the factory
   remains outside `@flarex/utils` because that dependency leaf cannot own
   Effect adapters or backend response policy.
+- `apps/runtime-topology-probe/src/strictSchemaOptions.ts` owns the probe's
+  exact excess-property policy for Effect Schema struct annotations and
+  unknown-input decoder calls. This is app-local wire policy rather than a
+  generic utility; keeping the two option surfaces explicit prevents protocol
+  modules from drifting between strict and permissive decoding.
 - `@flarex/utils/records` owns shallow non-null, non-array object narrowing as
   both a predicate and nullable adapter. It deliberately does not promise a
   plain prototype, JSON membership, symbol-key rejection, or runtime

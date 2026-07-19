@@ -57,10 +57,7 @@ import {
   type ProbeRunStatusV1,
 } from "./runProtocol";
 import { decodeProbeControlledGatewaySampleV1OrNull } from "./runtimeProtocol";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
+import { StrictStructOptions } from "./strictSchemaOptions";
 
 export const PROBE_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const PROBE_MAX_REQUEST_TIMEOUT_MS = 300_000;

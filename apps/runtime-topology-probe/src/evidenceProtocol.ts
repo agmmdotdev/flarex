@@ -15,11 +15,10 @@ import {
 } from "./statistics";
 import { sameProbeDimensionsV1 } from "./protocol";
 import { sha256Hex } from "./sha256";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
-const StrictParseOptions = { onExcessProperty: "error" } as const;
+import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strictSchemaOptions";
 
 const Sha256HexSchema = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
 const CompatibilityDateSchema = Schema.String.check(

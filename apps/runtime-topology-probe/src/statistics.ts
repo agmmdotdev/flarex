@@ -21,10 +21,7 @@ import {
   validateProbeTraceV1,
 } from "./trace";
 import { ProbeCodeModeSchema } from "./identity";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
+import { StrictStructOptions } from "./strictSchemaOptions";
 
 const SummaryCountSchema = Schema.Int.check(
   Schema.makeFilter((value: number) =>

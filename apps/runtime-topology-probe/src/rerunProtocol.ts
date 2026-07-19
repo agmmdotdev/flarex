@@ -22,11 +22,10 @@ import {
   ProbeProtocolVersionV1Schema,
 } from "./protocol";
 import { ProbeSyntheticCursorSchema } from "./commitProtocol";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
-const StrictParseOptions = { onExcessProperty: "error" } as const;
+import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strictSchemaOptions";
 
 const PayloadBytesSchema = Schema.Int.check(
   Schema.makeFilter((value: number) =>

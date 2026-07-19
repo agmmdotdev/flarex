@@ -335,6 +335,11 @@ Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze
 logic, or legacy compatibility into `@flarex/utils`. Those concerns stay with
 their protocol, domain, persistence, host, or temporary migration owner.
+When one app or package repeats an Effect Schema parse policy across protocol
+modules, keep one local options owner and reuse it at both the struct annotation
+and decoder-call surfaces that require it. Do not move Effect options into
+`@flarex/utils`, and do not assume a strict annotation and a strict top-level
+decode option are interchangeable merely because their fields look alike.
 PostgreSQL JSONB adapters are persistence codec policy, not generic utilities.
 When a `jsonb NOT NULL` column must store JSON `null`, share the exact adapter
 inside the persistence package, preserve every non-null input by identity, and

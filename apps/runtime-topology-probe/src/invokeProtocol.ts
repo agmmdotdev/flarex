@@ -30,11 +30,10 @@ import {
   ProbeSessionModeSchema,
 } from "./protocol";
 import { sha256Hex } from "./sha256";
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
-const StrictParseOptions = { onExcessProperty: "error" } as const;
+import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strictSchemaOptions";
 
 const SyntheticPayloadSchema = Schema.String.check(Schema.isPattern(/^x*$/));
 const PayloadBytesSchema = Schema.Int.check(
