@@ -63,7 +63,7 @@ export type ProbeAttemptId = typeof ProbeAttemptIdSchema.Type;
 
 export const ProbeCodeIdSchema = Schema.String.check(
   Schema.isPattern(
-    /^rtp-code-(?:direct|facet|invoke|invoke-finalizer|rerun)-v1-(?:stable|[a-z0-9][a-z0-9_-]{0,39}-[0-9]{1,6})$/,
+    /^rtp-code-(?:direct|facet|invoke|invoke-finalizer|invoke-finalizer-warm|rerun)-v1-(?:stable|[a-z0-9][a-z0-9_-]{0,39}-[0-9]{1,6})$/,
   ),
 ).pipe(Schema.brand("Flarex/RuntimeTopologyProbeCodeIdV1"));
 export type ProbeCodeId = typeof ProbeCodeIdSchema.Type;
@@ -81,6 +81,7 @@ export const ProbeCodeProfileSchema = Schema.Literals([
   "facet",
   "invoke",
   "invoke-finalizer",
+  "invoke-finalizer-warm",
   "rerun",
 ]);
 export type ProbeCodeProfile = typeof ProbeCodeProfileSchema.Type;

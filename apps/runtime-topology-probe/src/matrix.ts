@@ -251,5 +251,27 @@ export const PROBE_FACET_FINALIZER_AB_MATRIX_V1: ProbeCampaignManifestV1 =
     ),
   });
 
+function warmFacetFinalizerRun(replicate: number): ProbeRunRequestV1 {
+  return rehearsalRun({
+    runId: `p24_${replicate.toString().padStart(2, "0")}_warm`,
+    scenario: "facet_finalizer_warm_invoke",
+    replicate,
+    repetitions: 11,
+    warmupRepetitions: 0,
+    journalEntries: 2,
+    payloadBytes: 64,
+    sessionMode: "reuse-session",
+  });
+}
+
+export const PROBE_WARM_FACET_FINALIZER_MATRIX_V1: ProbeCampaignManifestV1 =
+  ProbeCampaignManifestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    campaignId: ProbeCampaignIdSchema.make("p24_warm_facet_finalizer_v1"),
+    collectorConcurrency: 1,
+    runs: Array.from({ length: 8 }, (_, index) =>
+      warmFacetFinalizerRun(index + 1)),
+  });
+
 export const PROBE_ACTIVE_CAMPAIGN_MATRIX_V1 =
-  PROBE_FACET_FINALIZER_AB_MATRIX_V1;
+  PROBE_WARM_FACET_FINALIZER_MATRIX_V1;

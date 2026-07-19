@@ -1112,6 +1112,7 @@ function isOrderedWakeScenario(run: ProbeRunRequestV1): boolean {
     run.scenario === "executor_worker_invoke" ||
     run.scenario === "facet_executor_invoke" ||
     run.scenario === "facet_finalizer_invoke" ||
+    run.scenario === "facet_finalizer_warm_invoke" ||
     run.scenario === "session_executor_invoke";
 }
 

@@ -136,6 +136,7 @@ export interface ProbeSessionEnv {
 
 interface TrackedFacetIdentity {
   readonly attemptId: string;
+  readonly facetId?: string | undefined;
   readonly codeId: string;
   readonly runId: string;
   readonly sampleId: string;
@@ -184,6 +185,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
   private storageInitialized = true;
   private activeOperations = 0;
   private purgeTail: Promise<void> = Promise.resolve();
+  private hasHandledWarmFinalizer = false;
 
   constructor(ctx: DurableObjectState, env: ProbeSessionEnv) {
     super(ctx, env);
@@ -534,13 +536,15 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       }));
     } else if (
       facet.codeId.startsWith("rtp-code-invoke-v1-") ||
-      facet.codeId.startsWith("rtp-code-invoke-finalizer-v1-")
+      facet.codeId.startsWith("rtp-code-invoke-finalizer-v1-") ||
+      facet.codeId.startsWith("rtp-code-invoke-finalizer-warm-v1-")
     ) {
       let workerCode: WorkerLoaderWorkerCode;
       if (
         facet.scenario === "session_executor_invoke" ||
         facet.scenario === "facet_executor_invoke" ||
         facet.scenario === "facet_finalizer_invoke" ||
+        facet.scenario === "facet_finalizer_warm_invoke" ||
         facet.scenario === "executor_worker_invoke"
       ) {
         const attempt = this.sql.exec<{
@@ -566,7 +570,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         );
         if (
           invoke === null ||
-          invoke.attemptId !== facet.attemptId ||
+          invoke.facetId !== facet.attemptId ||
           invoke.codeId !== facet.codeId ||
           invoke.scenario !== facet.scenario
         ) {
@@ -589,7 +593,10 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
             throw new Error("facet executor purge capability evidence conflicts");
           }
           workerCode = probeSnapshotInvokeWorkerCode();
-        } else if (facet.scenario === "facet_finalizer_invoke") {
+        } else if (
+          facet.scenario === "facet_finalizer_invoke" ||
+          facet.scenario === "facet_finalizer_warm_invoke"
+        ) {
           const finish = this.env.MOCK_FINISH;
           if (finish === undefined || attempt.capability_token !== null) {
             throw new Error("facet finalizer purge capability evidence conflicts");
@@ -801,7 +808,12 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     if (loader === undefined) return internalError("loader_unavailable", 500);
     const sessionHosted = decoded.scenario === "session_executor_invoke";
     const facetHosted = decoded.scenario === "facet_executor_invoke";
-    const facetFinalizer = decoded.scenario === "facet_finalizer_invoke";
+    const facetFinalizer = decoded.scenario === "facet_finalizer_invoke" ||
+      decoded.scenario === "facet_finalizer_warm_invoke";
+    const warmFinalizer = decoded.scenario === "facet_finalizer_warm_invoke";
+    const sessionActivationObserved = warmFinalizer &&
+      !this.hasHandledWarmFinalizer;
+    if (warmFinalizer) this.hasHandledWarmFinalizer = true;
     const externalControl = decoded.scenario === "executor_worker_invoke";
     const attemptFenced = sessionHosted || facetHosted || facetFinalizer ||
       externalControl;
@@ -973,6 +985,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
           loader,
           executorHost,
           decoded,
+          sessionActivationObserved,
         ),
       };
     } catch (cause) {
@@ -1012,10 +1025,10 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         settledResponse,
       );
       if (!completed.ok) return completed;
-      await this.deleteTrackedFacet(decoded.attemptId);
+      if (!warmFinalizer) await this.deleteTrackedFacet(decoded.facetId);
       return completed;
     }
-    const facetDeleted = await this.deleteTrackedFacet(decoded.attemptId);
+    const facetDeleted = await this.deleteTrackedFacet(decoded.facetId);
     if (!attemptFenced) {
       if (!facetDeleted) return internalError("facet_cleanup_failed", 500);
       if (invocation.kind === "defect") throw invocation.cause;
@@ -1047,6 +1060,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     loader: WorkerLoader,
     executorHost: InvokeExecutorHost,
     request: ProbeInvokeFacetRequestV1,
+    sessionActivationObserved: boolean,
   ): Promise<Response> {
     const facetRequest: ProbeInvokeFacetExecutionRequestV1 =
       ProbeInvokeFacetExecutionRequestV1Schema.make({
@@ -1063,7 +1077,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     const facetStartedAt = performance.now();
     let facetResponse: Response;
     try {
-      const facet = this.ctx.facets.get(request.attemptId, () => {
+      const facet = this.ctx.facets.get(request.facetId, () => {
         observations.facetStartupCallbackRan = true;
         const runtimeCodeId = probeWorkerLoaderIdentityV1(
           request.scenario,
@@ -1086,7 +1100,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
             : probeInvokeWorkerCode(executorHost.read);
         });
         return {
-          id: request.attemptId,
+          id: request.facetId,
           class: worker.getDurableObjectClass(PROBE_INVOKE_FACET_CLASS_NAME),
         };
       });
@@ -1215,6 +1229,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       facetDurationMs: ProbeDurationMsSchema.make(facetDurationMs),
       workerLoaderCallbackRan: observations.workerLoaderCallbackRan,
       facetStartupCallbackRan: observations.facetStartupCallbackRan,
+      sessionActivationObserved,
       executorHost: executorHost.kind,
       readCapabilityCalls: executorHost.kind === "session-do"
         ? sessionExecutorReadCalls(this.sql, request) ?? 0
@@ -1490,6 +1505,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     request: TrackedFacetIdentity,
   ): Promise<TrackFacetResult> {
     try {
+      const facetName = request.facetId ?? request.attemptId;
       const outcome = this.ctx.storage.transactionSync(() => {
         const existing = this.sql.exec<{
           code_id: string;
@@ -1500,12 +1516,13 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
           `SELECT code_id, run_id, sample_id, scenario
            FROM probe_active_facets
            WHERE facet_name = ?`,
-          request.attemptId,
+          facetName,
         ).toArray()[0];
         if (existing !== undefined) {
           return existing.code_id === request.codeId &&
               existing.run_id === request.runId &&
-              existing.sample_id === request.sampleId &&
+              (existing.sample_id === request.sampleId ||
+                request.scenario === "facet_finalizer_warm_invoke") &&
               existing.scenario === request.scenario
             ? "existing"
             : "identity-conflict";
@@ -1514,7 +1531,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
           `INSERT INTO probe_active_facets
              (facet_name, code_id, run_id, sample_id, scenario)
            VALUES (?, ?, ?, ?, ?)`,
-          request.attemptId,
+          facetName,
           request.codeId,
           request.runId,
           request.sampleId,
@@ -1970,7 +1987,8 @@ function invokeAttemptError(
 ): string {
   return request.scenario === "facet_executor_invoke"
     ? `facet_executor_${suffix}`
-    : request.scenario === "facet_finalizer_invoke"
+    : request.scenario === "facet_finalizer_invoke" ||
+        request.scenario === "facet_finalizer_warm_invoke"
     ? `facet_finalizer_${suffix}`
     : request.scenario === "executor_worker_invoke"
     ? `executor_worker_${suffix}`

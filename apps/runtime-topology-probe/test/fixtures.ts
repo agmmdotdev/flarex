@@ -36,28 +36,25 @@ export function validSample(
   for (const [index, [name]] of expected.entries()) {
     idByName.set(name, probeSpanId(ordinal(index)));
   }
+  const dimensions = {
+    codeMode: "stable" as const,
+    concurrency: 1,
+    journalEntries: scenario === "facet_journal" ? 1 : 0,
+    payloadBytes: 0,
+    sessionMode: scenario === "facet_finalizer_warm_invoke"
+      ? "reuse-session" as const
+      : "new-session" as const,
+  };
   const raw = {
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     runId,
     sampleId: probeSampleId(runId, ordinal(0)),
     scenario,
-    dimensions: {
-      codeMode: "stable",
-      concurrency: 1,
-      journalEntries: scenario === "facet_journal" ? 1 : 0,
-      payloadBytes: 0,
-      sessionMode: "new-session",
-    },
+    dimensions,
     identity: probeSampleIdentityV1(
       runId,
       scenario,
-      {
-        codeMode: "stable",
-        concurrency: 1,
-        journalEntries: scenario === "facet_journal" ? 1 : 0,
-        payloadBytes: 0,
-        sessionMode: "new-session",
-      },
+      dimensions,
       ordinal(0),
     ),
     startup: startupForScenario(scenario),
@@ -98,6 +95,7 @@ export function controlledSample(
         sample.scenario === "executor_worker_invoke" ||
         sample.scenario === "facet_executor_invoke" ||
         sample.scenario === "facet_finalizer_invoke" ||
+        sample.scenario === "facet_finalizer_warm_invoke" ||
         sample.scenario === "session_executor_invoke"
       ? { kind: "observed", disposition: "applied" } as const
       : { kind: "not-applicable" } as const);
@@ -137,6 +135,12 @@ function startupForScenario(
     case "session_executor_invoke":
     case "sync_rerun":
       return { workerLoader: "callback-ran", facet: "callback-ran" } as const;
+    case "facet_finalizer_warm_invoke":
+      return {
+        workerLoader: "callback-ran",
+        facet: "callback-ran",
+        sessionActivation: "activation-observed",
+      } as const;
     default:
       return exhaustiveScenario(scenario);
   }

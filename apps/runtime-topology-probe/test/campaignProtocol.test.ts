@@ -13,6 +13,7 @@ import {
   PROBE_LOCAL_REHEARSAL_MATRIX_V1,
   PROBE_FACET_EXECUTOR_AB_MATRIX_V1,
   PROBE_SESSION_EXECUTOR_AB_MATRIX_V1,
+  PROBE_WARM_FACET_FINALIZER_MATRIX_V1,
 } from "../src/matrix";
 import {
   PROBE_PROTOCOL_VERSION_V1,
@@ -141,6 +142,37 @@ describe("campaign protocol", () => {
               },
             })),
       ),
+    });
+  });
+
+  it("pins eight sequential warm-facet series and their exact budgets", () => {
+    expect(probeCampaignBudgetPlanV1(PROBE_WARM_FACET_FINALIZER_MATRIX_V1))
+      .toEqual({
+        runCells: 8,
+        sampleExecutions: 88,
+        payloadBytes: 5_632,
+        journalEntries: 176,
+        uniqueCodeIds: 8,
+      });
+    expect(PROBE_WARM_FACET_FINALIZER_MATRIX_V1).toEqual({
+      protocolVersion: 1,
+      campaignId: "p24_warm_facet_finalizer_v1",
+      collectorConcurrency: 1,
+      runs: Array.from({ length: 8 }, (_, index) => ({
+        protocolVersion: 1,
+        runId: `p24_${(index + 1).toString().padStart(2, "0")}_warm`,
+        scenario: "facet_finalizer_warm_invoke",
+        replicate: index + 1,
+        repetitions: 11,
+        warmupRepetitions: 0,
+        dimensions: {
+          codeMode: "stable",
+          concurrency: 1,
+          journalEntries: 2,
+          payloadBytes: 64,
+          sessionMode: "reuse-session",
+        },
+      })),
     });
   });
 

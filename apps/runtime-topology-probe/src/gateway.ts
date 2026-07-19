@@ -644,6 +644,7 @@ async function executeRegisteredScenario(
     case "executor_worker_invoke":
     case "facet_executor_invoke":
     case "facet_finalizer_invoke":
+    case "facet_finalizer_warm_invoke":
       if (
         env.LOADER === undefined ||
         env.MOCK_READ === undefined ||
@@ -722,9 +723,16 @@ function failedScenarioExecution(
       scenario === "executor_worker_invoke" ||
       scenario === "facet_executor_invoke" ||
       scenario === "facet_finalizer_invoke" ||
+      scenario === "facet_finalizer_warm_invoke" ||
       scenario === "session_executor_invoke" ||
       scenario === "sync_rerun"
-      ? { workerLoader: "callback-not-run", facet: "callback-not-run" } as const
+      ? {
+          workerLoader: "callback-not-run",
+          facet: "callback-not-run",
+          ...(scenario === "facet_finalizer_warm_invoke"
+            ? { sessionActivation: "activation-unobserved" as const }
+            : {}),
+        } as const
       : undefined;
   return {
     fragment: failedNestedSample(
@@ -739,6 +747,7 @@ function failedScenarioExecution(
         scenario === "executor_worker_invoke" ||
         scenario === "facet_executor_invoke" ||
         scenario === "facet_finalizer_invoke" ||
+        scenario === "facet_finalizer_warm_invoke" ||
         scenario === "session_executor_invoke"
       ? { kind: "unobserved" }
       : { kind: "not-applicable" },
@@ -1175,6 +1184,7 @@ async function executeFullInvokeScenario(
     sampleRequest.run.scenario !== "executor_worker_invoke" &&
     sampleRequest.run.scenario !== "facet_executor_invoke" &&
     sampleRequest.run.scenario !== "facet_finalizer_invoke" &&
+    sampleRequest.run.scenario !== "facet_finalizer_warm_invoke" &&
     sampleRequest.run.scenario !== "session_executor_invoke"
   ) {
     throw new Error("executeFullInvokeScenario received a non-invoke scenario");
@@ -1202,6 +1212,7 @@ async function executeFullInvokeScenario(
     sessionId: identity.sessionId,
     sessionMode: sampleRequest.run.dimensions.sessionMode,
     attemptId: identity.attemptId,
+    facetId: identity.facetId ?? identity.attemptId,
     codeMode: sampleRequest.run.dimensions.codeMode,
     codeId: identity.codeId,
     journalEntries: sampleRequest.run.dimensions.journalEntries,
@@ -1231,7 +1242,7 @@ async function executeFullInvokeScenario(
             error,
           }),
         ],
-        unobservedFacetStartup(),
+        unobservedFacetStartup(internalRequest.scenario),
       ),
       syncWake: { kind: "unobserved" },
     };
@@ -1243,7 +1254,8 @@ async function executeFullInvokeScenario(
   );
   if (!response.ok) {
     const uncertain = response.status === 502 && body.ok &&
-        internalRequest.scenario === "facet_finalizer_invoke"
+        (internalRequest.scenario === "facet_finalizer_invoke" ||
+          internalRequest.scenario === "facet_finalizer_warm_invoke")
       ? decodeProbeFacetFinalizerOutcomeUncertainV1OrNull(body.value)
       : null;
     if (
@@ -1267,7 +1279,7 @@ async function executeFullInvokeScenario(
               error,
             }),
           ],
-          unobservedFacetStartup(),
+          unobservedFacetStartup(internalRequest.scenario),
         ),
         syncWake: { kind: "unobserved" },
       };
@@ -1318,7 +1330,7 @@ async function executeFullInvokeScenario(
             error,
           }),
         ],
-        unobservedFacetStartup(),
+        unobservedFacetStartup(internalRequest.scenario),
       ),
       syncWake: { kind: "unobserved" },
     };
@@ -1342,7 +1354,7 @@ async function executeFullInvokeScenario(
             error,
           }),
         ],
-        unobservedFacetStartup(),
+        unobservedFacetStartup(internalRequest.scenario),
       ),
       syncWake: { kind: "unobserved" },
     };
@@ -1912,6 +1924,13 @@ function fullInvokeStartup(
     facet: observation.facetStartupCallbackRan
       ? "callback-ran"
       : "callback-not-run",
+    ...(observation.facet.scenario === "facet_finalizer_warm_invoke"
+      ? {
+          sessionActivation: observation.sessionActivationObserved
+            ? "activation-observed" as const
+            : "activation-not-observed" as const,
+        }
+      : {}),
   };
 }
 
@@ -2093,7 +2112,8 @@ async function sameFullInvokeSessionReceipt(
   const finish = response.finish.request;
   const expectedHost = request.scenario === "session_executor_invoke"
     ? "session-do"
-    : request.scenario === "facet_finalizer_invoke"
+    : request.scenario === "facet_finalizer_invoke" ||
+        request.scenario === "facet_finalizer_warm_invoke"
     ? "facet-finalizer"
     : request.scenario === "facet_executor_invoke"
     ? "facet-do"
@@ -2161,10 +2181,15 @@ function runtimeError(
   return { code: "runtime_failure", retryable, stage };
 }
 
-function unobservedFacetStartup(): ProbeStartupObservationsV1 {
+function unobservedFacetStartup(
+  scenario?: ProbeInvokeFacetRequestV1["scenario"],
+): ProbeStartupObservationsV1 {
   return {
     workerLoader: "callback-unobserved",
     facet: "callback-unobserved",
+    ...(scenario === "facet_finalizer_warm_invoke"
+      ? { sessionActivation: "activation-unobserved" as const }
+      : {}),
   };
 }
 

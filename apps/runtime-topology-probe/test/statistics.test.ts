@@ -6,6 +6,7 @@ import {
 } from "../src/protocol";
 import {
   nearestRankPercentile,
+  ProbeCohortKeyV1Schema,
   ProbeLatencySummaryV1Schema,
   ProbePercentile,
   summarizeProbeMeasurements,
@@ -152,6 +153,51 @@ describe("runtime topology probe statistics", () => {
     expect(
       new Set(summaries.map(summary => summary.cohort.payloadBytes)),
     ).toEqual(new Set([0, 128]));
+  });
+
+  it("separates first-activation and warm-reuse observations", () => {
+    const first = validSample("facet_finalizer_warm_invoke", {
+      startup: {
+        workerLoader: "callback-ran",
+        facet: "callback-ran",
+        sessionActivation: "activation-observed",
+      },
+    });
+    const warm = validSample("facet_finalizer_warm_invoke", {
+      startup: {
+        workerLoader: "callback-not-run",
+        facet: "callback-not-run",
+        sessionActivation: "activation-not-observed",
+      },
+    });
+    const summaries = summarizeProbeSamples([
+      controlledSample(first),
+      controlledSample(warm),
+    ]);
+
+    expect(new Set(summaries.map(summary => summary.cohort.sessionActivation)))
+      .toEqual(new Set([
+        "activation-observed",
+        "activation-not-observed",
+      ]));
+    expect(summaries.every(summary => summary.latency.count === 1)).toBe(true);
+
+    const warmCohort = summaries.find(
+      summary =>
+        summary.cohort.sessionActivation === "activation-not-observed",
+    )?.cohort;
+    if (warmCohort === undefined) throw new Error("warm cohort is missing");
+    const { sessionActivation: _activation, ...missingActivation } = warmCohort;
+    expect(() => ProbeCohortKeyV1Schema.make(missingActivation)).toThrow();
+
+    const ordinaryCohort = summarizeProbeSamples([
+      controlledSample(validSample("edge_echo")),
+    ])[0]?.cohort;
+    if (ordinaryCohort === undefined) throw new Error("ordinary cohort is missing");
+    expect(() => ProbeCohortKeyV1Schema.make({
+      ...ordinaryCohort,
+      sessionActivation: "activation-observed",
+    })).toThrow();
   });
 
   it("keeps duplicate wakes out of eligible latency cohorts", () => {

@@ -21,6 +21,7 @@ describe("runtime topology probe trace validation", () => {
     "executor_worker_invoke",
     "facet_executor_invoke",
     "facet_finalizer_invoke",
+    "facet_finalizer_warm_invoke",
     "session_executor_invoke",
     "sync_rerun",
   ] as const)("accepts the exact %s topology", scenario => {

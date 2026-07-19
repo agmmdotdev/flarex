@@ -229,6 +229,21 @@ describe.sequential("P07B campaign coordinator", () => {
         PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
       );
       expect(exact.status).toBe(201);
+      expect(exact.body).toMatchObject({
+        kind: "registered",
+        status: {
+          budgets: {
+            planned: {
+              runCells: 8,
+              sampleExecutions: 88,
+              payloadBytes: 5_632,
+              journalEntries: 176,
+              uniqueCodeIds: 8,
+            },
+          },
+          progress: { totalPurgeTasks: 24 },
+        },
+      });
       expect((await get(
         harness,
         `${PROBE_RUN_ROUTE}/${frozenRun.runId}`,

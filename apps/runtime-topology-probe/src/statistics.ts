@@ -7,6 +7,7 @@ import {
   ProbeEdgeColoSchema,
   ProbeSamplePhaseSchema,
   ProbeScenarioSchema,
+  ProbeSessionActivationObservationSchema,
   ProbeSessionModeSchema,
   ProbeSpanNameSchema,
   type ProbeDurationMs,
@@ -91,7 +92,7 @@ function latencySummaryIssueV1(
     : "latency summary duration statistics must be ordered";
 }
 
-export const ProbeCohortKeyV1Schema = Schema.Struct({
+const ProbeCohortKeyV1Shape = Schema.Struct({
   scenario: ProbeScenarioSchema,
   spanName: ProbeSpanNameSchema,
   codeMode: ProbeCodeModeSchema,
@@ -105,7 +106,20 @@ export const ProbeCohortKeyV1Schema = Schema.Struct({
   edgeColo: Schema.Union([ProbeEdgeColoSchema, Schema.Null]),
   workerLoaderCallback: ProbeCallbackObservationSchema,
   facetStartupCallback: ProbeCallbackObservationSchema,
+  sessionActivation: Schema.optional(ProbeSessionActivationObservationSchema),
 }).annotate(StrictStructOptions);
+export const ProbeCohortKeyV1Schema = ProbeCohortKeyV1Shape.check(
+  Schema.makeFilter(cohort => {
+    if (cohort.scenario === "facet_finalizer_warm_invoke") {
+      return cohort.sessionActivation === undefined
+        ? "warm finalizer cohorts require a SessionDO activation observation"
+        : undefined;
+    }
+    return cohort.sessionActivation === undefined
+      ? undefined
+      : "only warm finalizer cohorts may report SessionDO activation";
+  }),
+);
 export type ProbeCohortKeyV1 = typeof ProbeCohortKeyV1Schema.Type;
 
 export const ProbeHopLatencySummaryV1Schema = Schema.Struct({
@@ -208,6 +222,9 @@ function cohortKey(
     edgeColo: sample.edgeColo,
     workerLoaderCallback: sample.startup.workerLoader,
     facetStartupCallback: sample.startup.facet,
+    ...(sample.startup.sessionActivation === undefined
+      ? {}
+      : { sessionActivation: sample.startup.sessionActivation }),
   };
 }
 
@@ -226,5 +243,6 @@ function serializeCohortKey(cohort: ProbeCohortKeyV1): string {
     cohort.edgeColo,
     cohort.workerLoaderCallback,
     cohort.facetStartupCallback,
+    cohort.sessionActivation ?? null,
   ]);
 }

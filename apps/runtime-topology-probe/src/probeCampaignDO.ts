@@ -630,7 +630,8 @@ function insertPurgeTasks(
             { readonly codeId: ProbeCodeId; readonly scenario: ProbeScenario }
           >();
         if (identity.attemptId !== null && identity.codeId !== null) {
-          attempts.set(identity.attemptId, {
+          const facetId = identity.facetId ?? identity.attemptId;
+          attempts.set(facetId, {
             codeId: identity.codeId,
             scenario: run.scenario,
           });
@@ -644,6 +645,7 @@ function insertPurgeTasks(
       run.scenario === "executor_worker_invoke" ||
       run.scenario === "facet_executor_invoke" ||
       run.scenario === "facet_finalizer_invoke" ||
+      run.scenario === "facet_finalizer_warm_invoke" ||
       run.scenario === "session_executor_invoke" ||
       run.scenario === "sync_rerun"
     ) {

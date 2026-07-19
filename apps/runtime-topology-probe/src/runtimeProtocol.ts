@@ -321,6 +321,7 @@ export function probeSyncWakeRelationshipIssueV1(
     sample.scenario === "executor_worker_invoke" ||
     sample.scenario === "facet_executor_invoke" ||
     sample.scenario === "facet_finalizer_invoke" ||
+    sample.scenario === "facet_finalizer_warm_invoke" ||
     sample.scenario === "session_executor_invoke";
   if (!wakeScenario) {
     return syncWake.kind === "not-applicable"
@@ -456,6 +457,7 @@ function gatewaySampleRelationshipIssue(
     case "executor_worker_invoke":
     case "facet_executor_invoke":
     case "facet_finalizer_invoke":
+    case "facet_finalizer_warm_invoke":
     case "session_executor_invoke":
       return hasFacetStartupObservations(sample.startup)
         ? fullInvokeRelationshipIssue(sample)
@@ -585,7 +587,10 @@ function commitWakeRelationshipIssue(
 function fullInvokeRelationshipIssue(
   sample: typeof ProbeGatewaySampleV1Shape.Type,
 ): string | undefined {
-  if (sample.scenario === "facet_finalizer_invoke") {
+  if (
+    sample.scenario === "facet_finalizer_invoke" ||
+    sample.scenario === "facet_finalizer_warm_invoke"
+  ) {
     return nestedSpanTreeIssue(sample, [
       ["gateway_session_rtt", 1, 0],
       ["session_snapshot_read_rtt", 2, 1],

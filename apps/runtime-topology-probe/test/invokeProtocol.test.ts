@@ -45,6 +45,34 @@ describe("P05 full-invoke protocol", () => {
         }),
       ),
     ).rejects.toBeDefined();
+
+    const warm = invokeRequest(
+      1,
+      "p24_warm_identity",
+      "facet_finalizer_warm_invoke",
+    );
+    expect(await runEffectTest(decodeProbeInvokeFacetRequestV1Effect(warm)))
+      .toEqual(warm);
+    await expect(runEffectTest(decodeProbeInvokeFacetRequestV1Effect({
+      ...warm,
+      sessionMode: "new-session",
+      sessionId: probeSessionId(warm.runId, warm.sampleOrdinal),
+      attemptId: probeAttemptId(
+        warm.runId,
+        warm.sampleOrdinal,
+        warm.sampleOrdinal,
+      ),
+    }))).rejects.toBeDefined();
+    await expect(runEffectTest(decodeProbeInvokeFacetRequestV1Effect({
+      ...warm,
+      codeMode: "new-code",
+      codeId: probeCodeId({
+        mode: "new-code",
+        profile: "invoke-finalizer-warm",
+        runId: warm.runId,
+        version: warm.sampleOrdinal,
+      }),
+    }))).rejects.toBeDefined();
     await expect(
       runEffectTest(
         decodeProbeInvokeFacetRequestV1Effect({
@@ -137,6 +165,7 @@ describe("P05 full-invoke protocol", () => {
       resultDigest,
     });
     const { payload: _payload, ...identity } = request;
+    const { facetId: _facetId, ...finishIdentity } = identity;
     const facet = {
       ...identity,
       payloadBytes: request.payload.length,
@@ -160,7 +189,7 @@ describe("P05 full-invoke protocol", () => {
       },
       finish: null,
     } as const;
-    const finishRequest = { ...identity, sealDigest } as const;
+    const finishRequest = { ...finishIdentity, sealDigest } as const;
     const sync = {
       protocolVersion: request.protocolVersion,
       runId: request.runId,
@@ -179,6 +208,7 @@ describe("P05 full-invoke protocol", () => {
       facetDurationMs: 4,
       workerLoaderCallbackRan: true,
       facetStartupCallbackRan: true,
+      sessionActivationObserved: false,
       executorHost: "external-worker",
       readCapabilityCalls: 0,
       sessionMockFinishDurationMs: 5,
@@ -305,7 +335,8 @@ describe("P05 full-invoke protocol", () => {
       resultDigest,
     });
     const { payload: _payload, ...identity } = request;
-    const finishRequest = { ...identity, sealDigest } as const;
+    const { facetId: _facetId, ...finishIdentity } = identity;
+    const finishRequest = { ...finishIdentity, sealDigest } as const;
     const finish = {
       request: finishRequest,
       mockSyncWakeDurationMs: 3,
@@ -377,6 +408,7 @@ function invokeRequest(
     | "executor_worker_invoke"
     | "facet_executor_invoke"
     | "facet_finalizer_invoke"
+    | "facet_finalizer_warm_invoke"
     | "full_invoke"
     | "session_executor_invoke" = "full_invoke",
 ) {
@@ -386,6 +418,9 @@ function invokeRequest(
   const sampleOrdinal = runEffectTestSync(
     decodeProbeOrdinalEffect(sampleOrdinalValue),
   );
+  const facetOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
+  const warmFinalizer = scenario === "facet_finalizer_warm_invoke";
+  const sessionOrdinal = warmFinalizer ? facetOrdinal : sampleOrdinal;
   return ProbeInvokeFacetRequestV1Schema.make({
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     runId,
@@ -394,13 +429,18 @@ function invokeRequest(
     scopeId: probeScopeId(runId),
     scenario,
     commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
-    sessionId: probeSessionId(runId, sampleOrdinal),
-    sessionMode: "new-session",
-    attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
+    sessionId: probeSessionId(runId, sessionOrdinal),
+    sessionMode: warmFinalizer ? "reuse-session" : "new-session",
+    attemptId: probeAttemptId(runId, sessionOrdinal, sampleOrdinal),
+    facetId: warmFinalizer
+      ? probeAttemptId(runId, facetOrdinal, facetOrdinal)
+      : probeAttemptId(runId, sessionOrdinal, sampleOrdinal),
     codeMode: "stable",
     codeId: probeCodeId({
       mode: "stable",
-      profile: scenario === "facet_finalizer_invoke"
+      profile: scenario === "facet_finalizer_warm_invoke"
+        ? "invoke-finalizer-warm"
+        : scenario === "facet_finalizer_invoke"
         ? "invoke-finalizer"
         : "invoke",
     }),

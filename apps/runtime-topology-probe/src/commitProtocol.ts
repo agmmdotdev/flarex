@@ -34,6 +34,7 @@ export const ProbeInvokeCommitScenarioSchema = Schema.Literals([
   "executor_worker_invoke",
   "facet_executor_invoke",
   "facet_finalizer_invoke",
+  "facet_finalizer_warm_invoke",
   "session_executor_invoke",
 ]);
 export type ProbeInvokeCommitScenario =
@@ -461,6 +462,8 @@ export function probeInvokeRuntimeIdentityIssueV1(input: {
   }
   const profile = input.scenario === "facet_finalizer_invoke"
     ? "invoke-finalizer"
+    : input.scenario === "facet_finalizer_warm_invoke"
+    ? "invoke-finalizer-warm"
     : "invoke";
   const expectedCodeId = input.codeMode === "stable"
     ? probeCodeId({ mode: "stable", profile })

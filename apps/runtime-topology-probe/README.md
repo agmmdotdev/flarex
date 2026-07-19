@@ -7,7 +7,7 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P20-P23` are the active isolated extension. After the original P02-P11 topology experiment, the app ran
+`P24-P27` are the latest closed isolated extension. After the original P02-P11 topology experiment, the app ran
 an isolated SessionDO-hosted mock-executor A/B against the retained external
 Worker control, rejected the candidate on its frozen latency threshold, and
 again removed every Cloudflare resource. The new app-local extension compares
@@ -19,6 +19,12 @@ resources were purged and deleted. The active extension now compares that
 SessionDO-finalized snapshot path with a trusted facet shell that performs the
 synthetic fence/intent checks and invokes one narrow atomic-finish capability
 itself. It remains a no-Postgres mock and is not an active Flarex roadmap.
+The latest extension reused one stable facet across sequential, uniquely
+fenced attempts. Successful warm requests were substantially faster than the
+cold references, but eight repeated uncertain outcomes made the campaign
+non-publishable. The app reconciled and purged that evidence, removed every
+temporary Cloudflare resource, and retained Postgres as the only possible
+authoritative commit/outcome store.
 The app wrapped the communication shapes in durable
 per-cell and deployment-wide campaign coordination, collected the frozen P10
 production matrix, and removed every isolated Cloudflare resource without
@@ -133,6 +139,11 @@ The fourth trusted-facet-finalizer experiment is recorded in
 [`P21-LOCAL-FACET-FINALIZER-PROOF.md`](./P21-LOCAL-FACET-FINALIZER-PROOF.md),
 [`P22-PRODUCTION-FACET-FINALIZER-AB.md`](./P22-PRODUCTION-FACET-FINALIZER-AB.md),
 and [`P23-CONCLUSIONS-AND-TEARDOWN.md`](./P23-CONCLUSIONS-AND-TEARDOWN.md).
+The later warm-reuse experiment is recorded separately in
+[`P24-WARM-FACET-FINALIZER-PREFLIGHT.md`](./P24-WARM-FACET-FINALIZER-PREFLIGHT.md),
+[`P25-LOCAL-WARM-FACET-FINALIZER-PROOF.md`](./P25-LOCAL-WARM-FACET-FINALIZER-PROOF.md),
+[`P26-PRODUCTION-WARM-FACET-FINALIZER.md`](./P26-PRODUCTION-WARM-FACET-FINALIZER.md),
+and [`P27-CONCLUSIONS-AND-TEARDOWN.md`](./P27-CONCLUSIONS-AND-TEARDOWN.md).
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.

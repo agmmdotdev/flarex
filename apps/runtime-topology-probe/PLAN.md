@@ -751,16 +751,47 @@ are recorded in
 The experiment accepts trusted facet finalization as mechanically feasible but
 does not promote it on latency or treat the mock as a real Postgres/OCC proof.
 
+### P24 - Warm Facet Finalizer Preflight
+
+Status: complete. The approved stable-facet lifecycle, frozen eight-series and
+88-request matrix, descriptive 20 percent threshold, USD 0.05 ceiling, failure
+fence, and teardown contract are recorded in
+[`P24-WARM-FACET-FINALIZER-PREFLIGHT.md`](./P24-WARM-FACET-FINALIZER-PREFLIGHT.md).
+
+This is a later app-local experiment, not a current Flarex roadmap. It keeps a
+unique attempt fence per request while reusing one named facet per series.
+
+### P25 - Implement And Prove Warm Reuse Locally
+
+Status: complete. The implementation, exact replay/conflict and cleanup proof,
+251-test receipt, dry-runs, and clean mandatory reviews are recorded in
+[`P25-LOCAL-WARM-FACET-FINALIZER-PROOF.md`](./P25-LOCAL-WARM-FACET-FINALIZER-PROOF.md).
+
+### P26 - Run The Bounded Production Warm Probe
+
+Status: closed as non-publishable partial evidence. Thirty-nine requests
+completed, eight reached the same uncertain-outcome fence, 41 were not started,
+and application purge completed. The successful cold/warm distributions,
+failure limits, Dynamic Worker usage, and cost are recorded in
+[`P26-PRODUCTION-WARM-FACET-FINALIZER.md`](./P26-PRODUCTION-WARM-FACET-FINALIZER.md).
+
+### P27 - Conclusions And Teardown
+
+Status: complete. The bounded decision, Postgres authority rule, ordered
+cleanup, and exact script/namespace absence proof are recorded in
+[`P27-CONCLUSIONS-AND-TEARDOWN.md`](./P27-CONCLUSIONS-AND-TEARDOWN.md).
+
 ## Goal Loop State
 
-- Goal: complete. P20-P23 extended the isolated probe with one approved
-  trusted-facet-finalizer A/B and did not change active architecture roadmaps.
+- Goal: complete. P24-P27 extended the isolated probe with one approved warm
+  facet-finalizer lifecycle test and did not change active architecture
+  roadmaps.
 - Previous baseline: P11 closed and removed the original deployment; its
   ignored evidence remains secret-free and unstaged.
 - Final result: implementation, full local proof, dry-runs, both mandatory
-  reviews, production evidence, application purge, decision, and complete
-  external teardown are green. The mechanical candidate passed; the latency
-  promotion gate failed.
-- Terminal gate: satisfied. P23 recorded the bounded conclusion, preserved the
-  no-Postgres limitation, removed all temporary Workers/namespaces, and proved
-  absence.
+  reviews, partial production evidence, application purge, decision, and
+  complete external teardown are recorded. Successful warm calls were much
+  faster, but repeated uncertain outcomes made the campaign non-publishable.
+- Terminal gate: satisfied. P27 recorded the bounded negative conclusion,
+  preserved the no-Postgres limitation, removed all temporary
+  Workers/namespaces, and proved absence.

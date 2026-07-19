@@ -993,6 +993,101 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(await syncCursor(harness, "p20_direct_finalizer", "read")).toBe(1);
   });
 
+  it("reuses one warm finalizer facet across requests without leaking attempt state", async () => {
+    const publicRequest = validSampleRequest(
+      "facet_finalizer_warm_invoke",
+      "p24_warm_public",
+      {
+        repetitions: 2,
+        journalEntries: 2,
+        payloadBytes: 64,
+        sessionMode: "reuse-session",
+      },
+    );
+    const publicFirst = await measuredDispatch(harness, publicRequest);
+    const publicWarm = await measuredDispatch(harness, {
+      ...publicRequest,
+      sampleOrdinal: 1,
+    });
+    expect(publicFirst.fragment.startup).toEqual({
+      workerLoader: "callback-ran",
+      facet: "callback-ran",
+      sessionActivation: "activation-observed",
+    });
+    expect(publicWarm.fragment.startup).toEqual({
+      workerLoader: "callback-not-run",
+      facet: "callback-not-run",
+      sessionActivation: "activation-not-observed",
+    });
+
+    const firstRequest = warmFacetFinalizerInvokeRequest(
+      "p24_warm_finalizer",
+      0,
+    );
+    const secondRequest = warmFacetFinalizerInvokeRequest(
+      "p24_warm_finalizer",
+      1,
+    );
+    const first = await directFullInvoke(harness, firstRequest);
+    const firstBody = await first.text();
+    const second = await directFullInvoke(harness, secondRequest);
+    const secondBody = await second.text();
+
+    expect(first.status, firstBody).toBe(200);
+    expect(second.status, secondBody).toBe(200);
+    const firstReceipt = await runEffectTest(
+      decodeProbeFullInvokeSessionResponseV1Effect(JSON.parse(firstBody)),
+    );
+    const secondReceipt = await runEffectTest(
+      decodeProbeFullInvokeSessionResponseV1Effect(JSON.parse(secondBody)),
+    );
+    expect(firstReceipt).toMatchObject({
+      workerLoaderCallbackRan: true,
+      facetStartupCallbackRan: true,
+      sessionActivationObserved: true,
+      executorHost: "facet-finalizer",
+    });
+    expect(secondReceipt).toMatchObject({
+      workerLoaderCallbackRan: false,
+      facetStartupCallbackRan: false,
+      sessionActivationObserved: false,
+      executorHost: "facet-finalizer",
+    });
+    expect(firstReceipt.facet.facetId).toBe(secondReceipt.facet.facetId);
+    expect(firstReceipt.facet.attemptId).not.toBe(secondReceipt.facet.attemptId);
+    expect(firstReceipt.facet.sealDigest).not.toBe(secondReceipt.facet.sealDigest);
+    expect(firstReceipt.facet.resultDigest).not.toBe(secondReceipt.facet.resultDigest);
+    expect(firstReceipt.finish.sync).toMatchObject({
+      previousCursor: 0,
+      cursor: 1,
+      disposition: "applied",
+    });
+    expect(secondReceipt.finish.sync).toMatchObject({
+      previousCursor: 1,
+      cursor: 2,
+      disposition: "applied",
+    });
+
+    const replayed = await directFullInvoke(harness, secondRequest);
+    const changed = await directFullInvoke(harness, {
+      ...secondRequest,
+      payload: `${secondRequest.payload}x`,
+    });
+    expect(replayed.status).toBe(200);
+    expect(await replayed.text()).toBe(secondBody);
+    expect(changed.status).toBe(409);
+    expect(await changed.json()).toEqual({
+      error: "facet_finalizer_attempt_conflict",
+    });
+    expect(await syncCursor(harness, "p24_warm_finalizer", "read")).toBe(2);
+    expect(await purgeFacetFinalizerAttempt(harness, firstRequest)).toMatchObject({
+      kind: "probe-data-cleared",
+      deletedFacets: 1,
+      probeDataCleared: true,
+      completionTombstoneRetained: true,
+    });
+  }, 60_000);
+
   it("retains a post-apply facet finalizer as an uncertain fenced attempt", async () => {
     const uncertainHarness = await createRuntimeProbeHarness({
       mockFinishMode: "apply-then-throw",
@@ -1505,6 +1600,12 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(Object.keys(finalizerCode.env ?? {})).toEqual(["EXECUTOR_FINISH"]);
     expect(finalizerCode.globalOutbound).toBeNull();
     expect(typeof finalizerSource).toBe("string");
+    expect(finalizerSource).toContain(
+      'value.scenario === "facet_finalizer_warm_invoke" && value.sessionMode !== "reuse-session"',
+    );
+    expect(finalizerSource).toContain(
+      'value.scenario === "facet_finalizer_warm_invoke" && value.codeMode !== "stable"',
+    );
     expect(finalizerSource).toContain("EXECUTOR_FINISH");
     expect(finalizerSource).toContain("sync.previousCursor > 1000000");
     expect(finalizerSource).toContain("sync.cursor > 1000000");
@@ -1579,6 +1680,7 @@ type SupportedScenario =
   | "executor_worker_invoke"
   | "facet_executor_invoke"
   | "facet_finalizer_invoke"
+  | "facet_finalizer_warm_invoke"
   | "session_executor_invoke"
   | "session_echo"
   | "sync_rerun";
@@ -1607,6 +1709,7 @@ function candidateInvokeRequest(runIdValue: string) {
     sessionId: probeSessionId(runId, sampleOrdinal),
     sessionMode: "new-session",
     attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
+    facetId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
     codeMode: "stable",
     codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
     journalEntries: 2,
@@ -1628,6 +1731,7 @@ function facetExecutorInvokeRequest(runIdValue: string) {
     sessionId: probeSessionId(runId, sampleOrdinal),
     sessionMode: "new-session",
     attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
+    facetId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
     codeMode: "stable",
     codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
     journalEntries: 2,
@@ -1649,10 +1753,39 @@ function facetFinalizerInvokeRequest(runIdValue: string) {
     sessionId: probeSessionId(runId, sampleOrdinal),
     sessionMode: "new-session",
     attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
+    facetId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
     codeMode: "stable",
     codeId: probeCodeId({ mode: "stable", profile: "invoke-finalizer" }),
     journalEntries: 2,
     payload: "x".repeat(64),
+  });
+}
+
+function warmFacetFinalizerInvokeRequest(
+  runIdValue: string,
+  sampleOrdinalValue: number,
+) {
+  const runId = runEffectTestSync(decodeProbeRunIdEffect(runIdValue));
+  const sessionOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
+  const sampleOrdinal = runEffectTestSync(
+    decodeProbeOrdinalEffect(sampleOrdinalValue),
+  );
+  return ProbeInvokeFacetRequestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    runId,
+    sampleId: probeSampleId(runId, sampleOrdinal),
+    sampleOrdinal,
+    scopeId: probeScopeId(runId),
+    scenario: "facet_finalizer_warm_invoke",
+    commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
+    sessionId: probeSessionId(runId, sessionOrdinal),
+    sessionMode: "reuse-session",
+    attemptId: probeAttemptId(runId, sessionOrdinal, sampleOrdinal),
+    facetId: probeAttemptId(runId, sessionOrdinal, sessionOrdinal),
+    codeMode: "stable",
+    codeId: probeCodeId({ mode: "stable", profile: "invoke-finalizer-warm" }),
+    journalEntries: 2,
+    payload: "x".repeat(64 + sampleOrdinalValue),
   });
 }
 
@@ -1670,6 +1803,7 @@ function externalExecutorInvokeRequest(runIdValue: string) {
     sessionId: probeSessionId(runId, sampleOrdinal),
     sessionMode: "new-session",
     attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
+    facetId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
     codeMode: "stable",
     codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
     journalEntries: 2,
@@ -1683,6 +1817,7 @@ async function directFullInvoke(
     | ReturnType<typeof candidateInvokeRequest>
     | ReturnType<typeof facetExecutorInvokeRequest>
     | ReturnType<typeof facetFinalizerInvokeRequest>
+    | ReturnType<typeof warmFacetFinalizerInvokeRequest>
     | ReturnType<typeof externalExecutorInvokeRequest>,
 ) {
   const bindings = await runtime.bindings();
@@ -1698,7 +1833,9 @@ async function directFullInvoke(
 
 async function purgeFacetFinalizerAttempt(
   runtime: RuntimeProbeHarness,
-  request: ReturnType<typeof facetFinalizerInvokeRequest>,
+  request:
+    | ReturnType<typeof facetFinalizerInvokeRequest>
+    | ReturnType<typeof warmFacetFinalizerInvokeRequest>,
 ) {
   const bindings = await runtime.bindings();
   const session = bindings.PROBE_SESSIONS.getByName(request.sessionId);
@@ -1706,7 +1843,7 @@ async function purgeFacetFinalizerAttempt(
     protocolVersion: request.protocolVersion,
     sessionId: request.sessionId,
     facets: [{
-      attemptId: request.attemptId,
+      attemptId: request.facetId,
       codeId: request.codeId,
       scenario: request.scenario,
     }],

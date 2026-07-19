@@ -591,6 +591,7 @@ export function probeRunBudgetPlanV1(
     run.scenario === "executor_worker_invoke" ||
     run.scenario === "facet_executor_invoke" ||
     run.scenario === "facet_finalizer_invoke" ||
+    run.scenario === "facet_finalizer_warm_invoke" ||
     run.scenario === "session_executor_invoke" ||
     run.scenario === "sync_rerun";
   const usesAttemptScopedLoader =
@@ -762,6 +763,7 @@ function runSampleRelationshipIssue(
       status.run.scenario === "executor_worker_invoke" ||
       status.run.scenario === "facet_executor_invoke" ||
       status.run.scenario === "facet_finalizer_invoke" ||
+      status.run.scenario === "facet_finalizer_warm_invoke" ||
       status.run.scenario === "session_executor_invoke";
     if (
       (wakeScenario && sample.syncWake.kind === "not-applicable") ||
