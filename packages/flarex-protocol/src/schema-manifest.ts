@@ -1,6 +1,6 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 
 import { isCanonicalArrayIndex } from "./canonical-array-index";
 import {
@@ -383,10 +383,24 @@ const decodeSchemaManifestAppSchemaV1Shape = Schema.decodeUnknownSync(
 export function decodeSchemaManifestAppSchemaV1(
   value: unknown,
 ): SchemaManifestAppSchemaV1 {
-  preflightSchemaManifestAppSchema(value);
-  return decodeSchemaManifestAppSchemaV1Shape(
-    decodeSchemaManifestJson(value),
-  );
+  return Result.getOrThrow(decodeSchemaManifestAppSchemaV1Result(value));
+}
+
+export function decodeSchemaManifestAppSchemaV1Result(
+  value: unknown,
+): Result.Result<SchemaManifestAppSchemaV1, Schema.SchemaError> {
+  return Result.try({
+    try: () => {
+      preflightSchemaManifestAppSchema(value);
+      return decodeSchemaManifestAppSchemaV1Shape(
+        decodeSchemaManifestJson(value),
+      );
+    },
+    catch: (cause) => {
+      if (!Schema.isSchemaError(cause)) throw cause;
+      return cause;
+    },
+  });
 }
 
 export type SchemaManifestJson = {

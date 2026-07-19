@@ -552,7 +552,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     );
     const bindingFailingDatabase = rejectSelectedQuery(
       persistence.drizzle,
-      2,
+      3,
       () => Promise.reject(bindingQueryFailure),
     );
     await expect(runFailure(resolvePinnedPointTableIdV1Effect(

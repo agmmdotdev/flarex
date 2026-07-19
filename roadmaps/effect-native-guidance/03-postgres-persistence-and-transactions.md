@@ -185,6 +185,33 @@ decoder were deleted because no production compatibility consumer existed;
 focused tests own their explicit runtime bridge. The remaining throwing
 projection in this artifact/binding flow is the post-insert transaction
 boundary.
+Complete app-schema decoding now has one protocol-owned `Result` normalizer;
+the existing throwing decoder is only its compatibility projection. Pinned
+table resolution consumes the Result directly and maps only its Schema failure
+to artifact corruption. Full-integrity artifact reads derive stored manifest
+JSON from the bounded canonical byte artifact, decode it through the hoisted
+Schema `Result`, and then enter defect-only Promise canonicalization, so Web
+Crypto, canonical-output validation, encoding invariants, and runtime rejection
+cannot be mislabeled as stored corruption. The first Drizzle projection
+computes the canonical-byte length and suppresses byte payloads above 16 MiB.
+The Worker then validates UTF-8, the canonical envelope, JSON membership, and
+nesting before a second guarded query asks Postgres to corroborate
+`manifest_json` against the already validated manifest parameter. That query
+also matches the first read's immutable byte, digest, codec, identity, and
+timezone-independent epoch-microsecond timestamp evidence, so concurrent drift
+cannot combine two row versions without round-tripping PostgreSQL microseconds
+through a millisecond-only JavaScript `Date` or depending on connection-local
+timestamp rendering. Raw
+stored bytes never enter a database JSON parser and `manifest_json` is never
+transferred to the Worker. The boundary deliberately does not size
+`jsonb::text`: Postgres can expand valid exponent-form numbers far beyond their
+ECMAScript canonical spelling. Oversized canonical bytes, invalid UTF-8/JSON
+envelopes, non-finite stored timestamps, and JSONB disagreement therefore fail
+as typed corruption before worker hashing while valid under-limit manifests
+remain readable. This is a
+reader resource boundary, not the database DDL constraint explicitly rejected
+by the accepted design. Manifest authority, binding corroboration, query
+ownership, and cancellation masking are otherwise unchanged.
 Schema-version artifact caller fields and stored scalar columns now use
 hoisted Schema `Result` decoders directly. The two generic callback-based
 `Result.try` adapters are deleted; validation order and typed input/corruption

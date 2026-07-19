@@ -1,8 +1,9 @@
 import { bytesEqual } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
+import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import {
   CanonicalSchemaManifestBytesSchema,
@@ -24,6 +25,9 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import {
+  MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
+} from "./appSchemaPublicationPolicy";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { deployments, fxControlSchemaVersions } from "./schema";
 
@@ -99,6 +103,9 @@ const decodeSchemaManifestJsonResult = Schema.decodeUnknownResult(
 const decodeSchemaManifestSha256Result = Schema.decodeUnknownResult(
   SchemaManifestSha256Schema,
 );
+const canonicalSchemaManifestTextDecoder = new TextDecoder("utf-8", {
+  fatal: true,
+});
 
 type ForbiddenSchemaVersionArtifactInputField =
   (typeof forbiddenInputFields)[number];
@@ -376,13 +383,17 @@ export const ensureSchemaVersionArtifactInTransactionEffect = Effect.fn(
   }
 
   const existing = yield* Effect.fromResult(
-    requireExactPreparedArtifactRowsResult(
+    resolvePreparedArtifactRowsResult(
       byIdRow,
       byVersionRow,
       prepared,
     ),
   );
-  return { status: "existing", artifact: existing };
+  yield* corroborateStoredManifestJsonEffect(tx, "readById", existing);
+  const replayed = yield* Effect.fromResult(
+    requireExactArtifactReplayResult(existing, prepared),
+  );
+  return { status: "existing", artifact: replayed };
 });
 
 /**
@@ -415,12 +426,16 @@ export const verifyPreparedSchemaVersionArtifactInTransactionEffect = Effect.fn(
     prepared.deploymentId,
     prepared.version,
   );
-  return yield* Effect.fromResult(
-    requireExactPreparedArtifactRowsResult(
+  const existing = yield* Effect.fromResult(
+    resolvePreparedArtifactRowsResult(
       byIdRow,
       byVersionRow,
       prepared,
     ),
+  );
+  yield* corroborateStoredManifestJsonEffect(tx, "readById", existing);
+  return yield* Effect.fromResult(
+    requireExactArtifactReplayResult(existing, prepared),
   );
 });
 
@@ -492,7 +507,7 @@ export const readSchemaVersionArtifactByIdEffect = Effect.fn(
   );
   return row === null
     ? null
-    : yield* decodeSchemaVersionArtifactRowEffect(row);
+    : yield* decodeSchemaVersionArtifactRowEffect(db, "readById", row);
 });
 
 const readSchemaVersionArtifactByVersionEffect = Effect.fn(
@@ -512,7 +527,7 @@ const readSchemaVersionArtifactByVersionEffect = Effect.fn(
   );
   return row === null
     ? null
-    : yield* decodeSchemaVersionArtifactRowEffect(row);
+    : yield* decodeSchemaVersionArtifactRowEffect(db, "readByVersion", row);
 });
 
 const insertSchemaVersionArtifactEffect = Effect.fn(
@@ -641,7 +656,7 @@ function selectSchemaVersionArtifactByIdQuery(
   schemaVersionId: CatalogSchemaVersionId,
 ) {
   return db
-    .select()
+    .select(schemaVersionArtifactReadSelection)
     .from(fxControlSchemaVersions)
     .where(
       and(
@@ -680,7 +695,7 @@ function selectSchemaVersionArtifactByVersionQuery(
   version: CatalogSchemaVersion,
 ) {
   return db
-    .select()
+    .select(schemaVersionArtifactReadSelection)
     .from(fxControlSchemaVersions)
     .where(
       and(
@@ -703,8 +718,51 @@ const runSchemaVersionArtifactQueryEffect = Effect.fn(<Value>(
     }),
   })));
 
-export type SchemaVersionArtifactRow =
+const manifestCanonicalBytesWithinReadBounds = sql`
+  octet_length(${fxControlSchemaVersions.manifestBytes})
+    <= ${MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES}
+`;
+
+const createdAtEpochMicrosecondsText = sql<string | null>`
+  case when isfinite(${fxControlSchemaVersions.createdAt}) then
+    (
+      extract(epoch from ${fxControlSchemaVersions.createdAt}) * 1000000
+    )::numeric(30, 0)::text
+  else null end
+`;
+
+const schemaVersionArtifactReadSelection = {
+  deploymentId: fxControlSchemaVersions.deploymentId,
+  schemaVersionId: fxControlSchemaVersions.schemaVersionId,
+  version: fxControlSchemaVersions.version,
+  manifestCodecVersion: fxControlSchemaVersions.manifestCodecVersion,
+  manifestCanonicalByteLength: sql<number>`
+    octet_length(${fxControlSchemaVersions.manifestBytes})
+  `,
+  manifestBytes: sql<CanonicalSchemaManifestBytes | null>`
+    case when ${manifestCanonicalBytesWithinReadBounds}
+      then ${fxControlSchemaVersions.manifestBytes}
+      else null
+    end
+  `,
+  manifestSha256: fxControlSchemaVersions.manifestSha256,
+  createdAtEpochMicrosecondsText,
+  createdAt: fxControlSchemaVersions.createdAt,
+} as const;
+
+type StoredSchemaVersionArtifactColumns =
   typeof fxControlSchemaVersions.$inferSelect;
+
+export type SchemaVersionArtifactRow = Readonly<
+  Omit<
+    StoredSchemaVersionArtifactColumns,
+    "manifestJson" | "manifestBytes"
+  > & {
+    readonly manifestCanonicalByteLength: number;
+    readonly manifestBytes: CanonicalSchemaManifestBytes | null;
+    readonly createdAtEpochMicrosecondsText: string | null;
+  }
+>;
 
 interface StoredSchemaVersionArtifact
   extends SchemaVersionArtifactVersionIdentity {
@@ -712,28 +770,27 @@ interface StoredSchemaVersionArtifact
   readonly manifestJson: SchemaManifestJson;
   readonly manifestBytes: CanonicalSchemaManifestBytes;
   readonly manifestSha256: SchemaManifestSha256;
+  readonly createdAtEpochMicrosecondsText: string;
   readonly createdAt: Date;
 }
 
 const decodeSchemaVersionArtifactRowEffect = Effect.fn(
   "SchemaVersionArtifacts.decodeRow",
 )(function* (
+  db: FlarexMetadataDatabase,
+  operation: "readById" | "readByVersion",
   row: SchemaVersionArtifactRow,
 ): Effect.fn.Return<
   SchemaVersionArtifact,
-  SchemaVersionArtifactCorruptionError
+  SchemaVersionArtifactPersistenceError | SchemaVersionArtifactCorruptionError
 > {
   const stored = yield* Effect.fromResult(
     decodeStoredSchemaVersionArtifactRowResult(row),
   );
-  const canonical = yield* Effect.tryPromise({
-    try: () => canonicalizeSchemaManifestV1(stored.manifestJson),
-    catch: (cause) => new SchemaVersionArtifactCorruptionError(
-      stored.deploymentId,
-      "manifest JSON cannot be canonicalized",
-      { cause },
-    ),
-  });
+  yield* corroborateStoredManifestJsonEffect(db, operation, stored);
+  const canonical = yield* Effect.promise(() =>
+    canonicalizeSchemaManifestV1(stored.manifestJson)
+  );
   if (stored.manifestCodecVersion !== canonical.codecVersion) {
     return yield* Effect.fail(new SchemaVersionArtifactCorruptionError(
       stored.deploymentId,
@@ -754,6 +811,43 @@ const decodeSchemaVersionArtifactRowEffect = Effect.fn(
   }
 
   return artifactFromCanonical(stored, canonical, stored.createdAt);
+});
+
+const corroborateStoredManifestJsonEffect = Effect.fn(
+  "SchemaVersionArtifacts.corroborateManifestJson",
+)(function* (
+  db: FlarexMetadataDatabase,
+  operation: "readById" | "readByVersion",
+  stored: StoredSchemaVersionArtifact,
+): Effect.fn.Return<
+  void,
+  SchemaVersionArtifactPersistenceError | SchemaVersionArtifactCorruptionError
+> {
+  const query = db
+    .select({ schemaVersionId: fxControlSchemaVersions.schemaVersionId })
+    .from(fxControlSchemaVersions)
+    .where(and(
+      eq(fxControlSchemaVersions.deploymentId, stored.deploymentId),
+      eq(fxControlSchemaVersions.schemaVersionId, stored.schemaVersionId),
+      eq(fxControlSchemaVersions.version, stored.version),
+      eq(
+        fxControlSchemaVersions.manifestCodecVersion,
+        stored.manifestCodecVersion,
+      ),
+      eq(fxControlSchemaVersions.manifestJson, stored.manifestJson),
+      eq(fxControlSchemaVersions.manifestBytes, stored.manifestBytes),
+      eq(fxControlSchemaVersions.manifestSha256, stored.manifestSha256),
+      sql`${createdAtEpochMicrosecondsText}
+        = ${stored.createdAtEpochMicrosecondsText}`,
+    ))
+    .limit(1);
+  const rows = yield* runSchemaVersionArtifactQueryEffect(operation, query);
+  if (rows[0] === undefined) {
+    return yield* Effect.fail(new SchemaVersionArtifactCorruptionError(
+      stored.deploymentId,
+      "stored manifest JSON or immutable evidence changed during verification",
+    ));
+  }
 });
 
 function decodeStoredSchemaVersionArtifactRowResult(
@@ -786,6 +880,16 @@ function decodeStoredSchemaVersionArtifactRowResult(
       "manifest codec version",
       decodeSchemaManifestCodecVersionResult(row.manifestCodecVersion),
     );
+    if (
+      !isNonNegativeSafeInteger(row.manifestCanonicalByteLength) ||
+      row.manifestCanonicalByteLength >
+        MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES
+    ) {
+      return yield* Result.fail(new SchemaVersionArtifactCorruptionError(
+        row.deploymentId,
+        "manifest evidence exceeds the artifact read limit",
+      ));
+    }
     const manifestBytes = yield* decodeStoredValueResult(
       row.deploymentId,
       "manifest bytes",
@@ -797,23 +901,64 @@ function decodeStoredSchemaVersionArtifactRowResult(
       decodeSchemaManifestSha256Result(row.manifestSha256),
     );
     const createdAt = copyFiniteDate(row.createdAt);
-    if (createdAt === undefined) {
+    if (
+      createdAt === undefined ||
+      !isNonBlankString(row.createdAtEpochMicrosecondsText)
+    ) {
       return yield* Result.fail(new SchemaVersionArtifactCorruptionError(
         row.deploymentId,
         "creation timestamp is invalid",
       ));
     }
+    const manifestJson = yield* decodeCanonicalManifestJsonResult(
+      row.deploymentId,
+      manifestBytes,
+    );
     return {
       deploymentId: row.deploymentId,
       schemaVersionId,
       version,
       manifestCodecVersion,
-      manifestJson: row.manifestJson,
+      manifestJson,
       manifestBytes,
       manifestSha256,
+      createdAtEpochMicrosecondsText: row.createdAtEpochMicrosecondsText,
       createdAt,
     } satisfies StoredSchemaVersionArtifact;
   });
+}
+
+function decodeCanonicalManifestJsonResult(
+  deploymentId: string,
+  manifestBytes: CanonicalSchemaManifestBytes,
+): Result.Result<SchemaManifestJson, SchemaVersionArtifactCorruptionError> {
+  return Result.try({
+    try: () => JSON.parse(
+      canonicalSchemaManifestTextDecoder.decode(manifestBytes),
+    ) as unknown,
+    catch: (cause) => new SchemaVersionArtifactCorruptionError(
+      deploymentId,
+      "canonical manifest bytes are invalid",
+      { cause },
+    ),
+  }).pipe(Result.flatMap((envelope) => {
+    if (
+      !isNonArrayRecord(envelope) ||
+      envelope.format !== "flarexdb-schema-manifest" ||
+      envelope.manifestCodecVersion !== 1 ||
+      !Object.hasOwn(envelope, "manifest")
+    ) {
+      return Result.fail(new SchemaVersionArtifactCorruptionError(
+        deploymentId,
+        "canonical manifest envelope is invalid",
+      ));
+    }
+    return decodeStoredValueResult(
+      deploymentId,
+      "canonical manifest JSON",
+      decodeSchemaManifestJsonResult(envelope.manifest),
+    );
+  }));
 }
 
 function artifactFromCanonical(
@@ -843,15 +988,13 @@ function sameArtifactRow(
     left.version === right.version;
 }
 
-function requireExactPreparedArtifactRowsResult(
+function resolvePreparedArtifactRowsResult(
   byIdRow: SchemaVersionArtifactRow | null,
   byVersionRow: SchemaVersionArtifactRow | null,
   prepared: PreparedSchemaVersionArtifactState,
 ): Result.Result<
-  SchemaVersionArtifact,
-  | SchemaVersionArtifactConflictError
-  | SchemaManifestChecksumCollisionError
-  | SchemaVersionArtifactCorruptionError
+  StoredSchemaVersionArtifact,
+  SchemaVersionArtifactConflictError | SchemaVersionArtifactCorruptionError
 > {
   return Result.gen(function* () {
     const byId = byIdRow === null
@@ -890,7 +1033,7 @@ function requireExactPreparedArtifactRowsResult(
         "ID and version lookups did not resolve the same artifact",
       ));
     }
-    return yield* requireExactArtifactReplayResult(byId, prepared);
+    return byId;
   });
 }
 

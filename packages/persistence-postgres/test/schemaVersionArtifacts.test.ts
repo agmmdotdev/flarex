@@ -31,6 +31,9 @@ import {
   SchemaVersionArtifactPreparationError,
   type SchemaVersionArtifactTransaction,
 } from "../src/schemaVersionArtifacts";
+import {
+  MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
+} from "../src/appSchemaPublicationPolicy";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const prepareSchemaVersionArtifact = (
@@ -188,6 +191,151 @@ describe("schema version artifacts", () => {
         schemaVersionB,
       ),
     ).resolves.toBeNull();
+  });
+
+  it("reads canonical numbers whose JSONB text representation expands", async () => {
+    const persistence = await migratedPGlite("jsonb_number_expansion");
+    const deploymentId = "deployment_schema_jsonb_number_expansion";
+    const created = await ensure(persistence, {
+      deploymentId,
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: { literal: 1e-323 },
+    });
+    const measurement = await persistence.query<{ jsonBytes: number }>(
+      `
+        select octet_length(manifest_json::text)::int as "jsonBytes"
+        from fx_control_schema_version
+        where deployment_id = $1 and schema_version_id = $2
+      `,
+      [deploymentId, schemaVersionA],
+    );
+
+    expect(measurement.rows[0]?.jsonBytes).toBeGreaterThan(
+      created.artifact.manifestBytes.byteLength,
+    );
+    await expect(
+      getSchemaVersionArtifactById(
+        persistence.drizzle,
+        deploymentId,
+        schemaVersionA,
+      ),
+    ).resolves.toEqual(created.artifact);
+  });
+
+  it("corroborates timestamps without losing stored microseconds", async () => {
+    const persistence = await migratedPGlite("timestamp_precision");
+    const deploymentId = "deployment_schema_timestamp_precision";
+    await ensure(persistence, {
+      deploymentId,
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    await persistence.query(
+      `
+        update fx_control_schema_version
+        set created_at = '2026-01-01 00:00:00.123456+00'::timestamptz
+        where deployment_id = $1 and schema_version_id = $2
+      `,
+      [deploymentId, schemaVersionA],
+    );
+
+    const read = await getSchemaVersionArtifactById(
+      persistence.drizzle,
+      deploymentId,
+      schemaVersionA,
+    );
+    expect(read?.createdAt.toISOString()).toBe("2026-01-01T00:00:00.123Z");
+    const replay = await ensure(persistence, {
+      deploymentId,
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    expect(replay.status).toBe("existing");
+    expect(replay.artifact.createdAt.toISOString())
+      .toBe("2026-01-01T00:00:00.123Z");
+  });
+
+  it("maps infinite stored timestamps to typed corruption", async () => {
+    const persistence = await migratedPGlite("infinite_timestamp");
+    const deploymentId = "deployment_schema_infinite_timestamp";
+    await ensure(persistence, {
+      deploymentId,
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    const digest = vi.spyOn(crypto.subtle, "digest");
+    try {
+      for (const timestamp of ["infinity", "-infinity"] as const) {
+        await persistence.query(
+          `
+            update fx_control_schema_version
+            set created_at = $3::timestamptz
+            where deployment_id = $1 and schema_version_id = $2
+          `,
+          [deploymentId, schemaVersionA, timestamp],
+        );
+        const failure = await runEffectFailure(
+          getSchemaVersionArtifactByIdEffect(
+            persistence.drizzle,
+            deploymentId,
+            schemaVersionA,
+          ),
+        );
+        expect(failure).toMatchObject({
+          _tag: "SchemaVersionArtifactCorruptionError",
+          detail: "creation timestamp is invalid",
+        });
+        await expect(persistence.query("select 1 as ok"))
+          .resolves.toMatchObject({ rows: [{ ok: 1 }] });
+      }
+      expect(digest).not.toHaveBeenCalled();
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("maps finite-to-infinite timestamp drift to typed corruption", async () => {
+    const persistence = await migratedPGlite("timestamp_drift_infinite");
+    const deploymentId = "deployment_schema_timestamp_drift_infinite";
+    await ensure(persistence, {
+      deploymentId,
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    const driftingDatabase = beforeSelectedQuery(
+      persistence.drizzle,
+      2,
+      async () => {
+        await persistence.query(
+          `
+            update fx_control_schema_version
+            set created_at = 'infinity'::timestamptz
+            where deployment_id = $1 and schema_version_id = $2
+          `,
+          [deploymentId, schemaVersionA],
+        );
+      },
+    );
+
+    const failure = await runEffectFailure(
+      getSchemaVersionArtifactByIdEffect(
+        driftingDatabase,
+        deploymentId,
+        schemaVersionA,
+      ),
+    );
+    expect(failure).toMatchObject({
+      _tag: "SchemaVersionArtifactCorruptionError",
+      detail:
+        "stored manifest JSON or immutable evidence changed during verification",
+    });
+    await expect(persistence.query("select 1 as ok"))
+      .resolves.toMatchObject({ rows: [{ ok: 1 }] });
   });
 
   it("rejects ID, version, and immutable-artifact reuse independently", async () => {
@@ -392,7 +540,7 @@ describe("schema version artifacts", () => {
     }
   });
 
-  it("maps reader canonicalization rejection to stored corruption", async () => {
+  it("preserves reader canonicalization rejection as a defect", async () => {
     const persistence = await migratedPGlite("reader_canonical_failure");
     await ensure(persistence, {
       deploymentId: "deployment_schema_reader_canonical_failure",
@@ -405,24 +553,223 @@ describe("schema version artifacts", () => {
       .spyOn(crypto.subtle, "digest")
       .mockRejectedValue(rejection);
     try {
-      const failure = await runEffectFailure(
+      const exit = await Effect.runPromiseExit(
         getSchemaVersionArtifactByIdEffect(
           persistence.drizzle,
           "deployment_schema_reader_canonical_failure",
           schemaVersionA,
         ),
       );
-      expect(failure).toBeInstanceOf(SchemaVersionArtifactCorruptionError);
-      expect(failure).toMatchObject({
-        _tag: "SchemaVersionArtifactCorruptionError",
-        deploymentId: "deployment_schema_reader_canonical_failure",
-        detail: "manifest JSON cannot be canonicalized",
-        cause: rejection,
-      });
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(rejection.message);
+      }
     } finally {
       digest.mockRestore();
     }
   });
+
+  it("preserves an invalid Web Crypto digest result as a defect", async () => {
+    const persistence = await migratedPGlite("reader_digest_defect");
+    await ensure(persistence, {
+      deploymentId: "deployment_schema_reader_digest_defect",
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    const digest = vi.spyOn(crypto.subtle, "digest").mockResolvedValue(
+      new ArrayBuffer(31),
+    );
+    try {
+      const exit = await Effect.runPromiseExit(
+        getSchemaVersionArtifactByIdEffect(
+          persistence.drizzle,
+          "deployment_schema_reader_digest_defect",
+          schemaVersionA,
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+      }
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("maps malformed canonical manifest bytes to catalog corruption", async () => {
+    const deploymentId = "deployment_schema_manifest_json_corruption";
+    const row = {
+      ...storedSchemaVersionArtifactRow(deploymentId),
+      manifestBytes: new TextEncoder().encode(
+        '{"format":"flarexdb-schema-manifest","manifest":[],"manifestCodecVersion":1}',
+      ),
+    };
+    const db = schemaVersionArtifactSelectTransaction(() =>
+      Promise.resolve([row])
+    );
+
+    const failure = await runEffectFailure(
+      getSchemaVersionArtifactByIdEffect(db, deploymentId, schemaVersionA),
+    );
+
+    expect(failure).toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+    expect(failure).toMatchObject({
+      deploymentId,
+      detail: "canonical manifest JSON is invalid",
+    });
+  });
+
+  it("rejects hostile canonical bytes without poisoning PGlite", async () => {
+    const persistence = await migratedPGlite("hostile_canonical_bytes");
+    const deploymentId = "deployment_schema_hostile_canonical_bytes";
+    await ensure(persistence, {
+      deploymentId,
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    const digest = vi.spyOn(crypto.subtle, "digest");
+    try {
+      await persistence.query(
+        `
+          update fx_control_schema_version
+          set manifest_bytes = $3
+          where deployment_id = $1 and schema_version_id = $2
+        `,
+        [deploymentId, schemaVersionA, new Uint8Array([0xff])],
+      );
+      const invalidUtf8 = await runEffectFailure(
+        getSchemaVersionArtifactByIdEffect(
+          persistence.drizzle,
+          deploymentId,
+          schemaVersionA,
+        ),
+      );
+      expect(invalidUtf8).toMatchObject({
+        _tag: "SchemaVersionArtifactCorruptionError",
+        detail: "canonical manifest bytes are invalid",
+      });
+      await expect(persistence.query("select 1 as ok"))
+        .resolves.toMatchObject({ rows: [{ ok: 1 }] });
+
+      const nestedManifest = new TextEncoder().encode(
+        '{"format":"flarexdb-schema-manifest","manifest":{"value":' +
+          "[".repeat(10_000) + "null" + "]".repeat(10_000) +
+          '},"manifestCodecVersion":1}',
+      );
+      await persistence.query(
+        `
+          update fx_control_schema_version
+          set manifest_bytes = $3
+          where deployment_id = $1 and schema_version_id = $2
+        `,
+        [deploymentId, schemaVersionA, nestedManifest],
+      );
+      const excessiveNesting = await runEffectFailure(
+        getSchemaVersionArtifactByIdEffect(
+          persistence.drizzle,
+          deploymentId,
+          schemaVersionA,
+        ),
+      );
+      expect(excessiveNesting).toMatchObject({
+        _tag: "SchemaVersionArtifactCorruptionError",
+        detail: "canonical manifest JSON is invalid",
+      });
+      await expect(persistence.query("select 1 as ok"))
+        .resolves.toMatchObject({ rows: [{ ok: 1 }] });
+      expect(digest).not.toHaveBeenCalled();
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("rejects oversized manifest evidence before payload access or hashing", async () => {
+    const deploymentId = "deployment_schema_manifest_size_corruption";
+    const row = {
+      ...storedSchemaVersionArtifactRow(deploymentId),
+      manifestCanonicalByteLength:
+        MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
+    };
+    let evidenceObserved = false;
+    for (const field of ["manifestBytes"] as const) {
+      Object.defineProperty(row, field, {
+        enumerable: true,
+        get(): never {
+          evidenceObserved = true;
+          throw new Error(`Oversized ${field} must not be materialized.`);
+        },
+      });
+    }
+    const db = schemaVersionArtifactSelectTransaction(() =>
+      Promise.resolve([row])
+    );
+    const digest = vi.spyOn(crypto.subtle, "digest");
+    try {
+      const failure = await runEffectFailure(
+        getSchemaVersionArtifactByIdEffect(db, deploymentId, schemaVersionA),
+      );
+
+      expect(failure).toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+      expect(failure).toMatchObject({
+        deploymentId,
+        detail: "manifest evidence exceeds the artifact read limit",
+      });
+      expect(evidenceObserved).toBe(false);
+      expect(digest).not.toHaveBeenCalled();
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("size-gates an oversized stored payload in the SQL projection", async () => {
+    const persistence = await migratedPGlite("reader_size_gate");
+    const deploymentId = "deployment_schema_reader_size_gate";
+    await ensure(persistence, {
+      deploymentId,
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    await persistence.query(
+      `
+        update fx_control_schema_version
+        set manifest_bytes = $3
+        where deployment_id = $1 and schema_version_id = $2
+      `,
+      [
+        deploymentId,
+        schemaVersionA,
+        new Uint8Array(
+          MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
+        ),
+      ],
+    );
+    const digest = vi.spyOn(crypto.subtle, "digest");
+    try {
+      const failure = await runEffectFailure(
+        getSchemaVersionArtifactByIdEffect(
+          persistence.drizzle,
+          deploymentId,
+          schemaVersionA,
+        ),
+      );
+
+      expect(failure).toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+      expect(failure).toMatchObject({
+        deploymentId,
+        detail: "manifest evidence exceeds the artifact read limit",
+      });
+      expect(digest).not.toHaveBeenCalled();
+    } finally {
+      digest.mockRestore();
+    }
+  }, 30_000);
 
   it("short-circuits malformed stored columns as typed corruption", async () => {
     const deploymentId = "deployment_schema_stored_column_corruption";
@@ -784,9 +1131,12 @@ function storedSchemaVersionArtifactRow(deploymentId: string) {
     schemaVersionId: schemaVersionA,
     version: version1,
     manifestCodecVersion: 1,
-    manifestJson: manifestA,
-    manifestBytes: new Uint8Array([1]),
+    manifestCanonicalByteLength: 145,
+    manifestBytes: new TextEncoder().encode(
+      '{"format":"flarexdb-schema-manifest","manifest":{"tables":[{"fields":{"age":"number","name":"string"},"name":"users"}]},"manifestCodecVersion":1}',
+    ),
     manifestSha256: new Uint8Array(32),
+    createdAtEpochMicrosecondsText: "1767225600000000",
     createdAt: new Date(),
   };
 }
@@ -826,6 +1176,79 @@ function schemaVersionArtifactSelectTransaction(
       return query;
     },
   } as unknown as SchemaVersionArtifactTransaction;
+}
+
+function beforeSelectedQuery(
+  database: FlarexMetadataDatabase,
+  selectedSelectNumber: number,
+  beforeQuery: () => Promise<void>,
+): FlarexMetadataDatabase {
+  let selectNumber = 0;
+  return new Proxy(database, {
+    get(target, property, receiver) {
+      if (property !== "select") {
+        return Reflect.get(target, property, receiver);
+      }
+      return (...args: ReadonlyArray<unknown>) => {
+        selectNumber += 1;
+        const query = Reflect.apply(target.select, target, args);
+        return selectNumber === selectedSelectNumber
+          ? new BeforeSelectedQuery(query, beforeQuery)
+          : query;
+      };
+    },
+  });
+}
+
+class BeforeSelectedQuery implements PromiseLike<ReadonlyArray<unknown>> {
+  constructor(
+    private query: unknown,
+    private readonly beforeQuery: () => Promise<void>,
+  ) {}
+
+  from(...args: ReadonlyArray<unknown>): this {
+    this.query = invokeQueryMethod(this.query, "from", args);
+    return this;
+  }
+
+  where(...args: ReadonlyArray<unknown>): this {
+    this.query = invokeQueryMethod(this.query, "where", args);
+    return this;
+  }
+
+  limit(...args: ReadonlyArray<unknown>): this {
+    this.query = invokeQueryMethod(this.query, "limit", args);
+    return this;
+  }
+
+  then<TResult1 = ReadonlyArray<unknown>, TResult2 = never>(
+    onfulfilled?: (
+      (value: ReadonlyArray<unknown>) => TResult1 | PromiseLike<TResult1>
+    ) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ): PromiseLike<TResult1 | TResult2> {
+    return this.beforeQuery()
+      .then(() => this.query as PromiseLike<ReadonlyArray<unknown>>)
+      .then(onfulfilled, onrejected);
+  }
+}
+
+function invokeQueryMethod(
+  query: unknown,
+  method: "from" | "where" | "limit",
+  args: ReadonlyArray<unknown>,
+): unknown {
+  if (
+    (typeof query !== "object" && typeof query !== "function") ||
+    query === null
+  ) {
+    throw new Error(`Cannot call ${method} on a non-object query.`);
+  }
+  const operation = Reflect.get(query, method);
+  if (typeof operation !== "function") {
+    throw new Error(`Query does not implement ${method}.`);
+  }
+  return Reflect.apply(operation, query, args);
 }
 
 function deferredValue<Value>(): Readonly<{

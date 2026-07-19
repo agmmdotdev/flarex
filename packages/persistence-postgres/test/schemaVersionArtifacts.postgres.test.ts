@@ -3,7 +3,8 @@ import {
   CatalogSchemaVersionSchema,
   type SchemaManifestJson,
 } from "flarex-protocol/schema-manifest";
-import { describe, expect, it } from "vitest";
+import { Client } from "pg";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   EnsureSchemaVersionArtifactInput,
@@ -11,12 +12,16 @@ import type {
 } from "../src";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
+  MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
+} from "../src/appSchemaPublicationPolicy";
+import {
   ensureSchemaVersionArtifactInTransactionEffect,
   getSchemaVersionArtifactByVersionEffect,
   prepareSchemaVersionArtifactEffect,
+  SchemaVersionArtifactCorruptionError,
   SchemaVersionArtifactConflictError,
 } from "../src/schemaVersionArtifacts";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -149,6 +154,155 @@ describePostgres("real Postgres schema version artifacts", () => {
         `select count(*)::text as count from fx_control_schema_version`,
       );
       expect(rows.rows).toEqual([{ count: "1" }]);
+    });
+  }, 30_000);
+
+  it("size-gates oversized stored evidence before worker hashing", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_schema_artifact_size_gate";
+      await persistence.insertDeploymentMetadata({
+        deploymentId,
+        projectId: "project_schema_artifact_size_gate",
+      });
+      await ensure(persistence, {
+        deploymentId,
+        schemaVersionId: CatalogSchemaVersionIdSchema.make(
+          "schema_artifact_size_gate",
+        ),
+        version: version1,
+        manifest: { ok: true },
+      });
+      await persistence.query(
+        `
+          update fx_control_schema_version
+          set manifest_bytes = decode(repeat('00', $2), 'hex')
+          where deployment_id = $1
+        `,
+        [
+          deploymentId,
+          MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
+        ],
+      );
+      const digest = vi.spyOn(crypto.subtle, "digest");
+      try {
+        const failure = await runEffectFailure(
+          getSchemaVersionArtifactByVersionEffect(
+            persistence.drizzle,
+            deploymentId,
+            version1,
+          ),
+        );
+
+        expect(failure).toBeInstanceOf(
+          SchemaVersionArtifactCorruptionError,
+        );
+        expect(failure).toMatchObject({
+          deploymentId,
+          detail: "manifest evidence exceeds the artifact read limit",
+        });
+        expect(digest).not.toHaveBeenCalled();
+      } finally {
+        digest.mockRestore();
+      }
+    });
+  }, 60_000);
+
+  it("corroborates timestamp microseconds across session time zones", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_schema_artifact_timestamp";
+      await persistence.insertDeploymentMetadata({
+        deploymentId,
+        projectId: "project_schema_artifact_timestamp",
+      });
+      const input = {
+        deploymentId,
+        schemaVersionId: CatalogSchemaVersionIdSchema.make(
+          "schema_artifact_timestamp",
+        ),
+        version: version1,
+        manifest: { ok: true },
+      } satisfies EnsureSchemaVersionArtifactInput;
+      await ensure(persistence, input);
+      await persistence.query(
+        `
+          update fx_control_schema_version
+          set created_at = '2026-01-01 00:00:00.123456+00'::timestamptz
+          where deployment_id = $1
+        `,
+        [deploymentId],
+      );
+
+      if (postgresUrl === null) {
+        throw new Error("PostgreSQL URL disappeared during the test.");
+      }
+      const currentSchema = await persistence.query<{ schemaName: string }>(
+        `select current_schema() as "schemaName"`,
+      );
+      const schemaName = currentSchema.rows[0]?.schemaName;
+      if (schemaName === undefined) {
+        throw new Error("Temporary PostgreSQL schema was not resolved.");
+      }
+      const utc = new Client({ connectionString: postgresUrl });
+      const yangon = new Client({ connectionString: postgresUrl });
+      try {
+        await Promise.all([utc.connect(), yangon.connect()]);
+        await Promise.all([
+          utc.query("select set_config('search_path', $1, false)", [
+            schemaName,
+          ]),
+          yangon.query("select set_config('search_path', $1, false)", [
+            schemaName,
+          ]),
+        ]);
+        await utc.query("set time zone 'UTC'");
+        await yangon.query("set time zone 'Asia/Yangon'");
+        const tokenQuery = `
+          select (
+            extract(epoch from created_at) * 1000000
+          )::numeric(30, 0)::text as token
+          from fx_control_schema_version
+          where deployment_id = $1
+        `;
+        const [utcToken, yangonToken] = await Promise.all([
+          utc.query<{ token: string }>(tokenQuery, [deploymentId]),
+          yangon.query<{ token: string }>(tokenQuery, [deploymentId]),
+        ]);
+        expect(utcToken.rows[0]?.token).toBe(yangonToken.rows[0]?.token);
+      } finally {
+        await Promise.all([utc.end(), yangon.end()]);
+      }
+
+      const read = await getSchemaVersionArtifactByVersion(
+        persistence.drizzle,
+        deploymentId,
+        version1,
+      );
+      expect(read?.createdAt.toISOString())
+        .toBe("2026-01-01T00:00:00.123Z");
+      const replay = await ensure(persistence, input);
+      expect(replay.status).toBe("existing");
+      expect(replay.artifact.createdAt.toISOString())
+        .toBe("2026-01-01T00:00:00.123Z");
+
+      await persistence.query(
+        `
+          update fx_control_schema_version
+          set created_at = 'infinity'::timestamptz
+          where deployment_id = $1
+        `,
+        [deploymentId],
+      );
+      const infiniteFailure = await runEffectFailure(
+        getSchemaVersionArtifactByVersionEffect(
+          persistence.drizzle,
+          deploymentId,
+          version1,
+        ),
+      );
+      expect(infiniteFailure).toMatchObject({
+        _tag: "SchemaVersionArtifactCorruptionError",
+        detail: "creation timestamp is invalid",
+      });
     });
   }, 30_000);
 });

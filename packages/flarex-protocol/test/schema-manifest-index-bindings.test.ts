@@ -6,6 +6,7 @@ import {
   canonicalizeSchemaManifestV1,
   decodeSchemaManifestAppIndexDeclarationsV1,
   decodeSchemaManifestAppSchemaV1,
+  decodeSchemaManifestAppSchemaV1Result,
   decodeSchemaManifestIndexBindingsV1,
   MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS,
   MAX_SCHEMA_MANIFEST_APP_INDEXES,
@@ -18,6 +19,7 @@ import {
   type SchemaManifestAppSchemaV1,
   type SchemaManifestIndexBindingsV1,
 } from "../src/schema-manifest";
+import { Result, Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 describe("FlarexDB semantic app index bindings", () => {
@@ -335,6 +337,37 @@ describe("FlarexDB semantic app index bindings", () => {
         }),
       ).toThrow();
     }
+  });
+
+  it("keeps app-schema validation Result-first without absorbing defects", () => {
+    const valid = decodeSchemaManifestAppSchemaV1Result(
+      appSchemaManifest([
+        appIndexBinding(2, 1, "by_email", ["email"]),
+      ]),
+    );
+    expect(Result.isSuccess(valid)).toBe(true);
+    if (Result.isSuccess(valid)) {
+      expect(valid.success).toEqual(
+        appSchemaManifest([
+          appIndexBinding(2, 1, "by_email", ["email"]),
+        ]),
+      );
+    }
+
+    const malformed = decodeSchemaManifestAppSchemaV1Result({});
+    expect(Result.isFailure(malformed)).toBe(true);
+    if (Result.isFailure(malformed)) {
+      expect(Schema.isSchemaError(malformed.failure)).toBe(true);
+    }
+
+    const defect = new Error("app-schema decoder property defect");
+    const throwingManifest = new Proxy({}, {
+      getOwnPropertyDescriptor(): never {
+        throw defect;
+      },
+    });
+    expect(() => decodeSchemaManifestAppSchemaV1Result(throwingManifest))
+      .toThrow(defect);
   });
 
   it("canonicalizes the composite value only after semantic validation", async () => {

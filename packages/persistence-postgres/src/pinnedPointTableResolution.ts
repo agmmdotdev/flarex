@@ -2,7 +2,7 @@ import { Data, Effect, Result } from "effect";
 
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
-  decodeSchemaManifestAppSchemaV1,
+  decodeSchemaManifestAppSchemaV1Result,
   type CatalogSchemaVersionId,
   type SchemaManifestAppTableName,
 } from "flarex-protocol/schema-manifest";
@@ -94,14 +94,15 @@ export const resolvePinnedPointTableIdV1Effect = Effect.fn(
       "schemaArtifactMissing",
     ));
   }
-  const manifest = yield* Effect.fromResult(Result.try({
-    try: () => decodeSchemaManifestAppSchemaV1(artifact.manifestJson),
-    catch: (cause) => pinnedPointTableCorruption(
-      input,
-      "schemaArtifactInvalid",
-      cause,
+  const manifest = yield* Effect.fromResult(
+    decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson).pipe(
+      Result.mapError((cause) => pinnedPointTableCorruption(
+        input,
+        "schemaArtifactInvalid",
+        cause,
+      )),
     ),
-  }));
+  );
   const declared = manifest.tableDefinitions.tables.find(
     (table) => table.logicalName === input.tableName,
   );
