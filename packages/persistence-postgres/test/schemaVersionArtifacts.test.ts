@@ -344,6 +344,29 @@ describe("schema version artifacts", () => {
     });
   });
 
+  it("preserves caller input accessor failures as defects", async () => {
+    const defect = new Error("schema-version input accessor defect");
+    const input = {
+      deploymentId: "deployment_schema_input_accessor_defect",
+      get schemaVersionId(): never {
+        throw defect;
+      },
+      version: version1,
+      manifest: manifestA,
+    };
+
+    const exit = await Effect.runPromiseExit(
+      prepareSchemaVersionArtifactEffect(input),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
   it("maps Web Crypto rejection at the preparation boundary", async () => {
     const rejection = new Error("schema artifact digest rejected");
     const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(
@@ -398,6 +421,61 @@ describe("schema version artifacts", () => {
       });
     } finally {
       digest.mockRestore();
+    }
+  });
+
+  it("short-circuits malformed stored columns as typed corruption", async () => {
+    const deploymentId = "deployment_schema_stored_column_corruption";
+    const row = {
+      ...storedSchemaVersionArtifactRow(deploymentId),
+      schemaVersionId: "",
+    };
+    let versionObserved = false;
+    Object.defineProperty(row, "version", {
+      enumerable: true,
+      get(): never {
+        versionObserved = true;
+        throw new Error("later artifact version accessor must not run");
+      },
+    });
+    const db = schemaVersionArtifactSelectTransaction(() =>
+      Promise.resolve([row])
+    );
+
+    const failure = await runEffectFailure(
+      getSchemaVersionArtifactByIdEffect(db, deploymentId, schemaVersionA),
+    );
+
+    expect(failure).toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+    expect(failure).toMatchObject({
+      detail: "schema version ID is invalid",
+    });
+    expect(versionObserved).toBe(false);
+  });
+
+  it("preserves stored artifact accessor failures as defects", async () => {
+    const deploymentId = "deployment_schema_stored_accessor_defect";
+    const defect = new Error("stored schema-version accessor defect");
+    const row = storedSchemaVersionArtifactRow(deploymentId);
+    Object.defineProperty(row, "schemaVersionId", {
+      enumerable: true,
+      get(): never {
+        throw defect;
+      },
+    });
+    const db = schemaVersionArtifactSelectTransaction(() =>
+      Promise.resolve([row])
+    );
+
+    const exit = await Effect.runPromiseExit(
+      getSchemaVersionArtifactByIdEffect(db, deploymentId, schemaVersionA),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
     }
   });
 
@@ -698,6 +776,19 @@ async function ensure(
   return persistence.drizzle.transaction((tx) =>
     ensureSchemaVersionArtifactInTransaction(tx, prepared),
   );
+}
+
+function storedSchemaVersionArtifactRow(deploymentId: string) {
+  return {
+    deploymentId,
+    schemaVersionId: schemaVersionA,
+    version: version1,
+    manifestCodecVersion: 1,
+    manifestJson: manifestA,
+    manifestBytes: new Uint8Array([1]),
+    manifestSha256: new Uint8Array(32),
+    createdAt: new Date(),
+  };
 }
 
 function mutateFirstByte(bytes: Uint8Array): void {

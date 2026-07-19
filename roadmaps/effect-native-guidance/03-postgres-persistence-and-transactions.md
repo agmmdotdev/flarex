@@ -185,6 +185,11 @@ decoder were deleted because no production compatibility consumer existed;
 focused tests own their explicit runtime bridge. The remaining throwing
 projection in this artifact/binding flow is the post-insert transaction
 boundary.
+Schema-version artifact caller fields and stored scalar columns now use
+hoisted Schema `Result` decoders directly. The two generic callback-based
+`Result.try` adapters are deleted; validation order and typed input/corruption
+failures are preserved, while unexpected property-access or runtime failures
+remain defects instead of being reclassified as invalid data.
 Returned-row deployment identity, decoding, and exact correlation now compose
 through one pure `Result`; the writer projects its typed failure once because
 Drizzle requires callback rejection to roll the transaction back. These

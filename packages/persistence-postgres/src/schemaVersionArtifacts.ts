@@ -3,15 +3,17 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
-import { Data, Effect, Result } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import {
+  CanonicalSchemaManifestBytesSchema,
+  CatalogSchemaVersionIdSchema,
+  CatalogSchemaVersionSchema,
   canonicalizeSchemaManifestV1,
   decodeCanonicalSchemaManifestBytes,
-  decodeCatalogSchemaVersion,
-  decodeCatalogSchemaVersionId,
-  decodeSchemaManifestJson,
-  decodeSchemaManifestCodecVersion,
   decodeSchemaManifestSha256,
+  SchemaManifestCodecVersionSchema,
+  SchemaManifestJsonSchema,
+  SchemaManifestSha256Schema,
   type CanonicalSchemaManifestBytes,
   type CanonicalSchemaManifestV1,
   type CatalogSchemaVersion,
@@ -79,6 +81,24 @@ const forbiddenInputFields = [
   "manifestSha256",
   "createdAt",
 ] as const;
+const decodeCanonicalSchemaManifestBytesResult = Schema.decodeUnknownResult(
+  CanonicalSchemaManifestBytesSchema,
+);
+const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
+  CatalogSchemaVersionIdSchema,
+);
+const decodeCatalogSchemaVersionResult = Schema.decodeUnknownResult(
+  CatalogSchemaVersionSchema,
+);
+const decodeSchemaManifestCodecVersionResult = Schema.decodeUnknownResult(
+  SchemaManifestCodecVersionSchema,
+);
+const decodeSchemaManifestJsonResult = Schema.decodeUnknownResult(
+  SchemaManifestJsonSchema,
+);
+const decodeSchemaManifestSha256Result = Schema.decodeUnknownResult(
+  SchemaManifestSha256Schema,
+);
 
 type ForbiddenSchemaVersionArtifactInputField =
   (typeof forbiddenInputFields)[number];
@@ -418,9 +438,9 @@ export const getSchemaVersionArtifactByIdEffect = Effect.fn(
   const validatedDeploymentId = yield* Effect.fromResult(
     validateDeploymentIdResult(deploymentId),
   );
-  const decodedId = yield* Effect.fromResult(decodeInputResult(
+  const decodedId = yield* Effect.fromResult(decodeInputFieldResult(
     "schemaVersionId",
-    () => decodeCatalogSchemaVersionId(schemaVersionId),
+    decodeCatalogSchemaVersionIdResult(schemaVersionId),
   ));
   return yield* readSchemaVersionArtifactByIdEffect(
     db,
@@ -443,9 +463,9 @@ export const getSchemaVersionArtifactByVersionEffect = Effect.fn(
   const validatedDeploymentId = yield* Effect.fromResult(
     validateDeploymentIdResult(deploymentId),
   );
-  const decodedVersion = yield* Effect.fromResult(decodeInputResult(
+  const decodedVersion = yield* Effect.fromResult(decodeInputFieldResult(
     "version",
-    () => decodeCatalogSchemaVersion(version),
+    decodeCatalogSchemaVersionResult(version),
   ));
   return yield* readSchemaVersionArtifactByVersionEffect(
     db,
@@ -552,17 +572,17 @@ function validateEnsureInputResult(
     );
   }
   return Result.gen(function* () {
-    const schemaVersionId = yield* decodeInputResult(
+    const schemaVersionId = yield* decodeInputFieldResult(
       "schemaVersionId",
-      () => decodeCatalogSchemaVersionId(input.schemaVersionId),
+      decodeCatalogSchemaVersionIdResult(input.schemaVersionId),
     );
-    const version = yield* decodeInputResult(
+    const version = yield* decodeInputFieldResult(
       "version",
-      () => decodeCatalogSchemaVersion(input.version),
+      decodeCatalogSchemaVersionResult(input.version),
     );
-    const manifest = yield* decodeInputResult(
+    const manifest = yield* decodeInputFieldResult(
       "manifest",
-      () => decodeSchemaManifestJson(input.manifest),
+      decodeSchemaManifestJsonResult(input.manifest),
     );
     return {
       deploymentId: input.deploymentId,
@@ -584,17 +604,16 @@ function validateDeploymentIdResult(
   return Result.succeed(deploymentId);
 }
 
-function decodeInputResult<Value>(
+function decodeInputFieldResult<Value>(
   field: "schemaVersionId" | "version" | "manifest",
-  decode: () => Value,
+  result: Result.Result<Value, unknown>,
 ): Result.Result<Value, InvalidSchemaVersionArtifactInputError> {
-  return Result.try({
-    try: decode,
-    catch: (cause) => new InvalidSchemaVersionArtifactInputError(
+  return result.pipe(
+    Result.mapError((cause) => new InvalidSchemaVersionArtifactInputError(
       field,
       { cause },
-    ),
-  });
+    )),
+  );
 }
 
 const selectSchemaVersionArtifactByIdEffect = Effect.fn(
@@ -755,27 +774,27 @@ function decodeStoredSchemaVersionArtifactRowResult(
     const schemaVersionId = yield* decodeStoredValueResult(
       row.deploymentId,
       "schema version ID",
-      () => decodeCatalogSchemaVersionId(row.schemaVersionId),
+      decodeCatalogSchemaVersionIdResult(row.schemaVersionId),
     );
     const version = yield* decodeStoredValueResult(
       row.deploymentId,
       "version",
-      () => decodeCatalogSchemaVersion(row.version),
+      decodeCatalogSchemaVersionResult(row.version),
     );
     const manifestCodecVersion = yield* decodeStoredValueResult(
       row.deploymentId,
       "manifest codec version",
-      () => decodeSchemaManifestCodecVersion(row.manifestCodecVersion),
+      decodeSchemaManifestCodecVersionResult(row.manifestCodecVersion),
     );
     const manifestBytes = yield* decodeStoredValueResult(
       row.deploymentId,
       "manifest bytes",
-      () => decodeCanonicalSchemaManifestBytes(row.manifestBytes),
+      decodeCanonicalSchemaManifestBytesResult(row.manifestBytes),
     );
     const manifestSha256 = yield* decodeStoredValueResult(
       row.deploymentId,
       "manifest SHA-256",
-      () => decodeSchemaManifestSha256(row.manifestSha256),
+      decodeSchemaManifestSha256Result(row.manifestSha256),
     );
     const createdAt = copyFiniteDate(row.createdAt);
     if (createdAt === undefined) {
@@ -966,16 +985,15 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
 function decodeStoredValueResult<Value>(
   deploymentId: string,
   field: string,
-  decode: () => Value,
+  result: Result.Result<Value, unknown>,
 ): Result.Result<Value, SchemaVersionArtifactCorruptionError> {
-  return Result.try({
-    try: decode,
-    catch: (cause) => new SchemaVersionArtifactCorruptionError(
+  return result.pipe(
+    Result.mapError((cause) => new SchemaVersionArtifactCorruptionError(
       deploymentId,
       `${field} is invalid`,
       { cause },
-    ),
-  });
+    )),
+  );
 }
 
 function schemaVersionArtifactConflictMessage(
