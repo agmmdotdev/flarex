@@ -118,14 +118,23 @@ export function projectScopeIdUuidV1Result(
 export function projectScopeEpochUuidV1(
   value: unknown,
 ): ScopeEpochUuidProjectionV1 {
-  return Result.getOrThrow(prefixedCanonicalUuidV1Result(
+  return Result.getOrThrow(projectScopeEpochUuidV1Result(value));
+}
+
+export function projectScopeEpochUuidV1Result(
+  value: unknown,
+): Result.Result<
+  ScopeEpochUuidProjectionV1,
+  InvalidScopeAuthorityUuidProjectionV1Error
+> {
+  return prefixedCanonicalUuidV1Result(
     value,
     "epoch",
     "epoch_",
   ).pipe(Result.map((projected) => Object.freeze({
     epoch: ReplacementScopeEpochV1Schema.make(projected.value),
     epochUuid: ScopeEpochUuidV1Schema.make(projected.uuid),
-  } satisfies ScopeEpochUuidProjectionV1))));
+  } satisfies ScopeEpochUuidProjectionV1)));
 }
 
 export function replacementScopeIdV1FromUuid(

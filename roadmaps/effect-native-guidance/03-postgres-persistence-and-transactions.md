@@ -91,6 +91,13 @@ interruption-masked repeatable-read Promise edge. Its executor port consumes
 those operations directly, so the obsolete generic
 `resolveLocatedTrustedScopeAuthority` Promise facade and audited runtime
 boundary have been deleted.
+Detached stored-attempt materialization now remains pure after that SQL edge:
+ordered scope-clock and hoisted Schema `Result` decoders retain malformed
+stored scalars as `sessionRecordInvalid` corruption with their cause, while
+unexpected accessor or runtime failures remain defects. The blanket
+`Effect.try` / `catchIf` / `orDie` wrapper and its exception classifier are
+deleted; authority comparison, failure order, defensive copies, and runtime
+freezing are unchanged.
 
 Stored commit-authority loading now owns an Effect-native `loadEffect`
 operation, typed persistence failures, Effect-native detached

@@ -16,19 +16,17 @@ import {
 } from "flarex-protocol/commit-protocol";
 import type { JsonObject } from "flarex-protocol/json";
 import {
-  decodeCatalogSchemaVersionId,
+  CatalogSchemaVersionIdSchema,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  ScopeEpochUuidV1Schema,
+  ScopeUuidV1Schema,
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
-  InvalidScopeAuthorityUuidProjectionV1Error,
-  decodeScopeEpochUuidV1,
-  decodeScopeUuidV1,
-  projectScopeEpochUuidV1,
-  projectScopeIdUuidV1,
-  replacementScopeEpochV1FromUuid,
+  projectScopeEpochUuidV1Result,
+  projectScopeIdUuidV1Result,
   type FlarexDbV1StorageGeneration,
   type ReplacementScopeIdV1,
   type ScopeUuidV1,
@@ -66,8 +64,7 @@ import {
   type TrustedScopeAuthorityPortOperation,
 } from "./scopeAuthorityResolution";
 import {
-  decodeScopeClockRecord,
-  ScopeClockCorruptionError,
+  decodeScopeClockRecordResult,
 } from "./scopeClock";
 import {
   fxSystemScopeClocks,
@@ -103,6 +100,33 @@ type SnapshotLeaseRow = typeof fxSystemSnapshotLeases.$inferSelect;
 type JournalRootRow = typeof fxSystemTransactionJournals.$inferSelect;
 type JournalPointRow = typeof fxSystemTransactionJournalPoints.$inferSelect;
 type ScopeClockRow = typeof fxSystemScopeClocks.$inferSelect;
+
+const decodeStoredAttemptScopeUuidResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeUuidV1Schema),
+);
+const decodeStoredAttemptScopeEpochUuidResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeEpochUuidV1Schema),
+);
+const decodeStoredAttemptRevocationEpochResult = Schema.decodeUnknownResult(
+  Schema.toType(TransactionAuthorizationRevocationEpochSchema),
+);
+const decodeStoredAttemptSessionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(TransactionSessionIdV1Schema),
+);
+const decodeStoredAttemptFenceResult = Schema.decodeUnknownResult(
+  Schema.toType(TransactionAttemptFenceSchema),
+);
+const decodeStoredAttemptStorageGenerationFenceResult =
+  Schema.decodeUnknownResult(Schema.toType(StorageGenerationFenceSchema));
+const decodeStoredAttemptSchemaVersionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogSchemaVersionIdSchema),
+);
+const decodeStoredAttemptCommitSeqResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitSeqSchema),
+);
+const decodeStoredAttemptSnapshotTokenResult = Schema.decodeUnknownResult(
+  Schema.toType(SnapshotTokenSchema),
+);
 
 export interface StoredAttemptEvidenceAuthorityV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
@@ -445,7 +469,7 @@ export function createStoredAttemptEvidenceLoaderV1(
         }),
       });
     }
-    return yield* materializeStoredAttemptEvidence(
+    return materializeStoredAttemptEvidence(
       request,
       located.authority,
       captured,
@@ -684,36 +708,58 @@ async function selectStoredAttemptSessionRows(
   return query;
 }
 
+function decodeStoredAttemptClockAuthorityResult(row: ScopeClockRow) {
+  return Result.gen(function* () {
+    const clock = yield* decodeScopeClockRecordResult(row);
+    const scopeUuid = yield* decodeStoredAttemptScopeUuidResult(row.scopeUuid);
+    const epochUuid = yield* decodeStoredAttemptScopeEpochUuidResult(
+      row.epochUuid,
+    );
+    const revocationEpoch = yield* decodeStoredAttemptRevocationEpochResult(
+      row.authorizationRevocationEpoch,
+    );
+    return { clock, scopeUuid, epochUuid, revocationEpoch };
+  });
+}
+
+function decodeStoredAttemptSessionIdentityResult(
+  session: StoredAttemptSessionProjectionV1,
+) {
+  return Result.gen(function* () {
+    const sessionId = yield* decodeStoredAttemptSessionIdResult(
+      session.sessionId,
+    );
+    const attemptFence = yield* decodeStoredAttemptFenceResult(
+      session.attemptFence,
+    );
+    const storageGenerationFence =
+      yield* decodeStoredAttemptStorageGenerationFenceResult(
+        session.storageGenerationFence,
+      );
+    return { sessionId, attemptFence, storageGenerationFence };
+  });
+}
+
+function decodeStoredAttemptLeaseSnapshotResult(
+  lease: SnapshotLeaseRow,
+  scopeId: ReplacementScopeIdV1,
+): Result.Result<SnapshotToken, Schema.SchemaError> {
+  return Result.gen(function* () {
+    const epochUuid = yield* decodeStoredAttemptScopeEpochUuidResult(
+      lease.snapshotEpochUuid,
+    );
+    const commitSeq = yield* decodeStoredAttemptCommitSeqResult(
+      lease.snapshotCommitSeq,
+    );
+    return yield* decodeStoredAttemptSnapshotTokenResult({
+      scopeId,
+      epoch: `epoch_${epochUuid}`,
+      commitSeq,
+    });
+  });
+}
+
 function materializeStoredAttemptEvidence(
-  request: StoredAttemptEvidenceRequestV1,
-  preliminary: TrustedScopeAuthority,
-  captured: CapturedStoredAttemptRowsV1,
-): Effect.Effect<StoredAttemptEvidenceLoadResultV1> {
-  return Effect.try({
-    try: () =>
-      materializeStoredAttemptEvidenceUnsafe(
-        request,
-        preliminary,
-        captured,
-      ),
-    catch: (cause): unknown => cause,
-  }).pipe(
-    Effect.catchIf(
-      isStoredAttemptEvidenceDecodeFailure,
-      (cause) => Effect.succeed(corrupt("sessionRecordInvalid", cause)),
-    ),
-    Effect.orDie,
-  );
-}
-
-function isStoredAttemptEvidenceDecodeFailure(cause: unknown): boolean {
-  return cause instanceof ScopeClockCorruptionError ||
-    cause instanceof InvalidScopeAuthorityUuidProjectionV1Error ||
-    cause instanceof FlarexValueEvidenceV1Error ||
-    Schema.isSchemaError(cause);
-}
-
-function materializeStoredAttemptEvidenceUnsafe(
   request: StoredAttemptEvidenceRequestV1,
   preliminary: TrustedScopeAuthority,
   captured: CapturedStoredAttemptRowsV1,
@@ -728,15 +774,25 @@ function materializeStoredAttemptEvidenceUnsafe(
   if (clockRow === undefined) {
     return corrupt("scopeClockMissingOrDuplicate");
   }
-  const clock = decodeScopeClockRecord(clockRow);
-  const scopeUuid = decodeScopeUuidV1(clockRow.scopeUuid);
-  const epochUuid = decodeScopeEpochUuidV1(clockRow.epochUuid);
-  const revocationEpoch = TransactionAuthorizationRevocationEpochSchema.make(
-    clockRow.authorizationRevocationEpoch,
+  const decodedClockAuthority = decodeStoredAttemptClockAuthorityResult(
+    clockRow,
   );
+  if (Result.isFailure(decodedClockAuthority)) {
+    return corrupt("sessionRecordInvalid", decodedClockAuthority.failure);
+  }
+  const { clock, scopeUuid, epochUuid, revocationEpoch } =
+    decodedClockAuthority.success;
+  const selectorScopeProjection = projectScopeIdUuidV1Result(selector.scopeId);
+  if (Result.isFailure(selectorScopeProjection)) {
+    return corrupt("sessionRecordInvalid", selectorScopeProjection.failure);
+  }
+  const clockEpochProjection = projectScopeEpochUuidV1Result(clock.epoch);
+  if (Result.isFailure(clockEpochProjection)) {
+    return corrupt("sessionRecordInvalid", clockEpochProjection.failure);
+  }
   if (
-    scopeUuid !== projectScopeIdUuidV1(selector.scopeId).scopeUuid ||
-    epochUuid !== projectScopeEpochUuidV1(clock.epoch).epochUuid ||
+    scopeUuid !== selectorScopeProjection.success.scopeUuid ||
+    epochUuid !== clockEpochProjection.success.epochUuid ||
     clock.scopeId !== selector.scopeId ||
     preliminary.scopeId !== selector.scopeId
   ) {
@@ -782,13 +838,14 @@ function materializeStoredAttemptEvidenceUnsafe(
   if (session === undefined) {
     return corrupt("sessionRecordDuplicate");
   }
-  const sessionId = TransactionSessionIdV1Schema.make(session.sessionId);
-  const attemptFence = TransactionAttemptFenceSchema.make(
-    session.attemptFence,
+  const decodedSessionIdentity = decodeStoredAttemptSessionIdentityResult(
+    session,
   );
-  const storageGenerationFence = StorageGenerationFenceSchema.make(
-    session.storageGenerationFence,
-  );
+  if (Result.isFailure(decodedSessionIdentity)) {
+    return corrupt("sessionRecordInvalid", decodedSessionIdentity.failure);
+  }
+  const { sessionId, attemptFence, storageGenerationFence } =
+    decodedSessionIdentity.success;
   if (
     session.scopeUuid !== scopeUuid ||
     sessionId !== selector.sessionId
@@ -804,8 +861,14 @@ function materializeStoredAttemptEvidenceUnsafe(
   ) {
     return authorityMismatch("generationChanged");
   }
+  const decodedSchemaVersionId = decodeStoredAttemptSchemaVersionIdResult(
+    session.schemaVersionId,
+  );
+  if (Result.isFailure(decodedSchemaVersionId)) {
+    return corrupt("sessionRecordInvalid", decodedSchemaVersionId.failure);
+  }
   const schemaVersionId: CatalogSchemaVersionId =
-    decodeCatalogSchemaVersionId(session.schemaVersionId);
+    decodedSchemaVersionId.success;
   if (
     request.kind === "expectedAuthority" &&
     schemaVersionId !== request.authority.schemaVersionId
@@ -885,11 +948,14 @@ function materializeStoredAttemptEvidenceUnsafe(
   if (lease === undefined) {
     return corrupt("snapshotLeaseMissingOrDuplicate");
   }
-  const leaseSnapshot = SnapshotTokenSchema.make({
-    scopeId: selector.scopeId,
-    epoch: replacementScopeEpochV1FromUuid(lease.snapshotEpochUuid),
-    commitSeq: CommitSeqSchema.make(lease.snapshotCommitSeq),
-  });
+  const decodedLeaseSnapshot = decodeStoredAttemptLeaseSnapshotResult(
+    lease,
+    selector.scopeId,
+  );
+  if (Result.isFailure(decodedLeaseSnapshot)) {
+    return corrupt("sessionRecordInvalid", decodedLeaseSnapshot.failure);
+  }
+  const leaseSnapshot = decodedLeaseSnapshot.success;
   const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
     lease.leaseExpiresAt,
   );

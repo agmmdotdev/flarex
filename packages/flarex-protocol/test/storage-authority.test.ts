@@ -13,6 +13,7 @@ import {
   StorageGenerationFenceSchema,
   StorageGenerationSchema,
   projectScopeEpochUuidV1,
+  projectScopeEpochUuidV1Result,
   projectScopeIdUuidV1,
   projectScopeIdUuidV1Result,
   replacementScopeEpochV1FromUuid,
@@ -104,6 +105,7 @@ describe("FlarexDB storage authority contracts", () => {
     const scope = projectScopeIdUuidV1(`scope_${scopeUuid}`);
     const scopeResult = projectScopeIdUuidV1Result(`scope_${scopeUuid}`);
     const epoch = projectScopeEpochUuidV1(`epoch_${epochUuid}`);
+    const epochResult = projectScopeEpochUuidV1Result(`epoch_${epochUuid}`);
 
     expect(scope).toEqual({ scopeId: `scope_${scopeUuid}`, scopeUuid });
     expect(Result.isSuccess(scopeResult)).toBe(true);
@@ -111,6 +113,10 @@ describe("FlarexDB storage authority contracts", () => {
       expect(scopeResult.success).toEqual(scope);
     }
     expect(epoch).toEqual({ epoch: `epoch_${epochUuid}`, epochUuid });
+    expect(Result.isSuccess(epochResult)).toBe(true);
+    if (Result.isSuccess(epochResult)) {
+      expect(epochResult.success).toEqual(epoch);
+    }
     expect(Object.isFrozen(scope)).toBe(true);
     expect(Object.isFrozen(epoch)).toBe(true);
     expect(replacementScopeIdV1FromUuid(scopeUuid)).toBe(`scope_${scopeUuid}`);
@@ -135,6 +141,25 @@ describe("FlarexDB storage authority contracts", () => {
         InvalidScopeAuthorityUuidProjectionV1Error,
       );
       const result = projectScopeIdUuidV1Result(value);
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure).toBeInstanceOf(
+          InvalidScopeAuthorityUuidProjectionV1Error,
+        );
+      }
+    }
+    for (const value of [
+      "epoch-a",
+      "epoch_018F22E2-58CC-7B2A-91D8-F3F3401A0874",
+      "018f22e2-58cc-7b2a-91d8-f3f3401a0874",
+      "epoch_018f22e258cc7b2a91d8f3f3401a0874",
+      1,
+      null,
+    ]) {
+      expect(() => projectScopeEpochUuidV1(value)).toThrow(
+        InvalidScopeAuthorityUuidProjectionV1Error,
+      );
+      const result = projectScopeEpochUuidV1Result(value);
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {
         expect(result.failure).toBeInstanceOf(

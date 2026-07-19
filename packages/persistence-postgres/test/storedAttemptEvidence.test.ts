@@ -563,6 +563,50 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       });
   });
 
+  it("keeps malformed detached lease scalars in the corruption result", async () => {
+    const current = await scenario("malformed_lease_commit_seq");
+    await seal(current);
+    await persistence.exec(`
+      alter table fx_system_snapshot_lease
+        drop constraint fx_system_snapshot_lease_commit_seq_check
+    `);
+    try {
+      await persistence.query(
+        `
+          update fx_system_snapshot_lease
+          set snapshot_commit_seq = -1
+          where session_id = $1
+        `,
+        [current.anchor.sessionId],
+      );
+      const result = await runEffect(
+        current.loader.loadEffect(current.authority),
+      );
+      expect(result).toMatchObject({
+        kind: "corrupt",
+        reason: "sessionRecordInvalid",
+      });
+      if (result.kind !== "corrupt") {
+        throw new Error("Expected malformed lease corruption.");
+      }
+      expect(Schema.isSchemaError(result.cause)).toBe(true);
+    } finally {
+      await persistence.query(
+        `
+          update fx_system_snapshot_lease
+          set snapshot_commit_seq = $1
+          where session_id = $2
+        `,
+        [current.anchor.snapshotToken.commitSeq, current.anchor.sessionId],
+      );
+      await persistence.exec(`
+        alter table fx_system_snapshot_lease
+          add constraint fx_system_snapshot_lease_commit_seq_check
+          check (snapshot_commit_seq >= 0)
+      `);
+    }
+  });
+
   it("returns at most max+1 point rows and rejects overflow before decoding it", async () => {
     const current = await scenario("point_overflow");
     await seal(current);
