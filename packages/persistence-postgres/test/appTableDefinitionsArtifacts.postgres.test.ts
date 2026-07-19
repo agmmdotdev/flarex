@@ -18,7 +18,7 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import { prepareSchemaManifestAppTableBindingsV1Effect } from "../src/schemaManifestTableBindings";
 import {
   ensureSchemaVersionArtifactInTransactionEffect,
-  getSchemaVersionArtifactByVersion,
+  getSchemaVersionArtifactByVersionEffect,
   prepareSchemaVersionArtifactEffect,
 } from "../src/schemaVersionArtifacts";
 import {
@@ -47,6 +47,10 @@ const prepareSchemaVersionArtifact = (
 const ensureSchemaVersionArtifactInTransaction = (
   ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
 ) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
+
+const getSchemaVersionArtifactByVersion = (
+  ...args: Parameters<typeof getSchemaVersionArtifactByVersionEffect>
+) => runEffect(getSchemaVersionArtifactByVersionEffect(...args));
 
 describePostgres("real Postgres table-definitions artifact compatibility", () => {
   it("converges concurrent exact mapping and artifact publications", async () => {

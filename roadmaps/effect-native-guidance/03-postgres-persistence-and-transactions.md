@@ -170,8 +170,17 @@ canonicalization, hashing, or owned stored-row validation. The resolver still
 never reads the mutable active-schema pointer. Stable-binding row validation
 now has one authoritative pure `Result` decoder, and the resolver consumes that
 failure channel directly instead of reconstructing owned throws through broad
-Effect catch logic. Throwing projections remain only for the current
-Promise-based schema-planning read and the post-insert transaction boundary.
+Effect catch logic. The package-root full-integrity schema-version artifact
+readers are now Effect-native. Reader identity and stored-row validation enter
+through `Result`, query rejection maps once to the existing operation-specific
+persistence error, and canonical manifest verification remains one narrow
+foreign Promise edge. The pinned resolver consumes the internal
+validated-identity read directly and translates persistence versus corruption
+failures once. The two Promise readers plus their raw Promise selector and
+decoder were deleted because no production compatibility consumer existed;
+focused tests own their explicit runtime bridge. The remaining throwing
+projection in this artifact/binding flow is the post-insert transaction
+boundary.
 Returned-row deployment identity, decoding, and exact correlation now compose
 through one pure `Result`; the writer projects its typed failure once because
 Drizzle requires callback rejection to roll the transaction back. These

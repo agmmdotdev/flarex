@@ -40,7 +40,7 @@ import {
 } from "../src/schemaManifestTableBindings";
 import {
   ensureSchemaVersionArtifactInTransactionEffect,
-  getSchemaVersionArtifactByVersion,
+  getSchemaVersionArtifactByVersionEffect,
   prepareSchemaVersionArtifactEffect,
   SchemaVersionArtifactConflictError,
 } from "../src/schemaVersionArtifacts";
@@ -49,6 +49,10 @@ import {
   getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+
+const getSchemaVersionArtifactByVersion = (
+  ...args: Parameters<typeof getSchemaVersionArtifactByVersionEffect>
+) => runEffect(getSchemaVersionArtifactByVersionEffect(...args));
 
 type PublicInternalCompatibilityExport = Extract<
   keyof typeof import("../src"),

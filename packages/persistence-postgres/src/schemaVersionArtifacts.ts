@@ -226,6 +226,11 @@ export type VerifyPreparedSchemaVersionArtifactError =
   | SchemaManifestChecksumCollisionError
   | SchemaVersionArtifactCorruptionError;
 
+export type ReadSchemaVersionArtifactError =
+  | InvalidSchemaVersionArtifactInputError
+  | SchemaVersionArtifactPersistenceError
+  | SchemaVersionArtifactCorruptionError;
+
 interface SchemaVersionArtifactVersionIdentity
   extends SchemaVersionArtifactIdentity {
   readonly version: CatalogSchemaVersion;
@@ -400,36 +405,95 @@ export const verifyPreparedSchemaVersionArtifactInTransactionEffect = Effect.fn(
 });
 
 /** Full JSON/byte/digest integrity read; keep it outside locked write phases. */
-export async function getSchemaVersionArtifactById(
+export const getSchemaVersionArtifactByIdEffect = Effect.fn(
+  "SchemaVersionArtifacts.getById",
+)(function* (
   db: FlarexMetadataDatabase,
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
-): Promise<SchemaVersionArtifact | null> {
-  validateDeploymentId(deploymentId);
-  const decodedId = decodeInputSchemaVersionId(schemaVersionId);
-  const row = await selectSchemaVersionArtifactById(
+): Effect.fn.Return<
+  SchemaVersionArtifact | null,
+  ReadSchemaVersionArtifactError
+> {
+  const validatedDeploymentId = yield* Effect.fromResult(
+    validateDeploymentIdResult(deploymentId),
+  );
+  const decodedId = yield* Effect.fromResult(decodeInputResult(
+    "schemaVersionId",
+    () => decodeCatalogSchemaVersionId(schemaVersionId),
+  ));
+  return yield* readSchemaVersionArtifactByIdEffect(
     db,
-    deploymentId,
+    validatedDeploymentId,
     decodedId,
   );
-  return row === null ? null : decodeSchemaVersionArtifactRow(row);
-}
+});
 
 /** Full JSON/byte/digest integrity read; keep it outside locked write phases. */
-export async function getSchemaVersionArtifactByVersion(
+export const getSchemaVersionArtifactByVersionEffect = Effect.fn(
+  "SchemaVersionArtifacts.getByVersion",
+)(function* (
   db: FlarexMetadataDatabase,
   deploymentId: string,
   version: CatalogSchemaVersion,
-): Promise<SchemaVersionArtifact | null> {
-  validateDeploymentId(deploymentId);
-  const decodedVersion = decodeInputSchemaVersion(version);
-  const row = await selectSchemaVersionArtifactByVersion(
+): Effect.fn.Return<
+  SchemaVersionArtifact | null,
+  ReadSchemaVersionArtifactError
+> {
+  const validatedDeploymentId = yield* Effect.fromResult(
+    validateDeploymentIdResult(deploymentId),
+  );
+  const decodedVersion = yield* Effect.fromResult(decodeInputResult(
+    "version",
+    () => decodeCatalogSchemaVersion(version),
+  ));
+  return yield* readSchemaVersionArtifactByVersionEffect(
     db,
-    deploymentId,
+    validatedDeploymentId,
     decodedVersion,
   );
-  return row === null ? null : decodeSchemaVersionArtifactRow(row);
-}
+});
+
+/** Package-internal read for callers that already own validated identity. */
+export const readSchemaVersionArtifactByIdEffect = Effect.fn(
+  "SchemaVersionArtifacts.readById",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+): Effect.fn.Return<
+  SchemaVersionArtifact | null,
+  SchemaVersionArtifactPersistenceError | SchemaVersionArtifactCorruptionError
+> {
+  const row = yield* selectSchemaVersionArtifactByIdEffect(
+    db,
+    deploymentId,
+    schemaVersionId,
+  );
+  return row === null
+    ? null
+    : yield* decodeSchemaVersionArtifactRowEffect(row);
+});
+
+const readSchemaVersionArtifactByVersionEffect = Effect.fn(
+  "SchemaVersionArtifacts.readByVersion",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  version: CatalogSchemaVersion,
+): Effect.fn.Return<
+  SchemaVersionArtifact | null,
+  SchemaVersionArtifactPersistenceError | SchemaVersionArtifactCorruptionError
+> {
+  const row = yield* selectSchemaVersionArtifactByVersionEffect(
+    db,
+    deploymentId,
+    version,
+  );
+  return row === null
+    ? null
+    : yield* decodeSchemaVersionArtifactRowEffect(row);
+});
 
 const insertSchemaVersionArtifactEffect = Effect.fn(
   "SchemaVersionArtifacts.insert",
@@ -509,24 +573,15 @@ function validateEnsureInputResult(
   });
 }
 
-function validateDeploymentId(deploymentId: string): void {
+function validateDeploymentIdResult(
+  deploymentId: string,
+): Result.Result<string, InvalidSchemaVersionArtifactInputError> {
   if (!isNonBlankString(deploymentId)) {
-    throw new InvalidSchemaVersionArtifactInputError("deploymentId");
+    return Result.fail(
+      new InvalidSchemaVersionArtifactInputError("deploymentId"),
+    );
   }
-}
-
-function decodeInputSchemaVersionId(value: unknown): CatalogSchemaVersionId {
-  return Result.getOrThrow(decodeInputResult(
-    "schemaVersionId",
-    () => decodeCatalogSchemaVersionId(value),
-  ));
-}
-
-function decodeInputSchemaVersion(value: unknown): CatalogSchemaVersion {
-  return Result.getOrThrow(decodeInputResult(
-    "version",
-    () => decodeCatalogSchemaVersion(value),
-  ));
+  return Result.succeed(deploymentId);
 }
 
 function decodeInputResult<Value>(
@@ -540,20 +595,6 @@ function decodeInputResult<Value>(
       { cause },
     ),
   });
-}
-
-/** Package-internal raw row acquisition; callers own stored-row decoding. */
-export async function selectSchemaVersionArtifactById(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-  schemaVersionId: CatalogSchemaVersionId,
-): Promise<SchemaVersionArtifactRow | null> {
-  const rows = await selectSchemaVersionArtifactByIdQuery(
-    db,
-    deploymentId,
-    schemaVersionId,
-  );
-  return rows[0] ?? null;
 }
 
 const selectSchemaVersionArtifactByIdEffect = Effect.fn(
@@ -590,19 +631,6 @@ function selectSchemaVersionArtifactByIdQuery(
       ),
     )
     .limit(1);
-}
-
-async function selectSchemaVersionArtifactByVersion(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-  version: CatalogSchemaVersion,
-): Promise<SchemaVersionArtifactRow | null> {
-  const rows = await selectSchemaVersionArtifactByVersionQuery(
-    db,
-    deploymentId,
-    version,
-  );
-  return rows[0] ?? null;
 }
 
 const selectSchemaVersionArtifactByVersionEffect = Effect.fn(
@@ -668,47 +696,46 @@ interface StoredSchemaVersionArtifact
   readonly createdAt: Date;
 }
 
-/** Package-internal integrity decoder for a row acquired from Postgres. */
-export async function decodeSchemaVersionArtifactRow(
+const decodeSchemaVersionArtifactRowEffect = Effect.fn(
+  "SchemaVersionArtifacts.decodeRow",
+)(function* (
   row: SchemaVersionArtifactRow,
-): Promise<SchemaVersionArtifact> {
-  // Full integrity readers remain Promise compatibility APIs. Delete this
-  // projection when that reader path consumes the Result decoder directly.
-  const stored = Result.getOrThrow(
+): Effect.fn.Return<
+  SchemaVersionArtifact,
+  SchemaVersionArtifactCorruptionError
+> {
+  const stored = yield* Effect.fromResult(
     decodeStoredSchemaVersionArtifactRowResult(row),
   );
-
-  let canonical: CanonicalSchemaManifestV1;
-  try {
-    canonical = await canonicalizeSchemaManifestV1(stored.manifestJson);
-  } catch (cause) {
-    throw new SchemaVersionArtifactCorruptionError(
+  const canonical = yield* Effect.tryPromise({
+    try: () => canonicalizeSchemaManifestV1(stored.manifestJson),
+    catch: (cause) => new SchemaVersionArtifactCorruptionError(
       stored.deploymentId,
       "manifest JSON cannot be canonicalized",
       { cause },
-    );
-  }
+    ),
+  });
   if (stored.manifestCodecVersion !== canonical.codecVersion) {
-    throw new SchemaVersionArtifactCorruptionError(
+    return yield* Effect.fail(new SchemaVersionArtifactCorruptionError(
       stored.deploymentId,
       "manifest codec does not match canonical artifact",
-    );
+    ));
   }
   if (!bytesEqual(stored.manifestBytes, canonical.canonicalBytes)) {
-    throw new SchemaVersionArtifactCorruptionError(
+    return yield* Effect.fail(new SchemaVersionArtifactCorruptionError(
       stored.deploymentId,
       "stored manifest bytes do not match manifest JSON",
-    );
+    ));
   }
   if (!bytesEqual(stored.manifestSha256, canonical.sha256)) {
-    throw new SchemaVersionArtifactCorruptionError(
+    return yield* Effect.fail(new SchemaVersionArtifactCorruptionError(
       stored.deploymentId,
       "stored manifest SHA-256 does not match canonical bytes",
-    );
+    ));
   }
 
   return artifactFromCanonical(stored, canonical, stored.createdAt);
-}
+});
 
 function decodeStoredSchemaVersionArtifactRowResult(
   row: SchemaVersionArtifactRow,

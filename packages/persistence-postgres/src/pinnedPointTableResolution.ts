@@ -14,9 +14,8 @@ import {
   selectSchemaManifestAppTableBindingRows,
 } from "./schemaManifestTableBindings";
 import {
-  SchemaVersionArtifactCorruptionError,
-  decodeSchemaVersionArtifactRow,
-  selectSchemaVersionArtifactById,
+  SchemaVersionArtifactPersistenceError,
+  readSchemaVersionArtifactByIdEffect,
 } from "./schemaVersionArtifacts";
 
 export interface ResolvePinnedPointTableIdV1Input {
@@ -71,37 +70,30 @@ export const resolvePinnedPointTableIdV1Effect = Effect.fn(
   db: FlarexMetadataDatabase,
   input: ResolvePinnedPointTableIdV1Input,
 ): Effect.fn.Return<CatalogTableId, ResolvePinnedPointTableIdV1Error> {
-  const artifactRow = yield* Effect.uninterruptible(Effect.tryPromise({
-    try: () => selectSchemaVersionArtifactById(
-      db,
-      input.deploymentId,
-      input.schemaVersionId,
+  const artifact = yield* readSchemaVersionArtifactByIdEffect(
+    db,
+    input.deploymentId,
+    input.schemaVersionId,
+  ).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof SchemaVersionArtifactPersistenceError
+        ? new PinnedPointTablePersistenceV1Error({
+            operation: "loadSchemaArtifact",
+            cause: cause.cause,
+          })
+        : pinnedPointTableCorruption(
+            input,
+            "schemaArtifactInvalid",
+            cause,
+          )
     ),
-    catch: (cause) => new PinnedPointTablePersistenceV1Error({
-      operation: "loadSchemaArtifact",
-      cause,
-    }),
-  }));
-  if (artifactRow === null) {
+  );
+  if (artifact === null) {
     return yield* Effect.fail(pinnedPointTableCorruption(
       input,
       "schemaArtifactMissing",
     ));
   }
-  const artifact = yield* Effect.tryPromise({
-    try: () => decodeSchemaVersionArtifactRow(artifactRow),
-    catch: (cause): unknown => cause,
-  }).pipe(
-    Effect.catch((cause: unknown) =>
-      cause instanceof SchemaVersionArtifactCorruptionError
-        ? Effect.fail(pinnedPointTableCorruption(
-            input,
-            "schemaArtifactInvalid",
-            cause,
-          ))
-        : Effect.die(cause)
-    ),
-  );
   const manifest = yield* Effect.fromResult(Result.try({
     try: () => decodeSchemaManifestAppSchemaV1(artifact.manifestJson),
     catch: (cause) => pinnedPointTableCorruption(

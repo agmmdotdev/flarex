@@ -17,13 +17,14 @@ import type { FlarexMetadataDatabase } from "../src/deployments";
 import { createPGlitePersistence } from "../src/pglite";
 import {
   ensureSchemaVersionArtifactInTransactionEffect,
-  getSchemaVersionArtifactById,
-  getSchemaVersionArtifactByVersion,
+  getSchemaVersionArtifactByIdEffect,
+  getSchemaVersionArtifactByVersionEffect,
   InvalidPreparedSchemaVersionArtifactError,
   InvalidSchemaVersionArtifactInputError,
   prepareSchemaVersionArtifactEffect,
   type PrepareSchemaVersionArtifactError,
   type PreparedSchemaVersionArtifact,
+  type ReadSchemaVersionArtifactError,
   SchemaVersionArtifactCorruptionError,
   SchemaVersionArtifactDeploymentNotFoundError,
   SchemaVersionArtifactPersistenceError,
@@ -39,6 +40,14 @@ const prepareSchemaVersionArtifact = (
 const ensureSchemaVersionArtifactInTransaction = (
   ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
 ) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
+
+const getSchemaVersionArtifactById = (
+  ...args: Parameters<typeof getSchemaVersionArtifactByIdEffect>
+) => runEffect(getSchemaVersionArtifactByIdEffect(...args));
+
+const getSchemaVersionArtifactByVersion = (
+  ...args: Parameters<typeof getSchemaVersionArtifactByVersionEffect>
+) => runEffect(getSchemaVersionArtifactByVersionEffect(...args));
 
 interface CallerComputedArtifactInput {
   readonly deploymentId: string;
@@ -56,6 +65,16 @@ type CallerComputedArtifactAccepted = CallerComputedArtifactInput extends
 type PublicSchemaVersionWriter = Extract<
   keyof FlarexPersistence,
   "ensureSchemaVersionArtifact" | "insertSchemaVersionArtifact"
+>;
+
+type LegacySchemaVersionReaderExport = Extract<
+  keyof typeof import("../src"),
+  "getSchemaVersionArtifactById" | "getSchemaVersionArtifactByVersion"
+>;
+
+type PublicSchemaVersionReaderErrorExport = Extract<
+  keyof typeof import("../src"),
+  "SchemaVersionArtifactPersistenceError"
 >;
 
 const schemaVersionA = CatalogSchemaVersionIdSchema.make("schema_version_a");
@@ -76,6 +95,9 @@ describe("schema version artifacts", () => {
   it("keeps computed fields out of input and registration transaction-only", () => {
     expectTypeOf<CallerComputedArtifactAccepted>().toEqualTypeOf<false>();
     expectTypeOf<PublicSchemaVersionWriter>().toEqualTypeOf<never>();
+    expectTypeOf<LegacySchemaVersionReaderExport>().toEqualTypeOf<never>();
+    expectTypeOf<PublicSchemaVersionReaderErrorExport>()
+      .toEqualTypeOf<"SchemaVersionArtifactPersistenceError">();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>[0]
@@ -94,6 +116,33 @@ describe("schema version artifacts", () => {
       PreparedSchemaVersionArtifact,
       PrepareSchemaVersionArtifactError
     >>();
+    expectTypeOf<
+      ReturnType<typeof getSchemaVersionArtifactByIdEffect>
+    >().toEqualTypeOf<Effect.Effect<
+      SchemaVersionArtifact | null,
+      ReadSchemaVersionArtifactError
+    >>();
+  });
+
+  it("rejects invalid reader identity before constructing a query", async () => {
+    const queryConstructionDefect = new Error(
+      "schema-version reader query must not be constructed",
+    );
+    const db = {
+      select() {
+        throw queryConstructionDefect;
+      },
+    } as unknown as FlarexMetadataDatabase;
+
+    const failure = await runEffectFailure(
+      getSchemaVersionArtifactByIdEffect(db, " ", schemaVersionA),
+    );
+
+    expect(failure).toBeInstanceOf(InvalidSchemaVersionArtifactInputError);
+    expect(failure).toMatchObject({
+      _tag: "InvalidSchemaVersionArtifactInputError",
+      field: "deploymentId",
+    });
   });
 
   it("persists one canonical artifact and replays reordered JSON exactly", async () => {
@@ -320,6 +369,38 @@ describe("schema version artifacts", () => {
     }
   });
 
+  it("maps reader canonicalization rejection to stored corruption", async () => {
+    const persistence = await migratedPGlite("reader_canonical_failure");
+    await ensure(persistence, {
+      deploymentId: "deployment_schema_reader_canonical_failure",
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    const rejection = new Error("reader canonical digest unavailable");
+    const digest = vi
+      .spyOn(crypto.subtle, "digest")
+      .mockRejectedValue(rejection);
+    try {
+      const failure = await runEffectFailure(
+        getSchemaVersionArtifactByIdEffect(
+          persistence.drizzle,
+          "deployment_schema_reader_canonical_failure",
+          schemaVersionA,
+        ),
+      );
+      expect(failure).toBeInstanceOf(SchemaVersionArtifactCorruptionError);
+      expect(failure).toMatchObject({
+        _tag: "SchemaVersionArtifactCorruptionError",
+        deploymentId: "deployment_schema_reader_canonical_failure",
+        detail: "manifest JSON cannot be canonicalized",
+        cause: rejection,
+      });
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
   it("maps SQL rejection at the owning artifact query boundary", async () => {
     const persistence = await migratedPGlite("query_failure");
     const prepared = await prepareSchemaVersionArtifact({
@@ -344,6 +425,21 @@ describe("schema version artifacts", () => {
     if (failure instanceof SchemaVersionArtifactPersistenceError) {
       expect(failure.cause).toBeInstanceOf(Error);
     }
+
+    const readerFailure = await runEffectFailure(
+      getSchemaVersionArtifactByIdEffect(
+        persistence.drizzle,
+        "deployment_schema_query_failure",
+        schemaVersionA,
+      ),
+    );
+    expect(readerFailure).toBeInstanceOf(
+      SchemaVersionArtifactPersistenceError,
+    );
+    expect(readerFailure).toMatchObject({
+      _tag: "SchemaVersionArtifactPersistenceError",
+      operation: "readById",
+    });
   });
 
   it("preserves artifact query construction failures as defects", async () => {
@@ -369,6 +465,20 @@ describe("schema version artifacts", () => {
       expect(Cause.hasDies(exit.cause)).toBe(true);
       expect(Cause.hasFails(exit.cause)).toBe(false);
       expect(exit.cause.toString()).toContain(defect.message);
+    }
+
+    const readerExit = await Effect.runPromiseExit(
+      getSchemaVersionArtifactByIdEffect(
+        tx,
+        "deployment_schema_construction_defect",
+        schemaVersionA,
+      ),
+    );
+    expect(Exit.isFailure(readerExit)).toBe(true);
+    if (Exit.isFailure(readerExit)) {
+      expect(Cause.hasDies(readerExit.cause)).toBe(true);
+      expect(Cause.hasFails(readerExit.cause)).toBe(false);
+      expect(readerExit.cause.toString()).toContain(defect.message);
     }
   });
 

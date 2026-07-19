@@ -12,7 +12,7 @@ import type {
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
   ensureSchemaVersionArtifactInTransactionEffect,
-  getSchemaVersionArtifactByVersion,
+  getSchemaVersionArtifactByVersionEffect,
   prepareSchemaVersionArtifactEffect,
   SchemaVersionArtifactConflictError,
 } from "../src/schemaVersionArtifacts";
@@ -32,6 +32,10 @@ const prepareSchemaVersionArtifact = (
 const ensureSchemaVersionArtifactInTransaction = (
   ...args: Parameters<typeof ensureSchemaVersionArtifactInTransactionEffect>
 ) => runEffect(ensureSchemaVersionArtifactInTransactionEffect(...args));
+
+const getSchemaVersionArtifactByVersion = (
+  ...args: Parameters<typeof getSchemaVersionArtifactByVersionEffect>
+) => runEffect(getSchemaVersionArtifactByVersionEffect(...args));
 
 describePostgres("real Postgres schema version artifacts", () => {
   it("converges concurrent exact artifact replays", async () => {

@@ -12,7 +12,7 @@ import type {
   FlarexMetadataDatabase,
   FlarexPersistence,
 } from "../src";
-import { getSchemaVersionArtifactByVersion } from "../src/schemaVersionArtifacts";
+import { getSchemaVersionArtifactByVersionEffect } from "../src/schemaVersionArtifacts";
 import { createPGlitePersistence } from "../src/pglite";
 import {
   applySchemaManifestAppTableBindingsV1InTransactionEffect,
@@ -36,6 +36,10 @@ import {
   StableTableCatalogDeploymentNotFoundError,
 } from "../src/stableTableCatalog";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+
+const getSchemaVersionArtifactByVersion = (
+  ...args: Parameters<typeof getSchemaVersionArtifactByVersionEffect>
+) => runEffect(getSchemaVersionArtifactByVersionEffect(...args));
 
 type PublicBindingMethod = Extract<
   keyof FlarexPersistence,
