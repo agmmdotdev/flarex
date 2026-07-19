@@ -5,6 +5,7 @@ import {
   type CatalogSchemaVersionId,
   type SchemaManifestJson,
 } from "flarex-protocol/schema-manifest";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
@@ -16,6 +17,7 @@ import type { FlarexMetadataDatabase } from "../src/deployments";
 import { createPGlitePersistence } from "../src/pglite";
 import {
   ensureSchemaVersionArtifactInTransaction,
+  ensureSchemaVersionArtifactInTransactionEffect,
   getSchemaVersionArtifactById,
   getSchemaVersionArtifactByVersion,
   InvalidPreparedSchemaVersionArtifactError,
@@ -23,7 +25,10 @@ import {
   prepareSchemaVersionArtifact,
   SchemaVersionArtifactCorruptionError,
   SchemaVersionArtifactDeploymentNotFoundError,
+  SchemaVersionArtifactPersistenceError,
+  type SchemaVersionArtifactTransaction,
 } from "../src/schemaVersionArtifacts";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 interface CallerComputedArtifactInput {
   readonly deploymentId: string;
@@ -257,15 +262,114 @@ describe("schema version artifacts", () => {
       schemaVersionId: schemaVersionA,
       version: version1,
     };
-    await expect(
-      persistence.drizzle.transaction((tx) =>
-        ensureSchemaVersionArtifactInTransaction(
+    const forgedFailure = await persistence.drizzle.transaction((tx) =>
+      runEffectFailure(
+        ensureSchemaVersionArtifactInTransactionEffect(
           tx,
           // @ts-expect-error Transactional insertion accepts only prepared tokens.
           forgedPreparedArtifact,
         ),
-      ),
-    ).rejects.toBeInstanceOf(InvalidPreparedSchemaVersionArtifactError);
+      )
+    );
+    expect(forgedFailure).toBeInstanceOf(
+      InvalidPreparedSchemaVersionArtifactError,
+    );
+    expect(forgedFailure).toMatchObject({
+      _tag: "InvalidPreparedSchemaVersionArtifactError",
+    });
+  });
+
+  it("maps SQL rejection at the owning artifact query boundary", async () => {
+    const persistence = await migratedPGlite("query_failure");
+    const prepared = await prepareSchemaVersionArtifact({
+      deploymentId: "deployment_schema_query_failure",
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    await persistence.query("drop table fx_control_schema_version cascade");
+
+    const failure = await persistence.drizzle.transaction((tx) =>
+      runEffectFailure(
+        ensureSchemaVersionArtifactInTransactionEffect(tx, prepared),
+      )
+    );
+
+    expect(failure).toBeInstanceOf(SchemaVersionArtifactPersistenceError);
+    expect(failure).toMatchObject({
+      _tag: "SchemaVersionArtifactPersistenceError",
+      operation: "readById",
+    });
+    if (failure instanceof SchemaVersionArtifactPersistenceError) {
+      expect(failure.cause).toBeInstanceOf(Error);
+    }
+  });
+
+  it("preserves artifact query construction failures as defects", async () => {
+    const prepared = await prepareSchemaVersionArtifact({
+      deploymentId: "deployment_schema_construction_defect",
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    const defect = new Error("artifact deployment query construction defect");
+    const tx = {
+      select() {
+        throw defect;
+      },
+    } as unknown as SchemaVersionArtifactTransaction;
+
+    const exit = await Effect.runPromiseExit(
+      ensureSchemaVersionArtifactInTransactionEffect(tx, prepared),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("waits for a pending artifact query before interruption completes", async () => {
+    const prepared = await prepareSchemaVersionArtifact({
+      deploymentId: "deployment_schema_interruption",
+      schemaVersionId: schemaVersionA,
+      version: version1,
+      manifest: manifestA,
+    });
+    const entered = deferredValue<void>();
+    const query = deferredValue<ReadonlyArray<unknown>>();
+    const tx = schemaVersionArtifactSelectTransaction((selectCall) => {
+      if (selectCall !== 1) {
+        throw new Error(`Unexpected select call: ${selectCall}.`);
+      }
+      entered.resolve(undefined);
+      return query.promise;
+    });
+    const fiber = Effect.runFork(
+      ensureSchemaVersionArtifactInTransactionEffect(tx, prepared),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([{ deploymentId: prepared.deploymentId }]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
   });
 
   it("rolls registration back without leaving an artifact", async () => {
@@ -451,4 +555,56 @@ function mutateFirstByte(bytes: Uint8Array): void {
     throw new Error("Expected a nonempty byte sequence.");
   }
   bytes[0] = first ^ 0xff;
+}
+
+interface SchemaVersionArtifactQueryStub
+  extends PromiseLike<ReadonlyArray<unknown>> {
+  from(): SchemaVersionArtifactQueryStub;
+  where(): SchemaVersionArtifactQueryStub;
+  limit(): SchemaVersionArtifactQueryStub;
+  for(): SchemaVersionArtifactQueryStub;
+}
+
+function schemaVersionArtifactSelectTransaction(
+  runSelect: (selectCall: number) => Promise<ReadonlyArray<unknown>>,
+): SchemaVersionArtifactTransaction {
+  let selectCall = 0;
+  return {
+    select() {
+      selectCall += 1;
+      const promise = runSelect(selectCall);
+      const query: SchemaVersionArtifactQueryStub = {
+        from: () => query,
+        where: () => query,
+        limit: () => query,
+        for: () => query,
+        then: (onFulfilled, onRejected) =>
+          promise.then(onFulfilled, onRejected),
+      };
+      return query;
+    },
+  } as unknown as SchemaVersionArtifactTransaction;
+}
+
+function deferredValue<Value>(): Readonly<{
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+}> {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve(value: Value) {
+      if (resolvePromise === undefined) {
+        throw new Error("Deferred value was not initialized.");
+      }
+      resolvePromise(value);
+    },
+  });
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

@@ -37,14 +37,11 @@ import {
 import { SchemaManifestTableBindingCorruptionError } from
   "./schemaManifestTableBindings";
 import {
-  ensureSchemaVersionArtifactInTransaction,
-  InvalidPreparedSchemaVersionArtifactError,
-  SchemaManifestChecksumCollisionError,
-  SchemaVersionArtifactConflictError,
-  SchemaVersionArtifactCorruptionError,
-  SchemaVersionArtifactDeploymentNotFoundError,
-  verifyPreparedSchemaVersionArtifactInTransaction,
+  ensureSchemaVersionArtifactInTransactionEffect,
+  verifyPreparedSchemaVersionArtifactInTransactionEffect,
+  type EnsureSchemaVersionArtifactError,
   type SchemaVersionArtifact,
+  type VerifyPreparedSchemaVersionArtifactError,
 } from "./schemaVersionArtifacts";
 import {
   StableTableCatalogDeploymentNotFoundError,
@@ -135,9 +132,9 @@ export const publishPreparedAppSchemaV1InTransactionEffect = Effect.fn(
     ),
     isLogicalBindingFailure,
   );
-  yield* transitionalPromiseEffect(
-    () => ensureSchemaVersionArtifactInTransaction(tx, state.artifact),
-    isArtifactFailure,
+  yield* ensureSchemaVersionArtifactInTransactionEffect(
+    tx,
+    state.artifact,
   );
 
   const creationTimeIndexDefinitions: Array<
@@ -161,12 +158,9 @@ export const publishPreparedAppSchemaV1InTransactionEffect = Effect.fn(
     );
   }
 
-  const artifact = yield* transitionalPromiseEffect(
-    () => verifyPreparedSchemaVersionArtifactInTransaction(
-      tx,
-      state.artifact,
-    ),
-    isArtifactFailure,
+  const artifact = yield* verifyPreparedSchemaVersionArtifactInTransactionEffect(
+    tx,
+    state.artifact,
   );
   const schemaVersionIndexBindings = yield* transitionalPromiseEffect(
     () => listAppSchemaVersionIndexBindings(
@@ -209,11 +203,8 @@ type AppSchemaPublicationV1LogicalBindingFailure =
   | SchemaManifestTableBindingCorruptionError;
 
 type AppSchemaPublicationV1ArtifactFailure =
-  | InvalidPreparedSchemaVersionArtifactError
-  | SchemaVersionArtifactDeploymentNotFoundError
-  | SchemaVersionArtifactConflictError
-  | SchemaManifestChecksumCollisionError
-  | SchemaVersionArtifactCorruptionError;
+  | EnsureSchemaVersionArtifactError
+  | VerifyPreparedSchemaVersionArtifactError;
 
 type AppSchemaPublicationV1BindingReadFailure =
   | InvalidAppIndexDefinitionBindingInputError
@@ -278,16 +269,6 @@ function isLogicalBindingFailure(
     cause instanceof StableTableCatalogCorruptionError ||
     cause instanceof StableLogicalIndexCatalogCorruptionError ||
     cause instanceof SchemaManifestTableBindingCorruptionError;
-}
-
-function isArtifactFailure(
-  cause: unknown,
-): cause is AppSchemaPublicationV1ArtifactFailure {
-  return cause instanceof InvalidPreparedSchemaVersionArtifactError ||
-    cause instanceof SchemaVersionArtifactDeploymentNotFoundError ||
-    cause instanceof SchemaVersionArtifactConflictError ||
-    cause instanceof SchemaManifestChecksumCollisionError ||
-    cause instanceof SchemaVersionArtifactCorruptionError;
 }
 
 function isBindingReadFailure(

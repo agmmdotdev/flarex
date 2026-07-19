@@ -85,6 +85,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/persistence-postgres/src/appSchemaPublication.ts", "runPreparedAppSchemaPublicationTransactionEffect"), 1],
   [siteKey("packages/persistence-postgres/src/postgresRuntime.ts", "runPostgresTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/scopeAuthorizationEpochAuthority.ts", "runScopeAuthorizationEpochEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/schemaVersionArtifacts.ts", "ensureSchemaVersionArtifactInTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/stableTableCatalog.ts", "runStableTableCatalogEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/transactionSessionActivation.ts", "runExactRunningAttemptEffectTransaction"), 1],
 ]);
