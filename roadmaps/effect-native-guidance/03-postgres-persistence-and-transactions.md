@@ -325,6 +325,15 @@ thin `Result.getOrThrow` projection remains only for `getScopeClock`, the
 transaction lock, and other still-Promise transaction consumers; delete it when
 those callers consume the Result or an Effect-native clock operation directly.
 
+Stored commit-authority materialization now consumes that scope-clock Result
+and hoisted Schema Result decoders for its scope UUID, epoch UUID, revocation
+epoch, session identity fences, and lease snapshot. The three blanket
+`Result.try` decoders are deleted: malformed stored authority retains the
+existing projection, session, or lease corruption reason, ordered decoding
+still short-circuits, and unexpected row-access or runtime failures remain
+defects. Stored schema-artifact and JSON materialization remain separate later
+decoder slices.
+
 The authoritative app-row snapshot and current-revision read kernel is now
 Effect-native. Caller identity and snapshot values enter through typed
 `Result` and Schema validation; scope authority, query rejection, and stored

@@ -8,7 +8,7 @@ import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   isJsonObjectFromUnknown,
@@ -27,14 +27,17 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  ScopeEpochUuidV1Schema,
+  ScopeUuidV1Schema,
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
-  decodeScopeEpochUuidV1,
-  decodeScopeUuidV1,
   projectScopeEpochUuidV1,
   projectScopeIdUuidV1,
   replacementScopeEpochV1FromUuid,
+  type ScopeEpochUuidV1,
   type ScopeUuidV1,
+  type SnapshotToken,
+  type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
@@ -43,12 +46,16 @@ import {
   TransactionSessionIdV1Schema,
   storedTransactionSessionScalarsEqualV1,
   type TransactionAttemptFence,
+  type TransactionAuthorizationRevocationEpoch,
   type TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
 
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import { snapshotSchemaManifestValue } from "../schemaManifestValueSnapshot";
-import { decodeScopeClockRecord } from "../scopeClock";
+import {
+  decodeScopeClockRecordResult,
+  type ScopeClockRecord,
+} from "../scopeClock";
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
@@ -163,6 +170,31 @@ export interface RootScalarRow extends Omit<
 }
 
 const UTF8_ENCODER = new TextEncoder();
+const decodeCommitSeqResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitSeqSchema),
+);
+const decodeScopeEpochUuidResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeEpochUuidV1Schema),
+);
+const decodeScopeUuidResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeUuidV1Schema),
+);
+const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
+  Schema.toType(SnapshotTokenSchema),
+);
+const decodeStorageGenerationFenceResult = Schema.decodeUnknownResult(
+  Schema.toType(StorageGenerationFenceSchema),
+);
+const decodeTransactionAttemptFenceResult = Schema.decodeUnknownResult(
+  Schema.toType(TransactionAttemptFenceSchema),
+);
+const decodeTransactionAuthorizationRevocationEpochResult =
+  Schema.decodeUnknownResult(
+    Schema.toType(TransactionAuthorizationRevocationEpochSchema),
+  );
+const decodeTransactionSessionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(TransactionSessionIdV1Schema),
+);
 
 type SealedCommitAuthorityMaterializationV1 = Readonly<{
   readonly kind: "sealed";
@@ -259,11 +291,12 @@ function materializeStoredAuthorityEffect(
     if (clockRow === undefined) {
       return materializationCorrupt(mode, "authorityProjectionInvalid");
     }
-    const decodedClock = decodeClockAuthority(clockRow);
-    if (decodedClock === undefined) {
-      return materializationCorrupt(mode, "authorityProjectionInvalid");
+    const decodedClock = decodeClockAuthorityResult(clockRow);
+    if (Result.isFailure(decodedClock)) {
+      return materializationCorrupt(mode, decodedClock.failure);
     }
-    const { clock, scopeUuid, epochUuid, revocationEpoch } = decodedClock;
+    const { clock, scopeUuid, epochUuid, revocationEpoch } =
+      decodedClock.success;
     if (
       scopeUuid !== projectScopeIdUuidV1(expected.scopeId).scopeUuid ||
       epochUuid !== projectScopeEpochUuidV1(clock.epoch).epochUuid ||
@@ -307,22 +340,24 @@ function materializeStoredAuthorityEffect(
     if (session === undefined) {
       return materializationCorrupt(mode, "sessionEvidenceMissingOrDuplicate");
     }
-    const sessionIdentity = decodeSessionIdentity(session);
-    if (sessionIdentity === undefined) {
-      return materializationCorrupt(mode, "sessionEvidenceInvalid");
+    const sessionIdentity = decodeSessionIdentityResult(session);
+    if (Result.isFailure(sessionIdentity)) {
+      return materializationCorrupt(mode, sessionIdentity.failure);
     }
+    const decodedSessionIdentity = sessionIdentity.success;
     if (
       session.scopeUuid !== scopeUuid ||
-      sessionIdentity.sessionId !== expected.sessionId
+      decodedSessionIdentity.sessionId !== expected.sessionId
     ) {
       return materializationAuthorityMismatch(mode, "attemptMissing");
     }
-    if (sessionIdentity.attemptFence !== expected.attemptFence) {
+    if (decodedSessionIdentity.attemptFence !== expected.attemptFence) {
       return materializationAuthorityMismatch(mode, "attemptReplaced");
     }
     if (
       session.storageGeneration !== expected.storageGeneration ||
-      sessionIdentity.storageGenerationFence !== expected.storageGenerationFence
+      decodedSessionIdentity.storageGenerationFence !==
+        expected.storageGenerationFence
     ) {
       return materializationAuthorityMismatch(mode, "generationChanged");
     }
@@ -403,10 +438,11 @@ function materializeStoredAuthorityEffect(
     if (lease === undefined) {
       return materializationCorrupt(mode, "snapshotLeaseMissingOrDuplicate");
     }
-    const leaseSnapshot = decodeLeaseSnapshot(expected, lease);
-    if (leaseSnapshot === undefined) {
-      return materializationCorrupt(mode, "snapshotLeaseInvalid");
+    const leaseSnapshot = decodeLeaseSnapshotResult(expected, lease);
+    if (Result.isFailure(leaseSnapshot)) {
+      return materializationCorrupt(mode, leaseSnapshot.failure);
     }
+    const decodedLeaseSnapshot = leaseSnapshot.success;
     const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
       lease.leaseExpiresAt,
     );
@@ -416,14 +452,14 @@ function materializeStoredAuthorityEffect(
       lease.attemptFence !== expected.attemptFence ||
       leaseExpiresAtMilliseconds === undefined ||
       leaseExpiresAtMilliseconds > sessionScalars.hardExpiresAtMilliseconds ||
-      leaseSnapshot.commitSeq > clock.lastCommitSeq
+      decodedLeaseSnapshot.commitSeq > clock.lastCommitSeq
     ) {
       return materializationCorrupt(mode, "snapshotLeaseInvalid");
     }
     if (
-      leaseSnapshot.scopeId !== expected.snapshotToken.scopeId ||
-      leaseSnapshot.epoch !== expected.snapshotToken.epoch ||
-      leaseSnapshot.commitSeq !== expected.snapshotToken.commitSeq
+      decodedLeaseSnapshot.scopeId !== expected.snapshotToken.scopeId ||
+      decodedLeaseSnapshot.epoch !== expected.snapshotToken.epoch ||
+      decodedLeaseSnapshot.commitSeq !== expected.snapshotToken.commitSeq
     ) {
       return materializationAuthorityMismatch(mode, "snapshotChanged");
     }
@@ -478,7 +514,7 @@ function materializeStoredAuthorityEffect(
         sessionId: mode.expected.sessionId,
         attemptFence: mode.expected.attemptFence,
         snapshotEpochUuid: epochUuid,
-        snapshotCommitSeq: leaseSnapshot.commitSeq,
+        snapshotCommitSeq: decodedLeaseSnapshot.commitSeq,
         databaseNowMilliseconds: sessionScalars.updatedAtMilliseconds,
         authorizationGrantExpiresAtMilliseconds:
           sessionScalars.authorizationGrantExpiresAtMilliseconds,
@@ -677,45 +713,113 @@ function materializationCorrupt(
   return mode.kind === "sealed" ? corrupt(reason) : occExecutionCorrupt(reason);
 }
 
-function decodeClockAuthority(row: ClockRow) {
-  return Result.getOrUndefined(Result.try({
-    try: () => Object.freeze({
-      clock: decodeScopeClockRecord(row),
-      scopeUuid: decodeScopeUuidV1(row.scopeUuid),
-      epochUuid: decodeScopeEpochUuidV1(row.epochUuid),
-      revocationEpoch: TransactionAuthorizationRevocationEpochSchema.make(
+interface ClockAuthorityProjectionRow {
+  readonly scopeId: unknown;
+  readonly storageGeneration: unknown;
+  readonly storageGenerationFence: unknown;
+  readonly lastCommitSeq: unknown;
+  readonly lastOutboxSeq: unknown;
+  readonly epoch: unknown;
+  readonly updatedAt: unknown;
+  readonly scopeUuid: unknown;
+  readonly epochUuid: unknown;
+  readonly authorizationRevocationEpoch: unknown;
+}
+
+interface DecodedClockAuthority {
+  readonly clock: ScopeClockRecord;
+  readonly scopeUuid: ScopeUuidV1;
+  readonly epochUuid: ScopeEpochUuidV1;
+  readonly revocationEpoch: TransactionAuthorizationRevocationEpoch;
+}
+
+export function decodeClockAuthorityResult(
+  row: ClockAuthorityProjectionRow,
+): Result.Result<
+  Readonly<DecodedClockAuthority>,
+  "authorityProjectionInvalid"
+> {
+  return Result.gen(function* () {
+    const clock = yield* decodeScopeClockRecordResult(row).pipe(
+      Result.mapError(() => "authorityProjectionInvalid" as const),
+    );
+    const scopeUuid = yield* decodeScopeUuidResult(row.scopeUuid).pipe(
+      Result.mapError(() => "authorityProjectionInvalid" as const),
+    );
+    const epochUuid = yield* decodeScopeEpochUuidResult(row.epochUuid).pipe(
+      Result.mapError(() => "authorityProjectionInvalid" as const),
+    );
+    const revocationEpoch =
+      yield* decodeTransactionAuthorizationRevocationEpochResult(
         row.authorizationRevocationEpoch,
-      ),
-    }),
-    catch: () => undefined,
-  }));
+      ).pipe(
+        Result.mapError(() => "authorityProjectionInvalid" as const),
+      );
+    return Object.freeze({
+      clock,
+      scopeUuid,
+      epochUuid,
+      revocationEpoch,
+    } satisfies DecodedClockAuthority);
+  });
 }
 
-function decodeSessionIdentity(session: SessionSizeRow) {
-  return Result.getOrUndefined(Result.try({
-    try: () => Object.freeze({
-      sessionId: TransactionSessionIdV1Schema.make(session.sessionId),
-      attemptFence: TransactionAttemptFenceSchema.make(session.attemptFence),
-      storageGenerationFence: StorageGenerationFenceSchema.make(
-        session.storageGenerationFence,
-      ),
-    }),
-    catch: () => undefined,
-  }));
+interface SessionIdentityProjectionRow {
+  readonly sessionId: unknown;
+  readonly attemptFence: unknown;
+  readonly storageGenerationFence: unknown;
 }
 
-function decodeLeaseSnapshot(
-  expected: StoredCommitAuthorityCaptureAuthorityV1,
-  lease: LeaseRow,
-) {
-  return Result.getOrUndefined(Result.try({
-    try: () => SnapshotTokenSchema.make({
+interface DecodedSessionIdentity {
+  readonly sessionId: TransactionSessionIdV1;
+  readonly attemptFence: TransactionAttemptFence;
+  readonly storageGenerationFence: StorageGenerationFence;
+}
+
+export function decodeSessionIdentityResult(
+  session: SessionIdentityProjectionRow,
+): Result.Result<Readonly<DecodedSessionIdentity>, "sessionEvidenceInvalid"> {
+  return Result.gen(function* () {
+    const sessionId = yield* decodeTransactionSessionIdResult(
+      session.sessionId,
+    ).pipe(Result.mapError(() => "sessionEvidenceInvalid" as const));
+    const attemptFence = yield* decodeTransactionAttemptFenceResult(
+      session.attemptFence,
+    ).pipe(Result.mapError(() => "sessionEvidenceInvalid" as const));
+    const storageGenerationFence = yield* decodeStorageGenerationFenceResult(
+      session.storageGenerationFence,
+    ).pipe(Result.mapError(() => "sessionEvidenceInvalid" as const));
+    return Object.freeze({
+      sessionId,
+      attemptFence,
+      storageGenerationFence,
+    } satisfies DecodedSessionIdentity);
+  });
+}
+
+interface LeaseSnapshotProjectionRow {
+  readonly snapshotEpochUuid: unknown;
+  readonly snapshotCommitSeq: unknown;
+}
+
+export function decodeLeaseSnapshotResult(
+  expected: Pick<StoredCommitAuthorityCaptureAuthorityV1, "scopeId">,
+  lease: LeaseSnapshotProjectionRow,
+): Result.Result<SnapshotToken, "snapshotLeaseInvalid"> {
+  return Result.gen(function* () {
+    const snapshotEpochUuid = yield* decodeScopeEpochUuidResult(
+      lease.snapshotEpochUuid,
+    ).pipe(Result.mapError(() => "snapshotLeaseInvalid" as const));
+    const epoch = replacementScopeEpochV1FromUuid(snapshotEpochUuid);
+    const commitSeq = yield* decodeCommitSeqResult(
+      lease.snapshotCommitSeq,
+    ).pipe(Result.mapError(() => "snapshotLeaseInvalid" as const));
+    return yield* decodeSnapshotTokenResult({
       scopeId: expected.scopeId,
-      epoch: replacementScopeEpochV1FromUuid(lease.snapshotEpochUuid),
-      commitSeq: CommitSeqSchema.make(lease.snapshotCommitSeq),
-    }),
-    catch: () => undefined,
-  }));
+      epoch,
+      commitSeq,
+    }).pipe(Result.mapError(() => "snapshotLeaseInvalid" as const));
+  });
 }
 
 function validSessionScalars(session: SessionSizeRow): boolean {
