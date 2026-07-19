@@ -1,6 +1,7 @@
 import { and, desc, eq, lte } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
+  AppCreationTimeV1Schema,
   decodeAppCreationTimeV1,
   verifyAppDocumentEvidenceV1,
   type AppCreationTimeV1,
@@ -18,12 +19,15 @@ import {
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
+  CatalogSchemaVersionIdSchema,
   decodeCatalogSchemaVersionId,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  ScopeEpochUuidV1Schema,
   ScopeIdSchema,
+  ScopeUuidV1Schema,
   SnapshotTokenSchema,
   decodeScopeEpochUuidV1,
   decodeScopeUuidV1,
@@ -330,6 +334,19 @@ const decodeCommitSeqResult = Schema.decodeUnknownResult(
 const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
   Schema.toType(SnapshotTokenSchema),
 );
+const decodeScopeUuidV1Result = Schema.decodeUnknownResult(
+  Schema.toType(ScopeUuidV1Schema),
+);
+const decodeScopeEpochUuidV1Result = Schema.decodeUnknownResult(
+  Schema.toType(ScopeEpochUuidV1Schema),
+);
+const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogSchemaVersionIdSchema),
+);
+const decodeAppCreationTimeV1Result = Schema.decodeUnknownResult(
+  Schema.toType(AppCreationTimeV1Schema),
+);
+const decodeBooleanResult = Schema.decodeUnknownResult(Schema.Boolean);
 
 interface DecodedAppRowReadIdentityV1 {
   readonly identity: AppRowIdentityV1;
@@ -700,7 +717,10 @@ type DecodedAppRowRevisionEvidenceV1 =
   | Readonly<{
       readonly kind: "live";
       readonly base: AppRowRevisionV1Base;
-      readonly row: AppRowRevisionRow;
+      readonly valueCodecVersion: AppRowRevisionRow["valueCodecVersion"];
+      readonly valueJson: NonNullable<AppRowRevisionRow["valueJson"]>;
+      readonly valueBytes: NonNullable<AppRowRevisionRow["valueBytes"]>;
+      readonly valueSha256: NonNullable<AppRowRevisionRow["valueSha256"]>;
     }>;
 
 const decodeRevisionRowEffect = Effect.fn(
@@ -723,10 +743,10 @@ const decodeRevisionRowEffect = Effect.fn(
       tableId: identity.tableId,
       rowId: identity.rowId,
       creationTime: decoded.base.creationTime,
-      codecVersion: decoded.row.valueCodecVersion,
-      valueJson: decoded.row.valueJson,
-      canonicalBytes: decoded.row.valueBytes,
-      sha256: decoded.row.valueSha256,
+      codecVersion: decoded.valueCodecVersion,
+      valueJson: decoded.valueJson,
+      canonicalBytes: decoded.valueBytes,
+      sha256: decoded.valueSha256,
     }),
     catch: (cause) => new AppRowStorageCorruptionError(
       identity,
@@ -748,60 +768,164 @@ function decodeRevisionRowEvidenceResult(
   DecodedAppRowRevisionEvidenceV1,
   AppRowStorageCorruptionError
 > {
-  return Result.try({
-    try: () => {
-      const storedRowId = appRowIdHexV1FromBytes(row.rowId);
-      if (storedRowId !== identity.rowId) {
-        throw new AppRowStorageCorruptionError(
+  return Result.gen(function* () {
+    // Interleave driver-row access and decoding in storage-contract order.
+    // Accessor/runtime throws stay defects, while an earlier typed failure
+    // short-circuits before any later property is observed.
+    const storedRowIdBytes = row.rowId;
+    const storedRowId = yield* Result.try({
+      try: () => appRowIdHexV1FromBytes(storedRowIdBytes),
+      catch: (cause) => storedRevisionColumnsCorruption(identity, cause),
+    });
+    if (storedRowId !== identity.rowId) {
+      return yield* Result.fail(new AppRowStorageCorruptionError(
+        identity,
+        "row identity changed",
+      ));
+    }
+    const storedScopeUuid = row.scopeUuid;
+    const scopeUuid = yield* decodeStoredRevisionColumnResult(
+      identity,
+      decodeScopeUuidV1Result(storedScopeUuid),
+    );
+    const storedWriteEpochUuid = row.writeEpochUuid;
+    const writeEpochUuid = yield* decodeStoredRevisionColumnResult(
+      identity,
+      decodeScopeEpochUuidV1Result(storedWriteEpochUuid),
+    );
+    const storedCommitSeq = row.commitSeq;
+    const commitSeq = yield* decodeStoredPositiveCommitSeqResult(
+      identity,
+      storedCommitSeq,
+    );
+    const storedPrevCommitSeq = row.prevCommitSeq;
+    const prevCommitSeq = storedPrevCommitSeq === null
+      ? null
+      : yield* decodeStoredPositiveCommitSeqResult(
           identity,
-          "row identity changed",
+          storedPrevCommitSeq,
         );
-      }
-      const base = Object.freeze({
-        ...identity,
-        scopeUuid: decodeScopeUuidV1(row.scopeUuid),
-        writeEpochUuid: decodeScopeEpochUuidV1(row.writeEpochUuid),
-        commitSeq: requirePositiveCommitSeq(row.commitSeq),
-        prevCommitSeq:
-          row.prevCommitSeq === null
-            ? null
-            : requirePositiveCommitSeq(row.prevCommitSeq),
-        schemaVersionId: decodeCatalogSchemaVersionId(row.schemaVersionId),
-        creationTime: decodeAppCreationTimeV1(row.creationTime),
-      } satisfies AppRowRevisionV1Base);
-      if (row.isTombstone) {
-        if (
-          row.valueJson !== null ||
-          row.valueBytes !== null ||
-          row.valueSha256 !== null
-        ) {
-          throw new AppRowStorageCorruptionError(
-            identity,
-            "tombstone retains value evidence",
-          );
-        }
-        return Object.freeze({ kind: "tombstone", base } as const);
-      }
-      if (
-        row.valueJson === null ||
-        row.valueBytes === null ||
-        row.valueSha256 === null
-      ) {
-        throw new AppRowStorageCorruptionError(
+    const storedSchemaVersionId = row.schemaVersionId;
+    const schemaVersionId = yield* decodeStoredRevisionColumnResult(
+      identity,
+      decodeCatalogSchemaVersionIdResult(storedSchemaVersionId),
+    );
+    const storedCreationTime = row.creationTime;
+    const creationTime = yield* decodeStoredRevisionColumnResult(
+      identity,
+      decodeAppCreationTimeV1Result(storedCreationTime),
+    );
+    const base = Object.freeze({
+      ...identity,
+      scopeUuid,
+      writeEpochUuid,
+      commitSeq,
+      prevCommitSeq,
+      schemaVersionId,
+      creationTime,
+    } satisfies AppRowRevisionV1Base);
+    const storedIsTombstone = row.isTombstone;
+    const isTombstone = yield* decodeStoredRevisionColumnResult(
+      identity,
+      decodeBooleanResult(storedIsTombstone),
+    );
+    if (isTombstone) {
+      const valueJson = row.valueJson;
+      if (valueJson !== null) {
+        return yield* Result.fail(new AppRowStorageCorruptionError(
           identity,
-          "live revision is missing value evidence",
-        );
+          "tombstone retains value evidence",
+        ));
       }
-      return Object.freeze({ kind: "live", base, row } as const);
-    },
-    catch: (cause) => cause instanceof AppRowStorageCorruptionError
-      ? cause
-      : new AppRowStorageCorruptionError(
+      const valueBytes = row.valueBytes;
+      if (valueBytes !== null) {
+        return yield* Result.fail(new AppRowStorageCorruptionError(
           identity,
-          "stored revision columns do not decode",
-          { cause },
-        ),
+          "tombstone retains value evidence",
+        ));
+      }
+      const valueSha256 = row.valueSha256;
+      if (valueSha256 !== null) {
+        return yield* Result.fail(new AppRowStorageCorruptionError(
+          identity,
+          "tombstone retains value evidence",
+        ));
+      }
+      return Object.freeze({ kind: "tombstone", base } as const);
+    }
+    const valueJson = row.valueJson;
+    if (valueJson === null) {
+      return yield* Result.fail(new AppRowStorageCorruptionError(
+        identity,
+        "live revision is missing value evidence",
+      ));
+    }
+    const valueBytes = row.valueBytes;
+    if (valueBytes === null) {
+      return yield* Result.fail(new AppRowStorageCorruptionError(
+        identity,
+        "live revision is missing value evidence",
+      ));
+    }
+    const valueSha256 = row.valueSha256;
+    if (valueSha256 === null) {
+      return yield* Result.fail(new AppRowStorageCorruptionError(
+        identity,
+        "live revision is missing value evidence",
+      ));
+    }
+    const valueCodecVersion = row.valueCodecVersion;
+    return Object.freeze({
+      kind: "live",
+      base,
+      valueCodecVersion,
+      valueJson,
+      valueBytes,
+      valueSha256,
+    } as const);
   });
+}
+
+function decodeStoredRevisionColumnResult<Value>(
+  identity: AppRowIdentityV1,
+  result: Result.Result<Value, unknown>,
+): Result.Result<Value, AppRowStorageCorruptionError> {
+  return result.pipe(Result.mapError((cause) =>
+    storedRevisionColumnsCorruption(identity, cause)
+  ));
+}
+
+function decodeStoredPositiveCommitSeqResult(
+  identity: AppRowIdentityV1,
+  value: unknown,
+): Result.Result<CommitSeq, AppRowStorageCorruptionError> {
+  return Result.gen(function* () {
+    const decoded = yield* decodeStoredRevisionColumnResult(
+      identity,
+      decodeCommitSeqResult(value),
+    );
+    if (decoded < 1n) {
+      return yield* Result.fail(storedRevisionColumnsCorruption(
+        identity,
+        new InvalidAppRowRevisionV1InputError({
+          reason: "nonPositiveCommitSeq",
+          value: decoded,
+        }),
+      ));
+    }
+    return decoded;
+  });
+}
+
+function storedRevisionColumnsCorruption(
+  identity: AppRowIdentityV1,
+  cause: unknown,
+): AppRowStorageCorruptionError {
+  return new AppRowStorageCorruptionError(
+    identity,
+    "stored revision columns do not decode",
+    { cause },
+  );
 }
 
 const requireScopeUuidInTransactionEffect = Effect.fn(

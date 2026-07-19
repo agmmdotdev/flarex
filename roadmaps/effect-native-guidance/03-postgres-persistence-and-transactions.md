@@ -326,6 +326,11 @@ revision writes remain a named temporary Promise bridge owned by the ordered
 point-commit mutation transaction; that bridge is deleted when the mutation
 graph can own an Effect transaction client without changing rollback or
 statement-order semantics.
+Stored revision materialization now composes its ordered column decoders and
+owned shape checks through `Result`. The former blanket `Result.try` is
+deleted: malformed driver values remain typed storage corruption, while
+unexpected row-accessor and runtime throws remain defects rather than being
+misclassified as recoverable database state.
 
 ## Target Boundary
 

@@ -593,6 +593,132 @@ describe("FlarexDB app-row revision storage", () => {
     });
   });
 
+  it("maps malformed stored revision columns into typed corruption", async () => {
+    let readCount = 0;
+    const tx = appRowSelectTransaction(() => {
+      readCount += 1;
+      return Promise.resolve(readCount === 1
+        ? [{
+            scopeId,
+            scopeUuid: "50000000-0000-0000-0000-000000000001",
+          }]
+        : [{
+            ...storedTombstoneDriverRow(),
+            scopeUuid: "not-a-canonical-uuid",
+          }]);
+    });
+
+    const failure = await runEffectFailure(
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }),
+    );
+
+    expect(failure).toBeInstanceOf(AppRowStorageCorruptionError);
+    expect(failure).toMatchObject({
+      reason: "stored revision columns do not decode",
+    });
+  });
+
+  it("rejects truthy and falsy non-boolean tombstone discriminators", async () => {
+    for (const isTombstone of ["false", 0]) {
+      let readCount = 0;
+      const tx = appRowSelectTransaction(() => {
+        readCount += 1;
+        return Promise.resolve(readCount === 1
+          ? [{
+              scopeId,
+              scopeUuid: "50000000-0000-0000-0000-000000000001",
+            }]
+          : [{ ...storedTombstoneDriverRow(), isTombstone }]);
+      });
+
+      const failure = await runEffectFailure(
+        readAppRowAtSnapshotInTransactionEffect(tx, {
+          ...identity,
+          snapshotCommitSeq: CommitSeqSchema.make(1n),
+        }),
+      );
+
+      expect(failure).toBeInstanceOf(AppRowStorageCorruptionError);
+      expect(failure).toMatchObject({
+        reason: "stored revision columns do not decode",
+      });
+    }
+  });
+
+  it("preserves unexpected stored-row accessor throws as defects", async () => {
+    const defect = new Error("stored revision accessor defect");
+    const storedRow = storedTombstoneDriverRow();
+    Object.defineProperty(storedRow, "scopeUuid", {
+      enumerable: true,
+      get(): never {
+        throw defect;
+      },
+    });
+    let readCount = 0;
+    const tx = appRowSelectTransaction(() => {
+      readCount += 1;
+      return Promise.resolve(readCount === 1
+        ? [{
+            scopeId,
+            scopeUuid: "50000000-0000-0000-0000-000000000001",
+          }]
+        : [storedRow]);
+    });
+
+    const exit = await Effect.runPromiseExit(
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("short-circuits malformed earlier columns before later accessors", async () => {
+    const storedRow = storedTombstoneDriverRow();
+    storedRow.rowId = new Uint8Array(15);
+    let scopeUuidObserved = false;
+    Object.defineProperty(storedRow, "scopeUuid", {
+      enumerable: true,
+      get(): never {
+        scopeUuidObserved = true;
+        throw new Error("later scope UUID accessor must not run");
+      },
+    });
+    let readCount = 0;
+    const tx = appRowSelectTransaction(() => {
+      readCount += 1;
+      return Promise.resolve(readCount === 1
+        ? [{
+            scopeId,
+            scopeUuid: "50000000-0000-0000-0000-000000000001",
+          }]
+        : [storedRow]);
+    });
+
+    const failure = await runEffectFailure(
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }),
+    );
+
+    expect(failure).toBeInstanceOf(AppRowStorageCorruptionError);
+    expect(failure).toMatchObject({
+      reason: "stored revision columns do not decode",
+    });
+    expect(scopeUuidObserved).toBe(false);
+  });
+
   it("preserves query construction exceptions as defects", async () => {
     const defect = new Error("app-row query construction defect");
     const tx = {
@@ -794,6 +920,24 @@ function appRowSelectTransaction(
       return query;
     },
   } as unknown as AppRowTransaction;
+}
+
+function storedTombstoneDriverRow(): Record<string, unknown> {
+  return {
+    scopeUuid: "50000000-0000-0000-0000-000000000001",
+    tableId,
+    rowId: appRowIdHexV1ToBytes(rowId),
+    commitSeq: 1n,
+    prevCommitSeq: null,
+    writeEpochUuid: "50000000-0000-0000-0000-000000000002",
+    schemaVersionId,
+    creationTime,
+    valueCodecVersion: 1,
+    isTombstone: true,
+    valueJson: null,
+    valueBytes: null,
+    valueSha256: null,
+  };
 }
 
 function deferredValue<Value>(): {
