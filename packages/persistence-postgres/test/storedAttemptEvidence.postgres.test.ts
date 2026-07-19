@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { Effect, Exit, Fiber, Random, Result, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client } from "pg";
 import { appRowIdHexV1ToBytes } from
@@ -1127,6 +1128,222 @@ describePostgres("real Postgres stored-attempt authority", () => {
     });
   }, 120_000);
 
+  it("re-derives dense same-scope publication facts after a commit during retry backoff", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(
+        persistence,
+        "o08c_same_scope_interleaving",
+      );
+      const targetCommands: PointCommitPublicationCommandV1[] = [];
+      const confirmed: PointCommitConfirmedPreDecisionRollbackV1Error[] = [];
+      const firstRollback = deferredSignal();
+      const retryBackoffStarted = deferredSignal();
+      const authentication = createO08CAuthentication(
+        persistence,
+        current,
+        targetCommands,
+        confirmed,
+        () => firstRollback.resolve(),
+      );
+      const running = await preparePostgresO08CRunningPlan(
+        current,
+        authentication,
+        "o08c same-scope retry target",
+      );
+      const finishing = await runEffect(
+        authentication.enterPointCommitFinishing(running),
+      );
+      const companion = await preparePostgresO08CCompanionPublication(
+        persistence,
+        current,
+        "o08c_same_scope_companion",
+      );
+      const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+      expect(companion.publicationCommand.sealIdentity.scopeUuid).toBe(
+        scopeUuid,
+      );
+      expect(companion.anchor.sessionId).not.toBe(current.anchor.sessionId);
+      const trigger = await installO08CSerializationTriggerPostgres(
+        persistence,
+        scopeUuid,
+        "interleaving",
+        1,
+      );
+      const companionPublisher = createPointCommitPublisherPortV1(
+        resolutionPorts(persistence),
+      );
+      let randomCalls = 0;
+      try {
+        const results = await runEffect(
+          Effect.gen(function* () {
+            const targetFiber = yield* authentication.publishPointCommit(
+              finishing,
+            ).pipe(
+              Effect.provideService(Random.Random, {
+                nextDoubleUnsafe: () => {
+                  randomCalls += 1;
+                  retryBackoffStarted.resolve();
+                  return 0.5;
+                },
+                nextIntUnsafe: () => 0,
+              }),
+              Effect.forkChild,
+            );
+            yield* Effect.promise(() => firstRollback.promise);
+            yield* Effect.promise(() => retryBackoffStarted.promise);
+            expect(confirmed).toHaveLength(1);
+            expect(confirmed[0]).toBeInstanceOf(
+              PointCommitConfirmedPreDecisionRollbackV1Error,
+            );
+            expect(confirmed[0]).toMatchObject({
+              operation: "writeCommitHeader",
+              sqlState: "40001",
+            });
+            expect(randomCalls).toBe(1);
+            expect(targetCommands).toHaveLength(1);
+
+            yield* Effect.promise(() =>
+              persistence.query("select pg_sleep(0.01)")
+            );
+            const companionResult = yield* companionPublisher.publish(
+              companion.publicationCommand,
+            );
+            expect(companionResult).toMatchObject({
+              kind: "published",
+              token: { commitSeq: 1n },
+              successfulResult: { valueJson: { ok: false } },
+            });
+            expect(targetCommands).toHaveLength(1);
+
+            yield* Effect.promise(() =>
+              persistence.query("select pg_sleep(0.01)")
+            );
+            yield* TestClock.adjust("4 millis");
+            expect(targetCommands).toHaveLength(1);
+            yield* TestClock.adjust("1 millis");
+            const targetResult = yield* Fiber.join(targetFiber);
+            return Object.freeze({ companionResult, targetResult });
+          }).pipe(Effect.provide(TestClock.layer())),
+        );
+
+        expect(results.targetResult).toMatchObject({
+          kind: "published",
+          token: { commitSeq: 2n },
+          successfulResult: { valueJson: { ok: true } },
+        });
+        expect(targetCommands).toHaveLength(2);
+        expect(targetCommands[1]).toBe(targetCommands[0]);
+        expect(targetCommands[0]).not.toBe(companion.publicationCommand);
+        expect(randomCalls).toBe(1);
+
+        const observations = await trigger.observations();
+        expect(observations.attempts).toBe("3");
+        expect(observations.commitSeqs).toEqual(["1", "1", "2"]);
+        expect(new Set(observations.txids).size).toBe(3);
+        expect(observations.publicationTimesMicros[0]).toBeLessThan(
+          observations.publicationTimesMicros[1] ?? 0n,
+        );
+        expect(observations.publicationTimesMicros[1]).toBeLessThan(
+          observations.publicationTimesMicros[2] ?? 0n,
+        );
+
+        const state = await o08CPublicationState(persistence, scopeUuid);
+        expect(state).toMatchObject({
+          revisions: "1",
+          current_rows: "1",
+          commit_headers: "2",
+          commit_changes: "1",
+          outcomes: "2",
+          wakes: "2",
+          last_commit_seq: "2",
+          last_outbox_seq: "2",
+          header_xmin: observations.txids[2],
+          committed_at_micros:
+            observations.publicationTimesMicros[2]?.toString(),
+        });
+        const targetCommand = targetCommands[0];
+        if (targetCommand === undefined) {
+          throw new Error("Missing captured O08-C target command.");
+        }
+        const durableRows = await o08CInterleavingPublicationRows(
+          persistence,
+          scopeUuid,
+        );
+        expect(durableRows).toEqual({
+          headers: [
+            {
+              commit_seq: "1",
+              transaction_id: observations.txids[1],
+              committed_at_micros:
+                observations.publicationTimesMicros[1]?.toString(),
+              change_count: 0,
+            },
+            {
+              commit_seq: "2",
+              transaction_id: observations.txids[2],
+              committed_at_micros:
+                observations.publicationTimesMicros[2]?.toString(),
+              change_count: 1,
+            },
+          ],
+          changes: [{ commit_seq: "2", change_ordinal: 0 }],
+          outcomes: [
+            {
+              request_key: companion.requestKey,
+              commit_seq: "1",
+              result_state: "available",
+            },
+            {
+              request_key: targetCommand.authorityPins.requestKey,
+              commit_seq: "2",
+              result_state: "available",
+            },
+          ],
+          wakes: [
+            {
+              outbox_seq: "1",
+              commit_seq: "1",
+              event_kind: "deployment_sync_commit_wake_v1",
+              delivery_state: "pending",
+            },
+            {
+              outbox_seq: "2",
+              commit_seq: "2",
+              event_kind: "deployment_sync_commit_wake_v1",
+              delivery_state: "pending",
+            },
+          ],
+        });
+
+        await expect(runEffect(companionPublisher.publish(
+          companion.publicationCommand,
+        ))).resolves.toMatchObject({
+          kind: "replayed",
+          token: { commitSeq: 1n },
+          successfulResult: { valueJson: { ok: false } },
+        });
+        await expect(runEffect(
+          authentication.publishPointCommit(finishing),
+        )).resolves.toMatchObject({
+          kind: "replayed",
+          token: { commitSeq: 2n },
+          successfulResult: { valueJson: { ok: true } },
+        });
+        expect(targetCommands).toHaveLength(3);
+        expect((await trigger.observations()).attempts).toBe("3");
+        expect(await o08CPublicationState(persistence, scopeUuid)).toEqual(
+          state,
+        );
+        expect(await o08CInterleavingPublicationRows(
+          persistence,
+          scopeUuid,
+        )).toEqual(durableRows);
+      } finally {
+        await trigger.drop();
+      }
+    });
+  }, 120_000);
+
   it("exhausts three genuine PostgreSQL 40001 rollbacks without publication residue", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(
@@ -1758,6 +1975,9 @@ function createO08CAuthentication(
   current: Awaited<ReturnType<typeof o08B1Scenario>>,
   commands: PointCommitPublicationCommandV1[],
   confirmed: PointCommitConfirmedPreDecisionRollbackV1Error[],
+  onConfirmed?: (
+    failure: PointCommitConfirmedPreDecisionRollbackV1Error,
+  ) => void,
 ) {
   const ports = resolutionPorts(persistence);
   const publisher = createPointCommitPublisherPortV1(ports);
@@ -1774,6 +1994,7 @@ function createO08CAuthentication(
                 PointCommitConfirmedPreDecisionRollbackV1Error
             ) {
               confirmed.push(failure);
+              onConfirmed?.(failure);
             }
           }),
         ),
@@ -1821,6 +2042,105 @@ async function preparePostgresO08CRunningPlan(
     authentication.verifyCommitInput(commitAuthority),
   );
   return runEffect(authentication.planPointCommit(verified));
+}
+
+async function preparePostgresO08CCompanionPublication(
+  persistence: PostgresFlarexPersistence,
+  current: Awaited<ReturnType<typeof o08B1Scenario>>,
+  label: string,
+) {
+  const randomUuid = uuidFactory("94800000");
+  const ports = resolutionPorts(persistence);
+  const requestKey = TransactionRequestKeyV1Schema.make(`request:${label}`);
+  const activation = await activatePointMutationSession(
+    createPointMutationSessionActivationPersistenceV1(
+      ports,
+      { leaseDurationMilliseconds: 60_000, randomUuid },
+    ),
+    pointMutationSessionActivationFixture(
+      current.anchor.deploymentId,
+      current.anchor.scopeId,
+      {
+        evidence: {
+          schemaVersionId: current.authority.schemaVersionId,
+          requestKey,
+        },
+      },
+    ),
+  );
+  const store = createSessionJournalStorePersistenceV1(ports, { randomUuid });
+  const attempt = await runEffect(store.openAttemptEffect({
+    selector: {
+      deploymentId: activation.anchor.deploymentId,
+      scopeId: activation.anchor.scopeId,
+      sessionId: activation.anchor.sessionId,
+      attemptFence: activation.anchor.attemptFence,
+    },
+    snapshotToken: activation.anchor.snapshotToken,
+    schemaVersionId: current.authority.schemaVersionId,
+  }));
+  const prepared = await prepareSeal(store, attempt);
+  const journal = await runEffect(
+    canonicalizeSessionJournalV1Effect(prepared.journal),
+  );
+  const result = await runEffect(
+    canonicalizeSuccessfulResultV1Effect({ ok: false }),
+  );
+  await completeSeal(store, prepared.preparation, journal, result);
+  const authority: StoredAttemptEvidenceAuthorityV1 = Object.freeze({
+    deploymentId: activation.anchor.deploymentId,
+    scopeId: activation.anchor.scopeId,
+    sessionId: activation.anchor.sessionId,
+    attemptFence: activation.anchor.attemptFence,
+    storageGeneration: activation.anchor.storageGeneration,
+    storageGenerationFence: activation.anchor.storageGenerationFence,
+    snapshotToken: activation.anchor.snapshotToken,
+    schemaVersionId: current.authority.schemaVersionId,
+  });
+  const loader = createStoredAttemptEvidenceLoaderV1(ports);
+  const running = await runEffect(loader.loadEffect(authority));
+  if (running.kind !== "loaded") {
+    throw new Error(
+      `Expected running O08-C companion evidence, received ${running.kind}.`,
+    );
+  }
+  await runEffect(
+    createPointCommitFinishingTransitionPortV1(ports).enterFinishing(
+      await pointCommitFinishingCommandFromStoredAttemptV1(
+        authority,
+        running.evidence,
+      ),
+    ),
+  );
+  const finishing = await runEffect(loader.loadFinishingEffect({
+    deploymentId: activation.anchor.deploymentId,
+    scopeId: activation.anchor.scopeId,
+    sessionId: activation.anchor.sessionId,
+    attemptFence: activation.anchor.attemptFence,
+  }));
+  if (finishing.kind !== "loaded") {
+    throw new Error(
+      `Expected finishing O08-C companion evidence, received ${finishing.kind}.`,
+    );
+  }
+  const command = await pointCommitCommandFromStoredAttemptV1(
+    authority,
+    finishing.evidence,
+  );
+  return Object.freeze({
+    anchor: activation.anchor,
+    requestKey,
+    publicationCommand: Object.freeze({
+      ...command,
+      successfulResult: Object.freeze({
+        valueCodecVersion: result.evidence.valueCodecVersion,
+        value: Object.freeze({ ok: false }),
+        canonicalBytes: result.canonicalBytes,
+        semanticSizeBytes: result.semanticSizeBytes,
+        sha256Hex: result.evidence.sha256Hex,
+      }),
+    } satisfies PointCommitPublicationCommandV1),
+  });
 }
 
 function createO08B2aAuthentication(
@@ -2213,8 +2533,8 @@ function selectorWire(
 async function installO08CSerializationTriggerPostgres(
   persistence: PostgresFlarexPersistence,
   scopeUuid: string,
-  label: "success" | "exhaustion",
-  failuresBeforeSuccess: 2 | 3,
+  label: "success" | "interleaving" | "exhaustion",
+  failuresBeforeSuccess: 1 | 2 | 3,
 ) {
   const prefix = `fx_test_o08c_${label}`;
   const attemptSequence = `${prefix}_attempts`;
@@ -2224,12 +2544,16 @@ async function installO08CSerializationTriggerPostgres(
   const timeSequences = [1, 2, 3].map((attempt) =>
     `${prefix}_time_${attempt}`
   );
+  const commitSequences = [1, 2, 3].map((attempt) =>
+    `${prefix}_commit_seq_${attempt}`
+  );
   const functionName = `${prefix}_40001`;
   const triggerName = `${prefix}_40001_trigger`;
   for (const sequence of [
     attemptSequence,
     ...txidSequences,
     ...timeSequences,
+    ...commitSequences,
   ]) {
     await persistence.query(`create sequence ${sequence}`);
   }
@@ -2253,12 +2577,15 @@ async function installO08CSerializationTriggerPostgres(
         if current_attempt = 1 then
           perform setval('${txidSequences[0]}', txid_current());
           perform setval('${timeSequences[0]}', publication_time_micros);
+          perform setval('${commitSequences[0]}', new.commit_seq);
         elsif current_attempt = 2 then
           perform setval('${txidSequences[1]}', txid_current());
           perform setval('${timeSequences[1]}', publication_time_micros);
+          perform setval('${commitSequences[1]}', new.commit_seq);
         elsif current_attempt = 3 then
           perform setval('${txidSequences[2]}', txid_current());
           perform setval('${timeSequences[2]}', publication_time_micros);
+          perform setval('${commitSequences[2]}', new.commit_seq);
         end if;
         if current_attempt <= ${failuresBeforeSuccess} then
           raise exception 'forced O08-C serialization failure %',
@@ -2286,6 +2613,9 @@ async function installO08CSerializationTriggerPostgres(
         time_1: string;
         time_2: string;
         time_3: string;
+        commit_seq_1: string;
+        commit_seq_2: string;
+        commit_seq_3: string;
       }>(
         `
           select
@@ -2295,7 +2625,13 @@ async function installO08CSerializationTriggerPostgres(
             (select last_value::text from ${txidSequences[2]}) as txid_3,
             (select last_value::text from ${timeSequences[0]}) as time_1,
             (select last_value::text from ${timeSequences[1]}) as time_2,
-            (select last_value::text from ${timeSequences[2]}) as time_3
+            (select last_value::text from ${timeSequences[2]}) as time_3,
+            (select last_value::text from ${commitSequences[0]})
+              as commit_seq_1,
+            (select last_value::text from ${commitSequences[1]})
+              as commit_seq_2,
+            (select last_value::text from ${commitSequences[2]})
+              as commit_seq_3
         `,
       );
       const row = result.rows[0];
@@ -2310,6 +2646,11 @@ async function installO08CSerializationTriggerPostgres(
           BigInt(row.time_2),
           BigInt(row.time_3),
         ]),
+        commitSeqs: Object.freeze([
+          row.commit_seq_1,
+          row.commit_seq_2,
+          row.commit_seq_3,
+        ]),
       });
     },
     drop: async (): Promise<void> => {
@@ -2321,6 +2662,7 @@ async function installO08CSerializationTriggerPostgres(
         attemptSequence,
         ...txidSequences,
         ...timeSequences,
+        ...commitSequences,
       ]) {
         await persistence.query(`drop sequence ${sequence}`);
       }
@@ -2632,11 +2974,15 @@ async function o08CPublicationState(
         clock.last_commit_seq::text,
         clock.last_outbox_seq::text,
         coalesce((select header.xmin::text from fx_system_commit header
-          where header.scope_uuid = $1), '') as header_xmin,
+          where header.scope_uuid = $1
+          order by header.commit_seq desc
+          limit 1), '') as header_xmin,
         coalesce((select floor(
           extract(epoch from header.committed_at) * 1000000
         )::bigint::text from fx_system_commit header
-          where header.scope_uuid = $1), '') as committed_at_micros
+          where header.scope_uuid = $1
+          order by header.commit_seq desc
+          limit 1), '') as committed_at_micros
       from fx_system_scope_clock clock
       where clock.scope_uuid = $1
     `,
@@ -2645,6 +2991,78 @@ async function o08CPublicationState(
   const row = result.rows[0];
   if (row === undefined) throw new Error("Missing PostgreSQL O08-C state.");
   return row;
+}
+
+async function o08CInterleavingPublicationRows(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+) {
+  const [headers, changes, outcomes, wakes] = await Promise.all([
+    persistence.query<{
+      commit_seq: string;
+      transaction_id: string;
+      committed_at_micros: string;
+      change_count: number;
+    }>(
+      `
+        select commit_seq::text,
+          xmin::text as transaction_id,
+          floor(extract(epoch from committed_at) * 1000000)::bigint::text
+            as committed_at_micros,
+          change_count
+        from fx_system_commit
+        where scope_uuid = $1
+        order by commit_seq
+      `,
+      [scopeUuid],
+    ),
+    persistence.query<{
+      commit_seq: string;
+      change_ordinal: number;
+    }>(
+      `
+        select commit_seq::text, change_ordinal
+        from fx_system_commit_app_row_change
+        where scope_uuid = $1
+        order by commit_seq, change_ordinal
+      `,
+      [scopeUuid],
+    ),
+    persistence.query<{
+      request_key: string;
+      commit_seq: string;
+      result_state: string;
+    }>(
+      `
+        select request_key, commit_seq::text, result_state
+        from fx_system_idempotency
+        where scope_uuid = $1
+        order by commit_seq
+      `,
+      [scopeUuid],
+    ),
+    persistence.query<{
+      outbox_seq: string;
+      commit_seq: string;
+      event_kind: string;
+      delivery_state: string;
+    }>(
+      `
+        select outbox_seq::text, commit_seq::text,
+          event_kind, delivery_state
+        from fx_system_outbox
+        where scope_uuid = $1
+        order by outbox_seq
+      `,
+      [scopeUuid],
+    ),
+  ]);
+  return Object.freeze({
+    headers: headers.rows,
+    changes: changes.rows,
+    outcomes: outcomes.rows,
+    wakes: wakes.rows,
+  });
 }
 
 async function o08CAttemptState(
