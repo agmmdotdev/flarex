@@ -1,4 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import { AuthConfigSchema } from "./auth";
@@ -650,7 +651,7 @@ export const decodeAnalyzedStartPushRequestEffect = Effect.fn(
       })
     ),
   );
-  if (request.analysis === undefined && (typeof request.error !== "string" || request.error.length === 0)) {
+  if (request.analysis === undefined && !isNonEmptyString(request.error)) {
     return yield* deploymentProtocolValidationFailure(
       "AnalyzedStartPushRequest",
       "A push without analysis must include an error message.",
@@ -740,7 +741,7 @@ function validatePushSourcePackageAuthConfig(
 ): Effect.Effect<void, DeploymentProtocolValidationError> {
   if (
     sourcePackage.authConfig !== undefined &&
-    (sourcePackage.authConfigModule === undefined || sourcePackage.authConfigModule.length === 0)
+    !isNonEmptyString(sourcePackage.authConfigModule)
   ) {
     return deploymentProtocolValidationFailure(
       "PushSourcePackage",

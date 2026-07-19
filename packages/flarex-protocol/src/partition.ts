@@ -2,6 +2,7 @@ import {
   isNonArrayRecord as isRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Data, Effect, Result } from "effect";
 import type { DeploymentSchema } from "./deployment";
 import { isJson } from "./json";
@@ -201,7 +202,7 @@ function requiredStringField(
 ): PartitionRoutePayloadValidationResult<string> {
   if (isRecord(value)) {
     const property = value[field];
-    if (typeof property === "string" && property.length > 0) {
+    if (isNonEmptyString(property)) {
       return Result.succeed(property);
     }
   }
@@ -400,7 +401,7 @@ function nonEmptyStringProperty(
   field: string,
 ): PartitionRoutePayloadValidationResult<string> {
   const property = propertyForPath(value, field);
-  if (typeof property !== "string" || property.length === 0) {
+  if (!isNonEmptyString(property)) {
     return partitionRoutePayloadValidationFailure(`${field} must be a non-empty string.`);
   }
   return Result.succeed(property);

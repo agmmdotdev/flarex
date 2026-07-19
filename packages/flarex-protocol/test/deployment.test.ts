@@ -315,6 +315,14 @@ describe("deployment protocol schemas", () => {
 
     await expect(Effect.runPromise(decodeAnalyzedStartPushRequestEffect({
       sourcePackage: sourcePackage(),
+      error: "",
+    }))).rejects.toMatchObject({
+      schema: "AnalyzedStartPushRequest",
+      message: "A push without analysis must include an error message.",
+    });
+
+    await expect(Effect.runPromise(decodeAnalyzedStartPushRequestEffect({
+      sourcePackage: sourcePackage(),
       diagnostics: "not-array",
     }))).rejects.toMatchObject({
       schema: "AnalyzedStartPushRequest",
@@ -336,6 +344,21 @@ describe("deployment protocol schemas", () => {
     await expect(Effect.runPromise(decodeStartPushRequestEffect({
       sourcePackage: {
         ...sourcePackage(),
+        authConfig: {
+          providers: [{
+            domain: "https://auth.example.com",
+            applicationID: "app-123",
+          }],
+        },
+      },
+    }))).rejects.toMatchObject({
+      schema: "PushSourcePackage",
+      message: "Source package auth config module is required when authConfig is present.",
+    });
+    await expect(Effect.runPromise(decodeStartPushRequestEffect({
+      sourcePackage: {
+        ...sourcePackage(),
+        authConfigModule: "",
         authConfig: {
           providers: [{
             domain: "https://auth.example.com",

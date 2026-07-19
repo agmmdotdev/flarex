@@ -439,6 +439,11 @@ semantics.
   Neither predicate normalizes its input or implies Unicode, UTF-8 size,
   PostgreSQL/JSON, identifier, secret, or branded text policy; those checks
   and failures remain local.
+  Unknown-object consumers must also preserve property access and hostile
+  getter behavior. The auth-provider structural guard remains local until its
+  accessor policy deliberately adopts a single-read snapshot; Schema-decoded
+  owned values and decoders that already snapshot a property may reuse the
+  generic predicate without crossing that boundary.
   Narrower ordered-index comparators retain their domain-significant names.
 - `@flarex/utils/strings` also owns the exact lowercase hexadecimal
   8-4-4-4-12 UUID text-shape predicate shared by protocol identifiers and the

@@ -281,6 +281,12 @@ bytes, zero-width characters, and unpaired surrogates, and does not normalize
 the value. Keep nonblank, Unicode, canonical text, URL/path, identifier,
 secret, byte-limit, and branded string rules with their owner. Do not replace
 a nonempty contract with the trim-based predicate or vice versa.
+At an unknown-object boundary, preserve property access count, getter
+invocation order, short-circuiting, and thrown getter behavior when delegating
+to a shared predicate. Snapshot a property once only when the owning boundary
+explicitly adopts single-read semantics; do not describe a value-level
+predicate substitution as behavior-preserving when it changes observable
+accessor evaluation.
 Use `@flarex/utils/strings` for the exact lowercase hexadecimal 8-4-4-4-12 UUID
 text shape when that spelling alone is the contract. The predicate deliberately
 does not enforce UUID version or variant bits, generate an identifier, attach a
