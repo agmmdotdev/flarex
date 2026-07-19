@@ -1,4 +1,5 @@
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import type { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
 import {
@@ -676,7 +677,7 @@ const parseDevPushStatusEffect = Effect.fn("FlarexDev.parsePushStatus")(
       return analysisFailure("Backend push response body must be an object.", []);
     }
     const diagnostics = diagnosticsFromBody(value);
-    if (typeof value.pushId !== "string" || value.pushId.length === 0) {
+    if (!isNonEmptyString(value.pushId)) {
       return analysisFailure(
         "Backend push response pushId must be a non-empty string.",
         diagnostics,

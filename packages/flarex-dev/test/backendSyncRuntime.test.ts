@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
 import { deploymentAnalysisFromCodegenAnalysisEffect } from "@flarex/analysis";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   createExecutionArtifactRuntimeService,
@@ -1006,7 +1007,7 @@ function isR2BucketLike(value: unknown): value is R2BucketLike {
 
 function pushStatusFromUnknown(value: unknown): Pick<PushStatus, "pushId" | "state"> {
   const record = jsonRecord(value, "push status");
-  if (typeof record.pushId !== "string" || record.pushId.length === 0) {
+  if (!isNonEmptyString(record.pushId)) {
     throw new Error("push status.pushId must be a non-empty string.");
   }
   if (!isPushStatusState(record.state)) {

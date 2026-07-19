@@ -1,4 +1,5 @@
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
 import type { SourcePackage } from "./sourcePackage.ts";
 
@@ -86,7 +87,7 @@ function requiredStringEffect(
   value: unknown,
   name: string,
 ): Effect.Effect<string, DevRouteValidationError> {
-  if (typeof value !== "string" || value.length === 0) {
+  if (!isNonEmptyString(value)) {
     return Effect.fail(new DevRouteValidationError({ message: `Missing ${name}.` }));
   }
   return Effect.succeed(value);

@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import {
   deployFlarex,
   dryRunFlarexCodegen,
@@ -379,10 +380,10 @@ function backendPushCoordinatorFromArgs(
   const backendUrl = values["backend-url"];
   const deploymentId = values["deployment-id"];
   const backendHeaders = values["backend-header"];
-  if (typeof backendUrl !== "string" || backendUrl.length === 0) {
+  if (!isNonEmptyString(backendUrl)) {
     throw new Error(errors.missingBackendUrl);
   }
-  if (typeof deploymentId !== "string" || deploymentId.length === 0) {
+  if (!isNonEmptyString(deploymentId)) {
     throw new Error(errors.missingDeploymentId);
   }
   const parsedHeaders = parsedHeadersFlag(backendHeaders, "--backend-header");
@@ -417,10 +418,10 @@ function sourceAnalyzerOptions(
     };
   }
   if (!analyzerFlagsPresent) return {};
-  if (typeof analyzerUrl !== "string" || analyzerUrl.length === 0) {
+  if (!isNonEmptyString(analyzerUrl)) {
     throw new Error("--analyzer-url must be provided when using backend analyzer options.");
   }
-  if (typeof deploymentId !== "string" || deploymentId.length === 0) {
+  if (!isNonEmptyString(deploymentId)) {
     throw new Error("--deployment-id must be provided when using backend analyzer options.");
   }
   const parsedHeaders = parsedHeadersFlag(headers, "--analyzer-header");
@@ -547,7 +548,7 @@ function rootFromArgs(value: unknown, projectRoot: string): string | undefined {
   if (value === undefined) {
     return projectRoot;
   }
-  if (typeof value === "string" && value.length > 0) {
+  if (isNonEmptyString(value)) {
     return value;
   }
   return undefined;

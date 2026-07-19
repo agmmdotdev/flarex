@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import {
   applyOutboxEventsToFreshnessMirror,
   createPostgresFreshnessMirrorStore,
@@ -965,7 +966,7 @@ function resultHashFromLiveQueryRecord(value: unknown): string {
     throw new Error("Live query record resultHash is missing.");
   }
   const resultHash = value.resultHash;
-  if (typeof resultHash !== "string" || resultHash.length === 0) {
+  if (!isNonEmptyString(resultHash)) {
     throw new Error("Live query record resultHash must be a non-empty string.");
   }
   return resultHash;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import {
   createFlarexExecutor,
   withReadyDeploymentAuthority,
@@ -728,7 +729,7 @@ async function invokeJson(
 
 function stringField(value: Record<string, unknown>, field: string): string {
   const fieldValue = value[field];
-  if (typeof fieldValue === "string" && fieldValue.length > 0) return fieldValue;
+  if (isNonEmptyString(fieldValue)) return fieldValue;
   throw new Error(`${field} must be a non-empty string.`);
 }
 

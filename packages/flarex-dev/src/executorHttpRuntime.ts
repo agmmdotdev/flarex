@@ -4,6 +4,7 @@ import {
   type FlarexHttpAppConfig,
 } from "@flarex/executor-http";
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import type {
   FlarexExecutor,
   FlarexExecutorConfig,
@@ -270,7 +271,7 @@ async function validateMaterializableSourcePackage(
   const functions = value.functions;
   const execution = value.execution;
   const authConfigModule = value.authConfigModule;
-  if (value.authConfig !== undefined && (typeof authConfigModule !== "string" || authConfigModule.length === 0)) {
+  if (value.authConfig !== undefined && !isNonEmptyString(authConfigModule)) {
     throw new Error(`Deployment package ${packageId} auth config module is required when auth config is present.`);
   }
   if (authConfigModule !== undefined && typeof authConfigModule !== "string") {
