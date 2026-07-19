@@ -393,6 +393,11 @@ owned shape checks through `Result`. The former blanket `Result.try` is
 deleted: malformed driver values remain typed storage corruption, while
 unexpected row-accessor and runtime throws remain defects rather than being
 misclassified as recoverable database state.
+Live revision evidence verification now filters the Promise verifier's known
+protocol errors at its narrow boundary. Malformed value evidence and trusted
+system fields remain typed app-row storage corruption, while unexpected Web
+Crypto or runtime rejection remains a defect. The Drizzle read, transaction,
+and app-row write boundaries are unchanged.
 Fresh transaction-attempt facet construction now brands its supplied
 database-authoritative creation time through one hoisted Schema `Result`.
 The helper's raw `try/catch` is deleted: invalid time remains its existing

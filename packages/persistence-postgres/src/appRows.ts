@@ -1,6 +1,7 @@
 import { and, desc, eq, lte } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
+  AppDocumentSystemFieldV1Error,
   AppCreationTimeV1Schema,
   decodeAppCreationTimeV1,
   verifyAppDocumentEvidenceV1,
@@ -42,6 +43,8 @@ import {
 } from "flarex-protocol/storage-authority";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
+  FlarexValueCodecV1Error,
+  FlarexValueEvidenceV1Error,
   type CanonicalFlarexValueBytesV1,
   type CanonicalFlarexValueV1,
   type FlarexValueCodecVersion,
@@ -748,12 +751,20 @@ const decodeRevisionRowEffect = Effect.fn(
       canonicalBytes: decoded.valueBytes,
       sha256: decoded.valueSha256,
     }),
-    catch: (cause) => new AppRowStorageCorruptionError(
-      identity,
-      "live revision value evidence or trusted system fields do not verify",
-      { cause },
+    catch: (cause): unknown => cause,
+  }).pipe(
+    Effect.catch((cause: unknown) =>
+      cause instanceof AppDocumentSystemFieldV1Error ||
+        cause instanceof FlarexValueCodecV1Error ||
+        cause instanceof FlarexValueEvidenceV1Error
+        ? Effect.fail(new AppRowStorageCorruptionError(
+            identity,
+            "live revision value evidence or trusted system fields do not verify",
+            { cause },
+          ))
+        : Effect.die(cause),
     ),
-  });
+  );
   return Object.freeze({
     kind: "live",
     ...decoded.base,

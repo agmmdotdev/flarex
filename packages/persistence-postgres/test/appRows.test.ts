@@ -15,7 +15,7 @@ import {
   SnapshotTokenSchema,
 } from "flarex-protocol/storage-authority";
 import { Cause, Effect, Exit, Fiber, Option } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   AppRowReadPersistenceError,
@@ -621,6 +621,111 @@ describe("FlarexDB app-row revision storage", () => {
     });
   });
 
+  it("maps malformed live value JSON into typed corruption", async () => {
+    const document = await canonicalDocument({ title: "malformed codec" });
+    const storedRow = storedLiveDriverRow(document);
+    storedRow.valueJson = undefined;
+    let readCount = 0;
+    const tx = appRowSelectTransaction(() => {
+      readCount += 1;
+      return Promise.resolve(readCount === 1
+        ? [{
+            scopeId,
+            scopeUuid: "50000000-0000-0000-0000-000000000001",
+          }]
+        : [storedRow]);
+    });
+
+    const exit = await Effect.runPromiseExit(
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasFails(exit.cause)).toBe(true);
+      expect(Cause.hasDies(exit.cause)).toBe(false);
+      const failure = Cause.findErrorOption(exit.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value).toBeInstanceOf(AppRowStorageCorruptionError);
+      }
+    }
+  });
+
+  it("maps mismatched trusted document fields into typed corruption", async () => {
+    const document = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId: corruptionRowId,
+      creationTime,
+      fields: { title: "mismatched identity" },
+    });
+    let readCount = 0;
+    const tx = appRowSelectTransaction(() => {
+      readCount += 1;
+      return Promise.resolve(readCount === 1
+        ? [{
+            scopeId,
+            scopeUuid: "50000000-0000-0000-0000-000000000001",
+          }]
+        : [storedLiveDriverRow(document)]);
+    });
+
+    const exit = await Effect.runPromiseExit(
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasFails(exit.cause)).toBe(true);
+      expect(Cause.hasDies(exit.cause)).toBe(false);
+      const failure = Cause.findErrorOption(exit.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value).toBeInstanceOf(AppRowStorageCorruptionError);
+      }
+    }
+  });
+
+  it("preserves unexpected live evidence verification rejections as defects", async () => {
+    const document = await canonicalDocument({ title: "crypto defect" });
+    const rejection = new Error("app-row digest rejected");
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(rejection);
+    let readCount = 0;
+    const tx = appRowSelectTransaction(() => {
+      readCount += 1;
+      return Promise.resolve(readCount === 1
+        ? [{
+            scopeId,
+            scopeUuid: "50000000-0000-0000-0000-000000000001",
+          }]
+        : [storedLiveDriverRow(document)]);
+    });
+
+    try {
+      const exit = await Effect.runPromiseExit(
+        readAppRowAtSnapshotInTransactionEffect(tx, {
+          ...identity,
+          snapshotCommitSeq: CommitSeqSchema.make(1n),
+        }),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(rejection.message);
+      }
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
   it("rejects truthy and falsy non-boolean tombstone discriminators", async () => {
     for (const isTombstone of ["false", 0]) {
       let readCount = 0;
@@ -937,6 +1042,19 @@ function storedTombstoneDriverRow(): Record<string, unknown> {
     valueJson: null,
     valueBytes: null,
     valueSha256: null,
+  };
+}
+
+function storedLiveDriverRow(
+  document: Awaited<ReturnType<typeof canonicalDocument>>,
+): Record<string, unknown> {
+  return {
+    ...storedTombstoneDriverRow(),
+    valueCodecVersion: document.codecVersion,
+    isTombstone: false,
+    valueJson: document.valueJson,
+    valueBytes: document.canonicalBytes,
+    valueSha256: document.sha256,
   };
 }
 
