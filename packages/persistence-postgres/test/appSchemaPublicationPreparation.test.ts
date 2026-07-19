@@ -9,7 +9,7 @@ import {
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 // @ts-expect-error D2a's prepared token must remain absent from the package root.
@@ -25,7 +25,7 @@ import type {
   FlarexPersistence,
 } from "../src";
 import {
-  getPreparedAppSchemaPublicationV1State,
+  getPreparedAppSchemaPublicationV1StateResult,
   InvalidAppSchemaPublicationV1InputError,
   InvalidPreparedAppSchemaPublicationV1Error,
   prepareAppSchemaPublicationV1Effect,
@@ -55,6 +55,10 @@ const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
 ) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
 
+const getPreparedAppSchemaPublicationV1State = (
+  ...args: Parameters<typeof getPreparedAppSchemaPublicationV1StateResult>
+) => Result.getOrThrow(getPreparedAppSchemaPublicationV1StateResult(...args));
+
 const prepareAppDeveloperIndexDefinitionBindingV1 = (
   ...args: Parameters<typeof prepareAppDeveloperIndexDefinitionBindingV1Effect>
 ) => runEffect(prepareAppDeveloperIndexDefinitionBindingV1Effect(...args));
@@ -68,6 +72,7 @@ type PublicInternalPublicationExport = Extract<
   | "prepareAppSchemaPublicationV1"
   | "prepareAppSchemaPublicationV1Effect"
   | "getPreparedAppSchemaPublicationV1State"
+  | "getPreparedAppSchemaPublicationV1StateResult"
   | "snapshotAppSchemaPublicationV1Input"
   | "snapshotAppSchemaPublicationV1InputResult"
   | "prepareAppSchemaPublicationV1FromSource"
@@ -84,6 +89,11 @@ type PublicInternalPublicationExport = Extract<
   | "enforceAppSchemaPublicationV1CanonicalByteLowerBoundResult"
   | "enforceAppSchemaPublicationV1CanonicalByteQuotaResult"
   | "InvalidAppSchemaPublicationV1SourceError"
+>;
+
+type ThrowingPreparedPublicationStateExport = Extract<
+  keyof typeof import("../src/appSchemaPublicationPreparation"),
+  "getPreparedAppSchemaPublicationV1State"
 >;
 
 type PublicFullPublicationMethod = Extract<
@@ -147,6 +157,8 @@ type PublicPublicationResult = Awaited<
 describe("app-schema V1 publication preparation", () => {
   it("keeps the no-write preparation seam package-internal and opaque", () => {
     expectTypeOf<PublicInternalPublicationExport>().toEqualTypeOf<never>();
+    expectTypeOf<ThrowingPreparedPublicationStateExport>()
+      .toEqualTypeOf<never>();
     expectTypeOf<PublicFullPublicationMethod>()
       .toEqualTypeOf<"publishAppSchemaV1">();
     expectTypeOf<PublicInternalPersistenceMethod>().toEqualTypeOf<never>();
@@ -287,13 +299,17 @@ describe("app-schema V1 publication preparation", () => {
     ];
 
     for (const forgery of forgeries) {
-      expect(() =>
-        Reflect.apply(
-          getPreparedAppSchemaPublicationV1State,
-          undefined,
-          [forgery],
-        )
-      ).toThrow(InvalidPreparedAppSchemaPublicationV1Error);
+      const state = Reflect.apply(
+        getPreparedAppSchemaPublicationV1StateResult,
+        undefined,
+        [forgery],
+      );
+      expect(Result.isFailure(state)).toBe(true);
+      if (Result.isFailure(state)) {
+        expect(state.failure).toBeInstanceOf(
+          InvalidPreparedAppSchemaPublicationV1Error,
+        );
+      }
     }
   });
 

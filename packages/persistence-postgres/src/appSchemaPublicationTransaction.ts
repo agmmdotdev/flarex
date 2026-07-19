@@ -9,23 +9,26 @@ import type {
 } from "flarex-protocol/schema-manifest";
 
 import {
-  getPreparedAppSchemaPublicationV1State,
-  InvalidPreparedAppSchemaPublicationV1Error,
+  getPreparedAppSchemaPublicationV1StateResult,
+  type InvalidPreparedAppSchemaPublicationV1Error,
   type PreparedAppSchemaPublicationV1,
+  type PreparedAppSchemaPublicationV1State,
 } from "./appSchemaPublicationPreparation";
 import {
-  AppCreationTimeIndexDefinitionRequirementError,
-  AppDeveloperIndexDefinitionRequirementError,
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   listAppSchemaVersionIndexBindingsEffect,
-  prepareAppCreationTimeIndexDefinitionsV1,
-  prepareAppDeveloperIndexDefinitionBindingsV1,
+  prepareAppCreationTimeIndexDefinitionsV1Result,
+  prepareAppDeveloperIndexDefinitionBindingsV1Result,
+  type AppCreationTimeIndexDefinitionRequirementError,
+  type AppDeveloperIndexDefinitionRequirementError,
   type AppIndexDefinitionRecordForAccessKindV1,
   type AppSchemaVersionIndexBindingRecord,
   type EnsureAppCreationTimeIndexDefinitionV1Error,
   type EnsureAppDeveloperIndexDefinitionBindingV1Error,
   type EnsureAppDeveloperIndexDefinitionBindingV1Result,
+  type PreparedAppCreationTimeIndexDefinitionV1,
+  type PreparedAppDeveloperIndexDefinitionBindingV1,
   type ReadAppSchemaVersionIndexBindingError,
 } from "./appIndexDefinitions";
 import {
@@ -194,31 +197,23 @@ type AppSchemaPublicationV1BindingReadFailure =
 function prepareAppSchemaPublicationTransactionResult(
   publication: PreparedAppSchemaPublicationV1,
 ): Result.Result<{
-  readonly state: ReturnType<typeof getPreparedAppSchemaPublicationV1State>;
-  readonly creationTimeTokens: ReturnType<
-    typeof prepareAppCreationTimeIndexDefinitionsV1
+  readonly state: PreparedAppSchemaPublicationV1State;
+  readonly creationTimeTokens: ReadonlyArray<
+    PreparedAppCreationTimeIndexDefinitionV1
   >;
-  readonly developerTokens: ReturnType<
-    typeof prepareAppDeveloperIndexDefinitionBindingsV1
+  readonly developerTokens: ReadonlyArray<
+    PreparedAppDeveloperIndexDefinitionBindingV1
   >;
 }, AppSchemaPublicationV1PreparationFailure> {
-  return Result.try({
-    try: () => ({
-      state: getPreparedAppSchemaPublicationV1State(publication),
-      creationTimeTokens: prepareAppCreationTimeIndexDefinitionsV1(publication),
-      developerTokens:
-        prepareAppDeveloperIndexDefinitionBindingsV1(publication),
-    }),
-    catch: (cause) => {
-      if (
-        cause instanceof InvalidPreparedAppSchemaPublicationV1Error ||
-        cause instanceof AppCreationTimeIndexDefinitionRequirementError ||
-        cause instanceof AppDeveloperIndexDefinitionRequirementError
-      ) {
-        return cause;
-      }
-      throw cause;
-    },
+  return Result.gen(function* () {
+    const state = yield* getPreparedAppSchemaPublicationV1StateResult(
+      publication,
+    );
+    const creationTimeTokens = yield*
+      prepareAppCreationTimeIndexDefinitionsV1Result(publication);
+    const developerTokens = yield*
+      prepareAppDeveloperIndexDefinitionBindingsV1Result(publication);
+    return { state, creationTimeTokens, developerTokens };
   });
 }
 

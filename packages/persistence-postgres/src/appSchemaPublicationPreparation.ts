@@ -167,7 +167,7 @@ const publicationSourceStates = new WeakMap<
   ValidatedPrepareAppSchemaPublicationV1Input
 >();
 
-interface PreparedAppSchemaPublicationV1State {
+export interface PreparedAppSchemaPublicationV1State {
   readonly logicalBindings: PreparedSchemaManifestAppSchemaBindingsV1;
   readonly requirements: CompiledAppSchemaCatalogRequirementsV1;
   readonly artifact: PreparedSchemaVersionArtifact;
@@ -318,15 +318,17 @@ const compileAppSchemaCatalogRequirementsV1Effect = Effect.fn(
     ),
   ));
 
-/** Package-internal authenticated composition seam for D2b/D2c. */
-export function getPreparedAppSchemaPublicationV1State(
+/** Pure package-internal decoder for the D2a process-local capability state. */
+export function getPreparedAppSchemaPublicationV1StateResult(
   prepared: PreparedAppSchemaPublicationV1,
-): PreparedAppSchemaPublicationV1State {
+): Result.Result<
+  PreparedAppSchemaPublicationV1State,
+  InvalidPreparedAppSchemaPublicationV1Error
+> {
   const state = preparedPublicationStates.get(prepared);
-  if (state === undefined) {
-    throw new InvalidPreparedAppSchemaPublicationV1Error();
-  }
-  return state;
+  return state === undefined
+    ? Result.fail(new InvalidPreparedAppSchemaPublicationV1Error())
+    : Result.succeed(state);
 }
 
 function validateAndSnapshotInputResult(

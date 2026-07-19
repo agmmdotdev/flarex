@@ -265,6 +265,11 @@ its pure `Result` decoder. Because D2a consumes the token it just created,
 impossible loss of repository authentication remains a defect instead of
 widening the recoverable preparation failure channel; the synchronous throwing
 projection is deleted.
+D2b child-token derivation and D2c's pre-transaction preparation now compose
+their owned authentication and requirement failures through ordered `Result`
+operations. The broad `Result.try` plus `instanceof` reconstruction and all
+three throwing preparation projections are deleted; unexpected runtime defects
+remain outside the recoverable publication channel.
 
 The retained table-only `ensureAppTableDefinitionsArtifactV1` compatibility
 operation is now Effect-native behind its unchanged public Promise contract.

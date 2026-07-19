@@ -49,7 +49,8 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 import {
-  getPreparedAppSchemaPublicationV1State,
+  getPreparedAppSchemaPublicationV1StateResult,
+  type InvalidPreparedAppSchemaPublicationV1Error,
   type PreparedAppSchemaPublicationV1,
 } from "./appSchemaPublicationPreparation";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -639,79 +640,94 @@ export const prepareAppDeveloperIndexDefinitionBindingV1Effect = Effect.fn(
  * digest, physical ID, lifecycle, or readiness authority. D2c later owns
  * consuming the complete set; D2b only provides the per-table row primitive.
  */
-export function prepareAppCreationTimeIndexDefinitionsV1(
+export function prepareAppCreationTimeIndexDefinitionsV1Result(
   publication: PreparedAppSchemaPublicationV1,
-): ReadonlyArray<PreparedAppCreationTimeIndexDefinitionV1> {
-  const publicationState =
-    getPreparedAppSchemaPublicationV1State(publication);
-  const tables = publicationState.logicalBindings.manifest
-    .tableDefinitions.tables;
-  const requirements = publicationState.requirements.creationTimeIndexes;
-  if (tables.length !== requirements.length) {
-    throw new AppCreationTimeIndexDefinitionRequirementError(
-      publication.deploymentId,
-      {
-        reason: "requirementCountMismatch",
-        tableCount: tables.length,
-        requirementCount: requirements.length,
-      },
+): Result.Result<
+  ReadonlyArray<PreparedAppCreationTimeIndexDefinitionV1>,
+  | InvalidPreparedAppSchemaPublicationV1Error
+  | AppCreationTimeIndexDefinitionRequirementError
+> {
+  return Result.gen(function* () {
+    const publicationState = yield*
+      getPreparedAppSchemaPublicationV1StateResult(publication);
+    const tables = publicationState.logicalBindings.manifest
+      .tableDefinitions.tables;
+    const requirements = publicationState.requirements.creationTimeIndexes;
+    if (tables.length !== requirements.length) {
+      return yield* Result.fail(
+        new AppCreationTimeIndexDefinitionRequirementError(
+          publication.deploymentId,
+          {
+            reason: "requirementCountMismatch",
+            tableCount: tables.length,
+            requirementCount: requirements.length,
+          },
+        ),
+      );
+    }
+    const tablesById = new Map(
+      tables.map((table) => [table.tableId, table] as const),
     );
-  }
-  const tablesById = new Map(
-    tables.map((table) => [table.tableId, table] as const),
-  );
-  const seenTableIds = new Set<CatalogTableId>();
-  const prepared = requirements.map((requirement) => {
-    const table = tablesById.get(requirement.tableId);
-    if (table === undefined) {
-      throw new AppCreationTimeIndexDefinitionRequirementError(
-        publication.deploymentId,
-        {
-          reason: "requirementTableNotFound",
-          tableId: requirement.tableId,
-        },
+    const seenTableIds = new Set<CatalogTableId>();
+    const prepared: PreparedAppCreationTimeIndexDefinitionV1[] = [];
+    for (const requirement of requirements) {
+      const table = tablesById.get(requirement.tableId);
+      if (table === undefined) {
+        return yield* Result.fail(
+          new AppCreationTimeIndexDefinitionRequirementError(
+            publication.deploymentId,
+            {
+              reason: "requirementTableNotFound",
+              tableId: requirement.tableId,
+            },
+          ),
+        );
+      }
+      if (seenTableIds.has(requirement.tableId)) {
+        return yield* Result.fail(
+          new AppCreationTimeIndexDefinitionRequirementError(
+            publication.deploymentId,
+            {
+              reason: "duplicateRequirementTable",
+              tableId: requirement.tableId,
+            },
+          ),
+        );
+      }
+      seenTableIds.add(requirement.tableId);
+      const access = Object.freeze({
+        kind: "by_creation_time",
+        tableId: requirement.tableId,
+      } satisfies AppCreationTimePhysicalIndexAccessIdentityV1);
+      const token = Object.freeze({
+        deploymentId: publication.deploymentId,
+        tableId: requirement.tableId,
+        [preparedCreationTimeDefinitionBrand]: true,
+      } satisfies PreparedAppCreationTimeIndexDefinitionV1);
+      preparedCreationTimeDefinitionStates.set(token, Object.freeze({
+        deploymentId: publication.deploymentId,
+        tableId: requirement.tableId,
+        expectedLogicalName: table.logicalName,
+        access,
+        storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
+        canonical: requirement.canonical,
+      } satisfies PreparedCreationTimeDefinitionState));
+      prepared.push(token);
+    }
+    if (seenTableIds.size !== tablesById.size) {
+      return yield* Result.fail(
+        new AppCreationTimeIndexDefinitionRequirementError(
+          publication.deploymentId,
+          {
+            reason: "incompleteRequirementSet",
+            coveredTableCount: seenTableIds.size,
+            tableCount: tablesById.size,
+          },
+        ),
       );
     }
-    if (seenTableIds.has(requirement.tableId)) {
-      throw new AppCreationTimeIndexDefinitionRequirementError(
-        publication.deploymentId,
-        {
-          reason: "duplicateRequirementTable",
-          tableId: requirement.tableId,
-        },
-      );
-    }
-    seenTableIds.add(requirement.tableId);
-    const access = Object.freeze({
-      kind: "by_creation_time",
-      tableId: requirement.tableId,
-    } satisfies AppCreationTimePhysicalIndexAccessIdentityV1);
-    const token = Object.freeze({
-      deploymentId: publication.deploymentId,
-      tableId: requirement.tableId,
-      [preparedCreationTimeDefinitionBrand]: true,
-    } satisfies PreparedAppCreationTimeIndexDefinitionV1);
-    preparedCreationTimeDefinitionStates.set(token, Object.freeze({
-      deploymentId: publication.deploymentId,
-      tableId: requirement.tableId,
-      expectedLogicalName: table.logicalName,
-      access,
-      storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
-      canonical: requirement.canonical,
-    } satisfies PreparedCreationTimeDefinitionState));
-    return token;
+    return Object.freeze(prepared);
   });
-  if (seenTableIds.size !== tablesById.size) {
-    throw new AppCreationTimeIndexDefinitionRequirementError(
-      publication.deploymentId,
-      {
-        reason: "incompleteRequirementSet",
-        coveredTableCount: seenTableIds.size,
-        tableCount: tablesById.size,
-      },
-    );
-  }
-  return Object.freeze(prepared);
 }
 
 /**
@@ -722,91 +738,109 @@ export function prepareAppCreationTimeIndexDefinitionsV1(
  * an internally inconsistent requirement set from becoming persistence
  * authority even if a future compiler refactor changes one side of the seam.
  */
-export function prepareAppDeveloperIndexDefinitionBindingsV1(
+export function prepareAppDeveloperIndexDefinitionBindingsV1Result(
   publication: PreparedAppSchemaPublicationV1,
-): ReadonlyArray<PreparedAppDeveloperIndexDefinitionBindingV1> {
-  const publicationState =
-    getPreparedAppSchemaPublicationV1State(publication);
-  const indexes = publicationState.logicalBindings.manifest.indexBindings.indexes;
-  const requirements = publicationState.requirements.developerIndexes;
-  if (indexes.length !== requirements.length) {
-    throw new AppDeveloperIndexDefinitionRequirementError(
-      publication.deploymentId,
-      {
-        reason: "requirementCountMismatch",
-        indexCount: indexes.length,
-        requirementCount: requirements.length,
-      },
-    );
-  }
+): Result.Result<
+  ReadonlyArray<PreparedAppDeveloperIndexDefinitionBindingV1>,
+  | InvalidPreparedAppSchemaPublicationV1Error
+  | AppDeveloperIndexDefinitionRequirementError
+> {
+  return Result.gen(function* () {
+    const publicationState = yield*
+      getPreparedAppSchemaPublicationV1StateResult(publication);
+    const indexes = publicationState.logicalBindings.manifest
+      .indexBindings.indexes;
+    const requirements = publicationState.requirements.developerIndexes;
+    if (indexes.length !== requirements.length) {
+      return yield* Result.fail(
+        new AppDeveloperIndexDefinitionRequirementError(
+          publication.deploymentId,
+          {
+            reason: "requirementCountMismatch",
+            indexCount: indexes.length,
+            requirementCount: requirements.length,
+          },
+        ),
+      );
+    }
 
-  const indexesById = new Map(
-    indexes.map((index) => [index.logicalIndexId, index] as const),
-  );
-  const seenLogicalIndexIds = new Set<CatalogIndexId>();
-  const prepared = requirements.map((requirement) => {
-    const index = indexesById.get(requirement.logicalIndexId);
-    if (index === undefined) {
-      throw new AppDeveloperIndexDefinitionRequirementError(
-        publication.deploymentId,
-        {
-          reason: "requirementLogicalIndexNotFound",
-          logicalIndexId: requirement.logicalIndexId,
-        },
-      );
-    }
-    if (
-      index.tableId !== requirement.tableId ||
-      index.descriptor !== requirement.descriptor
-    ) {
-      throw new AppDeveloperIndexDefinitionRequirementError(
-        publication.deploymentId,
-        {
-          reason: "requirementIdentityMismatch",
-          logicalIndexId: requirement.logicalIndexId,
-          requirementTableId: requirement.tableId,
-          currentTableId: index.tableId,
-          requirementDescriptor: requirement.descriptor,
-          currentDescriptor: index.descriptor,
-        },
-      );
-    }
-    if (seenLogicalIndexIds.has(requirement.logicalIndexId)) {
-      throw new AppDeveloperIndexDefinitionRequirementError(
-        publication.deploymentId,
-        {
-          reason: "duplicateRequirementLogicalIndex",
-          logicalIndexId: requirement.logicalIndexId,
-        },
-      );
-    }
-    seenLogicalIndexIds.add(requirement.logicalIndexId);
-    const access = Object.freeze({
-      kind: "developer",
-      tableId: requirement.tableId,
-      logicalIndexId: requirement.logicalIndexId,
-    } satisfies AppDeveloperPhysicalIndexAccessIdentityV1);
-    return registerPreparedDeveloperIndexDefinitionBinding({
-      deploymentId: publication.deploymentId,
-      schemaVersionId: publication.schemaVersionId,
-      tableId: requirement.tableId,
-      logicalIndexId: requirement.logicalIndexId,
-      access,
-      storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
-      canonical: requirement.canonical,
-    });
-  });
-  if (seenLogicalIndexIds.size !== indexesById.size) {
-    throw new AppDeveloperIndexDefinitionRequirementError(
-      publication.deploymentId,
-      {
-        reason: "incompleteRequirementSet",
-        coveredIndexCount: seenLogicalIndexIds.size,
-        indexCount: indexesById.size,
-      },
+    const indexesById = new Map(
+      indexes.map((index) => [index.logicalIndexId, index] as const),
     );
-  }
-  return Object.freeze(prepared);
+    const seenLogicalIndexIds = new Set<CatalogIndexId>();
+    const prepared: PreparedAppDeveloperIndexDefinitionBindingV1[] = [];
+    for (const requirement of requirements) {
+      const index = indexesById.get(requirement.logicalIndexId);
+      if (index === undefined) {
+        return yield* Result.fail(
+          new AppDeveloperIndexDefinitionRequirementError(
+            publication.deploymentId,
+            {
+              reason: "requirementLogicalIndexNotFound",
+              logicalIndexId: requirement.logicalIndexId,
+            },
+          ),
+        );
+      }
+      if (
+        index.tableId !== requirement.tableId ||
+        index.descriptor !== requirement.descriptor
+      ) {
+        return yield* Result.fail(
+          new AppDeveloperIndexDefinitionRequirementError(
+            publication.deploymentId,
+            {
+              reason: "requirementIdentityMismatch",
+              logicalIndexId: requirement.logicalIndexId,
+              requirementTableId: requirement.tableId,
+              currentTableId: index.tableId,
+              requirementDescriptor: requirement.descriptor,
+              currentDescriptor: index.descriptor,
+            },
+          ),
+        );
+      }
+      if (seenLogicalIndexIds.has(requirement.logicalIndexId)) {
+        return yield* Result.fail(
+          new AppDeveloperIndexDefinitionRequirementError(
+            publication.deploymentId,
+            {
+              reason: "duplicateRequirementLogicalIndex",
+              logicalIndexId: requirement.logicalIndexId,
+            },
+          ),
+        );
+      }
+      seenLogicalIndexIds.add(requirement.logicalIndexId);
+      const access = Object.freeze({
+        kind: "developer",
+        tableId: requirement.tableId,
+        logicalIndexId: requirement.logicalIndexId,
+      } satisfies AppDeveloperPhysicalIndexAccessIdentityV1);
+      prepared.push(registerPreparedDeveloperIndexDefinitionBinding({
+        deploymentId: publication.deploymentId,
+        schemaVersionId: publication.schemaVersionId,
+        tableId: requirement.tableId,
+        logicalIndexId: requirement.logicalIndexId,
+        access,
+        storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
+        canonical: requirement.canonical,
+      }));
+    }
+    if (seenLogicalIndexIds.size !== indexesById.size) {
+      return yield* Result.fail(
+        new AppDeveloperIndexDefinitionRequirementError(
+          publication.deploymentId,
+          {
+            reason: "incompleteRequirementSet",
+            coveredIndexCount: seenLogicalIndexIds.size,
+            indexCount: indexesById.size,
+          },
+        ),
+      );
+    }
+    return Object.freeze(prepared);
+  });
 }
 
 function registerPreparedDeveloperIndexDefinitionBinding(

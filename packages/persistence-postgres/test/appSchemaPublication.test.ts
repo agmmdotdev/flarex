@@ -11,7 +11,7 @@ import { Cause, Effect, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
-  getPreparedAppSchemaPublicationV1State,
+  getPreparedAppSchemaPublicationV1StateResult,
   prepareAppSchemaPublicationV1Effect,
 } from "../src/appSchemaPublicationPreparation";
 import {
@@ -49,6 +49,10 @@ type ThrowingQuotaPolicyExport = Extract<
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
 ) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
+
+const getPreparedAppSchemaPublicationV1State = (
+  ...args: Parameters<typeof getPreparedAppSchemaPublicationV1StateResult>
+) => Result.getOrThrow(getPreparedAppSchemaPublicationV1StateResult(...args));
 
 const publishAppSchemaV1WithRepository = (
   ...args: Parameters<typeof publishAppSchemaV1WithRepositoryEffect>

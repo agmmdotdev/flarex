@@ -9,14 +9,14 @@ import {
   CatalogSchemaVersionSchema,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { Cause, Effect, Exit, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 // @ts-expect-error D2b prepared tokens must remain absent from the package root.
 import type { PreparedAppCreationTimeIndexDefinitionV1 as RootPreparedAppCreationTimeIndexDefinitionV1 } from "../src";
 import type { FlarexPersistence } from "../src";
 import {
-  getPreparedAppSchemaPublicationV1State,
+  getPreparedAppSchemaPublicationV1StateResult,
   InvalidPreparedAppSchemaPublicationV1Error,
   prepareAppSchemaPublicationV1Effect,
 } from "../src/appSchemaPublicationPreparation";
@@ -25,7 +25,8 @@ import {
   AppCreationTimeIndexDefinitionChecksumCollisionError,
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
   InvalidPreparedAppCreationTimeIndexDefinitionError,
-  prepareAppCreationTimeIndexDefinitionsV1,
+  prepareAppCreationTimeIndexDefinitionsV1Result,
+  prepareAppDeveloperIndexDefinitionBindingsV1Result,
   type EnsureAppCreationTimeIndexDefinitionV1Error,
   type EnsureAppCreationTimeIndexDefinitionV1Result,
   type PreparedAppCreationTimeIndexDefinitionV1,
@@ -41,6 +42,14 @@ const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
 ) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
 
+const getPreparedAppSchemaPublicationV1State = (
+  ...args: Parameters<typeof getPreparedAppSchemaPublicationV1StateResult>
+) => Result.getOrThrow(getPreparedAppSchemaPublicationV1StateResult(...args));
+
+const prepareAppCreationTimeIndexDefinitionsV1 = (
+  ...args: Parameters<typeof prepareAppCreationTimeIndexDefinitionsV1Result>
+) => Result.getOrThrow(prepareAppCreationTimeIndexDefinitionsV1Result(...args));
+
 type PublicD2bMethod = Extract<
   keyof FlarexPersistence,
   | "prepareAppCreationTimeIndexDefinitionsV1"
@@ -50,7 +59,16 @@ type PublicD2bMethod = Extract<
 type PublicD2bValueExport = Extract<
   keyof typeof import("../src"),
   | "prepareAppCreationTimeIndexDefinitionsV1"
+  | "prepareAppCreationTimeIndexDefinitionsV1Result"
+  | "prepareAppDeveloperIndexDefinitionBindingsV1"
+  | "prepareAppDeveloperIndexDefinitionBindingsV1Result"
   | "ensureAppCreationTimeIndexDefinitionV1InTransaction"
+>;
+
+type ThrowingD2bPreparationExport = Extract<
+  keyof typeof import("../src/appIndexDefinitions"),
+  | "prepareAppCreationTimeIndexDefinitionsV1"
+  | "prepareAppDeveloperIndexDefinitionBindingsV1"
 >;
 
 type PreparedTokenStringKey = Extract<
@@ -62,6 +80,7 @@ describe("table-owned app creation-time index definitions", () => {
   it("keeps the derived row primitive package-internal and identity-only", () => {
     expectTypeOf<PublicD2bMethod>().toEqualTypeOf<never>();
     expectTypeOf<PublicD2bValueExport>().toEqualTypeOf<never>();
+    expectTypeOf<ThrowingD2bPreparationExport>().toEqualTypeOf<never>();
     expectTypeOf<PreparedTokenStringKey>().toEqualTypeOf<
       "deploymentId" | "tableId"
     >();
@@ -162,13 +181,22 @@ describe("table-owned app creation-time index definitions", () => {
       buildStates: 0,
     });
 
-    expect(() =>
-      Reflect.apply(
-        prepareAppCreationTimeIndexDefinitionsV1,
+    for (const prepare of [
+      prepareAppCreationTimeIndexDefinitionsV1Result,
+      prepareAppDeveloperIndexDefinitionBindingsV1Result,
+    ]) {
+      const forgedPublication = Reflect.apply(
+        prepare,
         undefined,
         [{ ...fixture.publication }],
-      )
-    ).toThrow(InvalidPreparedAppSchemaPublicationV1Error);
+      );
+      expect(Result.isFailure(forgedPublication)).toBe(true);
+      if (Result.isFailure(forgedPublication)) {
+        expect(forgedPublication.failure).toBeInstanceOf(
+          InvalidPreparedAppSchemaPublicationV1Error,
+        );
+      }
+    }
     const forgedToken = { ...requiredToken(fixture.tokens, 0) };
     await expect(
       persistence.drizzle.transaction((tx) =>

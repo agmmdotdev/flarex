@@ -13,6 +13,7 @@ import {
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
+import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -22,7 +23,7 @@ import {
   AppSchemaVersionIndexBindingConflictError,
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
-  prepareAppCreationTimeIndexDefinitionsV1,
+  prepareAppCreationTimeIndexDefinitionsV1Result,
   prepareAppDeveloperIndexDefinitionBindingV1Effect,
   type PreparedAppCreationTimeIndexDefinitionV1,
   type PreparedAppDeveloperIndexDefinitionBindingV1,
@@ -50,6 +51,10 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
 ) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
+
+const prepareAppCreationTimeIndexDefinitionsV1 = (
+  ...args: Parameters<typeof prepareAppCreationTimeIndexDefinitionsV1Result>
+) => Result.getOrThrow(prepareAppCreationTimeIndexDefinitionsV1Result(...args));
 
 const prepareAppDeveloperIndexDefinitionBindingV1 = (
   ...args: Parameters<typeof prepareAppDeveloperIndexDefinitionBindingV1Effect>
