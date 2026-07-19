@@ -334,6 +334,10 @@ consumer; persistence tests own the explicit runtime bridge. The stable-table
 and stable-logical-index stored-ID `Result` decoders are now their sole
 normalization authority; three unconsumed throwing projections and their
 facade-only assertions are deleted.
+Stable-table namespace normalization now consumes its hoisted Schema `Result`
+directly, deleting the catalog flow's last generic `Result.try`. Invalid stored
+namespaces remain typed corruption, while property-access or runtime failures
+remain defects and earlier failures still prevent later row access.
 
 Fenced index build-state reads are now Effect-native at the exported
 persistence boundary. Unknown input and stored clock/build rows compose through

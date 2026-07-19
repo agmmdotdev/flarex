@@ -442,6 +442,58 @@ describe("stable table catalog", () => {
     });
   });
 
+  it("short-circuits malformed stored namespaces as typed corruption", async () => {
+    let logicalNameObserved = false;
+    const row = {
+      deploymentId: "deployment_catalog_namespace_corruption",
+      tableId: CatalogTableIdSchema.make(1),
+      namespace: "invalid_namespace",
+      get logicalName(): never {
+        logicalNameObserved = true;
+        throw new Error("later logical-name accessor must not run");
+      },
+      createdAt: new Date(),
+    };
+
+    const failure = await runEffectFailure(getStableTableIdentityByIdEffect(
+      stableTableReadDatabase(() => Promise.resolve([row])),
+      "deployment_catalog_namespace_corruption",
+      CatalogTableIdSchema.make(1),
+    ));
+
+    expect(failure).toBeInstanceOf(StableTableCatalogCorruptionError);
+    expect(failure).toMatchObject({
+      detail: "invalid namespace: invalid_namespace",
+    });
+    expect(logicalNameObserved).toBe(false);
+  });
+
+  it("preserves stored namespace accessor failures as defects", async () => {
+    const defect = new Error("stored table namespace accessor defect");
+    const row = {
+      deploymentId: "deployment_catalog_namespace_defect",
+      tableId: CatalogTableIdSchema.make(1),
+      get namespace(): never {
+        throw defect;
+      },
+      logicalName: "users",
+      createdAt: new Date(),
+    };
+
+    const exit = await Effect.runPromiseExit(getStableTableIdentityByIdEffect(
+      stableTableReadDatabase(() => Promise.resolve([row])),
+      "deployment_catalog_namespace_defect",
+      CatalogTableIdSchema.make(1),
+    ));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
   it("waits for a pending ID read before interruption completes", async () => {
     const entered = deferredValue<void>();
     const query = deferredValue<readonly []>();

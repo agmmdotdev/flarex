@@ -2,7 +2,6 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import {
-  decodeCatalogTableNamespace,
   type CatalogTableId,
   type CatalogTableNamespace,
   CatalogTableNamespaceSchema,
@@ -487,11 +486,11 @@ function runStableTableCatalogEffectTransaction<ResultValue, Failure>(
 function decodeStoredNamespaceResult(
   row: typeof fxControlTables.$inferSelect,
 ): Result.Result<CatalogTableNamespace, StableTableCatalogCorruptionError> {
-  return Result.try({
-    try: () => decodeCatalogTableNamespace(row.namespace),
-    catch: () => new StableTableCatalogCorruptionError(
+  const namespace = row.namespace;
+  return decodeCatalogTableNamespaceResult(namespace).pipe(
+    Result.mapError(() => new StableTableCatalogCorruptionError(
       row.deploymentId,
-      `invalid namespace: ${String(row.namespace)}`,
-    ),
-  });
+      `invalid namespace: ${String(namespace)}`,
+    )),
+  );
 }
