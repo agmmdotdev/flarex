@@ -211,12 +211,20 @@ stable parent verification, replay lookup, high-water allocation, insert, and
 prepared-row validation through one typed Effect operation. Its SQL awaits are
 interruption-masked foreign Drizzle edges with operation-specific persistence
 failures, while unexpected synchronous defects remain outside the typed error
-channel. The low-level stable-ID Promise projection was deleted. One temporary
-D2c runtime projection remains at the owning Promise transaction callback and
-is deleted when the complete app-schema publication transaction becomes
-Effect-native. High-water Promise and throwing allocation projections remain
-temporary for the schema-binding planner/revalidation chains and are deleted
-when those chains become Effect-native.
+channel. The low-level stable-ID Promise projection was deleted. Developer
+index-definition and schema-binding writes now follow the same Effect-native
+shape: the deployment lock, schema and logical-parent checks, existing binding
+classification, definition replay or allocation, binding insert, and returned
+row verification retain their original order and typed distinctions. Each
+rejecting Drizzle statement maps once to an operation-specific persistence
+failure; owned stored-row decoding uses `Result`, and synchronous construction
+or accessor failures remain defects. The old developer async writer and its
+Promise-only helpers were deleted. One temporary D2c runtime projection now
+consumes both Effect-native physical-definition writers at the owning Promise
+transaction callback and is deleted when the complete app-schema publication
+transaction becomes Effect-native. High-water Promise and throwing allocation
+projections remain temporary for the schema-binding planner/revalidation chains
+and are deleted when those chains become Effect-native.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

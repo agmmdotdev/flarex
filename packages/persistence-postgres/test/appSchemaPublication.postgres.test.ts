@@ -397,9 +397,11 @@ describePostgres("real Postgres app-schema V1 publication", () => {
         logicalSpec: extraIndex.spec,
       });
       await persistence.drizzle.transaction((tx) =>
-        ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
-          tx,
-          extraBinding,
+        runEffect(
+          ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
+            tx,
+            extraBinding,
+          ),
         )
       );
       await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({

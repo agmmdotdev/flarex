@@ -47,6 +47,7 @@ import {
   SchemaVersionArtifactCorruptionError,
 } from "../src/schemaVersionArtifacts";
 import { StableTableCatalogDeploymentNotFoundError } from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 
 type PublicInternalPublicationExport = Extract<
   keyof typeof import("../src"),
@@ -654,7 +655,12 @@ describe("app-schema V1 publication transaction", () => {
       logicalSpec: extraLogicalIndex.spec,
     });
     await persistence.drizzle.transaction((tx) =>
-      ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, extraBinding)
+      runEffect(
+        ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
+          tx,
+          extraBinding,
+        ),
+      )
     );
 
     await expect(

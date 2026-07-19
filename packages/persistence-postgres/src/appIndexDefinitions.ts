@@ -52,7 +52,6 @@ import {
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
-  lockSchemaManifestBindingDeployment,
   lockSchemaManifestBindingDeploymentEffect,
   type SchemaManifestTableBindingPersistenceError,
 } from "./schemaManifestTableBindings";
@@ -174,6 +173,8 @@ export class InvalidAppIndexDefinitionBindingInputError extends Error {
 }
 
 export class InvalidPreparedAppIndexDefinitionBindingError extends Error {
+  readonly _tag = "InvalidPreparedAppIndexDefinitionBindingError" as const;
+
   constructor() {
     super(
       "App index definition binding was not prepared by this repository instance.",
@@ -290,6 +291,8 @@ export type AppIndexDefinitionParentIssue =
     };
 
 export class AppIndexDefinitionParentError extends Error {
+  readonly _tag = "AppIndexDefinitionParentError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly schemaVersionId: CatalogSchemaVersionId,
@@ -331,6 +334,8 @@ export class AppIndexDefinitionCatalogCorruptionError extends Error {
 }
 
 export class AppIndexDefinitionChecksumCollisionError extends Error {
+  readonly _tag = "AppIndexDefinitionChecksumCollisionError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly logicalIndexId: CatalogIndexId,
@@ -413,7 +418,41 @@ export type EnsureAppCreationTimeIndexDefinitionV1Error =
   | AppIndexDefinitionIdExhaustedError
   | AppCreationTimeIndexDefinitionChecksumCollisionError;
 
+export class AppDeveloperIndexDefinitionPersistenceError extends Error {
+  readonly _tag = "AppDeveloperIndexDefinitionPersistenceError" as const;
+
+  constructor(
+    readonly operation:
+      | "readSchemaParent"
+      | "readLogicalIndexParent"
+      | "findExistingDefinition"
+      | "readExistingBinding"
+      | "readDefinitionHighWater"
+      | "insertDefinition"
+      | "insertBinding",
+    readonly cause: unknown,
+  ) {
+    super(`Failed to ${developerPersistenceOperationMessage(operation)}.`, {
+      cause,
+    });
+    this.name = "AppDeveloperIndexDefinitionPersistenceError";
+  }
+}
+
+export type EnsureAppDeveloperIndexDefinitionBindingV1Error =
+  | InvalidPreparedAppIndexDefinitionBindingError
+  | StableTableCatalogDeploymentNotFoundError
+  | SchemaManifestTableBindingPersistenceError
+  | AppDeveloperIndexDefinitionPersistenceError
+  | AppIndexDefinitionParentError
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppIndexDefinitionIdExhaustedError
+  | AppIndexDefinitionChecksumCollisionError
+  | AppSchemaVersionIndexBindingConflictError;
+
 export class AppSchemaVersionIndexBindingConflictError extends Error {
+  readonly _tag = "AppSchemaVersionIndexBindingConflictError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly schemaVersionId: CatalogSchemaVersionId,
@@ -713,19 +752,29 @@ function registerPreparedDeveloperIndexDefinitionBinding(
  * caller-owned transaction. This helper never commits and is intentionally not
  * exported from the package root; S03-D must compose it with full publication.
  */
-export async function ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
+export const ensureAppDeveloperIndexDefinitionBindingV1InTransaction = Effect.fn(
+  "AppIndexDefinitions.ensureDeveloperBindingInTransaction",
+)(function* (
   tx: StableTableCatalogTransaction,
   prepared: PreparedAppDeveloperIndexDefinitionBindingV1,
-): Promise<EnsureAppDeveloperIndexDefinitionBindingV1Result> {
+): Effect.fn.Return<
+  EnsureAppDeveloperIndexDefinitionBindingV1Result,
+  EnsureAppDeveloperIndexDefinitionBindingV1Error
+> {
   const state = preparedDefinitionBindingStates.get(prepared);
   if (state === undefined) {
-    throw new InvalidPreparedAppIndexDefinitionBindingError();
+    return yield* Effect.fail(
+      new InvalidPreparedAppIndexDefinitionBindingError(),
+    );
   }
 
-  await lockSchemaManifestBindingDeployment(tx, state.deploymentId);
-  await verifyParents(tx, state);
-  const existingDefinition = await findExistingDefinition(tx, state);
-  const existingBinding = await readExistingBinding(tx, state);
+  yield* lockSchemaManifestBindingDeploymentEffect(tx, state.deploymentId);
+  yield* verifyDeveloperParentsEffect(tx, state);
+  const existingDefinition = yield* findExistingDeveloperDefinitionEffect(
+    tx,
+    state,
+  );
+  const existingBinding = yield* readExistingDeveloperBindingEffect(tx, state);
   if (existingBinding !== null) {
     if (
       existingDefinition !== null &&
@@ -739,17 +788,19 @@ export async function ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
         binding: existingBinding,
       } satisfies EnsureAppDeveloperIndexDefinitionBindingV1Result);
     }
-    throw new AppSchemaVersionIndexBindingConflictError(
-      state.deploymentId,
-      state.schemaVersionId,
-      state.logicalIndexId,
-      existingBinding.indexDefinitionId,
-      existingDefinition?.indexDefinitionId ?? null,
+    return yield* Effect.fail(
+      new AppSchemaVersionIndexBindingConflictError(
+        state.deploymentId,
+        state.schemaVersionId,
+        state.logicalIndexId,
+        existingBinding.indexDefinitionId,
+        existingDefinition?.indexDefinitionId ?? null,
+      ),
     );
   }
 
   const ensuredDefinition = existingDefinition === null
-    ? await insertDefinition(tx, state)
+    ? yield* insertDeveloperDefinitionEffect(tx, state)
     : Object.freeze({
       status: "existing",
       definition: existingDefinition,
@@ -758,7 +809,7 @@ export async function ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
       readonly definition:
         AppIndexDefinitionRecordForAccessKindV1<"developer">;
     });
-  const insertedBinding = await insertBinding(
+  const insertedBinding = yield* insertDeveloperBindingEffect(
     tx,
     state,
     ensuredDefinition.definition.indexDefinitionId,
@@ -770,7 +821,7 @@ export async function ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
     definition: ensuredDefinition.definition,
     binding: insertedBinding,
   } satisfies EnsureAppDeveloperIndexDefinitionBindingV1Result);
-}
+});
 
 /**
  * Ensure one table-owned intrinsic definition in a caller-owned transaction.
@@ -925,11 +976,18 @@ export async function listAppSchemaVersionIndexBindings(
   return Object.freeze(rows.map(decodeStoredBinding));
 }
 
-async function verifyParents(
+const verifyDeveloperParentsEffect = Effect.fn(
+  "AppIndexDefinitions.verifyDeveloperParents",
+)(function* (
   tx: StableTableCatalogTransaction,
   state: PreparedDefinitionBindingState,
-): Promise<void> {
-  const schemaRows = await tx
+): Effect.fn.Return<
+  void,
+  | AppDeveloperIndexDefinitionPersistenceError
+  | AppIndexDefinitionParentError
+  | AppIndexDefinitionCatalogCorruptionError
+> {
+  const schemaQuery = tx
     .select({ schemaVersionId: fxControlSchemaVersions.schemaVersionId })
     .from(fxControlSchemaVersions)
     .where(
@@ -939,16 +997,25 @@ async function verifyParents(
       ),
     )
     .limit(1);
+  const schemaRows = yield* readDefinitionRowsEffect(
+    schemaQuery,
+    (cause) => new AppDeveloperIndexDefinitionPersistenceError(
+      "readSchemaParent",
+      cause,
+    ),
+  );
   if (schemaRows[0] === undefined) {
-    throw new AppIndexDefinitionParentError(
-      state.deploymentId,
-      state.schemaVersionId,
-      state.logicalIndexId,
-      { reason: "schemaVersionNotFound" },
+    return yield* Effect.fail(
+      new AppIndexDefinitionParentError(
+        state.deploymentId,
+        state.schemaVersionId,
+        state.logicalIndexId,
+        { reason: "schemaVersionNotFound" },
+      ),
     );
   }
 
-  const logicalRows = await tx
+  const logicalQuery = tx
     .select({ tableId: fxControlIndexes.tableId })
     .from(fxControlIndexes)
     .where(
@@ -958,32 +1025,45 @@ async function verifyParents(
       ),
     )
     .limit(1);
+  const logicalRows = yield* readDefinitionRowsEffect(
+    logicalQuery,
+    (cause) => new AppDeveloperIndexDefinitionPersistenceError(
+      "readLogicalIndexParent",
+      cause,
+    ),
+  );
   const logicalRow = logicalRows[0];
   if (logicalRow === undefined) {
-    throw new AppIndexDefinitionParentError(
-      state.deploymentId,
-      state.schemaVersionId,
-      state.logicalIndexId,
-      { reason: "logicalIndexNotFound" },
+    return yield* Effect.fail(
+      new AppIndexDefinitionParentError(
+        state.deploymentId,
+        state.schemaVersionId,
+        state.logicalIndexId,
+        { reason: "logicalIndexNotFound" },
+      ),
     );
   }
-  const currentTableId = decodeStoredTableId(
-    state.deploymentId,
-    logicalRow.tableId,
+  const currentTableId = yield* Effect.fromResult(
+    decodeDeveloperStoredResult(() => decodeStoredTableId(
+      state.deploymentId,
+      logicalRow.tableId,
+    )),
   );
   if (currentTableId !== state.tableId) {
-    throw new AppIndexDefinitionParentError(
-      state.deploymentId,
-      state.schemaVersionId,
-      state.logicalIndexId,
-      {
-        reason: "logicalIndexTableMismatch",
-        requestedTableId: state.tableId,
-        currentTableId,
-      },
+    return yield* Effect.fail(
+      new AppIndexDefinitionParentError(
+        state.deploymentId,
+        state.schemaVersionId,
+        state.logicalIndexId,
+        {
+          reason: "logicalIndexTableMismatch",
+          requestedTableId: state.tableId,
+          currentTableId,
+        },
+      ),
     );
   }
-}
+});
 
 const verifyCreationTimeTableParentEffect = Effect.fn(
   "AppIndexDefinitions.verifyCreationTimeTableParent",
@@ -1032,17 +1112,31 @@ const verifyCreationTimeTableParentEffect = Effect.fn(
   }
 });
 
-async function findExistingDefinition<
-  Kind extends AppPhysicalIndexAccessKindV1,
->(
+const findExistingDeveloperDefinitionEffect = Effect.fn(
+  "AppIndexDefinitions.findExistingDeveloperDefinition",
+)(function* (
   tx: StableTableCatalogTransaction,
-  state: PreparedPhysicalDefinitionState<Kind>,
-): Promise<AppIndexDefinitionRecordForAccessKindV1<Kind> | null> {
-  const existingRows = await selectExistingDefinitionRows(tx, state);
+  state: PreparedDefinitionBindingState,
+): Effect.fn.Return<
+  AppIndexDefinitionRecordForAccessKindV1<"developer"> | null,
+  | AppDeveloperIndexDefinitionPersistenceError
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppIndexDefinitionChecksumCollisionError
+> {
+  const query = selectExistingDefinitionRows(tx, state);
+  const existingRows = yield* readDefinitionRowsEffect(
+    query,
+    (cause) => new AppDeveloperIndexDefinitionPersistenceError(
+      "findExistingDefinition",
+      cause,
+    ),
+  );
   const existingRow = existingRows[0];
   if (existingRow === undefined) return null;
-  return decodeStoredDefinitionAgainstPrepared(existingRow, state);
-}
+  return yield* Effect.fromResult(decodeDeveloperDefinitionResult(() =>
+    decodeStoredDefinitionAgainstPrepared(existingRow, state)
+  ));
+});
 
 function selectExistingDefinitionRows<
   Kind extends AppPhysicalIndexAccessKindV1,
@@ -1087,9 +1181,12 @@ const findExistingCreationTimeDefinitionEffect = Effect.fn(
   | AppCreationTimeIndexDefinitionChecksumCollisionError
 > {
   const query = selectExistingDefinitionRows(tx, state);
-  const rows = yield* readCreationTimeDefinitionRowsEffect(
-    "findExistingDefinition",
+  const rows = yield* readDefinitionRowsEffect(
     query,
+    (cause) => new AppCreationTimeIndexDefinitionPersistenceError(
+      "findExistingDefinition",
+      cause,
+    ),
   );
   const row = rows[0];
   return row === undefined
@@ -1119,27 +1216,33 @@ const insertCreationTimeDefinitionEffect = Effect.fn(
     tx,
     state.deploymentId,
   );
-  const highWaterRows = yield* readCreationTimeDefinitionRowsEffect(
-    "readDefinitionHighWater",
+  const highWaterRows = yield* readDefinitionRowsEffect(
     highWaterQuery,
+    (cause) => new AppCreationTimeIndexDefinitionPersistenceError(
+      "readDefinitionHighWater",
+      cause,
+    ),
   );
   const highWaterValue = highWaterRows[0]?.indexDefinitionId;
   const currentHighWater = highWaterValue === undefined
     ? null
     : yield* Effect.fromResult(
-      decodeCreationTimeDefinitionAllocationResult(() =>
+      decodeDefinitionAllocationResult(() =>
         decodeStoredDefinitionId(state.deploymentId, highWaterValue)
       ),
     );
   const indexDefinitionId = yield* Effect.fromResult(
-    decodeCreationTimeDefinitionAllocationResult(() =>
+    decodeDefinitionAllocationResult(() =>
       nextDefinitionId(state.deploymentId, currentHighWater)
     ),
   );
   const insertQuery = insertDefinitionRows(tx, state, indexDefinitionId);
-  const rows = yield* readCreationTimeDefinitionRowsEffect(
-    "insertDefinition",
+  const rows = yield* readDefinitionRowsEffect(
     insertQuery,
+    (cause) => new AppCreationTimeIndexDefinitionPersistenceError(
+      "insertDefinition",
+      cause,
+    ),
   );
   const row = rows[0];
   if (row === undefined) {
@@ -1156,17 +1259,18 @@ const insertCreationTimeDefinitionEffect = Effect.fn(
   return Object.freeze({ status: "created", definition });
 });
 
-const readCreationTimeDefinitionRowsEffect = Effect.fn(<Row>(
-  operation: AppCreationTimeIndexDefinitionPersistenceError["operation"],
+const readDefinitionRowsEffect = Effect.fn(
+  "AppIndexDefinitions.readRows",
+)(<Row, Failure>(
   query: PromiseLike<ReadonlyArray<Row>>,
+  onFailure: (cause: unknown) => Failure,
 ): Effect.Effect<
   ReadonlyArray<Row>,
-  AppCreationTimeIndexDefinitionPersistenceError
+  Failure
 > => Effect.uninterruptible(Effect.tryPromise({
-    try: () => query,
-    catch: (cause) =>
-      new AppCreationTimeIndexDefinitionPersistenceError(operation, cause),
-  })));
+  try: () => query,
+  catch: onFailure,
+})));
 
 type CreationTimeDefinitionDecodeFailure =
   | AppIndexDefinitionCatalogCorruptionError
@@ -1189,7 +1293,7 @@ function decodeCreationTimeDefinitionResult<Value>(
   });
 }
 
-function decodeCreationTimeDefinitionAllocationResult<Value>(
+function decodeDefinitionAllocationResult<Value>(
   evaluate: () => Value,
 ): Result.Result<
   Value,
@@ -1209,36 +1313,102 @@ function decodeCreationTimeDefinitionAllocationResult<Value>(
   });
 }
 
-async function insertDefinition<
-  Kind extends AppPhysicalIndexAccessKindV1,
->(
+function decodeDeveloperStoredResult<Value>(
+  evaluate: () => Value,
+): Result.Result<Value, AppIndexDefinitionCatalogCorruptionError> {
+  return Result.try({
+    try: evaluate,
+    catch: (cause) => {
+      if (cause instanceof AppIndexDefinitionCatalogCorruptionError) {
+        return cause;
+      }
+      throw cause;
+    },
+  });
+}
+
+function decodeDeveloperDefinitionResult<Value>(
+  evaluate: () => Value,
+): Result.Result<
+  Value,
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppIndexDefinitionChecksumCollisionError
+> {
+  return Result.try({
+    try: evaluate,
+    catch: (cause) => {
+      if (
+        cause instanceof AppIndexDefinitionCatalogCorruptionError ||
+        cause instanceof AppIndexDefinitionChecksumCollisionError
+      ) {
+        return cause;
+      }
+      throw cause;
+    },
+  });
+}
+
+const insertDeveloperDefinitionEffect = Effect.fn(
+  "AppIndexDefinitions.insertDeveloperDefinition",
+)(function* (
   tx: StableTableCatalogTransaction,
-  state: PreparedPhysicalDefinitionState<Kind>,
-): Promise<{
+  state: PreparedDefinitionBindingState,
+): Effect.fn.Return<{
   readonly status: "created";
-  readonly definition: AppIndexDefinitionRecordForAccessKindV1<Kind>;
-}> {
-  const currentHighWater = await readDefinitionHighWater(
+  readonly definition: AppIndexDefinitionRecordForAccessKindV1<"developer">;
+},
+  | AppDeveloperIndexDefinitionPersistenceError
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppIndexDefinitionIdExhaustedError
+  | AppIndexDefinitionChecksumCollisionError
+> {
+  const highWaterQuery = selectDefinitionHighWaterRows(
     tx,
     state.deploymentId,
   );
-  const indexDefinitionId = nextDefinitionId(
-    state.deploymentId,
-    currentHighWater,
+  const highWaterRows = yield* readDefinitionRowsEffect(
+    highWaterQuery,
+    (cause) => new AppDeveloperIndexDefinitionPersistenceError(
+      "readDefinitionHighWater",
+      cause,
+    ),
   );
-  const rows = await insertDefinitionRows(tx, state, indexDefinitionId);
+  const highWaterValue = highWaterRows[0]?.indexDefinitionId;
+  const currentHighWater = highWaterValue === undefined
+    ? null
+    : yield* Effect.fromResult(decodeDeveloperStoredResult(() =>
+      decodeStoredDefinitionId(state.deploymentId, highWaterValue)
+    ));
+  const indexDefinitionId = yield* Effect.fromResult(
+    decodeDefinitionAllocationResult(() =>
+      nextDefinitionId(state.deploymentId, currentHighWater)
+    ),
+  );
+  const insertQuery = insertDefinitionRows(tx, state, indexDefinitionId);
+  const rows = yield* readDefinitionRowsEffect(
+    insertQuery,
+    (cause) => new AppDeveloperIndexDefinitionPersistenceError(
+      "insertDefinition",
+      cause,
+    ),
+  );
   const row = rows[0];
   if (row === undefined) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
+    return yield* Effect.fail(new AppIndexDefinitionCatalogCorruptionError(
       state.deploymentId,
       "definition insert returned no row",
-    );
+    ));
   }
+  const definition = yield* Effect.fromResult(
+    decodeDeveloperDefinitionResult(() =>
+      decodeStoredDefinitionAgainstPrepared(row, state)
+    ),
+  );
   return Object.freeze({
     status: "created",
-    definition: decodeStoredDefinitionAgainstPrepared(row, state),
+    definition,
   });
-}
+});
 
 function insertDefinitionRows<Kind extends AppPhysicalIndexAccessKindV1>(
   tx: StableTableCatalogTransaction,
@@ -1266,11 +1436,17 @@ function insertDefinitionRows<Kind extends AppPhysicalIndexAccessKindV1>(
     .returning();
 }
 
-async function readExistingBinding(
+const readExistingDeveloperBindingEffect = Effect.fn(
+  "AppIndexDefinitions.readExistingDeveloperBinding",
+)(function* (
   tx: StableTableCatalogTransaction,
   state: PreparedDefinitionBindingState,
-): Promise<AppSchemaVersionIndexBindingRecord | null> {
-  const existingRows = await tx
+): Effect.fn.Return<
+  AppSchemaVersionIndexBindingRecord | null,
+  | AppDeveloperIndexDefinitionPersistenceError
+  | AppIndexDefinitionCatalogCorruptionError
+> {
+  const query = tx
     .select()
     .from(fxControlSchemaVersionIndexBindings)
     .where(
@@ -1290,16 +1466,33 @@ async function readExistingBinding(
       ),
     )
     .limit(1);
+  const existingRows = yield* readDefinitionRowsEffect(
+    query,
+    (cause) => new AppDeveloperIndexDefinitionPersistenceError(
+      "readExistingBinding",
+      cause,
+    ),
+  );
   const existingRow = existingRows[0];
-  return existingRow === undefined ? null : decodeStoredBinding(existingRow);
-}
+  return existingRow === undefined
+    ? null
+    : yield* Effect.fromResult(
+      decodeDeveloperStoredResult(() => decodeStoredBinding(existingRow)),
+    );
+});
 
-async function insertBinding(
+const insertDeveloperBindingEffect = Effect.fn(
+  "AppIndexDefinitions.insertDeveloperBinding",
+)(function* (
   tx: StableTableCatalogTransaction,
   state: PreparedDefinitionBindingState,
   indexDefinitionId: CatalogIndexDefinitionId,
-): Promise<AppSchemaVersionIndexBindingRecord> {
-  const rows = await tx
+): Effect.fn.Return<
+  AppSchemaVersionIndexBindingRecord,
+  | AppDeveloperIndexDefinitionPersistenceError
+  | AppIndexDefinitionCatalogCorruptionError
+> {
+  const query = tx
     .insert(fxControlSchemaVersionIndexBindings)
     .values({
       deploymentId: state.deploymentId,
@@ -1309,26 +1502,24 @@ async function insertBinding(
       requiredForActivation: true,
     })
     .returning();
+  const rows = yield* readDefinitionRowsEffect(
+    query,
+    (cause) => new AppDeveloperIndexDefinitionPersistenceError(
+      "insertBinding",
+      cause,
+    ),
+  );
   const row = rows[0];
   if (row === undefined) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
+    return yield* Effect.fail(new AppIndexDefinitionCatalogCorruptionError(
       state.deploymentId,
       "schema binding insert returned no row",
-    );
+    ));
   }
-  return decodeStoredBinding(row);
-}
-
-async function readDefinitionHighWater(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-): Promise<CatalogIndexDefinitionId | null> {
-  const rows = await selectDefinitionHighWaterRows(db, deploymentId);
-  const value = rows[0]?.indexDefinitionId;
-  return value === undefined
-    ? null
-    : decodeStoredDefinitionId(deploymentId, value);
-}
+  return yield* Effect.fromResult(
+    decodeDeveloperStoredResult(() => decodeStoredBinding(row)),
+  );
+});
 
 function selectDefinitionHighWaterRows(
   db: FlarexMetadataDatabase,
@@ -1867,6 +2058,27 @@ function creationTimePersistenceOperationMessage(
       return "read the creation-time index definition high-water mark";
     case "insertDefinition":
       return "insert the creation-time index definition";
+  }
+}
+
+function developerPersistenceOperationMessage(
+  operation: AppDeveloperIndexDefinitionPersistenceError["operation"],
+): string {
+  switch (operation) {
+    case "readSchemaParent":
+      return "read the developer index schema-version parent";
+    case "readLogicalIndexParent":
+      return "read the developer logical-index parent";
+    case "findExistingDefinition":
+      return "read the existing developer index definition";
+    case "readExistingBinding":
+      return "read the existing developer schema binding";
+    case "readDefinitionHighWater":
+      return "read the developer index definition high-water mark";
+    case "insertDefinition":
+      return "insert the developer index definition";
+    case "insertBinding":
+      return "insert the developer schema binding";
   }
 }
 

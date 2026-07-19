@@ -25,6 +25,7 @@ import {
   type SchemaManifestAppSchemaV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
@@ -38,12 +39,14 @@ import {
 } from "../src";
 import {
   AppIndexDefinitionIdExhaustedError,
+  AppDeveloperIndexDefinitionPersistenceError,
   AppSchemaVersionIndexBindingConflictError,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   InvalidAppIndexDefinitionBindingInputError,
   InvalidPreparedAppIndexDefinitionBindingError,
   prepareAppDeveloperIndexDefinitionBindingV1,
   type EnsureAppDeveloperIndexDefinitionBindingV1Result,
+  type EnsureAppDeveloperIndexDefinitionBindingV1Error,
   type PrepareAppDeveloperIndexDefinitionBindingV1Input,
   type PreparedAppDeveloperIndexDefinitionBindingV1,
 } from "../src/appIndexDefinitions";
@@ -59,6 +62,8 @@ import {
   ensureSchemaVersionArtifactInTransaction,
   prepareSchemaVersionArtifact,
 } from "../src/schemaVersionArtifacts";
+import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 type PublicMutationMethod = Extract<
   keyof FlarexPersistence,
@@ -103,6 +108,14 @@ describe("immutable app index definitions", () => {
     expectTypeOf<
       EnsureAppDeveloperIndexDefinitionBindingV1Result["definition"]["access"]["kind"]
     >().toEqualTypeOf<"developer">();
+    expectTypeOf<
+      ReturnType<
+        typeof ensureAppDeveloperIndexDefinitionBindingV1InTransaction
+      >
+    >().toEqualTypeOf<Effect.Effect<
+      EnsureAppDeveloperIndexDefinitionBindingV1Result,
+      EnsureAppDeveloperIndexDefinitionBindingV1Error
+    >>();
     expectTypeOf<FlarexPersistence>()
       .not.toMatchTypeOf<
         Parameters<
@@ -283,18 +296,20 @@ describe("immutable app index definitions", () => {
 
     await expect(
       persistence.drizzle.transaction((tx) =>
-        Reflect.apply(
-          ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
-          undefined,
-          [
-            tx,
-            {
-              deploymentId,
-              schemaVersionId: registered.schemaVersionId,
-              tableId: registered.tableId,
-              logicalIndexId: registered.logicalIndexId,
-            },
-          ],
+        runEffect(
+          Reflect.apply(
+            ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
+            undefined,
+            [
+              tx,
+              {
+                deploymentId,
+                schemaVersionId: registered.schemaVersionId,
+                tableId: registered.tableId,
+                logicalIndexId: registered.logicalIndexId,
+              },
+            ],
+          ),
         )
       ),
     ).rejects.toBeInstanceOf(InvalidPreparedAppIndexDefinitionBindingError);
@@ -306,6 +321,119 @@ describe("immutable app index definitions", () => {
         indexDefinitionId: CatalogIndexDefinitionIdSchema.make(7),
       }),
     ).rejects.toBeInstanceOf(InvalidAppIndexDefinitionBindingInputError);
+  });
+
+  it("maps a rejected developer parent read once at its SQL edge", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_index_definition_sql_failure";
+    await insertDeployment(persistence, deploymentId);
+    const registered = await registerAppSchemaVersion(
+      persistence,
+      deploymentId,
+      "schema_definition_sql_failure",
+      1,
+      ["email"],
+    );
+    const prepared = await prepareDefinition(registered);
+    const rejection = new Error("developer schema parent query rejected");
+    const tx = developerSelectTransaction((selectCall) => {
+      switch (selectCall) {
+        case 1:
+          return Promise.resolve([{ deploymentId }]);
+        case 2:
+          return Promise.reject(rejection);
+        default:
+          throw new Error(`Unexpected select call: ${selectCall}.`);
+      }
+    });
+
+    const failure = await runEffectFailure(
+      ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, prepared),
+    );
+    expect(failure).toBeInstanceOf(
+      AppDeveloperIndexDefinitionPersistenceError,
+    );
+    expect(failure).toMatchObject({
+      _tag: "AppDeveloperIndexDefinitionPersistenceError",
+      operation: "readSchemaParent",
+      cause: rejection,
+    });
+  });
+
+  it("preserves developer query construction failures as defects", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_index_definition_construction_defect";
+    await insertDeployment(persistence, deploymentId);
+    const registered = await registerAppSchemaVersion(
+      persistence,
+      deploymentId,
+      "schema_definition_construction_defect",
+      1,
+      ["email"],
+    );
+    const prepared = await prepareDefinition(registered);
+    const defect = new Error("developer schema parent construction defect");
+    const tx = developerSelectTransaction((selectCall) => {
+      if (selectCall === 1) return Promise.resolve([{ deploymentId }]);
+      throw defect;
+    });
+    const exit = await Effect.runPromiseExit(
+      ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, prepared),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("waits for a pending developer parent read before interruption completes", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_index_definition_interruption";
+    await insertDeployment(persistence, deploymentId);
+    const registered = await registerAppSchemaVersion(
+      persistence,
+      deploymentId,
+      "schema_definition_interruption",
+      1,
+      ["email"],
+    );
+    const prepared = await prepareDefinition(registered);
+    const entered = deferredValue<void>();
+    const query = deferredValue<ReadonlyArray<unknown>>();
+    const tx = developerSelectTransaction((selectCall) => {
+      if (selectCall === 1) return Promise.resolve([{ deploymentId }]);
+      if (selectCall === 2) {
+        entered.resolve(undefined);
+        return query.promise;
+      }
+      throw new Error(`Unexpected select call: ${selectCall}.`);
+    });
+    const fiber = Effect.runFork(
+      ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, prepared),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
   });
 
   it("rolls a newly allocated definition back when its binding conflicts", async () => {
@@ -331,9 +459,11 @@ describe("immutable app index definitions", () => {
     await expect(
       persistence.drizzle.transaction(async (tx) => {
         try {
-          await ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
-            tx,
-            competing,
+          await runEffect(
+            ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
+              tx,
+              competing,
+            ),
           );
           throw new Error("Expected a binding conflict inside transaction.");
         } catch (error) {
@@ -372,9 +502,11 @@ describe("immutable app index definitions", () => {
 
     await expect(
       persistence.drizzle.transaction(async (tx) => {
-        await ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
-          tx,
-          replacement,
+        await runEffect(
+          ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
+            tx,
+            replacement,
+          ),
         );
         throw new Error("injected definition rollback");
       }),
@@ -802,8 +934,58 @@ function ensurePrepared(
   prepared: PreparedAppDeveloperIndexDefinitionBindingV1,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, prepared)
+    runEffect(
+      ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, prepared),
+    )
   );
+}
+
+interface DeveloperSelectQuery
+  extends PromiseLike<ReadonlyArray<unknown>> {
+  from(): DeveloperSelectQuery;
+  where(): DeveloperSelectQuery;
+  limit(): DeveloperSelectQuery;
+  for(): DeveloperSelectQuery;
+}
+
+function developerSelectTransaction(
+  run: (selectCall: number) => Promise<ReadonlyArray<unknown>>,
+): StableTableCatalogTransaction {
+  let selectCall = 0;
+  return {
+    select() {
+      selectCall += 1;
+      const promise = run(selectCall);
+      const query: DeveloperSelectQuery = {
+        from: () => query,
+        where: () => query,
+        limit: () => query,
+        for: () => query,
+        then: (onFulfilled, onRejected) =>
+          promise.then(onFulfilled, onRejected),
+      };
+      return query;
+    },
+  } as unknown as StableTableCatalogTransaction;
+}
+
+function deferredValue<Value>(): Readonly<{
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+}> {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve(value: Value) {
+      if (resolvePromise === undefined) {
+        throw new Error("Deferred value was not initialized.");
+      }
+      resolvePromise(value);
+    },
+  });
 }
 
 function schemaId(value: string): CatalogSchemaVersionId {
@@ -892,3 +1074,4 @@ async function definitionCounts(
   if (row === undefined) throw new Error("Definition count query returned no row.");
   return row;
 }
+import { setTimeout as delay } from "node:timers/promises";

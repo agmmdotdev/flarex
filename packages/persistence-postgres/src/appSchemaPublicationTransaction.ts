@@ -101,7 +101,7 @@ export async function publishPreparedAppSchemaV1InTransaction(
   > = [];
   for (const token of creationTimeTokens) {
     const ensured =
-      await runCreationTimeIndexDefinitionEffect(
+      await runAppIndexDefinitionEffect(
         ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, token),
       );
     creationTimeIndexDefinitions.push(ensured.definition);
@@ -110,7 +110,9 @@ export async function publishPreparedAppSchemaV1InTransaction(
   const developerResults: EnsureAppDeveloperIndexDefinitionBindingV1Result[] = [];
   for (const token of developerTokens) {
     developerResults.push(
-      await ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, token),
+      await runAppIndexDefinitionEffect(
+        ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, token),
+      ),
     );
   }
 
@@ -141,9 +143,9 @@ export async function publishPreparedAppSchemaV1InTransaction(
 }
 
 // Drizzle 0.45 still requires a Promise transaction callback. Keep this
-// projection at the D2c owner, rather than below the stable-table boundary,
-// until the complete publication transaction composes through Effect.
-function runCreationTimeIndexDefinitionEffect<Result, Failure>(
+// projection at the D2c owner, rather than below either physical-definition
+// writer, until the complete publication transaction composes through Effect.
+function runAppIndexDefinitionEffect<Result, Failure>(
   effect: Effect.Effect<Result, Failure>,
 ): Promise<Result> {
   return Effect.runPromise(effect);

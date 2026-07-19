@@ -203,9 +203,11 @@ describePostgres("real Postgres immutable app index definitions", () => {
 
       await expect(
         persistence.drizzle.transaction(async (tx) => {
-          await ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
-            tx,
-            prepared,
+          await runEffect(
+            ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
+              tx,
+              prepared,
+            ),
           );
           throw new Error("injected real Postgres definition rollback");
         }),
@@ -384,7 +386,9 @@ function ensurePrepared(
   prepared: PreparedAppDeveloperIndexDefinitionBindingV1,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, prepared)
+    runEffect(
+      ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, prepared),
+    )
   );
 }
 
