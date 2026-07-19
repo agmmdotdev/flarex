@@ -2,8 +2,13 @@ import {
   type CatalogIndexDefinitionId,
 } from "flarex-protocol/catalog";
 import {
+  appIndexPhysicalSpecSha256HexV1ToBytes,
+  canonicalizeAppIndexPhysicalSpecV1,
   canonicalAppIndexPhysicalSpecBytesHexV1ToBytes,
 } from "flarex-protocol/index-definition";
+import {
+  APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+} from "flarex-protocol/ordered-index";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
@@ -23,6 +28,7 @@ import {
 import {
   AppCreationTimeIndexDefinitionPersistenceError,
   AppCreationTimeIndexDefinitionChecksumCollisionError,
+  AppIndexDefinitionCatalogCorruptionError,
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
   InvalidPreparedAppCreationTimeIndexDefinitionError,
   prepareAppCreationTimeIndexDefinitionsV1Result,
@@ -36,7 +42,7 @@ import {
   applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
 } from "../src/schemaManifestAppSchemaBindings";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
@@ -282,6 +288,117 @@ describe("table-owned app creation-time index definitions", () => {
       AppCreationTimeIndexDefinitionChecksumCollisionError,
     );
     await expect(definitionCount(persistence, deploymentId)).resolves.toBe(1);
+  });
+
+  it("maps invalid prepared replay evidence to catalog corruption", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_creation_time_replay_corruption";
+    const fixture = await prepareFixture(
+      persistence,
+      deploymentId,
+      [appTable("users")],
+    );
+    const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+      APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+    );
+    const storedRow = {
+      deploymentId,
+      indexDefinitionId: 1,
+      accessKind: "by_creation_time",
+      accessIdentityId: 1,
+      tableId: 1,
+      logicalIndexId: null,
+      physicalSpecCodecVersion: 2,
+      physicalSpecJson: canonical.physicalSpec,
+      physicalSpecBytes: canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
+        canonical.canonicalBytesHex,
+      ),
+      physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+        canonical.sha256Hex,
+      ),
+      createdAt: new Date("2026-07-19T00:00:00.000Z"),
+    };
+    const tx = creationTimeReadTransaction((selectCall) => {
+      switch (selectCall) {
+        case 1:
+          return Promise.resolve([{ deploymentId }]);
+        case 2:
+          return Promise.resolve([stableTableRow(deploymentId)]);
+        case 3:
+          return Promise.resolve([storedRow]);
+        default:
+          throw new Error(`Unexpected select call: ${selectCall}.`);
+      }
+    });
+
+    const failure = await runEffectFailure(
+      ensureAppCreationTimeIndexDefinitionV1InTransaction(
+        tx,
+        requiredToken(fixture.tokens, 0),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(AppIndexDefinitionCatalogCorruptionError);
+    expect(failure).toMatchObject({
+      detail: "definition 1 has invalid prepared evidence",
+    });
+  });
+
+  it("preserves prepared replay evidence access failures as defects", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_creation_time_replay_defect";
+    const fixture = await prepareFixture(
+      persistence,
+      deploymentId,
+      [appTable("users")],
+    );
+    const defect = new Error("prepared replay evidence access defect");
+    const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+      APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+    );
+    const storedRow = {
+      deploymentId,
+      indexDefinitionId: 1,
+      accessKind: "by_creation_time",
+      accessIdentityId: 1,
+      tableId: 1,
+      logicalIndexId: null,
+      physicalSpecCodecVersion: canonical.codecVersion,
+      physicalSpecJson: canonical.physicalSpec,
+      get physicalSpecBytes(): Uint8Array {
+        throw defect;
+      },
+      physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+        canonical.sha256Hex,
+      ),
+      createdAt: new Date("2026-07-19T00:00:00.000Z"),
+    };
+    const tx = creationTimeReadTransaction((selectCall) => {
+      switch (selectCall) {
+        case 1:
+          return Promise.resolve([{ deploymentId }]);
+        case 2:
+          return Promise.resolve([stableTableRow(deploymentId)]);
+        case 3:
+          return Promise.resolve([storedRow]);
+        default:
+          throw new Error(`Unexpected select call: ${selectCall}.`);
+      }
+    });
+
+    const exit = await Effect.runPromiseExit(
+      ensureAppCreationTimeIndexDefinitionV1InTransaction(
+        tx,
+        requiredToken(fixture.tokens, 0),
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
   });
 
   it("labels rejected replay reads and rejects the caller-owned transaction", async () => {

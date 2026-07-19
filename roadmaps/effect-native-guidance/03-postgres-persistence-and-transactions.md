@@ -303,6 +303,15 @@ accessor or runtime failures remain defects instead of being misclassified as
 recoverable database state. The canonical JSON input is likewise snapshotted
 before its foreign Promise adapter, so accessor failures do not enter the
 canonicalization failure channel.
+Transaction-time physical-definition replay and insert verification now use one
+ordered `Result` decoder for both developer and creation-time access owners.
+The former broad prepared-evidence `try/catch` and its two exception-filtering
+Result projections are deleted. Protocol codec, byte, digest, and physical-spec
+decoders retain narrow adapters; deployment/access correlation, exact prepared
+evidence comparison, owner-specific checksum collisions, and timestamp
+validation keep their prior order. Malformed rows remain typed corruption or
+the exact owner-specific collision, while unexpected row access and runtime
+failures remain defects. The deployment lock still performs no Web Crypto.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

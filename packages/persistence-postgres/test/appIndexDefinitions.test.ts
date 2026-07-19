@@ -30,6 +30,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   AppIndexDefinitionCatalogCorruptionError,
+  AppIndexDefinitionChecksumCollisionError,
   AppIndexDefinitionReadPersistenceError,
   AppSchemaVersionIndexBindingPersistenceError,
   getAppIndexDefinitionByIdEffect,
@@ -964,6 +965,52 @@ describe("immutable app index definitions", () => {
         }
       }),
     ).resolves.toBeUndefined();
+    await expect(definitionCounts(persistence, deploymentId)).resolves.toEqual({
+      definitions: 1,
+      bindings: 1,
+    });
+  });
+
+  it("preserves developer checksum collision identity on replay", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_index_definition_replay_collision";
+    await insertDeployment(persistence, deploymentId);
+    const registered = await registerAppSchemaVersion(
+      persistence,
+      deploymentId,
+      "schema_definition_replay_collision",
+      1,
+      ["email"],
+    );
+    const prepared = await prepareDefinition(registered);
+    const created = await ensurePrepared(persistence, prepared);
+    const corrupted = canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
+      created.definition.physicalSpecBytesHex,
+    );
+    const firstByte = corrupted[0];
+    if (firstByte === undefined) {
+      throw new Error("Expected nonempty canonical physical-spec bytes.");
+    }
+    corrupted[0] = firstByte === 0 ? 1 : 0;
+    await persistence.query(
+      `
+        update fx_control_index_definition
+        set physical_spec_bytes = $3
+        where deployment_id = $1 and index_definition_id = $2
+      `,
+      [deploymentId, created.definition.indexDefinitionId, corrupted],
+    );
+
+    const replay = ensurePrepared(persistence, prepared);
+    await expect(replay).rejects.toBeInstanceOf(
+      AppIndexDefinitionChecksumCollisionError,
+    );
+    await expect(replay).rejects.toMatchObject({
+      _tag: "AppIndexDefinitionChecksumCollisionError",
+      deploymentId,
+      logicalIndexId: registered.logicalIndexId,
+      existingIndexDefinitionId: created.definition.indexDefinitionId,
+    });
     await expect(definitionCounts(persistence, deploymentId)).resolves.toEqual({
       definitions: 1,
       bindings: 1,

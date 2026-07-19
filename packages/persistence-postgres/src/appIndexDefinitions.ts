@@ -1585,9 +1585,9 @@ const findExistingDeveloperDefinitionEffect = Effect.fn(
   );
   const existingRow = existingRows[0];
   if (existingRow === undefined) return null;
-  return yield* Effect.fromResult(decodeDeveloperDefinitionResult(() =>
-    decodeStoredDefinitionAgainstPrepared(existingRow, state)
-  ));
+  return yield* Effect.fromResult(
+    decodeStoredDefinitionAgainstPreparedResult(existingRow, state),
+  );
 });
 
 function selectExistingDefinitionRows<
@@ -1643,9 +1643,9 @@ const findExistingCreationTimeDefinitionEffect = Effect.fn(
   const row = rows[0];
   return row === undefined
     ? null
-    : yield* Effect.fromResult(decodeCreationTimeDefinitionResult(() =>
-      decodeStoredDefinitionAgainstPrepared(row, state)
-    ));
+    : yield* Effect.fromResult(
+      decodeStoredDefinitionAgainstPreparedResult(row, state),
+    );
 });
 
 const insertCreationTimeDefinitionEffect = Effect.fn(
@@ -1704,9 +1704,7 @@ const insertCreationTimeDefinitionEffect = Effect.fn(
     ));
   }
   const definition = yield* Effect.fromResult(
-    decodeCreationTimeDefinitionResult(() =>
-      decodeStoredDefinitionAgainstPrepared(row, state)
-    ),
+    decodeStoredDefinitionAgainstPreparedResult(row, state),
   );
   return Object.freeze({ status: "created", definition });
 });
@@ -1723,27 +1721,6 @@ const readDefinitionRowsEffect = Effect.fn(
   try: () => query,
   catch: onFailure,
 })));
-
-type CreationTimeDefinitionDecodeFailure =
-  | AppIndexDefinitionCatalogCorruptionError
-  | AppCreationTimeIndexDefinitionChecksumCollisionError;
-
-function decodeCreationTimeDefinitionResult<Value>(
-  evaluate: () => Value,
-): Result.Result<Value, CreationTimeDefinitionDecodeFailure> {
-  return Result.try({
-    try: evaluate,
-    catch: (cause) => {
-      if (
-        cause instanceof AppIndexDefinitionCatalogCorruptionError ||
-        cause instanceof AppCreationTimeIndexDefinitionChecksumCollisionError
-      ) {
-        return cause;
-      }
-      throw cause;
-    },
-  });
-}
 
 function decodeDefinitionAllocationResult<Value>(
   evaluate: () => Value,
@@ -1772,27 +1749,6 @@ function decodeDeveloperStoredResult<Value>(
     try: evaluate,
     catch: (cause) => {
       if (cause instanceof AppIndexDefinitionCatalogCorruptionError) {
-        return cause;
-      }
-      throw cause;
-    },
-  });
-}
-
-function decodeDeveloperDefinitionResult<Value>(
-  evaluate: () => Value,
-): Result.Result<
-  Value,
-  | AppIndexDefinitionCatalogCorruptionError
-  | AppIndexDefinitionChecksumCollisionError
-> {
-  return Result.try({
-    try: evaluate,
-    catch: (cause) => {
-      if (
-        cause instanceof AppIndexDefinitionCatalogCorruptionError ||
-        cause instanceof AppIndexDefinitionChecksumCollisionError
-      ) {
         return cause;
       }
       throw cause;
@@ -1852,9 +1808,7 @@ const insertDeveloperDefinitionEffect = Effect.fn(
     ));
   }
   const definition = yield* Effect.fromResult(
-    decodeDeveloperDefinitionResult(() =>
-      decodeStoredDefinitionAgainstPrepared(row, state)
-    ),
+    decodeStoredDefinitionAgainstPreparedResult(row, state),
   );
   return Object.freeze({
     status: "created",
@@ -2003,103 +1957,133 @@ function nextDefinitionId(
  * held. Root read APIs use the stronger independent re-canonicalization path
  * below because they are outside the publication critical section.
  */
-function decodeStoredDefinitionAgainstPrepared<
-  Kind extends AppPhysicalIndexAccessKindV1,
->(
+function decodeStoredDefinitionAgainstPreparedResult(
   row: typeof fxControlIndexDefinitions.$inferSelect,
-  state: PreparedPhysicalDefinitionState<Kind>,
-): AppIndexDefinitionRecordForAccessKindV1<Kind> {
-  const deploymentId = decodeStoredDeploymentId(row.deploymentId);
-  if (deploymentId !== state.deploymentId) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      state.deploymentId,
-      "definition query returned another deployment",
+  state: PreparedDefinitionBindingState,
+): Result.Result<
+  AppIndexDefinitionRecordForAccessKindV1<"developer">,
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppIndexDefinitionChecksumCollisionError
+>;
+function decodeStoredDefinitionAgainstPreparedResult(
+  row: typeof fxControlIndexDefinitions.$inferSelect,
+  state: PreparedCreationTimeDefinitionState,
+): Result.Result<
+  AppIndexDefinitionRecordForAccessKindV1<"by_creation_time">,
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppCreationTimeIndexDefinitionChecksumCollisionError
+>;
+function decodeStoredDefinitionAgainstPreparedResult(
+  row: typeof fxControlIndexDefinitions.$inferSelect,
+  state: PreparedDefinitionBindingState | PreparedCreationTimeDefinitionState,
+): Result.Result<
+  AppIndexDefinitionRecord,
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppIndexDefinitionChecksumCollisionError
+  | AppCreationTimeIndexDefinitionChecksumCollisionError
+> {
+  return Result.gen(function* () {
+    const deploymentId = yield* decodeStoredDefinitionResult(
+      () => decodeStoredDeploymentId(row.deploymentId),
     );
-  }
-  const indexDefinitionId = decodeStoredDefinitionId(
-    deploymentId,
-    row.indexDefinitionId,
-  );
-  const tableId = decodeStoredTableId(deploymentId, row.tableId);
-  const access = decodeStoredAccess(
-    deploymentId,
-    row.accessKind,
-    row.accessIdentityId,
-    tableId,
-    row.logicalIndexId,
-  );
-  if (!appPhysicalIndexAccessIdentitiesEqual(access, state.access)) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `definition ${indexDefinitionId} does not match its prepared access owner`,
+    if (deploymentId !== state.deploymentId) {
+      return yield* Result.fail(new AppIndexDefinitionCatalogCorruptionError(
+        state.deploymentId,
+        "definition query returned another deployment",
+      ));
+    }
+    const indexDefinitionId = yield* decodeStoredDefinitionResult(
+      () => decodeStoredDefinitionId(deploymentId, row.indexDefinitionId),
     );
-  }
+    const tableId = yield* decodeStoredDefinitionResult(
+      () => decodeStoredTableId(deploymentId, row.tableId),
+    );
+    const access = yield* decodeStoredDefinitionResult(
+      () => decodeStoredAccess(
+        deploymentId,
+        row.accessKind,
+        row.accessIdentityId,
+        tableId,
+        row.logicalIndexId,
+      ),
+    );
+    if (!appPhysicalIndexAccessIdentitiesEqual(access, state.access)) {
+      return yield* Result.fail(new AppIndexDefinitionCatalogCorruptionError(
+        deploymentId,
+        `definition ${indexDefinitionId} does not match its prepared access owner`,
+      ));
+    }
 
-  let physicalSpecCodecVersion: AppIndexPhysicalSpecCodecVersion;
-  let physicalSpecBytesHex: CanonicalAppIndexPhysicalSpecBytesHexV1;
-  let physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1;
-  let storedPhysicalSpec: AppOrderedIndexPhysicalSpecV1;
-  try {
-    physicalSpecCodecVersion = decodeAppIndexPhysicalSpecCodecVersion(
-      row.physicalSpecCodecVersion,
-    );
-    physicalSpecBytesHex =
-      canonicalAppIndexPhysicalSpecBytesHexV1FromBytes(
-        row.physicalSpecBytes,
+    const invalidPreparedEvidenceDetail =
+      `definition ${indexDefinitionId} has invalid prepared evidence`;
+    const physicalSpecCodecVersion = yield*
+      decodeStoredPhysicalEvidenceResult(
+        deploymentId,
+        invalidPreparedEvidenceDetail,
+        row.physicalSpecCodecVersion,
+        decodeAppIndexPhysicalSpecCodecVersion,
       );
-    physicalSpecSha256Hex = appIndexPhysicalSpecSha256HexV1FromBytes(
+    const physicalSpecBytesHex = yield* decodeStoredPhysicalEvidenceResult(
+      deploymentId,
+      invalidPreparedEvidenceDetail,
+      row.physicalSpecBytes,
+      canonicalAppIndexPhysicalSpecBytesHexV1FromBytes,
+    );
+    const physicalSpecSha256Hex = yield* decodeStoredPhysicalEvidenceResult(
+      deploymentId,
+      invalidPreparedEvidenceDetail,
       row.physicalSpecSha256,
+      appIndexPhysicalSpecSha256HexV1FromBytes,
     );
-    storedPhysicalSpec = decodeAppOrderedIndexPhysicalSpecV1(
+    const storedPhysicalSpec = yield* decodeStoredPhysicalEvidenceResult(
+      deploymentId,
+      invalidPreparedEvidenceDetail,
       row.physicalSpecJson,
+      decodeAppOrderedIndexPhysicalSpecV1,
     );
-  } catch (cause) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
+    if (physicalSpecCodecVersion !== state.canonical.codecVersion) {
+      return yield* Result.fail(new AppIndexDefinitionCatalogCorruptionError(
+        deploymentId,
+        `definition ${indexDefinitionId} physical-spec codec changed after preparation`,
+      ));
+    }
+    if (physicalSpecSha256Hex !== state.canonical.sha256Hex) {
+      return yield* Result.fail(new AppIndexDefinitionCatalogCorruptionError(
+        deploymentId,
+        `definition ${indexDefinitionId} digest changed after preparation`,
+      ));
+    }
+    if (physicalSpecBytesHex !== state.canonical.canonicalBytesHex) {
+      return yield* Result.fail(checksumCollisionError(
+        state.deploymentId,
+        state.access,
+        indexDefinitionId,
+      ));
+    }
+    if (!physicalSpecsEqual(storedPhysicalSpec, state.canonical.physicalSpec)) {
+      return yield* Result.fail(new AppIndexDefinitionCatalogCorruptionError(
+        deploymentId,
+        `definition ${indexDefinitionId} JSON changed after canonical preparation`,
+      ));
+    }
+    const createdAt = yield* decodeStoredDefinitionResult(
+      () => decodeStoredTimestamp(
+        deploymentId,
+        indexDefinitionId,
+        row.createdAt,
+      ),
+    );
+    return Object.freeze({
       deploymentId,
-      `definition ${indexDefinitionId} has invalid prepared evidence`,
-      { cause },
-    );
-  }
-  if (physicalSpecCodecVersion !== state.canonical.codecVersion) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `definition ${indexDefinitionId} physical-spec codec changed after preparation`,
-    );
-  }
-  if (physicalSpecSha256Hex !== state.canonical.sha256Hex) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `definition ${indexDefinitionId} digest changed after preparation`,
-    );
-  }
-  if (physicalSpecBytesHex !== state.canonical.canonicalBytesHex) {
-    throw checksumCollisionError(
-      state.deploymentId,
-      state.access,
       indexDefinitionId,
-    );
-  }
-  if (!physicalSpecsEqual(storedPhysicalSpec, state.canonical.physicalSpec)) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `definition ${indexDefinitionId} JSON changed after canonical preparation`,
-    );
-  }
-  const createdAt = decodeStoredTimestamp(
-    deploymentId,
-    indexDefinitionId,
-    row.createdAt,
-  );
-  return Object.freeze({
-    deploymentId,
-    indexDefinitionId,
-    access: state.access,
-    physicalSpecCodecVersion,
-    physicalSpec: state.canonical.physicalSpec,
-    physicalSpecBytesHex,
-    physicalSpecSha256Hex,
-    createdAt,
-  } satisfies AppIndexDefinitionRecordForAccessKindV1<Kind>);
+      access: state.access,
+      physicalSpecCodecVersion,
+      physicalSpec: state.canonical.physicalSpec,
+      physicalSpecBytesHex,
+      physicalSpecSha256Hex,
+      createdAt,
+    } satisfies AppIndexDefinitionRecord);
+  });
 }
 
 const decodeStoredDefinitionEffect = Effect.fn(
@@ -2196,22 +2180,24 @@ function decodeStoredDefinitionScalarsResult(
       ),
     );
     const physicalEvidence = yield* Result.gen(function* () {
+      const invalidPhysicalSpecificationDetail =
+        `definition ${indexDefinitionId} has an invalid physical specification`;
       const physicalSpecCodecVersion = yield*
         decodeStoredPhysicalEvidenceResult(
           deploymentId,
-          indexDefinitionId,
+          invalidPhysicalSpecificationDetail,
           row.physicalSpecCodecVersion,
           decodeAppIndexPhysicalSpecCodecVersion,
         );
       const physicalSpecBytesHex = yield* decodeStoredPhysicalEvidenceResult(
         deploymentId,
-        indexDefinitionId,
+        invalidPhysicalSpecificationDetail,
         row.physicalSpecBytes,
         canonicalAppIndexPhysicalSpecBytesHexV1FromBytes,
       );
       const physicalSpecSha256Hex = yield* decodeStoredPhysicalEvidenceResult(
         deploymentId,
-        indexDefinitionId,
+        invalidPhysicalSpecificationDetail,
         row.physicalSpecSha256,
         appIndexPhysicalSpecSha256HexV1FromBytes,
       );
@@ -2232,7 +2218,7 @@ function decodeStoredDefinitionScalarsResult(
 
 function decodeStoredPhysicalEvidenceResult<Input, Value>(
   deploymentId: string,
-  indexDefinitionId: CatalogIndexDefinitionId,
+  detail: string,
   value: Input,
   decode: (value: Input) => Value,
 ): Result.Result<Value, AppIndexDefinitionCatalogCorruptionError> {
@@ -2240,7 +2226,7 @@ function decodeStoredPhysicalEvidenceResult<Input, Value>(
     try: () => decode(value),
     catch: (cause) => new AppIndexDefinitionCatalogCorruptionError(
       deploymentId,
-      `definition ${indexDefinitionId} has an invalid physical specification`,
+      detail,
       { cause },
     ),
   });
@@ -2274,7 +2260,9 @@ function checksumCollisionError(
   deploymentId: string,
   access: AppPhysicalIndexAccessIdentityV1,
   indexDefinitionId: CatalogIndexDefinitionId,
-): Error {
+):
+  | AppIndexDefinitionChecksumCollisionError
+  | AppCreationTimeIndexDefinitionChecksumCollisionError {
   return access.kind === "developer"
     ? new AppIndexDefinitionChecksumCollisionError(
       deploymentId,
