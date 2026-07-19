@@ -34,8 +34,9 @@ compiler/O07-B publisher composition are also complete. O08-A's atomic exact-
 attempt replacement, O08-B1's bounded fresh-attempt rerun handoff, and
 O08-B2a's same-process runtime-neutral rerun composition, O08-B2b0's docs-
 only Postgres claim-authority decision, and O08-CD0's transaction-decision
-provenance are complete; B2b claim/dispatcher/crash-redispatch implementation,
-O08-C/O08-D coordinator policy, and C06 remain pending, and
+provenance and O08-C's bounded known-settled SQL transaction retry are
+complete; B2b claim/dispatcher/crash-redispatch implementation, O08-D
+uncertainty policy, and C06 remain pending, and
 C04C2 remains conditional and unapproved.
 O03-B2b2 renewal is
 a conditional
@@ -46,7 +47,7 @@ bounded attempt must outlive its initial lease.
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, and S09-B's fixed-kind private commit-wake DDL complete |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, and O08-B2b0's docs-only Postgres claim-authority decision are complete; B2b claim/dispatcher/crash-redispatch implementation, O08-C/D, C06, O03-B2b2 renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's docs-only Postgres claim-authority decision, O08-CD0 decision provenance, and O08-C known-settled SQL transaction retry are complete; B2b claim/dispatcher/crash-redispatch implementation, O08-D, C06, O03-B2b2 renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -411,8 +412,11 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
      point-publication SQL marker, exact `40001`/`40P01`, and settled rollback;
      callback-completed settlement failure remains uncertain and is checked
      through O07-A without creating retry policy;
-   - `O08-C`: bounded known-settled pre-decision `40001`/`40P01` retry of the
-     same authenticated logical/closed command with fresh transaction facts;
+   - `O08-C` (complete): the genuine finishing-publication path retries only a
+     source-owned confirmed pre-decision `40001`/`40P01`, captures one
+     authenticated logical/closed command, and uses at most three transactions
+     with full-jitter bounds below 10 ms and 20 ms. Each attempt re-derives all
+     transaction-owned publication facts;
    - `O08-D`: uncertain-outcome resolution through O07-A/C05-B before retry or
      rerun.
 10. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
@@ -428,7 +432,7 @@ This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
 the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do
 not currently establish a need for separate physical/change/outbox lowering,
 so C04C2 remains conditional and outside the mandatory order. O08-B2b
-implementation, O08-C/O08-D, C06, and C07 remain pending; their relative
+implementation, O08-D, C06, and C07 remain pending; their relative
 dispatch-dependent order awaits the later dispatcher-ownership preflight.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a

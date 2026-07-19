@@ -1,14 +1,20 @@
-import { Effect, Encoding, Fiber, Random, Result, Schema } from "effect";
+import { Cause, Effect, Encoding, Exit, Fiber, Random, Result, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import {
+  PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
+  PointCommitDecisionUncertainV1Error,
+  PointCommitSqlErrorV1,
+  PointCommitStaleAuthorityV1Error,
   RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1,
   type CommittedPointOutcomeResolutionV1,
   type PointCommitFinishingTransitionCommandV1,
   type PointCommitFinishingTransitionPortV1,
   type PointCommitFinishingTransitionResultV1,
   type PointCommitPublicationCommandV1,
+  type PointCommitPublicationResultV1,
+  type PointCommitPublicationV1Error,
   type PointCommitPublisherPortV1,
   type PointCommitOutcomeResolutionPortV1,
   type PointCommitRollbackProofPortV1,
@@ -149,6 +155,7 @@ import {
   PointMutationOccRerunExhaustedV1Error,
   PointMutationOccRerunFreshAttemptV1Error,
   PointMutationOccRerunOwnershipLostV1Error,
+  PointCommitKnownSettledSqlRetryExhaustedV1Error,
   InvalidVerifiedCommitInputV1Error,
   StoredCommitAuthorityCorruptionV1Error,
   StoredCommitAuthorityConfigurationV1Error,
@@ -1587,6 +1594,266 @@ describe("C04A stored-attempt authentication", () => {
     expect(detached.sealIdentity.resultSha256).not.toEqual(
       new Uint8Array(32),
     );
+  });
+
+  it("retries only source-owned confirmed rollbacks with deterministic full jitter", async () => {
+    type RootLeak = Extract<
+      keyof typeof executorRoot,
+      | "PointCommitKnownSettledSqlRetryExhaustedV1Error"
+      | "PointCommitFinishingPublicationExecutionV1Error"
+    >;
+    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
+    expect(
+      "PointCommitKnownSettledSqlRetryExhaustedV1Error" in executorRoot,
+    ).toBe(false);
+
+    const first = new PointCommitConfirmedPreDecisionRollbackV1Error({
+      operation: "writeCommitHeader",
+      sqlState: "40001",
+      cause: new Error("first confirmed rollback"),
+    });
+    const second = new PointCommitConfirmedPreDecisionRollbackV1Error({
+      operation: "writeWake",
+      sqlState: "40P01",
+      cause: new Error("second confirmed rollback"),
+    });
+    const expected = expiredPointCommitPublicationResultForTest();
+    const fixture = await pointCommitSqlRetryFixture([
+      Object.freeze({ kind: "failure", failure: first }),
+      Object.freeze({ kind: "failure", failure: second }),
+      Object.freeze({ kind: "success", result: expected }),
+    ]);
+    let randomCalls = 0;
+    const program = Effect.gen(function* () {
+      const fiber = yield* fixture.authentication.publishPointCommit(
+        fixture.finishing,
+      ).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => {
+            randomCalls += 1;
+            return 0.5;
+          },
+          nextIntUnsafe: () => 0,
+        }),
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+      expect(fixture.commands).toHaveLength(1);
+      yield* TestClock.adjust("4 millis");
+      expect(fixture.commands).toHaveLength(1);
+      yield* TestClock.adjust("1 millis");
+      expect(fixture.commands).toHaveLength(2);
+      yield* TestClock.adjust("9 millis");
+      expect(fixture.commands).toHaveLength(2);
+      yield* TestClock.adjust("1 millis");
+      expect(yield* Fiber.join(fiber)).toBe(expected);
+    });
+    await runEffect(program.pipe(Effect.provide(TestClock.layer())));
+
+    expect(randomCalls).toBe(2);
+    expect(fixture.commands).toHaveLength(3);
+    expect(fixture.commands[1]).toBe(fixture.commands[0]);
+    expect(fixture.commands[2]).toBe(fixture.commands[0]);
+  });
+
+  it("exhausts exactly three confirmed attempts with an owned frozen failure snapshot", async () => {
+    const causes = [
+      new Error("confirmed rollback one"),
+      new Error("confirmed rollback two"),
+      new Error("confirmed rollback three"),
+    ];
+    const failures = causes.map((cause, index) =>
+      new PointCommitConfirmedPreDecisionRollbackV1Error({
+        operation: index === 1 ? "writeWake" : "writeCommitHeader",
+        sqlState: index === 1 ? "40P01" : "40001",
+        cause,
+      })
+    );
+    const fixture = await pointCommitSqlRetryFixture(failures.map((failure) =>
+      Object.freeze({ kind: "failure" as const, failure })
+    ));
+    let randomCalls = 0;
+    const failure = await runFailure(
+      fixture.authentication.publishPointCommit(fixture.finishing).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => {
+            randomCalls += 1;
+            return 0;
+          },
+          nextIntUnsafe: () => 0,
+        }),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(
+      PointCommitKnownSettledSqlRetryExhaustedV1Error,
+    );
+    expect(failure).toMatchObject({ attempts: 3, maximumAttempts: 3 });
+    if (!(failure instanceof PointCommitKnownSettledSqlRetryExhaustedV1Error)) {
+      throw new Error("Expected the O08-C exhaustion error.");
+    }
+    expect(Object.isFrozen(failure.failures)).toBe(true);
+    expect(failure.failures).toEqual([
+      { operation: "writeCommitHeader", sqlState: "40001", cause: causes[0] },
+      { operation: "writeWake", sqlState: "40P01", cause: causes[1] },
+      { operation: "writeCommitHeader", sqlState: "40001", cause: causes[2] },
+    ]);
+    for (const snapshot of failure.failures) {
+      expect(Object.isFrozen(snapshot)).toBe(true);
+    }
+    expect(fixture.commands).toHaveLength(3);
+    expect(randomCalls).toBe(2);
+  });
+
+  it("does not retry ordinary, uncertain, OCC, corrupt, structural, or defect failures", async () => {
+    const conflict = new PointCommitConflictV1Error({
+      documentId: decodeAppDocumentIdV1(
+        "1:00000000-0000-4000-8000-000000000099",
+      ),
+      snapshotCommitSeq: CommitSeqSchema.make(1n),
+      currentCommitSeq: CommitSeqSchema.make(2n),
+    });
+    const failures: ReadonlyArray<PointCommitPublicationV1Error> = [
+      new PointCommitSqlErrorV1({
+        operation: "writeCommitHeader",
+        sqlState: "40001",
+        cause: { cause: { code: "40P01" } },
+      }),
+      new PointCommitDecisionUncertainV1Error({
+        phase: "commitOrRelease",
+        cause: new Error("lost commit response"),
+        outcomeCheck: Object.freeze({ kind: "missing" }),
+      }),
+      new PointCommitCorruptionV1Error({
+        reason: "publicationInvariantInvalid",
+      }),
+      conflict,
+    ];
+    for (const expected of failures) {
+      const fixture = await pointCommitSqlRetryFixture([
+        Object.freeze({ kind: "failure", failure: expected }),
+      ]);
+      expect(await runFailure(
+        fixture.authentication.publishPointCommit(fixture.finishing),
+      )).toBe(expected);
+      expect(fixture.commands).toHaveLength(1);
+    }
+
+    const structural = unsafePointCommitPublicationFailureForTest(
+      Object.freeze({
+        _tag: "PointCommitConfirmedPreDecisionRollbackV1Error",
+        operation: "writeCommitHeader",
+        sqlState: "40001",
+        cause: new Error("structural retry impostor"),
+      }),
+    );
+    const structuralFixture = await pointCommitSqlRetryFixture([
+      Object.freeze({ kind: "failure", failure: structural }),
+    ]);
+    const structuralExit = await runEffect(Effect.exit(
+      structuralFixture.authentication.publishPointCommit(
+        structuralFixture.finishing,
+      ),
+    ));
+    expect(Exit.isFailure(structuralExit)).toBe(true);
+    if (Exit.isFailure(structuralExit)) {
+      const observedDefect = Cause.findDefect(structuralExit.cause);
+      expect(Result.isSuccess(observedDefect)).toBe(true);
+      if (Result.isSuccess(observedDefect)) {
+        expect(observedDefect.success).toBe(structural);
+      }
+    }
+    expect(structuralFixture.commands).toHaveLength(1);
+
+    const defect = new Error("publication defect");
+    const defectFixture = await pointCommitSqlRetryFixture([
+      Object.freeze({ kind: "defect", defect }),
+    ]);
+    const defectExit = await runEffect(Effect.exit(
+      defectFixture.authentication.publishPointCommit(defectFixture.finishing),
+    ));
+    expect(Exit.isFailure(defectExit)).toBe(true);
+    if (Exit.isFailure(defectExit)) {
+      const observedDefect = Cause.findDefect(defectExit.cause);
+      expect(Result.isSuccess(observedDefect)).toBe(true);
+      if (Result.isSuccess(observedDefect)) {
+        expect(observedDefect.success).toBe(defect);
+      }
+    }
+    expect(defectFixture.commands).toHaveLength(1);
+  });
+
+  it("interrupts retry backoff before another publication attempt", async () => {
+    const failure = new PointCommitConfirmedPreDecisionRollbackV1Error({
+      operation: "writeCommitHeader",
+      sqlState: "40001",
+      cause: new Error("confirmed rollback before interruption"),
+    });
+    const fixture = await pointCommitSqlRetryFixture([
+      Object.freeze({ kind: "failure", failure }),
+    ]);
+    const interrupted = await runFailure(
+      fixture.authentication.publishPointCommit(fixture.finishing).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => 0.99,
+          nextIntUnsafe: () => 0,
+        }),
+        Effect.timeout("1 millis"),
+      ),
+    );
+    expect(interrupted).toMatchObject({ _tag: "TimeoutError" });
+    expect(fixture.commands).toHaveLength(1);
+  });
+
+  it("honors fresh authority failure from the next publication attempt", async () => {
+    const confirmed = new PointCommitConfirmedPreDecisionRollbackV1Error({
+      operation: "writeCommitHeader",
+      sqlState: "40001",
+      cause: new Error("first transaction rolled back"),
+    });
+    const stale = new PointCommitStaleAuthorityV1Error({ reason: "expired" });
+    const fixture = await pointCommitSqlRetryFixture([
+      Object.freeze({ kind: "failure", failure: confirmed }),
+      Object.freeze({ kind: "failure", failure: stale }),
+    ]);
+    expect(await runFailure(
+      fixture.authentication.publishPointCommit(fixture.finishing).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => 0,
+          nextIntUnsafe: () => 0,
+        }),
+      ),
+    )).toBe(stale);
+    expect(fixture.commands).toHaveLength(2);
+    expect(fixture.commands[1]).toBe(fixture.commands[0]);
+  });
+
+  it("keeps the generic prepared-plan publisher single-attempt", async () => {
+    const commands: PointCommitPublicationCommandV1[] = [];
+    const confirmed = new PointCommitConfirmedPreDecisionRollbackV1Error({
+      operation: "writeCommitHeader",
+      sqlState: "40001",
+      cause: new Error("raw one-attempt publisher rollback"),
+    });
+    const port: PointCommitPublisherPortV1 = Object.freeze({
+      prove: Effect.fn("TestPointCommit.proveRawSingleAttempt")(
+        () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
+      ),
+      publish: Effect.fn("TestPointCommit.publishRawSingleAttempt")(
+        (command) => Effect.sync(() => commands.push(command)).pipe(
+          Effect.flatMap(() => Effect.fail(confirmed)),
+        ),
+      ),
+    });
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("o08c_raw"),
+      returnsValidator: { type: "string" },
+    });
+    const fixture = await pointCommitPublisherFixture(current, port);
+    expect(await runFailure(
+      fixture.authentication.publishPointCommit(fixture.prepared),
+    )).toBe(confirmed);
+    expect(commands).toHaveLength(1);
   });
 
   it("mints C05-A finishing continuations only from genuine same-factory running plans", async () => {
@@ -3589,6 +3856,96 @@ async function pointCommitFinishingFixture(
     authentication.planPointCommit(verifiedCommitInput),
   );
   return { authentication, prepared };
+}
+
+function pointCommitFinishingPortForTest(): PointCommitFinishingTransitionPortV1 {
+  return Object.freeze({
+    enterFinishing: Effect.fn("TestPointCommit.enterFinishingForSqlRetry")(
+      (command) => Effect.succeed(Object.freeze({
+        kind: "transitioned" as const,
+        scopeUuid: command.sealIdentity.scopeUuid,
+        sessionId: command.authorityPins.sessionId,
+        attemptFence: command.authorityPins.attemptFence,
+        priorSessionUpdatedAtMilliseconds:
+          command.session.updatedAtMilliseconds,
+        finishingSessionUpdatedAtMilliseconds:
+          command.session.updatedAtMilliseconds + 1,
+      } satisfies PointCommitFinishingTransitionResultV1)),
+    ),
+  });
+}
+
+function expiredPointCommitPublicationResultForTest(): PointCommitPublicationResultV1 {
+  return Object.freeze({
+    kind: "expired",
+    token: Object.freeze({
+      scopeUuid: SCOPE_UUID,
+      epochUuid: decodeScopeEpochUuidV1(
+        "92000000-0000-4000-8000-000000000002",
+      ),
+      commitSeq: CommitSeqSchema.make(1n),
+    }),
+  });
+}
+
+function unsafePointCommitPublicationFailureForTest(
+  value: unknown,
+): PointCommitPublicationV1Error {
+  return value as PointCommitPublicationV1Error;
+}
+
+type PointCommitPublicationTestOutcomeV1 =
+  | Readonly<{
+      readonly kind: "success";
+      readonly result: PointCommitPublicationResultV1;
+    }>
+  | Readonly<{
+      readonly kind: "failure";
+      readonly failure: PointCommitPublicationV1Error;
+    }>
+  | Readonly<{
+      readonly kind: "defect";
+      readonly defect: unknown;
+    }>;
+
+async function pointCommitSqlRetryFixture(
+  outcomes: ReadonlyArray<PointCommitPublicationTestOutcomeV1>,
+) {
+  const commands: PointCommitPublicationCommandV1[] = [];
+  const pointCommit: PointCommitPublisherPortV1 = Object.freeze({
+    prove: Effect.fn("TestPointCommit.proveSqlRetry")(
+      () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
+    ),
+    publish: Effect.fn("TestPointCommit.publishSqlRetry")(function* (command) {
+      commands.push(command);
+      const outcome = outcomes[commands.length - 1];
+      if (outcome === undefined) {
+        return yield* Effect.die(new Error(
+          "Missing configured point-commit publication test outcome.",
+        ));
+      }
+      if (outcome.kind === "failure") {
+        return yield* Effect.fail(outcome.failure);
+      }
+      if (outcome.kind === "defect") {
+        return yield* Effect.die(outcome.defect);
+      }
+      return outcome.result;
+    }),
+  });
+  const current = await commitAuthorityFixture({}, undefined, {
+    fixture: await emptyFixture("o08c"),
+    returnsValidator: { type: "string" },
+  });
+  const fixture = await pointCommitFinishingFixture(
+    current,
+    pointCommit,
+    pointCommitFinishingPortForTest(),
+  );
+  const finishing = await runEffect(
+    fixture.authentication.enterPointCommitFinishing(fixture.prepared),
+  );
+  return { ...fixture, finishing, commands };
 }
 
 async function pointCommitReplacementFixture(

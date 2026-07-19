@@ -17,8 +17,9 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   also complete. O08-A atomic exact-attempt replacement, O08-B1 bounded
   same-factory fresh-attempt handoff, and O08-B2a same-process runtime-neutral
   rerun composition, O08-B2b0's docs-only Postgres claim-authority decision,
-  and O08-CD0 transaction-decision provenance are complete; B2b crash-safe
-  redispatch and O08-C/O08-D coordinator policy remain pending, and
+  O08-CD0 transaction-decision provenance, and O08-C known-settled SQL retry are
+  complete; B2b crash-safe redispatch and O08-D uncertainty policy remain
+  pending, and
   C06 dispatch
   remains pending, while C04C2 remains conditional and unapproved.
 
@@ -549,11 +550,11 @@ Exit gate:
 
 ### [ ] C06 — Add Idempotent Finish And Lost-Outcome Recovery
 
-Prerequisite: `O08-B2a` same-process OCC execution and O08-CD0 transaction-
-decision provenance are complete. `O08-B2b/O08-C/O08-D` must still complete
-crash redispatch, bounded known-settled retries of the same authenticated
-logical/closed command, and uncertain-outcome lookup. This endpoint composes
-those policies; it does not define a competing retry coordinator.
+Prerequisite: `O08-B2a` same-process OCC execution, O08-CD0 transaction-
+decision provenance, and O08-C bounded known-settled retry are complete.
+`O08-B2b/O08-D` must still complete crash redispatch and uncertain-outcome
+policy. This endpoint composes those policies; it does not define a competing
+retry coordinator.
 
 O08-B2b0 exposes a dependency contradiction in that order: crash-safe B2b needs
 an accepted durable dispatcher/dispatch-acceptance owner, but this C06 gate is
@@ -571,8 +572,8 @@ Outcome:
   the atomic `committed` transition. O08-A owns exact-attempt replacement;
   O08-B1 owns only bounded fresh-attempt handoff; O08-B2a owns same-process
   user-code rerun; O08-CD0 preserves transaction-decision provenance without
-  acting on it; O08-B2b/O08-C/O08-D own crash redispatch, SQL retry, and
-  uncertainty policy:
+  acting on it; O08-C consumes only confirmed rollback for SQL transaction
+  retry; O08-B2b/O08-D own crash redispatch and uncertainty policy:
 
 ```text
 atomic activation -> running -> finishing -> committed
@@ -614,7 +615,8 @@ Required cases:
 - stale epoch/generation/session fence;
 - injected rollback at every publication boundary;
 - two independent scopes committing concurrently;
-- SQL `40001` and `40P01` retry the same immutable plan;
+- confirmed pre-decision SQL `40001` and `40P01` retry the same authenticated
+  logical/closed command;
 - OCC reruns user code at a new snapshot;
 - uncertain outcome lookup prevents double application;
 - commit/outbox sequences remain unique and contiguous under retries.

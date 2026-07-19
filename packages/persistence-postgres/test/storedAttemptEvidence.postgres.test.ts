@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { Effect, Exit, Fiber, Random, Result, Schema } from "effect";
+import { setTimeout as delay } from "node:timers/promises";
 import { Client } from "pg";
 import { appRowIdHexV1ToBytes } from
   "flarex-protocol/app-document-id";
@@ -23,6 +24,7 @@ import {
   CommitSeqSchema,
   decodeReplacementScopeIdV1,
   projectScopeEpochUuidV1,
+  projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
@@ -58,6 +60,7 @@ import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJo
 import {
   createStoredAttemptAuthenticationV1,
   InvalidAuthorizedPointMutationOccRerunV1Error,
+  PointCommitKnownSettledSqlRetryExhaustedV1Error,
   PointMutationOccUserCodeV1Error,
   PointMutationOccRerunOwnershipLostV1Error,
   type PointMutationOccRuntimeNeutralRunnerV1,
@@ -73,9 +76,12 @@ import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
   createPointMutationAttemptReplacementPortV1,
+  PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
   RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1,
+  type PointCommitPublicationCommandV1,
+  type PointCommitPublisherPortV1,
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
 } from "../src/pointCommitTransaction";
@@ -1032,6 +1038,354 @@ describePostgres("real Postgres stored-attempt authority", () => {
       });
     });
   }, 120_000);
+
+  it("retries two genuine PostgreSQL 40001 rollbacks with fresh transaction facts", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(persistence, "o08c_40001_success");
+      const commands: PointCommitPublicationCommandV1[] = [];
+      const confirmed: PointCommitConfirmedPreDecisionRollbackV1Error[] = [];
+      const authentication = createO08CAuthentication(
+        persistence,
+        current,
+        commands,
+        confirmed,
+      );
+      const running = await preparePostgresO08CRunningPlan(
+        current,
+        authentication,
+        "o08c serialization success",
+      );
+      const finishing = await runEffect(
+        authentication.enterPointCommitFinishing(running),
+      );
+      const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+      const trigger = await installO08CSerializationTriggerPostgres(
+        persistence,
+        scopeUuid,
+        "success",
+        2,
+      );
+      let randomCalls = 0;
+      try {
+        await expect(runEffect(
+          authentication.publishPointCommit(finishing).pipe(
+            Effect.provideService(Random.Random, {
+              nextDoubleUnsafe: () => {
+                randomCalls += 1;
+                return 0.5;
+              },
+              nextIntUnsafe: () => 0,
+            }),
+          ),
+        )).resolves.toMatchObject({
+          kind: "published",
+          token: { commitSeq: 1n },
+        });
+        expect(commands).toHaveLength(3);
+        expect(commands[1]).toBe(commands[0]);
+        expect(commands[2]).toBe(commands[0]);
+        expect(confirmed.map((failure) => failure.sqlState)).toEqual([
+          "40001",
+          "40001",
+        ]);
+        expect(randomCalls).toBe(2);
+        const observations = await trigger.observations();
+        expect(observations.attempts).toBe("3");
+        expect(new Set(observations.txids).size).toBe(3);
+        expect(observations.publicationTimesMicros[0]).toBeLessThan(
+          observations.publicationTimesMicros[1] ?? 0n,
+        );
+        expect(observations.publicationTimesMicros[1]).toBeLessThan(
+          observations.publicationTimesMicros[2] ?? 0n,
+        );
+        const state = await o08CPublicationState(persistence, scopeUuid);
+        expect(state).toMatchObject({
+          revisions: "1",
+          current_rows: "1",
+          commit_headers: "1",
+          commit_changes: "1",
+          outcomes: "1",
+          wakes: "1",
+          last_commit_seq: "1",
+          last_outbox_seq: "1",
+        });
+        expect(observations.txids).toContain(state.header_xmin);
+        expect(state.committed_at_micros).toBe(
+          observations.publicationTimesMicros[2]?.toString(),
+        );
+
+        await expect(runEffect(
+          authentication.publishPointCommit(finishing),
+        )).resolves.toMatchObject({
+          kind: "replayed",
+          token: { commitSeq: 1n },
+        });
+        expect((await trigger.observations()).attempts).toBe("3");
+      } finally {
+        await trigger.drop();
+      }
+    });
+  }, 120_000);
+
+  it("exhausts three genuine PostgreSQL 40001 rollbacks without publication residue", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(
+        persistence,
+        "o08c_40001_exhaustion",
+      );
+      const commands: PointCommitPublicationCommandV1[] = [];
+      const confirmed: PointCommitConfirmedPreDecisionRollbackV1Error[] = [];
+      const authentication = createO08CAuthentication(
+        persistence,
+        current,
+        commands,
+        confirmed,
+      );
+      const running = await preparePostgresO08CRunningPlan(
+        current,
+        authentication,
+        "o08c serialization exhaustion",
+      );
+      const finishing = await runEffect(
+        authentication.enterPointCommitFinishing(running),
+      );
+      const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+      const trigger = await installO08CSerializationTriggerPostgres(
+        persistence,
+        scopeUuid,
+        "exhaustion",
+        3,
+      );
+      let randomCalls = 0;
+      try {
+        const failure = await runFailure(
+          authentication.publishPointCommit(finishing).pipe(
+            Effect.provideService(Random.Random, {
+              nextDoubleUnsafe: () => {
+                randomCalls += 1;
+                return 0;
+              },
+              nextIntUnsafe: () => 0,
+            }),
+          ),
+        );
+        expect(failure).toBeInstanceOf(
+          PointCommitKnownSettledSqlRetryExhaustedV1Error,
+        );
+        expect(failure).toMatchObject({ attempts: 3, maximumAttempts: 3 });
+        expect(commands).toHaveLength(3);
+        expect(commands[1]).toBe(commands[0]);
+        expect(commands[2]).toBe(commands[0]);
+        expect(confirmed.map((entry) => entry.sqlState)).toEqual([
+          "40001",
+          "40001",
+          "40001",
+        ]);
+        expect(randomCalls).toBe(2);
+        const observations = await trigger.observations();
+        expect(observations.attempts).toBe("3");
+        expect(new Set(observations.txids).size).toBe(3);
+        expect(await o08CPublicationState(persistence, scopeUuid)).toMatchObject({
+          revisions: "0",
+          current_rows: "0",
+          commit_headers: "0",
+          commit_changes: "0",
+          outcomes: "0",
+          wakes: "0",
+          last_commit_seq: "0",
+          last_outbox_seq: "0",
+        });
+        expect(await o08CAttemptState(
+          persistence,
+          scopeUuid,
+          current.anchor.sessionId,
+        )).toMatchObject({
+          lifecycle: "finishing",
+          leases: "1",
+          journals: "1",
+        });
+      } finally {
+        await trigger.drop();
+      }
+    });
+  }, 120_000);
+
+  it("retries the one genuine PostgreSQL 40P01 victim while an independent scope commits", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const first = await o08B1Scenario(persistence, "o08c_deadlock_a");
+      const second = await o08B1Scenario(persistence, "o08c_deadlock_b");
+      const firstCommands: PointCommitPublicationCommandV1[] = [];
+      const secondCommands: PointCommitPublicationCommandV1[] = [];
+      const firstConfirmed: PointCommitConfirmedPreDecisionRollbackV1Error[] =
+        [];
+      const secondConfirmed: PointCommitConfirmedPreDecisionRollbackV1Error[] =
+        [];
+      const firstAuthentication = createO08CAuthentication(
+        persistence,
+        first,
+        firstCommands,
+        firstConfirmed,
+      );
+      const secondAuthentication = createO08CAuthentication(
+        persistence,
+        second,
+        secondCommands,
+        secondConfirmed,
+      );
+      const firstRunning = await preparePostgresO08CRunningPlan(
+        first,
+        firstAuthentication,
+        "o08c deadlock a",
+      );
+      const secondRunning = await preparePostgresO08CRunningPlan(
+        second,
+        secondAuthentication,
+        "o08c deadlock b",
+      );
+      const firstFinishing = await runEffect(
+        firstAuthentication.enterPointCommitFinishing(firstRunning),
+      );
+      const secondFinishing = await runEffect(
+        secondAuthentication.enterPointCommitFinishing(secondRunning),
+      );
+      const firstScopeUuid = projectScopeIdUuidV1(first.anchor.scopeId).scopeUuid;
+      const secondScopeUuid = projectScopeIdUuidV1(
+        second.anchor.scopeId,
+      ).scopeUuid;
+      const trigger = await installO08CDeadlockTriggerPostgres(
+        persistence,
+        firstScopeUuid,
+        secondScopeUuid,
+      );
+      const zeroRandom = Object.freeze({
+        nextDoubleUnsafe: () => 0,
+        nextIntUnsafe: () => 0,
+      });
+      try {
+        const [firstResult, secondResult] = await Promise.all([
+          runEffect(firstAuthentication.publishPointCommit(firstFinishing).pipe(
+            Effect.provideService(Random.Random, zeroRandom),
+          )),
+          runEffect(secondAuthentication.publishPointCommit(secondFinishing).pipe(
+            Effect.provideService(Random.Random, zeroRandom),
+          )),
+        ]);
+        expect(firstResult).toMatchObject({
+          kind: "published",
+          token: { commitSeq: 1n },
+        });
+        expect(secondResult).toMatchObject({
+          kind: "published",
+          token: { commitSeq: 1n },
+        });
+        expect([firstCommands.length, secondCommands.length].sort()).toEqual([
+          1,
+          2,
+        ]);
+        expect([...firstConfirmed, ...secondConfirmed]).toHaveLength(1);
+        expect([...firstConfirmed, ...secondConfirmed][0]).toMatchObject({
+          sqlState: "40P01",
+        });
+        const retriedCommands = firstCommands.length === 2
+          ? firstCommands
+          : secondCommands;
+        expect(retriedCommands[1]).toBe(retriedCommands[0]);
+        expect(await trigger.attempts()).toBe("3");
+        for (const scopeUuid of [firstScopeUuid, secondScopeUuid]) {
+          expect(await o08CPublicationState(persistence, scopeUuid)).toMatchObject({
+            revisions: "1",
+            commit_headers: "1",
+            outcomes: "1",
+            wakes: "1",
+            last_commit_seq: "1",
+            last_outbox_seq: "1",
+          });
+        }
+      } finally {
+        await trigger.drop();
+      }
+    });
+  }, 120_000);
+
+  it("exhausts three genuine PostgreSQL 40P01 victims without a sequence gap", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(
+        persistence,
+        "o08c_deadlock_exhaustion",
+      );
+      const commands: PointCommitPublicationCommandV1[] = [];
+      const confirmed: PointCommitConfirmedPreDecisionRollbackV1Error[] = [];
+      const authentication = createO08CAuthentication(
+        persistence,
+        current,
+        commands,
+        confirmed,
+      );
+      const running = await preparePostgresO08CRunningPlan(
+        current,
+        authentication,
+        "o08c deadlock exhaustion",
+      );
+      const finishing = await runEffect(
+        authentication.enterPointCommitFinishing(running),
+      );
+      const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+      const trigger = await installO08CDeadlockExhaustionTriggerPostgres(
+        persistence,
+        scopeUuid,
+      );
+      try {
+        const [publication, companions] = await Promise.allSettled([
+          runFailure(authentication.publishPointCommit(finishing).pipe(
+            Effect.provideService(Random.Random, {
+              nextDoubleUnsafe: () => 0,
+              nextIntUnsafe: () => 0,
+            }),
+          )),
+          driveO08CDeadlockCompanions(persistence, trigger, 3),
+        ]);
+        expect(companions.status).toBe("fulfilled");
+        if (companions.status === "rejected") throw companions.reason;
+        expect(publication.status).toBe("fulfilled");
+        if (publication.status === "rejected") throw publication.reason;
+        expect(publication.value).toBeInstanceOf(
+          PointCommitKnownSettledSqlRetryExhaustedV1Error,
+        );
+        expect(publication.value).toMatchObject({
+          attempts: 3,
+          maximumAttempts: 3,
+        });
+        expect(commands).toHaveLength(3);
+        expect(commands[1]).toBe(commands[0]);
+        expect(commands[2]).toBe(commands[0]);
+        expect(confirmed.map((failure) => failure.sqlState)).toEqual([
+          "40P01",
+          "40P01",
+          "40P01",
+        ]);
+        expect(await trigger.attempts()).toBe("3");
+        expect(await o08CPublicationState(persistence, scopeUuid)).toMatchObject({
+          revisions: "0",
+          commit_headers: "0",
+          outcomes: "0",
+          wakes: "0",
+          last_commit_seq: "0",
+          last_outbox_seq: "0",
+        });
+        expect(await o08CAttemptState(
+          persistence,
+          scopeUuid,
+          current.anchor.sessionId,
+        )).toMatchObject({
+          lifecycle: "finishing",
+          leases: "1",
+          journals: "1",
+        });
+      } finally {
+        await trigger.drop();
+      }
+    });
+  }, 120_000);
 });
 
 interface Scenario {
@@ -1397,6 +1751,76 @@ function createO08B1Authentication(
       }),
     pointMutationOccRerun: { attemptLoading: current.loading },
   });
+}
+
+function createO08CAuthentication(
+  persistence: PostgresFlarexPersistence,
+  current: Awaited<ReturnType<typeof o08B1Scenario>>,
+  commands: PointCommitPublicationCommandV1[],
+  confirmed: PointCommitConfirmedPreDecisionRollbackV1Error[],
+) {
+  const ports = resolutionPorts(persistence);
+  const publisher = createPointCommitPublisherPortV1(ports);
+  const observedPublisher: PointCommitPublisherPortV1 = Object.freeze({
+    prove: publisher.prove,
+    publish: Effect.fn("TestO08C.observePublicationAttempt")((command) =>
+      Effect.sync(() => commands.push(command)).pipe(
+        Effect.flatMap(() => publisher.publish(command)),
+        Effect.tapErrorTag(
+          "PointCommitConfirmedPreDecisionRollbackV1Error",
+          (failure) => Effect.sync(() => {
+            if (
+              failure instanceof
+                PointCommitConfirmedPreDecisionRollbackV1Error
+            ) {
+              confirmed.push(failure);
+            }
+          }),
+        ),
+      )
+    ),
+  });
+  return createStoredAttemptAuthenticationV1(current.loader, {
+    evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+    transactionGrantVerifier: current.verifier,
+    functionMetadata: {
+      load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+    },
+    pointCommit: observedPublisher,
+    pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+  });
+}
+
+async function preparePostgresO08CRunningPlan(
+  current: Awaited<ReturnType<typeof o08B1Scenario>>,
+  authentication: ReturnType<typeof createO08CAuthentication>,
+  documentName: string,
+) {
+  const table = await runEffect(
+    current.store.resolvePointTableEffect(current.attempt, "users"),
+  );
+  await runPointOperation(current.store, table, {
+    kind: "insert",
+    syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+    fields: { name: documentName },
+  });
+  const envelope = await sealScenario(current);
+  const loadedAttempt = await runEffect(
+    current.loading.load(selectorWire(current.anchor)),
+  );
+  const authority = await runEffect(
+    authentication.deriveAuthority(loadedAttempt),
+  );
+  const stored = await runEffect(
+    authentication.authenticate(authority, encodeEnvelope(envelope)),
+  );
+  const commitAuthority = await runEffect(
+    authentication.authenticateCommitAuthority(stored),
+  );
+  const verified = await runEffect(
+    authentication.verifyCommitInput(commitAuthority),
+  );
+  return runEffect(authentication.planPointCommit(verified));
 }
 
 function createO08B2aAuthentication(
@@ -1784,6 +2208,473 @@ function selectorWire(
     sessionId: anchor.sessionId,
     attemptFence: anchor.attemptFence.toString(),
   });
+}
+
+async function installO08CSerializationTriggerPostgres(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+  label: "success" | "exhaustion",
+  failuresBeforeSuccess: 2 | 3,
+) {
+  const prefix = `fx_test_o08c_${label}`;
+  const attemptSequence = `${prefix}_attempts`;
+  const txidSequences = [1, 2, 3].map((attempt) =>
+    `${prefix}_txid_${attempt}`
+  );
+  const timeSequences = [1, 2, 3].map((attempt) =>
+    `${prefix}_time_${attempt}`
+  );
+  const functionName = `${prefix}_40001`;
+  const triggerName = `${prefix}_40001_trigger`;
+  for (const sequence of [
+    attemptSequence,
+    ...txidSequences,
+    ...timeSequences,
+  ]) {
+    await persistence.query(`create sequence ${sequence}`);
+  }
+  await persistence.query(
+    `
+      create function ${functionName}()
+      returns trigger
+      language plpgsql
+      as $$
+      declare
+        current_attempt bigint;
+        publication_time_micros bigint;
+      begin
+        if new.scope_uuid <> '${scopeUuid}'::uuid then
+          return new;
+        end if;
+        current_attempt := nextval('${attemptSequence}');
+        publication_time_micros := floor(
+          extract(epoch from new.committed_at) * 1000000
+        )::bigint;
+        if current_attempt = 1 then
+          perform setval('${txidSequences[0]}', txid_current());
+          perform setval('${timeSequences[0]}', publication_time_micros);
+        elsif current_attempt = 2 then
+          perform setval('${txidSequences[1]}', txid_current());
+          perform setval('${timeSequences[1]}', publication_time_micros);
+        elsif current_attempt = 3 then
+          perform setval('${txidSequences[2]}', txid_current());
+          perform setval('${timeSequences[2]}', publication_time_micros);
+        end if;
+        if current_attempt <= ${failuresBeforeSuccess} then
+          raise exception 'forced O08-C serialization failure %',
+            current_attempt using errcode = '40001';
+        end if;
+        return new;
+      end
+      $$
+    `,
+  );
+  await persistence.query(
+    `
+      create trigger ${triggerName}
+      before insert on fx_system_commit
+      for each row execute function ${functionName}()
+    `,
+  );
+  return Object.freeze({
+    observations: async () => {
+      const result = await persistence.query<{
+        attempts: string;
+        txid_1: string;
+        txid_2: string;
+        txid_3: string;
+        time_1: string;
+        time_2: string;
+        time_3: string;
+      }>(
+        `
+          select
+            (select last_value::text from ${attemptSequence}) as attempts,
+            (select last_value::text from ${txidSequences[0]}) as txid_1,
+            (select last_value::text from ${txidSequences[1]}) as txid_2,
+            (select last_value::text from ${txidSequences[2]}) as txid_3,
+            (select last_value::text from ${timeSequences[0]}) as time_1,
+            (select last_value::text from ${timeSequences[1]}) as time_2,
+            (select last_value::text from ${timeSequences[2]}) as time_3
+        `,
+      );
+      const row = result.rows[0];
+      if (row === undefined) {
+        throw new Error("Missing PostgreSQL O08-C trigger observations.");
+      }
+      return Object.freeze({
+        attempts: row.attempts,
+        txids: Object.freeze([row.txid_1, row.txid_2, row.txid_3]),
+        publicationTimesMicros: Object.freeze([
+          BigInt(row.time_1),
+          BigInt(row.time_2),
+          BigInt(row.time_3),
+        ]),
+      });
+    },
+    drop: async (): Promise<void> => {
+      await persistence.query(
+        `drop trigger ${triggerName} on fx_system_commit`,
+      );
+      await persistence.query(`drop function ${functionName}()`);
+      for (const sequence of [
+        attemptSequence,
+        ...txidSequences,
+        ...timeSequences,
+      ]) {
+        await persistence.query(`drop sequence ${sequence}`);
+      }
+    },
+  });
+}
+
+async function installO08CDeadlockTriggerPostgres(
+  persistence: PostgresFlarexPersistence,
+  firstScopeUuid: string,
+  secondScopeUuid: string,
+) {
+  const attemptSequence = "fx_test_o08c_deadlock_attempts";
+  const functionName = "fx_test_o08c_deadlock_function";
+  const triggerName = "fx_test_o08c_deadlock_trigger";
+  await persistence.query(`create sequence ${attemptSequence}`);
+  await persistence.query(
+    `
+      create function ${functionName}()
+      returns trigger
+      language plpgsql
+      as $$
+      declare
+        current_attempt bigint;
+        peer_key integer;
+        wait_count integer := 0;
+      begin
+        if new.scope_uuid <> '${firstScopeUuid}'::uuid
+          and new.scope_uuid <> '${secondScopeUuid}'::uuid then
+          return new;
+        end if;
+        current_attempt := nextval('${attemptSequence}');
+        if current_attempt > 2 then
+          return new;
+        end if;
+        if new.scope_uuid = '${firstScopeUuid}'::uuid then
+          perform pg_advisory_xact_lock(80831, 1);
+          peer_key := 2;
+        else
+          perform pg_advisory_xact_lock(80831, 2);
+          peer_key := 1;
+        end if;
+        while not exists (
+          select 1
+          from pg_locks
+          where locktype = 'advisory'
+            and classid = 80831
+            and objid = peer_key
+            and granted
+            and pid <> pg_backend_pid()
+        ) loop
+          wait_count := wait_count + 1;
+          if wait_count > 500 then
+            raise exception 'timed out preparing the O08-C deadlock';
+          end if;
+          perform pg_sleep(0.01);
+        end loop;
+        perform pg_advisory_xact_lock(80831, peer_key);
+        return new;
+      end
+      $$
+    `,
+  );
+  await persistence.query(
+    `
+      create trigger ${triggerName}
+      before insert on fx_system_commit
+      for each row execute function ${functionName}()
+    `,
+  );
+  return Object.freeze({
+    attempts: async (): Promise<string> => {
+      const result = await persistence.query<{ last_value: string }>(
+        `select last_value::text from ${attemptSequence}`,
+      );
+      const row = result.rows[0];
+      if (row === undefined) {
+        throw new Error("Missing PostgreSQL O08-C deadlock attempts.");
+      }
+      return row.last_value;
+    },
+    drop: async (): Promise<void> => {
+      await persistence.query(
+        `drop trigger ${triggerName} on fx_system_commit`,
+      );
+      await persistence.query(`drop function ${functionName}()`);
+      await persistence.query(`drop sequence ${attemptSequence}`);
+    },
+  });
+}
+
+async function installO08CDeadlockExhaustionTriggerPostgres(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+) {
+  const advisoryClassId = 80832;
+  const attemptSequence = "fx_test_o08c_deadlock_exhaustion_attempts";
+  const functionName = "fx_test_o08c_deadlock_exhaustion_function";
+  const triggerName = "fx_test_o08c_deadlock_exhaustion_trigger";
+  await persistence.query(`create sequence ${attemptSequence}`);
+  await persistence.query(
+    `
+      create function ${functionName}()
+      returns trigger
+      language plpgsql
+      as $$
+      declare
+        current_attempt bigint;
+        main_key integer;
+        peer_key integer;
+        wait_count integer := 0;
+      begin
+        if new.scope_uuid <> '${scopeUuid}'::uuid then
+          return new;
+        end if;
+        current_attempt := nextval('${attemptSequence}');
+        main_key := (current_attempt * 2)::integer;
+        peer_key := main_key + 1;
+        perform pg_advisory_xact_lock(${advisoryClassId}, main_key);
+        while not exists (
+          select 1
+          from pg_locks
+          where locktype = 'advisory'
+            and classid = ${advisoryClassId}
+            and objid = peer_key
+            and granted
+            and pid <> pg_backend_pid()
+        ) loop
+          wait_count := wait_count + 1;
+          if wait_count > 1000 then
+            raise exception 'timed out preparing O08-C deadlock round %',
+              current_attempt;
+          end if;
+          perform pg_sleep(0.005);
+        end loop;
+        perform pg_advisory_xact_lock(${advisoryClassId}, peer_key);
+        return new;
+      end
+      $$
+    `,
+  );
+  await persistence.query(
+    `
+      create trigger ${triggerName}
+      before insert on fx_system_commit
+      for each row execute function ${functionName}()
+    `,
+  );
+  return Object.freeze({
+    advisoryClassId,
+    attemptSequence,
+    attempts: async (): Promise<string> => {
+      const result = await persistence.query<{ last_value: string }>(
+        `select last_value::text from ${attemptSequence}`,
+      );
+      const row = result.rows[0];
+      if (row === undefined) {
+        throw new Error("Missing PostgreSQL O08-C exhaustion attempts.");
+      }
+      return row.last_value;
+    },
+    drop: async (): Promise<void> => {
+      await persistence.query(
+        `drop trigger ${triggerName} on fx_system_commit`,
+      );
+      await persistence.query(`drop function ${functionName}()`);
+      await persistence.query(`drop sequence ${attemptSequence}`);
+    },
+  });
+}
+
+async function driveO08CDeadlockCompanions(
+  persistence: PostgresFlarexPersistence,
+  trigger: Awaited<
+    ReturnType<typeof installO08CDeadlockExhaustionTriggerPostgres>
+  >,
+  rounds: 3,
+): Promise<void> {
+  for (let round = 1; round <= rounds; round += 1) {
+    const mainKey = round * 2;
+    const peerKey = mainKey + 1;
+    const deadline = Date.now() + 10_000;
+    let mainLockGranted = false;
+    while (Date.now() < deadline) {
+      const sequence = await persistence.query<{
+        last_value: string;
+        is_called: boolean;
+        main_lock_granted: boolean;
+      }>(
+        `
+          select
+            last_value::text,
+            is_called,
+            exists (
+              select 1
+              from pg_locks
+              where locktype = 'advisory'
+                and classid = $1
+                and objid = $2
+                and granted
+            ) as main_lock_granted
+          from ${trigger.attemptSequence}
+        `,
+        [trigger.advisoryClassId, mainKey],
+      );
+      const row = sequence.rows[0];
+      if (
+        row !== undefined &&
+        row.is_called &&
+        BigInt(row.last_value) >= BigInt(round) &&
+        row.main_lock_granted
+      ) {
+        mainLockGranted = true;
+        break;
+      }
+      await delay(5);
+    }
+    if (!mainLockGranted) {
+      throw new Error(
+        `Timed out waiting for O08-C deadlock main lock ${round}.`,
+      );
+    }
+    const client = await persistence.pool.connect();
+    let transactionOpen = false;
+    try {
+      await client.query("begin");
+      transactionOpen = true;
+      await client.query("set local lock_timeout = '15s'");
+      await client.query(
+        "select pg_advisory_xact_lock($1, $2)",
+        [trigger.advisoryClassId, peerKey],
+      );
+      const waitingDeadline = Date.now() + 10_000;
+      let mainWaitingOnPeer = false;
+      while (Date.now() < waitingDeadline) {
+        const waiting = await client.query<{ main_waiting: boolean }>(
+          `
+            select exists (
+              select 1
+              from pg_locks
+              where locktype = 'advisory'
+                and classid = $1
+                and objid = $2
+                and not granted
+                and pid <> pg_backend_pid()
+            ) as main_waiting
+          `,
+          [trigger.advisoryClassId, peerKey],
+        );
+        if (waiting.rows[0]?.main_waiting === true) {
+          mainWaitingOnPeer = true;
+          break;
+        }
+        await delay(5);
+      }
+      if (!mainWaitingOnPeer) {
+        throw new Error(
+          `Timed out waiting for O08-C deadlock peer wait ${round}.`,
+        );
+      }
+      // Give the publication backend a deterministic head start on PostgreSQL's
+      // ordinary deadlock timer without requiring privileged GUC changes.
+      await delay(50);
+      await client.query(
+        "select pg_advisory_xact_lock($1, $2)",
+        [trigger.advisoryClassId, mainKey],
+      );
+      await client.query("rollback");
+      transactionOpen = false;
+    } finally {
+      if (transactionOpen) {
+        await client.query("rollback").catch(() => undefined);
+      }
+      client.release();
+    }
+  }
+}
+
+async function o08CPublicationState(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+) {
+  const result = await persistence.query<{
+    revisions: string;
+    current_rows: string;
+    commit_headers: string;
+    commit_changes: string;
+    outcomes: string;
+    wakes: string;
+    last_commit_seq: string;
+    last_outbox_seq: string;
+    header_xmin: string;
+    committed_at_micros: string;
+  }>(
+    `
+      select
+        (select count(*)::text from fx_app_row_rev
+          where scope_uuid = $1) as revisions,
+        (select count(*)::text from fx_app_row_current
+          where scope_uuid = $1) as current_rows,
+        (select count(*)::text from fx_system_commit
+          where scope_uuid = $1) as commit_headers,
+        (select count(*)::text from fx_system_commit_app_row_change
+          where scope_uuid = $1) as commit_changes,
+        (select count(*)::text from fx_system_idempotency
+          where scope_uuid = $1) as outcomes,
+        (select count(*)::text from fx_system_outbox
+          where scope_uuid = $1) as wakes,
+        clock.last_commit_seq::text,
+        clock.last_outbox_seq::text,
+        coalesce((select header.xmin::text from fx_system_commit header
+          where header.scope_uuid = $1), '') as header_xmin,
+        coalesce((select floor(
+          extract(epoch from header.committed_at) * 1000000
+        )::bigint::text from fx_system_commit header
+          where header.scope_uuid = $1), '') as committed_at_micros
+      from fx_system_scope_clock clock
+      where clock.scope_uuid = $1
+    `,
+    [scopeUuid],
+  );
+  const row = result.rows[0];
+  if (row === undefined) throw new Error("Missing PostgreSQL O08-C state.");
+  return row;
+}
+
+async function o08CAttemptState(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+  sessionId: PointMutationSessionAnchorV1["sessionId"],
+) {
+  const result = await persistence.query<{
+    lifecycle: string;
+    leases: string;
+    journals: string;
+  }>(
+    `
+      select session.lifecycle,
+        (select count(*)::text from fx_system_snapshot_lease lease
+          where lease.scope_uuid = session.scope_uuid
+            and lease.session_id = session.session_id) as leases,
+        (select count(*)::text from fx_system_tx_journal journal
+          where journal.scope_uuid = session.scope_uuid
+            and journal.session_id = session.session_id) as journals
+      from fx_system_tx_session session
+      where session.scope_uuid = $1 and session.session_id = $2
+    `,
+    [scopeUuid, sessionId],
+  );
+  const row = result.rows[0];
+  if (row === undefined) {
+    throw new Error("Missing PostgreSQL O08-C attempt state.");
+  }
+  return row;
 }
 
 function sharedLocator(

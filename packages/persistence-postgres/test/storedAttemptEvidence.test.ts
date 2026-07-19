@@ -80,6 +80,7 @@ import {
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
   createStoredAttemptAuthenticationV1,
+  PointCommitKnownSettledSqlRetryExhaustedV1Error,
   PointMutationOccUserCodeV1Error,
   type PointMutationOccExecutionContextFactoryV1,
   type PointMutationOccRuntimeNeutralRunnerV1,
@@ -2389,6 +2390,115 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(preTransactionFailure).not.toHaveProperty("retryable");
   });
 
+  it("retries two actual rolled-back 40001 publications and commits one dense result", async () => {
+    const prepared = await prepareO07BRunningScenario(
+      "o08c_pglite_success",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "o08c pglite success" },
+        });
+      },
+    );
+    const trigger = await installO08CSerializationTrigger(
+      prepared.scopeUuid,
+      "success",
+      2,
+    );
+    try {
+      const published = await runEffect(
+        prepared.authentication.finishPointCommit(prepared.runningPlan).pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+      );
+      expect(published).toMatchObject({
+        kind: "published",
+        token: { commitSeq: 1n },
+      });
+      expect(await trigger.attempts()).toBe("3");
+      expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+        revisions: "1",
+        current_rows: "1",
+        commit_headers: "1",
+        commit_changes: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+      expect(await o07bTerminalState(
+        prepared.scopeUuid,
+        prepared.current.anchor.sessionId,
+      )).toMatchObject({
+        lifecycle: "committed",
+        leases: "0",
+        journals: "0",
+      });
+    } finally {
+      await trigger.drop();
+    }
+  });
+
+  it("exhausts three actual rolled-back 40001 publications without residue", async () => {
+    const prepared = await prepareO07BRunningScenario(
+      "o08c_pglite_exhaustion",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "o08c pglite exhaustion" },
+        });
+      },
+    );
+    const trigger = await installO08CSerializationTrigger(
+      prepared.scopeUuid,
+      "exhaustion",
+      3,
+    );
+    try {
+      const failure = await runFailure(
+        prepared.authentication.finishPointCommit(prepared.runningPlan).pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+      );
+      expect(failure).toBeInstanceOf(
+        PointCommitKnownSettledSqlRetryExhaustedV1Error,
+      );
+      expect(failure).toMatchObject({ attempts: 3, maximumAttempts: 3 });
+      expect(await trigger.attempts()).toBe("3");
+      expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+        revisions: "0",
+        current_rows: "0",
+        commit_headers: "0",
+        commit_changes: "0",
+        outcomes: "0",
+        wakes: "0",
+        last_commit_seq: "0",
+        last_outbox_seq: "0",
+      });
+      expect(await o07bTerminalState(
+        prepared.scopeUuid,
+        prepared.current.anchor.sessionId,
+      )).toMatchObject({
+        lifecycle: "finishing",
+        leases: "1",
+        journals: "1",
+        receipts: "1",
+        points: "1",
+        write_events: "1",
+      });
+    } finally {
+      await trigger.drop();
+    }
+  });
+
   it("replays across epoch rollover, but a missing old receipt is stale", async () => {
     const prepared = await prepareO07BScenario("o07b_epoch_replay");
     const published = await runEffect(
@@ -4009,6 +4119,64 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const row = result.rows[0];
     if (row === undefined) throw new Error("Missing O07-B session state.");
     return row;
+  }
+
+  async function installO08CSerializationTrigger(
+    scopeUuid: string,
+    label: "success" | "exhaustion",
+    failuresBeforeSuccess: 2 | 3,
+  ) {
+    const sequenceName = `fx_test_o08c_${label}_attempts`;
+    const functionName = `fx_test_o08c_${label}_40001`;
+    const triggerName = `fx_test_o08c_${label}_40001_trigger`;
+    await persistence.query(`create sequence ${sequenceName}`);
+    await persistence.query(
+      `
+        create function ${functionName}()
+        returns trigger
+        language plpgsql
+        as $$
+        declare
+          current_attempt bigint;
+        begin
+          if new.scope_uuid = '${scopeUuid}'::uuid then
+            current_attempt := nextval('${sequenceName}');
+            if current_attempt <= ${failuresBeforeSuccess} then
+              raise exception 'forced O08-C serialization failure %',
+                current_attempt using errcode = '40001';
+            end if;
+          end if;
+          return new;
+        end
+        $$
+      `,
+    );
+    await persistence.query(
+      `
+        create trigger ${triggerName}
+        before insert on fx_system_commit
+        for each row execute function ${functionName}()
+      `,
+    );
+    return Object.freeze({
+      attempts: async (): Promise<string> => {
+        const result = await persistence.query<{ last_value: string }>(
+          `select last_value::text from ${sequenceName}`,
+        );
+        const row = result.rows[0];
+        if (row === undefined) {
+          throw new Error("Missing O08-C attempt sequence state.");
+        }
+        return row.last_value;
+      },
+      drop: async (): Promise<void> => {
+        await persistence.query(
+          `drop trigger ${triggerName} on fx_system_commit`,
+        );
+        await persistence.query(`drop function ${functionName}()`);
+        await persistence.query(`drop sequence ${sequenceName}`);
+      },
+    });
   }
 
   function nextUuid(): string {

@@ -25,9 +25,9 @@ fresh-process finishing reconstruction/private publisher composition are
 complete. O08-A atomic exact-attempt replacement, O08-B1's bounded
 same-factory fresh-attempt handoff, and O08-B2a's same-process runtime-neutral
 user-code rerun composition are complete. O08-B2b0's docs-only Postgres claim-
-authority decision and O08-CD0's transaction-decision provenance are complete;
-B2b claim/dispatcher/crash-redispatch implementation, O08-C known-settled SQL
-retry policy, and O08-D uncertain-outcome
+authority decision, O08-CD0's transaction-decision provenance, and O08-C's
+bounded known-settled SQL transaction retry are complete; B2b claim/
+dispatcher/crash-redispatch implementation and O08-D uncertain-outcome
 policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
@@ -1121,13 +1121,18 @@ uncertainty and lookup failure remains secondary evidence. The prior untrusted
 and authority resolution do not gain retry authority. O08-CD0 implements no
 retry, backoff, user-code rerun, or uncertain-outcome coordinator policy.
 
-#### [ ] O08-C — Retry Known-Settled SQL Transactions
+#### [x] O08-C — Retry Known-Settled SQL Transactions
 
-Only a confirmed pre-decision PostgreSQL `40001` or `40P01` may retry the same
-authenticated logical/closed command within a strict bound. Every attempt opens
-a new transaction and freshly derives locks, physical rows, commit/outbox
-sequences, IDs, and database timestamps. It never reruns user code and cannot
-reuse a physical SQL plan.
+Only a direct, source-owned confirmed pre-decision PostgreSQL `40001` or
+`40P01` may retry the same authenticated logical/closed command. The genuine
+finishing-publication path captures that command once and makes at most three
+total attempts; the first two confirmed failures use full jitter below 10 ms
+and 20 ms. Every attempt opens a new transaction and freshly derives canonical
+locks and authority checks, optional row revision/current lowering, dense
+commit/outbox sequences, S08 header/change keys, the S09-A outcome token, the
+S09-B wake key, and the database-owned publication timestamp. It never reruns
+user code, allocates no random physical publication ID, and cannot reuse a
+physical SQL plan.
 
 #### [ ] O08-D — Resolve Uncertain Outcomes
 
@@ -1141,9 +1146,10 @@ shipped request identities are later discovered, their no-commit/terminal-
 anchor rebind rule requires a separately preflighted migration capability.
 
 Every O08-C retry opens a new transaction, reacquires the scope clock, rechecks
-session/generation/epoch/idempotency, and derives tentative commit/outbox
-sequences, IDs, timestamps, and transaction locks again. The authenticated
-logical/closed command contains none of those transaction-derived facts.
+session/generation/epoch/idempotency, and derives the optional row lowering,
+dense commit/outbox sequences, S08/S09 keys and token, database timestamp, and
+transaction locks again. The authenticated logical/closed command contains
+none of those transaction-derived facts.
 
 Exit gate:
 
