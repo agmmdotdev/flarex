@@ -139,8 +139,11 @@ import {
 } from "../src/transactionSessionActivation";
 import {
   LocatedReadCommittedTransactionFailureV1,
+  RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
   RUN_LOCATED_READ_COMMITTED_V1,
+  isLocatedPointCommitPublicationTargetV1,
   isLocatedReadCommittedAttemptTargetV1,
+  type LocatedPointCommitPublicationTargetV1,
 } from "../src/transactionSessionAttemptKernel";
 import {
   createPointCommitFinishingTransitionPortV1,
@@ -148,16 +151,23 @@ import {
   createPointCommitRollbackProofPortV1,
   createPointMutationAttemptReplacementPortV1,
   PointCommitConflictV1Error,
+  PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitCorruptionV1Error,
+  PointCommitDecisionUncertainV1Error,
   PointCommitResourceExhaustionV1Error,
   PointCommitSqlErrorV1,
   PointCommitStaleAuthorityV1Error,
   type PointMutationAttemptReplacementOptionsV1,
+  type PointCommitPublicationCommandV1,
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
 } from "../src/pointCommitTransaction";
 import {
+  CommittedPointOutcomeSqlErrorV1,
   CommittedPointOutcomeRequestKeyReuseErrorV1,
+  type CommittedPointOutcomeResolutionV1,
+  type ResolveCommittedPointOutcomeErrorV1,
+  type ResolveCommittedPointOutcomeInputV1,
 } from "../src/committedPointOutcome";
 import {
   pointCommitCommandFromStoredAttemptV1,
@@ -2156,6 +2166,229 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(byteReads).toBe(1);
   });
 
+  it("classifies only a rolled-back in-transaction SQLSTATE as confirmed", async () => {
+    const prepared = await prepareO06Scenario(
+      "o08_cd0_confirmed_rollback",
+      () => Promise.resolve(),
+    );
+    const command = await publicationCommand(prepared.command);
+    await persistence.query(
+      `
+        create or replace function fx_test_o08_cd0_40001()
+        returns trigger
+        language plpgsql
+        as $$
+        begin
+          if new.scope_uuid = '${prepared.evidence.scopeUuid}'::uuid then
+            raise exception 'forced O08-CD0 serialization failure'
+              using errcode = '40001';
+          end if;
+          return new;
+        end
+        $$
+      `,
+    );
+    await persistence.query(
+      `
+        create trigger fx_test_o08_cd0_40001_trigger
+        before insert on fx_system_commit
+        for each row execute function fx_test_o08_cd0_40001()
+      `,
+    );
+    try {
+      const failure = await runFailure(
+        createPointCommitPublisherPortV1(
+          resolutionPorts(persistence),
+        ).publish(command),
+      );
+      expect(failure).toBeInstanceOf(
+        PointCommitConfirmedPreDecisionRollbackV1Error,
+      );
+      expect(failure).toMatchObject({
+        operation: "writeCommitHeader",
+        sqlState: "40001",
+      });
+      expect(await o06DurableState(prepared.evidence.scopeUuid)).toEqual({
+        revisions: "0",
+        current_rows: "0",
+        commit_headers: "0",
+        commit_changes: "0",
+        outcomes: "0",
+        wakes: "0",
+        last_commit_seq: "0",
+        last_outbox_seq: "0",
+      });
+    } finally {
+      await persistence.query(
+        "drop trigger fx_test_o08_cd0_40001_trigger on fx_system_commit",
+      );
+      await persistence.query("drop function fx_test_o08_cd0_40001() ");
+    }
+  });
+
+  it("recovers only uncertain publication decisions through O07-A", async () => {
+    const available = await prepareO06Scenario(
+      "o08_cd0_uncertain_available",
+      () => Promise.resolve(),
+    );
+    const availableCause = new Error("lost commit response");
+    const availablePublisher = createPointCommitPublisherPortV1(
+      portsWithReadCommittedOverride(async (target, work) => {
+        await target[RUN_LOCATED_READ_COMMITTED_V1](work);
+        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+          kind: "decisionUncertain",
+          settlementCause: availableCause,
+        }));
+      }),
+    );
+    await expect(runEffect(availablePublisher.publish(
+      await publicationCommand(available.command),
+    ))).resolves.toMatchObject({
+      kind: "replayed",
+      token: { commitSeq: 1n },
+    });
+
+    const expired = await prepareO06Scenario(
+      "o08_cd0_uncertain_expired",
+      () => Promise.resolve(),
+    );
+    const expiredPublisher = createPointCommitPublisherPortV1(
+      portsWithReadCommittedOverride(async (target, work) => {
+        await target[RUN_LOCATED_READ_COMMITTED_V1](work);
+        await persistence.query(
+          `
+            update fx_system_idempotency
+            set result_state = 'expired',
+              result_value_codec_version = null,
+              result_semantic_bytes = null,
+              result_bytes = null,
+              result_sha256 = null,
+              result_expired_at = clock_timestamp()
+            where scope_uuid = $1
+          `,
+          [expired.evidence.scopeUuid],
+        );
+        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+          kind: "decisionUncertain",
+          settlementCause: new Error("lost response after result expiry"),
+        }));
+      }),
+    );
+    await expect(runEffect(expiredPublisher.publish(
+      await publicationCommand(expired.command),
+    ))).resolves.toMatchObject({
+      kind: "expired",
+      token: { commitSeq: 1n },
+    });
+
+    const missing = await prepareO06Scenario(
+      "o08_cd0_uncertain_missing",
+      () => Promise.resolve(),
+    );
+    const missingCause = new Error("commit response missing before send");
+    const missingFailure = await runFailure(
+      createPointCommitPublisherPortV1(
+        portsWithReadCommittedOverride(async () => {
+          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: missingCause,
+          }));
+        }),
+      ).publish(await publicationCommand(missing.command)),
+    );
+    expect(missingFailure).toBeInstanceOf(
+      PointCommitDecisionUncertainV1Error,
+    );
+    expect(missingFailure).toMatchObject({
+      phase: "commitOrRelease",
+      outcomeCheck: { kind: "missing" },
+    });
+
+    const lookupFailed = await prepareO06Scenario(
+      "o08_cd0_uncertain_lookup_failed",
+      () => Promise.resolve(),
+    );
+    const lookupFailure = new CommittedPointOutcomeSqlErrorV1({
+      operation: "resolve",
+      cause: new Error("outcome lookup unavailable"),
+    });
+    let lookupCount = 0;
+    const lookupFailureResult = await runFailure(
+      createPointCommitPublisherPortV1(
+        portsWithReadCommittedOverride(
+          async () => {
+            throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+              kind: "decisionUncertain",
+              settlementCause: new Error("commit settlement unknown"),
+            }));
+          },
+          (target, input) => {
+            lookupCount += 1;
+            return lookupCount === 1
+              ? target[RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1](input)
+              : Effect.fail(lookupFailure);
+          },
+        ),
+      ).publish(await publicationCommand(lookupFailed.command)),
+    );
+    expect(lookupFailureResult).toBeInstanceOf(
+      PointCommitDecisionUncertainV1Error,
+    );
+    expect(lookupFailureResult).toMatchObject({
+      outcomeCheck: { kind: "lookupFailed", error: lookupFailure },
+    });
+  });
+
+  it("keeps cleanup and pre-transaction SQLSTATE failures ordinary", async () => {
+    const cleanup = await prepareO06Scenario(
+      "o08_cd0_cleanup_ordinary",
+      () => Promise.resolve(),
+    );
+    const callbackCause = Object.assign(new Error("callback failed"), {
+      code: "40001",
+    });
+    const rollbackCause = new Error("rollback failed");
+    const cleanupFailure = await runFailure(
+      createPointCommitPublisherPortV1(
+        portsWithReadCommittedOverride(async () => {
+          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "callbackCleanupFailed",
+            callbackCause,
+            transactionCause: rollbackCause,
+          }));
+        }),
+      ).publish(await publicationCommand(cleanup.command)),
+    );
+    expect(cleanupFailure).toBeInstanceOf(PointCommitSqlErrorV1);
+    expect(cleanupFailure).toMatchObject({ operation: "beginOrRollback" });
+    expect(cleanupFailure).not.toHaveProperty("retryable");
+
+    const preTransaction = await prepareO06Scenario(
+      "o08_cd0_pre_transaction_ordinary",
+      () => Promise.resolve(),
+    );
+    const synthetic = Object.assign(new Error("authority lookup failed"), {
+      code: "40001",
+    });
+    const preTransactionFailure = await runFailure(
+      createPointCommitPublisherPortV1({
+        ...resolutionPorts(persistence),
+        scopeSessionTargets: {
+          resolve: async () => {
+            throw synthetic;
+          },
+        },
+      }).publish(await publicationCommand(preTransaction.command)),
+    );
+    expect(preTransactionFailure).toBeInstanceOf(PointCommitSqlErrorV1);
+    expect(preTransactionFailure).toMatchObject({
+      operation: "resolveAuthority",
+      sqlState: "40001",
+      cause: synthetic,
+    });
+    expect(preTransactionFailure).not.toHaveProperty("retryable");
+  });
+
   it("replays across epoch rollover, but a missing old receipt is stale", async () => {
     const prepared = await prepareO07BScenario("o07b_epoch_replay");
     const published = await runEffect(
@@ -2499,7 +2732,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(sqlFailure).toMatchObject({
       operation: "resolveAuthority",
       sqlState: "57P01",
-      retryable: false,
     });
   });
 
@@ -2638,9 +2870,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
                   try {
                     return await target[RUN_LOCATED_READ_COMMITTED_V1](work);
                   } catch (callbackCause) {
+                    const originalCallbackCause =
+                      callbackCause instanceof
+                          LocatedReadCommittedTransactionFailureV1 &&
+                        callbackCause.issue.kind === "callbackRolledBack"
+                        ? callbackCause.issue.callbackCause
+                        : callbackCause;
                     throw new LocatedReadCommittedTransactionFailureV1(
-                      rollbackCause,
-                      callbackCause,
+                      Object.freeze({
+                        kind: "callbackCleanupFailed",
+                        callbackCause: originalCallbackCause,
+                        transactionCause: rollbackCause,
+                      }),
                     );
                   }
                 };
@@ -2664,8 +2905,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ) {
       throw new Error("Expected the located transaction failure wrapper.");
     }
-    expect(rollbackFailure.cause.cause).toBe(rollbackCause);
-    expect(rollbackFailure.cause.callbackCause).toMatchObject({
+    expect(rollbackFailure.cause.issue).toMatchObject({
+      kind: "callbackCleanupFailed",
+      transactionCause: rollbackCause,
+    });
+    if (rollbackFailure.cause.issue.kind !== "callbackCleanupFailed") {
+      throw new Error("Expected callback cleanup failure evidence.");
+    }
+    expect(rollbackFailure.cause.issue.callbackCause).toMatchObject({
       kind: "pointCommitRollbackSentinel",
     });
     expect(await o06DurableState(current.evidence.scopeUuid)).toEqual(before);
@@ -3788,6 +4035,68 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           ),
       },
     };
+  }
+
+  function portsWithReadCommittedOverride(
+    run: <Result>(
+      target: LocatedPointCommitPublicationTargetV1,
+      work: (tx: AppRowTransaction) => Promise<Result>,
+    ) => Promise<Result>,
+    resolveOutcome?: (
+      target: LocatedPointCommitPublicationTargetV1,
+      input: ResolveCommittedPointOutcomeInputV1,
+    ) => Effect.Effect<
+      CommittedPointOutcomeResolutionV1,
+      ResolveCommittedPointOutcomeErrorV1
+    >,
+  ): PointMutationSessionAuthorityResolutionPortsV1 {
+    const base = resolutionPorts(persistence);
+    return {
+      ...base,
+      scopeSessionTargets: {
+        resolve: async (physicalLocator) => {
+          const target =
+            createPGliteLocatedPointMutationSessionActivationTargetV1(
+              persistence,
+              physicalLocator,
+            );
+          if (!isLocatedPointCommitPublicationTargetV1(target)) {
+            throw new Error("Expected the PGlite publication target.");
+          }
+          return Object.freeze({
+            ...target,
+            [RUN_LOCATED_READ_COMMITTED_V1]: <Result>(
+              work: (tx: AppRowTransaction) => Promise<Result>,
+            ): Promise<Result> => run(target, work),
+            [RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1]:
+              resolveOutcome === undefined
+                ? target[RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1]
+                : (input: ResolveCommittedPointOutcomeInputV1) =>
+                    resolveOutcome(target, input),
+          } satisfies LocatedPointCommitPublicationTargetV1);
+        },
+      },
+    };
+  }
+
+  async function publicationCommand(
+    command: PointCommitTransactionCommandV1,
+  ): Promise<PointCommitPublicationCommandV1> {
+    const result = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    );
+    return Object.freeze({
+      ...command,
+      successfulResult: Object.freeze({
+        valueCodecVersion: result.evidence.valueCodecVersion,
+        value: result.valueJson,
+        canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(
+          new Uint8Array(result.canonicalBytes),
+        ),
+        semanticSizeBytes: result.semanticSizeBytes,
+        sha256Hex: result.evidence.sha256Hex,
+      }),
+    });
   }
 
   async function seal(current: Scenario) {

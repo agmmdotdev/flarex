@@ -16,8 +16,9 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   fresh-process reconstruction and private compiler/publisher composition are
   also complete. O08-A atomic exact-attempt replacement, O08-B1 bounded
   same-factory fresh-attempt handoff, and O08-B2a same-process runtime-neutral
-  rerun composition and O08-B2b0's docs-only Postgres claim-authority decision
-  are complete; B2b crash-safe redispatch and O08-C/O08-D remain pending, and
+  rerun composition, O08-B2b0's docs-only Postgres claim-authority decision,
+  and O08-CD0 transaction-decision provenance are complete; B2b crash-safe
+  redispatch and O08-C/O08-D coordinator policy remain pending, and
   C06 dispatch
   remains pending, while C04C2 remains conditional and unapproved.
 
@@ -548,11 +549,11 @@ Exit gate:
 
 ### [ ] C06 — Add Idempotent Finish And Lost-Outcome Recovery
 
-Prerequisite: `O08-B2a` same-process OCC execution is complete and
-`O08-B2b/O08-C/O08-D` have completed crash redispatch, bounded known-settled
-retries of the same authenticated logical/closed command, and uncertain-
-outcome lookup. This endpoint composes those policies; it does not define a
-competing retry coordinator.
+Prerequisite: `O08-B2a` same-process OCC execution and O08-CD0 transaction-
+decision provenance are complete. `O08-B2b/O08-C/O08-D` must still complete
+crash redispatch, bounded known-settled retries of the same authenticated
+logical/closed command, and uncertain-outcome lookup. This endpoint composes
+those policies; it does not define a competing retry coordinator.
 
 O08-B2b0 exposes a dependency contradiction in that order: crash-safe B2b needs
 an accepted durable dispatcher/dispatch-acceptance owner, but this C06 gate is
@@ -569,7 +570,8 @@ Outcome:
   retry/outcome primitives; C03 rejects later syscalls. O07-B owns exact-lease deletion plus
   the atomic `committed` transition. O08-A owns exact-attempt replacement;
   O08-B1 owns only bounded fresh-attempt handoff; O08-B2a owns same-process
-  user-code rerun; O08-B2b/O08-C/O08-D own crash redispatch, SQL retry, and
+  user-code rerun; O08-CD0 preserves transaction-decision provenance without
+  acting on it; O08-B2b/O08-C/O08-D own crash redispatch, SQL retry, and
   uncertainty policy:
 
 ```text

@@ -32,9 +32,10 @@ C05-A's private scalar-fenced `running -> finishing` transition and same-factory
 continuation are complete. C05-B fresh-process reconstruction and private
 compiler/O07-B publisher composition are also complete. O08-A's atomic exact-
 attempt replacement, O08-B1's bounded fresh-attempt rerun handoff, and
-O08-B2a's same-process runtime-neutral rerun composition and O08-B2b0's docs-
-only Postgres claim-authority decision are complete; B2b claim/dispatcher/crash-
-redispatch implementation, O08-C/O08-D, and C06 remain pending, and
+O08-B2a's same-process runtime-neutral rerun composition, O08-B2b0's docs-
+only Postgres claim-authority decision, and O08-CD0's transaction-decision
+provenance are complete; B2b claim/dispatcher/crash-redispatch implementation,
+O08-C/O08-D coordinator policy, and C06 remain pending, and
 C04C2 remains conditional and unapproved.
 O03-B2b2 renewal is
 a conditional
@@ -405,6 +406,11 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
     - `O08-B2b implementation` (pending and unapproved): durable claim storage,
       dispatcher ownership, and crash-safe redispatch after process-local
       authority loss; a later preflight owns its decomposition;
+   - `O08-CD0` (complete): preserves source-owned Postgres transaction-decision
+     provenance. Confirmed pre-decision rollback requires an in-transaction
+     point-publication SQL marker, exact `40001`/`40P01`, and settled rollback;
+     callback-completed settlement failure remains uncertain and is checked
+     through O07-A without creating retry policy;
    - `O08-C`: bounded known-settled pre-decision `40001`/`40P01` retry of the
      same authenticated logical/closed command with fresh transaction facts;
    - `O08-D`: uncertain-outcome resolution through O07-A/C05-B before retry or

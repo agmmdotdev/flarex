@@ -26,6 +26,9 @@ import {
   type LocatedPointMutationSessionActivationTargetOptionsV1,
 } from "./transactionSessionActivation";
 import type { LocatedScopeClockReader } from "./scopeAuthorityResolution";
+import {
+  LOCATED_READ_COMMITTED_RUNNER_V1,
+} from "./transactionSessionAttemptKernel";
 import type {
   ScopePhysicalLocator,
   SplitScopePhysicalLocator,
@@ -36,6 +39,9 @@ import {
   createPostgresSqlClient,
   runPostgresTransaction,
 } from "./postgresRuntime";
+import {
+  createPostgresLocatedReadCommittedTransactionRunnerV1,
+} from "./postgresLocatedReadCommitted";
 import { flarexSchema } from "./schema";
 
 export interface PostgresPersistenceOptions {
@@ -99,14 +105,20 @@ export function createPostgresLocatedScopeAuthorizationEpochTarget(
 }
 
 export function createPostgresLocatedPointMutationSessionActivationTargetV1(
-  persistence: Pick<PostgresFlarexPersistence, "drizzle">,
+  persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
   physicalLocator: ScopePhysicalLocator,
   options: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
 ): LocatedScopeClockReader {
   return createLocatedPointMutationSessionActivationTargetV1(
     persistence.drizzle,
     physicalLocator,
-    options,
+    {
+      ...options,
+      [LOCATED_READ_COMMITTED_RUNNER_V1]:
+        createPostgresLocatedReadCommittedTransactionRunnerV1(
+          persistence.pool,
+        ),
+    },
   );
 }
 

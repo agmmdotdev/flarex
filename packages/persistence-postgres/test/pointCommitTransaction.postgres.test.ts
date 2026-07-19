@@ -1,7 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { eq } from "drizzle-orm";
-import { Effect, Fiber } from "effect";
+import { Effect, Exit, Fiber, Result } from "effect";
+import type { PoolClient } from "pg";
 import {
   appRowIdHexV1ToBytes,
 } from "flarex-protocol/app-document-id";
@@ -37,8 +38,11 @@ import {
   createPointMutationAttemptReplacementPortV1,
   createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
+  PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
+  PointCommitDecisionUncertainV1Error,
+  PointCommitSqlErrorV1,
   PointCommitStaleAuthorityV1Error,
   PointMutationAttemptReplacementCommittedOutcomeV1Error,
   PointMutationAttemptReplacementCorruptionV1Error,
@@ -50,6 +54,10 @@ import {
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
 } from "../src/pointCommitTransaction";
+import {
+  createPostgresLocatedReadCommittedTransactionRunnerV1,
+  type PostgresLocatedReadCommittedRunnerOptionsV1,
+} from "../src/postgresLocatedReadCommitted";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresSharedScopeAuthorityProvisioner,
@@ -70,9 +78,14 @@ import {
 import {
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
+  createLocatedPointMutationSessionActivationTargetV1,
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
+import {
+  LOCATED_READ_COMMITTED_RUNNER_V1,
+  LocatedReadCommittedTransactionFailureV1,
+} from "../src/transactionSessionAttemptKernel";
 import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
@@ -616,6 +629,403 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         wakes: "0",
         last_commit_seq: "0",
         last_outbox_seq: "0",
+      });
+    });
+  }, 120_000);
+});
+
+describePostgres("real Postgres O08-CD0 decision provenance", () => {
+  it("confirms a server 40001 only after rollback and leaves no sequence gap", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("97400000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "cd0_40001",
+      );
+      const attempt = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "cd0_40001",
+      );
+      const trigger = await installCommitSqlStateTrigger(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+        "40001",
+        "cd0_40001",
+      );
+      try {
+        const failure = await runFailure(
+          createPublisher(persistence).publish(attempt.publicationCommand),
+        );
+        expect(failure).toBeInstanceOf(
+          PointCommitConfirmedPreDecisionRollbackV1Error,
+        );
+        expect(failure).toMatchObject({
+          operation: "writeCommitHeader",
+          sqlState: "40001",
+        });
+        expect(await durableState(
+          persistence,
+          attempt.command.sealIdentity.scopeUuid,
+        )).toEqual(emptyDurableState());
+      } finally {
+        await dropCommitTrigger(persistence, trigger);
+      }
+
+      await expect(runEffect(
+        createPublisher(persistence).publish(attempt.publicationCommand),
+      )).resolves.toMatchObject({
+        kind: "published",
+        token: { commitSeq: 1n },
+      });
+      expect(await durableState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toMatchObject({
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+    });
+  }, 120_000);
+
+  it("confirms one genuine 40P01 victim and preserves dense independent scopes", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("97500000");
+      const firstScope = await createScope(
+        persistence,
+        randomUuid,
+        "cd0_deadlock_a",
+      );
+      const secondScope = await createScope(
+        persistence,
+        randomUuid,
+        "cd0_deadlock_b",
+      );
+      const first = await createAttempt(
+        persistence,
+        randomUuid,
+        firstScope,
+        "cd0_deadlock_a",
+      );
+      const second = await createAttempt(
+        persistence,
+        randomUuid,
+        secondScope,
+        "cd0_deadlock_b",
+      );
+      const trigger = await installCommitDeadlockTrigger(
+        persistence,
+        first.command.sealIdentity.scopeUuid,
+        second.command.sealIdentity.scopeUuid,
+      );
+      const results = await Promise.all([
+        runEffect(Effect.result(
+          createPublisher(persistence).publish(first.publicationCommand),
+        )),
+        runEffect(Effect.result(
+          createPublisher(persistence).publish(second.publicationCommand),
+        )),
+      ]);
+      await dropCommitTrigger(persistence, trigger);
+
+      const succeededIndexes = results.flatMap((result, index) =>
+        Result.isSuccess(result) ? [index] : []
+      );
+      const failedIndexes = results.flatMap((result, index) =>
+        Result.isFailure(result) ? [index] : []
+      );
+      expect(succeededIndexes).toHaveLength(1);
+      expect(failedIndexes).toHaveLength(1);
+      const failedIndex = failedIndexes[0];
+      if (failedIndex === undefined) {
+        throw new Error("Expected one PostgreSQL deadlock victim.");
+      }
+      const failed = results[failedIndex];
+      if (failed === undefined || Result.isSuccess(failed)) {
+        throw new Error("Expected the deadlock failure result.");
+      }
+      expect(failed.failure).toBeInstanceOf(
+        PointCommitConfirmedPreDecisionRollbackV1Error,
+      );
+      expect(failed.failure).toMatchObject({ sqlState: "40P01" });
+
+      const attempts = [first, second] as const;
+      const victim = attempts[failedIndex];
+      if (victim === undefined) throw new Error("Missing deadlock victim.");
+      expect(await durableState(
+        persistence,
+        victim.command.sealIdentity.scopeUuid,
+      )).toEqual(emptyDurableState());
+      await expect(runEffect(
+        createPublisher(persistence).publish(victim.publicationCommand),
+      )).resolves.toMatchObject({
+        kind: "published",
+        token: { commitSeq: 1n },
+      });
+      for (const attempt of attempts) {
+        expect(await durableState(
+          persistence,
+          attempt.command.sealIdentity.scopeUuid,
+        )).toMatchObject({
+          commit_headers: "1",
+          outcomes: "1",
+          wakes: "1",
+          last_commit_seq: "1",
+          last_outbox_seq: "1",
+        });
+      }
+    });
+  }, 120_000);
+
+  it("preserves rollback and release failures and quarantines their clients", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("97600000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "cd0_cleanup",
+      );
+      const rollbackAttempt = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "cd0_rollback_failure",
+      );
+      const trigger = await installCommitSqlStateTrigger(
+        persistence,
+        rollbackAttempt.command.sealIdentity.scopeUuid,
+        "40001",
+        "cd0_cleanup",
+      );
+      const rollbackCause = new Error("injected rollback response failure");
+      let rollbackClientPid: number | undefined;
+      const rollbackFailure = await runFailure(
+        createPublisherWithRunner(persistence, {
+          afterAcquire: async (client) => {
+            rollbackClientPid = await postgresBackendPid(client);
+            installClientQueryFault(client, (statement, forward) =>
+              statement === "rollback"
+                ? Promise.reject(rollbackCause)
+                : forward()
+            );
+          },
+        }).publish(rollbackAttempt.publicationCommand),
+      );
+      await dropCommitTrigger(persistence, trigger);
+      expect(rollbackFailure).toBeInstanceOf(PointCommitSqlErrorV1);
+      expect(rollbackFailure).toMatchObject({ operation: "beginOrRollback" });
+      expectLocatedCleanupFailure(rollbackFailure, {
+        transactionCause: expect.objectContaining({ cause: rollbackCause }),
+      });
+      await expectDifferentPoolClient(persistence, rollbackClientPid);
+      expect(await durableState(
+        persistence,
+        rollbackAttempt.command.sealIdentity.scopeUuid,
+      )).toEqual(emptyDurableState());
+
+      const releaseAttempt = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "cd0_release_failure",
+      );
+      const callbackCause = new Error("injected callback failure");
+      const releaseCause = new Error("injected release failure");
+      let releaseClientPid: number | undefined;
+      const releaseFailure = await runFailure(
+        createPublisherWithRunner(
+          persistence,
+          {
+            afterAcquire: async (client) => {
+              releaseClientPid = await postgresBackendPid(client);
+            },
+            release: () => {
+              throw releaseCause;
+            },
+          },
+          {
+            afterTransactionStep: (event) => {
+              if (event.step === "commitHeaderWritten") {
+                throw callbackCause;
+              }
+              return Promise.resolve();
+            },
+          },
+        ).publish(releaseAttempt.publicationCommand),
+      );
+      expect(releaseFailure).toBeInstanceOf(PointCommitSqlErrorV1);
+      expectLocatedCleanupFailure(releaseFailure, {
+        callbackCause,
+        releaseCause,
+      });
+      await expectDifferentPoolClient(persistence, releaseClientPid);
+      expect(await durableState(
+        persistence,
+        releaseAttempt.command.sealIdentity.scopeUuid,
+      )).toEqual(emptyDurableState());
+    });
+  }, 120_000);
+
+  it("recovers a forwarded COMMIT and keeps a missing decision uncertain", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("97700000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "cd0_commit_response",
+      );
+      const committed = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "cd0_commit_forwarded",
+      );
+      const lostResponse = new Error("forwarded COMMIT response lost");
+      const replayed = await runEffect(
+        createPublisherWithRunner(persistence, {
+          afterAcquire: (client) => installClientQueryFault(
+            client,
+            (statement, forward) => statement === "commit"
+              ? Promise.resolve(forward()).then(() => {
+                  throw lostResponse;
+                })
+              : forward(),
+          ),
+        }).publish(committed.publicationCommand),
+      );
+      expect(replayed).toMatchObject({
+        kind: "replayed",
+        token: { commitSeq: 1n },
+      });
+      await expect(runEffect(
+        createPublisher(persistence).publish(committed.publicationCommand),
+      )).resolves.toMatchObject({
+        kind: "replayed",
+        token: { commitSeq: 1n },
+      });
+      expect(await durableState(
+        persistence,
+        committed.command.sealIdentity.scopeUuid,
+      )).toMatchObject({
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+
+      const missing = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "cd0_commit_missing",
+      );
+      const missingFailure = await runFailure(
+        createPublisherWithRunner(persistence, {
+          afterAcquire: (client) => installClientQueryFault(
+            client,
+            (statement, forward) => statement === "commit"
+              ? Promise.reject(new Error("COMMIT not forwarded"))
+              : forward(),
+          ),
+        }).publish(missing.publicationCommand),
+      );
+      expect(missingFailure).toBeInstanceOf(
+        PointCommitDecisionUncertainV1Error,
+      );
+      expect(missingFailure).toMatchObject({
+        outcomeCheck: { kind: "missing" },
+      });
+      expect(await durableState(
+        persistence,
+        missing.command.sealIdentity.scopeUuid,
+      )).toMatchObject({
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+      await expect(runEffect(
+        createPublisher(persistence).publish(missing.publicationCommand),
+      )).resolves.toMatchObject({
+        kind: "published",
+        token: { commitSeq: 2n },
+      });
+      expect(await durableState(
+        persistence,
+        missing.command.sealIdentity.scopeUuid,
+      )).toMatchObject({
+        commit_headers: "2",
+        outcomes: "2",
+        wakes: "2",
+        last_commit_seq: "2",
+        last_outbox_seq: "2",
+      });
+    });
+  }, 120_000);
+
+  it("holds interruption until a forwarded COMMIT response settles", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("97800000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "cd0_interrupt",
+      );
+      const attempt = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "cd0_interrupt",
+      );
+      const committed = deferredSignal();
+      const release = deferredSignal();
+      const fiber = Effect.runFork(
+        createPublisherWithRunner(persistence, {
+          afterAcquire: (client) => installClientQueryFault(
+            client,
+            (statement, forward) => statement === "commit"
+              ? Promise.resolve(forward()).then(async () => {
+                  committed.resolve();
+                  await release.promise;
+                  throw new Error("forwarded COMMIT response lost");
+                })
+              : forward(),
+          ),
+        }).publish(attempt.publicationCommand),
+      );
+      await committed.promise;
+      let interruptionSettled = false;
+      const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+        interruptionSettled = true;
+        return exit;
+      });
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+      release.resolve();
+      await interruption;
+      expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
+      await expect(runEffect(
+        createPublisher(persistence).publish(attempt.publicationCommand),
+      )).resolves.toMatchObject({
+        kind: "replayed",
+        token: { commitSeq: 1n },
+      });
+      expect(await durableState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toMatchObject({
+        commit_headers: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
       });
     });
   }, 120_000);
@@ -1244,6 +1654,241 @@ function createPublisher(
     resolutionPorts(persistence),
     options,
   );
+}
+
+function createPublisherWithRunner(
+  persistence: PostgresFlarexPersistence,
+  runnerOptions: PostgresLocatedReadCommittedRunnerOptionsV1,
+  proofOptions: PointCommitTransactionProofOptionsV1 = {},
+) {
+  return createPointCommitPublisherPortV1(
+    resolutionPortsWithRunner(persistence, runnerOptions),
+    proofOptions,
+  );
+}
+
+function resolutionPortsWithRunner(
+  persistence: PostgresFlarexPersistence,
+  runnerOptions: PostgresLocatedReadCommittedRunnerOptionsV1,
+): PointMutationSessionAuthorityResolutionPortsV1 {
+  const base = resolutionPorts(persistence);
+  return {
+    ...base,
+    scopeSessionTargets: {
+      resolve: async (physicalLocator): Promise<LocatedScopeClockReader> =>
+        createLocatedPointMutationSessionActivationTargetV1(
+          persistence.drizzle,
+          physicalLocator,
+          {
+            [LOCATED_READ_COMMITTED_RUNNER_V1]:
+              createPostgresLocatedReadCommittedTransactionRunnerV1(
+                persistence.pool,
+                runnerOptions,
+              ),
+          },
+        ),
+    },
+  };
+}
+
+interface CommitTriggerV1 {
+  readonly triggerName: string;
+  readonly functionName: string;
+}
+
+async function installCommitSqlStateTrigger(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+  sqlState: "40001" | "40P01",
+  suffix: string,
+): Promise<CommitTriggerV1> {
+  const functionName = `fx_test_${suffix}_function`;
+  const triggerName = `fx_test_${suffix}_trigger`;
+  await persistence.query(
+    `
+      create function ${functionName}()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        if new.scope_uuid = '${scopeUuid}'::uuid then
+          raise exception 'forced ${sqlState} from PostgreSQL'
+            using errcode = '${sqlState}';
+        end if;
+        return new;
+      end
+      $$
+    `,
+  );
+  await persistence.query(
+    `
+      create trigger ${triggerName}
+      before insert on fx_system_commit
+      for each row execute function ${functionName}()
+    `,
+  );
+  return Object.freeze({ triggerName, functionName });
+}
+
+async function installCommitDeadlockTrigger(
+  persistence: PostgresFlarexPersistence,
+  firstScopeUuid: string,
+  secondScopeUuid: string,
+): Promise<CommitTriggerV1> {
+  const functionName = "fx_test_cd0_deadlock_function";
+  const triggerName = "fx_test_cd0_deadlock_trigger";
+  await persistence.query(
+    `
+      create function ${functionName}()
+      returns trigger
+      language plpgsql
+      as $$
+      declare
+        peer_key integer;
+        wait_count integer := 0;
+      begin
+        if new.scope_uuid = '${firstScopeUuid}'::uuid then
+          perform pg_advisory_xact_lock(80731, 1);
+          peer_key := 2;
+        elsif new.scope_uuid = '${secondScopeUuid}'::uuid then
+          perform pg_advisory_xact_lock(80731, 2);
+          peer_key := 1;
+        else
+          return new;
+        end if;
+
+        while not exists (
+          select 1
+          from pg_locks
+          where locktype = 'advisory'
+            and classid = 80731
+            and objid = peer_key
+            and granted
+            and pid <> pg_backend_pid()
+        ) loop
+          wait_count := wait_count + 1;
+          if wait_count > 500 then
+            raise exception 'timed out preparing the CD0 deadlock';
+          end if;
+          perform pg_sleep(0.01);
+        end loop;
+
+        perform pg_advisory_xact_lock(80731, peer_key);
+        return new;
+      end
+      $$
+    `,
+  );
+  await persistence.query(
+    `
+      create trigger ${triggerName}
+      before insert on fx_system_commit
+      for each row execute function ${functionName}()
+    `,
+  );
+  return Object.freeze({ triggerName, functionName });
+}
+
+async function dropCommitTrigger(
+  persistence: PostgresFlarexPersistence,
+  trigger: CommitTriggerV1,
+): Promise<void> {
+  await persistence.query(
+    `drop trigger ${trigger.triggerName} on fx_system_commit`,
+  );
+  await persistence.query(`drop function ${trigger.functionName}()`);
+}
+
+function installClientQueryFault(
+  client: PoolClient,
+  fault: (
+    statement: string,
+    forward: () => unknown,
+  ) => unknown,
+): void {
+  const originalQuery = client.query;
+  const installed = Reflect.set(
+    client,
+    "query",
+    (...args: ReadonlyArray<unknown>): unknown => fault(
+      postgresStatementText(args[0]),
+      () => Reflect.apply(originalQuery, client, args),
+    ),
+  );
+  if (!installed) throw new Error("Failed to install the client query fault.");
+}
+
+function postgresStatementText(statement: unknown): string {
+  if (typeof statement === "string") return statement.trim().toLowerCase();
+  if (
+    typeof statement === "object" &&
+    statement !== null &&
+    "text" in statement &&
+    typeof statement.text === "string"
+  ) {
+    return statement.text.trim().toLowerCase();
+  }
+  return "";
+}
+
+function expectLocatedCleanupFailure(
+  failure: unknown,
+  expected: Readonly<{
+    readonly callbackCause?: unknown;
+    readonly transactionCause?: unknown;
+    readonly releaseCause?: unknown;
+  }>,
+): void {
+  if (!(failure instanceof PointCommitSqlErrorV1)) {
+    throw new Error("Expected an ordinary point-commit SQL failure.");
+  }
+  const located = failure.cause;
+  if (!(located instanceof LocatedReadCommittedTransactionFailureV1)) {
+    throw new Error("Expected located transaction cleanup evidence.");
+  }
+  expect(located.issue).toMatchObject({
+    kind: "callbackCleanupFailed",
+    ...expected,
+  });
+}
+
+async function expectDifferentPoolClient(
+  persistence: PostgresFlarexPersistence,
+  discardedPid: number | undefined,
+): Promise<void> {
+  if (discardedPid === undefined) {
+    throw new Error("The faulted PostgreSQL backend PID was not captured.");
+  }
+  const client = await persistence.pool.connect();
+  try {
+    expect(await postgresBackendPid(client)).not.toBe(discardedPid);
+  } finally {
+    client.release();
+  }
+}
+
+async function postgresBackendPid(client: PoolClient): Promise<number> {
+  const result = await client.query<{ pid: number }>(
+    "select pg_backend_pid()::int as pid",
+  );
+  const pid = result.rows[0]?.pid;
+  if (typeof pid !== "number" || !Number.isInteger(pid)) {
+    throw new Error("PostgreSQL did not return a backend PID.");
+  }
+  return pid;
+}
+
+function emptyDurableState() {
+  return {
+    revisions: "0",
+    current_rows: "0",
+    commit_headers: "0",
+    commit_changes: "0",
+    outcomes: "0",
+    wakes: "0",
+    last_commit_seq: "0",
+    last_outbox_seq: "0",
+  } as const;
 }
 
 function createReplacementPort(

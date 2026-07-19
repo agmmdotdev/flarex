@@ -15,8 +15,9 @@ fenced finishing transition and same-factory continuation are complete. C05-B
 fresh-process reconstruction and private compiler/publisher composition are
 also complete. O08-A atomic exact-attempt replacement, O08-B1 bounded
 same-factory fresh-attempt handoff, and O08-B2a same-process runtime-neutral
-rerun composition and O08-B2b0's docs-only Postgres claim-authority decision are
-complete; B2b crash-safe redispatch and O08-C/O08-D remain pending;
+rerun composition, O08-B2b0's docs-only Postgres claim-authority decision, and
+O08-CD0 transaction-decision provenance are complete; B2b crash-safe
+redispatch and O08-C/O08-D coordinator policy remain pending;
 C04C2 remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
@@ -568,11 +569,16 @@ The replacement keeps one supporting primitive and three coordinators separate:
    routing/adapter, and crash-recovery preflights. The current downstream C06
    gate cannot bootstrap that dispatcher without a separately accepted split
    or reordering.
-6. **O08-C known pre-decision SQL serialization/deadlock:** retry the same
+6. **O08-CD0 transaction-decision provenance (complete):** a phase-aware
+   connected Postgres runner distinguishes proven callback rollback, cleanup
+   failure, and callback-completed commit/release uncertainty. Only the point-
+   publication union receives confirmed-pre-decision and decision-uncertain
+   variants; CD0 contains no retry or uncertainty policy.
+7. **O08-C known pre-decision SQL serialization/deadlock:** retry the same
    authenticated logical/closed O07-B command within a strict bound, including
    PostgreSQL `40001` and `40P01`. O06 proves transaction settlement and
    rollback; neither O06 nor C04C1 exposes an immutable physical SQL plan.
-7. **O08-D uncertain outcome:** use O07-A/C05-B to resolve authoritative outcome
+8. **O08-D uncertain outcome:** use O07-A/C05-B to resolve authoritative outcome
    state before rerunning anything.
 
 The B2b0 decision preserves the current B2a same-process runner contract. A

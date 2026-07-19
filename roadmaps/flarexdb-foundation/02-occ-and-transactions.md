@@ -25,8 +25,9 @@ fresh-process finishing reconstruction/private publisher composition are
 complete. O08-A atomic exact-attempt replacement, O08-B1's bounded
 same-factory fresh-attempt handoff, and O08-B2a's same-process runtime-neutral
 user-code rerun composition are complete. O08-B2b0's docs-only Postgres claim-
-authority decision is complete; B2b claim/dispatcher/crash-redispatch
-implementation, O08-C known-settled SQL retry, and O08-D uncertain-outcome
+authority decision and O08-CD0's transaction-decision provenance are complete;
+B2b claim/dispatcher/crash-redispatch implementation, O08-C known-settled SQL
+retry policy, and O08-D uncertain-outcome
 policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
@@ -1100,6 +1101,26 @@ Path classification remains clean replacement:
 
 No compatibility bridge or dual authority is accepted.
 
+#### [x] O08-CD0 — Preserve Transaction-Decision Provenance
+
+The Postgres located-target composition now uses a phase-aware runner over a
+genuinely acquired pooled client and genuine Drizzle transaction. It retains
+acquisition/configuration, callback, transaction settlement, and client-release
+evidence without casting a top-level database into a transaction capability.
+The PGlite path proves only the mapping contract; release, quarantine, and
+commit-response uncertainty belong to the isolated real-Postgres proof.
+
+Only point publication projects a source-owned in-transaction SQL marker plus
+exact `40001`/`40P01` and proven rollback into
+`PointCommitConfirmedPreDecisionRollbackV1Error`. Callback-plus-cleanup failure
+preserves both causes as ordinary SQL. Callback-completed commit or release
+failure becomes `PointCommitDecisionUncertainV1Error`; O07-A matching
+available/expired evidence closes by replay, while missing evidence retains
+uncertainty and lookup failure remains secondary evidence. The prior untrusted
+`retryable` Boolean is removed. Finishing, rollback proof, attempt replacement,
+and authority resolution do not gain retry authority. O08-CD0 implements no
+retry, backoff, user-code rerun, or uncertain-outcome coordinator policy.
+
 #### [ ] O08-C — Retry Known-Settled SQL Transactions
 
 Only a confirmed pre-decision PostgreSQL `40001` or `40P01` may retry the same
@@ -1134,6 +1155,8 @@ Exit gate:
   outcome, liveness, and canonical-input reauthentication;
 - O08-B2b0's authority decision is accepted, but no B2b claim, dispatcher, or
   redispatch implementation exists until its later preflights are approved;
+- O08-CD0 alone owns decision provenance; it does not retry a transaction or
+  resolve a missing uncertain outcome;
 - O08-C SQL retries do not rerun user code;
 - a successful uncertain commit is never applied twice;
 - authorization, validation, codec, and deterministic constraint errors are not

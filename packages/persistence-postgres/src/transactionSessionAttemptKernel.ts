@@ -65,19 +65,71 @@ export const RUN_LOCATED_READ_COMMITTED_V1: unique symbol = Symbol(
   "FlarexDB/runLocatedReadCommittedV1",
 );
 
+/** Package-internal construction seam for the Postgres connected runner. */
+export const LOCATED_READ_COMMITTED_RUNNER_V1: unique symbol = Symbol(
+  "FlarexDB/locatedReadCommittedRunnerV1",
+);
+
 export const RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1: unique symbol =
   Symbol("FlarexDB/resolveLocatedCommittedPointOutcomeV1");
+
+export type LocatedReadCommittedTransactionFailureIssueV1 =
+  | Readonly<{
+      readonly kind: "infrastructureFailure";
+      readonly phase: "acquire" | "beginOrConfigure";
+      readonly cause: unknown;
+      readonly releaseCause?: unknown;
+      readonly quarantineCause?: unknown;
+    }>
+  | Readonly<{
+      readonly kind: "callbackRolledBack";
+      readonly callbackCause: unknown;
+    }>
+  | Readonly<{
+      readonly kind: "callbackCleanupFailed";
+      readonly callbackCause: unknown;
+      readonly transactionCause: unknown;
+      readonly releaseCause?: unknown;
+      readonly quarantineCause?: unknown;
+    }>
+  | Readonly<{
+      readonly kind: "decisionUncertain";
+      readonly settlementCause: unknown;
+      readonly releaseCause?: unknown;
+      readonly quarantineCause?: unknown;
+    }>;
 
 export class LocatedReadCommittedTransactionFailureV1 extends Error {
   readonly name = "LocatedReadCommittedTransactionFailureV1";
 
   constructor(
-    readonly cause: unknown,
-    readonly callbackCause: unknown | undefined,
+    readonly issue: LocatedReadCommittedTransactionFailureIssueV1,
   ) {
-    super("Located READ COMMITTED transaction infrastructure failed.");
+    super(
+      "Located READ COMMITTED transaction settlement failed.",
+      { cause: locatedReadCommittedFailureCause(issue) },
+    );
   }
 }
+
+function locatedReadCommittedFailureCause(
+  issue: LocatedReadCommittedTransactionFailureIssueV1,
+): unknown {
+  switch (issue.kind) {
+    case "infrastructureFailure":
+      return issue.cause;
+    case "callbackRolledBack":
+      return issue.callbackCause;
+    case "callbackCleanupFailed":
+      return issue.callbackCause;
+    case "decisionUncertain":
+      return issue.settlementCause;
+  }
+}
+
+export type RunLocatedReadCommittedTransactionV1 = <Result>(
+  work: (tx: AppRowTransaction) => Promise<Result>,
+) => Promise<Result>;
 
 export class ExactRunningAttemptTransactionV1Error extends Data.TaggedError(
   "ExactRunningAttemptTransactionV1Error",
@@ -135,9 +187,7 @@ export interface LocatedRepeatableReadAttemptTargetV1
  */
 export interface LocatedReadCommittedAttemptTargetV1
   extends LocatedScopeClockReader {
-  readonly [RUN_LOCATED_READ_COMMITTED_V1]: <Result>(
-    work: (tx: AppRowTransaction) => Promise<Result>,
-  ) => Promise<Result>;
+  readonly [RUN_LOCATED_READ_COMMITTED_V1]: RunLocatedReadCommittedTransactionV1;
 }
 
 /**

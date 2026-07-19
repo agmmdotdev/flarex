@@ -115,6 +115,7 @@ import {
   RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
   ExactRunningAttemptTransactionV1Error,
+  LOCATED_READ_COMMITTED_RUNNER_V1,
   LocatedReadCommittedTransactionFailureV1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -125,6 +126,7 @@ import {
   type ExactRunningAttemptKernelInputV1,
   type LocatedExactRunningAttemptKernelV1,
   type LocatedPointCommitPublicationTargetV1,
+  type RunLocatedReadCommittedTransactionV1,
 } from "./transactionSessionAttemptKernel";
 
 const UUID_V4_PATTERN =
@@ -573,6 +575,9 @@ export type PointMutationSessionAttemptTerminalizationEventV1 =
     };
 
 export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
+  /** Internal connected-client runner; its symbol is not package-exported. */
+  readonly [LOCATED_READ_COMMITTED_RUNNER_V1]?:
+    RunLocatedReadCommittedTransactionV1;
   /** Construction-bound instrumentation used by focused rollback proofs. */
   readonly afterWrite?: (
     step: PointMutationSessionActivationWriteStepV1,
@@ -830,6 +835,8 @@ export function createLocatedPointMutationSessionActivationTargetV1(
   const afterWrite = options.afterWrite;
   const afterLoadLock = options.afterLoadLock;
   const afterTerminalizationEvent = options.afterTerminalizationEvent;
+  const runReadCommitted = options[LOCATED_READ_COMMITTED_RUNNER_V1] ??
+    createDefaultLocatedReadCommittedTransactionRunnerV1(db);
   const committedOutcomeResolver = createCommittedPointOutcomeResolverV1(db);
   const target = Object.freeze({
     physicalLocator: capturedLocator,
@@ -867,31 +874,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       });
       return work(tx);
     }),
-    [RUN_LOCATED_READ_COMMITTED_V1]: <Result>(
-      work: (tx: AppRowTransaction) => Promise<Result>,
-    ): Promise<Result> => {
-      let callbackRejected = false;
-      let callbackCause: unknown;
-      const run = db.transaction(async (tx) => {
-        await tx.setTransaction({ isolationLevel: "read committed" });
-        try {
-          return await work(tx);
-        } catch (cause) {
-          callbackRejected = true;
-          callbackCause = cause;
-          throw cause;
-        }
-      });
-      return run.catch((cause: unknown) => {
-        if (callbackRejected && cause === callbackCause) {
-          throw cause;
-        }
-        throw new LocatedReadCommittedTransactionFailureV1(
-          cause,
-          callbackRejected ? callbackCause : undefined,
-        );
-      });
-    },
+    [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
     [RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1]:
       committedOutcomeResolver.resolve,
     terminalizeExactPointMutationSessionAttempt: (
@@ -904,6 +887,59 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       )),
   } satisfies LocatedPointMutationSessionTargetV1);
   return target;
+}
+
+function createDefaultLocatedReadCommittedTransactionRunnerV1(
+  db: FlarexMetadataDatabase,
+): RunLocatedReadCommittedTransactionV1 {
+  return async <Result>(work: (
+    tx: AppRowTransaction,
+  ) => Promise<Result>): Promise<Result> => {
+    const state: {
+      phase: "configuring" | "running" | "completed" | "rejected";
+      callbackCause: unknown;
+    } = { phase: "configuring", callbackCause: undefined };
+    try {
+      return await db.transaction(async (tx) => {
+        await tx.setTransaction({ isolationLevel: "read committed" });
+        state.phase = "running";
+        try {
+          const result = await work(tx);
+          state.phase = "completed";
+          return result;
+        } catch (cause) {
+          state.phase = "rejected";
+          state.callbackCause = cause;
+          throw cause;
+        }
+      });
+    } catch (cause) {
+      if (state.phase === "rejected" && cause === state.callbackCause) {
+        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+          kind: "callbackRolledBack",
+          callbackCause: state.callbackCause,
+        }));
+      }
+      if (state.phase === "rejected") {
+        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+          kind: "callbackCleanupFailed",
+          callbackCause: state.callbackCause,
+          transactionCause: cause,
+        }));
+      }
+      if (state.phase === "completed") {
+        throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+          kind: "decisionUncertain",
+          settlementCause: cause,
+        }));
+      }
+      throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+        kind: "infrastructureFailure",
+        phase: "beginOrConfigure",
+        cause,
+      }));
+    }
+  };
 }
 
 // Keep this driver-callback runner as a plain named boundary so the workspace

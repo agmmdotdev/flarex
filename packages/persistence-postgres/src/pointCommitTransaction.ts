@@ -523,8 +523,33 @@ export class PointCommitSqlErrorV1 extends Data.TaggedError(
 )<{
   readonly operation: PointCommitSqlOperationV1;
   readonly sqlState?: string;
-  readonly retryable: boolean;
   readonly cause: unknown;
+}> {}
+
+export type PointCommitConfirmedPreDecisionSqlStateV1 = "40001" | "40P01";
+
+export class PointCommitConfirmedPreDecisionRollbackV1Error
+  extends Data.TaggedError(
+    "PointCommitConfirmedPreDecisionRollbackV1Error",
+  )<{
+    readonly operation: PointCommitSqlOperationV1;
+    readonly sqlState: PointCommitConfirmedPreDecisionSqlStateV1;
+    readonly cause: unknown;
+  }> {}
+
+export type PointCommitDecisionUncertainOutcomeCheckV1 =
+  | Readonly<{ readonly kind: "missing" }>
+  | Readonly<{
+      readonly kind: "lookupFailed";
+      readonly error: CommittedPointOutcomeSqlErrorV1;
+    }>;
+
+export class PointCommitDecisionUncertainV1Error extends Data.TaggedError(
+  "PointCommitDecisionUncertainV1Error",
+)<{
+  readonly phase: "commitOrRelease";
+  readonly cause: unknown;
+  readonly outcomeCheck: PointCommitDecisionUncertainOutcomeCheckV1;
 }> {}
 
 export type PointCommitFinishingTransitionV1Error =
@@ -561,6 +586,8 @@ export interface PointCommitRollbackProofPortV1 {
 
 export type PointCommitPublicationV1Error =
   | PointCommitRollbackProofV1Error
+  | PointCommitConfirmedPreDecisionRollbackV1Error
+  | PointCommitDecisionUncertainV1Error
   | CommittedPointOutcomeInputErrorV1
   | CommittedPointOutcomeRequestKeyReuseErrorV1
   | CommittedPointOutcomeCorruptionErrorV1
@@ -747,6 +774,12 @@ class PointCommitSqlFailureMarkerV1 {
     readonly cause: unknown,
   ) {}
 }
+
+class PointCommitTransactionDecisionUncertainV1Error extends Data.TaggedError(
+  "PointCommitTransactionDecisionUncertainV1Error",
+)<{
+  readonly cause: LocatedReadCommittedTransactionFailureV1;
+}> {}
 
 class PointMutationAttemptReplacementSqlFailureMarkerV1 {
   constructor(
@@ -964,31 +997,41 @@ export function createPointCommitPublisherPortV1(
       return yield* Effect.fail(preliminaryFailure);
     }
 
-    const runPublication = Effect.uninterruptible(Effect.tryPromise({
-      try: () => runPointCommitPublication(
+    const runPublication = awaitPointCommitPublicationSettlement(
+      runPointCommitPublication(
         target,
         located.authority,
         command,
         options,
       ),
-      catch: mapPublicationTransactionFailure,
-    }));
+    );
     const decision: PointCommitPublicationRunDecisionV1 = yield*
       runPublication.pipe(
-        Effect.catchTag("PointCommitSqlErrorV1", (error) =>
+        Effect.catchTag(
+          "PointCommitTransactionDecisionUncertainV1Error",
+          (uncertainty) =>
           resolveOutcome(target, lookup).pipe(
-            Effect.flatMap((recovered): Effect.Effect<
-              PointCommitPublicationRunDecisionV1,
-              PointCommitSqlErrorV1
-            > =>
-              recovered.kind === "missing"
-                ? Effect.fail(error)
+              Effect.catchTag(
+                "CommittedPointOutcomeSqlErrorV1",
+                (error) => Effect.fail(decisionUncertain(
+                  uncertainty.cause,
+                  Object.freeze({ kind: "lookupFailed", error }),
+                )),
+              ),
+              Effect.flatMap((recovered): Effect.Effect<
+                PointCommitPublicationRunDecisionV1,
+                PointCommitDecisionUncertainV1Error
+              > => recovered.kind === "missing"
+                ? Effect.fail(decisionUncertain(
+                    uncertainty.cause,
+                    Object.freeze({ kind: "missing" }),
+                  ))
                 : Effect.succeed(Object.freeze({
                     kind: "recovered" as const,
                     outcome: recovered,
-                  }))
+                  }))),
             ),
-          )),
+        ),
       );
     if (decision.kind === "recovered") {
       return yield* publicationResultFromOutcomeEffect(
@@ -1031,6 +1074,28 @@ export function createPointCommitPublisherPortV1(
     [RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1]:
       resolveOutcomeForOccRerun,
   });
+}
+
+function awaitPointCommitPublicationSettlement(
+  transaction: Promise<PointCommitPublicationDecisionV1>,
+): Effect.Effect<
+  PointCommitPublicationDecisionV1,
+  PointCommitPublicationV1Error |
+    PointCommitTransactionDecisionUncertainV1Error
+> {
+  return Effect.uninterruptibleMask((restore) =>
+    restore(Effect.tryPromise({
+      try: () => transaction,
+      catch: mapPublicationTransactionFailure,
+    })).pipe(
+      Effect.onInterrupt(() => Effect.promise(() =>
+        transaction.then(
+          () => undefined,
+          () => undefined,
+        )
+      )),
+    )
+  );
 }
 
 async function preparePointCommitCommand(
@@ -2225,6 +2290,13 @@ async function runRollbackProof(
     });
   } catch (cause) {
     if (cause === ROLLBACK_SENTINEL) return WOULD_COMMIT;
+    if (
+      cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+      cause.issue.kind === "callbackRolledBack" &&
+      cause.issue.callbackCause === ROLLBACK_SENTINEL
+    ) {
+      return WOULD_COMMIT;
+    }
     throw cause;
   }
   throw corruption("rollbackSentinelMissing");
@@ -3757,13 +3829,16 @@ function mapPointMutationAttemptReplacementSharedError(
   return replacementSqlError(cause.operation, cause.cause);
 }
 
-function publicationResultFromOutcome(
+function publicationResultFromOutcomeResult(
   outcome: CommittedPointOutcomeResolutionV1,
   disposition: "published" | "replayed",
   expectedToken?: CommittedPointOutcomeTokenV1,
-): PointCommitPublicationResultV1 {
+): Result.Result<
+  PointCommitPublicationResultV1,
+  PointCommitCorruptionV1Error
+> {
   if (outcome.kind === "missing") {
-    throw corruption("committedOutcomeMissing");
+    return Result.fail(corruption("committedOutcomeMissing"));
   }
   if (
     expectedToken !== undefined &&
@@ -3773,19 +3848,23 @@ function publicationResultFromOutcome(
       outcome.token.commitSeq !== expectedToken.commitSeq
     )
   ) {
-    throw corruption("publishedOutcomeInvalid");
+    return Result.fail(corruption("publishedOutcomeInvalid"));
   }
   if (outcome.kind === "expired") {
     if (disposition === "published") {
-      throw corruption("publishedOutcomeInvalid");
+      return Result.fail(corruption("publishedOutcomeInvalid"));
     }
-    return Object.freeze({ kind: "expired", token: outcome.token });
+    return Result.succeed(
+      Object.freeze({ kind: "expired", token: outcome.token }),
+    );
   }
-  return Object.freeze({
-    kind: disposition,
-    token: outcome.token,
-    successfulResult: outcome.successfulResult,
-  });
+  return Result.succeed(
+    Object.freeze({
+      kind: disposition,
+      token: outcome.token,
+      successfulResult: outcome.successfulResult,
+    }),
+  );
 }
 
 function publicationResultFromOutcomeEffect(
@@ -3796,17 +3875,13 @@ function publicationResultFromOutcomeEffect(
   PointCommitPublicationResultV1,
   PointCommitCorruptionV1Error
 > {
-  return Effect.try({
-    try: () => publicationResultFromOutcome(
+  return Effect.fromResult(
+    publicationResultFromOutcomeResult(
       outcome,
       disposition,
       expectedToken,
     ),
-    catch: (cause) => {
-      if (cause instanceof PointCommitCorruptionV1Error) return cause;
-      throw cause;
-    },
-  });
+  );
 }
 
 function routeAuthorityResolutionFailure(
@@ -3860,6 +3935,12 @@ function mapFinishingTransitionFailure(
     return cause;
   }
   if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
+    if (
+      cause.issue.kind === "callbackRolledBack" &&
+      cause.issue.callbackCause !== cause
+    ) {
+      return mapFinishingTransitionFailure(cause.issue.callbackCause);
+    }
     return sqlError("beginOrRollback", cause);
   }
   if (cause instanceof PointCommitSqlFailureMarkerV1) {
@@ -3911,6 +3992,14 @@ function mapPointMutationAttemptReplacementTransactionFailure(
     return replacementCorruption("occEvidenceInvalid");
   }
   if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
+    if (
+      cause.issue.kind === "callbackRolledBack" &&
+      cause.issue.callbackCause !== cause
+    ) {
+      return mapPointMutationAttemptReplacementTransactionFailure(
+        cause.issue.callbackCause,
+      );
+    }
     return replacementSqlError("beginOrRollback", cause);
   }
   if (cause instanceof PointMutationAttemptReplacementSqlFailureMarkerV1) {
@@ -3948,6 +4037,12 @@ function mapTransactionFailure(
     return cause;
   }
   if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
+    if (
+      cause.issue.kind === "callbackRolledBack" &&
+      cause.issue.callbackCause !== cause
+    ) {
+      return mapTransactionFailure(cause.issue.callbackCause);
+    }
     return sqlError("beginOrRollback", cause);
   }
   if (cause instanceof PointCommitSqlFailureMarkerV1) {
@@ -3971,12 +4066,34 @@ function mapTransactionFailure(
 
 function mapPublicationTransactionFailure(
   cause: unknown,
-): PointCommitPublicationV1Error {
+): PointCommitPublicationV1Error |
+  PointCommitTransactionDecisionUncertainV1Error {
   if (
     cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1 ||
     cause instanceof CommittedPointOutcomeCorruptionErrorV1
   ) {
     return cause;
+  }
+  if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
+    if (cause.issue.kind === "decisionUncertain") {
+      return new PointCommitTransactionDecisionUncertainV1Error({ cause });
+    }
+    if (cause.issue.kind === "callbackRolledBack") {
+      const callbackCause = cause.issue.callbackCause;
+      if (callbackCause instanceof PointCommitSqlFailureMarkerV1) {
+        const sqlState = confirmedPreDecisionSqlState(
+          callbackCause.cause,
+        );
+        if (sqlState !== undefined) {
+          return new PointCommitConfirmedPreDecisionRollbackV1Error({
+            operation: callbackCause.operation,
+            sqlState,
+            cause: callbackCause.cause,
+          });
+        }
+      }
+      return mapTransactionFailure(callbackCause);
+    }
   }
   return mapTransactionFailure(cause);
 }
@@ -3997,9 +4114,28 @@ function sqlError(
   const sqlState = findSqlState(cause);
   return new PointCommitSqlErrorV1({
     operation,
-    retryable: sqlState === "40001" || sqlState === "40P01",
     cause,
     ...(sqlState === undefined ? {} : { sqlState }),
+  });
+}
+
+function confirmedPreDecisionSqlState(
+  cause: unknown,
+): PointCommitConfirmedPreDecisionSqlStateV1 | undefined {
+  const sqlState = findSqlState(cause);
+  return sqlState === "40001" || sqlState === "40P01"
+    ? sqlState
+    : undefined;
+}
+
+function decisionUncertain(
+  cause: LocatedReadCommittedTransactionFailureV1,
+  outcomeCheck: PointCommitDecisionUncertainOutcomeCheckV1,
+): PointCommitDecisionUncertainV1Error {
+  return new PointCommitDecisionUncertainV1Error({
+    phase: "commitOrRelease",
+    cause,
+    outcomeCheck,
   });
 }
 

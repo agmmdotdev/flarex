@@ -444,7 +444,7 @@ describe("C05-A point-commit finishing transition", () => {
         .enterFinishing(rollback.command),
     );
     expect(failure).toBeInstanceOf(PointCommitSqlErrorV1);
-    expect(failure).toMatchObject({ sqlState: "40001", retryable: true });
+    expect(failure).toMatchObject({ sqlState: "40001" });
     expect((await sessionFingerprint(rollback.anchor.sessionId)).lifecycle).toBe(
       "running",
     );
