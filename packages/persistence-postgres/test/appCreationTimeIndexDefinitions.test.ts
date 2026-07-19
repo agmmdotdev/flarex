@@ -32,7 +32,7 @@ import {
 } from "../src/appIndexDefinitions";
 import { createPGlitePersistence } from "../src/pglite";
 import {
-  applySchemaManifestAppSchemaBindingsV1InTransaction,
+  applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
 } from "../src/schemaManifestAppSchemaBindings";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
@@ -448,9 +448,11 @@ async function applyTablePlan(
 ): Promise<void> {
   const state = getPreparedAppSchemaPublicationV1State(publication);
   await persistence.drizzle.transaction((tx) =>
-    applySchemaManifestAppSchemaBindingsV1InTransaction(
-      tx,
-      state.logicalBindings,
+    runEffect(
+      applySchemaManifestAppSchemaBindingsV1InTransactionEffect(
+        tx,
+        state.logicalBindings,
+      ),
     )
   );
 }

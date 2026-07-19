@@ -29,7 +29,7 @@ import {
   prepareAppDeveloperIndexDefinitionBindingV1,
 } from "../src/appIndexDefinitions";
 import type { PostgresFlarexPersistence } from "../src/postgres";
-import { applySchemaManifestAppSchemaBindingsV1InTransaction } from "../src/schemaManifestAppSchemaBindings";
+import { applySchemaManifestAppSchemaBindingsV1InTransactionEffect } from "../src/schemaManifestAppSchemaBindings";
 import { ensureSchemaVersionArtifactInTransaction } from "../src/schemaVersionArtifacts";
 import { ensureStableTableIdentityEffect } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
@@ -353,9 +353,11 @@ describePostgres("real Postgres app-schema V1 publication", () => {
       );
       const targetState = getPreparedAppSchemaPublicationV1State(target);
       await persistence.drizzle.transaction(async (tx) => {
-        await applySchemaManifestAppSchemaBindingsV1InTransaction(
-          tx,
-          targetState.logicalBindings,
+        await runEffect(
+          applySchemaManifestAppSchemaBindingsV1InTransactionEffect(
+            tx,
+            targetState.logicalBindings,
+          ),
         );
         await ensureSchemaVersionArtifactInTransaction(tx, targetState.artifact);
       });
@@ -377,9 +379,11 @@ describePostgres("real Postgres app-schema V1 publication", () => {
       const historicalState =
         getPreparedAppSchemaPublicationV1State(historical);
       await persistence.drizzle.transaction((tx) =>
-        applySchemaManifestAppSchemaBindingsV1InTransaction(
-          tx,
-          historicalState.logicalBindings,
+        runEffect(
+          applySchemaManifestAppSchemaBindingsV1InTransactionEffect(
+            tx,
+            historicalState.logicalBindings,
+          ),
         )
       );
       const extraIndex =

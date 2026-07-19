@@ -1,15 +1,15 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, inArray } from "drizzle-orm";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
-  decodeCatalogTableId,
+  CatalogTableIdSchema,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import type { Json } from "flarex-protocol/json";
 import {
   decodeSchemaManifestAppTableDeclarationsV1,
-  decodeSchemaManifestAppTableName,
   decodeSchemaManifestTableDefinitionsV1,
+  SchemaManifestAppTableNameSchema,
   type SchemaManifestAppDocumentDefinitionV1,
   type SchemaManifestAppTableDeclarationInputV1,
   type SchemaManifestAppTableDeclarationV1,
@@ -32,6 +32,13 @@ import {
 import { deployments, fxControlTables } from "./schema";
 
 const APP_TABLE_NAMESPACE: "app" = "app";
+
+const decodeCatalogTableIdResult = Schema.decodeUnknownResult(
+  CatalogTableIdSchema,
+);
+const decodeSchemaManifestAppTableNameResult = Schema.decodeUnknownResult(
+  SchemaManifestAppTableNameSchema,
+);
 
 export interface PrepareSchemaManifestAppTableBindingsV1Input {
   readonly deploymentId: string;
@@ -312,11 +319,29 @@ export async function lockSchemaManifestBindingDeployment(
 export class SchemaManifestTableBindingPersistenceError extends Error {
   readonly _tag = "SchemaManifestTableBindingPersistenceError" as const;
 
-  constructor(readonly cause: unknown) {
-    super("Failed to lock the schema-manifest binding deployment.", { cause });
+  constructor(
+    readonly operation:
+      | "lockDeployment"
+      | "readBindings"
+      | "insertBindings",
+    readonly cause: unknown,
+  ) {
+    super(`Schema-manifest table binding ${operation} failed.`, { cause });
     this.name = "SchemaManifestTableBindingPersistenceError";
   }
 }
+
+const runSchemaManifestTableBindingQueryEffect = Effect.fn(<A>(
+  operation: SchemaManifestTableBindingPersistenceError["operation"],
+  query: PromiseLike<A>,
+): Effect.Effect<A, SchemaManifestTableBindingPersistenceError> =>
+  Effect.uninterruptible(Effect.tryPromise({
+    try: () => query,
+    catch: (cause) => new SchemaManifestTableBindingPersistenceError(
+      operation,
+      cause,
+    ),
+  })));
 
 export const lockSchemaManifestBindingDeploymentEffect = Effect.fn(
   "SchemaManifestTableBindings.lockDeployment",
@@ -329,10 +354,10 @@ export const lockSchemaManifestBindingDeploymentEffect = Effect.fn(
   | SchemaManifestTableBindingPersistenceError
 > {
   const query = selectLockedSchemaManifestBindingDeployment(tx, deploymentId);
-  const rows = yield* Effect.uninterruptible(Effect.tryPromise({
-    try: () => query,
-    catch: (cause) => new SchemaManifestTableBindingPersistenceError(cause),
-  }));
+  const rows = yield* runSchemaManifestTableBindingQueryEffect(
+    "lockDeployment",
+    query,
+  );
   if (rows[0] === undefined) {
     return yield* Effect.fail(
       new StableTableCatalogDeploymentNotFoundError(deploymentId),
@@ -369,6 +394,36 @@ export async function readSchemaManifestAppTableBindings(
   );
 }
 
+export const readSchemaManifestAppTableBindingsEffect = Effect.fn(
+  "SchemaManifestTableBindings.readAppBindings",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
+): Effect.fn.Return<
+  ReadonlyMap<SchemaManifestAppTableName, CatalogTableId>,
+  | SchemaManifestTableBindingPersistenceError
+  | SchemaManifestTableBindingCorruptionError
+> {
+  if (logicalNames.length === 0) return new Map();
+  const query = selectSchemaManifestAppTableBindingRowsQuery(
+    db,
+    deploymentId,
+    logicalNames,
+  );
+  const rows = yield* runSchemaManifestTableBindingQueryEffect(
+    "readBindings",
+    query,
+  );
+  return yield* Effect.fromResult(
+    decodeSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      logicalNames,
+      rows,
+    ),
+  );
+});
+
 export type SchemaManifestAppTableBindingRow = Pick<
   typeof fxControlTables.$inferSelect,
   "deploymentId" | "tableId" | "logicalName"
@@ -381,6 +436,18 @@ export async function selectSchemaManifestAppTableBindingRows(
   logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
 ): Promise<ReadonlyArray<SchemaManifestAppTableBindingRow>> {
   if (logicalNames.length === 0) return [];
+  return selectSchemaManifestAppTableBindingRowsQuery(
+    db,
+    deploymentId,
+    logicalNames,
+  );
+}
+
+function selectSchemaManifestAppTableBindingRowsQuery(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
+) {
   return db
     .select({
       deploymentId: fxControlTables.deploymentId,
@@ -548,13 +615,61 @@ function deepFreezeJson(value: Json): void {
   Object.freeze(value);
 }
 
+export const insertPlannedSchemaManifestAppTableBindingsEffect = Effect.fn(
+  "SchemaManifestTableBindings.insertPlannedAppBindings",
+)(function* (
+  tx: StableTableCatalogTransaction,
+  state: PreparedSchemaManifestAppTableBindingsState,
+  missingTables: ReadonlyArray<PlannedAppTableBinding>,
+): Effect.fn.Return<
+  void,
+  | SchemaManifestTableBindingPersistenceError
+  | SchemaManifestTableBindingCorruptionError
+> {
+  if (missingTables.length === 0) return;
+  const query = insertPlannedSchemaManifestAppTableBindingsQuery(
+    tx,
+    state,
+    missingTables,
+  );
+  const rows = yield* runSchemaManifestTableBindingQueryEffect(
+    "insertBindings",
+    query,
+  );
+  yield* Effect.fromResult(
+    verifyInsertedSchemaManifestAppTableBindingRowsResult(
+      state.deploymentId,
+      missingTables,
+      rows,
+    ),
+  );
+});
+
+/** Promise compatibility boundary for the table-only artifact flow. */
 export async function insertPlannedSchemaManifestAppTableBindings(
   tx: StableTableCatalogTransaction,
   state: PreparedSchemaManifestAppTableBindingsState,
   missingTables: ReadonlyArray<PlannedAppTableBinding>,
 ): Promise<void> {
   if (missingTables.length === 0) return;
-  const rows = await tx
+  const rows = await insertPlannedSchemaManifestAppTableBindingsQuery(
+    tx,
+    state,
+    missingTables,
+  );
+  Result.getOrThrow(verifyInsertedSchemaManifestAppTableBindingRowsResult(
+    state.deploymentId,
+    missingTables,
+    rows,
+  ));
+}
+
+function insertPlannedSchemaManifestAppTableBindingsQuery(
+  tx: StableTableCatalogTransaction,
+  state: PreparedSchemaManifestAppTableBindingsState,
+  missingTables: ReadonlyArray<PlannedAppTableBinding>,
+) {
+  return tx
     .insert(fxControlTables)
     .values(
       missingTables.map((table) => ({
@@ -569,14 +684,6 @@ export async function insertPlannedSchemaManifestAppTableBindings(
       tableId: fxControlTables.tableId,
       logicalName: fxControlTables.logicalName,
     });
-  // Drizzle commits a resolved callback, so this projection must reject the
-  // current Promise transaction on typed verification failure. Delete it when
-  // the transaction owner can interpret the Effect failure channel as rollback.
-  Result.getOrThrow(verifyInsertedSchemaManifestAppTableBindingRowsResult(
-    state.deploymentId,
-    missingTables,
-    rows,
-  ));
 }
 
 /** Pure post-insert verification; the transaction boundary owns rollback. */
@@ -642,28 +749,26 @@ function decodeStoredLogicalNameResult(
   SchemaManifestAppTableName,
   SchemaManifestTableBindingCorruptionError
 > {
-  return Result.try({
-    try: () => decodeSchemaManifestAppTableName(value),
-    catch: (cause) => new SchemaManifestTableBindingCorruptionError(
+  return decodeSchemaManifestAppTableNameResult(value).pipe(
+    Result.mapError((cause) => new SchemaManifestTableBindingCorruptionError(
       deploymentId,
       `invalid stored app table name: ${String(value)}`,
       { cause },
-    ),
-  });
+    )),
+  );
 }
 
 function decodeStoredTableIdResult(
   deploymentId: string,
   value: unknown,
 ): Result.Result<CatalogTableId, SchemaManifestTableBindingCorruptionError> {
-  return Result.try({
-    try: () => decodeCatalogTableId(value),
-    catch: (cause) => new SchemaManifestTableBindingCorruptionError(
+  return decodeCatalogTableIdResult(value).pipe(
+    Result.mapError((cause) => new SchemaManifestTableBindingCorruptionError(
       deploymentId,
       `invalid stored table ID: ${String(value)}`,
       { cause },
-    ),
-  });
+    )),
+  );
 }
 
 function bindingChanged(

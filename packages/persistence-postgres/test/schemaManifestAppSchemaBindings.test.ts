@@ -10,7 +10,7 @@ import type {
   SchemaManifestAppSchemaV1,
   SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { Result } from "effect";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -20,11 +20,13 @@ import {
 } from "../src";
 import { createPGlitePersistence } from "../src/pglite";
 import {
-  applySchemaManifestAppSchemaBindingsV1InTransaction,
+  applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
+  type ApplySchemaManifestAppSchemaBindingsV1Error,
   decodeSchemaManifestAppIndexBindingRowsResult,
   InvalidPreparedSchemaManifestAppSchemaBindingsError,
   InvalidSchemaManifestAppSchemaBindingInputError,
   prepareSchemaManifestAppSchemaBindingsV1,
+  SchemaManifestAppSchemaBindingPersistenceError,
   type SchemaManifestAppIndexBindingRow,
   type PreparedSchemaManifestAppSchemaBindingsV1,
   verifyInsertedSchemaManifestAppIndexBindingRowsResult,
@@ -39,13 +41,14 @@ import {
   ensureStableTableIdentityEffect,
   StableTableCatalogDeploymentNotFoundError,
 } from "../src/stableTableCatalog";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 type PublicMutationMethod = Extract<
   keyof FlarexPersistence,
   | "ensureStableLogicalIndexIdentityInTransaction"
   | "prepareSchemaManifestAppSchemaBindingsV1"
   | "applySchemaManifestAppSchemaBindingsV1InTransaction"
+  | "applySchemaManifestAppSchemaBindingsV1InTransactionEffect"
 >;
 
 type PublicMutationExport = Extract<
@@ -53,6 +56,7 @@ type PublicMutationExport = Extract<
   | "ensureStableLogicalIndexIdentityInTransaction"
   | "prepareSchemaManifestAppSchemaBindingsV1"
   | "applySchemaManifestAppSchemaBindingsV1InTransaction"
+  | "applySchemaManifestAppSchemaBindingsV1InTransactionEffect"
   | "nextStableLogicalIndexCatalogId"
 >;
 
@@ -64,6 +68,14 @@ describe("schema manifest app-schema bindings", () => {
     expectTypeOf<
       PreparedSchemaManifestAppSchemaBindingsV1["manifest"]
     >().toEqualTypeOf<SchemaManifestAppSchemaV1>();
+    expectTypeOf<
+      ReturnType<
+        typeof applySchemaManifestAppSchemaBindingsV1InTransactionEffect
+      >
+    >().toEqualTypeOf<Effect.Effect<
+      SchemaManifestAppSchemaV1,
+      ApplySchemaManifestAppSchemaBindingsV1Error
+    >>();
   });
 
   it("decodes requested logical-index rows through Result without capturing defects", () => {
@@ -339,6 +351,118 @@ describe("schema manifest app-schema bindings", () => {
     )).toThrow(cause);
   });
 
+  it("maps a combined-plan logical-index read rejection to its tagged error", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_app_schema_read_failure";
+    await insertDeployment(persistence, deploymentId);
+    const plan = await prepareSchemaManifestAppSchemaBindingsV1(
+      persistence.drizzle,
+      {
+        deploymentId,
+        tables: [appTable("users")],
+        indexes: [appIndex("users", "by_name", ["name"])],
+      },
+    );
+    const rejection = new Error("combined logical-index read rejected");
+    const tx = schemaBindingSelectTransaction((selectCall) =>
+      selectCall === 1
+        ? Promise.resolve([{ deploymentId }])
+        : selectCall === 2
+          ? Promise.resolve([])
+          : Promise.reject(rejection)
+    );
+
+    const failure = await runEffectFailure(
+      applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, plan),
+    );
+
+    expect(failure).toBeInstanceOf(
+      SchemaManifestAppSchemaBindingPersistenceError,
+    );
+    expect(failure).toMatchObject({
+      _tag: "SchemaManifestAppSchemaBindingPersistenceError",
+      operation: "readIndexBindings",
+      cause: rejection,
+    });
+  });
+
+  it("preserves combined-plan query construction failures as defects", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_app_schema_construction_defect";
+    await insertDeployment(persistence, deploymentId);
+    const plan = await prepareSchemaManifestAppSchemaBindingsV1(
+      persistence.drizzle,
+      {
+        deploymentId,
+        tables: [appTable("users")],
+        indexes: [appIndex("users", "by_name", ["name"])],
+      },
+    );
+    const defect = new Error("combined logical-index query construction defect");
+    const tx = schemaBindingSelectTransaction((selectCall) => {
+      if (selectCall === 3) throw defect;
+      return selectCall === 1
+        ? Promise.resolve([{ deploymentId }])
+        : Promise.resolve([]);
+    });
+
+    const exit = await Effect.runPromiseExit(
+      applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, plan),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("waits for a combined-plan logical-index read before interruption completes", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_app_schema_interruption";
+    await insertDeployment(persistence, deploymentId);
+    const plan = await prepareSchemaManifestAppSchemaBindingsV1(
+      persistence.drizzle,
+      {
+        deploymentId,
+        tables: [appTable("users")],
+        indexes: [appIndex("users", "by_name", ["name"])],
+      },
+    );
+    const entered = deferredValue<void>();
+    const query = deferredValue<ReadonlyArray<unknown>>();
+    const tx = schemaBindingSelectTransaction((selectCall) => {
+      if (selectCall === 1) return Promise.resolve([{ deploymentId }]);
+      if (selectCall === 2) return Promise.resolve([]);
+      entered.resolve(undefined);
+      return query.promise;
+    });
+    const fiber = Effect.runFork(
+      applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, plan),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
+  });
+
   it("allocates deterministically, replays exactly, and reuses identity when fields change", async () => {
     const persistence = await migratedPersistence();
     const deploymentId = "deployment_app_schema_deterministic";
@@ -508,10 +632,12 @@ describe("schema manifest app-schema bindings", () => {
     });
     await expect(
       persistence.drizzle.transaction((tx) =>
-        Reflect.apply(
-          applySchemaManifestAppSchemaBindingsV1InTransaction,
-          undefined,
-          [tx, { deploymentId, manifest: empty.manifest }],
+        runEffect(
+          applySchemaManifestAppSchemaBindingsV1InTransactionEffect(
+            tx,
+            // @ts-expect-error The test deliberately forges the opaque token.
+            { deploymentId, manifest: empty.manifest },
+          ),
         ),
       ),
     ).rejects.toBeInstanceOf(
@@ -647,7 +773,9 @@ describe("schema manifest app-schema bindings", () => {
 
     await expect(
       persistence.drizzle.transaction(async (tx) => {
-        await applySchemaManifestAppSchemaBindingsV1InTransaction(tx, plan);
+        await runEffect(
+          applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, plan),
+        );
         throw new Error("injected app-schema rollback");
       }),
     ).rejects.toThrow("injected app-schema rollback");
@@ -892,8 +1020,66 @@ function apply(
   prepared: PreparedSchemaManifestAppSchemaBindingsV1,
 ): Promise<SchemaManifestAppSchemaV1> {
   return persistence.drizzle.transaction((tx) =>
-    applySchemaManifestAppSchemaBindingsV1InTransaction(tx, prepared),
+    runEffect(
+      applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, prepared),
+    ),
   );
+}
+
+interface SchemaBindingSelectQuery
+  extends PromiseLike<ReadonlyArray<unknown>> {
+  from(): SchemaBindingSelectQuery;
+  where(): SchemaBindingSelectQuery;
+  limit(): SchemaBindingSelectQuery;
+  orderBy(): SchemaBindingSelectQuery;
+  for(): SchemaBindingSelectQuery;
+}
+
+function schemaBindingSelectTransaction(
+  run: (selectCall: number) => Promise<ReadonlyArray<unknown>>,
+) {
+  let selectCall = 0;
+  return {
+    select() {
+      selectCall += 1;
+      const promise = run(selectCall);
+      const query: SchemaBindingSelectQuery = {
+        from: () => query,
+        where: () => query,
+        limit: () => query,
+        orderBy: () => query,
+        for: () => query,
+        then: (onFulfilled, onRejected) =>
+          promise.then(onFulfilled, onRejected),
+      };
+      return query;
+    },
+  } as unknown as Parameters<
+    typeof applySchemaManifestAppSchemaBindingsV1InTransactionEffect
+  >[0];
+}
+
+function deferredValue<Value>(): Readonly<{
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+}> {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve(value: Value) {
+      if (resolvePromise === undefined) {
+        throw new Error("Deferred value was not initialized.");
+      }
+      resolvePromise(value);
+    },
+  });
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function ensureTable(

@@ -7,11 +7,12 @@ import { describe, expect, it } from "vitest";
 
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
-  applySchemaManifestAppSchemaBindingsV1InTransaction,
+  applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
   prepareSchemaManifestAppSchemaBindingsV1,
   type PreparedSchemaManifestAppSchemaBindingsV1,
   SchemaManifestAppSchemaBindingPlanStaleError,
 } from "../src/schemaManifestAppSchemaBindings";
+import { runEffect } from "./effectTestRuntime";
 import {
   acquirePostgresDeploymentLock,
   postgresUrl,
@@ -161,7 +162,9 @@ describePostgres("real Postgres schema manifest app-schema bindings", () => {
 
       await expect(
         persistence.drizzle.transaction(async (tx) => {
-          await applySchemaManifestAppSchemaBindingsV1InTransaction(tx, plan);
+          await runEffect(
+            applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, plan),
+          );
           throw new Error("injected real Postgres rollback");
         }),
       ).rejects.toThrow("injected real Postgres rollback");
@@ -288,7 +291,9 @@ function apply(
   prepared: PreparedSchemaManifestAppSchemaBindingsV1,
 ): Promise<SchemaManifestAppSchemaV1> {
   return persistence.drizzle.transaction((tx) =>
-    applySchemaManifestAppSchemaBindingsV1InTransaction(tx, prepared),
+    runEffect(
+      applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, prepared),
+    ),
   );
 }
 

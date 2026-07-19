@@ -30,7 +30,7 @@ import {
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
 import {
-  applySchemaManifestAppSchemaBindingsV1InTransaction,
+  applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
   prepareSchemaManifestAppSchemaBindingsV1,
 } from "../src/schemaManifestAppSchemaBindings";
 import {
@@ -347,7 +347,9 @@ async function registerAppSchemaVersion(
     },
   );
   const manifest = await persistence.drizzle.transaction((tx) =>
-    applySchemaManifestAppSchemaBindingsV1InTransaction(tx, plan)
+    runEffect(
+      applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, plan),
+    )
   );
   const schemaVersionId = CatalogSchemaVersionIdSchema.make(
     schemaVersionIdValue,

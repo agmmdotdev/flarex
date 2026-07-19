@@ -3,16 +3,24 @@ import {
   MAX_CATALOG_INDEX_ID,
   type CatalogIndexId,
 } from "flarex-protocol/catalog";
+import { Effect } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { fxControlIndexes } from "./schema";
-import { decodeStableLogicalIndexCatalogIndexId } from
+import {
+  decodeStableLogicalIndexCatalogIndexId,
+  decodeStableLogicalIndexCatalogIndexIdResult,
+} from
   "./stableLogicalIndexCatalogDecoding";
+import { StableLogicalIndexCatalogCorruptionError } from
+  "./stableLogicalIndexCatalogError";
 
 export { StableLogicalIndexCatalogCorruptionError } from
   "./stableLogicalIndexCatalogError";
 
 export class StableLogicalIndexCatalogIdExhaustedError extends Error {
+  readonly _tag = "StableLogicalIndexCatalogIdExhaustedError" as const;
+
   constructor(readonly deploymentId: string) {
     super(
       `Stable logical index identity space is exhausted for deployment: ${deploymentId}`,
@@ -21,20 +29,68 @@ export class StableLogicalIndexCatalogIdExhaustedError extends Error {
   }
 }
 
+export class StableLogicalIndexCatalogAllocationPersistenceError extends Error {
+  readonly _tag =
+    "StableLogicalIndexCatalogAllocationPersistenceError" as const;
+
+  constructor(
+    readonly operation: "readHighWater",
+    readonly cause: unknown,
+  ) {
+    super("Stable logical-index catalog high-water read failed.", { cause });
+    this.name = "StableLogicalIndexCatalogAllocationPersistenceError";
+  }
+}
+
+export const readStableLogicalIndexCatalogHighWaterEffect = Effect.fn(
+  "StableLogicalIndexCatalog.readHighWater",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+): Effect.fn.Return<
+  CatalogIndexId | null,
+  | StableLogicalIndexCatalogAllocationPersistenceError
+  | StableLogicalIndexCatalogCorruptionError
+> {
+  const query = selectStableLogicalIndexCatalogHighWater(db, deploymentId);
+  const rows = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => query,
+    catch: (cause) =>
+      new StableLogicalIndexCatalogAllocationPersistenceError(
+        "readHighWater",
+        cause,
+      ),
+  }));
+  const value = rows[0]?.logicalIndexId;
+  return value === undefined
+    ? null
+    : yield* Effect.fromResult(
+      decodeStableLogicalIndexCatalogIndexIdResult(deploymentId, value),
+    );
+});
+
+/** Promise compatibility boundary for the D2a preparation chain. */
 export async function readStableLogicalIndexCatalogHighWater(
   db: FlarexMetadataDatabase,
   deploymentId: string,
 ): Promise<CatalogIndexId | null> {
-  const rows = await db
+  const rows = await selectStableLogicalIndexCatalogHighWater(db, deploymentId);
+  const value = rows[0]?.logicalIndexId;
+  return value === undefined
+    ? null
+    : decodeStableLogicalIndexCatalogIndexId(deploymentId, value);
+}
+
+function selectStableLogicalIndexCatalogHighWater(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+) {
+  return db
     .select({ logicalIndexId: fxControlIndexes.logicalIndexId })
     .from(fxControlIndexes)
     .where(eq(fxControlIndexes.deploymentId, deploymentId))
     .orderBy(desc(fxControlIndexes.logicalIndexId))
     .limit(1);
-  const value = rows[0]?.logicalIndexId;
-  return value === undefined
-    ? null
-    : decodeStableLogicalIndexCatalogIndexId(deploymentId, value);
 }
 
 export function nextStableLogicalIndexCatalogId(

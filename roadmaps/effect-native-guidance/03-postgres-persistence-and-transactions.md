@@ -225,11 +225,18 @@ schema-artifact ensure/replay, and the exact schema-version binding projection
 read. Schema-version binding input and stored-row validation use `Result`, SQL
 rejection is mapped once to a tagged read failure, and the former package-root
 Promise binding readers were deleted because no production compatibility
-consumer exists. D2c retains one temporary Promise adapter solely for the
-combined table/logical-index binding apply chain; delete it when that
-planner/revalidation chain owns Effect failure and rollback semantics.
-High-water Promise and throwing allocation projections remain temporary within
-that chain and are deleted at the same gate.
+consumer exists. The combined table/logical-index binding apply chain is now a
+named Effect operation from authenticated prepared-token lookup through the
+deployment lock, both catalog revalidation reads, both high-water checks,
+ordered table/index insertion, and returned-row verification. Each rejecting
+Drizzle statement maps once to an operation-specific tagged persistence
+failure, owned validation composes through `Result`, and synchronous query
+construction or row-access failures remain defects. The D2c transaction now
+yields this operation directly, so its last generic Promise adapter and the
+combined Promise apply projection are deleted. Promise high-water reads remain
+only for the D2a preparation path, and the table-only Promise apply projection
+remains owned by `appTableDefinitionsArtifacts`; neither is part of D2c's
+Effect-native child graph.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

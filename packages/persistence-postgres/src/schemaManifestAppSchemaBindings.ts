@@ -17,30 +17,42 @@ import {
   type SchemaManifestAppTableDeclarationV1,
   type SchemaManifestAppTableName,
 } from "flarex-protocol/schema-manifest";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
   getPreparedSchemaManifestAppTableBindingsState,
-  insertPlannedSchemaManifestAppTableBindings,
-  lockSchemaManifestBindingDeployment,
+  insertPlannedSchemaManifestAppTableBindingsEffect,
+  lockSchemaManifestBindingDeploymentEffect,
   prepareSchemaManifestAppTableBindingsV1,
-  readSchemaManifestAppTableBindings,
+  readSchemaManifestAppTableBindingsEffect,
   type PlannedAppTableBinding,
   type PreparedSchemaManifestAppTableBindingsState,
+  type SchemaManifestTableBindingCorruptionError,
+  type SchemaManifestTableBindingPersistenceError,
 } from "./schemaManifestTableBindings";
 import { fxControlIndexes } from "./schema";
 import {
   nextStableLogicalIndexCatalogId,
   readStableLogicalIndexCatalogHighWater,
+  readStableLogicalIndexCatalogHighWaterEffect,
+  type StableLogicalIndexCatalogAllocationPersistenceError,
   StableLogicalIndexCatalogCorruptionError,
 } from "./stableLogicalIndexCatalogAllocation";
 import {
   decodeStableLogicalIndexCatalogIndexIdResult as decodeStoredIndexIdResult,
   decodeStableLogicalIndexCatalogTableIdResult as decodeStoredTableIdResult,
 } from "./stableLogicalIndexCatalogDecoding";
-import type { StableTableCatalogTransaction } from "./stableTableCatalog";
-import { readStableTableCatalogHighWater } from "./stableTableCatalogAllocation";
+import {
+  StableTableCatalogDeploymentNotFoundError,
+  type StableTableCatalogTransaction,
+} from "./stableTableCatalog";
+import {
+  readStableTableCatalogHighWaterEffect,
+  type StableTableCatalogAllocationPersistenceError,
+} from "./stableTableCatalogAllocation";
+import type { StableTableCatalogCorruptionError } from
+  "./stableTableCatalogError";
 import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 
 export interface PrepareSchemaManifestAppSchemaBindingsV1Input {
@@ -80,6 +92,9 @@ export class InvalidSchemaManifestAppSchemaBindingInputError extends Error {
 }
 
 export class InvalidPreparedSchemaManifestAppSchemaBindingsError extends Error {
+  readonly _tag =
+    "InvalidPreparedSchemaManifestAppSchemaBindingsError" as const;
+
   constructor() {
     super(
       "Schema manifest app-schema bindings were not prepared by this repository instance.",
@@ -132,11 +147,37 @@ export type SchemaManifestAppSchemaBindingPlanStale =
     };
 
 export class SchemaManifestAppSchemaBindingPlanStaleError extends Error {
+  readonly _tag = "SchemaManifestAppSchemaBindingPlanStaleError" as const;
+
   constructor(readonly stale: SchemaManifestAppSchemaBindingPlanStale) {
     super(stalePlanMessage(stale));
     this.name = "SchemaManifestAppSchemaBindingPlanStaleError";
   }
 }
+
+export class SchemaManifestAppSchemaBindingPersistenceError extends Error {
+  readonly _tag = "SchemaManifestAppSchemaBindingPersistenceError" as const;
+
+  constructor(
+    readonly operation: "readIndexBindings" | "insertIndexBindings",
+    readonly cause: unknown,
+  ) {
+    super(`Schema-manifest app-schema binding ${operation} failed.`, { cause });
+    this.name = "SchemaManifestAppSchemaBindingPersistenceError";
+  }
+}
+
+export type ApplySchemaManifestAppSchemaBindingsV1Error =
+  | InvalidPreparedSchemaManifestAppSchemaBindingsError
+  | SchemaManifestAppSchemaBindingPlanStaleError
+  | StableTableCatalogDeploymentNotFoundError
+  | SchemaManifestTableBindingPersistenceError
+  | SchemaManifestTableBindingCorruptionError
+  | StableTableCatalogAllocationPersistenceError
+  | StableTableCatalogCorruptionError
+  | SchemaManifestAppSchemaBindingPersistenceError
+  | StableLogicalIndexCatalogAllocationPersistenceError
+  | StableLogicalIndexCatalogCorruptionError;
 
 interface ResolvedAppIndexDeclaration {
   readonly tableId: CatalogTableId;
@@ -161,6 +202,18 @@ const preparedBindingStates = new WeakMap<
   PreparedSchemaManifestAppSchemaBindingsV1,
   PreparedSchemaManifestAppSchemaBindingsState
 >();
+
+function getPreparedSchemaManifestAppSchemaBindingsStateResult(
+  prepared: PreparedSchemaManifestAppSchemaBindingsV1,
+): Result.Result<
+  PreparedSchemaManifestAppSchemaBindingsState,
+  InvalidPreparedSchemaManifestAppSchemaBindingsError
+> {
+  const state = preparedBindingStates.get(prepared);
+  return state === undefined
+    ? Result.fail(new InvalidPreparedSchemaManifestAppSchemaBindingsError())
+    : Result.succeed(state);
+}
 
 /**
  * Prepare stable table and logical-index candidates without taking a SQL lock.
@@ -222,84 +275,102 @@ export async function prepareSchemaManifestAppSchemaBindingsV1(
  * a separately published table mapping cannot be mistaken for an atomic replay
  * of its still-missing logical indexes. This helper never commits.
  */
-export async function applySchemaManifestAppSchemaBindingsV1InTransaction(
+export const applySchemaManifestAppSchemaBindingsV1InTransactionEffect =
+Effect.fn(
+  "SchemaManifestAppSchemaBindings.applyInTransaction",
+)(function* (
   tx: StableTableCatalogTransaction,
   prepared: PreparedSchemaManifestAppSchemaBindingsV1,
-): Promise<SchemaManifestAppSchemaV1> {
-  const state = preparedBindingStates.get(prepared);
-  if (state === undefined) {
-    throw new InvalidPreparedSchemaManifestAppSchemaBindingsError();
-  }
+): Effect.fn.Return<
+  SchemaManifestAppSchemaV1,
+  ApplySchemaManifestAppSchemaBindingsV1Error
+> {
+  const state = yield* Effect.fromResult(
+    getPreparedSchemaManifestAppSchemaBindingsStateResult(prepared),
+  );
 
-  await lockSchemaManifestBindingDeployment(tx, state.deploymentId);
-  const currentTables = await readSchemaManifestAppTableBindings(
+  yield* lockSchemaManifestBindingDeploymentEffect(tx, state.deploymentId);
+  const currentTables = yield* readSchemaManifestAppTableBindingsEffect(
     tx,
     state.deploymentId,
     state.tableState.tables.map((table) => table.logicalName),
   );
-  const currentIndexes = await readAppIndexBindings(
+  const currentIndexes = yield* readAppIndexBindingsEffect(
     tx,
     state.deploymentId,
     state.indexes,
   );
-  const applied: SchemaManifestAppSchemaBindingIdentity[] = [];
-  const missing: SchemaManifestAppSchemaBindingIdentity[] = [];
-  const missingTables = classifyTables(
-    state.tableState.tables,
-    currentTables,
-    applied,
-    missing,
+  const tableClassification = yield* Effect.fromResult(
+    classifyTablesResult(state.tableState.tables, currentTables),
   );
-  const missingIndexes = classifyIndexes(
-    state.indexes,
-    currentIndexes,
-    applied,
-    missing,
+  const indexClassification = yield* Effect.fromResult(
+    classifyIndexesResult(state.indexes, currentIndexes),
   );
+  const applied = [
+    ...tableClassification.applied,
+    ...indexClassification.applied,
+  ];
+  const missing = [
+    ...tableClassification.missing,
+    ...indexClassification.missing,
+  ];
   if (missing.length === 0) {
     return state.manifest;
   }
   if (applied.length > 0) {
-    throw new SchemaManifestAppSchemaBindingPlanStaleError({
-      reason: "partiallyApplied",
-      applied: freezeIdentities(applied),
-      missing: freezeIdentities(missing),
-    });
+    return yield* Effect.fail(
+      new SchemaManifestAppSchemaBindingPlanStaleError({
+        reason: "partiallyApplied",
+        applied: freezeIdentities(applied),
+        missing: freezeIdentities(missing),
+      }),
+    );
   }
 
-  if (missingTables.length > 0) {
-    const currentTableHighWater = await readStableTableCatalogHighWater(
+  if (tableClassification.stillMissing.length > 0) {
+    const currentTableHighWater = yield* readStableTableCatalogHighWaterEffect(
       tx,
       state.deploymentId,
     );
     if (currentTableHighWater !== state.tableState.observedHighWater) {
-      throw new SchemaManifestAppSchemaBindingPlanStaleError({
-        reason: "tableCatalogHighWaterChanged",
-        observedTableId: state.tableState.observedHighWater,
-        currentTableId: currentTableHighWater,
-      });
+      return yield* Effect.fail(
+        new SchemaManifestAppSchemaBindingPlanStaleError({
+          reason: "tableCatalogHighWaterChanged",
+          observedTableId: state.tableState.observedHighWater,
+          currentTableId: currentTableHighWater,
+        }),
+      );
     }
   }
-  if (missingIndexes.length > 0) {
+  if (indexClassification.stillMissing.length > 0) {
     const currentIndexHighWater =
-      await readStableLogicalIndexCatalogHighWater(tx, state.deploymentId);
+      yield* readStableLogicalIndexCatalogHighWaterEffect(
+        tx,
+        state.deploymentId,
+      );
     if (currentIndexHighWater !== state.observedIndexHighWater) {
-      throw new SchemaManifestAppSchemaBindingPlanStaleError({
-        reason: "indexCatalogHighWaterChanged",
-        observedLogicalIndexId: state.observedIndexHighWater,
-        currentLogicalIndexId: currentIndexHighWater,
-      });
+      return yield* Effect.fail(
+        new SchemaManifestAppSchemaBindingPlanStaleError({
+          reason: "indexCatalogHighWaterChanged",
+          observedLogicalIndexId: state.observedIndexHighWater,
+          currentLogicalIndexId: currentIndexHighWater,
+        }),
+      );
     }
   }
 
-  await insertPlannedSchemaManifestAppTableBindings(
+  yield* insertPlannedSchemaManifestAppTableBindingsEffect(
     tx,
     state.tableState,
-    missingTables,
+    tableClassification.stillMissing,
   );
-  await insertPlannedAppIndexBindings(tx, state, missingIndexes);
+  yield* insertPlannedAppIndexBindingsEffect(
+    tx,
+    state,
+    indexClassification.stillMissing,
+  );
   return state.manifest;
-}
+});
 
 function validateDeploymentId(deploymentId: string): string {
   if (!isNonBlankString(deploymentId)) {
@@ -397,6 +468,18 @@ export interface SchemaManifestAppIndexBindingRow {
   readonly descriptor: string;
 }
 
+const runSchemaManifestAppSchemaBindingQueryEffect = Effect.fn(<A>(
+  operation: SchemaManifestAppSchemaBindingPersistenceError["operation"],
+  query: PromiseLike<A>,
+): Effect.Effect<A, SchemaManifestAppSchemaBindingPersistenceError> =>
+  Effect.uninterruptible(Effect.tryPromise({
+    try: () => query,
+    catch: (cause) => new SchemaManifestAppSchemaBindingPersistenceError(
+      operation,
+      cause,
+    ),
+  })));
+
 async function readAppIndexBindings(
   db: FlarexMetadataDatabase,
   deploymentId: string,
@@ -407,9 +490,8 @@ async function readAppIndexBindings(
     deploymentId,
     indexes,
   );
-  // Temporary throwing projection for the Promise-based schema planner and
-  // transaction revalidation. Delete it when those consumers own an Effect
-  // failure channel with explicit transaction rollback semantics.
+  // Temporary throwing projection for the Promise-based D2a schema planner.
+  // Delete it when that planner owns an Effect failure channel.
   return Result.getOrThrow(
     decodeSchemaManifestAppIndexBindingRowsResult(
       deploymentId,
@@ -418,6 +500,36 @@ async function readAppIndexBindings(
     ),
   );
 }
+
+const readAppIndexBindingsEffect = Effect.fn(
+  "SchemaManifestAppSchemaBindings.readIndexBindings",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  indexes: ReadonlyArray<ResolvedAppIndexDeclaration>,
+): Effect.fn.Return<
+  ReadonlyMap<string, CatalogIndexId>,
+  | SchemaManifestAppSchemaBindingPersistenceError
+  | StableLogicalIndexCatalogCorruptionError
+> {
+  if (indexes.length === 0) return new Map();
+  const query = selectSchemaManifestAppIndexBindingRowsQuery(
+    db,
+    deploymentId,
+    indexes,
+  );
+  const rows = yield* runSchemaManifestAppSchemaBindingQueryEffect(
+    "readIndexBindings",
+    query,
+  );
+  return yield* Effect.fromResult(
+    decodeSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      indexes,
+      rows,
+    ),
+  );
+});
 
 /** Package-internal raw row acquisition; callers own stored-row decoding. */
 export async function selectSchemaManifestAppIndexBindingRows(
@@ -429,6 +541,21 @@ export async function selectSchemaManifestAppIndexBindingRows(
   }>,
 ): Promise<ReadonlyArray<SchemaManifestAppIndexBindingRow>> {
   if (indexes.length === 0) return [];
+  return selectSchemaManifestAppIndexBindingRowsQuery(
+    db,
+    deploymentId,
+    indexes,
+  );
+}
+
+function selectSchemaManifestAppIndexBindingRowsQuery(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  indexes: ReadonlyArray<{
+    readonly tableId: CatalogTableId;
+    readonly descriptor: string;
+  }>,
+) {
   const tableIds = [...new Set(indexes.map((index) => index.tableId))];
   return db
     .select({
@@ -563,23 +690,34 @@ function assembleManifest(
   }
 }
 
-function classifyTables(
+interface AppSchemaBindingClassification<Binding> {
+  readonly applied: ReadonlyArray<SchemaManifestAppSchemaBindingIdentity>;
+  readonly missing: ReadonlyArray<SchemaManifestAppSchemaBindingIdentity>;
+  readonly stillMissing: ReadonlyArray<Binding>;
+}
+
+function classifyTablesResult(
   planned: ReadonlyArray<PlannedAppTableBinding>,
   current: ReadonlyMap<SchemaManifestAppTableName, CatalogTableId>,
-  applied: SchemaManifestAppSchemaBindingIdentity[],
-  missing: SchemaManifestAppSchemaBindingIdentity[],
-): ReadonlyArray<PlannedAppTableBinding> {
+): Result.Result<
+  AppSchemaBindingClassification<PlannedAppTableBinding>,
+  SchemaManifestAppSchemaBindingPlanStaleError
+> {
+  const applied: SchemaManifestAppSchemaBindingIdentity[] = [];
+  const missing: SchemaManifestAppSchemaBindingIdentity[] = [];
   const stillMissing: PlannedAppTableBinding[] = [];
   for (const table of planned) {
     const currentTableId = current.get(table.logicalName) ?? null;
     if (!table.wasMissing) {
       if (currentTableId !== table.tableId) {
-        throw new SchemaManifestAppSchemaBindingPlanStaleError({
-          reason: "tableBindingChanged",
-          logicalName: table.logicalName,
-          plannedTableId: table.tableId,
-          currentTableId,
-        });
+        return Result.fail(
+          new SchemaManifestAppSchemaBindingPlanStaleError({
+            reason: "tableBindingChanged",
+            logicalName: table.logicalName,
+            plannedTableId: table.tableId,
+            currentTableId,
+          }),
+        );
       }
       continue;
     }
@@ -590,29 +728,40 @@ function classifyTables(
       missing.push(identity);
       stillMissing.push(table);
     } else {
-      throw new SchemaManifestAppSchemaBindingPlanStaleError({
-        reason: "tableBindingChanged",
-        logicalName: table.logicalName,
-        plannedTableId: table.tableId,
-        currentTableId,
-      });
+      return Result.fail(
+        new SchemaManifestAppSchemaBindingPlanStaleError({
+          reason: "tableBindingChanged",
+          logicalName: table.logicalName,
+          plannedTableId: table.tableId,
+          currentTableId,
+        }),
+      );
     }
   }
-  return stillMissing;
+  return Result.succeed(Object.freeze({
+    applied: Object.freeze(applied),
+    missing: Object.freeze(missing),
+    stillMissing: Object.freeze(stillMissing),
+  }));
 }
 
-function classifyIndexes(
+function classifyIndexesResult(
   planned: ReadonlyArray<PlannedAppIndexBinding>,
   current: ReadonlyMap<string, CatalogIndexId>,
-  applied: SchemaManifestAppSchemaBindingIdentity[],
-  missing: SchemaManifestAppSchemaBindingIdentity[],
-): ReadonlyArray<PlannedAppIndexBinding> {
+): Result.Result<
+  AppSchemaBindingClassification<PlannedAppIndexBinding>,
+  SchemaManifestAppSchemaBindingPlanStaleError
+> {
+  const applied: SchemaManifestAppSchemaBindingIdentity[] = [];
+  const missing: SchemaManifestAppSchemaBindingIdentity[] = [];
   const stillMissing: PlannedAppIndexBinding[] = [];
   for (const index of planned) {
     const currentLogicalIndexId = current.get(indexIdentityKey(index)) ?? null;
     if (!index.wasMissing) {
       if (currentLogicalIndexId !== index.logicalIndexId) {
-        throw indexBindingChanged(index, currentLogicalIndexId);
+        return Result.fail(
+          indexBindingChanged(index, currentLogicalIndexId),
+        );
       }
       continue;
     }
@@ -623,10 +772,14 @@ function classifyIndexes(
       missing.push(identity);
       stillMissing.push(index);
     } else {
-      throw indexBindingChanged(index, currentLogicalIndexId);
+      return Result.fail(indexBindingChanged(index, currentLogicalIndexId));
     }
   }
-  return stillMissing;
+  return Result.succeed(Object.freeze({
+    applied: Object.freeze(applied),
+    missing: Object.freeze(missing),
+    stillMissing: Object.freeze(stillMissing),
+  }));
 }
 
 function indexBindingChanged(
@@ -642,13 +795,38 @@ function indexBindingChanged(
   });
 }
 
-async function insertPlannedAppIndexBindings(
+const insertPlannedAppIndexBindingsEffect = Effect.fn(
+  "SchemaManifestAppSchemaBindings.insertPlannedIndexBindings",
+)(function* (
   tx: StableTableCatalogTransaction,
   state: PreparedSchemaManifestAppSchemaBindingsState,
   indexes: ReadonlyArray<PlannedAppIndexBinding>,
-): Promise<void> {
+): Effect.fn.Return<
+  void,
+  | SchemaManifestAppSchemaBindingPersistenceError
+  | StableLogicalIndexCatalogCorruptionError
+> {
   if (indexes.length === 0) return;
-  const rows = await tx
+  const query = insertPlannedAppIndexBindingsQuery(tx, state, indexes);
+  const rows = yield* runSchemaManifestAppSchemaBindingQueryEffect(
+    "insertIndexBindings",
+    query,
+  );
+  yield* Effect.fromResult(
+    verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+      state.deploymentId,
+      indexes,
+      rows,
+    ),
+  );
+});
+
+function insertPlannedAppIndexBindingsQuery(
+  tx: StableTableCatalogTransaction,
+  state: PreparedSchemaManifestAppSchemaBindingsState,
+  indexes: ReadonlyArray<PlannedAppIndexBinding>,
+) {
+  return tx
     .insert(fxControlIndexes)
     .values(
       indexes.map((index) => ({
@@ -664,14 +842,6 @@ async function insertPlannedAppIndexBindings(
       tableId: fxControlIndexes.tableId,
       descriptor: fxControlIndexes.descriptor,
     });
-  // Drizzle commits a resolved callback, so this projection must reject the
-  // current Promise transaction on typed verification failure. Delete it when
-  // the transaction owner can interpret the Effect failure channel as rollback.
-  Result.getOrThrow(verifyInsertedSchemaManifestAppIndexBindingRowsResult(
-    state.deploymentId,
-    indexes,
-    rows,
-  ));
 }
 
 /** Pure post-insert verification; the transaction boundary owns rollback. */

@@ -29,12 +29,9 @@ import {
   type ReadAppSchemaVersionIndexBindingError,
 } from "./appIndexDefinitions";
 import {
-  applySchemaManifestAppSchemaBindingsV1InTransaction,
-  InvalidPreparedSchemaManifestAppSchemaBindingsError,
-  SchemaManifestAppSchemaBindingPlanStaleError,
+  applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
+  type ApplySchemaManifestAppSchemaBindingsV1Error,
 } from "./schemaManifestAppSchemaBindings";
-import { SchemaManifestTableBindingCorruptionError } from
-  "./schemaManifestTableBindings";
 import {
   ensureSchemaVersionArtifactInTransactionEffect,
   verifyPreparedSchemaVersionArtifactInTransactionEffect,
@@ -43,13 +40,8 @@ import {
   type VerifyPreparedSchemaVersionArtifactError,
 } from "./schemaVersionArtifacts";
 import {
-  StableTableCatalogDeploymentNotFoundError,
   type StableTableCatalogTransaction,
 } from "./stableTableCatalog";
-import { StableTableCatalogCorruptionError } from
-  "./stableTableCatalogAllocation";
-import { StableLogicalIndexCatalogCorruptionError } from
-  "./stableLogicalIndexCatalogAllocation";
 
 export interface AppSchemaPublicationV1Result {
   readonly manifest: SchemaManifestAppSchemaV1;
@@ -124,12 +116,9 @@ export const publishPreparedAppSchemaV1InTransactionEffect = Effect.fn(
   );
   const { state, creationTimeTokens, developerTokens } = prepared;
 
-  const manifest = yield* transitionalPromiseEffect(
-    () => applySchemaManifestAppSchemaBindingsV1InTransaction(
-      tx,
-      state.logicalBindings,
-    ),
-    isLogicalBindingFailure,
+  const manifest = yield* applySchemaManifestAppSchemaBindingsV1InTransactionEffect(
+    tx,
+    state.logicalBindings,
   );
   yield* ensureSchemaVersionArtifactInTransactionEffect(
     tx,
@@ -191,12 +180,7 @@ type AppSchemaPublicationV1PreparationFailure =
   | AppDeveloperIndexDefinitionRequirementError;
 
 type AppSchemaPublicationV1LogicalBindingFailure =
-  | InvalidPreparedSchemaManifestAppSchemaBindingsError
-  | SchemaManifestAppSchemaBindingPlanStaleError
-  | StableTableCatalogDeploymentNotFoundError
-  | StableTableCatalogCorruptionError
-  | StableLogicalIndexCatalogCorruptionError
-  | SchemaManifestTableBindingCorruptionError;
+  ApplySchemaManifestAppSchemaBindingsV1Error;
 
 type AppSchemaPublicationV1ArtifactFailure =
   | EnsureSchemaVersionArtifactError
@@ -234,37 +218,6 @@ function prepareAppSchemaPublicationTransactionResult(
       throw cause;
     },
   });
-}
-
-// The combined logical-binding child still exposes a Promise API. Keep it
-// uninterruptible so the Drizzle callback cannot settle while its SQL
-// continues, preserve its declared domain failures, and route unexpected
-// causes to defects. Delete this adapter when that owning chain becomes
-// Effect-native.
-function transitionalPromiseEffect<Result, Failure>(
-  run: () => Promise<Result>,
-  isFailure: (cause: unknown) => cause is Failure,
-): Effect.Effect<Result, Failure> {
-  return Effect.catch(
-    Effect.uninterruptible(Effect.tryPromise({
-      try: run,
-      catch: (cause) => ({ cause }),
-    })),
-    (rejection) => isFailure(rejection.cause)
-      ? Effect.fail(rejection.cause)
-      : Effect.die(rejection.cause),
-  );
-}
-
-function isLogicalBindingFailure(
-  cause: unknown,
-): cause is AppSchemaPublicationV1LogicalBindingFailure {
-  return cause instanceof InvalidPreparedSchemaManifestAppSchemaBindingsError ||
-    cause instanceof SchemaManifestAppSchemaBindingPlanStaleError ||
-    cause instanceof StableTableCatalogDeploymentNotFoundError ||
-    cause instanceof StableTableCatalogCorruptionError ||
-    cause instanceof StableLogicalIndexCatalogCorruptionError ||
-    cause instanceof SchemaManifestTableBindingCorruptionError;
 }
 
 function verifyExactSchemaVersionBindingsResult(

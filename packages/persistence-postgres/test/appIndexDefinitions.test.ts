@@ -54,7 +54,7 @@ import {
 } from "../src/appIndexDefinitions";
 import { createPGlitePersistence } from "../src/pglite";
 import {
-  applySchemaManifestAppSchemaBindingsV1InTransaction,
+  applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
   prepareSchemaManifestAppSchemaBindingsV1,
 } from "../src/schemaManifestAppSchemaBindings";
 import {
@@ -1050,7 +1050,9 @@ async function registerAppSchemaVersion(
     },
   );
   const manifest = await persistence.drizzle.transaction((tx) =>
-    applySchemaManifestAppSchemaBindingsV1InTransaction(tx, plan)
+    runEffect(
+      applySchemaManifestAppSchemaBindingsV1InTransactionEffect(tx, plan),
+    )
   );
   const preparedArtifact = await prepareSchemaVersionArtifact({
     deploymentId,
