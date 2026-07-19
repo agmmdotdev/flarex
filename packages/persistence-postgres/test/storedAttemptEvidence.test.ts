@@ -3586,6 +3586,51 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
+  it("keeps malformed locked scope-clock scalars as corruption", async () => {
+    const prepared = await prepareO06Scenario(
+      "o06_corrupt_locked_clock",
+      async () => undefined,
+    );
+    await persistence.exec(`
+      alter table fx_system_scope_clock
+        drop constraint fx_system_scope_clock_authorization_revocation_epoch_non_negative_check
+    `);
+    try {
+      await persistence.query(
+        `
+          update fx_system_scope_clock
+          set authorization_revocation_epoch = -1
+          where scope_uuid = $1
+        `,
+        [prepared.evidence.scopeUuid],
+      );
+      const failure = await runFailure(
+        createPointCommitRollbackProofPortV1(
+          resolutionPorts(persistence),
+        ).prove(prepared.command),
+      );
+      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+      expect(failure).toMatchObject({ reason: "scopeClockInvalid" });
+    } finally {
+      await persistence.query(
+        `
+          update fx_system_scope_clock
+          set authorization_revocation_epoch = $1
+          where scope_uuid = $2
+        `,
+        [
+          prepared.evidence.session.authorizationRevocationEpoch,
+          prepared.evidence.scopeUuid,
+        ],
+      );
+      await persistence.exec(`
+        alter table fx_system_scope_clock
+          add constraint fx_system_scope_clock_authorization_revocation_epoch_non_negative_check
+          check (authorization_revocation_epoch >= 0)
+      `);
+    }
+  });
+
   it("classifies OCC conflicts and commit-sequence exhaustion without writes", async () => {
     const conflict = await prepareO06Scenario(
       "o06_occ_conflict",

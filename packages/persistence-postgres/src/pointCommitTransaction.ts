@@ -11,7 +11,7 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, sql } from "drizzle-orm";
-import { Data, Effect, Result } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 import {
   decodeAppCreationTimeV1,
@@ -46,16 +46,18 @@ import {
   MAX_PERSISTED_SIGNED_INT64_V1,
   CommitSeqSchema,
   OutboxSeqSchema,
-  decodeScopeEpochUuidV1,
-  decodeScopeUuidV1,
-  projectScopeEpochUuidV1,
+  ScopeEpochUuidV1Schema,
+  ScopeUuidV1Schema,
+  projectScopeEpochUuidV1Result,
   projectScopeIdUuidV1,
+  projectScopeIdUuidV1Result,
   replacementScopeEpochV1FromUuid,
   type CommitSeq,
   type FlarexDbV1StorageGeneration,
   type OutboxSeq,
   type ReplacementScopeIdV1,
   type ScopeEpoch,
+  type ScopeEpochUuidV1,
   type ScopeUuidV1,
   type SnapshotToken,
   type StorageGenerationFence,
@@ -132,9 +134,10 @@ import {
   observeDrizzleQuery as observeCompiledDrizzleQuery,
 } from "./drizzleQueryObservation";
 import {
-  decodeScopeClockRecord,
+  decodeScopeClockRecordResult,
   ScopeClockCorruptionError,
   ScopeClockNotFoundError,
+  type ScopeClockRecord,
 } from "./scopeClock";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
@@ -1755,12 +1758,28 @@ function isCanonicalDocumentForIntent(
 }
 
 interface LockedPointCommitClockV1 {
-  readonly record: ReturnType<typeof decodeScopeClockRecord>;
+  readonly record: ScopeClockRecord;
   readonly oldestAvailableCommitSeq: bigint;
   readonly scopeUuid: ScopeUuidV1;
-  readonly epochUuid: ReturnType<typeof decodeScopeEpochUuidV1>;
+  readonly epochUuid: ScopeEpochUuidV1;
   readonly authorizationRevocationEpoch: TransactionAuthorizationRevocationEpoch;
 }
+
+type PointCommitScopeClockRowV1 = typeof fxSystemScopeClocks.$inferSelect;
+
+const decodePointCommitScopeUuidResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeUuidV1Schema),
+);
+const decodePointCommitScopeEpochUuidResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeEpochUuidV1Schema),
+);
+const decodePointCommitRetainedFloorResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitSeqSchema),
+);
+const decodePointCommitAuthorizationRevocationEpochResult =
+  Schema.decodeUnknownResult(
+    Schema.toType(TransactionAuthorizationRevocationEpochSchema),
+  );
 
 interface LockedPointCommitSessionV1 {
   readonly lifecycle: "running" | "finishing";
@@ -2751,32 +2770,63 @@ async function lockPointCommitClock(
   if (rows.length !== 1) throw corruption("scopeClockInvalid");
   const row = rows[0];
   if (row === undefined) throw corruption("scopeClockInvalid");
-  try {
-    const record = decodeScopeClockRecord(row);
-    const scopeUuid = decodeScopeUuidV1(row.scopeUuid);
-    const epochUuid = decodeScopeEpochUuidV1(row.epochUuid);
-    if (
-      scopeUuid !== projectScopeIdUuidV1(record.scopeId).scopeUuid ||
-      epochUuid !== projectScopeEpochUuidV1(record.epoch).epochUuid ||
-      typeof row.oldestAvailableCommitSeq !== "bigint" ||
-      row.oldestAvailableCommitSeq < 0n ||
-      row.oldestAvailableCommitSeq > record.lastCommitSeq
-    ) {
-      throw new Error("Native scope-clock projection mismatch.");
+  const decoded = decodeLockedPointCommitClockResult(row);
+  if (Result.isFailure(decoded)) throw decoded.failure;
+  return decoded.success;
+}
+
+function decodeLockedPointCommitClockResult(
+  row: PointCommitScopeClockRowV1,
+): Result.Result<LockedPointCommitClockV1, PointCommitCorruptionV1Error> {
+  return Result.gen(function* () {
+    const record = yield* pointCommitClockFieldResult(
+      decodeScopeClockRecordResult(row),
+    );
+    const scopeUuid = yield* pointCommitClockFieldResult(
+      decodePointCommitScopeUuidResult(row.scopeUuid),
+    );
+    const epochUuid = yield* pointCommitClockFieldResult(
+      decodePointCommitScopeEpochUuidResult(row.epochUuid),
+    );
+    const scopeProjection = yield* pointCommitClockFieldResult(
+      projectScopeIdUuidV1Result(record.scopeId),
+    );
+    if (scopeUuid !== scopeProjection.scopeUuid) {
+      return yield* Result.fail(corruption("scopeClockInvalid"));
     }
+    const epochProjection = yield* pointCommitClockFieldResult(
+      projectScopeEpochUuidV1Result(record.epoch),
+    );
+    if (epochUuid !== epochProjection.epochUuid) {
+      return yield* Result.fail(corruption("scopeClockInvalid"));
+    }
+    const oldestAvailableCommitSeq = yield* pointCommitClockFieldResult(
+      decodePointCommitRetainedFloorResult(row.oldestAvailableCommitSeq),
+    );
+    if (oldestAvailableCommitSeq > record.lastCommitSeq) {
+      return yield* Result.fail(corruption("scopeClockInvalid"));
+    }
+    const authorizationRevocationEpoch = yield* pointCommitClockFieldResult(
+      decodePointCommitAuthorizationRevocationEpochResult(
+        row.authorizationRevocationEpoch,
+      ),
+    );
     return Object.freeze({
       record,
-      oldestAvailableCommitSeq: row.oldestAvailableCommitSeq,
+      oldestAvailableCommitSeq,
       scopeUuid,
       epochUuid,
-      authorizationRevocationEpoch:
-        TransactionAuthorizationRevocationEpochSchema.make(
-          row.authorizationRevocationEpoch,
-        ),
+      authorizationRevocationEpoch,
     });
-  } catch {
-    throw corruption("scopeClockInvalid");
-  }
+  });
+}
+
+function pointCommitClockFieldResult<Value>(
+  result: Result.Result<Value, unknown>,
+): Result.Result<Value, PointCommitCorruptionV1Error> {
+  return result.pipe(
+    Result.mapError(() => corruption("scopeClockInvalid")),
+  );
 }
 
 async function inspectCommittedOutcomeInTransaction(
@@ -2858,12 +2908,12 @@ async function inspectCommittedOutcomeInTransaction(
   );
   if (Result.isFailure(shape)) throw shape.failure;
 
-  let epochUuid: LockedPointCommitClockV1["epochUuid"];
-  try {
-    epochUuid = decodeScopeEpochUuidV1(row.epochUuid);
-  } catch {
+  const decodedEpochUuid = decodePointCommitScopeEpochUuidResult(row.epochUuid);
+  if (Result.isFailure(decodedEpochUuid)) {
     throw committedOutcomeCorruption(lookup, "commitTokenInvalid");
   }
+  const epochUuid: LockedPointCommitClockV1["epochUuid"] =
+    decodedEpochUuid.success;
   if (
     typeof row.commitSeq !== "bigint" ||
     row.commitSeq < 1n ||
@@ -2894,16 +2944,18 @@ async function inspectCommittedOutcomeInTransaction(
       );
     }
   } else {
-    let retainedEpoch: LockedPointCommitClockV1["epochUuid"];
-    try {
-      retainedEpoch = decodeScopeEpochUuidV1(row.retainedHeaderEpochUuid);
-    } catch {
+    const decodedRetainedEpoch = decodePointCommitScopeEpochUuidResult(
+      row.retainedHeaderEpochUuid,
+    );
+    if (Result.isFailure(decodedRetainedEpoch)) {
       throw committedOutcomeCorruption(
         lookup,
         "retainedHeaderInvalid",
         commitSeq,
       );
     }
+    const retainedEpoch: LockedPointCommitClockV1["epochUuid"] =
+      decodedRetainedEpoch.success;
     if (
       row.retainedHeaderScopeUuid !== lookup.scopeUuid ||
       row.retainedHeaderCommitSeq !== commitSeq

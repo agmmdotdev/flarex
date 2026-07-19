@@ -114,6 +114,16 @@ any failed `Cause`, rehydrates that exact `Cause` after successful rollback,
 and retains both callback and transaction causes when rollback or transaction
 infrastructure fails differently. The outer point operation remains
 uninterruptible until the transaction settles.
+The point-commit scope-clock lock now separates its unchanged `FOR UPDATE`
+statement from pure ordered row materialization. Shared scope-clock decoding,
+native UUID projections, the retained floor, and the authorization revocation
+epoch compose through `Result`; malformed stored scalars remain
+`scopeClockInvalid`, while unexpected accessor or runtime failures are no
+longer absorbed by the former blanket `try/catch`. The immediately connected
+committed-outcome epoch and retained-header epoch checks consume the same
+`Result` decoder while preserving their distinct corruption reasons. Lock
+order, SQL failure classification, authority comparisons, and the frozen clock
+snapshot are unchanged.
 
 Journal counters, receipt cardinality, stored request/outcome decoding, and
 receipt/root correlation now compose through `Result` and Effect directly.
