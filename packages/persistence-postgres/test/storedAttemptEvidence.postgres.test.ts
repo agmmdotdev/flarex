@@ -13,6 +13,9 @@ import {
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
+  makeGrantRetentionPolicyV1Result,
+} from "flarex-protocol/grant-retention-policy";
+import {
   decodeActivePointMutationTargetMetadataV1,
   preparePointMutationStartEvidenceV1,
 } from "flarex-protocol/point-mutation-start";
@@ -2580,8 +2583,13 @@ async function o08B1Scenario(
             verify: async () => true,
           }],
         }),
-      maximumGrantLifetimeMilliseconds: 600_000,
-      maximumFutureIssuedAtSkewMilliseconds: 0,
+      grantRetentionPolicy: Result.getOrThrow(
+        makeGrantRetentionPolicyV1Result({
+          maximumGrantLifetimeMilliseconds: 600_000,
+          maximumFutureIssuedAtSkewMilliseconds: 0,
+          maximumLiveSnapshotRetentionMilliseconds: 600_000,
+        }),
+      ),
     }),
     functionSnapshot: Object.freeze({
       deploymentId,

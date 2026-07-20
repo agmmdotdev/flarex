@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { Cause, Effect, Exit, Fiber, Random, Schema } from "effect";
+import { Cause, Effect, Exit, Fiber, Random, Result, Schema } from "effect";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -19,6 +19,9 @@ import {
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
+import {
+  makeGrantRetentionPolicyV1Result,
+} from "flarex-protocol/grant-retention-policy";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
@@ -4708,8 +4711,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
               },
             ],
           }),
-        maximumGrantLifetimeMilliseconds: 120_000,
-        maximumFutureIssuedAtSkewMilliseconds: 0,
+        grantRetentionPolicy: Result.getOrThrow(
+          makeGrantRetentionPolicyV1Result({
+            maximumGrantLifetimeMilliseconds: 120_000,
+            maximumFutureIssuedAtSkewMilliseconds: 0,
+            maximumLiveSnapshotRetentionMilliseconds: 120_000,
+          }),
+        ),
       }),
       functionSnapshot: Object.freeze({
         deploymentId,
