@@ -14,7 +14,6 @@ import { fxSystemTransactionExecutionClaims } from "./schema";
 import {
   decodeTransactionExecutionClaimFenceV1,
   decodeTransactionExecutionClaimOwnerV1,
-  TransactionExecutionClaimFenceV1Schema,
   type TransactionExecutionClaimFenceV1,
   type TransactionExecutionClaimObservationV1,
   type TransactionExecutionClaimOwnerV1,
@@ -131,79 +130,149 @@ export async function lockExactTransactionExecutionClaimV1(
         input.attemptFence,
       ),
     )).limit(2).for("update");
-  if (rows.length !== 1 || rows[0] === undefined) {
-    throw new TransactionExecutionClaimCorruptionV1Error({
-      scopeId: input.scopeId,
-      reason: "claimMissingOrDuplicate",
-    });
-  }
-  return rows[0];
+  return Result.getOrThrow(
+    materializeLockedTransactionExecutionClaimResult(input.scopeId, rows),
+  );
 }
 
+function materializeLockedTransactionExecutionClaimResult(
+  scopeId: ScopeId,
+  rows: ReadonlyArray<
+    typeof fxSystemTransactionExecutionClaims.$inferSelect
+  >,
+): Result.Result<
+  typeof fxSystemTransactionExecutionClaims.$inferSelect,
+  TransactionExecutionClaimCorruptionV1Error
+> {
+  const row = rows[0];
+  return rows.length === 1 && row !== undefined
+    ? Result.succeed(row)
+    : Result.fail(new TransactionExecutionClaimCorruptionV1Error({
+      scopeId,
+      reason: "claimMissingOrDuplicate",
+    }));
+}
+
+export function requireLiveTransactionExecutionClaimV1Result(
+  scopeId: ScopeId,
+  row: typeof fxSystemTransactionExecutionClaims.$inferSelect,
+  expected: TransactionExecutionClaimPinV1 | undefined,
+  databaseNow: Date,
+): Result.Result<
+  TransactionExecutionClaimObservationV1,
+  TransactionExecutionClaimCorruptionV1Error |
+    TransactionExecutionClaimStaleV1Error
+> {
+  return Result.gen(function* () {
+    const observation = yield* inspectTransactionExecutionClaimV1Result(
+      scopeId,
+      row,
+    );
+    const claimedAt = Date.parse(observation.claimedAt);
+    const expiresAt = Date.parse(observation.claimExpiresAt);
+    const now = finiteDateMilliseconds(databaseNow);
+    if (now === undefined || claimedAt > now) {
+      return yield* Result.fail(
+        new TransactionExecutionClaimCorruptionV1Error({
+          scopeId,
+          reason: "claimEvidenceInvalid",
+        }),
+      );
+    }
+    if (
+      expected !== undefined && observation.claimOwner !== expected.claimOwner
+    ) {
+      return yield* Result.fail(new TransactionExecutionClaimStaleV1Error({
+        scopeId,
+        reason: "claimOwnerMismatch",
+      }));
+    }
+    if (
+      expected !== undefined && observation.claimFence !== expected.claimFence
+    ) {
+      return yield* Result.fail(new TransactionExecutionClaimStaleV1Error({
+        scopeId,
+        reason: "claimFenceMismatch",
+      }));
+    }
+    if (expiresAt <= now) {
+      return yield* Result.fail(new TransactionExecutionClaimStaleV1Error({
+        scopeId,
+        reason: "claimExpired",
+      }));
+    }
+    return observation;
+  });
+}
+
+/**
+ * Temporary throwing projection for transactionSessionActivation's Drizzle
+ * Promise callbacks. Delete it when those callers consume the Result API.
+ */
 export function requireLiveTransactionExecutionClaimV1(
   scopeId: ScopeId,
   row: typeof fxSystemTransactionExecutionClaims.$inferSelect,
   expected: TransactionExecutionClaimPinV1 | undefined,
   databaseNow: Date,
 ): TransactionExecutionClaimObservationV1 {
-  const observation = inspectTransactionExecutionClaimV1(
+  return Result.getOrThrow(requireLiveTransactionExecutionClaimV1Result(
     scopeId,
     row,
-  );
-  const claimedAt = Date.parse(observation.claimedAt);
-  const expiresAt = Date.parse(observation.claimExpiresAt);
-  const now = finiteDateMilliseconds(databaseNow);
-  if (now === undefined || claimedAt > now) {
-    throw new TransactionExecutionClaimCorruptionV1Error({
-      scopeId,
-      reason: "claimEvidenceInvalid",
-    });
-  }
-  if (expected !== undefined && observation.claimOwner !== expected.claimOwner) {
-    throw new TransactionExecutionClaimStaleV1Error({
-      scopeId,
-      reason: "claimOwnerMismatch",
-    });
-  }
-  if (expected !== undefined && observation.claimFence !== expected.claimFence) {
-    throw new TransactionExecutionClaimStaleV1Error({
-      scopeId,
-      reason: "claimFenceMismatch",
-    });
-  }
-  if (expiresAt <= now) {
-    throw new TransactionExecutionClaimStaleV1Error({
-      scopeId,
-      reason: "claimExpired",
-    });
-  }
-  return observation;
+    expected,
+    databaseNow,
+  ));
 }
 
+export function inspectTransactionExecutionClaimV1Result(
+  scopeId: ScopeId,
+  row: typeof fxSystemTransactionExecutionClaims.$inferSelect,
+): Result.Result<
+  TransactionExecutionClaimObservationV1,
+  TransactionExecutionClaimCorruptionV1Error
+> {
+  const claimOwner = row.claimOwner;
+  const claimFence = row.claimFence;
+  const claimedAtInput = row.claimedAt;
+  const claimExpiresAtInput = row.claimExpiresAt;
+  return Result.gen(function* () {
+    const invalidEvidence = () =>
+      new TransactionExecutionClaimCorruptionV1Error({
+        scopeId,
+        reason: "claimEvidenceInvalid",
+      });
+    const owner = yield* decodeTransactionExecutionClaimOwnerV1(
+      claimOwner,
+    ).pipe(Result.mapError(invalidEvidence));
+    const fence = yield* decodeTransactionExecutionClaimFenceV1(
+      claimFence,
+    ).pipe(Result.mapError(invalidEvidence));
+    const claimedAt = finiteDateMilliseconds(claimedAtInput);
+    const expiresAt = finiteDateMilliseconds(claimExpiresAtInput);
+    if (
+      claimedAt === undefined ||
+      expiresAt === undefined ||
+      expiresAt <= claimedAt
+    ) {
+      return yield* Result.fail(invalidEvidence());
+    }
+    return Object.freeze({
+      claimOwner: owner,
+      claimFence: fence,
+      claimedAt: new Date(claimedAt).toISOString(),
+      claimExpiresAt: new Date(expiresAt).toISOString(),
+    });
+  });
+}
+
+/**
+ * Temporary throwing projection for transactionSessionActivation's Drizzle
+ * Promise callbacks. Delete it when those callers consume the Result API.
+ */
 export function inspectTransactionExecutionClaimV1(
   scopeId: ScopeId,
   row: typeof fxSystemTransactionExecutionClaims.$inferSelect,
 ): TransactionExecutionClaimObservationV1 {
-  const owner = decodeTransactionExecutionClaimOwnerV1(row.claimOwner);
-  const fence = decodeTransactionExecutionClaimFenceV1(row.claimFence);
-  const claimedAt = finiteDateMilliseconds(row.claimedAt);
-  const expiresAt = finiteDateMilliseconds(row.claimExpiresAt);
-  if (
-    Result.isFailure(owner) ||
-    Result.isFailure(fence) ||
-    claimedAt === undefined ||
-    expiresAt === undefined ||
-    expiresAt <= claimedAt
-  ) {
-    throw new TransactionExecutionClaimCorruptionV1Error({
-      scopeId,
-      reason: "claimEvidenceInvalid",
-    });
-  }
-  return Object.freeze({
-    claimOwner: owner.success,
-    claimFence: TransactionExecutionClaimFenceV1Schema.make(fence.success),
-    claimedAt: new Date(claimedAt).toISOString(),
-    claimExpiresAt: new Date(expiresAt).toISOString(),
-  });
+  return Result.getOrThrow(
+    inspectTransactionExecutionClaimV1Result(scopeId, row),
+  );
 }

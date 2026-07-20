@@ -163,7 +163,7 @@ import {
 import {
   deriveTransactionExecutionClaimV1,
   lockExactTransactionExecutionClaimV1,
-  requireLiveTransactionExecutionClaimV1,
+  requireLiveTransactionExecutionClaimV1Result,
   TransactionExecutionClaimCorruptionV1Error,
   TransactionExecutionClaimStaleV1Error,
 } from "./transactionExecutionClaimPersistence";
@@ -2532,11 +2532,13 @@ async function observeReplacedPointMutationAttempt(
       databaseNowMilliseconds,
     ),
   );
-  requireLiveTransactionExecutionClaimV1(
-    command.authorityPins.scopeId,
-    executionClaim,
-    undefined,
-    new Date(databaseNowMilliseconds),
+  projectPointCommitTransactionResult(
+    requireLiveTransactionExecutionClaimV1Result(
+      command.authorityPins.scopeId,
+      executionClaim,
+      undefined,
+      new Date(databaseNowMilliseconds),
+    ),
   );
   return replacementObservation("alreadyReplaced", command, expectedFence);
 }
@@ -2603,9 +2605,12 @@ async function runPointCommitFinishingTransition(
     projectPointCommitTransactionResult(
       requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds),
     );
-    if (session.updatedAtMilliseconds > databaseNowMilliseconds) {
-      throw corruption("finishingTransitionInvalid");
-    }
+    projectPointCommitTransactionResult(
+      requireFinishingSessionTimeResult(
+        session.updatedAtMilliseconds,
+        databaseNowMilliseconds,
+      ),
+    );
     const priorSessionUpdatedAtMilliseconds =
       command.session.updatedAtMilliseconds;
     if (session.lifecycle === "finishing") {
@@ -2625,9 +2630,9 @@ async function runPointCommitFinishingTransition(
           command.authorityPins.attemptFence,
         ),
       )).limit(2).for("update");
-      if (claims.length !== 0) {
-        throw corruption("finishingTransitionInvalid");
-      }
+      projectPointCommitTransactionResult(
+        requireNoFinishingExecutionClaimResult(claims),
+      );
       return finishingTransitionResult(
         "observed",
         command,
@@ -2642,11 +2647,13 @@ async function runPointCommitFinishingTransition(
       attemptFence: command.authorityPins.attemptFence,
     });
     await emitTransactionStep(options, command, "executionClaimLocked");
-    requireLiveTransactionExecutionClaimV1(
-      command.authorityPins.scopeId,
-      executionClaim,
-      command.executionClaim,
-      new Date(databaseNowMilliseconds),
+    projectPointCommitTransactionResult(
+      requireLiveTransactionExecutionClaimV1Result(
+        command.authorityPins.scopeId,
+        executionClaim,
+        command.executionClaim,
+        new Date(databaseNowMilliseconds),
+      ),
     );
     const deleteClaim = tx.delete(fxSystemTransactionExecutionClaims).where(
       and(
@@ -2679,12 +2686,12 @@ async function runPointCommitFinishingTransition(
       "deleteExecutionClaim",
       () => deleteClaim,
     );
-    if (
-      deletedClaims.length !== 1 ||
-      deletedClaims[0]?.claimFence !== command.executionClaim.claimFence
-    ) {
-      throw corruption("finishingTransitionInvalid");
-    }
+    projectPointCommitTransactionResult(
+      validateDeletedFinishingExecutionClaimResult(
+        deletedClaims,
+        command.executionClaim.claimFence,
+      ),
+    );
     await emitTransactionStep(options, command, "executionClaimDeleted");
     const finishingUpdatedAt = new Date(databaseNowMilliseconds);
     const query = tx
@@ -2711,19 +2718,12 @@ async function runPointCommitFinishingTransition(
       });
     observeDrizzleQuery("enterFinishing", query, options);
     const rows = await sqlCall("enterFinishing", () => query);
-    const updated = rows[0];
-    const updatedAtMilliseconds = updated === undefined
-      ? undefined
-      : finiteDateMilliseconds(updated.updatedAt);
-    if (
-      rows.length !== 1 ||
-      updated === undefined ||
-      updated.lifecycle !== "finishing" ||
-      updatedAtMilliseconds === undefined ||
-      updatedAtMilliseconds !== databaseNowMilliseconds
-    ) {
-      throw corruption("finishingTransitionInvalid");
-    }
+    const updatedAtMilliseconds = projectPointCommitTransactionResult(
+      materializeEnteredFinishingSessionResult(
+        rows,
+        databaseNowMilliseconds,
+      ),
+    );
     await emitTransactionStep(options, command, "sessionEnteredFinishing");
     return finishingTransitionResult(
       "transitioned",
@@ -2732,6 +2732,53 @@ async function runPointCommitFinishingTransition(
       updatedAtMilliseconds,
     );
   });
+}
+
+function requireFinishingSessionTimeResult(
+  sessionUpdatedAtMilliseconds: number,
+  databaseNowMilliseconds: number,
+): Result.Result<void, PointCommitCorruptionV1Error> {
+  return sessionUpdatedAtMilliseconds <= databaseNowMilliseconds
+    ? Result.succeed(undefined)
+    : Result.fail(corruption("finishingTransitionInvalid"));
+}
+
+function requireNoFinishingExecutionClaimResult(
+  claims: ReadonlyArray<unknown>,
+): Result.Result<void, PointCommitCorruptionV1Error> {
+  return claims.length === 0
+    ? Result.succeed(undefined)
+    : Result.fail(corruption("finishingTransitionInvalid"));
+}
+
+function validateDeletedFinishingExecutionClaimResult(
+  deletedClaims: ReadonlyArray<Readonly<{ readonly claimFence: bigint }>>,
+  expectedClaimFence: bigint,
+): Result.Result<void, PointCommitCorruptionV1Error> {
+  return deletedClaims.length === 1 &&
+      deletedClaims[0]?.claimFence === expectedClaimFence
+    ? Result.succeed(undefined)
+    : Result.fail(corruption("finishingTransitionInvalid"));
+}
+
+function materializeEnteredFinishingSessionResult(
+  rows: ReadonlyArray<Readonly<{
+    readonly lifecycle: string;
+    readonly updatedAt: Date;
+  }>>,
+  databaseNowMilliseconds: number,
+): Result.Result<number, PointCommitCorruptionV1Error> {
+  const updated = rows[0];
+  const updatedAtMilliseconds = updated === undefined
+    ? undefined
+    : finiteDateMilliseconds(updated.updatedAt);
+  return rows.length === 1 &&
+      updated !== undefined &&
+      updated.lifecycle === "finishing" &&
+      updatedAtMilliseconds !== undefined &&
+      updatedAtMilliseconds === databaseNowMilliseconds
+    ? Result.succeed(updatedAtMilliseconds)
+    : Result.fail(corruption("finishingTransitionInvalid"));
 }
 
 function finishingTransitionResult(
