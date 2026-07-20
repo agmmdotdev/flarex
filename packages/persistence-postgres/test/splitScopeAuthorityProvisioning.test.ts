@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { Result } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -34,7 +35,7 @@ import {
   getScopeAuthorityProvisioningReceipt,
 } from "../src/scopeAuthorityProvisioningReceipt";
 import {
-  insertInitialScopeClockInTransaction,
+  insertInitialScopeClockInTransactionResult,
 } from "../src/scopeClockInitialization";
 import {
   deployments,
@@ -379,7 +380,9 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
       physicalLocator: schemaLocator,
       ensureInitialClock: (input) =>
         target.drizzle.transaction(async (tx) => {
-          await insertInitialScopeClockInTransaction(tx, input);
+          Result.getOrThrow(
+            await insertInitialScopeClockInTransactionResult(tx, input),
+          );
           throw new Error("target-transaction-rollback");
         }),
       getCurrentClock: (scopeId) => target.getScopeClock(scopeId),

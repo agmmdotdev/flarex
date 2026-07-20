@@ -558,6 +558,17 @@ receipt, and running-to-finishing update receipt also remain typed Results
 until that projection. SQL, canonical lock/write order, atomic claim
 consumption, database-owned `updated_at`, repeated-transition convergence, and
 failure precedence are unchanged.
+Scope-clock initialization now follows the same boundary rule. Its insert and
+authoritative readback remain direct Drizzle Promises, while the package-local
+read authority keeps malformed rows as `ScopeClockCorruptionError` and a
+missing post-insert readback as `ScopeClockInitializationCorruptionError` in
+the operation's `Result`. Shared-database provisioning and the located
+split-scope target each project those owned failures inside their existing
+Drizzle 0.45 Promise transaction callback, where rejection is required for
+rollback. Delete those two projections when their transaction owners can yield
+a Result or Effect failure through an Effect-native transaction client. Driver
+rejection and unexpected defects remain on the Promise channel; insert/read
+order, conflict convergence, and rollback behavior are unchanged.
 
 ## Target Boundary
 

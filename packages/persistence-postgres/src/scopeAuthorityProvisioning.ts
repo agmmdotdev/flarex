@@ -1,5 +1,6 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 import { eq } from "drizzle-orm";
+import { Result } from "effect";
 import {
   type ScopeId,
 } from "flarex-protocol/storage-authority";
@@ -26,7 +27,7 @@ import {
 } from "./scopePhysicalLocator";
 import { getScopeClock, type ScopeClockRecord } from "./scopeClock";
 import {
-  insertInitialScopeClockInTransaction,
+  insertInitialScopeClockInTransactionResult,
   type InsertInitialScopeClockResult,
 } from "./scopeClockInitialization";
 import { deployments } from "./schema";
@@ -479,10 +480,14 @@ async function insertInitialScopeClock(
   scopeId: ScopeId,
   randomUuid: () => string,
 ): Promise<InsertInitialScopeClockResult> {
-  return insertInitialScopeClockInTransaction(tx, {
-    scopeId,
-    initialEpoch: generateScopeAuthorityEpoch(randomUuid),
-  });
+  // Drizzle 0.45 requires a rejecting Promise inside its transaction callback
+  // to roll back. Delete this projection with that Promise-native boundary.
+  return Result.getOrThrow(
+    await insertInitialScopeClockInTransactionResult(tx, {
+      scopeId,
+      initialEpoch: generateScopeAuthorityEpoch(randomUuid),
+    }),
+  );
 }
 
 function requireProjectMatch(

@@ -111,17 +111,31 @@ export type AdvanceScopeAuthorizationRevocationEpochError =
   | ScopeAuthorizationRevocationEpochExhaustedError
   | ScopeAuthorizationRevocationEpochPersistenceError;
 
+/**
+ * Promise compatibility projection for the public persistence facade and
+ * transaction owners not yet consuming the package-local Result authority.
+ * Delete it when those callers consume Result or Effect directly.
+ */
 export async function getScopeClock(
   db: FlarexMetadataDatabase,
   scopeId: ScopeId,
 ): Promise<ScopeClockRecord | null> {
+  return Result.getOrThrow(await getScopeClockResult(db, scopeId));
+}
+
+export async function getScopeClockResult(
+  db: FlarexMetadataDatabase,
+  scopeId: ScopeId,
+): Promise<Result.Result<ScopeClockRecord | null, ScopeClockCorruptionError>> {
   const rows = await db
     .select()
     .from(fxSystemScopeClocks)
     .where(eq(fxSystemScopeClocks.scopeId, scopeId))
     .limit(1);
   const clock = rows[0];
-  return clock === undefined ? null : decodeScopeClockRecord(clock);
+  return clock === undefined
+    ? Result.succeed(null)
+    : decodeScopeClockRecordResult(clock);
 }
 
 /**

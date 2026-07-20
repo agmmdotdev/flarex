@@ -1,3 +1,4 @@
+import { Result } from "effect";
 import {
   CommitSeqSchema,
   LegacyV1StorageGenerationSchema,
@@ -11,7 +12,11 @@ import {
 } from "flarex-protocol/transaction-session";
 
 import type { FlarexMetadataDatabase } from "./deployments";
-import { getScopeClock, type ScopeClockRecord } from "./scopeClock";
+import {
+  getScopeClockResult,
+  type ScopeClockCorruptionError,
+  type ScopeClockRecord,
+} from "./scopeClock";
 import { fxSystemScopeClocks } from "./schema";
 
 export interface InitialScopeClockInput {
@@ -24,6 +29,19 @@ export interface InsertInitialScopeClockResult {
   readonly created: boolean;
 }
 
+export class ScopeClockInitializationCorruptionError extends Error {
+  readonly _tag = "ScopeClockInitializationCorruptionError" as const;
+
+  constructor(readonly scopeId: ScopeId) {
+    super(`Scope clock disappeared during initialization: ${scopeId}`);
+    this.name = "ScopeClockInitializationCorruptionError";
+  }
+}
+
+export type InsertInitialScopeClockError =
+  | ScopeClockCorruptionError
+  | ScopeClockInitializationCorruptionError;
+
 const initialStorageGeneration =
   LegacyV1StorageGenerationSchema.make("legacy_v1");
 const initialStorageGenerationFence = StorageGenerationFenceSchema.make(1n);
@@ -32,10 +50,13 @@ const initialOutboxSeq = OutboxSeqSchema.make(0n);
 const initialAuthorizationRevocationEpoch =
   TransactionAuthorizationRevocationEpochSchema.make(0n);
 
-export async function insertInitialScopeClockInTransaction(
+export async function insertInitialScopeClockInTransactionResult(
   tx: FlarexMetadataDatabase,
   input: InitialScopeClockInput,
-): Promise<InsertInitialScopeClockResult> {
+): Promise<Result.Result<
+  InsertInitialScopeClockResult,
+  InsertInitialScopeClockError
+>> {
   const inserted = await tx
     .insert(fxSystemScopeClocks)
     .values({
@@ -49,16 +70,19 @@ export async function insertInitialScopeClockInTransaction(
     })
     .onConflictDoNothing({ target: fxSystemScopeClocks.scopeId })
     .returning({ scopeId: fxSystemScopeClocks.scopeId });
-  const clock = await getScopeClock(tx, input.scopeId);
-  if (clock === null) {
-    throw new Error(
-      `Scope clock disappeared during initialization: ${input.scopeId}`,
-    );
-  }
-  return {
-    clock,
-    created: inserted.length > 0,
-  };
+  const clockResult = await getScopeClockResult(tx, input.scopeId);
+  return Result.gen(function* () {
+    const clock = yield* clockResult;
+    if (clock === null) {
+      return yield* Result.fail(
+        new ScopeClockInitializationCorruptionError(input.scopeId),
+      );
+    }
+    return {
+      clock,
+      created: inserted.length > 0,
+    } satisfies InsertInitialScopeClockResult;
+  });
 }
 
 export function isExactInitialScopeClock(

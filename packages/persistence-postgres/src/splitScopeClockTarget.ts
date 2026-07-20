@@ -2,6 +2,7 @@ import type {
   ScopeEpoch,
   ScopeId,
 } from "flarex-protocol/storage-authority";
+import { Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
@@ -9,7 +10,7 @@ import {
 } from "./scopeAuthorityProvisioningReceipt";
 import { getScopeClock, type ScopeClockRecord } from "./scopeClock";
 import {
-  insertInitialScopeClockInTransaction,
+  insertInitialScopeClockInTransactionResult,
   isExactInitialScopeClock,
 } from "./scopeClockInitialization";
 import type { SplitScopePhysicalLocator } from "./scopeMetadataTypes";
@@ -58,10 +59,14 @@ export function createLocatedSplitScopeClockTarget(
     physicalLocator: capturedLocator,
     ensureInitialClock: (input) =>
       db.transaction(async (tx) => {
-        const initialized = await insertInitialScopeClockInTransaction(tx, {
-          scopeId: input.scopeId,
-          initialEpoch: input.initialEpoch,
-        });
+        // Drizzle 0.45 rolls back only when this Promise callback rejects.
+        // Delete the projection when the transaction boundary becomes Effect-native.
+        const initialized = Result.getOrThrow(
+          await insertInitialScopeClockInTransactionResult(tx, {
+            scopeId: input.scopeId,
+            initialEpoch: input.initialEpoch,
+          }),
+        );
         if (!isExactInitialScopeClock(initialized.clock, input)) {
           throw new SplitScopeInitialClockConflictError(
             input,

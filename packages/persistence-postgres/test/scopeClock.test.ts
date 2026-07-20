@@ -34,6 +34,7 @@ import {
   advanceScopeAuthorizationRevocationEpochInTransactionEffect,
   decodeScopeClockRecord,
   decodeScopeClockRecordResult,
+  getScopeClockResult,
   lockScopeClockForUpdateInTransactionEffect,
   requireScopeAuthorizationRevocationEpochInTransactionEffect,
   type LockScopeClockForUpdateError,
@@ -44,6 +45,12 @@ import {
   ScopeAuthorizationRevocationEpochPersistenceError,
   ScopeClockNotFoundError,
 } from "../src/scopeClock";
+import {
+  insertInitialScopeClockInTransactionResult,
+  type InsertInitialScopeClockError,
+  type InsertInitialScopeClockResult,
+  ScopeClockInitializationCorruptionError,
+} from "../src/scopeClockInitialization";
 import { fxSystemScopeClocks } from "../src/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
@@ -233,6 +240,99 @@ describe("scope clock", () => {
     expect(() => decodeScopeClockRecordResult(defectiveRow)).toThrow(
       accessorDefect,
     );
+  });
+
+  it("keeps initialization decisions typed and foreign query rejection intact", async () => {
+    const scopeId = ScopeIdSchema.make("scope_clock_initialization_result");
+    const initialEpoch = ScopeEpochSchema.make("epoch-initialization-result");
+    const success = await insertInitialScopeClockInTransactionResult(
+      scopeClockInitializationDatabase({
+        insert: () => Promise.resolve([{ scopeId }]),
+        read: () => Promise.resolve([{
+          ...validScopeClockRow(),
+          scopeId,
+          storageGeneration: "legacy_v1",
+          epoch: initialEpoch,
+        }]),
+      }),
+      { scopeId, initialEpoch },
+    );
+
+    expectTypeOf(success).toEqualTypeOf<Result.Result<
+      InsertInitialScopeClockResult,
+      InsertInitialScopeClockError
+    >>();
+    expect(Result.isSuccess(success)).toBe(true);
+    if (Result.isSuccess(success)) {
+      expect(success.success).toMatchObject({
+        created: true,
+        clock: { scopeId, epoch: initialEpoch },
+      });
+    }
+
+    const missing = await insertInitialScopeClockInTransactionResult(
+      scopeClockInitializationDatabase({
+        insert: () => Promise.resolve([{ scopeId }]),
+        read: () => Promise.resolve([]),
+      }),
+      { scopeId, initialEpoch },
+    );
+    expect(Result.isFailure(missing)).toBe(true);
+    if (Result.isFailure(missing)) {
+      expect(missing.failure).toBeInstanceOf(
+        ScopeClockInitializationCorruptionError,
+      );
+      expect(missing.failure).toMatchObject({
+        _tag: "ScopeClockInitializationCorruptionError",
+        scopeId,
+        message: `Scope clock disappeared during initialization: ${scopeId}`,
+      });
+    }
+
+    const malformed = await insertInitialScopeClockInTransactionResult(
+      scopeClockInitializationDatabase({
+        insert: () => Promise.resolve([]),
+        read: () => Promise.resolve([{
+          ...validScopeClockRow(),
+          scopeId: 42,
+        }]),
+      }),
+      { scopeId, initialEpoch },
+    );
+    expect(Result.isFailure(malformed)).toBe(true);
+    if (Result.isFailure(malformed)) {
+      expect(malformed.failure).toBeInstanceOf(ScopeClockCorruptionError);
+      expect(malformed.failure).toMatchObject({
+        reason: "scope ID is invalid",
+      });
+    }
+
+    const insertDriverFailure = new Error("scope clock insert driver failure");
+    let readCalls = 0;
+    await expect(insertInitialScopeClockInTransactionResult(
+      scopeClockInitializationDatabase({
+        insert: () => Promise.reject(insertDriverFailure),
+        read: () => {
+          readCalls += 1;
+          return Promise.resolve([]);
+        },
+      }),
+      { scopeId, initialEpoch },
+    )).rejects.toBe(insertDriverFailure);
+    expect(readCalls).toBe(0);
+
+    const readDriverFailure = new Error("scope clock read driver failure");
+    await expect(insertInitialScopeClockInTransactionResult(
+      scopeClockInitializationDatabase({
+        insert: () => Promise.resolve([]),
+        read: () => Promise.reject(readDriverFailure),
+      }),
+      { scopeId, initialEpoch },
+    )).rejects.toBe(readDriverFailure);
+
+    expectTypeOf(getScopeClockResult).returns.toEqualTypeOf<Promise<
+      Result.Result<ScopeClockRecord | null, ScopeClockCorruptionError>
+    >>();
   });
 
   it("reads independent scope clocks with exact bigint values", async () => {
@@ -894,6 +994,46 @@ interface ScopeClockReadQueryStub
   where(): ScopeClockReadQueryStub;
   limit(): ScopeClockReadQueryStub;
   for(): ScopeClockReadQueryStub;
+}
+
+interface ScopeClockInitializationInsertQueryStub
+  extends PromiseLike<ReadonlyArray<{ readonly scopeId: ScopeId }>> {
+  values(): ScopeClockInitializationInsertQueryStub;
+  onConflictDoNothing(): ScopeClockInitializationInsertQueryStub;
+  returning(): ScopeClockInitializationInsertQueryStub;
+}
+
+function scopeClockInitializationDatabase(
+  operations: Readonly<{
+    insert(): Promise<ReadonlyArray<{ readonly scopeId: ScopeId }>>;
+    read(): Promise<ReadonlyArray<unknown>>;
+  }>,
+): FlarexMetadataDatabase {
+  return {
+    insert() {
+      const promise = operations.insert();
+      const query: ScopeClockInitializationInsertQueryStub = {
+        values: () => query,
+        onConflictDoNothing: () => query,
+        returning: () => query,
+        then: (onFulfilled, onRejected) =>
+          promise.then(onFulfilled, onRejected),
+      };
+      return query;
+    },
+    select() {
+      const promise = operations.read();
+      const query: ScopeClockReadQueryStub = {
+        from: () => query,
+        where: () => query,
+        limit: () => query,
+        for: () => query,
+        then: (onFulfilled, onRejected) =>
+          promise.then(onFulfilled, onRejected),
+      };
+      return query;
+    },
+  } as unknown as FlarexMetadataDatabase;
 }
 
 function scopeClockReadTransaction(
