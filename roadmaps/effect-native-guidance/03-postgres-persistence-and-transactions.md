@@ -119,13 +119,17 @@ statement from pure ordered row materialization. Shared scope-clock decoding,
 native UUID projections, the retained floor, and the authorization revocation
 epoch compose through `Result`; malformed stored scalars remain
 `scopeClockInvalid`, while unexpected accessor or runtime failures are no
-longer absorbed by the former blanket `try/catch`. The O07 resolver and the
+longer absorbed by the former blanket `try/catch`. Locked-clock cardinality
+and the fresh scope, generation, epoch, revocation, and snapshot authority
+checks now remain in that ordered `Result` flow until the existing Drizzle
+transaction-callback projection; their first-failure reasons are unchanged.
+The O07 resolver and the
 immediately connected under-lock outcome recheck now share one Result-first
 stored-scalar validator for commit tokens, retained headers, result
 state/evidence, and request-key mismatches. Each caller retains its own
 cardinality, request-shape, authoritative-clock, and bounded result-byte
 responsibilities, preserving validation order and distinct corruption mapping.
-Lock order, SQL failure classification, authority comparisons, and the frozen
+Lock order, SQL failure classification, authority semantics, and the frozen
 clock snapshot are unchanged.
 Point-commit command preparation now enters finishing transition, rollback
 proof, publication, and attempt replacement through one ordered `Result`

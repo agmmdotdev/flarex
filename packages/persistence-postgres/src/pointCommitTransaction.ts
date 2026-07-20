@@ -2023,7 +2023,13 @@ async function runPointMutationAttemptReplacement(
         commitSeq: outcome.commitSeq,
       });
     }
-    requireLockedClockAuthority(clock, preliminaryAuthority, command);
+    projectPointCommitTransactionResult(
+      requireLockedClockAuthorityResult(
+        clock,
+        preliminaryAuthority,
+        command,
+      ),
+    );
 
     const session = await lockPointCommitSession(
       tx,
@@ -2569,7 +2575,13 @@ async function runPointCommitFinishingTransition(
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
     const clock = await lockPointCommitClock(tx, command, options);
     await emitTransactionStep(options, command, "clockLocked");
-    requireLockedClockAuthority(clock, preliminaryAuthority, command);
+    projectPointCommitTransactionResult(
+      requireLockedClockAuthorityResult(
+        clock,
+        preliminaryAuthority,
+        command,
+      ),
+    );
 
     const session = await lockPointCommitSession(
       tx,
@@ -2839,7 +2851,9 @@ async function runPointCommitTransactionKernel(
     await emitTransactionStep(options, command, "outcomeRechecked");
     return Object.freeze({ kind: "existing" });
   }
-  requireLockedClockAuthority(clock, preliminaryAuthority, command);
+  projectPointCommitTransactionResult(
+    requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
+  );
 
   const session = await lockPointCommitSession(
     tx,
@@ -2950,15 +2964,30 @@ async function lockPointCommitClock(
     .for("update");
   observeDrizzleQuery("lockScopeClock", query, options);
   const rows = await sqlCall("lockScopeClock", () => query);
-  if (rows.length === 0) {
-    throw stale("scopeChanged");
-  }
-  if (rows.length !== 1) throw corruption("scopeClockInvalid");
-  const row = rows[0];
-  if (row === undefined) throw corruption("scopeClockInvalid");
-  const decoded = decodeLockedPointCommitClockResult(row);
-  if (Result.isFailure(decoded)) throw decoded.failure;
-  return decoded.success;
+  return projectPointCommitTransactionResult(
+    materializeLockedPointCommitClockResult(rows),
+  );
+}
+
+function materializeLockedPointCommitClockResult(
+  rows: ReadonlyArray<PointCommitScopeClockRowV1>,
+): Result.Result<
+  LockedPointCommitClockV1,
+  PointCommitStaleAuthorityV1Error | PointCommitCorruptionV1Error
+> {
+  return Result.gen(function* () {
+    if (rows.length === 0) {
+      return yield* Result.fail(stale("scopeChanged"));
+    }
+    if (rows.length !== 1) {
+      return yield* Result.fail(corruption("scopeClockInvalid"));
+    }
+    const row = rows[0];
+    if (row === undefined) {
+      return yield* Result.fail(corruption("scopeClockInvalid"));
+    }
+    return yield* decodeLockedPointCommitClockResult(row);
+  });
 }
 
 function decodeLockedPointCommitClockResult(
@@ -3111,45 +3140,50 @@ async function inspectCommittedOutcomeInTransaction(
   }));
 }
 
-function requireLockedClockAuthority(
+function requireLockedClockAuthorityResult(
   clock: LockedPointCommitClockV1,
   preliminary: TrustedScopeAuthority,
   command: PreparedPointCommitAttemptScalarCommandV1,
-): void {
+): Result.Result<
+  void,
+  PointCommitStaleAuthorityV1Error | PointCommitCorruptionV1Error
+> {
   const pins = command.authorityPins;
-  if (
-    clock.record.scopeId !== pins.scopeId ||
-    preliminary.scopeId !== pins.scopeId ||
-    preliminary.deploymentId !== pins.deploymentId ||
-    clock.scopeUuid !== command.sealIdentity.scopeUuid
-  ) {
-    throw stale("scopeChanged");
-  }
-  if (
-    clock.record.storageGeneration !== "flarexdb_v1" ||
-    preliminary.storageGeneration !== "flarexdb_v1" ||
-    clock.record.storageGeneration !== pins.storageGeneration ||
-    preliminary.storageGeneration !== pins.storageGeneration ||
-    clock.record.storageGenerationFence !== pins.storageGenerationFence ||
-    preliminary.storageGenerationFence !== pins.storageGenerationFence
-  ) {
-    throw stale("generationChanged");
-  }
-  if (
-    clock.record.epoch !== pins.snapshotToken.epoch ||
-    preliminary.epoch !== pins.snapshotToken.epoch
-  ) {
-    throw stale("epochChanged");
-  }
-  if (
-    clock.authorizationRevocationEpoch !==
-      pins.authorizationRevocationEpoch
-  ) {
-    throw stale("revocationEpochChanged");
-  }
-  if (pins.snapshotToken.commitSeq > clock.record.lastCommitSeq) {
-    throw corruption("scopeClockInvalid");
-  }
+  return Result.gen(function* () {
+    if (
+      clock.record.scopeId !== pins.scopeId ||
+      preliminary.scopeId !== pins.scopeId ||
+      preliminary.deploymentId !== pins.deploymentId ||
+      clock.scopeUuid !== command.sealIdentity.scopeUuid
+    ) {
+      return yield* Result.fail(stale("scopeChanged"));
+    }
+    if (
+      clock.record.storageGeneration !== "flarexdb_v1" ||
+      preliminary.storageGeneration !== "flarexdb_v1" ||
+      clock.record.storageGeneration !== pins.storageGeneration ||
+      preliminary.storageGeneration !== pins.storageGeneration ||
+      clock.record.storageGenerationFence !== pins.storageGenerationFence ||
+      preliminary.storageGenerationFence !== pins.storageGenerationFence
+    ) {
+      return yield* Result.fail(stale("generationChanged"));
+    }
+    if (
+      clock.record.epoch !== pins.snapshotToken.epoch ||
+      preliminary.epoch !== pins.snapshotToken.epoch
+    ) {
+      return yield* Result.fail(stale("epochChanged"));
+    }
+    if (
+      clock.authorizationRevocationEpoch !==
+        pins.authorizationRevocationEpoch
+    ) {
+      return yield* Result.fail(stale("revocationEpochChanged"));
+    }
+    if (pins.snapshotToken.commitSeq > clock.record.lastCommitSeq) {
+      return yield* Result.fail(corruption("scopeClockInvalid"));
+    }
+  });
 }
 
 async function lockPointCommitSession(
