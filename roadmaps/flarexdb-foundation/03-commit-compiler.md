@@ -23,8 +23,9 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   O08-B2b2b1 bounded inert discovery, and O08-B2b2b2a durable dirty/failed-
   attempt disposition are complete. O08-B2b2b2b0a's value-based grant/
   retention policy coherence and O08-B2b2b2b0b's atomic seal-time lease
-  promotion are complete. O08-B2b2b2b1 phase-aware execution-claim liveness,
-  production scheduling/redelivery, and C06-B endpoint/response policy remain pending,
+  promotion, O08-B2b2b2b1a phase-aware renewal, and O08-B2b2b2b1b1
+  host-neutral structured liveness are complete. O08-B2b2b2b1b2 production
+  scheduling/redelivery and C06-B endpoint/response policy remain pending,
   while C04C2 remains conditional and
   unapproved.
 
@@ -583,8 +584,9 @@ claims, invoke the exact-selector composer, or mint a capability. O08-B2b2b2a
 now separately closes expired dirty/failed attempts through the singular claim
 and terminalization owners. O08-B2b2b2b0a supplies the shared `G`/`S`/`B`
 configuration invariant, and O08-B2b2b2b0b supplies atomic seal-time lease
-promotion. O08-B2b2b2b1 retains execution-claim liveness; scheduling/redelivery
-and production-dispatch liveness remain pending.
+promotion, and O08-B2b2b2b1b1 closes host-neutral structured execution-claim
+liveness. O08-B2b2b2b1b2 retains scheduling/redelivery and production-dispatch
+liveness.
 
 ### [ ] C06-B — Add Idempotent Finish And Lost-Outcome Dispatch
 
@@ -597,9 +599,9 @@ singular claim, while its inert `finishing` classification routes only to
 C05-B's independent authority. O08-B2b2b1 now supplies bounded inert discovery,
 and O08-B2b2b2a supplies durable dirty/failed-attempt disposition without
 execution or retry authority. O08-B2b2b2b0a closes policy coherence, and O08-
-B2b2b2b0b closes atomic seal-time lease promotion. O08-B2b2b2b1 must still
-supply execution-claim liveness. Scheduling/redelivery and production-dispatch
-liveness also remain pending. This
+B2b2b2b0b closes atomic seal-time lease promotion, and O08-B2b2b2b1b1 now
+supplies host-neutral structured execution-claim liveness. O08-B2b2b2b1b2
+retains scheduling/redelivery and production-dispatch liveness. This
 endpoint composes those policies; it does not define a competing
 retry coordinator or execution owner.
 
@@ -618,8 +620,9 @@ Outcome:
   O08-B2b2b1 owns bounded inert discovery; O08-B2b2b2a owns durable dirty/
   failed-attempt disposition; O08-B2b2b2b0a owns the completed shared grant/
   retention configuration invariant; O08-B2b2b2b0b owns completed atomic seal-
-  time lease promotion; and O08-B2b2b2b1 owns still-deferred execution-claim
-  liveness, followed by scheduling/redelivery and production-dispatch liveness:
+  time lease promotion; O08-B2b2b2b1a owns completed phase-aware renewal; and
+  O08-B2b2b2b1b1 owns completed host-neutral structured liveness. The remaining
+  O08-B2b2b2b1b2 gate owns production scheduling/redelivery and dispatch:
 
 ```text
 atomic activation -> running -> finishing -> committed

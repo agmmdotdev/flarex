@@ -151,12 +151,26 @@ export type PointMutationExecutionClaimLivenessV1Error =
   | TrustedScopeAuthorityResolutionError;
 
 export interface PointMutationExecutionClaimLivenessV1 {
+  /**
+   * Frozen construction evidence for lifecycle owners. It is scheduling
+   * policy only and never execution or renewal authority.
+   */
+  readonly configuration: Result.Result<
+    PointMutationExecutionClaimLivenessConfigurationV1,
+    PointMutationExecutionClaimLivenessConfigurationV1Error
+  >;
   readonly renewEffect: (
     input: PointMutationExecutionClaimLivenessInputV1,
   ) => Effect.Effect<
     PointMutationExecutionClaimLivenessResultV1,
     PointMutationExecutionClaimLivenessV1Error
   >;
+}
+
+export interface PointMutationExecutionClaimLivenessConfigurationV1 {
+  readonly claimDurationMilliseconds: number;
+  readonly leaseRenewalDurationMilliseconds: number;
+  readonly maximumLiveSnapshotRetentionMilliseconds: number;
 }
 
 export interface PointMutationExecutionClaimLivenessPortsV1 {
@@ -364,17 +378,13 @@ export function createPointMutationExecutionClaimLivenessV1(
       });
     },
   );
-  return Object.freeze({ renewEffect });
+  return Object.freeze({ configuration, renewEffect });
 }
 
 function captureLivenessConfiguration(
   input: PointMutationExecutionClaimLivenessOptionsV1,
 ): Result.Result<
-  Readonly<{
-    readonly claimDurationMilliseconds: number;
-    readonly leaseRenewalDurationMilliseconds: number;
-    readonly maximumLiveSnapshotRetentionMilliseconds: number;
-  }>,
+  PointMutationExecutionClaimLivenessConfigurationV1,
   PointMutationExecutionClaimLivenessConfigurationV1Error
 > {
   if (!isPositiveSafeInteger(input.claimDurationMilliseconds)) {

@@ -152,6 +152,11 @@ import {
   LocatedReadCommittedTransactionFailureV1,
 } from "../src/transactionSessionAttemptKernel";
 import {
+  createPointMutationExecutionClaimLivenessV1,
+  type PointMutationExecutionClaimLivenessV1,
+} from
+  "../src/transactionExecutionClaimLiveness";
+import {
   pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
 } from "./pointCommitTransactionTestSupport";
@@ -876,6 +881,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       );
       let repeatableReadClosed = false;
       let runnerCalls = 0;
+      let livenessRenewals = 0;
       const observedQueries = new Map<
         StoredCommitAuthorityEvidenceQueryV1["name"],
         StoredCommitAuthorityEvidenceQueryV1
@@ -898,6 +904,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
                 input.context.initialCreationTimeCursor,
               );
               await assertNoOpenExecutionEvidenceTransaction(persistence);
+              await delay(1_100);
               return Object.freeze({ ok: true });
             },
             catch: (cause) => new PointMutationOccUserCodeV1Error({ cause }),
@@ -913,6 +920,13 @@ describePostgres("real Postgres stored-attempt authority", () => {
           },
           observeQuery: (query) => observedQueries.set(query.name, query),
         },
+        {},
+        Object.freeze({
+          heartbeatIntervalMilliseconds: 500,
+          observeRenewal: () => {
+            livenessRenewals += 1;
+          },
+        }),
       );
       const authority = await runEffect(
         authentication.deriveAuthority(loadedAttempt, current.executionScope),
@@ -978,6 +992,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
         successfulResult: { valueJson: { ok: true } },
       });
       expect(runnerCalls).toBe(1);
+      expect(livenessRenewals).toBeGreaterThanOrEqual(2);
       const childQuery = requireCommitObservedQuery(
         observedQueries,
         "attemptChildren",
@@ -2907,9 +2922,33 @@ function createO08B2aAuthentication(
   runner: PointMutationOccRuntimeNeutralRunnerV1,
   executionEvidenceOptions: StoredCommitAuthorityEvidenceLoaderOptionsV1 = {},
   publisherOptions: PointCommitTransactionProofOptionsV1 = {},
+  livenessOptions: Readonly<{
+    readonly heartbeatIntervalMilliseconds?: number;
+    readonly observeRenewal?: () => void;
+  }> = {},
 ) {
   const ports = resolutionPorts(persistence);
   let executionSequence = 0;
+  const actualLiveness = createPointMutationExecutionClaimLivenessV1(ports, {
+    claimDurationMilliseconds: 60_000,
+    leaseRenewalDurationMilliseconds: 120_000,
+    grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+  });
+  const observeRenewal = livenessOptions.observeRenewal;
+  const liveness: PointMutationExecutionClaimLivenessV1 =
+    observeRenewal === undefined
+      ? actualLiveness
+      : Object.freeze({
+          configuration: actualLiveness.configuration,
+          renewEffect: (
+            input: Parameters<
+              PointMutationExecutionClaimLivenessV1["renewEffect"]
+            >[0],
+          ) =>
+            Effect.sync(observeRenewal).pipe(
+              Effect.andThen(actualLiveness.renewEffect(input)),
+            ),
+        });
   return createStoredAttemptAuthenticationV1(current.loader, {
     evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
     transactionGrantVerifier: current.verifier,
@@ -2948,6 +2987,9 @@ function createO08B2aAuthentication(
           }),
       },
       runner,
+      liveness,
+      heartbeatIntervalMilliseconds:
+        livenessOptions.heartbeatIntervalMilliseconds ?? 20_000,
     },
   }, current.executionClaims);
 }
@@ -3006,6 +3048,12 @@ function createB2b2aRedispatchAuthentication(
           }),
       },
       runner,
+      liveness: createPointMutationExecutionClaimLivenessV1(ports, {
+        claimDurationMilliseconds: 60_000,
+        leaseRenewalDurationMilliseconds: 120_000,
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+      }),
+      heartbeatIntervalMilliseconds: 20_000,
     },
     pointMutationRedispatch: {
       acquisition: redispatchOptions.acquisition ??

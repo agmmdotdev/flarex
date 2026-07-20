@@ -144,6 +144,11 @@ import {
   type StoredAttemptFinishingEvidenceLoaderV1,
 } from "../src/storedAttemptEvidence";
 import {
+  createPointMutationExecutionClaimLivenessV1,
+  type PointMutationExecutionClaimLivenessV1,
+} from
+  "../src/transactionExecutionClaimLiveness";
+import {
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemScopeClocks,
@@ -1546,6 +1551,46 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
+  it("keeps the genuine B2a attempt live across runner and publication work", async () => {
+    let renewals = 0;
+    const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: () => Effect.sleep("25 millis").pipe(
+        Effect.as(Object.freeze({ ok: true })),
+      ),
+    });
+    const prepared = await prepareO08B1Conflict(
+      "o08b2a_pglite_liveness",
+      {},
+      runner,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        renewals += 1;
+      },
+      5,
+    );
+    const authorized = await runEffect(
+      prepared.authentication
+        .authorizePointMutationOccRerun(prepared.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected an authorized liveness handoff.");
+    }
+    await expect(runEffect(
+      prepared.authentication.executeAuthorizedPointMutationOccRerun(
+        authorized.rerun,
+      ),
+    )).resolves.toMatchObject({ kind: "published" });
+    expect(renewals).toBeGreaterThanOrEqual(2);
+  });
+
   it("fails before the B2a runner when current open-attempt authority is no longer exact", async () => {
     const cases = [
       Object.freeze({
@@ -1603,8 +1648,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             [prepared.scopeUuid, prepared.current.anchor.sessionId],
           ),
         expected: Object.freeze({
-          _tag: "PointMutationOccExecutionAuthorityCorruptionV1Error",
-          reason: "durableRetrying",
+          _tag: "PointMutationExecutionClaimLivenessStaleV1Error",
+          reason: "lifecycleChanged",
         }),
       }),
       Object.freeze({
@@ -1688,7 +1733,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             [prepared.scopeUuid],
           ),
         expected: Object.freeze({
-          _tag: "PointMutationOccExecutionAuthorityMismatchV1Error",
+          _tag: "PointMutationExecutionClaimLivenessStaleV1Error",
           reason: "revocationEpochChanged",
         }),
       }),
@@ -5119,6 +5164,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     }),
     onAbortStarted?: () => void,
     contextFactory?: PointMutationOccExecutionContextFactoryV1,
+    livenessOverride?: PointMutationExecutionClaimLivenessV1,
+    heartbeatIntervalMilliseconds = 20_000,
   ) {
     const ports = resolutionPorts(persistence);
     let executionSequence = 0;
@@ -5174,6 +5221,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             }),
         },
         runner,
+        liveness: livenessOverride ??
+          createPointMutationExecutionClaimLivenessV1(ports, {
+          claimDurationMilliseconds: 60_000,
+          leaseRenewalDurationMilliseconds: 120_000,
+          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+          }),
+        heartbeatIntervalMilliseconds,
       },
     }, current.executionClaims);
   }
@@ -5241,6 +5295,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             }),
         },
         runner,
+        liveness: createPointMutationExecutionClaimLivenessV1(ports, {
+          claimDurationMilliseconds: 60_000,
+          leaseRenewalDurationMilliseconds: 120_000,
+          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        }),
+        heartbeatIntervalMilliseconds: 20_000,
       },
       pointMutationRedispatch: {
         acquisition: options.acquisition ??
@@ -5271,6 +5331,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     onAbortStarted?: () => void,
     returnsValidator?: PointMutationTargetFunctionMetadataV1["returnsValidator"],
     contextFactory?: PointMutationOccExecutionContextFactoryV1,
+    observeLivenessRenewal?: () => void,
+    heartbeatIntervalMilliseconds?: number,
   ) {
     const current = await c04b2Scenario(label, {}, false, returnsValidator);
     const table = await runEffect(
@@ -5288,6 +5350,26 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       sessionId: current.anchor.sessionId,
       attemptFence: current.anchor.attemptFence.toString(),
     }));
+    const actualLiveness = createPointMutationExecutionClaimLivenessV1(
+      resolutionPorts(persistence),
+      {
+        claimDurationMilliseconds: 60_000,
+        leaseRenewalDurationMilliseconds: 120_000,
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+      },
+    );
+    const liveness = observeLivenessRenewal === undefined
+      ? actualLiveness
+      : Object.freeze({
+          configuration: actualLiveness.configuration,
+          renewEffect: (
+            input: Parameters<
+              PointMutationExecutionClaimLivenessV1["renewEffect"]
+            >[0],
+          ) => Effect.sync(observeLivenessRenewal).pipe(
+            Effect.andThen(actualLiveness.renewEffect(input)),
+          ),
+        });
     const authentication = createO08B1Authentication(
       current,
       {},
@@ -5295,6 +5377,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       runner,
       onAbortStarted,
       contextFactory,
+      liveness,
+      heartbeatIntervalMilliseconds,
     );
     const authority = await runEffect(
       authentication.deriveAuthority(loadedAttempt, current.executionScope),
