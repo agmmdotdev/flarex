@@ -25,14 +25,19 @@ import {
   captureScopePhysicalLocator,
   scopePhysicalLocatorsEqual,
 } from "./scopePhysicalLocator";
-import { getScopeClock, type ScopeClockRecord } from "./scopeClock";
+import {
+  getScopeClock,
+  getScopeClockResult,
+  type ScopeClockRecord,
+} from "./scopeClock";
 import {
   insertInitialScopeClockInTransactionResult,
+  type InsertInitialScopeClockError,
   type InsertInitialScopeClockResult,
 } from "./scopeClockInitialization";
 import { deployments } from "./schema";
 import {
-  generateScopeAuthorityEpoch,
+  generateScopeAuthorityEpochResult,
   generateScopeAuthorityScopeId,
   InvalidGeneratedScopeAuthorityIdError,
   MAX_SCOPE_AUTHORITY_ID_GENERATION_ATTEMPTS,
@@ -114,6 +119,8 @@ export type SharedScopeAuthorityConflict =
     };
 
 export class SharedScopeAuthorityConflictError extends Error {
+  readonly _tag = "SharedScopeAuthorityConflictError" as const;
+
   constructor(readonly conflict: SharedScopeAuthorityConflict) {
     super(sharedScopeAuthorityConflictMessage(conflict));
     this.name = "SharedScopeAuthorityConflictError";
@@ -191,11 +198,15 @@ export async function bootstrapExistingSharedScopeAuthorityInTransaction(
     physicalLocator,
     randomUuid,
   );
-  const ensuredClock = await ensureInitialBootstrapClock(
-    tx,
-    expectedDeployment.deploymentId,
-    ensuredScope,
-    randomUuid,
+  // Drizzle 0.45 requires a rejecting Promise from this transaction body.
+  // Delete the projection when the transaction client accepts Result or Effect.
+  const ensuredClock = Result.getOrThrow(
+    await ensureInitialBootstrapClockResult(
+      tx,
+      expectedDeployment.deploymentId,
+      ensuredScope,
+      randomUuid,
+    ),
   );
 
   return {
@@ -249,6 +260,11 @@ interface EnsureInitialBootstrapClockResult extends EnsureClockResult {
   readonly clockCreated: boolean;
 }
 
+type EnsureSharedScopeClockError =
+  | InsertInitialScopeClockError
+  | InvalidGeneratedScopeAuthorityIdError
+  | SharedScopeAuthorityConflictError;
+
 async function ensureSharedScopeAuthorityInTransaction(
   tx: FlarexMetadataTransaction,
   input: EnsureSharedScopeAuthorityInput,
@@ -262,11 +278,15 @@ async function ensureSharedScopeAuthorityInTransaction(
     physicalLocator,
     randomUuid,
   );
-  const ensuredClock = await ensureClock(
-    tx,
-    input.deploymentId,
-    ensuredScope,
-    randomUuid,
+  // Drizzle 0.45 requires a rejecting Promise from this transaction body.
+  // Delete the projection when the transaction client accepts Result or Effect.
+  const ensuredClock = Result.getOrThrow(
+    await ensureClockResult(
+      tx,
+      input.deploymentId,
+      ensuredScope,
+      randomUuid,
+    ),
   );
 
   return {
@@ -393,101 +413,129 @@ async function ensureScope(
   );
 }
 
-async function ensureClock(
+async function ensureClockResult(
   tx: FlarexMetadataDatabase,
   deploymentId: string,
   ensuredScope: EnsureScopeResult,
   randomUuid: () => string,
-): Promise<EnsureClockResult> {
-  const existing = await getScopeClock(tx, ensuredScope.scope.scopeId);
+): Promise<Result.Result<EnsureClockResult, EnsureSharedScopeClockError>> {
+  const existingResult = await getScopeClockResult(
+    tx,
+    ensuredScope.scope.scopeId,
+  );
+  if (Result.isFailure(existingResult)) {
+    return Result.fail(existingResult.failure);
+  }
+  const existing = existingResult.success;
   if (existing !== null) {
     if (ensuredScope.created) {
-      throw new SharedScopeAuthorityConflictError({
+      return Result.fail(new SharedScopeAuthorityConflictError({
         reason: "clockPreexistedForNewScope",
         deploymentId,
         scopeId: ensuredScope.scope.scopeId,
-      });
+      }));
     }
-    return { clock: existing };
+    return Result.succeed({ clock: existing });
   }
 
   if (!ensuredScope.created) {
-    throw new SharedScopeAuthorityConflictError({
+    return Result.fail(new SharedScopeAuthorityConflictError({
       reason: "clockMissingForExistingScope",
       deploymentId,
       scopeId: ensuredScope.scope.scopeId,
-    });
+    }));
   }
 
-  const initialized = await insertInitialScopeClock(
+  const initializedResult = await insertInitialScopeClockResult(
     tx,
     ensuredScope.scope.scopeId,
     randomUuid,
   );
+  if (Result.isFailure(initializedResult)) {
+    return Result.fail(initializedResult.failure);
+  }
+  const initialized = initializedResult.success;
 
   if (!initialized.created) {
-    throw new SharedScopeAuthorityConflictError({
+    return Result.fail(new SharedScopeAuthorityConflictError({
       reason: "clockPreexistedForNewScope",
       deploymentId,
       scopeId: ensuredScope.scope.scopeId,
-    });
+    }));
   }
-  return { clock: initialized.clock };
+  return Result.succeed({ clock: initialized.clock });
 }
 
-async function ensureInitialBootstrapClock(
+async function ensureInitialBootstrapClockResult(
   tx: FlarexMetadataDatabase,
   deploymentId: string,
   ensuredScope: EnsureScopeResult,
   randomUuid: () => string,
-): Promise<EnsureInitialBootstrapClockResult> {
-  const existing = await getScopeClock(tx, ensuredScope.scope.scopeId);
+): Promise<Result.Result<
+  EnsureInitialBootstrapClockResult,
+  EnsureSharedScopeClockError
+>> {
+  const existingResult = await getScopeClockResult(
+    tx,
+    ensuredScope.scope.scopeId,
+  );
+  if (Result.isFailure(existingResult)) {
+    return Result.fail(existingResult.failure);
+  }
+  const existing = existingResult.success;
   if (existing !== null) {
     if (ensuredScope.created) {
-      throw new SharedScopeAuthorityConflictError({
+      return Result.fail(new SharedScopeAuthorityConflictError({
         reason: "clockPreexistedForNewScope",
         deploymentId,
         scopeId: ensuredScope.scope.scopeId,
-      });
+      }));
     }
-    return {
+    return Result.succeed({
       clock: existing,
       clockCreated: false,
-    };
+    });
   }
 
-  const initialized = await insertInitialScopeClock(
+  const initializedResult = await insertInitialScopeClockResult(
     tx,
     ensuredScope.scope.scopeId,
     randomUuid,
   );
+  if (Result.isFailure(initializedResult)) {
+    return Result.fail(initializedResult.failure);
+  }
+  const initialized = initializedResult.success;
 
   if (!initialized.created && ensuredScope.created) {
-    throw new SharedScopeAuthorityConflictError({
+    return Result.fail(new SharedScopeAuthorityConflictError({
       reason: "clockPreexistedForNewScope",
       deploymentId,
       scopeId: ensuredScope.scope.scopeId,
-    });
+    }));
   }
-  return {
+  return Result.succeed({
     clock: initialized.clock,
     clockCreated: initialized.created,
-  };
+  });
 }
 
-async function insertInitialScopeClock(
+async function insertInitialScopeClockResult(
   tx: FlarexMetadataDatabase,
   scopeId: ScopeId,
   randomUuid: () => string,
-): Promise<InsertInitialScopeClockResult> {
-  // Drizzle 0.45 requires a rejecting Promise inside its transaction callback
-  // to roll back. Delete this projection with that Promise-native boundary.
-  return Result.getOrThrow(
-    await insertInitialScopeClockInTransactionResult(tx, {
-      scopeId,
-      initialEpoch: generateScopeAuthorityEpoch(randomUuid),
-    }),
-  );
+): Promise<Result.Result<
+  InsertInitialScopeClockResult,
+  InsertInitialScopeClockError | InvalidGeneratedScopeAuthorityIdError
+>> {
+  const initialEpochResult = generateScopeAuthorityEpochResult(randomUuid);
+  if (Result.isFailure(initialEpochResult)) {
+    return Result.fail(initialEpochResult.failure);
+  }
+  return insertInitialScopeClockInTransactionResult(tx, {
+    scopeId,
+    initialEpoch: initialEpochResult.success,
+  });
 }
 
 function requireProjectMatch(

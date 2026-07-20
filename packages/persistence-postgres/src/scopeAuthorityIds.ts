@@ -1,3 +1,4 @@
+import { Result } from "effect";
 import {
   ScopeEpochSchema,
   ScopeIdSchema,
@@ -6,6 +7,8 @@ import {
 } from "flarex-protocol/storage-authority";
 
 export class InvalidGeneratedScopeAuthorityIdError extends Error {
+  readonly _tag = "InvalidGeneratedScopeAuthorityIdError" as const;
+
   constructor(
     readonly field: "scopeId" | "epoch",
     readonly value: string,
@@ -41,19 +44,37 @@ export function generateScopeAuthorityScopeId(
   return ScopeIdSchema.make(`scope_${uuid}`);
 }
 
+/**
+ * Throwing compatibility projection for the split-scope provisioner. Delete
+ * it when that caller consumes the Result authority directly.
+ */
 export function generateScopeAuthorityEpoch(
   randomUuid: () => string,
 ): ScopeEpoch {
-  const uuid = requireGeneratedUuid("epoch", randomUuid());
-  return ScopeEpochSchema.make(`epoch_${uuid}`);
+  return Result.getOrThrow(generateScopeAuthorityEpochResult(randomUuid));
+}
+
+export function generateScopeAuthorityEpochResult(
+  randomUuid: () => string,
+): Result.Result<ScopeEpoch, InvalidGeneratedScopeAuthorityIdError> {
+  return requireGeneratedUuidResult("epoch", randomUuid()).pipe(
+    Result.map((uuid) => ScopeEpochSchema.make(`epoch_${uuid}`)),
+  );
 }
 
 function requireGeneratedUuid(
   field: "scopeId" | "epoch",
   value: string,
 ): string {
+  return Result.getOrThrow(requireGeneratedUuidResult(field, value));
+}
+
+function requireGeneratedUuidResult(
+  field: "scopeId" | "epoch",
+  value: string,
+): Result.Result<string, InvalidGeneratedScopeAuthorityIdError> {
   if (!UUID_V4_PATTERN.test(value)) {
-    throw new InvalidGeneratedScopeAuthorityIdError(field, value);
+    return Result.fail(new InvalidGeneratedScopeAuthorityIdError(field, value));
   }
-  return value;
+  return Result.succeed(value);
 }

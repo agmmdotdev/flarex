@@ -569,6 +569,17 @@ rollback. Delete those two projections when their transaction owners can yield
 a Result or Effect failure through an Effect-native transaction client. Driver
 rejection and unexpected defects remain on the Promise channel; insert/read
 order, conflict convergence, and rollback behavior are unchanged.
+Shared-database provisioning and bootstrap now consume that Result-first clock
+read and initialization authority through their full clock ensure/repair
+decisions. Existing-clock corruption, missing/preexisting clock conflicts, and
+invalid generated epochs remain typed Result failures until one projection in
+each Drizzle 0.45 transaction body. The former local throwing initialization
+bridge is deleted. The epoch generator now has one Result authority; its
+throwing compatibility projection remains only for the unmigrated split-scope
+provisioner. Caller-supplied UUID generator defects and raw query rejection
+remain outside the Result channel. Scope-ID collision selection, SQL order,
+transaction ownership, public Promise contracts, and rollback behavior are
+unchanged.
 
 ## Target Boundary
 

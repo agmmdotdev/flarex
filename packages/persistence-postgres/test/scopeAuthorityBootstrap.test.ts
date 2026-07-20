@@ -11,6 +11,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   type FlarexPersistence,
+  ScopeClockCorruptionError,
   type SharedDatabaseScopePhysicalLocator,
 } from "../src";
 import {
@@ -428,6 +429,46 @@ describe("shared scope authority bootstrap", () => {
       status: "complete_through_frontier",
       counts: { completePairs: 1n },
     });
+  });
+
+  it("projects typed stored-clock corruption at the bootstrap transaction owner", async () => {
+    const persistence = await migratedPersistence();
+    const created = await createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      {
+        physicalLocator: sharedLocator,
+        randomUuid: uuidSequence(uuids.scopeA, uuids.epochA),
+      },
+    ).ensure({
+      deploymentId: "deployment_corrupt_bootstrap_clock",
+      projectId: "project_corrupt_bootstrap_clock",
+    });
+    await persistence.exec(`
+      alter table fx_system_scope_clock
+        drop constraint fx_system_scope_clock_storage_generation_check
+    `);
+    await persistence.query(
+      `
+        update fx_system_scope_clock
+        set storage_generation = 'corrupt_generation'
+        where scope_id = $1
+      `,
+      [created.scope.scopeId],
+    );
+    const bootstrapper = createPGliteSharedScopeAuthorityBootstrapper(
+      persistence,
+      {
+        physicalLocator: sharedLocator,
+        randomUuid: () => {
+          throw new Error("Corrupt stored authority must not generate IDs.");
+        },
+      },
+    );
+    const frontier = await bootstrapper.captureFrontier();
+
+    await expect(
+      bootstrapper.runBatch({ frontier, limit: 1 }),
+    ).rejects.toBeInstanceOf(ScopeClockCorruptionError);
   });
 
   it("leaves completed items committed but returns no cursor when a later item fails", async () => {

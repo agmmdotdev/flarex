@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { Result } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -6,11 +7,13 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
+  type ScopeEpoch,
 } from "flarex-protocol/storage-authority";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   type FlarexPersistence,
+  ScopeClockCorruptionError,
   type SharedDatabaseScopePhysicalLocator,
 } from "../src";
 import {
@@ -22,6 +25,9 @@ import {
   type EnsureSharedScopeAuthorityInput,
   type SharedScopeAuthorityProvisionerOptions,
 } from "../src/pglite";
+import {
+  generateScopeAuthorityEpochResult,
+} from "../src/scopeAuthorityIds";
 import { fxSystemScopeClocks } from "../src/schema";
 
 const sharedLocator = {
@@ -62,6 +68,30 @@ describe("shared scope authority provisioning", () => {
     expectTypeOf<ForbiddenRootProvisioningMethod>().toEqualTypeOf<never>();
     expectTypeOf<SharedScopeAuthorityProvisionerOptions["physicalLocator"]>()
       .toEqualTypeOf<SharedDatabaseScopePhysicalLocator>();
+  });
+
+  it("keeps invalid epoch generation typed without catching generator defects", () => {
+    const generated = generateScopeAuthorityEpochResult(() => uuids.epochA);
+    expectTypeOf(generated).toEqualTypeOf<Result.Result<
+      ScopeEpoch,
+      InvalidGeneratedScopeAuthorityIdError
+    >>();
+    expect(Result.getOrThrow(generated)).toBe(`epoch_${uuids.epochA}`);
+
+    const invalid = generateScopeAuthorityEpochResult(() => "not-a-uuid");
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isFailure(invalid)) {
+      expect(invalid.failure).toMatchObject({
+        _tag: "InvalidGeneratedScopeAuthorityIdError",
+        field: "epoch",
+        value: "not-a-uuid",
+      });
+    }
+
+    const defect = new Error("scope authority UUID generator defect");
+    expect(() => generateScopeAuthorityEpochResult(() => {
+      throw defect;
+    })).toThrow(defect);
   });
 
   it("creates a deployment, locator, and explicit legacy clock atomically", async () => {
@@ -233,6 +263,44 @@ describe("shared scope authority provisioning", () => {
         updatedAt: advancedAt,
       },
     });
+  });
+
+  it("projects typed stored-clock corruption only at the transaction owner", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const input = {
+      deploymentId: "deployment_corrupt_clock",
+      projectId: "project_corrupt_clock",
+    } satisfies EnsureSharedScopeAuthorityInput;
+    const created = await createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      {
+        physicalLocator: sharedLocator,
+        randomUuid: uuidSequence(uuids.scopeA, uuids.epochA),
+      },
+    ).ensure(input);
+    await persistence.exec(`
+      alter table fx_system_scope_clock
+        drop constraint fx_system_scope_clock_storage_generation_check
+    `);
+    await persistence.query(
+      `
+        update fx_system_scope_clock
+        set storage_generation = 'corrupt_generation'
+        where scope_id = $1
+      `,
+      [created.scope.scopeId],
+    );
+    const retry = createPGliteSharedScopeAuthorityProvisioner(persistence, {
+      physicalLocator: sharedLocator,
+      randomUuid: () => {
+        throw new Error("Corrupt stored authority must not generate IDs.");
+      },
+    });
+
+    await expect(retry.ensure(input)).rejects.toBeInstanceOf(
+      ScopeClockCorruptionError,
+    );
   });
 
   it("rejects project and immutable locator conflicts without changing authority", async () => {
