@@ -92,7 +92,8 @@ import {
 } from "./pointCommitTransactionTestSupport";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
+  withPostgresSequentialScansDisabled,
 } from "./postgresHelpers";
 import {
   completeSessionJournalSeal as completeSeal,
@@ -110,10 +111,11 @@ import {
 } from "./transactionSessionActivationTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPostgresPersistence = useFileScopedPostgresPersistence();
 
 describePostgres("real Postgres O06 point-commit transaction kernel", () => {
   it("masks interruption until forced rollback settles and exposes no tentative state", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96000000");
       const scope = await createScope(
         persistence,
@@ -209,11 +211,12 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           name,
         ))).toContain("Index Scan");
       }
+      await expectSequentialScansEnabled(persistence);
     });
   }, 120_000);
 
   it("serializes one scope while an independent scope completes", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96100000");
       const firstScope = await createScope(
         persistence,
@@ -284,7 +287,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
   }, 120_000);
 
   it("linearizes revocation after the rollback and rejects detached stale authority", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96200000");
       const scope = await createScope(
         persistence,
@@ -341,7 +344,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
   }, 120_000);
 
   it("observes a competing committed row after the clock wait as an OCC conflict", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96300000");
       const scope = await createScope(
         persistence,
@@ -389,7 +392,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
   }, 120_000);
 
   it("publishes material and zero-row successes with complete atomic evidence", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96400000");
       const materialScope = await createScope(
         persistence,
@@ -473,7 +476,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
   }, 120_000);
 
   it("linearizes concurrent duplicates into one publisher and one replay", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96500000");
       const scope = await createScope(
         persistence,
@@ -531,7 +534,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
   }, 120_000);
 
   it("serializes distinct same-scope publications into dense paired heads", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96600000");
       const scope = await createScope(
         persistence,
@@ -595,7 +598,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
   }, 120_000);
 
   it("rolls back late O07-B failures without a sequence or receipt gap", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96700000");
       const scope = await createScope(
         persistence,
@@ -638,7 +641,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
 
 describePostgres("real Postgres O08-CD0 decision provenance", () => {
   it("confirms a server 40001 only after rollback and leaves no sequence gap", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("97400000");
       const scope = await createScope(
         persistence,
@@ -696,7 +699,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
   }, 120_000);
 
   it("confirms one genuine 40P01 victim and preserves dense independent scopes", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("97500000");
       const firstScope = await createScope(
         persistence,
@@ -785,7 +788,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
   }, 120_000);
 
   it("preserves rollback and release failures and quarantines their clients", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("97600000");
       const scope = await createScope(
         persistence,
@@ -874,7 +877,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
   }, 120_000);
 
   it("recovers a forwarded COMMIT and keeps a missing decision uncertain", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("97700000");
       const scope = await createScope(
         persistence,
@@ -973,7 +976,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
   }, 120_000);
 
   it("holds interruption until a forwarded COMMIT response settles", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("97800000");
       const scope = await createScope(
         persistence,
@@ -1035,7 +1038,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
 
 describePostgres("real Postgres O08-A exact-attempt replacement", () => {
   it("advances one concurrent duplicate and uses bounded index-backed locks", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96800000");
       const scope = await createScope(persistence, randomUuid, "replace_once");
       const attempt = await createAttempt(
@@ -1149,7 +1152,7 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
   }, 120_000);
 
   it("serializes one scope, permits independent-scope progress, and masks interruption", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96900000");
       const scope = await createScope(persistence, randomUuid, "replace_scope");
       const otherScope = await createScope(
@@ -1224,7 +1227,7 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
   }, 120_000);
 
   it("serializes against O07-B publication and exact-attempt abort", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96a00000");
       const scope = await createScope(persistence, randomUuid, "replace_races");
 
@@ -1429,7 +1432,7 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
   }, 120_000);
 
   it("rolls every replacement mutation phase back on PostgreSQL", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96b00000");
       const scope = await createScope(persistence, randomUuid, "replace_rollback");
       const phases = [
@@ -2225,17 +2228,13 @@ async function explainObserved(
     readonly params: ReadonlyArray<unknown>;
   }>,
 ): Promise<string> {
-  const client = await persistence.pool.connect();
-  try {
-    await client.query("set enable_seqscan = off");
+  return withPostgresSequentialScansDisabled(persistence, async (client) => {
     const result = await client.query(
       `explain (format json) ${query.sql}`,
       [...query.params],
     );
     return JSON.stringify(result.rows);
-  } finally {
-    client.release();
-  }
+  });
 }
 
 async function explainHeadLookup(
@@ -2244,9 +2243,7 @@ async function explainHeadLookup(
 ): Promise<string> {
   const dependency = command.dependencies[0];
   if (dependency === undefined) throw new Error("Missing O06 dependency.");
-  const client = await persistence.pool.connect();
-  try {
-    await client.query("set enable_seqscan = off");
+  return withPostgresSequentialScansDisabled(persistence, async (client) => {
     const result = await client.query(
       `
         explain (format json)
@@ -2273,6 +2270,18 @@ async function explainHeadLookup(
       ],
     );
     return JSON.stringify(result.rows);
+  });
+}
+
+async function expectSequentialScansEnabled(
+  persistence: PostgresFlarexPersistence,
+): Promise<void> {
+  const client = await persistence.pool.connect();
+  try {
+    const result = await client.query<{ enable_seqscan: string }>(
+      "show enable_seqscan",
+    );
+    expect(result.rows).toEqual([{ enable_seqscan: "on" }]);
   } finally {
     client.release();
   }

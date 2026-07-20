@@ -2,6 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { trimToNonBlankOrNull } from "@flarex/utils/strings";
+import { afterAll, beforeAll } from "vitest";
 
 import {
   createPostgresClientPersistence,
@@ -26,6 +27,10 @@ export interface TemporaryPostgresSchemaOptions {
   readonly migrationsSchema: string;
   readonly poolConfig: PoolConfig;
 }
+
+export type WithFileScopedPostgresPersistence = (
+  fn: (persistence: PostgresFlarexPersistence) => Promise<void>,
+) => Promise<void>;
 
 export async function acquirePostgresDeploymentLock(
   persistence: PostgresFlarexPersistence,
@@ -97,6 +102,32 @@ export async function waitForBlockedPostgresDeploymentLocks(
   );
 }
 
+export async function withPostgresSequentialScansDisabled<Value>(
+  persistence: PostgresFlarexPersistence,
+  run: (client: PoolClient) => Promise<Value>,
+): Promise<Value> {
+  const client = await persistence.pool.connect();
+  let primaryError: unknown;
+  try {
+    await client.query("begin");
+    await client.query("set local enable_seqscan = off");
+    return await run(client);
+  } catch (error: unknown) {
+    primaryError = error;
+    throw error;
+  } finally {
+    let destroyClient = false;
+    try {
+      await client.query("rollback");
+    } catch (rollbackError: unknown) {
+      destroyClient = true;
+      if (primaryError === undefined) throw rollbackError;
+    } finally {
+      client.release(destroyClient);
+    }
+  }
+}
+
 export async function withTemporaryPostgresPersistence(
   fn: (persistence: PostgresFlarexPersistence) => Promise<void>,
 ): Promise<void> {
@@ -147,6 +178,53 @@ export async function withTemporaryPostgresPersistence(
       );
     }
   }
+}
+
+/**
+ * Reuses one migrated schema for the tests in a Vitest file. Successful tests
+ * reset all application tables with TRUNCATE; a failed test marks the fixture
+ * for a full schema rebuild before the next test so failures cannot poison the
+ * rest of the file.
+ */
+export function useFileScopedPostgresPersistence(): WithFileScopedPostgresPersistence {
+  let fixture: FileScopedPostgresFixture | undefined;
+  let rebuildRequired = false;
+
+  beforeAll(async () => {
+    if (postgresUrl === null) return;
+    fixture = await createFileScopedPostgresFixture();
+  }, 120_000);
+
+  afterAll(async () => {
+    const fixtureToDispose = fixture;
+    fixture = undefined;
+    if (fixtureToDispose !== undefined) await fixtureToDispose.dispose();
+  }, 120_000);
+
+  return async (fn) => {
+    if (fixture === undefined || rebuildRequired) {
+      const staleFixture = fixture;
+      fixture = undefined;
+      rebuildRequired = false;
+      if (staleFixture !== undefined) await staleFixture.dispose();
+      fixture = await createFileScopedPostgresFixture();
+    }
+
+    const activeFixture = fixture;
+    try {
+      await fn(activeFixture.persistence);
+    } catch (error: unknown) {
+      rebuildRequired = true;
+      throw error;
+    }
+
+    try {
+      await activeFixture.reset();
+    } catch (error: unknown) {
+      rebuildRequired = true;
+      throw error;
+    }
+  };
 }
 
 export async function withTemporaryPostgresSchema(
@@ -338,6 +416,109 @@ export async function withTemporaryPostgresPersistencePair(
       );
     }
   }
+}
+
+interface FileScopedPostgresFixture {
+  readonly persistence: PostgresFlarexPersistence;
+  readonly reset: () => Promise<void>;
+  readonly dispose: () => Promise<void>;
+}
+
+async function createFileScopedPostgresFixture(): Promise<FileScopedPostgresFixture> {
+  const connectionString = requiredPostgresUrl();
+  const schemaName = temporaryIdentifier("flarex_file_test");
+  const migrationsSchema = temporaryIdentifier("flarex_file_migrations");
+  const adminPool = new Pool({ connectionString });
+  let persistence: PostgresFlarexPersistence | undefined;
+
+  try {
+    await adminPool.query(`create schema ${quoteIdentifier(schemaName)}`);
+    await adminPool.query(`create schema ${quoteIdentifier(migrationsSchema)}`);
+    persistence = await createPostgresPersistence({
+      connectionString,
+      migrationsSchema,
+      poolConfig: {
+        options: `-c search_path=${schemaName}`,
+      },
+    });
+    await persistence.migrate();
+  } catch (error: unknown) {
+    const cleanupErrors: unknown[] = [];
+    const persistenceToClose = persistence;
+    if (persistenceToClose !== undefined) {
+      await recordCleanupError(cleanupErrors, () => persistenceToClose.close());
+    }
+    await recordCleanupError(cleanupErrors, () =>
+      adminPool.query(
+        `drop schema if exists ${quoteIdentifier(schemaName)} cascade`,
+      ),
+    );
+    await recordCleanupError(cleanupErrors, () =>
+      adminPool.query(
+        `drop schema if exists ${quoteIdentifier(migrationsSchema)} cascade`,
+      ),
+    );
+    await recordCleanupError(cleanupErrors, () => adminPool.end());
+    throw error;
+  }
+
+  const migratedPersistence = persistence;
+  let disposed = false;
+
+  return {
+    persistence: migratedPersistence,
+    async reset(): Promise<void> {
+      if (disposed) throw new Error("File-scoped Postgres fixture is closed.");
+      const pool = migratedPersistence.pool;
+      if (pool.waitingCount !== 0 || pool.idleCount !== pool.totalCount) {
+        throw new Error(
+          "File-scoped Postgres test left a checked-out or waiting pool client.",
+        );
+      }
+      const tables = await migratedPersistence.query<{ tablename: string }>(
+        `
+          select tablename
+          from pg_catalog.pg_tables
+          where schemaname = $1
+          order by tablename
+        `,
+        [schemaName],
+      );
+      if (tables.rows.length === 0) {
+        throw new Error("File-scoped Postgres fixture found no migrated tables.");
+      }
+      const qualifiedTables = tables.rows.map(({ tablename }) =>
+        `${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)}`
+      );
+      await migratedPersistence.query(
+        `truncate table ${qualifiedTables.join(", ")} restart identity cascade`,
+      );
+    },
+    async dispose(): Promise<void> {
+      if (disposed) return;
+      disposed = true;
+      const cleanupErrors: unknown[] = [];
+      await recordCleanupError(cleanupErrors, () => migratedPersistence.close());
+      await recordCleanupError(cleanupErrors, () =>
+        adminPool.query(
+          `drop schema if exists ${quoteIdentifier(schemaName)} cascade`,
+        ),
+      );
+      await recordCleanupError(cleanupErrors, () =>
+        adminPool.query(
+          `drop schema if exists ${quoteIdentifier(migrationsSchema)} cascade`,
+        ),
+      );
+      await recordCleanupError(cleanupErrors, () => adminPool.end());
+      if (cleanupErrors.length > 0) {
+        throw new Error(
+          `Failed to clean up file-scoped Postgres schemas: ${cleanupErrors
+            .map(errorMessage)
+            .join("; ")}`,
+        );
+      }
+    },
+  };
 }
 
 function requiredPostgresUrl(): string {

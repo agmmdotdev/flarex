@@ -157,7 +157,8 @@ import {
 } from "./pointCommitTransactionTestSupport";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  useFileScopedPostgresPersistence,
+  withPostgresSequentialScansDisabled,
 } from "./postgresHelpers";
 import {
   completeSessionJournalSeal as completeSeal,
@@ -174,11 +175,12 @@ import {
 } from "./transactionSessionActivationTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const withPostgresPersistence = useFileScopedPostgresPersistence();
 const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
 
 describePostgres("real Postgres stored-attempt authority", () => {
   it("closes repeatable read before hashing and binds one complete sealed snapshot", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const observedQueries = new Map<
         StoredAttemptEvidenceQueryV1["name"],
         StoredAttemptEvidenceQueryV1
@@ -285,7 +287,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("bootstraps finishing recovery through the same bounded indexed snapshot", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await scenario(persistence, "finishing_recovery");
       await sealScenario(current);
       const running = await runEffect(
@@ -343,7 +345,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("holds interruption until the finishing-recovery snapshot settles", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await scenario(persistence, "finishing_recovery_interrupt");
       await sealScenario(current);
       const running = await runEffect(
@@ -399,7 +401,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("linearizes seal/load and treats detached success as non-authoritative", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const racing = await scenario(persistence, "seal_load_race");
       const prepared = await prepareSeal(racing.store, racing.attempt);
       const journal = await runEffect(
@@ -460,7 +462,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("captures C04B1 authority coherently and closes SQL before schema hashing", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await scenario(persistence, "commit_authority_rr");
       const prepared = await prepareSeal(current.store, current.attempt);
       const journal = await runEffect(
@@ -566,7 +568,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("keeps one coherent C04B1 snapshot across revocation and uses database-time expiry", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const racing = await scenario(persistence, "commit_authority_race");
       await sealScenario(racing);
       const racingStored = await runEffect(
@@ -660,7 +662,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("authorizes only one genuine O08-B1 replacement winner", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(persistence, "replacement_winner");
       const table = await runEffect(
         current.store.resolvePointTableEffect(current.attempt, "users"),
@@ -811,7 +813,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("runs B2a after open evidence closes SQL and publishes through the sole point publisher", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(persistence, "b2a_execution");
       const table = await runEffect(
         current.store.resolvePointTableEffect(current.attempt, "users"),
@@ -1027,7 +1029,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("serializes fresh-process pristine redispatch and publishes exactly once", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(persistence, "b2b2a_redispatch");
       await persistence.query(
         `update fx_system_tx_execution_claim
@@ -1168,7 +1170,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("serializes abort-only takeover and durably closes dirty or failed attempts", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       let runnerCalls = 0;
       const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
         run: () => {
@@ -1300,7 +1302,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("keeps B2a publication atomic when a late PostgreSQL invariant rolls back", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(persistence, "b2a_rollback");
       const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
         run: () => Effect.succeed(Object.freeze({ ok: true })),
@@ -1394,7 +1396,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("retries two genuine PostgreSQL 40001 rollbacks with fresh transaction facts", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(persistence, "o08c_40001_success");
       const commands: PointCommitPublicationCommandV1[] = [];
       const confirmed: PointCommitConfirmedPreDecisionRollbackV1Error[] = [];
@@ -1482,7 +1484,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("re-derives dense same-scope publication facts after a commit during retry backoff", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(
         persistence,
         "o08c_same_scope_interleaving",
@@ -1698,7 +1700,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("exhausts three genuine PostgreSQL 40001 rollbacks without publication residue", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(
         persistence,
         "o08c_40001_exhaustion",
@@ -1781,7 +1783,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("retries the one genuine PostgreSQL 40P01 victim while an independent scope commits", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const first = await o08B1Scenario(persistence, "o08c_deadlock_a");
       const second = await o08B1Scenario(persistence, "o08c_deadlock_b");
       const firstCommands: PointCommitPublicationCommandV1[] = [];
@@ -1878,7 +1880,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("exhausts three genuine PostgreSQL 40P01 victims without a sequence gap", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(
         persistence,
         "o08c_deadlock_exhaustion",
@@ -1958,7 +1960,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("distinguishes a forwarded lost COMMIT response from one not forwarded and publishes at most once", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const forwardedCurrent = await o08B1Scenario(
         persistence,
         "o08d_forwarded_commit",
@@ -2060,7 +2062,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("converges a guarded publication with a same-scope recovery and stops after a second lost response", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const concurrentCurrent = await o08B1Scenario(
         persistence,
         "o08d_concurrent_recovery",
@@ -2186,7 +2188,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   }, 120_000);
 
   it("holds interruption through guarded settlement while an independent scope publishes", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await o08B1Scenario(
         persistence,
         "o08d_interruption",
@@ -3252,41 +3254,40 @@ async function expectFreshO08B1Attempt(
     point_count: "0",
     event_count: "0",
   });
-  const client = await persistence.pool.connect();
-  try {
-    await client.query("set enable_seqscan = off");
-    for (const { table, index } of [
-      {
-        table: "fx_system_tx_journal_latest_receipt",
-        index: "fx_system_tx_journal_receipt_pk",
-      },
-      {
-        table: "fx_system_tx_journal_point",
-        index: "fx_system_tx_journal_point_pk",
-      },
-      {
-        table: "fx_system_tx_journal_write_event",
-        index: "fx_system_tx_journal_event_pk",
-      },
-    ] as const) {
-      const plan = await client.query<Record<"QUERY PLAN", string>>(
-        `
-          explain (format text)
-          select 1 from ${table}
-          where scope_uuid = $1
-            and session_id = $2
-            and attempt_fence = 2
-          limit 1
-        `,
-        [scopeUuid, sessionId],
-      );
-      const rendered = plan.rows.map((row) => row["QUERY PLAN"]).join("\n");
-      expect(rendered).toContain("Index");
-      expect(rendered).toContain(index);
-    }
-  } finally {
-    client.release();
-  }
+  await withPostgresSequentialScansDisabled(
+    persistence,
+    async (client) => {
+      for (const { table, index } of [
+        {
+          table: "fx_system_tx_journal_latest_receipt",
+          index: "fx_system_tx_journal_receipt_pk",
+        },
+        {
+          table: "fx_system_tx_journal_point",
+          index: "fx_system_tx_journal_point_pk",
+        },
+        {
+          table: "fx_system_tx_journal_write_event",
+          index: "fx_system_tx_journal_event_pk",
+        },
+      ] as const) {
+        const plan = await client.query<Record<"QUERY PLAN", string>>(
+          `
+            explain (format text)
+            select 1 from ${table}
+            where scope_uuid = $1
+              and session_id = $2
+              and attempt_fence = 2
+            limit 1
+          `,
+          [scopeUuid, sessionId],
+        );
+        const rendered = plan.rows.map((row) => row["QUERY PLAN"]).join("\n");
+        expect(rendered).toContain("Index");
+        expect(rendered).toContain(index);
+      }
+    },
+  );
 }
 
 function resolutionPorts(
@@ -4085,9 +4086,7 @@ async function lookupPlans(
   "session" | "sessionPrimaryKey" | "lease" | "root" | "points",
   string
 >>> {
-  const client = await persistence.pool.connect();
-  try {
-    await client.query("set enable_seqscan = off");
+  return withPostgresSequentialScansDisabled(persistence, async (client) => {
     const sessionPrimaryKey = await client.query<{ definition: string }>(`
       select pg_get_indexdef(indexrelid) as definition
       from pg_index
@@ -4118,9 +4117,7 @@ async function lookupPlans(
         requireObservedQuery(queries, "points"),
       ),
     });
-  } finally {
-    client.release();
-  }
+  });
 }
 
 function requireCommitObservedQuery(
@@ -4141,17 +4138,13 @@ async function explainCommitAuthorityObserved(
   persistence: PostgresFlarexPersistence,
   query: StoredCommitAuthorityEvidenceQueryV1,
 ): Promise<string> {
-  const client = await persistence.pool.connect();
-  try {
-    await client.query("set enable_seqscan = off");
+  return withPostgresSequentialScansDisabled(persistence, async (client) => {
     const result = await client.query(
       `explain (format json) ${query.sql}`,
       [...query.params],
     );
     return JSON.stringify(result.rows);
-  } finally {
-    client.release();
-  }
+  });
 }
 
 function requireObservedQuery(

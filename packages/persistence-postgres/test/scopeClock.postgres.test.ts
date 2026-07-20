@@ -11,6 +11,7 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -493,6 +494,7 @@ describePostgres("real Postgres scope clock locking", () => {
       "test/fixtures/drizzle-through-0026-journal.json",
     );
     const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
+    const currentMigrationReceiptCount = await journalEntryCount(currentJournal);
     const migrationName = "0027_graceful_silver_fox.sql";
     const copiedMigration = resolve(migrationsFolder, migrationName);
 
@@ -584,7 +586,9 @@ describePostgres("real Postgres scope clock locking", () => {
             select count(*)::text as count
             from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations
           `);
-          expect(recoveredReceipts.rows).toEqual([{ count: "29" }]);
+          expect(recoveredReceipts.rows).toEqual([
+            { count: String(currentMigrationReceiptCount) },
+          ]);
         } finally {
           await Promise.all([
             previousPersistence.close(),
@@ -597,6 +601,14 @@ describePostgres("real Postgres scope clock locking", () => {
     }
   });
 });
+
+async function journalEntryCount(journalPath: string): Promise<number> {
+  const parsed: unknown = JSON.parse(await readFile(journalPath, "utf8"));
+  if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+    throw new Error("Drizzle migration journal has no entries array.");
+  }
+  return parsed.entries.length;
+}
 
 async function insertScopeClock(
   persistence: Pick<FlarexPersistence, "query">,
