@@ -55,8 +55,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createPointMutationSessionAttemptTerminalizationV1,
   createPointMutationSessionAttemptLoadingV1,
+  type PointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../../executor/src/pointMutationSessionActivation";
+import { createPointMutationSessionAttemptDispositionV1 } from
+  "../../executor/src/pointMutationSessionAttemptDisposition";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
   createPointMutationExecutionClaimVaultV1,
@@ -65,6 +68,7 @@ import {
 } from "../../executor/src/pointMutationExecutionClaim";
 import {
   createPointMutationExecutionClaimDispatchAcquisitionV1,
+  type PointMutationExecutionClaimDispatchAcquisitionV1,
 } from "../../executor/src/pointMutationExecutionClaimAcquisition";
 import {
   createStoredAttemptAuthenticationV1,
@@ -1108,6 +1112,138 @@ describePostgres("real Postgres stored-attempt authority", () => {
         last_commit_seq: "1",
         last_outbox_seq: "1",
       }] });
+    });
+  }, 120_000);
+
+  it("serializes abort-only takeover and durably closes dirty or failed attempts", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      let runnerCalls = 0;
+      const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+        run: () => {
+          runnerCalls += 1;
+          return Effect.succeed(Object.freeze({ ok: true }));
+        },
+      });
+
+      for (const reason of ["dirtyOpen", "failedRoot"] as const) {
+        const current = await o08B1Scenario(
+          persistence,
+          `b2b2b2a_${reason}`,
+        );
+        const table = await runEffect(
+          current.store.resolvePointTableEffect(current.attempt, "users"),
+        );
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { reason },
+        });
+        if (reason === "failedRoot") {
+          await persistence.query(
+            `update fx_system_tx_journal
+             set state = 'failed', failure_dimension = 'readDocuments',
+               updated_at = clock_timestamp()
+             where session_id = $1`,
+            [current.anchor.sessionId],
+          );
+        }
+        await persistence.query(
+          `update fx_system_tx_execution_claim
+           set claimed_at = clock_timestamp() - interval '2 minutes',
+             claim_expires_at = clock_timestamp() - interval '1 minute'
+           where session_id = $1`,
+          [current.anchor.sessionId],
+        );
+
+        const firstClaims = createPointMutationExecutionClaimVaultV1();
+        const loadEntered = deferredSignal();
+        const releaseLoad = deferredSignal();
+        const gatedLoading: PointMutationSessionAttemptLoadingV1 =
+          Object.freeze({
+            load: Effect.fn("Test.gateAbortOnlyAttemptLoad")((input) =>
+              Effect.promise(async () => {
+                loadEntered.resolve();
+                await releaseLoad.promise;
+              }).pipe(Effect.flatMap(() => current.loading.load(input)))
+            ),
+          });
+        const first = createB2b2aRedispatchAuthentication(
+          persistence,
+          current,
+          firstClaims,
+          runner,
+          () => reason === "dirtyOpen"
+            ? "95000000-0000-4000-8000-000000000011"
+            : "95000000-0000-4000-8000-000000000012",
+          {},
+          { attemptLoading: gatedLoading },
+        );
+        const second = createB2b2aRedispatchAuthentication(
+          persistence,
+          current,
+          createPointMutationExecutionClaimVaultV1(),
+          runner,
+          () => "95000000-0000-4000-8000-000000000013",
+        );
+        const selector = selectorWire(current.anchor);
+        const firstDisposition = runEffect(
+          first.redispatchExactPointMutationAttempt(selector),
+        );
+        await loadEntered.promise;
+
+        await expect(runEffect(
+          second.redispatchExactPointMutationAttempt(selector),
+        )).resolves.toEqual({ kind: "busy" });
+        await expect(runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+          fields: { stale: true },
+        })).rejects.toMatchObject({
+          _tag: "SessionJournalAttemptUnavailableV1Error",
+          issue: { reason: "executionClaimUnavailable" },
+        });
+        await expect(prepareSeal(current.store, current.attempt)).rejects
+          .toMatchObject({
+            _tag: "SessionJournalAttemptUnavailableV1Error",
+            issue: { reason: "executionClaimUnavailable" },
+          });
+
+        releaseLoad.resolve();
+        await expect(firstDisposition).resolves.toMatchObject({
+          kind: "closed",
+          reason,
+          lifecycle: "aborted",
+        });
+        const scopeUuid = projectScopeIdUuidV1(
+          current.anchor.scopeId,
+        ).scopeUuid;
+        await expect(o08DispositionPostgresState(
+          persistence,
+          scopeUuid,
+          current.anchor.sessionId,
+        )).resolves.toEqual({
+          lifecycle: "aborted",
+          claims: "0",
+          leases: "0",
+          journals: "0",
+          receipts: "0",
+          points: "0",
+          write_events: "0",
+          headers: "0",
+          changes: "0",
+          outcomes: "0",
+          wakes: "0",
+          last_commit_seq: "0",
+          last_outbox_seq: "0",
+        });
+        await expect(runFailure(
+          second.redispatchExactPointMutationAttempt(selector),
+        )).resolves.toMatchObject({
+          _tag: "PointMutationExecutionClaimAcquisitionStaleV1Error",
+          reason: "lifecycle",
+        });
+      }
+      expect(runnerCalls).toBe(0);
     });
   }, 120_000);
 
@@ -2757,9 +2893,15 @@ function createB2b2aRedispatchAuthentication(
   runner: PointMutationOccRuntimeNeutralRunnerV1,
   randomOwner: () => string,
   executionEvidenceOptions: StoredCommitAuthorityEvidenceLoaderOptionsV1 = {},
+  redispatchOptions: Readonly<{
+    readonly acquisition?: PointMutationExecutionClaimDispatchAcquisitionV1;
+    readonly attemptLoading?: PointMutationSessionAttemptLoadingV1;
+  }> = {},
 ) {
   const ports = resolutionPorts(persistence);
   let executionSequence = 0;
+  const terminalizationPersistence =
+    createPointMutationSessionAttemptTerminalizationPersistenceV1(ports);
   return createStoredAttemptAuthenticationV1(current.loader, {
     evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
     transactionGrantVerifier: current.verifier,
@@ -2773,7 +2915,7 @@ function createB2b2aRedispatchAuthentication(
         leaseDurationMilliseconds: 60_000,
       }),
     pointMutationOccRerun: {
-      attemptLoading: current.loading,
+      attemptLoading: redispatchOptions.attemptLoading ?? current.loading,
       executionEvidence: createStoredOccExecutionEvidenceLoaderV1(
         ports,
         executionEvidenceOptions,
@@ -2783,7 +2925,7 @@ function createB2b2aRedispatchAuthentication(
         executionClaims.admission,
       ),
       terminalization: createPointMutationSessionAttemptTerminalizationV1(
-        createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
+        terminalizationPersistence,
         executionClaims.admission,
       ),
       contextFactory: {
@@ -2800,12 +2942,17 @@ function createB2b2aRedispatchAuthentication(
       runner,
     },
     pointMutationRedispatch: {
-      acquisition: createPointMutationExecutionClaimDispatchAcquisitionV1(
-        createPointMutationExecutionClaimAcquisitionV1(ports, {
-          durationMilliseconds: 60_000,
-          randomOwner,
-        }),
-        executionClaims.issuer,
+      acquisition: redispatchOptions.acquisition ??
+        createPointMutationExecutionClaimDispatchAcquisitionV1(
+          createPointMutationExecutionClaimAcquisitionV1(ports, {
+            durationMilliseconds: 60_000,
+            randomOwner,
+          }),
+          executionClaims.issuer,
+        ),
+      disposition: createPointMutationSessionAttemptDispositionV1(
+        terminalizationPersistence,
+        executionClaims.abortOnlyAdmission,
       ),
     },
   }, executionClaims);
@@ -3737,6 +3884,70 @@ async function o08CAttemptState(
   const row = result.rows[0];
   if (row === undefined) {
     throw new Error("Missing PostgreSQL O08-C attempt state.");
+  }
+  return row;
+}
+
+async function o08DispositionPostgresState(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+  sessionId: PointMutationSessionAnchorV1["sessionId"],
+) {
+  const result = await persistence.query<{
+    lifecycle: string;
+    claims: string;
+    leases: string;
+    journals: string;
+    receipts: string;
+    points: string;
+    write_events: string;
+    headers: string;
+    changes: string;
+    outcomes: string;
+    wakes: string;
+    last_commit_seq: string;
+    last_outbox_seq: string;
+  }>(
+    `
+      select session.lifecycle,
+        (select count(*)::text from fx_system_tx_execution_claim claim
+          where claim.scope_uuid = session.scope_uuid
+            and claim.session_id = session.session_id) as claims,
+        (select count(*)::text from fx_system_snapshot_lease lease
+          where lease.scope_uuid = session.scope_uuid
+            and lease.session_id = session.session_id) as leases,
+        (select count(*)::text from fx_system_tx_journal journal
+          where journal.scope_uuid = session.scope_uuid
+            and journal.session_id = session.session_id) as journals,
+        (select count(*)::text from fx_system_tx_journal_latest_receipt receipt
+          where receipt.scope_uuid = session.scope_uuid
+            and receipt.session_id = session.session_id) as receipts,
+        (select count(*)::text from fx_system_tx_journal_point point
+          where point.scope_uuid = session.scope_uuid
+            and point.session_id = session.session_id) as points,
+        (select count(*)::text from fx_system_tx_journal_write_event event
+          where event.scope_uuid = session.scope_uuid
+            and event.session_id = session.session_id) as write_events,
+        (select count(*)::text from fx_system_commit header
+          where header.scope_uuid = session.scope_uuid) as headers,
+        (select count(*)::text from fx_system_commit_app_row_change change
+          where change.scope_uuid = session.scope_uuid) as changes,
+        (select count(*)::text from fx_system_idempotency outcome
+          where outcome.scope_uuid = session.scope_uuid) as outcomes,
+        (select count(*)::text from fx_system_outbox wake
+          where wake.scope_uuid = session.scope_uuid) as wakes,
+        clock.last_commit_seq::text,
+        clock.last_outbox_seq::text
+      from fx_system_tx_session session
+      join fx_system_scope_clock clock
+        on clock.scope_uuid = session.scope_uuid
+      where session.scope_uuid = $1 and session.session_id = $2
+    `,
+    [scopeUuid, sessionId],
+  );
+  const row = result.rows[0];
+  if (row === undefined) {
+    throw new Error("Missing PostgreSQL O08 disposition state.");
   }
   return row;
 }

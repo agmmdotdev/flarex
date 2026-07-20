@@ -76,7 +76,10 @@ import {
 import {
   createPointMutationSessionAttemptLoadingV1,
   createPointMutationSessionAttemptTerminalizationV1,
+  type PointMutationSessionAttemptLoadingV1,
 } from "../../executor/src/pointMutationSessionActivation";
+import { createPointMutationSessionAttemptDispositionV1 } from
+  "../../executor/src/pointMutationSessionAttemptDisposition";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
   createPointMutationExecutionClaimVaultV1,
@@ -111,6 +114,8 @@ import {
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
+import { createPointMutationAttemptDiscoveryV1 } from
+  "../src/pointMutationAttemptDiscovery";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
@@ -1968,7 +1973,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
-  it("keeps live, dirty-open, and failed crash states inert", async () => {
+  it("keeps live claims busy and durably closes dirty-open and failed roots", async () => {
     let runnerCalls = 0;
     const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
       run: () => {
@@ -1991,33 +1996,196 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
     for (const state of ["dirtyOpen", "failedRoot"] as const) {
       const current = await c04b2Scenario(`o08_b2b2a_${state}`);
-      await persistence.query(
-        state === "dirtyOpen"
-          ? `update fx_system_tx_journal
-             set last_syscall_sequence = 1, updated_at = clock_timestamp()
-             where session_id = $1`
-          : `update fx_system_tx_journal
-             set state = 'failed', failure_dimension = 'readDocuments',
-               updated_at = clock_timestamp()
-             where session_id = $1`,
-        [current.anchor.sessionId],
+      const table = await runEffect(
+        current.store.resolvePointTableEffect(current.attempt, "users"),
       );
+      await runPointOperation(current.store, table, {
+        kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        fields: { state },
+      });
+      if (state === "failedRoot") {
+        await persistence.query(
+          `update fx_system_tx_journal
+           set state = 'failed', failure_dimension = 'readDocuments',
+             updated_at = clock_timestamp()
+           where session_id = $1`,
+          [current.anchor.sessionId],
+        );
+      }
       await expireExactExecutionClaim(current.anchor.sessionId);
-      const before = await executionClaimState(current.anchor.sessionId);
+      const executionClaims = createPointMutationExecutionClaimVaultV1();
+      let admittedBeforeAttemptLoad = false;
+      let capturedAbortOnlyClaim: unknown;
+      const baseAcquisition =
+        createPointMutationExecutionClaimDispatchAcquisitionV1(
+          createPointMutationExecutionClaimAcquisitionV1(
+            resolutionPorts(persistence),
+            {
+              durationMilliseconds: 60_000,
+              randomOwner: () => state === "dirtyOpen"
+                ? "92000000-0000-4000-8000-000000000021"
+                : "92000000-0000-4000-8000-000000000022",
+            },
+          ),
+          executionClaims.issuer,
+        );
+      const acquisition = Object.freeze({
+        acquireEffect: Effect.fn("Test.captureAbortOnlyClaim")((input) =>
+          baseAcquisition.acquireEffect(input).pipe(
+            Effect.tap((result) => Effect.sync(() => {
+              if (result.kind === "acquired" && result.mode === "abortOnly") {
+                capturedAbortOnlyClaim = result.executionClaim;
+              }
+            })),
+          )
+        ),
+      } satisfies PointMutationExecutionClaimDispatchAcquisitionV1);
+      const attemptLoading: PointMutationSessionAttemptLoadingV1 =
+        Object.freeze({
+          load: Effect.fn("Test.requireSynchronousAbortOnlyAdmission")((input) =>
+            Effect.sync(() => {
+              expect(capturedAbortOnlyClaim).toBeDefined();
+              expect(executionClaims.abortOnlyAdmission.admit(
+                capturedAbortOnlyClaim,
+              )).toMatchObject({
+                _tag: "Failure",
+                failure: { reason: "consumed" },
+              });
+              admittedBeforeAttemptLoad = true;
+            }).pipe(Effect.flatMap(() => current.loading.load(input)))
+          ),
+        });
+      const authentication = createB2b2aRedispatchAuthentication(
+        current,
+        executionClaims,
+        runner,
+        {
+          acquisition,
+          attemptLoading,
+        },
+      );
+      const closed = await runEffect(
+        authentication.redispatchExactPointMutationAttempt(
+          selectorInputFromAnchor(current.anchor),
+        ),
+      );
+      expect(closed).toMatchObject({
+        kind: "closed",
+        reason: state,
+        lifecycle: "aborted",
+      });
+      if (closed.kind !== "closed") {
+        throw new Error("Expected durable non-dispatchable closure.");
+      }
+      expect(Date.parse(closed.terminalizedAt)).not.toBeNaN();
+      expect(admittedBeforeAttemptLoad).toBe(true);
+      await expect(o08DispositionState(
+        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+        current.anchor.sessionId,
+      )).resolves.toEqual({
+        lifecycle: "aborted",
+        leases: "0",
+        journals: "0",
+        receipts: "0",
+        points: "0",
+        write_events: "0",
+        claims: "0",
+      });
+      await expect(o06DurableState(
+        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+      )).resolves.toEqual({
+        revisions: "0",
+        current_rows: "0",
+        commit_headers: "0",
+        commit_changes: "0",
+        outcomes: "0",
+        wakes: "0",
+        last_commit_seq: "0",
+        last_outbox_seq: "0",
+      });
+      await expect(runEffect(
+        pointMutationAttemptDiscovery(persistence).discoverEffect({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+          limit: 100,
+        }),
+      )).resolves.toMatchObject({ candidates: [] });
+      await expect(runFailure(
+        authentication.redispatchExactPointMutationAttempt(
+          selectorInputFromAnchor(current.anchor),
+        ),
+      )).resolves.toMatchObject({
+        _tag: "PointMutationExecutionClaimAcquisitionStaleV1Error",
+        reason: "lifecycle",
+      });
+    }
+    expect(runnerCalls).toBe(0);
+  });
+
+  it("routes directly proven lease or authorization expiry through durable expiry", async () => {
+    for (const expiry of ["lease", "authorization"] as const) {
+      const current = await c04b2Scenario(
+        `o08_b2b2a_${expiry}_expiry`,
+      );
+      if (expiry === "lease") {
+        await persistence.query(
+          `update fx_system_snapshot_lease as lease
+           set lease_expires_at = session.created_at + interval '1 millisecond'
+           from fx_system_tx_session as session
+           where lease.scope_uuid = session.scope_uuid
+             and lease.session_id = session.session_id
+             and lease.session_id = $1`,
+          [current.anchor.sessionId],
+        );
+      } else {
+        await persistence.query(
+          `update fx_system_tx_session
+           set authorization_grant_expires_at =
+               created_at + interval '1 millisecond',
+             hard_expires_at = created_at + interval '1 millisecond'
+           where session_id = $1`,
+          [current.anchor.sessionId],
+        );
+        await persistence.query(
+          `update fx_system_snapshot_lease as lease
+           set lease_expires_at = session.hard_expires_at
+           from fx_system_tx_session as session
+           where lease.scope_uuid = session.scope_uuid
+             and lease.session_id = session.session_id
+             and lease.session_id = $1`,
+          [current.anchor.sessionId],
+        );
+      }
       const authentication = createB2b2aRedispatchAuthentication(
         current,
         createPointMutationExecutionClaimVaultV1(),
-        runner,
+        Object.freeze({
+          run: () => Effect.die(new Error("expired attempts must not run")),
+        }),
       );
       await expect(runEffect(
         authentication.redispatchExactPointMutationAttempt(
           selectorInputFromAnchor(current.anchor),
         ),
-      )).resolves.toEqual({ kind: "nonDispatchable", reason: state });
-      await expect(executionClaimState(current.anchor.sessionId)).resolves
-        .toEqual(before);
+      )).resolves.toMatchObject({
+        kind: "closed",
+        reason: "authorityExpired",
+        lifecycle: "expired",
+      });
+      await expect(o08DispositionState(
+        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+        current.anchor.sessionId,
+      )).resolves.toEqual({
+        lifecycle: "expired",
+        leases: "0",
+        journals: "0",
+        receipts: "0",
+        points: "0",
+        write_events: "0",
+        claims: "0",
+      });
     }
-    expect(runnerCalls).toBe(0);
   });
 
   it("finishes sealed running and durable finishing attempts without rerunning user code", async () => {
@@ -4842,12 +5010,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       readonly afterExecutionEvidenceRepeatableRead?: () => void;
       readonly pointCommit?: PointCommitTransactionProofOptionsV1;
       readonly acquisition?: PointMutationExecutionClaimDispatchAcquisitionV1;
+      readonly attemptLoading?: PointMutationSessionAttemptLoadingV1;
     }> = {},
   ) {
     const ports = resolutionPorts(persistence);
     let executionSequence = 0;
+    const terminalizationPersistence =
+      createPointMutationSessionAttemptTerminalizationPersistenceV1(ports);
     const terminalization = createPointMutationSessionAttemptTerminalizationV1(
-      createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
+      terminalizationPersistence,
       executionClaims.admission,
     );
     return createStoredAttemptAuthenticationV1(current.loader, {
@@ -4866,7 +5037,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           leaseDurationMilliseconds: 60_000,
         }),
       pointMutationOccRerun: {
-        attemptLoading: current.loading,
+        attemptLoading: options.attemptLoading ?? current.loading,
         executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports, {
           ...(options.afterExecutionEvidenceRepeatableRead === undefined
             ? {}
@@ -4904,6 +5075,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             }),
             executionClaims.issuer,
           ),
+        disposition: createPointMutationSessionAttemptDispositionV1(
+          terminalizationPersistence,
+          executionClaims.abortOnlyAdmission,
+        ),
       },
     }, executionClaims);
   }
@@ -5264,6 +5439,43 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     return row;
   }
 
+  async function o08DispositionState(
+    scopeUuid: string,
+    sessionId: string,
+  ) {
+    const result = await persistence.query<{
+      lifecycle: string;
+      leases: string;
+      journals: string;
+      receipts: string;
+      points: string;
+      write_events: string;
+      claims: string;
+    }>(
+      `
+        select session.lifecycle,
+          (select count(*)::text from fx_system_snapshot_lease
+            where scope_uuid = $1 and session_id = $2) as leases,
+          (select count(*)::text from fx_system_tx_journal
+            where scope_uuid = $1 and session_id = $2) as journals,
+          (select count(*)::text from fx_system_tx_journal_latest_receipt
+            where scope_uuid = $1 and session_id = $2) as receipts,
+          (select count(*)::text from fx_system_tx_journal_point
+            where scope_uuid = $1 and session_id = $2) as points,
+          (select count(*)::text from fx_system_tx_journal_write_event
+            where scope_uuid = $1 and session_id = $2) as write_events,
+          (select count(*)::text from fx_system_tx_execution_claim
+            where scope_uuid = $1 and session_id = $2) as claims
+        from fx_system_tx_session as session
+        where session.scope_uuid = $1 and session.session_id = $2
+      `,
+      [scopeUuid, sessionId],
+    );
+    const row = result.rows[0];
+    if (row === undefined) throw new Error("Missing O08 disposition state.");
+    return row;
+  }
+
   async function installO08CSerializationTrigger(
     scopeUuid: string,
     label: "success" | "exhaustion",
@@ -5346,6 +5558,26 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           ),
       },
     };
+  }
+
+  function pointMutationAttemptDiscovery(
+    selected: PGliteFlarexPersistence,
+  ) {
+    return createPointMutationAttemptDiscoveryV1({
+      scopeMetadata: selected,
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => {
+          throw new Error("Shared discovery must not read split receipts.");
+        },
+      },
+      scopeDiscoveryTargets: {
+        resolve: async (physicalLocator): Promise<LocatedScopeClockReader> =>
+          createPGliteLocatedPointMutationSessionActivationTargetV1(
+            selected,
+            physicalLocator,
+          ),
+      },
+    });
   }
 
   function portsWithReadCommittedOverride(

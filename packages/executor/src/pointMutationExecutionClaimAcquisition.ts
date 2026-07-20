@@ -13,6 +13,7 @@ import type {
 import type {
   PointMutationExecutionClaimV1,
   PointMutationExecutionClaimIssuerV1,
+  PointMutationExecutionWorkModeV1,
 } from "./pointMutationExecutionClaim";
 import { decodePointMutationSessionAttemptSelectorV1Result } from
   "./pointMutationSessionAttemptSelector";
@@ -24,7 +25,16 @@ export type PointMutationExecutionClaimDispatchAcquisitionResultV1 =
     >
   | Readonly<{
       readonly kind: "acquired";
-      readonly mode: "execute" | "finishOnly";
+      readonly mode: PointMutationExecutionWorkModeV1;
+      readonly executionClaim: PointMutationExecutionClaimV1;
+    }>
+  | Readonly<{
+      readonly kind: "acquired";
+      readonly mode: "abortOnly";
+      readonly reason: Extract<
+        PersistenceAcquisitionResultV1,
+        Readonly<{ readonly kind: "acquired"; readonly mode: "abortOnly" }>
+      >["reason"];
       readonly executionClaim: PointMutationExecutionClaimV1;
     }>;
 
@@ -60,11 +70,26 @@ export function createPointMutationExecutionClaimDispatchAcquisitionV1(
     );
     const result = yield* persistence.acquireEffect(selector);
     if (result.kind !== "acquired") return result;
-    const executionClaim = claims.mint({
-      selector,
-      observation: Object.freeze({ ...result.observation }),
-      mode: result.mode,
-    });
+    const executionClaim = claims.mint(result.mode === "abortOnly"
+      ? {
+          selector,
+          observation: Object.freeze({ ...result.observation }),
+          mode: result.mode,
+          reason: result.reason,
+        }
+      : {
+          selector,
+          observation: Object.freeze({ ...result.observation }),
+          mode: result.mode,
+        });
+    if (result.mode === "abortOnly") {
+      return Object.freeze({
+        kind: "acquired" as const,
+        mode: result.mode,
+        reason: result.reason,
+        executionClaim,
+      });
+    }
     return Object.freeze({
       kind: "acquired" as const,
       mode: result.mode,

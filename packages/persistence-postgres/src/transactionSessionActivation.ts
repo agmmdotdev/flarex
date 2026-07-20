@@ -287,7 +287,12 @@ export type PointMutationSessionActivationResultV1 =
 
 export type PointMutationExecutionClaimAcquisitionModeV1 =
   | "execute"
-  | "finishOnly";
+  | "finishOnly"
+  | "abortOnly";
+
+export type PointMutationExecutionClaimAbortReasonV1 =
+  | "dirtyOpen"
+  | "failedRoot";
 
 export type PointMutationExecutionClaimAcquisitionResultV1 =
   | Readonly<{
@@ -302,16 +307,21 @@ export type PointMutationExecutionClaimAcquisitionResultV1 =
       readonly observation: TransactionExecutionClaimObservationV1;
     }>
   | Readonly<{
-      readonly kind: "nonDispatchable";
-      readonly reason: "dirtyOpen" | "failedRoot";
-    }>
-  | Readonly<{
       /** Inert routing evidence; C05-B must independently authenticate it. */
       readonly kind: "finishing";
     }>
   | Readonly<{
       readonly kind: "acquired";
-      readonly mode: PointMutationExecutionClaimAcquisitionModeV1;
+      readonly mode: Exclude<
+        PointMutationExecutionClaimAcquisitionModeV1,
+        "abortOnly"
+      >;
+      readonly observation: TransactionExecutionClaimObservationV1;
+    }>
+  | Readonly<{
+      readonly kind: "acquired";
+      readonly mode: "abortOnly";
+      readonly reason: PointMutationExecutionClaimAbortReasonV1;
       readonly observation: TransactionExecutionClaimObservationV1;
     }>;
 
@@ -1489,9 +1499,14 @@ async function acquireExecutionClaimInTransaction(
     return Object.freeze({ kind: "busy", observation: current });
   }
 
-  let mode: PointMutationExecutionClaimAcquisitionModeV1;
+  let disposition:
+    | Readonly<{ readonly mode: "execute" | "finishOnly" }>
+    | Readonly<{
+        readonly mode: "abortOnly";
+        readonly reason: PointMutationExecutionClaimAbortReasonV1;
+      }>;
   if (root.state === "sealed") {
-    mode = "finishOnly";
+    disposition = { mode: "finishOnly" };
   } else if (root.state === "open") {
     const facet = await observePointMutationSessionAttemptFacet(
       tx,
@@ -1501,17 +1516,12 @@ async function acquireExecutionClaimInTransaction(
       root,
     );
     if (facet.kind !== "pristineOpen") {
-      return Object.freeze({
-        kind: "nonDispatchable",
-        reason: "dirtyOpen",
-      });
+      disposition = { mode: "abortOnly", reason: "dirtyOpen" };
+    } else {
+      disposition = { mode: "execute" };
     }
-    mode = "execute";
   } else {
-    return Object.freeze({
-      kind: "nonDispatchable",
-      reason: "failedRoot",
-    });
+    disposition = { mode: "abortOnly", reason: "failedRoot" };
   }
 
   if (current.claimFence >= MAX_PERSISTED_SIGNED_INT64_V1) {
@@ -1584,15 +1594,24 @@ async function acquireExecutionClaimInTransaction(
       reason: "claimMutationInvalid",
     });
   }
+  const observation = Object.freeze({
+    claimOwner: next.success.claimOwner,
+    claimFence: next.success.claimFence,
+    claimedAt: next.success.claimedAt.toISOString(),
+    claimExpiresAt: next.success.claimExpiresAt.toISOString(),
+  });
+  if (disposition.mode === "abortOnly") {
+    return Object.freeze({
+      kind: "acquired",
+      mode: disposition.mode,
+      reason: disposition.reason,
+      observation,
+    });
+  }
   return Object.freeze({
     kind: "acquired",
-    mode,
-    observation: Object.freeze({
-      claimOwner: next.success.claimOwner,
-      claimFence: next.success.claimFence,
-      claimedAt: next.success.claimedAt.toISOString(),
-      claimExpiresAt: next.success.claimExpiresAt.toISOString(),
-    }),
+    mode: disposition.mode,
+    observation,
   });
 }
 

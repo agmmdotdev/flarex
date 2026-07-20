@@ -62,6 +62,7 @@ import type {
 } from "@flarex/persistence-postgres/stored-occ-execution";
 import {
   PointMutationExecutionClaimAcquisitionInputV1Error,
+  PointMutationExecutionClaimAcquisitionStaleV1Error,
   type PointMutationExecutionClaimAcquisitionV1Error,
   type PointMutationSessionAttemptSelectorV1,
 } from
@@ -178,12 +179,17 @@ import {
 
 import {
   inspectLoadedPointMutationSessionAttemptV1,
+  PointMutationSessionAttemptTerminalizationContractV1Error,
   type PointMutationSessionAttemptLoadingExecutionV1Error,
   type PointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptTerminalizationExecutionV1Error,
   type PointMutationSessionAttemptTerminalizationV1,
   type LoadedPointMutationSessionAttemptV1,
 } from "./pointMutationSessionActivation";
+import type {
+  PointMutationSessionAttemptDispositionExecutionV1Error,
+  PointMutationSessionAttemptDispositionV1,
+} from "./pointMutationSessionAttemptDisposition";
 import type {
   PointMutationJournalAttemptV1,
   PointMutationJournalBoundaryV1Error,
@@ -201,13 +207,16 @@ import {
 import type { TransactionGrantVerifierV1 } from "./transactionGrant";
 import {
   InvalidPointMutationExecutionClaimV1Error,
+  type PointMutationAbortOnlyClaimStateV1,
+  type PointMutationAbortOnlyScopeV1,
   type PointMutationExecutionClaimV1,
-  type PointMutationExecutionClaimStateV1,
+  type PointMutationExecutionWorkClaimStateV1,
   type PointMutationExecutionScopeV1,
   type PointMutationExecutionClaimVaultV1,
 } from "./pointMutationExecutionClaim";
 import type {
   PointMutationExecutionClaimDispatchAcquisitionV1,
+  PointMutationExecutionClaimDispatchAcquisitionResultV1,
 } from "./pointMutationExecutionClaimAcquisition";
 import {
   findTransactionGrantVerificationKernelV1,
@@ -1188,6 +1197,7 @@ export interface StoredPointMutationCrashRedispatchConfigV1
   extends StoredPointMutationOccRerunExecutionConfigV1 {
   readonly pointMutationRedispatch: Readonly<{
     readonly acquisition: PointMutationExecutionClaimDispatchAcquisitionV1;
+    readonly disposition: PointMutationSessionAttemptDispositionV1;
   }>;
 }
 
@@ -1399,14 +1409,36 @@ export type PointMutationCrashRedispatchResultV1 =
   | PointCommitPublicationResultV1
   | Readonly<{ readonly kind: "busy" }>
   | Readonly<{
-      readonly kind: "nonDispatchable";
+      readonly kind: "closed";
       readonly reason: "dirtyOpen" | "failedRoot";
+      readonly lifecycle: "aborted" | "expired";
+      readonly terminalizedAt: string;
+    }>
+  | Readonly<{
+      readonly kind: "closed";
+      readonly reason: "authorityExpired";
+      readonly lifecycle: "expired";
+      readonly terminalizedAt: string;
     }>;
 
 export type PointMutationCrashRedispatchV1Error =
   | PointMutationExecutionClaimAcquisitionV1Error
   | InvalidPointMutationExecutionClaimV1Error
+  | PointMutationSessionAttemptDispositionExecutionV1Error
   | PointMutationAuthenticatedAttemptExecutionV1Error;
+
+type PointMutationRedispatchAcquisitionOrClosedV1 =
+  | Readonly<{
+      readonly kind: "acquisition";
+      readonly acquisition: PointMutationExecutionClaimDispatchAcquisitionResultV1;
+    }>
+  | Readonly<{
+      readonly kind: "closed";
+      readonly result: Extract<
+        PointMutationCrashRedispatchResultV1,
+        Readonly<{ readonly kind: "closed"; readonly reason: "authorityExpired" }>
+      >;
+    }>;
 
 export interface StoredPointMutationCrashRedispatchV1
   extends StoredPointMutationOccRerunExecutionV1 {
@@ -1505,6 +1537,13 @@ function isPointMutationExecutionClaimDispatchAcquisitionV1(
 ): value is PointMutationExecutionClaimDispatchAcquisitionV1 {
   return isNonArrayRecord(value) &&
     typeof Reflect.get(value, "acquireEffect") === "function";
+}
+
+function isPointMutationSessionAttemptDispositionV1(
+  value: unknown,
+): value is PointMutationSessionAttemptDispositionV1 {
+  return isNonArrayRecord(value) &&
+    typeof Reflect.get(value, "disposeAbortOnly") === "function";
 }
 
 function isStoredAttemptFinishingEvidenceLoaderPortV1(
@@ -1781,6 +1820,17 @@ export function createStoredAttemptAuthenticationV1(
       )
       ? pointMutationRedispatchAcquisitionCandidate
       : undefined;
+  const pointMutationRedispatchDispositionCandidate = isNonArrayRecord(
+      pointMutationRedispatchCandidate,
+    )
+    ? Reflect.get(pointMutationRedispatchCandidate, "disposition")
+    : undefined;
+  const pointMutationRedispatchDisposition =
+    isPointMutationSessionAttemptDispositionV1(
+        pointMutationRedispatchDispositionCandidate,
+      )
+      ? pointMutationRedispatchDispositionCandidate
+      : undefined;
 
   const finishingEvidenceLoader =
     isStoredAttemptFinishingEvidenceLoaderPortV1(loader) ? loader : undefined;
@@ -1809,7 +1859,7 @@ export function createStoredAttemptAuthenticationV1(
           }),
         });
         const claim = yield* Effect.fromResult(
-          executionClaims.admission.inspect(executionClaim).pipe(
+          executionClaims.admission.inspectStoredAttempt(executionClaim).pipe(
             Result.mapError(() => new InvalidStoredAttemptAuthorityV1Error({
               reason: "invalidExecutionClaim",
             })),
@@ -2184,7 +2234,7 @@ export function createStoredAttemptAuthenticationV1(
         }));
       }
       yield* Effect.fromResult(
-        executionClaims.admission.inspect(executionClaim).pipe(
+        executionClaims.admission.inspectStoredAttempt(executionClaim).pipe(
           Result.mapError(() => new InvalidPreparedPointCommitV1Error({
             reason: "executionClaimUnavailable",
           })),
@@ -2195,7 +2245,7 @@ export function createStoredAttemptAuthenticationV1(
           capturePointCommitFinishingTransitionCommand(state),
         ).pipe(
           Effect.tap(() => Effect.fromResult(
-            executionClaims.admission.consume(executionClaim).pipe(
+            executionClaims.admission.consumeStoredAttempt(executionClaim).pipe(
               Result.mapError(() => new PointCommitCorruptionV1Error({
                 reason: "finishingTransitionInvalid",
               })),
@@ -3345,7 +3395,10 @@ export function createStoredAttemptAuthenticationV1(
     ...authorization,
     executeAuthorizedPointMutationOccRerun,
   } satisfies StoredPointMutationOccRerunExecutionV1);
-  if (pointMutationRedispatchAcquisition === undefined) return occExecution;
+  if (
+    pointMutationRedispatchAcquisition === undefined ||
+    pointMutationRedispatchDisposition === undefined
+  ) return occExecution;
 
   const admitRedispatchClaim = (
     claim: unknown,
@@ -3353,13 +3406,28 @@ export function createStoredAttemptAuthenticationV1(
   ): Result.Result<
     Readonly<{
       readonly scope: PointMutationExecutionScopeV1;
-      readonly state: PointMutationExecutionClaimStateV1;
+      readonly state: PointMutationExecutionWorkClaimStateV1;
     }>,
     InvalidPointMutationExecutionClaimV1Error
   > =>
     Result.gen(function* () {
       const scope = yield* executionClaims.admission.admit(claim, mode);
       const state = yield* executionClaims.admission.inspect(scope, mode);
+      return Object.freeze({ scope, state });
+    });
+
+  const admitRedispatchAbortOnlyClaim = (
+    claim: unknown,
+  ): Result.Result<
+    Readonly<{
+      readonly scope: PointMutationAbortOnlyScopeV1;
+      readonly state: PointMutationAbortOnlyClaimStateV1;
+    }>,
+    InvalidPointMutationExecutionClaimV1Error
+  > =>
+    Result.gen(function* () {
+      const scope = yield* executionClaims.abortOnlyAdmission.admit(claim);
+      const state = yield* executionClaims.abortOnlyAdmission.inspect(scope);
       return Object.freeze({ scope, state });
     });
 
@@ -3406,6 +3474,82 @@ export function createStoredAttemptAuthenticationV1(
     const verifiedInput = yield* verifyCommitInput(authenticatedAuthority);
     const runningPlan = yield* planPointCommit(verifiedInput);
     return yield* finishPointCommit(runningPlan);
+  });
+
+  const disposeClaimedAbortOnlyAttempt = Effect.fn(
+    "StoredAttemptAuthentication.disposeClaimedAbortOnlyAttempt",
+  )(function* (
+    selector: PointMutationSessionAttemptSelectorV1,
+    executionScope: PointMutationAbortOnlyScopeV1,
+    reason: "dirtyOpen" | "failedRoot",
+  ) {
+    const loadedAttempt = yield* pointMutationOccAttemptLoading.load({
+      ...selector,
+      attemptFence: selector.attemptFence.toString(),
+    });
+    const disposition = yield* pointMutationRedispatchDisposition
+      .disposeAbortOnly(loadedAttempt, executionScope);
+    return Object.freeze({
+      kind: "closed" as const,
+      reason,
+      lifecycle: disposition.terminal.lifecycle,
+      terminalizedAt: disposition.terminal.terminalizedAt,
+    });
+  });
+
+  const closeExpiredRedispatchAttempt = Effect.fn(
+    "StoredAttemptAuthentication.closeExpiredRedispatchAttempt",
+  )(function* (selectorInput: unknown) {
+    const terminalization = yield* pointMutationOccTerminalization.expire(
+      selectorInput,
+    );
+    if (terminalization.terminal.lifecycle !== "expired") {
+      return yield* Effect.fail(
+        new PointMutationSessionAttemptTerminalizationContractV1Error({
+          reason: "invalidStatusOrLifecycle",
+        }),
+      );
+    }
+    return Object.freeze({
+      kind: "closed" as const,
+      reason: "authorityExpired" as const,
+      lifecycle: "expired" as const,
+      terminalizedAt: terminalization.terminal.terminalizedAt,
+    });
+  });
+
+  const acquireRedispatchAttemptOrCloseExpired = Effect.fn(
+    "StoredAttemptAuthentication.acquireRedispatchAttemptOrCloseExpired",
+  )(function* (
+    selectorInput: unknown,
+  ): Effect.fn.Return<
+    PointMutationRedispatchAcquisitionOrClosedV1,
+    | PointMutationExecutionClaimAcquisitionV1Error
+    | PointMutationSessionAttemptTerminalizationExecutionV1Error
+  > {
+    return yield* pointMutationRedispatchAcquisition.acquireEffect(
+      selectorInput,
+    ).pipe(
+      Effect.map((acquisition): PointMutationRedispatchAcquisitionOrClosedV1 =>
+        Object.freeze({ kind: "acquisition" as const, acquisition })
+      ),
+      Effect.catch((error): Effect.Effect<
+        PointMutationRedispatchAcquisitionOrClosedV1,
+        | PointMutationExecutionClaimAcquisitionV1Error
+        | PointMutationSessionAttemptTerminalizationExecutionV1Error
+      > =>
+        error instanceof PointMutationExecutionClaimAcquisitionStaleV1Error &&
+          (error.reason === "leaseExpired" ||
+            error.reason === "authorizationExpired")
+          ? closeExpiredRedispatchAttempt(selectorInput).pipe(
+              Effect.map((result) => Object.freeze({
+                kind: "closed" as const,
+                result,
+              })),
+            )
+          : Effect.fail(error)
+      ),
+    );
   });
 
   const executeClaimedPristineAttempt = Effect.fn(
@@ -3546,41 +3690,55 @@ export function createStoredAttemptAuthenticationV1(
         sessionId: selector.sessionId,
         attemptFence: selector.attemptFence.toString(),
       });
-      const acquisition = yield* pointMutationRedispatchAcquisition.acquireEffect(
+      const acquisitionOrClosed = yield* acquireRedispatchAttemptOrCloseExpired(
         ownedSelectorInput,
       );
+      if (acquisitionOrClosed.kind === "closed") {
+        return acquisitionOrClosed.result;
+      }
+      const acquisition = acquisitionOrClosed.acquisition;
       switch (acquisition.kind) {
         case "replayed":
           return publicationResultFromCommittedOutcome(acquisition.outcome);
         case "busy":
           return Object.freeze({ kind: "busy" as const });
-        case "nonDispatchable":
-          return Object.freeze({
-            kind: "nonDispatchable" as const,
-            reason: acquisition.reason,
-          });
         case "finishing":
           // The acquisition result grants nothing. C05-B independently loads
           // finishing + sealed + no-claim evidence before minting authority.
           return yield* resumeRedispatchedFinishingAttempt(ownedSelectorInput);
         case "acquired": {
-          // Synchronously and irreversibly consume the same-factory claim
-          // before the next asynchronous yield.
-          const admitted = yield* Effect.fromResult(
-            admitRedispatchClaim(
-              acquisition.executionClaim,
-              acquisition.mode,
-            ),
-          );
-          return acquisition.mode === "execute"
-            ? yield* executeClaimedPristineAttempt(
-                admitted.state.selector,
-                admitted.scope,
-              )
-            : yield* finishClaimedSealedAttempt(
+          switch (acquisition.mode) {
+            case "execute": {
+              // Synchronously and irreversibly consume the same-factory claim
+              // before the next asynchronous yield.
+              const admitted = yield* Effect.fromResult(
+                admitRedispatchClaim(acquisition.executionClaim, "execute"),
+              );
+              return yield* executeClaimedPristineAttempt(
                 admitted.state.selector,
                 admitted.scope,
               );
+            }
+            case "finishOnly": {
+              const admitted = yield* Effect.fromResult(
+                admitRedispatchClaim(acquisition.executionClaim, "finishOnly"),
+              );
+              return yield* finishClaimedSealedAttempt(
+                admitted.state.selector,
+                admitted.scope,
+              );
+            }
+            case "abortOnly": {
+              const admitted = yield* Effect.fromResult(
+                admitRedispatchAbortOnlyClaim(acquisition.executionClaim),
+              );
+              return yield* disposeClaimedAbortOnlyAttempt(
+                admitted.state.selector,
+                admitted.scope,
+                admitted.state.reason,
+              );
+            }
+          }
         }
       }
     });

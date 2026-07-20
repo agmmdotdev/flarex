@@ -588,12 +588,34 @@ describe("O03-B1 point-mutation session activation", () => {
       [dirty.anchor.sessionId],
     );
     await expireExecutionClaim(dirty.anchor.sessionId);
-    await expect(runEffect(
+    const dirtyAcquisition = await runEffect(
       executionClaimAcquisition("42000000-0000-4000-8000-000000008012")
         .acquireEffect(selectorFromAnchor(dirty.anchor)),
-    )).resolves.toEqual({ kind: "nonDispatchable", reason: "dirtyOpen" });
+    );
+    expect(dirtyAcquisition).toMatchObject({
+      kind: "acquired",
+      mode: "abortOnly",
+      reason: "dirtyOpen",
+      observation: {
+        claimOwner: "42000000-0000-4000-8000-000000008012",
+        claimFence: 2n,
+      },
+    });
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008092")
+        .acquireEffect(selectorFromAnchor(dirty.anchor)),
+    )).resolves.toMatchObject({
+      kind: "busy",
+      observation: {
+        claimOwner: "42000000-0000-4000-8000-000000008012",
+        claimFence: 2n,
+      },
+    });
     await expect(executionClaimRow(dirty.anchor.sessionId)).resolves
-      .toMatchObject({ claim_fence: "1" });
+      .toMatchObject({
+        claim_fence: "2",
+        claim_owner: "42000000-0000-4000-8000-000000008012",
+      });
 
     const failed = await activateClaimScenario("claim_failed");
     await persistence.query(
@@ -604,10 +626,19 @@ describe("O03-B1 point-mutation session activation", () => {
       [failed.anchor.sessionId],
     );
     await expireExecutionClaim(failed.anchor.sessionId);
-    await expect(runEffect(
+    const failedAcquisition = await runEffect(
       executionClaimAcquisition("42000000-0000-4000-8000-000000008013")
         .acquireEffect(selectorFromAnchor(failed.anchor)),
-    )).resolves.toEqual({ kind: "nonDispatchable", reason: "failedRoot" });
+    );
+    expect(failedAcquisition).toMatchObject({
+      kind: "acquired",
+      mode: "abortOnly",
+      reason: "failedRoot",
+      observation: {
+        claimOwner: "42000000-0000-4000-8000-000000008013",
+        claimFence: 2n,
+      },
+    });
 
     const exhausted = await activateClaimScenario("claim_exhausted");
     await persistence.query(

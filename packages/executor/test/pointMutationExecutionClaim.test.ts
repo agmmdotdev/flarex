@@ -82,10 +82,15 @@ describe("B2b1/C06-A execution-claim capability projection", () => {
   it("mints one frozen same-factory claim only from a settled acquisition", async () => {
     const claims = createPointMutationExecutionClaimVaultV1();
     const crossFactory = createPointMutationExecutionClaimVaultV1();
-    expect(Object.keys(claims).sort()).toEqual(["admission", "issuer"]);
+    expect(Object.keys(claims).sort()).toEqual([
+      "abortOnlyAdmission",
+      "admission",
+      "issuer",
+    ]);
     expect(Object.isFrozen(claims)).toBe(true);
     expect(Object.isFrozen(claims.issuer)).toBe(true);
     expect(Object.isFrozen(claims.admission)).toBe(true);
+    expect(Object.isFrozen(claims.abortOnlyAdmission)).toBe(true);
     expect("mint" in claims.admission).toBe(false);
     expect("inspect" in claims.issuer).toBe(false);
     const sourceObservation = { ...OBSERVATION };
@@ -142,11 +147,99 @@ describe("B2b1/C06-A execution-claim capability projection", () => {
     });
   });
 
-  it("passes inert closed outcomes through and mints nothing after failure", async () => {
+  it("confines abort-only claims to a distinct same-factory single-use scope", async () => {
+    const claims = createPointMutationExecutionClaimVaultV1();
+    const crossFactory = createPointMutationExecutionClaimVaultV1();
+    const sourceObservation = { ...OBSERVATION };
+    const acquisition = createPointMutationExecutionClaimDispatchAcquisitionV1(
+      persistenceAcquisition(() => Effect.succeed({
+        kind: "acquired",
+        mode: "abortOnly",
+        reason: "dirtyOpen",
+        observation: sourceObservation,
+      })),
+      claims.issuer,
+    );
+    const result = await runEffect(acquisition.acquireEffect(SELECTOR));
+    if (result.kind !== "acquired" || result.mode !== "abortOnly") {
+      throw new Error("Expected a process-local abort-only claim.");
+    }
+    sourceObservation.claimFence =
+      TransactionExecutionClaimFenceV1Schema.make(99n);
+
+    expect(claims.admission.admit(result.executionClaim, "execute"))
+      .toMatchObject({
+        _tag: "Failure",
+        failure: { reason: "modeUnavailable" },
+      });
+    expect(claims.admission.admit(result.executionClaim, "finishOnly"))
+      .toMatchObject({
+        _tag: "Failure",
+        failure: { reason: "modeUnavailable" },
+      });
+    expect(crossFactory.abortOnlyAdmission.admit(result.executionClaim))
+      .toMatchObject({
+        _tag: "Failure",
+        failure: { reason: "notSameFactory" },
+      });
+
+    const admitted = claims.abortOnlyAdmission.admit(result.executionClaim);
+    expect(Result.isSuccess(admitted)).toBe(true);
+    if (Result.isFailure(admitted)) throw admitted.failure;
+    expect(Object.isFrozen(admitted.success)).toBe(true);
+    expect(claims.abortOnlyAdmission.inspect(admitted.success)).toMatchObject({
+      _tag: "Success",
+      success: {
+        selector: {
+          deploymentId: DEPLOYMENT_ID,
+          scopeId: SCOPE_ID,
+          sessionId: SESSION_ID,
+          attemptFence: ATTEMPT_FENCE,
+        },
+        observation: OBSERVATION,
+        mode: "abortOnly",
+        reason: "dirtyOpen",
+      },
+    });
+    expect(claims.admission.inspectStoredAttempt(admitted.success))
+      .toMatchObject({
+        _tag: "Failure",
+        failure: { reason: "notSameFactory" },
+      });
+    expect(claims.abortOnlyAdmission.consume(admitted.success)).toMatchObject({
+      _tag: "Success",
+      success: { mode: "abortOnly", reason: "dirtyOpen" },
+    });
+    expect(claims.abortOnlyAdmission.consume(admitted.success)).toMatchObject({
+      _tag: "Failure",
+      failure: { reason: "consumed" },
+    });
+    expect(claims.abortOnlyAdmission.admit(result.executionClaim)).toMatchObject({
+      _tag: "Failure",
+      failure: { reason: "consumed" },
+    });
+
+    const executeClaim = claims.issuer.mint({
+      selector: {
+        deploymentId: DEPLOYMENT_ID,
+        scopeId: SCOPE_ID,
+        sessionId: SESSION_ID,
+        attemptFence: ATTEMPT_FENCE,
+      },
+      observation: OBSERVATION,
+      mode: "execute",
+    });
+    expect(claims.abortOnlyAdmission.admit(executeClaim)).toMatchObject({
+      _tag: "Failure",
+      failure: { reason: "modeUnavailable" },
+    });
+  });
+
+  it("passes inert non-authorizing outcomes through and mints nothing after failure", async () => {
     const claims = createPointMutationExecutionClaimVaultV1();
     for (const inert of [
       { kind: "busy" as const, observation: OBSERVATION },
-      { kind: "nonDispatchable" as const, reason: "dirtyOpen" as const },
+      { kind: "finishing" as const },
     ]) {
       const acquisition = createPointMutationExecutionClaimDispatchAcquisitionV1(
         persistenceAcquisition(() => Effect.succeed(inert)),

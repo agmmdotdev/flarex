@@ -28,10 +28,11 @@ user-code rerun composition are complete. O08-B2b0's Postgres claim-authority
 decision and the integrated O08-B2b1/C06-A durable claim-admission foundation,
 O08-CD0's transaction-decision provenance, O08-C's bounded known-settled SQL
 transaction retry, and O08-D's bounded uncertain-outcome recovery are complete;
-O08-B2b2a's private exact-selector safe-state redispatch composition and O08-
-B2b2b1's bounded inert scope-local discovery are complete. O08-B2b2b2
-scheduling/redelivery and production dispatch plus C06-B endpoint/response
-policy remain pending. C04C2
+O08-B2b2a's private exact-selector safe-state redispatch composition, O08-
+B2b2b1's bounded inert scope-local discovery, and O08-B2b2b2a's durable dirty/
+failed-attempt disposition are complete. O08-B2b2b2b execution-claim liveness/
+renewal and production scheduling/redelivery plus C06-B endpoint/response policy
+remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -748,8 +749,10 @@ Deferred ownership after the required O03-B core:
   creation, outcome-first acquisition/takeover, claim-fenced admission, and
   C05-A consumption. `O08-B2b2a` now composes only explicit-selector safe
   states over that directly settled claim. `O08-B2b2b1` now supplies bounded
-  inert discovery; `O08-B2b2b2` and `C06-B` retain scheduling/redelivery,
-  production dispatch liveness, and endpoint/response policy. `O08-C` owns
+  inert discovery, and `O08-B2b2b2a` owns claim-fenced dirty/failed-attempt
+  disposition. `O08-B2b2b2b` and `C06-B` retain execution-claim liveness/
+  renewal, scheduling/redelivery, production dispatch liveness, and endpoint/
+  response policy. `O08-C` owns
   known-settled SQL retry, and
   `O08-D` owns uncertain-outcome lookup policy; and
 - `O11` first introduces the active-floor query and engine-history cleanup
@@ -1103,9 +1106,8 @@ claim remains an unrelated post-commit authority.
 ###### [x] O08-B2b2a — Compose Selector-Driven Host-Neutral Recovery
 
 One package-private factory operation now accepts an exact selector and first
-uses the C06-A outcome-first acquisition. Matching replay/expiry closes; live
-ownership returns busy; dirty-open and failed roots remain non-dispatchable.
-Only a directly settled same-factory `execute` claim can reauthenticate one
+uses the C06-A outcome-first acquisition. Matching replay/expiry closes and live
+ownership returns busy. Only a directly settled same-factory `execute` claim can reauthenticate one
 pristine open attempt and invoke the runtime-neutral runner once. Only a
 directly settled `finishOnly` claim can authenticate a running sealed attempt,
 pass C05-A, and publish without user code. Durable `finishing + sealed` grants
@@ -1132,14 +1134,45 @@ most skip or repeat bounded inert hints, concurrent mutation may defer or repeat
 hints across sweeps, and later pages retain the first horizon so new eligibility
 waits for a fresh sweep.
 
-###### [ ] O08-B2b2b2 — Add Scheduling And Host Dispatch Policy
+###### [x] O08-B2b2b2a — Durably Dispose Non-Dispatchable Attempts
 
-Scheduling/redelivery, dirty-attempt disposition, optional renewal/heartbeat if
-proven, authenticated runtime routing, Dynamic Worker integration, and
-production dispatch liveness remain unapproved. Lifecycle, persisted claim
-fields, and discovery hints alone never mint execution authority, and the later
-host must preserve outcome-first, stale-fence, interruption, and uncertain-
-outcome rules without creating another publication or delivery authority.
+The existing outcome-first C06-A acquisition has a private `abortOnly` mode.
+One locked transaction may select it only after proving a missing committed
+outcome, the exact current running attempt and fence, an expired execution
+claim, live lease/grant/hard authority under database time, and a dirty-open or
+failed root. It advances the server owner and checked claim fence using the
+existing takeover mutation; a live claim remains busy.
+
+Only the directly settled same-factory acquisition may mint the separate
+single-use `abortOnly` capability, and it is admitted synchronously before any
+asynchronous work. General stored-attempt authority, execute, finish-only,
+runner, journal/syscall, point, seal, C05-A, publication, and ordinary cleanup
+paths reject that capability family. Its dedicated consumer reloads and
+compares the exact current attempt, then invokes existing claim-fenced abort
+terminalization with the captured snapshot and owner/fence. That terminalizer
+independently relocks and revalidates authority and database-time liveness,
+cascades the claim/journal/children, removes the lease, and chooses durable
+`aborted | expired`. The closed result carries only the redacted source reason
+and terminal lifecycle/time; it is not a committed outcome, replay token, or
+retry authority.
+
+Direct source-owned `leaseExpired | authorizationExpired` acquisition failure
+uses the independently proven selector-expiry operation and returns only durable
+`expired` lifecycle evidence. If a process crashes after `abortOnly` takeover
+but before terminalization, the new live claim suppresses discovery; recovery
+waits for its database-time expiry and re-enters the same outcome-first path.
+Discovery, schemas, lifecycle vocabulary, publication facts, and claim duration
+are unchanged.
+
+###### [ ] O08-B2b2b2b — Prove Execution-Claim Liveness And Schedule Dispatch
+
+Execution-claim renewal/heartbeat, scheduling/redelivery, authenticated runtime
+routing, Dynamic Worker integration, and production dispatch liveness remain
+unapproved. This claim-liveness gate is distinct from conditional O03-B2b2
+snapshot-lease renewal. Lifecycle, persisted claim fields, and discovery hints
+alone never mint execution authority, and the later host must preserve outcome-
+first, stale-fence, interruption, and uncertain-outcome rules without creating
+another publication or delivery authority.
 
 ##### [ ] C06-B — Add Stable Endpoint And Response Policy
 
@@ -1148,13 +1181,17 @@ plan. B2b2a is a private composition proof, not dispatcher or route completion.
 
 Path classification remains clean replacement:
 
-- keep the current O08-A/B1/B2a behavior, the B2b1/C06-A claim-fenced
-  composition, and the B2b2a private safe-state composer in
-  `packages/executor/src/storedAttemptAuthentication.ts` and
-  `packages/persistence-postgres/src/pointCommitTransaction.ts`;
-- keep the claim-fenced journal/session admission in `sessionJournalStore.ts`
-  and `transactionSessionActivation.ts`; later B2b2b2/C06-B work must compose it
-  rather than adding a parallel authority;
+- keep the current O08-A/B1/B2a behavior, B2b1/C06-A claim-fenced composition,
+  and B2b2a private safe-state composer in
+  `packages/executor/src/storedAttemptAuthentication.ts`;
+- keep the separate B2b2b2a capability and disposition operation in
+  `packages/executor/src/pointMutationExecutionClaim.ts` and
+  `packages/executor/src/pointMutationSessionAttemptDisposition.ts`, with
+  acquisition and terminalization persistence remaining owned by
+  `packages/persistence-postgres/src/transactionSessionActivation.ts`;
+- keep the claim-fenced journal admission in `sessionJournalStore.ts`; later
+  B2b2b2b/C06-B work must compose these owners rather than adding parallel
+  authority;
 - keep `commitWakeOutbox.ts` and its S09-B post-commit claim separate; and
 - delete rather than port `packages/executor/src/retry.ts` and the legacy
   session/commit/runtime-persistence path at target activation.
@@ -1236,8 +1273,10 @@ Exit gate:
   outcome, liveness, and canonical-input reauthentication;
 - O08-B2b1/C06-A supplies one exact-attempt durable claim and universal
   claim-fenced admission, O08-B2b2a composes the explicit-selector safe states,
-  and O08-B2b2b1 supplies bounded inert discovery; B2b2b2 scheduling/redelivery
-  and production dispatch plus C06-B endpoint and response policy remain pending;
+  O08-B2b2b1 supplies bounded inert discovery, and O08-B2b2b2a durably disposes
+  expired dirty/failed attempts without execution or retry authority; B2b2b2b
+  claim liveness and scheduling/redelivery plus C06-B endpoint and response
+  policy remain pending;
 - O08-CD0 alone owns decision provenance; it does not retry a transaction or
   resolve a missing uncertain outcome;
 - O08-C SQL retries do not rerun user code;

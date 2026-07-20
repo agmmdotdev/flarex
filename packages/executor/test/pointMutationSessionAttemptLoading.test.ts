@@ -43,6 +43,10 @@ import {
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../src/pointMutationSessionActivation";
 import {
+  createPointMutationSessionAttemptDispositionV1,
+  PointMutationSessionAttemptDispositionStateV1Error,
+} from "../src/pointMutationSessionAttemptDisposition";
+import {
   createPointMutationExecutionClaimVaultV1,
 } from "../src/pointMutationExecutionClaim";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -77,6 +81,16 @@ type RootAttemptLoadingExport = Extract<
 type RootAttemptTerminalizationExport = Extract<
   keyof typeof import("../src"),
   "createPointMutationSessionAttemptTerminalizationV1"
+>;
+
+type RootAttemptDispositionExport = Extract<
+  keyof typeof import("../src"),
+  "createPointMutationSessionAttemptDispositionV1"
+>;
+
+type SessionSubpathDispositionExport = Extract<
+  keyof typeof import("../src/pointMutationSessionActivation"),
+  "createPointMutationSessionAttemptDispositionV1"
 >;
 
 describe("O03-B2a point-mutation attempt loading", () => {
@@ -475,6 +489,116 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
   });
 });
 
+describe("O08-B2b2b2a abort-only attempt disposition", () => {
+  it("keeps disposition private and consumes only a genuine abort-only scope", async () => {
+    expectTypeOf<RootAttemptDispositionExport>().toEqualTypeOf<never>();
+    expectTypeOf<SessionSubpathDispositionExport>().toEqualTypeOf<never>();
+    const loaded = await runEffect(
+      createPointMutationSessionAttemptLoadingV1({
+        loadEffect: (selector) => Effect.succeed(loadResult(selector)),
+      }).load(SELECTOR),
+    );
+    const abortOnly = abortOnlyExecutionClaimHarness("dirtyOpen");
+    const execute = executionClaimHarness();
+    let calls = 0;
+    const disposition = createPointMutationSessionAttemptDispositionV1({
+      abortEffect: (input) => Effect.sync(() => {
+        calls += 1;
+        expect(input.executionClaim).toEqual({
+          claimOwner: abortOnly.observation.claimOwner,
+          claimFence: abortOnly.observation.claimFence,
+        });
+        return terminalizationResult(
+          input.selector,
+          "terminalized",
+          "aborted",
+        );
+      }),
+    }, abortOnly.claims.abortOnlyAdmission);
+
+    await expect(runEffect(disposition.disposeAbortOnly(
+      loaded,
+      abortOnly.scope,
+    ))).resolves.toMatchObject({
+      status: "terminalized",
+      terminal: { lifecycle: "aborted" },
+    });
+    expect(calls).toBe(1);
+    await expect(runEffectFailure(disposition.disposeAbortOnly(
+      loaded,
+      abortOnly.scope,
+    ))).resolves.toMatchObject({
+      _tag: "InvalidPointMutationExecutionClaimV1Error",
+      reason: "consumed",
+    });
+    expect(calls).toBe(1);
+
+    await expect(runEffectFailure(Reflect.apply(
+      disposition.disposeAbortOnly,
+      disposition,
+      [loaded, execute.scope],
+    ))).resolves.toMatchObject({
+      _tag: "InvalidPointMutationExecutionClaimV1Error",
+      reason: "notSameFactory",
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("rejects pristine or selector-mismatched loaded state before terminalization I/O", async () => {
+    let calls = 0;
+    const createDisposition = (
+      claims: ReturnType<typeof createPointMutationExecutionClaimVaultV1>,
+    ) => createPointMutationSessionAttemptDispositionV1({
+      abortEffect: (input) => Effect.sync(() => {
+        calls += 1;
+        return terminalizationResult(
+          input.selector,
+          "terminalized",
+          "aborted",
+        );
+      }),
+    }, claims.abortOnlyAdmission);
+
+    const pristine = await runEffect(
+      createPointMutationSessionAttemptLoadingV1({
+        loadEffect: (selector) => Effect.succeed(Object.freeze({
+          ...loadResult(selector),
+          attemptFacet: Object.freeze({ kind: "pristineOpen" as const }),
+        })),
+      }).load(SELECTOR),
+    );
+    const pristineClaim = abortOnlyExecutionClaimHarness("dirtyOpen");
+    await expect(runEffectFailure(
+      createDisposition(pristineClaim.claims).disposeAbortOnly(
+        pristine,
+        pristineClaim.scope,
+      ),
+    )).resolves.toBeInstanceOf(
+      PointMutationSessionAttemptDispositionStateV1Error,
+    );
+
+    const mismatchedSessionId = TransactionSessionIdV1Schema.make(
+      "70000000-0000-4000-8000-000000000099",
+    );
+    const mismatched = await runEffect(
+      createPointMutationSessionAttemptLoadingV1({
+        loadEffect: (selector) => Effect.succeed(loadResult(selector)),
+      }).load({ ...SELECTOR, sessionId: mismatchedSessionId }),
+    );
+    const mismatchedClaim = abortOnlyExecutionClaimHarness("failedRoot");
+    await expect(runEffectFailure(
+      createDisposition(mismatchedClaim.claims).disposeAbortOnly(
+        mismatched,
+        mismatchedClaim.scope,
+      ),
+    )).resolves.toMatchObject({
+      _tag: "InvalidPointMutationExecutionClaimV1Error",
+      reason: "notSameFactory",
+    });
+    expect(calls).toBe(0);
+  });
+});
+
 function loadResult(
   selector: PointMutationSessionAttemptSelectorV1,
 ): PointMutationSessionAttemptLoadResultV1 {
@@ -588,6 +712,31 @@ function executionClaimHarness() {
     claims,
     scope: Effect.runSync(Effect.fromResult(
       claims.admission.admit(claim, "execute"),
+    )),
+  });
+}
+
+function abortOnlyExecutionClaimHarness(reason: "dirtyOpen" | "failedRoot") {
+  const claims = createPointMutationExecutionClaimVaultV1();
+  const observation = Object.freeze({
+    claimOwner: TransactionExecutionClaimOwnerV1Schema.make(
+      "70000000-0000-4000-8000-000000000003",
+    ),
+    claimFence: TransactionExecutionClaimFenceV1Schema.make(2n),
+    claimedAt: "2026-07-15T00:01:00.000Z",
+    claimExpiresAt: "2098-12-31T23:59:00.000Z",
+  });
+  const claim = claims.issuer.mint({
+    selector: typedSelector(),
+    observation,
+    mode: "abortOnly",
+    reason,
+  });
+  return Object.freeze({
+    claims,
+    observation,
+    scope: Effect.runSync(Effect.fromResult(
+      claims.abortOnlyAdmission.admit(claim),
     )),
   });
 }
