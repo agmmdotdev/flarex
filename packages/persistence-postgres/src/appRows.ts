@@ -277,6 +277,25 @@ export class AppRowStorageCorruptionError extends Error {
   }
 }
 
+export type AppendAppRowRevisionV1Error =
+  | InvalidAppRowRevisionV1InputError
+  | AppRowScopeAuthorityUnavailableError
+  | AppRowRevisionAlreadyExistsError
+  | AppRowRevisionChainConflictError
+  | AppRowCreationTimeConflictError
+  | AppRowStorageCorruptionError;
+
+export function isAppendAppRowRevisionV1Error(
+  cause: unknown,
+): cause is AppendAppRowRevisionV1Error {
+  return cause instanceof InvalidAppRowRevisionV1InputError ||
+    cause instanceof AppRowScopeAuthorityUnavailableError ||
+    cause instanceof AppRowRevisionAlreadyExistsError ||
+    cause instanceof AppRowRevisionChainConflictError ||
+    cause instanceof AppRowCreationTimeConflictError ||
+    cause instanceof AppRowStorageCorruptionError;
+}
+
 export type InvalidAppRowReadInputIssue =
   | Readonly<{ readonly reason: "invalidSnapshotToken"; readonly cause: unknown }>
   | Readonly<{ readonly reason: "invalidScopeId"; readonly cause: unknown }>
@@ -549,24 +568,28 @@ export async function appendAppRowRevisionAndAdvanceCurrentInTransaction(
   input: AppendAppRowRevisionV1Input,
 ): Promise<AppRowRevisionV1> {
   const decoded = await decodeAppendInput(tx, input);
-  return appendDecodedAppRowRevisionAndAdvanceCurrentInTransaction(
-    tx,
-    decoded,
+  return Result.getOrThrow(
+    await appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
+      tx,
+      decoded,
+    ),
   );
 }
 
 /**
- * Internal O06/O07 lowering primitive. Canonical document verification must
- * already have completed before the transaction starts.
+ * Internal O06/O07 Result bridge for Drizzle's Promise transaction callback.
+ * SQL rejection remains a rejected Promise so the callback rolls back; owned
+ * app-row validation and invariant failures are returned as data.
  */
-export async function appendPreparedAppRowRevisionAndAdvanceCurrentInTransaction(
+export async function appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
   tx: AppRowTransaction,
   input: AppendPreparedAppRowRevisionV1Input,
-): Promise<AppRowRevisionV1> {
-  const decoded = await decodePreparedAppendInput(tx, input);
-  return appendDecodedAppRowRevisionAndAdvanceCurrentInTransaction(
+): Promise<Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>> {
+  const decoded = await decodePreparedAppendInputResult(tx, input);
+  if (Result.isFailure(decoded)) return Result.fail(decoded.failure);
+  return appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
     tx,
-    decoded,
+    decoded.success,
   );
 }
 
@@ -585,10 +608,10 @@ type DecodedAppendAppRowRevisionV1 =
       readonly writeEpochUuid: ScopeEpochUuidV1;
     });
 
-async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransaction(
+async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
   tx: AppRowTransaction,
   decoded: DecodedAppendAppRowRevisionV1,
-): Promise<AppRowRevisionV1> {
+): Promise<Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>> {
   const inserted = await tx
     .insert(fxAppRowRevisions)
     .values({
@@ -610,10 +633,10 @@ async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransaction(
     .onConflictDoNothing()
     .returning({ commitSeq: fxAppRowRevisions.commitSeq });
   if (inserted[0] === undefined) {
-    throw new AppRowRevisionAlreadyExistsError(
+    return Result.fail(new AppRowRevisionAlreadyExistsError(
       decoded.identity,
       decoded.commitSeq,
-    );
+    ));
   }
 
   const advanced =
@@ -644,20 +667,22 @@ async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransaction(
           )
           .returning({ commitSeq: fxAppRowCurrent.commitSeq });
   if (advanced[0] === undefined) {
-    await deleteInsertedRevisionInTransaction(tx, decoded);
-    const actual = await readCurrentPointerCommitSeq(
+    const deleted = await deleteInsertedRevisionInTransactionResult(tx, decoded);
+    if (Result.isFailure(deleted)) return Result.fail(deleted.failure);
+    const actual = await readCurrentPointerCommitSeqResult(
       tx,
       decoded.scopeUuid,
       decoded.identity,
     );
-    throw new AppRowRevisionChainConflictError(
+    if (Result.isFailure(actual)) return Result.fail(actual.failure);
+    return Result.fail(new AppRowRevisionChainConflictError(
       decoded.identity,
       decoded.prevCommitSeq,
-      actual,
-    );
+      actual.success,
+    ));
   }
 
-  return decoded.kind === "live"
+  return Result.succeed(decoded.kind === "live"
     ? Object.freeze({
         kind: "live",
         ...decoded.identity,
@@ -678,17 +703,17 @@ async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransaction(
         prevCommitSeq: decoded.prevCommitSeq,
         schemaVersionId: decoded.schemaVersionId,
         creationTime: decoded.creationTime,
-      } satisfies TombstoneAppRowRevisionV1);
+      } satisfies TombstoneAppRowRevisionV1));
 }
 
-async function deleteInsertedRevisionInTransaction(
+async function deleteInsertedRevisionInTransactionResult(
   tx: AppRowTransaction,
   revision: {
     readonly identity: AppRowIdentityV1;
     readonly scopeUuid: ScopeUuidV1;
     readonly commitSeq: CommitSeq;
   },
-): Promise<void> {
+): Promise<Result.Result<void, AppRowStorageCorruptionError>> {
   const deleted = await tx
     .delete(fxAppRowRevisions)
     .where(
@@ -704,11 +729,12 @@ async function deleteInsertedRevisionInTransaction(
     )
     .returning({ commitSeq: fxAppRowRevisions.commitSeq });
   if (deleted[0] === undefined) {
-    throw new AppRowStorageCorruptionError(
+    return Result.fail(new AppRowStorageCorruptionError(
       revision.identity,
       `rejected revision ${revision.commitSeq} could not be removed`,
-    );
+    ));
   }
+  return Result.succeed(undefined);
 }
 
 type AppRowRevisionRow = typeof fxAppRowRevisions.$inferSelect;
@@ -969,6 +995,15 @@ async function requireScopeUuidInTransaction(
   tx: AppRowTransaction,
   scopeId: ScopeId,
 ): Promise<ScopeUuidV1> {
+  return Result.getOrThrow(
+    await requireScopeUuidInTransactionResult(tx, scopeId),
+  );
+}
+
+async function requireScopeUuidInTransactionResult(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+): Promise<Result.Result<ScopeUuidV1, AppRowScopeAuthorityUnavailableError>> {
   // Temporary write-side Promise bridge. The point-commit mutation graph is
   // its concrete consumer; delete this when that ordered transaction migrates.
   const projection = projectScopeIdUuidV1(scopeId);
@@ -976,9 +1011,9 @@ async function requireScopeUuidInTransaction(
   const rows = await query;
   const row = rows[0];
   if (row?.scopeUuid !== projection.scopeUuid) {
-    throw new AppRowScopeAuthorityUnavailableError(scopeId);
+    return Result.fail(new AppRowScopeAuthorityUnavailableError(scopeId));
   }
-  return decodeScopeUuidV1(row.scopeUuid);
+  return Result.succeed(decodeScopeUuidV1(row.scopeUuid));
 }
 
 function selectScopeAuthorityRows(
@@ -1099,41 +1134,53 @@ async function decodeAppendInput(
   return Object.freeze({ ...base, kind: "live", document });
 }
 
-async function decodePreparedAppendInput(
+async function decodePreparedAppendInputResult(
   tx: AppRowTransaction,
   input: AppendPreparedAppRowRevisionV1Input,
-): Promise<DecodedAppendAppRowRevisionV1> {
+): Promise<Result.Result<
+  DecodedAppendAppRowRevisionV1,
+  AppendAppRowRevisionV1Error
+>> {
   const identity = decodeIdentity(input);
-  const scopeUuid = await requireScopeUuidInTransaction(tx, identity.scopeId);
-  const commitSeq = requirePositiveCommitSeq(input.commitSeq);
+  const scopeUuid = await requireScopeUuidInTransactionResult(
+    tx,
+    identity.scopeId,
+  );
+  if (Result.isFailure(scopeUuid)) return Result.fail(scopeUuid.failure);
+  const commitSeq = requirePositiveCommitSeqResult(input.commitSeq);
+  if (Result.isFailure(commitSeq)) return Result.fail(commitSeq.failure);
   const prevCommitSeq = input.prevCommitSeq === null
-    ? null
-    : requirePreviousCommitSeq(input.prevCommitSeq, commitSeq);
+    ? Result.succeed<CommitSeq | null>(null)
+    : requirePreviousCommitSeqResult(input.prevCommitSeq, commitSeq.success);
+  if (Result.isFailure(prevCommitSeq)) return Result.fail(prevCommitSeq.failure);
   const writeEpochUuid = projectScopeEpochUuidV1(input.writeEpoch).epochUuid;
   const schemaVersionId = decodeCatalogSchemaVersionId(input.schemaVersionId);
   const creationTime = decodeAppCreationTimeV1(input.creationTime);
-  if (prevCommitSeq !== null) {
-    await requireImmutableCreationTime(
+  if (prevCommitSeq.success !== null) {
+    const immutableCreationTime = await requireImmutableCreationTimeResult(
       tx,
       identity,
-      scopeUuid,
-      prevCommitSeq,
+      scopeUuid.success,
+      prevCommitSeq.success,
       creationTime,
     );
+    if (Result.isFailure(immutableCreationTime)) {
+      return Result.fail(immutableCreationTime.failure);
+    }
   }
   const base = {
     ...input,
     identity,
-    scopeUuid,
+    scopeUuid: scopeUuid.success,
     writeEpochUuid,
-    commitSeq,
-    prevCommitSeq,
+    commitSeq: commitSeq.success,
+    prevCommitSeq: prevCommitSeq.success,
     schemaVersionId,
     creationTime,
   };
-  return input.kind === "tombstone"
+  return Result.succeed(input.kind === "tombstone"
     ? Object.freeze({ ...base, kind: "tombstone" })
-    : Object.freeze({ ...base, kind: "live", document: input.document });
+    : Object.freeze({ ...base, kind: "live", document: input.document }));
 }
 
 async function requireImmutableCreationTime(
@@ -1143,6 +1190,27 @@ async function requireImmutableCreationTime(
   prevCommitSeq: CommitSeq,
   creationTime: AppCreationTimeV1,
 ): Promise<void> {
+  return Result.getOrThrow(await requireImmutableCreationTimeResult(
+    tx,
+    identity,
+    scopeUuid,
+    prevCommitSeq,
+    creationTime,
+  ));
+}
+
+async function requireImmutableCreationTimeResult(
+  tx: AppRowTransaction,
+  identity: AppRowIdentityV1,
+  scopeUuid: ScopeUuidV1,
+  prevCommitSeq: CommitSeq,
+  creationTime: AppCreationTimeV1,
+): Promise<Result.Result<
+  void,
+  | InvalidAppRowRevisionV1InputError
+  | AppRowRevisionChainConflictError
+  | AppRowCreationTimeConflictError
+>> {
   const rows = await tx
     .select({ creationTime: fxAppRowRevisions.creationTime })
     .from(fxAppRowRevisions)
@@ -1157,56 +1225,78 @@ async function requireImmutableCreationTime(
     .limit(1);
   const predecessor = rows[0];
   if (predecessor === undefined) {
-    const actual = await readCurrentPointerCommitSeq(tx, scopeUuid, identity);
-    throw new AppRowRevisionChainConflictError(
+    const actual = await readCurrentPointerCommitSeqResult(
+      tx,
+      scopeUuid,
+      identity,
+    );
+    if (Result.isFailure(actual)) return Result.fail(actual.failure);
+    return Result.fail(new AppRowRevisionChainConflictError(
       identity,
       prevCommitSeq,
-      actual,
-    );
+      actual.success,
+    ));
   }
   const expectedCreationTime = decodeAppCreationTimeV1(
     predecessor.creationTime,
   );
   if (creationTime !== expectedCreationTime) {
-    throw new AppRowCreationTimeConflictError(
+    return Result.fail(new AppRowCreationTimeConflictError(
       identity,
       expectedCreationTime,
       creationTime,
-    );
+    ));
   }
+  return Result.succeed(undefined);
 }
 
 function requirePositiveCommitSeq(value: CommitSeq): CommitSeq {
+  return Result.getOrThrow(requirePositiveCommitSeqResult(value));
+}
+
+function requirePositiveCommitSeqResult(
+  value: CommitSeq,
+): Result.Result<CommitSeq, InvalidAppRowRevisionV1InputError> {
   const decoded = CommitSeqSchema.make(value);
   if (decoded < 1n) {
-    throw new InvalidAppRowRevisionV1InputError({
+    return Result.fail(new InvalidAppRowRevisionV1InputError({
       reason: "nonPositiveCommitSeq",
       value: decoded,
-    });
+    }));
   }
-  return decoded;
+  return Result.succeed(decoded);
 }
 
 function requirePreviousCommitSeq(
   value: CommitSeq,
   commitSeq: CommitSeq,
 ): CommitSeq {
+  return Result.getOrThrow(requirePreviousCommitSeqResult(value, commitSeq));
+}
+
+function requirePreviousCommitSeqResult(
+  value: CommitSeq,
+  commitSeq: CommitSeq,
+): Result.Result<CommitSeq, InvalidAppRowRevisionV1InputError> {
   const decoded = CommitSeqSchema.make(value);
   if (decoded < 1n || decoded >= commitSeq) {
-    throw new InvalidAppRowRevisionV1InputError({
+    return Result.fail(new InvalidAppRowRevisionV1InputError({
       reason: "invalidPreviousCommitSeq",
       value: decoded,
       commitSeq,
-    });
+    }));
   }
-  return decoded;
+  return Result.succeed(decoded);
 }
 
-async function readCurrentPointerCommitSeq(
+async function readCurrentPointerCommitSeqResult(
   tx: AppRowTransaction,
   scopeUuid: ScopeUuidV1,
   identity: AppRowIdentityV1,
-): Promise<CommitSeq | null> {
+): Promise<Result.Result<
+  CommitSeq | null,
+  InvalidAppRowRevisionV1InputError
+>> {
   const rows = await tx
     .select({ commitSeq: fxAppRowCurrent.commitSeq })
     .from(fxAppRowCurrent)
@@ -1219,5 +1309,7 @@ async function readCurrentPointerCommitSeq(
     )
     .limit(1);
   const row = rows[0];
-  return row === undefined ? null : requirePositiveCommitSeq(row.commitSeq);
+  return row === undefined
+    ? Result.succeed(null)
+    : requirePositiveCommitSeqResult(row.commitSeq);
 }

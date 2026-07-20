@@ -14,16 +14,18 @@ import {
   ScopeIdSchema,
   SnapshotTokenSchema,
 } from "flarex-protocol/storage-authority";
-import { Cause, Effect, Exit, Fiber, Option } from "effect";
+import { Cause, Effect, Exit, Fiber, Option, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   AppRowReadPersistenceError,
   AppRowCreationTimeConflictError,
+  AppRowRevisionAlreadyExistsError,
   AppRowRevisionChainConflictError,
   AppRowStorageCorruptionError,
   InvalidAppRowReadInputError,
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
+  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
   getAppRowAtSnapshotInTransactionEffect,
   readAppRowAtSnapshotInTransactionEffect,
   readCurrentAppRowInTransactionEffect,
@@ -372,6 +374,53 @@ describe("FlarexDB app-row revision storage", () => {
         (select count(*)::text from fx_app_row_current) as current_rows
     `);
     expect(counts.rows).toEqual([{ revisions: "2", current_rows: "1" }]);
+  });
+
+  it("returns prepared-write invariants as Result without catching driver rejection", async () => {
+    const persistence = await appRowPersistence();
+    const document = await canonicalDocument({ value: "prepared" });
+    const input = {
+      kind: "live",
+      ...identity,
+      writeEpoch: firstEpoch,
+      commitSeq: CommitSeqSchema.make(1n),
+      prevCommitSeq: null,
+      schemaVersionId,
+      creationTime,
+      document,
+    } as const;
+
+    const inserted = await persistence.drizzle.transaction((tx) =>
+      appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
+        tx,
+        input,
+      ));
+    expect(Result.isSuccess(inserted)).toBe(true);
+
+    const duplicate = await persistence.drizzle.transaction((tx) =>
+      appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
+        tx,
+        input,
+      ));
+    expect(Result.isFailure(duplicate)).toBe(true);
+    if (Result.isFailure(duplicate)) {
+      expect(duplicate.failure).toBeInstanceOf(
+        AppRowRevisionAlreadyExistsError,
+      );
+    }
+
+    const driverCause = new Error("scope query rejected");
+    const rejectingTx = {
+      select(): never {
+        throw driverCause;
+      },
+    } as unknown as AppRowTransaction;
+    await expect(
+      appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
+        rejectingTx,
+        input,
+      ),
+    ).rejects.toBe(driverCause);
   });
 
   it("rejects creation-time changes on live and tombstone revisions", async () => {

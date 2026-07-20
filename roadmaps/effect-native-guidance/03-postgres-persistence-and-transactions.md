@@ -507,9 +507,12 @@ and unexpected runtime failures remain defects. The session journal yields the
 snapshot read directly and translates its typed failure once, so the three old
 Promise read exports and their broad journal adapter are deleted. App-row
 revision writes remain a named temporary Promise bridge owned by the ordered
-point-commit mutation transaction; that bridge is deleted when the mutation
-graph can own an Effect transaction client without changing rollback or
-statement-order semantics.
+point-commit mutation transaction. Its prepared-write path now returns owned
+validation, conflict, and corruption failures through `Result`; only Drizzle
+query rejection remains on the Promise rejection channel, and point commit
+projects the Result inside the callback to preserve rollback. The Promise
+bridge is deleted when the mutation graph can own an Effect transaction client
+without changing rollback or statement-order semantics.
 Stored revision materialization now composes its ordered column decoders and
 owned shape checks through `Result`. The former blanket `Result.try` is
 deleted: malformed driver values remain typed storage corruption, while

@@ -94,13 +94,8 @@ import {
 } from "flarex-protocol/value";
 
 import {
-  AppRowCreationTimeConflictError,
-  AppRowRevisionAlreadyExistsError,
-  AppRowRevisionChainConflictError,
-  AppRowScopeAuthorityUnavailableError,
-  AppRowStorageCorruptionError,
-  InvalidAppRowRevisionV1InputError,
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransaction,
+  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  isAppendAppRowRevisionV1Error,
   type AppendPreparedAppRowRevisionV1Input,
   type AppRowIdentityV1,
   type AppRowPointDependencyV1,
@@ -4196,8 +4191,9 @@ async function lowerTentativePointCommitRow(
       heads,
     ),
   );
-  await sqlCall("writeTentativeRow", () =>
-    appendPreparedAppRowRevisionAndAdvanceCurrentInTransaction(tx, input));
+  const written = await sqlCall("writeTentativeRow", () =>
+    appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(tx, input));
+  projectPointCommitTransactionResult(written);
 }
 
 function prepareTentativePointCommitRowResult(
@@ -4373,8 +4369,7 @@ async function replacementSqlCall<Value>(
       cause instanceof PointCommitStaleAuthorityV1Error ||
       cause instanceof PointCommitCorruptionV1Error ||
       cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1 ||
-      cause instanceof CommittedPointOutcomeCorruptionErrorV1 ||
-      isAppRowInvariantFailure(cause)
+      cause instanceof CommittedPointOutcomeCorruptionErrorV1
     ) {
       throw cause;
     }
@@ -4398,8 +4393,7 @@ async function sqlCall<Value>(
       cause instanceof PointCommitCorruptionV1Error ||
       cause instanceof PointCommitResourceExhaustionV1Error ||
       cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1 ||
-      cause instanceof CommittedPointOutcomeCorruptionErrorV1 ||
-      isAppRowInvariantFailure(cause)
+      cause instanceof CommittedPointOutcomeCorruptionErrorV1
     ) {
       throw cause;
     }
@@ -4669,7 +4663,7 @@ function mapPointMutationAttemptReplacementTransactionFailure(
   ) {
     return replacementCorruption("scopeClockInvalid");
   }
-  if (isAppRowInvariantFailure(cause)) {
+  if (isAppendAppRowRevisionV1Error(cause)) {
     return replacementCorruption("rowHeadInvalid");
   }
   const sqlState = findSqlState(cause);
@@ -4703,7 +4697,7 @@ function mapTransactionFailure(
   if (cause instanceof PointCommitSqlFailureMarkerV1) {
     return sqlError(cause.operation, cause.cause);
   }
-  if (isAppRowInvariantFailure(cause)) {
+  if (isAppendAppRowRevisionV1Error(cause)) {
     return corruption("rowWriteInvalid");
   }
   if (
@@ -4751,15 +4745,6 @@ function mapPublicationTransactionFailure(
     }
   }
   return mapTransactionFailure(cause);
-}
-
-function isAppRowInvariantFailure(cause: unknown): boolean {
-  return cause instanceof InvalidAppRowRevisionV1InputError ||
-    cause instanceof AppRowScopeAuthorityUnavailableError ||
-    cause instanceof AppRowRevisionAlreadyExistsError ||
-    cause instanceof AppRowRevisionChainConflictError ||
-    cause instanceof AppRowCreationTimeConflictError ||
-    cause instanceof AppRowStorageCorruptionError;
 }
 
 function sqlError(
