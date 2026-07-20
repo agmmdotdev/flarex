@@ -37,6 +37,8 @@ import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import { createSessionJournalStorePersistenceV1 } from
   "../src/sessionJournalStore";
+import { createPointMutationExecutionClaimLivenessV1 } from
+  "../src/transactionExecutionClaimLiveness";
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceAuthorityV1,
@@ -154,6 +156,84 @@ describePostgres("real Postgres C05-A finishing transition", () => {
         persistence,
         attempt.anchor.sessionId,
       )).toBe(0);
+      await expect(runEffect(createPointMutationExecutionClaimLivenessV1(
+        attempt.scope.ports,
+        {
+          claimDurationMilliseconds: 120_000,
+          leaseRenewalDurationMilliseconds: 180_000,
+          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        },
+      ).renewEffect({
+        selector: {
+          deploymentId: attempt.anchor.deploymentId,
+          scopeId: attempt.anchor.scopeId,
+          sessionId: attempt.anchor.sessionId,
+          attemptFence: attempt.anchor.attemptFence,
+        },
+        executionClaim: attempt.command.executionClaim,
+      }))).resolves.toEqual({ kind: "consumedByFinishing" });
+    });
+  }, 120_000);
+
+  it("serializes renewal behind C05-A claim consumption", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("9f000000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "liveness_consumption",
+      );
+      const attempt = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "liveness_consumption",
+      );
+      const entered = deferredSignal();
+      const release = deferredSignal();
+      const transition = runEffect(createPort(persistence, scope, {
+        afterTransactionStep: async (event) => {
+          if (event.step !== "clockLocked") return;
+          entered.resolve();
+          await release.promise;
+        },
+      }).enterFinishing(attempt.command));
+      await entered.promise;
+      const renewal = runEffect(createPointMutationExecutionClaimLivenessV1(
+        scope.ports,
+        {
+          claimDurationMilliseconds: 120_000,
+          leaseRenewalDurationMilliseconds: 180_000,
+          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        },
+      ).renewEffect({
+        selector: {
+          deploymentId: attempt.anchor.deploymentId,
+          scopeId: attempt.anchor.scopeId,
+          sessionId: attempt.anchor.sessionId,
+          attemptFence: attempt.anchor.attemptFence,
+        },
+        executionClaim: attempt.command.executionClaim,
+      }));
+      try {
+        await expect(Promise.race([
+          renewal.then(() => "completed" as const),
+          delay(100).then(() => "blocked" as const),
+        ])).resolves.toBe("blocked");
+      } finally {
+        release.resolve();
+      }
+
+      await expect(transition).resolves.toMatchObject({ kind: "transitioned" });
+      await expect(renewal).resolves.toEqual({ kind: "consumedByFinishing" });
+      await expect(executionClaimCount(
+        persistence,
+        attempt.anchor.sessionId,
+      )).resolves.toBe(0);
+      await expect(lifecycleOf(
+        persistence,
+        attempt.anchor.sessionId,
+      )).resolves.toBe("finishing");
     });
   }, 120_000);
 

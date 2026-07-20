@@ -81,6 +81,8 @@ import {
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import type { TransactionExecutionClaimObservationV1 } from
   "../src/transactionExecutionClaimModel";
+import { createPointMutationExecutionClaimLivenessV1 } from
+  "../src/transactionExecutionClaimLiveness";
 import {
   InvalidSessionJournalInputV1Error,
   PinnedPointTableCorruptionV1Error,
@@ -187,6 +189,14 @@ interface AttemptLeaseAndSealState extends Record<string, unknown> {
   readonly lease_expires_at: Date;
   readonly authorization_grant_expires_at: Date;
   readonly hard_expires_at: Date;
+}
+
+interface AttemptLeaseAndClaimState extends Record<string, unknown> {
+  readonly lease_expires_at: Date;
+  readonly claim_owner: string;
+  readonly claim_fence: string;
+  readonly claimed_at: Date;
+  readonly claim_expires_at: Date;
 }
 
 interface LimitCase {
@@ -2142,6 +2152,45 @@ describe("C03 Postgres SessionJournalStore", () => {
     } satisfies Partial<SessionJournalStorageCorruptionV1Error>);
   });
 
+  it("renews only the execution claim after the sealed lease identity freezes", async () => {
+    const current = await scenario("sealed_claim_liveness");
+    const prepared = await prepareSeal(current.store, current.attempt);
+    await completeSeal(
+      current.store,
+      prepared.preparation,
+      await runEffect(canonicalizeSessionJournalV1Effect(prepared.journal)),
+      await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),
+    );
+    const before = await attemptLeaseAndClaimState(
+      current.anchor.sessionId,
+    );
+    const liveness = createPointMutationExecutionClaimLivenessV1(
+      resolutionPorts(persistence),
+      {
+        claimDurationMilliseconds: 120_000,
+        leaseRenewalDurationMilliseconds: 180_000,
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+      },
+    );
+
+    const renewed = await runEffect(liveness.renewEffect({
+      selector: selectorFromAnchor(current.anchor),
+      executionClaim: current.executionClaim,
+    }));
+    const after = await attemptLeaseAndClaimState(current.anchor.sessionId);
+
+    expect(renewed).toMatchObject({ kind: "renewed", phase: "sealed" });
+    expect(after.lease_expires_at).toEqual(before.lease_expires_at);
+    expect(after.claim_expires_at.getTime()).toBeGreaterThanOrEqual(
+      before.claim_expires_at.getTime(),
+    );
+    expect(after).toMatchObject({
+      claim_owner: before.claim_owner,
+      claim_fence: before.claim_fence,
+      claimed_at: before.claimed_at,
+    });
+  });
+
   it("retains seal preparation after transaction infrastructure failure and retries", async () => {
     const transactionFailure = new Error("seal transaction unavailable");
     let failCompletion = false;
@@ -2681,6 +2730,30 @@ describe("C03 Postgres SessionJournalStore", () => {
     const row = result.rows[0];
     if (row === undefined || result.rows.length !== 1) {
       throw new Error("Expected one exact-attempt lease/seal state row.");
+    }
+    return row;
+  }
+
+  async function attemptLeaseAndClaimState(
+    sessionId: PointMutationSessionAnchorV1["sessionId"],
+  ): Promise<AttemptLeaseAndClaimState> {
+    const result = await persistence.query<AttemptLeaseAndClaimState>(
+      `select lease.lease_expires_at,
+              claim.claim_owner,
+              claim.claim_fence::text,
+              claim.claimed_at,
+              claim.claim_expires_at
+       from fx_system_snapshot_lease lease
+       join fx_system_tx_execution_claim claim
+         on claim.scope_uuid = lease.scope_uuid
+        and claim.session_id = lease.session_id
+        and claim.attempt_fence = lease.attempt_fence
+       where lease.session_id = $1`,
+      [sessionId],
+    );
+    const row = result.rows[0];
+    if (row === undefined || result.rows.length !== 1) {
+      throw new Error("Expected one exact-attempt lease/claim state row.");
     }
     return row;
   }

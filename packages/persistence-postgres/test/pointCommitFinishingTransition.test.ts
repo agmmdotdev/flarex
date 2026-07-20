@@ -35,6 +35,8 @@ import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import { TransactionExecutionClaimOwnerV1Schema } from
   "../src/transactionExecutionClaimModel";
+import { createPointMutationExecutionClaimLivenessV1 } from
+  "../src/transactionExecutionClaimLiveness";
 import {
   createSessionJournalStorePersistenceV1,
   type SessionJournalAttemptV1,
@@ -140,6 +142,24 @@ describe("C05-A point-commit finishing transition", () => {
       (query) => query.name === "lockJournalRoot",
     );
     expect(rootQuery?.sql).toContain("octet_length");
+
+    const liveness = createPointMutationExecutionClaimLivenessV1(
+      current.ports,
+      {
+        claimDurationMilliseconds: 120_000,
+        leaseRenewalDurationMilliseconds: 180_000,
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+      },
+    );
+    await expect(runEffect(liveness.renewEffect({
+      selector: {
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence,
+      },
+      executionClaim: current.command.executionClaim,
+    }))).resolves.toEqual({ kind: "consumedByFinishing" });
 
     queries.length = 0;
     const observed = await runEffect(port.enterFinishing(current.command));

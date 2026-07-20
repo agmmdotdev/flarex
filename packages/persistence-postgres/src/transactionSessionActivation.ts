@@ -135,6 +135,21 @@ import {
   type TransactionExecutionClaimPinV1,
 } from "./transactionExecutionClaimModel";
 import {
+  PointMutationExecutionClaimLivenessConfigurationV1Error,
+  PointMutationExecutionClaimLivenessCorruptionV1Error,
+  PointMutationExecutionClaimLivenessInputV1Error,
+  PointMutationExecutionClaimLivenessPersistenceV1Error,
+  PointMutationExecutionClaimLivenessStaleV1Error,
+  PointMutationExecutionClaimLivenessUncertainV1Error,
+  RENEW_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1,
+  projectExecutionClaimRenewalV1Result,
+  type LocatedPointMutationExecutionClaimLivenessInputV1,
+  type LocatedPointMutationExecutionClaimLivenessTargetV1,
+  type PointMutationExecutionClaimLivenessResultV1,
+  type PointMutationExecutionClaimLivenessV1Error,
+  type ProjectExecutionClaimRenewalIssueV1,
+} from "./transactionExecutionClaimLiveness";
+import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
 } from "./transactionSessionAttemptFacet";
@@ -783,7 +798,26 @@ export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
   readonly afterTerminalizationEvent?: (
     event: PointMutationSessionAttemptTerminalizationEventV1,
   ) => void | Promise<void>;
+  /** Construction-bound instrumentation used by focused b1a proofs. */
+  readonly afterExecutionClaimLivenessEvent?: (
+    event: PointMutationExecutionClaimLivenessEventV1,
+  ) => void | Promise<void>;
 }
+
+export type PointMutationExecutionClaimLivenessEventV1 =
+  | Readonly<{
+      readonly phase: "lock";
+      readonly step:
+        | "clockLocked"
+        | "sessionLocked"
+        | "leaseLocked"
+        | "journalRootLocked"
+        | "executionClaimLocked";
+    }>
+  | Readonly<{
+      readonly phase: "write";
+      readonly step: "leaseRenewed" | "executionClaimRenewed";
+    }>;
 
 interface LocatedPointMutationSessionActivationTargetV1
   extends LocatedScopeClockReader {
@@ -842,6 +876,7 @@ interface LocatedPointMutationSessionTargetV1
     LocatedPointMutationSessionAttemptTerminalizationTargetV1,
     LocatedPointMutationExecutionClaimAcquisitionTargetV1,
     LocatedPointMutationAttemptDiscoveryTargetV1,
+    LocatedPointMutationExecutionClaimLivenessTargetV1,
     LocatedExactRunningAttemptKernelV1,
     LocatedPointCommitPublicationTargetV1 {}
 
@@ -1126,6 +1161,8 @@ export function createLocatedPointMutationSessionActivationTargetV1(
   const afterWrite = options.afterWrite;
   const afterLoadLock = options.afterLoadLock;
   const afterTerminalizationEvent = options.afterTerminalizationEvent;
+  const afterExecutionClaimLivenessEvent =
+    options.afterExecutionClaimLivenessEvent;
   const runReadCommitted = options[LOCATED_READ_COMMITTED_RUNNER_V1] ??
     createDefaultLocatedReadCommittedTransactionRunnerV1(db);
   const committedOutcomeResolver = createCommittedPointOutcomeResolverV1(db);
@@ -1183,6 +1220,12 @@ export function createLocatedPointMutationSessionActivationTargetV1(
         committedOutcomeResolver,
         input,
       ),
+    [RENEW_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1]: (input) =>
+      renewLocatedPointMutationExecutionClaimEffect(
+        runReadCommitted,
+        input,
+        afterExecutionClaimLivenessEvent,
+      ),
     [DISCOVER_LOCATED_POINT_MUTATION_ATTEMPTS_V1]: (input) =>
       discoverLocatedPointMutationAttemptsEffectV1(db, input),
     [TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
@@ -1202,6 +1245,271 @@ export function createLocatedPointMutationSessionActivationTargetV1(
     })),
   } satisfies LocatedPointMutationSessionTargetV1);
   return target;
+}
+
+const renewLocatedPointMutationExecutionClaimEffect = Effect.fn(
+  "PointMutationExecutionClaimLiveness.renewLocated",
+)(function* (
+  runReadCommitted: RunLocatedReadCommittedTransactionV1,
+  input: LocatedPointMutationExecutionClaimLivenessInputV1,
+  afterEvent:
+    | LocatedPointMutationSessionActivationTargetOptionsV1[
+      "afterExecutionClaimLivenessEvent"
+    ]
+    | undefined,
+): Effect.fn.Return<
+  PointMutationExecutionClaimLivenessResultV1,
+  Exclude<
+    PointMutationExecutionClaimLivenessV1Error,
+    | PointMutationExecutionClaimLivenessInputV1Error
+    | PointMutationExecutionClaimLivenessConfigurationV1Error
+    | TrustedScopeAuthorityResolutionError
+  >
+> {
+  return yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () =>
+      runReadCommitted((tx) =>
+        renewExecutionClaimLivenessInTransaction(tx, input, afterEvent)),
+    catch: mapExecutionClaimLivenessTransactionError,
+  }));
+});
+
+async function renewExecutionClaimLivenessInTransaction(
+  tx: AppRowTransaction,
+  input: LocatedPointMutationExecutionClaimLivenessInputV1,
+  afterEvent:
+    | LocatedPointMutationSessionActivationTargetOptionsV1[
+      "afterExecutionClaimLivenessEvent"
+    ]
+    | undefined,
+): Promise<PointMutationExecutionClaimLivenessResultV1> {
+  const emit = async (
+    event: PointMutationExecutionClaimLivenessEventV1,
+  ): Promise<void> => {
+    await afterEvent?.(event);
+  };
+  const clock = await lockPointMutationSessionClock(
+    tx,
+    input.selector.scopeId,
+  );
+  await emit({ phase: "lock", step: "clockLocked" });
+  requireStablePointMutationSessionAttemptAuthority(
+    clock,
+    input,
+    executionClaimLivenessStableAuthorityFailures,
+  );
+  const session = await lockExactPointMutationSession(
+    tx,
+    input.selector,
+    clock,
+    executionClaimLivenessExactSessionFailures,
+    async () => emit({ phase: "lock", step: "sessionLocked" }),
+  );
+  if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
+    throw new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "lifecycleChanged",
+    });
+  }
+  const locked = await lockPointMutationSessionAttemptStructure(
+    tx,
+    {
+      scopeId: input.selector.scopeId,
+      failures: executionClaimLivenessAttemptAuthorityFailures,
+      afterLeaseLock: async () =>
+        emit({ phase: "lock", step: "leaseLocked" }),
+    },
+    clock,
+    session,
+  );
+  if (locked.leaseState === "absent") {
+    throw executionClaimLivenessCorruption("leaseInvalid");
+  }
+  const root = await requireExactPointMutationSessionJournalRoot(
+    tx,
+    input.selector.scopeId,
+    clock.scopeUuid,
+    locked.sessionId,
+    locked.attemptFence,
+    async () => emit({ phase: "lock", step: "journalRootLocked" }),
+  );
+  const claimRows = await tx.select().from(
+    fxSystemTransactionExecutionClaims,
+  ).where(and(
+    eq(fxSystemTransactionExecutionClaims.scopeUuid, clock.scopeUuid),
+    eq(fxSystemTransactionExecutionClaims.sessionId, locked.sessionId),
+    eq(
+      fxSystemTransactionExecutionClaims.attemptFence,
+      locked.attemptFence,
+    ),
+  )).limit(2).for("update");
+  await emit({ phase: "lock", step: "executionClaimLocked" });
+
+  const grantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
+  const databaseNow = await readDatabaseNow(tx, input.selector.scopeId);
+  const databaseNowMilliseconds = finiteDateMilliseconds(databaseNow);
+  if (
+    grantExpiresAtMilliseconds === undefined ||
+    hardExpiresAtMilliseconds === undefined ||
+    databaseNowMilliseconds === undefined
+  ) {
+    throw executionClaimLivenessCorruption("sessionInvalid");
+  }
+  const authorityTargetMilliseconds = Math.min(
+    grantExpiresAtMilliseconds,
+    hardExpiresAtMilliseconds,
+  );
+
+  if (session.lifecycle === "finishing") {
+    if (
+      root.state !== "sealed" ||
+      claimRows.length !== 0 ||
+      locked.leaseExpiresAtMilliseconds !== authorityTargetMilliseconds
+    ) {
+      throw executionClaimLivenessCorruption("claimInvalid");
+    }
+    return Object.freeze({ kind: "consumedByFinishing" });
+  }
+  if (session.lifecycle !== "running") {
+    throw new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "lifecycleChanged",
+    });
+  }
+  const claimRow = claimRows[0];
+  if (claimRows.length !== 1 || claimRow === undefined) {
+    throw executionClaimLivenessCorruption("claimInvalid");
+  }
+  const claim = projectExecutionClaimLivenessResult(
+    requireLiveTransactionExecutionClaimV1Result(
+      input.selector.scopeId,
+      claimRow,
+      input.executionClaim,
+      databaseNow,
+    ),
+  );
+  const phase = root.state === "sealed"
+    ? "sealed"
+    : root.state === "failed"
+    ? "failed"
+    : root.state === "open"
+    ? "open"
+    : undefined;
+  if (phase === undefined) {
+    throw executionClaimLivenessCorruption("journalRootInvalid");
+  }
+  const projected = projectExecutionClaimLivenessResult(
+    projectExecutionClaimRenewalV1Result({
+      databaseNowMilliseconds,
+      currentLeaseExpiresAtMilliseconds: locked.leaseExpiresAtMilliseconds,
+      currentClaimExpiresAtMilliseconds: Date.parse(claim.claimExpiresAt),
+      authorizationGrantExpiresAtMilliseconds: grantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds,
+      claimDurationMilliseconds: input.claimDurationMilliseconds,
+      leaseRenewalDurationMilliseconds:
+        input.leaseRenewalDurationMilliseconds,
+      maximumLiveSnapshotRetentionMilliseconds:
+        input.maximumLiveSnapshotRetentionMilliseconds,
+      phase,
+    }).pipe(Result.mapError(mapExecutionClaimRenewalIssue)),
+  );
+
+  const targetLeaseExpiresAt = new Date(
+    projected.targetLeaseExpiresAtMilliseconds,
+  );
+  if (
+    projected.targetLeaseExpiresAtMilliseconds !==
+      locked.leaseExpiresAtMilliseconds
+  ) {
+    const renewedLeases = await tx.update(fxSystemSnapshotLeases).set({
+      leaseExpiresAt: targetLeaseExpiresAt,
+    }).where(and(
+      eq(fxSystemSnapshotLeases.scopeUuid, clock.scopeUuid),
+      eq(fxSystemSnapshotLeases.sessionId, locked.sessionId),
+      eq(fxSystemSnapshotLeases.attemptFence, locked.attemptFence),
+      eq(
+        fxSystemSnapshotLeases.snapshotEpochUuid,
+        locked.lease.snapshotEpochUuid,
+      ),
+      eq(
+        fxSystemSnapshotLeases.snapshotCommitSeq,
+        locked.lease.snapshotCommitSeq,
+      ),
+      eq(fxSystemSnapshotLeases.leaseExpiresAt, locked.lease.leaseExpiresAt),
+    )).returning({ leaseExpiresAt: fxSystemSnapshotLeases.leaseExpiresAt });
+    if (
+      renewedLeases.length !== 1 ||
+      finiteDateMilliseconds(renewedLeases[0]?.leaseExpiresAt) !==
+        projected.targetLeaseExpiresAtMilliseconds
+    ) {
+      throw executionClaimLivenessCorruption("mutationInvalid");
+    }
+    await emit({ phase: "write", step: "leaseRenewed" });
+  }
+
+  const targetClaimExpiresAt = new Date(
+    projected.targetClaimExpiresAtMilliseconds,
+  );
+  if (
+    projected.targetClaimExpiresAtMilliseconds !==
+      Date.parse(claim.claimExpiresAt)
+  ) {
+    const renewedClaims = await tx.update(
+      fxSystemTransactionExecutionClaims,
+    ).set({ claimExpiresAt: targetClaimExpiresAt }).where(and(
+      eq(fxSystemTransactionExecutionClaims.scopeUuid, clock.scopeUuid),
+      eq(fxSystemTransactionExecutionClaims.sessionId, locked.sessionId),
+      eq(
+        fxSystemTransactionExecutionClaims.attemptFence,
+        locked.attemptFence,
+      ),
+      eq(
+        fxSystemTransactionExecutionClaims.claimOwner,
+        input.executionClaim.claimOwner,
+      ),
+      eq(
+        fxSystemTransactionExecutionClaims.claimFence,
+        input.executionClaim.claimFence,
+      ),
+      eq(fxSystemTransactionExecutionClaims.claimedAt, claimRow.claimedAt),
+      eq(
+        fxSystemTransactionExecutionClaims.claimExpiresAt,
+        claimRow.claimExpiresAt,
+      ),
+    )).returning({
+      claimExpiresAt: fxSystemTransactionExecutionClaims.claimExpiresAt,
+    });
+    if (
+      renewedClaims.length !== 1 ||
+      finiteDateMilliseconds(renewedClaims[0]?.claimExpiresAt) !==
+        projected.targetClaimExpiresAtMilliseconds
+    ) {
+      throw executionClaimLivenessCorruption("mutationInvalid");
+    }
+    await emit({ phase: "write", step: "executionClaimRenewed" });
+  }
+
+  const observation = Object.freeze({
+    ...claim,
+    claimExpiresAt: targetClaimExpiresAt.toISOString(),
+  });
+  const leaseExpiresAt = targetLeaseExpiresAt.toISOString();
+  return phase === "failed"
+    ? Object.freeze({
+      kind: "terminalizationRequired",
+      reason: "failedRoot",
+      leaseExpiresAt,
+      executionClaim: observation,
+    })
+    : Object.freeze({
+      kind: "renewed",
+      phase,
+      leaseExpiresAt,
+      executionClaim: observation,
+    });
 }
 
 interface PointMutationExecutionClaimAcquisitionPreludeV1 {
@@ -3620,6 +3928,175 @@ function validateGeneratedSessionId(
   }
   return Result.succeed(TransactionSessionIdV1Schema.make(value));
 }
+
+function projectExecutionClaimLivenessResult<Success>(
+  result: Result.Result<
+    Success,
+    | PointMutationExecutionClaimLivenessV1Error
+    | TransactionExecutionClaimCorruptionV1Error
+    | TransactionExecutionClaimStaleV1Error
+  >,
+): Success {
+  if (Result.isSuccess(result)) return result.success;
+  const failure = result.failure;
+  if (failure instanceof TransactionExecutionClaimStaleV1Error) {
+    const reason = failure.reason === "claimOwnerMismatch"
+      ? "claimOwnerChanged"
+      : failure.reason === "claimFenceMismatch"
+      ? "claimFenceChanged"
+      : "claimExpired";
+    throw new PointMutationExecutionClaimLivenessStaleV1Error({ reason });
+  }
+  if (failure instanceof TransactionExecutionClaimCorruptionV1Error) {
+    throw executionClaimLivenessCorruption("claimInvalid", failure);
+  }
+  throw failure;
+}
+
+function mapExecutionClaimRenewalIssue(
+  issue: ProjectExecutionClaimRenewalIssueV1,
+): PointMutationExecutionClaimLivenessV1Error {
+  switch (issue) {
+    case "authorityExpired":
+      return new PointMutationExecutionClaimLivenessStaleV1Error({
+        reason: "authorizationExpired",
+      });
+    case "leaseExpired":
+      return new PointMutationExecutionClaimLivenessStaleV1Error({
+        reason: "leaseExpired",
+      });
+    case "claimExpired":
+      return new PointMutationExecutionClaimLivenessStaleV1Error({
+        reason: "claimExpired",
+      });
+    case "claimAfterLease":
+    case "leaseAfterAuthorityTarget":
+    case "leaseRetentionBudgetExceeded":
+    case "sealedLeaseMismatch":
+      return executionClaimLivenessCorruption("claimLeaseOrderingInvalid");
+    case "invalidEvidence":
+      return executionClaimLivenessCorruption("clockInvalid");
+  }
+}
+
+function executionClaimLivenessCorruption(
+  reason: PointMutationExecutionClaimLivenessCorruptionV1Error["reason"],
+  cause?: unknown,
+): PointMutationExecutionClaimLivenessCorruptionV1Error {
+  return new PointMutationExecutionClaimLivenessCorruptionV1Error({
+    reason,
+    ...(cause === undefined ? {} : { cause }),
+  });
+}
+
+function mapExecutionClaimLivenessTransactionError(
+  cause: unknown,
+): Exclude<
+  PointMutationExecutionClaimLivenessV1Error,
+  | PointMutationExecutionClaimLivenessInputV1Error
+  | PointMutationExecutionClaimLivenessConfigurationV1Error
+  | TrustedScopeAuthorityResolutionError
+> {
+  if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
+    switch (cause.issue.kind) {
+      case "callbackRolledBack":
+        return mapExecutionClaimLivenessTransactionError(
+          cause.issue.callbackCause,
+        );
+      case "decisionUncertain":
+        return new PointMutationExecutionClaimLivenessUncertainV1Error({
+          cause,
+        });
+      case "callbackCleanupFailed":
+      case "infrastructureFailure":
+        return new PointMutationExecutionClaimLivenessPersistenceV1Error({
+          operation: "transaction",
+          cause,
+        });
+    }
+  }
+  if (
+    cause instanceof PointMutationExecutionClaimLivenessStaleV1Error ||
+    cause instanceof PointMutationExecutionClaimLivenessCorruptionV1Error ||
+    cause instanceof PointMutationExecutionClaimLivenessPersistenceV1Error ||
+    cause instanceof PointMutationExecutionClaimLivenessUncertainV1Error
+  ) {
+    return cause;
+  }
+  if (cause instanceof PointMutationSessionAuthorityCorruptionV1Error) {
+    return executionClaimLivenessCorruption(
+      cause.issue === "snapshotLeaseInvalid"
+        ? "leaseInvalid"
+        : cause.issue === "journalRootInvalid" ||
+            cause.issue === "activeJournalRootMissing"
+        ? "journalRootInvalid"
+        : "sessionInvalid",
+      cause,
+    );
+  }
+  if (cause instanceof ScopeClockNotFoundError) {
+    return new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "scopeChanged",
+    });
+  }
+  return new PointMutationExecutionClaimLivenessPersistenceV1Error({
+    operation: "transaction",
+    cause,
+  });
+}
+
+const executionClaimLivenessStableAuthorityFailures = Object.freeze({
+  selectorScopeMismatch: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "scopeChanged",
+    }),
+  unsupportedStorageGeneration: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "generationChanged",
+    }),
+  storageGenerationChanged: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "generationChanged",
+    }),
+  storageGenerationFenceChanged: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "generationChanged",
+    }),
+  scopeEpochChanged: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "epochChanged",
+    }),
+} satisfies PointMutationSessionStableAuthorityFailureFactoryV1);
+
+const executionClaimLivenessExactSessionFailures = Object.freeze({
+  sessionMissing: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "attemptMissing",
+    }),
+  staleAttemptFence: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "attemptReplaced",
+    }),
+} satisfies PointMutationSessionExactSessionFailureFactoryV1);
+
+const executionClaimLivenessAttemptAuthorityFailures = Object.freeze({
+  unsupportedStorageGeneration: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "generationChanged",
+    }),
+  storageGenerationFenceChanged: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "generationChanged",
+    }),
+  authorizationRevocationEpochChanged: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "revocationEpochChanged",
+    }),
+  scopeEpochChanged: () =>
+    new PointMutationExecutionClaimLivenessStaleV1Error({
+      reason: "epochChanged",
+    }),
+} satisfies PointMutationSessionAttemptAuthorityFailureFactoryV1);
 
 const generateExecutionClaimOwnerEffect = Effect.fn(
   "PointMutationSessionActivation.generateExecutionClaimOwner",

@@ -29,6 +29,8 @@ import {
 } from "../src/pglite";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import { TransactionExecutionClaimOwnerV1Schema } from
+  "../src/transactionExecutionClaimModel";
 import {
   fxSystemSnapshotLeases,
   fxSystemTransactionSessions,
@@ -49,6 +51,11 @@ import {
   type PointMutationSessionAnchorV1,
 } from "../src/transactionSessionActivation";
 import {
+  PointMutationExecutionClaimLivenessStaleV1Error,
+  createPointMutationExecutionClaimLivenessV1,
+} from "../src/transactionExecutionClaimLiveness";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -152,6 +159,19 @@ describe("O03-B1 point-mutation session activation", () => {
     return activation;
   }
 
+  function executionClaimLiveness(
+    targetOptions: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
+  ) {
+    return createPointMutationExecutionClaimLivenessV1(
+      resolutionPorts(persistence, targetOptions),
+      {
+        claimDurationMilliseconds: 120_000,
+        leaseRenewalDurationMilliseconds: 180_000,
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+      },
+    );
+  }
+
   async function expireExecutionClaim(sessionId: string): Promise<void> {
     await persistence.query(
       `update fx_system_tx_execution_claim
@@ -161,6 +181,160 @@ describe("O03-B1 point-mutation session activation", () => {
       [sessionId],
     );
   }
+
+  it("jointly renews the open lease and exact execution claim without changing ownership", async () => {
+    const created = await activateClaimScenario("liveness_open");
+    const before = await attemptLivenessState(
+      persistence,
+      created.anchor.sessionId,
+    );
+
+    const result = await runEffect(executionClaimLiveness().renewEffect({
+      selector: selectorFromAnchor(created.anchor),
+      executionClaim: created.executionClaim,
+    }));
+
+    expect(result).toMatchObject({
+      kind: "renewed",
+      phase: "open",
+      executionClaim: {
+        claimOwner: created.executionClaim.claimOwner,
+        claimFence: created.executionClaim.claimFence,
+        claimedAt: created.executionClaim.claimedAt,
+      },
+    });
+    const after = await attemptLivenessState(
+      persistence,
+      created.anchor.sessionId,
+    );
+    expect(after.lease_expires_at.getTime()).toBeGreaterThanOrEqual(
+      before.lease_expires_at.getTime(),
+    );
+    expect(after.claim_expires_at.getTime()).toBeGreaterThanOrEqual(
+      before.claim_expires_at.getTime(),
+    );
+    expect(after).toMatchObject({
+      claim_owner: before.claim_owner,
+      claim_fence: before.claim_fence,
+      claimed_at: before.claimed_at,
+    });
+  });
+
+  it("rolls the lease renewal back when claim renewal fails", async () => {
+    const created = await activateClaimScenario("liveness_rollback");
+    const before = await attemptLivenessState(
+      persistence,
+      created.anchor.sessionId,
+    );
+    const liveness = executionClaimLiveness({
+      afterExecutionClaimLivenessEvent: (event) => {
+        if (event.phase === "write" && event.step === "leaseRenewed") {
+          throw new Error("fail:leaseRenewed");
+        }
+      },
+    });
+
+    await expect(runFailure(liveness.renewEffect({
+      selector: selectorFromAnchor(created.anchor),
+      executionClaim: created.executionClaim,
+    }))).resolves.toMatchObject({
+      operation: "transaction",
+      cause: expect.anything(),
+    });
+    await expect(attemptLivenessState(
+      persistence,
+      created.anchor.sessionId,
+    )).resolves
+      .toEqual(before);
+  });
+
+  it("rejects stale claim ownership without mutating liveness", async () => {
+    const created = await activateClaimScenario("liveness_stale_owner");
+    const before = await attemptLivenessState(
+      persistence,
+      created.anchor.sessionId,
+    );
+
+    await expect(runFailure(executionClaimLiveness().renewEffect({
+      selector: selectorFromAnchor(created.anchor),
+      executionClaim: {
+        ...created.executionClaim,
+        claimOwner: TransactionExecutionClaimOwnerV1Schema.make(
+          "42000000-0000-4000-8000-999999999999",
+        ),
+      },
+    }))).resolves.toEqual(
+      new PointMutationExecutionClaimLivenessStaleV1Error({
+        reason: "claimOwnerChanged",
+      }),
+    );
+    await expect(attemptLivenessState(
+      persistence,
+      created.anchor.sessionId,
+    )).resolves
+      .toEqual(before);
+  });
+
+  it("preserves lease and journal-root corruption discriminants", async () => {
+    const missingRoot = await activateClaimScenario(
+      "liveness_missing_journal_root",
+    );
+    await persistence.query(
+      `delete from fx_system_tx_journal where session_id = $1`,
+      [missingRoot.anchor.sessionId],
+    );
+    await expect(runFailure(executionClaimLiveness().renewEffect({
+      selector: selectorFromAnchor(missingRoot.anchor),
+      executionClaim: missingRoot.executionClaim,
+    }))).resolves.toMatchObject({ reason: "journalRootInvalid" });
+
+    const missingLease = await activateClaimScenario("liveness_missing_lease");
+    await persistence.query(
+      `delete from fx_system_tx_journal where session_id = $1`,
+      [missingLease.anchor.sessionId],
+    );
+    await persistence.query(
+      `delete from fx_system_snapshot_lease where session_id = $1`,
+      [missingLease.anchor.sessionId],
+    );
+    await expect(runFailure(executionClaimLiveness().renewEffect({
+      selector: selectorFromAnchor(missingLease.anchor),
+      executionClaim: missingLease.executionClaim,
+    }))).resolves.toMatchObject({ reason: "leaseInvalid" });
+  });
+
+  it("keeps failed roots dispatch-closed and never revives an expired claim", async () => {
+    const failed = await activateClaimScenario("liveness_failed_root");
+    await persistence.query(
+      `update fx_system_tx_journal
+       set state = 'failed', failure_dimension = 'readDocuments',
+           updated_at = clock_timestamp()
+       where session_id = $1`,
+      [failed.anchor.sessionId],
+    );
+    await expect(runEffect(executionClaimLiveness().renewEffect({
+      selector: selectorFromAnchor(failed.anchor),
+      executionClaim: failed.executionClaim,
+    }))).resolves.toMatchObject({
+      kind: "terminalizationRequired",
+      reason: "failedRoot",
+      executionClaim: {
+        claimOwner: failed.executionClaim.claimOwner,
+        claimFence: failed.executionClaim.claimFence,
+      },
+    });
+
+    const expired = await activateClaimScenario("liveness_expired_claim");
+    await expireExecutionClaim(expired.anchor.sessionId);
+    await expect(runFailure(executionClaimLiveness().renewEffect({
+      selector: selectorFromAnchor(expired.anchor),
+      executionClaim: expired.executionClaim,
+    }))).resolves.toEqual(
+      new PointMutationExecutionClaimLivenessStaleV1Error({
+        reason: "claimExpired",
+      }),
+    );
+  });
 
   async function executionClaimRow(sessionId: string): Promise<Readonly<{
     claim_owner: string;
@@ -1449,6 +1623,43 @@ function resolutionPorts(
         ),
     },
   };
+}
+
+async function attemptLivenessState(
+  persistence: PGliteFlarexPersistence,
+  sessionId: string,
+): Promise<Readonly<{
+  readonly lease_expires_at: Date;
+  readonly claim_owner: string;
+  readonly claim_fence: string;
+  readonly claimed_at: Date;
+  readonly claim_expires_at: Date;
+}>> {
+  const result = await persistence.query<{
+    lease_expires_at: Date;
+    claim_owner: string;
+    claim_fence: string;
+    claimed_at: Date;
+    claim_expires_at: Date;
+  }>(
+    `select l.lease_expires_at,
+            c.claim_owner,
+            c.claim_fence::text,
+            c.claimed_at,
+            c.claim_expires_at
+     from fx_system_snapshot_lease l
+     join fx_system_tx_execution_claim c
+       on c.scope_uuid = l.scope_uuid
+      and c.session_id = l.session_id
+      and c.attempt_fence = l.attempt_fence
+     where l.session_id = $1`,
+    [sessionId],
+  );
+  const row = result.rows[0];
+  if (row === undefined || result.rows.length !== 1) {
+    throw new Error("Expected one exact liveness row.");
+  }
+  return Object.freeze({ ...row });
 }
 
 async function rowCounts(

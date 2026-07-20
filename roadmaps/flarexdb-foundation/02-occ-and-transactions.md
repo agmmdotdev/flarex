@@ -31,8 +31,9 @@ transaction retry, and O08-D's bounded uncertain-outcome recovery are complete;
 O08-B2b2a's private exact-selector safe-state redispatch composition, O08-
 B2b2b1's bounded inert scope-local discovery, and O08-B2b2b2a's durable dirty/
 failed-attempt disposition are complete. O08-B2b2b2b0a grant/retention policy
-coherence and O08-B2b2b2b0b atomic seal-time lease promotion are complete. O08-
-B2b2b2b1 execution-claim liveness, production scheduling/redelivery, and C06-B
+coherence, O08-B2b2b2b0b atomic seal-time lease promotion, and O08-B2b2b2b1a's
+phase-aware execution-claim renewal transaction are complete. O08-B2b2b2b1b's
+structured liveness lifecycle, production scheduling/redelivery, and C06-B
 endpoint/response policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
@@ -751,9 +752,10 @@ Deferred ownership after the required O03-B core:
   C05-A consumption. `O08-B2b2a` now composes only explicit-selector safe
   states over that directly settled claim. `O08-B2b2b1` now supplies bounded
   inert discovery, and `O08-B2b2b2a` owns claim-fenced dirty/failed-attempt
-  disposition. `O08-B2b2b2b` and `C06-B` retain execution-claim liveness/
-  renewal, scheduling/redelivery, production dispatch liveness, and endpoint/
-  response policy. `O08-C` owns
+  disposition. `O08-B2b2b2b1a` owns the phase-aware renewal transaction;
+  `O08-B2b2b2b1b` and `C06-B` retain the structured heartbeat/lifecycle,
+  scheduling/redelivery, production dispatch liveness, and endpoint/response
+  policy. `O08-C` owns
   known-settled SQL retry, and
   `O08-D` owns uncertain-outcome lookup policy; and
 - `O11` first introduces the active-floor query and engine-history cleanup
@@ -1165,15 +1167,16 @@ waits for its database-time expiry and re-enters the same outcome-first path.
 Discovery, schemas, lifecycle vocabulary, publication facts, and claim duration
 are unchanged.
 
-###### [ ] O08-B2b2b2b — Prove Execution-Claim Liveness And Schedule Dispatch
+###### [ ] O08-B2b2b2b1b — Own Structured Liveness And Schedule Dispatch
 
-Execution-claim renewal/heartbeat, scheduling/redelivery, authenticated runtime
-routing, Dynamic Worker integration, and production dispatch liveness remain
-unapproved. This claim-liveness gate is distinct from conditional O03-B2b2
-snapshot-lease renewal. Lifecycle, persisted claim fields, and discovery hints
-alone never mint execution authority, and the later host must preserve outcome-
-first, stale-fence, interruption, and uncertain-outcome rules without creating
-another publication or delivery authority.
+O08-B2b2b2b1a's phase-aware renewal transaction is complete. The structured
+heartbeat/lifecycle owner, scheduling/redelivery, authenticated runtime routing,
+Dynamic Worker integration, and production dispatch liveness remain unapproved.
+This structured-liveness gate is distinct from conditional O03-B2b2 snapshot-
+lease renewal. Lifecycle, persisted claim fields, discovery hints, and renewal
+observations alone never mint execution authority, and the later host must
+preserve outcome-first, stale-fence, interruption, and uncertain-outcome rules
+without creating another publication or delivery authority.
 
 `O08-B2b2b2b` is split at the remaining authority boundaries:
 
@@ -1219,11 +1222,23 @@ another publication or delivery authority.
   lease or sealed plus target lease. Exact sealed replay requires both matching
   seal evidence and the authoritative target expiry. No new lease version,
   column, envelope authority, or process capability is introduced.
-- **[ ] O08-B2b2b2b1 — phase-aware execution-claim liveness.** A later
-  structured executor lifecycle may jointly renew the live claim and mutable
-  snapshot lease before sealing, then use claim-only liveness after the sealed
-  lease promotion. Heartbeat shutdown, takeover, finishing, uncertainty, and
-  full `Cause` ownership require their own gate and remain pending.
+- **[x] O08-B2b2b2b1a — phase-aware execution-claim renewal transaction.**
+  One package-private persistence operation resolves trusted placement, then
+  uses one READ COMMITTED transaction and the canonical scope-clock, exact
+  session/fence, lease, journal-root, execution-claim lock order. Open and
+  failed roots may monotonically renew both the live snapshot lease and claim
+  within the locked grant/hard and retention bounds; sealed roots keep the
+  promoted lease immutable and renew only the claim. Both rows use full-current-
+  identity CAS predicates, stale or expired owners fail closed, and an observed
+  finishing state closes only when C05-A has consumed the claim and retained
+  the exact promoted lease. Returned observations are correlation evidence,
+  never execution authority. The operation adds no heartbeat, scheduler,
+  retry, or process capability.
+- **[ ] O08-B2b2b2b1b — structured claim-liveness lifecycle.** A later
+  executor-owned scoped process must start and stop renewal only for a genuine
+  admitted execute or finish-only authority, preserve the primary `Cause`, and
+  make heartbeat failure, takeover, C05-A consumption, and shutdown races
+  explicit. Production scheduling/redelivery remains separately pending.
 
 `O11` consumes this policy later; it is not a prerequisite to define it. Only a
 snapshot lease that is live under database time pins engine history. An expired

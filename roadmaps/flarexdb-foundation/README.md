@@ -73,8 +73,8 @@ path, not three independently usable products:
 The current assembly frontier is:
 
 ```text
-completed private kernel through atomic seal-time lease promotion
-  -> O08-B2b2b2b1 execution-claim liveness and scheduling/redelivery
+completed private kernel through phase-aware claim-renewal transaction
+  -> O08-B2b2b2b1b structured claim-liveness and scheduling/redelivery
   -> C06-B stable endpoint/response and production-dispatch composition
   -> C07 private end-to-end PGlite + real-Postgres proof
   -> C07A measure journal placement; move only the temporary journal if proven
@@ -134,7 +134,8 @@ complete. O08-B2b2a's private exact-selector safe-state redispatch composition,
 O08-B2b2b1's bounded inert scope-local discovery, and O08-B2b2b2a's durable
 dirty/failed-attempt disposition are complete. O08-B2b2b2b0a's pure shared
 grant/retention policy coherence and O08-B2b2b2b0b's atomic seal-time lease
-promotion are also complete. O08-B2b2b2b1 phase-aware execution-claim liveness,
+promotion are also complete. O08-B2b2b2b1a's phase-aware execution-claim
+renewal transaction is complete; its structured lifecycle coordinator,
 production scheduling/redelivery, and C06-B endpoint/response policy remain pending, and
 C04C2 remains conditional and unapproved.
 O03-B2b2 renewal is
@@ -146,7 +147,7 @@ bounded attempt must outlive its initial lease.
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, and O08-B2b2b1's migration-0033 discovery indexes complete |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, and O08-D bounded uncertainty recovery are complete; O08-B2b2b2b1 execution-claim liveness, production scheduling/redelivery, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, and O08-D bounded uncertainty recovery are complete; O08-B2b2b2b1b's structured liveness lifecycle, production scheduling/redelivery, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -540,8 +541,14 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
       - `O08-B2b2b2b0b` (complete): the exact-running seal transaction
         atomically promotes the exact lease to the locked grant/hard minimum
         and seals the journal root last under the database-time retention bound;
-      - `O08-B2b2b2b1` (pending and unapproved): phase-aware execution-claim
-        liveness; scheduling/redelivery and production dispatch remain pending;
+      - `O08-B2b2b2b1a` (complete): one package-private, phase-aware renewal
+        transaction jointly extends a live open/failed attempt's lease and
+        claim within authoritative bounds, preserves the promoted sealed lease
+        while extending only its claim, and recognizes exact C05-A claim
+        consumption without minting execution authority;
+      - `O08-B2b2b2b1b` (pending and unapproved): the structured Effect-owned
+        heartbeat/lifecycle coordinator; scheduling/redelivery and production
+        dispatch remain pending;
    - `O08-CD0` (complete): preserves source-owned Postgres transaction-decision
      provenance. Confirmed pre-decision rollback requires an in-transaction
      point-publication SQL marker, exact `40001`/`40P01`, and settled rollback;
@@ -565,19 +572,22 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
     the singular claim and terminalization owners.
 13. `O08-B2b2b2b0a` (complete): shared grant/retention configuration policy.
 14. `O08-B2b2b2b0b` (complete): atomic sealed-attempt lease promotion.
-15. `O08-B2b2b2b1` + `C06-B` (pending): phase-aware execution-claim liveness,
+15. `O08-B2b2b2b1a` (complete): phase-aware execution-claim renewal
+    transaction.
+16. `O08-B2b2b2b1b` + `C06-B` (pending): structured liveness ownership,
     scheduling/redelivery, production dispatch, and stable `/invoke/*`
     endpoint/response policy.
-16. `C07`: PGlite plus real-Postgres correctness gate.
+17. `C07`: PGlite plus real-Postgres correctness gate.
 
 The former B2b/C06 dependency contradiction is resolved by this split: C06-A
 is the accepted non-routing prerequisite, and O08-B2b2a now supplies only the
 private explicit-selector safe-state composer. O08-B2b2b1 now supplies only
 bounded inert discovery, and O08-B2b2b2a supplies only durable dirty/failed-
 attempt disposition. O08-B2b2b2b0a closes configuration coherence, and O08-
-B2b2b2b0b closes atomic seal-time lease promotion. O08-B2b2b2b1 and C06-B
-still require their own execution-liveness, scheduling/redelivery, production-
-liveness, and endpoint preflights.
+B2b2b2b0b closes atomic seal-time lease promotion, and O08-B2b2b2b1a closes
+the persistence-owned phase-aware renewal transaction. O08-B2b2b2b1b and
+C06-B still require their own structured liveness, scheduling/redelivery,
+production-liveness, and endpoint preflights.
 
 This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
 the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do

@@ -16,6 +16,7 @@
     "./session-journal-store": "./src/sessionJournalStore.ts",
     "./stored-occ-execution": "./src/storedOccExecution.ts",
     "./transaction-execution-claim": "./src/transactionExecutionClaim.ts",
+    "./transaction-execution-claim-liveness": "./src/transactionExecutionClaimLiveness.ts",
     "./transaction-session-activation": "./src/transactionSessionActivation.ts"
   },
   "scripts": {
