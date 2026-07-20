@@ -3586,6 +3586,207 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
+  it("validates point-commit command capture before authority I/O without swallowing defects", async () => {
+    const prepared = await prepareO06Scenario(
+      "o06_command_capture",
+      async (scenario, table) => {
+        await runPointOperation(scenario.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "capture" },
+        });
+      },
+    );
+    let authorityReads = 0;
+    const proof = createPointCommitRollbackProofPortV1({
+      ...resolutionPorts(persistence),
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: async () => {
+          authorityReads += 1;
+          throw new Error("Invalid command reached authority I/O.");
+        },
+      },
+    });
+
+    let nextCreationTimeReads = 0;
+    const orderedSealIdentity = { ...prepared.command.sealIdentity };
+    Object.defineProperty(orderedSealIdentity, "creationTimeSeed", {
+      enumerable: true,
+      get: () => Number.NaN,
+    });
+    Object.defineProperty(orderedSealIdentity, "nextCreationTime", {
+      enumerable: true,
+      get: () => {
+        nextCreationTimeReads += 1;
+        throw new Error("Later seal field must not be read.");
+      },
+    });
+    const invalidSeal = Object.freeze({
+      ...prepared.command,
+      sealIdentity: Object.freeze(orderedSealIdentity),
+    }) as unknown as PointCommitTransactionCommandV1;
+    await expect(runFailure(proof.prove(invalidSeal))).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+    expect(nextCreationTimeReads).toBe(0);
+
+    const dependency = prepared.command.dependencies[0];
+    if (dependency === undefined) {
+      throw new Error("Expected one captured command dependency.");
+    }
+    let rowIdReads = 0;
+    const orderedDependency = { ...dependency };
+    Object.defineProperty(orderedDependency, "tableId", {
+      enumerable: true,
+      get: () => 0,
+    });
+    Object.defineProperty(orderedDependency, "rowId", {
+      enumerable: true,
+      get: () => {
+        rowIdReads += 1;
+        throw new Error("Later dependency field must not be read.");
+      },
+    });
+    const invalidDependency = Object.freeze({
+      ...prepared.command,
+      dependencies: Object.freeze([
+        Object.freeze(orderedDependency),
+      ]),
+    }) as unknown as PointCommitTransactionCommandV1;
+    await expect(
+      runFailure(proof.prove(invalidDependency)),
+    ).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+    expect(rowIdReads).toBe(0);
+
+    for (const observed of [
+      Object.freeze({ kind: "unknown" }),
+      Object.freeze({
+        kind: "missing",
+        basis: Object.freeze({ kind: "unknown" }),
+      }),
+    ]) {
+      const invalidDiscriminant = Object.freeze({
+        ...prepared.command,
+        dependencies: Object.freeze([
+          Object.freeze({
+            ...dependency,
+            dependency: Object.freeze({
+              ...dependency.dependency,
+              observed,
+            }),
+          }),
+        ]),
+      }) as unknown as PointCommitTransactionCommandV1;
+      await expect(
+        runFailure(proof.prove(invalidDiscriminant)),
+      ).resolves.toMatchObject({
+        _tag: "PointCommitCorruptionV1Error",
+        reason: "commandInvalid",
+      });
+    }
+
+    const sparseDependencies = new Array(
+      prepared.command.dependencies.length,
+    );
+    const sparseCommand = Object.freeze({
+      ...prepared.command,
+      dependencies: Object.freeze(sparseDependencies),
+    }) as PointCommitTransactionCommandV1;
+    await expect(runFailure(proof.prove(sparseCommand))).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+
+    const rowIntent = prepared.command.rowIntent;
+    if (rowIntent === null || rowIntent.kind !== "live") {
+      throw new Error("Expected one live captured row intent.");
+    }
+    const invalidCanonicalValue = Object.freeze({
+      ...prepared.command,
+      rowIntent: Object.freeze({
+        ...rowIntent,
+        value: Object.freeze({ invalid: 1n << 70n }),
+      }),
+    }) as PointCommitTransactionCommandV1;
+    await expect(
+      runFailure(proof.prove(invalidCanonicalValue)),
+    ).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+
+    const invalidCanonicalBytes = Object.freeze({
+      ...prepared.command,
+      rowIntent: Object.freeze({
+        ...rowIntent,
+        canonicalBytes: Object.create(Uint8Array.prototype) as Uint8Array,
+      }),
+    });
+    await expect(
+      runFailure(proof.prove(invalidCanonicalBytes)),
+    ).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+
+    const iteratorDependencies = Array.from(prepared.command.dependencies);
+    Object.defineProperty(iteratorDependencies, Symbol.iterator, {
+      value: function* () {},
+    });
+    const overriddenIterator = Object.freeze({
+      ...prepared.command,
+      dependencies: Object.freeze(iteratorDependencies),
+    });
+    await expect(runEffect(
+      createPointCommitRollbackProofPortV1(
+        resolutionPorts(persistence),
+      ).prove(overriddenIterator),
+    )).resolves.toEqual({ kind: "wouldCommit" });
+
+    const lengthMutatingDependencies = Array.from(
+      prepared.command.dependencies,
+    );
+    Object.defineProperty(lengthMutatingDependencies, 0, {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        lengthMutatingDependencies.length = 0;
+        return dependency;
+      },
+    });
+    const lengthMutatingCommand = Object.freeze({
+      ...prepared.command,
+      dependencies: lengthMutatingDependencies,
+    });
+    await expect(runEffect(
+      createPointCommitRollbackProofPortV1(
+        resolutionPorts(persistence),
+      ).prove(lengthMutatingCommand),
+    )).resolves.toEqual({ kind: "wouldCommit" });
+
+    const defect = new Error("command session getter defect");
+    const defectiveCommand = { ...prepared.command };
+    Object.defineProperty(defectiveCommand, "session", {
+      enumerable: true,
+      get: () => { throw defect; },
+    });
+    const exit = await Effect.runPromiseExit(
+      proof.prove(defectiveCommand as PointCommitTransactionCommandV1),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(exit.cause.toString()).toContain(defect.message);
+      expect(exit.cause.toString()).not.toContain(
+        "PointCommitCorruptionV1Error",
+      );
+    }
+    expect(authorityReads).toBe(0);
+  });
+
   it("keeps malformed locked scope-clock scalars as corruption", async () => {
     const prepared = await prepareO06Scenario(
       "o06_corrupt_locked_clock",

@@ -2,6 +2,7 @@ import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
   encodeBytesToLowercaseHex,
+  isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
@@ -14,19 +15,20 @@ import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 
 import {
+  AppCreationTimeV1Schema,
   decodeAppCreationTimeV1,
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
+  AppRowIdHexV1Schema,
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1ToBytes,
-  decodeAppDocumentIdentityV1,
-  decodeAppRowIdHexV1,
+  decodeAppDocumentIdentityV1Result,
   type AppDocumentIdV1,
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
-  decodeCatalogTableId,
+  CatalogTableIdSchema,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
@@ -49,7 +51,6 @@ import {
   ScopeEpochUuidV1Schema,
   ScopeUuidV1Schema,
   projectScopeEpochUuidV1Result,
-  projectScopeIdUuidV1,
   projectScopeIdUuidV1Result,
   replacementScopeEpochV1FromUuid,
   type CommitSeq,
@@ -202,6 +203,15 @@ export type {
 
 const MAX_SIGNED_COMMIT_SEQ = MAX_PERSISTED_SIGNED_INT64_V1;
 const HASH_BYTE_LENGTH = 32;
+const decodePointCommitCreationTimeResult = Schema.decodeUnknownResult(
+  Schema.toType(AppCreationTimeV1Schema),
+);
+const decodePointCommitTableIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogTableIdSchema),
+);
+const decodePointCommitRowIdResult = Schema.decodeUnknownResult(
+  Schema.toType(AppRowIdHexV1Schema),
+);
 
 export interface PointCommitAuthorityPinsV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
@@ -858,10 +868,9 @@ export function createPointCommitFinishingTransitionPortV1(
   ] = Effect.fn(
     "PointCommitTransaction.enterFinishing",
   )(function* (input) {
-    const command = yield* Effect.try({
-      try: () => capturePointCommitFinishingTransitionCommand(input),
-      catch: mapCommandPreparationFailure,
-    });
+    const command = yield* Effect.fromResult(
+      capturePointCommitFinishingTransitionCommandResult(input),
+    );
     const located = yield* resolvePointCommitAuthority(
       command.authorityPins.deploymentId,
       ports,
@@ -923,10 +932,9 @@ export function createPointMutationAttemptReplacementPortV1(
   const replace: PointMutationAttemptReplacementPortV1["replace"] = Effect.fn(
     "PointMutationAttemptReplacement.replace",
   )(function* (input) {
-    const command = yield* Effect.try({
-      try: () => capturePointMutationAttemptReplacementCommand(input),
-      catch: mapPointMutationAttemptReplacementPreparationFailure,
-    });
+    const command = yield* Effect.fromResult(
+      capturePointMutationAttemptReplacementCommandResult(input),
+    ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
     const generatedOwner = yield* Effect.try({
       try: randomExecutionClaimOwner,
       catch: () => new PointMutationAttemptReplacementConfigurationV1Error(
@@ -988,10 +996,7 @@ export function createPointCommitRollbackProofPortV1(
   const prove: PointCommitRollbackProofPortV1["prove"] = Effect.fn(
     "PointCommitTransaction.proveRollback",
   )(function* (input) {
-    const command = yield* Effect.tryPromise({
-      try: () => preparePointCommitCommand(input),
-      catch: mapCommandPreparationFailure,
-    });
+    const command = yield* preparePointCommitCommand(input);
     const located = yield* resolvePointCommitAuthority(
       command.authorityPins.deploymentId,
       ports,
@@ -1171,10 +1176,17 @@ function awaitPointCommitPublicationSettlement(
   );
 }
 
-async function preparePointCommitCommand(
+const preparePointCommitCommand = Effect.fn(
+  "PointCommitTransaction.prepareCommand",
+)(function* (
   input: PointCommitTransactionCommandV1,
-): Promise<PreparedPointCommitTransactionCommandV1> {
-  const captured = capturePointCommitCommand(input);
+): Effect.fn.Return<
+  PreparedPointCommitTransactionCommandV1,
+  PointCommitCorruptionV1Error | PointCommitStaleAuthorityV1Error
+> {
+  const captured = yield* Effect.fromResult(
+    capturePointCommitCommandResult(input),
+  );
   if (captured.rowIntent === null) {
     return Object.freeze({ ...captured, rowIntent: null });
   }
@@ -1185,16 +1197,23 @@ async function preparePointCommitCommand(
     });
   }
   const rowIntent = captured.rowIntent;
-  const document = await canonicalizeFlarexValueV1(
-    rowIntent.value,
-    "appDocument",
-  );
+  const document = yield* Effect.tryPromise({
+    try: () => canonicalizeFlarexValueV1(
+      rowIntent.value,
+      "appDocument",
+    ),
+    catch: (cause): unknown => cause,
+  }).pipe(Effect.catch((cause: unknown) =>
+    cause instanceof FlarexValueCodecV1Error
+      ? Effect.fail(corruption("commandInvalid"))
+      : Effect.die(cause)
+  ));
   if (
     !bytesEqual(document.canonicalBytes, rowIntent.canonicalBytes) ||
     document.semanticSizeBytes !== rowIntent.semanticSizeBytes ||
     !isCanonicalDocumentForIntent(document, rowIntent)
   ) {
-    throw corruption("commandInvalid");
+    return yield* Effect.fail(corruption("commandInvalid"));
   }
   return Object.freeze({
     ...captured,
@@ -1208,7 +1227,7 @@ async function preparePointCommitCommand(
       document,
     } satisfies PreparedLivePointCommitRowIntentV1),
   });
-}
+});
 
 const preparePointCommitPublicationCommand = Effect.fn(
   "PointCommitTransaction.preparePublicationCommand",
@@ -1218,17 +1237,13 @@ const preparePointCommitPublicationCommand = Effect.fn(
   PreparedPointCommitPublicationCommandV1,
   PointCommitCorruptionV1Error | PointCommitStaleAuthorityV1Error
 > {
-  const command = yield* Effect.tryPromise({
-    try: () => preparePointCommitCommand(input),
-    catch: mapCommandPreparationFailure,
-  });
-  const successfulResult = yield* Effect.try({
-    try: () => captureSuccessfulResult(
+  const command = yield* preparePointCommitCommand(input);
+  const successfulResult = yield* Effect.fromResult(
+    captureSuccessfulResultResult(
       input.successfulResult,
       command.sealIdentity.resultByteLength,
     ),
-    catch: mapCommandPreparationFailure,
-  });
+  );
   const canonical = yield* canonicalizeSuccessfulResultV1Effect(
     successfulResult.value,
   ).pipe(
@@ -1262,50 +1277,57 @@ const preparePointCommitPublicationCommand = Effect.fn(
   });
 });
 
-function captureSuccessfulResult(
+function captureSuccessfulResultResult(
   input: PointCommitSuccessfulResultV1,
   expectedByteLength: number,
-): Readonly<PointCommitSuccessfulResultV1> {
-  let stableBytes: Uint8Array;
-  let stableValue: CanonicalFlarexRuntimeValueV1;
-  let valueCodecVersion: PointCommitSuccessfulResultV1["valueCodecVersion"];
-  let semanticSizeBytes: PointCommitSuccessfulResultV1["semanticSizeBytes"];
-  let sha256Hex: PointCommitSuccessfulResultV1["sha256Hex"];
-  try {
-    const canonicalBytes = input.canonicalBytes;
+): Result.Result<
+  Readonly<PointCommitSuccessfulResultV1>,
+  PointCommitCorruptionV1Error
+> {
+  return Result.gen(function* () {
+    const canonicalBytes = yield* Result.try({
+      try: () => input.canonicalBytes,
+      catch: () => corruption("successfulResultInvalid"),
+    });
     if (
       !isNonArrayRecord(input) ||
       !isUint8ArrayWithByteLength(canonicalBytes, expectedByteLength)
     ) {
-      throw new TypeError("Canonical result bytes are not a Uint8Array.");
+      return yield* Result.fail(corruption("successfulResultInvalid"));
     }
-    stableBytes = copyBytes(canonicalBytes);
-    stableValue = structuredClone(input.value);
-    valueCodecVersion = input.valueCodecVersion;
-    semanticSizeBytes = input.semanticSizeBytes;
-    sha256Hex = input.sha256Hex;
-  } catch {
-    throw corruption("successfulResultInvalid");
-  }
-  if (
-    valueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
-    stableBytes.byteLength < 1 ||
-    !isNonNegativeSafeInteger(semanticSizeBytes) ||
-    typeof sha256Hex !== "string" ||
-    !/^[0-9a-f]{64}$/.test(sha256Hex)
-  ) {
-    throw corruption("successfulResultInvalid");
-  }
-  return Object.freeze({
-    valueCodecVersion,
-    value: stableValue,
-    get canonicalBytes(): PointCommitSuccessfulResultV1["canonicalBytes"] {
-      return CanonicalSuccessfulResultBytesV1Schema.make(
-        copyBytes(stableBytes),
-      );
-    },
-    semanticSizeBytes,
-    sha256Hex,
+    const stableBytes = copyBytes(canonicalBytes);
+    const stableValue = yield* Result.try({
+      try: () => structuredClone(input.value),
+      catch: () => corruption("successfulResultInvalid"),
+    });
+    const scalars = yield* Result.try({
+      try: () => Object.freeze({
+        valueCodecVersion: input.valueCodecVersion,
+        semanticSizeBytes: input.semanticSizeBytes,
+        sha256Hex: input.sha256Hex,
+      }),
+      catch: () => corruption("successfulResultInvalid"),
+    });
+    if (
+      scalars.valueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
+      stableBytes.byteLength < 1 ||
+      !isNonNegativeSafeInteger(scalars.semanticSizeBytes) ||
+      typeof scalars.sha256Hex !== "string" ||
+      !/^[0-9a-f]{64}$/.test(scalars.sha256Hex)
+    ) {
+      return yield* Result.fail(corruption("successfulResultInvalid"));
+    }
+    return Object.freeze({
+      valueCodecVersion: scalars.valueCodecVersion,
+      value: stableValue,
+      get canonicalBytes(): PointCommitSuccessfulResultV1["canonicalBytes"] {
+        return CanonicalSuccessfulResultBytesV1Schema.make(
+          copyBytes(stableBytes),
+        );
+      },
+      semanticSizeBytes: scalars.semanticSizeBytes,
+      sha256Hex: scalars.sha256Hex,
+    });
   });
 }
 
@@ -1326,132 +1348,193 @@ function captureCommittedOutcomeLookup(
   });
 }
 
-function capturePointCommitCommand(
+function capturePointCommitCommandResult(
   input: PointCommitTransactionCommandV1,
-): PointCommitTransactionCommandV1 {
+): Result.Result<
+  PointCommitTransactionCommandV1,
+  PointCommitCorruptionV1Error | PointCommitStaleAuthorityV1Error
+> {
   if (
     input.session.lifecycle !== "finishing" ||
     input.sealIdentity.lifecycle !== "finishing"
   ) {
-    throw stale("lifecycleChanged");
+    return Result.fail(stale("lifecycleChanged"));
   }
-  const authorityPins = captureAuthorityPins(input.authorityPins);
-  const session = captureSessionScalars(input.session);
-  const sealIdentity = captureSealIdentity(input.sealIdentity);
-  requireCommandAuthorityConsistency(authorityPins, session, sealIdentity);
-
-  const dependencies = capturePointCommitDependencies(
-    input.dependencies,
-    sealIdentity.pointDependencyCount,
-  );
-  const rowIntent = input.rowIntent === null
-    ? null
-    : captureRowIntent(input.rowIntent);
-  if (rowIntent !== null && !dependencies.some(
-    (dependency) => pointDependenciesEqual(dependency, rowIntent),
-  )) {
-    throw corruption("commandInvalid");
-  }
-
-  return Object.freeze({
-    authorityPins,
-    session,
-    sealIdentity,
-    dependencies,
-    rowIntent,
-  });
-}
-
-function capturePointMutationAttemptReplacementCommand(
-  input: PointMutationAttemptReplacementCommandV1,
-): PreparedPointMutationAttemptReplacementCommandV1 {
-  if (
-    input.session.lifecycle !== "finishing" ||
-    input.sealIdentity.lifecycle !== "finishing"
-  ) {
-    throw stale("lifecycleChanged");
-  }
-  const authorityPins = captureAuthorityPins(input.authorityPins);
-  const session = captureSessionScalars(input.session);
-  const sealIdentity = captureSealIdentity(input.sealIdentity);
-  requireCommandAuthorityConsistency(authorityPins, session, sealIdentity);
-  return Object.freeze({
-    authorityPins,
-    session,
-    sealIdentity,
-    dependencies: capturePointCommitDependencies(
+  return Result.gen(function* () {
+    const authorityPins = yield* captureAuthorityPinsResult(
+      input.authorityPins,
+    );
+    const session = yield* captureSessionScalarsResult(input.session);
+    const sealIdentity = yield* captureSealIdentityResult(input.sealIdentity);
+    yield* requireCommandAuthorityConsistencyResult(
+      authorityPins,
+      session,
+      sealIdentity,
+    );
+    const dependencies = yield* capturePointCommitDependenciesResult(
       input.dependencies,
       sealIdentity.pointDependencyCount,
-    ),
+    );
+    const rowIntent = input.rowIntent === null
+      ? null
+      : yield* captureRowIntentResult(input.rowIntent);
+    if (rowIntent !== null && !dependencies.some(
+      (dependency) => pointDependenciesEqual(dependency, rowIntent),
+    )) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    return Object.freeze({
+      authorityPins,
+      session,
+      sealIdentity,
+      dependencies,
+      rowIntent,
+    });
   });
 }
 
-function capturePointCommitDependencies(
-  input: ReadonlyArray<PointCommitDependencyV1>,
-  expectedCount: number,
-): ReadonlyArray<PointCommitDependencyV1> {
+function capturePointMutationAttemptReplacementCommandResult(
+  input: PointMutationAttemptReplacementCommandV1,
+): Result.Result<
+  PreparedPointMutationAttemptReplacementCommandV1,
+  PointCommitCorruptionV1Error | PointCommitStaleAuthorityV1Error
+> {
   if (
-    !Array.isArray(input) ||
-    input.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 ||
-    input.length !== expectedCount
+    input.session.lifecycle !== "finishing" ||
+    input.sealIdentity.lifecycle !== "finishing"
   ) {
-    throw corruption("commandInvalid");
+    return Result.fail(stale("lifecycleChanged"));
   }
-  const dependencies = Object.freeze(input.map(capturePointDependency));
-  requireCanonicalDependencyOrder(dependencies);
-  return dependencies;
+  return Result.gen(function* () {
+    const authorityPins = yield* captureAuthorityPinsResult(
+      input.authorityPins,
+    );
+    const session = yield* captureSessionScalarsResult(input.session);
+    const sealIdentity = yield* captureSealIdentityResult(input.sealIdentity);
+    yield* requireCommandAuthorityConsistencyResult(
+      authorityPins,
+      session,
+      sealIdentity,
+    );
+    const dependencies = yield* capturePointCommitDependenciesResult(
+      input.dependencies,
+      sealIdentity.pointDependencyCount,
+    );
+    return Object.freeze({
+      authorityPins,
+      session,
+      sealIdentity,
+      dependencies,
+    });
+  });
 }
 
-function capturePointCommitFinishingTransitionCommand(
+function capturePointCommitDependenciesResult(
+  input: ReadonlyArray<PointCommitDependencyV1>,
+  expectedCount: number,
+): Result.Result<
+  ReadonlyArray<PointCommitDependencyV1>,
+  PointCommitCorruptionV1Error
+> {
+  if (!Array.isArray(input)) {
+    return Result.fail(corruption("commandInvalid"));
+  }
+  const dependencyCount = input.length;
+  if (
+    dependencyCount > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 ||
+    dependencyCount !== expectedCount
+  ) {
+    return Result.fail(corruption("commandInvalid"));
+  }
+  return Result.gen(function* () {
+    const captured: PointCommitDependencyV1[] = [];
+    for (let index = 0; index < dependencyCount; index += 1) {
+      if (!Object.hasOwn(input, index)) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
+      const dependency = input[index];
+      if (dependency === undefined) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
+      captured.push(yield* capturePointDependencyResult(dependency));
+    }
+    if (captured.length !== expectedCount) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const dependencies = Object.freeze(captured);
+    yield* requireCanonicalDependencyOrderResult(dependencies);
+    return dependencies;
+  });
+}
+
+function capturePointCommitFinishingTransitionCommandResult(
   input: PointCommitFinishingTransitionCommandV1,
-): PreparedPointCommitFinishingTransitionCommandV1 {
+): Result.Result<
+  PreparedPointCommitFinishingTransitionCommandV1,
+  PointCommitCorruptionV1Error | PointCommitStaleAuthorityV1Error
+> {
   if (
     input.session.lifecycle !== "running" ||
     input.sealIdentity.lifecycle !== "running"
   ) {
-    throw stale("lifecycleChanged");
+    return Result.fail(stale("lifecycleChanged"));
   }
-  const authorityPins = captureAuthorityPins(input.authorityPins);
-  const session = captureSessionScalars(input.session);
-  const sealIdentity = captureSealIdentity(input.sealIdentity);
-  const executionClaim = captureExecutionClaimPin(input.executionClaim);
-  requireCommandAuthorityConsistency(authorityPins, session, sealIdentity);
-  return Object.freeze({
-    authorityPins,
-    session: Object.freeze({ ...session, lifecycle: "running" as const }),
-    sealIdentity: Object.freeze({
-      ...sealIdentity,
-      lifecycle: "running" as const,
-    }),
-    executionClaim,
+  return Result.gen(function* () {
+    const authorityPins = yield* captureAuthorityPinsResult(
+      input.authorityPins,
+    );
+    const session = yield* captureSessionScalarsResult(input.session);
+    const sealIdentity = yield* captureSealIdentityResult(input.sealIdentity);
+    const executionClaim = yield* captureExecutionClaimPinResult(
+      input.executionClaim,
+    );
+    yield* requireCommandAuthorityConsistencyResult(
+      authorityPins,
+      session,
+      sealIdentity,
+    );
+    return Object.freeze({
+      authorityPins,
+      session: Object.freeze({ ...session, lifecycle: "running" as const }),
+      sealIdentity: Object.freeze({
+        ...sealIdentity,
+        lifecycle: "running" as const,
+      }),
+      executionClaim,
+    });
   });
 }
 
-function captureExecutionClaimPin(
+function captureExecutionClaimPinResult(
   input: TransactionExecutionClaimPinV1,
-): TransactionExecutionClaimPinV1 {
-  let ownerInput: unknown;
-  let fenceInput: unknown;
-  try {
-    ownerInput = input.claimOwner;
-    fenceInput = input.claimFence;
-  } catch {
-    throw corruption("commandInvalid");
-  }
-  const owner = decodeTransactionExecutionClaimOwnerV1(ownerInput);
-  const fence = decodeTransactionExecutionClaimFenceV1(fenceInput);
-  if (Result.isFailure(owner) || Result.isFailure(fence)) {
-    throw corruption("commandInvalid");
-  }
-  return Object.freeze({
-    claimOwner: owner.success,
-    claimFence: fence.success,
+): Result.Result<TransactionExecutionClaimPinV1, PointCommitCorruptionV1Error> {
+  return Result.gen(function* () {
+    const fields = yield* Result.try({
+      try: () => Object.freeze({
+        owner: input.claimOwner,
+        fence: input.claimFence,
+      }),
+      catch: () => corruption("commandInvalid"),
+    });
+    const owner = yield* decodeTransactionExecutionClaimOwnerV1(
+      fields.owner,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    const fence = yield* decodeTransactionExecutionClaimFenceV1(
+      fields.fence,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    return Object.freeze({
+      claimOwner: owner,
+      claimFence: fence,
+    });
   });
 }
 
-function captureAuthorityPins(
+function captureAuthorityPinsResult(
   input: PointCommitAuthorityPinsV1,
-): Readonly<PointCommitAuthorityPinsV1> {
+): Result.Result<
+  Readonly<PointCommitAuthorityPinsV1>,
+  PointCommitCorruptionV1Error
+> {
   if (
     input.storageGeneration !== "flarexdb_v1" ||
     input.storageGenerationFence < 1n ||
@@ -1459,17 +1542,20 @@ function captureAuthorityPins(
     input.snapshotToken.commitSeq < 0n ||
     input.functionKind !== "mutation"
   ) {
-    throw corruption("commandInvalid");
+    return Result.fail(corruption("commandInvalid"));
   }
-  return Object.freeze({
+  return Result.succeed(Object.freeze({
     ...input,
     snapshotToken: Object.freeze({ ...input.snapshotToken }),
-  });
+  }));
 }
 
-function captureSessionScalars(
+function captureSessionScalarsResult(
   input: PointCommitSessionScalarsV1,
-): Readonly<PointCommitSessionScalarsV1> {
+): Result.Result<
+  Readonly<PointCommitSessionScalarsV1>,
+  PointCommitCorruptionV1Error
+> {
   if (
     input.storageGeneration !== "flarexdb_v1" ||
     input.storageGenerationFence < 1n ||
@@ -1491,9 +1577,9 @@ function captureSessionScalars(
     input.hardExpiresAtMilliseconds !==
       input.authorizationGrantExpiresAtMilliseconds
   ) {
-    throw corruption("commandInvalid");
+    return Result.fail(corruption("commandInvalid"));
   }
-  return Object.freeze({
+  return Result.succeed(Object.freeze({
     ...input,
     identityAccessPolicySha256:
       new Uint8Array(input.identityAccessPolicySha256),
@@ -1501,68 +1587,78 @@ function captureSessionScalars(
     authorizationGrantSha256:
       new Uint8Array(input.authorizationGrantSha256),
     requestSha256: new Uint8Array(input.requestSha256),
-  });
+  }));
 }
 
-function captureSealIdentity(
+function captureSealIdentityResult(
   input: PointCommitSealIdentityV1,
-): Readonly<PointCommitSealIdentityV1> {
-  let creationTimeSeed: AppCreationTimeV1;
-  let nextCreationTime: AppCreationTimeV1;
-  try {
-    creationTimeSeed = decodeAppCreationTimeV1(input.creationTimeSeed);
-    nextCreationTime = decodeAppCreationTimeV1(input.nextCreationTime);
-  } catch {
-    throw corruption("commandInvalid");
-  }
-  if (
-    input.journalFormat !== SESSION_JOURNAL_FORMAT_V1 ||
-    input.journalProtocolVersion !== TRANSACTION_SESSION_PROTOCOL_VERSION_V1 ||
-    input.journalValueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
-    input.resultValueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
-    input.finalSyscallSequence < 0n ||
-    nextCreationTime < creationTimeSeed ||
-    !isPositiveSafeInteger(input.journalByteLength) ||
-    !isPositiveSafeInteger(input.resultByteLength) ||
-    !isNonNegativeSafeInteger(input.resultSemanticBytes) ||
-    !isNonNegativeSafeInteger(input.readDocuments) ||
-    !isNonNegativeSafeInteger(input.readSemanticBytes) ||
-    !isNonNegativeSafeInteger(input.pointDependencyCount) ||
-    !isNonNegativeSafeInteger(input.writeOperations) ||
-    !isNonNegativeSafeInteger(input.writeSemanticBytes) ||
-    !isNonNegativeSafeInteger(input.materialWriteEventEvidenceBytes) ||
-    !validHash(input.journalSha256) ||
-    !validHash(input.resultSha256) ||
-    !validEpochMilliseconds(input.sessionUpdatedAtMilliseconds) ||
-    !validEpochMilliseconds(input.leaseExpiresAtMilliseconds) ||
-    !validEpochMilliseconds(input.rootCreatedAtMilliseconds) ||
-    !validEpochMilliseconds(input.rootUpdatedAtMilliseconds) ||
-    !validEpochMilliseconds(input.sealedAtMilliseconds) ||
-    input.rootUpdatedAtMilliseconds < input.rootCreatedAtMilliseconds ||
-    input.sealedAtMilliseconds < input.rootCreatedAtMilliseconds
-  ) {
-    throw corruption("commandInvalid");
-  }
-  return Object.freeze({
-    ...input,
-    creationTimeSeed,
-    nextCreationTime,
-    journalSha256: new Uint8Array(input.journalSha256),
-    resultSha256: new Uint8Array(input.resultSha256),
+): Result.Result<
+  Readonly<PointCommitSealIdentityV1>,
+  PointCommitCorruptionV1Error
+> {
+  return Result.gen(function* () {
+    const creationTimeSeedInput =
+      yield* readPointCommitCommandFieldResult(
+        () => input.creationTimeSeed,
+      );
+    const creationTimeSeed = yield* decodePointCommitCreationTimeResult(
+      creationTimeSeedInput,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    const nextCreationTimeInput = yield* readPointCommitCommandFieldResult(
+      () => input.nextCreationTime,
+    );
+    const nextCreationTime = yield* decodePointCommitCreationTimeResult(
+      nextCreationTimeInput,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    if (
+      input.journalFormat !== SESSION_JOURNAL_FORMAT_V1 ||
+      input.journalProtocolVersion !==
+        TRANSACTION_SESSION_PROTOCOL_VERSION_V1 ||
+      input.journalValueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
+      input.resultValueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
+      input.finalSyscallSequence < 0n ||
+      nextCreationTime < creationTimeSeed ||
+      !isPositiveSafeInteger(input.journalByteLength) ||
+      !isPositiveSafeInteger(input.resultByteLength) ||
+      !isNonNegativeSafeInteger(input.resultSemanticBytes) ||
+      !isNonNegativeSafeInteger(input.readDocuments) ||
+      !isNonNegativeSafeInteger(input.readSemanticBytes) ||
+      !isNonNegativeSafeInteger(input.pointDependencyCount) ||
+      !isNonNegativeSafeInteger(input.writeOperations) ||
+      !isNonNegativeSafeInteger(input.writeSemanticBytes) ||
+      !isNonNegativeSafeInteger(input.materialWriteEventEvidenceBytes) ||
+      !validHash(input.journalSha256) ||
+      !validHash(input.resultSha256) ||
+      !validEpochMilliseconds(input.sessionUpdatedAtMilliseconds) ||
+      !validEpochMilliseconds(input.leaseExpiresAtMilliseconds) ||
+      !validEpochMilliseconds(input.rootCreatedAtMilliseconds) ||
+      !validEpochMilliseconds(input.rootUpdatedAtMilliseconds) ||
+      !validEpochMilliseconds(input.sealedAtMilliseconds) ||
+      input.rootUpdatedAtMilliseconds < input.rootCreatedAtMilliseconds ||
+      input.sealedAtMilliseconds < input.rootCreatedAtMilliseconds
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    return Object.freeze({
+      ...input,
+      creationTimeSeed,
+      nextCreationTime,
+      journalSha256: new Uint8Array(input.journalSha256),
+      resultSha256: new Uint8Array(input.resultSha256),
+    });
   });
 }
 
-function requireCommandAuthorityConsistency(
+function requireCommandAuthorityConsistencyResult(
   pins: Readonly<PointCommitAuthorityPinsV1>,
   session: Readonly<PointCommitSessionScalarsV1>,
   seal: Readonly<PointCommitSealIdentityV1>,
-): void {
-  let projectedScopeUuid: ScopeUuidV1;
-  try {
-    projectedScopeUuid = projectScopeIdUuidV1(pins.scopeId).scopeUuid;
-  } catch {
-    throw corruption("commandInvalid");
-  }
+): Result.Result<void, PointCommitCorruptionV1Error> {
+  const projection = projectScopeIdUuidV1Result(pins.scopeId).pipe(
+    Result.mapError(() => corruption("commandInvalid")),
+  );
+  if (Result.isFailure(projection)) return Result.fail(projection.failure);
+  const projectedScopeUuid = projection.success.scopeUuid;
   if (
     seal.scopeUuid !== projectedScopeUuid ||
     seal.sessionUpdatedAtMilliseconds !== session.updatedAtMilliseconds ||
@@ -1582,124 +1678,193 @@ function requireCommandAuthorityConsistency(
       session.authorizationRevocationEpoch ||
     pins.requestKey !== session.requestKey
   ) {
-    throw corruption("commandInvalid");
+    return Result.fail(corruption("commandInvalid"));
   }
+  return Result.succeed(undefined);
 }
 
-function capturePointDependency(
+function capturePointDependencyResult(
   input: PointCommitDependencyV1,
-): Readonly<PointCommitDependencyV1> {
-  try {
-    const tableId = decodeCatalogTableId(input.tableId);
-    const rowId = decodeAppRowIdHexV1(input.rowId);
-    const identity = decodeAppDocumentIdentityV1(input.documentId);
-    if (
-      identity.tableId !== tableId ||
-      identity.rowId !== rowId ||
-      input.dependency.kind !== "appRowPoint" ||
-      input.dependency.documentId !== identity.id
-    ) {
-      throw corruption("commandInvalid");
+): Result.Result<
+  Readonly<PointCommitDependencyV1>,
+  PointCommitCorruptionV1Error
+> {
+  return Result.gen(function* () {
+    const tableIdInput = yield* readPointCommitCommandFieldResult(
+      () => input.tableId,
+    );
+    const tableId = yield* decodePointCommitTableIdResult(tableIdInput).pipe(
+      Result.mapError(() => corruption("commandInvalid")),
+    );
+    const rowIdInput = yield* readPointCommitCommandFieldResult(
+      () => input.rowId,
+    );
+    const rowId = yield* decodePointCommitRowIdResult(rowIdInput).pipe(
+      Result.mapError(() => corruption("commandInvalid")),
+    );
+    const documentIdInput = yield* readPointCommitCommandFieldResult(
+      () => input.documentId,
+    );
+    const identity = yield* decodeAppDocumentIdentityV1Result(
+      documentIdInput,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    if (identity.tableId !== tableId || identity.rowId !== rowId) {
+      return yield* Result.fail(corruption("commandInvalid"));
     }
-    const dependency = captureLogicalDependency(input.dependency);
+    const dependencyInput = yield* readPointCommitCommandFieldResult(
+      () => input.dependency,
+    );
+    const dependencyKind = yield* readPointCommitCommandFieldResult(
+      () => dependencyInput.kind,
+    );
+    if (dependencyKind !== "appRowPoint") {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const dependencyDocumentId = yield* readPointCommitCommandFieldResult(
+      () => dependencyInput.documentId,
+    );
+    if (dependencyDocumentId !== identity.id) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const dependency = yield* captureLogicalDependencyResult(dependencyInput);
     return Object.freeze({
       documentId: identity.id,
       tableId,
       rowId,
       dependency,
     });
-  } catch (cause) {
-    if (cause instanceof PointCommitCorruptionV1Error) throw cause;
-    throw corruption("commandInvalid");
-  }
-}
-
-function captureLogicalDependency(
-  input: LogicalReadDependencyV1,
-): LogicalReadDependencyV1 {
-  switch (input.observed.kind) {
-    case "present":
-      return Object.freeze({
-        kind: "appRowPoint",
-        documentId: input.documentId,
-        observed: Object.freeze({
-          kind: "present",
-          revisionCommitSeq: input.observed.revisionCommitSeq,
-        }),
-      });
-    case "missing":
-      switch (input.observed.basis.kind) {
-        case "noVisibleRevision":
-          return Object.freeze({
-            kind: "appRowPoint",
-            documentId: input.documentId,
-            observed: Object.freeze({
-              kind: "missing",
-              basis: Object.freeze({ kind: "noVisibleRevision" }),
-            }),
-          });
-        case "tombstone":
-          return Object.freeze({
-            kind: "appRowPoint",
-            documentId: input.documentId,
-            observed: Object.freeze({
-              kind: "missing",
-              basis: Object.freeze({
-                kind: "tombstone",
-                revisionCommitSeq:
-                  input.observed.basis.revisionCommitSeq,
-              }),
-            }),
-          });
-      }
-  }
-}
-
-function captureRowIntent(
-  input: PointCommitRowIntentV1,
-): Readonly<PointCommitRowIntentV1> {
-  const dependency = capturePointDependency(input);
-  if (input.kind === "deleted") {
-    return Object.freeze({ ...dependency, kind: "deleted" });
-  }
-  let creationTime: AppCreationTimeV1;
-  try {
-    creationTime = decodeAppCreationTimeV1(input.creationTime);
-  } catch {
-    throw corruption("commandInvalid");
-  }
-  if (
-    !(input.canonicalBytes instanceof Uint8Array) ||
-    input.canonicalBytes.byteLength === 0 ||
-    !isPositiveSafeInteger(input.semanticSizeBytes)
-  ) {
-    throw corruption("commandInvalid");
-  }
-  return Object.freeze({
-    ...dependency,
-    kind: "live",
-    creationTime,
-    value: structuredClone(input.value),
-    canonicalBytes: new Uint8Array(input.canonicalBytes),
-    semanticSizeBytes: input.semanticSizeBytes,
   });
 }
 
-function requireCanonicalDependencyOrder(
+const INVALID_LOGICAL_DEPENDENCY = Symbol("InvalidLogicalDependency");
+
+function captureLogicalDependencyResult(
+  input: LogicalReadDependencyV1,
+): Result.Result<LogicalReadDependencyV1, PointCommitCorruptionV1Error> {
+  const captured: Result.Result<
+    LogicalReadDependencyV1 | typeof INVALID_LOGICAL_DEPENDENCY,
+    PointCommitCorruptionV1Error
+  > = Result.try({
+    try: () => {
+      switch (input.observed.kind) {
+        case "present":
+          return Object.freeze({
+            kind: "appRowPoint",
+            documentId: input.documentId,
+            observed: Object.freeze({
+              kind: "present",
+              revisionCommitSeq: input.observed.revisionCommitSeq,
+            }),
+          } satisfies LogicalReadDependencyV1);
+        case "missing":
+          switch (input.observed.basis.kind) {
+            case "noVisibleRevision":
+              return Object.freeze({
+                kind: "appRowPoint",
+                documentId: input.documentId,
+                observed: Object.freeze({
+                  kind: "missing",
+                  basis: Object.freeze({ kind: "noVisibleRevision" }),
+                }),
+              } satisfies LogicalReadDependencyV1);
+            case "tombstone":
+              return Object.freeze({
+                kind: "appRowPoint",
+                documentId: input.documentId,
+                observed: Object.freeze({
+                  kind: "missing",
+                  basis: Object.freeze({
+                    kind: "tombstone",
+                    revisionCommitSeq:
+                      input.observed.basis.revisionCommitSeq,
+                  }),
+                }),
+              } satisfies LogicalReadDependencyV1);
+            default:
+              return INVALID_LOGICAL_DEPENDENCY;
+          }
+        default:
+          return INVALID_LOGICAL_DEPENDENCY;
+      }
+    },
+    catch: () => corruption("commandInvalid"),
+  });
+  return captured.pipe(Result.flatMap((dependency) =>
+    dependency === INVALID_LOGICAL_DEPENDENCY
+      ? Result.fail(corruption("commandInvalid"))
+      : Result.succeed(dependency)
+  ));
+}
+
+function readPointCommitCommandFieldResult<Value>(
+  read: () => Value,
+): Result.Result<Value, PointCommitCorruptionV1Error> {
+  return Result.try({
+    try: read,
+    catch: () => corruption("commandInvalid"),
+  });
+}
+
+function captureRowIntentResult(
+  input: PointCommitRowIntentV1,
+): Result.Result<
+  Readonly<PointCommitRowIntentV1>,
+  PointCommitCorruptionV1Error
+> {
+  return Result.gen(function* () {
+    const dependency = yield* capturePointDependencyResult(input);
+    if (input.kind === "deleted") {
+      return Object.freeze({ ...dependency, kind: "deleted" });
+    }
+    const creationTimeInput = yield* readPointCommitCommandFieldResult(
+      () => input.creationTime,
+    );
+    const creationTime = yield* decodePointCommitCreationTimeResult(
+      creationTimeInput,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    const canonicalBytesInput = yield* readPointCommitCommandFieldResult(
+      () => input.canonicalBytes,
+    );
+    if (!isUint8Array(canonicalBytesInput)) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const canonicalBytes = yield* Result.try({
+      try: () => copyBytes(canonicalBytesInput),
+      catch: () => corruption("commandInvalid"),
+    });
+    if (
+      canonicalBytes.byteLength === 0 ||
+      !isPositiveSafeInteger(input.semanticSizeBytes)
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    return Object.freeze({
+      ...dependency,
+      kind: "live",
+      creationTime,
+      value: structuredClone(input.value),
+      canonicalBytes,
+      semanticSizeBytes: input.semanticSizeBytes,
+    });
+  });
+}
+
+function requireCanonicalDependencyOrderResult(
   dependencies: ReadonlyArray<Readonly<PointCommitDependencyV1>>,
-): void {
+): Result.Result<void, PointCommitCorruptionV1Error> {
   for (let index = 1; index < dependencies.length; index += 1) {
     const previous = dependencies[index - 1];
     const current = dependencies[index];
     if (previous === undefined || current === undefined) {
-      throw corruption("commandInvalid");
+      return Result.fail(corruption("commandInvalid"));
     }
     const tableDifference = previous.tableId - current.tableId;
     const rowDifference = compareRowIds(previous.rowId, current.rowId);
     if (tableDifference > 0 || (tableDifference === 0 && rowDifference >= 0)) {
-      throw corruption("commandInvalid");
+      return Result.fail(corruption("commandInvalid"));
     }
   }
+  return Result.succeed(undefined);
 }
 
 function compareRowIds(left: AppRowIdHexV1, right: AppRowIdHexV1): number {
@@ -4104,37 +4269,6 @@ function parseNullableCommitSeqText(value: unknown): CommitSeq | null {
     throw corruption("rowHeadInvalid");
   }
   return CommitSeqSchema.make(parsed);
-}
-
-function mapCommandPreparationFailure(
-  cause: unknown,
-): PointCommitCorruptionV1Error | PointCommitStaleAuthorityV1Error {
-  if (
-    cause instanceof PointCommitCorruptionV1Error ||
-    cause instanceof PointCommitStaleAuthorityV1Error
-  ) {
-    return cause;
-  }
-  if (cause instanceof FlarexValueCodecV1Error) {
-    return corruption("commandInvalid");
-  }
-  throw cause;
-}
-
-function mapPointMutationAttemptReplacementPreparationFailure(
-  cause: unknown,
-): PointMutationAttemptReplacementV1Error {
-  if (
-    cause instanceof PointCommitStaleAuthorityV1Error ||
-    cause instanceof PointCommitCorruptionV1Error ||
-    cause instanceof PointCommitSqlErrorV1
-  ) {
-    return mapPointMutationAttemptReplacementSharedError(cause);
-  }
-  if (cause instanceof FlarexValueCodecV1Error) {
-    return replacementCorruption("commandInvalid");
-  }
-  throw cause;
 }
 
 function mapPointMutationAttemptReplacementSharedError(

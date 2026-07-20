@@ -124,6 +124,20 @@ committed-outcome epoch and retained-header epoch checks consume the same
 `Result` decoder while preserving their distinct corruption reasons. Lock
 order, SQL failure classification, authority comparisons, and the frozen clock
 snapshot are unchanged.
+Point-commit command preparation now enters finishing transition, rollback
+proof, publication, and attempt replacement through one ordered `Result`
+capture graph. Seal and session scalars, execution-claim pins, scope
+projections, logical dependencies, row intents, canonical dependency order,
+and successful-result evidence retain their existing stale/corruption reasons
+without the former outer `Effect.try` and preparation `tryPromise` wrappers.
+The app-document canonicalizer is the one remaining narrow foreign Promise
+edge in preparation; only its known value-codec rejection becomes
+`commandInvalid`, while unexpected defects remain defects. Defensive byte and
+value copies, validation order, pre-authority-I/O rejection, frozen snapshots,
+and all SQL, transaction, lock, and interruption behavior are unchanged.
+Dependency capture snapshots the validated numeric array length, rejects holes
+and malformed discriminants, and never delegates OCC evidence selection to a
+caller-overridden iterator.
 
 Journal counters, receipt cardinality, stored request/outcome decoding, and
 receipt/root correlation now compose through `Result` and Effect directly.
