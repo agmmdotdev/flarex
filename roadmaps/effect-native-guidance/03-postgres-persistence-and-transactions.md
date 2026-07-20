@@ -539,16 +539,20 @@ The lease no longer enters a throwing UUID compatibility decoder: it compares
 the stored decoded epoch UUID with the canonical UUID projected from the
 prepared snapshot token. Cardinality, stale-fence and lifecycle, scalar
 corruption, and expiry failure order and public error reasons remain unchanged.
-Execution-claim row inspection and live owner/fence/expiry validation now have
-one Result-first persistence authority. The point-commit replacement and C05-A
-finishing consumers use it directly; the throwing projections remain only for
-the still-Promise transaction-session activation flow and are deleted when that
-flow consumes the Result API. C05-A's database-time ordering, already-finishing
-claim absence, exact claim-deletion receipt, and running-to-finishing update
-receipt also remain typed Results until the Drizzle callback projection. Its
-SQL, canonical lock/write order, atomic claim consumption, database-owned
-`updated_at`, repeated-transition convergence, and failure precedence are
-unchanged.
+Execution-claim locked-row cardinality, row inspection, and live
+owner/fence/expiry validation now have one Result-first persistence authority.
+The locked Drizzle query returns `Promise<Result<...>>`, and both point-commit
+and transaction-session owners project it only at their named Drizzle 0.45
+Promise callback boundaries. The two claim-specific throwing projections are
+deleted; the transaction-session flow maps stale and corrupt claim evidence in
+the Result channel before its single temporary callback projection. Delete the
+remaining owner-local projections when those mutation graphs can yield Result
+or Effect failures through an Effect-native transaction client. C05-A's
+database-time ordering, already-finishing claim absence, exact claim-deletion
+receipt, and running-to-finishing update receipt also remain typed Results
+until that projection. SQL, canonical lock/write order, atomic claim
+consumption, database-owned `updated_at`, repeated-transition convergence, and
+failure precedence are unchanged.
 
 ## Target Boundary
 

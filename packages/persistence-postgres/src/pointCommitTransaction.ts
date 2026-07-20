@@ -163,7 +163,7 @@ import {
 } from "./schema";
 import {
   deriveTransactionExecutionClaimV1,
-  lockExactTransactionExecutionClaimV1,
+  lockExactTransactionExecutionClaimV1Result,
   requireLiveTransactionExecutionClaimV1Result,
   TransactionExecutionClaimCorruptionV1Error,
   TransactionExecutionClaimStaleV1Error,
@@ -2468,12 +2468,14 @@ async function observeReplacedPointMutationAttempt(
   }
   await emitReplacementStep(options, command, "journalRootLocked");
 
-  const executionClaim = await lockExactTransactionExecutionClaimV1(tx, {
-    scopeId: command.authorityPins.scopeId,
-    scopeUuid: clock.scopeUuid,
-    sessionId: command.authorityPins.sessionId,
-    attemptFence: expectedFence,
-  });
+  const executionClaim = projectPointCommitTransactionResult(
+    await lockExactTransactionExecutionClaimV1Result(tx, {
+      scopeId: command.authorityPins.scopeId,
+      scopeUuid: clock.scopeUuid,
+      sessionId: command.authorityPins.sessionId,
+      attemptFence: expectedFence,
+    }),
+  );
 
   const childrenQuery = tx.select({
     receiptExists: sql<boolean>`exists(
@@ -2650,12 +2652,14 @@ async function runPointCommitFinishingTransition(
         session.updatedAtMilliseconds,
       );
     }
-    const executionClaim = await lockExactTransactionExecutionClaimV1(tx, {
-      scopeId: command.authorityPins.scopeId,
-      scopeUuid: command.sealIdentity.scopeUuid,
-      sessionId: command.authorityPins.sessionId,
-      attemptFence: command.authorityPins.attemptFence,
-    });
+    const executionClaim = projectPointCommitTransactionResult(
+      await lockExactTransactionExecutionClaimV1Result(tx, {
+        scopeId: command.authorityPins.scopeId,
+        scopeUuid: command.sealIdentity.scopeUuid,
+        sessionId: command.authorityPins.sessionId,
+        attemptFence: command.authorityPins.attemptFence,
+      }),
+    );
     await emitTransactionStep(options, command, "executionClaimLocked");
     projectPointCommitTransactionResult(
       requireLiveTransactionExecutionClaimV1Result(

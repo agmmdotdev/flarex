@@ -112,7 +112,11 @@ export function deriveTransactionExecutionClaimV1(
   });
 }
 
-export async function lockExactTransactionExecutionClaimV1(
+/**
+ * Drizzle owns the asynchronous row lock; the callback owner retains the
+ * cardinality decision as Result data until its transaction projection.
+ */
+export async function lockExactTransactionExecutionClaimV1Result(
   tx: AppRowTransaction,
   input: Readonly<{
     readonly scopeId: ScopeId;
@@ -120,7 +124,10 @@ export async function lockExactTransactionExecutionClaimV1(
     readonly sessionId: TransactionSessionIdV1;
     readonly attemptFence: TransactionAttemptFence;
   }>,
-): Promise<typeof fxSystemTransactionExecutionClaims.$inferSelect> {
+): Promise<Result.Result<
+  typeof fxSystemTransactionExecutionClaims.$inferSelect,
+  TransactionExecutionClaimCorruptionV1Error
+>> {
   const rows = await tx.select().from(fxSystemTransactionExecutionClaims)
     .where(and(
       eq(fxSystemTransactionExecutionClaims.scopeUuid, input.scopeUuid),
@@ -130,9 +137,7 @@ export async function lockExactTransactionExecutionClaimV1(
         input.attemptFence,
       ),
     )).limit(2).for("update");
-  return Result.getOrThrow(
-    materializeLockedTransactionExecutionClaimResult(input.scopeId, rows),
-  );
+  return materializeLockedTransactionExecutionClaimResult(input.scopeId, rows);
 }
 
 function materializeLockedTransactionExecutionClaimResult(
@@ -205,24 +210,6 @@ export function requireLiveTransactionExecutionClaimV1Result(
   });
 }
 
-/**
- * Temporary throwing projection for transactionSessionActivation's Drizzle
- * Promise callbacks. Delete it when those callers consume the Result API.
- */
-export function requireLiveTransactionExecutionClaimV1(
-  scopeId: ScopeId,
-  row: typeof fxSystemTransactionExecutionClaims.$inferSelect,
-  expected: TransactionExecutionClaimPinV1 | undefined,
-  databaseNow: Date,
-): TransactionExecutionClaimObservationV1 {
-  return Result.getOrThrow(requireLiveTransactionExecutionClaimV1Result(
-    scopeId,
-    row,
-    expected,
-    databaseNow,
-  ));
-}
-
 export function inspectTransactionExecutionClaimV1Result(
   scopeId: ScopeId,
   row: typeof fxSystemTransactionExecutionClaims.$inferSelect,
@@ -262,17 +249,4 @@ export function inspectTransactionExecutionClaimV1Result(
       claimExpiresAt: new Date(expiresAt).toISOString(),
     });
   });
-}
-
-/**
- * Temporary throwing projection for transactionSessionActivation's Drizzle
- * Promise callbacks. Delete it when those callers consume the Result API.
- */
-export function inspectTransactionExecutionClaimV1(
-  scopeId: ScopeId,
-  row: typeof fxSystemTransactionExecutionClaims.$inferSelect,
-): TransactionExecutionClaimObservationV1 {
-  return Result.getOrThrow(
-    inspectTransactionExecutionClaimV1Result(scopeId, row),
-  );
 }

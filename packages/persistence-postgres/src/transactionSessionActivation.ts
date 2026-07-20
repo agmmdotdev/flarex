@@ -121,9 +121,9 @@ import {
 } from "./schema";
 import {
   deriveTransactionExecutionClaimV1,
-  inspectTransactionExecutionClaimV1,
-  lockExactTransactionExecutionClaimV1,
-  requireLiveTransactionExecutionClaimV1,
+  inspectTransactionExecutionClaimV1Result,
+  lockExactTransactionExecutionClaimV1Result,
+  requireLiveTransactionExecutionClaimV1Result,
   TransactionExecutionClaimCorruptionV1Error,
   TransactionExecutionClaimStaleV1Error,
 } from "./transactionExecutionClaimPersistence";
@@ -1452,12 +1452,14 @@ async function acquireExecutionClaimInTransaction(
     locked.attemptFence,
     undefined,
   );
-  const claimRow = await lockExactTransactionExecutionClaimV1(tx, {
-    scopeId: selector.scopeId,
-    scopeUuid: clock.scopeUuid,
-    sessionId: locked.sessionId,
-    attemptFence: locked.attemptFence,
-  });
+  const claimRow = projectTransactionSessionActivationResult(
+    await lockExactTransactionExecutionClaimV1Result(tx, {
+      scopeId: selector.scopeId,
+      scopeUuid: clock.scopeUuid,
+      sessionId: locked.sessionId,
+      attemptFence: locked.attemptFence,
+    }),
+  );
   const databaseNow = await readDatabaseNow(tx, selector.scopeId);
   const now = finiteDateMilliseconds(databaseNow);
   const grantExpiresAt = finiteDateMilliseconds(
@@ -1484,9 +1486,8 @@ async function acquireExecutionClaimInTransaction(
     });
   }
 
-  const current = inspectTransactionExecutionClaimV1(
-    selector.scopeId,
-    claimRow,
+  const current = projectTransactionSessionActivationResult(
+    inspectTransactionExecutionClaimV1Result(selector.scopeId, claimRow),
   );
   const currentClaimedAt = Date.parse(current.claimedAt);
   const currentExpiry = Date.parse(current.claimExpiresAt);
@@ -2150,20 +2151,22 @@ async function loadExactRunningAttemptForKernelInTransaction(
   );
 }
 
-interface PointMutationSessionAttemptAuthorityFailureFactoryV1 {
-  readonly unsupportedStorageGeneration: () => Error;
-  readonly storageGenerationFenceChanged: () => Error;
-  readonly authorizationRevocationEpochChanged: () => Error;
-  readonly scopeEpochChanged: () => Error;
+interface PointMutationSessionAttemptAuthorityFailureFactoryV1<
+  Failure extends Error = Error,
+> {
+  readonly unsupportedStorageGeneration: () => Failure;
+  readonly storageGenerationFenceChanged: () => Failure;
+  readonly authorizationRevocationEpochChanged: () => Failure;
+  readonly scopeEpochChanged: () => Failure;
 }
 
-interface PointMutationSessionAttemptFailureFactoryV1
-  extends PointMutationSessionAttemptAuthorityFailureFactoryV1 {
+interface PointMutationSessionAttemptFailureFactoryV1<Failure extends Error>
+  extends PointMutationSessionAttemptAuthorityFailureFactoryV1<Failure> {
   readonly terminal: (
     lifecycle: Exclude<TransactionSessionLifecycleV1, "running">,
-  ) => Error;
-  readonly activeAttemptExpired: () => Error;
-  readonly executionClaimUnavailable: () => Error;
+  ) => Failure;
+  readonly activeAttemptExpired: () => Failure;
+  readonly executionClaimUnavailable: () => Failure;
 }
 
 interface PointMutationSessionExactSessionFailureFactoryV1 {
@@ -2213,10 +2216,10 @@ async function lockExactPointMutationSession(
   return session;
 }
 
-interface LockedPointMutationSessionAttemptLoadV1 {
+interface LockedPointMutationSessionAttemptLoadV1<Failure extends Error> {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly scopeId: ReplacementScopeIdV1;
-  readonly failures: PointMutationSessionAttemptFailureFactoryV1;
+  readonly failures: PointMutationSessionAttemptFailureFactoryV1<Failure>;
   readonly afterLeaseLock:
     | ((step: PointMutationSessionAttemptLoadLockStepV1) =>
         void | Promise<void>)
@@ -2225,9 +2228,9 @@ interface LockedPointMutationSessionAttemptLoadV1 {
   readonly executionClaim?: ExactRunningAttemptKernelInputV1["executionClaim"];
 }
 
-async function loadLockedRunningAttempt(
+async function loadLockedRunningAttempt<Failure extends Error>(
   tx: AppRowTransaction,
-  input: LockedPointMutationSessionAttemptLoadV1,
+  input: LockedPointMutationSessionAttemptLoadV1<Failure>,
   clock: LockedPointMutationSessionClockV1,
   session: TransactionSessionRow,
 ): Promise<ExactRunningAttemptKernelContextV1> {
@@ -2252,12 +2255,14 @@ async function loadLockedRunningAttempt(
     locked.attemptFence,
     input.afterLeaseLock,
   );
-  const claim = await lockExactTransactionExecutionClaimV1(tx, {
-    scopeId: input.scopeId,
-    scopeUuid: clock.scopeUuid,
-    sessionId: locked.sessionId,
-    attemptFence: locked.attemptFence,
-  });
+  const claim = projectTransactionSessionActivationResult(
+    await lockExactTransactionExecutionClaimV1Result(tx, {
+      scopeId: input.scopeId,
+      scopeUuid: clock.scopeUuid,
+      sessionId: locked.sessionId,
+      attemptFence: locked.attemptFence,
+    }),
+  );
   const databaseNow = await readDatabaseNow(tx, input.scopeId);
   const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
     session.authorizationGrantExpiresAt,
@@ -2280,40 +2285,14 @@ async function loadLockedRunningAttempt(
   ) {
     throw input.failures.activeAttemptExpired();
   }
-  let executionClaim: TransactionExecutionClaimObservationV1;
-  try {
-    if (input.claimRequirement === "live") {
-      executionClaim = requireLiveTransactionExecutionClaimV1(
-        input.scopeId,
-        claim,
-        input.executionClaim,
-        databaseNow,
-      );
-    } else {
-      executionClaim = inspectTransactionExecutionClaimV1(
-        input.scopeId,
-        claim,
-      );
-      if (Date.parse(executionClaim.claimedAt) > databaseNowMilliseconds) {
-        throw new TransactionExecutionClaimCorruptionV1Error({
-          scopeId: input.scopeId,
-          reason: "claimEvidenceInvalid",
-        });
-      }
-    }
-  } catch (cause) {
-    if (cause instanceof TransactionExecutionClaimStaleV1Error) {
-      throw input.failures.executionClaimUnavailable();
-    }
-    if (cause instanceof TransactionExecutionClaimCorruptionV1Error) {
-      throw corruptionError(
-        input.scopeId,
-        "executionClaimInvalid",
-        cause,
-      );
-    }
-    throw cause;
-  }
+  const executionClaim = projectTransactionSessionActivationResult(
+    validateLockedRunningAttemptExecutionClaimResult(
+      input,
+      claim,
+      databaseNow,
+      databaseNowMilliseconds,
+    ),
+  );
   const attemptFacet = await observePointMutationSessionAttemptFacet(
     tx,
     clock,
@@ -2355,6 +2334,47 @@ async function loadLockedRunningAttempt(
     attemptFacet,
     executionClaim,
   } satisfies ExactRunningAttemptKernelContextV1);
+}
+
+function validateLockedRunningAttemptExecutionClaimResult<
+  Failure extends Error,
+>(
+  input: LockedPointMutationSessionAttemptLoadV1<Failure>,
+  claim: typeof fxSystemTransactionExecutionClaims.$inferSelect,
+  databaseNow: Date,
+  databaseNowMilliseconds: number,
+): Result.Result<
+  TransactionExecutionClaimObservationV1,
+  Failure | PointMutationSessionAuthorityCorruptionV1Error
+> {
+  const inspected = input.claimRequirement === "live"
+    ? requireLiveTransactionExecutionClaimV1Result(
+        input.scopeId,
+        claim,
+        input.executionClaim,
+        databaseNow,
+      )
+    : inspectTransactionExecutionClaimV1Result(input.scopeId, claim);
+  return inspected.pipe(
+    Result.flatMap((observation) =>
+      input.claimRequirement === "present" &&
+        Date.parse(observation.claimedAt) > databaseNowMilliseconds
+        ? Result.fail(new TransactionExecutionClaimCorruptionV1Error({
+            scopeId: input.scopeId,
+            reason: "claimEvidenceInvalid",
+          }))
+        : Result.succeed(observation)
+    ),
+    Result.mapError((cause) =>
+      cause instanceof TransactionExecutionClaimStaleV1Error
+        ? input.failures.executionClaimUnavailable()
+        : corruptionError(
+            input.scopeId,
+            "executionClaimInvalid",
+            cause,
+          )
+    ),
+  );
 }
 
 async function requireExactPointMutationSessionJournalRoot(
@@ -2765,18 +2785,22 @@ async function terminalizeAttemptInTransaction(
     throw corruptionError(selector.scopeId, "attemptSnapshotChanged");
   }
   if (input.operation === "abort") {
-    const executionClaim = await lockExactTransactionExecutionClaimV1(tx, {
-      scopeId: selector.scopeId,
-      scopeUuid: clock.scopeUuid,
-      sessionId: locked.sessionId,
-      attemptFence: locked.attemptFence,
-    });
+    const executionClaim = projectTransactionSessionActivationResult(
+      await lockExactTransactionExecutionClaimV1Result(tx, {
+        scopeId: selector.scopeId,
+        scopeUuid: clock.scopeUuid,
+        sessionId: locked.sessionId,
+        attemptFence: locked.attemptFence,
+      }),
+    );
     await emitLock("executionClaimLocked");
-    requireLiveTransactionExecutionClaimV1(
-      selector.scopeId,
-      executionClaim,
-      input.executionClaim,
-      databaseNow,
+    projectTransactionSessionActivationResult(
+      requireLiveTransactionExecutionClaimV1Result(
+        selector.scopeId,
+        executionClaim,
+        input.executionClaim,
+        databaseNow,
+      ),
     );
   }
 
@@ -2894,7 +2918,9 @@ const activationAttemptFailures = Object.freeze({
     activationError({ reason: "activeAttemptExpired" }),
   executionClaimUnavailable: () =>
     activationError({ reason: "executionClaimUnavailable" }),
-} satisfies PointMutationSessionAttemptFailureFactoryV1);
+} satisfies PointMutationSessionAttemptFailureFactoryV1<
+  PointMutationSessionActivationV1Error
+>);
 
 const attemptLoadFailures = Object.freeze({
   terminal: (lifecycle: Exclude<TransactionSessionLifecycleV1, "running">) =>
@@ -2910,7 +2936,9 @@ const attemptLoadFailures = Object.freeze({
     attemptLoadError({ reason: "activeAttemptExpired" }),
   executionClaimUnavailable: () =>
     attemptLoadError({ reason: "executionClaimUnavailable" }),
-} satisfies PointMutationSessionAttemptFailureFactoryV1);
+} satisfies PointMutationSessionAttemptFailureFactoryV1<
+  PointMutationSessionAttemptLoadV1Error
+>);
 
 const attemptLoadExactSessionFailures = Object.freeze({
   sessionMissing: () => attemptLoadError({ reason: "sessionMissing" }),
@@ -3852,6 +3880,17 @@ function corruptionError(
     issue,
     cause === undefined ? undefined : { cause },
   );
+}
+
+/**
+ * Temporary projection owned by Drizzle 0.45's Promise transaction callbacks.
+ * Delete it when activation, acquisition, reload, and terminalization yield
+ * Result or Effect failures directly from an Effect-native transaction client.
+ */
+function projectTransactionSessionActivationResult<A, E>(
+  result: Result.Result<A, E>,
+): A {
+  return Result.getOrThrow(result);
 }
 
 function cloneValidDate(value: Date): Date {

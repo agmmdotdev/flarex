@@ -14,9 +14,7 @@ import {
   TransactionExecutionClaimOwnerV1Schema,
 } from "../src/transactionExecutionClaimModel";
 import {
-  inspectTransactionExecutionClaimV1,
   inspectTransactionExecutionClaimV1Result,
-  requireLiveTransactionExecutionClaimV1,
   requireLiveTransactionExecutionClaimV1Result,
   TransactionExecutionClaimCorruptionV1Error,
   TransactionExecutionClaimStaleV1Error,
@@ -116,22 +114,6 @@ describe("transaction execution-claim Result validation", () => {
     expectFailure(expired, TransactionExecutionClaimStaleV1Error, {
       reason: "claimExpired",
     });
-  });
-
-  it("keeps the temporary throwing projections over the same Result errors", () => {
-    expect(inspectTransactionExecutionClaimV1(SCOPE_ID, CLAIM_ROW)).toEqual(
-      Result.getOrThrow(
-        inspectTransactionExecutionClaimV1Result(SCOPE_ID, CLAIM_ROW),
-      ),
-    );
-    expect(() =>
-      requireLiveTransactionExecutionClaimV1(
-        SCOPE_ID,
-        CLAIM_ROW,
-        Object.freeze({ claimOwner: CLAIM_OWNER, claimFence: CLAIM_FENCE }),
-        new Date("2030-01-01T00:02:00.000Z"),
-      )
-    ).toThrow(TransactionExecutionClaimStaleV1Error);
   });
 
   it("leaves unexpected row-accessor failures as defects", () => {
