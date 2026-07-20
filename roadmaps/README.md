@@ -53,7 +53,16 @@ roadmap merely to legitimize an unreviewed divergence.
 
 ## Start Here
 
-For current FlarexDB work, read in this order:
+For a first orientation to how one real FlarexDB point mutation crosses the
+Dynamic Worker, trusted executor, commit compiler, and Postgres boundary, start
+with the
+[`Runtime Entry Map`](./flarexdb-foundation/README.md#runtime-entry-map).
+It distinguishes the routed `legacy_v1` runtime, the private `flarexdb_v1`
+foundation, the first end-to-end `C07` milestone, and the conditional SessionDO
+journal optimization.
+
+When changing architecture or implementing a gate, read authorities in this
+order:
 
 1. [`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md)
 2. [`../design-notes/flarex-commerce-cms-v1-schema-cutline.md`](../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
