@@ -1,5 +1,98 @@
 # FlarexDB Foundation Execution Plans
 
+## Runtime Entry Map
+
+Start here when the question is how the foundation work becomes one real
+Flarex app-data operation. The first replacement lane is deliberately narrower
+than the whole product: it is one bounded point mutation with exact-snapshot
+reads, logical point CRUD, OCC rerun, a result-bearing atomic commit, and
+recovery. Queries beyond the supported overlay, indexes, relations, Payload,
+Medusa, sync replacement, and caches have later owners.
+
+Three different implementation truths currently coexist:
+
+| Level | Current truth |
+| --- | --- |
+| Routed runtime | `createFlarexExecutor` still installs only the `legacy_v1` Postgres app-data engine. Normal `/invoke/*` traffic does not enter the replacement kernel. |
+| Private replacement foundation | Bounded `flarexdb_v1` preparation primitives, session/attempt authority, exact reads, journal, compiler, commit, outcome, and recovery pieces exist as internal capabilities and focused tests. Coherent production preparation and routing do not. |
+| First assembled replacement milestone | `C07` is the first end-to-end PGlite plus real-Postgres point-mutation proof. It remains a private test-generation milestone, not permission to activate `flarexdb_v1`. |
+
+The target lifecycle for one successful point mutation is:
+
+```text
+trusted backend preparation
+  -> resolve one active target, current scope authority, arguments, request key,
+     grant, exact SnapshotToken, and immutable session pins
+  -> activate one durable session + attempt + execution claim
+  -> run untrusted user code in the generated Dynamic Worker
+       -> restricted ctx.db point syscall
+       -> private FLAREX_EXECUTOR call
+       -> trusted executor journal capability
+       -> persistence-postgres exact read / logical journal operation
+  -> seal the logical journal and separate successful-result evidence
+  -> authenticate the exact stored attempt and current commit authority
+  -> verify final values and compile a pure PreparedPointCommitV1
+  -> atomically enter finishing and publish through the Postgres commit lane
+  -> return or replay the authoritative committed outcome
+```
+
+The commit compiler starts only after user code has completed successfully and
+the attempt has sealed its journal and result. It never runs user code and does
+not grant physical authority. An OCC conflict replaces the exact attempt,
+issues a fresh snapshot and execution claim, and reruns deterministic user code;
+a sealed or finishing recovery path completes without rerunning user code.
+
+### Component And Package Ownership
+
+| Owner | Responsibility in the vertical path |
+| --- | --- |
+| Public backend and artifact-runtime hosts | Select the trusted deployment/function request and load the exact generated Dynamic Worker artifact. They do not own app-data commit authority. |
+| Generated Dynamic Worker | Run untrusted developer code with restricted `ctx` capabilities. It never receives Hyperdrive, `pg`, Drizzle, SQL, persistence, physical routing, or transaction handles. |
+| `flarex-protocol` | Own stable logical and wire contracts such as grants, `SnapshotToken`, `SessionJournalV1`, successful-result evidence, and `CommitEnvelopeV1`. |
+| `@flarex/executor` | Own trusted orchestration and process-local capabilities: preparation, admission, activation, execution-claim use, journal facade, stored-attempt authentication, current-authority verification, pure commit planning, retry classification, and recovery composition. |
+| `@flarex/persistence-postgres` | Own authoritative database mechanics: scope/session/attempt/lease/claim state, exact reads, journal storage, OCC evidence, locks, finishing transition, atomic data/result/outcome/feed/wake publication, and authoritative outcome lookup. |
+| Target private executor Worker | Hosts the trusted executor operations behind `FLAREX_EXECUTOR` and creates request-scoped Postgres access through cache-disabled Hyperdrive once the hosted target is activated. The stable `/invoke/*` transport is an internal capability boundary, not a public database API. |
+
+“Executor” therefore names three related but different things in this
+repository: the `@flarex/executor` orchestration package, the trusted private
+executor Worker that hosts it, and the narrow O07-B `CommitExecutor` capability
+that performs final publication. Do not read any one of those as “the package
+that contains the whole database.”
+
+### How The Foundation Streams Assemble
+
+The `S*`, `O*`, and `C*` identifiers are interleaved parts of the same vertical
+path, not three independently usable products:
+
+| Stream | Contribution to one mutation |
+| --- | --- |
+| `S*` schema/storage | Supplies trusted scope and schema authority plus the physical session, row, commit, outcome, feed, and wake storage. |
+| `O*` OCC/transaction lifecycle | Supplies exact snapshots, activation, execution ownership, reads, conflict detection, atomic publication, rerun, and recovery semantics. |
+| `C*` compiler/session integration | Supplies the logical journal/result protocol, trusted journal consumer, authentication and verification chain, pure planning, and host endpoint composition. |
+
+The current assembly frontier is:
+
+```text
+completed private kernel through atomic seal-time lease promotion
+  -> O08-B2b2b2b1 execution-claim liveness and scheduling/redelivery
+  -> C06-B stable endpoint/response and production-dispatch composition
+  -> C07 private end-to-end PGlite + real-Postgres proof
+  -> C07A measure journal placement; move only the temporary journal if proven
+  -> later target readiness, hosted proof, flarexdb_v1 activation, and caller switch
+```
+
+SessionDO is not the current foundation authority or the current journal path.
+The first proof keeps the temporary logical journal in Postgres. Only after
+`C07`, and only if a predeclared hosted-latency threshold is met, may `C07A`
+move that temporary journal and supported overlay to one per-session supervisor
+and one attempt-fenced facet. Exact reads, session and execution authority, OCC,
+final commit, result/outcome, feed, and outbox remain Postgres-authoritative.
+
+For architectural authority and detailed gates, continue with the sources in
+`Authority And References` below. For current implementation sequencing, use
+`Master Execution Order`; do not infer the next approved change from this
+runtime overview alone.
+
 ## Status And Scope
 
 `S07` is complete as a non-routing two-table physical authority gate, and
@@ -40,9 +133,9 @@ exact-attempt claim and host-neutral fenced-admission foundation is also
 complete. O08-B2b2a's private exact-selector safe-state redispatch composition,
 O08-B2b2b1's bounded inert scope-local discovery, and O08-B2b2b2a's durable
 dirty/failed-attempt disposition are complete. O08-B2b2b2b0a's pure shared
-grant/retention policy coherence is also complete. O08-B2b2b2b0b sealed-lease
-promotion, O08-B2b2b2b1 phase-aware execution-claim liveness, production
-scheduling/redelivery, and C06-B endpoint/response policy remain pending, and
+grant/retention policy coherence and O08-B2b2b2b0b's atomic seal-time lease
+promotion are also complete. O08-B2b2b2b1 phase-aware execution-claim liveness,
+production scheduling/redelivery, and C06-B endpoint/response policy remain pending, and
 C04C2 remains conditional and unapproved.
 O03-B2b2 renewal is
 a conditional
@@ -53,7 +146,7 @@ bounded attempt must outlive its initial lease.
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, and O08-B2b2b1's migration-0033 discovery indexes complete |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, and O08-D bounded uncertainty recovery are complete; O08-B2b2b2b0b sealed-lease promotion, O08-B2b2b2b1 execution-claim liveness, production scheduling/redelivery, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, and O08-D bounded uncertainty recovery are complete; O08-B2b2b2b1 execution-claim liveness, production scheduling/redelivery, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -444,9 +537,11 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
         maximum grant lifetime, accepted future-issued-at skew, and live-
         snapshot retention through `G + S <= B`; issuer and verifier consume
         projections, while no lease or execution authority is created;
-      - `O08-B2b2b2b0b` and `O08-B2b2b2b1` (pending and unapproved): sealed-
-        lease promotion and the phase-aware execution-claim liveness owner;
-        scheduling/redelivery and production dispatch liveness remain pending;
+      - `O08-B2b2b2b0b` (complete): the exact-running seal transaction
+        atomically promotes the exact lease to the locked grant/hard minimum
+        and seals the journal root last under the database-time retention bound;
+      - `O08-B2b2b2b1` (pending and unapproved): phase-aware execution-claim
+        liveness; scheduling/redelivery and production dispatch remain pending;
    - `O08-CD0` (complete): preserves source-owned Postgres transaction-decision
      provenance. Confirmed pre-decision rollback requires an in-transaction
      point-publication SQL marker, exact `40001`/`40P01`, and settled rollback;
@@ -469,19 +564,20 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 12. `O08-B2b2b2a` (complete): durable dirty/failed-attempt disposition through
     the singular claim and terminalization owners.
 13. `O08-B2b2b2b0a` (complete): shared grant/retention configuration policy.
-14. `O08-B2b2b2b0b` + `O08-B2b2b2b1` + `C06-B` (pending): sealed-lease
-    promotion, phase-aware execution-claim liveness, scheduling/redelivery,
-    production dispatch, and stable `/invoke/*` endpoint/response policy.
-15. `C07`: PGlite plus real-Postgres correctness gate.
+14. `O08-B2b2b2b0b` (complete): atomic sealed-attempt lease promotion.
+15. `O08-B2b2b2b1` + `C06-B` (pending): phase-aware execution-claim liveness,
+    scheduling/redelivery, production dispatch, and stable `/invoke/*`
+    endpoint/response policy.
+16. `C07`: PGlite plus real-Postgres correctness gate.
 
 The former B2b/C06 dependency contradiction is resolved by this split: C06-A
 is the accepted non-routing prerequisite, and O08-B2b2a now supplies only the
 private explicit-selector safe-state composer. O08-B2b2b1 now supplies only
 bounded inert discovery, and O08-B2b2b2a supplies only durable dirty/failed-
-attempt disposition. O08-B2b2b2b0a now closes only configuration coherence;
-O08-B2b2b2b0b, O08-B2b2b2b1, and C06-B still require their own sealed-lease,
-execution-liveness, scheduling/redelivery, production-liveness, and endpoint
-preflights.
+attempt disposition. O08-B2b2b2b0a closes configuration coherence, and O08-
+B2b2b2b0b closes atomic seal-time lease promotion. O08-B2b2b2b1 and C06-B
+still require their own execution-liveness, scheduling/redelivery, production-
+liveness, and endpoint preflights.
 
 This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
 the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do

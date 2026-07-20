@@ -174,6 +174,78 @@ describePostgres("real Postgres O03-B session authority", () => {
     });
   }, 120_000);
 
+  it("rejects an expired non-target sealed lease without mutating its evidence", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const context = await provisionContext(
+        persistence,
+        "claim_expired_non_target_sealed_lease",
+        sharedLocator("claim-expired-non-target-sealed-lease"),
+        ids,
+      );
+      const created = await activatePointMutationSession(
+        createActivationPersistence(persistence, ids),
+        pointMutationSessionActivationFixture(
+          context.deploymentId,
+          context.scopeId,
+        ),
+      );
+      if (created.status !== "created") {
+        throw new Error("Expected an expired non-target sealed-lease attempt.");
+      }
+      await persistence.query(
+        `update fx_system_tx_journal
+         set state = 'sealed',
+             sealed_final_syscall_sequence = last_syscall_sequence,
+             sealed_journal_bytes = $2,
+             sealed_journal_sha256 = $3,
+             sealed_result_value_codec_version = 1,
+             sealed_result_semantic_bytes = 0,
+             sealed_result_bytes = $2,
+             sealed_result_sha256 = $3,
+             sealed_at = clock_timestamp(),
+             updated_at = clock_timestamp()
+         where session_id = $1`,
+        [
+          created.anchor.sessionId,
+          new Uint8Array([0]),
+          new Uint8Array(32),
+        ],
+      );
+      await persistence.query(
+        `update fx_system_snapshot_lease
+         set lease_expires_at = clock_timestamp() - interval '1 minute'
+         where session_id = $1`,
+        [created.anchor.sessionId],
+      );
+      await expireExecutionClaim(persistence, created.anchor.sessionId);
+      const claimBefore = await executionClaimRow(
+        persistence,
+        created.anchor.sessionId,
+      );
+      const countsBefore = await rowCounts(persistence, context.scopeId);
+
+      await expect(runFailure(createExecutionClaimAcquisition(
+        persistence,
+        "42000000-0000-4000-8000-000000009003",
+      ).acquireEffect(selectorFromAnchor(created.anchor)))).resolves
+        .toMatchObject({
+          _tag: "PointMutationExecutionClaimAcquisitionCorruptionV1Error",
+          reason: "leaseInvalid",
+        });
+      await expect(executionClaimRow(
+        persistence,
+        created.anchor.sessionId,
+      )).resolves.toEqual(claimBefore);
+      await expect(rowCounts(persistence, context.scopeId)).resolves
+        .toEqual(countsBefore);
+      await expect(persistence.query<{ state: string }>(
+        `select state from fx_system_tx_journal where session_id = $1`,
+        [created.anchor.sessionId],
+      )).resolves.toMatchObject({ rows: [{ state: "sealed" }] });
+    });
+  }, 120_000);
+
   it("resolves a committed outcome before owner generation and stale-fence checks", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
@@ -669,10 +741,12 @@ describePostgres("real Postgres O03-B session authority", () => {
         "sessionLocked",
         "leaseLocked",
         "journalRootLocked",
+        "executionClaimLocked",
         "clockLocked",
         "sessionLocked",
         "leaseLocked",
         "journalRootLocked",
+        "executionClaimLocked",
       ]);
       await expect(attemptRowState(persistence, context.scopeId))
         .resolves.toEqual(before);

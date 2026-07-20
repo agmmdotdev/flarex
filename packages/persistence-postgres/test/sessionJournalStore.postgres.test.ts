@@ -26,6 +26,10 @@ import {
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
+  makeGrantRetentionPolicyV1Result,
+  type GrantRetentionPolicyV1,
+} from "flarex-protocol/grant-retention-policy";
+import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
   type CatalogSchemaVersionId,
@@ -33,6 +37,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
+import { Effect, Fiber, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -69,9 +74,11 @@ import {
   completeSessionJournalSeal as completeSeal,
   prepareSessionJournalSeal as prepareSeal,
   runEffect,
+  runEffectFailure as runFailure,
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  TEST_GRANT_RETENTION_POLICY_V1,
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
   executionClaimForAnchor,
@@ -82,6 +89,7 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 interface ScenarioOptions {
+  readonly grantRetentionPolicy?: GrantRetentionPolicyV1;
   readonly randomUuid?: () => string;
   readonly targetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
 }
@@ -116,6 +124,15 @@ interface JournalRootIdentity extends Record<string, unknown> {
   readonly scope_uuid: string;
   readonly session_id: string;
   readonly attempt_fence: string;
+}
+
+interface AttemptLeaseAndSealState extends Record<string, unknown> {
+  readonly root_state: string;
+  readonly lease_expires_at: Date;
+  readonly authorization_grant_expires_at: Date;
+  readonly hard_expires_at: Date;
+  readonly lease_xmin: string;
+  readonly root_xmin: string;
 }
 
 describePostgres("real Postgres C03 SessionJournalStore", () => {
@@ -350,6 +367,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       const restartedStore = createSessionJournalStorePersistenceV1(
         current.ports,
         {
+          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
           randomUuid: () => {
             replayGenerationCalled = true;
             throw new Error("Lost-response replay requested new randomness.");
@@ -606,6 +624,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         "sessionLocked",
         "leaseLocked",
         "journalRootLocked",
+        "executionClaimLocked",
       ]);
 
       const resultPayloadBytes = MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 - 1_024;
@@ -680,25 +699,310 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         "sessionLocked",
         "leaseLocked",
         "journalRootLocked",
+        "executionClaimLocked",
       ]);
 
       const sealed = await persistence.query<{
         state: string;
         sealed_result_semantic_bytes: number;
         sealed_result_octets: number;
+        lease_expires_at: Date;
+        authorization_grant_expires_at: Date;
+        hard_expires_at: Date;
       }>(
-        `select state,
-                sealed_result_semantic_bytes,
-                octet_length(sealed_result_bytes)::int as sealed_result_octets
-         from fx_system_tx_journal
-         where session_id = $1`,
+        `select root.state,
+                root.sealed_result_semantic_bytes,
+                octet_length(root.sealed_result_bytes)::int
+                  as sealed_result_octets,
+                lease.lease_expires_at,
+                session.authorization_grant_expires_at,
+                session.hard_expires_at
+         from fx_system_tx_journal root
+         join fx_system_snapshot_lease lease
+           on lease.scope_uuid = root.scope_uuid
+          and lease.session_id = root.session_id
+          and lease.attempt_fence = root.attempt_fence
+         join fx_system_tx_session session
+           on session.scope_uuid = root.scope_uuid
+          and session.session_id = root.session_id
+          and session.attempt_fence = root.attempt_fence
+         where root.session_id = $1`,
         [current.anchor.sessionId],
       );
-      expect(sealed.rows).toEqual([{
+      expect(sealed.rows).toHaveLength(1);
+      expect(sealed.rows[0]).toMatchObject({
         state: "sealed",
         sealed_result_semantic_bytes: resultPayloadBytes + 2,
         sealed_result_octets: successfulResult.canonicalBytes.byteLength,
-      }]);
+      });
+      const sealedRow = sealed.rows[0];
+      if (sealedRow === undefined) throw new Error("Missing sealed row.");
+      expect(sealedRow.lease_expires_at.getTime()).toBe(Math.min(
+        sealedRow.authorization_grant_expires_at.getTime(),
+        sealedRow.hard_expires_at.getTime(),
+      ));
+    });
+  }, 180_000);
+
+  it("atomically promotes the exact lease, replays without writes, and rolls back every seal phase", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const concurrent = await scenario(
+        persistence,
+        "atomic_lease_promotion",
+      );
+      const shortened = await persistence.query<{ hard_expires_at: Date }>(
+        `
+          update fx_system_tx_session
+          set hard_expires_at = clock_timestamp() + interval '30 minutes'
+          where session_id = $1
+          returning hard_expires_at
+        `,
+        [concurrent.anchor.sessionId],
+      );
+      const hardExpiresAt = shortened.rows[0]?.hard_expires_at;
+      if (hardExpiresAt === undefined) {
+        throw new Error("Expected a shortened hard expiry.");
+      }
+      const firstPrepared = await prepareSeal(
+        concurrent.store,
+        concurrent.attempt,
+      );
+      const secondPrepared = await prepareSeal(
+        concurrent.store,
+        concurrent.attempt,
+      );
+      const [firstJournal, secondJournal, successfulResult] = await Promise.all([
+        runEffect(canonicalizeSessionJournalV1Effect(firstPrepared.journal)),
+        runEffect(canonicalizeSessionJournalV1Effect(secondPrepared.journal)),
+        runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),
+      ]);
+
+      const [firstEnvelope, secondEnvelope] = await Promise.all([
+        completeSeal(
+          concurrent.store,
+          firstPrepared.preparation,
+          firstJournal,
+          successfulResult,
+        ),
+        completeSeal(
+          concurrent.store,
+          secondPrepared.preparation,
+          secondJournal,
+          successfulResult,
+        ),
+      ]);
+      expect(secondEnvelope).toEqual(firstEnvelope);
+      const sealed = await attemptLeaseAndSealState(
+        persistence,
+        concurrent.anchor.sessionId,
+      );
+      expect(sealed.root_state).toBe("sealed");
+      expect(sealed.lease_expires_at.getTime()).toBe(hardExpiresAt.getTime());
+      expect(sealed.authorization_grant_expires_at.getTime()).toBeGreaterThan(
+        hardExpiresAt.getTime(),
+      );
+
+      const replayPrepared = await prepareSeal(
+        concurrent.store,
+        concurrent.attempt,
+      );
+      await expect(completeSeal(
+        concurrent.store,
+        replayPrepared.preparation,
+        await runEffect(canonicalizeSessionJournalV1Effect(
+          replayPrepared.journal,
+        )),
+        successfulResult,
+      )).resolves.toEqual(firstEnvelope);
+      const replayed = await attemptLeaseAndSealState(
+        persistence,
+        concurrent.anchor.sessionId,
+      );
+      expect(replayed.lease_xmin).toBe(sealed.lease_xmin);
+      expect(replayed.root_xmin).toBe(sealed.root_xmin);
+
+      const mismatchPrepared = await prepareSeal(
+        concurrent.store,
+        concurrent.attempt,
+      );
+      const mismatchJournal = await runEffect(
+        canonicalizeSessionJournalV1Effect(mismatchPrepared.journal),
+      );
+      await persistence.query(
+        `
+          update fx_system_snapshot_lease
+          set lease_expires_at = lease_expires_at - interval '1 second'
+          where session_id = $1
+        `,
+        [concurrent.anchor.sessionId],
+      );
+      await expect(runFailure(concurrent.store.completeSealEffect(
+        mismatchPrepared.preparation,
+        mismatchJournal,
+        successfulResult,
+      ))).resolves.toMatchObject({ reason: "snapshotLeaseInvalid" });
+
+      await persistence.query(
+        `
+          update fx_system_snapshot_lease
+          set lease_expires_at = clock_timestamp() - interval '1 second'
+          where session_id = $1
+        `,
+        [concurrent.anchor.sessionId],
+      );
+      await expect(runFailure(concurrent.store.completeSealEffect(
+        mismatchPrepared.preparation,
+        mismatchJournal,
+        successfulResult,
+      ))).resolves.toMatchObject({ reason: "snapshotLeaseInvalid" });
+
+      const oneMillisecondPolicy = Result.getOrThrow(
+        makeGrantRetentionPolicyV1Result({
+          maximumGrantLifetimeMilliseconds: 1,
+          maximumFutureIssuedAtSkewMilliseconds: 0,
+          maximumLiveSnapshotRetentionMilliseconds: 1,
+        }),
+      );
+      const overBudget = await scenario(persistence, "retention_overrun", {
+        grantRetentionPolicy: oneMillisecondPolicy,
+      });
+      const overBudgetPrepared = await prepareSeal(
+        overBudget.store,
+        overBudget.attempt,
+      );
+      const beforeOverrun = await attemptLeaseAndSealState(
+        persistence,
+        overBudget.anchor.sessionId,
+      );
+      await expect(runFailure(overBudget.store.completeSealEffect(
+        overBudgetPrepared.preparation,
+        await runEffect(canonicalizeSessionJournalV1Effect(
+          overBudgetPrepared.journal,
+        )),
+        successfulResult,
+      ))).resolves.toMatchObject({
+        issue: {
+          kind: "retentionBudgetExceeded",
+          maximumLiveSnapshotRetentionMilliseconds: 1,
+        },
+      });
+      const afterOverrun = await attemptLeaseAndSealState(
+        persistence,
+        overBudget.anchor.sessionId,
+      );
+      expect(afterOverrun.root_state).toBe("open");
+      expect(afterOverrun.lease_expires_at.getTime()).toBe(
+        beforeOverrun.lease_expires_at.getTime(),
+      );
+
+      for (const phase of ["before", "after"] as const) {
+        const rollback = await scenario(
+          persistence,
+          `atomic_rollback_${phase}`,
+        );
+        const prepared = await prepareSeal(rollback.store, rollback.attempt);
+        const journal = await runEffect(
+          canonicalizeSessionJournalV1Effect(prepared.journal),
+        );
+        const before = await attemptLeaseAndSealState(
+          persistence,
+          rollback.anchor.sessionId,
+        );
+        await installRejectSealTrigger(persistence, phase);
+        try {
+          await expect(runFailure(rollback.store.completeSealEffect(
+            prepared.preparation,
+            journal,
+            successfulResult,
+          ))).resolves.toMatchObject({
+            operation: "completeSealTransaction",
+          });
+        } finally {
+          await removeRejectSealTrigger(persistence, phase);
+        }
+        const rolledBack = await attemptLeaseAndSealState(
+          persistence,
+          rollback.anchor.sessionId,
+        );
+        expect(rolledBack.root_state).toBe("open");
+        expect(rolledBack.lease_expires_at.getTime()).toBe(
+          before.lease_expires_at.getTime(),
+        );
+
+        await expect(completeSeal(
+          rollback.store,
+          prepared.preparation,
+          journal,
+          successfulResult,
+        )).resolves.toMatchObject({ sessionId: rollback.anchor.sessionId });
+        const retried = await attemptLeaseAndSealState(
+          persistence,
+          rollback.anchor.sessionId,
+        );
+        expect(retried.root_state).toBe("sealed");
+        expect(retried.lease_expires_at.getTime()).toBe(Math.min(
+          retried.authorization_grant_expires_at.getTime(),
+          retried.hard_expires_at.getTime(),
+        ));
+      }
+    });
+  }, 180_000);
+
+  it("holds interruption until the atomic lease promotion and seal settle", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const entered = deferredSignal();
+      const release = deferredSignal();
+      let pauseCompletion = false;
+      const current = await scenario(
+        persistence,
+        "atomic_promotion_interruption",
+        {
+          targetOptions: {
+            afterLoadLock: async (step) => {
+              if (step !== "journalRootLocked" || !pauseCompletion) return;
+              pauseCompletion = false;
+              entered.resolve();
+              await release.promise;
+            },
+          },
+        },
+      );
+      const prepared = await prepareSeal(current.store, current.attempt);
+      const journal = await runEffect(
+        canonicalizeSessionJournalV1Effect(prepared.journal),
+      );
+      const successfulResult = await runEffect(
+        canonicalizeSuccessfulResultV1Effect({ ok: true }),
+      );
+      pauseCompletion = true;
+      const fiber = Effect.runFork(current.store.completeSealEffect(
+        prepared.preparation,
+        journal,
+        successfulResult,
+      ));
+
+      await entered.promise;
+      let interruptionSettled = false;
+      const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+        interruptionSettled = true;
+        return exit;
+      });
+      try {
+        await delay(25);
+        expect(interruptionSettled).toBe(false);
+      } finally {
+        release.resolve();
+      }
+      await interruption;
+      const settled = await attemptLeaseAndSealState(
+        persistence,
+        current.anchor.sessionId,
+      );
+      expect(settled.root_state).toBe("sealed");
+      expect(settled.lease_expires_at.getTime()).toBe(Math.min(
+        settled.authorization_grant_expires_at.getTime(),
+        settled.hard_expires_at.getTime(),
+      ));
     });
   }, 180_000);
 
@@ -875,6 +1179,8 @@ async function scenario(
     ),
   );
   const store = createSessionJournalStorePersistenceV1(ports, {
+    grantRetentionPolicy:
+      options.grantRetentionPolicy ?? TEST_GRANT_RETENTION_POLICY_V1,
     ...(options.randomUuid === undefined
       ? {}
       : { randomUuid: options.randomUuid }),
@@ -900,6 +1206,80 @@ async function scenario(
     attempt,
     table,
   });
+}
+
+async function attemptLeaseAndSealState(
+  persistence: PostgresFlarexPersistence,
+  sessionId: PointMutationSessionAnchorV1["sessionId"],
+): Promise<AttemptLeaseAndSealState> {
+  const result = await persistence.query<AttemptLeaseAndSealState>(
+    `
+      select root.state as root_state,
+             lease.lease_expires_at,
+             session.authorization_grant_expires_at,
+             session.hard_expires_at,
+             lease.xmin::text as lease_xmin,
+             root.xmin::text as root_xmin
+      from fx_system_tx_session session
+      join fx_system_snapshot_lease lease
+        on lease.scope_uuid = session.scope_uuid
+       and lease.session_id = session.session_id
+       and lease.attempt_fence = session.attempt_fence
+      join fx_system_tx_journal root
+        on root.scope_uuid = session.scope_uuid
+       and root.session_id = session.session_id
+       and root.attempt_fence = session.attempt_fence
+      where session.session_id = $1
+    `,
+    [sessionId],
+  );
+  const row = result.rows[0];
+  if (row === undefined || result.rows.length !== 1) {
+    throw new Error("Expected one exact-attempt lease/seal state row.");
+  }
+  return row;
+}
+
+async function installRejectSealTrigger(
+  persistence: PostgresFlarexPersistence,
+  phase: "before" | "after",
+): Promise<void> {
+  const functionName = `fx_test_reject_seal_${phase}`;
+  const triggerName = `fx_test_reject_seal_${phase}_trigger`;
+  await persistence.query(
+    `
+      create or replace function ${functionName}()
+      returns trigger
+      language plpgsql
+      as $$
+      begin
+        if old.state = 'open' and new.state = 'sealed' then
+          raise exception 'reject seal ${phase}';
+        end if;
+        return new;
+      end;
+      $$
+    `,
+  );
+  await persistence.query(
+    `
+      create trigger ${triggerName}
+      ${phase} update on fx_system_tx_journal
+      for each row execute function ${functionName}()
+    `,
+  );
+}
+
+async function removeRejectSealTrigger(
+  persistence: PostgresFlarexPersistence,
+  phase: "before" | "after",
+): Promise<void> {
+  const functionName = `fx_test_reject_seal_${phase}`;
+  const triggerName = `fx_test_reject_seal_${phase}_trigger`;
+  await persistence.query(
+    `drop trigger if exists ${triggerName} on fx_system_tx_journal`,
+  );
+  await persistence.query(`drop function if exists ${functionName}()`);
 }
 
 function resolutionPorts(

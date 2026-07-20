@@ -12,6 +12,7 @@ import {
   PinnedPointTableNotFoundV1Error,
   SessionJournalAttemptUnavailableV1Error,
   SessionJournalIdentityGenerationV1Error,
+  SessionJournalLeasePromotionV1Error,
   SessionJournalPersistenceV1Error,
   SessionJournalSealV1Error,
   SessionJournalStorageCorruptionV1Error,
@@ -109,6 +110,7 @@ export type PointMutationJournalBoundaryV1Error =
   | PinnedPointTableCorruptionV1Error
   | PinnedPointTableNotFoundV1Error
   | SessionJournalIdentityGenerationV1Error
+  | SessionJournalLeasePromotionV1Error
   | SessionJournalSealV1Error
   | SessionJournalStorageCorruptionV1Error
   | SessionJournalTargetUnavailableV1Error;
@@ -542,6 +544,7 @@ function mapPersistenceFailure(
     cause instanceof PinnedPointTableCorruptionV1Error ||
     cause instanceof PinnedPointTableNotFoundV1Error ||
     cause instanceof SessionJournalIdentityGenerationV1Error ||
+    cause instanceof SessionJournalLeasePromotionV1Error ||
     cause instanceof SessionJournalSealV1Error ||
     cause instanceof SessionJournalStorageCorruptionV1Error ||
     cause instanceof SessionJournalTargetUnavailableV1Error

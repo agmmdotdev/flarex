@@ -206,6 +206,7 @@ import {
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -299,6 +300,36 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       operation: "scopeMetadataRead",
       cause,
     });
+  });
+
+  it("loads a sealed lease promoted to a hard expiry below the grant", async () => {
+    const current = await scenario("hard_before_grant");
+    const updated = await persistence.query<{ hard_expires_at: Date }>(
+      `
+        update fx_system_tx_session
+        set hard_expires_at = clock_timestamp() + interval '30 minutes'
+        where session_id = $1
+        returning hard_expires_at
+      `,
+      [current.anchor.sessionId],
+    );
+    const hardExpiresAt = updated.rows[0]?.hard_expires_at;
+    if (hardExpiresAt === undefined) {
+      throw new Error("Expected the shortened hard expiry.");
+    }
+    await seal(current);
+
+    const result = await runEffect(current.loader.loadEffect(current.authority));
+    if (result.kind !== "loaded") throw new Error("Expected loaded evidence.");
+    expect(result.evidence.lease.leaseExpiresAtMilliseconds).toBe(
+      hardExpiresAt.getTime(),
+    );
+    expect(result.evidence.session.hardExpiresAtMilliseconds).toBe(
+      hardExpiresAt.getTime(),
+    );
+    expect(
+      result.evidence.session.authorizationGrantExpiresAtMilliseconds,
+    ).toBeGreaterThan(hardExpiresAt.getTime());
   });
 
   it("does not observe interruption until the repeatable-read edge settles", async () => {
@@ -477,11 +508,52 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         kind: "corrupt",
         reason: "journalRootMissingOrDuplicate",
       });
+
+    const nonTargetLease = await scenario("sealed_non_target_lease");
+    await seal(nonTargetLease);
+    await persistence.query(
+      `
+        update fx_system_snapshot_lease
+        set lease_expires_at = lease_expires_at - interval '1 second'
+        where session_id = $1
+      `,
+      [nonTargetLease.anchor.sessionId],
+    );
+    await expect(runEffect(
+      nonTargetLease.loader.loadEffect(nonTargetLease.authority),
+    )).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "snapshotLeaseInvalid",
+    });
+    await persistence.query(
+      `
+        update fx_system_snapshot_lease
+        set lease_expires_at = clock_timestamp() - interval '1 second'
+        where session_id = $1
+      `,
+      [nonTargetLease.anchor.sessionId],
+    );
+    await expect(runEffect(
+      nonTargetLease.loader.loadEffect(nonTargetLease.authority),
+    )).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "snapshotLeaseInvalid",
+    });
   });
 
   it("uses database time and rejects expired or replaced exact attempts", async () => {
     const expired = await scenario("lease_expired");
     await seal(expired);
+    await persistence.query(
+      `
+        update fx_system_tx_session
+        set created_at = '1999-01-01T00:00:00.000Z',
+            authorization_grant_expires_at = '2000-01-01T00:00:00.000Z',
+            hard_expires_at = '2000-01-01T00:00:00.000Z'
+        where session_id = $1
+      `,
+      [expired.anchor.sessionId],
+    );
     await persistence.query(
       `
         update fx_system_snapshot_lease
@@ -985,6 +1057,25 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const prepared = await prepareO07BScenario(
       "o07b_publish_replay",
       async (current, table) => {
+        await persistence.query(
+          `
+            with shortened_authority as (
+              update fx_system_tx_session
+              set hard_expires_at =
+                authorization_grant_expires_at - interval '5 seconds'
+              where session_id = $1
+              returning scope_uuid, session_id, attempt_fence, hard_expires_at
+            )
+            update fx_system_snapshot_lease as lease
+            set lease_expires_at =
+              authority.hard_expires_at - interval '1 second'
+            from shortened_authority as authority
+            where lease.scope_uuid = authority.scope_uuid
+              and lease.session_id = authority.session_id
+              and lease.attempt_fence = authority.attempt_fence
+          `,
+          [current.anchor.sessionId],
+        );
         await expect(runPointOperation(current.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
@@ -995,6 +1086,34 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         });
       },
     );
+    const promoted = await persistence.query<{
+      authorization_grant_expires_at: Date;
+      hard_expires_at: Date;
+      lease_expires_at: Date;
+    }>(
+      `
+        select
+          session.authorization_grant_expires_at,
+          session.hard_expires_at,
+          lease.lease_expires_at
+        from fx_system_tx_session as session
+        join fx_system_snapshot_lease as lease
+          on lease.scope_uuid = session.scope_uuid
+         and lease.session_id = session.session_id
+         and lease.attempt_fence = session.attempt_fence
+        where session.session_id = $1
+      `,
+      [prepared.current.anchor.sessionId],
+    );
+    const promotedRow = promoted.rows[0];
+    if (promotedRow === undefined) {
+      throw new Error("Expected promoted O07-B seal authority.");
+    }
+    expect(promotedRow.lease_expires_at.getTime()).toBe(
+      promotedRow.hard_expires_at.getTime(),
+    );
+    expect(promotedRow.authorization_grant_expires_at.getTime())
+      .toBeGreaterThan(promotedRow.hard_expires_at.getTime());
     const published = await runEffect(
       prepared.authentication.publishPointCommit(prepared.plan),
     );
@@ -2189,6 +2308,55 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         claims: "0",
       });
     }
+  });
+
+  it("preserves sealed evidence when an expired lease was not promoted", async () => {
+    const current = await c04b2Scenario(
+      "o08_b2b2a_expired_non_target_sealed_lease",
+    );
+    await seal(current);
+    await persistence.query(
+      `update fx_system_snapshot_lease
+       set lease_expires_at = clock_timestamp() - interval '1 minute'
+       where scope_uuid = $1 and session_id = $2`,
+      [
+        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+        current.anchor.sessionId,
+      ],
+    );
+    const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+    const dispositionBefore = await o08DispositionState(
+      scopeUuid,
+      current.anchor.sessionId,
+    );
+    const claimBefore = await executionClaimState(current.anchor.sessionId);
+    let runnerCalls = 0;
+    const authentication = createB2b2aRedispatchAuthentication(
+      current,
+      createPointMutationExecutionClaimVaultV1(),
+      Object.freeze({
+        run: () => {
+          runnerCalls += 1;
+          return Effect.succeed(Object.freeze({ ok: true }));
+        },
+      }),
+    );
+
+    await expect(runFailure(
+      authentication.redispatchExactPointMutationAttempt(
+        selectorInputFromAnchor(current.anchor),
+      ),
+    )).resolves.toMatchObject({
+      _tag: "PointMutationExecutionClaimAcquisitionCorruptionV1Error",
+      reason: "leaseInvalid",
+    });
+    expect(runnerCalls).toBe(0);
+    await expect(o08DispositionState(
+      scopeUuid,
+      current.anchor.sessionId,
+    )).resolves.toEqual(dispositionBefore);
+    await expect(executionClaimState(current.anchor.sessionId)).resolves
+      .toEqual(claimBefore);
   });
 
   it("finishes sealed running and durable finishing attempts without rerunning user code", async () => {
@@ -4453,6 +4621,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }), "execute"),
     ));
     const store = createSessionJournalStorePersistenceV1(ports, {
+      grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
     });
     const authority = authorityFromAnchor(
@@ -4663,6 +4832,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }), "execute"),
     ));
     const store = createSessionJournalStorePersistenceV1(ports, {
+      grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
     });
     const functionMetadata = target.functions[0];

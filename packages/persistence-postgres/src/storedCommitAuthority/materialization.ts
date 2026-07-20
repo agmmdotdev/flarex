@@ -919,7 +919,7 @@ function validSessionScalars(session: SessionSizeRow): boolean {
     hardExpiresAtMilliseconds !== undefined &&
     createdAtMilliseconds !== undefined &&
     updatedAtMilliseconds !== undefined &&
-    hardExpiresAtMilliseconds === authorizationGrantExpiresAtMilliseconds &&
+    hardExpiresAtMilliseconds <= authorizationGrantExpiresAtMilliseconds &&
     updatedAtMilliseconds >= createdAtMilliseconds &&
     isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32) &&
     isUint8ArrayWithByteLength(session.validatedArgsSha256, 32) &&

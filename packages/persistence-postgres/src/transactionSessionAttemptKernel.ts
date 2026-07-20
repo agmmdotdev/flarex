@@ -41,6 +41,8 @@ export interface ExactRunningAttemptKernelContextV1 {
   readonly scopeUuid: ScopeUuidV1;
   readonly anchor: PointMutationSessionAnchorV1;
   readonly executionPin: PointMutationSessionAttemptExecutionPinV1;
+  readonly authorizationGrantExpiresAtMilliseconds: number;
+  readonly hardExpiresAtMilliseconds: number;
   readonly databaseNow: Date;
   readonly journalRoot: Readonly<TransactionJournalRootRowV1>;
   readonly attemptFacet: PointMutationSessionAttemptFacetObservationV1;

@@ -193,10 +193,12 @@ describe("O03-B exact point-mutation attempt authority", () => {
       "sessionLocked",
       "leaseLocked",
       "journalRootLocked",
+      "executionClaimLocked",
       "clockLocked",
       "sessionLocked",
       "leaseLocked",
       "journalRootLocked",
+      "executionClaimLocked",
     ]);
 
     await persistence.query(

@@ -1571,7 +1571,7 @@ function captureSessionScalarsResult(
     !validEpochMilliseconds(input.createdAtMilliseconds) ||
     !validEpochMilliseconds(input.updatedAtMilliseconds) ||
     input.updatedAtMilliseconds < input.createdAtMilliseconds ||
-    input.hardExpiresAtMilliseconds !==
+    input.hardExpiresAtMilliseconds >
       input.authorizationGrantExpiresAtMilliseconds
   ) {
     return Result.fail(corruption("commandInvalid"));

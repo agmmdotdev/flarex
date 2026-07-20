@@ -1,4 +1,8 @@
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import {
+  makeGrantRetentionPolicyV1Result,
+  type GrantRetentionPolicyV1,
+} from "flarex-protocol/grant-retention-policy";
 import type { ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 import {
@@ -21,6 +25,7 @@ import {
   TransactionSourcePackageSha256HexV1Schema,
 } from "flarex-protocol/transaction-session";
 import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
+import { Result } from "effect";
 
 import type { TransactionExecutionClaimObservationV1 } from
   "../src/transactionExecutionClaimModel";
@@ -46,6 +51,13 @@ const executionClaimsByAttempt = new Map<
   string,
   TransactionExecutionClaimObservationV1
 >();
+
+export const TEST_GRANT_RETENTION_POLICY_V1: GrantRetentionPolicyV1 =
+  Result.getOrThrow(makeGrantRetentionPolicyV1Result({
+    maximumGrantLifetimeMilliseconds: 253_402_300_799_999,
+    maximumFutureIssuedAtSkewMilliseconds: 0,
+    maximumLiveSnapshotRetentionMilliseconds: Number.MAX_SAFE_INTEGER,
+  }));
 
 export interface ActivationFixtureOverrides {
   readonly deploymentId?: TransactionGrantDeploymentIdV1;

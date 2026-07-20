@@ -73,6 +73,7 @@ import {
   type Json,
   type JsonObject,
 } from "flarex-protocol/json";
+import type { GrantRetentionPolicyV1 } from "flarex-protocol/grant-retention-policy";
 import {
   CatalogSchemaVersionIdSchema,
   SchemaManifestAppTableNameSchema,
@@ -143,6 +144,10 @@ import {
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionSessions,
 } from "./schema";
+import {
+  projectSealedAttemptLeasePromotionV1Result,
+  type SealedAttemptLeasePromotionIssueV1,
+} from "./sealedAttemptLeasePromotion";
 import {
   ExactRunningAttemptTransactionV1Error,
   RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
@@ -390,6 +395,8 @@ export interface SessionJournalStorePersistenceV1 {
 }
 
 export interface SessionJournalStorePersistenceOptionsV1 {
+  /** Trusted deployment configuration; never derived from request evidence. */
+  readonly grantRetentionPolicy: GrantRetentionPolicyV1;
   /** Construction-bound server randomness; exposed only for deterministic tests. */
   readonly randomUuid?: () => string;
 }
@@ -468,6 +475,7 @@ export type SessionJournalPrepareSealV1Error =
 export type SessionJournalCompleteSealV1Error =
   | InvalidSessionJournalCapabilityV1Error
   | SessionJournalAttemptUnavailableV1Error
+  | SessionJournalLeasePromotionV1Error
   | SessionJournalPersistenceV1Error
   | SessionJournalSealV1Error
   | SessionJournalStorageCorruptionV1Error
@@ -519,6 +527,23 @@ export class SessionJournalIdentityGenerationV1Error extends Data.TaggedError(
   "SessionJournalIdentityGenerationV1Error",
 )<{
   readonly generatedValue: unknown;
+}> {}
+
+export type SessionJournalLeasePromotionV1Issue =
+  | Readonly<{
+      readonly kind: "retentionPolicyInvalid";
+      readonly maximumLiveSnapshotRetentionMilliseconds: number;
+    }>
+  | Readonly<{
+      readonly kind: "retentionBudgetExceeded";
+      readonly remainingMilliseconds: number;
+      readonly maximumLiveSnapshotRetentionMilliseconds: number;
+    }>;
+
+export class SessionJournalLeasePromotionV1Error extends Data.TaggedError(
+  "SessionJournalLeasePromotionV1Error",
+)<{
+  readonly issue: SessionJournalLeasePromotionV1Issue;
 }> {}
 
 export class SessionJournalSealV1Error extends Data.TaggedError(
@@ -731,9 +756,11 @@ const decodeExecutionClaimFenceResult = decodeTransactionExecutionClaimFenceV1;
 
 export function createSessionJournalStorePersistenceV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
-  options: SessionJournalStorePersistenceOptionsV1 = {},
+  options: SessionJournalStorePersistenceOptionsV1,
 ): SessionJournalStorePersistenceV1 {
   const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
+  const maximumLiveSnapshotRetentionMilliseconds =
+    options.grantRetentionPolicy.maximumLiveSnapshotRetentionMilliseconds;
   const attemptStates = new WeakMap<object, SessionJournalAttemptStateV1>();
   const tableStates = new WeakMap<object, PinnedPointTableStateV1>();
   const sealStates = new WeakMap<
@@ -989,6 +1016,7 @@ export function createSessionJournalStorePersistenceV1(
           context,
           prepared,
           sealedEvidence,
+          maximumLiveSnapshotRetentionMilliseconds,
         ),
       ).pipe(
         Effect.mapError((error) =>
@@ -1059,6 +1087,7 @@ function mapCompleteSealTransactionFailure(
   if (
     cause instanceof InvalidSessionJournalCapabilityV1Error ||
     cause instanceof SessionJournalAttemptUnavailableV1Error ||
+    cause instanceof SessionJournalLeasePromotionV1Error ||
     cause instanceof SessionJournalPersistenceV1Error ||
     cause instanceof SessionJournalSealV1Error ||
     cause instanceof SessionJournalStorageCorruptionV1Error ||
@@ -1609,11 +1638,13 @@ function mapRunPointOperationFailure(
 function mapSessionAuthorityCorruption(
   cause: PointMutationSessionAuthorityCorruptionV1Error,
 ): SessionJournalStorageCorruptionV1Error {
+  const reason = cause.issue === "executionClaimInvalid" ||
+      cause.issue === "snapshotLeaseInvalid"
+    ? cause.issue
+    : "sessionRecordInvalid";
   return new SessionJournalStorageCorruptionV1Error({
     scopeId: cause.scopeId,
-    reason: cause.issue === "executionClaimInvalid"
-      ? "executionClaimInvalid"
-      : "sessionRecordInvalid",
+    reason,
     cause,
   });
 }
@@ -3833,7 +3864,7 @@ async function requireRepeatableReadAttemptAuthority(
     hardExpiresAtMilliseconds === undefined ||
     finiteDateMilliseconds(session.createdAt) === undefined ||
     finiteDateMilliseconds(session.updatedAt) === undefined ||
-    hardExpiresAtMilliseconds !== authorizationGrantExpiresAtMilliseconds
+    hardExpiresAtMilliseconds > authorizationGrantExpiresAtMilliseconds
   ) {
     throw corruption(attempt, "sessionRecordInvalid");
   }
@@ -4294,6 +4325,7 @@ const completeSealInTransactionEffect = Effect.fn(
   context: ExactRunningAttemptKernelContextV1,
   prepared: PreparedSessionJournalSealStateV1,
   evidence: ValidatedCanonicalSealEvidenceV1,
+  maximumLiveSnapshotRetentionMilliseconds: number,
 ): Effect.fn.Return<
   StoredForSessionAttemptCommitEnvelopeV1,
   SessionJournalCompleteSealV1Error
@@ -4310,7 +4342,39 @@ const completeSealInTransactionEffect = Effect.fn(
       new SessionJournalSealV1Error({ reason: "journalFailed" }),
     );
   }
+  const databaseNowMilliseconds = finiteDateMilliseconds(context.databaseNow);
+  const currentLeaseExpiresAt = new Date(context.anchor.leaseExpiresAt);
+  const currentLeaseExpiresAtMilliseconds = finiteDateMilliseconds(
+    currentLeaseExpiresAt,
+  );
+  const promotion = yield* Effect.fromResult(
+    projectSealedAttemptLeasePromotionV1Result({
+      authorizationGrantExpiresAtMilliseconds:
+        context.authorizationGrantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds: context.hardExpiresAtMilliseconds,
+      databaseNowMilliseconds: databaseNowMilliseconds ?? Number.NaN,
+      currentLeaseExpiresAtMilliseconds:
+        currentLeaseExpiresAtMilliseconds ?? Number.NaN,
+      maximumLiveSnapshotRetentionMilliseconds,
+    }),
+  ).pipe(Effect.mapError((issue) => mapLeasePromotionIssue(
+    prepared.attempt,
+    issue,
+    maximumLiveSnapshotRetentionMilliseconds,
+  )));
+  const targetLeaseExpiresAt = new Date(
+    promotion.targetLeaseExpiresAtMilliseconds,
+  );
   if (root.state === "sealed") {
+    if (
+      currentLeaseExpiresAtMilliseconds !==
+        promotion.targetLeaseExpiresAtMilliseconds
+    ) {
+      return yield* Effect.fail(corruption(
+        prepared.attempt,
+        "snapshotLeaseInvalid",
+      ));
+    }
     yield* Effect.fromResult(validateStoredSealMatchesResult(
       prepared.attempt,
       root,
@@ -4330,39 +4394,74 @@ const completeSealInTransactionEffect = Effect.fn(
   ));
 
   const updated = yield* Effect.tryPromise({
-    try: () => tx
-      .update(fxSystemTransactionJournals)
-      .set({
-        state: "sealed",
-        failureDimension: null,
-        sealedFinalSyscallSequence: evidence.finalSyscallSequence,
-        sealedJournalBytes: new Uint8Array(evidence.journalBytes),
-        sealedJournalSha256: new Uint8Array(evidence.journalSha256),
-        sealedResultValueCodecVersion: evidence.resultValueCodecVersion,
-        sealedResultSemanticBytes: evidence.resultSemanticBytes,
-        sealedResultBytes: new Uint8Array(evidence.resultBytes),
-        sealedResultSha256: new Uint8Array(evidence.resultSha256),
-        sealedAt: context.databaseNow,
-        updatedAt: context.databaseNow,
-      })
-      .where(and(
-        eq(fxSystemTransactionJournals.scopeUuid, context.scopeUuid),
-        eq(fxSystemTransactionJournals.sessionId, context.anchor.sessionId),
-        eq(
-          fxSystemTransactionJournals.attemptFence,
-          context.anchor.attemptFence,
-        ),
-        eq(fxSystemTransactionJournals.state, "open"),
-        eq(
-          fxSystemTransactionJournals.lastSyscallSequence,
-          prepared.candidate.lastSyscallSequence,
-        ),
-        eq(
-          fxSystemTransactionJournals.updatedAt,
-          new Date(prepared.candidate.rootUpdatedAtMilliseconds),
-        ),
-      ))
-      .returning({ state: fxSystemTransactionJournals.state }),
+    try: async () => {
+      const promotedLeaseRows = await tx
+        .update(fxSystemSnapshotLeases)
+        .set({ leaseExpiresAt: targetLeaseExpiresAt })
+        .where(and(
+          eq(fxSystemSnapshotLeases.scopeUuid, context.scopeUuid),
+          eq(fxSystemSnapshotLeases.sessionId, context.anchor.sessionId),
+          eq(
+            fxSystemSnapshotLeases.attemptFence,
+            context.anchor.attemptFence,
+          ),
+          eq(
+            fxSystemSnapshotLeases.snapshotEpochUuid,
+            projectScopeEpochUuidV1(context.anchor.snapshotToken.epoch)
+              .epochUuid,
+          ),
+          eq(
+            fxSystemSnapshotLeases.snapshotCommitSeq,
+            context.anchor.snapshotToken.commitSeq,
+          ),
+          eq(fxSystemSnapshotLeases.leaseExpiresAt, currentLeaseExpiresAt),
+        ))
+        .returning({ leaseExpiresAt: fxSystemSnapshotLeases.leaseExpiresAt });
+      const promotedLeaseExpiresAtMilliseconds =
+        promotedLeaseRows.length === 1
+          ? finiteDateMilliseconds(promotedLeaseRows[0]?.leaseExpiresAt)
+          : undefined;
+      if (
+        promotedLeaseExpiresAtMilliseconds !==
+          promotion.targetLeaseExpiresAtMilliseconds
+      ) {
+        throw corruption(prepared.attempt, "snapshotLeaseInvalid");
+      }
+
+      return tx
+        .update(fxSystemTransactionJournals)
+        .set({
+          state: "sealed",
+          failureDimension: null,
+          sealedFinalSyscallSequence: evidence.finalSyscallSequence,
+          sealedJournalBytes: new Uint8Array(evidence.journalBytes),
+          sealedJournalSha256: new Uint8Array(evidence.journalSha256),
+          sealedResultValueCodecVersion: evidence.resultValueCodecVersion,
+          sealedResultSemanticBytes: evidence.resultSemanticBytes,
+          sealedResultBytes: new Uint8Array(evidence.resultBytes),
+          sealedResultSha256: new Uint8Array(evidence.resultSha256),
+          sealedAt: context.databaseNow,
+          updatedAt: context.databaseNow,
+        })
+        .where(and(
+          eq(fxSystemTransactionJournals.scopeUuid, context.scopeUuid),
+          eq(fxSystemTransactionJournals.sessionId, context.anchor.sessionId),
+          eq(
+            fxSystemTransactionJournals.attemptFence,
+            context.anchor.attemptFence,
+          ),
+          eq(fxSystemTransactionJournals.state, "open"),
+          eq(
+            fxSystemTransactionJournals.lastSyscallSequence,
+            prepared.candidate.lastSyscallSequence,
+          ),
+          eq(
+            fxSystemTransactionJournals.updatedAt,
+            new Date(prepared.candidate.rootUpdatedAtMilliseconds),
+          ),
+        ))
+        .returning({ state: fxSystemTransactionJournals.state });
+    },
     catch: mapCompleteSealTransactionFailure,
   });
   if (updated.length !== 1 || updated[0]?.state !== "sealed") {
@@ -4372,6 +4471,45 @@ const completeSealInTransactionEffect = Effect.fn(
   }
   return storedSealEnvelope(context, evidence);
 });
+
+function mapLeasePromotionIssue(
+  attempt: SessionJournalAttemptStateV1,
+  issue: SealedAttemptLeasePromotionIssueV1,
+  maximumLiveSnapshotRetentionMilliseconds: number,
+): SessionJournalAttemptUnavailableV1Error |
+  SessionJournalLeasePromotionV1Error |
+  SessionJournalStorageCorruptionV1Error {
+  switch (issue.kind) {
+    case "authorityExpiryInvalid":
+      return corruption(attempt, "sessionRecordInvalid");
+    case "databaseClockInvalid":
+      return corruption(attempt, "databaseClockInvalid");
+    case "retentionBudgetInvalid":
+      return new SessionJournalLeasePromotionV1Error({
+        issue: Object.freeze({
+          kind: "retentionPolicyInvalid",
+          maximumLiveSnapshotRetentionMilliseconds,
+        }),
+      });
+    case "authorityExpired":
+    case "currentLeaseExpired":
+      return new SessionJournalAttemptUnavailableV1Error({
+        issue: { reason: "activeAttemptExpired" },
+      });
+    case "retentionBudgetExceeded":
+      return new SessionJournalLeasePromotionV1Error({
+        issue: Object.freeze({
+          kind: "retentionBudgetExceeded",
+          remainingMilliseconds: issue.remainingMilliseconds,
+          maximumLiveSnapshotRetentionMilliseconds:
+            issue.maximumLiveSnapshotRetentionMilliseconds,
+        }),
+      });
+    case "currentLeaseInvalid":
+    case "currentLeaseAfterTarget":
+      return corruption(attempt, "snapshotLeaseInvalid");
+  }
+}
 
 function validateSealCandidateStillCurrentResult(
   candidate: SessionJournalSealCandidateV1,

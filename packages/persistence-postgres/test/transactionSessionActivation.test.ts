@@ -574,11 +574,102 @@ describe("O03-B1 point-mutation session activation", () => {
        where session_id = $1`,
       [sealed.anchor.sessionId, new Uint8Array([0]), new Uint8Array(32)],
     );
+    await persistence.query(
+      `update fx_system_snapshot_lease as lease
+       set lease_expires_at = least(
+         session.authorization_grant_expires_at,
+         session.hard_expires_at
+       )
+       from fx_system_tx_session as session
+       where lease.scope_uuid = session.scope_uuid
+         and lease.session_id = session.session_id
+         and lease.attempt_fence = session.attempt_fence
+         and session.session_id = $1`,
+      [sealed.anchor.sessionId],
+    );
     await expireExecutionClaim(sealed.anchor.sessionId);
     await expect(runEffect(
       executionClaimAcquisition("42000000-0000-4000-8000-000000008011")
         .acquireEffect(selectorFromAnchor(sealed.anchor)),
     )).resolves.toMatchObject({ kind: "acquired", mode: "finishOnly" });
+
+    const mismatchedSealed = await activateClaimScenario(
+      "claim_sealed_non_target",
+    );
+    await persistence.query(
+      `update fx_system_tx_journal
+       set state = 'sealed',
+           sealed_final_syscall_sequence = last_syscall_sequence,
+           sealed_journal_bytes = $2,
+           sealed_journal_sha256 = $3,
+           sealed_result_value_codec_version = 1,
+           sealed_result_semantic_bytes = 0,
+           sealed_result_bytes = $2,
+           sealed_result_sha256 = $3,
+           sealed_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+       where session_id = $1`,
+      [
+        mismatchedSealed.anchor.sessionId,
+        new Uint8Array([0]),
+        new Uint8Array(32),
+      ],
+    );
+    await expireExecutionClaim(mismatchedSealed.anchor.sessionId);
+    const claimBeforeRejection = await executionClaimRow(
+      mismatchedSealed.anchor.sessionId,
+    );
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008093")
+        .acquireEffect(selectorFromAnchor(mismatchedSealed.anchor)),
+    )).rejects.toMatchObject({
+      _tag: "PointMutationExecutionClaimAcquisitionCorruptionV1Error",
+      reason: "leaseInvalid",
+    });
+    await expect(executionClaimRow(mismatchedSealed.anchor.sessionId))
+      .resolves.toEqual(claimBeforeRejection);
+
+    const expiredMismatchedSealed = await activateClaimScenario(
+      "claim_sealed_expired_non_target",
+    );
+    await persistence.query(
+      `update fx_system_tx_journal
+       set state = 'sealed',
+           sealed_final_syscall_sequence = last_syscall_sequence,
+           sealed_journal_bytes = $2,
+           sealed_journal_sha256 = $3,
+           sealed_result_value_codec_version = 1,
+           sealed_result_semantic_bytes = 0,
+           sealed_result_bytes = $2,
+           sealed_result_sha256 = $3,
+           sealed_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+       where session_id = $1`,
+      [
+        expiredMismatchedSealed.anchor.sessionId,
+        new Uint8Array([0]),
+        new Uint8Array(32),
+      ],
+    );
+    await persistence.query(
+      `update fx_system_snapshot_lease
+       set lease_expires_at = clock_timestamp() - interval '1 minute'
+       where session_id = $1`,
+      [expiredMismatchedSealed.anchor.sessionId],
+    );
+    await expireExecutionClaim(expiredMismatchedSealed.anchor.sessionId);
+    const expiredClaimBeforeRejection = await executionClaimRow(
+      expiredMismatchedSealed.anchor.sessionId,
+    );
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008094")
+        .acquireEffect(selectorFromAnchor(expiredMismatchedSealed.anchor)),
+    )).rejects.toMatchObject({
+      _tag: "PointMutationExecutionClaimAcquisitionCorruptionV1Error",
+      reason: "leaseInvalid",
+    });
+    await expect(executionClaimRow(expiredMismatchedSealed.anchor.sessionId))
+      .resolves.toEqual(expiredClaimBeforeRejection);
 
     const dirty = await activateClaimScenario("claim_dirty");
     await persistence.query(

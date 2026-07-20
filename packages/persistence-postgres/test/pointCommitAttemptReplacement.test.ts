@@ -89,6 +89,7 @@ import {
   runSessionJournalPointOperation,
 } from "./effectTestRuntime";
 import {
+  TEST_GRANT_RETENTION_POLICY_V1,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -639,6 +640,7 @@ describe("O08-A exact-attempt replacement", () => {
       throw new Error("Expected a newly created replacement attempt.");
     }
     const store = createSessionJournalStorePersistenceV1(ports, {
+      grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
     });
     const attempt = await runEffect(store.openAttemptEffect({

@@ -167,6 +167,7 @@ import {
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -763,6 +764,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
         "sessionLocked",
         "leaseLocked",
         "journalRootLocked",
+        "executionClaimLocked",
       ]);
       expect(authorizedResult.success).toMatchObject({
         kind: "authorized",
@@ -814,12 +816,59 @@ describePostgres("real Postgres stored-attempt authority", () => {
       const table = await runEffect(
         current.store.resolvePointTableEffect(current.attempt, "users"),
       );
+      await persistence.query(
+        `
+          with shortened_authority as (
+            update fx_system_tx_session
+            set hard_expires_at =
+              authorization_grant_expires_at - interval '5 seconds'
+            where session_id = $1
+            returning scope_uuid, session_id, attempt_fence, hard_expires_at
+          )
+          update fx_system_snapshot_lease as lease
+          set lease_expires_at =
+            authority.hard_expires_at - interval '1 second'
+          from shortened_authority as authority
+          where lease.scope_uuid = authority.scope_uuid
+            and lease.session_id = authority.session_id
+            and lease.attempt_fence = authority.attempt_fence
+        `,
+        [current.anchor.sessionId],
+      );
       await runPointOperation(current.store, table, {
         kind: "insert",
         syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
         fields: { name: "conflicted" },
       });
       const envelope = await sealScenario(current);
+      const promoted = await persistence.query<{
+        authorization_grant_expires_at: Date;
+        hard_expires_at: Date;
+        lease_expires_at: Date;
+      }>(
+        `
+          select
+            session.authorization_grant_expires_at,
+            session.hard_expires_at,
+            lease.lease_expires_at
+          from fx_system_tx_session as session
+          join fx_system_snapshot_lease as lease
+            on lease.scope_uuid = session.scope_uuid
+           and lease.session_id = session.session_id
+           and lease.attempt_fence = session.attempt_fence
+          where session.session_id = $1
+        `,
+        [current.anchor.sessionId],
+      );
+      const promotedRow = promoted.rows[0];
+      if (promotedRow === undefined) {
+        throw new Error("Expected promoted B2a PostgreSQL seal authority.");
+      }
+      expect(promotedRow.lease_expires_at.getTime()).toBe(
+        promotedRow.hard_expires_at.getTime(),
+      );
+      expect(promotedRow.authorization_grant_expires_at.getTime())
+        .toBeGreaterThan(promotedRow.hard_expires_at.getTime());
       const loadedAttempt = await runEffect(
         current.loading.load(selectorWire(current.anchor)),
       );
@@ -2305,6 +2354,7 @@ async function scenario(
     }), "execute"),
   ));
   const store = createSessionJournalStorePersistenceV1(ports, {
+    grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
   const attempt = await runEffect(
@@ -2522,7 +2572,10 @@ async function o08B1Scenario(
       mode: "execute",
     }), "execute"),
   ));
-  const store = createSessionJournalStorePersistenceV1(ports, { randomUuid });
+  const store = createSessionJournalStorePersistenceV1(ports, {
+    grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+    randomUuid,
+  });
   const attempt = await runEffect(store.openAttemptEffect({
     selector: {
       deploymentId,
@@ -2766,7 +2819,10 @@ async function preparePostgresO08CCompanionPublication(
   if (activation.status !== "created") {
     throw new Error("Expected a newly created O08-C companion attempt.");
   }
-  const store = createSessionJournalStorePersistenceV1(ports, { randomUuid });
+  const store = createSessionJournalStorePersistenceV1(ports, {
+    grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+    randomUuid,
+  });
   const attempt = await runEffect(store.openAttemptEffect({
     selector: {
       deploymentId: activation.anchor.deploymentId,

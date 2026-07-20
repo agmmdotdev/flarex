@@ -102,6 +102,7 @@ import {
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
   executionClaimForAnchor,
   pointMutationSessionActivationFixture,
@@ -1563,6 +1564,7 @@ async function createAttempt(
     ),
   );
   const store = createSessionJournalStorePersistenceV1(scope.ports, {
+    grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
   const attempt = await runEffect(

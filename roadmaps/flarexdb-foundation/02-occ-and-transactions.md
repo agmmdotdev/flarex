@@ -31,9 +31,9 @@ transaction retry, and O08-D's bounded uncertain-outcome recovery are complete;
 O08-B2b2a's private exact-selector safe-state redispatch composition, O08-
 B2b2b1's bounded inert scope-local discovery, and O08-B2b2b2a's durable dirty/
 failed-attempt disposition are complete. O08-B2b2b2b0a grant/retention policy
-coherence is complete. O08-B2b2b2b0b sealed-lease promotion, O08-B2b2b2b1
-execution-claim liveness, production scheduling/redelivery, and C06-B endpoint/
-response policy remain pending. C04C2
+coherence and O08-B2b2b2b0b atomic seal-time lease promotion are complete. O08-
+B2b2b2b1 execution-claim liveness, production scheduling/redelivery, and C06-B
+endpoint/response policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -1208,23 +1208,22 @@ another publication or delivery authority.
   transaction. Already-sealed evidence is exact replay only when both the seal
   and `lease expiry == target` match. No target supplied by a caller, new lease
   version, column, envelope authority, or process capability is accepted.
-- **[ ] O08-B2b2b2b0b — implement sealed-attempt lease promotion.** C04A
-  must freshly reload and require the sealed lease expiry to equal
+- **[x] O08-B2b2b2b0b — atomic sealed-attempt lease promotion.** The exact-
+  running `completeSealEffect` transaction derives the target from the locked
+  grant/hard minimum, proves the database-time `B` bound, CAS-updates the full
+  current lease identity, and seals the open journal root last. C04A freshly
+  reloads and requires the sealed lease expiry to equal
   `min(grant expiry, hard expiry)`; C04B1, C05-A, and C05-B continue to own the
   exact comparison and reconstruction chain. Rollback, interruption, and
   uncertain settlement mint no authority and may expose only open plus old
-  lease or sealed plus target lease. Implementation remains blocked until the
-  unrelated active owner of `transactionSessionActivation.ts` settles so the
-  exact-running kernel can carry both locked grant- and hard-expiry scalars.
-  It must not query around that owner, rely only on hard expiry, or use
-  uncommitted overlapping content as authority. No lease promotion or
-  retention behavior is implemented yet.
+  lease or sealed plus target lease. Exact sealed replay requires both matching
+  seal evidence and the authoritative target expiry. No new lease version,
+  column, envelope authority, or process capability is introduced.
 - **[ ] O08-B2b2b2b1 — phase-aware execution-claim liveness.** A later
   structured executor lifecycle may jointly renew the live claim and mutable
   snapshot lease before sealing, then use claim-only liveness after the sealed
   lease promotion. Heartbeat shutdown, takeover, finishing, uncertainty, and
-  full `Cause` ownership require their own gate and remain blocked on b0b and
-  persistence-owner settlement.
+  full `Cause` ownership require their own gate and remain pending.
 
 `O11` consumes this policy later; it is not a prerequisite to define it. Only a
 snapshot lease that is live under database time pins engine history. An expired

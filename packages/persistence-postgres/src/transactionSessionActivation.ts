@@ -1475,6 +1475,17 @@ async function acquireExecutionClaimInTransaction(
       reason: "sessionInvalid",
     });
   }
+  if (
+    root.state === "sealed" &&
+    locked.leaseExpiresAtMilliseconds !== Math.min(
+      grantExpiresAt,
+      hardExpiresAt,
+    )
+  ) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "leaseInvalid",
+    });
+  }
   if (grantExpiresAt <= now || hardExpiresAt <= now) {
     throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
       reason: "authorizationExpired",
@@ -2263,6 +2274,7 @@ async function loadLockedRunningAttempt<Failure extends Error>(
       attemptFence: locked.attemptFence,
     }),
   );
+  await input.afterLeaseLock?.("executionClaimLocked");
   const databaseNow = await readDatabaseNow(tx, input.scopeId);
   const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
     session.authorizationGrantExpiresAt,
@@ -2277,6 +2289,15 @@ async function loadLockedRunningAttempt<Failure extends Error>(
     databaseNowMilliseconds === undefined
   ) {
     throw corruptionError(input.scopeId, "sessionRecordInvalid");
+  }
+  if (
+    journalRoot.state === "sealed" &&
+    locked.leaseExpiresAtMilliseconds !== Math.min(
+      authorizationGrantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds,
+    )
+  ) {
+    throw corruptionError(input.scopeId, "snapshotLeaseInvalid");
   }
   if (
     authorizationGrantExpiresAtMilliseconds <= databaseNowMilliseconds ||
@@ -2329,6 +2350,8 @@ async function loadLockedRunningAttempt<Failure extends Error>(
       updatedAt: session.updatedAt.toISOString(),
     } satisfies PointMutationSessionAnchorV1),
     executionPin: Object.freeze({ schemaVersionId }),
+    authorizationGrantExpiresAtMilliseconds,
+    hardExpiresAtMilliseconds,
     databaseNow,
     journalRoot: Object.freeze({ ...journalRoot }),
     attemptFacet,
@@ -2562,7 +2585,7 @@ async function lockPointMutationSessionAttemptStructure(
     hardExpiresAtMilliseconds === undefined ||
     finiteDateMilliseconds(session.createdAt) === undefined ||
     finiteDateMilliseconds(session.updatedAt) === undefined ||
-    hardExpiresAtMilliseconds !== authorizationGrantExpiresAtMilliseconds
+    hardExpiresAtMilliseconds > authorizationGrantExpiresAtMilliseconds
   ) {
     throw corruptionError(input.scopeId, "sessionRecordInvalid");
   }

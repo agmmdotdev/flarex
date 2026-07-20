@@ -10,6 +10,7 @@ import {
   InvalidSessionJournalInputV1Error,
   PinnedPointTableNotFoundV1Error,
   SessionJournalAttemptUnavailableV1Error,
+  SessionJournalLeasePromotionV1Error,
   SessionJournalPersistenceV1Error,
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
@@ -593,6 +594,29 @@ describe("C03 executor point-mutation journal boundary", () => {
     }
   });
 
+  it("preserves typed sealed-lease promotion failures at the executor boundary", async () => {
+    const promotionFailure = new SessionJournalLeasePromotionV1Error({
+      issue: Object.freeze({
+        kind: "retentionBudgetExceeded",
+        remainingMilliseconds: 2,
+        maximumLiveSnapshotRetentionMilliseconds: 1,
+      }),
+    });
+    const harness = createHarness({
+      completeSeal: async () => {
+        throw promotionFailure;
+      },
+    });
+    const { attempt } = await openResolvedTable(harness.journal);
+
+    const failure = await runFailure(
+      harness.journal.sealSuccessfulResult(attempt, { ok: true }),
+    );
+
+    expect(failure).toBe(promotionFailure);
+    expect(harness.completeSealCalls).toBe(1);
+  });
+
   it("waits for the in-flight syscall, then prepares, canonicalizes, and completes the seal", async () => {
     const operationDurable = deferred<void>();
     const events: string[] = [];
@@ -780,10 +804,13 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
         }
         return storedEnvelope(journal, result);
       },
-      catch: (cause) => new SessionJournalPersistenceV1Error({
-        operation: "completeSealTransaction",
-        cause,
-      }),
+      catch: (cause) =>
+        cause instanceof SessionJournalLeasePromotionV1Error
+          ? cause
+          : new SessionJournalPersistenceV1Error({
+            operation: "completeSealTransaction",
+            cause,
+          }),
     }),
   });
 

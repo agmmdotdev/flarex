@@ -62,6 +62,7 @@ import { pointCommitFinishingCommandFromStoredAttemptV1 } from
 import { runEffect, runEffectFailure as runFailure } from
   "./effectTestRuntime";
 import {
+  TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
   executionClaimForAnchor,
   pointMutationSessionActivationFixture,
@@ -503,6 +504,7 @@ describe("C05-A point-commit finishing transition", () => {
       ),
     );
     const store = createSessionJournalStorePersistenceV1(ports, {
+      grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
     });
     const attempt = await runEffect(store.openAttemptEffect({
@@ -523,37 +525,11 @@ describe("C05-A point-commit finishing transition", () => {
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
     );
-    await persistence.query(
-      `
-        with observed_time as (
-          select clock_timestamp() as value
-        )
-        update fx_system_tx_journal
-        set state = 'sealed',
-            sealed_final_syscall_sequence = $2,
-            sealed_journal_bytes = $3,
-            sealed_journal_sha256 = $4,
-            sealed_result_value_codec_version = $5,
-            sealed_result_semantic_bytes = $6,
-            sealed_result_bytes = $7,
-            sealed_result_sha256 = $8,
-            sealed_at = observed_time.value,
-            updated_at = observed_time.value
-        from observed_time
-        where session_id = $1
-          and state = 'open'
-      `,
-      [
-        activation.anchor.sessionId,
-        prepared.journal.finalSyscallSequence,
-        journal.canonicalBytes,
-        lowercaseHexToBytes(journal.sha256Hex),
-        result.evidence.valueCodecVersion,
-        result.semanticSizeBytes,
-        result.canonicalBytes,
-        lowercaseHexToBytes(result.evidence.sha256Hex),
-      ],
-    );
+    await runEffect(store.completeSealEffect(
+      prepared.preparation,
+      journal,
+      result,
+    ));
     const authority = authorityFromAnchor(
       activation.anchor,
       schemaVersionId,
@@ -693,15 +669,4 @@ function appTable(
       },
     },
   };
-}
-
-function lowercaseHexToBytes(value: string): Uint8Array {
-  if (!/^(?:[0-9a-f]{2})+$/.test(value)) {
-    throw new Error("Expected lowercase hexadecimal test evidence.");
-  }
-  const bytes = new Uint8Array(value.length / 2);
-  for (let index = 0; index < bytes.byteLength; index += 1) {
-    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
-  }
-  return bytes;
 }

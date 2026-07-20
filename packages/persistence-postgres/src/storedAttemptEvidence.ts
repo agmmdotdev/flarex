@@ -890,7 +890,7 @@ function materializeStoredAttemptEvidence(
     hardExpiresAtMilliseconds === undefined ||
     createdAtMilliseconds === undefined ||
     updatedAtMilliseconds === undefined ||
-    hardExpiresAtMilliseconds !== authorizationGrantExpiresAtMilliseconds ||
+    hardExpiresAtMilliseconds > authorizationGrantExpiresAtMilliseconds ||
     updatedAtMilliseconds < createdAtMilliseconds ||
     !isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32) ||
     !isUint8ArrayWithByteLength(session.validatedArgsSha256, 32) ||
@@ -933,6 +933,26 @@ function materializeStoredAttemptEvidence(
       reason: "lifecycle",
       lifecycle: session.lifecycle,
     });
+  }
+  const observedSealedRoot = captured.rootRows.length === 1
+    ? captured.rootRows[0]
+    : undefined;
+  const observedSealedLease = captured.leaseRows.length === 1
+    ? captured.leaseRows[0]
+    : undefined;
+  const observedSealedLeaseExpiresAtMilliseconds = observedSealedLease ===
+      undefined
+    ? undefined
+    : finiteDateMilliseconds(observedSealedLease.leaseExpiresAt);
+  if (
+    observedSealedRoot?.state === "sealed" &&
+    observedSealedLease !== undefined &&
+    observedSealedLeaseExpiresAtMilliseconds !== Math.min(
+      authorizationGrantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds,
+    )
+  ) {
+    return corrupt("snapshotLeaseInvalid");
   }
   if (
     authorizationGrantExpiresAtMilliseconds <= databaseNowMilliseconds ||
@@ -1000,6 +1020,14 @@ function materializeStoredAttemptEvidence(
       reason: "rootNotSealed",
       rootState: root.state,
     });
+  }
+  if (
+    leaseExpiresAtMilliseconds !== Math.min(
+      authorizationGrantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds,
+    )
+  ) {
+    return corrupt("snapshotLeaseInvalid");
   }
   const sealedRoot = captureSealedRoot(root);
   if (sealedRoot === undefined) {
