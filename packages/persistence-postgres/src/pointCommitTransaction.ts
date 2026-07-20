@@ -16,7 +16,6 @@ import { Data, Effect, Result, Schema } from "effect";
 
 import {
   AppCreationTimeV1Schema,
-  decodeAppCreationTimeV1,
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
@@ -202,9 +201,14 @@ export type {
 } from "./committedPointOutcome";
 
 const MAX_SIGNED_COMMIT_SEQ = MAX_PERSISTED_SIGNED_INT64_V1;
+const MAX_SIGNED_COMMIT_SEQ_TEXT_LENGTH =
+  MAX_SIGNED_COMMIT_SEQ.toString().length;
 const HASH_BYTE_LENGTH = 32;
 const decodePointCommitCreationTimeResult = Schema.decodeUnknownResult(
   Schema.toType(AppCreationTimeV1Schema),
+);
+const decodePointCommitSeqResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitSeqSchema),
 );
 const decodePointCommitTableIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogTableIdSchema),
@@ -2064,7 +2068,9 @@ async function runPointMutationAttemptReplacement(
       command,
       sharedOptions,
     );
-    requireReproduciblePointCommitConflict(command, heads);
+    projectPointCommitTransactionResult(
+      requireReproduciblePointCommitConflictResult(command, heads),
+    );
     await emitReplacementStep(options, command, "dependenciesValidated");
 
     const mutationTimeMilliseconds = await readPointCommitDatabaseTime(
@@ -2855,7 +2861,9 @@ async function runPointCommitTransactionKernel(
     command,
     options,
   );
-  validatePointCommitDependencies(command, loadedHeads);
+  projectPointCommitTransactionResult(
+    validatePointCommitDependenciesResult(command, loadedHeads),
+  );
   await emitTransactionStep(options, command, "dependenciesValidated");
 
   if (mode === "rollbackProof" && command.rowIntent === null) {
@@ -3671,104 +3679,133 @@ async function loadPointCommitHeads(
   const rows = rowsFromDriverExecuteResult(result, () => {
     throw corruption("rowHeadInvalid");
   });
-  if (rows.length !== command.dependencies.length) {
-    throw corruption("rowHeadInvalid");
-  }
-  return Object.freeze(rows.map((raw, ordinal) => decodePointCommitHead(
-    raw,
-    ordinal,
-    command.dependencies[ordinal],
-    command.authorityPins.scopeId,
+  return projectPointCommitTransactionResult(capturePointCommitHeadsResult(
+    rows,
+    command,
     clock.record.lastCommitSeq,
-  )));
+  ));
 }
 
-function decodePointCommitHead(
+function capturePointCommitHeadsResult(
+  rows: ReadonlyArray<unknown>,
+  command: PreparedPointCommitDependencyCommandV1,
+  lastCommitSeq: CommitSeq,
+): Result.Result<
+  ReadonlyArray<LoadedPointCommitHeadV1>,
+  PointCommitCorruptionV1Error
+> {
+  return Result.gen(function* () {
+    const rowCount = rows.length;
+    if (rowCount !== command.dependencies.length) {
+      return yield* Result.fail(corruption("rowHeadInvalid"));
+    }
+    const heads: LoadedPointCommitHeadV1[] = [];
+    for (let ordinal = 0; ordinal < rowCount; ordinal += 1) {
+      if (!Object.hasOwn(rows, ordinal)) {
+        return yield* Result.fail(corruption("dependencySetInvalid"));
+      }
+      heads.push(yield* decodePointCommitHeadResult(
+        rows[ordinal],
+        ordinal,
+        command.dependencies[ordinal],
+        command.authorityPins.scopeId,
+        lastCommitSeq,
+      ));
+    }
+    return Object.freeze(heads);
+  });
+}
+
+function decodePointCommitHeadResult(
   raw: unknown,
   expectedOrdinal: number,
   dependency: PointCommitDependencyV1 | undefined,
   scopeId: ReplacementScopeIdV1,
   lastCommitSeq: CommitSeq,
-): LoadedPointCommitHeadV1 {
+): Result.Result<LoadedPointCommitHeadV1, PointCommitCorruptionV1Error> {
   if (dependency === undefined || !isNonArrayRecord(raw)) {
-    throw corruption("rowHeadInvalid");
+    return Result.fail(corruption("rowHeadInvalid"));
   }
-  const ordinal = parseNonNegativeIntegerText(raw.ordinalText);
-  const pointerCommitSeq = parseNullableCommitSeqText(
-    raw.pointerCommitSeqText,
-  );
-  const latestCommitSeq = parseNullableCommitSeqText(
-    raw.latestCommitSeqText,
-  );
-  if (
-    ordinal !== expectedOrdinal ||
-    (pointerCommitSeq === null) !== (latestCommitSeq === null) ||
-    pointerCommitSeq !== latestCommitSeq
-  ) {
-    throw corruption("rowHeadInvalid");
-  }
-  const identity = freezeRowIdentity(dependency, scopeId);
-  if (latestCommitSeq === null) {
-    if (
-      raw.latestIsTombstone !== null ||
-      raw.latestCreationTimeText !== null
-    ) {
-      throw corruption("rowHeadInvalid");
-    }
-    return Object.freeze({
-      head: Object.freeze({ kind: "missing", identity }),
-      creationTime: null,
-    });
-  }
-  if (
-    latestCommitSeq > lastCommitSeq ||
-    typeof raw.latestIsTombstone !== "boolean" ||
-    typeof raw.latestCreationTimeText !== "string"
-  ) {
-    throw corruption("rowHeadInvalid");
-  }
-  let creationTime: AppCreationTimeV1;
-  try {
-    creationTime = decodeAppCreationTimeV1(
-      Number(raw.latestCreationTimeText),
+  return Result.gen(function* () {
+    const ordinal = yield* parseNonNegativeIntegerTextResult(raw.ordinalText);
+    const pointerCommitSeq = yield* parseNullableCommitSeqTextResult(
+      raw.pointerCommitSeqText,
     );
-  } catch {
-    throw corruption("rowHeadInvalid");
-  }
-  return Object.freeze({
-    head: Object.freeze({
-      kind: raw.latestIsTombstone ? "tombstone" : "live",
-      identity,
-      revisionCommitSeq: latestCommitSeq,
-    }),
-    creationTime,
+    const latestCommitSeq = yield* parseNullableCommitSeqTextResult(
+      raw.latestCommitSeqText,
+    );
+    if (
+      ordinal !== expectedOrdinal ||
+      (pointerCommitSeq === null) !== (latestCommitSeq === null) ||
+      pointerCommitSeq !== latestCommitSeq
+    ) {
+      return yield* Result.fail(corruption("rowHeadInvalid"));
+    }
+    const identity = freezeRowIdentity(dependency, scopeId);
+    if (latestCommitSeq === null) {
+      if (
+        raw.latestIsTombstone !== null ||
+        raw.latestCreationTimeText !== null
+      ) {
+        return yield* Result.fail(corruption("rowHeadInvalid"));
+      }
+      return Object.freeze({
+        head: Object.freeze({ kind: "missing", identity }),
+        creationTime: null,
+      });
+    }
+    if (
+      latestCommitSeq > lastCommitSeq ||
+      typeof raw.latestIsTombstone !== "boolean" ||
+      typeof raw.latestCreationTimeText !== "string"
+    ) {
+      return yield* Result.fail(corruption("rowHeadInvalid"));
+    }
+    const creationTime = yield* decodePointCommitCreationTimeResult(
+      Number(raw.latestCreationTimeText),
+    ).pipe(Result.mapError(() => corruption("rowHeadInvalid")));
+    return Object.freeze({
+      head: Object.freeze({
+        kind: raw.latestIsTombstone ? "tombstone" : "live",
+        identity,
+        revisionCommitSeq: latestCommitSeq,
+      }),
+      creationTime,
+    });
   });
 }
 
-function validatePointCommitDependencies(
+function validatePointCommitDependenciesResult(
   command: PreparedPointCommitDependencyCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
-): void {
-  const conflict = findPointCommitConflictAfterEvidenceValidation(
+): Result.Result<
+  void,
+  PointCommitConflictV1Error | PointCommitCorruptionV1Error
+> {
+  return findPointCommitConflictAfterEvidenceValidationResult(
     command,
     heads,
-  );
-  if (conflict !== null) throw conflict;
+  ).pipe(Result.flatMap((conflict) =>
+    conflict === null ? Result.succeed(undefined) : Result.fail(conflict)
+  ));
 }
 
-function findPointCommitConflictAfterEvidenceValidation(
+function findPointCommitConflictAfterEvidenceValidationResult(
   command: PreparedPointCommitDependencyCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
-): PointCommitConflictV1Error | null {
+): Result.Result<
+  PointCommitConflictV1Error | null,
+  PointCommitCorruptionV1Error
+> {
   if (heads.length !== command.dependencies.length) {
-    throw corruption("dependencySetInvalid");
+    return Result.fail(corruption("dependencySetInvalid"));
   }
   let firstConflict: PointCommitConflictV1Error | null = null;
   for (let index = 0; index < command.dependencies.length; index += 1) {
     const dependency = command.dependencies[index];
     const loaded = heads[index];
     if (dependency === undefined || loaded === undefined) {
-      throw corruption("dependencySetInvalid");
+      return Result.fail(corruption("dependencySetInvalid"));
     }
     const validation = validateAppRowPointOccV1({
       snapshotToken: command.authorityPins.snapshotToken,
@@ -3789,24 +3826,32 @@ function findPointCommitConflictAfterEvidenceValidation(
         });
         break;
       case "invalidEvidence":
-        throw corruption("occEvidenceInvalid");
+        return Result.fail(corruption("occEvidenceInvalid"));
     }
   }
-  return firstConflict;
+  return Result.succeed(firstConflict);
 }
 
-function requireReproduciblePointCommitConflict(
+function requireReproduciblePointCommitConflictResult(
   command: PreparedPointMutationAttemptReplacementCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
-): void {
-  const conflict = findPointCommitConflictAfterEvidenceValidation(
+): Result.Result<
+  void,
+  | PointCommitCorruptionV1Error
+  | PointMutationAttemptReplacementConflictNoLongerPresentV1Error
+> {
+  return findPointCommitConflictAfterEvidenceValidationResult(
     command,
     heads,
-  );
-  if (conflict !== null) return;
-  throw new PointMutationAttemptReplacementConflictNoLongerPresentV1Error({
-    reason: "conflictNoLongerPresent",
-  });
+  ).pipe(Result.flatMap((conflict) =>
+    conflict === null
+      ? Result.fail(
+          new PointMutationAttemptReplacementConflictNoLongerPresentV1Error({
+            reason: "conflictNoLongerPresent",
+          }),
+        )
+      : Result.succeed(undefined)
+  ));
 }
 
 async function publishPointCommitInTransaction(
@@ -4248,27 +4293,48 @@ async function sqlCall<Value>(
   }
 }
 
-function parseNonNegativeIntegerText(value: unknown): number {
+function parseNonNegativeIntegerTextResult(
+  value: unknown,
+): Result.Result<number, PointCommitCorruptionV1Error> {
   if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value)) {
-    throw corruption("rowHeadInvalid");
+    return Result.fail(corruption("rowHeadInvalid"));
   }
   const parsed = Number(value);
   if (!isNonNegativeSafeInteger(parsed)) {
-    throw corruption("rowHeadInvalid");
+    return Result.fail(corruption("rowHeadInvalid"));
   }
-  return parsed;
+  return Result.succeed(parsed);
 }
 
-function parseNullableCommitSeqText(value: unknown): CommitSeq | null {
-  if (value === null) return null;
-  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
-    throw corruption("rowHeadInvalid");
+function parseNullableCommitSeqTextResult(
+  value: unknown,
+): Result.Result<CommitSeq | null, PointCommitCorruptionV1Error> {
+  if (value === null) return Result.succeed(null);
+  if (
+    typeof value !== "string" ||
+    value.length > MAX_SIGNED_COMMIT_SEQ_TEXT_LENGTH ||
+    !/^[1-9][0-9]*$/.test(value)
+  ) {
+    return Result.fail(corruption("rowHeadInvalid"));
   }
   const parsed = BigInt(value);
   if (parsed > MAX_SIGNED_COMMIT_SEQ) {
-    throw corruption("rowHeadInvalid");
+    return Result.fail(corruption("rowHeadInvalid"));
   }
-  return CommitSeqSchema.make(parsed);
+  return decodePointCommitSeqResult(parsed).pipe(
+    Result.mapError(() => corruption("rowHeadInvalid")),
+  );
+}
+
+/**
+ * Temporary projection owned by Drizzle 0.45's Promise transaction callback.
+ * Delete it when the point-commit mutation graph owns an Effect transaction
+ * client and can yield these Result failures directly.
+ */
+function projectPointCommitTransactionResult<A, E>(
+  result: Result.Result<A, E>,
+): A {
+  return Result.getOrThrow(result);
 }
 
 function mapPointMutationAttemptReplacementSharedError(

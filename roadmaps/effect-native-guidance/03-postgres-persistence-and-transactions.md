@@ -139,6 +139,19 @@ Dependency capture snapshots the validated numeric array length, rejects holes
 and malformed discriminants, and never delegates OCC evidence selection to a
 caller-overridden iterator.
 
+The immediately downstream O06 authoritative point-head materializer and O05
+dependency validator now compose through ordered `Result` operations. Driver
+row cardinality, ordinal and commit-sequence text, current-pointer correlation,
+creation time, dependency-set shape, and invalid OCC evidence retain their
+existing corruption reasons; conflict detection still validates every
+dependency before returning the first conflict. Unexpected driver-row access or
+runtime failures remain defects. One local `Result.getOrThrow` projection stays
+at Drizzle 0.45's Promise transaction callback so a typed failure rejects and
+rolls back both publication and exact-attempt replacement. Delete that
+projection when the point-commit mutation graph owns an Effect transaction
+client and can yield the Result channel directly. SQL, lock order, rollback,
+publication, and interruption behavior are unchanged.
+
 Journal counters, receipt cardinality, stored request/outcome decoding, and
 receipt/root correlation now compose through `Result` and Effect directly.
 The duplicate Promise latest-receipt verifier and five throwing projections

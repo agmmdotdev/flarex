@@ -326,6 +326,53 @@ describe("O08-A exact-attempt replacement", () => {
     }
   });
 
+  it("keeps malformed authoritative row-head scalars as corruption without replacement", async () => {
+    const current = await prepareAttempt("invalid_row_head", true);
+    const intent = current.transactionCommand.rowIntent;
+    if (intent === null || intent.kind !== "live") {
+      throw new Error("Expected one live row intent.");
+    }
+    await persistence.exec(`
+      alter table fx_app_row_rev
+        drop constraint fx_app_row_rev_creation_time_check
+    `);
+    try {
+      await persistence.query(
+        `
+          update fx_app_row_rev
+          set creation_time = 'NaN'::double precision
+          where scope_uuid = $1
+        `,
+        [current.scopeUuid],
+      );
+      const before = await durableAttemptState(current);
+      const failure = await runEffectFailure(
+        createPointMutationAttemptReplacementPortV1(current.ports, {
+          leaseDurationMilliseconds: LEASE_DURATION_MILLISECONDS,
+        }).replace(current.command),
+      );
+      expect(failure).toBeInstanceOf(
+        PointMutationAttemptReplacementCorruptionV1Error,
+      );
+      expect(failure).toMatchObject({ reason: "rowHeadInvalid" });
+      expect(await durableAttemptState(current)).toEqual(before);
+    } finally {
+      await persistence.query(
+        `
+          update fx_app_row_rev
+          set creation_time = $2
+          where scope_uuid = $1
+        `,
+        [current.scopeUuid, intent.creationTime],
+      );
+      await persistence.exec(`
+        alter table fx_app_row_rev
+          add constraint fx_app_row_rev_creation_time_check
+          check (creation_time > 0 and creation_time < 9007199254740992)
+      `);
+    }
+  });
+
   it("checks exact committed-outcome evidence under the scope lock", async () => {
     const available = await prepareAttempt("outcome_available", true);
     await insertOutcomeFixture(available, "available");
