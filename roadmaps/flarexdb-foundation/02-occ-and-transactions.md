@@ -1195,13 +1195,30 @@ another publication or delivery authority.
   and hard-recovery horizon, so no still-live grant exceeds the new verifier
   limits or retention budget. Activation remains blocked until production
   composition owns both the value relationship and this temporal rollout rule.
-- **[ ] O08-B2b2b2b0b — sealed-attempt lease promotion.** One later
-  persistence-owned transaction may promote a sealed root's lease to the
-  authoritative `min(grant expiry, hard expiry)` before immutable C04 seal
-  identity is captured. It must independently prove
-  `0 < target - databaseNow <= B`. No lease promotion or retention behavior is
-  implemented by b0a, and this subgate remains blocked pending settlement of
-  its persistence owner.
+- **[x] O08-B2b2b2b0b0 — sealed-attempt lease-promotion decision.** The
+  accepted preflight rejects a standalone or post-seal promotion because it
+  could durably expose sealed evidence with the old lease. The existing exact-
+  running `completeSealEffect` READ COMMITTED transaction is the sole owner.
+  Its lock order remains scope clock, exact session/fence, exact lease, exact
+  journal root, and exact execution claim, followed by database-time capture.
+  It must derive `target = min(locked grant expiry, locked hard expiry)`, prove
+  `0 < target - databaseNow <= B` with safe-integer arithmetic, require an
+  exact live lease with current expiry at most `target`, CAS that lease by its
+  full current identity, and CAS the open root to sealed last in the same
+  transaction. Already-sealed evidence is exact replay only when both the seal
+  and `lease expiry == target` match. No target supplied by a caller, new lease
+  version, column, envelope authority, or process capability is accepted.
+- **[ ] O08-B2b2b2b0b — implement sealed-attempt lease promotion.** C04A
+  must freshly reload and require the sealed lease expiry to equal
+  `min(grant expiry, hard expiry)`; C04B1, C05-A, and C05-B continue to own the
+  exact comparison and reconstruction chain. Rollback, interruption, and
+  uncertain settlement mint no authority and may expose only open plus old
+  lease or sealed plus target lease. Implementation remains blocked until the
+  unrelated active owner of `transactionSessionActivation.ts` settles so the
+  exact-running kernel can carry both locked grant- and hard-expiry scalars.
+  It must not query around that owner, rely only on hard expiry, or use
+  uncommitted overlapping content as authority. No lease promotion or
+  retention behavior is implemented yet.
 - **[ ] O08-B2b2b2b1 — phase-aware execution-claim liveness.** A later
   structured executor lifecycle may jointly renew the live claim and mutable
   snapshot lease before sealing, then use claim-only liveness after the sealed

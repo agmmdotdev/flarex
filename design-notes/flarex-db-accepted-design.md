@@ -1659,11 +1659,31 @@ previously accepted future-issued grant has entered the new skew window or
 expired, and through the old grant and hard-recovery horizon, so no still-live
 grant exceeds the new verifier limits or retention budget. This policy is not
 wire or execution authority.
-O08-B2b2b2b0b still owns the one-time
-sealed-lease promotion to `min(grant expiry, hard expiry)`, with the later
-transaction also proving `0 < target - databaseNow <= B`; O08-B2b2b2b1 still
-owns the phase-aware claim-liveness coordinator. Both remain unimplemented and
-blocked on their persistence owner. O11 is a later consumer: only database-
+O08-B2b2b2b0b0 has accepted the sealed-attempt lease-promotion boundary, but
+O08-B2b2b2b0b implementation remains incomplete. The existing exact-running
+`completeSealEffect` READ COMMITTED transaction is the sole owner: after
+locking scope clock, exact session/fence, exact lease, exact journal root, and
+exact execution claim, it captures database time, derives
+`target = min(locked grant expiry, locked hard expiry)`, and proves
+`0 < target - databaseNow <= B`. An open root may commit only by CAS-updating
+the full current lease identity to `target` and then CAS-sealing the root last
+in the same transaction. An already-sealed root is exact replay only when its
+seal evidence matches and its lease expiry already equals `target`; every
+other sealed expiry and any current expiry above `target` are corruption.
+There is no post-seal promotion, caller-authored target, new lease version,
+column, envelope authority, or process capability. C04A must freshly reload
+and require the sealed lease expiry to equal `min(grant expiry, hard expiry)`;
+C04B1, C05-A, and C05-B retain their existing exact comparison and
+reconstruction roles. Rollback, interruption, or uncertain settlement mints
+no capability and may expose only open plus old lease or sealed plus target
+lease, never a mixed state.
+
+Implementation is blocked until the unrelated active owner of
+`transactionSessionActivation.ts` settles. The exact-running kernel must then
+carry both locked grant- and hard-expiry scalars; it must not issue a second
+query, rely only on hard expiry, or treat uncommitted overlapping content as
+authority. O08-B2b2b2b1 still owns the phase-aware claim-liveness coordinator
+and remains incomplete. O11 is a later consumer: only database-
 time-live snapshot leases pin history, expired rows do not, and retained-
 history safety margin remains distinct from recovery/terminalization SLA.
 C05-B recovery fails closed once the promoted lease, grant, or hard authority
