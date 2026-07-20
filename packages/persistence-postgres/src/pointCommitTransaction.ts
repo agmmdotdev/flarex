@@ -51,7 +51,6 @@ import {
   ScopeUuidV1Schema,
   projectScopeEpochUuidV1Result,
   projectScopeIdUuidV1Result,
-  replacementScopeEpochV1FromUuid,
   type CommitSeq,
   type FlarexDbV1StorageGeneration,
   type OutboxSeq,
@@ -2060,7 +2059,9 @@ async function runPointMutationAttemptReplacement(
       command.authorityPins.scopeId,
       sharedOptions,
     );
-    requireAttemptIsLive(session, lease, databaseNowMilliseconds);
+    projectPointCommitTransactionResult(
+      requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds),
+    );
 
     const heads = await loadPointCommitHeads(
       tx,
@@ -2078,7 +2079,9 @@ async function runPointMutationAttemptReplacement(
       command.authorityPins.scopeId,
       sharedOptions,
     );
-    requireAttemptIsLive(session, lease, mutationTimeMilliseconds);
+    projectPointCommitTransactionResult(
+      requireAttemptIsLiveResult(session, lease, mutationTimeMilliseconds),
+    );
     if (
       command.authorityPins.attemptFence >= MAX_TRANSACTION_ATTEMPT_FENCE
     ) {
@@ -2515,13 +2518,15 @@ async function observeReplacedPointMutationAttempt(
   if (session.updatedAtMilliseconds > databaseNowMilliseconds) {
     throw replacementCorruption("replacementConvergenceInvalid");
   }
-  requireAttemptIsLive(
-    session,
-    Object.freeze({
-      expiresAtMilliseconds:
-        finiteDateMilliseconds(expectedFacet.leaseExpiresAt) ?? 0,
-    }),
-    databaseNowMilliseconds,
+  projectPointCommitTransactionResult(
+    requireAttemptIsLiveResult(
+      session,
+      Object.freeze({
+        expiresAtMilliseconds:
+          finiteDateMilliseconds(expectedFacet.leaseExpiresAt) ?? 0,
+      }),
+      databaseNowMilliseconds,
+    ),
   );
   requireLiveTransactionExecutionClaimV1(
     command.authorityPins.scopeId,
@@ -2585,7 +2590,9 @@ async function runPointCommitFinishingTransition(
       command.authorityPins.scopeId,
       options,
     );
-    requireAttemptIsLive(session, lease, databaseNowMilliseconds);
+    projectPointCommitTransactionResult(
+      requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds),
+    );
     if (session.updatedAtMilliseconds > databaseNowMilliseconds) {
       throw corruption("finishingTransitionInvalid");
     }
@@ -2853,7 +2860,9 @@ async function runPointCommitTransactionKernel(
     command.authorityPins.scopeId,
     options,
   );
-  requireAttemptIsLive(session, lease, databaseNowMilliseconds);
+  projectPointCommitTransactionResult(
+    requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds),
+  );
 
   const loadedHeads = await loadPointCommitHeads(
     tx,
@@ -2880,7 +2889,13 @@ async function runPointCommitTransactionKernel(
     command.authorityPins.scopeId,
     options,
   );
-  requireAttemptIsLive(session, lease, preWriteDatabaseNowMilliseconds);
+  projectPointCommitTransactionResult(
+    requireAttemptIsLiveResult(
+      session,
+      lease,
+      preWriteDatabaseNowMilliseconds,
+    ),
+  );
   if (clock.record.lastCommitSeq >= MAX_SIGNED_COMMIT_SEQ) {
     throw new PointCommitResourceExhaustionV1Error({
       dimension: "commitSequence",
@@ -3306,112 +3321,120 @@ async function lockPointCommitSession(
     .for("update");
   observeDrizzleQuery("lockSession", query, options);
   const rows = await sqlCall("lockSession", () => query);
-  if (rows.length === 0) throw stale("attemptMissing");
-  if (rows.length !== 1) throw corruption("sessionDuplicate");
-  const row = rows[0];
-  if (row === undefined) throw corruption("sessionDuplicate");
-  const expectedAttemptFence = command.authorityPins.attemptFence;
-  const replacementAttemptFence = expectedAttemptFence <
-      MAX_TRANSACTION_ATTEMPT_FENCE
-    ? TransactionAttemptFenceSchema.make(expectedAttemptFence + 1n)
-    : null;
-  const observesReplacement = mode === "replaceAttempt" &&
-    replacementAttemptFence !== null &&
-    row.attemptFence === replacementAttemptFence;
-  if (row.attemptFence !== expectedAttemptFence && !observesReplacement) {
-    throw stale("attemptReplaced");
-  }
-  if (mode === "replaceAttempt") {
+  return projectPointCommitTransactionResult(Result.gen(function* () {
+    if (rows.length === 0) return yield* Result.fail(stale("attemptMissing"));
+    if (rows.length !== 1) {
+      return yield* Result.fail(corruption("sessionDuplicate"));
+    }
+    const row = rows[0];
+    if (row === undefined) {
+      return yield* Result.fail(corruption("sessionDuplicate"));
+    }
+    const expectedAttemptFence = command.authorityPins.attemptFence;
+    const replacementAttemptFence = expectedAttemptFence <
+        MAX_TRANSACTION_ATTEMPT_FENCE
+      ? TransactionAttemptFenceSchema.make(expectedAttemptFence + 1n)
+      : null;
+    const observesReplacement = mode === "replaceAttempt" &&
+      replacementAttemptFence !== null &&
+      row.attemptFence === replacementAttemptFence;
+    if (row.attemptFence !== expectedAttemptFence && !observesReplacement) {
+      return yield* Result.fail(stale("attemptReplaced"));
+    }
+    if (mode === "replaceAttempt") {
+      if (
+        (observesReplacement && row.lifecycle !== "running") ||
+        (!observesReplacement && row.lifecycle !== "finishing")
+      ) {
+        return yield* Result.fail(stale("lifecycleChanged"));
+      }
+    } else if (mode === "enterFinishing") {
+      if (row.lifecycle !== "running" && row.lifecycle !== "finishing") {
+        return yield* Result.fail(stale("lifecycleChanged"));
+      }
+    } else if (row.lifecycle !== "finishing") {
+      if (mode === "publish" && row.lifecycle === "committed") {
+        return yield* Result.fail(corruption("committedOutcomeMissing"));
+      }
+      return yield* Result.fail(stale("lifecycleChanged"));
+    }
+    const expected = command.session;
+    const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+      row.authorizationGrantExpiresAt,
+    );
+    const hardExpiresAtMilliseconds = finiteDateMilliseconds(row.hardExpiresAt);
+    const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
+    const updatedAtMilliseconds = finiteDateMilliseconds(row.updatedAt);
     if (
-      (observesReplacement && row.lifecycle !== "running") ||
-      (!observesReplacement && row.lifecycle !== "finishing")
+      row.scopeUuid !== command.sealIdentity.scopeUuid ||
+      row.sessionId !== command.authorityPins.sessionId ||
+      row.storageGeneration !== expected.storageGeneration ||
+      row.storageGenerationFence !== expected.storageGenerationFence ||
+      row.packageId !== expected.packageId ||
+      row.artifactRuntime !== expected.artifactRuntime ||
+      row.artifactId !== expected.artifactId ||
+      row.sourcePackageHash !== expected.sourcePackageHash ||
+      row.executionModule !== expected.executionModule ||
+      row.functionPath !== expected.functionPath ||
+      row.functionKind !== expected.functionKind ||
+      row.schemaVersionId !== expected.schemaVersionId ||
+      row.policyVersion !== expected.policyVersion ||
+      !bytesEqual(
+        row.identityAccessPolicySha256,
+        expected.identityAccessPolicySha256,
+      ) ||
+      row.validatedArgsValueCodecVersion !==
+        expected.validatedArgsValueCodecVersion ||
+      row.validatedArgsCanonicalByteLength !==
+        expected.validatedArgsCanonicalByteLength ||
+      !bytesEqual(row.validatedArgsSha256, expected.validatedArgsSha256) ||
+      row.authorizationGrantId !== expected.authorizationGrantId ||
+      row.authorizationGrantValueCodecVersion !==
+        expected.authorizationGrantValueCodecVersion ||
+      row.authorizationGrantCanonicalByteLength !==
+        expected.authorizationGrantCanonicalByteLength ||
+      !bytesEqual(
+        row.authorizationGrantSha256,
+        expected.authorizationGrantSha256,
+      ) ||
+      row.authorizationRevocationEpoch !==
+        expected.authorizationRevocationEpoch ||
+      row.requestKey !== expected.requestKey ||
+      !bytesEqual(row.requestSha256, expected.requestSha256) ||
+      row.protocolVersion !== expected.protocolVersion ||
+      authorizationGrantExpiresAtMilliseconds === undefined ||
+      hardExpiresAtMilliseconds === undefined ||
+      createdAtMilliseconds === undefined ||
+      updatedAtMilliseconds === undefined ||
+      authorizationGrantExpiresAtMilliseconds !==
+        expected.authorizationGrantExpiresAtMilliseconds ||
+      hardExpiresAtMilliseconds !== expected.hardExpiresAtMilliseconds ||
+      createdAtMilliseconds !== expected.createdAtMilliseconds ||
+      (
+        mode === "replaceAttempt" && observesReplacement
+          ? updatedAtMilliseconds < expected.updatedAtMilliseconds
+          : mode === "enterFinishing"
+          ? row.lifecycle === "running"
+            ? updatedAtMilliseconds !== expected.updatedAtMilliseconds
+            : updatedAtMilliseconds < expected.updatedAtMilliseconds
+          : updatedAtMilliseconds !== expected.updatedAtMilliseconds
+      )
     ) {
-      throw stale("lifecycleChanged");
+      return yield* Result.fail(corruption("sessionInvalid"));
     }
-  } else if (mode === "enterFinishing") {
     if (row.lifecycle !== "running" && row.lifecycle !== "finishing") {
-      throw stale("lifecycleChanged");
+      return yield* Result.fail(corruption("sessionInvalid"));
     }
-  } else if (row.lifecycle !== "finishing") {
-    if (mode === "publish" && row.lifecycle === "committed") {
-      throw corruption("committedOutcomeMissing");
-    }
-    throw stale("lifecycleChanged");
-  }
-  const expected = command.session;
-  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
-    row.authorizationGrantExpiresAt,
-  );
-  const hardExpiresAtMilliseconds = finiteDateMilliseconds(row.hardExpiresAt);
-  const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
-  const updatedAtMilliseconds = finiteDateMilliseconds(row.updatedAt);
-  if (
-    row.scopeUuid !== command.sealIdentity.scopeUuid ||
-    row.sessionId !== command.authorityPins.sessionId ||
-    row.storageGeneration !== expected.storageGeneration ||
-    row.storageGenerationFence !== expected.storageGenerationFence ||
-    row.packageId !== expected.packageId ||
-    row.artifactRuntime !== expected.artifactRuntime ||
-    row.artifactId !== expected.artifactId ||
-    row.sourcePackageHash !== expected.sourcePackageHash ||
-    row.executionModule !== expected.executionModule ||
-    row.functionPath !== expected.functionPath ||
-    row.functionKind !== expected.functionKind ||
-    row.schemaVersionId !== expected.schemaVersionId ||
-    row.policyVersion !== expected.policyVersion ||
-    !bytesEqual(
-      row.identityAccessPolicySha256,
-      expected.identityAccessPolicySha256,
-    ) ||
-    row.validatedArgsValueCodecVersion !==
-      expected.validatedArgsValueCodecVersion ||
-    row.validatedArgsCanonicalByteLength !==
-      expected.validatedArgsCanonicalByteLength ||
-    !bytesEqual(row.validatedArgsSha256, expected.validatedArgsSha256) ||
-    row.authorizationGrantId !== expected.authorizationGrantId ||
-    row.authorizationGrantValueCodecVersion !==
-      expected.authorizationGrantValueCodecVersion ||
-    row.authorizationGrantCanonicalByteLength !==
-      expected.authorizationGrantCanonicalByteLength ||
-    !bytesEqual(
-      row.authorizationGrantSha256,
-      expected.authorizationGrantSha256,
-    ) ||
-    row.authorizationRevocationEpoch !==
-      expected.authorizationRevocationEpoch ||
-    row.requestKey !== expected.requestKey ||
-    !bytesEqual(row.requestSha256, expected.requestSha256) ||
-    row.protocolVersion !== expected.protocolVersion ||
-    authorizationGrantExpiresAtMilliseconds === undefined ||
-    hardExpiresAtMilliseconds === undefined ||
-    createdAtMilliseconds === undefined ||
-    updatedAtMilliseconds === undefined ||
-    authorizationGrantExpiresAtMilliseconds !==
-      expected.authorizationGrantExpiresAtMilliseconds ||
-    hardExpiresAtMilliseconds !== expected.hardExpiresAtMilliseconds ||
-    createdAtMilliseconds !== expected.createdAtMilliseconds ||
-    (
-      mode === "replaceAttempt" && observesReplacement
-        ? updatedAtMilliseconds < expected.updatedAtMilliseconds
-        : mode === "enterFinishing"
-        ? row.lifecycle === "running"
-          ? updatedAtMilliseconds !== expected.updatedAtMilliseconds
-          : updatedAtMilliseconds < expected.updatedAtMilliseconds
-        : updatedAtMilliseconds !== expected.updatedAtMilliseconds
-    )
-  ) {
-    throw corruption("sessionInvalid");
-  }
-  if (row.lifecycle !== "running" && row.lifecycle !== "finishing") {
-    throw corruption("sessionInvalid");
-  }
-  return Object.freeze({
-    lifecycle: row.lifecycle,
-    attemptFence: TransactionAttemptFenceSchema.make(row.attemptFence),
-    authorizationGrantExpiresAtMilliseconds,
-    hardExpiresAtMilliseconds,
-    updatedAtMilliseconds,
-  });
+    return Object.freeze({
+      lifecycle: row.lifecycle,
+      attemptFence: observesReplacement
+        ? replacementAttemptFence
+        : expectedAttemptFence,
+      authorizationGrantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds,
+      updatedAtMilliseconds,
+    });
+  }));
 }
 
 async function lockPointCommitLease(
@@ -3433,37 +3456,43 @@ async function lockPointCommitLease(
     .for("update");
   observeDrizzleQuery("lockLease", query, options);
   const rows = await sqlCall("lockLease", () => query);
-  if (rows.length === 0) throw stale("leaseMissing");
-  if (rows.length !== 1) throw corruption("leaseDuplicate");
-  const row = rows[0];
-  if (row === undefined) throw corruption("leaseDuplicate");
-  if (row.attemptFence !== command.authorityPins.attemptFence) {
-    throw stale("leaseReplaced");
-  }
-  let snapshotEpoch: ScopeEpoch;
-  try {
-    snapshotEpoch = replacementScopeEpochV1FromUuid(row.snapshotEpochUuid);
-  } catch {
-    throw corruption("leaseInvalid");
-  }
-  const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
-    row.leaseExpiresAt,
-  );
-  if (
-    row.scopeUuid !== command.sealIdentity.scopeUuid ||
-    row.sessionId !== command.authorityPins.sessionId ||
-    snapshotEpoch !== command.authorityPins.snapshotToken.epoch ||
-    row.snapshotCommitSeq !== command.authorityPins.snapshotToken.commitSeq ||
-    leaseExpiresAtMilliseconds === undefined ||
-    leaseExpiresAtMilliseconds !==
-      command.sealIdentity.leaseExpiresAtMilliseconds ||
-    leaseExpiresAtMilliseconds > command.session.hardExpiresAtMilliseconds
-  ) {
-    throw corruption("leaseInvalid");
-  }
-  return Object.freeze({
-    expiresAtMilliseconds: leaseExpiresAtMilliseconds,
-  });
+  return projectPointCommitTransactionResult(Result.gen(function* () {
+    if (rows.length === 0) return yield* Result.fail(stale("leaseMissing"));
+    if (rows.length !== 1) {
+      return yield* Result.fail(corruption("leaseDuplicate"));
+    }
+    const row = rows[0];
+    if (row === undefined) {
+      return yield* Result.fail(corruption("leaseDuplicate"));
+    }
+    if (row.attemptFence !== command.authorityPins.attemptFence) {
+      return yield* Result.fail(stale("leaseReplaced"));
+    }
+    const expectedEpochUuid = yield* projectScopeEpochUuidV1Result(
+      command.authorityPins.snapshotToken.epoch,
+    ).pipe(Result.mapError(() => corruption("leaseInvalid")));
+    const snapshotEpochUuid = yield* decodePointCommitScopeEpochUuidResult(
+      row.snapshotEpochUuid,
+    ).pipe(Result.mapError(() => corruption("leaseInvalid")));
+    const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
+      row.leaseExpiresAt,
+    );
+    if (
+      row.scopeUuid !== command.sealIdentity.scopeUuid ||
+      row.sessionId !== command.authorityPins.sessionId ||
+      snapshotEpochUuid !== expectedEpochUuid.epochUuid ||
+      row.snapshotCommitSeq !== command.authorityPins.snapshotToken.commitSeq ||
+      leaseExpiresAtMilliseconds === undefined ||
+      leaseExpiresAtMilliseconds !==
+        command.sealIdentity.leaseExpiresAtMilliseconds ||
+      leaseExpiresAtMilliseconds > command.session.hardExpiresAtMilliseconds
+    ) {
+      return yield* Result.fail(corruption("leaseInvalid"));
+    }
+    return Object.freeze({
+      expiresAtMilliseconds: leaseExpiresAtMilliseconds,
+    });
+  }));
 }
 
 async function lockPointCommitJournalRoot(
@@ -3529,57 +3558,63 @@ async function lockPointCommitJournalRoot(
     .for("update");
   observeDrizzleQuery("lockJournalRoot", query, options);
   const rows = await sqlCall("lockJournalRoot", () => query);
-  if (rows.length !== 1) {
-    throw corruption("journalRootMissingOrDuplicate");
-  }
-  const row = rows[0];
-  if (row === undefined) {
-    throw corruption("journalRootMissingOrDuplicate");
-  }
-  const expected = command.sealIdentity;
-  const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
-  const updatedAtMilliseconds = finiteDateMilliseconds(row.updatedAt);
-  const sealedAtMilliseconds = finiteDateMilliseconds(row.sealedAt);
-  if (
-    row.scopeUuid !== expected.scopeUuid ||
-    row.sessionId !== command.authorityPins.sessionId ||
-    row.attemptFence !== command.authorityPins.attemptFence ||
-    row.state !== "sealed" ||
-    row.failureDimension !== null ||
-    row.sealedFinalSyscallSequence === null ||
-    row.sealedJournalByteLength === null ||
-    row.sealedJournalSha256 === null ||
-    row.sealedResultValueCodecVersion === null ||
-    row.sealedResultSemanticBytes === null ||
-    row.sealedResultByteLength === null ||
-    row.sealedResultSha256 === null ||
-    row.sealedAt === null ||
-    row.lastSyscallSequence !== expected.finalSyscallSequence ||
-    row.sealedFinalSyscallSequence !== expected.finalSyscallSequence ||
-    row.creationTimeSeed !== expected.creationTimeSeed ||
-    row.nextCreationTime !== expected.nextCreationTime ||
-    row.readDocuments !== expected.readDocuments ||
-    row.readSemanticBytes !== expected.readSemanticBytes ||
-    row.pointDependencyCount !== expected.pointDependencyCount ||
-    row.writeOperations !== expected.writeOperations ||
-    row.writeSemanticBytes !== expected.writeSemanticBytes ||
-    row.materialWriteEventEvidenceBytes !==
-      expected.materialWriteEventEvidenceBytes ||
-    row.sealedJournalByteLength !== expected.journalByteLength ||
-    !bytesEqual(row.sealedJournalSha256, expected.journalSha256) ||
-    row.sealedResultValueCodecVersion !== expected.resultValueCodecVersion ||
-    row.sealedResultSemanticBytes !== expected.resultSemanticBytes ||
-    row.sealedResultByteLength !== expected.resultByteLength ||
-    !bytesEqual(row.sealedResultSha256, expected.resultSha256) ||
-    createdAtMilliseconds === undefined ||
-    updatedAtMilliseconds === undefined ||
-    sealedAtMilliseconds === undefined ||
-    createdAtMilliseconds !== expected.rootCreatedAtMilliseconds ||
-    updatedAtMilliseconds !== expected.rootUpdatedAtMilliseconds ||
-    sealedAtMilliseconds !== expected.sealedAtMilliseconds
-  ) {
-    throw corruption("journalRootInvalid");
-  }
+  projectPointCommitTransactionResult(Result.gen(function* () {
+    if (rows.length !== 1) {
+      return yield* Result.fail(
+        corruption("journalRootMissingOrDuplicate"),
+      );
+    }
+    const row = rows[0];
+    if (row === undefined) {
+      return yield* Result.fail(
+        corruption("journalRootMissingOrDuplicate"),
+      );
+    }
+    const expected = command.sealIdentity;
+    const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
+    const updatedAtMilliseconds = finiteDateMilliseconds(row.updatedAt);
+    const sealedAtMilliseconds = finiteDateMilliseconds(row.sealedAt);
+    if (
+      row.scopeUuid !== expected.scopeUuid ||
+      row.sessionId !== command.authorityPins.sessionId ||
+      row.attemptFence !== command.authorityPins.attemptFence ||
+      row.state !== "sealed" ||
+      row.failureDimension !== null ||
+      row.sealedFinalSyscallSequence === null ||
+      row.sealedJournalByteLength === null ||
+      row.sealedJournalSha256 === null ||
+      row.sealedResultValueCodecVersion === null ||
+      row.sealedResultSemanticBytes === null ||
+      row.sealedResultByteLength === null ||
+      row.sealedResultSha256 === null ||
+      row.sealedAt === null ||
+      row.lastSyscallSequence !== expected.finalSyscallSequence ||
+      row.sealedFinalSyscallSequence !== expected.finalSyscallSequence ||
+      row.creationTimeSeed !== expected.creationTimeSeed ||
+      row.nextCreationTime !== expected.nextCreationTime ||
+      row.readDocuments !== expected.readDocuments ||
+      row.readSemanticBytes !== expected.readSemanticBytes ||
+      row.pointDependencyCount !== expected.pointDependencyCount ||
+      row.writeOperations !== expected.writeOperations ||
+      row.writeSemanticBytes !== expected.writeSemanticBytes ||
+      row.materialWriteEventEvidenceBytes !==
+        expected.materialWriteEventEvidenceBytes ||
+      row.sealedJournalByteLength !== expected.journalByteLength ||
+      !bytesEqual(row.sealedJournalSha256, expected.journalSha256) ||
+      row.sealedResultValueCodecVersion !== expected.resultValueCodecVersion ||
+      row.sealedResultSemanticBytes !== expected.resultSemanticBytes ||
+      row.sealedResultByteLength !== expected.resultByteLength ||
+      !bytesEqual(row.sealedResultSha256, expected.resultSha256) ||
+      createdAtMilliseconds === undefined ||
+      updatedAtMilliseconds === undefined ||
+      sealedAtMilliseconds === undefined ||
+      createdAtMilliseconds !== expected.rootCreatedAtMilliseconds ||
+      updatedAtMilliseconds !== expected.rootUpdatedAtMilliseconds ||
+      sealedAtMilliseconds !== expected.sealedAtMilliseconds
+    ) {
+      return yield* Result.fail(corruption("journalRootInvalid"));
+    }
+  }));
 }
 
 async function readPointCommitDatabaseTime(
@@ -3598,30 +3633,38 @@ async function readPointCommitDatabaseTime(
     .limit(1);
   observeDrizzleQuery("readDatabaseTime", query, options);
   const rows = await sqlCall("readDatabaseTime", () => query);
-  const text = rows[0]?.milliseconds;
+  return projectPointCommitTransactionResult(
+    decodePointCommitDatabaseTimeResult(rows[0]?.milliseconds),
+  );
+}
+
+function decodePointCommitDatabaseTimeResult(
+  text: unknown,
+): Result.Result<number, PointCommitCorruptionV1Error> {
   if (typeof text !== "string" || !/^[1-9][0-9]*$/.test(text)) {
-    throw corruption("scopeClockInvalid");
+    return Result.fail(corruption("scopeClockInvalid"));
   }
   const value = Number(text);
   if (!isPositiveSafeInteger(value)) {
-    throw corruption("scopeClockInvalid");
+    return Result.fail(corruption("scopeClockInvalid"));
   }
-  return value;
+  return Result.succeed(value);
 }
 
-function requireAttemptIsLive(
+function requireAttemptIsLiveResult(
   session: LockedPointCommitSessionV1,
   lease: LockedPointCommitLeaseV1,
   databaseNowMilliseconds: number,
-): void {
+): Result.Result<void, PointCommitStaleAuthorityV1Error> {
   if (
     session.authorizationGrantExpiresAtMilliseconds <=
       databaseNowMilliseconds ||
     session.hardExpiresAtMilliseconds <= databaseNowMilliseconds ||
     lease.expiresAtMilliseconds <= databaseNowMilliseconds
   ) {
-    throw stale("expired");
+    return Result.fail(stale("expired"));
   }
+  return Result.succeed(undefined);
 }
 
 async function loadPointCommitHeads(

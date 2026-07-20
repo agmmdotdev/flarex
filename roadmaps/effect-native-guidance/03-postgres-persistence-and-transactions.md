@@ -518,6 +518,14 @@ The helper's raw `try/catch` is deleted: invalid time remains its existing
 typed Result issue, while caller access or unexpected runtime failures remain
 defects. Lease bounds, pristine-root construction, and all transaction owners
 remain unchanged.
+The point-commit transaction's locked session, snapshot-lease, sealed-root,
+database-time, and live-attempt decisions now compose through typed `Result`.
+Their Promise-native Drizzle locks and database-authoritative clock read remain
+unchanged and project the owned decisions only at the transaction callback.
+The lease no longer enters a throwing UUID compatibility decoder: it compares
+the stored decoded epoch UUID with the canonical UUID projected from the
+prepared snapshot token. Cardinality, stale-fence and lifecycle, scalar
+corruption, and expiry failure order and public error reasons remain unchanged.
 
 ## Target Boundary
 
