@@ -18,6 +18,7 @@
     "./commit-protocol": "./src/commit-protocol.ts",
     "./deployment": "./src/deployment.ts",
     "./execution": "./src/execution.ts",
+    "./grant-retention-policy": "./src/grant-retention-policy.ts",
     "./invoke": "./src/invoke.ts",
     "./index-definition": "./src/index-definition.ts",
     "./index-build-state": "./src/index-build-state.ts",

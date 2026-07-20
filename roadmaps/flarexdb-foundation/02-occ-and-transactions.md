@@ -30,9 +30,10 @@ O08-CD0's transaction-decision provenance, O08-C's bounded known-settled SQL
 transaction retry, and O08-D's bounded uncertain-outcome recovery are complete;
 O08-B2b2a's private exact-selector safe-state redispatch composition, O08-
 B2b2b1's bounded inert scope-local discovery, and O08-B2b2b2a's durable dirty/
-failed-attempt disposition are complete. O08-B2b2b2b execution-claim liveness/
-renewal and production scheduling/redelivery plus C06-B endpoint/response policy
-remain pending. C04C2
+failed-attempt disposition are complete. O08-B2b2b2b0a grant/retention policy
+coherence is complete. O08-B2b2b2b0b sealed-lease promotion, O08-B2b2b2b1
+execution-claim liveness, production scheduling/redelivery, and C06-B endpoint/
+response policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -1173,6 +1174,47 @@ snapshot-lease renewal. Lifecycle, persisted claim fields, and discovery hints
 alone never mint execution authority, and the later host must preserve outcome-
 first, stale-fence, interruption, and uncertain-outcome rules without creating
 another publication or delivery authority.
+
+`O08-B2b2b2b` is split at the remaining authority boundaries:
+
+- **[x] O08-B2b2b2b0a — grant/retention policy coherence.** The explicit
+  `flarex-protocol/grant-retention-policy` subpath owns one frozen validated
+  value-only `GrantRetentionPolicyV1`. It relates maximum grant lifetime `G`,
+  maximum accepted future-issued-at skew `S`, and maximum live-snapshot
+  retention `B` through supported safe-integer arithmetic and `G + S <= B`.
+  The backend issuer projects `G`; the executor verifier projects `G` and `S`.
+  The policy is trusted deployment configuration, not wire evidence, caller
+  input, object-identity authority, or an execution/lease capability. Separate
+  processes may hold separately allocated but value-equal policies. Steady-
+  state composition must supply those same values. During controlled rollout,
+  `G_issuer <= G_verifier` and `G_verifier + S_verifier <= B` are necessary
+  safety inequalities, not a live-grant drain protocol. Before reducing
+  verifier `G`, verifier `S`, or retention `B`, deployment must stop issuing
+  under the old policy and wait until every previously accepted future-issued
+  grant has entered the new skew window or expired, and through the old grant
+  and hard-recovery horizon, so no still-live grant exceeds the new verifier
+  limits or retention budget. Activation remains blocked until production
+  composition owns both the value relationship and this temporal rollout rule.
+- **[ ] O08-B2b2b2b0b — sealed-attempt lease promotion.** One later
+  persistence-owned transaction may promote a sealed root's lease to the
+  authoritative `min(grant expiry, hard expiry)` before immutable C04 seal
+  identity is captured. It must independently prove
+  `0 < target - databaseNow <= B`. No lease promotion or retention behavior is
+  implemented by b0a, and this subgate remains blocked pending settlement of
+  its persistence owner.
+- **[ ] O08-B2b2b2b1 — phase-aware execution-claim liveness.** A later
+  structured executor lifecycle may jointly renew the live claim and mutable
+  snapshot lease before sealing, then use claim-only liveness after the sealed
+  lease promotion. Heartbeat shutdown, takeover, finishing, uncertainty, and
+  full `Cause` ownership require their own gate and remain blocked on b0b and
+  persistence-owner settlement.
+
+`O11` consumes this policy later; it is not a prerequisite to define it. Only a
+snapshot lease that is live under database time pins engine history. An expired
+but not-yet-deleted row does not pin the retained floor. The retained-history
+safety margin and the operational recovery/terminalization SLA remain separate
+policies. C05-B reconstruction is supported only while the promoted lease plus
+grant and hard authority remain live; dispatcher latency never extends them.
 
 ##### [ ] C06-B — Add Stable Endpoint And Response Policy
 

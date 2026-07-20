@@ -1,10 +1,13 @@
 /// <reference types="node" />
 
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { Miniflare } from "miniflare";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  makeGrantRetentionPolicyV1Result,
+} from "flarex-protocol/grant-retention-policy";
 import {
   ReplacementScopeIdV1Schema,
   type ReplacementScopeIdV1,
@@ -68,41 +71,45 @@ describe("transaction-grant authority in workerd", () => {
         TransactionRequestKeyV1Schema.make("request_a2c_workerd"),
       ),
     }));
-    const issuer = await runTestEffect(
-      makePointMutationTransactionGrantIssuerV1({
-        maximumGrantLifetimeMilliseconds: 60_000,
-        runtime: {
-          currentTimeMillis: Effect.succeed(ISSUED_AT.getTime()),
-          loadCurrentAuthConfig: () => Effect.succeed(null),
-          nextGrantId: Effect.succeed(
-            TransactionAuthorizationGrantIdV1Schema.make(
-              "grant_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
-            ),
+    const issuer = makePointMutationTransactionGrantIssuerV1({
+      grantRetentionPolicy: Result.getOrThrow(
+        makeGrantRetentionPolicyV1Result({
+          maximumGrantLifetimeMilliseconds: 60_000,
+          maximumFutureIssuedAtSkewMilliseconds: 0,
+          maximumLiveSnapshotRetentionMilliseconds: 60_000,
+        }),
+      ),
+      runtime: {
+        currentTimeMillis: Effect.succeed(ISSUED_AT.getTime()),
+        loadCurrentAuthConfig: () => Effect.succeed(null),
+        nextGrantId: Effect.succeed(
+          TransactionAuthorizationGrantIdV1Schema.make(
+            "grant_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
           ),
-          loadSigningKeyring: () => Effect.succeed({
-            deploymentId: DEPLOYMENT_ID,
-            keys: [{
-              state: "activeSigner",
-              kid: KEY_ID,
-              purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
-              issuedAtInclusiveEpochMilliseconds:
-                ISSUED_AT.getTime() - 60_000,
-              sign: signingInput => Effect.tryPromise({
-                try: async () => new Uint8Array(await crypto.subtle.sign(
-                  { name: "Ed25519" },
-                  privateKey,
-                  copyBytesToArrayBuffer(signingInput),
-                )),
-                catch: () =>
-                  new TransactionGrantIssuerSourceV1Error({
-                    source: "signing",
-                  }),
-              }),
-            }],
-          }),
-        },
-      }),
-    );
+        ),
+        loadSigningKeyring: () => Effect.succeed({
+          deploymentId: DEPLOYMENT_ID,
+          keys: [{
+            state: "activeSigner",
+            kid: KEY_ID,
+            purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
+            issuedAtInclusiveEpochMilliseconds:
+              ISSUED_AT.getTime() - 60_000,
+            sign: signingInput => Effect.tryPromise({
+              try: async () => new Uint8Array(await crypto.subtle.sign(
+                { name: "Ed25519" },
+                privateKey,
+                copyBytesToArrayBuffer(signingInput),
+              )),
+              catch: () =>
+                new TransactionGrantIssuerSourceV1Error({
+                  source: "signing",
+                }),
+            }),
+          }],
+        }),
+      },
+    });
     const authentication: ResolvedBearerAuthentication = {
       kind: "anonymous",
       executionIdentity: { kind: "anonymous" },
@@ -140,8 +147,6 @@ describe("transaction-grant authority in workerd", () => {
               keyIssuedAtInclusiveEpochMilliseconds:
                 ISSUED_AT.getTime() - 60_000,
               now: NOW.toISOString(),
-              maximumGrantLifetimeMilliseconds: 60_000,
-              maximumFutureIssuedAtSkewMilliseconds: 0,
               // Deliberately conflicting request data: executor authority is
               // frozen in Worker setup and must not be caller-selectable.
               targetMetadata: { format: "caller-authored" },

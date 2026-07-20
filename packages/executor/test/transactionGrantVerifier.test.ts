@@ -2,6 +2,9 @@
 
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
+  makeGrantRetentionPolicyV1Result,
+} from "flarex-protocol/grant-retention-policy";
+import {
   resolveCurrentScopeAuthorizationEpochEffect,
 } from "@flarex/persistence-postgres";
 import {
@@ -24,7 +27,6 @@ import {
   type ReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
 import {
-  MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1,
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
@@ -48,7 +50,7 @@ import {
   type TransactionAuthorizationRevocationEpoch,
   type TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -345,32 +347,6 @@ describe("transaction-grant verifier", () => {
       });
     }
 
-    const configurationKey = await activeVerificationKey();
-    for (const badLifetime of [
-      0,
-      -1,
-      1.5,
-      MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1 + 1,
-      Number.NaN,
-      Number.POSITIVE_INFINITY,
-    ]) {
-      expect(() => createVerifier({
-        namespace: createNamespace([configurationKey]),
-        maximumGrantLifetimeMilliseconds: badLifetime,
-      })).toThrow(TransactionGrantAuthorityConfigurationV1Error);
-    }
-    for (const badSkew of [
-      -1,
-      1.5,
-      MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1 + 1,
-      Number.NaN,
-      Number.POSITIVE_INFINITY,
-    ]) {
-      expect(() => createVerifier({
-        namespace: createNamespace([configurationKey]),
-        maximumFutureIssuedAtSkewMilliseconds: badSkew,
-      })).toThrow(TransactionGrantAuthorityConfigurationV1Error);
-    }
   });
 
   it("compares independently prepared logical pins including inert epoch binding", async () => {
@@ -430,6 +406,73 @@ describe("transaction-grant verifier", () => {
         issue: { reason: "pinMismatch", field: mismatch.field },
       });
     }
+  });
+
+  it("keeps live-snapshot retention separate from grant and skew authority", async () => {
+    const validAtGrantLimit = await signedFixture({
+      payloadOverrides: {
+        expiresAt: "2026-07-14T10:00:10.000Z",
+      },
+    });
+    const overGrantLimit = await signedFixture({
+      payloadOverrides: {
+        expiresAt: "2026-07-14T10:00:10.001Z",
+      },
+    });
+    const withinFutureSkew = await signedFixture({
+      payloadOverrides: {
+        issuedAt: "2026-07-14T10:00:05.000Z",
+        expiresAt: "2026-07-14T10:00:10.000Z",
+      },
+    });
+    const beyondFutureSkew = await signedFixture({
+      payloadOverrides: {
+        issuedAt: "2026-07-14T10:00:05.001Z",
+        expiresAt: "2026-07-14T10:00:10.000Z",
+      },
+    });
+
+    for (const maximumLiveSnapshotRetentionMilliseconds of [
+      15_000,
+      100_000,
+    ]) {
+      const verifier = await verifierFixture({
+        now: new Date(ISSUED_AT_MILLISECONDS),
+        maximumGrantLifetimeMilliseconds: 10_000,
+        futureSkewMilliseconds: 5_000,
+        maximumLiveSnapshotRetentionMilliseconds,
+      });
+
+      await expect(verifier.verify({
+        jws: validAtGrantLimit.jws,
+        expectedStart: validAtGrantLimit.preparedStart,
+      })).resolves.toBeDefined();
+      await expect(verifier.verify({
+        jws: overGrantLimit.jws,
+        expectedStart: overGrantLimit.preparedStart,
+      })).rejects.toMatchObject({
+        issue: { reason: "lifetimeExceeded" },
+      });
+      await expect(verifier.verify({
+        jws: withinFutureSkew.jws,
+        expectedStart: withinFutureSkew.preparedStart,
+      })).resolves.toBeDefined();
+      await expect(verifier.verify({
+        jws: beyondFutureSkew.jws,
+        expectedStart: beyondFutureSkew.preparedStart,
+      })).rejects.toMatchObject({ issue: { reason: "issuedInFuture" } });
+    }
+
+    const reducedSkewVerifier = await verifierFixture({
+      now: new Date(ISSUED_AT_MILLISECONDS),
+      maximumGrantLifetimeMilliseconds: 10_000,
+      futureSkewMilliseconds: 0,
+      maximumLiveSnapshotRetentionMilliseconds: 100_000,
+    });
+    await expect(reducedSkewVerifier.verify({
+      jws: withinFutureSkew.jws,
+      expectedStart: withinFutureSkew.preparedStart,
+    })).rejects.toMatchObject({ issue: { reason: "issuedInFuture" } });
   });
 
   it("enforces prepublication, retirement cutover, retention, and disablement", async () => {
@@ -1292,6 +1335,8 @@ async function verifierFixture(
   options: {
     readonly now?: Date;
     readonly futureSkewMilliseconds?: number;
+    readonly maximumGrantLifetimeMilliseconds?: number;
+    readonly maximumLiveSnapshotRetentionMilliseconds?: number;
     readonly keys?: ReadonlyArray<TransactionGrantVerificationKeyV1>;
   } = {},
 ): Promise<TransactionGrantVerifierV1> {
@@ -1305,6 +1350,18 @@ async function verifierFixture(
       : {
           maximumFutureIssuedAtSkewMilliseconds:
             options.futureSkewMilliseconds,
+        }),
+    ...(options.maximumGrantLifetimeMilliseconds === undefined
+      ? {}
+      : {
+          maximumGrantLifetimeMilliseconds:
+            options.maximumGrantLifetimeMilliseconds,
+        }),
+    ...(options.maximumLiveSnapshotRetentionMilliseconds === undefined
+      ? {}
+      : {
+          maximumLiveSnapshotRetentionMilliseconds:
+            options.maximumLiveSnapshotRetentionMilliseconds,
         }),
   });
 }
@@ -1324,14 +1381,25 @@ function createVerifier(input: {
   readonly now?: Date;
   readonly maximumGrantLifetimeMilliseconds?: number;
   readonly maximumFutureIssuedAtSkewMilliseconds?: number;
+  readonly maximumLiveSnapshotRetentionMilliseconds?: number;
 }): TransactionGrantVerifierV1 {
+  const maximumGrantLifetimeMilliseconds =
+    input.maximumGrantLifetimeMilliseconds ?? 120_000;
+  const maximumFutureIssuedAtSkewMilliseconds =
+    input.maximumFutureIssuedAtSkewMilliseconds ?? 0;
   return createTransactionGrantVerifierV1({
     clock: { now: () => input.now ?? NOW },
     verificationKeyNamespace: input.namespace,
-    maximumGrantLifetimeMilliseconds:
-      input.maximumGrantLifetimeMilliseconds ?? 120_000,
-    maximumFutureIssuedAtSkewMilliseconds:
-      input.maximumFutureIssuedAtSkewMilliseconds ?? 0,
+    grantRetentionPolicy: Result.getOrThrow(
+      makeGrantRetentionPolicyV1Result({
+        maximumGrantLifetimeMilliseconds,
+        maximumFutureIssuedAtSkewMilliseconds,
+        maximumLiveSnapshotRetentionMilliseconds:
+          input.maximumLiveSnapshotRetentionMilliseconds ??
+          maximumGrantLifetimeMilliseconds +
+            maximumFutureIssuedAtSkewMilliseconds,
+      }),
+    ),
   });
 }
 

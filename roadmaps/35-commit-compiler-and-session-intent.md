@@ -20,8 +20,10 @@ O08-B2b1/C06-A durable claim admission, O08-B2b2a private exact-selector safe-
 state redispatch, O08-B2b2b1 bounded inert discovery, O08-CD0 transaction-
 decision provenance, O08-C known-settled SQL retry, and O08-D bounded uncertainty
 recovery are complete. O08-B2b2b2a durable dirty/failed-attempt disposition is
-also complete. O08-B2b2b2b execution-claim liveness/renewal and production
-scheduling/redelivery and dispatch plus C06-B endpoint/response policy remain pending; C04C2 remains conditional
+also complete. O08-B2b2b2b0a value-based grant/retention policy coherence is
+complete. O08-B2b2b2b0b sealed-lease promotion, O08-B2b2b2b1 phase-aware
+execution-claim liveness, production scheduling/redelivery and dispatch, and
+C06-B endpoint/response policy remain pending; C04C2 remains conditional
 and unapproved.
 
 This roadmap owns the durable direction for:
@@ -234,8 +236,9 @@ replacement, O08-B1 owns the bounded fresh-attempt handoff, O08-B2a owns
 same-process execution, O08-C owns known-settled SQL retry, O08-D owns bounded
 uncertainty recovery, O08-B2b2a owns private exact-selector safe-state
 redispatch, O08-B2b2b1 owns bounded inert discovery, O08-B2b2b2a owns durable
-dirty/failed-attempt disposition, O08-B2b2b2b retains execution-claim liveness/
-renewal and scheduling/redelivery and production dispatch, and O11 first consumes active
+dirty/failed-attempt disposition, O08-B2b2b2b0a owns grant/retention policy
+coherence, B2b2b2b0b/B2b2b2b1 retain sealed-lease promotion and execution-claim
+liveness plus scheduling/redelivery and production dispatch, and O11 first consumes active
 floors.
 
 Temporary journal placement does not change this anchor. Reloading it
@@ -351,8 +354,9 @@ and terminalization. O08-B2b2a now composes exact-selector replay/expiry, live-
 owner busy, one pristine execution, sealed finish-only, and existing finishing
 recovery over that singular claim. O08-B2b2b1 now supplies bounded inert
 discovery. O08-B2b2b2a separately closes expired dirty/failed attempts through
-claim-fenced terminalization; O08-B2b2b2b execution-claim liveness/renewal and
-production scheduling/redelivery and dispatch plus C06-B endpoint/response policy remain pending. A stale journal or
+claim-fenced terminalization; O08-B2b2b2b0a closes only policy coherence.
+B2b2b2b0b sealed-lease promotion, B2b2b2b1 execution-claim liveness, production
+scheduling/redelivery and dispatch, and C06-B endpoint/response policy remain pending. A stale journal or
 Durable Object cannot reopen a terminal session.
 
 ### Planner and executor split
@@ -601,10 +605,11 @@ The replacement keeps one supporting primitive and three coordinators separate:
    path; its dedicated consumer reloads the exact attempt and invokes existing
    claim-fenced terminalization. The closed lifecycle evidence grants no
    committed outcome, execution, or retry authority.
-9. **O08-B2b2b2b and C06-B dispatch policy:** execution-claim liveness/renewal,
-   scheduling/redelivery, endpoint response, routing, and runtime adapters
-   remain deferred. They must compose the singular Postgres claim and may not
-   infer authority from lifecycle or discovery evidence.
+9. **O08-B2b2b2b policy and C06-B dispatch:** b0a's value-based grant/retention
+   coherence is complete. b0b sealed-lease promotion, b1 phase-aware execution-
+   claim liveness, scheduling/redelivery, endpoint response, routing, and
+   runtime adapters remain deferred. They must compose the singular Postgres
+   claim and may not infer authority from lifecycle or discovery evidence.
 10. **O08-CD0 transaction-decision provenance (complete):** a phase-aware
    connected Postgres runner distinguishes proven callback rollback, cleanup
    failure, and callback-completed commit/release uncertainty. Only the point-
@@ -910,8 +915,10 @@ operational point-journal consumer, and C04A's private stored-attempt
   O08-B2b2a private safe-state redispatch, O08-B2b2b1 bounded inert discovery,
   O08-CD0 decision provenance, O08-C known-settled SQL retry, and O08-D bounded
   uncertainty recovery and O08-B2b2b2a durable dirty/failed-attempt disposition
-  are complete. O08-B2b2b2b execution-claim liveness/renewal and production
-  scheduling/redelivery and dispatch plus C06-B endpoint/response policy remain pending, and
+  and O08-B2b2b2b0a grant/retention policy coherence are complete.
+  O08-B2b2b2b0b sealed-lease promotion, O08-B2b2b2b1 execution-claim liveness,
+  production scheduling/redelivery and dispatch, and C06-B endpoint/response
+  policy remain pending, and
   C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
@@ -919,7 +926,7 @@ retention consumer proves that a bounded attempt must outlive its initial lease.
 Operational revocation and hosted Worker/key adapters are deferred and do not
 block the private C07 proof.
 Hosted compiler execution still waits for coherent production validator and
-activation authority, O08-B2b2b2b/C06-B/C07, the target-only caller and routing
+activation authority, O08-B2b2b2b0b/B2b2b2b1/C06-B/C07, the target-only caller and routing
 cutover, and the remaining hosted adapters. Shipped-state migration prerequisites are
 conditional.
 

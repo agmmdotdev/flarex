@@ -1,12 +1,14 @@
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
+import {
+  makeGrantRetentionPolicyV1Result,
+} from "flarex-protocol/grant-retention-policy";
 import type {
   AuthConfig,
   CustomJwtAuthProvider,
 } from "flarex-protocol/auth";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import {
-  MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1,
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
@@ -24,7 +26,6 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   TransactionGrantIssuanceV1Error,
-  TransactionGrantIssuerConfigurationV1Error,
   TransactionGrantIssuerSourceV1Error,
   makePointMutationTransactionGrantIssuerV1,
   type ActiveTransactionGrantSigningKeyV1,
@@ -140,6 +141,34 @@ describe("point-mutation transaction-grant issuer", () => {
     expect(evidence.payload.auth).not.toHaveProperty("role");
   });
 
+  it("uses grant lifetime rather than the live-snapshot retention budget", async () => {
+    const preparedStart = await preparedStartFixture();
+    const issuedPayloads = [];
+    for (const maximumLiveSnapshotRetentionMilliseconds of [
+      15_000,
+      100_000,
+    ]) {
+      const { issuer } = await issuerFixture({
+        authentication: anonymousAuthentication(),
+        currentAuthConfig: null,
+        maximumGrantLifetimeMilliseconds: 10_000,
+        maximumFutureIssuedAtSkewMilliseconds: 5_000,
+        maximumLiveSnapshotRetentionMilliseconds,
+      });
+      const evidence = await runTestEffect(issuer.issue({
+        authentication: anonymousAuthentication(),
+        preparedStart,
+      }));
+
+      expect(evidence.payload.expiresAt).toBe(
+        "2026-07-14T10:00:10.000Z",
+      );
+      issuedPayloads.push(evidence.payload);
+    }
+
+    expect(issuedPayloads[1]).toEqual(issuedPayloads[0]);
+  });
+
   it("rejects provider removal, changed configuration, and exact credential expiry", async () => {
     const verified = await verifiedAuthenticationFixture();
     const changedProvider: CustomJwtAuthProvider = {
@@ -236,26 +265,10 @@ describe("point-mutation transaction-grant issuer", () => {
     );
   });
 
-  it("requires explicit valid lifetime configuration and exposes no caller authority fields", async () => {
-    for (const maximumGrantLifetimeMilliseconds of [
-      0,
-      -1,
-      1.5,
-      MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1 + 1,
-      Number.NaN,
-      Number.POSITIVE_INFINITY,
-    ]) {
-      await expect(runTestEffect(
-        makePointMutationTransactionGrantIssuerV1({
-          maximumGrantLifetimeMilliseconds,
-          runtime: await issuerRuntime({
-            currentAuthConfig: null,
-            keys: [await activeSigningKey()],
-          }),
-        }),
-      )).rejects.toBeInstanceOf(TransactionGrantIssuerConfigurationV1Error);
-    }
-
+  it("projects only the validated policy lifetime and exposes no caller authority fields", () => {
+    expectTypeOf<ReturnType<
+      typeof makePointMutationTransactionGrantIssuerV1
+    >>().toEqualTypeOf<PointMutationTransactionGrantIssuerV1>();
     expectTypeOf<IssuerPreparedPointMutationStartV1>()
       .not.toHaveProperty("policyVersion");
     expectTypeOf<IssuerPreparedPointMutationStartV1>()
@@ -275,6 +288,8 @@ async function issuerFixture(input: {
   readonly authentication: ResolvedBearerAuthentication;
   readonly currentAuthConfig: unknown | null;
   readonly maximumGrantLifetimeMilliseconds?: number;
+  readonly maximumFutureIssuedAtSkewMilliseconds?: number;
+  readonly maximumLiveSnapshotRetentionMilliseconds?: number;
   readonly keys?: ReadonlyArray<TransactionGrantSigningKeyV1>;
 }): Promise<{
   readonly issuer: PointMutationTransactionGrantIssuerV1;
@@ -288,13 +303,21 @@ async function issuerFixture(input: {
     currentAuthConfig: input.currentAuthConfig,
     keys: input.keys ?? [baseKey],
   });
-  const issuer = await runTestEffect(
-    makePointMutationTransactionGrantIssuerV1({
-      maximumGrantLifetimeMilliseconds:
-        input.maximumGrantLifetimeMilliseconds ?? 120_000,
-      runtime,
-    }),
-  );
+  const maximumGrantLifetimeMilliseconds =
+    input.maximumGrantLifetimeMilliseconds ?? 120_000;
+  const issuer = makePointMutationTransactionGrantIssuerV1({
+    grantRetentionPolicy: Result.getOrThrow(
+      makeGrantRetentionPolicyV1Result({
+        maximumGrantLifetimeMilliseconds,
+        maximumFutureIssuedAtSkewMilliseconds:
+          input.maximumFutureIssuedAtSkewMilliseconds ?? 0,
+        maximumLiveSnapshotRetentionMilliseconds:
+          input.maximumLiveSnapshotRetentionMilliseconds ??
+          maximumGrantLifetimeMilliseconds,
+      }),
+    ),
+    runtime,
+  });
   return {
     issuer,
     getSigningCalls: () => signingCalls,

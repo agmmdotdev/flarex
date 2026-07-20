@@ -1,4 +1,7 @@
 import { Data, Effect } from "effect";
+import type {
+  GrantRetentionPolicyV1,
+} from "flarex-protocol/grant-retention-policy";
 import {
   AuthProtocolValidationError,
   decodeAuthConfigEffect,
@@ -21,7 +24,6 @@ import {
   createTransactionGrantSigningInputV1,
   deriveInertTransactionGrantEvidenceV1Effect,
   encodeTransactionGrantEd25519SignatureV1,
-  isPositiveTransactionGrantDurationMillisecondsV1,
   isTransactionGrantEpochMillisecondsV1,
   type InertTransactionGrantEvidenceV1,
   type TransactionGrantDeploymentIdV1,
@@ -103,15 +105,6 @@ export class TransactionGrantIssuerSourceV1Error extends Data.TaggedError(
   readonly source: TransactionGrantIssuerSourceV1;
 }> {}
 
-export type TransactionGrantIssuerConfigurationV1Issue =
-  | "invalidMaximumGrantLifetime";
-
-export class TransactionGrantIssuerConfigurationV1Error extends Data.TaggedError(
-  "TransactionGrantIssuerConfigurationV1Error",
-)<{
-  readonly issue: TransactionGrantIssuerConfigurationV1Issue;
-}> {}
-
 export type TransactionGrantIssuanceV1Issue =
   | "unsupportedAuthentication"
   | "invalidClockReading"
@@ -180,28 +173,15 @@ export interface PointMutationTransactionGrantIssuerV1 {
 }
 
 export interface MakePointMutationTransactionGrantIssuerV1Input {
-  readonly maximumGrantLifetimeMilliseconds: number;
+  readonly grantRetentionPolicy: GrantRetentionPolicyV1;
   readonly runtime: TransactionGrantIssuerRuntimeV1;
 }
 
 export function makePointMutationTransactionGrantIssuerV1(
   input: MakePointMutationTransactionGrantIssuerV1Input,
-): Effect.Effect<
-  PointMutationTransactionGrantIssuerV1,
-  TransactionGrantIssuerConfigurationV1Error
-> {
-  if (!isPositiveTransactionGrantDurationMillisecondsV1(
-    input.maximumGrantLifetimeMilliseconds,
-  )) {
-    return Effect.fail(
-      new TransactionGrantIssuerConfigurationV1Error({
-        issue: "invalidMaximumGrantLifetime",
-      }),
-    );
-  }
-
+): PointMutationTransactionGrantIssuerV1 {
   const maximumGrantLifetimeMilliseconds =
-    input.maximumGrantLifetimeMilliseconds;
+    input.grantRetentionPolicy.maximumGrantLifetimeMilliseconds;
   const runtime = input.runtime;
 
   const issue = Effect.fn("TransactionGrantIssuer.issue")(function* (
@@ -338,7 +318,7 @@ export function makePointMutationTransactionGrantIssuerV1(
       });
     });
 
-  return Effect.succeed(Object.freeze({ issue }));
+  return Object.freeze({ issue });
 }
 
 interface ResolvedGrantAuthenticationV1 {

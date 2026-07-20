@@ -13,6 +13,9 @@ import {
   isNonArrayRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
+import {
+  makeGrantRetentionPolicyV1Result,
+} from "flarex-protocol/grant-retention-policy";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
@@ -24,7 +27,7 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 
 const TEST_PUBLIC_KEY_SPKI_BASE64 =
   "MCowBQYDK2VwAyEAno+3aYSLpdF45q6y9wrLdVOEWJLjvbGTDmfTVRqLEZ8=";
@@ -82,6 +85,13 @@ const TEST_CURRENT_SCOPE_AUTHORITY = Object.freeze({
   scopeId: TEST_SCOPE_ID,
   authorizationRevocationEpoch: TEST_AUTHORIZATION_REVOCATION_EPOCH,
 });
+const TEST_GRANT_RETENTION_POLICY = Result.getOrThrow(
+  makeGrantRetentionPolicyV1Result({
+    maximumGrantLifetimeMilliseconds: 60_000,
+    maximumFutureIssuedAtSkewMilliseconds: 0,
+    maximumLiveSnapshotRetentionMilliseconds: 60_000,
+  }),
+);
 
 export default {
   async fetch(request: Request): Promise<Response> {
@@ -125,12 +135,7 @@ export default {
     const verifier = createTransactionGrantVerifierV1({
       clock: { now: () => new Date(requiredString(body.now)) },
       verificationKeyNamespace: keyNamespace,
-      maximumGrantLifetimeMilliseconds: requiredNumber(
-        body.maximumGrantLifetimeMilliseconds,
-      ),
-      maximumFutureIssuedAtSkewMilliseconds: requiredNumber(
-        body.maximumFutureIssuedAtSkewMilliseconds,
-      ),
+      grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY,
     });
     const verified = await verifier.verify({
       jws: body.jws,

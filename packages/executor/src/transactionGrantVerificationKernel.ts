@@ -1,5 +1,8 @@
 import { copyBytes } from "@flarex/utils/bytes";
 import { Data, Effect } from "effect";
+import type {
+  GrantRetentionPolicyV1,
+} from "flarex-protocol/grant-retention-policy";
 
 import type {
   PointMutationGrantLogicalPinsV1,
@@ -96,8 +99,7 @@ export type TransactionGrantVerificationKernelKeyV1 =
 export interface TransactionGrantVerificationKernelV1Config {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly keysById: ReadonlyMap<string, TransactionGrantVerificationKernelKeyV1>;
-  readonly maximumGrantLifetimeMilliseconds: number;
-  readonly maximumFutureIssuedAtSkewMilliseconds: number;
+  readonly grantRetentionPolicy: GrantRetentionPolicyV1;
 }
 
 export interface VerifyTransactionGrantKernelV1Input {
@@ -173,7 +175,8 @@ export function createTransactionGrantVerificationKernelV1(
       const expiresAtEpochMilliseconds = Date.parse(evidence.payload.expiresAt);
       if (
         issuedAtEpochMilliseconds >
-          nowEpochMilliseconds + config.maximumFutureIssuedAtSkewMilliseconds
+          nowEpochMilliseconds +
+            config.grantRetentionPolicy.maximumFutureIssuedAtSkewMilliseconds
       ) {
         return yield* Effect.fail(verificationFailure("issuedInFuture"));
       }
@@ -182,7 +185,7 @@ export function createTransactionGrantVerificationKernelV1(
       }
       if (
         expiresAtEpochMilliseconds - issuedAtEpochMilliseconds >
-          config.maximumGrantLifetimeMilliseconds
+          config.grantRetentionPolicy.maximumGrantLifetimeMilliseconds
       ) {
         return yield* Effect.fail(verificationFailure("lifetimeExceeded"));
       }

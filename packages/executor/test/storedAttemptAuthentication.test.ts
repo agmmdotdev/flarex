@@ -56,6 +56,9 @@ import {
   type SessionJournalV1,
 } from "flarex-protocol/commit-protocol";
 import {
+  makeGrantRetentionPolicyV1Result,
+} from "flarex-protocol/grant-retention-policy";
+import {
   isJsonObjectFromUnknown,
   type JsonObject,
 } from "flarex-protocol/json";
@@ -3989,8 +3992,13 @@ async function commitAuthorityFixture(
           verify: async () => true,
         }],
       }),
-    maximumGrantLifetimeMilliseconds: 120_000,
-    maximumFutureIssuedAtSkewMilliseconds: 0,
+    grantRetentionPolicy: Result.getOrThrow(
+      makeGrantRetentionPolicyV1Result({
+        maximumGrantLifetimeMilliseconds: 120_000,
+        maximumFutureIssuedAtSkewMilliseconds: 0,
+        maximumLiveSnapshotRetentionMilliseconds: 120_000,
+      }),
+    ),
   });
   const sessionEvidence = fixture.evidence.session;
   const commitEvidence: StoredCommitAuthorityEvidencePortV1 = {

@@ -1,9 +1,10 @@
 import { Effect, Result } from "effect";
+import type {
+  GrantRetentionPolicyV1,
+} from "flarex-protocol/grant-retention-policy";
 
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
-  isNonNegativeTransactionGrantDurationMillisecondsV1,
-  isPositiveTransactionGrantDurationMillisecondsV1,
   isTransactionGrantEpochMillisecondsV1,
   type TransactionGrantDeploymentIdV1,
   type TransactionGrantKeyIdV1,
@@ -140,8 +141,6 @@ const verificationKeyNamespaceByHandle = new WeakMap<
 >();
 
 export type TransactionGrantAuthorityConfigurationV1Issue =
-  | "invalidMaximumGrantLifetime"
-  | "invalidMaximumFutureIssuedAtSkew"
   | "invalidKeyNamespace"
   | "duplicateKeyId"
   | "wrongKeyPurpose"
@@ -460,8 +459,7 @@ export interface TransactionGrantVerifierV1Config {
   readonly clock: TransactionGrantVerificationClockV1;
   readonly verificationKeyNamespace:
     TransactionGrantVerificationKeyNamespaceV1;
-  readonly maximumGrantLifetimeMilliseconds: number;
-  readonly maximumFutureIssuedAtSkewMilliseconds: number;
+  readonly grantRetentionPolicy: GrantRetentionPolicyV1;
 }
 
 export interface VerifyTransactionGrantV1Input {
@@ -514,20 +512,6 @@ export function createTransactionGrantVerificationKeyNamespaceV1(
 export function createTransactionGrantVerifierV1(
   config: TransactionGrantVerifierV1Config,
 ): TransactionGrantVerifierV1 {
-  if (!isPositiveTransactionGrantDurationMillisecondsV1(
-    config.maximumGrantLifetimeMilliseconds,
-  )) {
-    throw new TransactionGrantAuthorityConfigurationV1Error(
-      "invalidMaximumGrantLifetime",
-    );
-  }
-  if (!isNonNegativeTransactionGrantDurationMillisecondsV1(
-    config.maximumFutureIssuedAtSkewMilliseconds,
-  )) {
-    throw new TransactionGrantAuthorityConfigurationV1Error(
-      "invalidMaximumFutureIssuedAtSkew",
-    );
-  }
   const keyNamespace = verificationKeyNamespaceByHandle.get(
     config.verificationKeyNamespace,
   );
@@ -541,10 +525,7 @@ export function createTransactionGrantVerifierV1(
   const kernel = createTransactionGrantVerificationKernelV1({
     deploymentId: keyNamespace.deploymentId,
     keysById: keyNamespace.keysById,
-    maximumGrantLifetimeMilliseconds:
-      config.maximumGrantLifetimeMilliseconds,
-    maximumFutureIssuedAtSkewMilliseconds:
-      config.maximumFutureIssuedAtSkewMilliseconds,
+    grantRetentionPolicy: config.grantRetentionPolicy,
   });
   const verifier: TransactionGrantVerifierV1 = Object.freeze({
     verify: async (
