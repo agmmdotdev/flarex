@@ -32,9 +32,7 @@ import {
 } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
-  MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
-  MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSuccessfulResultV1Effect,
   type CommitFinalSyscallSequenceV1,
@@ -112,7 +110,6 @@ import {
   type AppRowPointHeadObservationV1,
 } from "./appRowPointOcc";
 import {
-  committedPointOutcomeRequestMismatchesV1,
   CommittedPointOutcomeCorruptionErrorV1,
   CommittedPointOutcomeInputErrorV1,
   CommittedPointOutcomeRequestKeyReuseErrorV1,
@@ -126,6 +123,7 @@ import {
   type ResolveCommittedPointOutcomeErrorV1,
   type ResolveCommittedPointOutcomeInputV1,
   validateCommittedPointOutcomeRequestEvidenceShapeV1,
+  validateCommittedPointOutcomeStoredScalarsAfterRequestShapeV1,
 } from "./committedPointOutcome";
 import { COMMIT_WAKE_OUTBOX_EVENT_KIND_V1 } from "./commitWakeOutbox";
 import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
@@ -3084,133 +3082,33 @@ async function inspectCommittedOutcomeInTransaction(
     .limit(2);
   observeDrizzleQuery("recheckOutcome", query, options);
   const rows = await sqlCall("recheckOutcome", () => query);
-  if (rows.length > 1) {
-    throw committedOutcomeCorruption(lookup, "duplicateOutcome");
-  }
-  const row = rows[0];
-  if (row === undefined) return null;
-  const requestEvidence: CommittedPointOutcomeRequestEvidenceV1 = row;
-  const shape = validateCommittedPointOutcomeRequestEvidenceShapeV1(
-    lookup,
-    requestEvidence,
-  );
-  if (Result.isFailure(shape)) throw shape.failure;
-
-  const decodedEpochUuid = decodePointCommitScopeEpochUuidResult(row.epochUuid);
-  if (Result.isFailure(decodedEpochUuid)) {
-    throw committedOutcomeCorruption(lookup, "commitTokenInvalid");
-  }
-  const epochUuid: LockedPointCommitClockV1["epochUuid"] =
-    decodedEpochUuid.success;
-  if (
-    typeof row.commitSeq !== "bigint" ||
-    row.commitSeq < 1n ||
-    row.commitSeq > MAX_SIGNED_COMMIT_SEQ
-  ) {
-    throw committedOutcomeCorruption(lookup, "commitTokenInvalid");
-  }
-  const commitSeq = CommitSeqSchema.make(row.commitSeq);
-  if (commitSeq > clock.record.lastCommitSeq) {
-    throw committedOutcomeCorruption(
+  return projectPointCommitTransactionResult(Result.gen(function* () {
+    if (rows.length > 1) {
+      return yield* Result.fail(
+        committedOutcomeCorruption(lookup, "duplicateOutcome"),
+      );
+    }
+    const row = rows[0];
+    if (row === undefined) return null;
+    const requestEvidence: CommittedPointOutcomeRequestEvidenceV1 = row;
+    yield* validateCommittedPointOutcomeRequestEvidenceShapeV1(
       lookup,
-      "commitTokenAheadOfClock",
-      commitSeq,
+      requestEvidence,
     );
-  }
-  const headerAbsent = row.retainedHeaderScopeUuid === null &&
-    row.retainedHeaderEpochUuid === null &&
-    row.retainedHeaderCommitSeq === null;
-  if (headerAbsent) {
-    if (
-      clock.oldestAvailableCommitSeq === 0n ||
-      commitSeq >= clock.oldestAvailableCommitSeq
-    ) {
-      throw committedOutcomeCorruption(
+    const scalars =
+      yield* validateCommittedPointOutcomeStoredScalarsAfterRequestShapeV1(
         lookup,
-        "missingRetainedHeader",
-        commitSeq,
+        row,
+        Object.freeze({
+          lastCommitSeq: clock.record.lastCommitSeq,
+          oldestAvailableCommitSeq: clock.oldestAvailableCommitSeq,
+        }),
       );
-    }
-  } else {
-    const decodedRetainedEpoch = decodePointCommitScopeEpochUuidResult(
-      row.retainedHeaderEpochUuid,
-    );
-    if (Result.isFailure(decodedRetainedEpoch)) {
-      throw committedOutcomeCorruption(
-        lookup,
-        "retainedHeaderInvalid",
-        commitSeq,
-      );
-    }
-    const retainedEpoch: LockedPointCommitClockV1["epochUuid"] =
-      decodedRetainedEpoch.success;
-    if (
-      row.retainedHeaderScopeUuid !== lookup.scopeUuid ||
-      row.retainedHeaderCommitSeq !== commitSeq
-    ) {
-      throw committedOutcomeCorruption(
-        lookup,
-        "retainedHeaderInvalid",
-        commitSeq,
-      );
-    }
-    if (retainedEpoch !== epochUuid) {
-      throw committedOutcomeCorruption(
-        lookup,
-        "retainedHeaderEpochMismatch",
-        commitSeq,
-      );
-    }
-  }
-
-  const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
-  const resultExpiredAtMilliseconds = finiteDateMilliseconds(
-    row.resultExpiredAt,
-  );
-  if (createdAtMilliseconds === undefined) {
-    throw committedOutcomeCorruption(lookup, "outcomeRowInvalid", commitSeq);
-  }
-  if (row.resultState !== "available" && row.resultState !== "expired") {
-    throw committedOutcomeCorruption(lookup, "resultStateInvalid", commitSeq);
-  }
-  const availableScalarsValid =
-    row.resultValueCodecVersion === FLAREX_VALUE_CODEC_VERSION_V1 &&
-    isNonNegativeSafeInteger(row.resultSemanticBytes) &&
-    row.resultSemanticBytes <= MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 &&
-    isPositiveSafeInteger(row.resultByteLength) &&
-    row.resultByteLength <= MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 &&
-    row.resultSha256ByteLength === HASH_BYTE_LENGTH &&
-    row.resultExpiredAt === null;
-  const expiredScalarsValid =
-    row.resultValueCodecVersion === null &&
-    row.resultSemanticBytes === null &&
-    row.resultByteLength === null &&
-    row.resultSha256ByteLength === null &&
-    resultExpiredAtMilliseconds !== undefined &&
-    resultExpiredAtMilliseconds >= createdAtMilliseconds;
-  if (
-    (row.resultState === "available" && !availableScalarsValid) ||
-    (row.resultState === "expired" && !expiredScalarsValid)
-  ) {
-    throw committedOutcomeCorruption(
-      lookup,
-      row.resultState === "available"
-        ? "availableResultEvidenceInvalid"
-        : "expiredResultEvidenceInvalid",
-      commitSeq,
-    );
-  }
-
-  const mismatches = committedPointOutcomeRequestMismatchesV1(
-    requestEvidence,
-  );
-  if (mismatches.length > 0) {
-    throw new CommittedPointOutcomeRequestKeyReuseErrorV1({
-      scopeUuid: lookup.scopeUuid,
-      mismatches,
+    return Object.freeze({
+      state: scalars.state,
+      commitSeq: scalars.token.commitSeq,
     });
-  }
-  return Object.freeze({ state: row.resultState, commitSeq });
+  }));
 }
 
 function requireLockedClockAuthority(
