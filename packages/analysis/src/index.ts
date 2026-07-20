@@ -198,7 +198,7 @@ type SourcePositionResolver = (
 
 type SourceMapJson = {
   readonly sources?: readonly string[];
-  readonly sourcesContent?: readonly string[];
+  readonly sourcesContent?: ReadonlyArray<string | null>;
 };
 
 export const analyzeLoadedSourcePackageEffect = Effect.fn(
@@ -428,7 +428,7 @@ export const sourcePositionResolverFromSourceMapsEffect = Effect.fn(
     if (sourceIndex === undefined) continue;
     const sourcePath = sourceMap.sources?.[sourceIndex];
     const source = sourceMap.sourcesContent?.[sourceIndex];
-    if (sourcePath === undefined || source === undefined) continue;
+    if (sourcePath === undefined || typeof source !== "string") continue;
     for (const [exportName, position] of exportedFunctionPositions(sourcePath, source)) {
       positions.set(`${moduleName}:${exportName}`, position);
     }

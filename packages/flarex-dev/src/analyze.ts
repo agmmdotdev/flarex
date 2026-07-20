@@ -124,7 +124,7 @@ export async function analyzeFunctionModules(modules: FunctionModule[]): Promise
     build: {
       write: false,
       target: "es2022",
-      rollupOptions: {
+      rolldownOptions: {
         input: entryId,
         external: ["cloudflare:workers"],
         preserveEntrySignatures: "strict",
@@ -141,6 +141,7 @@ export async function analyzeFunctionModules(modules: FunctionModule[]): Promise
   }
 
   const bundled = await import(
+    /* @vite-ignore */
     `data:text/javascript;base64,${Buffer.from(chunk.code, "utf8").toString("base64")}`
   );
   return [...await Effect.runPromise(analyzeExecutionModulesEffect(
@@ -153,6 +154,7 @@ export async function analyzeSourcePackageLocally(
 ): Promise<DeploymentAnalysis> {
   const execution = sourceModule(package_, package_.execution);
   const executionModule = await import(
+    /* @vite-ignore */
     `data:text/javascript;base64,${Buffer.from(execution.source, "utf8").toString("base64")}`
   );
   const schemaDefinition = await loadSchemaDefinition(package_);
@@ -168,6 +170,7 @@ async function loadSchemaDefinition(package_: SourcePackage): Promise<unknown> {
   if (package_.schema === undefined) return undefined;
   const schemaModule = sourceModule(package_, package_.schema);
   const bundled = await import(
+    /* @vite-ignore */
     `data:text/javascript;base64,${Buffer.from(schemaModule.source, "utf8").toString("base64")}`
   );
   return bundled.default as unknown;

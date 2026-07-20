@@ -546,7 +546,7 @@ async function bundleWorker(entry: string): Promise<string> {
       write: false,
       target: "es2022",
       lib: { entry, formats: ["es"], fileName: "worker" },
-      rollupOptions: { external: ["cloudflare:workers"] },
+      rolldownOptions: { external: ["cloudflare:workers"] },
     },
   });
   const chunks = (Array.isArray(output) ? output : [output]).flatMap(result =>

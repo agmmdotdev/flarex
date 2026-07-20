@@ -20,6 +20,7 @@
     "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
+    "typescript": "catalog:",
     "vitest": "catalog:"
   }
 }

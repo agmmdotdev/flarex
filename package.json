@@ -9,12 +9,13 @@
     "typecheck": "pnpm typecheck:scripts && pnpm -r typecheck",
     "typecheck:scripts": "tsc --allowJs --checkJs --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck --types node --strict scripts/check-effect-boundaries.mjs scripts/check-effect-boundaries.test.js",
     "test": "pnpm test:scripts && pnpm -r test",
-    "test:scripts": "vitest run scripts/check-effect-boundaries.test.js",
+    "test:scripts": "vitest run scripts/check-effect-boundaries.test.js --exclude .codex-worktrees/**",
     "test:integration": "vitest run --config integration/vitest.config.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@cloudflare/workers-types": "catalog:",
+    "@typescript/typescript6": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

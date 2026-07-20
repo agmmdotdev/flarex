@@ -127,14 +127,14 @@ async function bundleWithVite(
       write: false,
       target: "es2022",
       sourcemap: "hidden",
-      rollupOptions: {
+      rolldownOptions: {
         input: entry,
         external: ["cloudflare:workers"],
         preserveEntrySignatures: "strict",
         output: {
           format: "es",
           entryFileNames: outputPath,
-          inlineDynamicImports: true,
+          codeSplitting: false,
         },
       },
     },
@@ -149,8 +149,9 @@ async function bundleWithVite(
   const map = outputs.find(
     value => value.type === "asset" && value.fileName === `${chunk.fileName}.map`,
   );
-  const sourceMap =
-    map?.type === "asset" ? normalizeSourceMap(String(map.source), appDir) : undefined;
+  const sourceMap = map?.type === "asset"
+    ? normalizeSourceMap(String(map.source), appDir, outputPath)
+    : undefined;
   return {
     path: outputPath,
     source: chunk.code,
@@ -167,16 +168,40 @@ function resolveFlarex(id: string): string | undefined {
   return undefined;
 }
 
-function normalizeSourceMap(raw: string, appDir: string): string {
+function normalizeSourceMap(raw: string, appDir: string, outputPath: string): string {
   // Deliberate JSON bridge: source maps are normalized before being re-emitted.
   const map = JSON.parse(raw) as {
     sources?: string[];
+    sourcesContent?: Array<string | null>;
     sourceRoot?: string;
     [key: string]: unknown;
   };
   delete map.sourceRoot;
-  map.sources = (map.sources ?? []).map(source => normalizeSourcePath(source, appDir));
+  const sources = map.sources ?? [];
+  if (map.sourcesContent !== undefined) {
+    map.sourcesContent = sources.map((source, index) =>
+      isSourceWithinApp(source, appDir, outputPath)
+        ? map.sourcesContent?.[index] ?? null
+        : null
+    );
+  }
+  map.sources = sources.map(source => normalizeSourcePath(source, appDir));
   return JSON.stringify(map);
+}
+
+function isSourceWithinApp(source: string, appDir: string, outputPath: string): boolean {
+  if (source.startsWith("\0") || source.startsWith("virtual:")) return false;
+  const outputDirectory = path.resolve(appDir, "dist", path.dirname(outputPath));
+  const sourcePath = path.resolve(outputDirectory, source);
+  const relativeSourcePath = path.relative(path.resolve(appDir), sourcePath);
+  return (
+    relativeSourcePath === "" ||
+    (
+      relativeSourcePath !== ".." &&
+      !relativeSourcePath.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relativeSourcePath)
+    )
+  );
 }
 
 function normalizeSourcePath(source: string, appDir: string): string {
@@ -216,6 +241,7 @@ async function findAuthConfig(appDir: string): Promise<string | undefined> {
 
 async function loadAuthConfig(module: SourceModule): Promise<AuthConfig> {
   const loaded = await import(
+    /* @vite-ignore */
     `data:text/javascript;base64,${Buffer.from(module.source, "utf8").toString("base64")}`
   ) as { default?: unknown };
   return await decodeAuthConfigPromise(loaded.default);

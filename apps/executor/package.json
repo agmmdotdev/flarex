@@ -33,6 +33,7 @@
     "@types/pg": "^8.20.0",
     "miniflare": "catalog:",
     "tsx": "catalog:",
+    "typescript": "catalog:",
     "vitest": "catalog:",
     "wrangler": "catalog:"
   }

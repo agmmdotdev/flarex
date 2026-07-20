@@ -4,19 +4,24 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { CompilerOptions } from "typescript";
 import { errorMessageFromUnknown } from "./errorMessage.ts";
 import type { FlarexGenerateOptions } from "./generate.ts";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
+type GeneratedOutputCompilerOptions = {
+  types?: string[];
+  typeRoots?: string[];
+  paths?: Record<string, string[]>;
+};
+
 export type FlarexGeneratedOutputTypecheckOptions = FlarexGenerateOptions & {
   tsconfigPath?: string;
   typescriptCliPath?: string;
   cwd?: string;
   maxBufferBytes?: number;
-  compilerOptions?: Pick<CompilerOptions, "types" | "typeRoots" | "paths">;
+  compilerOptions?: GeneratedOutputCompilerOptions;
 };
 
 type ForbiddenGenerateOptionKeys = {
@@ -152,7 +157,8 @@ function generatedOutputTsconfig(
 }
 
 function resolveTypeScriptCliPath(): string {
-  return fileURLToPath(import.meta.resolve("typescript/bin/tsc"));
+  const packageJsonPath = fileURLToPath(import.meta.resolve("typescript/package.json"));
+  return path.join(path.dirname(packageJsonPath), "bin", "tsc");
 }
 
 function childProcessOutput(error: unknown, key: "stdout" | "stderr"): string | undefined {
@@ -186,7 +192,7 @@ function resolveCompilerPath(pathBase: string, filePath: string): string {
 
 function resolveCompilerPathMap(
   pathBase: string,
-  paths: NonNullable<CompilerOptions["paths"]>,
+  paths: NonNullable<GeneratedOutputCompilerOptions["paths"]>,
 ): Record<string, string[]> {
   return Object.fromEntries(
     Object.entries(paths).map(([key, values]) => [key, resolveCompilerPaths(pathBase, values)]),

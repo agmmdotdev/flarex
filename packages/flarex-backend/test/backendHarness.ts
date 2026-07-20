@@ -84,7 +84,7 @@ async function bundleWorker(): Promise<string> {
       write: false,
       target: "es2022",
       lib: { entry: join(backendDir, "src/worker.ts"), formats: ["es"], fileName: "worker" },
-      rollupOptions: { external: ["cloudflare:workers"] },
+      rolldownOptions: { external: ["cloudflare:workers"] },
     },
   });
   const chunks = (Array.isArray(output) ? output : [output]).flatMap(result =>

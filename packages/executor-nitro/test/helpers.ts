@@ -177,15 +177,35 @@ export function healthyPersistence(): FlarexExecutorPersistence {
       return [];
     },
     async stageInvokeSessionDocumentWrite(input) {
-      return {
+      const recordBase = {
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
         tableId: input.tableId,
         documentId: input.documentId,
-        op: input.op,
-        valueJson: input.valueJson ?? null,
         stagedAt: new Date("2026-06-19T00:00:00.000Z"),
       };
+      switch (input.op) {
+        case "insert":
+        case "replace":
+          return { ...recordBase, op: input.op, valueJson: input.valueJson ?? null };
+        case "patch": {
+          const valueJson = input.valueJson;
+          if (
+            valueJson === null ||
+            valueJson === undefined ||
+            typeof valueJson !== "object" ||
+            Array.isArray(valueJson)
+          ) {
+            throw new Error("Patch writes require an object value.");
+          }
+          return { ...recordBase, op: "patch", valueJson };
+        }
+        case "delete":
+          if (input.valueJson !== null && input.valueJson !== undefined) {
+            throw new Error("Delete writes cannot include a value.");
+          }
+          return { ...recordBase, op: "delete", valueJson: null };
+      }
     },
     async listInvokeSessionDocumentWrites() {
       return [];

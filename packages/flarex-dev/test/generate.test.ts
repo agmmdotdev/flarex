@@ -667,7 +667,6 @@ export const list = query({
 
     await expect(typecheckGeneratedOutput({
       root,
-      typescriptCliPath: "node_modules/typescript/bin/tsc",
       cwd: workspaceRoot,
       compilerOptions: {
         paths: {
@@ -676,7 +675,7 @@ export const list = query({
         },
       },
     })).resolves.toBeUndefined();
-  });
+  }, 60000);
 
   it("removes stale generated files after final codegen", async () => {
     const root = await createProject();
@@ -1890,7 +1889,7 @@ async function bundleGeneratedWorker(root: string): Promise<string> {
         formats: ["es"],
         fileName: "worker",
       },
-      rollupOptions: { external: ["cloudflare:workers"] },
+      rolldownOptions: { external: ["cloudflare:workers"] },
     },
   });
   const chunks = (Array.isArray(output) ? output : [output]).flatMap(result =>

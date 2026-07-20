@@ -12,6 +12,7 @@
     "flarex-backend": "workspace:*"
   },
   "devDependencies": {
+    "typescript": "catalog:",
     "wrangler": "catalog:"
   }
 }

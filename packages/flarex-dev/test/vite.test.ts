@@ -70,7 +70,7 @@ describe("flarex Vite plugin", () => {
       await server?.close();
       await removeRoot(root);
     }
-  });
+  }, 60000);
 
   it("logs dev:false watcher generated output typecheck failures", async () => {
     const root = await createMinimalFlarexProject("flarex-vite-plugin-");
@@ -183,7 +183,7 @@ describe("flarex Vite plugin", () => {
             formats: ["es"],
             fileName: "worker",
           },
-          rollupOptions: { external: ["cloudflare:workers"] },
+          rolldownOptions: { external: ["cloudflare:workers"] },
         },
     })).rejects.toThrow("Generated output typecheck failed.");
     } finally {

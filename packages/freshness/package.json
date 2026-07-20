@@ -17,6 +17,7 @@
     "@flarex/persistence-postgres": "workspace:*"
   },
   "devDependencies": {
+    "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   }

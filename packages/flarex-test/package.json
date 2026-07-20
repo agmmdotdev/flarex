@@ -16,5 +16,9 @@
   "dependencies": {
     "flarex": "workspace:*",
     "flarex-dev": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

@@ -9,7 +9,7 @@ export default defineConfig({
       formats: ["es"],
       fileName: "worker",
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: ["cloudflare:workers"],
     },
   },

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm generate && vite build",
+    "build": "pnpm generate && vite build --configLoader runner",
     "generate": "tsx scripts/generate.ts",
     "typecheck:generated": "tsx scripts/typecheck-generated.ts",
     "typecheck": "pnpm generate && tsc -p tsconfig.json",
@@ -15,6 +15,9 @@
   "devDependencies": {
     "flarex-dev": "workspace:*",
     "flarex-test": "workspace:*",
-    "tsx": "catalog:"
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
   }
 }

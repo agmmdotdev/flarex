@@ -221,14 +221,14 @@ async function bundledAnalysisWorkerSource(sourcePackage: SourcePackage): Promis
     build: {
       write: false,
       target: "es2022",
-      rollupOptions: {
+      rolldownOptions: {
         input: entryId,
         external: ["cloudflare:workers"],
         preserveEntrySignatures: "strict",
         output: {
           format: "es",
           entryFileNames: "worker.js",
-          inlineDynamicImports: true,
+          codeSplitting: false,
         },
       },
     },

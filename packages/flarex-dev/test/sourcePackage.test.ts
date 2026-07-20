@@ -64,6 +64,24 @@ describe("Flarex source packages", () => {
       expect(module.sourceMap).toBeDefined();
       expect(module.sourceMap).not.toContain(firstRoot.replaceAll("\\", "/"));
       expect(module.sourceMap).not.toContain(secondRoot.replaceAll("\\", "/"));
+      const sourceMap = JSON.parse(module.sourceMap ?? "{}") as {
+        sources?: string[];
+        sourcesContent?: Array<string | null>;
+      };
+      const sources = sourceMap.sources ?? [];
+      const sourcesContent = sourceMap.sourcesContent ?? [];
+      const applicationSources = new Set([
+        "lessons.ts",
+        "schema.ts",
+        "server.ts",
+        "users.ts",
+      ]);
+      expect(sourcesContent).toHaveLength(sources.length);
+      for (const [index, source] of sources.entries()) {
+        expect(sourcesContent[index]).toEqual(
+          applicationSources.has(source) ? expect.any(String) : null,
+        );
+      }
     }
 
     const analysis = await analyzeSourcePackageLocally(first);

@@ -50,6 +50,7 @@
   },
   "devDependencies": {
     "miniflare": "catalog:",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   }
 }
