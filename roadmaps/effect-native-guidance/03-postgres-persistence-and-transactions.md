@@ -476,9 +476,11 @@ remain defects. Shared scope-clock row normalization now has one pure Schema
 `Result` authority for exact driver types, signed-int64 bounds, storage
 generation, blank identifiers, and owned timestamps. The fenced index reader
 consumes that Result directly, so its broad clock `Result.try` is deleted. A
-thin `Result.getOrThrow` projection remains only for `getScopeClock`, the
-transaction lock, and other still-Promise transaction consumers; delete it when
-those callers consume the Result or an Effect-native clock operation directly.
+thin `Result.getOrThrow` projection remains only for `getScopeClock` and other
+still-Promise transaction consumers; delete it when those callers consume the
+Result or an Effect-native clock operation directly. The test-only transaction
+lock facade is deleted; its tests now exercise the typed Effect lock operation
+through one explicit test runtime bridge.
 
 Stored commit-authority materialization now consumes that scope-clock Result
 and hoisted Schema Result decoders for its scope UUID, epoch UUID, revocation

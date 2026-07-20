@@ -247,26 +247,23 @@ export const advanceScopeAuthorizationRevocationEpochInTransactionEffect =
  * database transaction. This module is intentionally not exported from the
  * package root, and this helper does not mutate any clock authority.
  */
-export async function lockScopeClockForUpdateInTransaction(
-  db: ScopeClockTransaction,
-  scopeId: ScopeId,
-): Promise<ScopeClockRecord> {
-  return decodeScopeClockRecord(
-    await lockScopeClockRowForUpdateInTransaction(db, scopeId),
-  );
-}
+export type LockScopeClockForUpdateError =
+  | ScopeClockNotFoundError
+  | ScopeClockCorruptionError
+  | ScopeAuthorizationRevocationEpochPersistenceError;
 
-async function lockScopeClockRowForUpdateInTransaction(
+export const lockScopeClockForUpdateInTransactionEffect = Effect.fn(
+  "ScopeClock.lockForUpdateInTransaction",
+)(function* (
   db: ScopeClockTransaction,
   scopeId: ScopeId,
-): Promise<ScopeClockRow> {
-  const rows = await selectScopeClockRowForUpdate(db, scopeId);
-  const clock = rows[0];
-  if (clock === undefined) {
-    throw new ScopeClockNotFoundError(scopeId);
-  }
-  return clock;
-}
+): Effect.fn.Return<
+  ScopeClockRecord,
+  LockScopeClockForUpdateError
+> {
+  const row = yield* lockScopeClockRowForUpdateInTransactionEffect(db, scopeId);
+  return yield* Effect.fromResult(decodeScopeClockRecordResult(row));
+});
 
 const lockScopeClockRowForUpdateInTransactionEffect = Effect.fn(
   "ScopeClock.lockRowForUpdateInTransaction",

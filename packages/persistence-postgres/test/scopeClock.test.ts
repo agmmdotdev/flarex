@@ -34,8 +34,9 @@ import {
   advanceScopeAuthorizationRevocationEpochInTransactionEffect,
   decodeScopeClockRecord,
   decodeScopeClockRecordResult,
-  lockScopeClockForUpdateInTransaction,
+  lockScopeClockForUpdateInTransactionEffect,
   requireScopeAuthorizationRevocationEpochInTransactionEffect,
+  type LockScopeClockForUpdateError,
   type AdvanceScopeAuthorizationRevocationEpochError,
   type AdvanceScopeAuthorizationRevocationEpochResult,
   type ScopeAuthorizationRevocationEpochReadError,
@@ -88,9 +89,15 @@ describe("scope clock", () => {
       AdvanceScopeAuthorizationRevocationEpochResult,
       AdvanceScopeAuthorizationRevocationEpochError
     >>();
+    expectTypeOf<
+      ReturnType<typeof lockScopeClockForUpdateInTransactionEffect>
+    >().toEqualTypeOf<Effect.Effect<
+      ScopeClockRecord,
+      LockScopeClockForUpdateError
+    >>();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
-        Parameters<typeof lockScopeClockForUpdateInTransaction>[0]
+        Parameters<typeof lockScopeClockForUpdateInTransactionEffect>[0]
       >();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
@@ -763,7 +770,9 @@ describe("scope clock", () => {
 
     await expect(
       persistence.drizzle.transaction(async (tx) => {
-        const locked = await lockScopeClockForUpdateInTransaction(tx, scopeId);
+        const locked = await runEffect(
+          lockScopeClockForUpdateInTransactionEffect(tx, scopeId),
+        );
         expect(locked).toEqual(before);
         await tx
           .update(fxSystemScopeClocks)
@@ -784,9 +793,11 @@ describe("scope clock", () => {
     await expect(persistence.getScopeClock(scopeId)).resolves.toEqual(before);
     await expect(
       persistence.drizzle.transaction((tx) =>
-        lockScopeClockForUpdateInTransaction(
-          tx,
-          ScopeIdSchema.make("scope_clock_missing"),
+        runEffect(
+          lockScopeClockForUpdateInTransactionEffect(
+            tx,
+            ScopeIdSchema.make("scope_clock_missing"),
+          ),
         ),
       ),
     ).rejects.toBeInstanceOf(ScopeClockNotFoundError);

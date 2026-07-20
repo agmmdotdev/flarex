@@ -40,7 +40,7 @@ import {
 } from "../src/postgres";
 import {
   advanceScopeAuthorizationRevocationEpochInTransactionEffect,
-  lockScopeClockForUpdateInTransaction,
+  lockScopeClockForUpdateInTransactionEffect,
   requireScopeAuthorizationRevocationEpochInTransactionEffect,
   type AdvanceScopeAuthorizationRevocationEpochResult,
   ScopeAuthorizationRevocationEpochExhaustedError,
@@ -87,7 +87,9 @@ describePostgres("real Postgres scope clock locking", () => {
       const lockerTransaction = persistence.drizzle.transaction(async (tx) => {
         try {
           const lockerPid = await backendPid(tx);
-          await lockScopeClockForUpdateInTransaction(tx, lockedScopeId);
+          await runEffect(
+            lockScopeClockForUpdateInTransactionEffect(tx, lockedScopeId),
+          );
           await tx
             .update(fxSystemScopeClocks)
             .set({
@@ -118,7 +120,9 @@ describePostgres("real Postgres scope clock locking", () => {
           await tx.execute(sql`set local statement_timeout = '15s'`);
           const waiterPid = await backendPid(tx);
           waiterPidReady.resolve(waiterPid);
-          return await lockScopeClockForUpdateInTransaction(tx, lockedScopeId);
+          return await runEffect(
+            lockScopeClockForUpdateInTransactionEffect(tx, lockedScopeId),
+          );
         } catch (error) {
           waiterPidReady.reject(error);
           throw error;
@@ -136,7 +140,12 @@ describePostgres("real Postgres scope clock locking", () => {
 
         await expect(
           persistence.drizzle.transaction((tx) =>
-            lockScopeClockForUpdateInTransaction(tx, independentScopeId),
+            runEffect(
+              lockScopeClockForUpdateInTransactionEffect(
+                tx,
+                independentScopeId,
+              ),
+            ),
           ),
         ).resolves.toMatchObject({
           scopeId: independentScopeId,
@@ -607,7 +616,7 @@ async function insertScopeClock(
 }
 
 async function backendPid(
-  tx: Parameters<typeof lockScopeClockForUpdateInTransaction>[0],
+  tx: Parameters<typeof lockScopeClockForUpdateInTransactionEffect>[0],
 ): Promise<number> {
   const result = await tx.execute<{ pid: number }>(
     sql`select pg_backend_pid()::int as pid`,
