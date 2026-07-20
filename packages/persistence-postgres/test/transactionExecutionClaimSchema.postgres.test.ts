@@ -7,7 +7,10 @@ import { describe, expect, it } from "vitest";
 
 import type { FlarexSqlClient } from "../src";
 import { createPostgresPersistence } from "../src/postgres";
-import { writeJournalThrough0031 } from "./idempotencySchemaTestSupport";
+import {
+  writeJournalThrough0031,
+  writeJournalThrough0032,
+} from "./idempotencySchemaTestSupport";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -59,10 +62,9 @@ describePostgres("real Postgres B2b1 exact-attempt claim schema", () => {
             sessionId,
           });
 
-          await writeFile(
+          await writeJournalThrough0032(
+            fixture.currentJournal,
             fixture.temporaryJournal,
-            await readFile(fixture.currentJournal, "utf8"),
-            "utf8",
           );
           const migration = await readFile(fixture.copiedMigration, "utf8");
           await writeFile(
@@ -112,7 +114,7 @@ describePostgres("real Postgres B2b1 exact-attempt claim schema", () => {
     }
   }, 30_000);
 
-  it("enforces the exact FK/check matrix, cascade, and primary-key plan", async () => {
+  it("enforces the exact FK/check matrix, cascade, and an indexed lookup plan", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const sessionId = transactionSessionIdAt(332);
       await insertSessionTestScope(persistence);
@@ -167,9 +169,12 @@ describePostgres("real Postgres B2b1 exact-attempt claim schema", () => {
           and attempt_fence = 1
         for update
       `);
-      expect(JSON.stringify(plan.rows)).toContain(
-        "fx_system_tx_execution_claim_pk",
-      );
+      const planText = JSON.stringify(plan.rows);
+      expect(planText).not.toContain('"Node Type":"Seq Scan"');
+      expect([
+        planText.includes("fx_system_tx_execution_claim_pk"),
+        planText.includes("fx_system_tx_execution_claim_expiry_idx"),
+      ]).toContain(true);
 
       await persistence.query(
         `delete from fx_system_tx_journal where session_id = $1::uuid`,

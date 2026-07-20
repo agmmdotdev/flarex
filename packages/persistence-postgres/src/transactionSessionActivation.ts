@@ -139,6 +139,11 @@ import {
   isPristineFreshTransactionAttemptJournalRootV1,
 } from "./transactionSessionAttemptFacet";
 import {
+  DISCOVER_LOCATED_POINT_MUTATION_ATTEMPTS_V1,
+  discoverLocatedPointMutationAttemptsEffectV1,
+  type LocatedPointMutationAttemptDiscoveryTargetV1,
+} from "./pointMutationAttemptDiscovery";
+import {
   RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
   ExactRunningAttemptTransactionV1Error,
@@ -826,6 +831,7 @@ interface LocatedPointMutationSessionTargetV1
     LocatedPointMutationSessionAttemptLoadTargetV1,
     LocatedPointMutationSessionAttemptTerminalizationTargetV1,
     LocatedPointMutationExecutionClaimAcquisitionTargetV1,
+    LocatedPointMutationAttemptDiscoveryTargetV1,
     LocatedExactRunningAttemptKernelV1,
     LocatedPointCommitPublicationTargetV1 {}
 
@@ -1167,6 +1173,8 @@ export function createLocatedPointMutationSessionActivationTargetV1(
         committedOutcomeResolver,
         input,
       ),
+    [DISCOVER_LOCATED_POINT_MUTATION_ATTEMPTS_V1]: (input) =>
+      discoverLocatedPointMutationAttemptsEffectV1(db, input),
     [TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
       input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
     ) => Effect.uninterruptible(Effect.tryPromise({

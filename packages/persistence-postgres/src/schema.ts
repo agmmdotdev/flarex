@@ -1279,6 +1279,14 @@ export const fxSystemTransactionSessions = pgTable(
       table.requestKey,
     ),
     index("fx_system_tx_session_expiry_idx").on(table.hardExpiresAt),
+    index("fx_system_tx_session_finishing_discovery_idx")
+      .on(
+        table.scopeUuid,
+        table.updatedAt,
+        table.sessionId,
+        table.attemptFence,
+      )
+      .where(sql`${table.lifecycle} = 'finishing'`),
     check(
       "fx_system_tx_session_generation_check",
       sql`${table.storageGeneration} = 'flarexdb_v1'`,
@@ -1690,6 +1698,12 @@ export const fxSystemTransactionExecutionClaims = pgTable(
     })
       .onUpdate("restrict")
       .onDelete("cascade"),
+    index("fx_system_tx_execution_claim_expiry_idx").on(
+      table.scopeUuid,
+      table.claimExpiresAt,
+      table.sessionId,
+      table.attemptFence,
+    ),
     check(
       "fx_system_tx_execution_claim_attempt_fence_check",
       sql`${table.attemptFence} >= 1`,

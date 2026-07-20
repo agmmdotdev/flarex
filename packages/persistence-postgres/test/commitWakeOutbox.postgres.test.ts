@@ -40,7 +40,10 @@ import {
   WAKE_SCOPE_B,
 } from "./commitWakeOutboxTestSupport";
 import { runEffect } from "./effectTestRuntime";
-import { writeJournalThrough0030 } from "./idempotencySchemaTestSupport";
+import {
+  writeJournalThrough0030,
+  writeJournalThrough0031,
+} from "./idempotencySchemaTestSupport";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -84,11 +87,7 @@ describePostgres("real Postgres S09-B commit-wake outbox", () => {
             values ('legacy-s09b', 1, 0, '{"kind":"legacy"}'::jsonb)
           `);
 
-          await writeFile(
-            temporaryJournal,
-            await readFile(currentJournal, "utf8"),
-            "utf8",
-          );
+          await writeJournalThrough0031(currentJournal, temporaryJournal);
           const originalMigration = await readFile(copiedMigration, "utf8");
           await writeFile(
             copiedMigration,

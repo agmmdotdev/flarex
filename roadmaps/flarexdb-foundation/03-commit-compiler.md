@@ -20,8 +20,9 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   O08-B2b1/C06-A durable claim admission, O08-CD0 transaction-decision
   provenance, O08-C known-settled SQL retry, and O08-D bounded uncertainty
   recovery are complete. O08-B2b2a private exact-selector safe-state redispatch
-  is complete. O08-B2b2b/full O08-B2b2 discovery and production dispatch plus
-  C06-B endpoint/response policy remain pending, while C04C2 remains conditional and
+  and O08-B2b2b1 bounded inert discovery are complete. O08-B2b2b2 scheduling/
+  redelivery and production dispatch plus C06-B endpoint/response policy remain
+  pending, while C04C2 remains conditional and
   unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
@@ -569,6 +570,15 @@ finishing state must have none. Snapshot-lease expiry, claim expiry, lifecycle
 terminalization, O08-C/D publication handling, and S09-B delivery claims remain
 separate authorities.
 
+### [x] O08-B2b2b1 — Discover Bounded Inert Attempt Candidates
+
+Migration 0033 and one package-private, read-only located-target operation now
+provide scope-local candidate discovery. A page contains at most 100 frozen
+selector/source/time hints under one database-owned horizon; its continuation
+is pagination data, not authority. Discovery does not inspect outcomes, acquire
+claims, invoke the exact-selector composer, or mint a capability. O08-B2b2b2
+retains scheduling/redelivery and production-dispatch liveness.
+
 ### [ ] C06-B — Add Idempotent Finish And Lost-Outcome Dispatch
 
 Prerequisite: `O08-B2a` same-process OCC execution, O08-CD0 transaction-
@@ -577,10 +587,10 @@ uncertain-outcome recovery and C06-A host-neutral durable claim admission are
 complete. O08-B2b2a now supplies the private explicit-selector safe-state
 composer; only its acquired `execute` and `finishOnly` branches consume that
 singular claim, while its inert `finishing` classification routes only to
-C05-B's independent authority. O08-B2b2b/full O08-B2b2 must
-still supply discovery and production dispatch liveness. This endpoint composes
-those policies; it does not define a competing retry coordinator or execution
-owner.
+C05-B's independent authority. O08-B2b2b1 now supplies bounded inert discovery;
+O08-B2b2b2 must still supply scheduling/redelivery and production-dispatch
+liveness. This endpoint composes those policies; it does not define a competing
+retry coordinator or execution owner.
 
 Outcome:
 
@@ -594,8 +604,8 @@ Outcome:
   acting on it; O08-C consumes only confirmed rollback for SQL transaction
   retry; O08-D owns bounded publication uncertainty recovery; O08-B2b1/C06-A
   owns durable execution claims; O08-B2b2a owns the private safe-state composer;
-  and O08-B2b2b/full O08-B2b2 owns still-deferred discovery and production
-  dispatch liveness:
+  O08-B2b2b1 owns bounded inert discovery; and O08-B2b2b2 owns still-deferred
+  scheduling/redelivery and production-dispatch liveness:
 
 ```text
 atomic activation -> running -> finishing -> committed

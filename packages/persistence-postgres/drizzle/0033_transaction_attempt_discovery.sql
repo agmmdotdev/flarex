@@ -1,0 +1,2 @@
+CREATE INDEX "fx_system_tx_execution_claim_expiry_idx" ON "fx_system_tx_execution_claim" USING btree ("scope_uuid","claim_expires_at","session_id","attempt_fence");--> statement-breakpoint
+CREATE INDEX "fx_system_tx_session_finishing_discovery_idx" ON "fx_system_tx_session" USING btree ("scope_uuid","updated_at","session_id","attempt_fence") WHERE "fx_system_tx_session"."lifecycle" = 'finishing';

@@ -232,6 +232,13 @@
       "when": 1784472225187,
       "tag": "0032_transaction_execution_claim",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1784501406675,
+      "tag": "0033_transaction_attempt_discovery",
+      "breakpoints": true
     }
   ]
 }

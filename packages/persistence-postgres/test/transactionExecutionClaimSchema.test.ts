@@ -13,7 +13,10 @@ import type { FlarexSqlClient } from "../src";
 import { createPGlitePersistence } from "../src/pglite";
 import { TransactionExecutionClaimFenceV1Schema } from
   "../src/transactionExecutionClaim";
-import { writeJournalThrough0031 } from "./idempotencySchemaTestSupport";
+import {
+  writeJournalThrough0031,
+  writeJournalThrough0032,
+} from "./idempotencySchemaTestSupport";
 import {
   insertOpenTransactionJournalFixture,
   insertSessionTestScope,
@@ -122,10 +125,9 @@ describe("B2b1 exact-attempt execution-claim schema", () => {
         sessionId,
       });
 
-      await writeFile(
+      await writeJournalThrough0032(
+        fixture.currentJournal,
         fixture.temporaryJournal,
-        await readFile(fixture.currentJournal, "utf8"),
-        "utf8",
       );
       const migration = await readFile(fixture.copiedMigration, "utf8");
       await writeFile(

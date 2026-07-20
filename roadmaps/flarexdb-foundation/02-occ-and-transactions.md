@@ -28,9 +28,10 @@ user-code rerun composition are complete. O08-B2b0's Postgres claim-authority
 decision and the integrated O08-B2b1/C06-A durable claim-admission foundation,
 O08-CD0's transaction-decision provenance, O08-C's bounded known-settled SQL
 transaction retry, and O08-D's bounded uncertain-outcome recovery are complete;
-O08-B2b2a's private exact-selector safe-state redispatch composition is
-complete. O08-B2b2b/full O08-B2b2 discovery and production dispatch plus C06-B
-endpoint/response policy remain pending. C04C2
+O08-B2b2a's private exact-selector safe-state redispatch composition and O08-
+B2b2b1's bounded inert scope-local discovery are complete. O08-B2b2b2
+scheduling/redelivery and production dispatch plus C06-B endpoint/response
+policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -746,9 +747,10 @@ Deferred ownership after the required O03-B core:
   `O08-B2b1/C06-A` now owns exact-attempt claim storage, atomic O03/O08-A
   creation, outcome-first acquisition/takeover, claim-fenced admission, and
   C05-A consumption. `O08-B2b2a` now composes only explicit-selector safe
-  states over that directly settled claim. `O08-B2b2b`/full `O08-B2b2` and
-  `C06-B` retain discovery, production dispatch liveness, and endpoint/response
-  policy. `O08-C` owns known-settled SQL retry, and
+  states over that directly settled claim. `O08-B2b2b1` now supplies bounded
+  inert discovery; `O08-B2b2b2` and `C06-B` retain scheduling/redelivery,
+  production dispatch liveness, and endpoint/response policy. `O08-C` owns
+  known-settled SQL retry, and
   `O08-D` owns uncertain-outcome lookup policy; and
 - `O11` first introduces the active-floor query and engine-history cleanup
   consumer. S09-A committed-key lifetime and result-payload expiry remain
@@ -1116,14 +1118,28 @@ no retry, replacement, uncertainty, or publication policy. SQL snapshots close
 before decode, validation, or user code. Claim fencing authorizes database
 admissions; it does not prove that only one CPU has begun computation.
 
-###### [ ] O08-B2b2b — Add Discovery And Host Dispatch Policy
+###### [x] O08-B2b2b1 — Discover Bounded Inert Candidates
 
-Bounded discovery, scheduling/redelivery, dirty-attempt disposition, optional
-renewal/heartbeat if proven, authenticated runtime routing, Dynamic Worker
-integration, and production dispatch liveness remain unapproved. Lifecycle or
-persisted claim fields alone never mint execution authority, and the later host
-must preserve outcome-first, stale-fence, interruption, and uncertain-outcome
-rules without creating another publication or delivery authority.
+Migration 0033 adds only the scope/claim-expiry execution-claim index and the
+scope/update-time partial finishing-session index. One package-private located-
+target read returns at most 100 frozen inert hints ordered under one database-
+owned horizon. Continuations bind the exact locator, authority generation/fence/
+epoch, horizon, and last ordering tuple, but remain pagination data rather than
+execution authority. Discovery performs no writes, outcome lookup, acquisition,
+redispatch, or capability minting; the exact-selector composer and locked C06-A
+acquisition remain the sole authority path. Canonical caller alteration can at
+most skip or repeat bounded inert hints, concurrent mutation may defer or repeat
+hints across sweeps, and later pages retain the first horizon so new eligibility
+waits for a fresh sweep.
+
+###### [ ] O08-B2b2b2 — Add Scheduling And Host Dispatch Policy
+
+Scheduling/redelivery, dirty-attempt disposition, optional renewal/heartbeat if
+proven, authenticated runtime routing, Dynamic Worker integration, and
+production dispatch liveness remain unapproved. Lifecycle, persisted claim
+fields, and discovery hints alone never mint execution authority, and the later
+host must preserve outcome-first, stale-fence, interruption, and uncertain-
+outcome rules without creating another publication or delivery authority.
 
 ##### [ ] C06-B — Add Stable Endpoint And Response Policy
 
@@ -1137,7 +1153,7 @@ Path classification remains clean replacement:
   `packages/executor/src/storedAttemptAuthentication.ts` and
   `packages/persistence-postgres/src/pointCommitTransaction.ts`;
 - keep the claim-fenced journal/session admission in `sessionJournalStore.ts`
-  and `transactionSessionActivation.ts`; later B2b2b/C06-B work must compose it
+  and `transactionSessionActivation.ts`; later B2b2b2/C06-B work must compose it
   rather than adding a parallel authority;
 - keep `commitWakeOutbox.ts` and its S09-B post-commit claim separate; and
 - delete rather than port `packages/executor/src/retry.ts` and the legacy
@@ -1219,9 +1235,9 @@ Exit gate:
 - O08-B2a same-process OCC conflicts rerun user code only after immediate
   outcome, liveness, and canonical-input reauthentication;
 - O08-B2b1/C06-A supplies one exact-attempt durable claim and universal
-  claim-fenced admission, and O08-B2b2a composes the explicit-selector safe
-  states; B2b2b/full B2b2 discovery and production dispatch plus C06-B endpoint
-  and response policy remain pending;
+  claim-fenced admission, O08-B2b2a composes the explicit-selector safe states,
+  and O08-B2b2b1 supplies bounded inert discovery; B2b2b2 scheduling/redelivery
+  and production dispatch plus C06-B endpoint and response policy remain pending;
 - O08-CD0 alone owns decision provenance; it does not retry a transaction or
   resolve a missing uncertain outcome;
 - O08-C SQL retries do not rerun user code;

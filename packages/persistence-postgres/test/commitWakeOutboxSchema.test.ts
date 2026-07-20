@@ -1,5 +1,4 @@
 import {
-  copyFile,
   cp,
   mkdtemp,
   readFile,
@@ -24,7 +23,10 @@ import {
   WAKE_SCOPE_A,
   WAKE_SCOPE_B,
 } from "./commitWakeOutboxTestSupport";
-import { writeJournalThrough0030 } from "./idempotencySchemaTestSupport";
+import {
+  writeJournalThrough0030,
+  writeJournalThrough0031,
+} from "./idempotencySchemaTestSupport";
 
 const MIGRATION_NAME = "0031_commit_wake_outbox.sql";
 const temporaryRoots: string[] = [];
@@ -86,7 +88,10 @@ describe("S09-B commit-wake outbox schema", () => {
       values ('legacy-s09b', 1, 0, '{"kind":"legacy"}'::jsonb)
     `);
 
-    await copyFile(root.currentJournal, root.temporaryJournal);
+    await writeJournalThrough0031(
+      root.currentJournal,
+      root.temporaryJournal,
+    );
     const originalMigration = await readFile(root.copiedMigration, "utf8");
     await writeFile(
       root.copiedMigration,

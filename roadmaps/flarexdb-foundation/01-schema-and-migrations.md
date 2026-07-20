@@ -96,7 +96,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, S08's native commit/change-feed schema plus bounded private reader, S09-A's private committed-success result storage, S09-B's fixed-kind private commit-wake schema/repository, O06's rollback-proven private point-commit transaction kernel, O07-A's read-only committed-outcome resolution, O07-B's atomic point publication and fixed-kind outbox production, C05-A's exact finishing transition, C05-B's fresh-process reconstruction/composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory fresh-attempt handoff, O08-B2a's same-process runtime-neutral rerun composition, O08-CD0's transaction-decision provenance, O08-C's bounded known-settled SQL transaction retry, O08-D's bounded uncertainty recovery, and O08-B2b1/C06-A's migration-0032 exact-attempt execution claim plus host-neutral admission are implemented. O08-B2b2 crash redispatch, C06-B endpoint/dispatcher policy, result-expiry policy, reconnect retention/retained-floor advancement, index sidecars, edges, target-native readiness, routing/activation, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, S08's native commit/change-feed schema plus bounded private reader, S09-A's private committed-success result storage, S09-B's fixed-kind private commit-wake schema/repository, O06's rollback-proven private point-commit transaction kernel, O07-A's read-only committed-outcome resolution, O07-B's atomic point publication and fixed-kind outbox production, C05-A's exact finishing transition, C05-B's fresh-process reconstruction/composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory fresh-attempt handoff, O08-B2a's same-process runtime-neutral rerun composition, O08-CD0's transaction-decision provenance, O08-C's bounded known-settled SQL transaction retry, O08-D's bounded uncertainty recovery, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim plus host-neutral admission, O08-B2b2a's private safe-state composer, and O08-B2b2b1's migration-0033 bounded inert discovery indexes are implemented. O08-B2b2b2 scheduling/redelivery and production dispatch, C06-B endpoint/dispatcher policy, result-expiry policy, reconnect retention/retained-floor advancement, index sidecars, edges, target-native readiness, routing/activation, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain an internal prototype behavior baseline. They are
@@ -761,8 +761,9 @@ Outcome:
 - Claim expiry is separate from snapshot-lease, grant/hard expiry, and attempt
   terminalization. Live claims are busy; only an expired claim may be taken
   over under the locked scope/session/lease/root order and database time.
-- This gate adds no renewal, discovery index, dirty-attempt policy, dispatcher,
-  routed endpoint, runtime adapter, or crash-safe user-code redispatch.
+- Migration 0032 itself adds no renewal, discovery index, dirty-attempt policy,
+  dispatcher, routed endpoint, runtime adapter, or crash-safe user-code
+  redispatch; the separate bounded discovery indexes arrive in migration 0033.
 
 Exit gates:
 
@@ -772,6 +773,30 @@ Exit gates:
 - PGlite plus isolated real Postgres prove atomic O03/O08-A creation, rollback,
   one-winner takeover, stale-fence rejection, settlement uncertainty, C05-A
   consumption, same-scope serialization, and independent-scope progress.
+
+### [x] O08-B2b2b1 — Add Bounded Inert Attempt Discovery Indexes
+
+Outcome:
+
+- Migration `0033` adds exactly two access paths: the scope/claim-expiry/session/
+  fence execution-claim index and the scope/update/session/fence partial index
+  for `finishing` sessions. It adds no table, column, backfill, queue, trigger,
+  claim state, or alternate authority.
+- One package-private, read-only located-target operation returns at most 100
+  frozen inert hints under one database-owned horizon. Its continuation is
+  pagination data only; it carries no owner, claim fence, journal evidence, or
+  process capability.
+- Exact-selector B2b2a composition plus locked C06-A acquisition remains the
+  sole authority path. O08-B2b2b2 scheduling/redelivery, dirty-attempt policy,
+  renewal/heartbeat, C06-B, routing, and runtime adapters remain pending.
+
+Exit gates:
+
+- fresh install, 0032 upgrade, replay, injected-failure recovery, schema parity,
+  and Drizzle consistency prove the exact two-index migration; and
+- PGlite and isolated real Postgres prove bounded global pagination, authority-
+  bound continuations, contradictory-state rejection, scope isolation, and
+  index-backed plans without discovery writes or capability minting.
 
 ### [ ] S10 — Add Index Revision And Current Sidecars
 

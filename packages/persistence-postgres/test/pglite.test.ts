@@ -1163,7 +1163,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "33" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "34" }]);
     } finally {
       try {
         await db.close();
@@ -1357,7 +1357,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "33" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "34" }]);
     } finally {
       try {
         await db.close();

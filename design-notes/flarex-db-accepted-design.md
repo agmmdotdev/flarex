@@ -165,7 +165,7 @@ work continues.
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
 | Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07-A implements the private read-only committed-outcome resolver, and O07-B atomically publishes point rows, feed evidence, success receipts, and wakes. C06 replay orchestration/dispatch, payload expiry, sync activation, and retention advancement remain pending. |
-| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, C05-A's exact scalar-fenced transition, C05-B's fresh-process finishing reconstruction plus private compiler/publisher composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory OCC rerun authorization, and O08-B2a's same-process runtime-neutral rerun composition. O08-B2b1/C06-A supplies the package-private host-neutral exact-attempt execution claim and fenced-admission foundation, while O08-B2b2a privately composes exact-selector safe-state redispatch for replay/expiry, busy/non-dispatchable closure, one pristine execution, sealed finish-only recovery, and existing finishing recovery. O08-CD0 preserves source-owned transaction-decision provenance, O08-C consumes only confirmed pre-decision rollback for bounded finishing-publication retries, and O08-D closes one direct publication uncertainty through authoritative outcome evidence or one exact guarded C05-B recovery. O08-B2b2b/full O08-B2b2 discovery and production dispatch, C06-B endpoint/response policy, production validator authority, and target routing remain pending. Durable lifecycle or persisted claim fields alone never authorize redispatch. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
+| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, C05-A's exact scalar-fenced transition, C05-B's fresh-process finishing reconstruction plus private compiler/publisher composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory OCC rerun authorization, and O08-B2a's same-process runtime-neutral rerun composition. O08-B2b1/C06-A supplies the package-private host-neutral exact-attempt execution claim and fenced-admission foundation, while O08-B2b2a privately composes exact-selector safe-state redispatch for replay/expiry, busy/non-dispatchable closure, one pristine execution, sealed finish-only recovery, and existing finishing recovery. O08-B2b2b1 supplies bounded scope-local read-only discovery whose results are inert candidate hints; the exact-selector composer and locked C06-A acquisition remain the only path to execution authority. O08-CD0 preserves source-owned transaction-decision provenance, O08-C consumes only confirmed pre-decision rollback for bounded finishing-publication retries, and O08-D closes one direct publication uncertainty through authoritative outcome evidence or one exact guarded C05-B recovery. O08-B2b2b2 scheduling/redelivery and production dispatch, C06-B endpoint/response policy, production validator authority, and target routing remain pending. Durable lifecycle, persisted claim fields, and discovery hints alone never authorize redispatch. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -798,8 +798,9 @@ such a same-factory projection: pristine open attempts may execute once and
 sealed running attempts finish without user code. Its inert `finishing`
 classification mints no handle and only routes to C05-B, which independently
 proves `finishing + sealed + no claim`.
-O08-B2b2b/full O08-B2b2 discovery and dispatch liveness plus C06-B endpoint and
-response policy remain deferred. S07 owns only the earlier session/lease
+O08-B2b2b1 now supplies bounded inert candidate discovery. O08-B2b2b2
+scheduling/redelivery and production dispatch plus C06-B endpoint and response
+policy remain deferred. S07 owns only the earlier session/lease
 relational shape.
 
 The previously ordered O03-B2b2 renewal gate is a conditional operational
@@ -1255,8 +1256,9 @@ O08-B2a now owns only same-process runtime-neutral OCC execution and repeated-
 conflict composition. O08-C and O08-D now close known-settled SQL retry and
 bounded publication uncertainty respectively. O08-B2b1/C06-A closes durable
 claim admission, and O08-B2b2a closes the private safe-state redispatch
-composition only. O08-B2b2b/full O08-B2b2 and C06-B retain discovery,
-production dispatch, and endpoint orchestration.
+composition only. O08-B2b2b1 closes bounded inert discovery; O08-B2b2b2 and
+C06-B retain scheduling/redelivery, production dispatch, and endpoint
+orchestration.
 
 Convex keeps `FunctionFinalTransaction` in process, checks committed mutation
 status before execution, and reruns user code after known OCC conflicts. Flarex's
@@ -1272,8 +1274,9 @@ precheck, and fresh-attempt handoff; O08-B2a owns same-process immediate
 reauthentication and trusted runtime-neutral user-code rerun. O08-B2b1/C06-A
 implements the durable Postgres execution-claim and host-neutral acquisition/
 admission foundation, and O08-B2b2a composes explicit-selector safe-state
-redispatch through that singular authority. Discovery, production dispatch,
-and endpoint policy remain deferred to O08-B2b2b/full O08-B2b2 and C06-B. O08-C owns
+redispatch through that singular authority. O08-B2b2b1 adds bounded inert
+discovery without execution authority. Production scheduling/redelivery,
+dispatch, and endpoint policy remain deferred to O08-B2b2b2 and C06-B. O08-C owns
 known-settled SQL retry, and O08-D owns
 uncertain-outcome policy. O11 first consumes active floors for history
 retention.
@@ -1422,7 +1425,8 @@ Requirements:
   directly settled same-factory claim: outcome replay/expiry closes first, live
   claims remain busy, dirty/failed roots remain non-dispatchable, pristine open
   roots run one authenticated attempt, and sealed roots finish without user
-  code. O08-B2b2b/full O08-B2b2 discovery and liveness remain deferred;
+  code. O08-B2b2b1 supplies bounded inert discovery; O08-B2b2b2 scheduling,
+  redelivery, dirty-attempt disposition, and production liveness remain deferred;
 - canonical journal digest for integrity, never authentication by itself;
 - idempotent repeated `finish`;
 - O07-A committed-outcome lookup after a lost response, with O08-D/C06 still
@@ -1551,10 +1555,17 @@ Keep the supporting replacement primitive and three coordinators separate:
    `finishing` classification mints no handle and only routes to C05-B, which
    independently proves `finishing + sealed + no claim`. A genuine OCC conflict is surfaced to
    the existing B1/B2a policy rather than creating another retry loop.
-   O08-B2b2b/full O08-B2b2 discovery, scheduling, dirty-attempt disposition,
-   renewal if proven, and production dispatch remain pending, while C06-B owns
-   endpoint and response policy.
-6. O08-CD0 is the completed persistence-owned decision-provenance prerequisite.
+6. O08-B2b2b1 is the completed bounded discovery prerequisite. Migration 0033
+   adds only the scope/expiry claim index and the scope/time partial finishing-
+   session index. One read-only, located-target statement returns at most 100
+   frozen inert hints under one database-owned horizon and a pagination-only
+   continuation. Hints carry no owner, claim fence, journal evidence, or
+   capability; the exact-selector composer and locked C06-A acquisition remain
+   the sole authority path.
+7. O08-B2b2b2 scheduling/redelivery, dirty-attempt disposition, renewal if
+   proven, and production dispatch remain pending, while C06-B owns endpoint
+   and response policy.
+8. O08-CD0 is the completed persistence-owned decision-provenance prerequisite.
    The real Postgres located-target runner acquires and owns one connected
    client, uses a genuine Drizzle transaction, and classifies only after
    transaction and release settlement. Only a source-owned in-transaction
@@ -1563,7 +1574,7 @@ Keep the supporting replacement primitive and three coordinators separate:
    callback-completed commit/release failures remain decision-uncertain. O07-A
    may close an uncertain result only with matching available/expired evidence;
    missing or unavailable lookup retains uncertainty. CD0 adds no retry policy.
-7. O08-C handles only source-owned, known-settled pre-decision `40001`/`40P01`
+9. O08-C handles only source-owned, known-settled pre-decision `40001`/`40P01`
    by retrying the same authenticated logical/closed finishing-publication
    command for at most three total attempts. The first two confirmed failures
    use full jitter below 10 ms and 20 ms. Every retry opens a fresh transaction
@@ -1571,7 +1582,7 @@ Keep the supporting replacement primitive and three coordinators separate:
    current lowering, dense commit and outbox sequences, S08 header/change keys,
    the S09-A outcome token, the S09-B wake key, and the database-owned
    publication timestamp. It allocates no random physical publication ID.
-8. O08-D consumes only a direct same-factory finishing-publication uncertainty.
+10. O08-D consumes only a direct same-factory finishing-publication uncertainty.
    The existing post-settlement O07-A observation is authoritative: available
    replays, expired closes with its retained token, mismatch/corruption fails
    closed, and lookup failure remains secondary to the original uncertainty.
@@ -1601,9 +1612,9 @@ O08-B2b1/C06-A owns durable host-neutral claim admission. O08-B2b2a's acquired
 `execute` and `finishOnly` branches consume that singular authority; its inert
 closures and `finishing` route grant no execution claim. Claim fencing
 authorizes database admissions; it cannot prove that only one CPU has started
-executing during a takeover race. O08-B2b2b/full O08-B2b2 and C06-B still own
-discovery, scheduling/redelivery, dirty-attempt disposition, endpoint responses,
-authenticated routing, and production liveness. Claim renewal/heartbeat and
+executing during a takeover race. O08-B2b2b1 owns only bounded inert discovery;
+O08-B2b2b2 and C06-B still own scheduling/redelivery, dirty-attempt disposition,
+endpoint responses, authenticated routing, and production liveness. Claim renewal/heartbeat and
 Dynamic Worker integration remain unapproved. The current B2a same-process
 contract remains valid and uses the same singular claim-fenced admission; no
 second execution authority exists.

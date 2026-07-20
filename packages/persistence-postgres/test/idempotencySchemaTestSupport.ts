@@ -56,6 +56,20 @@ export async function writeJournalThrough0031(
   await writeJournalThrough(currentJournal, targetJournal, 31);
 }
 
+export async function writeJournalThrough0032(
+  currentJournal: string,
+  targetJournal: string,
+): Promise<void> {
+  await writeJournalThrough(currentJournal, targetJournal, 32);
+}
+
+export async function writeJournalThrough0033(
+  currentJournal: string,
+  targetJournal: string,
+): Promise<void> {
+  await writeJournalThrough(currentJournal, targetJournal, 33);
+}
+
 async function writeJournalThrough(
   currentJournal: string,
   targetJournal: string,
