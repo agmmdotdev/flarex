@@ -101,6 +101,7 @@ import {
   AppRowStorageCorruptionError,
   InvalidAppRowRevisionV1InputError,
   appendPreparedAppRowRevisionAndAdvanceCurrentInTransaction,
+  type AppendPreparedAppRowRevisionV1Input,
   type AppRowIdentityV1,
   type AppRowPointDependencyV1,
   type AppRowTransaction,
@@ -1979,6 +1980,15 @@ type PointCommitKernelResultV1 =
       readonly publicationTimeMilliseconds: number | null;
     }>;
 
+type PointCommitReadyForPublicationV1 = Extract<
+  PointCommitKernelResultV1,
+  { readonly kind: "ready" }
+> & {
+  readonly commitSeq: CommitSeq;
+  readonly outboxSeq: OutboxSeq;
+  readonly publicationTimeMilliseconds: number;
+};
+
 type PointCommitPublicationDecisionV1 =
   | Readonly<{ readonly kind: "existing" }>
   | Readonly<{
@@ -2844,19 +2854,9 @@ async function runPointCommitPublication(
       "publish",
     );
     if (kernel.kind === "existing") return kernel;
-    if (
-      kernel.commitSeq === null ||
-      kernel.outboxSeq === null ||
-      kernel.publicationTimeMilliseconds === null
-    ) {
-      throw corruption("publicationInvariantInvalid");
-    }
-    const ready = Object.freeze({
-      ...kernel,
-      commitSeq: kernel.commitSeq,
-      outboxSeq: kernel.outboxSeq,
-      publicationTimeMilliseconds: kernel.publicationTimeMilliseconds,
-    });
+    const ready = projectPointCommitTransactionResult(
+      requirePointCommitReadyForPublicationResult(kernel),
+    );
     await publishPointCommitInTransaction(
       tx,
       command,
@@ -2955,30 +2955,19 @@ async function runPointCommitTransactionKernel(
       preWriteDatabaseNowMilliseconds,
     ),
   );
-  if (clock.record.lastCommitSeq >= MAX_SIGNED_COMMIT_SEQ) {
-    throw new PointCommitResourceExhaustionV1Error({
-      dimension: "commitSequence",
-      maximum: MAX_SIGNED_COMMIT_SEQ,
-    });
-  }
-  if (
-    mode === "publish" &&
-    clock.record.lastOutboxSeq >= MAX_PERSISTED_SIGNED_INT64_V1
-  ) {
-    throw new PointCommitResourceExhaustionV1Error({
-      dimension: "outboxSequence",
-      maximum: MAX_PERSISTED_SIGNED_INT64_V1,
-    });
-  }
-  const tentativeCommitSeq = CommitSeqSchema.make(
-    clock.record.lastCommitSeq + 1n,
+  const allocation = projectPointCommitTransactionResult(
+    allocatePointCommitKernelResult(
+      clock,
+      mode,
+      preWriteDatabaseNowMilliseconds,
+    ),
   );
   const rowIntent = command.rowIntent;
   if (rowIntent !== null) {
     await lowerTentativePointCommitRow(
       tx,
       clock.record.epoch,
-      tentativeCommitSeq,
+      allocation.commitSeq,
       command,
       loadedHeads,
     );
@@ -2987,12 +2976,70 @@ async function runPointCommitTransactionKernel(
   return Object.freeze({
     kind: "ready",
     clock,
-    commitSeq: tentativeCommitSeq,
+    ...allocation,
+  });
+}
+
+function requirePointCommitReadyForPublicationResult(
+  kernel: Extract<PointCommitKernelResultV1, { readonly kind: "ready" }>,
+): Result.Result<
+  PointCommitReadyForPublicationV1,
+  PointCommitCorruptionV1Error
+> {
+  const commitSeq = kernel.commitSeq;
+  if (commitSeq === null) {
+    return Result.fail(corruption("publicationInvariantInvalid"));
+  }
+  const outboxSeq = kernel.outboxSeq;
+  if (outboxSeq === null) {
+    return Result.fail(corruption("publicationInvariantInvalid"));
+  }
+  const publicationTimeMilliseconds = kernel.publicationTimeMilliseconds;
+  if (publicationTimeMilliseconds === null) {
+    return Result.fail(corruption("publicationInvariantInvalid"));
+  }
+  return Result.succeed(Object.freeze({
+    ...kernel,
+    commitSeq,
+    outboxSeq,
+    publicationTimeMilliseconds,
+  }));
+}
+
+function allocatePointCommitKernelResult(
+  clock: LockedPointCommitClockV1,
+  mode: PointCommitTransactionModeV1,
+  publicationTimeMilliseconds: number,
+): Result.Result<
+  Readonly<{
+    readonly commitSeq: CommitSeq;
+    readonly outboxSeq: OutboxSeq | null;
+    readonly publicationTimeMilliseconds: number;
+  }>,
+  PointCommitResourceExhaustionV1Error
+> {
+  if (clock.record.lastCommitSeq >= MAX_SIGNED_COMMIT_SEQ) {
+    return Result.fail(new PointCommitResourceExhaustionV1Error({
+      dimension: "commitSequence",
+      maximum: MAX_SIGNED_COMMIT_SEQ,
+    }));
+  }
+  if (
+    mode === "publish" &&
+    clock.record.lastOutboxSeq >= MAX_PERSISTED_SIGNED_INT64_V1
+  ) {
+    return Result.fail(new PointCommitResourceExhaustionV1Error({
+      dimension: "outboxSequence",
+      maximum: MAX_PERSISTED_SIGNED_INT64_V1,
+    }));
+  }
+  return Result.succeed(Object.freeze({
+    commitSeq: CommitSeqSchema.make(clock.record.lastCommitSeq + 1n),
     outboxSeq: mode === "publish"
       ? OutboxSeqSchema.make(clock.record.lastOutboxSeq + 1n)
       : null,
-    publicationTimeMilliseconds: preWriteDatabaseNowMilliseconds,
-  });
+    publicationTimeMilliseconds,
+  }));
 }
 
 async function lockPointCommitClock(
@@ -3901,7 +3948,9 @@ async function publishPointCommitInTransaction(
       changeCount,
       committedAt: publicationTime,
     }).returning({ commitSeq: fxSystemCommits.commitSeq }));
-  requireSinglePublicationWrite(header, commitSeq);
+  projectPointCommitTransactionResult(
+    requireSinglePublicationWriteResult(header, commitSeq, "commitSeq"),
+  );
   await emitTransactionStep(options, command, "commitHeaderWritten");
 
   const rowIntent = command.rowIntent;
@@ -3915,7 +3964,9 @@ async function publishPointCommitInTransaction(
         tableId: rowIntent.tableId,
         rowId: appRowIdHexV1ToBytes(rowIntent.rowId),
       }).returning({ commitSeq: fxSystemCommitAppRowChanges.commitSeq }));
-    requireSinglePublicationWrite(change, commitSeq);
+    projectPointCommitTransactionResult(
+      requireSinglePublicationWriteResult(change, commitSeq, "commitSeq"),
+    );
     await emitTransactionStep(options, command, "commitChangeWritten");
   }
 
@@ -3943,7 +3994,9 @@ async function publishPointCommitInTransaction(
       resultExpiredAt: null,
       createdAt: publicationTime,
     }).returning({ commitSeq: fxSystemIdempotency.commitSeq }));
-  requireSinglePublicationWrite(outcome, commitSeq);
+  projectPointCommitTransactionResult(
+    requireSinglePublicationWriteResult(outcome, commitSeq, "commitSeq"),
+  );
   await emitTransactionStep(options, command, "outcomeWritten");
 
   const wake = await sqlCall("writeWake", () =>
@@ -3967,9 +4020,9 @@ async function publishPointCommitInTransaction(
       deliveredAt: null,
       deadLetteredAt: null,
     }).returning({ outboxSeq: fxSystemOutbox.outboxSeq }));
-  if (wake.length !== 1 || wake[0]?.outboxSeq !== outboxSeq) {
-    throw corruption("publicationInvariantInvalid");
-  }
+  projectPointCommitTransactionResult(
+    requireSinglePublicationWriteResult(wake, outboxSeq, "outboxSeq"),
+  );
   await emitTransactionStep(options, command, "wakeWritten");
 
   const journal = await sqlCall("deleteJournal", () =>
@@ -3984,12 +4037,11 @@ async function publishPointCommitInTransaction(
         command.authorityPins.attemptFence,
       ),
     )).returning({ sessionId: fxSystemTransactionJournals.sessionId }));
-  if (
-    journal.length !== 1 ||
-    journal[0]?.sessionId !== command.authorityPins.sessionId
-  ) {
-    throw corruption("publicationInvariantInvalid");
-  }
+  projectPointCommitTransactionResult(requireSinglePublicationWriteResult(
+    journal,
+    command.authorityPins.sessionId,
+    "sessionId",
+  ));
   await emitTransactionStep(options, command, "journalDeleted");
 
   const lease = await sqlCall("deleteLease", () =>
@@ -4004,12 +4056,11 @@ async function publishPointCommitInTransaction(
         command.authorityPins.attemptFence,
       ),
     )).returning({ sessionId: fxSystemSnapshotLeases.sessionId }));
-  if (
-    lease.length !== 1 ||
-    lease[0]?.sessionId !== command.authorityPins.sessionId
-  ) {
-    throw corruption("publicationInvariantInvalid");
-  }
+  projectPointCommitTransactionResult(requireSinglePublicationWriteResult(
+    lease,
+    command.authorityPins.sessionId,
+    "sessionId",
+  ));
   await emitTransactionStep(options, command, "leaseDeleted");
 
   const session = await sqlCall("commitSession", () =>
@@ -4028,12 +4079,11 @@ async function publishPointCommitInTransaction(
       ),
       eq(fxSystemTransactionSessions.lifecycle, "finishing"),
     )).returning({ sessionId: fxSystemTransactionSessions.sessionId }));
-  if (
-    session.length !== 1 ||
-    session[0]?.sessionId !== command.authorityPins.sessionId
-  ) {
-    throw corruption("publicationInvariantInvalid");
-  }
+  projectPointCommitTransactionResult(requireSinglePublicationWriteResult(
+    session,
+    command.authorityPins.sessionId,
+    "sessionId",
+  ));
   await emitTransactionStep(options, command, "sessionCommitted");
 
   const clock = await sqlCall("advanceScopeClock", () =>
@@ -4055,23 +4105,41 @@ async function publishPointCommitInTransaction(
       lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
       lastOutboxSeq: fxSystemScopeClocks.lastOutboxSeq,
     }));
-  if (
-    clock.length !== 1 ||
-    clock[0]?.lastCommitSeq !== commitSeq ||
-    clock[0]?.lastOutboxSeq !== outboxSeq
-  ) {
-    throw corruption("publicationInvariantInvalid");
-  }
+  projectPointCommitTransactionResult(
+    requirePointCommitClockPublicationResult(clock, commitSeq, outboxSeq),
+  );
   await emitTransactionStep(options, command, "clockAdvanced");
 }
 
-function requireSinglePublicationWrite(
-  rows: ReadonlyArray<Readonly<{ readonly commitSeq: CommitSeq }>>,
-  expected: CommitSeq,
-): void {
-  if (rows.length !== 1 || rows[0]?.commitSeq !== expected) {
-    throw corruption("publicationInvariantInvalid");
+function requireSinglePublicationWriteResult<
+  Key extends "commitSeq" | "outboxSeq" | "sessionId",
+  Value,
+>(
+  rows: ReadonlyArray<Readonly<Record<Key, Value>>>,
+  expected: Value,
+  key: Key,
+): Result.Result<void, PointCommitCorruptionV1Error> {
+  return rows.length === 1 && rows[0]?.[key] === expected
+    ? Result.succeed(undefined)
+    : Result.fail(corruption("publicationInvariantInvalid"));
+}
+
+function requirePointCommitClockPublicationResult(
+  rows: ReadonlyArray<Readonly<{
+    readonly lastCommitSeq: CommitSeq;
+    readonly lastOutboxSeq: OutboxSeq;
+  }>>,
+  expectedCommitSeq: CommitSeq,
+  expectedOutboxSeq: OutboxSeq,
+): Result.Result<void, PointCommitCorruptionV1Error> {
+  if (
+    rows.length !== 1 ||
+    rows[0]?.lastCommitSeq !== expectedCommitSeq ||
+    rows[0]?.lastOutboxSeq !== expectedOutboxSeq
+  ) {
+    return Result.fail(corruption("publicationInvariantInvalid"));
   }
+  return Result.succeed(undefined);
 }
 
 function adaptPointDependency(
@@ -4116,14 +4184,37 @@ async function lowerTentativePointCommitRow(
   command: PreparedPointCommitTransactionCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
 ): Promise<void> {
+  const input = projectPointCommitTransactionResult(
+    prepareTentativePointCommitRowResult(
+      writeEpoch,
+      tentativeCommitSeq,
+      command,
+      heads,
+    ),
+  );
+  await sqlCall("writeTentativeRow", () =>
+    appendPreparedAppRowRevisionAndAdvanceCurrentInTransaction(tx, input));
+}
+
+function prepareTentativePointCommitRowResult(
+  writeEpoch: ScopeEpoch,
+  tentativeCommitSeq: CommitSeq,
+  command: PreparedPointCommitTransactionCommandV1,
+  heads: ReadonlyArray<LoadedPointCommitHeadV1>,
+): Result.Result<
+  AppendPreparedAppRowRevisionV1Input,
+  PointCommitCorruptionV1Error
+> {
   const intent = command.rowIntent;
-  if (intent === null) throw corruption("rowTransitionInvalid");
+  if (intent === null) {
+    return Result.fail(corruption("rowTransitionInvalid"));
+  }
   const index = command.dependencies.findIndex(
     (dependency) => pointDependenciesEqual(dependency, intent),
   );
   const loaded = heads[index];
   if (index < 0 || loaded === undefined) {
-    throw corruption("rowTransitionInvalid");
+    return Result.fail(corruption("rowTransitionInvalid"));
   }
   const observed = intent.dependency.observed;
   if (intent.kind === "deleted") {
@@ -4132,23 +4223,21 @@ async function lowerTentativePointCommitRow(
       loaded.head.kind !== "live" ||
       loaded.creationTime === null
     ) {
-      throw corruption("rowTransitionInvalid");
+      return Result.fail(corruption("rowTransitionInvalid"));
     }
     const predecessorCommitSeq = loaded.head.revisionCommitSeq;
     const creationTime = loaded.creationTime;
-    await sqlCall("writeTentativeRow", () =>
-      appendPreparedAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-        kind: "tombstone",
-        scopeId: command.authorityPins.scopeId,
-        tableId: intent.tableId,
-        rowId: intent.rowId,
-        writeEpoch,
-        commitSeq: tentativeCommitSeq,
-        prevCommitSeq: predecessorCommitSeq,
-        schemaVersionId: command.authorityPins.schemaVersionId,
-        creationTime,
-      }));
-    return;
+    return Result.succeed({
+      kind: "tombstone",
+      scopeId: command.authorityPins.scopeId,
+      tableId: intent.tableId,
+      rowId: intent.rowId,
+      writeEpoch,
+      commitSeq: tentativeCommitSeq,
+      prevCommitSeq: predecessorCommitSeq,
+      schemaVersionId: command.authorityPins.schemaVersionId,
+      creationTime,
+    });
   }
 
   let prevCommitSeq: CommitSeq | null;
@@ -4164,21 +4253,20 @@ async function lowerTentativePointCommitRow(
   ) {
     prevCommitSeq = loaded.head.revisionCommitSeq;
   } else {
-    throw corruption("rowTransitionInvalid");
+    return Result.fail(corruption("rowTransitionInvalid"));
   }
-  await sqlCall("writeTentativeRow", () =>
-    appendPreparedAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
-      kind: "live",
-      scopeId: command.authorityPins.scopeId,
-      tableId: intent.tableId,
-      rowId: intent.rowId,
-      writeEpoch,
-      commitSeq: tentativeCommitSeq,
-      prevCommitSeq,
-      schemaVersionId: command.authorityPins.schemaVersionId,
-      creationTime: intent.creationTime,
-      document: intent.document,
-    }));
+  return Result.succeed({
+    kind: "live",
+    scopeId: command.authorityPins.scopeId,
+    tableId: intent.tableId,
+    rowId: intent.rowId,
+    writeEpoch,
+    commitSeq: tentativeCommitSeq,
+    prevCommitSeq,
+    schemaVersionId: command.authorityPins.schemaVersionId,
+    creationTime: intent.creationTime,
+    document: intent.document,
+  });
 }
 
 function freezeRowIdentity(

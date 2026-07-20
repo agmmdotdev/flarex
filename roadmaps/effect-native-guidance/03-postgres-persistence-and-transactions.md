@@ -158,6 +158,12 @@ rolls back both publication and exact-attempt replacement. Delete that
 projection when the point-commit mutation graph owns an Effect transaction
 client and can yield the Result channel directly. SQL, lock order, rollback,
 publication, and interruption behavior are unchanged.
+The O07-B continuation now keeps ready-kernel narrowing, commit/outbox sequence
+allocation, tentative row-transition planning, and every durable publication
+receipt in named `Result` operations until that same callback projection.
+Sequence exhaustion, invalid row transitions, and mismatched write receipts
+retain their typed identities and ordering; the SQL statements, atomic write
+order, emitted proof steps, and rollback behavior are unchanged.
 
 Journal counters, receipt cardinality, stored request/outcome decoding, and
 receipt/root correlation now compose through `Result` and Effect directly.
