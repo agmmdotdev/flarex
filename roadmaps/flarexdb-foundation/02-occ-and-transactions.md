@@ -33,8 +33,9 @@ B2b2b1's bounded inert scope-local discovery, and O08-B2b2b2a's durable dirty/
 failed-attempt disposition are complete. O08-B2b2b2b0a grant/retention policy
 coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a's
 phase-aware execution-claim renewal transaction, and O08-B2b2b2b1b1's
-host-neutral structured liveness lifecycle are complete. O08-B2b2b2b1b2
-production scheduling/redelivery and C06-B endpoint/response policy remain
+host-neutral structured liveness lifecycle and O08-B2b2b2b1b2a bounded single-
+page redelivery are complete. O08-B2b2b2b1b2b production scheduling/redelivery
+and C06-B endpoint/response policy remain
 pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
@@ -755,7 +756,8 @@ Deferred ownership after the required O03-B core:
   inert discovery, and `O08-B2b2b2a` owns claim-fenced dirty/failed-attempt
   disposition. `O08-B2b2b2b1a` owns the completed phase-aware renewal
   transaction and `O08-B2b2b2b1b1` owns the completed host-neutral structured
-  heartbeat/lifecycle. `O08-B2b2b2b1b2` and `C06-B` retain scheduling/
+  heartbeat/lifecycle. `O08-B2b2b2b1b2a` owns the completed bounded one-page
+  sweep; `O08-B2b2b2b1b2b` and `C06-B` retain repeated-page scheduling/
   redelivery, production dispatch liveness, and endpoint/response policy.
   `O08-C` owns
   known-settled SQL retry, and
@@ -1183,13 +1185,24 @@ stale ownership, and persistence uncertainty fail closed without minting new
 authority. The scoped Effect process stops with its attempt, preserves primary
 and cleanup causes, and never uses Effect time as database authority.
 
-###### [ ] O08-B2b2b2b1b2 — Schedule And Redeliver Production Dispatch
+###### [x] O08-B2b2b2b1b2a — Sweep One Bounded Redelivery Page
 
-Scheduling/redelivery, authenticated runtime routing, Dynamic Worker
-integration, and production dispatch liveness remain unapproved and belong to
-this later consumer-driven gate plus C06-B. Lifecycle, persisted claim fields,
-discovery hints, renewal observations, and scheduler timing alone never mint
-execution authority.
+One package-private host-neutral coordinator now consumes exactly one bounded
+discovery page in canonical order and invokes the existing outcome-first exact-
+selector redispatch composer sequentially for each inert hint. It stops on the
+first typed failure without remapping it and returns only frozen redacted
+operational dispositions; successful-result payloads never cross this boundary.
+It adds no timer, polling, sleep, retry, scheduler, route, runtime adapter, or
+new authority. Discovery selectors are adapted to the existing executor wire
+locator, but only the locked C06-A acquisition may mint execution authority.
+
+###### [ ] O08-B2b2b2b1b2b — Schedule Production Dispatch
+
+Scope enumeration, triggers, repeated-page policy, authenticated runtime
+routing, Dynamic Worker integration, and production dispatch liveness remain
+unapproved and belong to this later consumer-driven gate plus C06-B. Lifecycle,
+persisted claim fields, discovery hints, sweep observations, renewal
+observations, and scheduler timing alone never mint execution authority.
 
 `O08-B2b2b2b` is split at the remaining authority boundaries:
 
@@ -1252,9 +1265,12 @@ execution authority.
   finish-only authority, owns immediate plus deterministic periodic renewal,
   preserves full `Cause`, and explicitly handles takeover, C05-A consumption,
   and shutdown races without creating retry or execution authority.
-- **[ ] O08-B2b2b2b1b2 — production scheduling/redelivery.** Discovery
-  consumption, host dispatch, redelivery policy, and operational liveness stay
-  downstream with C06-B.
+- **[x] O08-B2b2b2b1b2a — bounded host-neutral redelivery sweep.** One page of
+  inert hints is consumed sequentially through the existing exact-selector
+  composer with fail-fast typed errors and redacted frozen dispositions.
+- **[ ] O08-B2b2b2b1b2b — production scheduling/redelivery.** Scope
+  enumeration, triggers, repeated-page policy, host dispatch, authenticated
+  routing, and operational liveness stay downstream with C06-B.
 
 `O11` consumes this policy later; it is not a prerequisite to define it. Only a
 snapshot lease that is live under database time pins engine history. An expired

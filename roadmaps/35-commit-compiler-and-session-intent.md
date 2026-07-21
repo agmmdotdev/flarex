@@ -23,7 +23,8 @@ recovery are complete. O08-B2b2b2a durable dirty/failed-attempt disposition is
 also complete. O08-B2b2b2b0a value-based grant/retention policy coherence and
 O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware
 renewal, and O08-B2b2b2b1b1 host-neutral structured liveness are complete.
-O08-B2b2b2b1b2 production scheduling/redelivery and dispatch, and C06-B
+O08-B2b2b2b1b2a bounded host-neutral single-page redelivery is complete.
+O08-B2b2b2b1b2b production scheduling/redelivery and dispatch, and C06-B
 endpoint/response policy remain pending; C04C2 remains conditional
 and unapproved.
 
@@ -239,8 +240,9 @@ uncertainty recovery, O08-B2b2a owns private exact-selector safe-state
 redispatch, O08-B2b2b1 owns bounded inert discovery, O08-B2b2b2a owns durable
 dirty/failed-attempt disposition, O08-B2b2b2b0a owns grant/retention policy
 coherence, B2b2b2b0b owns atomic seal-time lease promotion, B2b2b2b1a owns
-phase-aware renewal, B2b2b2b1b1 owns host-neutral structured liveness, B2b2b2b1b2
-retains scheduling/redelivery and production dispatch, and O11 first consumes active
+phase-aware renewal, B2b2b2b1b1 owns host-neutral structured liveness,
+B2b2b2b1b2a owns bounded single-page redelivery, B2b2b2b1b2b retains production
+scheduling/redelivery and dispatch, and O11 first consumes active
 floors.
 
 Temporary journal placement does not change this anchor. Reloading it
@@ -357,9 +359,10 @@ owner busy, one pristine execution, sealed finish-only, and existing finishing
 recovery over that singular claim. O08-B2b2b1 now supplies bounded inert
 discovery. O08-B2b2b2a separately closes expired dirty/failed attempts through
 claim-fenced terminalization; O08-B2b2b2b0a closes policy coherence, and
-B2b2b2b0b closes atomic seal-time lease promotion, and B2b2b2b1b1 closes
-host-neutral structured execution-claim liveness. B2b2b2b1b2 production
-scheduling/redelivery and dispatch, and C06-B endpoint/response policy remain pending. A stale journal or
+B2b2b2b0b closes atomic seal-time lease promotion, B2b2b2b1b1 closes host-
+neutral structured execution-claim liveness, and B2b2b2b1b2a closes one
+bounded redelivery page. B2b2b2b1b2b production scheduling/redelivery and
+dispatch, and C06-B endpoint/response policy remain pending. A stale journal or
 Durable Object cannot reopen a terminal session.
 
 ### Planner and executor split
@@ -922,8 +925,9 @@ operational point-journal consumer, and C04A's private stored-attempt
   uncertainty recovery and O08-B2b2b2a durable dirty/failed-attempt disposition,
   O08-B2b2b2b0a grant/retention policy coherence, and O08-B2b2b2b0b atomic
   seal-time lease promotion, O08-B2b2b2b1a phase-aware renewal, and
-  O08-B2b2b2b1b1 host-neutral structured liveness are complete. O08-B2b2b2b1b2
-  production scheduling/redelivery and dispatch plus C06-B endpoint/response
+  O08-B2b2b2b1b1 host-neutral structured liveness and O08-B2b2b2b1b2a bounded
+  single-page redelivery are complete. O08-B2b2b2b1b2b production scheduling/
+  redelivery and dispatch plus C06-B endpoint/response
   policy remain pending, and
   C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
@@ -932,7 +936,7 @@ retention consumer proves that a bounded attempt must outlive its initial lease.
 Operational revocation and hosted Worker/key adapters are deferred and do not
 block the private C07 proof.
 Hosted compiler execution still waits for coherent production validator and
-activation authority, O08-B2b2b2b1b2/C06-B/C07, the target-only caller and routing
+activation authority, O08-B2b2b2b1b2b/C06-B/C07, the target-only caller and routing
 cutover, and the remaining hosted adapters. Shipped-state migration prerequisites are
 conditional.
 

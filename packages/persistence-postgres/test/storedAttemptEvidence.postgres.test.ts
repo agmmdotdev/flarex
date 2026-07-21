@@ -63,6 +63,10 @@ import {
 } from "../../executor/src/pointMutationSessionActivation";
 import { createPointMutationSessionAttemptDispositionV1 } from
   "../../executor/src/pointMutationSessionAttemptDisposition";
+import { createPointMutationAttemptRedeliveryV1 } from
+  "../../executor/src/pointMutationAttemptRedelivery";
+import { decodePointMutationSessionAttemptSelectorV1 } from
+  "../../executor/src/pointMutationSessionAttemptSelector";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
   createPointMutationExecutionClaimVaultV1,
@@ -111,6 +115,8 @@ import {
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
+import { createPointMutationAttemptDiscoveryV1 } from
+  "../src/pointMutationAttemptDiscovery";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
@@ -139,6 +145,7 @@ import {
 import {
   createLocatedPointMutationSessionActivationTargetV1,
   createPointMutationExecutionClaimAcquisitionV1,
+  PointMutationExecutionClaimAcquisitionStaleV1Error,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
@@ -1181,6 +1188,212 @@ describePostgres("real Postgres stored-attempt authority", () => {
         last_commit_seq: "1",
         last_outbox_seq: "1",
       }] });
+    });
+  }, 120_000);
+
+  it("discovers and redispatches one bounded page through the exact-selector composer", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(
+        persistence,
+        "b2b2b2b1b2a_page",
+      );
+      await persistence.query(
+        `update fx_system_tx_execution_claim
+         set claimed_at = date_trunc(
+             'milliseconds',
+             clock_timestamp() - interval '2 minutes'
+           ),
+           claim_expires_at = date_trunc(
+             'milliseconds',
+             clock_timestamp() - interval '1 minute'
+           )
+         where session_id = $1`,
+        [current.anchor.sessionId],
+      );
+      let runnerCalls = 0;
+      const authentication = createB2b2aRedispatchAuthentication(
+        persistence,
+        current,
+        createPointMutationExecutionClaimVaultV1(),
+        Object.freeze({
+          run: () => {
+            runnerCalls += 1;
+            return Effect.succeed(Object.freeze({ ok: true }));
+          },
+        }),
+        () => "95000000-0000-4000-8000-000000000003",
+      );
+      const redelivery = createPointMutationAttemptRedeliveryV1(
+        pointMutationAttemptDiscovery(persistence),
+        authentication,
+      );
+
+      const page = await runEffect(redelivery.sweepEffect({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        limit: 100,
+      }));
+      expect(page.items).toHaveLength(1);
+      expect(page.items[0]).toMatchObject({
+        candidate: {
+          selector: {
+            deploymentId: current.anchor.deploymentId,
+            scopeId: current.anchor.scopeId,
+            sessionId: current.anchor.sessionId,
+            attemptFence: current.anchor.attemptFence,
+          },
+          source: "expiredClaim",
+        },
+        disposition: {
+          kind: "published",
+          token: { commitSeq: 1n },
+        },
+      });
+      expect(page.items[0]?.disposition)
+        .not.toHaveProperty("successfulResult");
+      expect(runnerCalls).toBe(1);
+
+      await expect(runEffect(redelivery.sweepEffect({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        limit: 100,
+      }))).resolves.toMatchObject({ items: [], continuation: null });
+      expect(runnerCalls).toBe(1);
+    });
+  }, 120_000);
+
+  it("recovers a partially applied page without duplicate publication", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const first = await o08B1Scenario(
+        persistence,
+        "b2b2b2b1b2a_partial_first",
+      );
+      const second = await o08B1Scenario(
+        persistence,
+        "b2b2b2b1b2a_partial_second",
+      );
+      for (const current of [first, second]) {
+        await persistence.query(
+          `update fx_system_tx_execution_claim
+           set claimed_at = date_trunc(
+               'milliseconds',
+               clock_timestamp() - interval '2 minutes'
+             ),
+             claim_expires_at = date_trunc(
+               'milliseconds',
+               clock_timestamp() - interval '1 minute'
+             )
+           where session_id = $1`,
+          [current.anchor.sessionId],
+        );
+      }
+      let firstRunnerCalls = 0;
+      let secondRunnerCalls = 0;
+      const firstAuthentication = createB2b2aRedispatchAuthentication(
+        persistence,
+        first,
+        createPointMutationExecutionClaimVaultV1(),
+        Object.freeze({
+          run: () => {
+            firstRunnerCalls += 1;
+            return Effect.succeed(Object.freeze({ ok: true }));
+          },
+        }),
+        () => "95000000-0000-4000-8000-000000000004",
+      );
+      const secondAuthentication = createB2b2aRedispatchAuthentication(
+        persistence,
+        second,
+        createPointMutationExecutionClaimVaultV1(),
+        Object.freeze({
+          run: () => {
+            secondRunnerCalls += 1;
+            return Effect.succeed(Object.freeze({ ok: true }));
+          },
+        }),
+        () => "95000000-0000-4000-8000-000000000005",
+      );
+      const candidates = Object.freeze([first, second].map((current) =>
+        Object.freeze({
+          selector: Object.freeze({
+            deploymentId: current.anchor.deploymentId,
+            scopeId: current.anchor.scopeId,
+            sessionId: current.anchor.sessionId,
+            attemptFence: current.anchor.attemptFence,
+          }),
+          source: "expiredClaim" as const,
+          eligibleAt: "2026-07-21T00:00:00.000Z",
+        })
+      ));
+      const injectedFailure =
+        new PointMutationExecutionClaimAcquisitionStaleV1Error({
+          reason: "attemptReplaced",
+        });
+      let failSecond = true;
+      const redelivery = createPointMutationAttemptRedeliveryV1(
+        Object.freeze({
+          discoverEffect: () => Effect.succeed(Object.freeze({
+            horizon: "2026-07-21T00:00:01.000Z",
+            candidates,
+            continuation: null,
+          })),
+        }),
+        Object.freeze({
+          redispatchExactPointMutationAttempt: (input: unknown) => {
+            const selector = decodePointMutationSessionAttemptSelectorV1(
+              input,
+            );
+            if (selector.sessionId === first.anchor.sessionId) {
+              return firstAuthentication
+                .redispatchExactPointMutationAttempt(input);
+            }
+            if (failSecond) return Effect.fail(injectedFailure);
+            return secondAuthentication
+              .redispatchExactPointMutationAttempt(input);
+          },
+        }),
+      );
+
+      await expect(runFailure(redelivery.sweepEffect({})))
+        .resolves.toBe(injectedFailure);
+      expect(firstRunnerCalls).toBe(1);
+      expect(secondRunnerCalls).toBe(0);
+
+      failSecond = false;
+      const recovered = await runEffect(redelivery.sweepEffect({}));
+      expect(recovered.items.map(({ disposition }) => disposition.kind))
+        .toEqual(["replayed", "published"]);
+      expect(firstRunnerCalls).toBe(1);
+      expect(secondRunnerCalls).toBe(1);
+
+      for (const current of [first, second]) {
+        const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+        await expect(persistence.query<{
+          last_commit_seq: string;
+          last_outbox_seq: string;
+          headers: string;
+          outcomes: string;
+          wakes: string;
+        }>(
+          `select clock.last_commit_seq::text,
+             clock.last_outbox_seq::text,
+             (select count(*)::text from fx_system_commit header
+              where header.scope_uuid = clock.scope_uuid) as headers,
+             (select count(*)::text from fx_system_idempotency outcome
+              where outcome.scope_uuid = clock.scope_uuid) as outcomes,
+             (select count(*)::text from fx_system_outbox wake
+              where wake.scope_uuid = clock.scope_uuid) as wakes
+           from fx_system_scope_clock clock
+           where clock.scope_uuid = $1`,
+          [scopeUuid],
+        )).resolves.toEqual({ rows: [{
+          last_commit_seq: "1",
+          last_outbox_seq: "1",
+          headers: "1",
+          outcomes: "1",
+          wakes: "1",
+        }] });
+      }
     });
   }, 120_000);
 
@@ -3358,6 +3571,26 @@ function resolutionPorts(
         ),
     },
   };
+}
+
+function pointMutationAttemptDiscovery(
+  persistence: PostgresFlarexPersistence,
+) {
+  return createPointMutationAttemptDiscoveryV1({
+    scopeMetadata: persistence,
+    provisioningReceipts: {
+      getScopeAuthorityProvisioningReceipt: async () => {
+        throw new Error("Shared discovery must not read split receipts.");
+      },
+    },
+    scopeDiscoveryTargets: {
+      resolve: async (physicalLocator): Promise<LocatedScopeClockReader> =>
+        createPostgresLocatedPointMutationSessionActivationTargetV1(
+          persistence,
+          physicalLocator,
+        ),
+    },
+  });
 }
 
 function resolutionPortsWithRunner(

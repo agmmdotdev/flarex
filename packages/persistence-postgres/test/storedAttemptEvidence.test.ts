@@ -83,6 +83,8 @@ import {
 } from "../../executor/src/pointMutationSessionActivation";
 import { createPointMutationSessionAttemptDispositionV1 } from
   "../../executor/src/pointMutationSessionAttemptDisposition";
+import { createPointMutationAttemptRedeliveryV1 } from
+  "../../executor/src/pointMutationAttemptRedelivery";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
   createPointMutationExecutionClaimVaultV1,
@@ -2138,6 +2140,52 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       last_commit_seq: "1",
       last_outbox_seq: "1",
     });
+  });
+
+  it("discovers and redispatches one bounded page without returning result payloads", async () => {
+    const current = await c04b2Scenario("o08_b2b2b2b1b2a_page");
+    await expireExactExecutionClaim(current.anchor.sessionId);
+    let runnerCalls = 0;
+    const authentication = createB2b2aRedispatchAuthentication(
+      current,
+      createPointMutationExecutionClaimVaultV1(),
+      Object.freeze({
+        run: () => {
+          runnerCalls += 1;
+          return Effect.succeed(Object.freeze({ ok: true }));
+        },
+      }),
+    );
+    const redelivery = createPointMutationAttemptRedeliveryV1(
+      pointMutationAttemptDiscovery(persistence),
+      authentication,
+    );
+
+    const page = await runEffect(redelivery.sweepEffect({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      limit: 100,
+    }));
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      candidate: {
+        selector: selectorFromAnchor(current.anchor),
+        source: "expiredClaim",
+      },
+      disposition: {
+        kind: "published",
+        token: { commitSeq: 1n },
+      },
+    });
+    expect(page.items[0]?.disposition).not.toHaveProperty("successfulResult");
+    expect(runnerCalls).toBe(1);
+
+    await expect(runEffect(redelivery.sweepEffect({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      limit: 100,
+    }))).resolves.toMatchObject({ items: [], continuation: null });
+    expect(runnerCalls).toBe(1);
   });
 
   it("keeps live claims busy and durably closes dirty-open and failed roots", async () => {

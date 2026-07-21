@@ -12,6 +12,7 @@
     "./postgres-client": "./src/postgresClient.ts",
     "./postgres": "./src/postgres.ts",
     "./pglite": "./src/pglite.ts",
+    "./point-mutation-attempt-discovery": "./src/pointMutationAttemptDiscovery.ts",
     "./point-commit-transaction": "./src/pointCommitTransaction.ts",
     "./session-journal-store": "./src/sessionJournalStore.ts",
     "./stored-occ-execution": "./src/storedOccExecution.ts",
