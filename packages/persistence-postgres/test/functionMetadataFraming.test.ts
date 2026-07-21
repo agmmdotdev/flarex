@@ -21,6 +21,9 @@ import {
   type FunctionMetadataPublicationKeyPinsV1,
 } from "../src/functionMetadataFraming";
 import { encodeFunctionMetadataSetV1 } from "../src/functionMetadataCodec";
+import { hashFunctionMetadataSha256V1 } from
+  "../src/functionMetadataSha256";
+import { runEffect } from "./effectTestRuntime";
 
 const LARGE_BUDGET = { maximumFrameBytesMaterialized: 1_000_000 };
 const SIGNED_INT64_MAX = 9_223_372_036_854_775_807n;
@@ -452,8 +455,9 @@ function expectFailure<E extends FunctionMetadataFramingV1Error>(
 }
 
 async function sha256(input: Uint8Array): Promise<Uint8Array> {
-  const owned = Uint8Array.prototype.slice.call(input);
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", owned));
+  return runEffect(hashFunctionMetadataSha256V1(input, {
+    maximumInputBytes: input.byteLength,
+  }));
 }
 
 function hex(input: Uint8Array): string {

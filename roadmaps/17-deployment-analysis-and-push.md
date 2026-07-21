@@ -480,6 +480,9 @@ persistence privately owns only the pure, versioned SHA-256 preimage framing
 for function paths, canonical function rows, the row-chain seed and step,
 package publication pins, and completed-package evidence. It deliberately has
 no package-level execution module, hashing adapter, SQL, staging state, or
-authority. The authenticated cursorable source/EOF owner, asynchronous hash
-adapter, `PAM-A0b1` catalog DDL, `PAM-A1`, `PAM-A2`, `PAM-B`, and `C03-V`
-remain pending and require their own accepted contracts.
+authority. `PAM-A0b0-H` is complete: one persistence-private Effect adapter
+hashes a caller-budgeted owned preimage through SHA-256, retains direct native
+resource failure identity privately, and treats malformed platform output as a
+defect without exporting a service or authority. The authenticated cursorable
+source/EOF owner, `PAM-A0b1` catalog DDL, `PAM-A1`, `PAM-A2`, `PAM-B`, and
+`C03-V` remain pending and require their own accepted contracts.
