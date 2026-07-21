@@ -33,9 +33,10 @@ B2b2b1's bounded inert scope-local discovery, and O08-B2b2b2a's durable dirty/
 failed-attempt disposition are complete. O08-B2b2b2b0a grant/retention policy
 coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a's
 phase-aware execution-claim renewal transaction, and O08-B2b2b2b1b1's
-host-neutral structured liveness lifecycle and O08-B2b2b2b1b2a bounded single-
-page redelivery are complete. O08-B2b2b2b1b2b production scheduling/redelivery
-and C06-B endpoint/response policy remain
+host-neutral structured liveness lifecycle, O08-B2b2b2b1b2a bounded single-
+page redelivery, and O08-B2b2b2b1b2b1 bounded inert scope enumeration are
+complete. O08-B2b2b2b1b2b2 repeated-page/multi-scope scheduling and C06-B
+endpoint/response policy remain
 pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
@@ -757,7 +758,8 @@ Deferred ownership after the required O03-B core:
   disposition. `O08-B2b2b2b1a` owns the completed phase-aware renewal
   transaction and `O08-B2b2b2b1b1` owns the completed host-neutral structured
   heartbeat/lifecycle. `O08-B2b2b2b1b2a` owns the completed bounded one-page
-  sweep; `O08-B2b2b2b1b2b` and `C06-B` retain repeated-page scheduling/
+  sweep, and `O08-B2b2b2b1b2b1` owns bounded inert scope enumeration;
+  `O08-B2b2b2b1b2b2` and `C06-B` retain repeated-page/multi-scope scheduling,
   redelivery, production dispatch liveness, and endpoint/response policy.
   `O08-C` owns
   known-settled SQL retry, and
@@ -1196,13 +1198,22 @@ It adds no timer, polling, sleep, retry, scheduler, route, runtime adapter, or
 new authority. Discovery selectors are adapted to the existing executor wire
 locator, but only the locked C06-A acquisition may mint execution authority.
 
-###### [ ] O08-B2b2b2b1b2b — Schedule Production Dispatch
+###### [x] O08-B2b2b2b1b2b1 — Enumerate Bounded Inert Redelivery Scopes
 
-Scope enumeration, triggers, repeated-page policy, authenticated runtime
+One package-private persistence operation now reads at most 100 canonical
+replacement-scope locators from the authoritative control-plane scope directory
+in scope-ID order. Its frozen `{ deploymentId, scopeId }` values and high-water
+continuation are inert pagination data only. The query returns no physical
+locator, mutable active-schema state, claim, journal, or capability and performs
+no per-scope authority resolution, acquisition, or redispatch.
+
+###### [ ] O08-B2b2b2b1b2b2 — Schedule Production Dispatch
+
+Bounded multi-scope/repeated-page policy, triggers, authenticated runtime
 routing, Dynamic Worker integration, and production dispatch liveness remain
 unapproved and belong to this later consumer-driven gate plus C06-B. Lifecycle,
-persisted claim fields, discovery hints, sweep observations, renewal
-observations, and scheduler timing alone never mint execution authority.
+persisted claim fields, scope locators, discovery hints, sweep observations,
+renewal observations, and scheduler timing alone never mint execution authority.
 
 `O08-B2b2b2b` is split at the remaining authority boundaries:
 
@@ -1268,8 +1279,11 @@ observations, and scheduler timing alone never mint execution authority.
 - **[x] O08-B2b2b2b1b2a — bounded host-neutral redelivery sweep.** One page of
   inert hints is consumed sequentially through the existing exact-selector
   composer with fail-fast typed errors and redacted frozen dispositions.
-- **[ ] O08-B2b2b2b1b2b — production scheduling/redelivery.** Scope
-  enumeration, triggers, repeated-page policy, host dispatch, authenticated
+- **[x] O08-B2b2b2b1b2b1 — inert scope enumeration.** One bounded
+  control-plane page returns only frozen replacement-scope locators and inert
+  high-water pagination data; exact per-scope resolution remains downstream.
+- **[ ] O08-B2b2b2b1b2b2 — production scheduling/redelivery.** Bounded
+  multi-scope/repeated-page policy, triggers, host dispatch, authenticated
   routing, and operational liveness stay downstream with C06-B.
 
 `O11` consumes this policy later; it is not a prerequisite to define it. Only a
