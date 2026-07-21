@@ -85,6 +85,10 @@ import { createPointMutationSessionAttemptDispositionV1 } from
   "../../executor/src/pointMutationSessionAttemptDisposition";
 import { createPointMutationAttemptRedeliveryV1 } from
   "../../executor/src/pointMutationAttemptRedelivery";
+import { createPointMutationMultiScopeRedeliveryV1 } from
+  "../../executor/src/pointMutationMultiScopeRedelivery";
+import { decodePointMutationSessionAttemptSelectorV1 } from
+  "../../executor/src/pointMutationSessionAttemptSelector";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
   createPointMutationExecutionClaimVaultV1,
@@ -156,6 +160,7 @@ import {
   fxSystemScopeClocks,
 } from "../src/schema";
 import {
+  PointMutationExecutionClaimAcquisitionStaleV1Error,
   createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
@@ -2186,6 +2191,115 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       limit: 100,
     }))).resolves.toMatchObject({ items: [], continuation: null });
     expect(runnerCalls).toBe(1);
+  });
+
+  it("continues independent scopes after one typed failure and safely replays a fresh sweep", async () => {
+    const first = await c04b2Scenario("o08_multi_scope_first");
+    const second = await c04b2Scenario("o08_multi_scope_second");
+    for (const current of [first, second]) {
+      await expireExactExecutionClaim(current.anchor.sessionId);
+    }
+    let firstRunnerCalls = 0;
+    let secondRunnerCalls = 0;
+    const firstAuthentication = createB2b2aRedispatchAuthentication(
+      first,
+      createPointMutationExecutionClaimVaultV1(),
+      Object.freeze({
+        run: () => {
+          firstRunnerCalls += 1;
+          return Effect.succeed(Object.freeze({ ok: true }));
+        },
+      }),
+    );
+    const secondAuthentication = createB2b2aRedispatchAuthentication(
+      second,
+      createPointMutationExecutionClaimVaultV1(),
+      Object.freeze({
+        run: () => {
+          secondRunnerCalls += 1;
+          return Effect.succeed(Object.freeze({ ok: true }));
+        },
+      }),
+    );
+    const injectedFailure =
+      new PointMutationExecutionClaimAcquisitionStaleV1Error({
+        reason: "attemptReplaced",
+      });
+    let failSecond = true;
+    const redelivery = createPointMutationAttemptRedeliveryV1(
+      pointMutationAttemptDiscovery(persistence),
+      Object.freeze({
+        redispatchExactPointMutationAttempt: (input: unknown) => {
+          const selector = decodePointMutationSessionAttemptSelectorV1(input);
+          if (selector.scopeId === first.anchor.scopeId) {
+            return firstAuthentication.redispatchExactPointMutationAttempt(
+              input,
+            );
+          }
+          if (failSecond) return Effect.fail(injectedFailure);
+          return secondAuthentication.redispatchExactPointMutationAttempt(
+            input,
+          );
+        },
+      }),
+    );
+    const scopeCandidates = Object.freeze([first, second].map((current) =>
+      Object.freeze({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+      })
+    ));
+    const multiScope = createPointMutationMultiScopeRedeliveryV1(
+      Object.freeze({
+        discoverEffect: () => Effect.succeed(Object.freeze({
+          candidates: scopeCandidates,
+          continuation: null,
+        })),
+      }),
+      redelivery,
+    );
+    const sweepInput = Object.freeze({
+      scopeLimit: 100,
+      maxAttemptPages: 2,
+      maxCandidateAttempts: 2,
+    });
+
+    const partial = await runEffect(multiScope.sweepEffect(sweepInput));
+    expect(partial.scopes.map((scope) => scope.kind)).toEqual([
+      "processed",
+      "failed",
+    ]);
+    expect(partial.scopes[1]).toMatchObject({
+      kind: "failed",
+      error: injectedFailure,
+    });
+    expect(partial.continuation).toBeNull();
+    expect(firstRunnerCalls).toBe(1);
+    expect(secondRunnerCalls).toBe(0);
+
+    failSecond = false;
+    const recovered = await runEffect(multiScope.sweepEffect(sweepInput));
+    expect(recovered.scopes.map((scope) =>
+      scope.kind === "processed"
+        ? scope.page.items[0]?.disposition.kind
+        : scope.kind
+    )).toEqual([undefined, "published"]);
+    expect(firstRunnerCalls).toBe(1);
+    expect(secondRunnerCalls).toBe(1);
+    for (const current of [first, second]) {
+      await expect(o06DurableState(
+        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+      )).resolves.toEqual({
+        revisions: "0",
+        current_rows: "0",
+        commit_headers: "1",
+        commit_changes: "0",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+    }
   });
 
   it("keeps live claims busy and durably closes dirty-open and failed roots", async () => {

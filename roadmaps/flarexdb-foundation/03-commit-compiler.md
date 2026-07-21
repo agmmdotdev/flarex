@@ -25,9 +25,10 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   retention policy coherence and O08-B2b2b2b0b's atomic seal-time lease
   promotion, O08-B2b2b2b1a phase-aware renewal, and O08-B2b2b2b1b1
   host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page
-  redelivery, and O08-B2b2b2b1b2b1 inert scope enumeration are complete. O08-
-  B2b2b2b1b2b2 repeated-page/multi-scope scheduling and C06-B endpoint/response
-  policy remain pending,
+  redelivery, O08-B2b2b2b1b2b1 inert scope enumeration, and O08-
+  B2b2b2b1b2b2a private count-bounded multi-scope composition are complete.
+  O08-B2b2b2b1b2b2b durable scheduling and C06-B endpoint/response policy
+  remain pending,
   while C04C2 remains conditional and
   unapproved.
 
@@ -589,8 +590,9 @@ configuration invariant, and O08-B2b2b2b0b supplies atomic seal-time lease
 promotion, and O08-B2b2b2b1b1 closes host-neutral structured execution-claim
 liveness, and O08-B2b2b2b1b2a now composes one bounded page through the exact-
 selector redispatch owner. O08-B2b2b2b1b2b1 now enumerates one bounded page of
-inert control-plane replacement-scope locators; O08-B2b2b2b1b2b2 retains
-bounded multi-scope/repeated-page scheduling, routing, and production-dispatch
+inert control-plane replacement-scope locators. O08-B2b2b2b1b2b2a now composes
+one private count-bounded round-robin multi-scope invocation; O08-
+B2b2b2b1b2b2b retains durable scheduling, routing, and production-dispatch
 liveness.
 
 ### [ ] C06-B — Add Idempotent Finish And Lost-Outcome Dispatch
@@ -607,9 +609,10 @@ execution or retry authority. O08-B2b2b2b0a closes policy coherence, and O08-
 B2b2b2b0b closes atomic seal-time lease promotion, and O08-B2b2b2b1b1 now
 supplies host-neutral structured execution-claim liveness, and O08-B2b2b2b1b2a
 supplies one bounded host-neutral redelivery page, and O08-B2b2b2b1b2b1 now
-supplies bounded inert scope enumeration. O08-B2b2b2b1b2b2 retains multi-scope/
-repeated-page scheduling, routing, and production-dispatch liveness. This
-endpoint composes those policies; it does not define a competing
+supplies bounded inert scope enumeration, and O08-B2b2b2b1b2b2a supplies
+private count-bounded multi-scope/repeated-page composition. O08-
+B2b2b2b1b2b2b retains durable scheduling, routing, and production-dispatch
+liveness. This endpoint composes those policies; it does not define a competing
 retry coordinator or execution owner.
 
 Outcome:
@@ -629,9 +632,11 @@ Outcome:
   retention configuration invariant; O08-B2b2b2b0b owns completed atomic seal-
   time lease promotion; O08-B2b2b2b1a owns completed phase-aware renewal; and
   O08-B2b2b2b1b1 owns completed host-neutral structured liveness. The remaining
-  O08-B2b2b2b1b2a gate owns the completed bounded single-page sweep, and O08-
-  B2b2b2b1b2b1 owns bounded inert scope enumeration, while the remaining O08-
-  B2b2b2b1b2b2 gate owns production scheduling/redelivery and dispatch:
+  O08-B2b2b2b1b2a gate owns the completed bounded single-page sweep, O08-
+  B2b2b2b1b2b1 owns bounded inert scope enumeration, and O08-
+  B2b2b2b1b2b2a owns private count-bounded multi-scope composition, while the
+  remaining O08-B2b2b2b1b2b2b gate owns durable scheduling/redelivery and
+  dispatch:
 
 ```text
 atomic activation -> running -> finishing -> committed

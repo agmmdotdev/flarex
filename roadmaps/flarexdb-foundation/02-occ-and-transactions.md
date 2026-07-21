@@ -34,10 +34,10 @@ failed-attempt disposition are complete. O08-B2b2b2b0a grant/retention policy
 coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a's
 phase-aware execution-claim renewal transaction, and O08-B2b2b2b1b1's
 host-neutral structured liveness lifecycle, O08-B2b2b2b1b2a bounded single-
-page redelivery, and O08-B2b2b2b1b2b1 bounded inert scope enumeration are
-complete. O08-B2b2b2b1b2b2 repeated-page/multi-scope scheduling and C06-B
-endpoint/response policy remain
-pending. C04C2
+page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, and O08-
+B2b2b2b1b2b2a private count-bounded multi-scope/repeated-page composition are
+complete. O08-B2b2b2b1b2b2b production scheduling/liveness and C06-B endpoint/
+response policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -758,9 +758,10 @@ Deferred ownership after the required O03-B core:
   disposition. `O08-B2b2b2b1a` owns the completed phase-aware renewal
   transaction and `O08-B2b2b2b1b1` owns the completed host-neutral structured
   heartbeat/lifecycle. `O08-B2b2b2b1b2a` owns the completed bounded one-page
-  sweep, and `O08-B2b2b2b1b2b1` owns bounded inert scope enumeration;
-  `O08-B2b2b2b1b2b2` and `C06-B` retain repeated-page/multi-scope scheduling,
-  redelivery, production dispatch liveness, and endpoint/response policy.
+  sweep, `O08-B2b2b2b1b2b1` owns bounded inert scope enumeration, and
+  `O08-B2b2b2b1b2b2a` owns private count-bounded round-robin composition;
+  `O08-B2b2b2b1b2b2b` and `C06-B` retain durable scheduling, production
+  dispatch liveness, and endpoint/response policy.
   `O08-C` owns
   known-settled SQL retry, and
   `O08-D` owns uncertain-outcome lookup policy; and
@@ -1207,7 +1208,20 @@ continuation are inert pagination data only. The query returns no physical
 locator, mutable active-schema state, claim, journal, or capability and performs
 no per-scope authority resolution, acquisition, or redispatch.
 
-###### [ ] O08-B2b2b2b1b2b2 — Schedule Production Dispatch
+###### [x] O08-B2b2b2b1b2b2a — Compose Bounded Multi-Scope Redelivery
+
+One package-private executor operation composes at most one capacity-limited
+scope-directory page with one-candidate scope-local pages under explicit page
+and candidate-attempt budgets. Its fixed-capacity queue uses inert
+`unstarted`/`continuing`/`exhausted` directory state and deterministic round-
+robin ordering. Expected scope-local failures are private non-wire batch data
+that retain their upstream error identity; defects and interruption remain in
+the Effect `Cause`. A failed page consumes conservative budget, leaves no
+trusted inner continuation, and is eligible again only through a fresh outer
+sweep. This gate adds no timer, deadline, scheduler state, retry, route, or
+execution authority.
+
+###### [ ] O08-B2b2b2b1b2b2b — Schedule Production Dispatch
 
 Bounded multi-scope/repeated-page policy, triggers, authenticated runtime
 routing, Dynamic Worker integration, and production dispatch liveness remain
@@ -1282,8 +1296,12 @@ renewal observations, and scheduler timing alone never mint execution authority.
 - **[x] O08-B2b2b2b1b2b1 — inert scope enumeration.** One bounded
   control-plane page returns only frozen replacement-scope locators and inert
   high-water pagination data; exact per-scope resolution remains downstream.
-- **[ ] O08-B2b2b2b1b2b2 — production scheduling/redelivery.** Bounded
-  multi-scope/repeated-page policy, triggers, host dispatch, authenticated
+- **[x] O08-B2b2b2b1b2b2a — bounded multi-scope composition.** One private
+  count-bounded round-robin invocation composes inert scope enumeration with
+  the existing exact-selector sweep without creating scheduler or execution
+  authority.
+- **[ ] O08-B2b2b2b1b2b2b — production scheduling/redelivery.** Durable
+  continuation ownership, triggers, deadlines, host dispatch, authenticated
   routing, and operational liveness stay downstream with C06-B.
 
 `O11` consumes this policy later; it is not a prerequisite to define it. Only a
