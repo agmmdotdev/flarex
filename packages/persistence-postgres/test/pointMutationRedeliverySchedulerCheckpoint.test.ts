@@ -1,7 +1,14 @@
 import { sql } from "drizzle-orm";
-import { Cause, Effect, Exit, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
+
+import type { PointMutationMultiScopeRedeliveryV1 } from
+  "../../executor/src/pointMutationMultiScopeRedelivery";
+import {
+  createPointMutationRedeliverySchedulerRunV1,
+  type PointMutationRedeliverySchedulerCheckpointPortV1,
+} from "../../executor/src/pointMutationRedeliverySchedulerRun";
 
 import type { AppRowTransaction } from "../src/appRows";
 import {
@@ -18,7 +25,16 @@ import {
   PointMutationRedeliverySchedulerSqlV1Error,
   PointMutationRedeliverySchedulerStaleV1Error,
   createPointMutationRedeliverySchedulerCheckpointV1,
+  isPointMutationRedeliverySchedulerAcquireConfirmedRollbackV1Error,
+  isPointMutationRedeliverySchedulerCheckpointConfirmedRollbackV1Error,
+  isPointMutationRedeliverySchedulerReleaseConfirmedRollbackV1Error,
+  isPointMutationRedeliverySchedulerRenewConfirmedRollbackV1Error,
+  type PointMutationRedeliverySchedulerAcquireV1Error,
   type PointMutationRedeliverySchedulerCheckpointV1,
+  type PointMutationRedeliverySchedulerCheckpointV1Error,
+  type PointMutationRedeliverySchedulerReleaseV1Error,
+  type PointMutationRedeliverySchedulerRenewV1Error,
+  type PointMutationRedeliverySchedulerRunV1,
 } from "../src/pointMutationRedeliverySchedulerCheckpoint";
 import {
   MAX_POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_BYTES_V1,
@@ -46,6 +62,28 @@ const OWNER_ONE = "76000000-0000-4000-8000-000000000001";
 const OWNER_TWO = "76000000-0000-4000-8000-000000000002";
 
 describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
+  it("classifies confirmed rollback only by direct class and exact operation", () => {
+    const direct = new PointMutationRedeliverySchedulerConfirmedRollbackV1Error({
+      operation: "acquire",
+      cause: new Error("rolled back"),
+    });
+    expect(
+      isPointMutationRedeliverySchedulerAcquireConfirmedRollbackV1Error(direct),
+    ).toBe(true);
+    expect(
+      isPointMutationRedeliverySchedulerRenewConfirmedRollbackV1Error(direct),
+    ).toBe(false);
+    expect(Reflect.apply(
+      isPointMutationRedeliverySchedulerAcquireConfirmedRollbackV1Error,
+      undefined,
+      [Object.freeze({
+        _tag: "PointMutationRedeliverySchedulerConfirmedRollbackV1Error",
+        operation: "acquire",
+        cause: direct.cause,
+      })],
+    )).toBe(false);
+  });
+
   it("migrates one fixed-key idle singleton with strict constraints", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const rows = await schedulerRows(persistence);
@@ -124,6 +162,59 @@ describe("O08-B2b2b2b1b2b2b0 scheduler checkpoint foundation", () => {
     detached.fill(77);
     expect([...reloaded.continuation!.canonicalBytes]).toEqual([1, 2, 3, 4]);
     expect(reloaded.run).not.toBe(acquired.run);
+  });
+
+  it("runs one bounded invocation outside durable truth and restarts from the exact checkpoint", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const continuation = Object.freeze({
+      codecVersion: 1 as const,
+      directory: Object.freeze({ kind: "unstarted" as const }),
+      scopes: Object.freeze([]),
+    });
+    const observedInputs: unknown[] = [];
+    let calls = 0;
+    const multiScope: Pick<PointMutationMultiScopeRedeliveryV1, "sweepEffect"> =
+      Object.freeze({
+        sweepEffect: (input) => {
+          observedInputs.push(input);
+          calls += 1;
+          return Effect.succeed(Object.freeze({
+            scopeDirectoryQueries: 0,
+            attemptPagesCharged: 1,
+            candidateAttemptsCharged: 1,
+            scopes: Object.freeze([]),
+            continuation: calls === 1 ? continuation : null,
+          }));
+        },
+      });
+
+    const first = schedulerRunner(repository(persistence, [OWNER_ONE]), multiScope);
+    await expect(runEffect(first.runEffect())).resolves.toMatchObject({
+      kind: "completed",
+      reason: "countBudget",
+      invocations: 1,
+    });
+    expect((await schedulerRows(persistence))[0]).toMatchObject({
+      scheduler_state: "idle",
+      checkpoint_sequence: 1,
+    });
+
+    const restarted = schedulerRunner(
+      repository(persistence, [OWNER_TWO]),
+      multiScope,
+    );
+    await expect(runEffect(restarted.runEffect())).resolves.toMatchObject({
+      kind: "completed",
+      reason: "continuationExhausted",
+      invocations: 1,
+    });
+    expect(observedInputs[0]).not.toHaveProperty("continuation");
+    expect(observedInputs[1]).toHaveProperty("continuation", continuation);
+    expect((await schedulerRows(persistence))[0]).toMatchObject({
+      scheduler_state: "idle",
+      checkpoint_sequence: 1,
+      continuation_bytes: null,
+    });
   });
 
   it("serializes duplicate acquisition and lets only an expired claim advance the lifetime fence", async () => {
@@ -688,6 +779,52 @@ function repository(
       randomUuid: () => owners[index++] ?? OWNER_TWO,
     },
   );
+}
+
+function schedulerRunner(
+  repository: PointMutationRedeliverySchedulerCheckpointV1,
+  multiScope: Pick<PointMutationMultiScopeRedeliveryV1, "sweepEffect">,
+) {
+  return Result.getOrThrow(createPointMutationRedeliverySchedulerRunV1(
+    schedulerCheckpointPort(repository),
+    multiScope,
+    Object.freeze({
+      maximumInvocations: 1,
+      maximumAttemptPages: 2,
+      maximumCandidateAttempts: 2,
+      scopeLimitPerInvocation: 2,
+      maximumRunMilliseconds: 10_000,
+      maximumInvocationMilliseconds: 5_000,
+      settlementReserveMilliseconds: 1_000,
+    }),
+  ));
+}
+
+function schedulerCheckpointPort(
+  repository: PointMutationRedeliverySchedulerCheckpointV1,
+): PointMutationRedeliverySchedulerCheckpointPortV1<
+  PointMutationRedeliverySchedulerRunV1,
+  PointMutationRedeliverySchedulerConfigurationV1Error,
+  PointMutationRedeliverySchedulerAcquireV1Error,
+  PointMutationRedeliverySchedulerRenewV1Error,
+  PointMutationRedeliverySchedulerCheckpointV1Error,
+  PointMutationRedeliverySchedulerReleaseV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error
+> {
+  return Object.freeze({
+    ...repository,
+    isAcquireConfirmedRollback:
+      isPointMutationRedeliverySchedulerAcquireConfirmedRollbackV1Error,
+    isRenewConfirmedRollback:
+      isPointMutationRedeliverySchedulerRenewConfirmedRollbackV1Error,
+    isCheckpointConfirmedRollback:
+      isPointMutationRedeliverySchedulerCheckpointConfirmedRollbackV1Error,
+    isReleaseConfirmedRollback:
+      isPointMutationRedeliverySchedulerReleaseConfirmedRollbackV1Error,
+  });
 }
 
 function locatedTarget(

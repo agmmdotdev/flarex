@@ -37,7 +37,8 @@ host-neutral structured liveness lifecycle, O08-B2b2b2b1b2a bounded single-
 page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, and O08-
 B2b2b2b1b2b2a private count-bounded multi-scope/repeated-page composition are
 complete. O08-B2b2b2b1b2b2b0's inert singleton scheduler-checkpoint storage
-foundation is complete; the production scheduling loop/liveness owner and
+foundation and O08-B2b2b2b1b2b2b1's private bounded scheduler-run composition
+are complete; the production trigger/liveness owner and
 C06-B endpoint/response policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
@@ -1235,6 +1236,25 @@ decision uncertainty, cleanup failure, and infrastructure failure mint no
 handle or settled checkpoint fact. The scheduler lease fences checkpoint
 writes only and creates no attempt-execution authority.
 
+###### [x] O08-B2b2b2b1b2b2b1 — Compose One Host-Neutral Scheduler Run
+
+One unexported executor-owned runner consumes the validated claim duration from
+the same injected checkpoint repository, acquires its fenced run, strictly
+reloads only the durable canonical continuation, and executes sequential
+count-bounded, monotonic-time-admitted multi-scope invocations. Every invocation is
+checkpointed before another may begin; settled renewal and an immediate
+monotonic headroom check precede that next invocation. Only the adapter's exact
+source-class confirmed-rollback evidence permits one operation-local retry.
+Stale, closed, uncertain, cleanup, infrastructure, codec, invocation, timeout,
+defect, and interruption branches preserve their owning failure or full Cause
+and never mint a continuation or retry permission. The database row remains
+the sole restart truth. This private composition adds no trigger, timer,
+background fiber, route, host runtime, or execution authority.
+Its monotonic deadline is deliberately a soft admission boundary: it never
+interrupts or reclassifies an in-flight persistence transaction, whose owning
+Effect remains uninterruptible until commit/rollback/release settles. Settlement
+may cross the soft deadline, but no later invocation is then admitted.
+
 The production loop, trigger, deadlines/backoff, authenticated runtime routing,
 Dynamic Worker integration, and dispatch liveness remain unapproved and belong
 to the rest of this gate plus C06-B. Lifecycle, persisted claim fields, scope
@@ -1315,9 +1335,15 @@ timing, and the inert scheduler row alone never mint execution authority.
 - **[x] O08-B2b2b2b1b2b2b0 — inert scheduler checkpoint persistence.** One
   fixed-key row and package-private repository own bounded canonical restart
   evidence and a checkpoint-write fence only.
+- **[x] O08-B2b2b2b1b2b2b1 — host-neutral scheduler-run composition.** One
+  private sequential runner composes the b0 repository, canonical continuation
+  codec, and bounded multi-scope coordinator under finite count/time admission,
+  exact checkpoint-before-next-work ordering, and source-owned failure/Cause
+  semantics. Soft admission deadlines never override persistence settlement.
+  It has no host trigger or execution authority.
 - **[ ] O08-B2b2b2b1b2b2b — production scheduling/redelivery.** The loop,
-  triggers, deadlines, host dispatch, authenticated routing, and operational
-  liveness stay downstream with C06-B.
+  triggers, host deadlines/backoff, dispatch, authenticated routing, and
+  operational liveness stay downstream with C06-B.
 
 `O11` consumes this policy later; it is not a prerequisite to define it. Only a
 snapshot lease that is live under database time pins engine history. An expired

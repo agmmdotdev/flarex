@@ -190,6 +190,38 @@ export type PointMutationRedeliverySchedulerReleaseV1Error =
   | PointMutationRedeliverySchedulerInputV1Error
   | PointMutationRedeliverySchedulerReleaseTransactionV1Error;
 
+export function isPointMutationRedeliverySchedulerAcquireConfirmedRollbackV1Error(
+  error: PointMutationRedeliverySchedulerAcquireV1Error,
+): error is PointMutationRedeliverySchedulerConfirmedRollbackV1Error {
+  return isConfirmedRollbackForOperation(error, "acquire");
+}
+
+export function isPointMutationRedeliverySchedulerRenewConfirmedRollbackV1Error(
+  error: PointMutationRedeliverySchedulerRenewV1Error,
+): error is PointMutationRedeliverySchedulerConfirmedRollbackV1Error {
+  return isConfirmedRollbackForOperation(error, "renew");
+}
+
+export function isPointMutationRedeliverySchedulerCheckpointConfirmedRollbackV1Error(
+  error: PointMutationRedeliverySchedulerCheckpointV1Error,
+): error is PointMutationRedeliverySchedulerConfirmedRollbackV1Error {
+  return isConfirmedRollbackForOperation(error, "checkpoint");
+}
+
+export function isPointMutationRedeliverySchedulerReleaseConfirmedRollbackV1Error(
+  error: PointMutationRedeliverySchedulerReleaseV1Error,
+): error is PointMutationRedeliverySchedulerConfirmedRollbackV1Error {
+  return isConfirmedRollbackForOperation(error, "release");
+}
+
+function isConfirmedRollbackForOperation(
+  error: PointMutationRedeliverySchedulerV1Error,
+  operation: SchedulerOperationV1,
+): error is PointMutationRedeliverySchedulerConfirmedRollbackV1Error {
+  return error instanceof PointMutationRedeliverySchedulerConfirmedRollbackV1Error &&
+    error.operation === operation;
+}
+
 export interface PointMutationRedeliverySchedulerCheckpointV1 {
   readonly configuration: Result.Result<
     Readonly<{ readonly claimDurationMilliseconds: number }>,

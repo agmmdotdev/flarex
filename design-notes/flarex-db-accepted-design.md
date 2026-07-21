@@ -806,7 +806,8 @@ B2b2b2b1a closes the phase-aware claim-renewal transaction, and O08-B2b2b2b1b1
 closes host-neutral structured liveness, O08-B2b2b2b1b2a closes one bounded
 host-neutral redelivery page, and O08-B2b2b2b1b2b1 closes bounded inert scope
 enumeration, and O08-B2b2b2b1b2b2a closes private count-bounded multi-scope
-composition. O08-B2b2b2b1b2b2b production scheduling/redelivery and C06-B
+composition, while O08-B2b2b2b1b2b2b1 closes private bounded scheduler-run
+composition. The production trigger/redelivery host and C06-B
 endpoint/response policy remain deferred. S07 owns only the earlier session/lease
 relational shape.
 
@@ -1723,6 +1724,14 @@ count-bounded multi-scope/repeated-page work without a host-liveness claim.
 O08-B2b2b2b1b2b2b0 now supplies only the inert fixed-key database checkpoint,
 bounded canonical continuation codec, and fenced checkpoint-write lease. That
 row is the sole restart truth but is neither dispatch nor execution authority.
+O08-B2b2b2b1b2b2b1 now privately composes one sequential, count-bounded and
+monotonic-time-admitted host-neutral run over that exact durable truth. It
+checkpoints every completed invocation before admitting another, renews and
+rechecks headroom before subsequent work, preserves source-owned typed errors
+and full Cause, and creates no trigger, route, runtime, or execution authority.
+The monotonic deadline is soft admission policy: it does not interrupt or
+reclassify persistence transaction settlement, and no later invocation starts
+after settlement crosses the deadline.
 The rest of O08-B2b2b2b1b2b2b and C06-B retain triggers, production-loop
 ownership, authenticated routing, dispatch, and endpoint policy.
 O11 is a later consumer: only database-

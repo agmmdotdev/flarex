@@ -85,8 +85,15 @@ import { createPointMutationSessionAttemptDispositionV1 } from
   "../../executor/src/pointMutationSessionAttemptDisposition";
 import { createPointMutationAttemptRedeliveryV1 } from
   "../../executor/src/pointMutationAttemptRedelivery";
-import { createPointMutationMultiScopeRedeliveryV1 } from
+import {
+  createPointMutationMultiScopeRedeliveryV1,
+  type PointMutationMultiScopeRedeliveryV1,
+} from
   "../../executor/src/pointMutationMultiScopeRedelivery";
+import {
+  createPointMutationRedeliverySchedulerRunV1,
+  type PointMutationRedeliverySchedulerCheckpointPortV1,
+} from "../../executor/src/pointMutationRedeliverySchedulerRun";
 import { decodePointMutationSessionAttemptSelectorV1 } from
   "../../executor/src/pointMutationSessionAttemptSelector";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
@@ -125,6 +132,21 @@ import {
 } from "../src/pglite";
 import { createPointMutationAttemptDiscoveryV1 } from
   "../src/pointMutationAttemptDiscovery";
+import {
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfigurationV1Error,
+  createPointMutationRedeliverySchedulerCheckpointV1,
+  isPointMutationRedeliverySchedulerAcquireConfirmedRollbackV1Error,
+  isPointMutationRedeliverySchedulerCheckpointConfirmedRollbackV1Error,
+  isPointMutationRedeliverySchedulerReleaseConfirmedRollbackV1Error,
+  isPointMutationRedeliverySchedulerRenewConfirmedRollbackV1Error,
+  type PointMutationRedeliverySchedulerAcquireV1Error,
+  type PointMutationRedeliverySchedulerCheckpointV1,
+  type PointMutationRedeliverySchedulerCheckpointV1Error,
+  type PointMutationRedeliverySchedulerReleaseV1Error,
+  type PointMutationRedeliverySchedulerRenewV1Error,
+  type PointMutationRedeliverySchedulerRunV1,
+} from "../src/pointMutationRedeliverySchedulerCheckpoint";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
@@ -2264,7 +2286,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       maxCandidateAttempts: 2,
     });
 
-    const partial = await runEffect(multiScope.sweepEffect(sweepInput));
+    const firstScheduler = schedulerRun(
+      persistence,
+      "96000000-0000-4000-8000-000000000001",
+      multiScope,
+      sweepInput,
+    );
+    const partialRun = await runEffect(firstScheduler.runEffect());
+    expect(partialRun.kind).toBe("completed");
+    if (partialRun.kind !== "completed") {
+      throw new Error("Expected the first scheduler run to complete.");
+    }
+    const partial = partialRun.batches[0]!;
     expect(partial.scopes.map((scope) => scope.kind)).toEqual([
       "processed",
       "failed",
@@ -2273,12 +2306,26 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       kind: "failed",
       error: injectedFailure,
     });
+    expect(partial.scopes[1]?.kind === "failed"
+      ? partial.scopes[1].error
+      : undefined).toBe(injectedFailure);
     expect(partial.continuation).toBeNull();
     expect(firstRunnerCalls).toBe(1);
     expect(secondRunnerCalls).toBe(0);
 
     failSecond = false;
-    const recovered = await runEffect(multiScope.sweepEffect(sweepInput));
+    const recoveredScheduler = schedulerRun(
+      persistence,
+      "96000000-0000-4000-8000-000000000002",
+      multiScope,
+      sweepInput,
+    );
+    const recoveredRun = await runEffect(recoveredScheduler.runEffect());
+    expect(recoveredRun.kind).toBe("completed");
+    if (recoveredRun.kind !== "completed") {
+      throw new Error("Expected the restarted scheduler run to complete.");
+    }
+    const recovered = recoveredRun.batches[0]!;
     expect(recovered.scopes.map((scope) =>
       scope.kind === "processed"
         ? scope.page.items[0]?.disposition.kind
@@ -6148,6 +6195,69 @@ function commitAuthorityFromStoredEvidence(
       materialWriteEventEvidenceBytes:
         evidence.root.materialWriteEventEvidenceBytes,
     }),
+  });
+}
+
+function schedulerRun(
+  persistence: PGliteFlarexPersistence,
+  owner: string,
+  multiScope: Pick<PointMutationMultiScopeRedeliveryV1, "sweepEffect">,
+  budgets: Readonly<{
+    readonly scopeLimit: number;
+    readonly maxAttemptPages: number;
+    readonly maxCandidateAttempts: number;
+  }>,
+) {
+  const target = createPGliteLocatedPointMutationSessionActivationTargetV1(
+    persistence,
+    sharedLocator,
+  );
+  if (!isLocatedReadCommittedAttemptTargetV1(target)) {
+    throw new Error("Expected a located scheduler transaction target.");
+  }
+  const repository = createPointMutationRedeliverySchedulerCheckpointV1(
+    target,
+    { claimDurationMilliseconds: 60_000, randomUuid: () => owner },
+  );
+  return Result.getOrThrow(createPointMutationRedeliverySchedulerRunV1(
+    schedulerCheckpointPort(repository),
+    multiScope,
+    Object.freeze({
+      maximumInvocations: 1,
+      maximumAttemptPages: budgets.maxAttemptPages,
+      maximumCandidateAttempts: budgets.maxCandidateAttempts,
+      scopeLimitPerInvocation: budgets.scopeLimit,
+      maximumRunMilliseconds: 10_000,
+      maximumInvocationMilliseconds: 5_000,
+      settlementReserveMilliseconds: 1_000,
+    }),
+  ));
+}
+
+function schedulerCheckpointPort(
+  repository: PointMutationRedeliverySchedulerCheckpointV1,
+): PointMutationRedeliverySchedulerCheckpointPortV1<
+  PointMutationRedeliverySchedulerRunV1,
+  PointMutationRedeliverySchedulerConfigurationV1Error,
+  PointMutationRedeliverySchedulerAcquireV1Error,
+  PointMutationRedeliverySchedulerRenewV1Error,
+  PointMutationRedeliverySchedulerCheckpointV1Error,
+  PointMutationRedeliverySchedulerReleaseV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error
+> {
+  return Object.freeze({
+    ...repository,
+    isAcquireConfirmedRollback:
+      isPointMutationRedeliverySchedulerAcquireConfirmedRollbackV1Error,
+    isRenewConfirmedRollback:
+      isPointMutationRedeliverySchedulerRenewConfirmedRollbackV1Error,
+    isCheckpointConfirmedRollback:
+      isPointMutationRedeliverySchedulerCheckpointConfirmedRollbackV1Error,
+    isReleaseConfirmedRollback:
+      isPointMutationRedeliverySchedulerReleaseConfirmedRollbackV1Error,
   });
 }
 

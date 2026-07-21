@@ -65,8 +65,15 @@ import { createPointMutationSessionAttemptDispositionV1 } from
   "../../executor/src/pointMutationSessionAttemptDisposition";
 import { createPointMutationAttemptRedeliveryV1 } from
   "../../executor/src/pointMutationAttemptRedelivery";
-import { createPointMutationMultiScopeRedeliveryV1 } from
+import {
+  createPointMutationMultiScopeRedeliveryV1,
+  type PointMutationMultiScopeRedeliveryV1,
+} from
   "../../executor/src/pointMutationMultiScopeRedelivery";
+import {
+  createPointMutationRedeliverySchedulerRunV1,
+  type PointMutationRedeliverySchedulerCheckpointPortV1,
+} from "../../executor/src/pointMutationRedeliverySchedulerRun";
 import { decodePointMutationSessionAttemptSelectorV1 } from
   "../../executor/src/pointMutationSessionAttemptSelector";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
@@ -119,6 +126,23 @@ import {
 } from "../src/postgres";
 import { createPointMutationAttemptDiscoveryV1 } from
   "../src/pointMutationAttemptDiscovery";
+import {
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfigurationV1Error,
+  createPointMutationRedeliverySchedulerCheckpointV1,
+  isPointMutationRedeliverySchedulerAcquireConfirmedRollbackV1Error,
+  isPointMutationRedeliverySchedulerCheckpointConfirmedRollbackV1Error,
+  isPointMutationRedeliverySchedulerReleaseConfirmedRollbackV1Error,
+  isPointMutationRedeliverySchedulerRenewConfirmedRollbackV1Error,
+  type PointMutationRedeliverySchedulerAcquireV1Error,
+  type PointMutationRedeliverySchedulerCheckpointV1,
+  type PointMutationRedeliverySchedulerCheckpointV1Error,
+  type PointMutationRedeliverySchedulerReleaseV1Error,
+  type PointMutationRedeliverySchedulerRenewV1Error,
+  type PointMutationRedeliverySchedulerRunV1,
+} from "../src/pointMutationRedeliverySchedulerCheckpoint";
+import { POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1 } from
+  "../src/pointMutationRedeliverySchedulerModel";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
@@ -159,6 +183,7 @@ import {
 import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
   LocatedReadCommittedTransactionFailureV1,
+  isLocatedReadCommittedAttemptTargetV1,
 } from "../src/transactionSessionAttemptKernel";
 import {
   createPointMutationExecutionClaimLivenessV1,
@@ -1548,7 +1573,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
     });
   }, 120_000);
 
-  it("keeps duplicate multi-scope orchestrators authority-safe under concurrency", async () => {
+  it("serializes overlapping scheduler runs before dense multi-scope publication", async () => {
     await withPostgresPersistence(async (persistence) => {
       const first = await o08B1Scenario(
         persistence,
@@ -1598,6 +1623,150 @@ describePostgres("real Postgres stored-attempt authority", () => {
           },
         }),
         () => "95000000-0000-4000-8000-000000000009",
+      );
+      const redelivery = createPointMutationAttemptRedeliveryV1(
+        pointMutationAttemptDiscovery(persistence),
+        Object.freeze({
+          redispatchExactPointMutationAttempt: (input: unknown) => {
+            const selector = decodePointMutationSessionAttemptSelectorV1(
+              input,
+            );
+            return selector.scopeId === first.anchor.scopeId
+              ? firstAuthentication.redispatchExactPointMutationAttempt(input)
+              : secondAuthentication.redispatchExactPointMutationAttempt(input);
+          },
+        }),
+      );
+      const scopes = Object.freeze([first, second].map((current) =>
+        Object.freeze({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+        })
+      ));
+      const multiScope = createPointMutationMultiScopeRedeliveryV1(
+        Object.freeze({
+          discoverEffect: () => Effect.succeed(Object.freeze({
+            candidates: scopes,
+            continuation: null,
+          })),
+        }),
+        redelivery,
+      );
+      const sweepInput = Object.freeze({
+        scopeLimit: 100,
+        maxAttemptPages: 2,
+        maxCandidateAttempts: 2,
+      });
+      await installSchedulerSingleton(persistence);
+
+      const [left, right] = await Promise.all([
+        runEffect(schedulerRun(
+          persistence,
+          "97000000-0000-4000-8000-000000000001",
+          multiScope,
+          sweepInput,
+        ).runEffect()),
+        runEffect(schedulerRun(
+          persistence,
+          "97000000-0000-4000-8000-000000000002",
+          multiScope,
+          sweepInput,
+        ).runEffect()),
+      ]);
+      expect([left.kind, right.kind].sort()).toEqual(["busy", "completed"]);
+      const completed = left.kind === "completed"
+        ? left
+        : right.kind === "completed"
+        ? right
+        : undefined;
+      if (completed === undefined) throw new Error("Expected one scheduler run.");
+      expect(completed.batches.flatMap((result) => result.scopes).every((scope) =>
+        scope.kind === "processed"
+      )).toBe(true);
+      expect(firstRunnerCalls).toBe(1);
+      expect(secondRunnerCalls).toBe(1);
+      for (const current of [first, second]) {
+        const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+        const durable = await persistence.query<{
+          readonly last_commit_seq: string;
+          readonly last_outbox_seq: string;
+          readonly headers: string;
+          readonly outcomes: string;
+          readonly wakes: string;
+        }>(
+          `select clock.last_commit_seq::text,
+             clock.last_outbox_seq::text,
+             (select count(*)::text from fx_system_commit header
+              where header.scope_uuid = clock.scope_uuid) as headers,
+             (select count(*)::text from fx_system_idempotency outcome
+              where outcome.scope_uuid = clock.scope_uuid) as outcomes,
+             (select count(*)::text from fx_system_outbox wake
+              where wake.scope_uuid = clock.scope_uuid) as wakes
+           from fx_system_scope_clock clock
+           where clock.scope_uuid = $1`,
+          [scopeUuid],
+        );
+        expect(durable.rows).toEqual([{
+          last_commit_seq: "1",
+          last_outbox_seq: "1",
+          headers: "1",
+          outcomes: "1",
+          wakes: "1",
+        }]);
+      }
+    });
+  }, 120_000);
+
+  it("keeps duplicate raw multi-scope orchestrators authority-safe under concurrency", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const first = await o08B1Scenario(
+        persistence,
+        "b2b2b2b1b2b2a_raw_concurrent_first",
+      );
+      const second = await o08B1Scenario(
+        persistence,
+        "b2b2b2b1b2b2a_raw_concurrent_second",
+      );
+      for (const current of [first, second]) {
+        await persistence.query(
+          `update fx_system_tx_execution_claim
+           set claimed_at = date_trunc(
+               'milliseconds',
+               clock_timestamp() - interval '2 minutes'
+             ),
+             claim_expires_at = date_trunc(
+               'milliseconds',
+               clock_timestamp() - interval '1 minute'
+             )
+           where session_id = $1`,
+          [current.anchor.sessionId],
+        );
+      }
+      let firstRunnerCalls = 0;
+      let secondRunnerCalls = 0;
+      const firstAuthentication = createB2b2aRedispatchAuthentication(
+        persistence,
+        first,
+        createPointMutationExecutionClaimVaultV1(),
+        Object.freeze({
+          run: () => {
+            firstRunnerCalls += 1;
+            return Effect.succeed(Object.freeze({ ok: true }));
+          },
+        }),
+        () => "95000000-0000-4000-8000-000000000010",
+      );
+      const secondAuthentication = createB2b2aRedispatchAuthentication(
+        persistence,
+        second,
+        createPointMutationExecutionClaimVaultV1(),
+        Object.freeze({
+          run: () => {
+            secondRunnerCalls += 1;
+            return Effect.succeed(Object.freeze({ ok: true }));
+          },
+        }),
+        () => "95000000-0000-4000-8000-000000000011",
       );
       const redelivery = createPointMutationAttemptRedeliveryV1(
         pointMutationAttemptDiscovery(persistence),
@@ -4613,6 +4782,81 @@ function uuidFactory(prefix: string): () => string {
     sequence += 1;
     return `${prefix}-0000-4000-8000-${suffix}`;
   };
+}
+
+function schedulerRun(
+  persistence: PostgresFlarexPersistence,
+  owner: string,
+  multiScope: Pick<PointMutationMultiScopeRedeliveryV1, "sweepEffect">,
+  budgets: Readonly<{
+    readonly scopeLimit: number;
+    readonly maxAttemptPages: number;
+    readonly maxCandidateAttempts: number;
+  }>,
+) {
+  const target = createPostgresLocatedPointMutationSessionActivationTargetV1(
+    persistence,
+    sharedLocator("scheduler-run"),
+  );
+  if (!isLocatedReadCommittedAttemptTargetV1(target)) {
+    throw new Error("Expected a located scheduler transaction target.");
+  }
+  const repository = createPointMutationRedeliverySchedulerCheckpointV1(
+    target,
+    { claimDurationMilliseconds: 60_000, randomUuid: () => owner },
+  );
+  return Result.getOrThrow(createPointMutationRedeliverySchedulerRunV1(
+    schedulerCheckpointPort(repository),
+    multiScope,
+    Object.freeze({
+      maximumInvocations: 1,
+      maximumAttemptPages: budgets.maxAttemptPages,
+      maximumCandidateAttempts: budgets.maxCandidateAttempts,
+      scopeLimitPerInvocation: budgets.scopeLimit,
+      maximumRunMilliseconds: 10_000,
+      maximumInvocationMilliseconds: 5_000,
+      settlementReserveMilliseconds: 1_000,
+    }),
+  ));
+}
+
+async function installSchedulerSingleton(
+  persistence: PostgresFlarexPersistence,
+): Promise<void> {
+  await persistence.query(
+    `insert into fx_system_point_mutation_redelivery_scheduler
+       (scheduler_key, scheduler_state, run_fence, checkpoint_sequence)
+     values ($1, 'idle', 0, 0)
+     on conflict (scheduler_key) do nothing`,
+    [POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1],
+  );
+}
+
+function schedulerCheckpointPort(
+  repository: PointMutationRedeliverySchedulerCheckpointV1,
+): PointMutationRedeliverySchedulerCheckpointPortV1<
+  PointMutationRedeliverySchedulerRunV1,
+  PointMutationRedeliverySchedulerConfigurationV1Error,
+  PointMutationRedeliverySchedulerAcquireV1Error,
+  PointMutationRedeliverySchedulerRenewV1Error,
+  PointMutationRedeliverySchedulerCheckpointV1Error,
+  PointMutationRedeliverySchedulerReleaseV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error,
+  PointMutationRedeliverySchedulerConfirmedRollbackV1Error
+> {
+  return Object.freeze({
+    ...repository,
+    isAcquireConfirmedRollback:
+      isPointMutationRedeliverySchedulerAcquireConfirmedRollbackV1Error,
+    isRenewConfirmedRollback:
+      isPointMutationRedeliverySchedulerRenewConfirmedRollbackV1Error,
+    isCheckpointConfirmedRollback:
+      isPointMutationRedeliverySchedulerCheckpointConfirmedRollbackV1Error,
+    isReleaseConfirmedRollback:
+      isPointMutationRedeliverySchedulerReleaseConfirmedRollbackV1Error,
+  });
 }
 
 async function attemptTimestamps(
