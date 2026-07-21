@@ -466,3 +466,15 @@ or rollback machinery is conditional on concrete shipped-state evidence.
 6. **Complete analysis conformance evidence.** Cover exact source-map positions,
    unsupported import-time APIs, module/size limits, schema separation, forged
    source/hash cases, and parity between local Miniflare and hosted analysis.
+
+The production active-metadata path is split into `PAM-A0` inert storage
+contracts, `PAM-A1` immutable publication, `PAM-A2` atomic activation, `PAM-B`
+private reader integration and proof-adapter removal, and the separate `C03-V`
+syscall-time validator-parity gate. `PAM-A0a` is complete: persistence now owns
+a package-private pure Function Metadata V1 codec/policy that normalizes the
+current analysis shape into canonical per-function and complete-set evidence,
+delegates literal primitives to Value Codec V1, and requires caller-supplied
+operation budgets. It creates no table, catalog limit, readiness fact,
+activation authority, reader, or package export. `PAM-A0b`, `PAM-A1`,
+`PAM-A2`, `PAM-B`, and `C03-V` remain pending and require their own accepted
+contracts.
