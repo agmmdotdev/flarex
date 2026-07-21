@@ -412,12 +412,40 @@ describe("O08-B2b2b2b1b2b2a bounded multi-scope redelivery", () => {
         reason: "duplicateScopeLocator",
       });
 
+    let overflowingPageItemReads = 0;
+    let overflowingItemReads = 0;
+    const unreachableOverflowItem = {
+      get candidate(): never {
+        overflowingItemReads += 1;
+        throw new Error("overflow item must not be visited");
+      },
+      get disposition(): never {
+        overflowingItemReads += 1;
+        throw new Error("overflow item must not be visited");
+      },
+    } satisfies PointMutationAttemptRedeliveryPageV1["items"][number];
+    const reachableOverflowItem = Object.freeze({
+      candidate: attemptCandidate(
+        locator(1).deploymentId,
+        locator(1).scopeId,
+        1,
+      ),
+      disposition: Object.freeze({ kind: "busy" as const }),
+    }) satisfies PointMutationAttemptRedeliveryPageV1["items"][number];
+    const overflowingPage = {
+      horizon: "2026-07-21T00:00:10.000Z",
+      get items() {
+        overflowingPageItemReads += 1;
+        if (overflowingPageItemReads > 1) {
+          throw new Error("overflow page items must be read exactly once");
+        }
+        return [reachableOverflowItem, unreachableOverflowItem] as const;
+      },
+      continuation: null,
+    } satisfies PointMutationAttemptRedeliveryPageV1;
     const overflowOperation = createPointMutationMultiScopeRedeliveryV1(
       directory(() => Effect.succeed(directoryPage([locator(1)], null))),
-      redelivery(() => Effect.succeed(attemptPage(null, [
-        attemptCandidate(locator(1).deploymentId, locator(1).scopeId, 1),
-        attemptCandidate(locator(1).deploymentId, locator(1).scopeId, 2),
-      ]))),
+      redelivery(() => Effect.succeed(overflowingPage)),
     );
     const overflow = await runEffectFailure(
       overflowOperation.sweepEffect(input()),
@@ -426,6 +454,8 @@ describe("O08-B2b2b2b1b2b2a bounded multi-scope redelivery", () => {
       PointMutationMultiScopeRedeliveryCorruptionV1Error,
     );
     expect(overflow).toMatchObject({ reason: "attemptPageOverflow" });
+    expect(overflowingPageItemReads).toBe(1);
+    expect(overflowingItemReads).toBe(0);
   });
 
   it("keeps defects and interruption in Cause and mints no continuation", async () => {

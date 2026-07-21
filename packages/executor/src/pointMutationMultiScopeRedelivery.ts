@@ -308,12 +308,13 @@ export function createPointMutationMultiScopeRedeliveryV1(
           continue;
         }
 
-        const page = capturePage(pageResult.success);
-        if (page.items.length > 1) {
+        const pageItems = pageResult.success.items;
+        if (pageItems.length > 1) {
           return yield* new PointMutationMultiScopeRedeliveryCorruptionV1Error({
             reason: "attemptPageOverflow",
           });
         }
+        const page = capturePage(pageResult.success, pageItems);
         candidateAttemptsCharged += page.items.length;
         scopeResults.push(Object.freeze({
           kind: "processed",
@@ -450,10 +451,11 @@ function captureAttemptDiscoveryContinuation(
 
 function capturePage(
   page: PointMutationAttemptRedeliveryPageV1,
+  items: PointMutationAttemptRedeliveryPageV1["items"],
 ): PointMutationAttemptRedeliveryPageV1 {
   return Object.freeze({
     horizon: page.horizon,
-    items: Object.freeze(page.items.map((item) => Object.freeze({
+    items: Object.freeze(items.map((item) => Object.freeze({
       candidate: Object.freeze({
         selector: Object.freeze({ ...item.candidate.selector }),
         source: item.candidate.source,
