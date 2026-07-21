@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { describe, expect, it } from "vitest";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
@@ -64,6 +65,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_idempotency",
       "fx_system_index_build_state",
       "fx_system_outbox",
+      "fx_system_point_mutation_redelivery_scheduler",
       "fx_system_scope_clock",
       "fx_system_snapshot_lease",
       "fx_system_tx_execution_claim",
@@ -1140,7 +1142,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "34" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "35" }]);
     } finally {
       try {
         await db.close();
@@ -1334,7 +1336,114 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "34" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "35" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("upgrades through 0034 atomically, replays it idempotently, and bootstraps exactly one scheduler row", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-redelivery-scheduler-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournalPath = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const migrationName = "0034_point_mutation_redelivery_scheduler.sql";
+    const copiedMigrationPath = resolve(migrationsFolder, migrationName);
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const currentJournalText = await readFile(currentJournalPath, "utf8");
+      const parsedJournal: unknown = JSON.parse(currentJournalText);
+      if (
+        !isNonArrayRecord(parsedJournal) ||
+        !Array.isArray(parsedJournal.entries) ||
+        parsedJournal.entries.length < 1
+      ) {
+        throw new Error("Expected a nonempty Drizzle migration journal.");
+      }
+      const previousJournal = {
+        ...parsedJournal,
+        entries: parsedJournal.entries.slice(0, -1),
+      };
+      await writeFile(
+        copiedJournalPath,
+        `${JSON.stringify(previousJournal, null, 2)}\n`,
+        "utf8",
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await previousPersistence.migrate();
+      const before = await previousPersistence.query<{ count: string }>(`
+        select count(*)::text as count
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name = 'fx_system_point_mutation_redelivery_scheduler'
+      `);
+      expect(before.rows).toEqual([{ count: "0" }]);
+
+      await writeFile(copiedJournalPath, currentJournalText, "utf8");
+      const realMigration = await readFile(copiedMigrationPath, "utf8");
+      await writeFile(
+        copiedMigrationPath,
+        `${realMigration}\n--> statement-breakpoint\nselect * from fx_b0_deliberate_missing_table;\n`,
+        "utf8",
+      );
+      const failingPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await expect(failingPersistence.migrate()).rejects.toThrow();
+      const afterFailure = await failingPersistence.query<{ count: string }>(`
+        select count(*)::text as count
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name = 'fx_system_point_mutation_redelivery_scheduler'
+      `);
+      expect(afterFailure.rows).toEqual([{ count: "0" }]);
+      const failedReceipts = await failingPersistence.query<{ count: string }>(
+        `select count(*)::text as count from drizzle.__drizzle_migrations`,
+      );
+      expect(failedReceipts.rows).toEqual([{ count: "34" }]);
+
+      await writeFile(copiedMigrationPath, realMigration, "utf8");
+      const recoveredPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await expect(recoveredPersistence.migrate()).resolves.toBeUndefined();
+      await expect(recoveredPersistence.migrate()).resolves.toBeUndefined();
+      const recovered = await recoveredPersistence.query<{
+        scheduler_key: string;
+        scheduler_state: string;
+        run_fence: string;
+      }>(`
+        select
+          scheduler_key,
+          scheduler_state,
+          run_fence::text as run_fence
+        from fx_system_point_mutation_redelivery_scheduler
+      `);
+      expect(recovered.rows).toEqual([{
+        scheduler_key: "point_mutation_redelivery_v1",
+        scheduler_state: "idle",
+        run_fence: "0",
+      }]);
+      const recoveredReceipts = await recoveredPersistence.query<{
+        count: string;
+      }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
+      expect(recoveredReceipts.rows).toEqual([{ count: "35" }]);
     } finally {
       try {
         await db.close();

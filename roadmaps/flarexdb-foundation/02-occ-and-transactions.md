@@ -36,8 +36,9 @@ phase-aware execution-claim renewal transaction, and O08-B2b2b2b1b1's
 host-neutral structured liveness lifecycle, O08-B2b2b2b1b2a bounded single-
 page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, and O08-
 B2b2b2b1b2b2a private count-bounded multi-scope/repeated-page composition are
-complete. O08-B2b2b2b1b2b2b production scheduling/liveness and C06-B endpoint/
-response policy remain pending. C04C2
+complete. O08-B2b2b2b1b2b2b0's inert singleton scheduler-checkpoint storage
+foundation is complete; the production scheduling loop/liveness owner and
+C06-B endpoint/response policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -1223,11 +1224,22 @@ execution authority.
 
 ###### [ ] O08-B2b2b2b1b2b2b — Schedule Production Dispatch
 
-Bounded multi-scope/repeated-page policy, triggers, authenticated runtime
-routing, Dynamic Worker integration, and production dispatch liveness remain
-unapproved and belong to this later consumer-driven gate plus C06-B. Lifecycle,
-persisted claim fields, scope locators, discovery hints, sweep observations,
-renewal observations, and scheduler timing alone never mint execution authority.
+###### [x] O08-B2b2b2b1b2b2b0 — Persist Inert Scheduler Checkpoints
+
+Migration 0034 owns one fixed-key `point_mutation_redelivery_v1` row. Its
+package-private repository fences acquire/renew/checkpoint/release with a
+scope-lifetime run fence, per-run checkpoint sequence, bounded canonical codec-
+v1 bytes, and an integrity-only SHA-256 digest. The database row is the sole
+restart truth. Confirmed rollback permits only one exact-command retry;
+decision uncertainty, cleanup failure, and infrastructure failure mint no
+handle or settled checkpoint fact. The scheduler lease fences checkpoint
+writes only and creates no attempt-execution authority.
+
+The production loop, trigger, deadlines/backoff, authenticated runtime routing,
+Dynamic Worker integration, and dispatch liveness remain unapproved and belong
+to the rest of this gate plus C06-B. Lifecycle, persisted claim fields, scope
+locators, discovery hints, sweep observations, renewal observations, scheduler
+timing, and the inert scheduler row alone never mint execution authority.
 
 `O08-B2b2b2b` is split at the remaining authority boundaries:
 
@@ -1300,9 +1312,12 @@ renewal observations, and scheduler timing alone never mint execution authority.
   count-bounded round-robin invocation composes inert scope enumeration with
   the existing exact-selector sweep without creating scheduler or execution
   authority.
-- **[ ] O08-B2b2b2b1b2b2b — production scheduling/redelivery.** Durable
-  continuation ownership, triggers, deadlines, host dispatch, authenticated
-  routing, and operational liveness stay downstream with C06-B.
+- **[x] O08-B2b2b2b1b2b2b0 — inert scheduler checkpoint persistence.** One
+  fixed-key row and package-private repository own bounded canonical restart
+  evidence and a checkpoint-write fence only.
+- **[ ] O08-B2b2b2b1b2b2b — production scheduling/redelivery.** The loop,
+  triggers, deadlines, host dispatch, authenticated routing, and operational
+  liveness stay downstream with C06-B.
 
 `O11` consumes this policy later; it is not a prerequisite to define it. Only a
 snapshot lease that is live under database time pins engine history. An expired

@@ -77,6 +77,7 @@ completed private kernel through host-neutral structured claim liveness
   -> O08-B2b2b2b1b2a bounded host-neutral single-page redelivery
   -> O08-B2b2b2b1b2b1 bounded inert scope enumeration
   -> O08-B2b2b2b1b2b2a bounded multi-scope composition
+  -> O08-B2b2b2b1b2b2b0 inert scheduler checkpoint persistence
   -> O08-B2b2b2b1b2b2b production scheduling/redelivery and dispatch
   -> C06-B stable endpoint/response and production-dispatch composition
   -> C07 private end-to-end PGlite + real-Postgres proof
@@ -141,8 +142,9 @@ promotion are also complete. O08-B2b2b2b1a's phase-aware execution-claim
 renewal transaction and O08-B2b2b2b1b1's host-neutral structured lifecycle
 coordinator and O08-B2b2b2b1b2a's bounded host-neutral single-page redelivery
 sweep and O08-B2b2b2b1b2b1's bounded inert scope enumeration are complete;
-O08-B2b2b2b1b2b2a bounded multi-scope composition is complete; O08-
-B2b2b2b1b2b2b production scheduling/redelivery and C06-B
+O08-B2b2b2b1b2b2a bounded multi-scope composition and O08-
+B2b2b2b1b2b2b0's inert singleton scheduler-checkpoint foundation are complete;
+the O08-B2b2b2b1b2b2b production scheduling loop/redelivery and C06-B
 endpoint/response policy remain pending, and
 C04C2 remains conditional and unapproved.
 O03-B2b2 renewal is
@@ -153,8 +155,8 @@ bounded attempt must outlive its initial lease.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, and O08-B2b2b1's migration-0033 discovery indexes complete |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, and O08-D bounded uncertainty recovery are complete; O08-B2b2b2b1b2b2b production scheduling/redelivery, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, O08-B2b2b1's migration-0033 discovery indexes, and O08-B2b2b2b1b2b2b0's migration-0034 fixed-key scheduler checkpoint complete |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-B2b2b2b1b2b2b0 inert checkpoint persistence, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, and O08-D bounded uncertainty recovery are complete; the O08-B2b2b2b1b2b2b production loop/redelivery, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -566,8 +568,10 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
         enumeration;
       - `O08-B2b2b2b1b2b2a` (complete): private count-bounded round-robin
         multi-scope/repeated-page composition with no host-liveness claim;
-      - `O08-B2b2b2b1b2b2b` (pending and unapproved): durable scheduling,
-        routing, deadlines, and production dispatch;
+      - `O08-B2b2b2b1b2b2b0` (complete): inert fixed-key scheduler checkpoint
+        persistence and bounded canonical continuation storage;
+      - the rest of `O08-B2b2b2b1b2b2b` (pending and unapproved): the durable
+        scheduling loop, routing, deadlines, and production dispatch;
    - `O08-CD0` (complete): preserves source-owned Postgres transaction-decision
      provenance. Confirmed pre-decision rollback requires an in-transaction
      point-publication SQL marker, exact `40001`/`40P01`, and settled rollback;
@@ -599,10 +603,12 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 18. `O08-B2b2b2b1b2b1` (complete): bounded inert control-plane scope
     enumeration.
 19. `O08-B2b2b2b1b2b2a` (complete): private bounded multi-scope composition.
-20. `O08-B2b2b2b1b2b2b` + `C06-B` (pending): durable scheduling/
+20. `O08-B2b2b2b1b2b2b0` (complete): inert singleton scheduler checkpoint
+    persistence and bounded canonical continuation storage.
+21. The rest of `O08-B2b2b2b1b2b2b` + `C06-B` (pending): durable scheduling/
     redelivery, production dispatch, and stable `/invoke/*` endpoint/response
     policy.
-21. `C07`: PGlite plus real-Postgres correctness gate.
+22. `C07`: PGlite plus real-Postgres correctness gate.
 
 The former B2b/C06 dependency contradiction is resolved by this split: C06-A
 is the accepted non-routing prerequisite, and O08-B2b2a now supplies only the

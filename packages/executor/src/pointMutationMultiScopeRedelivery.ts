@@ -196,7 +196,8 @@ const QueueEntrySchema = Schema.Struct({
   attemptDiscovery: AttemptDiscoveryStateSchema,
 });
 
-const ContinuationSchema = Schema.Struct({
+export const PointMutationMultiScopeRedeliveryContinuationSchemaV1 =
+  Schema.Struct({
   codecVersion: Schema.Literal(1),
   directory: DirectoryStateSchema,
   scopes: Schema.Array(QueueEntrySchema).check(Schema.isMaxLength(
@@ -208,7 +209,9 @@ const InputSchema = Schema.Struct({
   scopeLimit: BoundedLimitSchema,
   maxAttemptPages: BoundedLimitSchema,
   maxCandidateAttempts: BoundedLimitSchema,
-  continuation: Schema.optional(ContinuationSchema),
+  continuation: Schema.optional(
+    PointMutationMultiScopeRedeliveryContinuationSchemaV1,
+  ),
 });
 
 const decodeInputResult = Schema.decodeUnknownResult(InputSchema, {

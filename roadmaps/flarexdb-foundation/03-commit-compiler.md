@@ -26,9 +26,10 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   promotion, O08-B2b2b2b1a phase-aware renewal, and O08-B2b2b2b1b1
   host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page
   redelivery, O08-B2b2b2b1b2b1 inert scope enumeration, and O08-
-  B2b2b2b1b2b2a private count-bounded multi-scope composition are complete.
-  O08-B2b2b2b1b2b2b durable scheduling and C06-B endpoint/response policy
-  remain pending,
+  B2b2b2b1b2b2a private count-bounded multi-scope composition are complete,
+  as is O08-B2b2b2b1b2b2b0's inert singleton scheduler-checkpoint persistence.
+  The production scheduling loop and C06-B endpoint/response policy remain
+  pending,
   while C04C2 remains conditional and
   unapproved.
 
