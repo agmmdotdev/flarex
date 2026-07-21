@@ -67,6 +67,9 @@ import {
 } from "../src/transactionSessionActivation";
 import {
   postgresUrl,
+  rollbackAndReleasePostgresClient,
+  useFileScopedPostgresPersistence,
+  withPostgresSequentialScansDisabled,
   withTemporaryPostgresPersistence,
   withTemporaryPostgresSchema,
 } from "./postgresHelpers";
@@ -136,6 +139,8 @@ interface AttemptLeaseAndSealState extends Record<string, unknown> {
 }
 
 describePostgres("real Postgres C03 SessionJournalStore", () => {
+  const withPostgresPersistence = useFileScopedPostgresPersistence();
+
   it("rolls back and recovers migration 0028 in a non-public schema", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-c03-postgres-"));
     const migrationsFolder = resolve(testRoot, "drizzle");
@@ -338,7 +343,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 120_000);
 
   it("replays a lost insert response without rerunning identity generation", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const generatedUuid = "93000000-0000-4000-8000-000000000001";
       let generationCalls = 0;
       const current = await scenario(persistence, "lost_response", {
@@ -400,7 +405,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 120_000);
 
   it("rejects the stale execution owner at syscall and seal after takeover", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await scenario(persistence, "execution_claim_takeover");
       await persistence.query(
         `update fx_system_tx_execution_claim
@@ -439,7 +444,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 120_000);
 
   it("cascades the exact journal evidence through the public abort path", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await scenario(persistence, "abort_cleanup", {
         randomUuid: () => "94000000-0000-4000-8000-000000000001",
       });
@@ -480,7 +485,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 120_000);
 
   it("keeps the activated schema manifest pinned during publication and uses primary-key lookup plans", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const current = await scenario(persistence, "pinned_manifest");
       const nextSchemaVersionId = CatalogSchemaVersionIdSchema.make(
         "schema_session_journal_pinned_manifest_v2",
@@ -607,9 +612,10 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         evidenceLockOpen = false;
       } finally {
         if (evidenceLockOpen) {
-          await evidenceLocker.query("rollback").catch(() => undefined);
+          await rollbackAndReleasePostgresClient(evidenceLocker);
+        } else {
+          evidenceLocker.release();
         }
-        evidenceLocker.release();
         releaseDigest.resolve();
       }
       let prepared: Awaited<typeof preparePromise>;
@@ -678,9 +684,10 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         transactionOpen = false;
       } finally {
         if (transactionOpen) {
-          await locker.query("rollback").catch(() => undefined);
+          await rollbackAndReleasePostgresClient(locker);
+        } else {
+          locker.release();
         }
-        locker.release();
       }
 
       lockSteps.length = 0;
@@ -1007,7 +1014,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
   }, 180_000);
 
   it("enforces nullable evidence checks and the material-event byte bound in real Postgres", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const point = await scenario(persistence, "nullable_point", {
         randomUuid: () => "96000000-0000-4000-8000-000000000001",
       });
@@ -1496,9 +1503,7 @@ async function journalLookupPlans(
   point: string;
   events: string;
 }>> {
-  const planner = await persistence.pool.connect();
-  try {
-    await planner.query("set enable_seqscan = off");
+  return withPostgresSequentialScansDisabled(persistence, async (planner) => {
     const common = [root.scope_uuid, root.session_id, root.attempt_fence];
     const rootPlan = await explain(
       planner,
@@ -1541,9 +1546,7 @@ async function journalLookupPlans(
       point: pointPlan,
       events: eventPlan,
     });
-  } finally {
-    planner.release();
-  }
+  });
 }
 
 async function explain(

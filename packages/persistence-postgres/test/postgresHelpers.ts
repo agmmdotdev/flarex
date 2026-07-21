@@ -128,6 +128,19 @@ export async function withPostgresSequentialScansDisabled<Value>(
   }
 }
 
+export async function rollbackAndReleasePostgresClient(
+  client: PoolClient,
+): Promise<void> {
+  let destroyClient = false;
+  try {
+    await client.query("rollback");
+  } catch {
+    destroyClient = true;
+  } finally {
+    client.release(destroyClient);
+  }
+}
+
 export async function withTemporaryPostgresPersistence(
   fn: (persistence: PostgresFlarexPersistence) => Promise<void>,
 ): Promise<void> {

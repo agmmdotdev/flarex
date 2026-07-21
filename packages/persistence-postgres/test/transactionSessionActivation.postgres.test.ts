@@ -39,6 +39,8 @@ import { LOCATED_READ_COMMITTED_RUNNER_V1 } from
   "../src/transactionSessionAttemptKernel";
 import {
   postgresUrl,
+  rollbackAndReleasePostgresClient,
+  useFileScopedPostgresPersistence,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
 import {
@@ -66,8 +68,10 @@ interface ActivationContext {
 }
 
 describePostgres("real Postgres O03-B session authority", () => {
+  const withPostgresPersistence = useFileScopedPostgresPersistence();
+
   it("serializes exact same-request activation into one created and one busy anchor", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -120,7 +124,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   }, 120_000);
 
   it("recovers a lost activation response and advances an expired claim exactly once", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -175,7 +179,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   }, 120_000);
 
   it("rejects an expired non-target sealed lease without mutating its evidence", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -247,7 +251,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   }, 120_000);
 
   it("resolves a committed outcome before owner generation and stale-fence checks", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -299,7 +303,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   }, 120_000);
 
   it("mints no settled acquisition from either kind of lost COMMIT response", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const forwardedContext = await provisionContext(
         persistence,
@@ -424,7 +428,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   }, 120_000);
 
   it("rejects an expired maximum claim fence without mutation", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -522,8 +526,7 @@ describePostgres("real Postgres O03-B session authority", () => {
           observation: { claimFence: 2n },
         });
       } finally {
-        await held.client.query("rollback").catch(() => undefined);
-        held.client.release();
+        await rollbackAndReleasePostgresClient(held.client);
       }
       await expect(pendingA).resolves.toMatchObject({
         kind: "acquired",
@@ -534,7 +537,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   }, 120_000);
 
   it("gives changed-evidence competition one winner under the scope lock", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -663,7 +666,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   });
 
   it("rolls back all four authoritative facets after every mutating statement", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -705,7 +708,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   });
 
   it("serializes concurrent exact reloads without mutating their anchor or lease", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -818,7 +821,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   });
 
   it("uses database time only after the exact lease lock", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -860,7 +863,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   });
 
   it("rejects authority that changes after preliminary placement resolution", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -915,7 +918,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   });
 
   it("serializes concurrent exact abort and expiry into one terminal transition", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -979,7 +982,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   });
 
   it("reads database time after the exact lease lock when expiry crosses its edge", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -1103,7 +1106,7 @@ describePostgres("real Postgres O03-B session authority", () => {
   });
 
   it("rolls back lease deletion and terminal lifecycle after the second write", async () => {
-    await withTemporaryPostgresPersistence(async (persistence) => {
+    await withPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();
       const context = await provisionContext(
         persistence,
@@ -1345,8 +1348,7 @@ async function holdScopeClock(
     }
     return Object.freeze({ client, blockerPid });
   } catch (cause) {
-    await client.query("rollback").catch(() => undefined);
-    client.release();
+    await rollbackAndReleasePostgresClient(client);
     throw cause;
   }
 }
