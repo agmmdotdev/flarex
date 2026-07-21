@@ -475,6 +475,11 @@ a package-private pure Function Metadata V1 codec/policy that normalizes the
 current analysis shape into canonical per-function and complete-set evidence,
 delegates literal primitives to Value Codec V1, and requires caller-supplied
 operation budgets. It creates no table, catalog limit, readiness fact,
-activation authority, reader, or package export. `PAM-A0b`, `PAM-A1`,
-`PAM-A2`, `PAM-B`, and `C03-V` remain pending and require their own accepted
-contracts.
+activation authority, reader, or package export. `PAM-A0b0-F` is also complete:
+persistence privately owns only the pure, versioned SHA-256 preimage framing
+for function paths, canonical function rows, the row-chain seed and step,
+package publication pins, and completed-package evidence. It deliberately has
+no package-level execution module, hashing adapter, SQL, staging state, or
+authority. The authenticated cursorable source/EOF owner, asynchronous hash
+adapter, `PAM-A0b1` catalog DDL, `PAM-A1`, `PAM-A2`, `PAM-B`, and `C03-V`
+remain pending and require their own accepted contracts.
