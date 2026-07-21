@@ -18,6 +18,15 @@ const ARRAY_BUFFER_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
   ArrayBuffer.prototype,
   "byteLength",
 )?.get;
+const DOM_EXCEPTION_CONSTRUCTOR = typeof DOMException === "undefined"
+  ? undefined
+  : DOMException;
+const DOM_EXCEPTION_CODE_GETTER = DOM_EXCEPTION_CONSTRUCTOR === undefined
+  ? undefined
+  : Object.getOwnPropertyDescriptor(
+    DOM_EXCEPTION_CONSTRUCTOR.prototype,
+    "code",
+  )?.get;
 
 export interface FunctionMetadataSha256BudgetV1 {
   readonly maximumInputBytes: number;
@@ -99,9 +108,7 @@ export function createFunctionMetadataSha256V1(
             reason: "unavailable",
           }));
         }
-        if (
-          failure.cause instanceof FunctionMetadataSha256LiveResolutionV1Defect
-        ) {
+        if (isLiveResolutionDefect(failure.cause)) {
           return Effect.die(failure.cause.cause);
         }
         if (isDirectDomException(failure.cause)) {
@@ -279,7 +286,28 @@ function isIntrinsicArrayBuffer(input: unknown): input is ArrayBuffer {
 }
 
 function isDirectDomException(input: unknown): input is DOMException {
-  return typeof DOMException !== "undefined" && input instanceof DOMException;
+  if (
+    DOM_EXCEPTION_CONSTRUCTOR === undefined ||
+    DOM_EXCEPTION_CODE_GETTER === undefined
+  ) {
+    return false;
+  }
+  try {
+    if (!(input instanceof DOM_EXCEPTION_CONSTRUCTOR)) return false;
+    return typeof DOM_EXCEPTION_CODE_GETTER.call(input) === "number";
+  } catch {
+    return false;
+  }
+}
+
+function isLiveResolutionDefect(
+  input: unknown,
+): input is FunctionMetadataSha256LiveResolutionV1Defect {
+  try {
+    return input instanceof FunctionMetadataSha256LiveResolutionV1Defect;
+  } catch {
+    return false;
+  }
 }
 
 function inputError(
