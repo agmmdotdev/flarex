@@ -383,6 +383,13 @@ describe("Function Metadata V1 codec", () => {
       "\ud800:run",
       "\u{1f600}:run",
     ]);
+    expect(encoded.functions.map((item) => item.ordinal)).toEqual([
+      0,
+      1,
+      2,
+      3,
+      4,
+    ]);
 
     const reconstructed =
       '{"format":"flarex.function-metadata-set","functions":[' +
@@ -400,6 +407,23 @@ describe("Function Metadata V1 codec", () => {
     expect(createHash("sha256").update(encoded.canonicalBytes).digest("hex"))
       .toBe(createHash("sha256").update(new TextEncoder().encode(reconstructed)).digest("hex"));
     expectMatchesProtocolCanonicalEncoding(encoded);
+  });
+
+  it("keeps source-indexed failures separate from post-sort ordinals", () => {
+    const result = encodeFunctionMetadataSetV1({
+      functions: [
+        { path: "z:run", kind: "query" },
+        { path: "a:run", kind: "unsupported" },
+      ],
+    }, LARGE_BUDGET);
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(FunctionMetadataInvalidV1Error);
+      if (result.failure instanceof FunctionMetadataInvalidV1Error) {
+        expect(result.failure.issue.path).toBe("$functions.functions[1].kind");
+      }
+    }
   });
 
   it("rejects invalid UTF-8, JSON, shape, ordering, and noncanonical spelling", () => {
@@ -493,6 +517,26 @@ describe("Function Metadata V1 codec", () => {
     expect(Object.isFrozen(decoded.functions[0]?.metadata)).toBe(true);
   });
 
+  it("owns each canonical row and complete-set byte buffer independently", () => {
+    const encoded = success(encodeFunctionMetadataSetV1({
+      functions: [
+        { path: "a:run", kind: "query" },
+        { path: "b:run", kind: "mutation" },
+      ],
+    }, LARGE_BUDGET));
+    const first = encoded.functions[0]!.canonicalBytes;
+    const second = encoded.functions[1]!.canonicalBytes;
+    const secondBefore = new Uint8Array(second);
+    const setBefore = new Uint8Array(encoded.canonicalBytes);
+
+    first.fill(0);
+    expect(second).toEqual(secondBefore);
+    expect(encoded.canonicalBytes).toEqual(setBefore);
+
+    encoded.canonicalBytes.fill(0xff);
+    expect(second).toEqual(secondBefore);
+  });
+
   it("enforces exact and +1 function, validator-node, and byte budgets", () => {
     const input = {
       functions: [
@@ -583,6 +627,40 @@ describe("Function Metadata V1 codec", () => {
       "canonicalUtf8BytesMaterialized",
       decodeBytes,
       decodeBytes - 1,
+    );
+  });
+
+  it("keeps validator-node and canonical-byte budgets cumulative across rows", () => {
+    const input = {
+      functions: [
+        { path: "a:run", kind: "query", args: { type: "string" } },
+        { path: "b:run", kind: "query", args: { type: "number" } },
+      ],
+    };
+    const validatorOverflow = encodeFunctionMetadataSetV1(input, budget({
+      maximumFunctionsVisited: 2,
+      maximumValidatorNodesVisited: 1,
+      maximumCanonicalUtf8BytesMaterialized: 10_000,
+    }));
+    expectBudgetFailure(
+      validatorOverflow,
+      "validatorNodesVisited",
+      2,
+      1,
+    );
+
+    const baseline = success(encodeFunctionMetadataSetV1(input, LARGE_BUDGET));
+    const firstRowBytes = baseline.functions[0]!.canonicalBytes.length;
+    const byteOverflow = encodeFunctionMetadataSetV1(input, budget({
+      maximumFunctionsVisited: 2,
+      maximumValidatorNodesVisited: baseline.validatorNodesVisited,
+      maximumCanonicalUtf8BytesMaterialized: firstRowBytes,
+    }));
+    expectBudgetFailure(
+      byteOverflow,
+      "canonicalUtf8BytesMaterialized",
+      firstRowBytes + 1,
+      firstRowBytes,
     );
   });
 

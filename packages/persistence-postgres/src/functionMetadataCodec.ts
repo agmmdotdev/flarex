@@ -355,6 +355,24 @@ function parseSourceFunction(
       `${path}.path`,
     );
     yield* rejectDuplicate(functionPath, sourceIndex, seen);
+    return yield* parseSourceFunctionBody(
+      record,
+      functionPath,
+      sourceIndex,
+      path,
+      state,
+    );
+  });
+}
+
+function parseSourceFunctionBody(
+  record: UnknownRecord,
+  functionPath: string,
+  sourceIndex: number,
+  path: string,
+  state: CodecState,
+): Result.Result<ParsedFunction, FunctionMetadataCodecV1Error> {
+  return Result.gen(function* () {
     const executionModule = yield* executionModuleFromFunctionPath(
       functionPath,
       `${path}.path`,
@@ -458,6 +476,24 @@ function parseStoredFunction(
       `${path}.functionPath`,
     );
     yield* rejectDuplicate(functionPath, sourceIndex, seen);
+    return yield* parseStoredFunctionBody(
+      record,
+      functionPath,
+      sourceIndex,
+      path,
+      state,
+    );
+  });
+}
+
+function parseStoredFunctionBody(
+  record: UnknownRecord,
+  functionPath: string,
+  sourceIndex: number,
+  path: string,
+  state: CodecState,
+): Result.Result<ParsedFunction, FunctionMetadataCodecV1Error> {
+  return Result.gen(function* () {
     const executionModule = yield* requireStoredNonemptyString(
       yield* requireStoredOwnValue(record, "executionModule", path),
       `${path}.executionModule`,
@@ -1213,19 +1249,13 @@ function materializeSet(
     for (let ordinal = 0; ordinal < parsed.length; ordinal += 1) {
       const current = parsed[ordinal];
       if (current === undefined) throw new Error("Function metadata ordering lost an item.");
-      const byteLength = yield* measureCanonicalJsonUtf8Bytes(
-        current.json,
-        state,
+      canonicalFunctions.push(
+        yield* materializeCanonicalFunctionRowAtOrdinal(
+          current,
+          ordinal,
+          state,
+        ),
       );
-      yield* chargeCanonicalBytes(state, byteLength);
-      const canonicalText = encodeCanonicalJsonIteratively(current.json);
-      const canonicalBytes = UTF8_ENCODER.encode(canonicalText);
-      canonicalFunctions.push(Object.freeze({
-        ordinal,
-        metadata: current.metadata,
-        canonicalText,
-        canonicalBytes,
-      }));
     }
 
     const setJson = Object.freeze({
@@ -1248,6 +1278,28 @@ function materializeSet(
       validatorNodesVisited: state.validatorNodesVisited,
       canonicalUtf8BytesMaterialized:
         state.canonicalUtf8BytesMaterialized,
+    });
+  });
+}
+
+function materializeCanonicalFunctionRowAtOrdinal(
+  parsed: ParsedFunction,
+  ordinal: number,
+  state: CodecState,
+): Result.Result<CanonicalFunctionMetadataV1, FunctionMetadataOperationBudgetV1Error> {
+  return Result.gen(function* () {
+    const byteLength = yield* measureCanonicalJsonUtf8Bytes(
+      parsed.json,
+      state,
+    );
+    yield* chargeCanonicalBytes(state, byteLength);
+    const canonicalText = encodeCanonicalJsonIteratively(parsed.json);
+    const canonicalBytes = UTF8_ENCODER.encode(canonicalText);
+    return Object.freeze({
+      ordinal,
+      metadata: parsed.metadata,
+      canonicalText,
+      canonicalBytes,
     });
   });
 }
