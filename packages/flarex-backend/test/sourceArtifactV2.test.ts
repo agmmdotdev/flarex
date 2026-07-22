@@ -28,6 +28,9 @@ import {
 } from "../src/sourceArtifactV2/R2Store";
 import {
   makeSourceArtifactV2Sha256,
+  sourceArtifactV2Sha256NativeCause,
+  SourceArtifactV2Sha256InputError,
+  SourceArtifactV2Sha256InvariantDefect,
   SourceArtifactV2Sha256ResourceError,
 } from "../src/sourceArtifactV2/Sha256";
 import {
@@ -212,6 +215,55 @@ describe("source artifact v2 inert upload core", () => {
     }));
     expect(Exit.isFailure(failure)).toBe(true);
     expect(calls).toBe(1);
+  });
+
+  it("retains the Source Artifact V2 SHA error policy around shared mechanics", async () => {
+    const inputFailure = failureOf(await Effect.runPromiseExit(
+      makeSourceArtifactV2Sha256(async () => new ArrayBuffer(32))(
+        Uint8Array.of(1, 2),
+        { maximumInputBytes: 1 },
+      ),
+    ));
+    expect(inputFailure).toBeInstanceOf(SourceArtifactV2Sha256InputError);
+    expect(inputFailure).toMatchObject({
+      reason: "inputBytesExceeded",
+      observed: 2,
+      maximum: 1,
+    });
+
+    const native = new DOMException("private native detail", "OperationError");
+    const resourceFailure = failureOf(await Effect.runPromiseExit(
+      makeSourceArtifactV2Sha256(() => Promise.reject(native))(
+        new Uint8Array(),
+        { maximumInputBytes: 0 },
+      ),
+    ));
+    expect(resourceFailure).toBeInstanceOf(SourceArtifactV2Sha256ResourceError);
+    expect(resourceFailure).toMatchObject({ reason: "nativeRejected" });
+    if (resourceFailure instanceof SourceArtifactV2Sha256ResourceError) {
+      expect(sourceArtifactV2Sha256NativeCause(resourceFailure)).toBe(native);
+    }
+
+    const malformedExit = await Effect.runPromiseExit(
+      makeSourceArtifactV2Sha256(async () => new ArrayBuffer(31))(
+        new Uint8Array(),
+        { maximumInputBytes: 0 },
+      ),
+    );
+    const malformedDefect = defectOf(malformedExit);
+    expect(malformedDefect).toBeInstanceOf(SourceArtifactV2Sha256InvariantDefect);
+    expect(malformedDefect).toMatchObject({
+      reason: "invalidDigestOutput",
+      observedByteLength: 31,
+    });
+
+    const unexpected = new Error("unexpected foreign failure");
+    expect(defectOf(await Effect.runPromiseExit(
+      makeSourceArtifactV2Sha256(() => Promise.reject(unexpected))(
+        new Uint8Array(),
+        { maximumInputBytes: 0 },
+      ),
+    ))).toBe(unexpected);
   });
 
   it("converges immutable R2 content and publishes the inert root last", async () => {
@@ -910,6 +962,13 @@ function success<A, E>(result: Result.Result<A, E>): A {
 function failureOf<A, E>(exit: Exit.Exit<A, E>): E | undefined {
   if (Exit.isSuccess(exit)) return undefined;
   return Cause.findErrorOption(exit.cause).pipe(option => option._tag === "Some" ? option.value : undefined);
+}
+
+function defectOf<A, E>(exit: Exit.Exit<A, E>): unknown {
+  if (Exit.isSuccess(exit)) throw new Error("Expected failed Effect.");
+  const defect = Cause.findDefect(exit.cause);
+  if (Result.isFailure(defect)) throw new Error("Expected defect Cause.");
+  return defect.success;
 }
 
 function liveTestSha() {

@@ -7,7 +7,8 @@
   ],
   "exports": {
     ".": "./src/index.ts",
-    "./internal/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts"
+    "./internal/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts",
+    "./internal/private-sha256-v1": "./src/privateSha256V1.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
