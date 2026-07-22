@@ -14,6 +14,27 @@ export const PRIVATE_ANALYZER_IMPLEMENTATION_MARKER_PREFIX =
 export const PRIVATE_ANALYZER_IMPLEMENTATION_MARKER_SUFFIX = "__END__";
 export const PRIVATE_ANALYZER_IDENTITY_HEX_LENGTH = 64;
 const PRIVATE_ANALYZER_COMPATIBILITY_FLAGS_V1: readonly [] = Object.freeze([]);
+const PRIVATE_ANALYZER_DEPLOYMENT_ROUTES_V1: readonly [] = Object.freeze([]);
+const PRIVATE_ANALYZER_DEPLOYMENT_RESOURCE_BINDINGS_V1: readonly [] = Object.freeze([]);
+
+export interface PrivateAnalyzerDeploymentPostureV1 {
+  readonly format: "flarex.private-source-analyzer-deployment-posture";
+  readonly version: 1;
+  readonly workersDev: false;
+  readonly previewUrls: false;
+  readonly routes: readonly [];
+  readonly resourceBindings: readonly [];
+}
+
+export const PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1: PrivateAnalyzerDeploymentPostureV1 =
+  Object.freeze({
+    format: "flarex.private-source-analyzer-deployment-posture",
+    version: 1,
+    workersDev: false,
+    previewUrls: false,
+    routes: PRIVATE_ANALYZER_DEPLOYMENT_ROUTES_V1,
+    resourceBindings: PRIVATE_ANALYZER_DEPLOYMENT_RESOURCE_BINDINGS_V1,
+  });
 
 export interface PrivateAnalyzerToolchainV1 {
   readonly wrangler: string;
@@ -28,6 +49,7 @@ export interface PrivateAnalyzerHostConfigurationV1 {
   readonly version: 1;
   readonly compatibilityDate: "2026-06-14";
   readonly compatibilityFlags: readonly [];
+  readonly deploymentPosture: PrivateAnalyzerDeploymentPostureV1;
   readonly protocolIdentity: typeof PRIVATE_ANALYZER_PROTOCOL_IDENTITY_V1;
   readonly protocolVersion: typeof PRIVATE_ANALYZER_PROTOCOL_VERSION_V1;
   readonly handshakeCodecVersion: typeof PRIVATE_ANALYZER_HANDSHAKE_CODEC_VERSION_V1;
@@ -62,12 +84,15 @@ export class PrivateAnalyzerHostConfigurationV1Error extends Data.TaggedError(
 
 export function privateAnalyzerHostConfigurationV1(
   toolchain: PrivateAnalyzerToolchainV1,
+  deploymentPosture: PrivateAnalyzerDeploymentPostureV1,
 ): PrivateAnalyzerHostConfigurationV1 {
+  const ownedDeploymentPosture = capturePrivateAnalyzerDeploymentPostureV1(deploymentPosture);
   return Object.freeze({
     format: "flarex.private-source-analyzer-host-configuration",
     version: 1,
     compatibilityDate: "2026-06-14",
     compatibilityFlags: PRIVATE_ANALYZER_COMPATIBILITY_FLAGS_V1,
+    deploymentPosture: ownedDeploymentPosture,
     protocolIdentity: PRIVATE_ANALYZER_PROTOCOL_IDENTITY_V1,
     protocolVersion: PRIVATE_ANALYZER_PROTOCOL_VERSION_V1,
     handshakeCodecVersion: PRIVATE_ANALYZER_HANDSHAKE_CODEC_VERSION_V1,
@@ -94,12 +119,46 @@ export function privateAnalyzerHostConfigurationV1(
   });
 }
 
+function capturePrivateAnalyzerDeploymentPostureV1(
+  value: PrivateAnalyzerDeploymentPostureV1,
+): PrivateAnalyzerDeploymentPostureV1 {
+  const format = value.format;
+  const version = value.version;
+  const workersDev = value.workersDev;
+  const previewUrls = value.previewUrls;
+  const routesLength = value.routes.length;
+  const resourceBindingsLength = value.resourceBindings.length;
+  if (
+    format !== "flarex.private-source-analyzer-deployment-posture" ||
+    version !== 1 ||
+    workersDev !== false ||
+    previewUrls !== false ||
+    routesLength !== 0 ||
+    resourceBindingsLength !== 0
+  ) {
+    throw new Error("Private analyzer deployment posture lost its configuration invariant.");
+  }
+  const routes: readonly [] = Object.freeze([]);
+  const resourceBindings: readonly [] = Object.freeze([]);
+  return Object.freeze({
+    format,
+    version,
+    workersDev,
+    previewUrls,
+    routes,
+    resourceBindings,
+  });
+}
+
 export function validatePrivateAnalyzerHostConfigurationV1(
   value: unknown,
 ): Result.Result<PrivateAnalyzerHostConfigurationV1, PrivateAnalyzerHostConfigurationV1Error> {
   if (!isNonArrayRecord(value)) return invalidConfiguration("configuration");
   if (!isValidToolchain(value.toolchain)) return invalidConfiguration("toolchain");
-  const expected = privateAnalyzerHostConfigurationV1(value.toolchain);
+  const expected = privateAnalyzerHostConfigurationV1(
+    value.toolchain,
+    PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1,
+  );
   const encoded = canonicalConfiguration(value);
   const canonicalExpected = canonicalConfiguration(expected);
   return Result.all([encoded, canonicalExpected] as const).pipe(

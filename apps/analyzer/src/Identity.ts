@@ -1,5 +1,6 @@
 import {
   isPrivateAnalyzerIdentityV1,
+  PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1,
   PRIVATE_ANALYZER_PROTOCOL_IDENTITY_V1,
   PRIVATE_ANALYZER_PROTOCOL_VERSION_V1,
   privateAnalyzerHostConfigurationV1,
@@ -22,6 +23,7 @@ export function installedPrivateAnalyzerIdentityV1() {
   return Object.freeze({
     configuration: privateAnalyzerHostConfigurationV1(
       GENERATED_PRIVATE_ANALYZER_IDENTITY_V1.toolchain,
+      PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1,
     ),
     identity: Object.freeze({
       protocolIdentity: PRIVATE_ANALYZER_PROTOCOL_IDENTITY_V1,

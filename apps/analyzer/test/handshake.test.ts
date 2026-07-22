@@ -46,6 +46,34 @@ describe("private analyzer identity handshake", () => {
     });
   });
 
+  it("captures an owned frozen identity snapshot at host construction", async () => {
+    const callerIdentity = { ...installed.identity } as {
+      configurationIdentity: string;
+      implementationIdentity: string;
+      protocolIdentity: string;
+      protocolVersion: number;
+    };
+    const result = makePrivateAnalyzerHandshakeHostV1({
+      configuration: installed.configuration,
+      identity: callerIdentity as PrivateAnalyzerIdentityTupleV1,
+    });
+    if (Result.isFailure(result)) throw result.failure;
+    const expectedMaximumBodyBytes = canonicalPrivateAnalyzerHandshakeRequestV1(
+      installed.identity,
+    ).byteLength;
+
+    callerIdentity.protocolIdentity = "mutated-protocol";
+    callerIdentity.protocolVersion = 2;
+    callerIdentity.implementationIdentity = "a".repeat(64);
+    callerIdentity.configurationIdentity = "b".repeat(64);
+
+    expect(Object.isFrozen(callerIdentity)).toBe(false);
+    expect(result.success.maximumBodyBytes).toBe(expectedMaximumBodyBytes);
+    const response = await Effect.runPromise(result.success.handle(validRequest()));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ kind: "compatible", ...installed.identity });
+  });
+
   it("rejects missing, extra, malformed, noncanonical, trailing, hostile, and mismatched evidence", () => {
     const canonical = canonicalPrivateAnalyzerHandshakeRequestV1(installed.identity);
     const cases: unknown[] = [
@@ -234,6 +262,40 @@ describe("private analyzer identity handshake", () => {
       expect(await timedExit.value.json()).toEqual({ error: "request_timeout" });
     }
     expect(stalledCancelled).toBe(true);
+  });
+
+  it("preserves known overflow when best-effort reader cancellation rejects", async () => {
+    const host = makeHost();
+    const cancelFailure = new Error("cancel-overflow-failure");
+    let oversizedCancelCalls = 0;
+    const oversized = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(host.maximumBodyBytes + 1));
+      },
+      cancel() {
+        oversizedCancelCalls += 1;
+        return Promise.reject(cancelFailure);
+      },
+    });
+    const oversizedResponse = await Effect.runPromise(host.handle(streamRequest(oversized)));
+    expect(oversizedResponse.status).toBe(413);
+    expect(await oversizedResponse.json()).toEqual({ error: "payload_too_large" });
+    expect(oversizedCancelCalls).toBe(1);
+
+    let emptyCancelCalls = 0;
+    const emptyChunks = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(0));
+      },
+      cancel() {
+        emptyCancelCalls += 1;
+        return Promise.reject(cancelFailure);
+      },
+    });
+    const emptyResponse = await Effect.runPromise(host.handle(streamRequest(emptyChunks)));
+    expect(emptyResponse.status).toBe(413);
+    expect(await emptyResponse.json()).toEqual({ error: "payload_too_large" });
+    expect(emptyCancelCalls).toBe(1);
   });
 
   it("redacts a stream rejection while retaining its exact private cause", async () => {

@@ -5,12 +5,16 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { isNonEmptyString } from "@flarex/utils/strings";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import {
   canonicalPrivateAnalyzerHostConfigurationV1,
+  PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1,
   PRIVATE_ANALYZER_IMPLEMENTATION_MARKER_PREFIX,
   PRIVATE_ANALYZER_IMPLEMENTATION_MARKER_SUFFIX,
   privateAnalyzerHostConfigurationV1,
+  type PrivateAnalyzerDeploymentPostureV1,
   type PrivateAnalyzerToolchainV1,
 } from "../src/Configuration";
 
@@ -27,6 +31,14 @@ const CONFIGURATION_DOMAIN = Buffer.from(
   "flarex.private-source-analyzer-configuration.v1\0",
   "ascii",
 );
+const WRANGLER_CONFIGURATION_KEYS = Object.freeze([
+  "$schema",
+  "name",
+  "main",
+  "compatibility_date",
+  "workers_dev",
+  "preview_urls",
+] as const);
 
 export interface AnalyzerIdentityBuildReceipt {
   readonly implementationIdentity: string;
@@ -62,7 +74,8 @@ if (
 export async function updateAnalyzerIdentity(): Promise<AnalyzerIdentityBuildReceipt> {
   const previous = await readFile(GENERATED_PATH, "utf8");
   const toolchain = await installedToolchain();
-  const configurationIdentity = configurationDigest(toolchain);
+  const deploymentPosture = await readDeploymentPosture();
+  const configurationIdentity = configurationDigest(toolchain, deploymentPosture);
   try {
     await writeGenerated({
       implementationIdentity: ZERO_IDENTITY,
@@ -93,10 +106,11 @@ export async function updateAnalyzerIdentity(): Promise<AnalyzerIdentityBuildRec
 export async function checkAnalyzerIdentity(): Promise<AnalyzerIdentityBuildReceipt> {
   const generated = parseGenerated(await readFile(GENERATED_PATH, "utf8"));
   const installed = await installedToolchain();
+  const deploymentPosture = await readDeploymentPosture();
   if (canonicalToolchain(generated.toolchain) !== canonicalToolchain(installed)) {
     throw new Error("Generated private analyzer toolchain does not match installed dependencies.");
   }
-  const expectedConfiguration = configurationDigest(installed);
+  const expectedConfiguration = configurationDigest(installed, deploymentPosture);
   if (generated.configurationIdentity !== expectedConfiguration) {
     throw new Error("Generated private analyzer configuration identity is stale.");
   }
@@ -148,8 +162,11 @@ function implementationDigest(
     .digest("hex");
 }
 
-function configurationDigest(toolchain: PrivateAnalyzerToolchainV1): string {
-  const configuration = privateAnalyzerHostConfigurationV1(toolchain);
+function configurationDigest(
+  toolchain: PrivateAnalyzerToolchainV1,
+  deploymentPosture: PrivateAnalyzerDeploymentPostureV1,
+): string {
+  const configuration = privateAnalyzerHostConfigurationV1(toolchain, deploymentPosture);
   const bytes = Buffer.from(
     canonicalPrivateAnalyzerHostConfigurationV1(configuration),
     "utf8",
@@ -159,6 +176,46 @@ function configurationDigest(toolchain: PrivateAnalyzerToolchainV1): string {
     .update(u32be(bytes.byteLength))
     .update(bytes)
     .digest("hex");
+}
+
+async function readDeploymentPosture(): Promise<PrivateAnalyzerDeploymentPostureV1> {
+  const parsed = JSON.parse(await readFile(CONFIG_PATH, "utf8")) as unknown;
+  return validatePrivateAnalyzerWranglerConfigurationV1(parsed);
+}
+
+export function validatePrivateAnalyzerWranglerConfigurationV1(
+  value: unknown,
+): PrivateAnalyzerDeploymentPostureV1 {
+  if (!isNonArrayRecord(value)) {
+    throw new Error("Private analyzer Wrangler configuration must be a record.");
+  }
+  const keys = Object.keys(value).sort();
+  const expectedKeys = [...WRANGLER_CONFIGURATION_KEYS].sort();
+  if (
+    keys.length !== expectedKeys.length ||
+    keys.some((key, index) => key !== expectedKeys[index])
+  ) {
+    throw new Error("Private analyzer Wrangler configuration surface is not the exact H0a surface.");
+  }
+  if (value.$schema !== "../../node_modules/wrangler/config-schema.json") {
+    throw new Error("Private analyzer Wrangler schema reference is invalid.");
+  }
+  if (!isNonEmptyString(value.name)) {
+    throw new Error("Private analyzer Wrangler worker name must be nonempty.");
+  }
+  if (value.main !== "src/worker.ts") {
+    throw new Error("Private analyzer Wrangler entrypoint is invalid.");
+  }
+  if (value.compatibility_date !== "2026-06-14") {
+    throw new Error("Private analyzer Wrangler compatibility date is invalid.");
+  }
+  if (value.workers_dev !== false) {
+    throw new Error("Private analyzer Wrangler workers_dev must remain false.");
+  }
+  if (value.preview_urls !== false) {
+    throw new Error("Private analyzer Wrangler preview_urls must remain false.");
+  }
+  return PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1;
 }
 
 export function normalizeImplementationIdentitySlot(bundle: Uint8Array): Uint8Array {

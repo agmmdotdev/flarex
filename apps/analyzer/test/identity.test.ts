@@ -1,11 +1,17 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { canonicalPrivateAnalyzerHostConfigurationV1 } from "../src/Configuration";
+import {
+  canonicalPrivateAnalyzerHostConfigurationV1,
+  PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1,
+  privateAnalyzerHostConfigurationV1,
+  type PrivateAnalyzerDeploymentPostureV1,
+} from "../src/Configuration";
 import { GENERATED_PRIVATE_ANALYZER_IDENTITY_V1 } from "../src/Identity.generated";
 import { installedPrivateAnalyzerIdentityV1 } from "../src/Identity";
 import {
   awaitWranglerDryRunOutput,
   normalizeImplementationIdentitySlot,
+  validatePrivateAnalyzerWranglerConfigurationV1,
 } from "../scripts/buildIdentity";
 
 describe("private analyzer deterministic identity", () => {
@@ -14,11 +20,11 @@ describe("private analyzer deterministic identity", () => {
     expect(installed.identity).toEqual({
       protocolIdentity: "flarex.private-source-analyzer-handshake.v1",
       protocolVersion: 1,
-      implementationIdentity: "b9b9c0588b17197ada79f6dc541211cfcb4a73058ca3380e41039e998774f1ea",
-      configurationIdentity: "e9f86d9ee5b5f818adf6df9868729e465a1f7fe3e864e879d2776935bea00196",
+      implementationIdentity: "8654996ddb4620dc505b31a5d25293d53186891f8bc64c11650a8d06fb948ced",
+      configurationIdentity: "62b0a1e20b0b3a06c98c4220cb0f2fd6008c677bbc8ec1e24c986e9fa2c1768a",
     });
     expect(canonicalPrivateAnalyzerHostConfigurationV1(installed.configuration)).toBe(
-      '{"compatibilityDate":"2026-06-14","compatibilityFlags":[],"format":"flarex.private-source-analyzer-host-configuration","handshake":{"contentType":"application/json","framing":"canonical-json-utf8-full-scan-v1","maximumBodyReadMilliseconds":5000,"method":"POST","path":"/__flarex_private/source-analyzer-v2/identity","redaction":"private-code-only-v1","statuses":{"bodyReadFailed":400,"bodyReadTimedOut":408,"identityMismatch":409,"malformed":400,"methodNotAllowed":405,"notFound":404,"payloadTooLarge":413,"success":200,"unsupportedMediaType":415}},"handshakeCodecVersion":1,"protocolIdentity":"flarex.private-source-analyzer-handshake.v1","protocolVersion":1,"toolchain":{"effect":"4.0.0-beta.90","esbuild":"0.27.3","typescript":"7.0.2","workersTypes":"4.20260613.1","wrangler":"4.100.0"},"version":1}',
+      '{"compatibilityDate":"2026-06-14","compatibilityFlags":[],"deploymentPosture":{"format":"flarex.private-source-analyzer-deployment-posture","previewUrls":false,"resourceBindings":[],"routes":[],"version":1,"workersDev":false},"format":"flarex.private-source-analyzer-host-configuration","handshake":{"contentType":"application/json","framing":"canonical-json-utf8-full-scan-v1","maximumBodyReadMilliseconds":5000,"method":"POST","path":"/__flarex_private/source-analyzer-v2/identity","redaction":"private-code-only-v1","statuses":{"bodyReadFailed":400,"bodyReadTimedOut":408,"identityMismatch":409,"malformed":400,"methodNotAllowed":405,"notFound":404,"payloadTooLarge":413,"success":200,"unsupportedMediaType":415}},"handshakeCodecVersion":1,"protocolIdentity":"flarex.private-source-analyzer-handshake.v1","protocolVersion":1,"toolchain":{"effect":"4.0.0-beta.90","esbuild":"0.27.3","typescript":"7.0.2","workersTypes":"4.20260613.1","wrangler":"4.100.0"},"version":1}',
     );
   });
 
@@ -86,5 +92,60 @@ describe("private analyzer deterministic identity", () => {
       workers_dev: false,
       preview_urls: false,
     });
+  });
+
+  it("validates the exact private deployment posture from Wrangler configuration", async () => {
+    const wrangler = JSON.parse(
+      await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
+    ) as Record<string, unknown>;
+    expect(validatePrivateAnalyzerWranglerConfigurationV1(wrangler)).toBe(
+      PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1,
+    );
+    expect(validatePrivateAnalyzerWranglerConfigurationV1({
+      ...wrangler,
+      name: "environment-specific-name-excluded-from-identity",
+    })).toBe(PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1);
+
+    const drifts: readonly Record<string, unknown>[] = [
+      { ...wrangler, workers_dev: true },
+      { ...wrangler, preview_urls: true },
+      { ...wrangler, routes: [] },
+      { ...wrangler, r2_buckets: [] },
+    ];
+    for (const drift of drifts) {
+      expect(() => validatePrivateAnalyzerWranglerConfigurationV1(drift)).toThrow();
+    }
+  });
+
+  it("captures an owned frozen deployment-posture snapshot", () => {
+    const callerPosture = {
+      ...PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1,
+      routes: [] as unknown[],
+      resourceBindings: [] as unknown[],
+    } as unknown as PrivateAnalyzerDeploymentPostureV1;
+    const configuration = privateAnalyzerHostConfigurationV1(
+      installedPrivateAnalyzerIdentityV1().configuration.toolchain,
+      callerPosture,
+    );
+    const mutableCaller = callerPosture as unknown as {
+      format: string;
+      version: number;
+      workersDev: boolean;
+      previewUrls: boolean;
+      routes: unknown[];
+      resourceBindings: unknown[];
+    };
+    mutableCaller.format = "mutated-posture";
+    mutableCaller.version = 2;
+    mutableCaller.workersDev = true;
+    mutableCaller.previewUrls = true;
+    mutableCaller.routes.push("https://public.example/*");
+    mutableCaller.resourceBindings.push({ r2: "ARTIFACTS" });
+
+    expect(configuration.deploymentPosture).toEqual(PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1);
+    expect(configuration.deploymentPosture).not.toBe(callerPosture);
+    expect(Object.isFrozen(configuration.deploymentPosture)).toBe(true);
+    expect(Object.isFrozen(configuration.deploymentPosture.routes)).toBe(true);
+    expect(Object.isFrozen(configuration.deploymentPosture.resourceBindings)).toBe(true);
   });
 });

@@ -118,18 +118,25 @@ export function makePrivateAnalyzerHandshakeHostV1(options: {
 }): Result.Result<PrivateAnalyzerHandshakeHostV1, PrivateAnalyzerHostConfigurationV1Error> {
   return validatePrivateAnalyzerHostConfigurationV1(options.configuration).pipe(
     Result.flatMap(configuration => {
+      const callerIdentity = options.identity;
+      const identity: PrivateAnalyzerIdentityTupleV1 = Object.freeze({
+        protocolIdentity: callerIdentity.protocolIdentity,
+        protocolVersion: callerIdentity.protocolVersion,
+        implementationIdentity: callerIdentity.implementationIdentity,
+        configurationIdentity: callerIdentity.configurationIdentity,
+      });
       if (
-        options.identity.protocolIdentity !== configuration.protocolIdentity ||
-        options.identity.protocolVersion !== configuration.protocolVersion ||
-        !isPrivateAnalyzerIdentityV1(options.identity.implementationIdentity) ||
-        !isPrivateAnalyzerIdentityV1(options.identity.configurationIdentity)
+        identity.protocolIdentity !== configuration.protocolIdentity ||
+        identity.protocolVersion !== configuration.protocolVersion ||
+        !isPrivateAnalyzerIdentityV1(identity.implementationIdentity) ||
+        !isPrivateAnalyzerIdentityV1(identity.configurationIdentity)
       ) {
         return Result.fail(new PrivateAnalyzerHostConfigurationV1Error({
           field: "identity",
           reason: "invalidIdentity",
         }));
       }
-      const maximumBodyBytes = canonicalPrivateAnalyzerHandshakeRequestV1(options.identity).byteLength;
+      const maximumBodyBytes = canonicalPrivateAnalyzerHandshakeRequestV1(identity).byteLength;
       const onCompatible = options.onCompatible ?? (() => Effect.void);
 
       const handleExpected = Effect.fn("PrivateAnalyzerHost.handleExpected")(
@@ -167,9 +174,9 @@ export function makePrivateAnalyzerHandshakeHostV1(options: {
           if (declaredContentLength !== undefined && bytes.byteLength !== declaredContentLength) {
             return yield* new PrivateAnalyzerHandshakeRequestV1Error({ reason: "invalidContentLength" });
           }
-          yield* Effect.fromResult(decodePrivateAnalyzerHandshakeBytesV1(bytes, options.identity));
+          yield* Effect.fromResult(decodePrivateAnalyzerHandshakeBytesV1(bytes, identity));
           yield* onCompatible();
-          return bytesResponse(canonicalPrivateAnalyzerHandshakeResponseV1(options.identity), 200);
+          return bytesResponse(canonicalPrivateAnalyzerHandshakeResponseV1(identity), 200);
         },
       );
 
@@ -206,7 +213,7 @@ export const readPrivateAnalyzerHandshakeBodyV1: (
         let reads = 0;
         while (true) {
           if (reads >= maximumBodyBytes + 1) {
-            await reader.cancel();
+            await cancelReaderBestEffort(reader);
             return { kind: "overflow" as const };
           }
           reads += 1;
@@ -216,7 +223,7 @@ export const readPrivateAnalyzerHandshakeBodyV1: (
           if (next.value.byteLength === 0) continue;
           const nextTotal = total + next.value.byteLength;
           if (!Number.isSafeInteger(nextTotal) || nextTotal > maximumBodyBytes) {
-            await reader.cancel();
+            await cancelReaderBestEffort(reader);
             return { kind: "overflow" as const };
           }
           chunks.push(new Uint8Array(next.value));
@@ -255,6 +262,16 @@ export const readPrivateAnalyzerHandshakeBodyV1: (
       ? new PrivateAnalyzerHandshakeRequestV1Error({ reason: "bodyReadTimedOut" })
       : error),
   ));
+
+async function cancelReaderBestEffort(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<void> {
+  try {
+    await reader.cancel();
+  } catch {
+    // The primary read-limit verdict is already known; cancellation is best-effort cleanup.
+  }
+}
 
 function errorResponse(error: PrivateAnalyzerHandshakeRequestV1Error): Response {
   const status = statusForError(error.reason);
