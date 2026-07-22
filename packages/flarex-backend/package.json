@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
+    "@flarex/executor-http": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex": "workspace:*",

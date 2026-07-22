@@ -513,3 +513,13 @@ identity. The tuple is compatibility evidence, not caller or analysis
 authority; the app cannot read source artifacts or produce analysis. Production
 binding cutover and the finalized-reference reader/dispatch and bounded
 inventory/linking gates remain pending.
+`PAM-A0b0-S1P-J1b0-R1P-A0a` is complete for the current single-configured-
+project backend host: after the existing deployment-push bearer check, the
+backend takes `FLAREX_PROJECT_ID` only from host configuration and performs one
+strict private service-binding lookup of the existing Postgres deployment row.
+Exact persisted project equality may mint one request- and factory-bound,
+single-use process-local witness. The lookup is read-only, explicitly budgeted,
+and adds no relationship creation, RegistryDO authority, public API, schema,
+or production push-path cutover. It proves only coarse backend-service scope
+for the configured project; finalized-upload resolution and analyzer dispatch
+remain pending.

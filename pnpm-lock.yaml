@@ -379,6 +379,9 @@ importers:
       '@flarex/analysis':
         specifier: workspace:*
         version: link:../analysis
+      '@flarex/executor-http':
+        specifier: workspace:*
+        version: link:../executor-http
       '@flarex/utils':
         specifier: workspace:*
         version: link:../utils

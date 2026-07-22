@@ -21,10 +21,23 @@ export async function fetchExecutorJson(
     headers,
     body: JSON.stringify(body),
   });
-  if (env.FLAREX_EXECUTOR !== undefined) {
-    return env.FLAREX_EXECUTOR.fetch(request);
-  }
-  return fetch(request);
+  return fetchExecutorRequest(env, request);
+}
+
+export function fetchExecutorRequest(
+  env: ExecutorHttpEnv,
+  request: Request,
+): Promise<Response> {
+  return env.FLAREX_EXECUTOR === undefined
+    ? fetch(request)
+    : env.FLAREX_EXECUTOR.fetch(request);
+}
+
+export function executorRequestUrl(
+  baseUrl: string | undefined,
+  path: string,
+): string {
+  return executorUrl(baseUrl, path);
 }
 
 function executorUrl(baseUrl: string | undefined, path: string): string {

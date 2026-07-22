@@ -7,7 +7,8 @@
   ],
   "exports": {
     ".": "./src/index.ts",
-    "./fetch": "./src/fetch.ts"
+    "./fetch": "./src/fetch.ts",
+    "./internal-deployment-project-scope-lookup-v1": "./src/deploymentProjectScopeLookupV1.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

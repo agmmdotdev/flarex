@@ -14,7 +14,8 @@
     "compile:h05-hosted-proof-bundle": "tsx scripts/compileH05HostedProofBundle.ts",
     "deploy:dry-run": "pnpm check:bundle",
     "deploy:h05-probe:dry-run": "tsx scripts/runWranglerBundleDryRun.ts h05-probe",
-    "test": "vitest run --exclude test/serviceBinding.postgres.test.ts --exclude test/serviceBinding.hosted.postgres.test.ts",
+    "test": "vitest run --exclude test/serviceBinding.postgres.test.ts --exclude test/serviceBinding.hosted.postgres.test.ts --exclude test/deploymentProjectScopeLookup.postgres.test.ts",
+    "test:deployment-project-scope:postgres": "vitest run test/deploymentProjectScopeLookup.postgres.test.ts --no-file-parallelism",
     "test:service-binding:postgres": "pnpm check:bundle && vitest run test/serviceBinding.postgres.test.ts --no-file-parallelism",
     "test:service-binding:hosted:postgres": "pnpm check:bundle && pnpm deploy:h05-probe:dry-run && vitest run test/serviceBinding.hosted.postgres.test.ts --no-file-parallelism",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json"
