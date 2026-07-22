@@ -383,10 +383,12 @@ activation without readiness.
 
 ## Known Gaps And Limitations
 
-- `apps/backend/wrangler.jsonc` binds `FLAREX_ANALYZER` to `flarex-analyzer`,
-  but this workspace has no deployable analyzer Worker application. Tests and
-  local dev inject service implementations; hosted source-only analysis is not
-  operationally proven by the repository alone.
+- `apps/backend/wrangler.jsonc` still binds `FLAREX_ANALYZER` to
+  `flarex-analyzer`; the new `flarex-source-analyzer-v2` app is only an inert
+  private identity/compatibility host and is not wired to that production
+  binding. Tests and local dev still inject whole-package service
+  implementations, so hosted source-only analysis remains operationally
+  unproven.
 - The current hosted artifact-runtime Worker materializes and invokes Dynamic
   Workers but does not expose the analyzer service expected by the public
   backend. Hosted analysis ownership and deployment wiring remain incomplete.
@@ -503,3 +505,11 @@ resource failure identity privately, and treats malformed platform output as a
 defect without exporting a service or authority. The authenticated cursorable
 source/EOF owner, `PAM-A0b1` catalog DDL, `PAM-A1`, `PAM-A2`, `PAM-B`, and
 `C03-V` remain pending and require their own accepted contracts.
+`PAM-A0b0-S1P-J1b0-H0a` is complete: `apps/analyzer` is a deployable but
+inert private Worker shell with no routes or resource bindings. Its sole
+operation is a bounded service-binding compatibility handshake backed by a
+deterministic normalized bundle identity and canonical host-configuration
+identity. The tuple is compatibility evidence, not caller or analysis
+authority; the app cannot read source artifacts or produce analysis. Production
+binding cutover and the finalized-reference reader/dispatch and bounded
+inventory/linking gates remain pending.

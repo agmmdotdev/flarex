@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["src", "scripts", "test", "wrangler.jsonc"]
+}

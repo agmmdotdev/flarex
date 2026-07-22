@@ -1,0 +1,28 @@
+{
+  "name": "@flarex/source-analyzer-v2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm typecheck && pnpm check:identity",
+    "check:bundle": "tsx scripts/buildIdentity.ts check",
+    "check:identity": "tsx scripts/buildIdentity.ts check",
+    "deploy:dry-run": "pnpm check:identity",
+    "identity:update": "tsx scripts/buildIdentity.ts update",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@flarex/utils": "workspace:*",
+    "effect": "catalog:",
+    "flarex-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "miniflare": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}
