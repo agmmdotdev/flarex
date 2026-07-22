@@ -27,6 +27,7 @@ import {
   type SourceArtifactV2R2Bucket,
 } from "../src/sourceArtifactV2/R2Store";
 import {
+  makeLiveSourceArtifactV2Sha256,
   makeSourceArtifactV2Sha256,
   sourceArtifactV2Sha256NativeCause,
   SourceArtifactV2Sha256InputError,
@@ -264,6 +265,62 @@ describe("source artifact v2 inert upload core", () => {
         { maximumInputBytes: 0 },
       ),
     ))).toBe(unexpected);
+  });
+
+  it("preserves backend native rejection identity for every live binding access", async () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+    const failures = [
+      new DOMException("crypto binding rejection", "OperationError"),
+      new DOMException("subtle binding rejection", "OperationError"),
+      new DOMException("digest binding rejection", "OperationError"),
+    ] as const;
+    const descriptors: ReadonlyArray<PropertyDescriptor> = [
+      {
+        configurable: true,
+        get() {
+          throw failures[0];
+        },
+      },
+      {
+        configurable: true,
+        value: Object.defineProperty({}, "subtle", {
+          get() {
+            throw failures[1];
+          },
+        }),
+      },
+      {
+        configurable: true,
+        value: {
+          subtle: Object.defineProperty({}, "digest", {
+            get() {
+              throw failures[2];
+            },
+          }),
+        },
+      },
+    ];
+    try {
+      for (let index = 0; index < descriptors.length; index += 1) {
+        Object.defineProperty(globalThis, "crypto", descriptors[index]);
+        const failure = failureOf(await Effect.runPromiseExit(
+          makeLiveSourceArtifactV2Sha256()(new Uint8Array(), {
+            maximumInputBytes: 0,
+          }),
+        ));
+        expect(failure).toBeInstanceOf(SourceArtifactV2Sha256ResourceError);
+        expect(failure).toMatchObject({ reason: "nativeRejected" });
+        if (failure instanceof SourceArtifactV2Sha256ResourceError) {
+          expect(sourceArtifactV2Sha256NativeCause(failure)).toBe(failures[index]);
+        }
+      }
+    } finally {
+      if (originalDescriptor === undefined) {
+        Reflect.deleteProperty(globalThis, "crypto");
+      } else {
+        Object.defineProperty(globalThis, "crypto", originalDescriptor);
+      }
+    }
   });
 
   it("converges immutable R2 content and publishes the inert root last", async () => {

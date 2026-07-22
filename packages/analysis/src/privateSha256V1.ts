@@ -53,17 +53,11 @@ class PrivateSha256V1UnavailableError {
   readonly _tag = "PrivateSha256V1UnavailableError";
 }
 
-class PrivateSha256V1LiveResolutionDefect {
-  readonly _tag = "PrivateSha256V1LiveResolutionDefect";
-
-  constructor(readonly cause: unknown) {}
-}
-
 export function makePrivateSha256V1<E>(
   foreign: PrivateSha256V1Foreign,
   policy: PrivateSha256V1ErrorPolicy<E>,
 ): PrivateSha256V1<E> {
-  return makePrivateSha256V1Operation(foreign, policy, undefined);
+  return makePrivateSha256V1Operation(foreign, policy);
 }
 
 export function makeLivePrivateSha256V1<E>(
@@ -71,35 +65,19 @@ export function makeLivePrivateSha256V1<E>(
 ): PrivateSha256V1<E> {
   const unavailable = new PrivateSha256V1UnavailableError();
   return makePrivateSha256V1Operation(ownedInput => {
-    let cryptoValue: unknown;
-    try {
-      cryptoValue = globalThis.crypto;
-    } catch (cause) {
-      throw new PrivateSha256V1LiveResolutionDefect(cause);
-    }
+    const cryptoValue: unknown = globalThis.crypto;
     if (!isNonArrayRecord(cryptoValue)) return Promise.reject(unavailable);
-    let subtle: unknown;
-    try {
-      subtle = cryptoValue.subtle;
-    } catch (cause) {
-      throw new PrivateSha256V1LiveResolutionDefect(cause);
+    const subtle: unknown = cryptoValue.subtle;
+    if (!isNonArrayRecord(subtle) || typeof subtle.digest !== "function") {
+      return Promise.reject(unavailable);
     }
-    if (!isNonArrayRecord(subtle)) return Promise.reject(unavailable);
-    let digest: unknown;
-    try {
-      digest = subtle.digest;
-    } catch (cause) {
-      throw new PrivateSha256V1LiveResolutionDefect(cause);
-    }
-    if (typeof digest !== "function") return Promise.reject(unavailable);
-    return Reflect.apply(digest, subtle, ["SHA-256", ownedInput]) as PromiseLike<unknown>;
-  }, policy, unavailable);
+    return Reflect.apply(subtle.digest, subtle, ["SHA-256", ownedInput]) as PromiseLike<unknown>;
+  }, policy);
 }
 
 function makePrivateSha256V1Operation<E>(
   foreign: PrivateSha256V1Foreign,
   policy: PrivateSha256V1ErrorPolicy<E>,
-  unavailable: PrivateSha256V1UnavailableError | undefined,
 ): PrivateSha256V1<E> {
   return Effect.fn("PrivateSha256V1.digest")(function* (input: unknown, budget: unknown) {
     const maximum = yield* decodeBudget(budget, policy);
@@ -109,11 +87,8 @@ function makePrivateSha256V1Operation<E>(
       catch: cause => new PrivateSha256V1ForeignError(cause),
     }).pipe(
       Effect.catchTag("PrivateSha256V1ForeignError", failure => {
-        if (unavailable !== undefined && failure.cause === unavailable) {
+        if (failure.cause instanceof PrivateSha256V1UnavailableError) {
           return Effect.fail(policy.unavailable());
-        }
-        if (isLiveResolutionDefect(failure.cause)) {
-          return Effect.die(failure.cause.cause);
         }
         if (!isDirectDomException(failure.cause)) return Effect.die(failure.cause);
         return Effect.fail(policy.nativeRejected(failure.cause));
@@ -179,28 +154,13 @@ function captureDigestOutput<E>(
 
 function isDirectDomException(value: unknown): value is DOMException {
   if (
-    DOM_EXCEPTION_CONSTRUCTOR === undefined || DOM_EXCEPTION_CODE_GETTER === undefined
+    DOM_EXCEPTION_CONSTRUCTOR === undefined || DOM_EXCEPTION_CODE_GETTER === undefined ||
+    !(value instanceof DOM_EXCEPTION_CONSTRUCTOR) || value.constructor !== DOM_EXCEPTION_CONSTRUCTOR
   ) {
     return false;
   }
   try {
-    if (
-      !(value instanceof DOM_EXCEPTION_CONSTRUCTOR) ||
-      value.constructor !== DOM_EXCEPTION_CONSTRUCTOR
-    ) {
-      return false;
-    }
     return typeof DOM_EXCEPTION_CODE_GETTER.call(value) === "number";
-  } catch {
-    return false;
-  }
-}
-
-function isLiveResolutionDefect(
-  value: unknown,
-): value is PrivateSha256V1LiveResolutionDefect {
-  try {
-    return value instanceof PrivateSha256V1LiveResolutionDefect;
   } catch {
     return false;
   }

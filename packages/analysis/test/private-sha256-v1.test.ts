@@ -160,12 +160,66 @@ describe("private SHA-256 V1 mechanics", () => {
     expect(failure).toMatchObject({ reason: "unavailable" });
   });
 
-  it("keeps live binding accessor failures as exact defects before digest invocation", async () => {
+  it("maps direct DOMExceptions from every live binding access through policy", async () => {
     const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
     const failures = [
-      new DOMException("crypto accessor defect", "OperationError"),
-      new DOMException("subtle accessor defect", "OperationError"),
-      new DOMException("digest accessor defect", "OperationError"),
+      new DOMException("crypto accessor rejection", "OperationError"),
+      new DOMException("subtle accessor rejection", "OperationError"),
+      new DOMException("digest accessor rejection", "OperationError"),
+    ] as const;
+    const descriptors: ReadonlyArray<PropertyDescriptor> = [
+      {
+        configurable: true,
+        get() {
+          throw failures[0];
+        },
+      },
+      {
+        configurable: true,
+        value: Object.defineProperty({}, "subtle", {
+          get() {
+            throw failures[1];
+          },
+        }),
+      },
+      {
+        configurable: true,
+        value: {
+          subtle: Object.defineProperty({}, "digest", {
+            get() {
+              throw failures[2];
+            },
+          }),
+        },
+      },
+    ];
+    try {
+      for (let index = 0; index < descriptors.length; index += 1) {
+        Object.defineProperty(globalThis, "crypto", descriptors[index]);
+        const failure = await effectFailure(makeLivePrivateSha256V1(policy)(
+          new Uint8Array(),
+          { maximumInputBytes: 0 },
+        ));
+        expect(failure).toMatchObject({ reason: "nativeRejected" });
+        if (failure instanceof TestSha256ResourceError) {
+          expect(nativeCauses.get(failure)).toBe(failures[index]);
+        }
+      }
+    } finally {
+      if (originalDescriptor === undefined) {
+        Reflect.deleteProperty(globalThis, "crypto");
+      } else {
+        Object.defineProperty(globalThis, "crypto", originalDescriptor);
+      }
+    }
+  });
+
+  it("keeps ordinary live binding access failures as exact defects", async () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+    const failures = [
+      new Error("crypto accessor defect"),
+      new Error("subtle accessor defect"),
+      new Error("digest accessor defect"),
     ] as const;
     const descriptors: ReadonlyArray<PropertyDescriptor> = [
       {
@@ -211,6 +265,52 @@ describe("private SHA-256 V1 mechanics", () => {
     }
   });
 
+  it("preserves the two digest property reads and invokes only the second value", async () => {
+    const events: string[] = [];
+    let digestReads = 0;
+    const first = () => {
+      events.push("call:first");
+      return Promise.resolve(new ArrayBuffer(32));
+    };
+    const second = () => {
+      events.push("call:second");
+      return Promise.resolve(new ArrayBuffer(32));
+    };
+    const subtle = Object.defineProperty({}, "digest", {
+      configurable: true,
+      get() {
+        digestReads += 1;
+        events.push(`read:${digestReads}`);
+        return digestReads === 1 ? first : second;
+      },
+    });
+    vi.stubGlobal("crypto", { subtle });
+
+    await Effect.runPromise(makeLivePrivateSha256V1(policy)(new Uint8Array(), {
+      maximumInputBytes: 0,
+    }));
+    expect(events).toEqual(["read:1", "read:2", "call:second"]);
+
+    const secondReadFailure = new DOMException("second read", "OperationError");
+    digestReads = 0;
+    Object.defineProperty(subtle, "digest", {
+      configurable: true,
+      get() {
+        digestReads += 1;
+        if (digestReads === 2) throw secondReadFailure;
+        return first;
+      },
+    });
+    const failure = await effectFailure(makeLivePrivateSha256V1(policy)(new Uint8Array(), {
+      maximumInputBytes: 0,
+    }));
+    expect(digestReads).toBe(2);
+    expect(failure).toMatchObject({ reason: "nativeRejected" });
+    if (failure instanceof TestSha256ResourceError) {
+      expect(nativeCauses.get(failure)).toBe(secondReadFailure);
+    }
+  });
+
   it("maps only genuine direct DOMExceptions and retains their identity through policy", async () => {
     const thrown = new DOMException("private detail", "OperationError");
     const rejected = new DOMException("private rejection", "OperationError");
@@ -228,7 +328,7 @@ describe("private SHA-256 V1 mechanics", () => {
     }
   });
 
-  it("keeps DOMException impostors and unexpected throws or rejections as exact defects", async () => {
+  it("preserves parent classifier outcomes for impostors and hostile values", async () => {
     const prototypeImpostor: unknown = Object.create(DOMException.prototype);
     const lookalike = Object.freeze({
       name: "OperationError",
@@ -237,9 +337,17 @@ describe("private SHA-256 V1 mechanics", () => {
       [Symbol.toStringTag]: "DOMException",
     });
     const proxy = new Proxy(new DOMException("proxied", "OperationError"), {});
+    const prototypeTrap = new Error("parent prototype trap outcome");
     const hostileProxy = new Proxy(new DOMException("hostile", "OperationError"), {
       getPrototypeOf() {
-        throw new Error("classifier must not replace the original proxy");
+        throw prototypeTrap;
+      },
+    });
+    const constructorTrap = new Error("parent constructor trap outcome");
+    const hostileConstructor = new Proxy(new DOMException("hostile", "OperationError"), {
+      get(target, property, receiver) {
+        if (property === "constructor") throw constructorTrap;
+        return Reflect.get(target, property, receiver);
       },
     });
     const ordinary = new Error("ordinary rejection");
@@ -247,7 +355,6 @@ describe("private SHA-256 V1 mechanics", () => {
       prototypeImpostor,
       lookalike,
       proxy,
-      hostileProxy,
       ordinary,
       "primitive rejection",
     ]) {
@@ -258,6 +365,19 @@ describe("private SHA-256 V1 mechanics", () => {
         expect(findDefect(await Effect.runPromiseExit(digest(new Uint8Array(), {
           maximumInputBytes: 0,
         })))).toBe(defect);
+      }
+    }
+    for (const [foreign, expected] of [
+      [hostileProxy, prototypeTrap],
+      [hostileConstructor, constructorTrap],
+    ] as const) {
+      for (const digest of [
+        makePrivateSha256V1(() => { throw foreign; }, policy),
+        makePrivateSha256V1(() => Promise.reject(foreign), policy),
+      ]) {
+        expect(findDefect(await Effect.runPromiseExit(digest(new Uint8Array(), {
+          maximumInputBytes: 0,
+        })))).toBe(expected);
       }
     }
   });
