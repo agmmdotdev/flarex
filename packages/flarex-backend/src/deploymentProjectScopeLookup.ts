@@ -20,6 +20,7 @@ import {
   fetchExecutorRequest,
   type ExecutorHttpEnv,
 } from "./executorHttp";
+import { readBackendBoundedBody } from "./boundedBody";
 
 export interface DeploymentProjectScopeLookupInputV1 {
   readonly deploymentId: string;
@@ -247,9 +248,15 @@ export function makeDeploymentProjectScopeLookupClientV1(
         }
       }
       const bodyDeadline = yield* remainingElapsedMilliseconds(startedAt, budget);
-      const responseBytes = yield* readBoundedResponseBody(
+      const responseBytes = yield* readBackendBoundedBody(
         response.body,
         remaining.maximumBodyBytes,
+        {
+          limitExceeded: () => new DeploymentProjectScopeLookupBudgetV1Error({
+            field: "bodyBytes",
+          }),
+          resourceFailure: cause => resourceFailure("readBody", cause),
+        },
       ).pipe(
         Effect.timeout(`${bodyDeadline} millis`),
         Effect.mapError((error) => Cause.isTimeoutError(error)
@@ -320,71 +327,6 @@ export function deploymentProjectScopeLookupResourceCauseV1(
 ): unknown {
   return resourceCauseByError.get(error);
 }
-
-function readBoundedResponseBody(
-  body: ReadableStream<Uint8Array> | null,
-  maximumBodyBytes: number,
-): Effect.Effect<
-  Uint8Array,
-  DeploymentProjectScopeLookupResourceV1Error | DeploymentProjectScopeLookupBudgetV1Error
-> {
-  return Effect.tryPromise({
-    try: (signal) => readBoundedResponseBodyPromise(body, maximumBodyBytes, signal),
-    catch: (cause) => cause instanceof ResponseBodyTooLargeError
-      ? new DeploymentProjectScopeLookupBudgetV1Error({ field: "bodyBytes" })
-      : resourceFailure("readBody", cause),
-  });
-}
-
-async function readBoundedResponseBodyPromise(
-  body: ReadableStream<Uint8Array> | null,
-  maximumBodyBytes: number,
-  signal: AbortSignal,
-): Promise<Uint8Array> {
-  if (body === null) return new Uint8Array();
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let reads = 0;
-  const maximumReads = maximumBodyBytes === Number.MAX_SAFE_INTEGER
-    ? Number.MAX_SAFE_INTEGER
-    : maximumBodyBytes + 1;
-  const abort = () => {
-    void reader.cancel(signal.reason).catch(() => undefined);
-  };
-  signal.addEventListener("abort", abort, { once: true });
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      reads += 1;
-      if (reads > maximumReads) {
-        await reader.cancel().catch(() => undefined);
-        throw new ResponseBodyTooLargeError();
-      }
-      const chunk = new Uint8Array(next.value);
-      const candidate = total + chunk.byteLength;
-      if (!Number.isSafeInteger(candidate) || candidate > maximumBodyBytes) {
-        await reader.cancel().catch(() => undefined);
-        throw new ResponseBodyTooLargeError();
-      }
-      if (chunk.byteLength > 0) chunks.push(chunk);
-      total = candidate;
-    }
-  } finally {
-    signal.removeEventListener("abort", abort);
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-class ResponseBodyTooLargeError extends Error {}
 
 function remainingBudget(
   budget: DeploymentProjectScopeLookupBudgetV1,

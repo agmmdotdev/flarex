@@ -127,6 +127,10 @@ export type SourceArtifactV2AttemptStoreError =
   | SourceArtifactV2AttemptStoreResourceError
   | SourceArtifactV2AttemptStoreSettlementUncertainError;
 
+export type SourceArtifactV2AttemptReaderError =
+  | SourceArtifactV2AttemptStoreCorruptionError
+  | SourceArtifactV2AttemptStoreResourceError;
+
 export type SourceArtifactV2AttemptMutation = Readonly<{
   readonly uploadId: string;
   readonly commandId: string;
@@ -138,11 +142,19 @@ export type SourceArtifactV2AttemptMutation = Readonly<{
 export interface SourceArtifactV2AttemptStore {
   readonly read: (
     uploadId: string,
-  ) => Effect.Effect<SourceArtifactV2Attempt | null, SourceArtifactV2AttemptStoreError>;
+  ) => Effect.Effect<SourceArtifactV2Attempt | null, SourceArtifactV2AttemptReaderError>;
   readonly write: (
     mutation: SourceArtifactV2AttemptMutation,
   ) => Effect.Effect<SourceArtifactV2Attempt, SourceArtifactV2AttemptStoreError>;
 }
+
+export interface SourceArtifactV2AttemptReader {
+  readonly read: (
+    uploadId: string,
+  ) => Effect.Effect<SourceArtifactV2Attempt | null, SourceArtifactV2AttemptReaderError>;
+}
+
+export type SourceArtifactV2AttemptReadSql = Pick<DeploymentSqlStorage, "exec">;
 
 type SourceArtifactV2AttemptRow = {
   readonly upload_id: string;
@@ -190,18 +202,7 @@ export function makeSourceArtifactV2AttemptStore(
   storage: SourceArtifactV2TransactionStorage,
   sql: DeploymentSqlStorage,
 ): SourceArtifactV2AttemptStore {
-  const read = Effect.fn("SourceArtifactV2AttemptStore.read")(
-    function* (uploadId: string): Effect.fn.Return<
-      SourceArtifactV2Attempt | null,
-      SourceArtifactV2AttemptStoreError
-    > {
-      const row = yield* Effect.try({
-        try: () => readRow(sql, uploadId),
-        catch: cause => resourceFailure("read", uploadId, cause),
-      });
-      return row === undefined ? null : yield* decodeRow(row);
-    },
-  );
+  const { read } = makeSourceArtifactV2AttemptReader(sql);
 
   const write = Effect.fn("SourceArtifactV2AttemptStore.write")(
     function* (mutation: SourceArtifactV2AttemptMutation): Effect.fn.Return<
@@ -218,6 +219,24 @@ export function makeSourceArtifactV2AttemptStore(
   );
 
   return Object.freeze({ read, write });
+}
+
+export function makeSourceArtifactV2AttemptReader(
+  sql: SourceArtifactV2AttemptReadSql,
+): SourceArtifactV2AttemptReader {
+  const read = Effect.fn("SourceArtifactV2AttemptStore.read")(
+    function* (uploadId: string): Effect.fn.Return<
+      SourceArtifactV2Attempt | null,
+      SourceArtifactV2AttemptReaderError
+    > {
+      const row = yield* Effect.try({
+        try: () => readRow(sql, uploadId),
+        catch: cause => resourceFailure("read", uploadId, cause),
+      });
+      return row === undefined ? null : yield* decodeRow(row);
+    },
+  );
+  return Object.freeze({ read });
 }
 
 function executeWrite(
@@ -362,7 +381,7 @@ function reconcileWrite(
 }
 
 function readRow(
-  sql: DeploymentSqlStorage,
+  sql: SourceArtifactV2AttemptReadSql,
   uploadId: string,
 ): SourceArtifactV2AttemptRow | undefined {
   return sql.exec<SourceArtifactV2AttemptRow>(`

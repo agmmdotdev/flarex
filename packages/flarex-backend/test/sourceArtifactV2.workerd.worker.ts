@@ -1,6 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { Effect, Exit } from "effect";
-import { makeSourceArtifactV2AttemptStore } from "../src/sourceArtifactV2/AttemptStore";
+import {
+  makeSourceArtifactV2AttemptReader,
+  makeSourceArtifactV2AttemptStore,
+} from "../src/sourceArtifactV2/AttemptStore";
+import {
+  isSourceArtifactV2FinalizedAttemptReadRequestV1,
+  makeSourceArtifactV2FinalizedAttemptReadRouteV1,
+} from "../src/sourceArtifactV2/FinalizedAttemptReadBoundary";
 import { makeSourceArtifactV2R2Store } from "../src/sourceArtifactV2/R2Store";
 import { makeLiveSourceArtifactV2Sha256 } from "../src/sourceArtifactV2/Sha256";
 import { makeSourceArtifactV2UploadCore } from "../src/sourceArtifactV2/UploadCore";
@@ -23,6 +30,11 @@ export class SourceArtifactUploadTestDO extends DurableObject<TestEnv> {
     objects: makeSourceArtifactV2R2Store(this.env.ARTIFACTS, this.sha),
     sha256: this.sha,
   });
+  private readonly finalizedAttemptRead = makeSourceArtifactV2FinalizedAttemptReadRouteV1({
+    durableObjectName: this.ctx.id.name,
+    reader: makeSourceArtifactV2AttemptReader(this.ctx.storage.sql),
+    sha256: this.sha,
+  });
 
   constructor(ctx: DurableObjectState, env: TestEnv) {
     super(ctx, env);
@@ -30,6 +42,9 @@ export class SourceArtifactUploadTestDO extends DurableObject<TestEnv> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    if (isSourceArtifactV2FinalizedAttemptReadRequestV1(request)) {
+      return await Effect.runPromise(this.finalizedAttemptRead.route(request));
+    }
     const body: unknown = await request.json();
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
       return Response.json({ error: "invalid body" }, { status: 400 });
@@ -137,7 +152,7 @@ function blockInput(value: unknown) {
 
 export default {
   async fetch(request: Request, env: TestEnv): Promise<Response> {
-    const stub = env.UPLOADS.get(env.UPLOADS.idFromName("deployment-source-v2"));
+    const stub = env.UPLOADS.get(env.UPLOADS.idFromName("deployment:deployment-source-v2"));
     return await stub.fetch(request);
   },
 };

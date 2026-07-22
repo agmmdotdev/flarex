@@ -122,6 +122,70 @@ describe("source artifact v2 inert upload core", () => {
     expect(Result.isFailure(over) && over.failure._tag).toBe("SourceArtifactV2FrameBudgetError");
   });
 
+  it("preserves upload-selector validation and projection accessor order", () => {
+    const accessOrder: Array<string> = [];
+    const selector = Object.defineProperties({}, {
+      deploymentId: {
+        enumerable: true,
+        get: () => {
+          accessOrder.push("deploymentId");
+          return "deployment-test";
+        },
+      },
+      uploadId: {
+        enumerable: true,
+        get: () => {
+          accessOrder.push("uploadId");
+          return "upload-test";
+        },
+      },
+      generation: {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          accessOrder.push("generation");
+          return 1n;
+        },
+      },
+      rootDigest: {
+        enumerable: true,
+        get: () => {
+          accessOrder.push("rootDigest");
+          return DIGEST;
+        },
+      },
+    });
+
+    expect(Result.isSuccess(sourceArtifactV2UploadSelectorFrame(selector, FRAME_BUDGET))).toBe(true);
+    expect(accessOrder).toEqual([
+      "deploymentId",
+      "deploymentId",
+      "uploadId",
+      "uploadId",
+      "generation",
+      "rootDigest",
+      "deploymentId",
+      "uploadId",
+    ]);
+
+    accessOrder.length = 0;
+    Object.defineProperty(selector, "generation", {
+      enumerable: true,
+      get: () => {
+        accessOrder.push("generation");
+        return 0n;
+      },
+    });
+    expect(Result.isFailure(sourceArtifactV2UploadSelectorFrame(selector, FRAME_BUDGET))).toBe(true);
+    expect(accessOrder).toEqual([
+      "deploymentId",
+      "deploymentId",
+      "uploadId",
+      "uploadId",
+      "generation",
+    ]);
+  });
+
   it("hashes owned inputs and rejects a +1 operation budget before foreign invocation", async () => {
     let calls = 0;
     let observed: Uint8Array | undefined;

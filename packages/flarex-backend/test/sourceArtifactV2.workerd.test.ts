@@ -1,10 +1,20 @@
 /// <reference types="node" />
 
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import { Result } from "effect";
 import { Miniflare } from "miniflare";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, type Plugin } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  decodeSourceArtifactV2FinalizedAttemptReadResponseV1,
+  encodeSourceArtifactV2FinalizedAttemptReadBudgetHeaderV1,
+  encodeSourceArtifactV2FinalizedAttemptReadRequestV1,
+  sourceArtifactV2FinalizedAttemptReadBudgetHeaderV1,
+  sourceArtifactV2FinalizedAttemptReadMediaTypeV1,
+  sourceArtifactV2FinalizedAttemptReadPathV1,
+} from "../src/sourceArtifactV2/FinalizedAttemptReadProtocol";
 
 const UPLOAD_ID = "018f22e2-58cc-7b2a-91d8-f3f3401a0874";
 const CEILINGS = budget(20, 100_000);
@@ -49,6 +59,72 @@ describe("source artifact v2 DeploymentDO and R2 integration", () => {
     expect(keys.some(key => key.includes("/module/"))).toBe(true);
     expect(keys.some(key => key.includes("/completed-root/"))).toBe(true);
     expect(keys.some(key => key.includes("/upload-selector/"))).toBe(false);
+  });
+
+  it("reopens the authoritative finalized row through the bounded private reader", async () => {
+    const uploadId = "518f22e2-58cc-7b2a-91d8-f3f3401a0874";
+    const finalized = await completeUpload(uploadId, "private-read");
+    const generation = numberField(finalized, "generation");
+    const mutationFence = numberField(finalized, "mutationFence");
+    const first = await privateRead(uploadId, generation, mutationFence);
+    const second = await privateRead(uploadId, generation, mutationFence);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const firstDecoded = success(decodeSourceArtifactV2FinalizedAttemptReadResponseV1(
+      new Uint8Array(await first.arrayBuffer()),
+      PRIVATE_READ_BUDGET,
+    ));
+    const secondDecoded = success(decodeSourceArtifactV2FinalizedAttemptReadResponseV1(
+      new Uint8Array(await second.arrayBuffer()),
+      PRIVATE_READ_BUDGET,
+    ));
+    expect(firstDecoded.value).toEqual(secondDecoded.value);
+    expect(firstDecoded.value).toMatchObject({
+      kind: "finalized",
+      deploymentId: "deployment-source-v2",
+      uploadId,
+      generation,
+      mutationFence,
+      completedRootDigest: finalized.completedRootDigest,
+      completedSelectorDigest: finalized.completedSelectorDigest,
+    });
+  });
+
+  it("observes only coherent pre-finalize or finalized state during the finalize race", async () => {
+    const reference = await completeUpload(
+      "618f22e2-58cc-7b2a-91d8-f3f3401a0874",
+      "race-reference",
+    );
+    const finalizedFence = numberField(reference, "mutationFence");
+    const uploadId = "718f22e2-58cc-7b2a-91d8-f3f3401a0874";
+    const closed = await completeUploadThroughClose(uploadId, "race-target");
+    expect(numberField(closed, "mutationFence")).toBe(10);
+
+    const [finalizeResponse, racingRead] = await Promise.all([
+      rawInvoke("finalize", command(10, "race-target-finalize", {}, uploadId)),
+      privateRead(uploadId, 1, finalizedFence),
+    ]);
+    expect(finalizeResponse.status).toBe(200);
+    expect([200, 409]).toContain(racingRead.status);
+    const racingValue = success(decodeSourceArtifactV2FinalizedAttemptReadResponseV1(
+      new Uint8Array(await racingRead.arrayBuffer()),
+      PRIVATE_READ_BUDGET,
+    )).value;
+    expect(["finalized", "staleFence", "lifecycleMismatch"]).toContain(racingValue.kind);
+
+    const finalized = (await finalizeResponse.json() as {
+      readonly success: Record<string, unknown>;
+    }).success;
+    const finalRead = await privateRead(
+      uploadId,
+      numberField(finalized, "generation"),
+      numberField(finalized, "mutationFence"),
+    );
+    expect(finalRead.status).toBe(200);
+    expect(success(decodeSourceArtifactV2FinalizedAttemptReadResponseV1(
+      new Uint8Array(await finalRead.arrayBuffer()),
+      PRIVATE_READ_BUDGET,
+    )).value.kind).toBe("finalized");
   });
 
   it("converges immediate replay and rejects conflicting overlap without another object", async () => {
@@ -103,7 +179,7 @@ describe("source artifact v2 DeploymentDO and R2 integration", () => {
 
   it("rejects malformed durable frontier evidence as stored corruption", async () => {
     const uploadId = "418f22e2-58cc-7b2a-91d8-f3f3401a0874";
-    await completeUpload(uploadId, "corrupt");
+    const finalized = await completeUpload(uploadId, "corrupt");
     expect((await rawInvoke("corruptModuleFrontier", { uploadId })).status).toBe(200);
     expect((await rawInvoke("freshFinalize", command(
       10,
@@ -111,9 +187,27 @@ describe("source artifact v2 DeploymentDO and R2 integration", () => {
       {},
       uploadId,
     ))).status).toBe(409);
+    const read = await privateRead(
+      uploadId,
+      numberField(finalized, "generation"),
+      numberField(finalized, "mutationFence"),
+    );
+    expect(read.status).toBe(500);
+    expect(success(decodeSourceArtifactV2FinalizedAttemptReadResponseV1(
+      new Uint8Array(await read.arrayBuffer()),
+      PRIVATE_READ_BUDGET,
+    )).value.kind).toBe("corruption");
   });
 
   async function completeUpload(
+    uploadId: string,
+    prefix: string,
+  ): Promise<Record<string, unknown>> {
+    await completeUploadThroughClose(uploadId, prefix);
+    return await invoke("finalize", command(10, `${prefix}-finalize`, {}, uploadId));
+  }
+
+  async function completeUploadThroughClose(
     uploadId: string,
     prefix: string,
   ): Promise<Record<string, unknown>> {
@@ -133,13 +227,14 @@ describe("source artifact v2 DeploymentDO and R2 integration", () => {
       blockIndex: 0,
       bytes: [...new TextEncoder().encode("export default {};")],
     }, uploadId))).mutationFence).toBe(7);
-    expect((await invoke("closeModule", command(
+    const closed = await invoke("closeModule", command(
       7,
       `${prefix}-close`,
       {},
       uploadId,
-    ))).mutationFence).toBe(10);
-    return await invoke("finalize", command(10, `${prefix}-finalize`, {}, uploadId));
+    ));
+    expect(closed.mutationFence).toBe(10);
+    return closed;
   }
 
   async function invoke(operation: string, input: unknown): Promise<Record<string, unknown>> {
@@ -156,6 +251,41 @@ describe("source artifact v2 DeploymentDO and R2 integration", () => {
       body: JSON.stringify({ operation, input }),
     });
   }
+
+  async function privateRead(uploadId: string, generation: number, mutationFence: number) {
+    const encoded = success(encodeSourceArtifactV2FinalizedAttemptReadRequestV1({
+      codecVersion: 1,
+      sourceArtifactCodecVersion: 1,
+      requestId: "workerd-private-read",
+      deploymentId: "deployment-source-v2",
+      uploadId,
+      expectedGeneration: generation,
+      expectedMutationFence: mutationFence,
+    }, PRIVATE_READ_BUDGET));
+    return await mf.dispatchFetch(
+      `https://source-artifact.test${sourceArtifactV2FinalizedAttemptReadPathV1}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": sourceArtifactV2FinalizedAttemptReadMediaTypeV1,
+          [sourceArtifactV2FinalizedAttemptReadBudgetHeaderV1]: success(
+            encodeSourceArtifactV2FinalizedAttemptReadBudgetHeaderV1(PRIVATE_READ_BUDGET),
+          ),
+        },
+        body: copyBytesToArrayBuffer(encoded.bytes),
+      },
+    );
+  }
+});
+
+const PRIVATE_READ_BUDGET = Object.freeze({
+  maximumCalls: 20,
+  maximumInputBytes: 100_000,
+  maximumBodyBytes: 100_000,
+  maximumCanonicalBytes: 100_000,
+  maximumFrameBytes: 100_000,
+  maximumHashBytes: 100_000,
+  maximumElapsedMilliseconds: 10_000,
 });
 
 function command(
@@ -185,6 +315,17 @@ function budget(calls: number, amount: number) {
     hashBytes: amount,
     timeMilliseconds: amount,
   };
+}
+
+function numberField(value: Record<string, unknown>, name: string): number {
+  const field = value[name];
+  if (typeof field !== "number") throw new Error(`Expected ${name}.`);
+  return field;
+}
+
+function success<A, E>(result: Result.Result<A, E>): A {
+  if (Result.isFailure(result)) throw result.failure;
+  return result.success;
 }
 
 async function bundleWorker(): Promise<string> {

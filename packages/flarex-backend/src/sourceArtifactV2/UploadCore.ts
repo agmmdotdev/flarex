@@ -4,15 +4,10 @@ import {
   isUint8Array,
 } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import {
-  compareUtf16Strings,
-  isLowercaseUuidText,
-} from "@flarex/utils/strings";
+import { compareUtf16Strings, isLowercaseUuidText } from "@flarex/utils/strings";
 import { Data, Effect, Result, Semaphore } from "effect";
 import {
   encodeCanonicalJson,
-  isJsonArray,
-  isJsonObject,
   type Json,
 } from "flarex-protocol/json";
 import type {
@@ -25,6 +20,8 @@ import type {
   SourceArtifactV2StreamProgress,
   SourceArtifactV2TreeFrontierEntry,
 } from "./AttemptStore";
+import { sourceArtifactV2CanonicalJsonUtf8ByteLength } from "./CanonicalJson";
+import { sourceArtifactV2DigestBytesFromLowerHex } from "./Digest";
 import {
   SOURCE_ARTIFACT_V2_ROLE_AUTH,
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
@@ -632,12 +629,12 @@ export function makeSourceArtifactV2UploadCore(
         roles: plannedModule.roles,
         sourceByteLength: BigInt(plannedModule.source.byteLength),
         sourceBlockCount: BigInt(plannedModule.source.blockCount),
-        sourceTreeDigest: hexDigestBytes(projectedSourceRoot.digest),
+        sourceTreeDigest: sourceArtifactV2DigestBytesFromLowerHex(projectedSourceRoot.digest),
         sourceMapByteLength: BigInt(plannedModule.sourceMap.byteLength),
         sourceMapBlockCount: BigInt(plannedModule.sourceMap.blockCount),
         sourceMapTreeDigest: projectedSourceMapRoot === null
           ? null
-          : hexDigestBytes(projectedSourceMapRoot.digest),
+          : sourceArtifactV2DigestBytesFromLowerHex(projectedSourceMapRoot.digest),
       }, { maximumFrameBytesMaterialized: preflight.remaining("frameBytes") }));
       yield* consumePersistedFrameBudget(preflight, projectedModuleFrame);
       yield* preflightAppendTreeReference("module", current.moduleFrontier, Object.freeze({
@@ -679,10 +676,12 @@ export function makeSourceArtifactV2UploadCore(
         roles: module.roles,
         sourceByteLength: BigInt(module.source.byteLength),
         sourceBlockCount: BigInt(module.source.blockCount),
-        sourceTreeDigest: hexDigestBytes(sourceRoot.digest),
+        sourceTreeDigest: sourceArtifactV2DigestBytesFromLowerHex(sourceRoot.digest),
         sourceMapByteLength: BigInt(module.sourceMap.byteLength),
         sourceMapBlockCount: BigInt(module.sourceMap.blockCount),
-        sourceMapTreeDigest: sourceMapRoot === null ? null : hexDigestBytes(sourceMapRoot.digest),
+        sourceMapTreeDigest: sourceMapRoot === null
+          ? null
+          : sourceArtifactV2DigestBytesFromLowerHex(sourceMapRoot.digest),
       }, { maximumFrameBytesMaterialized: tracker.remaining("frameBytes") }));
       const moduleReference = yield* persistFrame(
         "module",
@@ -799,7 +798,7 @@ export function makeSourceArtifactV2UploadCore(
         functionModuleCount: BigInt(current.counters.functionModuleCount),
         totalSourceBytes: BigInt(current.counters.sourceByteLength),
         totalSourceMapBytes: BigInt(current.counters.sourceMapByteLength),
-        moduleTreeDigest: hexDigestBytes(moduleRoot.digest),
+        moduleTreeDigest: sourceArtifactV2DigestBytesFromLowerHex(moduleRoot.digest),
         executionPath: current.counters.executionPath,
         schemaPath: current.counters.schemaPath,
         authPath: current.counters.authPath,
@@ -816,7 +815,7 @@ export function makeSourceArtifactV2UploadCore(
         deploymentId: options.deploymentId,
         uploadId: current.uploadId,
         generation: BigInt(current.generation),
-        rootDigest: hexDigestBytes(rootReference.digest),
+        rootDigest: sourceArtifactV2DigestBytesFromLowerHex(rootReference.digest),
       }, { maximumFrameBytesMaterialized: tracker.remaining("frameBytes") }));
       const selectorDigest = yield* hashFrameOnly(selectorFrame, tracker, options.sha256);
       const next = completePendingAttempt(current, command, digest, {
@@ -1164,7 +1163,10 @@ const consumeCommandHashBudget = Effect.fn("SourceArtifactV2Upload.consumeComman
     envelope: Json,
     additionalBytes: number,
   ) {
-    const projectedCanonicalBytes = canonicalJsonUtf8ByteLength(envelope);
+    const projectedCanonicalBytes = sourceArtifactV2CanonicalJsonUtf8ByteLength(envelope, {
+      invalidMembership: canonicalInvariantDefect,
+      overflow: canonicalLengthOverflowDefect,
+    });
     yield* tracker.consume("canonicalBytes", projectedCanonicalBytes);
     yield* tracker.consume("hashBytes", checkedCanonicalLength(
       projectedCanonicalBytes,
@@ -1182,69 +1184,16 @@ function commandEnvelope(
   return { domain: COMMAND_DOMAIN, operation, commandId, value };
 }
 
-function canonicalJsonUtf8ByteLength(value: Json): number {
-  if (typeof value === "string") return canonicalJsonStringUtf8ByteLength(value);
-  if (value === null || typeof value === "boolean" || typeof value === "number") {
-    const encoded = JSON.stringify(value);
-    if (encoded === undefined) return canonicalInvariantDefect();
-    return encoded.length;
-  }
-  if (isJsonArray(value)) {
-    let total = 2;
-    for (let index = 0; index < value.length; index += 1) {
-      const item = value[index];
-      if (item === undefined) return canonicalInvariantDefect();
-      total = checkedCanonicalLength(total, canonicalJsonUtf8ByteLength(item));
-      if (index > 0) total = checkedCanonicalLength(total, 1);
-    }
-    return total;
-  }
-  if (!isJsonObject(value)) return canonicalInvariantDefect();
-  const keys = Object.keys(value).sort(compareUtf16Strings);
-  let total = 2;
-  for (let index = 0; index < keys.length; index += 1) {
-    const key = keys[index];
-    if (key === undefined) return canonicalInvariantDefect();
-    const item = value[key];
-    if (item === undefined) return canonicalInvariantDefect();
-    total = checkedCanonicalLength(total, canonicalJsonStringUtf8ByteLength(key));
-    total = checkedCanonicalLength(total, 1);
-    total = checkedCanonicalLength(total, canonicalJsonUtf8ByteLength(item));
-    if (index > 0) total = checkedCanonicalLength(total, 1);
-  }
-  return total;
-}
-
-function canonicalJsonStringUtf8ByteLength(value: string): number {
-  let total = 2;
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code === 0x22 || code === 0x5c || code === 0x08 || code === 0x09 ||
-      code === 0x0a || code === 0x0c || code === 0x0d) {
-      total = checkedCanonicalLength(total, 2);
-    } else if (code < 0x20 || (code >= 0xd800 && code <= 0xdfff)) {
-      if (
-        code >= 0xd800 && code <= 0xdbff && index + 1 < value.length &&
-        value.charCodeAt(index + 1) >= 0xdc00 && value.charCodeAt(index + 1) <= 0xdfff
-      ) {
-        total = checkedCanonicalLength(total, 4);
-        index += 1;
-      } else {
-        total = checkedCanonicalLength(total, 6);
-      }
-    } else {
-      total = checkedCanonicalLength(total, code <= 0x7f ? 1 : code <= 0x7ff ? 2 : 3);
-    }
-  }
-  return total;
-}
-
 function checkedCanonicalLength(left: number, right: number): number {
   const sum = left + right;
   if (!Number.isSafeInteger(sum)) {
     throw new Error("Canonical JSON byte preflight overflowed.");
   }
   return sum;
+}
+
+function canonicalLengthOverflowDefect(): never {
+  throw new Error("Canonical JSON byte preflight overflowed.");
 }
 
 function requireAttempt(
@@ -1595,7 +1544,7 @@ function preflightFinalizeAttempt(
       functionModuleCount: BigInt(attempt.counters.functionModuleCount),
       totalSourceBytes: BigInt(attempt.counters.sourceByteLength),
       totalSourceMapBytes: BigInt(attempt.counters.sourceMapByteLength),
-      moduleTreeDigest: hexDigestBytes(moduleRoot.digest),
+      moduleTreeDigest: sourceArtifactV2DigestBytesFromLowerHex(moduleRoot.digest),
       executionPath,
       schemaPath: attempt.counters.schemaPath,
       authPath: attempt.counters.authPath,
@@ -1841,22 +1790,8 @@ function treeReferenceInput(reference: SourceArtifactV2TreeFrontierEntry): Reado
   return Object.freeze({
     firstOrdinal: BigInt(reference.firstOrdinal),
     count: BigInt(reference.count),
-    digest: hexDigestBytes(reference.digest),
+    digest: sourceArtifactV2DigestBytesFromLowerHex(reference.digest),
   });
-}
-
-function hexDigestBytes(value: string): Uint8Array {
-  if (!/^[0-9a-f]{64}$/.test(value)) {
-    throw new Error("Stored source-artifact digest is not canonical lowercase hexadecimal.");
-  }
-  const bytes = new Uint8Array(32);
-  for (let index = 0; index < bytes.length; index += 1) {
-    const pair = value.slice(index * 2, index * 2 + 2);
-    const byte = Number.parseInt(pair, 16);
-    if (!Number.isSafeInteger(byte)) throw new Error("Stored source-artifact digest is invalid.");
-    bytes[index] = byte;
-  }
-  return bytes;
 }
 
 function captureOwnedBytes(

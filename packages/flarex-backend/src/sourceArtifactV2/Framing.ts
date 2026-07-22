@@ -403,41 +403,39 @@ export function sourceArtifactV2UploadSelectorFrame(
   budget: unknown,
 ): Result.Result<SourceArtifactV2OwnedFrame, SourceArtifactV2FrameError> {
   const operation = "uploadSelector" as const;
-  const maximum = decodeBudget(operation, budget);
-  if (Result.isFailure(maximum)) return Result.fail(maximum.failure);
-  const decoded = decodeUploadSelectorInput(input);
-  if (Result.isFailure(decoded)) return Result.fail(decoded.failure);
-  const fixedBytes = UPLOAD_SELECTOR_DOMAIN.byteLength + 4 + 4 + 8 + 32;
-  const deployment = canonicalString(
-    operation,
-    "deploymentId",
-    decoded.success.deploymentId,
-    maximum.success - fixedBytes,
-    maximum.success,
-  );
-  if (Result.isFailure(deployment)) return Result.fail(deployment.failure);
-  const upload = canonicalString(
-    operation,
-    "uploadId",
-    decoded.success.uploadId,
-    maximum.success - fixedBytes - deployment.success.byteLength,
-    maximum.success,
-  );
-  if (Result.isFailure(upload)) return Result.fail(upload.failure);
-  return materializeFrame(
-    operation,
-    maximum.success,
-    deployment.success.byteLength + upload.success.byteLength,
-    [
-      UPLOAD_SELECTOR_DOMAIN,
-      u32(deployment.success.byteLength),
-      deployment.success,
-      u32(upload.success.byteLength),
-      upload.success,
-      u64(decoded.success.generation),
-      ownedDigest(decoded.success.rootDigest),
-    ],
-  );
+  return Result.gen(function* () {
+    const maximum = yield* decodeBudget(operation, budget);
+    const decoded = yield* decodeUploadSelectorInput(input);
+    const fixedBytes = UPLOAD_SELECTOR_DOMAIN.byteLength + 4 + 4 + 8 + 32;
+    const deployment = yield* canonicalString(
+      operation,
+      "deploymentId",
+      decoded.deploymentId,
+      maximum - fixedBytes,
+      maximum,
+    );
+    const upload = yield* canonicalString(
+      operation,
+      "uploadId",
+      decoded.uploadId,
+      maximum - fixedBytes - deployment.byteLength,
+      maximum,
+    );
+    return yield* materializeFrame(
+      operation,
+      maximum,
+      deployment.byteLength + upload.byteLength,
+      [
+        UPLOAD_SELECTOR_DOMAIN,
+        u32(deployment.byteLength),
+        deployment,
+        u32(upload.byteLength),
+        upload,
+        u64(decoded.generation),
+        ownedDigest(decoded.rootDigest),
+      ],
+    );
+  });
 }
 
 export function decodeSourceArtifactV2BlockFrame(
@@ -1122,16 +1120,19 @@ function decodeUploadSelectorInput(
   if (typeof value.uploadId !== "string" || value.uploadId.length === 0) {
     return Result.fail(inputError(operation, "uploadId", "invalidPath"));
   }
-  const generation = decodePositiveCounter(operation, "generation", value.generation);
-  if (Result.isFailure(generation)) return Result.fail(generation.failure);
-  const rootDigest = decodeDigest(operation, "rootDigest", value.rootDigest);
-  if (Result.isFailure(rootDigest)) return Result.fail(rootDigest.failure);
-  return Result.succeed({
-    deploymentId: value.deploymentId,
-    uploadId: value.uploadId,
-    generation: generation.success,
-    rootDigest: rootDigest.success,
-  });
+  return Result.gen(function* () {
+    const generation = yield* decodePositiveCounter(operation, "generation", value.generation);
+    const rootDigest = yield* decodeDigest(operation, "rootDigest", value.rootDigest);
+    return {
+      generation,
+      rootDigest,
+    };
+  }).pipe(Result.map(({ generation, rootDigest }) => ({
+    deploymentId: value.deploymentId as string,
+    uploadId: value.uploadId as string,
+    generation,
+    rootDigest,
+  })));
 }
 
 function decodeTreeReference(
