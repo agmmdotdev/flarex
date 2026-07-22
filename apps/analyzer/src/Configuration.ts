@@ -1,18 +1,16 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonEmptyString } from "@flarex/utils/strings";
+import {
+  isPrivateAnalyzerIdentityV1,
+  PRIVATE_ANALYZER_PROTOCOL_IDENTITY_V1,
+  PRIVATE_ANALYZER_PROTOCOL_VERSION_V1,
+} from "@flarex/analysis/internal/private-analyzer-release-v1";
 import { Data, Result } from "effect";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 
-export const PRIVATE_ANALYZER_PROTOCOL_IDENTITY_V1 =
-  "flarex.private-source-analyzer-handshake.v1";
-export const PRIVATE_ANALYZER_PROTOCOL_VERSION_V1 = 1;
 export const PRIVATE_ANALYZER_HANDSHAKE_CODEC_VERSION_V1 = 1;
 export const PRIVATE_ANALYZER_HANDSHAKE_PATH_V1 =
   "/__flarex_private/source-analyzer-v2/identity";
-export const PRIVATE_ANALYZER_IMPLEMENTATION_MARKER_PREFIX =
-  "__FLAREX_PRIVATE_ANALYZER_IMPLEMENTATION_V1__";
-export const PRIVATE_ANALYZER_IMPLEMENTATION_MARKER_SUFFIX = "__END__";
-export const PRIVATE_ANALYZER_IDENTITY_HEX_LENGTH = 64;
 const PRIVATE_ANALYZER_COMPATIBILITY_FLAGS_V1: readonly [] = Object.freeze([]);
 const PRIVATE_ANALYZER_DEPLOYMENT_ROUTES_V1: readonly [] = Object.freeze([]);
 const PRIVATE_ANALYZER_DEPLOYMENT_RESOURCE_BINDINGS_V1: readonly [] = Object.freeze([]);
@@ -172,10 +170,6 @@ export function canonicalPrivateAnalyzerHostConfigurationV1(
   value: PrivateAnalyzerHostConfigurationV1,
 ): string {
   return encodeCanonicalJson(value as unknown as Json, configurationInvariant);
-}
-
-export function isPrivateAnalyzerIdentityV1(value: unknown): value is string {
-  return typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
 }
 
 function canonicalConfiguration(

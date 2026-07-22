@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@flarex/analysis": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex-protocol": "workspace:*"

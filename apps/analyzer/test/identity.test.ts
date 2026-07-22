@@ -6,7 +6,8 @@ import {
   privateAnalyzerHostConfigurationV1,
   type PrivateAnalyzerDeploymentPostureV1,
 } from "../src/Configuration";
-import { GENERATED_PRIVATE_ANALYZER_IDENTITY_V1 } from "../src/Identity.generated";
+import { GENERATED_PRIVATE_ANALYZER_RELEASE_MANIFEST_V1 } from
+  "@flarex/analysis/internal/private-analyzer-release-v1";
 import { installedPrivateAnalyzerIdentityV1 } from "../src/Identity";
 import {
   awaitWranglerDryRunOutput,
@@ -20,7 +21,7 @@ describe("private analyzer deterministic identity", () => {
     expect(installed.identity).toEqual({
       protocolIdentity: "flarex.private-source-analyzer-handshake.v1",
       protocolVersion: 1,
-      implementationIdentity: "8654996ddb4620dc505b31a5d25293d53186891f8bc64c11650a8d06fb948ced",
+      implementationIdentity: "132133d11c8dec3c963e33736cd043c535891c6dc757f607515d0db638748725",
       configurationIdentity: "62b0a1e20b0b3a06c98c4220cb0f2fd6008c677bbc8ec1e24c986e9fa2c1768a",
     });
     expect(canonicalPrivateAnalyzerHostConfigurationV1(installed.configuration)).toBe(
@@ -30,7 +31,8 @@ describe("private analyzer deterministic identity", () => {
 
   it("normalizes exactly one fixed-width implementation slot", () => {
     const source = new TextEncoder().encode(
-      `before:${GENERATED_PRIVATE_ANALYZER_IDENTITY_V1.implementationIdentityMarker}:after`,
+      `constant:${"__FLAREX_PRIVATE_ANALYZER_IMPLEMENTATION_V1__"}:` +
+        `before:${GENERATED_PRIVATE_ANALYZER_RELEASE_MANIFEST_V1.implementationIdentityMarker}:after`,
     );
     const normalized = new TextDecoder().decode(normalizeImplementationIdentitySlot(source));
     expect(normalized).toContain("0".repeat(64));
@@ -41,8 +43,8 @@ describe("private analyzer deterministic identity", () => {
       "identity slot is missing",
     );
     expect(() => normalizeImplementationIdentitySlot(new TextEncoder().encode(
-      `${GENERATED_PRIVATE_ANALYZER_IDENTITY_V1.implementationIdentityMarker}` +
-        `${GENERATED_PRIVATE_ANALYZER_IDENTITY_V1.implementationIdentityMarker}`,
+      `${GENERATED_PRIVATE_ANALYZER_RELEASE_MANIFEST_V1.implementationIdentityMarker}` +
+        `${GENERATED_PRIVATE_ANALYZER_RELEASE_MANIFEST_V1.implementationIdentityMarker}`,
     ))).toThrow("more than one");
   });
 
@@ -78,9 +80,18 @@ describe("private analyzer deterministic identity", () => {
     expect(packageJson.private).toBe(true);
     expect(packageJson.exports).toBeUndefined();
     expect(packageJson.dependencies).toEqual({
+      "@flarex/analysis": "workspace:*",
       "@flarex/utils": "workspace:*",
       effect: "catalog:",
       "flarex-protocol": "workspace:*",
+    });
+
+    const analysisPackageJson = JSON.parse(
+      await readFile(new URL("../../../packages/analysis/package.json", import.meta.url), "utf8"),
+    ) as { readonly exports?: unknown };
+    expect(analysisPackageJson.exports).toEqual({
+      ".": "./src/index.ts",
+      "./internal/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts",
     });
 
     const wrangler = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8")) as unknown;

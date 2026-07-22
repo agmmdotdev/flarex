@@ -1,23 +1,26 @@
-import { bytesEqualFullScan, isUint8Array } from "@flarex/utils/bytes";
-import { isNonArrayRecord } from "@flarex/utils/records";
+import {
+  canonicalPrivateAnalyzerHandshakeRequestV1,
+  canonicalPrivateAnalyzerHandshakeResponseV1,
+  capturePrivateAnalyzerReleaseTupleV1,
+  decodePrivateAnalyzerHandshakeRequestV1,
+  type PrivateAnalyzerReleaseTupleV1,
+} from "@flarex/analysis/internal/private-analyzer-release-v1";
+import { isUint8Array } from "@flarex/utils/bytes";
 import { Cause, Data, Effect, Result } from "effect";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import {
-  isPrivateAnalyzerIdentityV1,
   PrivateAnalyzerHostConfigurationV1Error,
   type PrivateAnalyzerHostConfigurationV1,
   validatePrivateAnalyzerHostConfigurationV1,
 } from "./Configuration";
 
 const UTF8_ENCODER = new TextEncoder();
-const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+export type PrivateAnalyzerIdentityTupleV1 = PrivateAnalyzerReleaseTupleV1;
 
-export interface PrivateAnalyzerIdentityTupleV1 {
-  readonly protocolIdentity: string;
-  readonly protocolVersion: 1;
-  readonly implementationIdentity: string;
-  readonly configurationIdentity: string;
-}
+export {
+  canonicalPrivateAnalyzerHandshakeRequestV1,
+  canonicalPrivateAnalyzerHandshakeResponseV1,
+};
 
 export class PrivateAnalyzerHandshakeRequestV1Error extends Data.TaggedError(
   "PrivateAnalyzerHandshakeRequestV1Error",
@@ -42,68 +45,13 @@ export function privateAnalyzerHandshakeBodyReadCause(
   return bodyReadCause.get(error);
 }
 
-export function canonicalPrivateAnalyzerHandshakeRequestV1(
-  identity: PrivateAnalyzerIdentityTupleV1,
-): Uint8Array {
-  return UTF8_ENCODER.encode(encodeCanonicalJson({
-    configurationIdentity: identity.configurationIdentity,
-    implementationIdentity: identity.implementationIdentity,
-    protocolIdentity: identity.protocolIdentity,
-    protocolVersion: identity.protocolVersion,
-  }, handshakeInvariant));
-}
-
-export function canonicalPrivateAnalyzerHandshakeResponseV1(
-  identity: PrivateAnalyzerIdentityTupleV1,
-): Uint8Array {
-  return UTF8_ENCODER.encode(encodeCanonicalJson({
-    configurationIdentity: identity.configurationIdentity,
-    implementationIdentity: identity.implementationIdentity,
-    kind: "compatible",
-    protocolIdentity: identity.protocolIdentity,
-    protocolVersion: identity.protocolVersion,
-  }, handshakeInvariant));
-}
-
 export function decodePrivateAnalyzerHandshakeBytesV1(
   bytes: unknown,
   expected: PrivateAnalyzerIdentityTupleV1,
 ): Result.Result<PrivateAnalyzerIdentityTupleV1, PrivateAnalyzerHandshakeRequestV1Error> {
-  if (!isUint8Array(bytes)) return malformed();
-  let text: string;
-  let parsed: unknown;
-  try {
-    text = FATAL_UTF8_DECODER.decode(bytes);
-    parsed = JSON.parse(text) as unknown;
-  } catch {
-    return malformed();
-  }
-  if (!isNonArrayRecord(parsed) || Object.keys(parsed).length !== 4) return malformed();
-  if (
-    parsed.protocolVersion !== 1 ||
-    typeof parsed.protocolIdentity !== "string" ||
-    !isPrivateAnalyzerIdentityV1(parsed.implementationIdentity) ||
-    !isPrivateAnalyzerIdentityV1(parsed.configurationIdentity)
-  ) return malformed();
-  const decoded: PrivateAnalyzerIdentityTupleV1 = Object.freeze({
-    protocolIdentity: parsed.protocolIdentity,
-    protocolVersion: 1,
-    implementationIdentity: parsed.implementationIdentity,
-    configurationIdentity: parsed.configurationIdentity,
-  });
-  const canonical = canonicalPrivateAnalyzerHandshakeRequestV1(decoded);
-  if (!bytesEqualFullScan(bytes, canonical)) return malformed();
-  if (
-    decoded.protocolIdentity !== expected.protocolIdentity ||
-    decoded.protocolVersion !== expected.protocolVersion ||
-    decoded.implementationIdentity !== expected.implementationIdentity ||
-    decoded.configurationIdentity !== expected.configurationIdentity
-  ) {
-    return Result.fail(new PrivateAnalyzerHandshakeRequestV1Error({
-      reason: "identityMismatch",
-    }));
-  }
-  return Result.succeed(decoded);
+  return decodePrivateAnalyzerHandshakeRequestV1(bytes, expected).pipe(
+    Result.mapError(error => new PrivateAnalyzerHandshakeRequestV1Error({ reason: error.reason })),
+  );
 }
 
 export interface PrivateAnalyzerHandshakeHostV1 {
@@ -118,18 +66,17 @@ export function makePrivateAnalyzerHandshakeHostV1(options: {
 }): Result.Result<PrivateAnalyzerHandshakeHostV1, PrivateAnalyzerHostConfigurationV1Error> {
   return validatePrivateAnalyzerHostConfigurationV1(options.configuration).pipe(
     Result.flatMap(configuration => {
-      const callerIdentity = options.identity;
-      const identity: PrivateAnalyzerIdentityTupleV1 = Object.freeze({
-        protocolIdentity: callerIdentity.protocolIdentity,
-        protocolVersion: callerIdentity.protocolVersion,
-        implementationIdentity: callerIdentity.implementationIdentity,
-        configurationIdentity: callerIdentity.configurationIdentity,
-      });
+      const capturedIdentity = capturePrivateAnalyzerReleaseTupleV1(options.identity);
+      if (Result.isFailure(capturedIdentity)) {
+        return Result.fail(new PrivateAnalyzerHostConfigurationV1Error({
+          field: "identity",
+          reason: "invalidIdentity",
+        }));
+      }
+      const identity = capturedIdentity.success;
       if (
         identity.protocolIdentity !== configuration.protocolIdentity ||
-        identity.protocolVersion !== configuration.protocolVersion ||
-        !isPrivateAnalyzerIdentityV1(identity.implementationIdentity) ||
-        !isPrivateAnalyzerIdentityV1(identity.configurationIdentity)
+        identity.protocolVersion !== configuration.protocolVersion
       ) {
         return Result.fail(new PrivateAnalyzerHostConfigurationV1Error({
           field: "identity",
@@ -318,10 +265,6 @@ function bytesResponse(bytes: Uint8Array, status: number, headers: Record<string
   "content-type": "application/json",
 }): Response {
   return new Response(new Uint8Array(bytes), { status, headers });
-}
-
-function malformed(): Result.Result<never, PrivateAnalyzerHandshakeRequestV1Error> {
-  return Result.fail(new PrivateAnalyzerHandshakeRequestV1Error({ reason: "malformed" }));
 }
 
 function handshakeInvariant(): never {

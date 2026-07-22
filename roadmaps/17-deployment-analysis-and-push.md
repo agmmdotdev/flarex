@@ -523,3 +523,15 @@ and adds no relationship creation, RegistryDO authority, public API, schema,
 or production push-path cutover. It proves only coarse backend-service scope
 for the configured project; finalized-upload resolution and analyzer dispatch
 remain pending.
+`PAM-A0b0-S1P-J1b0-R1P-R0a` is complete as an inert backend-private read:
+after consuming that same-process scope witness, it performs one exact
+read-only DeploymentDO lookup, revalidates the finalized upload row, and
+recomputes the selector digest without publishing a transferable reference or
+dispatch authority. `R0b0-H` is also complete: the intentional
+`@flarex/analysis/internal/private-analyzer-release-v1` subpath now solely owns
+the cause-free V1 release tuple, canonical handshake wire contract, and
+generated release manifest consumed by the private analyzer host. The package
+root remains unchanged. Full `R0b` remains blocked until a real dispatch gate
+owns a trusted backend expected tuple and the analyzer deployment posture is
+explicitly versioned for its eventual source-reader reachability; serialized
+root, selector, request, or release data remains inert meanwhile.

@@ -6,7 +6,8 @@
     "src"
   ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./internal/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

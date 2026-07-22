@@ -62,6 +62,9 @@ importers:
 
   apps/analyzer:
     dependencies:
+      '@flarex/analysis':
+        specifier: workspace:*
+        version: link:../../packages/analysis
       '@flarex/utils':
         specifier: workspace:*
         version: link:../../packages/utils
