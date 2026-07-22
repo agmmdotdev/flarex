@@ -1,7 +1,9 @@
 import {
+  bytesEqualFullScan,
   isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
+import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Result } from "effect";
 import { encodeCanonicalJson } from "flarex-protocol/json";
@@ -992,19 +994,6 @@ function checkedDecodeCounterSum(left: bigint, right: bigint): bigint | undefine
 function checkedSafeNumberAdd(left: number, right: number): number | undefined {
   const sum = left + right;
   return Number.isSafeInteger(sum) ? sum : undefined;
-}
-
-function isNonNegativeSafeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-function bytesEqualFullScan(left: Uint8Array, right: Uint8Array): boolean {
-  let difference = left.byteLength ^ right.byteLength;
-  const maximum = Math.max(left.byteLength, right.byteLength);
-  for (let index = 0; index < maximum; index += 1) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
 }
 
 function decodeError(
