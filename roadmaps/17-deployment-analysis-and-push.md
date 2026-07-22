@@ -437,6 +437,16 @@ target-native readiness and trusted generation fencing, rather than extending
 DeploymentDO as a second long-term schema authority. Prototype data comparison
 or rollback machinery is conditional on concrete shipped-state evidence.
 
+The near-term consumer of this authority chain is a feature-flagged hosted
+point-mutation proof in `runtime-topology-probe`. PAM-A0/A1/A2/B and `C03-V`
+therefore have a concrete destination: the app must resolve one immutable active
+package/artifact/source/function-validator/schema snapshot, load the exact
+generated Dynamic Worker, and enter the already-built session/OCC/commit path
+without setup-seeded metadata or legacy fallback. The app remains a consumer,
+never the source of package, analyzer, schema, validator, or activation
+authority. This goal does not authorize app integration or cutover before the
+owning gates are complete.
+
 ## Next Correctness Gates
 
 1. **Make the hosted analyzer concrete.** Add or designate one deployable,
@@ -466,6 +476,13 @@ or rollback machinery is conditional on concrete shipped-state evidence.
 6. **Complete analysis conformance evidence.** Cover exact source-map positions,
    unsupported import-time APIs, module/size limits, schema separation, forged
    source/hash cases, and parity between local Miniflare and hosted analysis.
+7. **Prove the first hosted consumer.** After the immutable metadata,
+   activation, validator, `C07`, redelivery, and endpoint owners are complete,
+   run a feature-flagged `runtime-topology-probe` mutation through the real
+   artifact, Dynamic Worker, private executor, and Postgres boundaries. Keep the
+   existing path available for observation only; prohibit dual writes, dual
+   authority, and automatic fallback. Treat legacy-path removal as a separate
+   audited cutover.
 
 The production active-metadata path is split into `PAM-A0` inert storage
 contracts, `PAM-A1` immutable publication, `PAM-A2` atomic activation, `PAM-B`

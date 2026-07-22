@@ -17,6 +17,22 @@ Three different implementation truths currently coexist:
 | Private replacement foundation | Bounded `flarexdb_v1` preparation primitives, session/attempt authority, exact reads, journal, compiler, commit, outcome, and recovery pieces exist as internal capabilities and focused tests. Coherent production preparation and routing do not. |
 | First assembled replacement milestone | `C07` is the first end-to-end PGlite plus real-Postgres point-mutation proof. It remains a private test-generation milestone, not permission to activate `flarexdb_v1`. |
 
+### Near-Term Integration Goal
+
+The first deployed acceptance target is one feature-flagged Flarex point
+mutation in `runtime-topology-probe`. This target keeps the remaining foundation
+work outcome-driven: immutable source and active-function metadata, hosted
+preparation, `C07`, production redelivery/dispatch, and `C06-B` must compose into
+one real Dynamic Worker -> private executor -> Postgres lifecycle.
+
+This is an integration-test destination, not a new authority or immediate
+cutover instruction. `runtime-topology-probe` must not supply trusted metadata,
+database authority, retry authority, or fallback semantics. The first proof
+must preserve the existing app path behind an explicit feature flag, prohibit
+dual writes and dual authority, and fail closed rather than falling back from
+`flarexdb_v1` to the legacy engine. Removal of the old path requires a later
+separate cutover decision after the hosted proof is green.
+
 The target lifecycle for one successful point mutation is:
 
 ```text
@@ -83,7 +99,9 @@ completed private kernel through host-neutral structured claim liveness
   -> C06-B stable endpoint/response and production-dispatch composition
   -> C07 private end-to-end PGlite + real-Postgres proof
   -> C07A measure journal placement; move only the temporary journal if proven
-  -> later target readiness, hosted proof, flarexdb_v1 activation, and caller switch
+  -> production metadata/readiness and hosted composition
+  -> feature-flagged runtime-topology-probe acceptance test
+  -> later flarexdb_v1 activation and caller switch
 ```
 
 SessionDO is not the current foundation authority or the current journal path.
@@ -637,6 +655,17 @@ production generation routing and intentionally excludes operational
 revocation and hosted preparation/key adapters. Payload, Medusa, facet-backed
 journal movement, sync replacement, and committed-data caches do not start
 before it is green.
+
+The first hosted consumer proof after those prerequisites is
+`runtime-topology-probe`, not a generic production rollout. Its bounded
+acceptance matrix covers point insert, patch, replace, delete, unchanged/zero-
+row success, one genuine OCC rerun, authoritative lost-response replay, process
+restart/redelivery, dense commit/feed/wake evidence, and terminal session/
+lease/journal cleanup. The proof must use authenticated active metadata, the
+real generated Dynamic Worker boundary, the private executor, and real
+Postgres. It must run behind a feature flag with no legacy fallback, dual write,
+or second commit authority. Passing it permits a separate cutover preflight; it
+does not itself activate or delete the legacy path.
 
 ### Post-Wave-2 — Conditional Session Journal Decision
 

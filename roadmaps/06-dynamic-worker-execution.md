@@ -473,6 +473,14 @@ local/test callers, and target-only recovery pass their declared gates. Then
 remove its routes, bindings, and storage without comparison/rollback machinery
 unless shipped-state evidence appears.
 
+The first hosted acceptance target for this path is a feature-flagged point
+mutation in `runtime-topology-probe`. That proof must use the exact activated
+artifact and metadata snapshot, a generated egress-denied Dynamic Worker, the
+private executor binding, and real Postgres session/OCC/publication authority.
+It is a bounded integration test, not permission for the app to choose metadata
+authority, create a second commit path, dual-write, or silently fall back to the
+legacy engine. A green proof leads to a separate cutover decision.
+
 ## Next Correctness Gates
 
 1. **Complete the live hosted proof.** Demonstrate ref-only R2 loading, Worker
@@ -496,3 +504,8 @@ unless shipped-state evidence appears.
 6. **Add lifecycle and operability controls.** Define cache limits/eviction,
    R2 artifact retention and GC, token rotation/revocation, structured error
    correlation, and source-mapped hosted diagnostics.
+7. **Run the first application acceptance proof.** Compose the completed
+   metadata/readiness, `C07`, redelivery, and `C06-B` gates into one
+   feature-flagged `runtime-topology-probe` point mutation. Prove success, OCC
+   rerun, lost-response replay, restart/redelivery, and terminal cleanup before
+   proposing removal of the old application path.
