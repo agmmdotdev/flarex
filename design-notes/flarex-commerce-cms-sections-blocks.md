@@ -17,6 +17,44 @@ connects Flarex app/CMS rows to commerce/Medusa-reserved logical tables.
 
 The goal is not to build a visual editor in v1. The goal is to define a durable schema, developer API, and storage model that can power a high-quality form-based block/section editor now, while leaving room for a future visual editor.
 
+## 2026-07-22 Theme-composition correction
+
+The storage direction in this note remains unchanged, but the storefront
+composition lineage needs to be more precise:
+
+```text
+Flarex schema, Payload-compatible CMS lifecycle, and row JSON
+  = content, persistence, drafts, versions, relations, and authority
+
+Dawn / Shopify Online Store 2.0-style sections
+  = the current section-centric composition vocabulary
+
+Horizon-style theme blocks
+  = the proposed reusable, bounded nested composition vocabulary
+```
+
+Flarex should therefore keep Payload/Flarex underneath and evolve the authoring
+layer from section-owned settings and local blocks toward reusable theme blocks.
+This is not a move to Liquid, Shopify theme files, or Shopify runtime
+compatibility. It is a change to the logical theme AST, editor contract, and
+renderer contract above the same authoritative row and sidecar model.
+
+The target composition hierarchy is:
+
+```text
+template
+  -> ordered page-level sections
+      -> reusable theme blocks
+          -> bounded child theme blocks
+```
+
+Sections remain important. They own page-level placement, route/resource
+context, cache and rendering boundaries, and the allowed root block set. A
+theme block owns reusable settings, presentation semantics, allowed children,
+and an explicit context requirement. A section must not become an unbounded
+generic canvas, and a block must not gain unrestricted database or commerce
+query authority.
+
 ## Executive summary
 
 Flarex should expose one schema system, not separate document, relational, CMS, and commerce databases.
@@ -37,8 +75,8 @@ v.blocks(...)
 .cms(...)
   = optional CMS/Payload exposure and lifecycle metadata
 
-defineSection(...), defineTemplate(...), defineRegion(...)
-  = higher-level commerce CMS authoring primitives compiled onto the same storage model
+defineThemeBlock(...), defineSection(...), defineTemplate(...), defineRegion(...)
+  = higher-level storefront composition primitives compiled onto the same storage model
 
 c.product(), c.products(), c.collection(), c.collections(), etc.
   = commerce-aware aliases over the same relation primitive
@@ -60,7 +98,8 @@ This gives Flarex:
 
 - Convex-like developer ergonomics, declared indexes, function execution, OCC, and live sync.
 - Payload-compatible nested content, blocks, groups, relationships, uploads, drafts, versions, and globals.
-- Shopify-inspired sections, templates, regions, presets, and commerce resource pickers.
+- Shopify-inspired templates, section boundaries, reusable theme blocks,
+  bounded block nesting, presets, and commerce resource pickers.
 - App-to-commerce relationships such as product reviews, Q&A, wishlists, bundles, product sets, and CMS featured products.
 - A fixed multitenant Postgres physical schema suitable for many apps in one database.
 
@@ -83,7 +122,9 @@ Commerce/CMS APIs are ergonomic layers, not separate storage engines.
 3. Support relational app tables using typed `v.relation.one` and `v.relation.many`.
 4. Support Payload-compatible CMS collections and fields from the same schema metadata.
 5. Support blocks as first-class Flarex fields, not as Payload-only internals.
-6. Support commerce CMS authoring patterns inspired by Shopify sections, blocks, templates, regions, presets, and resource pickers.
+6. Support commerce CMS authoring patterns inspired by Shopify templates,
+   section boundaries, reusable theme blocks, bounded nesting, static blocks,
+   subtree presets, and resource pickers.
 7. Allow app tables to relate to commerce tables without exposing raw Medusa internals.
 8. Keep Postgres authoritative.
 9. Keep Durable Objects for sync, freshness, live preview coordination, sessions, actors, and caches, not as the normal authoritative app database.
@@ -102,6 +143,9 @@ Do not build these in v1:
 - Liquid runtime or custom Liquid settings.
 - Shopify theme import/export compatibility.
 - Arbitrary deep nested block trees.
+- Unrestricted generic layout canvases where every block can contain every
+  other block.
+- Arbitrary executable AI-generated, HTML, JavaScript, or Liquid blocks.
 - Arbitrary JSON path querying without declared indexes.
 - Table-per-user-model physical DDL as the default Flarex app storage model.
 - Physical extension of commerce-owned product rows by arbitrary app fields.
@@ -117,7 +161,12 @@ Recommended imports:
 
 ```ts
 import { defineSchema, defineTable, defineBlock, v } from "flarex/server"
-import { defineSection, defineTemplate, defineRegion } from "flarex/cms"
+import {
+  defineThemeBlock,
+  defineSection,
+  defineTemplate,
+  defineRegion,
+} from "flarex/cms"
 import { c } from "flarex/commerce"
 ```
 
@@ -153,12 +202,18 @@ This package should not require commerce or CMS concepts.
 Content/page composition primitives:
 
 ```ts
+defineThemeBlock
 defineSection
 defineTemplate
 defineRegion
 ```
 
-These are high-level authoring primitives over the same row JSON, block sidecar, edge sidecar, and index sidecar engine.
+`defineThemeBlock` is deliberately distinct from core `defineBlock`.
+`defineBlock` describes a Payload-like structured content variant that can be
+used in an arbitrary `v.blocks(...)` field. `defineThemeBlock` describes a
+renderable storefront component with child, context, preset, and renderer
+contracts. Both compile through the same row JSON, edge sidecar, and index
+sidecar engine.
 
 ### `flarex/commerce`
 
@@ -1606,7 +1661,9 @@ Physical commerce row extension becomes complicated if commerce is backed by Med
 
 ## Block and section storage shape
 
-A CMS page row may contain:
+A simple section with all content in `settings` remains a valid compatibility
+shape and is useful when the section is deliberately indivisible. That is the
+current Dawn-like form:
 
 ```json
 {
@@ -1641,25 +1698,121 @@ A CMS page row may contain:
 }
 ```
 
-Derived sidecars:
+The proposed reusable-theme-block shape keeps the section as the page-level
+boundary but moves composable presentation content into stable child block
+instances:
+
+```json
+{
+  "title": "Home",
+  "slug": "home",
+  "sections": [
+    {
+      "id": "sec_hero_1",
+      "sectionType": "hero",
+      "definitionVersion": 1,
+      "settings": {
+        "height": "medium",
+        "colorScheme": "brand"
+      },
+      "blocks": [
+        {
+          "id": "group_1",
+          "blockType": "group",
+          "definitionVersion": 1,
+          "settings": {
+            "direction": "column",
+            "gap": 16
+          },
+          "blocks": [
+            {
+              "id": "heading_1",
+              "blockType": "text",
+              "definitionVersion": 2,
+              "settings": {
+                "text": "Build faster",
+                "style": "heading-xl"
+              },
+              "blocks": []
+            },
+            {
+              "id": "button_1",
+              "blockType": "button",
+              "definitionVersion": 1,
+              "settings": {
+                "label": "Start now",
+                "href": "/start",
+                "variant": "primary"
+              },
+              "blocks": []
+            }
+          ]
+        },
+        {
+          "id": "image_1",
+          "blockType": "image",
+          "definitionVersion": 1,
+          "settings": {
+            "image": "media_123"
+          },
+          "blocks": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+The canonical instance contract is:
+
+```text
+section instance
+  stable id
+  section type
+  definition version
+  section-owned settings
+  ordered root blocks
+
+theme-block instance
+  stable id
+  block type
+  definition version
+  block-owned settings
+  ordered child blocks
+```
+
+Stable ids express identity; array order expresses presentation order. Moving a
+block must not allocate a new id. Definition versions belong to definitions
+and instances so a theme package can migrate stored settings and child shapes
+without treating every old document as current-definition data. They are
+distinct from the deployment's Flarex schema-version identity.
+
+Derived sidecars for the proposed shape use id-addressed logical occurrence
+paths rather than treating array positions as block identity:
 
 ```text
 fx_block_index
   page:home sections sec_hero_1 hero position=0
-  page:home sections sec_grid_1 featuredCollection position=1
+  page:home sec_hero_1/group_1 group parent=sec_hero_1 position=0
+  page:home sec_hero_1/group_1/heading_1 text parent=group_1 position=0
+  page:home sec_hero_1/group_1/button_1 button parent=group_1 position=1
+  page:home sec_hero_1/image_1 image parent=sec_hero_1 position=1
 
 fx_edge_current
-  page:home sections.sec_hero_1.settings.image -> media.media_123
-  page:home sections.sec_grid_1.settings.collection -> commerce.collections.col_999
-  page:home sections.sec_grid_1.settings.products[0] -> commerce.products.prod_1
-  page:home sections.sec_grid_1.settings.products[1] -> commerce.products.prod_2
+  page:home sec_hero_1/image_1.settings.image -> media.media_123
 
 fx_index_entry_current
   slug = home
   status/publishedAt = ...
 ```
 
-This preserves Payload-like nested authoring while keeping Flarex relationally queryable and syncable.
+The physical row may still use ordinary nested arrays. The compiler derives the
+stable logical occurrence path from section and block ids, validates
+document-wide instance-id uniqueness, rejects cycles and excessive depth, and
+records position separately.
+This preserves Payload-like nested authoring while keeping Flarex relationally
+queryable and syncable. It does not require a physical table per block or a
+normalized block tree in v1.
 
 ## Are section-setting relations real or virtual?
 
@@ -1757,17 +1910,106 @@ Payload is not the owner of the physical database. Payload is a CMS/admin/lifecy
 
 Flarex should borrow Shopify's authoring concepts, not Shopify's theme engine.
 
+### Dawn lineage and current model
+
+The original API examples in this note are closest to Dawn and Shopify Online
+Store 2.0. The section is the primary reusable unit; it owns most settings and
+normally owns the block types that can appear inside it. JSON page data then
+stores ordered section instances, section settings, local block instances, and
+their order.
+
+That model remains valid for intentionally cohesive sections such as a cart
+drawer, search results, or a specialized product gallery. It should no longer
+be the only composition model. If every hero, banner, and content section owns
+separate heading, text, image, button, alignment, and spacing fields, Flarex
+duplicates schemas, renderers, migrations, and editor behavior.
+
+### Horizon lineage and proposed model
+
+Horizon keeps sections but makes reusable theme blocks first-class. A theme
+block is registered independently, can be accepted by multiple sections or
+parent blocks, and may accept bounded child blocks. Static blocks preserve
+required structure, while presets can instantiate a configured subtree rather
+than only a flat settings object.
+
+Flarex should adopt those composition semantics with its own contracts:
+
+```text
+template
+  orders and constrains sections for a route context
+
+section
+  owns page placement, route/resource context, rendering boundary,
+  section settings, static structure, and allowed root block types
+
+theme block
+  owns reusable presentation settings, renderer identity,
+  allowed child types, context requirements, and schema migrations
+
+content block
+  remains a Payload-like structured data variant for v.blocks(...)
+  and is not automatically a storefront theme component
+```
+
+The initial maximum theme-block depth is three levels below the section root.
+That is a Flarex product and write-amplification limit, not a copy of Shopify's
+platform limit. A definition may choose a shallower limit or disallow children.
+
+Parent-child compatibility is explicit. `accepts: "*"` and unconstrained
+generic nesting are rejected for v1. Blocks should declare concrete allowed
+children or a named capability such as `content`, `media`, or `commerce`, and
+the compiler resolves that capability to a closed set in the deployed theme
+manifest.
+
+Static blocks have stable definition-owned ids. Editors may change their
+settings and may hide them only when the definition permits it, but cannot
+delete, duplicate, or reorder them outside their declared slot. Dynamic blocks
+have document-owned stable ids and follow the parent's add/remove/reorder
+policy.
+
+Presets are immutable schema metadata that create new instances. A preset may
+provide section settings plus a complete bounded child subtree. Applying a
+preset never makes the resulting document depend on the preset by reference;
+the editor receives normal owned block instances with fresh dynamic ids.
+
+Theme definitions must be versioned. Changing accepted children, required
+settings, static ids, or renderer semantics requires either a compatible
+defaulting rule or an explicit migration from the stored definition version.
+Theme deployment must reject a manifest that cannot decode or migrate
+supported stored instances.
+
+### Rendering and authority boundary
+
+Theme blocks are presentation composition, not arbitrary query programs.
+Sections obtain a typed route/resource context such as `page`, `product`, or
+`collection`. Child blocks may request a declared facet of that context. They
+may render stored relations already selected in their settings, but they do not
+receive unrestricted `ctx.db` or `ctx.commerce` access.
+
+Dynamic product sources remain section or service-owned operations with
+declared indexes, read dependencies, limits, and invalidation policy. A generic
+layout block cannot smuggle in a new database query merely because it contains
+a commerce child.
+
+The storefront renderer should remain server-first. Client JavaScript provides
+progressive enhancement for interactions and preview, not the sole path for
+product discovery, price formatting, navigation, or purchase-critical markup.
+
 Borrow:
 
 ```text
 templates
 regions / section groups
 sections
-blocks inside sections
+reusable theme blocks
+bounded nested theme blocks
+explicit allowed-child contracts
+static blocks and slots
 settings
-presets
+subtree presets
 resource pickers
 commerce-aware field types
+server-first rendering and progressive enhancement
 ```
 
 Do not borrow for v1:
@@ -1777,8 +2019,10 @@ Liquid runtime
 theme files as source of truth
 settings_data.json as the canonical storage model
 arbitrary custom liquid/html execution
+arbitrary generated executable blocks
 third-party app block runtime
 full theme marketplace compatibility
+Shopify's exact file layout or platform limits
 ```
 
 ## High-level CMS/commerce APIs
@@ -1800,6 +2044,7 @@ v.json(...)
 Add high-level commerce CMS APIs:
 
 ```ts
+defineThemeBlock(...)
 defineSection(...)
 defineTemplate(...)
 defineRegion(...)
@@ -1830,28 +2075,36 @@ v.design.spacing()
 v.design.textAlign()
 ```
 
-These are authoring/picker aliases over normal fields and relations. They should compile to the same row JSON, edge sidecars, index sidecars, and Payload field configs.
+The `v.*` and `c.*` entries are authoring/picker aliases over normal fields and
+relations. The `defineThemeBlock` / section / template / region entries add
+composition AST nodes and editor/renderer metadata. All of them still compile
+to the same authoritative row JSON, edge sidecars, index sidecars, and
+Payload-compatible field configs rather than a second storage engine.
 
 ## Sections
 
-A section is a top-level page composition unit. Examples: Hero, Featured Collection, Product Information, Testimonials, Announcement Bar, Header Navigation, Footer Navigation.
+A section is a top-level page composition and authority boundary. Examples:
+Hero, Featured Collection, Product Information, Testimonials, Announcement
+Bar, Header Navigation, and Footer Navigation. A section may remain indivisible,
+but a generally composable section should keep only section-level layout and
+data-source policy in its own settings and accept reusable root theme blocks.
 
 ```ts
 const HeroSection = defineSection({
   slug: "hero",
+  version: 1,
   label: "Hero",
   category: "Marketing",
+  contexts: ["page", "product", "collection"],
 
   settings: {
-    variant: v.enum(["centered", "split", "imageBackground"]).default("centered"),
-    headline: v.string(),
-    subheadline: v.optional(v.string()),
-    image: v.optional(v.media.image()),
-    cta: v.group({
-      label: v.string(),
-      href: v.url(),
-      style: v.enum(["primary", "secondary"]),
-    }),
+    height: v.enum(["small", "medium", "large"]).default("medium"),
+    colorScheme: v.design.colorScheme(),
+  },
+
+  blocks: {
+    accepts: [GroupThemeBlock, TextThemeBlock, ImageThemeBlock, ButtonThemeBlock],
+    max: 12,
   },
 
   presets: [
@@ -1859,51 +2112,95 @@ const HeroSection = defineSection({
       name: "Centered hero",
       category: "Marketing",
       settings: {
-        variant: "centered",
-        headline: "Welcome to our store",
+        height: "medium",
+        colorScheme: "brand",
       },
+      blocks: [
+        {
+          type: GroupThemeBlock,
+          settings: { direction: "column", gap: 16 },
+          blocks: [
+            {
+              type: TextThemeBlock,
+              settings: {
+                text: "Welcome to our store",
+                style: "heading-xl",
+              },
+            },
+            {
+              type: ButtonThemeBlock,
+              settings: {
+                label: "Shop now",
+                href: "/collections/all",
+                variant: "primary",
+              },
+            },
+          ],
+        },
+      ],
     },
   ],
 })
 ```
 
-A section should compile to a block-like object in row JSON with `sectionType` or `blockType`, stable id, settings, optional child blocks, and derived sidecars.
+A section compiles to a section instance with `sectionType`,
+`definitionVersion`, a stable id, section settings, ordered root blocks, and
+derived sidecars. It is
+not merely an alias for a theme block because it owns route context and the
+page-level rendering boundary.
 
-## Blocks inside sections
+## Theme blocks and section-local blocks
 
-Blocks are local child components inside sections.
+Reusable storefront components use `defineThemeBlock`. This is the proposed
+Horizon-inspired layer:
 
 ```ts
-const SlideBlock = defineBlock({
-  slug: "slide",
-  label: "Slide",
-  fields: {
-    image: v.media.image(),
-    heading: v.string(),
-    text: v.optional(v.string()),
-    buttonLabel: v.optional(v.string()),
-    buttonHref: v.optional(v.url()),
+const TextThemeBlock = defineThemeBlock({
+  slug: "text",
+  version: 2,
+  label: "Text",
+  capability: "content",
+  contexts: ["page", "product", "collection"],
+  settings: {
+    text: v.richText(),
+    style: v.design.select(["body", "heading-sm", "heading-lg", "heading-xl"]),
+    align: v.design.textAlign(),
   },
+  blocks: { accepts: [], max: 0 },
 })
 
-const SlideshowSection = defineSection({
-  slug: "slideshow",
-  label: "Slideshow",
-
+const GroupThemeBlock = defineThemeBlock({
+  slug: "group",
+  version: 1,
+  label: "Group",
+  capability: "layout",
   settings: {
-    autoplay: v.boolean().default(false),
-    interval: v.number().default(5),
+    direction: v.enum(["row", "column"]).default("column"),
+    gap: v.design.spacing(),
+    align: v.design.select(["start", "center", "end", "spaceBetween"]),
   },
-
-  blocks: v.blocks([SlideBlock], {
-    min: 1,
-    max: 8,
-    ordered: true,
-  }),
+  blocks: {
+    accepts: ["content", "media", "commerce"],
+    max: 12,
+    maxDepth: 3,
+  },
 })
 ```
 
-Recommended v1 limit: section -> blocks -> optional shallow nested blocks. Avoid deep arbitrary nesting in v1.
+Capabilities are closed manifest groups, not runtime wildcards. The compiler
+expands them to concrete deployed block types and rejects incompatible or
+recursive definitions that exceed the depth limit.
+
+Section-local blocks remain available for specialized structures that should
+not be reusable elsewhere, such as one slide inside a particular slideshow or
+a private product-gallery control. They use a section-owned definition and
+cannot be selected by unrelated sections. Core `defineBlock` remains available
+for non-theme Payload-like structured content.
+
+Recommended v1 limit: section root plus at most three nested theme-block levels.
+Definitions should usually choose one or two. Avoid deep arbitrary nesting and
+do not use generic groups to erase meaningful commerce or accessibility
+structure.
 
 ## Templates
 
@@ -2094,7 +2391,7 @@ Do not write permanent product edges for every dynamic result. Dynamic result pr
 
 ```ts
 import { defineSchema, defineTable, v } from "flarex/server"
-import { defineSection, defineTemplate } from "flarex/cms"
+import { defineSection, defineTemplate, defineThemeBlock } from "flarex/cms"
 import { c } from "flarex/commerce"
 
 const users = defineTable({
@@ -2184,30 +2481,39 @@ Commerce products may be physically backed by reserved commerce/Medusa tables, b
 ## Product template example
 
 ```ts
-const ProductTitleBlock = defineBlock({
+const ProductTitleBlock = defineThemeBlock({
   slug: "productTitle",
+  version: 1,
   label: "Product title",
-  fields: {
+  contexts: ["product"],
+  settings: {
     headingSize: v.enum(["sm", "md", "lg"]).default("lg"),
   },
+  blocks: { accepts: [], max: 0 },
 })
 
-const ProductPriceBlock = defineBlock({
+const ProductPriceBlock = defineThemeBlock({
   slug: "productPrice",
+  version: 1,
   label: "Product price",
-  fields: {
+  contexts: ["product"],
+  settings: {
     showCompareAt: v.boolean().default(true),
     showTaxNote: v.boolean().default(true),
   },
+  blocks: { accepts: [], max: 0 },
 })
 
-const BuyButtonsBlock = defineBlock({
+const BuyButtonsBlock = defineThemeBlock({
   slug: "buyButtons",
+  version: 1,
   label: "Buy buttons",
-  fields: {
+  contexts: ["product"],
+  settings: {
     showDynamicCheckout: v.boolean().default(true),
     showQuantitySelector: v.boolean().default(true),
   },
+  blocks: { accepts: [], max: 0 },
 })
 
 const ProductMainSection = defineSection({
@@ -2221,21 +2527,25 @@ const ProductMainSection = defineSection({
     stickyInfo: v.boolean().default(true),
   },
 
-  blocks: v.blocks([
-    ProductTitleBlock,
-    ProductPriceBlock,
-    VariantPickerBlock,
-    BuyButtonsBlock,
-    ProductDescriptionBlock,
-    CollapsibleTabBlock,
-    ComplementaryProductsBlock,
-  ], {
+  blocks: {
+    accepts: [
+      ProductTitleBlock,
+      ProductPriceBlock,
+      VariantPickerBlock,
+      BuyButtonsBlock,
+      ProductDescriptionBlock,
+      CollapsibleTabBlock,
+      ComplementaryProductsBlock,
+    ],
     max: 30,
-  }),
+  },
 })
 ```
 
-This mirrors Shopify-style product page composition while remaining Flarex/Payload-owned data.
+This mirrors Horizon-style reusable product composition while remaining
+Flarex/Payload-owned data. Each block reads only the declared `product` context
+facet supplied by the section renderer; it does not independently query the
+commerce repository.
 
 ## Rendering and populate flow
 
@@ -2383,6 +2693,9 @@ V1 scope:
 section list
 block add/remove/duplicate
 block reorder
+bounded nested block tree
+static block visibility/settings where permitted
+allowed-child and context validation
 variant selectors
 media pickers
 commerce pickers
@@ -2400,6 +2713,9 @@ Future visual editor support should be enabled by preserving:
 ```text
 stable block ids
 block type
+block definition version
+parent block id and static/dynamic ownership
+slot and sibling position
 field path
 section path
 component metadata
@@ -2427,6 +2743,7 @@ V1 should include:
 ```text
 defineTable
 defineBlock
+defineThemeBlock
 defineSection
 defineTemplate
 defineRegion
@@ -2453,9 +2770,14 @@ v.design.color
 v.design.range
 v.design.select
 
-block/section presets
+block/section subtree presets
 ordered sections
 ordered blocks
+reusable theme blocks
+maximum three nested theme-block levels below a section
+closed allowed-child capability groups
+static section/block children
+versioned theme definitions and explicit migrations
 header/footer regions
 commerce pickers
 media pickers
@@ -2474,6 +2796,8 @@ custom Liquid/runtime code
 third-party app blocks
 Shopify import/export
 arbitrary deep nested blocks
+unrestricted wildcard child blocks
+arbitrary executable generated blocks
 arbitrary JSON path queries
 block-level physical tables by default
 physical arbitrary extension of commerce product rows
@@ -2491,7 +2815,7 @@ frontend overlay SDK
 reusable shared sections
 market/context-aware regions
 app/extension blocks
-nested theme blocks
+deeper or dynamically extensible theme-block graphs
 A/B templates
 advanced theme presets
 Shopify import/export adapter
@@ -2507,27 +2831,43 @@ These should build on the same primitive storage model, not replace it.
 
 ## Implementation checklist
 
-1. Add schema AST nodes for `defineBlock`, `defineSection`, `defineTemplate`, and `defineRegion`.
+1. Add distinct schema AST nodes for core `defineBlock`, storefront
+   `defineThemeBlock`, `defineSection`, `defineTemplate`, and `defineRegion`.
 2. Add `flarex/cms` and `flarex/commerce` package boundaries.
 3. Add commerce logical table refs under `c.tables.*`.
 4. Add `fx_relation_def` as relation metadata catalog.
-5. Keep `defineSection` as high-level sugar over block-like embedded section objects.
-6. Add stable block/section ids to stored row JSON.
-7. Add `fx_block_index` derivation for block/section type, path, position, and parent.
-8. Derive `fx_edge_*` rows for relations/uploads/pickers inside app rows, blocks, and sections.
-9. Derive `fx_index_entry_*` rows for declared indexes, including block/section subfield indexes.
-10. Add compiler support for commerce picker aliases over normal relations.
-11. Add logical table resolver support for app, CMS, media, commerce reserved, and system targets.
-12. Generate Payload-compatible field/block configs from `.cms(...)` metadata.
-13. Add CMS write policies and enforce them in mutation execution.
-14. Add product/collection/media picker UI components in the admin.
-15. Add form-based section/block editor UI.
-16. Add draft preview URL/token support.
-17. Add schema compile-time write amplification estimates, including relation edge counts.
-18. Add query planner rejection for unindexed nested/block/section JSON queries.
-19. Add relation modeling docs/generators for child tables, bounded many lists, and join tables.
-20. Add safe commerce delete behavior: soft delete/archive by default and reverse-edge checks before hard delete.
-21. Keep visual editor APIs out of v1 public docs.
+5. Keep `defineSection` as a page-level context/rendering boundary rather than
+   reducing it to an alias for `defineThemeBlock`.
+6. Add stable block/section ids and definition versions to stored row JSON.
+7. Validate closed allowed-child sets, context compatibility, document-wide
+   instance-id uniqueness, static ids, acyclicity, and the three-level
+   nested-block limit.
+8. Add definition migration contracts and reject deployment when supported
+   stored instances cannot decode or migrate.
+9. Add `fx_block_index` or hidden-index derivation for block/section type,
+   id-addressed logical path, position, and parent.
+10. Derive `fx_edge_*` rows for relations/uploads/pickers inside app rows,
+    blocks, and sections.
+11. Derive `fx_index_entry_*` rows for declared indexes, including
+    block/section subfield indexes.
+12. Add compiler support for commerce picker aliases over normal relations.
+13. Add logical table resolver support for app, CMS, media, commerce reserved,
+    and system targets.
+14. Generate Payload-compatible field/block configs from `.cms(...)` metadata.
+15. Add CMS write policies and enforce them in mutation execution.
+16. Add product/collection/media picker UI components in the admin.
+17. Add a form-based tree editor with static/dynamic ownership and permitted
+    add/remove/duplicate/reorder operations.
+18. Add draft preview URL/token support.
+19. Add schema compile-time write amplification estimates, including relation
+    edge and nested-block index counts.
+20. Add query planner rejection for unindexed nested/block/section JSON queries.
+21. Add relation modeling docs/generators for child tables, bounded many lists,
+    and join tables.
+22. Add safe commerce delete behavior: soft delete/archive by default and
+    reverse-edge checks before hard delete.
+23. Keep visual editor APIs and arbitrary generated executable blocks out of v1
+    public docs.
 
 ## Open decisions
 
@@ -2536,11 +2876,14 @@ These should build on the same primitive storage model, not replace it.
 - Whether `v.upload(media)` should be core or sugar for `v.relation.one(media).cms({ widget: "upload" })`.
 - Maximum default section count per template/page.
 - Maximum default block count per section.
-- Maximum nested block depth for v1.
+- Whether the initial depth-three limit should count static wrapper blocks
+  against the same budget as merchant-added blocks.
 - Maximum default `c.products()` / `c.collections()` selection count.
 - Whether regions are stored as Payload globals, Flarex system rows, or CMS singleton collections.
 - How much Payload-specific admin metadata belongs in core schema vs `.cms(...)` metadata.
-- Whether section presets are deploy-time schema metadata only or can be user-defined later.
+- Whether user-authored reusable patterns should become a separate future
+  document type; deployed section and block presets remain immutable schema
+  metadata that allocate owned instances when applied.
 - How much `c.extend(...)` should support in v1 beyond virtual reverse relations.
 - Whether `fx_relation_def` should be a separate table or folded into `fx_field.relation_json` for v1.
 - Which public commerce/Medusa relationships should be projected into `fx_edge_*` in v2.
@@ -2550,7 +2893,13 @@ These should build on the same primitive storage model, not replace it.
 This design is inspired by, but does not clone, the following systems:
 
 - Payload blocks, groups, relationships, uploads, drafts, versions, globals, hooks, and admin forms.
-- Shopify Online Store themes: templates, section groups, sections, blocks, presets, and resource picker settings.
+- Shopify Dawn / Online Store 2.0: JSON templates, section groups,
+  section-centric composition, local blocks, presets, and resource picker
+  settings.
+- Shopify Horizon and theme blocks: independently reusable block definitions,
+  bounded nested blocks, static blocks, allowed-child contracts, and subtree
+  presets. Flarex borrows the composition semantics, not Liquid or Shopify's
+  runtime and file limits.
 - Convex: generated APIs, declared indexes, OCC, read sets, live query invalidation, and function execution ergonomics.
 - InstantDB: relationship/edge sidecars and graph-oriented query ergonomics.
 
@@ -2562,3 +2911,13 @@ row JSON as authoritative value
 + logical table ids for app/CMS/media/commerce targets
 + Postgres-authoritative commit/OCC/sync
 ```
+
+Primary external references:
+
+- [Shopify theme blocks](https://shopify.dev/docs/storefronts/themes/architecture/blocks)
+- [Shopify theme-block schema and nested blocks](https://shopify.dev/docs/storefronts/themes/architecture/blocks/theme-blocks/schema)
+- [Shopify static theme blocks](https://shopify.dev/docs/storefronts/themes/architecture/blocks/theme-blocks/static-blocks)
+- [Shopify Horizon source and design principles](https://github.com/Shopify/horizon)
+- [Payload Blocks field](https://payloadcms.com/docs/fields/blocks)
+- [Payload drafts](https://payloadcms.com/docs/versions/drafts)
+- [Payload live preview](https://payloadcms.com/docs/live-preview)

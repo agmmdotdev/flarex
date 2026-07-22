@@ -21,6 +21,14 @@ Related architecture note:
 
 That larger note is a long-term architecture superset. This file is the stricter v1 cutline. It challenges the superset, removes non-essential tables from the first implementation, and defines the smaller schema that should actually be built first.
 
+Theme-composition clarification: the long-term note now distinguishes the
+current Dawn-like section-centric examples from the proposed Horizon-inspired
+reusable theme-block model. That correction changes the logical theme AST,
+editor, and renderer contracts, not this physical database cutline. Bounded
+nested block instances remain embedded in authoritative row JSON and derive
+hidden block-type indexes and relation edges through the same v1 sidecars. No
+normalized block table, Liquid runtime, or arbitrary deep tree is implied.
+
 ## 2026-07-10 Accepted Correction
 
 The original cutline correctly reduced the physical table count, but it still
@@ -1258,6 +1266,11 @@ fx_idempotency:
 No `fx_field`, no `fx_relation_def`, no `fx_edge_rev`, and no dedicated Payload tables are required for this first version.
 
 ## Concrete v1 CMS section example
+
+This deliberately flat section is the smallest compatibility example, not the
+only target authoring shape. A reusable theme-block subtree uses the same
+`fx_row_current` / revision, hidden-index, edge, commit, and outbox primitives;
+see the theme-composition correction in the long-term sections/blocks note.
 
 Page row:
 
