@@ -7,6 +7,7 @@ import { Data, Result } from "effect";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 
 const UTF8_ENCODER = new TextEncoder();
+const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const TYPED_ARRAY_PROTOTYPE: object = Object.getPrototypeOf(Uint8Array.prototype);
 const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
@@ -139,6 +140,64 @@ export interface SourceArtifactV2UploadSelectorFrameInput {
   readonly uploadId: string;
   readonly generation: bigint;
   readonly rootDigest: Uint8Array;
+}
+
+export interface SourceArtifactV2FrameDecodeBudget {
+  readonly maximumInputBytesMaterialized: number;
+  readonly maximumCanonicalBytesMaterialized: number;
+  readonly maximumFrameBytesMaterialized: number;
+}
+
+export interface SourceArtifactV2FrameDecodeReceipt {
+  readonly inputBytesMaterialized: number;
+  readonly canonicalBytesMaterialized: number;
+  readonly frameBytesMaterialized: number;
+}
+
+export class SourceArtifactV2FrameDecodeError extends Data.TaggedError(
+  "SourceArtifactV2FrameDecodeError",
+)<{
+  readonly operation: Exclude<SourceArtifactV2FrameOperation, "uploadSelector">;
+  readonly field: string;
+  readonly reason:
+    | "invalidBudget"
+    | "invalidBytes"
+    | "wrongDomain"
+    | "truncated"
+    | "trailingBytes"
+    | "invalidVersion"
+    | "invalidCounter"
+    | "invalidTag"
+    | "invalidRange"
+    | "invalidRoles"
+    | "invalidEnvironment"
+    | "invalidCanonicalString"
+    | "inconsistentFields"
+    | "nonCanonicalFrame";
+  readonly observed?: number;
+  readonly maximum?: number;
+}> {}
+
+export interface SourceArtifactV2DecodedFrame<A> {
+  readonly value: A;
+  readonly receipt: SourceArtifactV2FrameDecodeReceipt;
+}
+
+export interface SourceArtifactV2DecodedBlockFrame {
+  readonly kind: SourceArtifactV2BlockKind;
+  readonly blockIndex: bigint;
+  readonly bytes: Uint8Array;
+}
+
+export interface SourceArtifactV2DecodedTreeNodeFrame {
+  readonly kind: SourceArtifactV2TreeKind;
+  readonly left: SourceArtifactV2TreeReference;
+  readonly right: SourceArtifactV2TreeReference;
+  readonly totalCount: bigint;
+}
+
+export interface SourceArtifactV2DecodedModuleFrame extends SourceArtifactV2ModuleFrameInput {
+  readonly environment: "isolate";
 }
 
 export function sourceArtifactV2BlockFrame(
@@ -377,6 +436,598 @@ export function sourceArtifactV2UploadSelectorFrame(
       ownedDigest(decoded.success.rootDigest),
     ],
   );
+}
+
+export function decodeSourceArtifactV2BlockFrame(
+  kind: SourceArtifactV2BlockKind,
+  value: unknown,
+  budget: unknown,
+): Result.Result<
+  SourceArtifactV2DecodedFrame<SourceArtifactV2DecodedBlockFrame>,
+  SourceArtifactV2FrameDecodeError
+> {
+  const operation = "block" as const;
+  const captured = captureDecodeInput(operation, value, budget);
+  if (Result.isFailure(captured)) return Result.fail(captured.failure);
+  const cursor = new SourceArtifactV2FrameCursor(captured.success.bytes);
+  const domain = kind === "source" ? SOURCE_BLOCK_DOMAIN : SOURCE_MAP_BLOCK_DOMAIN;
+  if (!cursor.readDomain(domain)) {
+    return Result.fail(decodeError(operation, "domain", "wrongDomain"));
+  }
+  const blockIndex = cursor.readCounter();
+  if (blockIndex === undefined) {
+    return Result.fail(decodeError(operation, "blockIndex", cursor.counterFailureReason()));
+  }
+  const bodyByteLength = cursor.readCounter();
+  if (bodyByteLength === undefined) {
+    return Result.fail(decodeError(operation, "bodyByteLength", cursor.counterFailureReason()));
+  }
+  const bodyLength = safeLengthFromCounter(bodyByteLength);
+  if (bodyLength === undefined || bodyLength === 0) {
+    return Result.fail(decodeError(operation, "bodyByteLength", "invalidCounter"));
+  }
+  const body = cursor.readBytes(bodyLength);
+  if (body === undefined) {
+    return Result.fail(decodeError(operation, "bytes", "truncated"));
+  }
+  if (!cursor.atEnd()) {
+    return Result.fail(decodeError(operation, "frame", "trailingBytes"));
+  }
+  const decoded = Object.freeze({ kind, blockIndex, bytes: body });
+  return verifyDecodedFrame(
+    operation,
+    captured.success,
+    decoded,
+    () => sourceArtifactV2BlockFrame(kind, blockIndex, body, {
+      maximumFrameBytesMaterialized:
+        captured.success.budget.maximumFrameBytesMaterialized,
+    }),
+  );
+}
+
+export function decodeSourceArtifactV2TreeNodeFrame(
+  kind: SourceArtifactV2TreeKind,
+  value: unknown,
+  budget: unknown,
+): Result.Result<
+  SourceArtifactV2DecodedFrame<SourceArtifactV2DecodedTreeNodeFrame>,
+  SourceArtifactV2FrameDecodeError
+> {
+  const operation = "treeNode" as const;
+  const captured = captureDecodeInput(operation, value, budget);
+  if (Result.isFailure(captured)) return Result.fail(captured.failure);
+  const cursor = new SourceArtifactV2FrameCursor(captured.success.bytes);
+  if (!cursor.readDomain(TREE_NODE_DOMAIN)) {
+    return Result.fail(decodeError(operation, "domain", "wrongDomain"));
+  }
+  const kindCode = cursor.readByte();
+  if (kindCode === undefined) {
+    return Result.fail(decodeError(operation, "kind", "truncated"));
+  }
+  if (kindCode !== treeKindCode(kind)) {
+    return Result.fail(decodeError(operation, "kind", "invalidTag"));
+  }
+  const leftFirst = cursor.readCounter();
+  const leftCount = cursor.readCounter();
+  const rightCount = cursor.readCounter();
+  if (leftFirst === undefined || leftCount === undefined || rightCount === undefined) {
+    return Result.fail(decodeError(operation, "range", cursor.counterFailureReason()));
+  }
+  if (leftCount === 0n || rightCount === 0n) {
+    return Result.fail(decodeError(operation, "range", "invalidCounter"));
+  }
+  const leftDigest = cursor.readBytes(SOURCE_ARTIFACT_V2_SHA256_BYTES);
+  const rightDigest = cursor.readBytes(SOURCE_ARTIFACT_V2_SHA256_BYTES);
+  const totalCount = cursor.readCounter();
+  if (leftDigest === undefined || rightDigest === undefined || totalCount === undefined) {
+    return Result.fail(decodeError(operation, "range", cursor.counterFailureReason()));
+  }
+  if (!cursor.atEnd()) {
+    return Result.fail(decodeError(operation, "frame", "trailingBytes"));
+  }
+  const rightFirst = checkedDecodeCounterSum(leftFirst, leftCount);
+  const expectedTotal = checkedDecodeCounterSum(leftCount, rightCount);
+  if (rightFirst === undefined || expectedTotal === undefined || expectedTotal !== totalCount) {
+    return Result.fail(decodeError(operation, "range", "invalidRange"));
+  }
+  const left = Object.freeze({ firstOrdinal: leftFirst, count: leftCount, digest: leftDigest });
+  const right = Object.freeze({ firstOrdinal: rightFirst, count: rightCount, digest: rightDigest });
+  const decoded = Object.freeze({ kind, left, right, totalCount });
+  return verifyDecodedFrame(
+    operation,
+    captured.success,
+    decoded,
+    () => sourceArtifactV2TreeNodeFrame(kind, left, right, {
+      maximumFrameBytesMaterialized:
+        captured.success.budget.maximumFrameBytesMaterialized,
+    }),
+  );
+}
+
+export function decodeSourceArtifactV2ModuleFrame(
+  value: unknown,
+  budget: unknown,
+): Result.Result<
+  SourceArtifactV2DecodedFrame<SourceArtifactV2DecodedModuleFrame>,
+  SourceArtifactV2FrameDecodeError
+> {
+  const operation = "module" as const;
+  const captured = captureDecodeInput(operation, value, budget);
+  if (Result.isFailure(captured)) return Result.fail(captured.failure);
+  const cursor = new SourceArtifactV2FrameCursor(captured.success.bytes);
+  if (!cursor.readDomain(MODULE_DOMAIN)) {
+    return Result.fail(decodeError(operation, "domain", "wrongDomain"));
+  }
+  const ordinal = cursor.readCounter();
+  const pathByteLength = cursor.readU32();
+  if (ordinal === undefined || pathByteLength === undefined) {
+    return Result.fail(decodeError(operation, "path", cursor.counterFailureReason()));
+  }
+  const path = decodeCanonicalFrameString(
+    operation,
+    "path",
+    cursor,
+    pathByteLength,
+    captured.success,
+  );
+  if (Result.isFailure(path)) return Result.fail(path.failure);
+  if (path.success.length === 0) {
+    return Result.fail(decodeError(operation, "path", "invalidCanonicalString"));
+  }
+  const environment = cursor.readByte();
+  const roles = cursor.readByte();
+  if (environment === undefined || roles === undefined) {
+    return Result.fail(decodeError(operation, "module", "truncated"));
+  }
+  if (environment !== ENVIRONMENT_ISOLATE) {
+    return Result.fail(decodeError(operation, "environment", "invalidEnvironment"));
+  }
+  if (roles <= 0 || (roles & ~SOURCE_ARTIFACT_V2_ROLE_MASK) !== 0) {
+    return Result.fail(decodeError(operation, "roles", "invalidRoles"));
+  }
+  const sourceByteLength = cursor.readCounter();
+  const sourceBlockCount = cursor.readCounter();
+  const sourceTreeDigest = cursor.readBytes(SOURCE_ARTIFACT_V2_SHA256_BYTES);
+  if (
+    sourceByteLength === undefined || sourceBlockCount === undefined ||
+    sourceTreeDigest === undefined
+  ) return Result.fail(decodeError(operation, "source", cursor.counterFailureReason()));
+  if (sourceByteLength === 0n || sourceBlockCount === 0n) {
+    return Result.fail(decodeError(operation, "source", "invalidCounter"));
+  }
+  const sourceMapTag = cursor.readByte();
+  if (sourceMapTag === undefined) {
+    return Result.fail(decodeError(operation, "sourceMap", "truncated"));
+  }
+  let sourceMapByteLength = 0n;
+  let sourceMapBlockCount = 0n;
+  let sourceMapTreeDigest: Uint8Array | null = null;
+  if (sourceMapTag === 1) {
+    const byteLength = cursor.readCounter();
+    const blockCount = cursor.readCounter();
+    const digest = cursor.readBytes(SOURCE_ARTIFACT_V2_SHA256_BYTES);
+    if (byteLength === undefined || blockCount === undefined || digest === undefined) {
+      return Result.fail(decodeError(operation, "sourceMap", cursor.counterFailureReason()));
+    }
+    if (byteLength === 0n || blockCount === 0n) {
+      return Result.fail(decodeError(operation, "sourceMap", "inconsistentFields"));
+    }
+    sourceMapByteLength = byteLength;
+    sourceMapBlockCount = blockCount;
+    sourceMapTreeDigest = digest;
+  } else if (sourceMapTag !== 0) {
+    return Result.fail(decodeError(operation, "sourceMap", "invalidTag"));
+  }
+  if (!cursor.atEnd()) {
+    return Result.fail(decodeError(operation, "frame", "trailingBytes"));
+  }
+  const decoded: SourceArtifactV2DecodedModuleFrame = Object.freeze({
+    ordinal,
+    path: path.success,
+    environment: "isolate",
+    roles,
+    sourceByteLength,
+    sourceBlockCount,
+    sourceTreeDigest,
+    sourceMapByteLength,
+    sourceMapBlockCount,
+    sourceMapTreeDigest,
+  });
+  return verifyDecodedFrame(
+    operation,
+    captured.success,
+    decoded,
+    () => sourceArtifactV2ModuleFrame(decoded, {
+      maximumFrameBytesMaterialized:
+        captured.success.budget.maximumFrameBytesMaterialized,
+    }),
+  );
+}
+
+export function decodeSourceArtifactV2CompletedRootFrame(
+  value: unknown,
+  budget: unknown,
+): Result.Result<
+  SourceArtifactV2DecodedFrame<SourceArtifactV2CompletedRootFrameInput>,
+  SourceArtifactV2FrameDecodeError
+> {
+  const operation = "completedRoot" as const;
+  const captured = captureDecodeInput(operation, value, budget);
+  if (Result.isFailure(captured)) return Result.fail(captured.failure);
+  const cursor = new SourceArtifactV2FrameCursor(captured.success.bytes);
+  if (!cursor.readDomain(COMPLETED_ROOT_DOMAIN)) {
+    return Result.fail(decodeError(operation, "domain", "wrongDomain"));
+  }
+  const version = cursor.readU32();
+  if (version === undefined) {
+    return Result.fail(decodeError(operation, "version", "truncated"));
+  }
+  if (version !== SOURCE_ARTIFACT_V2_CODEC_VERSION) {
+    return Result.fail(decodeError(operation, "version", "invalidVersion"));
+  }
+  const moduleCount = cursor.readCounter();
+  const functionModuleCount = cursor.readCounter();
+  const totalSourceBytes = cursor.readCounter();
+  const totalSourceMapBytes = cursor.readCounter();
+  const moduleTreeDigest = cursor.readBytes(SOURCE_ARTIFACT_V2_SHA256_BYTES);
+  if (
+    moduleCount === undefined || functionModuleCount === undefined ||
+    totalSourceBytes === undefined || totalSourceMapBytes === undefined ||
+    moduleTreeDigest === undefined
+  ) return Result.fail(decodeError(operation, "root", cursor.counterFailureReason()));
+  if (
+    moduleCount === 0n || totalSourceBytes === 0n ||
+    functionModuleCount > moduleCount
+  ) return Result.fail(decodeError(operation, "root", "invalidCounter"));
+  const executionPath = decodeLengthPrefixedCanonicalString(
+    operation,
+    "executionPath",
+    cursor,
+    captured.success,
+  );
+  if (Result.isFailure(executionPath)) return Result.fail(executionPath.failure);
+  if (executionPath.success.length === 0) {
+    return Result.fail(decodeError(operation, "executionPath", "invalidCanonicalString"));
+  }
+  const schemaPath = decodeOptionalCanonicalFrameString(
+    operation,
+    "schemaPath",
+    cursor,
+    captured.success,
+  );
+  if (Result.isFailure(schemaPath)) return Result.fail(schemaPath.failure);
+  const authPath = decodeOptionalCanonicalFrameString(
+    operation,
+    "authPath",
+    cursor,
+    captured.success,
+  );
+  if (Result.isFailure(authPath)) return Result.fail(authPath.failure);
+  if (!cursor.atEnd()) {
+    return Result.fail(decodeError(operation, "frame", "trailingBytes"));
+  }
+  const decoded = Object.freeze({
+    moduleCount,
+    functionModuleCount,
+    totalSourceBytes,
+    totalSourceMapBytes,
+    moduleTreeDigest,
+    executionPath: executionPath.success,
+    schemaPath: schemaPath.success,
+    authPath: authPath.success,
+  });
+  return verifyDecodedFrame(
+    operation,
+    captured.success,
+    decoded,
+    () => sourceArtifactV2CompletedRootFrame(decoded, {
+      maximumFrameBytesMaterialized:
+        captured.success.budget.maximumFrameBytesMaterialized,
+    }),
+  );
+}
+
+type SourceArtifactV2StoredFrameOperation = Exclude<
+  SourceArtifactV2FrameOperation,
+  "uploadSelector"
+>;
+
+interface SourceArtifactV2CapturedDecodeInput {
+  readonly bytes: Uint8Array;
+  readonly budget: SourceArtifactV2FrameDecodeBudget;
+  canonicalBytesMaterialized: number;
+}
+
+function captureDecodeInput(
+  operation: SourceArtifactV2StoredFrameOperation,
+  value: unknown,
+  budget: unknown,
+): Result.Result<SourceArtifactV2CapturedDecodeInput, SourceArtifactV2FrameDecodeError> {
+  const decodedBudget = decodeFrameDecodeBudget(operation, budget);
+  if (Result.isFailure(decodedBudget)) return Result.fail(decodedBudget.failure);
+  if (!isUint8Array(value)) {
+    return Result.fail(decodeError(operation, "value", "invalidBytes"));
+  }
+  const byteLength = intrinsicByteLength(value);
+  if (byteLength === undefined || byteLength === 0) {
+    return Result.fail(decodeError(operation, "value", "invalidBytes"));
+  }
+  if (byteLength > decodedBudget.success.maximumInputBytesMaterialized) {
+    return Result.fail(decodeBudgetError(
+      operation,
+      "inputBytesMaterialized",
+      byteLength,
+      decodedBudget.success.maximumInputBytesMaterialized,
+    ));
+  }
+  if (byteLength > decodedBudget.success.maximumFrameBytesMaterialized) {
+    return Result.fail(decodeBudgetError(
+      operation,
+      "frameBytesMaterialized",
+      byteLength,
+      decodedBudget.success.maximumFrameBytesMaterialized,
+    ));
+  }
+  const bytes = intrinsicOwnedCopy(value);
+  if (bytes === undefined || bytes.byteLength !== byteLength) {
+    return Result.fail(decodeError(operation, "value", "invalidBytes"));
+  }
+  return Result.succeed({
+    bytes,
+    budget: decodedBudget.success,
+    canonicalBytesMaterialized: 0,
+  });
+}
+
+function decodeFrameDecodeBudget(
+  operation: SourceArtifactV2StoredFrameOperation,
+  value: unknown,
+): Result.Result<SourceArtifactV2FrameDecodeBudget, SourceArtifactV2FrameDecodeError> {
+  if (!isNonArrayRecord(value)) {
+    return Result.fail(decodeError(operation, "budget", "invalidBudget"));
+  }
+  const input = value.maximumInputBytesMaterialized;
+  const canonical = value.maximumCanonicalBytesMaterialized;
+  const frame = value.maximumFrameBytesMaterialized;
+  if (
+    !isNonNegativeSafeInteger(input) || !isNonNegativeSafeInteger(canonical) ||
+    !isNonNegativeSafeInteger(frame)
+  ) return Result.fail(decodeError(operation, "budget", "invalidBudget"));
+  return Result.succeed(Object.freeze({
+    maximumInputBytesMaterialized: input,
+    maximumCanonicalBytesMaterialized: canonical,
+    maximumFrameBytesMaterialized: frame,
+  }));
+}
+
+function decodeCanonicalFrameString(
+  operation: SourceArtifactV2StoredFrameOperation,
+  field: string,
+  cursor: SourceArtifactV2FrameCursor,
+  byteLength: number,
+  captured: SourceArtifactV2CapturedDecodeInput,
+): Result.Result<string, SourceArtifactV2FrameDecodeError> {
+  const bytes = cursor.readBytes(byteLength);
+  if (bytes === undefined) {
+    return Result.fail(decodeError(operation, field, "truncated"));
+  }
+  let text: string;
+  try {
+    text = FATAL_UTF8_DECODER.decode(bytes);
+  } catch {
+    return Result.fail(decodeError(operation, field, "invalidCanonicalString"));
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(text);
+  } catch {
+    return Result.fail(decodeError(operation, field, "invalidCanonicalString"));
+  }
+  if (typeof decoded !== "string") {
+    return Result.fail(decodeError(operation, field, "invalidCanonicalString"));
+  }
+  const projected = canonicalJsonStringUtf8ByteLength(decoded);
+  const nextCanonical = checkedSafeNumberAdd(
+    captured.canonicalBytesMaterialized,
+    projected,
+  );
+  if (
+    nextCanonical === undefined ||
+    nextCanonical > captured.budget.maximumCanonicalBytesMaterialized
+  ) {
+    return Result.fail(decodeBudgetError(
+      operation,
+      "canonicalBytesMaterialized",
+      nextCanonical ?? Number.MAX_SAFE_INTEGER,
+      captured.budget.maximumCanonicalBytesMaterialized,
+    ));
+  }
+  const canonical = UTF8_ENCODER.encode(encodeCanonicalJson(decoded, canonicalInvariantDefect));
+  if (canonical.byteLength !== projected) return canonicalInvariantDefect();
+  captured.canonicalBytesMaterialized = nextCanonical;
+  if (!bytesEqualFullScan(bytes, canonical)) {
+    return Result.fail(decodeError(operation, field, "invalidCanonicalString"));
+  }
+  return Result.succeed(decoded);
+}
+
+function decodeLengthPrefixedCanonicalString(
+  operation: SourceArtifactV2StoredFrameOperation,
+  field: string,
+  cursor: SourceArtifactV2FrameCursor,
+  captured: SourceArtifactV2CapturedDecodeInput,
+): Result.Result<string, SourceArtifactV2FrameDecodeError> {
+  const byteLength = cursor.readU32();
+  return byteLength === undefined
+    ? Result.fail(decodeError(operation, field, "truncated"))
+    : decodeCanonicalFrameString(operation, field, cursor, byteLength, captured);
+}
+
+function decodeOptionalCanonicalFrameString(
+  operation: SourceArtifactV2StoredFrameOperation,
+  field: string,
+  cursor: SourceArtifactV2FrameCursor,
+  captured: SourceArtifactV2CapturedDecodeInput,
+): Result.Result<string | null, SourceArtifactV2FrameDecodeError> {
+  const tag = cursor.readByte();
+  if (tag === undefined) return Result.fail(decodeError(operation, field, "truncated"));
+  if (tag === 0) return Result.succeed(null);
+  if (tag !== 1) return Result.fail(decodeError(operation, field, "invalidTag"));
+  const decoded = decodeLengthPrefixedCanonicalString(operation, field, cursor, captured);
+  if (Result.isFailure(decoded)) return Result.fail(decoded.failure);
+  return decoded.success.length === 0
+    ? Result.fail(decodeError(operation, field, "invalidCanonicalString"))
+    : Result.succeed(decoded.success);
+}
+
+function verifyDecodedFrame<A>(
+  operation: SourceArtifactV2StoredFrameOperation,
+  captured: SourceArtifactV2CapturedDecodeInput,
+  value: A,
+  reencode: () => Result.Result<SourceArtifactV2OwnedFrame, SourceArtifactV2FrameError>,
+): Result.Result<SourceArtifactV2DecodedFrame<A>, SourceArtifactV2FrameDecodeError> {
+  const expectedCanonical = operation === "module" || operation === "completedRoot"
+    ? captured.canonicalBytesMaterialized
+    : 0;
+  const canonicalAfterReencode = checkedSafeNumberAdd(
+    captured.canonicalBytesMaterialized,
+    expectedCanonical,
+  );
+  if (
+    canonicalAfterReencode === undefined ||
+    canonicalAfterReencode > captured.budget.maximumCanonicalBytesMaterialized
+  ) {
+    return Result.fail(decodeBudgetError(
+      operation,
+      "canonicalBytesMaterialized",
+      canonicalAfterReencode ?? Number.MAX_SAFE_INTEGER,
+      captured.budget.maximumCanonicalBytesMaterialized,
+    ));
+  }
+  const encoded = reencode();
+  if (Result.isFailure(encoded)) {
+    throw new Error("Validated source-artifact projection could not be re-encoded.");
+  }
+  if (
+    encoded.success.canonicalBytesMaterialized !== expectedCanonical ||
+    encoded.success.frameBytesMaterialized !== captured.bytes.byteLength
+  ) return canonicalInvariantDefect();
+  if (!bytesEqualFullScan(captured.bytes, encoded.success.bytes)) {
+    return Result.fail(decodeError(operation, "frame", "nonCanonicalFrame"));
+  }
+  return Result.succeed(Object.freeze({
+    value,
+    receipt: Object.freeze({
+      inputBytesMaterialized: captured.bytes.byteLength,
+      canonicalBytesMaterialized: canonicalAfterReencode,
+      frameBytesMaterialized: encoded.success.frameBytesMaterialized,
+    }),
+  }));
+}
+
+class SourceArtifactV2FrameCursor {
+  readonly #view: DataView;
+  #offset = 0;
+  #invalidCounterObserved = false;
+
+  constructor(readonly bytes: Uint8Array) {
+    this.#view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
+
+  readDomain(expected: Uint8Array): boolean {
+    const observed = this.readBytes(expected.byteLength);
+    return observed !== undefined && bytesEqualFullScan(observed, expected);
+  }
+
+  readByte(): number | undefined {
+    if (this.#offset >= this.bytes.byteLength) return undefined;
+    const value = this.#view.getUint8(this.#offset);
+    this.#offset += 1;
+    return value;
+  }
+
+  readU32(): number | undefined {
+    if (this.bytes.byteLength - this.#offset < 4) return undefined;
+    const value = this.#view.getUint32(this.#offset, false);
+    this.#offset += 4;
+    return value;
+  }
+
+  readCounter(): bigint | undefined {
+    if (this.bytes.byteLength - this.#offset < 8) return undefined;
+    const value = this.#view.getBigUint64(this.#offset, false);
+    this.#offset += 8;
+    if (value <= SOURCE_ARTIFACT_V2_SIGNED_INT64_MAX) return value;
+    this.#invalidCounterObserved = true;
+    return undefined;
+  }
+
+  readBytes(length: number): Uint8Array | undefined {
+    if (!Number.isSafeInteger(length) || length < 0 || length > this.bytes.byteLength - this.#offset) {
+      return undefined;
+    }
+    const value = this.bytes.subarray(this.#offset, this.#offset + length);
+    this.#offset += length;
+    return value;
+  }
+
+  atEnd(): boolean {
+    return this.#offset === this.bytes.byteLength;
+  }
+
+  counterFailureReason(): "invalidCounter" | "truncated" {
+    return this.#invalidCounterObserved ? "invalidCounter" : "truncated";
+  }
+}
+
+function safeLengthFromCounter(value: bigint): number | undefined {
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined;
+}
+
+function checkedDecodeCounterSum(left: bigint, right: bigint): bigint | undefined {
+  const sum = left + right;
+  return sum <= SOURCE_ARTIFACT_V2_SIGNED_INT64_MAX ? sum : undefined;
+}
+
+function checkedSafeNumberAdd(left: number, right: number): number | undefined {
+  const sum = left + right;
+  return Number.isSafeInteger(sum) ? sum : undefined;
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function bytesEqualFullScan(left: Uint8Array, right: Uint8Array): boolean {
+  let difference = left.byteLength ^ right.byteLength;
+  const maximum = Math.max(left.byteLength, right.byteLength);
+  for (let index = 0; index < maximum; index += 1) {
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return difference === 0;
+}
+
+function decodeError(
+  operation: SourceArtifactV2StoredFrameOperation,
+  field: string,
+  reason: SourceArtifactV2FrameDecodeError["reason"],
+): SourceArtifactV2FrameDecodeError {
+  return new SourceArtifactV2FrameDecodeError({ operation, field, reason });
+}
+
+function decodeBudgetError(
+  operation: SourceArtifactV2StoredFrameOperation,
+  field: string,
+  observed: number,
+  maximum: number,
+): SourceArtifactV2FrameDecodeError {
+  return new SourceArtifactV2FrameDecodeError({
+    operation,
+    field,
+    reason: "invalidBudget",
+    observed,
+    maximum,
+  });
 }
 
 function decodeModuleInput(
