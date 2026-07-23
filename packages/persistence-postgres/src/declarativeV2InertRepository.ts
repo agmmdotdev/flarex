@@ -27,6 +27,8 @@ import {
 import type { AppRowTransaction } from "./appRows";
 import {
   makeLiveDeclarativeV2Sha256V1,
+  DeclarativeV2Sha256InputV1Error,
+  DeclarativeV2Sha256ResourceV1Error,
   type DeclarativeV2Sha256V1,
   type DeclarativeV2Sha256V1Error,
 } from "./declarativeV2Sha256";
@@ -114,6 +116,23 @@ export type DeclarativeV2InertRepositoryV1Error =
   | DeclarativeV2InertRepositoryResourceV1Error
   | DeclarativeV2Sha256V1Error;
 
+type DeclarativeV2InertRepositoryNonShaV1Error = Exclude<
+  DeclarativeV2InertRepositoryV1Error,
+  DeclarativeV2Sha256V1Error
+>;
+
+export type DeclarativeV2InertRepositoryInsertV1Error =
+  | (DeclarativeV2InertRepositoryNonShaV1Error & {
+    readonly operation: "insertCandidate";
+  })
+  | DeclarativeV2Sha256V1Error;
+
+export type DeclarativeV2InertRepositoryReadV1Error =
+  | (DeclarativeV2InertRepositoryNonShaV1Error & {
+    readonly operation: "readCandidate";
+  })
+  | DeclarativeV2Sha256V1Error;
+
 export type DeclarativeV2CandidateInsertResultV1 = Readonly<{
   readonly kind: "inserted" | "replayed";
   readonly candidateSha256: Uint8Array;
@@ -139,7 +158,7 @@ export interface DeclarativeV2InertRepositoryV1 {
     budget: unknown,
   ) => Effect.Effect<
     DeclarativeV2CandidateInsertResultV1,
-    DeclarativeV2InertRepositoryV1Error,
+    DeclarativeV2InertRepositoryInsertV1Error,
     never
   >;
   readonly readCandidate: (
@@ -148,7 +167,7 @@ export interface DeclarativeV2InertRepositoryV1 {
     budget: unknown,
   ) => Effect.Effect<
     DeclarativeV2CandidateReadResultV1,
-    DeclarativeV2InertRepositoryV1Error,
+    DeclarativeV2InertRepositoryReadV1Error,
     never
   >;
 }
@@ -477,7 +496,58 @@ export function makeDeclarativeV2InertRepositoryV1(
     },
   );
 
-  return Object.freeze({ insertCandidate, readCandidate });
+  return Object.freeze({
+    insertCandidate: (
+      input: unknown,
+      budget: unknown,
+    ) =>
+      insertCandidate(input, budget).pipe(
+        Effect.mapError(error =>
+          narrowRepositoryOperationError(error, "insertCandidate")
+        ),
+      ),
+    readCandidate: (
+      scopeId: unknown,
+      candidateSha256: unknown,
+      budget: unknown,
+    ) =>
+      readCandidate(scopeId, candidateSha256, budget).pipe(
+        Effect.mapError(error =>
+          narrowRepositoryOperationError(error, "readCandidate")
+        ),
+      ),
+  });
+}
+
+function narrowRepositoryOperationError(
+  error: DeclarativeV2InertRepositoryV1Error,
+  operation: "insertCandidate",
+): DeclarativeV2InertRepositoryInsertV1Error;
+function narrowRepositoryOperationError(
+  error: DeclarativeV2InertRepositoryV1Error,
+  operation: "readCandidate",
+): DeclarativeV2InertRepositoryReadV1Error;
+function narrowRepositoryOperationError(
+  error: DeclarativeV2InertRepositoryV1Error,
+  operation: RepositoryOperationV1,
+): DeclarativeV2InertRepositoryV1Error {
+  if (
+    error instanceof DeclarativeV2Sha256InputV1Error ||
+    error instanceof DeclarativeV2Sha256ResourceV1Error
+  ) {
+    return error;
+  }
+  if (hasRepositoryOperation(error, operation)) return error;
+  throw error;
+}
+
+function hasRepositoryOperation<Operation extends RepositoryOperationV1>(
+  error: DeclarativeV2InertRepositoryNonShaV1Error,
+  operation: Operation,
+): error is DeclarativeV2InertRepositoryNonShaV1Error & {
+  readonly operation: Operation;
+} {
+  return error.operation === operation;
 }
 
 function decodeBudget(

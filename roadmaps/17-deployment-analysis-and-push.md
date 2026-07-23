@@ -4,7 +4,8 @@
 
 **Status:** Dynamic V1 has an implemented local/backend compatibility baseline.
 Declarative V2 is the accepted production metadata direction; its private S0
-physical foundation is implemented and inert, while verifier progress,
+physical foundation and private S1 durable verifier-progress owner are
+implemented and inert, while static verification, candidate publication,
 readiness, activation, ingress/dispatch, and final cutover remain incomplete.
 
 This roadmap owns:
@@ -497,10 +498,31 @@ activation remain blocked until their production host composition is proven.
    frames own semantics; normalized columns exist only for local foreign keys,
    bounded pagination, fencing, lock/CAS predicates, and metadata-first
    admission.
-2. **Durable verifier progress.** Add the bounded reserve/work/settle protocol,
-   immutable module/edge/page/registration/diagnostic evidence, mutable fenced
-   link/frontier state, restart/takeover, and exact replay. Source reads and CPU
-   verification remain outside short database transactions.
+2. **Durable verifier progress.** The private S1 repository now owns exact-key
+   attempt creation/observation, database-time lease acquire/renew/release,
+   live-owner abandon, conservative command reservation, pending-work resume,
+   bounded non-finalizing settlement, restart/takeover, and exact replay.
+   Reservation charges semantic usage once and persists byte-identical command
+   evidence before work. Takeover changes only owner/fence and rebinds an
+   existing reservation without refund or recharge. Settlement captures and
+   hashes the complete output before its short transaction, then locks the
+   attempt, page predecessor, immutable evidence in fixed table/key order,
+   link nodes by module ordinal, and frontier entries by sequence before
+   updating receipt/progress and clearing pending state last. Source/artifact
+   reads, parsing, linking computation, and other CPU verification remain
+   absent and outside database transactions.
+
+   Database time alone decides lease liveness. A stale worker may finish CPU
+   work but cannot settle after expiry or takeover. A lost or uncertain reserve
+   or settle response grants no work token, receipt, cursor, release, or retry
+   permission; durable exact-key observation is the restart truth. Only the
+   direct operation-specific confirmed-rollback class permits one byte-identical
+   retry, without resetting time, operation, or semantic budgets. Process-local
+   run/work tokens are inert capability checks, while stored cursors, digests,
+   frames, owners, fences, and receipts never grant authority on their own.
+   S1 stops at `registering`/`verdict`: it cannot finalize an attempt or insert
+   verdict, candidate-projection, readiness, activation-revision, or
+   activation-head evidence.
 3. **Static verification and candidate projection.** Consume immutable
    source/semantic evidence, independently verify the generated core and safe
    ABI, derive the handler-set digest and both `DeploymentAnalysis` projections,

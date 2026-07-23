@@ -246,9 +246,19 @@ composed shared `primary/public` target. Intermediate commits are private,
 inert, and non-authoritative. Migration 0035 and its private codecs/repository
 are S0: they add physical evidence storage and bounded frame/schema agreement
 without an activation-head row, production composition, readiness, activation,
-or route. Later stages add durable verifier progress, static verification and
-candidate projections, S03-D4 readiness, S04 activation/coherent reads, V2
-ingress/dispatch/client consumption, and the final no-fallback cutover.
+or route. S1 privately adds exact-key attempt observation, database-time
+lease/fence ownership, conservative nonrefundable reservation, pending takeover
+without recharge, and atomic bounded non-finalizing settlement. Its lock order
+is attempt, required page predecessor, immutable table/key order, link-module
+order, frontier-sequence order, and attempt receipt/progress/pending update
+last. Source reads and CPU verification remain outside transactions. Only an
+operation-specific confirmed rollback may retry the same captured command once;
+uncertainty mints no token, receipt, cursor, release, or retry permission, and
+the durable row is restart truth. S1 stops before verdict publication and never
+locks the scope clock. Later stages add static verification and candidate
+projections, S03-D4 readiness under the scope-clock-first lock, S04
+activation/coherent reads, V2 ingress/dispatch/client consumption, and the
+final no-fallback cutover.
 Schema-per-scope and database-per-scope activation remains blocked pending
 separate host-composition proof. Evidence retention is retain-all until a
 separately owned cleanup contract proves it cannot invalidate active, rollback,

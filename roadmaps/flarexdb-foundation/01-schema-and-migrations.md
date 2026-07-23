@@ -320,6 +320,18 @@ Progress:
   rewrites declarative metadata. Legacy backfill/comparison evidence remains
   conditional on a changed shipped-state declaration.
 
+Declarative V2 S1 owns verifier progress before S03-D4. Its private exact-key
+repository uses database-time lease/fence claims and short
+reserve/work/settle transactions over the S0 tables. Work occurs outside the
+transaction; settlement locks the attempt first, validates page predecessors,
+applies immutable evidence plus link/frontier version-and-previous-digest CAS
+in fixed order, and clears pending state last. Takeover preserves a pending
+reservation without recharging it. Uncertain settlement returns no receipt or
+continuation and must be resolved from durable state. S1 never locks the scope
+clock, must not be nested inside S03-D4/S04 transactions, and cannot produce a
+verdict or readiness fact. S03-D4 later locks the scope clock first and consumes
+only fully settled verifier evidence.
+
 Stable catalog rules:
 
 - `fx_control_table` owns stable `(deployment, namespace, logical_name)` to
@@ -452,6 +464,11 @@ Migration 0035 and the private physical codecs/repository are the inert S0
 foundation for this target. They create the candidate, verifier-progress,
 evidence, verdict, revision, and head shapes but do not insert an activation
 head, compose a production reader, mutate S03-D4 state, or authorize S04.
+The private S1 verifier-progress repository consumes those shapes only through
+non-finalizing reserve/work/settle. Its owner/fence, process tokens, progress
+cursor, command root, and receipt are restart and concurrency evidence, not
+readiness or activation authority. S04 therefore continues to require an
+independent S03-D4 readiness receipt under the common scope-clock-first lock.
 
 ### [x] S05 — Freeze Value And Ordered-Key Codecs
 

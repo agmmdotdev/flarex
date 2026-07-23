@@ -37,6 +37,10 @@ scope clock first. S03-D4 settles readiness without activation. S04 then
 revalidates the exact verdict and CASes the target-local activation
 revision/head. Migration 0035 is only the inert physical foundation: it creates
 no activation-head row, route, reader, production composition, or authority.
+The private S1 verifier-progress repository now consumes that foundation for
+exact-key, database-time-fenced reserve/work/settle only. It does not lock the
+scope clock or publish verdict/readiness/activation evidence; later S03-D4 and
+S04 transactions retain the scope-clock-first order.
 
 The currently proven production composition can address only the shared
 `primary/public` target. The staged atomic Declarative V2 vertical is approved
