@@ -339,6 +339,7 @@ describe("Semantic Artifact V1 private inert core", () => {
     expect(evidence.projectId).toBe("project");
     expect(evidence.deploymentCreatedAt).toBe("2026-07-24T00:00:00.000Z");
     expect(evidence.sourceRootSha256).toEqual(new Uint8Array(32).fill(1));
+    expect(evidence.semanticAttemptIdentitySha256).toHaveLength(32);
     expect(evidence.usage).toEqual({
       calls: 6,
       blockBytes: 0,
@@ -364,6 +365,49 @@ describe("Semantic Artifact V1 private inert core", () => {
       },
     ));
     expect(exact.usage).toEqual(evidence.usage);
+    const originalAttemptIdentity = Buffer.from(
+      exact.semanticAttemptIdentitySha256,
+    ).toString("hex");
+    exact.semanticAttemptIdentitySha256[0] ^= 0xff;
+    const aliasRequest = new Request("https://private.test/read-alias");
+    const aliasProof = await Effect.runPromise(
+      fixture.proofs.issue(aliasRequest, fixture.proofInput),
+    );
+    const aliasIsolated = await Effect.runPromise(fixture.core.readFinalized(
+      aliasRequest,
+      aliasProof,
+      {
+        semanticUploadId: begin.semanticUploadId,
+        deploymentId: "deployment",
+        expectedGeneration: 1,
+        expectedMutationFence: finalized.mutationFence,
+        commandId: "read-alias",
+        admission: evidence.usage,
+      },
+    ));
+    expect(Buffer.from(
+      aliasIsolated.semanticAttemptIdentitySha256,
+    ).toString("hex")).toBe(originalAttemptIdentity);
+    const reopenRequest = new Request(
+      "https://private.test/read-finalized-reopen",
+    );
+    const reopenProof = await Effect.runPromise(
+      fixture.proofs.issue(reopenRequest, fixture.proofInput),
+    );
+    const reopened = await Effect.runPromise(fixture.core.reopen(
+      reopenRequest,
+      reopenProof,
+      {
+        semanticUploadId: begin.semanticUploadId,
+        deploymentId: "deployment",
+        expectedGeneration: 1,
+        expectedMutationFence: finalized.mutationFence,
+        commandId: "read-finalized-reopen",
+        admission: budgets,
+      },
+    ));
+    expect(reopened.state).toBe("finalized");
+    expect(reopened.mutationFence).toBe(finalized.mutationFence);
     const oneLessRequest = new Request("https://private.test/read-one-less");
     const oneLessProof = await Effect.runPromise(
       fixture.proofs.issue(oneLessRequest, fixture.proofInput),

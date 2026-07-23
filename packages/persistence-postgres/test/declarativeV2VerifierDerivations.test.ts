@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDeclarativeV2CommandOutputManifestPreimageV1,
+  buildDeclarativeV2CommandOutputManifestPreimageV2,
   buildDeclarativeV2ModulePathProjectionPreimageV1,
 } from "../src/declarativeV2VerifierDerivations";
 
@@ -206,6 +207,142 @@ describe("Declarative V2 verifier derivations", () => {
       maximum: 0,
     });
   });
+
+  it("adds finalize-only command-output V2 without reinterpreting V1", async () => {
+    const input = {
+      attemptSha256: digest(0x31),
+      commandKind: "finalize",
+      sequence: 5n,
+      evidence: [
+        {
+          kind: "phase_page_manifest",
+          phase: "verdict",
+          pageOrdinal: 0n,
+          frameSha256: digest(0x41),
+        },
+        {
+          kind: "deployment_analysis_projection",
+          frameSha256: digest(0x42),
+        },
+        {
+          kind: "deployment_codegen_analysis_projection",
+          frameSha256: digest(0x43),
+        },
+        {
+          kind: "static_finalization",
+          frameSha256: digest(0x44),
+        },
+      ],
+    } as const;
+    const v2 = Result.getOrThrow(
+      buildDeclarativeV2CommandOutputManifestPreimageV2(input, {
+        maximumFrameBytes: 1_000,
+      }),
+    );
+    const expected = concat(
+      new TextEncoder().encode(
+        "flarex.declarative-v2/command-output-manifest/v2\0",
+      ),
+      input.attemptSha256,
+      new Uint8Array([5]),
+      u64(5n),
+      u32(4),
+      new Uint8Array([3, 5]),
+      u64(0n),
+      digest(0x41),
+      new Uint8Array([9]),
+      digest(0x42),
+      new Uint8Array([10]),
+      digest(0x43),
+      new Uint8Array([11]),
+      digest(0x44),
+    );
+    expect(v2.bytes).toEqual(expected);
+    expect(hex(await sha256(expected))).toBe(
+      "8d2294b17dbd2c2cf6fbb02b128aee045d04478c258080c3d605ae48ec7aeb1a",
+    );
+    expect(Result.isFailure(
+      buildDeclarativeV2CommandOutputManifestPreimageV2(input, {
+        maximumFrameBytes: expected.byteLength - 1,
+      }),
+    )).toBe(true);
+    expect(Result.isFailure(
+      buildDeclarativeV2CommandOutputManifestPreimageV1(input, {
+        maximumFrameBytes: 1_000,
+      }),
+    )).toBe(true);
+  });
+
+  it("fails hostile V2 command-output values closed without iteration", () => {
+    const input = {
+      attemptSha256: digest(0x31),
+      commandKind: "finalize",
+      sequence: 5n,
+      evidence: [{
+        kind: "static_finalization",
+        frameSha256: digest(0x44),
+      }],
+    } as const;
+    const hostileRecord = new Proxy(input, {
+      ownKeys() {
+        throw new Error("must not escape");
+      },
+    });
+    expect(() =>
+      buildDeclarativeV2CommandOutputManifestPreimageV2(hostileRecord, {
+        maximumFrameBytes: 1_000,
+      })
+    ).not.toThrow();
+    expect(Result.isFailure(
+      buildDeclarativeV2CommandOutputManifestPreimageV2(hostileRecord, {
+        maximumFrameBytes: 1_000,
+      }),
+    )).toBe(true);
+
+    let iteratorReads = 0;
+    const evidence = [...input.evidence];
+    Object.defineProperty(evidence, Symbol.iterator, {
+      get() {
+        iteratorReads += 1;
+        throw new Error("must not be invoked");
+      },
+    });
+    expect(Result.isFailure(
+      buildDeclarativeV2CommandOutputManifestPreimageV2({
+        ...input,
+        evidence,
+      }, {
+        maximumFrameBytes: 1_000,
+      }),
+    )).toBe(true);
+    expect(iteratorReads).toBe(0);
+
+    const withHidden = { ...input };
+    Object.defineProperty(withHidden, "hidden", { value: true });
+    expect(Result.isFailure(
+      buildDeclarativeV2CommandOutputManifestPreimageV2(withHidden, {
+        maximumFrameBytes: 1_000,
+      }),
+    )).toBe(true);
+
+    let evidenceGetterReads = 0;
+    const hostileEvidence = {
+      kind: "static_finalization",
+      get frameSha256() {
+        evidenceGetterReads += 1;
+        throw new Error("must not be invoked");
+      },
+    };
+    expect(Result.isFailure(
+      buildDeclarativeV2CommandOutputManifestPreimageV2({
+        ...input,
+        evidence: [hostileEvidence],
+      }, {
+        maximumFrameBytes: 1_000,
+      }),
+    )).toBe(true);
+    expect(evidenceGetterReads).toBe(0);
+  });
 });
 
 async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
@@ -219,4 +356,28 @@ function digest(byte: number): Uint8Array {
 
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("hex");
+}
+
+function u32(value: number): Uint8Array {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, value, false);
+  return bytes;
+}
+
+function u64(value: bigint): Uint8Array {
+  const bytes = new Uint8Array(8);
+  new DataView(bytes.buffer).setBigUint64(0, value, false);
+  return bytes;
+}
+
+function concat(...parts: readonly Uint8Array[]): Uint8Array {
+  const output = new Uint8Array(
+    parts.reduce((total, part) => total + part.byteLength, 0),
+  );
+  let offset = 0;
+  for (const part of parts) {
+    output.set(part, offset);
+    offset += part.byteLength;
+  }
+  return output;
 }

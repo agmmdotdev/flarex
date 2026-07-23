@@ -563,6 +563,10 @@ activation remain blocked until their production host composition is proven.
    incarnation or source rollover. This stage proves immutable semantic byte
    provenance only. C3 still owns bounded NDJSON decoding and independent
    semantic/core verification, while C4 alone may publish static projections.
+   Finalized semantic evidence now also returns an owned copy of the verified
+   canonical semantic-attempt identity digest. That value is replay/drift
+   comparison evidence for the later static verifier; it remains structural
+   and cannot replace the backend-owned proof path on restart.
 
    Per-command admission bounds capture and the hashes that bind an append
    reservation. Before any immutable-object write, DeploymentDO durably stores
@@ -580,6 +584,25 @@ activation remain blocked until their production host composition is proven.
    those two candidate projections. Stage 3 leaves the attempt at
    `registering`/`verdict`; it writes neither a ready nor rejected verdict and
    does not make the candidate active.
+
+   The first provisional C3/C4 foundation is implemented but intentionally
+   unusable on its own. Private protocol subpaths now pin Budget/Progress V2,
+   the 26 ordered pre-allocation dimensions, the V2 attempt/progress identity
+   cutline, canonical C3 completion, static-finalization evidence, and the
+   canonical pair of deployment-analysis projections. The persistence-private
+   command-output V2 preimage admits the later fenced `finalize` command while
+   V1 remains retained and is never reinterpreted. Executable independent
+   vectors own the committed bytes and digests; research receipts are not
+   protocol constants.
+
+   These codecs publish no evidence and create no consumer authority. A later
+   atomic C3-to-C4 range must still supply generated grammar/Unicode/parser/ABI
+   assets, authenticated source and semantic reads, durable V2 progress,
+   independent static verification, two-cold equality, and the one
+   projection/static-finalization transaction. Restart reconstruction must
+   reacquire fresh C2 evidence through the backend-owned proof path and compare
+   it with durable candidate/C3 commitments; callers cannot reconstruct that
+   authority from identity fields.
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact
    candidate, artifact, schema, validator, registration, and verifier pins.

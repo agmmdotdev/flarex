@@ -127,6 +127,7 @@ export interface SemanticArtifactV1FinalizedEvidence {
   readonly sourceSelectorSha256: Uint8Array;
   readonly semanticRootSha256: Uint8Array;
   readonly semanticSelectorSha256: Uint8Array;
+  readonly semanticAttemptIdentitySha256: Uint8Array;
   readonly usage: SemanticArtifactV1Budget;
 }
 
@@ -1159,10 +1160,12 @@ function executeReadFinalized(
     });
     yield* ensureCharge("readFinalized", captured.admission, operationUsage);
     yield* verifyAttemptDigest(current, captured.admission, options);
+    const semanticAttemptIdentitySha256 =
+      sourceArtifactV2DigestBytesFromLowerHex(current.attemptSha256);
     const selector = encodeDeclarativeV2SemanticArtifactFrameV1({
       kind: "semantic_selector",
       semanticArtifactCodecVersion: DECLARATIVE_V2_SEMANTIC_ARTIFACT_CODEC_VERSION_V1,
-      attemptIdentitySha256: sourceArtifactV2DigestBytesFromLowerHex(current.attemptSha256),
+      attemptIdentitySha256: semanticAttemptIdentitySha256,
       semanticRootSha256: rootDigest,
     }, {
       maximumFrameBytes: selectorFrameByteLength,
@@ -1240,6 +1243,9 @@ function executeReadFinalized(
       sourceSelectorSha256: copyBytes(source.sourceSelectorSha256),
       semanticRootSha256: copyBytes(rootDigest),
       semanticSelectorSha256: copyBytes(selectorDigest),
+      semanticAttemptIdentitySha256: copyBytes(
+        semanticAttemptIdentitySha256,
+      ),
       usage: operationUsage,
     });
   });

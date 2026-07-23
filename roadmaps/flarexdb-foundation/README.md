@@ -784,6 +784,17 @@ authenticated source reading, readiness, activation writes, coherent reads,
 ingress, dispatch, client cutover, and cleanup remain later stages of the same
 approved vertical.
 
+The first provisional Stage-3 contract foundation is present but remains
+private, production-unreachable, and non-authoritative. Budget/Progress V2 pins
+26 ordered pre-allocation dimensions and a fail-closed protocol identity;
+private canonical codecs pin C3 completion, verified/invalid static
+finalization, and the exact pair of deployment-analysis projections. The
+persistence-local V2 command-output preimage adds only the eventual `finalize`
+shape. It does not reserve or settle finalization, insert a projection or
+static-finalization page, change an attempt lifecycle, or write any verdict,
+scope-clock, readiness, revision, or head row. V1 evidence remains retained
+without reinterpretation.
+
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the
 semantic upload attempt, incarnation/source correlation, fences, cumulative
@@ -798,6 +809,11 @@ correlation, CAS, and drift rejection. Reopen re-proves the exact
 `(projectId, deploymentId, deploymentCreatedAt)` incarnation and finalized
 source upload generation/fence/root/selector; no serialized proof, object key,
 digest, selector, C1 reference, or Durable Object name can substitute.
+Finalized reads expose an owned copy of that already-verified semantic-attempt
+identity digest so the later verifier can compare durable commitments. The
+digest is not a capability: cold restart or replay must reacquire a fresh
+backend-owned A0a-to-R0a proof and recompute the attempt/selector evidence
+before it can continue.
 Each command first bounds capture and the hashes that bind its reservation,
 then durably stores the full conservative R2/SQLite reconciliation reservation
 before immutable-object writes. Nested adapters receive only their reserved
