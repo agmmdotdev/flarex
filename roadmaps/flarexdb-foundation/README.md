@@ -719,18 +719,22 @@ start Payload feature parity. Their contract is in
 
 ### Wave 4 — Target Activation And Prototype Retirement
 
-1. `S03-D4`: derive target-native validation/readiness from real target rows,
-   indexes, uniqueness, edges, and adapter evidence; do not mutate the active
-   pointer.
-2. `S04`: install the target active-schema authority only after readiness is
-   evidence-backed. Do not mirror a prototype pointer unless shipped evidence
-   requires it.
-3. Freeze roadmap 17's target package/artifact/function representation and bind
-   O03-A2c's checked kernel to one coherent active package/artifact/source/
-   function-validator/schema snapshot with an activation revision or fence,
-   joined to S03-D4/S04 readiness. S04's schema pointer alone is insufficient.
-   Never fall back to DeploymentDO, legacy `prepareInvoke`, numeric schema
-   metadata, or partition routing.
+1. Complete roadmap 17's staged atomic Declarative V2 vertical for the composed
+   shared `primary/public` target. V2 consumes prebuilt immutable ESM plus
+   canonical bounded NDJSON declarations, independently verifies generated
+   `FlarexDeclarativeExecutableCoreV1`, and derives immutable candidate plus
+   both analysis projections without evaluating runtime metadata. V1 remains
+   dynamic, compatibility-only, and PAM-ineligible.
+2. `S03-D4`: lock the located scope clock first, then derive target-native
+   readiness from the exact candidate/verifier evidence and real target rows,
+   indexes, uniqueness, edges, and adapter evidence. Readiness may reject but
+   never discover/rewrite declarative metadata or mutate activation.
+3. `S04`: under the same scope-clock-first order, revalidate the complete
+   readiness evidence and CAS one target-local activation revision/head. The
+   coherent reader resolves one package/artifact/source/semantic/
+   function-validator/schema snapshot; it never falls back to DeploymentDO,
+   legacy `prepareInvoke`, `activePackageId`, `analysisJson`, the legacy schema
+   pointer, or partition routing.
 4. `O11`: snapshot-retention floors and explicit out-of-retention behavior;
    consume reconnect floors only after roadmap 21 supplies their accepted
    contract and DDL.
@@ -739,8 +743,10 @@ start Payload feature parity. Their contract is in
    adapters, then complete a server-provisioned private target-scope route plus
    Worker, Hyperdrive, and real-Postgres proof without changing public/default
    routing.
-6. Use `S02-D2` to activate `flarexdb_v1` for clean scopes through the trusted
-   generation fence; fail closed rather than falling back to a prototype.
+6. Use `S02-D2` to activate `flarexdb_v1` for clean shared `primary/public`
+   scopes through the trusted generation fence. Schema-per-scope and
+   database-per-scope production activation remain blocked until their host
+   composition is proven.
 7. Switch backend, executor, local, test, and sync callers/defaults, then prove
    target-only sync/reconnect/reset recovery.
 8. Use `O13` to remove prototype storage, OCC, routes, bindings, defaults,
@@ -754,6 +760,18 @@ request keys/cursors, or a supported external consumer.
 
 `C07A` is not an activation or retirement prerequisite when its predeclared
 threshold is not met.
+
+The current S0 foundation is implemented but inert. Migration 0035 adds
+target-local candidate, verifier-progress, evidence, verdict, activation
+revision, and activation head tables without creating a head row or composing
+production authority. Private canonical frames own semantics; normalized
+columns exist only for local foreign keys, bounded pagination, fencing,
+metadata-first admission, and future lock/CAS predicates. Minimal bounded
+candidate insert/reload proves frame/schema agreement. Claim/reserve/settle,
+static verification, readiness, activation writes, coherent reads, ingress,
+dispatch, client cutover, and cleanup remain later stages of the same approved
+vertical. Retain all evidence initially; no fallback, shadowing, dual write, or
+dual authority is permitted.
 
 ## Cross-Plan Invariants
 

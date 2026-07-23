@@ -185,6 +185,75 @@ Under the current owner-declared state, the clean-replacement row governs the
 two prototypes. A generation fence remains useful for trusted activation and
 rollback of a deployment checkpoint; it does not imply a legacy data migration.
 
+## Declarative V2 Metadata, Readiness, And Activation
+
+Declarative V2 is the accepted bounded production metadata model. Its
+versioned semantic declaration is authority, not evidence about arbitrary
+runtime exports. Undeclared exports are ignored. Dynamic, computed, mutable,
+exporter-derived, and evaluation-discovered metadata remains V1-only,
+compatibility-only, and PAM-ineligible. V1 and V2 never share fallback,
+shadowing, dual writes, or dual authority.
+
+The V2 trusted input boundary is prebuilt immutable ESM plus canonical bounded
+NDJSON semantic records. TypeScript/Vite compilation, arbitrary module
+evaluation, whole-AST/whole-JSON materialization, and runtime metadata discovery
+are not part of the bounded authority operation. The backend derives order,
+counts, digests, roots, manifest-last completeness, and EOF from accepted
+bytes. Caller assertions cannot supply those facts.
+
+`FlarexDeclarativeExecutableCoreV1` is trusted-tool-generated
+capability-safe output and is independently server-verified across every
+transitive module. The exact static-call ABI permits only verified local
+functions, admitted direct artifact imports, and pinned platform operations.
+Construction, computed property access, reflective or method dispatch,
+callbacks, higher-order executable values, dynamic import, code synthesis,
+unverified module loading, top-level executable initialization, re-exports,
+export-star, and cycles are rejected unless trusted tooling lowers them to the
+versioned ABI. Runtime markers/exporters do not carry V2 authority.
+Fixed-platform evaluation and a runtime membrane are rejected as readiness
+authorities.
+
+Immutable canonical frames bind deployment-incarnation, source, semantic,
+package, artifact, schema, validator, core-language, ABI, grammar, Unicode,
+parser-table, analyzer, verifier, registration, handler-set, projection,
+readiness-policy, verdict, and activation evidence. The current supported
+deployment incarnation fence is a fresh read of
+`(projectId, deploymentId, createdAt)`; deletion/reuse or a widened lifecycle
+requires a separately approved immutable incarnation identifier.
+
+Durable verifier progress, candidate/readiness evidence, activation revisions,
+and the activation head live in the located target Postgres database beside
+the scope clock. Canonical frames are semantic truth. Normalized columns are
+only storage mechanics for local foreign keys, bounded pagination, fencing,
+metadata-first admission, and lock/CAS predicates. There are no control-store
+foreign keys across databases. S03-D4 locks/revalidates the scope clock before
+readiness or readiness-relevant index-state mutation. S04 locks the scope clock
+first and CASes one coherent target-local activation revision/head only after
+exact readiness revalidation.
+
+All operations require caller-supplied pre-allocation budgets with no defaults
+or disguised product maxima. Receipts are cumulative, overflow-checked, and
+deterministic; two cold runs over identical immutable inputs produce equal
+canonical roots and verdict evidence. Expected invalid-input, budget, stale,
+conflict, corruption, and recoverable resource failures remain typed. Defects
+and interruption retain full Cause. Confirmed rollback may authorize only an
+exact operation-specific retry. Decision uncertainty mints no cursor, receipt,
+verdict, readiness, activation, or retry permission until durable state is
+freshly observed.
+
+The approved implementation is one staged atomic vertical for the currently
+composed shared `primary/public` target. Intermediate commits are private,
+inert, and non-authoritative. Migration 0035 and its private codecs/repository
+are S0: they add physical evidence storage and bounded frame/schema agreement
+without an activation-head row, production composition, readiness, activation,
+or route. Later stages add durable verifier progress, static verification and
+candidate projections, S03-D4 readiness, S04 activation/coherent reads, V2
+ingress/dispatch/client consumption, and the final no-fallback cutover.
+Schema-per-scope and database-per-scope activation remains blocked pending
+separate host-composition proof. Evidence retention is retain-all until a
+separately owned cleanup contract proves it cannot invalidate active, rollback,
+or readiness evidence.
+
 ## Authority And Scope
 
 `scope_id` is the data-plane authority. It is not an optional hint supplied by

@@ -19,6 +19,40 @@ impossible cross-database foreign keys. The lease restrictively references the
 session's exact current attempt and does not cascade through parent fence
 changes or deletion.
 
+## Declarative V2 Target-Local Authority Boundary
+
+Declarative V2 candidate, verifier-progress, readiness, and activation evidence
+belongs in the located target database beside `fx_system_scope_clock`.
+Canonical immutable frames own semantic meaning. Normalized columns exist only
+for local foreign keys, bounded pagination, fencing, metadata-first byte
+admission, and lock/CAS predicates; they never become a second semantic truth.
+All target-local foreign keys use restrictive deletion and reference only the
+local scope clock or other V2 rows. Control-database deployment, package,
+artifact, and schema records are copied as authenticated canonical pins rather
+than referenced by an impossible cross-database foreign key.
+
+Every readiness-relevant index-state mutation, verifier verdict, readiness
+transition, and activation transaction must lock and revalidate the located
+scope clock first. S03-D4 settles readiness without activation. S04 then
+revalidates the exact verdict and CASes the target-local activation
+revision/head. Migration 0035 is only the inert physical foundation: it creates
+no activation-head row, route, reader, production composition, or authority.
+
+The currently proven production composition can address only the shared
+`primary/public` target. The staged atomic Declarative V2 vertical is approved
+only for that topology. Persisted schema-per-scope and database-per-scope
+locators remain valid placement intent, but their V2 activation is blocked
+until a host-owned located transaction composition proves migration, locking,
+readiness, and coherent-reader behavior for each topology. Shared-placement
+tests cannot be cited as split-target activation evidence.
+
+Initial retention is retain-all for incomplete, abandoned, rejected,
+superseded, active, and rollback-referenced evidence. A later cleanup owner may
+not remove evidence needed by an active head, rollback revision, or readiness
+receipt. V1 placement and activation behavior remains unchanged,
+compatibility-only, and PAM-ineligible; there is no fallback, shadow, or dual
+authority.
+
 ## Fence Intrinsic Control Definitions From Stale Planned Table IDs
 
 Previous completed checkpoint: `478137e` Broaden standing code reviewers.

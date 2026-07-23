@@ -2,13 +2,15 @@
 
 ## Status And Scope
 
-**Status:** Active domain authority with an implemented local and backend
-control-plane baseline. Hosted analyzer deployment and FlarexDB schema-readiness
-integration remain incomplete.
+**Status:** Dynamic V1 has an implemented local/backend compatibility baseline.
+Declarative V2 is the accepted production metadata direction; its private S0
+physical foundation is implemented and inert, while verifier progress,
+readiness, activation, ingress/dispatch, and final cutover remain incomplete.
 
 This roadmap owns:
 
-- the developer source-package contract;
+- the dynamic V1 source-package compatibility contract and Declarative V2
+  prebuilt-ESM plus canonical-NDJSON input contract;
 - local-feedback versus backend-authoritative analysis;
 - the push candidate lifecycle;
 - the relationship between analysis, final codegen, artifact persistence, and
@@ -416,75 +418,110 @@ activation without readiness.
 
 ## Target Direction
 
-Keep the developer contract source-only and Convex-shaped while completing the
-Cloudflare deployment split:
+Declarative V2 is a deliberate programming-model boundary, not a bounded
+implementation of the dynamic V1 analyzer:
 
 ```text
-CLI/dev source package
-  -> authenticated public backend start
-  -> private backend-controlled analyzer Worker
-  -> managed candidate Dynamic Worker analysis
-  -> validated candidate metadata + deterministic artifact
-  -> final codegen and developer validation
-  -> FlarexDB schema/index preparation and readiness
-  -> atomic active package/artifact/source/function-validator/schema snapshot
-     plus activation revision/fence publication
-  -> invocation through active metadata and private executor
+trusted prebuild
+  -> immutable prebuilt ESM modules
+  -> canonical bounded NDJSON semantic declarations
+  -> server-derived source and semantic roots
+  -> bounded static core verification and durable link progress
+  -> immutable candidate plus both analysis projections
+  -> target-native readiness evidence
+  -> scope-clock-fenced activation revision/head CAS
+  -> one coherent active reader
 ```
 
-The analyzer, artifact runtime, and executor may be separate Workers, but the
-source-package identity and authority chain must remain continuous. Replacement
-schema activation should move to the accepted Postgres control/data model with
-target-native readiness and trusted generation fencing, rather than extending
-DeploymentDO as a second long-term schema authority. Prototype data comparison
-or rollback machinery is conditional on concrete shipped-state evidence.
+The V2 declaration is authoritative metadata. Undeclared runtime exports are
+ignored. Dynamic, computed, mutable, exporter-derived, or
+evaluation-discovered metadata remains V1-only, compatibility-only, and
+PAM-ineligible. There is no auto-detection, fallback, shadow path, dual write,
+or dual authority between V1 and V2.
 
-The near-term consumer of this authority chain is a feature-flagged hosted
-point-mutation proof in `runtime-topology-probe`. PAM-A0/A1/A2/B and `C03-V`
-therefore have a concrete destination: the app must resolve one immutable active
-package/artifact/source/function-validator/schema snapshot, load the exact
-generated Dynamic Worker, and enter the already-built session/OCC/commit path
-without setup-seeded metadata or legacy fallback. The app remains a consumer,
-never the source of package, analyzer, schema, validator, or activation
-authority. This goal does not authorize app integration or cutover before the
-owning gates are complete.
+V2 input is prebuilt immutable ESM plus canonical bounded NDJSON. TypeScript or
+Vite compilation, arbitrary module evaluation, whole-AST/whole-JSON
+materialization, and runtime metadata discovery are outside the bounded trusted
+operation. Developer tooling may hide generation ergonomics but cannot move
+compilation into that operation. The backend derives ordinals, counts, digests,
+roots, manifest-last completeness, and EOF from bytes it accepted; caller
+totals, hashes, and completeness claims never become authority.
+
+`FlarexDeclarativeExecutableCoreV1` is generated capability-safe output rather
+than the primary hand-written interface. Every transitive immutable module is
+independently server-verified. Its shell permits only static artifact-local
+imports, an exact verifier-pinned platform-import allowlist, and direct
+named/default function declarations including async forms. Calls resolve
+statically to verified local functions, admitted direct imports, or exact
+pinned platform operations. Side-effect-only or dynamic imports, aliases,
+re-exports, export-star, cycles, top-level await or executable initialization,
+function-valued variables, classes, construction, computed property access,
+reflective or method dispatch, callbacks, closures that recover executable
+capabilities, higher-order executable values, `eval`/function synthesis, and
+equivalent code loading are rejected unless trusted tooling lowers them to the
+versioned safe ABI. Fixed-platform evaluation and a runtime membrane are not
+readiness authorities. Runtime markers and exporters carry no V2 authority.
+
+Canonical immutable frames bind source, semantic, package, artifact, schema,
+validator, core-language, ABI, grammar, Unicode, parser-table, analyzer,
+verifier, handler-set, projection, readiness-policy, and deployment-incarnation
+evidence. The current deployment incarnation fence is the freshly reread
+`(projectId, deploymentId, createdAt)` tuple for the currently supported
+non-reuse lifecycle; delete/reuse or broader lifecycle support requires a
+separate immutable incarnation identity.
+
+Every producer, verifier-progress command, persistence read/write, and result
+projection has mandatory caller-supplied inclusive pre-allocation budgets with
+no defaults or disguised product maxima. Budget receipts are deterministic,
+cumulative, non-resetting, and checked with overflow-safe arithmetic. Two cold
+runs over the same immutable inputs must yield equal canonical roots,
+diagnostics, registrations, projections, and verdict evidence. Typed expected
+failures remain in their Result or Effect error channel; defects and
+interruption retain full Cause. Confirmed rollback may authorize only the exact
+operation-specific retry; decision uncertainty mints no root, cursor, receipt,
+readiness, activation, or retry permission until authoritative durable state is
+freshly observed.
 
 ## Next Correctness Gates
 
-1. **Make the hosted analyzer concrete.** Add or designate one deployable,
-   backend-controlled analyzer Worker that implements the existing service
-   contract through the managed Dynamic Worker analysis boundary. Prove its
-   Worker-safe bundle, capability isolation, timeouts, egress denial,
-   diagnostics, and cold-isolate determinism.
-2. **Narrow analyzed-start compatibility.** Inventory legitimate callers, move
-   them to source-only analysis where possible, rename the deploy-push
-   credential to match its actual scope, and remove or strictly internalize
-   `/push/start-analyzed` without breaking local/test parity.
-3. **Join push candidates to FlarexDB schema artifacts.** Convert validated
-   analyzer schema output into the immutable canonical schema-manifest path;
-   freeze the target package/artifact/source/function metadata representation;
-   and reject any mismatch before readiness work begins. The A2c immutable
-   seeded adapter is contract/test evidence only, never a production store.
-4. **Add readiness-aware finish.** Require the exact scope/generation/fence,
-   schema artifact, physical index definitions, build validation, and rollback
-   state declared by the foundation before publishing one coherent active
-   package/artifact/source/function-validator/schema snapshot with an
-   activation revision or fence. Coordinate this contract with S03-D4/S04;
-   `active_schema_version_id` alone is not package/function authority.
-5. **Prove race and rollback behavior on real Postgres.** Concurrent pushes,
-   failed validation, superseded candidates, missing artifacts, and interrupted
-   activation must preserve the previous executable deployment and a usable
-   rollback switch.
-6. **Complete analysis conformance evidence.** Cover exact source-map positions,
-   unsupported import-time APIs, module/size limits, schema separation, forged
-   source/hash cases, and parity between local Miniflare and hosted analysis.
-7. **Prove the first hosted consumer.** After the immutable metadata,
-   activation, validator, `C07`, redelivery, and endpoint owners are complete,
-   run a feature-flagged `runtime-topology-probe` mutation through the real
-   artifact, Dynamic Worker, private executor, and Postgres boundaries. Keep the
-   existing path available for observation only; prohibit dual writes, dual
-   authority, and automatic fallback. Treat legacy-path removal as a separate
-   audited cutover.
+The approved work is one staged atomic vertical for the currently composed
+shared `primary/public` target only. Mechanically reviewable intermediate
+commits are private, inert, and non-authoritative until the final activation
+and no-fallback cutover stage. Schema-per-scope and database-per-scope
+activation remain blocked until their production host composition is proven.
+
+1. **S0 inert physical foundation.** Add private portable physical
+   frame/identity codecs, additive target-local tables, strict stored-row
+   verification, and minimal bounded read/insert primitives. Migration 0035
+   creates no activation-head row and no production composition. Canonical
+   frames own semantics; normalized columns exist only for local foreign keys,
+   bounded pagination, fencing, lock/CAS predicates, and metadata-first
+   admission.
+2. **Durable verifier progress.** Add the bounded reserve/work/settle protocol,
+   immutable module/edge/page/registration/diagnostic evidence, mutable fenced
+   link/frontier state, restart/takeover, and exact replay. Source reads and CPU
+   verification remain outside short database transactions.
+3. **Static verification and candidate projection.** Consume immutable
+   source/semantic evidence, independently verify the generated core and safe
+   ABI, derive the handler-set digest and both `DeploymentAnalysis` projections,
+   and publish an immutable candidate/verdict without making it active.
+4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
+   generation/fence/epoch plus real target index/build evidence and the exact
+   candidate, artifact, schema, validator, registration, and verifier pins.
+   Readiness may reject declared handlers but never discover or rewrite
+   semantic metadata.
+5. **S04 activation and coherent reader.** Lock scope clock first, then CAS one
+   target-local activation revision/head. The reader resolves only the exact
+   readiness-approved package/artifact/source/semantic/function-validator/
+   schema snapshot. Retain all incomplete, rejected, superseded, active, and
+   rollback-referenced evidence initially.
+6. **Ingress, dispatch, and client consumption.** Add versioned bounded V2
+   upload/finalization, pinned analyzer handshake/dispatch, and flarex-dev
+   consumption as the real two-sided caller. Preserve legacy whole-package V1
+   unchanged and non-authoritative.
+7. **Atomic activation/cutover.** Enable only after all preceding private
+   stages and PGlite plus zero-skip PostgreSQL race/crash/corruption proof are
+   green. Switch without fallback, shadowing, or dual authority.
 
 The production active-metadata path is split into `PAM-A0` inert storage
 contracts, `PAM-A1` immutable publication, `PAM-A2` atomic activation, `PAM-B`
@@ -535,3 +572,12 @@ root remains unchanged. Full `R0b` remains blocked until a real dispatch gate
 owns a trusted backend expected tuple and the analyzer deployment posture is
 explicitly versioned for its eventual source-reader reachability; serialized
 root, selector, request, or release data remains inert meanwhile.
+
+The approved Declarative V2 atomic vertical supersedes the former assumption
+that bounded dynamic analysis could close that gap. Its S0 foundation is
+implemented but inert: the cause-free physical codec, target-local migration
+0035, strict stored-frame verification, and minimal bounded candidate
+read/insert repository publish no candidate, readiness, activation, route, or
+runtime authority. Later stages must consume this exact foundation inside the
+same approved vertical; code presence, a table row, a digest, or an absent
+activation head cannot activate V2.

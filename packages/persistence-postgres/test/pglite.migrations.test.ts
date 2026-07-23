@@ -62,6 +62,19 @@ describe("createPGlitePersistence", () => {
       "fx_control_table",
       "fx_system_commit",
       "fx_system_commit_app_row_change",
+      "fx_system_declarative_v2_activation_head",
+      "fx_system_declarative_v2_activation_revision",
+      "fx_system_declarative_v2_candidate",
+      "fx_system_declarative_v2_candidate_projection",
+      "fx_system_declarative_v2_diagnostic",
+      "fx_system_declarative_v2_frontier_entry",
+      "fx_system_declarative_v2_import_edge",
+      "fx_system_declarative_v2_link_node",
+      "fx_system_declarative_v2_module_summary",
+      "fx_system_declarative_v2_page_manifest",
+      "fx_system_declarative_v2_registration",
+      "fx_system_declarative_v2_verdict",
+      "fx_system_declarative_v2_verifier_attempt",
       "fx_system_idempotency",
       "fx_system_index_build_state",
       "fx_system_outbox",
@@ -1142,7 +1155,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "35" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "36" }]);
     } finally {
       try {
         await db.close();
@@ -1336,7 +1349,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "35" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "36" }]);
     } finally {
       try {
         await db.close();
@@ -1373,7 +1386,7 @@ describe("createPGlitePersistence", () => {
       }
       const previousJournal = {
         ...parsedJournal,
-        entries: parsedJournal.entries.slice(0, -1),
+        entries: parsedJournal.entries.slice(0, -2),
       };
       await writeFile(
         copiedJournalPath,
@@ -1443,7 +1456,93 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "35" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "36" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("upgrades 0034 to inert Declarative V2 tables without enrolling an activation head", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-dv2-s0-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournalPath = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const currentJournalText = await readFile(currentJournalPath, "utf8");
+      const parsedJournal: unknown = JSON.parse(currentJournalText);
+      if (
+        !isNonArrayRecord(parsedJournal) ||
+        !Array.isArray(parsedJournal.entries) ||
+        parsedJournal.entries.length < 1
+      ) {
+        throw new Error("Expected a nonempty Drizzle migration journal.");
+      }
+      await writeFile(
+        copiedJournalPath,
+        `${JSON.stringify({
+          ...parsedJournal,
+          entries: parsedJournal.entries.slice(0, -1),
+        }, null, 2)}\n`,
+        "utf8",
+      );
+      const previous = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await previous.migrate();
+      const before = await previous.query<{ count: string }>(`
+        select count(*)::text as count
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name like 'fx_system_declarative_v2_%'
+      `);
+      expect(before.rows).toEqual([{ count: "0" }]);
+
+      await writeFile(copiedJournalPath, currentJournalText, "utf8");
+      const current = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await current.migrate();
+      await current.migrate();
+      const after = await current.query<{ count: string }>(`
+        select count(*)::text as count
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name like 'fx_system_declarative_v2_%'
+      `);
+      expect(after.rows).toEqual([{ count: "13" }]);
+      const constraints = await current.query<{
+        check_count: string;
+        foreign_key_count: string;
+      }>(`
+        select
+          count(*) filter (where contype = 'c')::text as check_count,
+          count(*) filter (where contype = 'f')::text as foreign_key_count
+        from pg_constraint
+        where conname like 'fx_dv2_%'
+      `);
+      expect(constraints.rows).toEqual([{
+        check_count: "43",
+        foreign_key_count: "20",
+      }]);
+      const heads = await current.query<{ count: string }>(`
+        select count(*)::text as count
+        from fx_system_declarative_v2_activation_head
+      `);
+      expect(heads.rows).toEqual([{ count: "0" }]);
     } finally {
       try {
         await db.close();

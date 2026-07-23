@@ -19,6 +19,7 @@
     "./deployment": "./src/deployment.ts",
     "./execution": "./src/execution.ts",
     "./grant-retention-policy": "./src/grant-retention-policy.ts",
+    "./internal/declarative-v2-physical-v1": "./src/declarative-v2-physical-v1.ts",
     "./invoke": "./src/invoke.ts",
     "./index-definition": "./src/index-definition.ts",
     "./index-build-state": "./src/index-build-state.ts",

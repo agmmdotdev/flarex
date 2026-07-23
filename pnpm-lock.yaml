@@ -522,6 +522,9 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.3.14
         version: 0.3.16
+      '@flarex/analysis':
+        specifier: workspace:*
+        version: link:../analysis
       '@flarex/utils':
         specifier: workspace:*
         version: link:../utils

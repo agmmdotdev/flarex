@@ -312,10 +312,13 @@ Progress:
   rollback proof.
 - [ ] `S03-D3`: durable per-scope definition-to-build reconciliation, deferred
   to Wave 3 after the physical sidecar consumer exists.
-- [ ] `S03-D4`: validation evidence and readiness derived from real target rows,
-  physical builds, and adapter evidence, deferred to Wave 4 after their
-  consumers exist; no active-pointer mutation. Legacy backfill/comparison
-  evidence is conditional on a changed shipped-state declaration.
+- [ ] `S03-D4`: scope-clock-fenced validation/readiness derived from real
+  target rows, physical builds, immutable Declarative V2 candidate/verifier
+  evidence, and adapter evidence. Every readiness-relevant index-state
+  mutation and readiness transition locks and revalidates the same located
+  scope-clock row first. It never mutates activation and never discovers or
+  rewrites declarative metadata. Legacy backfill/comparison evidence remains
+  conditional on a changed shipped-state declaration.
 
 Stable catalog rules:
 
@@ -396,37 +399,59 @@ Exit gates for the complete S03 stream:
   population evidence; and
 - no speculative field/relation/constraint catalog has become authority.
 
-### [ ] S04 — Establish Active Schema Pointer Authority
+### [ ] S04 — Establish Target-Local Activation Revision And Head Authority
 
 Scheduling: Wave 4 after `S03-D4` has derived evidence-backed readiness. This
 gate does not block the private test-generation point kernel or `C07`, but it
 does own the production activation source that the checked preparation kernel
 must consume before production prepared-start authority can exist.
 
-S04 is only the schema-pointer owner. It does not by itself install package,
-artifact, source, or function-validator authority.
+S04 is not a mutable schema pointer layered beside package metadata. It owns one
+target-local activation revision/head that coherently binds the
+readiness-approved Declarative V2 candidate, package, artifact, immutable
+source and semantic roots, declared handler/registration and validator roots,
+schema artifact/bindings, both analysis projections, verifier identities, and
+the exact located scope generation/fence/epoch.
 
 Outcome:
 
-- For clean target scopes, initialize
-  `fx_control_scope.active_schema_version_id` directly from the authenticated,
-  readiness-approved target schema.
-- Route activation through one transaction that writes the sole target
-  authority; no prototype mirror is created by default.
-- Switch target readers to the scope pointer and reject any independent
-  prototype mutation. If durable shipped pointers are later discovered, add a
-  separately preflighted one-time mapping or live mirror only for those scopes.
-- Join this schema pointer to roadmap 17's atomic package/artifact/source/
-  function-validator projection and S03-D4 readiness through one coherent
-  activation revision or fence before production preparation. That physical
-  representation and any DDL require their own preflight; A2c's immutable
-  seeded test adapter adds none.
+- S03-D4 locks the located scope clock first and settles the exact readiness
+  verdict without activation.
+- S04 locks that same scope clock first, revalidates the complete readiness
+  evidence, then CASes the target-local activation revision/head in one short
+  transaction. The activation head is absent until an explicit activation;
+  migration and candidate insertion never enroll it.
+- Canonical immutable frames own semantic truth. Normalized columns are only
+  local foreign keys, bounded pagination, fencing, metadata-first admission,
+  and lock/CAS predicates. They are not an alternate active model.
+- The coherent reader accepts only the exact active revision and rejects
+  missing, stale, corrupt, partially ready, superseded, or mixed-version
+  evidence. It never falls back to DeploymentDO, legacy package JSON,
+  `activePackageId`, `analysisJson`, or `active_schema_version_id`.
+- Retain incomplete, abandoned, rejected, superseded, active, and
+  rollback-referenced evidence initially. Cleanup is a later owner and may not
+  invalidate active, rollback, or readiness proof.
+- Current production activation is approved only for the composed shared
+  `primary/public` target. Schema-per-scope and database-per-scope activation
+  remain blocked until their host composition and located transaction owner are
+  proven.
 
 Exit gates:
 
-- injected failure cannot expose a partially active schema;
-- clean scopes resolve exactly the readiness-approved target schema; and
-- no prototype pointer or reader is required for target activation.
+- injected failure, interruption, confirmed rollback, and commit-decision
+  uncertainty cannot expose a partial or mixed activation;
+- concurrent activation has one CAS winner and a typed stale loser;
+- exact replay and rollback are deterministic and preserve the previous usable
+  revision;
+- clean scopes resolve exactly one readiness-approved package/artifact/source/
+  semantic/function-validator/schema snapshot; and
+- V1 remains compatibility-only and PAM-ineligible with no fallback, shadow,
+  dual write, or dual authority.
+
+Migration 0035 and the private physical codecs/repository are the inert S0
+foundation for this target. They create the candidate, verifier-progress,
+evidence, verdict, revision, and head shapes but do not insert an activation
+head, compose a production reader, mutate S03-D4 state, or authorize S04.
 
 ### [x] S05 — Freeze Value And Ordered-Key Codecs
 

@@ -246,6 +246,13 @@
       "when": 1784632687856,
       "tag": "0034_point_mutation_redelivery_scheduler",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1784794011477,
+      "tag": "0035_declarative_v2_inert_foundation",
+      "breakpoints": true
     }
   ]
 }
