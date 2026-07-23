@@ -780,10 +780,35 @@ existence, authentication, finalization, or read authority. Stage 3 later writes
 only static-finalization evidence and the two candidate projections; S03-D4,
 under the scope-clock-first order, exclusively writes both terminal verdict
 outcomes and lifecycle before S04 activation CAS. Static verification,
-authenticated source/semantic reading, readiness, activation writes, coherent
-reads, ingress, dispatch, client cutover, and cleanup remain later stages of the
-same approved vertical. Retain all evidence initially; no fallback, shadowing,
-dual write, or dual authority is permitted.
+authenticated source reading, readiness, activation writes, coherent reads,
+ingress, dispatch, client cutover, and cleanup remain later stages of the same
+approved vertical.
+
+The private Semantic Artifact V1 foundation now supplies immutable semantic
+byte provenance without changing target authority. DeploymentDO SQLite owns the
+semantic upload attempt, incarnation/source correlation, fences, cumulative
+budgets, root-last finalization verdict, and paired completed root/selector.
+The existing ARTIFACTS bucket stores immutable blocks, tree nodes, and the
+completed root under the distinct `semantic-artifact-v1/` namespace. A fresh
+backend A0a-to-R0a proof is request-bound, same-factory, opaque, and single-use;
+it is synchronously consumed before semantic IDs, hashing, R2, or SQLite work.
+Canonical attempt bytes remain the identity truth, while normalized SQLite
+columns exist only for metadata-first selection, source-row foreign-key
+correlation, CAS, and drift rejection. Reopen re-proves the exact
+`(projectId, deploymentId, deploymentCreatedAt)` incarnation and finalized
+source upload generation/fence/root/selector; no serialized proof, object key,
+digest, selector, C1 reference, or Durable Object name can substitute.
+Each command first bounds capture and the hashes that bind its reservation,
+then durably stores the full conservative R2/SQLite reconciliation reservation
+before immutable-object writes. Nested adapters receive only their reserved
+sub-budget; retry reconstructs the command digest and resumes without resetting
+or recharging the durable ceiling.
+
+This foundation does not parse NDJSON, prove semantic validity, run the static
+verifier, publish either analysis projection, write a verifier verdict, lock
+the scope clock, or activate a candidate. Those remain C3, C4, S03-D4, and S04
+responsibilities in that order. Retain all evidence initially; no fallback,
+shadowing, dual write, or dual authority is permitted.
 
 ## Cross-Plan Invariants
 

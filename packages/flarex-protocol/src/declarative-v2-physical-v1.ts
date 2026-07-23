@@ -2,6 +2,7 @@ import {
   bytesEqualFullScan,
   isUint8Array,
 } from "@flarex/utils/bytes";
+import { hasOnlyPairedSurrogates, utf8ByteLength } from "./canonical-utf8";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Result } from "effect";
@@ -1321,46 +1322,6 @@ function readU64(input: Uint8Array, offset: number): bigint | null {
     value = (value << 8n) | BigInt(input[offset + index] ?? 0);
   }
   return value <= DECLARATIVE_V2_MAX_SIGNED_INT64_V1 ? value : null;
-}
-
-function utf8ByteLength(value: string): number {
-  let length = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    const codeUnit = value.charCodeAt(index);
-    if (codeUnit <= 0x7f) {
-      length += 1;
-    } else if (codeUnit <= 0x7ff) {
-      length += 2;
-    } else if (
-      codeUnit >= 0xd800 && codeUnit <= 0xdbff &&
-      index + 1 < value.length
-    ) {
-      const next = value.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        length += 4;
-        index += 1;
-      } else {
-        length += 3;
-      }
-    } else {
-      length += 3;
-    }
-  }
-  return length;
-}
-
-function hasOnlyPairedSurrogates(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const codeUnit = value.charCodeAt(index);
-    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
-      index += 1;
-      continue;
-    }
-    if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) return false;
-  }
-  return true;
 }
 
 function intrinsicUint8ArrayByteLength(

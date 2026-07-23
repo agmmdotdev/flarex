@@ -535,6 +535,43 @@ activation remain blocked until their production host composition is proven.
    `registering`/`verdict`: it cannot finalize an attempt or insert verdict,
    candidate-projection, readiness, activation-revision, or activation-head
    evidence.
+
+   The companion Semantic Artifact V1 byte-provenance foundation is also
+   private and inert. A backend-local, request-bound single-use proof composes
+   the existing project/deployment authorization with a fresh finalized Source
+   Artifact V2 reread; only that proof can begin or reopen a semantic upload.
+   Its canonical attempt identity binds the freshly reread
+   `(projectId, deploymentId, deploymentCreatedAt)` incarnation fence, exact
+   source upload generation/fence/root/selector, semantic generation/fence,
+   semantic model/codec/policy/ingress identities, and immutable ceilings.
+   Canonical NDJSON bytes are stored as content-addressed blocks and tree nodes
+   in the distinct `semantic-artifact-v1/` ARTIFACTS namespace. The completed
+   semantic root is written last, then DeploymentDO SQLite alone records the
+   paired root/selector and finalized lifecycle. Object presence, normalized
+   columns, a selector, a Durable Object name, or C1 reference evidence never
+   grants read or semantic authority.
+
+   Semantic blocks may split UTF-8 or records arbitrarily; the trusted owner
+   derives offsets, ordinals, line-feed counts, the tree, root, and
+   manifest-last EOF from the exact accepted bytes. Root and selector framing
+   are non-circular: the semantic root binds source content and the pinned
+   semantic/tool identities but no candidate; the selector binds the current
+   canonical semantic-attempt identity plus the completed root; the later
+   candidate repeats the incarnation fence and binds both source and semantic
+   roots/selectors. Reopen requires fresh authorization and finalized-source
+   proof, recomputes canonical identity evidence, and fails closed on
+   incarnation or source rollover. This stage proves immutable semantic byte
+   provenance only. C3 still owns bounded NDJSON decoding and independent
+   semantic/core verification, while C4 alone may publish static projections.
+
+   Per-command admission bounds capture and the hashes that bind an append
+   reservation. Before any immutable-object write, DeploymentDO durably stores
+   the full conservative R2/SQLite reconciliation reservation and cumulative
+   charge under the command digest. Retry reconstructs that digest, resumes the
+   pending reservation, and never resets or recharges the attempt ceilings.
+   Successful R2 receipts are checked against the reservation. CPU framing and
+   capture remain interruptible, while only the short SQLite/R2 settlement and
+   reconciliation decision windows are masked.
 3. **Static verification, finalization, and candidate projection.** Consume
    authenticated immutable source/semantic evidence supplied by the later
    private reader/composition stages, independently verify the generated core
