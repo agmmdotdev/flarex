@@ -520,18 +520,35 @@ activation remain blocked until their production host composition is proven.
    retry, without resetting time, operation, or semantic budgets. Process-local
    run/work tokens are inert capability checks, while stored cursors, digests,
    frames, owners, fences, and receipts never grant authority on their own.
-   S1 stops at `registering`/`verdict`: it cannot finalize an attempt or insert
-   verdict, candidate-projection, readiness, activation-revision, or
-   activation-head evidence.
-3. **Static verification and candidate projection.** Consume immutable
-   source/semantic evidence, independently verify the generated core and safe
-   ABI, derive the handler-set digest and both `DeploymentAnalysis` projections,
-   and publish an immutable candidate/verdict without making it active.
+   The no-DDL C1 strengthening makes each settlement non-circular: ordered
+   non-manifest evidence is captured first, the repository derives one
+   page-evidence root, creates exactly one phase-page manifest, and then commits
+   the complete command-output manifest including that generated page. It also
+   derives the next progress cursor and phase transition from locked durable
+   state, and exposes a bounded metadata-first read of the four phase tails plus
+   registration/diagnostic ordinals. Source and semantic object-reference
+   entries remain inert structural commitments only: their page root proves the
+   integrity of the captured sequence, not object existence, authentication,
+   finalization, read authority, or arbitrary-root authority. The C1 protocol
+   identity is a fail-closed cutline; earlier attempts remain retained but are
+   not reinterpreted, continued, backfilled, or deleted. S1 stops at
+   `registering`/`verdict`: it cannot finalize an attempt or insert verdict,
+   candidate-projection, readiness, activation-revision, or activation-head
+   evidence.
+3. **Static verification, finalization, and candidate projection.** Consume
+   authenticated immutable source/semantic evidence supplied by the later
+   private reader/composition stages, independently verify the generated core
+   and safe ABI, derive the handler-set digest and both `DeploymentAnalysis`
+   projections, and publish only immutable static-finalization evidence plus
+   those two candidate projections. Stage 3 leaves the attempt at
+   `registering`/`verdict`; it writes neither a ready nor rejected verdict and
+   does not make the candidate active.
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact
    candidate, artifact, schema, validator, registration, and verifier pins.
-   Readiness may reject declared handlers but never discover or rewrite
-   semantic metadata.
+   S03-D4 alone writes either the ready or rejected verdict and the terminal
+   verifier lifecycle. Rejection may reject declared handlers but never discover
+   or rewrite semantic metadata.
 5. **S04 activation and coherent reader.** Lock scope clock first, then CAS one
    target-local activation revision/head. The reader resolves only the exact
    readiness-approved package/artifact/source/semantic/function-validator/

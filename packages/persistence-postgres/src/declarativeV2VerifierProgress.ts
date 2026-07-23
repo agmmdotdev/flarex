@@ -13,6 +13,7 @@ import {
 } from "@flarex/utils/strings";
 import {
   and,
+  desc,
   eq,
   gt,
   sql,
@@ -51,6 +52,15 @@ import {
   type DeclarativeV2VerifierPhaseV1,
 } from "flarex-protocol/internal/declarative-v2-physical-v1";
 import {
+  captureDeclarativeV2PageEvidenceKeyV1,
+  compareDeclarativeV2PageEvidenceKeyV1,
+  encodeDeclarativeV2PageEvidenceRootV1,
+  type DeclarativeV2InertObjectReferenceEvidenceV1,
+  type DeclarativeV2PageDispositionV1,
+  type DeclarativeV2PageEvidenceKeyV1,
+  type DeclarativeV2PageEvidenceRootV1Error,
+} from "flarex-protocol/internal/declarative-v2-verification-evidence-v1";
+import {
   ScopeIdSchema,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
@@ -59,6 +69,7 @@ import type { AppRowTransaction } from "./appRows";
 import {
   buildDeclarativeV2CommandOutputManifestPreimageV1,
   buildDeclarativeV2ModulePathProjectionPreimageV1,
+  type DeclarativeV2ModulePathProjectionPreimageV1,
   type DeclarativeV2SettledEvidenceKeyV1,
   type DeclarativeV2VerifierDerivationInputV1Error,
 } from "./declarativeV2VerifierDerivations";
@@ -91,7 +102,7 @@ import {
 } from "./transactionSessionAttemptKernel";
 
 const ATTEMPT_PROTOCOL_IDENTITY =
-  "flarex.declarative-v2/verifier-progress/v1";
+  "flarex.declarative-v2/verifier-progress-page-evidence/v1";
 const MAX_FENCE = DECLARATIVE_V2_MAX_SIGNED_INT64_V1;
 
 export type DeclarativeV2VerifierProgressOperationV1 =
@@ -102,6 +113,7 @@ export type DeclarativeV2VerifierProgressOperationV1 =
   | "reserveCommand"
   | "resumePending"
   | "settleCommand"
+  | "observeSettledPhaseTails"
   | "release"
   | "abandon";
 
@@ -156,6 +168,7 @@ export class DeclarativeV2VerifierProgressInputV1Error
     readonly maximumSemantic?: bigint;
     readonly codecCause?: DeclarativeV2PhysicalFrameV1Error;
     readonly derivationCause?: DeclarativeV2VerifierDerivationInputV1Error;
+    readonly evidenceCause?: DeclarativeV2PageEvidenceRootV1Error;
   }> {}
 
 export class DeclarativeV2VerifierProgressBusyV1Error
@@ -210,14 +223,20 @@ export class DeclarativeV2VerifierProgressCorruptionV1Error
       | "digestMismatch"
       | "normalizedMismatch"
       | "driverResultInvalid"
-      | "selectorMismatch";
+      | "selectorMismatch"
+      | "unsupportedProtocol";
     readonly codecCause?: DeclarativeV2PhysicalFrameV1Error;
   }> {}
 
 export class DeclarativeV2VerifierProgressExhaustionV1Error
   extends Data.TaggedError("DeclarativeV2VerifierProgressExhaustionV1Error")<{
-    readonly operation: "acquire" | "reserveCommand";
-    readonly dimension: "writerFence" | "settledSequence";
+    readonly operation: "acquire" | "reserveCommand" | "settleCommand";
+    readonly dimension:
+      | "writerFence"
+      | "settledSequence"
+      | "moduleOrdinal"
+      | "edgeOrdinal"
+      | "pageOrdinal";
     readonly observed: bigint;
     readonly maximum: bigint;
   }> {}
@@ -315,6 +334,13 @@ type VerifierSettleV1Error =
   | DeclarativeV2VerifierProgressStaleV1Error
   | DeclarativeV2VerifierProgressLifecycleV1Error
   | DeclarativeV2VerifierProgressCollisionV1Error
+  | DeclarativeV2VerifierProgressExhaustionV1Error
+  | DeclarativeV2Sha256V1Error;
+
+type VerifierObserveTailsV1Error =
+  | VerifierBaseV1Error
+  | DeclarativeV2VerifierProgressStaleV1Error
+  | DeclarativeV2VerifierProgressLifecycleV1Error
   | DeclarativeV2Sha256V1Error;
 
 type VerifierCloseV1Error =
@@ -402,8 +428,24 @@ export type DeclarativeV2VerifierReserveResultV1 =
 
 export interface DeclarativeV2VerifierSettleBatchV1 {
   readonly frames: readonly DeclarativeV2PhysicalFrameV1[];
+  readonly objectReferences:
+    readonly DeclarativeV2InertObjectReferenceEvidenceV1[];
+  readonly disposition: DeclarativeV2PageDispositionV1;
   readonly nextLifecycle: DeclarativeV2AttemptLifecycleV1;
   readonly nextProgress: DeclarativeV2ProgressCursorFrameV1;
+}
+
+export interface DeclarativeV2SettledPhaseTailV1 {
+  readonly phase: DeclarativeV2VerifierPhaseV1;
+  readonly page: DeclarativeV2PageManifestFrameV1 | null;
+  readonly pageSha256: Uint8Array | null;
+}
+
+export interface DeclarativeV2SettledPhaseTailsV1 {
+  readonly attempt: DeclarativeV2VerifierAttemptObservationV1;
+  readonly phases: readonly DeclarativeV2SettledPhaseTailV1[];
+  readonly lastRegistrationOrdinal: bigint | null;
+  readonly lastDiagnosticOrdinal: bigint | null;
 }
 
 export interface DeclarativeV2VerifierProgressRepositoryV1 {
@@ -485,6 +527,17 @@ export interface DeclarativeV2VerifierProgressRepositoryV1 {
     VerifierSettleV1Error,
     never
   >;
+  readonly observeSettledPhaseTails: (
+    run: DeclarativeV2VerifierRunV1,
+    budget: unknown,
+  ) => Effect.Effect<
+    Readonly<{
+      readonly tails: DeclarativeV2SettledPhaseTailsV1;
+      readonly operationUsage: DeclarativeV2VerifierProgressOperationUsageV1;
+    }>,
+    VerifierObserveTailsV1Error,
+    never
+  >;
   readonly release: (
     run: DeclarativeV2VerifierRunV1,
     budget: unknown,
@@ -542,6 +595,13 @@ interface CapturedFrameV1<Frame extends DeclarativeV2PhysicalFrameV1> {
   readonly frame: Frame;
   readonly bytes: Uint8Array;
   readonly sha256: Uint8Array;
+}
+
+interface CapturedFramePreimageV1<
+  Frame extends DeclarativeV2PhysicalFrameV1,
+> {
+  readonly frame: Frame;
+  readonly bytes: Uint8Array;
 }
 
 interface AttemptStoredFramesV1 {
@@ -1617,10 +1677,29 @@ export function makeDeclarativeV2VerifierProgressRepositoryV1(
           decodeOperationBudget("settleCommand", rawBudget),
         );
         const tracker = mutableUsage();
-        const captured = yield* captureSettlementBatch(
+        const capturedInput = yield* captureSettlementInput(
           currentRun,
           currentWork,
           rawBatch,
+          budget,
+          tracker,
+          sha256,
+        );
+        const tails = yield* readSettledTailsForRun(
+          target,
+          currentRun,
+          "settleCommand",
+          budget,
+          tracker,
+          monotonicMilliseconds,
+          start,
+          sha256,
+        );
+        const captured = yield* completeSettlementBatch(
+          currentRun,
+          currentWork,
+          capturedInput,
+          tails,
           budget,
           tracker,
           sha256,
@@ -1814,6 +1893,47 @@ export function makeDeclarativeV2VerifierProgressRepositoryV1(
       );
     },
   );
+
+  const observeSettledPhaseTails = Effect.fn(
+    "DeclarativeV2.verifier.observeSettledPhaseTails",
+  )(function* (
+    run: DeclarativeV2VerifierRunV1,
+    rawBudget: unknown,
+  ) {
+    return yield* withRun(
+      runs,
+      run,
+      "observeSettledPhaseTails",
+      state => Effect.gen(function* () {
+        const start = monotonicMilliseconds();
+        const budget = yield* Effect.fromResult(
+          decodeOperationBudget("observeSettledPhaseTails", rawBudget),
+        );
+        const tracker = mutableUsage();
+        const tails = yield* readSettledTailsForRun(
+          target,
+          state,
+          "observeSettledPhaseTails",
+          budget,
+          tracker,
+          monotonicMilliseconds,
+          start,
+          sha256,
+        );
+        yield* Effect.fromResult(setElapsedResult(
+          "observeSettledPhaseTails",
+          budget,
+          tracker,
+          start,
+          monotonicMilliseconds,
+        ));
+        return Object.freeze({
+          tails: copySettledPhaseTails(tails),
+          operationUsage: freezeUsage(tracker),
+        });
+      }),
+    );
+  });
 
   const release = Effect.fn("DeclarativeV2.verifier.release")(
     function* (run: DeclarativeV2VerifierRunV1, rawBudget: unknown) {
@@ -2056,6 +2176,15 @@ export function makeDeclarativeV2VerifierProgressRepositoryV1(
           narrowVerifierOperationError(error, "settleCommand")
         ),
       ),
+    observeSettledPhaseTails: (
+      run: DeclarativeV2VerifierRunV1,
+      budget: unknown,
+    ) =>
+      observeSettledPhaseTails(run, budget).pipe(
+        Effect.mapError(error =>
+          narrowVerifierOperationError(error, "observeSettledPhaseTails")
+        ),
+      ),
     release: (run: DeclarativeV2VerifierRunV1, budget: unknown) =>
       release(run, budget).pipe(
         Effect.mapError(error =>
@@ -2101,6 +2230,10 @@ function narrowVerifierOperationError(
 ): VerifierSettleV1Error;
 function narrowVerifierOperationError(
   error: DeclarativeV2VerifierProgressV1Error,
+  operation: "observeSettledPhaseTails",
+): VerifierObserveTailsV1Error;
+function narrowVerifierOperationError(
+  error: DeclarativeV2VerifierProgressV1Error,
   operation: "release" | "abandon",
 ): VerifierCloseV1Error;
 function narrowVerifierOperationError(
@@ -2122,7 +2255,8 @@ function narrowVerifierOperationError(
       operation === "acquire" ||
       operation === "reserveCommand" ||
       operation === "resumePending" ||
-      operation === "settleCommand"
+      operation === "settleCommand" ||
+      operation === "observeSettledPhaseTails"
     ) {
       return error;
     }
@@ -2313,49 +2447,85 @@ const captureFrame = Effect.fn(
   CapturedFrameV1<Frame>,
   never
 > {
-    const encoded = yield* Effect.fromResult(
-      encodeDeclarativeV2PhysicalFrameV1(input, {
-        maximumFrameBytes: remaining(budget.maximumFrameBytes, usage.frameBytes),
-        maximumCanonicalBytes: remaining(
-          budget.maximumCanonicalBytes,
-          usage.canonicalBytes,
-        ),
-      }).pipe(
-        Result.mapError((codecCause) =>
-          mapCodecInputError(operation, codecCause)
-        ),
+    const preimage = yield* Effect.fromResult(
+      captureFramePreimage<Frame>(
+        operation,
+        input,
+        expectedKind,
+        budget,
+        usage,
+      ),
+    );
+    return yield* hashCapturedFrame(preimage, sha256);
+});
+
+function captureFramePreimage<
+  Frame extends DeclarativeV2PhysicalFrameV1,
+>(
+  operation: DeclarativeV2VerifierProgressOperationV1,
+  input: unknown,
+  expectedKind: Frame["kind"],
+  budget: DeclarativeV2VerifierProgressOperationBudgetV1,
+  usage: MutableOperationUsageV1,
+): Result.Result<
+  CapturedFramePreimageV1<Frame>,
+  DeclarativeV2VerifierProgressInputV1Error
+> {
+  return Result.gen(function* () {
+    const encoded = yield* encodeDeclarativeV2PhysicalFrameV1(input, {
+      maximumFrameBytes: remaining(budget.maximumFrameBytes, usage.frameBytes),
+      maximumCanonicalBytes: remaining(
+        budget.maximumCanonicalBytes,
+        usage.canonicalBytes,
+      ),
+    }).pipe(
+      Result.mapError((codecCause) =>
+        mapCodecInputError(operation, codecCause, budget, usage)
       ),
     );
     if (encoded.frame.kind !== expectedKind) {
-      return yield* inputError(operation, "invalidInput");
+      return yield* Result.fail(inputError(operation, "invalidInput"));
     }
-    yield* Effect.fromResult(chargeResult(
+    yield* chargeResult(
       operation,
       budget,
       usage,
       "frameBytes",
       encoded.usage.frameBytes,
-    ));
-    yield* Effect.fromResult(chargeResult(
+    );
+    yield* chargeResult(
       operation,
       budget,
       usage,
       "canonicalBytes",
       encoded.usage.canonicalBytes,
-    ));
-    yield* Effect.fromResult(chargeResult(
+    );
+    yield* chargeResult(
       operation,
       budget,
       usage,
       "hashBytes",
       encoded.canonicalBytes.byteLength,
-    ));
-    const digest = yield* sha256(encoded.canonicalBytes, {
-      maximumInputBytes: encoded.canonicalBytes.byteLength,
-    });
+    );
     return Object.freeze({
       frame: encoded.frame as Frame,
       bytes: new Uint8Array(encoded.canonicalBytes),
+    });
+  });
+}
+
+const hashCapturedFrame = Effect.fn(
+  "DeclarativeV2.verifier.hashCapturedFrame",
+)(function* <Frame extends DeclarativeV2PhysicalFrameV1>(
+  preimage: CapturedFramePreimageV1<Frame>,
+  sha256: DeclarativeV2Sha256V1,
+) {
+    const digest = yield* sha256(preimage.bytes, {
+      maximumInputBytes: preimage.bytes.byteLength,
+    });
+    return Object.freeze({
+      frame: preimage.frame,
+      bytes: new Uint8Array(preimage.bytes),
       sha256: new Uint8Array(digest),
     });
 });
@@ -2394,11 +2564,7 @@ const decodeStoredFrame = Effect.fn(
         ),
       }).pipe(
         Result.mapError((codecCause) =>
-          new DeclarativeV2VerifierProgressCorruptionV1Error({
-            operation,
-            reason: "invalidStoredBytes",
-            codecCause,
-          })
+          mapStoredCodecError(operation, codecCause, budget, usage)
         ),
       ),
     );
@@ -2509,11 +2675,28 @@ const decodeAttemptObservation = Effect.fn(
         tracker,
         sha256,
       );
+    const lastReceiptUsageSha256 = lastReceipt === null ||
+        pendingBudget === null
+      ? usage.sha256
+      : (yield* captureFrame<DeclarativeV2BudgetFrameV1>(
+        operation,
+        yield* Effect.fromResult(
+          subtractPendingBudget(operation, usage.frame, pendingBudget.frame),
+        ),
+        "attempt_usage",
+        budget,
+        tracker,
+        sha256,
+      )).sha256;
+    if (
+      identity.frame.verifierProgressProtocolIdentity !==
+        ATTEMPT_PROTOCOL_IDENTITY
+    ) {
+      return yield* corruption(operation, "unsupportedProtocol");
+    }
     if (
       !bytesEqualFullScan(identity.sha256, locked.attemptSha256) ||
       !bytesEqualFullScan(identity.frame.candidateSha256, locked.candidateSha256) ||
-      identity.frame.verifierProgressProtocolIdentity !==
-        ATTEMPT_PROTOCOL_IDENTITY ||
       !bytesEqualFullScan(
         identity.frame.ceilingsSha256,
         ceilings.sha256,
@@ -2531,7 +2714,7 @@ const decodeAttemptObservation = Effect.fn(
           ) ||
           !bytesEqualFullScan(
             lastReceipt.frame.usageSha256,
-            usage.sha256,
+            lastReceiptUsageSha256,
           ) ||
           !bytesEqualFullScan(
             lastReceipt.frame.progressCursorSha256,
@@ -3171,6 +3354,27 @@ const OPERATION_BUDGET_BY_USAGE = {
   keyof DeclarativeV2VerifierProgressOperationBudgetV1
 >>;
 
+function subtractPendingBudget(
+  operation: DeclarativeV2VerifierProgressOperationV1,
+  usage: DeclarativeV2BudgetFrameV1,
+  pending: DeclarativeV2BudgetFrameV1,
+): Result.Result<
+  DeclarativeV2BudgetFrameV1,
+  DeclarativeV2VerifierProgressCorruptionV1Error
+> {
+  const values: Partial<Record<DeclarativeV2BudgetDimensionV1, bigint>> = {};
+  for (const dimension of BUDGET_DIMENSIONS) {
+    if (usage[dimension] < pending[dimension]) {
+      return Result.fail(corruption(operation, "normalizedMismatch"));
+    }
+    values[dimension] = usage[dimension] - pending[dimension];
+  }
+  return Result.succeed(Object.freeze({
+    kind: "attempt_usage",
+    ...values,
+  }) as DeclarativeV2BudgetFrameV1);
+}
+
 function mutableUsage(): MutableOperationUsageV1 {
   return {
     calls: 0,
@@ -3422,22 +3626,28 @@ function ownDataValue(
 function mapCodecInputError(
   operation: DeclarativeV2VerifierProgressOperationV1,
   codecCause: DeclarativeV2PhysicalFrameV1Error,
+  budget: DeclarativeV2VerifierProgressOperationBudgetV1,
+  usage: DeclarativeV2VerifierProgressOperationUsageV1,
 ): DeclarativeV2VerifierProgressInputV1Error {
   if (
     codecCause.reason === "frameBytesExceeded" ||
     codecCause.reason === "canonicalBytesExceeded"
   ) {
     const observed = codecCause.observed;
-    const maximum = codecCause.maximum;
-    if (observed === undefined || maximum === undefined) throw codecCause;
+    if (observed === undefined || codecCause.maximum === undefined) {
+      throw codecCause;
+    }
+    const dimension = codecCause.reason === "frameBytesExceeded"
+      ? "frameBytes"
+      : "canonicalBytes";
+    const totalObserved = checkedAddNumber(usage[dimension], observed) ??
+      Number.MAX_SAFE_INTEGER;
     return new DeclarativeV2VerifierProgressInputV1Error({
       operation,
       reason: "budgetExceeded",
-      dimension: codecCause.reason === "frameBytesExceeded"
-        ? "frameBytes"
-        : "canonicalBytes",
-      observed,
-      maximum,
+      dimension,
+      observed: totalObserved,
+      maximum: budget[OPERATION_BUDGET_BY_USAGE[dimension]],
       codecCause,
     });
   }
@@ -3446,6 +3656,27 @@ function mapCodecInputError(
     reason: codecCause.reason === "invalidBudget"
       ? "invalidBudget"
       : "invalidInput",
+    codecCause,
+  });
+}
+
+function mapStoredCodecError(
+  operation: DeclarativeV2VerifierProgressOperationV1,
+  codecCause: DeclarativeV2PhysicalFrameV1Error,
+  budget: DeclarativeV2VerifierProgressOperationBudgetV1,
+  usage: DeclarativeV2VerifierProgressOperationUsageV1,
+):
+  | DeclarativeV2VerifierProgressInputV1Error
+  | DeclarativeV2VerifierProgressCorruptionV1Error {
+  if (
+    codecCause.reason === "frameBytesExceeded" ||
+    codecCause.reason === "canonicalBytesExceeded"
+  ) {
+    return mapCodecInputError(operation, codecCause, budget, usage);
+  }
+  return new DeclarativeV2VerifierProgressCorruptionV1Error({
+    operation,
+    reason: "invalidStoredBytes",
     codecCause,
   });
 }
@@ -4122,6 +4353,825 @@ function isValidSettlementTransition(
   }
 }
 
+const SETTLED_TAIL_PHASES = [
+  "source",
+  "parse",
+  "link",
+  "registration",
+] as const satisfies readonly DeclarativeV2VerifierPhaseV1[];
+
+interface StoredPhaseTailV1 {
+  readonly phase: DeclarativeV2VerifierPhaseV1;
+  readonly pageOrdinal: bigint;
+  readonly firstItemOrdinal: bigint;
+  readonly itemCount: bigint;
+  readonly previousPageSha256: Uint8Array | null;
+  readonly stored: StoredFrameV1;
+}
+
+interface StoredOrdinalTailV1 {
+  readonly ordinal: bigint;
+  readonly stored: StoredFrameV1;
+}
+
+interface SettledTailsInternalV1 {
+  readonly attempt: DeclarativeV2VerifierAttemptObservationV1;
+  readonly phases: readonly Readonly<{
+    readonly phase: DeclarativeV2VerifierPhaseV1;
+    readonly captured:
+      | CapturedFrameV1<DeclarativeV2PageManifestFrameV1>
+      | null;
+  }>[];
+  readonly lastRegistration:
+    | CapturedFrameV1<DeclarativeV2RegistrationFrameV1>
+    | null;
+  readonly lastDiagnostic:
+    | CapturedFrameV1<DeclarativeV2DiagnosticFrameV1>
+    | null;
+}
+
+const readSettledTailsForRun = Effect.fn(
+  "DeclarativeV2.verifier.readSettledTailsForRun",
+)(function* (
+  target: LocatedReadCommittedAttemptTargetV1,
+  run: MutableRunStateV1,
+  operation: "settleCommand" | "observeSettledPhaseTails",
+  budget: DeclarativeV2VerifierProgressOperationBudgetV1,
+  tracker: MutableOperationUsageV1,
+  monotonicMilliseconds: () => number,
+  start: number,
+  sha256: DeclarativeV2Sha256V1,
+): Generator<
+  Effect.Effect<unknown, DeclarativeV2VerifierProgressV1Error>,
+  SettledTailsInternalV1,
+  never
+> {
+    const stored = yield* runTransactionWithConfirmedRollbackRetry(
+      target,
+      operation,
+      run.scopeId,
+      run.attemptSha256,
+      budget,
+      tracker,
+      monotonicMilliseconds,
+      start,
+      async tx => {
+        const locked = await lockAttempt(
+          tx,
+          operation,
+          run.scopeId,
+          run.attemptSha256,
+          budget,
+          tracker,
+          true,
+        );
+        requireLiveOwner(locked, run, operation);
+        const phases: StoredPhaseTailV1[] = [];
+        for (const phase of SETTLED_TAIL_PHASES) {
+          const tail = await readStoredPhaseTail(
+            tx,
+            operation,
+            run.scopeId,
+            run.attemptSha256,
+            phase,
+            budget,
+            tracker,
+          );
+          if (tail !== null) phases.push(tail);
+        }
+        const lastRegistration = await readStoredOrdinalTail(
+          tx,
+          operation,
+          "registration",
+          run.scopeId,
+          run.attemptSha256,
+          budget,
+          tracker,
+        );
+        const lastDiagnostic = await readStoredOrdinalTail(
+          tx,
+          operation,
+          "diagnostic",
+          run.scopeId,
+          run.attemptSha256,
+          budget,
+          tracker,
+        );
+        return Object.freeze({
+          locked,
+          phases: Object.freeze(phases),
+          lastRegistration,
+          lastDiagnostic,
+        });
+      },
+    ).pipe(closeRunOnTransactionFailure(run));
+
+    const attempt = yield* decodeAttemptObservation(
+      operation,
+      stored.locked,
+      budget,
+      tracker,
+      sha256,
+    );
+    const phaseMap = new Map<
+      DeclarativeV2VerifierPhaseV1,
+      CapturedFrameV1<DeclarativeV2PageManifestFrameV1>
+    >();
+    for (const tail of stored.phases) {
+      const captured = yield* decodeStoredFrame<DeclarativeV2PageManifestFrameV1>(
+        operation,
+        tail.stored,
+        "phase_page_manifest",
+        budget,
+        tracker,
+        sha256,
+      );
+      if (
+        !bytesEqualFullScan(
+          captured.frame.attemptSha256,
+          run.attemptSha256,
+        ) ||
+        captured.frame.phase !== tail.phase ||
+        captured.frame.pageOrdinal !== tail.pageOrdinal ||
+        captured.frame.firstItemOrdinal !== tail.firstItemOrdinal ||
+        captured.frame.itemCount !== tail.itemCount ||
+        !nullableDigestEqual(
+          captured.frame.previousPageSha256,
+          tail.previousPageSha256,
+        )
+      ) {
+        return yield* corruption(operation, "normalizedMismatch");
+      }
+      phaseMap.set(tail.phase, captured);
+    }
+    const lastRegistration = stored.lastRegistration === null
+      ? null
+      : yield* decodeStoredOrdinalTail<
+        DeclarativeV2RegistrationFrameV1
+      >(
+        operation,
+        stored.lastRegistration,
+        "registration",
+        run.attemptSha256,
+        budget,
+        tracker,
+        sha256,
+      );
+    const lastDiagnostic = stored.lastDiagnostic === null
+      ? null
+      : yield* decodeStoredOrdinalTail<
+        DeclarativeV2DiagnosticFrameV1
+      >(
+        operation,
+        stored.lastDiagnostic,
+        "diagnostic",
+        run.attemptSha256,
+        budget,
+        tracker,
+        sha256,
+      );
+    let settledPageCount = 0n;
+    const phases = SETTLED_TAIL_PHASES.map(phase => {
+      const captured = phaseMap.get(phase) ?? null;
+      if (captured !== null) {
+        const count = captured.frame.pageOrdinal + 1n;
+        if (settledPageCount > MAX_FENCE - count) {
+          throw corruption(operation, "invalidMetadata");
+        }
+        settledPageCount += count;
+      }
+      return Object.freeze({ phase, captured });
+    });
+    if (
+      settledPageCount !== attempt.settledSequence ||
+      attempt.progress.pageOrdinal !== attempt.settledSequence
+    ) {
+      return yield* corruption(operation, "normalizedMismatch");
+    }
+    return Object.freeze({
+      attempt,
+      phases: Object.freeze(phases),
+      lastRegistration,
+      lastDiagnostic,
+    });
+});
+
+async function readStoredPhaseTail(
+  tx: AppRowTransaction,
+  operation: "settleCommand" | "observeSettledPhaseTails",
+  scopeId: ScopeId,
+  attemptSha256: Uint8Array,
+  phase: DeclarativeV2VerifierPhaseV1,
+  budget: DeclarativeV2VerifierProgressOperationBudgetV1,
+  usage: MutableOperationUsageV1,
+): Promise<StoredPhaseTailV1 | null> {
+  chargeSqlOrThrow(operation, budget, usage, 1);
+  const metadataRows = await runVerifierStatement(operation, () => tx
+    .select({
+      pageOrdinal: fxSystemDeclarativeV2PageManifests.pageOrdinal,
+      firstItemOrdinal: fxSystemDeclarativeV2PageManifests.firstItemOrdinal,
+      itemCount: fxSystemDeclarativeV2PageManifests.itemCount,
+      previousPageSha256:
+        fxSystemDeclarativeV2PageManifests.previousPageSha256,
+      codecVersion: fxSystemDeclarativeV2PageManifests.frameCodecVersion,
+      byteLength: fxSystemDeclarativeV2PageManifests.frameByteLength,
+      sha256: fxSystemDeclarativeV2PageManifests.frameSha256,
+    })
+    .from(fxSystemDeclarativeV2PageManifests)
+    .where(and(
+      eq(fxSystemDeclarativeV2PageManifests.scopeId, scopeId),
+      eq(
+        fxSystemDeclarativeV2PageManifests.attemptSha256,
+        attemptSha256,
+      ),
+      eq(fxSystemDeclarativeV2PageManifests.phase, phase),
+    ))
+    .orderBy(desc(fxSystemDeclarativeV2PageManifests.pageOrdinal))
+    .limit(1));
+  if (metadataRows.length === 0) return null;
+  if (metadataRows.length !== 1) {
+    throw corruption(operation, "driverResultInvalid");
+  }
+  const row = metadataRows[0]!;
+  const metadata = captureStoredTailMetadata(
+    operation,
+    row.codecVersion,
+    row.byteLength,
+    row.sha256,
+  );
+  chargeOrThrow(
+    operation,
+    budget,
+    usage,
+    "frameBytes",
+    storedByteLengthNumber(operation, metadata.byteLength),
+  );
+  chargeSqlOrThrow(operation, budget, usage, 1);
+  const byteRows = await runVerifierStatement(operation, () => tx
+    .select({ bytes: fxSystemDeclarativeV2PageManifests.frameBytes })
+    .from(fxSystemDeclarativeV2PageManifests)
+    .where(and(
+      eq(fxSystemDeclarativeV2PageManifests.scopeId, scopeId),
+      eq(
+        fxSystemDeclarativeV2PageManifests.attemptSha256,
+        attemptSha256,
+      ),
+      eq(fxSystemDeclarativeV2PageManifests.phase, phase),
+      eq(
+        fxSystemDeclarativeV2PageManifests.pageOrdinal,
+        row.pageOrdinal,
+      ),
+    )));
+  if (byteRows.length !== 1) {
+    throw corruption(operation, "driverResultInvalid");
+  }
+  return Object.freeze({
+    phase,
+    pageOrdinal: row.pageOrdinal,
+    firstItemOrdinal: row.firstItemOrdinal,
+    itemCount: row.itemCount,
+    previousPageSha256: copyNullableBytes(row.previousPageSha256),
+    stored: attachStoredBytes(
+      operation,
+      metadata,
+      byteRows[0]!.bytes,
+    ),
+  });
+}
+
+async function readStoredOrdinalTail(
+  tx: AppRowTransaction,
+  operation: "settleCommand" | "observeSettledPhaseTails",
+  kind: "registration" | "diagnostic",
+  scopeId: ScopeId,
+  attemptSha256: Uint8Array,
+  budget: DeclarativeV2VerifierProgressOperationBudgetV1,
+  usage: MutableOperationUsageV1,
+): Promise<StoredOrdinalTailV1 | null> {
+  chargeSqlOrThrow(operation, budget, usage, 1);
+  const metadataRows = await runVerifierStatement(operation, () =>
+    kind === "registration"
+      ? tx.select({
+        ordinal: fxSystemDeclarativeV2Registrations.registrationOrdinal,
+        codecVersion: fxSystemDeclarativeV2Registrations.frameCodecVersion,
+        byteLength: fxSystemDeclarativeV2Registrations.frameByteLength,
+        sha256: fxSystemDeclarativeV2Registrations.frameSha256,
+      }).from(fxSystemDeclarativeV2Registrations).where(and(
+        eq(fxSystemDeclarativeV2Registrations.scopeId, scopeId),
+        eq(
+          fxSystemDeclarativeV2Registrations.attemptSha256,
+          attemptSha256,
+        ),
+      )).orderBy(
+        desc(fxSystemDeclarativeV2Registrations.registrationOrdinal),
+      ).limit(1)
+      : tx.select({
+        ordinal: fxSystemDeclarativeV2Diagnostics.diagnosticOrdinal,
+        codecVersion: fxSystemDeclarativeV2Diagnostics.frameCodecVersion,
+        byteLength: fxSystemDeclarativeV2Diagnostics.frameByteLength,
+        sha256: fxSystemDeclarativeV2Diagnostics.frameSha256,
+      }).from(fxSystemDeclarativeV2Diagnostics).where(and(
+        eq(fxSystemDeclarativeV2Diagnostics.scopeId, scopeId),
+        eq(fxSystemDeclarativeV2Diagnostics.attemptSha256, attemptSha256),
+      )).orderBy(
+        desc(fxSystemDeclarativeV2Diagnostics.diagnosticOrdinal),
+      ).limit(1)
+  );
+  if (metadataRows.length === 0) return null;
+  if (metadataRows.length !== 1) {
+    throw corruption(operation, "driverResultInvalid");
+  }
+  const row = metadataRows[0]!;
+  const metadata = captureStoredTailMetadata(
+    operation,
+    row.codecVersion,
+    row.byteLength,
+    row.sha256,
+  );
+  chargeOrThrow(
+    operation,
+    budget,
+    usage,
+    "frameBytes",
+    storedByteLengthNumber(operation, metadata.byteLength),
+  );
+  chargeSqlOrThrow(operation, budget, usage, 1);
+  const byteRows = await runVerifierStatement(operation, () =>
+    kind === "registration"
+      ? tx.select({ bytes: fxSystemDeclarativeV2Registrations.frameBytes })
+        .from(fxSystemDeclarativeV2Registrations)
+        .where(and(
+          eq(fxSystemDeclarativeV2Registrations.scopeId, scopeId),
+          eq(
+            fxSystemDeclarativeV2Registrations.attemptSha256,
+            attemptSha256,
+          ),
+          eq(
+            fxSystemDeclarativeV2Registrations.registrationOrdinal,
+            row.ordinal,
+          ),
+        ))
+      : tx.select({ bytes: fxSystemDeclarativeV2Diagnostics.frameBytes })
+        .from(fxSystemDeclarativeV2Diagnostics)
+        .where(and(
+          eq(fxSystemDeclarativeV2Diagnostics.scopeId, scopeId),
+          eq(
+            fxSystemDeclarativeV2Diagnostics.attemptSha256,
+            attemptSha256,
+          ),
+          eq(
+            fxSystemDeclarativeV2Diagnostics.diagnosticOrdinal,
+            row.ordinal,
+          ),
+        ))
+  );
+  if (byteRows.length !== 1) {
+    throw corruption(operation, "driverResultInvalid");
+  }
+  return Object.freeze({
+    ordinal: row.ordinal,
+    stored: attachStoredBytes(operation, metadata, byteRows[0]!.bytes),
+  });
+}
+
+function captureStoredTailMetadata(
+  operation: "settleCommand" | "observeSettledPhaseTails",
+  codecVersion: unknown,
+  byteLength: unknown,
+  sha256: unknown,
+): Omit<StoredFrameV1, "bytes"> {
+  if (
+    codecVersion !== DECLARATIVE_V2_PHYSICAL_CODEC_VERSION_V1 ||
+    typeof byteLength !== "bigint" ||
+    byteLength < 1n ||
+    !isUint8ArrayWithByteLength(sha256, DECLARATIVE_V2_SHA256_BYTES_V1)
+  ) {
+    throw corruption(operation, "invalidMetadata");
+  }
+  return Object.freeze({
+    codecVersion,
+    byteLength,
+    sha256: new Uint8Array(sha256),
+  });
+}
+
+function storedByteLengthNumber(
+  operation: "settleCommand" | "observeSettledPhaseTails",
+  byteLength: bigint,
+): number {
+  if (byteLength > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw corruption(operation, "invalidMetadata");
+  }
+  return Number(byteLength);
+}
+
+const decodeStoredOrdinalTail = Effect.fn(
+  "DeclarativeV2.verifier.decodeStoredOrdinalTail",
+)(function* <Frame extends
+  DeclarativeV2RegistrationFrameV1 | DeclarativeV2DiagnosticFrameV1>(
+  operation: "settleCommand" | "observeSettledPhaseTails",
+  tail: StoredOrdinalTailV1,
+  kind: Frame["kind"],
+  expectedAttemptSha256: Uint8Array,
+  budget: DeclarativeV2VerifierProgressOperationBudgetV1,
+  tracker: MutableOperationUsageV1,
+  sha256: DeclarativeV2Sha256V1,
+) {
+    const captured = yield* decodeStoredFrame<Frame>(
+      operation,
+      tail.stored,
+      kind,
+      budget,
+      tracker,
+      sha256,
+    );
+    const ordinal = captured.frame.kind === "registration"
+      ? captured.frame.registrationOrdinal
+      : captured.frame.diagnosticOrdinal;
+    if (
+      !bytesEqualFullScan(
+        captured.frame.attemptSha256,
+        expectedAttemptSha256,
+      ) ||
+      ordinal !== tail.ordinal
+    ) {
+      return yield* corruption(operation, "normalizedMismatch");
+    }
+    return captured;
+});
+
+function copySettledPhaseTails(
+  value: SettledTailsInternalV1,
+): DeclarativeV2SettledPhaseTailsV1 {
+  return Object.freeze({
+    attempt: copyAttemptObservation(value.attempt),
+    phases: Object.freeze(value.phases.map(({ phase, captured }) =>
+      Object.freeze({
+        phase,
+        page: captured === null
+          ? null
+          : copyPageManifest(captured.frame),
+        pageSha256: captured === null
+          ? null
+          : new Uint8Array(captured.sha256),
+      })
+    )),
+    lastRegistrationOrdinal:
+      value.lastRegistration?.frame.registrationOrdinal ?? null,
+    lastDiagnosticOrdinal:
+      value.lastDiagnostic?.frame.diagnosticOrdinal ?? null,
+  });
+}
+
+function copyPageManifest(
+  value: DeclarativeV2PageManifestFrameV1,
+): DeclarativeV2PageManifestFrameV1 {
+  return Object.freeze({
+    ...value,
+    attemptSha256: new Uint8Array(value.attemptSha256),
+    previousPageSha256: copyNullableBytes(value.previousPageSha256),
+    pageRootSha256: new Uint8Array(value.pageRootSha256),
+  });
+}
+
+interface DerivedSettlementV1 {
+  readonly nextLifecycle: DeclarativeV2AttemptLifecycleV1;
+  readonly nextProgress: DeclarativeV2ProgressCursorFrameV1;
+  readonly page: Readonly<{
+    readonly phase: DeclarativeV2VerifierPhaseV1;
+    readonly pageOrdinal: bigint;
+    readonly firstItemOrdinal: bigint;
+    readonly itemCount: bigint;
+    readonly previousPageSha256: Uint8Array | null;
+  }>;
+}
+
+function deriveSettlement(
+  run: MutableRunStateV1,
+  work: MutableWorkStateV1,
+  disposition: DeclarativeV2PageDispositionV1,
+  tails: SettledTailsInternalV1,
+  evidence: readonly DeclarativeV2PageEvidenceKeyV1[],
+  modules: readonly Readonly<{
+    readonly captured: CapturedFrameV1<DeclarativeV2ModuleSummaryFrameV1>;
+    readonly modulePathSha256: Uint8Array;
+  }>[],
+  edges: readonly CapturedFrameV1<DeclarativeV2ImportEdgeFrameV1>[],
+  links: readonly CapturedFrameV1<DeclarativeV2LinkNodeFrameV1>[],
+  frontier: readonly CapturedFrameV1<DeclarativeV2FrontierEntryFrameV1>[],
+  registrations: readonly CapturedFrameV1<DeclarativeV2RegistrationFrameV1>[],
+  diagnostics: readonly CapturedFrameV1<DeclarativeV2DiagnosticFrameV1>[],
+): Result.Result<
+  DerivedSettlementV1,
+  | DeclarativeV2VerifierProgressInputV1Error
+  | DeclarativeV2VerifierProgressCollisionV1Error
+  | DeclarativeV2VerifierProgressExhaustionV1Error
+> {
+  const current = tails.attempt;
+  if (
+    current.settledSequence + 1n !== work.sequence ||
+    current.lifecycle !== run.attempt.lifecycle ||
+    current.progress.phase !== run.attempt.progress.phase
+  ) {
+    return Result.fail(inputError("settleCommand", "invalidInput"));
+  }
+  const objectReferences = evidence.filter(
+    (item): item is DeclarativeV2InertObjectReferenceEvidenceV1 =>
+      item.kind === "inert_object_reference",
+  );
+  const hasErrorDiagnostic = diagnostics.some(
+    item => item.frame.severity === "error",
+  );
+  const hasOnlyWarningDiagnostics = diagnostics.every(
+    item => item.frame.severity === "warning",
+  );
+  let nextLifecycle: DeclarativeV2AttemptLifecycleV1;
+  let nextPhase: DeclarativeV2VerifierPhaseV1;
+  let itemCount: bigint;
+  switch (work.commandKind) {
+    case "source_page": {
+      if (
+        current.lifecycle !== "open" ||
+        current.progress.phase !== "source" ||
+        objectReferences.length === 0 ||
+        modules.length !== 0 ||
+        edges.length !== 0 ||
+        links.length !== 0 ||
+        frontier.length !== 0 ||
+        registrations.length !== 0 ||
+        diagnostics.length !== 0
+      ) {
+        return Result.fail(inputError("settleCommand", "invalidInput"));
+      }
+      let nextReferenceOrdinal = pageTailStart(tails, "source");
+      itemCount = 0n;
+      for (const reference of objectReferences) {
+        if (reference.firstItemOrdinal !== nextReferenceOrdinal) {
+          return Result.fail(new DeclarativeV2VerifierProgressCollisionV1Error({
+            operation: "settleCommand",
+            reason: "pageRangeConflict",
+          }));
+        }
+        const next = checkedAddU64(
+          nextReferenceOrdinal,
+          reference.itemCount,
+        );
+        const total = checkedAddU64(itemCount, reference.itemCount);
+        if (next === undefined || total === undefined) {
+          return Result.fail(new DeclarativeV2VerifierProgressExhaustionV1Error({
+            operation: "settleCommand",
+            dimension: "pageOrdinal",
+            observed: MAX_FENCE,
+            maximum: MAX_FENCE,
+          }));
+        }
+        nextReferenceOrdinal = next;
+        itemCount = total;
+      }
+      nextLifecycle = disposition === "continuation" ? "open" : "parsing";
+      nextPhase = disposition === "continuation" ? "source" : "parse";
+      break;
+    }
+    case "parse_module": {
+      if (
+        current.lifecycle !== "parsing" ||
+        current.progress.phase !== "parse" ||
+        objectReferences.length !== 0 ||
+        links.length !== 0 ||
+        frontier.length !== 0 ||
+        registrations.length !== 0
+      ) {
+        return Result.fail(inputError("settleCommand", "invalidInput"));
+      }
+      if (modules.length === 1) {
+        const module = modules[0]!.captured.frame;
+        if (
+          module.moduleOrdinal !== current.progress.moduleOrdinal ||
+          BigInt(edges.length) !== module.importCount ||
+          !hasOnlyWarningDiagnostics
+        ) {
+          return Result.fail(inputError("settleCommand", "invalidInput"));
+        }
+        for (let index = 0; index < edges.length; index += 1) {
+          if (
+            edges[index]!.frame.moduleOrdinal !== module.moduleOrdinal ||
+            edges[index]!.frame.edgeOrdinal !== BigInt(index)
+          ) {
+            return Result.fail(inputError("settleCommand", "invalidInput"));
+          }
+        }
+        itemCount = 1n;
+      } else {
+        if (
+          modules.length !== 0 ||
+          edges.length !== 0 ||
+          diagnostics.length === 0 ||
+          !hasErrorDiagnostic
+        ) {
+          return Result.fail(inputError("settleCommand", "invalidInput"));
+        }
+        itemCount = BigInt(diagnostics.length);
+      }
+      nextLifecycle = disposition === "continuation"
+        ? "parsing"
+        : "parse_complete";
+      nextPhase = disposition === "continuation" ? "parse" : "link";
+      break;
+    }
+    case "link_page": {
+      if (
+        (current.lifecycle !== "parse_complete" &&
+          current.lifecycle !== "linking") ||
+        current.progress.phase !== "link" ||
+        objectReferences.length !== 0 ||
+        modules.length !== 0 ||
+        edges.length !== 0 ||
+        registrations.length !== 0 ||
+        (links.length === 0 && frontier.length === 0 &&
+          !hasErrorDiagnostic)
+      ) {
+        return Result.fail(inputError("settleCommand", "invalidInput"));
+      }
+      itemCount = BigInt(
+        links.length + frontier.length +
+          (links.length + frontier.length === 0 ? diagnostics.length : 0),
+      );
+      nextLifecycle = disposition === "continuation"
+        ? "linking"
+        : "link_complete";
+      nextPhase = disposition === "continuation" ? "link" : "registration";
+      break;
+    }
+    case "registration_page": {
+      if (
+        (current.lifecycle !== "link_complete" &&
+          current.lifecycle !== "registering") ||
+        current.progress.phase !== "registration" ||
+        objectReferences.length !== 0 ||
+        modules.length !== 0 ||
+        edges.length !== 0 ||
+        links.length !== 0 ||
+        frontier.length !== 0 ||
+        (registrations.length === 0 &&
+          diagnostics.length === 0 &&
+          disposition !== "completion")
+      ) {
+        return Result.fail(inputError("settleCommand", "invalidInput"));
+      }
+      const expectedRegistration =
+        (tails.lastRegistration?.frame.registrationOrdinal ?? -1n) + 1n;
+      for (let index = 0; index < registrations.length; index += 1) {
+        if (
+          registrations[index]!.frame.registrationOrdinal !==
+            expectedRegistration + BigInt(index)
+        ) {
+          return Result.fail(inputError("settleCommand", "invalidInput"));
+        }
+      }
+      itemCount = BigInt(
+        registrations.length > 0
+          ? registrations.length
+          : diagnostics.length > 0
+          ? diagnostics.length
+          : 1,
+      );
+      nextLifecycle = "registering";
+      nextPhase = disposition === "continuation"
+        ? "registration"
+        : "verdict";
+      break;
+    }
+  }
+  const expectedDiagnostic =
+    (tails.lastDiagnostic?.frame.diagnosticOrdinal ?? -1n) + 1n;
+  for (let index = 0; index < diagnostics.length; index += 1) {
+    if (
+      diagnostics[index]!.frame.diagnosticOrdinal !==
+        expectedDiagnostic + BigInt(index)
+    ) {
+      return Result.fail(inputError("settleCommand", "invalidInput"));
+    }
+  }
+  if (
+    !isValidSettlementTransition(
+      current.lifecycle,
+      current.progress.phase,
+      work.commandKind,
+      nextLifecycle,
+      nextPhase,
+    )
+  ) {
+    return Result.fail(inputError("settleCommand", "invalidInput"));
+  }
+  const nextModuleOrdinal = checkedAddU64(
+    current.progress.moduleOrdinal,
+    BigInt(modules.length),
+  );
+  const nextEdgeOrdinal = checkedAddU64(
+    current.progress.edgeOrdinal,
+    BigInt(edges.length),
+  );
+  if (nextModuleOrdinal === undefined || nextEdgeOrdinal === undefined) {
+    return Result.fail(new DeclarativeV2VerifierProgressExhaustionV1Error({
+      operation: "settleCommand",
+      dimension: nextModuleOrdinal === undefined
+        ? "moduleOrdinal"
+        : "edgeOrdinal",
+      observed: MAX_FENCE,
+      maximum: MAX_FENCE,
+    }));
+  }
+  const tail = tails.phases.find(item =>
+    item.phase === current.progress.phase
+  )?.captured ?? null;
+  const pageOrdinal = tail === null ? 0n : tail.frame.pageOrdinal + 1n;
+  const firstItemOrdinal = tail === null
+    ? 0n
+    : tail.frame.firstItemOrdinal + tail.frame.itemCount;
+  if (
+    pageOrdinal > MAX_FENCE ||
+    firstItemOrdinal > MAX_FENCE ||
+    itemCount < 1n ||
+    itemCount > MAX_FENCE
+  ) {
+    return Result.fail(inputError("settleCommand", "invalidInput"));
+  }
+  return Result.succeed(Object.freeze({
+    nextLifecycle,
+    nextProgress: Object.freeze({
+      kind: "progress_cursor" as const,
+      phase: nextPhase,
+      settledSequence: work.sequence,
+      moduleOrdinal: nextModuleOrdinal,
+      edgeOrdinal: nextEdgeOrdinal,
+      pageOrdinal: work.sequence,
+      previousReceiptSha256: copyNullableBytes(work.previousReceiptSha256),
+    }),
+    page: Object.freeze({
+      phase: current.progress.phase,
+      pageOrdinal,
+      firstItemOrdinal,
+      itemCount,
+      previousPageSha256: tail === null
+        ? null
+        : new Uint8Array(tail.sha256),
+    }),
+  }));
+}
+
+function pageTailStart(
+  tails: SettledTailsInternalV1,
+  phase: DeclarativeV2VerifierPhaseV1,
+): bigint {
+  const tail = tails.phases.find(item => item.phase === phase)?.captured;
+  return tail === undefined || tail === null
+    ? 0n
+    : tail.frame.firstItemOrdinal + tail.frame.itemCount;
+}
+
+function progressCursorEquals(
+  left: DeclarativeV2ProgressCursorFrameV1,
+  right: DeclarativeV2ProgressCursorFrameV1,
+): boolean {
+  return left.phase === right.phase &&
+    left.settledSequence === right.settledSequence &&
+    left.moduleOrdinal === right.moduleOrdinal &&
+    left.edgeOrdinal === right.edgeOrdinal &&
+    left.pageOrdinal === right.pageOrdinal &&
+    nullableDigestEqual(
+      left.previousReceiptSha256,
+      right.previousReceiptSha256,
+    );
+}
+
+function isPageDisposition(
+  value: unknown,
+): value is DeclarativeV2PageDispositionV1 {
+  return value === "continuation" || value === "completion";
+}
+
+function checkedAddU64(left: bigint, right: bigint): bigint | undefined {
+  return left < 0n || right < 0n || left > MAX_FENCE - right
+    ? undefined
+    : left + right;
+}
+
+function checkedAddNumber(
+  ...values: readonly number[]
+): number | undefined {
+  let total = 0;
+  for (const value of values) {
+    if (
+      !isNonNegativeSafeInteger(value) ||
+      total > Number.MAX_SAFE_INTEGER - value
+    ) {
+      return undefined;
+    }
+    total += value;
+  }
+  return total;
+}
+
 interface CapturedSettlementEvidenceV1 {
   readonly modules: readonly Readonly<{
     readonly captured: CapturedFrameV1<DeclarativeV2ModuleSummaryFrameV1>;
@@ -4145,8 +5195,51 @@ interface CapturedSettlementBatchV1 {
   readonly outputSha256: Uint8Array;
 }
 
-const captureSettlementBatch = Effect.fn(
-  "DeclarativeV2.verifier.captureSettlementBatch",
+type CapturedSettlementFramePreimageV1 =
+  | Readonly<{
+    readonly kind: "module_summary";
+    readonly frame:
+      CapturedFramePreimageV1<DeclarativeV2ModuleSummaryFrameV1>;
+    readonly path: DeclarativeV2ModulePathProjectionPreimageV1;
+  }>
+  | Readonly<{
+    readonly kind: "import_edge";
+    readonly frame:
+      CapturedFramePreimageV1<DeclarativeV2ImportEdgeFrameV1>;
+  }>
+  | Readonly<{
+    readonly kind: "link_node";
+    readonly frame:
+      CapturedFramePreimageV1<DeclarativeV2LinkNodeFrameV1>;
+  }>
+  | Readonly<{
+    readonly kind: "frontier_entry";
+    readonly frame:
+      CapturedFramePreimageV1<DeclarativeV2FrontierEntryFrameV1>;
+  }>
+  | Readonly<{
+    readonly kind: "registration";
+    readonly frame:
+      CapturedFramePreimageV1<DeclarativeV2RegistrationFrameV1>;
+  }>
+  | Readonly<{
+    readonly kind: "diagnostic";
+    readonly frame:
+      CapturedFramePreimageV1<DeclarativeV2DiagnosticFrameV1>;
+  }>;
+
+interface CapturedSettlementInputV1 {
+  readonly frames: Omit<CapturedSettlementEvidenceV1, "pages">;
+  readonly pageEvidenceKeys: readonly DeclarativeV2PageEvidenceKeyV1[];
+  readonly outputEvidenceKeys: readonly DeclarativeV2SettledEvidenceKeyV1[];
+  readonly disposition: DeclarativeV2PageDispositionV1;
+  readonly requestedNextLifecycle: DeclarativeV2AttemptLifecycleV1;
+  readonly requestedProgress:
+    CapturedFrameV1<DeclarativeV2ProgressCursorFrameV1>;
+}
+
+const captureSettlementInput = Effect.fn(
+  "DeclarativeV2.verifier.captureSettlementInput",
 )(function* (
   run: MutableRunStateV1,
   work: MutableWorkStateV1,
@@ -4156,70 +5249,75 @@ const captureSettlementBatch = Effect.fn(
   sha256: DeclarativeV2Sha256V1,
 ): Generator<
   Effect.Effect<unknown, DeclarativeV2VerifierProgressV1Error>,
-  CapturedSettlementBatchV1,
+  CapturedSettlementInputV1,
   never
 > {
     if (
       !isNonArrayRecord(rawBatch) ||
-      Object.keys(rawBatch).length !== 3 ||
+      Object.keys(rawBatch).length !== 5 ||
       Object.getOwnPropertySymbols(rawBatch).length !== 0
     ) {
       return yield* inputError("settleCommand", "invalidInput");
     }
     const rawFrames = ownDataValue(rawBatch, "frames");
+    const rawObjectReferences = ownDataValue(rawBatch, "objectReferences");
+    const disposition = ownDataValue(rawBatch, "disposition");
     const nextLifecycle = ownDataValue(rawBatch, "nextLifecycle");
     const rawNextProgress = ownDataValue(rawBatch, "nextProgress");
-    if (!Array.isArray(rawFrames) || !isLifecycle(nextLifecycle)) {
+    if (
+      !Array.isArray(rawFrames) ||
+      !Array.isArray(rawObjectReferences) ||
+      !isPageDisposition(disposition) ||
+      !isLifecycle(nextLifecycle)
+    ) {
       return yield* inputError("settleCommand", "invalidInput");
     }
-    if (rawFrames.length > remaining(budget.maximumRows, tracker.rows)) {
+    const frameCount = rawFrames.length;
+    const objectReferenceCount = rawObjectReferences.length;
+    const capturedRowCount = checkedAddNumber(
+      frameCount,
+      objectReferenceCount,
+      1,
+    );
+    if (
+      capturedRowCount === undefined ||
+      capturedRowCount > remaining(budget.maximumRows, tracker.rows)
+    ) {
       return yield* inputError(
         "settleCommand",
         "budgetExceeded",
         "rows",
-        rawFrames.length,
+        capturedRowCount ?? Number.MAX_SAFE_INTEGER,
         budget.maximumRows,
       );
     }
-    const progress = yield* captureFrame<DeclarativeV2ProgressCursorFrameV1>(
-      "settleCommand",
-      rawNextProgress,
-      "progress_cursor",
-      budget,
-      tracker,
-      sha256,
-    );
-    if (
-      progress.frame.settledSequence !== work.sequence ||
-      !nullableDigestEqual(
-        progress.frame.previousReceiptSha256,
-        work.previousReceiptSha256,
-      ) ||
-      !isValidSettlementTransition(
-        run.attempt.lifecycle,
-        run.attempt.progress.phase,
-        work.commandKind,
-        nextLifecycle,
-        progress.frame.phase,
-      )
-    ) {
-      return yield* inputError("settleCommand", "invalidInput");
+
+    const framePreimages: CapturedSettlementFramePreimageV1[] = [];
+    const pageEvidenceKeys: DeclarativeV2PageEvidenceKeyV1[] = [];
+    const outputEvidenceKeys: DeclarativeV2SettledEvidenceKeyV1[] = [];
+
+    for (let index = 0; index < objectReferenceCount; index += 1) {
+      const rawReference = rawObjectReferences[index];
+      const captured = yield* Effect.fromResult(
+        captureDeclarativeV2PageEvidenceKeyV1(rawReference).pipe(
+          Result.mapError(evidenceCause =>
+            new DeclarativeV2VerifierProgressInputV1Error({
+              operation: "settleCommand",
+              reason: "invalidInput",
+              evidenceCause,
+            })
+          ),
+        ),
+      );
+      if (captured.kind !== "inert_object_reference") {
+        return yield* inputError("settleCommand", "invalidInput");
+      }
+      pageEvidenceKeys.push(captured);
+      outputEvidenceKeys.push(captured);
     }
 
-    const modules: Array<{
-      readonly captured: CapturedFrameV1<DeclarativeV2ModuleSummaryFrameV1>;
-      readonly modulePathSha256: Uint8Array;
-    }> = [];
-    const edges: CapturedFrameV1<DeclarativeV2ImportEdgeFrameV1>[] = [];
-    const pages: CapturedFrameV1<DeclarativeV2PageManifestFrameV1>[] = [];
-    const links: CapturedFrameV1<DeclarativeV2LinkNodeFrameV1>[] = [];
-    const frontier: CapturedFrameV1<DeclarativeV2FrontierEntryFrameV1>[] = [];
-    const registrations: CapturedFrameV1<DeclarativeV2RegistrationFrameV1>[] =
-      [];
-    const diagnostics: CapturedFrameV1<DeclarativeV2DiagnosticFrameV1>[] = [];
-    const evidenceKeys: DeclarativeV2SettledEvidenceKeyV1[] = [];
-
-    for (const rawFrame of rawFrames) {
+    for (let index = 0; index < frameCount; index += 1) {
+      const rawFrame = rawFrames[index];
       const kind = isNonArrayRecord(rawFrame)
         ? ownDataValue(rawFrame, "kind")
         : undefined;
@@ -4228,20 +5326,21 @@ const captureSettlementBatch = Effect.fn(
       }
       switch (kind) {
         case "module_summary": {
-          const captured = yield* captureFrame<DeclarativeV2ModuleSummaryFrameV1>(
-            "settleCommand",
-            rawFrame,
-            kind,
-            budget,
-            tracker,
-            sha256,
+          const frame = yield* Effect.fromResult(
+            captureFramePreimage<DeclarativeV2ModuleSummaryFrameV1>(
+              "settleCommand",
+              rawFrame,
+              kind,
+              budget,
+              tracker,
+            ),
           );
           yield* Effect.fromResult(
-            requireFrameAttempt(run, captured.frame.attemptSha256),
+            requireFrameAttempt(run, frame.frame.attemptSha256),
           );
           const pathPreimage = yield* Effect.fromResult(
             buildDeclarativeV2ModulePathProjectionPreimageV1(
-              captured.frame.modulePath,
+              frame.frame.modulePath,
               {
                 maximumFrameBytes: remaining(
                   budget.maximumFrameBytes,
@@ -4258,8 +5357,11 @@ const captureSettlementBatch = Effect.fn(
                   ...(derivationCause.reason === "frameBytesExceeded"
                     ? {
                       dimension: "frameBytes" as const,
-                      observed: derivationCause.observed,
-                      maximum: derivationCause.maximum,
+                      observed: checkedAddNumber(
+                        tracker.frameBytes,
+                        derivationCause.observed ?? Number.MAX_SAFE_INTEGER,
+                      ) ?? Number.MAX_SAFE_INTEGER,
+                      maximum: budget.maximumFrameBytes,
                     }
                     : {}),
                   derivationCause,
@@ -4281,146 +5383,207 @@ const captureSettlementBatch = Effect.fn(
             "hashBytes",
             pathPreimage.bytes.byteLength,
           ));
-          const modulePathSha256 = yield* sha256(pathPreimage.bytes, {
-            maximumInputBytes: pathPreimage.bytes.byteLength,
+          framePreimages.push(Object.freeze({
+            kind,
+            frame,
+            path: pathPreimage,
+          }));
+          break;
+        }
+        case "import_edge": {
+          const captured = yield* Effect.fromResult(
+            captureFramePreimage<DeclarativeV2ImportEdgeFrameV1>(
+              "settleCommand",
+              rawFrame,
+              kind,
+              budget,
+              tracker,
+            ),
+          );
+          yield* Effect.fromResult(
+            requireFrameAttempt(run, captured.frame.attemptSha256),
+          );
+          framePreimages.push(Object.freeze({ kind, frame: captured }));
+          break;
+        }
+        case "link_node": {
+          const captured = yield* Effect.fromResult(
+            captureFramePreimage<DeclarativeV2LinkNodeFrameV1>(
+              "settleCommand",
+              rawFrame,
+              kind,
+              budget,
+              tracker,
+            ),
+          );
+          yield* Effect.fromResult(
+            requireFrameAttempt(run, captured.frame.attemptSha256),
+          );
+          framePreimages.push(Object.freeze({ kind, frame: captured }));
+          break;
+        }
+        case "frontier_entry": {
+          const captured = yield* Effect.fromResult(
+            captureFramePreimage<DeclarativeV2FrontierEntryFrameV1>(
+              "settleCommand",
+              rawFrame,
+              kind,
+              budget,
+              tracker,
+            ),
+          );
+          yield* Effect.fromResult(
+            requireFrameAttempt(run, captured.frame.attemptSha256),
+          );
+          framePreimages.push(Object.freeze({ kind, frame: captured }));
+          break;
+        }
+        case "registration": {
+          const captured = yield* Effect.fromResult(
+            captureFramePreimage<DeclarativeV2RegistrationFrameV1>(
+              "settleCommand",
+              rawFrame,
+              kind,
+              budget,
+              tracker,
+            ),
+          );
+          yield* Effect.fromResult(
+            requireFrameAttempt(run, captured.frame.attemptSha256),
+          );
+          framePreimages.push(Object.freeze({ kind, frame: captured }));
+          break;
+        }
+        case "diagnostic": {
+          const captured = yield* Effect.fromResult(
+            captureFramePreimage<DeclarativeV2DiagnosticFrameV1>(
+              "settleCommand",
+              rawFrame,
+              kind,
+              budget,
+              tracker,
+            ),
+          );
+          yield* Effect.fromResult(
+            requireFrameAttempt(run, captured.frame.attemptSha256),
+          );
+          framePreimages.push(Object.freeze({ kind, frame: captured }));
+          break;
+        }
+      }
+    }
+
+    const requestedProgressPreimage = yield* Effect.fromResult(
+      captureFramePreimage<DeclarativeV2ProgressCursorFrameV1>(
+        "settleCommand",
+        rawNextProgress,
+        "progress_cursor",
+        budget,
+        tracker,
+      ),
+    );
+
+    const modules: Array<{
+      readonly captured: CapturedFrameV1<DeclarativeV2ModuleSummaryFrameV1>;
+      readonly modulePathSha256: Uint8Array;
+    }> = [];
+    const edges: CapturedFrameV1<DeclarativeV2ImportEdgeFrameV1>[] = [];
+    const pages: CapturedFrameV1<DeclarativeV2PageManifestFrameV1>[] = [];
+    const links: CapturedFrameV1<DeclarativeV2LinkNodeFrameV1>[] = [];
+    const frontier: CapturedFrameV1<DeclarativeV2FrontierEntryFrameV1>[] = [];
+    const registrations: CapturedFrameV1<DeclarativeV2RegistrationFrameV1>[] =
+      [];
+    const diagnostics: CapturedFrameV1<DeclarativeV2DiagnosticFrameV1>[] = [];
+
+    for (const preimage of framePreimages) {
+      switch (preimage.kind) {
+        case "module_summary": {
+          const captured = yield* hashCapturedFrame(preimage.frame, sha256);
+          const modulePathSha256 = yield* sha256(preimage.path.bytes, {
+            maximumInputBytes: preimage.path.bytes.byteLength,
           });
           modules.push(Object.freeze({
             captured,
             modulePathSha256: new Uint8Array(modulePathSha256),
           }));
-          evidenceKeys.push(Object.freeze({
-            kind,
+          const evidenceKey = Object.freeze({
+            kind: preimage.kind,
             moduleOrdinal: captured.frame.moduleOrdinal,
             frameSha256: new Uint8Array(captured.sha256),
-          }));
+          });
+          pageEvidenceKeys.push(evidenceKey);
+          outputEvidenceKeys.push(evidenceKey);
           break;
         }
         case "import_edge": {
-          const captured = yield* captureFrame<DeclarativeV2ImportEdgeFrameV1>(
-            "settleCommand",
-            rawFrame,
-            kind,
-            budget,
-            tracker,
-            sha256,
-          );
-          yield* Effect.fromResult(
-            requireFrameAttempt(run, captured.frame.attemptSha256),
-          );
+          const captured = yield* hashCapturedFrame(preimage.frame, sha256);
           edges.push(captured);
-          evidenceKeys.push(Object.freeze({
-            kind,
+          const evidenceKey = Object.freeze({
+            kind: preimage.kind,
             moduleOrdinal: captured.frame.moduleOrdinal,
             edgeOrdinal: captured.frame.edgeOrdinal,
             frameSha256: new Uint8Array(captured.sha256),
-          }));
-          break;
-        }
-        case "phase_page_manifest": {
-          const captured = yield* captureFrame<DeclarativeV2PageManifestFrameV1>(
-            "settleCommand",
-            rawFrame,
-            kind,
-            budget,
-            tracker,
-            sha256,
-          );
-          yield* Effect.fromResult(
-            requireFrameAttempt(run, captured.frame.attemptSha256),
-          );
-          pages.push(captured);
-          evidenceKeys.push(Object.freeze({
-            kind,
-            phase: captured.frame.phase,
-            pageOrdinal: captured.frame.pageOrdinal,
-            frameSha256: new Uint8Array(captured.sha256),
-          }));
+          });
+          pageEvidenceKeys.push(evidenceKey);
+          outputEvidenceKeys.push(evidenceKey);
           break;
         }
         case "link_node": {
-          const captured = yield* captureFrame<DeclarativeV2LinkNodeFrameV1>(
-            "settleCommand",
-            rawFrame,
-            kind,
-            budget,
-            tracker,
-            sha256,
-          );
-          yield* Effect.fromResult(
-            requireFrameAttempt(run, captured.frame.attemptSha256),
-          );
+          const captured = yield* hashCapturedFrame(preimage.frame, sha256);
           links.push(captured);
-          evidenceKeys.push(Object.freeze({
-            kind,
+          const evidenceKey = Object.freeze({
+            kind: preimage.kind,
             moduleOrdinal: captured.frame.moduleOrdinal,
             rowVersion: captured.frame.rowVersion,
             frameSha256: new Uint8Array(captured.sha256),
-          }));
+          });
+          pageEvidenceKeys.push(evidenceKey);
+          outputEvidenceKeys.push(evidenceKey);
           break;
         }
         case "frontier_entry": {
-          const captured = yield* captureFrame<DeclarativeV2FrontierEntryFrameV1>(
-            "settleCommand",
-            rawFrame,
-            kind,
-            budget,
-            tracker,
-            sha256,
-          );
-          yield* Effect.fromResult(
-            requireFrameAttempt(run, captured.frame.attemptSha256),
-          );
+          const captured = yield* hashCapturedFrame(preimage.frame, sha256);
           frontier.push(captured);
-          evidenceKeys.push(Object.freeze({
-            kind,
+          const evidenceKey = Object.freeze({
+            kind: preimage.kind,
             frontierSequence: captured.frame.frontierSequence,
             rowVersion: captured.frame.rowVersion,
             frameSha256: new Uint8Array(captured.sha256),
-          }));
+          });
+          pageEvidenceKeys.push(evidenceKey);
+          outputEvidenceKeys.push(evidenceKey);
           break;
         }
         case "registration": {
-          const captured = yield* captureFrame<DeclarativeV2RegistrationFrameV1>(
-            "settleCommand",
-            rawFrame,
-            kind,
-            budget,
-            tracker,
-            sha256,
-          );
-          yield* Effect.fromResult(
-            requireFrameAttempt(run, captured.frame.attemptSha256),
-          );
+          const captured = yield* hashCapturedFrame(preimage.frame, sha256);
           registrations.push(captured);
-          evidenceKeys.push(Object.freeze({
-            kind,
+          const evidenceKey = Object.freeze({
+            kind: preimage.kind,
             registrationOrdinal: captured.frame.registrationOrdinal,
             frameSha256: new Uint8Array(captured.sha256),
-          }));
+          });
+          pageEvidenceKeys.push(evidenceKey);
+          outputEvidenceKeys.push(evidenceKey);
           break;
         }
         case "diagnostic": {
-          const captured = yield* captureFrame<DeclarativeV2DiagnosticFrameV1>(
-            "settleCommand",
-            rawFrame,
-            kind,
-            budget,
-            tracker,
-            sha256,
-          );
-          yield* Effect.fromResult(
-            requireFrameAttempt(run, captured.frame.attemptSha256),
-          );
+          const captured = yield* hashCapturedFrame(preimage.frame, sha256);
           diagnostics.push(captured);
-          evidenceKeys.push(Object.freeze({
-            kind,
+          const evidenceKey = Object.freeze({
+            kind: preimage.kind,
             diagnosticOrdinal: captured.frame.diagnosticOrdinal,
             frameSha256: new Uint8Array(captured.sha256),
-          }));
+          });
+          pageEvidenceKeys.push(evidenceKey);
+          outputEvidenceKeys.push(evidenceKey);
           break;
         }
       }
     }
+    const requestedProgress = yield* hashCapturedFrame(
+      requestedProgressPreimage,
+      sha256,
+    );
 
     yield* Effect.fromResult(sortSettlementEvidence(
       modules,
@@ -4430,15 +5593,179 @@ const captureSettlementBatch = Effect.fn(
       frontier,
       registrations,
       diagnostics,
-      evidenceKeys,
+      outputEvidenceKeys,
     ));
+    pageEvidenceKeys.sort(compareDeclarativeV2PageEvidenceKeyV1);
+    for (let index = 1; index < pageEvidenceKeys.length; index += 1) {
+      if (
+        compareDeclarativeV2PageEvidenceKeyV1(
+          pageEvidenceKeys[index - 1]!,
+          pageEvidenceKeys[index]!,
+        ) === 0
+      ) {
+        return yield* new DeclarativeV2VerifierProgressCollisionV1Error({
+          operation: "settleCommand",
+          reason: "immutableEvidenceChanged",
+        });
+      }
+    }
+    return Object.freeze({
+      frames: Object.freeze({
+        modules: Object.freeze(modules),
+        edges: Object.freeze(edges),
+        links: Object.freeze(links),
+        frontier: Object.freeze(frontier),
+        registrations: Object.freeze(registrations),
+        diagnostics: Object.freeze(diagnostics),
+      }),
+      pageEvidenceKeys: Object.freeze(pageEvidenceKeys),
+      outputEvidenceKeys: Object.freeze(outputEvidenceKeys),
+      disposition,
+      requestedNextLifecycle: nextLifecycle,
+      requestedProgress,
+    });
+});
+
+const completeSettlementBatch = Effect.fn(
+  "DeclarativeV2.verifier.completeSettlementBatch",
+)(function* (
+  run: MutableRunStateV1,
+  work: MutableWorkStateV1,
+  input: CapturedSettlementInputV1,
+  tails: SettledTailsInternalV1,
+  budget: DeclarativeV2VerifierProgressOperationBudgetV1,
+  tracker: MutableOperationUsageV1,
+  sha256: DeclarativeV2Sha256V1,
+): Generator<
+  Effect.Effect<unknown, DeclarativeV2VerifierProgressV1Error>,
+  CapturedSettlementBatchV1,
+  never
+> {
+    const {
+      modules,
+      edges,
+      links,
+      frontier,
+      registrations,
+      diagnostics,
+    } = input.frames;
+    const pageEvidenceKeys = input.pageEvidenceKeys;
+    const outputEvidenceKeys = [...input.outputEvidenceKeys];
+    const derived = yield* Effect.fromResult(deriveSettlement(
+      run,
+      work,
+      input.disposition,
+      tails,
+      pageEvidenceKeys,
+      modules,
+      edges,
+      links,
+      frontier,
+      registrations,
+      diagnostics,
+    ));
+    if (input.requestedNextLifecycle !== derived.nextLifecycle) {
+      return yield* inputError("settleCommand", "invalidInput");
+    }
+    if (
+      !progressCursorEquals(
+        input.requestedProgress.frame,
+        derived.nextProgress,
+      )
+    ) {
+      return yield* inputError("settleCommand", "invalidInput");
+    }
+    const pagePreimage = yield* Effect.fromResult(
+      encodeDeclarativeV2PageEvidenceRootV1(
+        {
+          attemptSha256: run.attemptSha256,
+          commandKind: work.commandKind,
+          sequence: work.sequence,
+          phase: derived.page.phase,
+          disposition: input.disposition,
+          pageOrdinal: derived.page.pageOrdinal,
+          firstItemOrdinal: derived.page.firstItemOrdinal,
+          itemCount: derived.page.itemCount,
+          previousPageSha256: derived.page.previousPageSha256,
+          evidence: pageEvidenceKeys,
+        },
+        {
+          maximumFrameBytes: remaining(
+            budget.maximumFrameBytes,
+            tracker.frameBytes,
+          ),
+        },
+      ).pipe(
+        Result.mapError(evidenceCause =>
+          new DeclarativeV2VerifierProgressInputV1Error({
+            operation: "settleCommand",
+            reason: evidenceCause.reason === "frameBytesExceeded"
+              ? "budgetExceeded"
+              : "invalidInput",
+            ...(evidenceCause.reason === "frameBytesExceeded"
+              ? {
+                dimension: "frameBytes" as const,
+                observed: checkedAddNumber(
+                  tracker.frameBytes,
+                  evidenceCause.observed ?? Number.MAX_SAFE_INTEGER,
+                ) ?? Number.MAX_SAFE_INTEGER,
+                maximum: budget.maximumFrameBytes,
+              }
+              : {}),
+            evidenceCause,
+          })
+        ),
+      ),
+    );
+    yield* Effect.fromResult(chargeResult(
+      "settleCommand",
+      budget,
+      tracker,
+      "frameBytes",
+      pagePreimage.usage.frameBytes,
+    ));
+    yield* Effect.fromResult(chargeResult(
+      "settleCommand",
+      budget,
+      tracker,
+      "hashBytes",
+      pagePreimage.canonicalBytes.byteLength,
+    ));
+    const pageRootSha256 = yield* sha256(pagePreimage.canonicalBytes, {
+      maximumInputBytes: pagePreimage.canonicalBytes.byteLength,
+    });
+    const page = yield* captureFrame<DeclarativeV2PageManifestFrameV1>(
+      "settleCommand",
+      {
+        kind: "phase_page_manifest",
+        attemptSha256: run.attemptSha256,
+        phase: derived.page.phase,
+        pageOrdinal: derived.page.pageOrdinal,
+        firstItemOrdinal: derived.page.firstItemOrdinal,
+        itemCount: derived.page.itemCount,
+        previousPageSha256: derived.page.previousPageSha256,
+        pageRootSha256,
+      },
+      "phase_page_manifest",
+      budget,
+      tracker,
+      sha256,
+    );
+    const pages = Object.freeze([page]);
+    outputEvidenceKeys.push(Object.freeze({
+      kind: "phase_page_manifest" as const,
+      phase: page.frame.phase,
+      pageOrdinal: page.frame.pageOrdinal,
+      frameSha256: new Uint8Array(page.sha256),
+    }));
+    outputEvidenceKeys.sort(compareEvidenceForSettlement);
     const outputManifest = yield* Effect.fromResult(
       buildDeclarativeV2CommandOutputManifestPreimageV1(
         {
           attemptSha256: run.attemptSha256,
           commandKind: work.commandKind,
           sequence: work.sequence,
-          evidence: evidenceKeys,
+          evidence: outputEvidenceKeys,
         },
         {
           maximumFrameBytes: remaining(
@@ -4455,9 +5782,12 @@ const captureSettlementBatch = Effect.fn(
               : "invalidInput",
             ...(derivationCause.reason === "frameBytesExceeded"
               ? {
-                dimension: "frameBytes" as const,
-                observed: derivationCause.observed,
-                maximum: derivationCause.maximum,
+                  dimension: "frameBytes" as const,
+                  observed: checkedAddNumber(
+                    tracker.frameBytes,
+                    derivationCause.observed ?? Number.MAX_SAFE_INTEGER,
+                  ) ?? Number.MAX_SAFE_INTEGER,
+                  maximum: budget.maximumFrameBytes,
               }
               : {}),
             derivationCause,
@@ -4499,7 +5829,7 @@ const captureSettlementBatch = Effect.fn(
         reservationSha256: work.reservationSha256,
         usageSha256: usageFrame.sha256,
         outputSha256,
-        progressCursorSha256: progress.sha256,
+        progressCursorSha256: input.requestedProgress.sha256,
       },
       "command_receipt",
       budget,
@@ -4516,8 +5846,8 @@ const captureSettlementBatch = Effect.fn(
         registrations: Object.freeze(registrations),
         diagnostics: Object.freeze(diagnostics),
       }),
-      nextLifecycle,
-      progress,
+      nextLifecycle: derived.nextLifecycle,
+      progress: input.requestedProgress,
       receipt,
       outputSha256: new Uint8Array(outputSha256),
     });
@@ -4537,14 +5867,12 @@ function isSettlementFrameKind(
 ): value is
   | "module_summary"
   | "import_edge"
-  | "phase_page_manifest"
   | "link_node"
   | "frontier_entry"
   | "registration"
   | "diagnostic" {
   return value === "module_summary" ||
     value === "import_edge" ||
-    value === "phase_page_manifest" ||
     value === "link_node" ||
     value === "frontier_entry" ||
     value === "registration" ||
@@ -4646,6 +5974,10 @@ function compareEvidenceForSettlement(
   if (kindRank !== 0) return kindRank;
   if (left.kind !== right.kind) return kindRank;
   switch (left.kind) {
+    case "inert_object_reference":
+      return right.kind === left.kind
+        ? compareDeclarativeV2PageEvidenceKeyV1(left, right)
+        : 0;
     case "module_summary":
       return right.kind === left.kind
         ? compareBigint(left.moduleOrdinal, right.moduleOrdinal)
@@ -4678,6 +6010,12 @@ function compareEvidenceForSettlement(
       return right.kind === left.kind
         ? compareBigint(left.diagnosticOrdinal, right.diagnosticOrdinal)
         : 0;
+    case "deployment_analysis_projection":
+    case "deployment_codegen_analysis_projection":
+    case "static_finalization":
+      return right.kind === left.kind
+        ? compareDeclarativeV2PageEvidenceKeyV1(left, right)
+        : 0;
   }
 }
 
@@ -4685,6 +6023,8 @@ function settlementKindRank(
   kind: DeclarativeV2SettledEvidenceKeyV1["kind"],
 ): number {
   switch (kind) {
+    case "inert_object_reference":
+      return 8;
     case "module_summary":
       return 1;
     case "import_edge":
@@ -4699,6 +6039,12 @@ function settlementKindRank(
       return 6;
     case "diagnostic":
       return 7;
+    case "deployment_analysis_projection":
+      return 9;
+    case "deployment_codegen_analysis_projection":
+      return 10;
+    case "static_finalization":
+      return 11;
   }
 }
 

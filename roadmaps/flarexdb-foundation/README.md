@@ -727,7 +727,8 @@ start Payload feature parity. Their contract is in
    dynamic, compatibility-only, and PAM-ineligible.
 2. `S03-D4`: lock the located scope clock first, then derive target-native
    readiness from the exact candidate/verifier evidence and real target rows,
-   indexes, uniqueness, edges, and adapter evidence. Readiness may reject but
+   indexes, uniqueness, edges, and adapter evidence. S03-D4 alone writes either
+   terminal ready or rejected verifier verdict and lifecycle. It may reject but
    never discover/rewrite declarative metadata or mutate activation.
 3. `S04`: under the same scope-clock-first order, revalidate the complete
    readiness evidence and CAS one target-local activation revision/head. The
@@ -761,17 +762,28 @@ request keys/cursors, or a supported external consumer.
 `C07A` is not an activation or retirement prerequisite when its predeclared
 threshold is not met.
 
-The current S0 foundation is implemented but inert. Migration 0035 adds
+The S0 foundation and S1 durable verifier-progress stage are implemented but
+remain private, production-unreachable, and inert. Migration 0035 adds
 target-local candidate, verifier-progress, evidence, verdict, activation
 revision, and activation head tables without creating a head row or composing
 production authority. Private canonical frames own semantics; normalized
 columns exist only for local foreign keys, bounded pagination, fencing,
 metadata-first admission, and future lock/CAS predicates. Minimal bounded
-candidate insert/reload proves frame/schema agreement. Claim/reserve/settle,
-static verification, readiness, activation writes, coherent reads, ingress,
-dispatch, client cutover, and cleanup remain later stages of the same approved
-vertical. Retain all evidence initially; no fallback, shadowing, dual write, or
-dual authority is permitted.
+candidate insert/reload proves frame/schema agreement. S1 adds database-time
+lease/fence ownership and conservative reserve/resume/settle/replay/takeover
+without parser, analyzer, source reads, finalization, readiness, or activation.
+Its no-DDL C1 evidence contract derives each page root from ordered non-manifest
+evidence, creates the sole page manifest, derives the caller-comparison-only
+progress transition, and provides bounded fixed-order phase-tail observation.
+Captured source/semantic object references are inert commitments, not proof of
+existence, authentication, finalization, or read authority. Stage 3 later writes
+only static-finalization evidence and the two candidate projections; S03-D4,
+under the scope-clock-first order, exclusively writes both terminal verdict
+outcomes and lifecycle before S04 activation CAS. Static verification,
+authenticated source/semantic reading, readiness, activation writes, coherent
+reads, ingress, dispatch, client cutover, and cleanup remain later stages of the
+same approved vertical. Retain all evidence initially; no fallback, shadowing,
+dual write, or dual authority is permitted.
 
 ## Cross-Plan Invariants
 

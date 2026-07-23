@@ -179,7 +179,32 @@ describe("Declarative V2 verifier derivations", () => {
       }, { maximumFrameBytes: 1_000 }),
     );
     sourceDigest[0] = 0xff;
-    expect(captured.evidence[0]?.frameSha256[0]).toBe(5);
+    const evidence = captured.evidence[0];
+    expect(
+      evidence?.kind === "module_summary"
+        ? evidence.frameSha256[0]
+        : undefined,
+    ).toBe(5);
+
+    const hostileEvidence = Object.defineProperty({}, "kind", {
+      enumerable: true,
+      get: () => {
+        throw new Error("evidence must not be traversed");
+      },
+    });
+    const domain =
+      "flarex.declarative-v2/command-output-manifest/v1\0";
+    const preflight = buildDeclarativeV2CommandOutputManifestPreimageV1({
+      attemptSha256: digest(3),
+      commandKind: "parse_module",
+      sequence: 1n,
+      evidence: new Array(100).fill(hostileEvidence),
+    }, { maximumFrameBytes: 0 });
+    expect(Result.isFailure(preflight) && preflight.failure).toMatchObject({
+      reason: "frameBytesExceeded",
+      observed: Buffer.byteLength(domain) + 45 + 3_300,
+      maximum: 0,
+    });
   });
 });
 

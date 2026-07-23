@@ -12,6 +12,11 @@ import {
   type DeclarativeV2VerifierPhaseV1,
 } from "flarex-protocol/internal/declarative-v2-physical-v1";
 import {
+  captureDeclarativeV2PageEvidenceKeyV1,
+  compareDeclarativeV2PageEvidenceKeyV1,
+  DeclarativeV2PageEvidenceKeyV1,
+} from "flarex-protocol/internal/declarative-v2-verification-evidence-v1";
+import {
   encodeCanonicalJson,
 } from "flarex-protocol/json";
 
@@ -24,6 +29,7 @@ const MODULE_PATH_DOMAIN = UTF8_ENCODER.encode(
 const COMMAND_OUTPUT_DOMAIN = UTF8_ENCODER.encode(
   "flarex.declarative-v2/command-output-manifest/v1\0",
 );
+const MINIMUM_SETTLED_EVIDENCE_BYTES = 33;
 
 const COMMAND_KIND_TAG = {
   source_page: 1,
@@ -51,6 +57,21 @@ const EVIDENCE_KIND_TAG = {
   frontier_entry: 5,
   registration: 6,
   diagnostic: 7,
+  inert_object_reference: 8,
+  deployment_analysis_projection: 9,
+  deployment_codegen_analysis_projection: 10,
+  static_finalization: 11,
+} as const;
+
+const REFERENCE_NAMESPACE_TAG = {
+  source: 1,
+  semantic: 2,
+} as const;
+
+const REFERENCE_OBJECT_KIND_TAG = {
+  block: 1,
+  tree: 2,
+  root: 3,
 } as const;
 
 export interface DeclarativeV2VerifierDerivationBudgetV1 {
@@ -86,43 +107,11 @@ export interface DeclarativeV2ModulePathProjectionPreimageV1 {
 }
 
 export type DeclarativeV2SettledEvidenceKeyV1 =
-  | Readonly<{
-    readonly kind: "module_summary";
-    readonly moduleOrdinal: bigint;
-    readonly frameSha256: Uint8Array;
-  }>
-  | Readonly<{
-    readonly kind: "import_edge";
-    readonly moduleOrdinal: bigint;
-    readonly edgeOrdinal: bigint;
-    readonly frameSha256: Uint8Array;
-  }>
+  | DeclarativeV2PageEvidenceKeyV1
   | Readonly<{
     readonly kind: "phase_page_manifest";
     readonly phase: DeclarativeV2VerifierPhaseV1;
     readonly pageOrdinal: bigint;
-    readonly frameSha256: Uint8Array;
-  }>
-  | Readonly<{
-    readonly kind: "link_node";
-    readonly moduleOrdinal: bigint;
-    readonly rowVersion: bigint;
-    readonly frameSha256: Uint8Array;
-  }>
-  | Readonly<{
-    readonly kind: "frontier_entry";
-    readonly frontierSequence: bigint;
-    readonly rowVersion: bigint;
-    readonly frameSha256: Uint8Array;
-  }>
-  | Readonly<{
-    readonly kind: "registration";
-    readonly registrationOrdinal: bigint;
-    readonly frameSha256: Uint8Array;
-  }>
-  | Readonly<{
-    readonly kind: "diagnostic";
-    readonly diagnosticOrdinal: bigint;
     readonly frameSha256: Uint8Array;
   }>;
 
@@ -224,7 +213,10 @@ export function buildDeclarativeV2CommandOutputManifestPreimageV1(
 > {
   return Result.gen(function* () {
     const budget = yield* decodeBudget("commandOutputManifest", rawBudget);
-    const captured = yield* captureCommandOutputInput(input);
+    const captured = yield* captureCommandOutputInput(
+      input,
+      budget.maximumFrameBytes,
+    );
     if (captured.evidence.length > U32_MAX) {
       return yield* Result.fail(derivationError(
         "commandOutputManifest",
@@ -320,6 +312,7 @@ function decodeBudget(
 
 function captureCommandOutputInput(
   value: unknown,
+  maximumFrameBytes: number,
 ): Result.Result<
   Readonly<{
     readonly attemptSha256: Uint8Array;
@@ -357,6 +350,34 @@ function captureCommandOutputInput(
       "invalidInput",
     ));
   }
+  if (evidence.length > U32_MAX) {
+    return Result.fail(derivationError(
+      "commandOutputManifest",
+      "invalidInput",
+    ));
+  }
+  const minimumFrameBytes = checkedAdd(
+    COMMAND_OUTPUT_DOMAIN.byteLength,
+    DECLARATIVE_V2_SHA256_BYTES_V1,
+    1,
+    8,
+    4,
+    evidence.length * MINIMUM_SETTLED_EVIDENCE_BYTES,
+  );
+  if (minimumFrameBytes === undefined) {
+    return Result.fail(derivationError(
+      "commandOutputManifest",
+      "invalidInput",
+    ));
+  }
+  if (minimumFrameBytes > maximumFrameBytes) {
+    return Result.fail(new DeclarativeV2VerifierDerivationInputV1Error({
+      operation: "commandOutputManifest",
+      reason: "frameBytesExceeded",
+      observed: minimumFrameBytes,
+      maximum: maximumFrameBytes,
+    }));
+  }
   const capturedEvidence: DeclarativeV2SettledEvidenceKeyV1[] = [];
   for (const item of evidence) {
     const captured = captureEvidence(item);
@@ -386,92 +407,27 @@ function captureEvidence(
     return undefined;
   }
   const kind = ownDataValue(value, "kind");
-  const frameSha256 = ownDataValue(value, "frameSha256");
-  if (
-    typeof kind !== "string" ||
-    !isUint8ArrayWithByteLength(
-      frameSha256,
-      DECLARATIVE_V2_SHA256_BYTES_V1,
-    )
-  ) {
-    return undefined;
+  if (kind === "phase_page_manifest") {
+    const frameSha256 = ownDataValue(value, "frameSha256");
+    const phase = ownDataValue(value, "phase");
+    const pageOrdinal = ownDataValue(value, "pageOrdinal");
+    return Object.keys(value).length === 4 &&
+        isUint8ArrayWithByteLength(
+          frameSha256,
+          DECLARATIVE_V2_SHA256_BYTES_V1,
+        ) &&
+        isPhase(phase) &&
+        isU64(pageOrdinal)
+      ? Object.freeze({
+        kind,
+        phase,
+        pageOrdinal,
+        frameSha256: new Uint8Array(frameSha256),
+      })
+      : undefined;
   }
-  const digest = new Uint8Array(frameSha256);
-  switch (kind) {
-    case "module_summary": {
-      if (Object.keys(value).length !== 3) return undefined;
-      const moduleOrdinal = ownDataValue(value, "moduleOrdinal");
-      return isU64(moduleOrdinal)
-        ? Object.freeze({ kind, moduleOrdinal, frameSha256: digest })
-        : undefined;
-    }
-    case "import_edge": {
-      if (Object.keys(value).length !== 4) return undefined;
-      const moduleOrdinal = ownDataValue(value, "moduleOrdinal");
-      const edgeOrdinal = ownDataValue(value, "edgeOrdinal");
-      return isU64(moduleOrdinal) && isU64(edgeOrdinal)
-        ? Object.freeze({
-          kind,
-          moduleOrdinal,
-          edgeOrdinal,
-          frameSha256: digest,
-        })
-        : undefined;
-    }
-    case "phase_page_manifest": {
-      if (Object.keys(value).length !== 4) return undefined;
-      const phase = ownDataValue(value, "phase");
-      const pageOrdinal = ownDataValue(value, "pageOrdinal");
-      return isPhase(phase) && isU64(pageOrdinal)
-        ? Object.freeze({ kind, phase, pageOrdinal, frameSha256: digest })
-        : undefined;
-    }
-    case "link_node": {
-      if (Object.keys(value).length !== 4) return undefined;
-      const moduleOrdinal = ownDataValue(value, "moduleOrdinal");
-      const rowVersion = ownDataValue(value, "rowVersion");
-      return isU64(moduleOrdinal) && isU64(rowVersion)
-        ? Object.freeze({
-          kind,
-          moduleOrdinal,
-          rowVersion,
-          frameSha256: digest,
-        })
-        : undefined;
-    }
-    case "frontier_entry": {
-      if (Object.keys(value).length !== 4) return undefined;
-      const frontierSequence = ownDataValue(value, "frontierSequence");
-      const rowVersion = ownDataValue(value, "rowVersion");
-      return isU64(frontierSequence) && isU64(rowVersion)
-        ? Object.freeze({
-          kind,
-          frontierSequence,
-          rowVersion,
-          frameSha256: digest,
-        })
-        : undefined;
-    }
-    case "registration": {
-      if (Object.keys(value).length !== 3) return undefined;
-      const registrationOrdinal = ownDataValue(
-        value,
-        "registrationOrdinal",
-      );
-      return isU64(registrationOrdinal)
-        ? Object.freeze({ kind, registrationOrdinal, frameSha256: digest })
-        : undefined;
-    }
-    case "diagnostic": {
-      if (Object.keys(value).length !== 3) return undefined;
-      const diagnosticOrdinal = ownDataValue(value, "diagnosticOrdinal");
-      return isU64(diagnosticOrdinal)
-        ? Object.freeze({ kind, diagnosticOrdinal, frameSha256: digest })
-        : undefined;
-    }
-    default:
-      return undefined;
-  }
+  const captured = captureDeclarativeV2PageEvidenceKeyV1(value);
+  return Result.isFailure(captured) ? undefined : captured.success;
 }
 
 function encodeEvidence(
@@ -483,6 +439,14 @@ function encodeEvidence(
   output[offset] = EVIDENCE_KIND_TAG[evidence.kind];
   offset += 1;
   switch (evidence.kind) {
+    case "inert_object_reference":
+      output[offset] = REFERENCE_NAMESPACE_TAG[evidence.namespace];
+      output[offset + 1] = REFERENCE_OBJECT_KIND_TAG[evidence.objectKind];
+      writeU64Be(output, offset + 2, evidence.firstItemOrdinal);
+      writeU64Be(output, offset + 10, evidence.itemCount);
+      writeU64Be(output, offset + 18, evidence.bodyByteLength);
+      offset += 26;
+      return copyBytes(output, offset, evidence.objectSha256);
     case "module_summary":
       writeU64Be(output, offset, evidence.moduleOrdinal);
       offset += 8;
@@ -515,6 +479,10 @@ function encodeEvidence(
       writeU64Be(output, offset, evidence.diagnosticOrdinal);
       offset += 8;
       break;
+    case "deployment_analysis_projection":
+    case "deployment_codegen_analysis_projection":
+    case "static_finalization":
+      break;
   }
   return copyBytes(output, offset, evidence.frameSha256);
 }
@@ -524,10 +492,16 @@ function encodedEvidenceByteLength(
 ): number {
   const keyBytes = evidence.kind === "phase_page_manifest"
     ? 9
+    : evidence.kind === "inert_object_reference"
+    ? 26
     : evidence.kind === "import_edge" ||
         evidence.kind === "link_node" ||
         evidence.kind === "frontier_entry"
     ? 16
+    : evidence.kind === "deployment_analysis_projection" ||
+        evidence.kind === "deployment_codegen_analysis_projection" ||
+        evidence.kind === "static_finalization"
+    ? 0
     : 8;
   return 1 + keyBytes + DECLARATIVE_V2_SHA256_BYTES_V1;
 }
@@ -539,40 +513,15 @@ function compareEvidenceKey(
   const leftTag = EVIDENCE_KIND_TAG[left.kind];
   const rightTag = EVIDENCE_KIND_TAG[right.kind];
   if (leftTag !== rightTag) return leftTag - rightTag;
-  switch (left.kind) {
-    case "module_summary":
-      return right.kind === left.kind
-        ? compareBigint(left.moduleOrdinal, right.moduleOrdinal)
-        : 0;
-    case "import_edge":
-      return right.kind === left.kind
-        ? compareBigint(left.moduleOrdinal, right.moduleOrdinal) ||
-          compareBigint(left.edgeOrdinal, right.edgeOrdinal)
-        : 0;
-    case "phase_page_manifest":
-      return right.kind === left.kind
-        ? PHASE_TAG[left.phase] - PHASE_TAG[right.phase] ||
-          compareBigint(left.pageOrdinal, right.pageOrdinal)
-        : 0;
-    case "link_node":
-      return right.kind === left.kind
-        ? compareBigint(left.moduleOrdinal, right.moduleOrdinal) ||
-          compareBigint(left.rowVersion, right.rowVersion)
-        : 0;
-    case "frontier_entry":
-      return right.kind === left.kind
-        ? compareBigint(left.frontierSequence, right.frontierSequence) ||
-          compareBigint(left.rowVersion, right.rowVersion)
-        : 0;
-    case "registration":
-      return right.kind === left.kind
-        ? compareBigint(left.registrationOrdinal, right.registrationOrdinal)
-        : 0;
-    case "diagnostic":
-      return right.kind === left.kind
-        ? compareBigint(left.diagnosticOrdinal, right.diagnosticOrdinal)
-        : 0;
+  if (left.kind === "phase_page_manifest") {
+    return right.kind === left.kind
+      ? PHASE_TAG[left.phase] - PHASE_TAG[right.phase] ||
+        compareBigint(left.pageOrdinal, right.pageOrdinal)
+      : 0;
   }
+  return right.kind === "phase_page_manifest"
+    ? 0
+    : compareDeclarativeV2PageEvidenceKeyV1(left, right);
 }
 
 function compareBigint(left: bigint, right: bigint): number {
