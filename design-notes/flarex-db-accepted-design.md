@@ -72,6 +72,29 @@ Fetch is an internal capability call, not a public executor URL. Workers RPC
 may replace that transport later only as an independent compatibility change;
 it is not a FlarexDB correctness prerequisite.
 
+Production exact-attempt redelivery is a separate path and does not reuse or
+replace ordinary invoke transport. Its accepted, still-unimplemented topology
+is:
+
+```text
+executor scheduled event and event-owned Postgres client
+  -> exact claim admission, liveness, and journal in the executor invocation
+  -> named private artifact-runtime RPC entrypoint
+  -> content-addressed source validation and cached exact-runtime Worker code
+  -> generated Dynamic Worker exact-mutation entrypoint
+  -> one-shot journal RpcTarget forwarded back to the originating executor call
+  -> result returned for executor-owned seal, finish, and publication
+```
+
+The Dynamic Worker exact-runtime profile receives the invocation-scoped RPC
+stub as a method argument, not cached env or serialized evidence. It has no
+generic `FLAREX_EXECUTOR` binding, bearer token, Hyperdrive, persistence handle,
+or ordinary start/syscall/finish/abort route. The artifact-runtime remains the
+source-store and Worker Loader owner; the executor remains the singular claim,
+journal, database, and commit owner. The focused contract, failure/lifecycle
+rules, rejected alternatives, and implementation gates live in
+[`roadmaps/37-production-redelivery-and-c06b.md`](../roadmaps/37-production-redelivery-and-c06b.md).
+
 Cloudflare Durable Object facets are the accepted conditional placement for a
 measured `C07A` journal move, not a replacement for the first Postgres-backed
 proof. When the predeclared journal threshold is met, the hosted variant is:

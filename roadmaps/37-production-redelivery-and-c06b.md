@@ -2,8 +2,10 @@
 
 ## Status And Scope
 
-Status: active focused execution plan. P00 records the accepted boundary and is
-complete. P01, the exact-attempt runtime-host contract, is the current gate.
+Status: active focused execution plan. P00 records the accepted boundary and
+P01 selects the exact-attempt runtime-host contract; both are complete. P02a,
+the host-neutral exact-runtime protocol and generated Dynamic Worker entrypoint,
+is the current gate.
 
 This plan owns the remaining production portion of
 `O08-B2b2b2b1b2b2b` and the subsequent `C06-B` endpoint/response policy:
@@ -91,30 +93,38 @@ input without:
 
 ## Accepted Decisions
 
-1. `apps/executor` is the eventual Cloudflare scheduled-event and database-
-   connection lifecycle owner unless P01 proves that another existing trusted
-   host must own the exact-attempt runtime.
-2. One scheduled event invokes at most one bounded scheduler run. The existing
+1. `apps/executor` owns the Cloudflare scheduled event, event-scoped database
+   connection, exact-attempt claim/liveness process, journal, commit pipeline,
+   and deterministic cleanup.
+2. `apps/artifact-runtime` retains source-package validation, Worker Loader
+   construction, and Dynamic Worker code caching. It receives exact reruns only
+   through a named private RPC entrypoint, never through its ordinary invoke
+   Fetch route.
+3. One scheduled event invokes at most one bounded scheduler run. The existing
    count and monotonic-time admission bounds remain authoritative.
-3. The Postgres checkpoint is due/restart truth. A Cloudflare cron is only a
+4. The Postgres checkpoint is due/restart truth. A Cloudflare cron is only a
    wake hint and cannot mint an execution claim or prove that work is due.
-4. Scheduled work is awaited through the platform event lifetime. Detached
+5. Scheduled work is awaited through the platform event lifetime. Detached
    background work is not accepted for checkpoint or attempt settlement.
-5. Platform wake authority is not execution authority. Only the existing
+6. Platform wake authority is not execution authority. Only the existing
    locked exact-attempt acquisition/admission path may mint process authority.
-6. No public HTTP scheduler route is added. Any new Worker-to-Worker protocol
+7. No public HTTP scheduler route is added. Any new Worker-to-Worker protocol
    must be private, versioned, authenticated before material allocation,
    bounded, and explicit about replay and version-skew behavior.
-7. In-process capabilities, including WeakMap-backed or same-factory authority,
+8. In-process capabilities, including WeakMap-backed or same-factory authority,
    are never serialized. A token or signed envelope may locate or authenticate
    a request but cannot substitute for the capability constructed by the
    owning trusted process.
-8. New package surfaces use intentional subpath exports. This work does not
+9. The runner passes one invocation-scoped journal RPC capability through the
+   artifact-runtime entrypoint to the Dynamic Worker. The RPC object reference,
+   not a serialized handle, is the syscall authority. It expires with the
+   originating execution contexts and is never cached in Worker code or env.
+10. New package surfaces use intentional subpath exports. This work does not
    add a package-root catch-all barrel.
-9. No Wrangler scheduled trigger is enabled until the default deployed Worker
+11. No Wrangler scheduled trigger is enabled until the default deployed Worker
    can construct and run the real exact-attempt operation with deterministic
    cleanup.
-10. `C06-B` composes the existing claim, publication, outcome, uncertainty, and
+12. `C06-B` composes the existing claim, publication, outcome, uncertainty, and
     commit-wake owners. It does not introduce a parallel retry coordinator or
     terminal-state machine.
 
@@ -141,6 +151,182 @@ input without:
 - **Scope drift:** runtime-topology-probe work can be pulled into this slice
   despite being explicitly excluded.
 
+## P01 Exact-Attempt Runtime-Host Decision
+
+### Selected Topology
+
+The trusted executor remains the singular attempt and database owner. The
+artifact-runtime remains the code-store and Worker Loader owner. They are joined
+for exact reruns by one private, invocation-scoped RPC capability chain:
+
+```text
+executor scheduled event
+  -> one event-owned Postgres client and exact-attempt runtime graph
+  -> outcome-first acquire + same-factory claim admission
+  -> executor-owned runtime-neutral runner
+  -> named private artifact-runtime RPC entrypoint
+  -> content-addressed source validation + cached exact-runtime Worker code
+  -> generated Dynamic Worker exact-mutation entrypoint
+  -> forwarded one-shot journal RpcTarget back to the originating executor call
+  -> result returned to executor
+  -> executor seals, verifies, plans, enters finishing, and publishes
+```
+
+This is not the ordinary invoke path. The exact-runtime generated Worker:
+
+- does not call `/invoke/start`, `/invoke/syscall`, `/invoke/finish`, or
+  `/invoke/abort`;
+- does not receive the generic `FLAREX_EXECUTOR` binding or a bearer token;
+- receives no Hyperdrive, `pg`, Drizzle, persistence, claim, or transaction
+  handle;
+- receives only strict structured execution evidence plus a one-call journal
+  RPC stub; and
+- runs with `globalOutbound: null`.
+
+The Dynamic Worker wrapper hides the raw journal stub behind the restricted
+mutation context. Developer code receives only the database operations already
+represented by `PointMutationOccBoundJournalV1`.
+
+### Why The Capability Is Not Cached
+
+Worker Loader `get()` may reuse code while routing later requests to different
+isolates. Its code callback and initial env are therefore not per-attempt
+authority. The exact runtime caches only immutable code under an identity that
+includes artifact/source hash, compatibility date, exact-runtime profile, and
+protocol version.
+
+The one-shot journal stub is passed as an RPC method argument for each run. It
+is never placed in cached Worker env, module state, R2, Postgres, a continuation,
+or the scheduler checkpoint. Workers RPC permits forwarding a received stub to
+a third Worker, and that proxy exists only for the active execution contexts.
+If implementation cannot prove this forwarding and disposal behavior in the
+supported runtime, P02 stops and reopens P01; it must not fall back to a token.
+
+### Authority And Pin Order
+
+The existing ordering remains authoritative:
+
+1. decode the inert exact-attempt selector;
+2. resolve committed outcome first, acquire the exact database claim, and
+   synchronously admit its same-factory process capability;
+3. load and authenticate stored attempt/evidence, verify the signed grant and
+   immutable session/package/schema/policy pins, then recheck outcome;
+4. load pinned function metadata and verify artifact ID, source-package hash,
+   execution module, function path/kind, schema version, and validator metadata;
+5. reload the current attempt, validate the live claim and pins, and open the
+   capability-bound journal;
+6. derive the artifact ref only from verified grant/session evidence, require
+   the artifact store to revalidate that ref against the stored source package,
+   and only then execute user code; and
+7. return only the user result to the executor, which seals the journal and
+   retains all commit/finishing/publication authority.
+
+The structured runner input contains arguments, semantic size, verified grant,
+schema manifest, stable bindings, pinned function metadata, and execution
+context. Those values are evidence, not syscall authority. The only cross-
+Worker database authority is the one-shot RPC object reference created after
+the genuine journal admission.
+
+P02 must define a strict owned wire projection from that evidence. It must not
+send `VerifiedTransactionGrantInspectionV1`, branded handles, class instances,
+or objects with accessors wholesale merely because Workers RPC can clone some
+of them. The executor projects the exact literal fields and copied byte arrays
+needed by the generated runtime; the callee decodes them again without treating
+the decoded shape as execution authority.
+
+Table resolution returns a nested table capability, not a string or numeric
+table handle that another caller can forge. The originating executor owns all
+underlying WeakMap handles and serializes journal operations through the
+existing semaphore.
+
+### Failure, Interruption, And Cleanup Contract
+
+- Each RPC journal method executes the original local Effect in the executor.
+  The executor retains the first typed journal failure locally and sends only a
+  redacted remote stop signal. After the Dynamic Worker settles, that original
+  typed failure takes precedence even if user code caught the remote exception.
+- A user-module throw or rejected promise becomes
+  `PointMutationOccUserCodeV1Error`; it must not absorb a recorded journal
+  failure.
+- The current runner error union lacks artifact-load, exact-runtime protocol,
+  and expected RPC transport failures. P02 must add a bounded tagged host-error
+  channel. It must not misclassify infrastructure failure as user code, turn
+  interruption into a typed error, or catch unexpected defects as recoverable
+  failures.
+- The executor awaits the full artifact-runtime and Dynamic Worker RPC chain.
+  It does not detach work with `waitUntil`.
+- When the Dynamic Worker returns, the journal adapter closes new admissions
+  and drains every already-admitted RPC call before it accepts the result or
+  begins sealing. Fire-and-forget user calls therefore cannot race commit
+  sealing. Interruption also closes admission and settles admitted journal work
+  before pre-finishing abort proceeds.
+- The one-shot journal capability closes when the runner settles. Late calls
+  fail closed, table stubs cannot outlive their parent, and RPC stubs are
+  explicitly disposed where the runtime API exposes disposal.
+- The generated entrypoint normalizes the returned value into its strict
+  transferable result contract before crossing RPC. The executor still
+  canonicalizes and validates the result while sealing; transfer success alone
+  proves no Flarex value or return-validator claim.
+- Pre-finishing failure continues through the existing abort owner. Finishing
+  and publication keep their existing uninterruptible settlement boundaries.
+- The event-owned Postgres client closes only after scheduler checkpoint/release
+  and every admitted attempt lifecycle has settled.
+
+### Authentication, Replay, And Version Skew
+
+The executor-to-artifact-runtime call uses a Wrangler service binding targeted
+at one named RPC entrypoint. That binding is deployment authority and the method
+is not exposed by the artifact-runtime Fetch handler. The callee still strictly
+decodes a literal format/version and bounded structured input before loading
+source.
+
+Replaying structured evidence alone grants no database access. A caller must
+also possess the one-shot journal RPC reference created by the live admitted
+executor process. The capability accepts one run, refuses use after settlement,
+and is never reconstructible from attempt IDs, grants, hashes, or scheduler
+state.
+
+The exact-runtime protocol version participates in both strict decoding and the
+Dynamic Worker code-cache identity. An executor/artifact-runtime version
+mismatch fails before user code runs; there is no permissive fallback to the
+ordinary invoke profile.
+
+### Rejected Alternatives
+
+1. **Reuse the current artifact-runtime invoke Fetch route.** Rejected because
+   its generated Worker calls start/syscall/finish/abort and creates a new
+   session/retry path instead of consuming the admitted exact attempt.
+2. **Put Hyperdrive and the target executor graph in artifact-runtime.**
+   Rejected because it duplicates the executor trust, connection, claim,
+   liveness, journal, and commit owners and invites a second state machine.
+3. **Add Worker Loader and R2 directly to the executor.** Technically plausible
+   but rejected as the first production target because it duplicates the
+   artifact-runtime's content-store/materialization owner and broadens executor
+   bindings. Reconsideration requires reopening P01, not an implicit fallback.
+4. **Send a journal/session token over HTTP.** Rejected because serialization
+   cannot preserve WeakMap/same-factory authority and would create a forgeable
+   or database-reconstructible substitute.
+5. **Cache a per-attempt binding in Dynamic Worker env or module state.**
+   Rejected because Worker Loader code caching and isolate routing are not
+   attempt lifetime or identity guarantees.
+
+### Platform Evidence
+
+The selected contract relies only on documented Cloudflare object-capability
+semantics:
+
+- [Dynamic Worker custom bindings](https://developers.cloudflare.com/dynamic-workers/usage/bindings/)
+  are unforgeable RPC stubs controlled by the loader;
+- [Workers RPC](https://developers.cloudflare.com/workers/runtime-apis/rpc/)
+  can pass functions and `RpcTarget` objects and forward received stubs through
+  a third Worker for the active execution contexts;
+- [RPC lifecycle](https://developers.cloudflare.com/workers/runtime-apis/rpc/lifecycle/)
+  defines stub disposal and automatic cleanup at the end of an event handler;
+  and
+- [Worker Loader API](https://developers.cloudflare.com/dynamic-workers/api-reference/)
+  does not guarantee isolate reuse or identity, so correctness cannot depend on
+  cached isolate state.
+
 ## Execution Gates
 
 ### [x] P00 — Record The Production Boundary
@@ -154,7 +340,7 @@ Exit gate:
 - the current gate is unambiguous after context compaction; and
 - no runtime, route, trigger, deployment, or configuration behavior changes.
 
-### [ ] P01 — Define The Exact-Attempt Runtime Host Contract
+### [x] P01 — Define The Exact-Attempt Runtime Host Contract
 
 Compare only the concrete trusted-host compositions that can reuse the current
 exact-attempt authority. For each viable composition, trace:
@@ -182,6 +368,19 @@ existing validators, key resolution, immutable metadata, execution-context,
 claim-fenced journal, and runtime-neutral runner owners. Add focused tests for
 authority forgery, pin mismatch, new-session drift, failure/defect separation,
 interrupt/cleanup behavior, and exact syscall/journal routing.
+
+- **[ ] P02a — freeze the exact-runtime protocol and generated Worker
+  entrypoint.** Add strict bounded request/result contracts, immutable
+  code-cache identity, pinned source-package loading, the exact mutation
+  entrypoint, and generated-source tests. This slice adds no database or
+  scheduled host.
+- **[ ] P02b — add the executor-owned one-shot journal RPC adapter.** Preserve
+  nested table capability identity, original typed journal-failure precedence,
+  late-call closure, user-error separation, interruption, and stub disposal.
+- **[ ] P02c — compose and prove one exact rerun.** Wire the named
+  artifact-runtime RPC entrypoint to the executor runner and existing stored-
+  attempt graph. Prove no ordinary invoke route, new session, generic executor
+  binding, or serialized authority participates.
 
 ### [ ] P03 — Host One Bounded Scheduler Event
 
@@ -216,19 +415,21 @@ separately authorized.
 
 ## Resume Checklist
 
-Current gate: **P01 — Define The Exact-Attempt Runtime Host Contract.**
+Current gate: **P02a — freeze the exact-runtime protocol and generated Worker
+entrypoint.**
 
 On resume:
 
 1. read this plan and its four linked authority documents;
-2. inspect the current executor, artifact-runtime, runtime-neutral runner, and
-   exact-attempt acquisition call paths;
-3. compare the minimum viable trusted-host compositions;
-4. record the selected composition and rejected alternatives here; and
-5. stop before implementation if no composition preserves singular authority.
+2. keep `P02a` host-neutral and independent of scheduler/connection ownership;
+3. define the strict exact-runtime format/version and tagged host failures;
+4. generate a dedicated Dynamic Worker entrypoint that receives the one-shot
+   journal capability as an RPC argument and never calls ordinary invoke; and
+5. pin source validation, code identity, no-network behavior, request/result
+   decoding, and generated-source invariants with focused tests.
 
-Do not add a cron handler, scheduled export, Wrangler trigger, or `C06-B` route
-during P01.
+Do not add a database client, journal RPC implementation, cron handler,
+scheduled export, Wrangler trigger, or `C06-B` route during P02a.
 
 ## Completion Condition
 
