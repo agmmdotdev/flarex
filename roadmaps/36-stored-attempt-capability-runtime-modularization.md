@@ -110,6 +110,10 @@ Authority is intentionally split:
   owns distinct conflict and decision-uncertainty ticket capture mechanics,
   OCC conflict authorization and backoff, committed-outcome validation,
   single-use rerun claims, and authorization test inspection.
+- [`../packages/executor/src/storedAttemptAuthentication/occRerunExecutionOperations.ts`](../packages/executor/src/storedAttemptAuthentication/occRerunExecutionOperations.ts)
+  owns same-process authorized OCC rerun execution, claim/admission
+  composition, liveness-scoped evidence loading and verification, rerun
+  conflict looping, and the shared OCC execution-evidence interpretation.
 - [`../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts),
   [`../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts),
   and
@@ -149,7 +153,7 @@ The runtime already has these accepted properties:
   occurrence of that state as an invariant defect.
 
 Construction policy and capability state have moved into focused private
-modules. R01 through R06 are complete. Authentication-only construction
+modules. R01 through R07 are complete. Authentication-only construction
 composes a focused operation factory over only execution-claim admission,
 evidence loading, and the authentication vault facets. The authentication owner
 also contains the single canonical stored-evidence verifier and caller-envelope
@@ -179,7 +183,12 @@ bounded randomized backoff, validated committed-outcome branching,
 authorized-rerun consumption, and test inspection. It composes over the
 existing replacement handoff and returns the private claim and
 outcome-resolution operations needed by later OCC execution without executing
-user code. OCC execution and redispatch remain with their later owners.
+user code. A separate OCC-rerun execution module now consumes authorization
+through one combined `Result.gen` claim/admission operation, rechecks outcome
+and liveness, loads and verifies exact execution evidence, invokes the shared
+exact-attempt kernel, and loops conflicts back through authorization. The
+shared kernel remains at the composition seam because crash redispatch also
+uses it. Crash redispatch remains with its later owner.
 
 ## Invariants And Trust Boundaries
 
@@ -407,7 +416,16 @@ Exit criteria:
   and
 - no user-code execution occurs in the authorization module.
 
-### [ ] R07 - Extract OCC rerun execution
+### [x] R07 - Extract OCC rerun execution
+
+Status: complete. One private execution module owns the same-process
+authorized-rerun loop and receives only the authorization claim, execution
+claim admission, liveness coordinator, evidence loader, verification adapter,
+shared exact-attempt kernel, outcome resolver, and committed-outcome
+projection. Initial and subsequent reruns use the same combined `Result.gen`
+claim/admission operation, preserving claim-before-admission order and
+single-consumption. Construction stops before reading crash-redispatch
+dependencies.
 
 Move same-process authorized rerun execution and its exact dependencies.
 Reuse the existing combined rerun-claim and execution-admission `Result.gen`
@@ -487,8 +505,8 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Start with the first unchecked gate only. The current next gate is R07,
-   OCC rerun execution.
+4. Start with the first unchecked gate only. The current next gate is R08,
+   crash redispatch.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant

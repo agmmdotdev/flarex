@@ -191,6 +191,7 @@ import {
   createStoredPointCommitRollbackProofV1,
   createStoredPointMutationAttemptReplacementV1,
   createStoredPointMutationOccRerunAuthorizationV1,
+  createStoredPointMutationOccRerunExecutionV1,
   type StoredAttemptAuthenticationV1,
   type StoredAttemptEvidenceLoadResultPortV1,
   type StoredAttemptEvidencePortV1,
@@ -772,6 +773,91 @@ describe("C04A stored-attempt authentication", () => {
       )
     ).not.toThrow();
     expect(executionReads).toBe(0);
+  });
+
+  it("does not inspect crash redispatch while constructing OCC execution", async () => {
+    const current = await commitAuthorityFixture();
+    let redispatchReads = 0;
+    const neverRun = (operation: string) =>
+      Effect.die(new Error(`OCC execution construction must not ${operation}`));
+    const configuration = Object.defineProperty(
+      {
+        evidenceLoader: {
+          loadEffect: () => Effect.succeed({
+            kind: "loaded" as const,
+            evidence: current.commitEvidence,
+          }),
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () =>
+            Effect.succeed(structuredClone(current.functionSnapshot)),
+        },
+        pointCommit: {
+          prove: () => neverRun("prove"),
+          publish: () => neverRun("publish"),
+          [RESOLVE_POINT_COMMIT_OUTCOME_V1]: () => neverRun("resolve"),
+        },
+        pointCommitFinishing: {
+          enterFinishing: () => neverRun("transition"),
+        },
+        pointMutationAttemptReplacement: {
+          replace: () => neverRun("replace"),
+        },
+        pointMutationOccRerun: {
+          attemptLoading: {
+            load: () => neverRun("load an attempt"),
+          },
+          executionEvidence: {
+            loadEffect: () => neverRun("load execution evidence"),
+          },
+          journal: {
+            openAttempt: () => neverRun("open a journal"),
+            resolvePointTable: () => neverRun("resolve a point table"),
+            runPointOperation: () => neverRun("run a point operation"),
+            sealSuccessfulResult: () => neverRun("seal a result"),
+          },
+          terminalization: {
+            abort: () => neverRun("abort"),
+            expire: () => neverRun("expire"),
+          },
+          contextFactory: {
+            make: () => neverRun("create execution context"),
+          },
+          runner: {
+            run: () => neverRun("run user code"),
+          },
+          liveness: {
+            configuration: Result.succeed(Object.freeze({
+              claimDurationMilliseconds: 1_000,
+            })),
+            renewEffect: () => neverRun("renew liveness"),
+          },
+          heartbeatIntervalMilliseconds: 100,
+        },
+      },
+      "pointMutationRedispatch",
+      {
+        get: () => {
+          redispatchReads += 1;
+          throw new Error("OCC execution must not inspect crash redispatch");
+        },
+      },
+    );
+
+    expect(() =>
+      createStoredPointMutationOccRerunExecutionV1(
+        {
+          loadEffect: () =>
+            Effect.succeed(loaded(current.fixture.evidence)),
+          loadFinishingEffect: () =>
+            Effect.succeed(loaded(current.fixture.evidence)),
+        },
+        unsafeOccRerunExecutionConfigurationForTest(configuration),
+        TEST_EXECUTION_CLAIMS,
+      )
+    ).not.toThrow();
+    expect(redispatchReads).toBe(0);
   });
 
   it("preserves typed lifecycle, committed, authority, and corruption results", async () => {
@@ -5266,6 +5352,14 @@ function unsafePointMutationAttemptReplacementObservationForTest(
   value: unknown,
 ): PointMutationAttemptReplacementObservationV1 {
   return value as PointMutationAttemptReplacementObservationV1;
+}
+
+function unsafeOccRerunExecutionConfigurationForTest(
+  value: unknown,
+): Parameters<typeof createStoredPointMutationOccRerunExecutionV1>[1] {
+  return value as Parameters<
+    typeof createStoredPointMutationOccRerunExecutionV1
+  >[1];
 }
 
 function commitInputSourceForTest(
