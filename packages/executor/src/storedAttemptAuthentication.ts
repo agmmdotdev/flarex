@@ -270,6 +270,7 @@ import {
   type PreparedPointCommitStateV1,
 } from "./storedAttemptAuthentication/pointCommitPlanning";
 import {
+  InvalidPreparedPointCommitV1Error,
   makeFinishingPreparedPointCommitHandleV1,
   makeStoredPointCommitPlanningOperationsV1,
   type AuthenticatedCommitAuthorityV1,
@@ -277,6 +278,10 @@ import {
   type PreparedPointCommitV1,
   type VerifiedCommitInputV1,
 } from "./storedAttemptAuthentication/planningOperations";
+import {
+  makeStoredPointCommitPublicationOperationsV1,
+  makeStoredPointCommitRollbackProofOperationsV1,
+} from "./storedAttemptAuthentication/pointCommitPersistenceOperations";
 
 export {
   InvalidAuthenticatedStoredAttemptV1Error,
@@ -355,6 +360,10 @@ export type {
   FinishingPreparedPointCommitV1,
   PreparedPointCommitV1,
   VerifiedCommitInputV1,
+} from "./storedAttemptAuthentication/planningOperations";
+
+export {
+  InvalidPreparedPointCommitV1Error,
 } from "./storedAttemptAuthentication/planningOperations";
 
 const PROCESS_LOCAL_CAPABILITY: true = true;
@@ -670,17 +679,6 @@ export interface AuthorizedPointMutationOccRerunInspectionV1 {
   readonly conflictDocumentId: AppDocumentIdV1;
   readonly conflictingCommitSeq: SnapshotToken["commitSeq"];
 }
-
-export class InvalidPreparedPointCommitV1Error extends Data.TaggedError(
-  "InvalidPreparedPointCommitV1Error",
-)<{
-  readonly reason:
-    | "alreadyFinishing"
-    | "notFinishing"
-    | "notRunning"
-    | "executionClaimUnavailable"
-    | "notSameFactory";
-}> {}
 
 export type StoredAttemptStorageCorruptionReasonV1 =
   | "repeatableReadCapabilityMissing"
@@ -1649,11 +1647,15 @@ function createStoredPointMutationCapabilityRuntimeV1(
   const pointCommit:
     | PointCommitRollbackProofPortV1
     | PointCommitPublisherPortV1
-    | undefined = isPointCommitPublisherPortV1(pointCommitCandidate)
-      ? pointCommitCandidate
-      : isPointCommitRollbackProofPortV1(pointCommitCandidate)
+    | undefined = stage === "rollbackProof"
+      ? isPointCommitRollbackProofPortV1(pointCommitCandidate)
         ? pointCommitCandidate
-        : undefined;
+        : undefined
+      : isPointCommitPublisherPortV1(pointCommitCandidate)
+        ? pointCommitCandidate
+        : isPointCommitRollbackProofPortV1(pointCommitCandidate)
+          ? pointCommitCandidate
+          : undefined;
   if (pointCommit === undefined) {
     throw new StoredPointMutationCapabilityConfigurationV1Defect({
       stage,
@@ -1661,28 +1663,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
     });
   }
 
-  const provePointCommitRollback:
-    StoredPointCommitRollbackProofV1["provePointCommitRollback"] = Effect.fn(
-      "StoredAttemptAuthentication.provePointCommitRollback",
-    )(function* (input) {
-      const state = lookupPreparedPointCommitState(
-        preparedPointCommitStates,
-        input,
-      );
-      if (state === undefined) {
-        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
-          reason: "notSameFactory",
-        }));
-      }
-      return yield* pointCommit.prove(
-        capturePointCommitTransactionCommand(state),
-      );
-    });
-
-  const rollbackProof = Object.freeze({
-    ...planning,
-    provePointCommitRollback,
-  } satisfies StoredPointCommitRollbackProofV1);
+  const rollbackProof = makeStoredPointCommitRollbackProofOperationsV1({
+    base: planning,
+    pointCommit,
+    preparedPointCommitStates,
+    captureTransactionCommand: capturePointCommitTransactionCommand,
+  });
   if (stage === "rollbackProof") return rollbackProof;
   if (!isPointCommitPublisherPortV1(pointCommit)) {
     throw new StoredPointMutationCapabilityConfigurationV1Defect({
@@ -1691,28 +1677,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
     });
   }
 
-  const publishPointCommit:
-    StoredPointCommitPublisherV1["publishPointCommit"] = Effect.fn(
-      "StoredAttemptAuthentication.publishPointCommit",
-    )(function* (input) {
-      const state = lookupPreparedPointCommitState(
-        preparedPointCommitStates,
-        input,
-      );
-      if (state === undefined) {
-        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
-          reason: "notSameFactory",
-        }));
-      }
-      return yield* pointCommit.publish(
-        capturePointCommitPublicationCommand(state),
-      );
-    });
-
-  const publisher = Object.freeze({
-    ...rollbackProof,
-    publishPointCommit,
-  } satisfies StoredPointCommitPublisherV1);
+  const publisher = makeStoredPointCommitPublicationOperationsV1({
+    base: rollbackProof,
+    pointCommit,
+    preparedPointCommitStates,
+    capturePublicationCommand: capturePointCommitPublicationCommand,
+  });
   if (stage === "publisher") return publisher;
   const pointCommitFinishingCandidate: unknown =
     "pointCommitFinishing" in commitAuthority

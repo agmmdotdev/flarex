@@ -468,6 +468,50 @@ describe("C04A stored-attempt authentication", () => {
     expect(higherStageReads).toBe(0);
   });
 
+  it("does not inspect publication while constructing rollback proof", async () => {
+    const current = await commitAuthorityFixture();
+    let publicationReads = 0;
+    const pointCommit = Object.defineProperty(
+      {
+        prove: Effect.fn("TestPointCommit.proveConstructionBoundary")(
+          () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
+        ),
+      },
+      "publish",
+      {
+        get: () => {
+          publicationReads += 1;
+          throw new Error("rollback proof must not inspect publication");
+        },
+      },
+    );
+
+    expect(() =>
+      createStoredPointCommitRollbackProofV1(
+        {
+          loadEffect: () =>
+            Effect.succeed(loaded(current.fixture.evidence)),
+        },
+        {
+          evidenceLoader: {
+            loadEffect: () => Effect.succeed({
+              kind: "loaded" as const,
+              evidence: current.commitEvidence,
+            }),
+          },
+          transactionGrantVerifier: current.verifier,
+          functionMetadata: {
+            load: () =>
+              Effect.succeed(structuredClone(current.functionSnapshot)),
+          },
+          pointCommit,
+        },
+        TEST_EXECUTION_CLAIMS,
+      )
+    ).not.toThrow();
+    expect(publicationReads).toBe(0);
+  });
+
   it("preserves typed lifecycle, committed, authority, and corruption results", async () => {
     const fixture = await emptyFixture();
     const cases: ReadonlyArray<Readonly<{

@@ -93,8 +93,11 @@ Authority is intentionally split:
   error contracts.
 - [`../packages/executor/src/storedAttemptAuthentication/planningOperations.ts`](../packages/executor/src/storedAttemptAuthentication/planningOperations.ts)
   owns C04B1 commit-authority authentication, C04B2 commit-input verification,
-  C04C1 logical planning, their process-local capability handles, and their
-  public test inspectors.
+  C04C1 logical planning, their process-local capability handles, prepared
+  capability errors, and their public test inspectors.
+- [`../packages/executor/src/storedAttemptAuthentication/pointCommitPersistenceOperations.ts`](../packages/executor/src/storedAttemptAuthentication/pointCommitPersistenceOperations.ts)
+  owns the O06 rollback-proof and O07 publication adapters over the shared
+  prepared-capability state.
 - [`../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts),
   [`../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts),
   and
@@ -134,17 +137,20 @@ The runtime already has these accepted properties:
   occurrence of that state as an invariant defect.
 
 Construction policy and capability state have moved into focused private
-modules. R01 and R02 are complete. Authentication-only construction composes a
-focused operation factory over only execution-claim admission, evidence
-loading, and the authentication vault facets. The authentication owner also
-contains the single canonical stored-evidence verifier and caller-envelope
+modules. R01 through R03 are complete. Authentication-only construction
+composes a focused operation factory over only execution-claim admission,
+evidence loading, and the authentication vault facets. The authentication owner
+also contains the single canonical stored-evidence verifier and caller-envelope
 comparator; finishing reconstruction reuses that same implementation rather
 than duplicating it. Planning composes a second private operation factory over
 the same vault for distinct C04B1, C04B2, and C04C1 operations. It reuses the
 existing authority-verification, input-verification, and pure-planning kernels,
 and planning-stage construction returns before any point-commit dependency is
-inspected. Later domain operations and most capability contracts still live in
-the facade.
+inspected. O06 rollback proof and O07 publication now compose focused adapters
+over the same prepared-capability map and existing closed-command capture
+helpers. Rollback-only construction validates only the rollback port and does
+not inspect its optional publication member. Later domain operations and most
+capability contracts still live in the facade.
 
 ## Invariants And Trust Boundaries
 
@@ -292,7 +298,13 @@ Exit criteria:
   and
 - planning-stage construction reads no point-commit dependency.
 
-### [ ] R03 - Extract rollback and publication adapters
+### [x] R03 - Extract rollback and publication adapters
+
+Status: complete. Two private adapter factories share the one prepared-
+capability map while retaining separate O06 rollback-proof and O07 publication
+ports, command shapes, Effect operations, and typed failures. The composition
+root validates only the rollback-proof member for the rollback-only facet and
+does not observe publication until a later stage requests it.
 
 Move the O06 rollback-proof adapter and O07 publication adapter into focused
 operation modules over the same prepared-capability state.
@@ -421,8 +433,8 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Start with the first unchecked gate only. The current next gate is R03,
-   rollback and publication adapters.
+4. Start with the first unchecked gate only. The current next gate is R04,
+   finishing transition and commit execution.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant

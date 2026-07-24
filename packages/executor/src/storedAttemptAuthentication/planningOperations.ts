@@ -1,5 +1,5 @@
 import { copyBytes } from "@flarex/utils/bytes";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import type { PointMutationTargetFunctionMetadataV1 } from
   "flarex-protocol/point-mutation-start";
@@ -75,6 +75,17 @@ export interface VerifiedCommitInputV1 {
 const preparedPointCommitBrand: unique symbol = Symbol(
   "FlarexExecutor/PreparedPointCommitV1",
 );
+
+export class InvalidPreparedPointCommitV1Error extends Data.TaggedError(
+  "InvalidPreparedPointCommitV1Error",
+)<{
+  readonly reason:
+    | "alreadyFinishing"
+    | "notFinishing"
+    | "notRunning"
+    | "executionClaimUnavailable"
+    | "notSameFactory";
+}> {}
 
 /** Private C04C1 logical point plan; this carries no SQL authority. */
 export interface PreparedPointCommitV1 {
