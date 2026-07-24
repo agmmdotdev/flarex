@@ -122,11 +122,11 @@ Convex-first implementation references:
 
 Dependency types are introduced just in time by the gates that can prove their
 semantics. Completed `O04` owns present and qualified-missing point
-dependencies, `O10` owns index
-ranges, and relation gates own edge ranges after stable relation identity is
-accepted. A conservative table-version fence is added only if its consuming
-gate demonstrates that it is necessary. Do not predeclare unsupported variants
-or allocate a second row-version authority beside `CommitSeq`.
+dependencies, `O10` owns index ranges, and `O10-R` owns the first exact
+relation-adjacency dependency after stable logical and immutable relation
+identity exists. A conservative table-version fence is added only if its
+consuming gate demonstrates that it is necessary. Do not predeclare unsupported
+variants or allocate a second row-version authority beside `CommitSeq`.
 
 ## Turn Checklist
 
@@ -1500,6 +1500,56 @@ Exit gate:
   than fall back;
 - this turn does not claim all query shapes.
 
+### [ ] O10-R — Prove One Exact Relation Adjacency Dependency
+
+Prerequisites:
+
+- `R01`/`R02` have frozen logical, semantic-definition, and physical
+  edge-definition identity;
+- `S12` stores edge-definition-aware current edge occurrences; and
+- `C09` lowers and removes those occurrences atomically with row publication.
+
+Outcome:
+
+- Implement one exact one-hop outgoing or incoming relation read keyed by
+  `(scope, immutable edge definition, direction, endpoint)`.
+- Return only the bounded ordered edge/endpoint identities and retained edge
+  metadata owned by that shape. Loading source or target documents remains a
+  separately composed point-read operation with its own O04 dependency.
+- Choose and document one snapshot authority: edge revision history, or current
+  edges plus an adjacency version atomically advanced by every matching edge
+  insert, delete, retarget, order change, locale/path move, and visibility
+  change, including managed backfill and repair publication.
+- For the current-edge option, read the adjacency version before the edge
+  query, require it not to exceed `SnapshotToken.commitSeq`, read the result,
+  reread and require the same version, register that version, and validate it
+  unchanged in the final commit transaction. A changed or post-snapshot version
+  enters the existing conflict/retry policy; it never returns a post-snapshot
+  result.
+- Add a complete local read-your-writes overlay for the chosen relation shape.
+  A relevant staged write that the overlay cannot represent remains a typed
+  rejection.
+- Keep SQL/PGQ, multi-hop traversal, arbitrary predicates, unsupported
+  directions, relation pagination variants, and Payload population outside this
+  gate.
+- Compare adjacency-version contention/write amplification with edge-history
+  cost for high-fanout endpoints. Do not substitute an unbounded commit-feed
+  scan.
+
+Exit gate:
+
+- inserts, deletes, retargets, repeated occurrences, reordering, endpoint
+  changes, locale/path moves, empty results, and a commit racing each query/
+  registration boundary pass on PGlite and real Postgres;
+- a change committed after `SnapshotToken.commitSeq` is never returned as if it
+  belonged to the original snapshot;
+- a phantom committed after registration fails final validation;
+- read-your-writes and rollback preserve the exact supported result;
+- unsupported relation and graph shapes reject without scanning JSON or
+  silently falling back to latest state; and
+- this gate does not claim historical relation reads, all relation shapes, or
+  a public graph API or populated target documents.
+
 ### [ ] O11 — Enforce Retention Floors
 
 Outcome:
@@ -1512,10 +1562,12 @@ Outcome:
   accepted reconnect contract and separately preflighted DDL.
 - Persist and advance `oldest_available_commit_seq` only after compaction
   succeeds so restart can reject tokens below the actual retained floor.
-- For every row identity and index-entry membership identity, retain the newest
-  revision/tombstone at or before the floor plus every required later revision,
-  or materialize an equivalent checkpoint. Deleting all pre-floor rows would
-  make snapshots at the floor incorrect.
+- For every row identity, index-entry membership identity, and any edge-history
+  identity selected by `O10-R`, retain the newest revision/tombstone at or
+  before the floor plus every required later revision, or materialize an
+  equivalent checkpoint. Deleting all pre-floor rows would make snapshots at
+  the floor incorrect. Current-edge plus adjacency-version implementations
+  retain the dependency evidence required by every unexpired attempt.
 - Advance the global floor only after row, index, commit/change, and required
   dependency histories are mutually safe at that floor.
 - Keep engine revision retention, S09-A result-payload expiry, scope-lifetime

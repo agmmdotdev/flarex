@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-07-14
+Last reviewed: 2026-07-24
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -381,6 +381,20 @@ S05-A has frozen ordered-key codec v1 and the separate fixed 16-byte row
 identity representation. C3 chooses a separately branded, deployment-local
 positive signed-32-bit `index_definition_id`; one ID never serves both logical
 and physical roles.
+
+`relation_id` likewise identifies the stable deployment-scoped logical
+relationship, not the immutable extraction, occurrence, target, cardinality,
+localization, deletion, or read interpretation. R01 freezes those semantics and
+R02 must bind both an immutable semantic definition and its immutable physical
+edge-definition identity before S12 or C09. A compatible semantic change may
+reuse the physical definition after explicit classification and validation;
+an extraction, occurrence, endpoint, or read-key change may not. Current edges,
+replacement builds, and OCC dependencies pin the physical identity, while query
+plans pin the semantic definition and physical binding. Old and replacement
+edge definitions may coexist through validation and atomic schema activation.
+The exact representation is an R02 decision; deferring normalized definition
+tables does not permit edges to rely on `relation_id` or mutable active-schema
+lookup alone.
 
 The `*_definition` names above describe semantic roles, not a requirement for
 one physical catalog table per role. In the accepted v1 table path,

@@ -118,6 +118,15 @@ are frozen from the real schema compiler:
 
 ```text
 relation_id
+  stable deployment-scoped logical relation identity
+
+relation semantic definition identity
+  immutable schema/API/policy interpretation used by plans and validation
+
+edge definition identity
+  immutable physical extraction, occurrence, endpoint, and read-key contract
+  used by stored edges, builds, and OCC dependencies
+
 source_table_id
 source field identity or canonical schema path
 allowed target_table_ids
@@ -131,19 +140,63 @@ polymorphic flag
 on-delete policy in each applicable direction
 ```
 
+These are three different roles. The stable relation ID survives a compatible
+rename or schema activation. The immutable semantic definition changes whenever
+schema, API, validation, or policy meaning changes. The immutable edge
+definition changes only when the physical edge set or its interpretation
+changes: source/path extraction, endpoint identity representation, canonical
+occurrence or edge codec, localization/ordering representation, projected edge
+facts, or read-key semantics.
+
+A semantic change such as a public name, admin presentation, requiredness, or
+delete-policy change may bind a new semantic definition to the same physical
+edge definition when R01 proves that the stored edge set and read keys remain
+valid. Cardinality, ordering, and localization changes require explicit
+classification: some may reuse already-retained facts after validation, while
+others require a replacement edge definition and build. Do not force a full
+edge rebuild merely because any relation semantic changed, and do not reuse an
+edge definition when its physical interpretation changed.
+
+An edge pins the exact edge definition that produced it. A query plan pins the
+semantic definition and its edge-definition binding. An OCC dependency pins the
+edge definition and exact read shape. `relation_id` alone is insufficient while
+old and replacement definitions coexist.
+
+`R02` owns the exact spelling and representation of both immutable identities.
+The semantic identity may be schema-artifact-qualified rather than a new
+catalog allocation. The physical identity may use a separately branded compact
+`edge_definition_id` or another fail-closed representation. R02 must prove:
+
+- one identity never serves logical, semantic-definition, and physical-edge
+  roles interchangeably;
+- exact replay produces the same binding;
+- physically different edge definitions cannot alias;
+- semantically different definitions may reuse a physical edge definition only
+  through an explicit compatible binding;
+- old and replacement edge definitions can coexist through build and
+  activation;
+- an edge, dependency, and plan can resolve the required identities without
+  searching mutable prose or guessing from current schema state; and
+- no second mutable definition authority is introduced.
+
 The normalized relation-definition table remains deferred. The immutable schema
 manifest is the first source of version-pinned relation definitions, while the
 stable catalog supplies deployment-scoped relation identity. A rename may
 preserve identity only through an explicit schema migration decision; matching
-names or shapes must not guess identity.
+names or shapes must not guess identity. Deferring a normalized table does not
+permit R02 to omit physical edge-definition identity from edges,
+build/readiness state, or query plans.
 
 Each stored edge occurrence additionally carries or deterministically derives:
 
 ```text
+immutable edge definition identity
 source row identity
 stable nested item/block identity
 canonical source path
 locale
+occurrence codec version
+canonical occurrence evidence
 stable occurrence identity
 mutable list position
 target_table_id
@@ -152,6 +205,11 @@ target row identity
 
 Position is ordering metadata, never occurrence identity. The same target may
 appear more than once, in more than one nested item, or in more than one locale.
+R01 must decide whether missing locale and an empty locale spelling are
+equivalent; storage must not silently choose a sentinel before that decision.
+If occurrence or edge identity uses a digest, S12 must retain enough canonical
+evidence to detect a collision and fail closed. A digest-only unique constraint
+does not by itself implement the repository's hash-plus-evidence policy.
 
 ## InstantDB Inspiration And Flarex Divergence
 
@@ -174,20 +232,97 @@ entity/attribute/target triple cannot distinguish repeated targets, nested
 array/block occurrences, ordering, paths, or locales. Flarex therefore retains
 the richer stable edge occurrence contract above.
 
+## Relation Reads, Exact Snapshots, And OCC
+
+`fx_app_edge_current` is sufficient for trusted current-state admin/query reads
+whose contract explicitly permits the latest committed relationship state. It
+is not by itself sufficient for a mutation pinned to an earlier
+`SnapshotToken.commitSeq`.
+PostgreSQL SQL/PGQ changes query notation only; it does not provide Flarex
+snapshot reconstruction, read-your-writes, phantom detection, authorization, or
+dependency registration.
+
+Mutation relation reads remain rejected until `O10-R` proves one exact one-hop
+shape. That gate must choose one of these explicit authorities:
+
+1. edge revision history capable of reconstructing the requested snapshot plus
+   an exact adjacency/range dependency; or
+2. current edges plus an atomically maintained adjacency version for
+   `(scope, edge definition, direction, endpoint)`.
+
+For the current-edge option, a mutation must not merely record the version it
+happens to observe. It must:
+
+```text
+read the adjacency version before the edge query
+require that version <= SnapshotToken.commitSeq
+read the current edge result
+read the adjacency version again
+require both reads to be equal and <= SnapshotToken.commitSeq
+register that exact version as the dependency
+validate it is unchanged in the final commit transaction
+```
+
+A change before or during registration therefore produces a snapshot/OCC
+conflict rather than a post-snapshot result; a change after registration fails
+final validation. The supported query also needs a complete local
+read-your-writes overlay. Multi-hop, arbitrary graph patterns, unsupported
+filters, and pagination shapes remain typed rejections until each has bounded
+dependency semantics.
+
+The adjacency-version option may create a write hotspot for high-fanout
+endpoints. O10-R must measure its lock and write amplification against the edge
+history alternative before selecting it. Commit-feed scanning is not the
+default third option: it remains rejected unless a separate preflight proves an
+exact bounded matching summary and retained-floor contract.
+
+## Optional PostgreSQL SQL/PGQ Projection
+
+PostgreSQL 19 SQL/PGQ is a later capability-gated query adapter, not a storage
+milestone or a reason to change relation authority. Flarex retains relational
+edge tables and indexed SQL as the canonical portable path. A future adapter
+may expose one or a small fixed number of platform-owned property graphs per
+physical placement; it must not create a graph object per scope, app, schema
+version, or logical relation.
+
+Application developers do not submit raw `GRAPH_TABLE` text. A bounded Flarex
+relation/graph API resolves the immutable semantic definition and its physical
+edge-definition binding, then may compile a proven fixed-hop shape to
+relational SQL or SQL/PGQ without changing scope, authorization, result,
+pagination, or OCC semantics. The adapter remains off until:
+
+- the database capability is detected explicitly and the PGlite/older-Postgres
+  lane has the relational fallback;
+- SQL and SQL/PGQ conformance results match for the selected shape;
+- representative planning and execution measurements justify routing that
+  shape through SQL/PGQ; and
+- unsupported variable-length, unbounded, mutation, or backend-specific shapes
+  fail closed.
+
+The first graph projection returns only stable vertex/edge identities and
+declared narrow edge properties. It does not expose complete row JSON by
+default. The ordinary Flarex row resolver loads and validates documents through
+their point-read contract so graph notation cannot bypass row codecs, declared
+indexes, authorization, or dependency capture.
+
 ## Required Turn Order
 
 These are low-level prerequisites, not a request to execute all Payload work:
 
 1. `R01` - freeze relation/cardinality/delete/identity semantics from Flarex,
    Payload, and InstantDB evidence.
-2. `R02` - bind stable relation IDs and immutable relation definitions into the
-   schema manifest without adding a second definition copy.
+2. `R02` - bind stable relation IDs, immutable semantic definitions, and
+   reusable immutable edge definitions into the schema manifest without adding
+   a second definition authority.
 3. `S12` - add `fx_app_edge_current` using that accepted identity.
 4. `C09` - lower final row values into stable current edge occurrences and
    remove stale occurrences atomically.
-5. Later OCC work - prove forward/reverse relation reads, read-your-writes, and
-   phantom/conflict behavior before enabling relation reads.
-6. Later Payload plan - compile Payload relationship, upload, join, locale, and
+5. `O10-R` - prove one exact forward or reverse adjacency read, snapshot
+   registration, read-your-writes, and phantom/conflict behavior before
+   enabling mutation relation reads.
+6. Later SQL/PGQ work - prove an optional fixed-hop adapter only after the
+   relational path and capability/conformance/benchmark gates exist.
+7. Later Payload plan - compile Payload relationship, upload, join, locale, and
    lifecycle semantics through conformance tests.
 
 `R01` and `R02` may be completed shortly before `S12`; they do not block the
@@ -244,7 +379,12 @@ remain unchanged.
 - Cross-owner relations involving Medusa require a trusted Medusa resolver and
   deletion/staleness policy; they do not move Medusa rows into app storage.
 - Relation-range history and OCC may require `fx_app_edge_rev`; current-edge
-  storage alone does not prove historical relation reads.
+  storage alone proves neither historical relation reads nor an exact-snapshot
+  mutation read without the `O10-R` adjacency-version protocol.
+- The exact semantic- and edge-definition identity representations, edge DDL,
+  canonical occurrence codec, collision response, adjacency version storage,
+  and SQL/PGQ adapter package remain intentionally unfrozen until their owning
+  gates.
 
 ## Checkpoint Record
 

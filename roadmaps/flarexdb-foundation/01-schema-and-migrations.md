@@ -880,29 +880,47 @@ Outcome:
 - Freeze bidirectional cardinality, requiredness, allowed targets,
   polymorphism, ordering, locale, nested occurrence identity, and directional
   deletion in [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
+- Separate stable logical `relation_id`, immutable semantic relation
+  definition, and immutable physical edge definition. Classify every semantic
+  change as API/policy-only, validation-only, or edge-set/read-key changing.
+- Freeze the canonical occurrence codec and version, including path, nested
+  identity, locale absence/empty handling, repeated targets, and any retained
+  collision evidence; position remains ordering only.
 - Preserve one authoritative app/CMS row when Payload exposes an existing
   table.
 
 Exit gates:
 
 - every supported relation has unambiguous semantic identity;
+- every lowering/read semantic states whether it preserves the existing
+  physical edge definition or requires a replacement;
 - repeated/localized/nested occurrences remain distinguishable without using
-  mutable position as identity; and
-- unsupported behavior fails schema validation.
+  mutable position as identity;
+- unsupported behavior fails schema validation;
+- digest collisions cannot silently alias two canonical occurrences.
 
 ### [ ] R02 — Bind Relations Into The Immutable Manifest
 
 Outcome:
 
 - Allocate stable relation IDs with optimistic stale-plan discipline.
-- Persist complete version-pinned relation definitions once in the immutable
-  manifest; keep normalized relation-definition tables deferred.
+- Bind separately typed immutable semantic-relation and physical-edge
+  definition identities. Persist the complete version-pinned semantic
+  definition and its edge-definition binding once in the immutable manifest;
+  keep normalized definition tables deferred unless the chosen identity or
+  build authority proves one necessary.
 - Treat rename/retarget/cardinality/delete-policy changes as explicit schema
   evolution decisions.
 
 Exit gates:
 
 - exact replay preserves IDs and conflicts fail closed;
+- logical relation, semantic definition, and physical edge definition
+  identities cannot be interchanged;
+- a compatible new semantic definition can deliberately reuse one physical
+  edge definition, while physically different definitions cannot alias;
+- old and replacement edge definitions can coexist and can be resolved by
+  edges, plans, dependencies, and later build/readiness state;
 - the manifest carries every lowering-relevant semantic; and
 - no second mutable definition authority exists.
 
@@ -913,16 +931,27 @@ Prerequisite: `R01` and `R02` are complete for every accepted relation.
 Outcome:
 
 - Add only current edges for v1.
-- Derive occurrence identity from relation, source row, stable nested item,
-  path, locale, and occurrence identity.
+- Key every edge to the stable logical relation and exact immutable physical
+  edge definition that produced it.
+- Derive occurrence identity from the versioned canonical occurrence codec over
+  edge definition, source row, stable nested item, path, locale, and
+  occurrence identity; retain the evidence required to detect digest
+  collisions.
 - Store list position only as ordering metadata.
+- Add edge-definition-aware outgoing and incoming access paths only after
+  their exact equality prefix, ordering, covering columns, and pagination
+  cursor semantics are frozen.
 
 Exit gates:
 
 - repeated targets remain distinct;
 - reorder preserves identity;
-- locale/path/nested changes and stale cleanup pass; and
-- no nullable relation ID or edge-history table is introduced.
+- locale/path/nested changes and stale cleanup pass;
+- collision fixtures fail closed without overwriting an edge;
+- missing locale, empty locale, nullable position, and total pagination order
+  match the R01 contract;
+- no nullable relation or physical edge-definition ID and no edge-history table
+  is introduced.
 
 ### Conditional Shipped-State Migration Branch
 

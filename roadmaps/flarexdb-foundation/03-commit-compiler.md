@@ -795,21 +795,34 @@ Exit gate:
 Prerequisite:
 
 - `R01` has frozen relation/cardinality/delete/locale/order/nested-occurrence
-  semantics and `R02` has bound the stable relation definition into the pinned
-  immutable manifest. The compiler does not infer relation identity from a
-  field name, Payload collection slug, or target row value.
+  and occurrence-codec semantics and `R02` has bound both the stable logical
+  relation, exact semantic definition, and physical edge definition into the
+  pinned manifest. The compiler does not infer any identity or binding from a
+  field name, Payload collection slug, target row value, or whichever schema is
+  active later.
 
 Outcome:
 
 - Derive current edge occurrences from final row values and pinned catalog.
-- Include relation identity, source row, stable nested item/block identity,
-  path, locale, and occurrence identity; treat list position as ordering only.
-- Remove stale edges atomically with the row update.
+- Include logical relation and immutable physical edge-definition identity,
+  source row, stable nested item/block identity, path, locale, codec version,
+  canonical occurrence evidence, and occurrence identity; treat list position
+  as ordering only.
+- Remove stale edges for the same immutable definition atomically with the row
+  update. Schema deployment/backfill owns parallel replacement-definition
+  population; the mutation compiler must not reinterpret an old definition in
+  place.
+- Detect and reject a digest/identity collision before edge publication rather
+  than overwriting or conflating canonical occurrences.
 
 Exit gate:
 
 - repeated targets, reordering, locale/path changes, nested moves, deletion,
   and stale-edge cleanup pass;
+- old and replacement physical edge definitions can coexist without
+  cross-deleting one another;
+- edge publication and rollback remain atomic with row revision/current,
+  commit/change, outbox, and idempotency outcome publication;
 - relation reads remain disabled until their separate OCC/overlay proof.
 
 ## Payload And Medusa Boundary

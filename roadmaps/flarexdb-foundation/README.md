@@ -706,12 +706,16 @@ Dynamic Worker binding baseline before selecting it.
 3. `S03-D3`: reconcile required physical definitions into per-scope build
    state now that their storage consumer exists.
 4. `R01`: relation identity and semantics.
-5. `R02`: stable relation IDs and immutable manifest definitions.
+5. `R02`: stable relation IDs, immutable semantic definitions, and reusable
+   physical edge definitions.
 6. `S12`: stable current edge occurrences; edge history remains deferred.
 7. `C08`: lower index and unique sidecars from final rows.
 8. `C09`: lower stable edge occurrences.
 9. `O09`: multi-row atomicity and unique conflicts.
 10. `O10`: one exact indexed dependency and phantom-conflict proof.
+11. `O10-R`: one exact relation adjacency dependency, snapshot-registration
+    race, read-your-writes, and phantom-conflict proof. SQL/PGQ remains later
+    and optional.
 
 `R01`/`R02` are just-in-time prerequisites for `S12`/`C09`, not permission to
 start Payload feature parity. Their contract is in

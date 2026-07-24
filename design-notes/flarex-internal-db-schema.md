@@ -710,6 +710,11 @@ and relationships nested inside blocks stay in `data_json` in the shape the
 runtime expects. Flarex also extracts them into edge sidecars for joins, reverse
 lookups, access checks, invalidation, and generated relation APIs:
 
+The following edge SQL is an older long-form sketch, not accepted S12 DDL. It
+predates the R01/R02 logical-versus-semantic-versus-physical definition split,
+final compact physical policy, canonical occurrence/collision evidence, and the
+O10-R snapshot protocol. The foundation roadmaps control those contracts.
+
 ```sql
 fx_app_edge_rev (
   scope_id text not null,
@@ -2112,8 +2117,9 @@ combining all constraints above:
 
 ## Future PostgreSQL 19 SQL/PGQ Compatibility
 
-PostgreSQL 19 adds SQL/PGQ property graph queries. This should improve FlarexDB
-later, but it should not become a first-version dependency.
+PostgreSQL 19 adds SQL/PGQ property graph queries. It may improve expression or
+planning for selected fixed-hop FlarexDB reads later, but no performance
+improvement is assumed and it must not become a first-version dependency.
 
 Reference:
 
@@ -2143,9 +2149,11 @@ Now:
   no per-app physical table explosion
 
 Later on PostgreSQL 19:
-  generate CREATE PROPERTY GRAPH views from the catalog
-  use GRAPH_TABLE for traversal, admin/debug views, recommendations,
-  permission analysis, schema visualization, and selected read query planning
+  capability-gate one or a small fixed number of platform-owned
+  CREATE PROPERTY GRAPH views per physical placement
+  retain indexed relational SQL as the portable PGlite/older-Postgres path
+  compare SQL and GRAPH_TABLE result, authorization, pagination, dependency,
+  planning, and execution behavior before selecting a fixed-hop query shape
 ```
 
 Example future generated app graph over shared storage:
@@ -2156,7 +2164,7 @@ CREATE PROPERTY GRAPH flarex_app_graph
     fx_app_row_current
       KEY (scope_id, table_id, row_id)
       LABEL app_entity
-      PROPERTIES (scope_id, table_id, row_id, data_json)
+      PROPERTIES (scope_id, table_id, row_id)
   )
   EDGE TABLES (
     fx_app_edge_current
@@ -2174,6 +2182,13 @@ commerce-target edges need generated label-specific views with valid endpoint
 tables. That generic app graph is useful for internal traversal, admin/debug
 views, and schema visualization. It is less optimized than a graph over typed
 physical tables, but it avoids table pollution in hosted shared-schema mode.
+It is conceptual PG19 DDL, not accepted S12 edge DDL. R01/R02/S12 must first
+freeze immutable semantic and physical edge-definition identity, canonical
+occurrence/collision evidence, endpoint projection uniqueness, and
+relation-aware access paths.
+The graph projection stays identity-first. Complete row JSON is resolved through
+the normal Flarex point-read and codec boundary rather than exposed as a default
+vertex property.
 
 Medusa can still get more specific graph definitions because Medusa uses fixed
 reserved system tables:
@@ -2196,6 +2211,10 @@ This is intentionally generated infrastructure. Application developers should
 not write raw `GRAPH_TABLE` queries as the primary public API. Public queries
 still go through Flarex query functions so Flarex can enforce scope, auth,
 read-set/OCC tracking, Payload/Medusa boundaries, and live-sync dependencies.
+The platform does not create a graph object per scope, app, schema version, or
+logical relation. Mutation relation reads remain disabled until the dedicated
+one-hop snapshot, registration-race, phantom, and read-your-writes gate passes;
+SQL/PGQ does not satisfy that gate merely by expressing the joins.
 
 Graph views are good for:
 

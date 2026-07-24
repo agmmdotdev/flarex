@@ -74,6 +74,9 @@ Examples:
 - add uniqueness;
 - add a required field with a deterministic accepted backfill;
 - enable an edge or hidden block projection;
+- replace a physical edge definition whose extraction, endpoint identity
+  representation, localization/ordering representation, occurrence codec,
+  projected facts, or edge-read keys changed;
 - change an ordered-key codec or locale-aware physical definition;
 - tighten a validator after an explicit data backfill.
 
@@ -114,6 +117,45 @@ Unconfirmed ambiguity blocks non-interactive deployment.
 Exact CLI syntax remains deferred, but the contract must support both a
 source-level `renameFrom`-style declaration and a CI-safe explicit rename map.
 Agents must never be required to answer an interactive prompt.
+
+## Relation Definition Activation
+
+A stable logical `relation_id` does not authorize reinterpretation of existing
+edges after a semantic change. R01 first classifies whether the new immutable
+semantic definition can reuse its existing physical edge definition or requires
+a replacement. Managed deployment must:
+
+```text
+bind the replacement semantic definition
+  -> bind a proven-compatible existing edge definition
+     or allocate a replacement physical edge definition
+  -> retain the old active semantic/physical binding
+  -> when physical identity changed, populate replacement current edges from
+     authoritative rows
+  -> validate counts, canonical occurrence evidence, collisions, and policy
+  -> mark every required replacement build ready for each affected scope
+  -> atomically switch the semantic and physical schema binding
+  -> retain old semantic artifacts and replaced physical definitions until
+     rollback, active-attempt, and dependency floors permit retirement
+```
+
+Old and replacement edges may therefore coexist under different immutable
+physical identities. A backfill must not update old edge rows in place or let
+new mutations cross-delete occurrences owned by the other physical definition.
+The active schema binding selects the semantic definition and physical edge
+binding used by new reads and writes. Attempts already pinned to an older schema
+must never reinterpret themselves through the new binding. M03 must explicitly
+choose whether a compatible retained binding may finish or the attempt must
+fail/retry after activation.
+
+An additive relation is safe metadata activation only when it requires no
+derived edge population for already-valid rows and no new read/delete
+enforcement. Otherwise it is a managed build. Retargeting, cardinality,
+localization, ordering, occurrence-codec, on-delete, requiredness, and
+extraction-plan changes require explicit compatibility classification even when
+the developer-facing relation name and stable `relation_id` are preserved.
+Policy-only changes may reuse the physical edge definition after validation;
+physical extraction/read-key changes may not.
 
 ## App, Payload, And Medusa Boundaries
 
@@ -161,7 +203,8 @@ These are separate later goals, not one giant deployment goal:
 2. `M02` - implement read-only production planning with explicit rename maps,
    bounded incompatibility evidence, and stale-plan identity.
 3. `M03` - compose existing physical build/backfill/validation state with one
-   atomic active-schema transition and retained rollback definition.
+   atomic semantic/physical active-schema transition, an explicit pinned-attempt
+   overlap rule, and retained rollback definitions.
 4. `M04` - expose plan/apply through developer CLI and AI tooling with
    non-interactive machine-readable output.
 5. `M05` - add explicit retirement/purge policy after rollback, snapshot,

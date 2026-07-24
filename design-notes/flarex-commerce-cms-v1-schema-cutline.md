@@ -695,9 +695,13 @@ v1.5/v2:
 ```
 
 `fx_edge_current` can exist without `fx_relation_def`, but every edge still
-uses a stable non-null relation ID from the immutable schema manifest. It also
-stores `source_path`, `target_table_id`, and `relation_kind`. Stable relation
-identity is required before edge occurrence identity can be deterministic.
+uses a stable non-null logical relation ID plus the exact immutable relation
+edge-definition identity selected by `R02`. The immutable semantic definition
+and its physical edge binding remain in the pinned manifest while normalized
+definition tables are deferred. An edge must not recover its meaning from
+`relation_id` or the mutable active-schema pointer alone. Stable logical and
+physical edge-definition identity are both required before edge occurrence
+identity can be deterministic.
 
 ### `fx_row_current`: keep
 
@@ -790,7 +794,13 @@ commerce/app relation indexes
 pagination
 ```
 
-Suggested shape:
+Historical conceptual shape:
+
+The SQL below predates the accepted R01/R02/S12 split and must not be
+implemented verbatim. In particular it does not yet encode immutable physical
+edge-definition identity, the final native UUID/compact-ID policy, the canonical
+occurrence codec and collision evidence, or accepted locale/pagination
+semantics. S12 owns the final DDL after R01 and R02 close.
 
 ```sql
 fx_index_entry_current (
