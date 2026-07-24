@@ -252,6 +252,23 @@ import {
   type StoredCommitAuthoritySessionEvidencePortV1,
 } from "./storedAttemptAuthentication/commitAuthorityModel";
 import {
+  StoredPointMutationCapabilityConfigurationV1Defect,
+  isPointCommitFinishingTransitionPortV1,
+  isPointCommitOutcomeResolutionPortV1,
+  isPointCommitPublisherPortV1,
+  isPointCommitRollbackProofPortV1,
+  isPointMutationAttemptReplacementPortV1,
+  isPointMutationExecutionClaimDispatchAcquisitionV1,
+  isPointMutationExecutionClaimLivenessV1,
+  isPointMutationJournalV1,
+  isPointMutationSessionAttemptDispositionV1,
+  isPointMutationSessionAttemptLoadingV1,
+  isPointMutationSessionAttemptTerminalizationV1,
+  isStoredOccExecutionEvidenceLoaderV1,
+  requireStoredPointMutationCapabilityDependencyV1,
+  type StoredPointMutationCapabilityStageV1,
+} from "./storedAttemptAuthentication/capabilityRuntimeConstruction";
+import {
   capturePinnedFunctionSelector,
   requireLoadedCommitAuthorityEvidenceEffect,
   verifyCommitAuthorityEvidenceEffect,
@@ -1511,45 +1528,6 @@ interface StoredPointMutationCapabilityVaultV1 {
   readonly consumedAuthorizedOccReruns: WeakSet<object>;
 }
 
-type StoredPointMutationCapabilityStageV1 =
-  | "authentication"
-  | "planning"
-  | "rollbackProof"
-  | "publisher"
-  | "finishingTransition"
-  | "executor"
-  | "attemptReplacement"
-  | "occRerunAuthorization"
-  | "occRerunExecution"
-  | "crashRedispatch";
-
-type StoredPointMutationCapabilityRequirementV1 =
-  | "commitAuthority"
-  | "pointCommitRollbackProof"
-  | "pointCommitPublisher"
-  | "pointCommitFinishing"
-  | "finishingEvidenceLoader"
-  | "pointCommitOutcomeResolution"
-  | "pointMutationAttemptReplacement"
-  | "pointMutationOccAttemptLoading"
-  | "pointMutationOccExecutionEvidence"
-  | "pointMutationOccJournal"
-  | "pointMutationOccTerminalization"
-  | "pointMutationOccContextFactory"
-  | "pointMutationOccRunner"
-  | "pointMutationOccLiveness"
-  | "pointMutationOccHeartbeatInterval"
-  | "pointMutationRedispatchAcquisition"
-  | "pointMutationRedispatchDisposition";
-
-class StoredPointMutationCapabilityConfigurationV1Defect
-  extends Data.TaggedError(
-    "StoredPointMutationCapabilityConfigurationV1Defect",
-  )<{
-    readonly stage: StoredPointMutationCapabilityStageV1;
-    readonly missing: StoredPointMutationCapabilityRequirementV1;
-  }> {}
-
 function makeStoredPointMutationCapabilityVaultV1():
   StoredPointMutationCapabilityVaultV1 {
   return Object.freeze({
@@ -1571,89 +1549,6 @@ function makeStoredPointMutationCapabilityVaultV1():
   } satisfies StoredPointMutationCapabilityVaultV1);
 }
 
-function requireStoredPointMutationCapabilityDependencyV1<Value>(
-  stage: StoredPointMutationCapabilityStageV1,
-  missing: StoredPointMutationCapabilityRequirementV1,
-  value: Value | undefined,
-): Value {
-  if (value === undefined) {
-    throw new StoredPointMutationCapabilityConfigurationV1Defect({
-      stage,
-      missing,
-    });
-  }
-  return value;
-}
-
-function isPointCommitRollbackProofPortV1(
-  value: unknown,
-): value is PointCommitRollbackProofPortV1 {
-  return isNonArrayRecord(value) && typeof value.prove === "function";
-}
-
-function isPointCommitPublisherPortV1(
-  value: unknown,
-): value is PointCommitPublisherPortV1 {
-  return isPointCommitRollbackProofPortV1(value) &&
-    typeof Reflect.get(value, "publish") === "function";
-}
-
-function isPointCommitOutcomeResolutionPortV1(
-  value: unknown,
-): value is PointCommitOutcomeResolutionPortV1 {
-  return isNonArrayRecord(value) && typeof Reflect.get(
-    value,
-    RESOLVE_POINT_COMMIT_OUTCOME_V1,
-  ) === "function";
-}
-
-function isPointCommitFinishingTransitionPortV1(
-  value: unknown,
-): value is PointCommitFinishingTransitionPortV1 {
-  return isNonArrayRecord(value) &&
-    typeof value.enterFinishing === "function";
-}
-
-function isPointMutationAttemptReplacementPortV1(
-  value: unknown,
-): value is PointMutationAttemptReplacementPortV1 {
-  return isNonArrayRecord(value) && typeof value.replace === "function";
-}
-
-function isPointMutationSessionAttemptLoadingV1(
-  value: unknown,
-): value is PointMutationSessionAttemptLoadingV1 {
-  return isNonArrayRecord(value) && typeof value.load === "function";
-}
-
-function isStoredOccExecutionEvidenceLoaderV1(
-  value: unknown,
-): value is StoredOccExecutionEvidenceLoaderV1 {
-  return isNonArrayRecord(value) && typeof value.loadEffect === "function";
-}
-
-function isPointMutationJournalV1(
-  value: unknown,
-): value is PointMutationJournalV1 {
-  return (
-    isNonArrayRecord(value) &&
-    typeof value.openAttempt === "function" &&
-    typeof value.resolvePointTable === "function" &&
-    typeof value.runPointOperation === "function" &&
-    typeof value.sealSuccessfulResult === "function"
-  );
-}
-
-function isPointMutationSessionAttemptTerminalizationV1(
-  value: unknown,
-): value is PointMutationSessionAttemptTerminalizationV1 {
-  return (
-    isNonArrayRecord(value) &&
-    typeof value.abort === "function" &&
-    typeof value.expire === "function"
-  );
-}
-
 function isPointMutationOccExecutionContextFactoryV1(
   value: unknown,
 ): value is PointMutationOccExecutionContextFactoryV1 {
@@ -1664,28 +1559,6 @@ function isPointMutationOccRuntimeNeutralRunnerV1(
   value: unknown,
 ): value is PointMutationOccRuntimeNeutralRunnerV1 {
   return isNonArrayRecord(value) && typeof value.run === "function";
-}
-
-function isPointMutationExecutionClaimLivenessV1(
-  value: unknown,
-): value is PointMutationExecutionClaimLivenessV1 {
-  return isNonArrayRecord(value) &&
-    isNonArrayRecord(Reflect.get(value, "configuration")) &&
-    typeof Reflect.get(value, "renewEffect") === "function";
-}
-
-function isPointMutationExecutionClaimDispatchAcquisitionV1(
-  value: unknown,
-): value is PointMutationExecutionClaimDispatchAcquisitionV1 {
-  return isNonArrayRecord(value) &&
-    typeof Reflect.get(value, "acquireEffect") === "function";
-}
-
-function isPointMutationSessionAttemptDispositionV1(
-  value: unknown,
-): value is PointMutationSessionAttemptDispositionV1 {
-  return isNonArrayRecord(value) &&
-    typeof Reflect.get(value, "disposeAbortOnly") === "function";
 }
 
 function isStoredAttemptFinishingEvidenceLoaderPortV1(
