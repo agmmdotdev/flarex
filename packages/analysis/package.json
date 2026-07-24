@@ -7,13 +7,16 @@
   ],
   "exports": {
     ".": "./src/index.ts",
+    "./internal/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",
     "./internal/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts",
     "./internal/private-sha256-v1": "./src/privateSha256V1.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "check:declarative-v2-verifier": "tsx scripts/declarativeV2VerifierV1.ts check",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "update:declarative-v2-verifier": "tsx scripts/declarativeV2VerifierV1.ts update"
   },
   "dependencies": {
     "@flarex/utils": "workspace:*",
@@ -22,6 +25,8 @@
     "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

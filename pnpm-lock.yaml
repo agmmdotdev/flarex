@@ -258,6 +258,12 @@ importers:
         specifier: workspace:*
         version: link:../flarex-protocol
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.2
+      tsx:
+        specifier: 'catalog:'
+        version: 4.22.4
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

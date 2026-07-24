@@ -603,6 +603,28 @@ activation remain blocked until their production host composition is proven.
    reacquire fresh C2 evidence through the backend-owned proof path and compare
    it with durable candidate/C3 commitments; callers cannot reconstruct that
    authority from identity fields.
+
+   The provisional Core asset foundation now owns the complete versioned
+   `FlarexDeclarativeExecutableCoreV1` lexical, grammar, local-value,
+   operator, capability, query/range ABI, diagnostic, and failure/catchability
+   specification on one private `@flarex/analysis` internal subpath. Unicode
+   14 `ID_Start`/`ID_Continue` inputs and their license/provenance are vendored
+   by exact digest. An offline deterministic generator rejects unstable or
+   conflicting numeric IDs and emits one aligned fixed-width asset plus a
+   non-self-referential canonical identity manifest; a strict owned Result
+   loader and checked-BigInt arena planner admit the asset and all 26
+   Budget/Progress V2 dimensions before caller-proportional allocation. Host
+   Effect failure, defect, interruption, timeout, uncertainty, and full Cause
+   remain uncatchable. Trusted lowering must reject application catch/finally
+   whose correctness depends on observing, completing around, or suppressing
+   such a host-owned outcome.
+
+   This asset is specification and bounded-allocation evidence only. The
+   streaming lexer/parser/linker/value-flow verifier that consumes it is not
+   implemented, and no analyzer host, source/semantic reader, S1 V2 operation,
+   C3 completion, or C4 publication imports it yet. It remains provisional and
+   production-unreachable until the authenticated C3 host and terminal inert
+   C4 consumer close the approved atomic range.
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact
    candidate, artifact, schema, validator, registration, and verifier pins.

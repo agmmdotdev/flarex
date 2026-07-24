@@ -795,6 +795,20 @@ static-finalization page, change an attempt lifecycle, or write any verdict,
 scope-clock, readiness, revision, or head row. V1 evidence remains retained
 without reinterpretation.
 
+The generated Core asset foundation is also present only as a provisional
+private dependency of that same atomic range. It fixes the Core V1 lexical,
+grammar, value/operator, capability, query/range ABI, diagnostic, and
+catchability tables; exact vendored Unicode 14 behavior inputs; aligned
+fixed-width table representation; reproducible generator identities; an owned
+strict loader; and checked-BigInt arena planning against every Budget/Progress
+V2 dimension. It does not implement the streaming parser/linker/value-flow
+engine or consume verifier progress. In particular, host Effect failure,
+defect, interruption, uncertainty, and full Cause are not application
+exceptions: application catch/finally cannot observe or suppress them, and
+trusted lowering must reject code that relies on such completion. No parser,
+analyzer host, reader, projection, verdict, readiness, or activation authority
+is shipped by this foundation.
+
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the
 semantic upload attempt, incarnation/source correlation, fences, cumulative
