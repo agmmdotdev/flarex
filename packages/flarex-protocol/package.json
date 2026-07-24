@@ -35,6 +35,7 @@
     "./partition-selector": "./src/partition-selector.ts",
     "./point-mutation-start": "./src/point-mutation-start.ts",
     "./point-mutation-exact-runtime": "./src/point-mutation-exact-runtime.ts",
+    "./point-mutation-exact-runtime-host": "./src/point-mutation-exact-runtime-host.ts",
     "./registry": "./src/registry.ts",
     "./scheduler": "./src/scheduler.ts",
     "./schema-manifest": "./src/schema-manifest.ts",

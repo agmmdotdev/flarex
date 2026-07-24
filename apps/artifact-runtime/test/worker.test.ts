@@ -1,10 +1,11 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { Effect } from "effect";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   ExecutionArtifactInvokePayload,
   ExecutionArtifactMaterializer,
@@ -18,15 +19,217 @@ import {
   type R2BucketLike,
 } from "flarex-backend/artifact-store";
 import { sourceModuleDigestInputV1 } from "flarex/artifacts";
+import {
+  decodePointMutationExactRuntimeRequestV1Effect,
+  POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
+  POINT_MUTATION_EXACT_RUNTIME_FORMAT_V1,
+  POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+  type PointMutationExactRuntimeRequestV1,
+} from "flarex-protocol/point-mutation-exact-runtime";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_ARTIFACT_HOST_ENTRYPOINT_V1,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
+} from "flarex-protocol/point-mutation-exact-runtime-host";
+import {
+  requirePointMutationArgumentSemanticSizeV1,
+} from "flarex-protocol/point-mutation-start";
+import { normalizeFlarexValueV1 } from "flarex-protocol/value";
 import type {
   ActiveDeploymentStatus,
   PushSourcePackage,
 } from "flarex-backend/types";
 import {
   createArtifactRuntimeWorker,
+  FlarexPointMutationExactRuntimeArtifactHostV1,
 } from "../src/worker";
+import {
+  runPointMutationExactRuntimeArtifactHostV1,
+} from "../src/pointMutationExactRuntimeEntrypoint";
 
 const anonymousIdentity = { kind: "anonymous" } as const;
+
+describe("artifact runtime exact point-mutation RPC host", () => {
+  it("exports the versioned named private RPC entrypoint", () => {
+    expect(FlarexPointMutationExactRuntimeArtifactHostV1.name).toBe(
+      POINT_MUTATION_EXACT_RUNTIME_ARTIFACT_HOST_ENTRYPOINT_V1,
+    );
+  });
+
+  it("decodes before source loading and always disposes the received journal stub", async () => {
+    const bucket = new FakeR2Bucket();
+    const bucketGet = vi.spyOn(bucket, "get");
+    const loader = new FakeExactRuntimeWorkerLoader(async () => {
+      throw new Error("Dynamic Worker must not run");
+    });
+    const journalDispose = vi.fn();
+
+    await expect(runPointMutationExactRuntimeArtifactHostV1(
+      { ARTIFACTS: bucket, LOADER: loader },
+      { format: "invalid" },
+      exactRuntimeJournalStub(journalDispose),
+    )).resolves.toEqual({
+      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
+      version: 1,
+      kind: "failure",
+      reason: "invalidRequest",
+    });
+    expect(bucketGet).not.toHaveBeenCalled();
+    expect(loader.loaded).toEqual([]);
+    expect(journalDispose).toHaveBeenCalledOnce();
+  });
+
+  it("loads one fresh exact Worker, forwards the journal, validates the result, and disposes both stubs", async () => {
+    const sourcePackage = executableMutationSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(
+      sourcePackage,
+    );
+    const request = await exactRuntimeRequest(ref);
+    const journalDispose = vi.fn();
+    const journal = exactRuntimeJournalStub(journalDispose);
+    const entrypointDispose = vi.fn();
+    const resultDispose = vi.fn();
+    const calls: Array<Readonly<{
+      readonly input: PointMutationExactRuntimeRequestV1;
+      readonly journal: object;
+    }>> = [];
+    const loader = new FakeExactRuntimeWorkerLoader(async (input, received) => {
+      calls.push({ input, journal: received });
+      return Object.defineProperty({
+        format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+        version: 1,
+        value: { inserted: "1:new" },
+      }, Symbol.dispose, {
+        value: resultDispose,
+        enumerable: false,
+      });
+    }, entrypointDispose);
+
+    await expect(runPointMutationExactRuntimeArtifactHostV1(
+      {
+        ARTIFACTS: bucket,
+        LOADER: loader,
+        FLAREX_DYNAMIC_WORKER_COMPATIBILITY_DATE: "2026-07-24",
+      },
+      request,
+      journal,
+    )).resolves.toEqual({
+      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
+      version: 1,
+      kind: "success",
+      result: {
+        format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+        version: 1,
+        value: { inserted: "1:new" },
+      },
+    });
+    expect(loader.loaded).toHaveLength(1);
+    expect(loader.loaded[0]).toMatchObject({
+      compatibilityDate: "2026-07-24",
+      env: {},
+      globalOutbound: null,
+    });
+    expect(loader.requestedEntrypoints).toEqual([
+      POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
+    ]);
+    expect(calls).toEqual([{ input: request, journal }]);
+    expect(resultDispose).toHaveBeenCalledOnce();
+    expect(entrypointDispose).toHaveBeenCalledOnce();
+    expect(journalDispose).toHaveBeenCalledOnce();
+
+    await runPointMutationExactRuntimeArtifactHostV1(
+      { ARTIFACTS: bucket, LOADER: loader },
+      request,
+      exactRuntimeJournalStub(vi.fn()),
+    );
+    expect(loader.loaded).toHaveLength(2);
+  });
+
+  it("bounds expected host and Dynamic Worker failures without catching defects", async () => {
+    const sourcePackage = executableMutationSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(
+      sourcePackage,
+    );
+    const request = await exactRuntimeRequest(ref);
+    const invalidResultEntrypointDispose = vi.fn();
+    const invalidResultJournalDispose = vi.fn();
+    const invalidResultDispose = vi.fn();
+    const unexpectedResultSymbol = Symbol("unexpected-result-field");
+    const invalidResultLoader = new FakeExactRuntimeWorkerLoader(
+      async () =>
+        Object.defineProperties({
+          format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+          version: 1,
+          value: null,
+        }, {
+          [unexpectedResultSymbol]: {
+            value: true,
+            enumerable: false,
+          },
+          [Symbol.dispose]: {
+            value: invalidResultDispose,
+            enumerable: false,
+          },
+        }),
+      invalidResultEntrypointDispose,
+    );
+    await expect(runPointMutationExactRuntimeArtifactHostV1(
+      { ARTIFACTS: bucket, LOADER: invalidResultLoader },
+      request,
+      exactRuntimeJournalStub(invalidResultJournalDispose),
+    )).resolves.toMatchObject({
+      kind: "failure",
+      reason: "invalidResult",
+    });
+    expect(invalidResultDispose).toHaveBeenCalledOnce();
+    expect(invalidResultEntrypointDispose).toHaveBeenCalledOnce();
+    expect(invalidResultJournalDispose).toHaveBeenCalledOnce();
+
+    for (const [name, reason] of [
+      ["PointMutationExactRuntimeUserCodeV1Error", "userCodeFailed"],
+      [
+        "PointMutationExactRuntimeJournalBoundaryV1Error",
+        "journalBoundaryFailed",
+      ],
+    ] as const) {
+      const error = new Error("redacted Dynamic Worker failure");
+      error.name = name;
+      const entrypointDispose = vi.fn();
+      const journalDispose = vi.fn();
+      const loader = new FakeExactRuntimeWorkerLoader(
+        async () => Promise.reject(error),
+        entrypointDispose,
+      );
+
+      await expect(runPointMutationExactRuntimeArtifactHostV1(
+        { ARTIFACTS: bucket, LOADER: loader },
+        request,
+        exactRuntimeJournalStub(journalDispose),
+      )).resolves.toMatchObject({
+        kind: "failure",
+        reason,
+      });
+      expect(entrypointDispose).toHaveBeenCalledOnce();
+      expect(journalDispose).toHaveBeenCalledOnce();
+    }
+
+    const defect = new Error("unexpected RPC defect");
+    const defectEntrypointDispose = vi.fn();
+    const defectJournalDispose = vi.fn();
+    const defectLoader = new FakeExactRuntimeWorkerLoader(
+      async () => Promise.reject(defect),
+      defectEntrypointDispose,
+    );
+    await expect(runPointMutationExactRuntimeArtifactHostV1(
+      { ARTIFACTS: bucket, LOADER: defectLoader },
+      request,
+      exactRuntimeJournalStub(defectJournalDispose),
+    )).rejects.toThrow("unexpected RPC defect");
+    expect(defectEntrypointDispose).toHaveBeenCalledOnce();
+    expect(defectJournalDispose).toHaveBeenCalledOnce();
+  });
+});
 
 describe("artifact runtime worker", () => {
   it("accepts backend service-binding ref-only invokes through the deployable wrapper", async () => {
@@ -1134,6 +1337,53 @@ function testSourcePackage(): PushSourcePackage {
   });
 }
 
+async function exactRuntimeRequest(
+  artifact: Readonly<{
+    readonly runtime: "dynamic-worker";
+    readonly artifactId: string;
+    readonly sourcePackageHash: string;
+    readonly executionModule: string;
+  }>,
+): Promise<PointMutationExactRuntimeRequestV1> {
+  const argumentsValue = { text: "hello" };
+  const normalized = normalizeFlarexValueV1(argumentsValue);
+  return await Effect.runPromise(
+    decodePointMutationExactRuntimeRequestV1Effect({
+      format: POINT_MUTATION_EXACT_RUNTIME_FORMAT_V1,
+      version: 1,
+      artifact,
+      function: {
+        path: "messages:create",
+        executionModule: artifact.executionModule,
+        kind: "mutation",
+        visibility: "public",
+      },
+      auth: { kind: "anonymous" },
+      arguments: argumentsValue,
+      argumentArraySemanticBytes:
+        requirePointMutationArgumentSemanticSizeV1(
+          normalized.semanticSizeBytes,
+        ),
+      tables: [{ tableId: 1, logicalName: "messages" }],
+      context: {
+        executionId: "execution-1",
+        logScopeId: "log-scope-1",
+        randomSeed: new Uint8Array(32).fill(7),
+        executionTime: 100,
+        initialCreationTimeCursor: 100,
+      },
+    }),
+  );
+}
+
+function exactRuntimeJournalStub(dispose: () => void) {
+  return {
+    resolvePointTable: () =>
+      Promise.reject(new Error("Fake Dynamic Worker must own journal calls.")),
+    [Symbol.dispose]: dispose,
+  };
+}
+
 function executableSourcePackage(): PushSourcePackage {
   return withSourceModuleHashes({
     modules: [
@@ -1546,5 +1796,76 @@ class FakeWorkerStub implements WorkerStub {
     void name;
     void options;
     throw new Error("artifact runtime tests do not use dynamic Durable Objects");
+  }
+}
+
+type FakeExactRuntimeRun = (
+  input: PointMutationExactRuntimeRequestV1,
+  journal: object,
+) => Promise<unknown>;
+
+class FakeExactRuntimeWorkerLoader implements WorkerLoader {
+  readonly loaded: WorkerLoaderWorkerCode[] = [];
+  readonly requestedEntrypoints: string[] = [];
+  private readonly run: FakeExactRuntimeRun;
+  private readonly dispose: () => void;
+
+  constructor(run: FakeExactRuntimeRun, dispose: () => void = () => undefined) {
+    this.run = run;
+    this.dispose = dispose;
+  }
+
+  get(
+    _name: string | null,
+    _getCode: () => WorkerLoaderWorkerCode | Promise<WorkerLoaderWorkerCode>,
+  ): WorkerStub {
+    throw new Error("Exact-runtime tests forbid WorkerLoader.get().");
+  }
+
+  load(code: WorkerLoaderWorkerCode): WorkerStub {
+    this.loaded.push(code);
+    return new FakeExactRuntimeWorkerStub(
+      this.requestedEntrypoints,
+      this.run,
+      this.dispose,
+    );
+  }
+}
+
+class FakeExactRuntimeWorkerStub implements WorkerStub {
+  private readonly requestedEntrypoints: string[];
+  private readonly run: FakeExactRuntimeRun;
+  private readonly dispose: () => void;
+
+  constructor(
+    requestedEntrypoints: string[],
+    run: FakeExactRuntimeRun,
+    dispose: () => void,
+  ) {
+    this.requestedEntrypoints = requestedEntrypoints;
+    this.run = run;
+    this.dispose = dispose;
+  }
+
+  getEntrypoint<T extends Rpc.WorkerEntrypointBranded | undefined>(
+    name?: string,
+    options?: WorkerStubEntrypointOptions,
+  ): Fetcher<T> {
+    void options;
+    this.requestedEntrypoints.push(name ?? "");
+    const entrypoint = {
+      run: this.run,
+      [Symbol.dispose]: this.dispose,
+    };
+    return entrypoint as unknown as Fetcher<T>;
+  }
+
+  getDurableObjectClass<T extends Rpc.DurableObjectBranded | undefined>(
+    name?: string,
+    options?: WorkerStubEntrypointOptions,
+  ): DurableObjectClass<T> {
+    void name;
+    void options;
+    throw new Error("Exact-runtime tests do not use Dynamic Objects.");
   }
 }

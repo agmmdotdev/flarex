@@ -192,6 +192,106 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     ]);
   });
 
+  it("disposes every received journal stub after the exact call settles", async () => {
+    const request = await exactRequest(testArtifact());
+    const invalidRequestDispose = vi.fn(() => {
+      throw new Error("cleanup must not replace request decoding");
+    });
+    const InvalidRequestRuntime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({}),
+    );
+    await expect(new InvalidRequestRuntime().run(
+      { ...request, version: 2 },
+      {
+        resolvePointTable: () =>
+          Promise.reject(new Error("journal must not run")),
+        [Symbol.dispose]: invalidRequestDispose,
+      },
+    )).rejects.toThrow(
+      "Unsupported exact-runtime protocol format or version.",
+    );
+    expect(invalidRequestDispose).toHaveBeenCalledOnce();
+
+    const invalidJournalDispose = vi.fn();
+    const InvalidJournalRuntime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({}),
+    );
+    await expect(new InvalidJournalRuntime().run(request, {
+      [Symbol.dispose]: invalidJournalDispose,
+    })).rejects.toThrow(
+      "Exact-runtime journal RPC capability is unavailable.",
+    );
+    expect(invalidJournalDispose).toHaveBeenCalledOnce();
+
+    const tableDispose = vi.fn();
+    const parentDispose = vi.fn();
+    const Runtime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({
+        isMutation: true,
+        isPublic: true,
+        _handler: (ctx: ExactTestContext) => ctx.db.get(orderId),
+      }),
+    );
+
+    await expect(new Runtime().run(request, {
+      resolvePointTable: async () => ({
+        runPointOperation: async () => ({
+          kind: "missing",
+          document: null,
+        }),
+        [Symbol.dispose]: tableDispose,
+      }),
+      [Symbol.dispose]: parentDispose,
+    })).resolves.toMatchObject({
+      value: null,
+    });
+    expect(tableDispose).toHaveBeenCalledOnce();
+    expect(parentDispose).toHaveBeenCalledOnce();
+
+    const failingParentDispose = vi.fn();
+    const failingRuntime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({}),
+    );
+    await expect(new failingRuntime().run(request, {
+      resolvePointTable: () => {
+        throw new Error("journal must not run");
+      },
+      [Symbol.dispose]: failingParentDispose,
+    })).rejects.toThrow(
+      "Exact-runtime target must be exactly one public mutation.",
+    );
+    expect(failingParentDispose).toHaveBeenCalledOnce();
+
+    const cleanupFailure = new Error("table disposal failed");
+    const cleanupRuntime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({
+        isMutation: true,
+        isPublic: true,
+        _handler: (ctx: ExactTestContext) => ctx.db.get(orderId),
+      }),
+    );
+    await expect(new cleanupRuntime().run(request, {
+      resolvePointTable: async () => ({
+        runPointOperation: async () => ({
+          kind: "missing",
+          document: null,
+        }),
+        [Symbol.dispose]: () => {
+          throw cleanupFailure;
+        },
+      }),
+      [Symbol.dispose]: vi.fn(),
+    })).rejects.toMatchObject({
+      name: "PointMutationExactRuntimeJournalBoundaryV1Error",
+      cause: cleanupFailure,
+    });
+  });
+
   it("runs with fixed time, seeded randomness, hardened intrinsics, and fresh one-shot state", () => {
     const first = runGeneratedRuntimeInFreshProcess(5);
     const replay = runGeneratedRuntimeInFreshProcess(5);

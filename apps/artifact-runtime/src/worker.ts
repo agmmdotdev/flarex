@@ -19,6 +19,10 @@ import {
 } from "flarex-backend/artifact-store";
 import type { InvokeResponse } from "flarex-backend/types";
 
+export {
+  FlarexPointMutationExactRuntimeArtifactHostV1,
+} from "./pointMutationExactRuntimeEntrypoint";
+
 type ExecutorTransport = ExecutionArtifactWorkerExecutorTransport;
 
 export type ArtifactRuntimeEnv = {

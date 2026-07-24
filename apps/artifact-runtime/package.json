@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "effect": "catalog:",
-    "flarex-backend": "workspace:*"
+    "flarex-backend": "workspace:*",
+    "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
     "@flarex/utils": "workspace:*",

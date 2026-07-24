@@ -6,7 +6,7 @@ Status: active focused execution plan. P00 records the accepted boundary, P01
 selects the exact-attempt runtime-host contract, and P02a freezes the
 host-neutral protocol and generated Dynamic Worker entrypoint; all three are
 complete. P02b adds the executor-owned one-shot journal RPC adapter and is also
-complete. P02c, composing and proving one exact rerun, is the current gate.
+complete. P02c.2, constructing the executor exact runner, is the current gate.
 
 This plan owns the remaining production portion of
 `O08-B2b2b2b1b2b2b` and the subsequent `C06-B` endpoint/response policy:
@@ -467,7 +467,7 @@ same runner.
 
 Implement P02c in these bounded checkpoints:
 
-1. **P02c.1 — artifact-runtime exact RPC host.** Add one named private
+1. **[x] P02c.1 — artifact-runtime exact RPC host.** Add one named private
    `WorkerEntrypoint` that strictly decodes the request before material
    allocation, revalidates the pinned source package through the existing
    artifact store, calls `loader.load()` once, selects only the named exact
@@ -648,7 +648,7 @@ Completion receipt (2026-07-25):
 - the named main module is now emitted deterministically from checked
   `PointMutationExactRuntimeWorkerCore.ts`, with a stable inline source map,
   checked-in source bytes, and SHA-256
-  `ac8b4f12bb16c976a787e009aa63e085715700880a77bb892db44ff57b41684d`;
+  `66b64901b50fe3a3f1fc4c2249cf2dac29681e84c07bf8a19c113c6846e1374e`;
 - the host supplies only the trusted artifact configuration and literal
   execution-module bridge, reserves canonical aliases of all three internal
   paths, and includes the main path/hash, entrypoint, and exact support-module
@@ -693,17 +693,57 @@ P02b does not load a Dynamic Worker, add an artifact-runtime or executor
 entrypoint, alter the runtime-neutral runner, host a scheduled event, expose a
 route, or activate redelivery.
 
+### Current P02c.1 Boundary
+
+Completion receipt (2026-07-25):
+
+- `FlarexPointMutationExactRuntimeArtifactHostV1` is the only new
+  artifact-runtime entrypoint. Its versioned private RPC method strictly
+  decodes and owns the exact request before constructing the R2 store or
+  consulting Worker Loader; no Fetch route, bearer-token substitute, or
+  generic executor binding was added;
+- the host reuses the content-addressed artifact store and exact-runtime
+  definition owner, calls `loader.load()` exactly once per invocation, selects
+  only `FlarexPointMutationExactRuntimeV1`, forwards the live journal stub as a
+  method argument, awaits the complete call, and strictly decodes the result;
+- the versioned host response admits only strict success or one bounded
+  failure reason. Expected request, source-package, definition, load,
+  user-code, journal-boundary, and invalid-result failures become data;
+  unexpected Dynamic Worker rejection remains a defect rather than being
+  mislabeled as a recoverable host failure;
+- the artifact host disposes its received journal and Dynamic Worker
+  entrypoint stubs in Effect finalizers. The generated exact Worker separately
+  owns and disposes every nested table stub plus its received parent stub,
+  attempts all child cleanup, reports cleanup failure as a journal-boundary
+  failure on an otherwise successful run, and never replaces an already
+  established execution or decode failure;
+- Workers RPC adds a top-level disposer to every returned object. The host
+  therefore scopes and disposes the raw Dynamic Worker result, copies its own
+  data properties while removing only the platform-owned `Symbol.dispose`,
+  and applies the strict protocol decoder to that plain boundary value. P02c.2
+  must apply the same host-response adaptation at its own RPC caller boundary
+  rather than weakening either strict protocol decoder; and
+- focused protocol, backend, and artifact-runtime tests cover strict
+  version/shape rejection, decode-before-R2 ordering, fresh-load count, named
+  entrypoint selection, capability forwarding, strict result validation,
+  expected-versus-defect classification, and cleanup. The deployable Worker
+  also passes Wrangler dry-run packaging with the existing R2, service, and
+  Worker Loader bindings.
+
+P02c.1 does not construct the executor runner, create or settle the P02b
+journal session, install anything in the stored-attempt graph, add a scheduler
+or trigger, alter the ordinary cached invoke route, or activate execution.
+
 ## Resume Checklist
 
-Current gate: **P02c — compose and prove one exact rerun.**
+Current gate: **P02c.2 — executor exact runner.**
 
 On resume:
 
 1. read this plan plus the P02a protocol/runtime and P02b journal-RPC
    boundaries;
-2. implement P02c.1 as the private named artifact-runtime RPC host around one
-   strict request, one fresh `loader.load()` Worker, and the invocation-scoped
-   parent journal target;
+2. treat the completed P02c.1 private RPC host and response contract as the
+   only artifact-runtime path for this runner;
 3. implement P02c.2 as the executor-owned runtime-neutral runner with journal-
    cause precedence, bounded host/user classification, interruption, and
    deterministic stub disposal;

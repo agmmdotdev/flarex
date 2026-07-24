@@ -111,12 +111,14 @@ interface JournalCapability {
   readonly resolvePointTable: (
     name: string,
   ) => unknown | PromiseLike<unknown>;
+  readonly [Symbol.dispose]?: () => void;
 }
 
 interface TableJournalCapability {
   readonly runPointOperation: (
     operation: JournalOperationWithSequence,
   ) => unknown | PromiseLike<unknown>;
+  readonly [Symbol.dispose]?: () => void;
 }
 
 type GetOperation = Readonly<{
@@ -186,6 +188,7 @@ interface ExactRuntimeJournal {
   readonly database: ExactRuntimeDatabase;
   readonly close: () => void;
   readonly drain: () => Promise<void>;
+  readonly dispose: () => void;
 }
 
 type MutationHandler = (
@@ -531,53 +534,84 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
     input: unknown,
     journal: unknown,
   ): Promise<PointMutationExactRuntimeResultV1> {
-    if (runAdmitted) {
-      throw new Error("Exact point-mutation runtime admits one invocation.");
-    }
-    runAdmitted = true;
-    const request = decodeRequest(input);
-    const capability = decodeJournalCapability(journal);
-    const fn = await resolveFunction(request.function.path);
-    requireExactMutation(fn);
-    const handler = handlerFor(fn);
-    deterministicTime = request.context.executionTime;
-    deterministicRandom = randomFromSeed(request.context.randomSeed);
-    const journalRuntime = databaseForJournal(request.tables, capability);
-    let handlerResult: unknown;
-    let handlerFailure: Readonly<{ readonly cause: unknown }> | undefined;
+    let journalRuntime: ExactRuntimeJournal | undefined;
+    let capability: JournalCapability | undefined;
+    let settledFailure:
+      | Readonly<{ readonly cause: unknown }>
+      | undefined;
     try {
-      handlerResult = await handler(
-        executionContext(request, journalRuntime.database),
-        request.arguments,
-      );
-    } catch (cause) {
-      handlerFailure = { cause };
-    }
-    journalRuntime.close();
-    try {
-      await journalRuntime.drain();
-    } catch (cause) {
-      throw journalBoundaryError(cause);
-    }
-    if (handlerFailure !== undefined) {
-      if (handlerFailure.cause instanceof ExactRuntimeJournalBoundaryError) {
-        throw handlerFailure.cause;
+      if (runAdmitted) {
+        throw new Error("Exact point-mutation runtime admits one invocation.");
       }
-      throw new ExactRuntimeUserCodeError(handlerFailure.cause);
-    }
-    try {
-      return Object.freeze({
-        format: RESULT_FORMAT,
-        version: RESULT_VERSION,
-        value: normalizeValue(
-          handlerResult === undefined ? null : handlerResult,
-          "$",
-          0,
-          new WeakSet(),
-        ).value,
-      });
+      runAdmitted = true;
+      const request = decodeRequest(input);
+      capability = decodeJournalCapability(journal);
+      const fn = await resolveFunction(request.function.path);
+      requireExactMutation(fn);
+      const handler = handlerFor(fn);
+      deterministicTime = request.context.executionTime;
+      deterministicRandom = randomFromSeed(request.context.randomSeed);
+      journalRuntime = databaseForJournal(request.tables, capability);
+      let handlerResult: unknown;
+      let handlerFailure: Readonly<{ readonly cause: unknown }> | undefined;
+      try {
+        handlerResult = await handler(
+          executionContext(request, journalRuntime.database),
+          request.arguments,
+        );
+      } catch (cause) {
+        handlerFailure = { cause };
+      }
+      journalRuntime.close();
+      try {
+        await journalRuntime.drain();
+      } catch (cause) {
+        throw journalBoundaryError(cause);
+      }
+      if (handlerFailure !== undefined) {
+        if (handlerFailure.cause instanceof ExactRuntimeJournalBoundaryError) {
+          throw handlerFailure.cause;
+        }
+        throw new ExactRuntimeUserCodeError(handlerFailure.cause);
+      }
+      try {
+        return Object.freeze({
+          format: RESULT_FORMAT,
+          version: RESULT_VERSION,
+          value: normalizeValue(
+            handlerResult === undefined ? null : handlerResult,
+            "$",
+            0,
+            new WeakSet(),
+          ).value,
+        });
+      } catch (cause) {
+        throw new ExactRuntimeUserCodeError(cause);
+      }
     } catch (cause) {
-      throw new ExactRuntimeUserCodeError(cause);
+      settledFailure = { cause };
+      throw cause;
+    } finally {
+      journalRuntime?.close();
+      let disposalFailure:
+        | Readonly<{ readonly cause: unknown }>
+        | undefined;
+      try {
+        journalRuntime?.dispose();
+      } catch (cause) {
+        disposalFailure = { cause };
+      }
+      try {
+        disposeReceivedRpcStub(capability ?? journal);
+      } catch (cause) {
+        disposalFailure ??= { cause };
+      }
+      if (
+        disposalFailure !== undefined &&
+        settledFailure === undefined
+      ) {
+        throw journalBoundaryError(disposalFailure.cause);
+      }
     }
   }
 }
@@ -1042,6 +1076,7 @@ function databaseForJournal(
     string,
     Promise<TableJournalCapability>
   >();
+  const receivedTableStubs = new Set<TableJournalCapability>();
   let syscallSequence = 0n;
   let operationTail: Promise<void> = Promise.resolve();
   let firstOperationFailure:
@@ -1068,6 +1103,7 @@ function databaseForJournal(
               "Resolved exact-runtime table capability is invalid.",
             );
           }
+          receivedTableStubs.add(capability);
           return capability;
         });
       tableCapabilities.set(name, capabilityPromise);
@@ -1211,7 +1247,38 @@ function databaseForJournal(
         throw firstOperationFailure.cause;
       }
     },
+    dispose: () => {
+      let disposalFailure:
+        | Readonly<{ readonly cause: unknown }>
+        | undefined;
+      for (const table of receivedTableStubs) {
+        try {
+          disposeReceivedRpcStub(table);
+        } catch (cause) {
+          disposalFailure ??= { cause };
+        }
+      }
+      receivedTableStubs.clear();
+      if (disposalFailure !== undefined) {
+        throw disposalFailure.cause;
+      }
+    },
   });
+}
+
+function disposeReceivedRpcStub(
+  value: unknown,
+): void {
+  if (
+    value === null ||
+    (typeof value !== "object" && typeof value !== "function")
+  ) {
+    return;
+  }
+  const dispose = Reflect.get(value, Symbol.dispose);
+  if (typeof dispose === "function") {
+    Reflect.apply(dispose, value, []);
+  }
 }
 
 function trackCallerPromise<T>(promise: Promise<T>): Promise<T> {

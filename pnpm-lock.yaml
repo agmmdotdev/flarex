@@ -105,6 +105,9 @@ importers:
       flarex-backend:
         specifier: workspace:*
         version: link:../../packages/flarex-backend
+      flarex-protocol:
+        specifier: workspace:*
+        version: link:../../packages/flarex-protocol
     devDependencies:
       '@flarex/utils':
         specifier: workspace:*
