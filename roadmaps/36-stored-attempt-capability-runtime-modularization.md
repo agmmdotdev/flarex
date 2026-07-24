@@ -98,6 +98,10 @@ Authority is intentionally split:
 - [`../packages/executor/src/storedAttemptAuthentication/pointCommitPersistenceOperations.ts`](../packages/executor/src/storedAttemptAuthentication/pointCommitPersistenceOperations.ts)
   owns the O06 rollback-proof and O07 publication adapters over the shared
   prepared-capability state.
+- [`../packages/executor/src/storedAttemptAuthentication/finishingOperations.ts`](../packages/executor/src/storedAttemptAuthentication/finishingOperations.ts)
+  owns C05-A running-to-finishing transition, C05-B finishing reconstruction,
+  and the normal finish/resume compositions while delegating publication to
+  the existing O07/O08 owners.
 - [`../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts),
   [`../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts),
   and
@@ -137,7 +141,7 @@ The runtime already has these accepted properties:
   occurrence of that state as an invariant defect.
 
 Construction policy and capability state have moved into focused private
-modules. R01 through R03 are complete. Authentication-only construction
+modules. R01 through R04 are complete. Authentication-only construction
 composes a focused operation factory over only execution-claim admission,
 evidence loading, and the authentication vault facets. The authentication owner
 also contains the single canonical stored-evidence verifier and caller-envelope
@@ -149,7 +153,12 @@ and planning-stage construction returns before any point-commit dependency is
 inspected. O06 rollback proof and O07 publication now compose focused adapters
 over the same prepared-capability map and existing closed-command capture
 helpers. Rollback-only construction validates only the rollback port and does
-not inspect its optional publication member. Later domain operations and most
+not inspect its optional publication member. C05-A transition and C05-B
+reconstruction now compose focused factories over the same prepared and
+finishing capability state. The final finish and resume operations remain
+sequential compositions over the existing transition, reconstruction, and
+publication owners; transition-only construction does not inspect recovery or
+outcome-resolution dependencies. Later O08 domain operations and most
 capability contracts still live in the facade.
 
 ## Invariants And Trust Boundaries
@@ -317,7 +326,13 @@ Exit criteria:
   publication contracts; and
 - rollback-only construction does not inspect publisher-only dependencies.
 
-### [ ] R04 - Extract finishing transition and commit execution
+### [x] R04 - Extract finishing transition and commit execution
+
+Status: complete. One private finishing-operations module owns the C05-A
+transition operation, the C05-B reconstruction path, finishing capability
+lookup and minting, and the normal finish/resume compositions. The facade
+continues to own and inject the existing publication, known-settled retry,
+conflict capture, and decision-uncertainty recovery operations.
 
 Move C05-A finishing transition, C05-B reconstruction, and the composed finish
 and resume operations. Keep transaction-kernel and publication ownership in
@@ -433,8 +448,8 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Start with the first unchecked gate only. The current next gate is R04,
-   finishing transition and commit execution.
+4. Start with the first unchecked gate only. The current next gate is R05,
+   exact-attempt replacement.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant

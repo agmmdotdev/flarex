@@ -512,6 +512,77 @@ describe("C04A stored-attempt authentication", () => {
     expect(publicationReads).toBe(0);
   });
 
+  it("does not inspect recovery while constructing finishing transition", async () => {
+    const current = await commitAuthorityFixture();
+    let recoveryReads = 0;
+    const loader = Object.defineProperty(
+      {
+        loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)),
+      },
+      "loadFinishingEffect",
+      {
+        get: () => {
+          recoveryReads += 1;
+          throw new Error("finishing transition must not inspect recovery");
+        },
+      },
+    );
+    const pointCommit = Object.defineProperty(
+      {
+        prove: Effect.fn("TestPointCommit.proveFinishingConstructionBoundary")(
+          () => Effect.die(new Error("finishing construction must not prove")),
+        ),
+        publish: Effect.fn(
+          "TestPointCommit.publishFinishingConstructionBoundary",
+        )(
+          () =>
+            Effect.die(new Error("finishing construction must not publish")),
+        ),
+      },
+      RESOLVE_POINT_COMMIT_OUTCOME_V1,
+      {
+        get: () => {
+          recoveryReads += 1;
+          throw new Error(
+            "finishing transition must not inspect outcome resolution",
+          );
+        },
+      },
+    );
+
+    expect(() =>
+      createStoredPointCommitFinishingTransitionV1(
+        loader,
+        {
+          evidenceLoader: {
+            loadEffect: () => Effect.succeed({
+              kind: "loaded" as const,
+              evidence: current.commitEvidence,
+            }),
+          },
+          transactionGrantVerifier: current.verifier,
+          functionMetadata: {
+            load: () =>
+              Effect.succeed(structuredClone(current.functionSnapshot)),
+          },
+          pointCommit,
+          pointCommitFinishing: {
+            enterFinishing: Effect.fn(
+              "TestPointCommit.enterFinishingConstructionBoundary",
+            )(
+              () =>
+                Effect.die(
+                  new Error("finishing construction must not transition"),
+                ),
+            ),
+          },
+        },
+        TEST_EXECUTION_CLAIMS,
+      )
+    ).not.toThrow();
+    expect(recoveryReads).toBe(0);
+  });
+
   it("preserves typed lifecycle, committed, authority, and corruption results", async () => {
     const fixture = await emptyFixture();
     const cases: ReadonlyArray<Readonly<{
