@@ -11,6 +11,9 @@ import {
   rowsFromDriver,
   type FlarexRuntimePersistenceTransaction,
 } from "./runtimePersistence";
+import {
+  createFlarexRuntimePersistenceTransaction,
+} from "./runtimePersistenceTransaction";
 import { flarexSchema } from "./schema";
 
 export interface PostgresQueryClient {
@@ -106,13 +109,13 @@ export const runPostgresTransactionEffect = Effect.fn(
       catch: (cause) => new PostgresTransactionBeginError({ cause }),
     });
 
-    const transaction = {
-      drizzle: database,
-      sql: createPostgresSqlClient(
+    const transaction = createFlarexRuntimePersistenceTransaction(
+      database,
+      createPostgresSqlClient(
         database,
         client,
       ) satisfies FlarexPersistenceTx,
-    } satisfies FlarexRuntimePersistenceTransaction;
+    );
     const callbackExit = yield* Effect.exit(
       restore(Effect.suspend(() => run(transaction))),
     );

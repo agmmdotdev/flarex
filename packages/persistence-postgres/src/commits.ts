@@ -24,6 +24,8 @@ import { listInvokeSessionIndexReads } from "./invokeSessionIndexReads";
 import { listInvokeSessionTableReads } from "./invokeSessionTableReads";
 import { listInvokeSessionDocumentWrites } from "./invokeSessionWrites";
 import { commitOutboxEvent, insertOutboxEvent } from "./outbox";
+import type { FlarexRuntimePersistenceTransaction } from
+  "./runtimePersistenceTransaction";
 import {
   schemaTableValidatorsFromAnalysis,
   validateDocumentValue,
@@ -152,10 +154,11 @@ export class InvokeSessionDeleteTargetError extends Error {
   }
 }
 
-export async function commitInvokeSessionWrites(
-  db: FlarexMetadataDatabase,
+export async function commitInvokeSessionWritesInTransaction(
+  transaction: FlarexRuntimePersistenceTransaction,
   input: CommitInvokeSessionWritesInput,
 ): Promise<CommitInvokeSessionWritesResult> {
+  const db = transaction.drizzle;
   const stagedWrites = await listInvokeSessionDocumentWrites(
     db,
     input.deploymentId,

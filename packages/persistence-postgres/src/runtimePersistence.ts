@@ -1,11 +1,12 @@
 import type {
   FlarexPersistenceCheck,
-  FlarexPersistenceTx,
   FlarexRuntimePersistence,
   FlarexSqlClient,
 } from "./index";
 import { Effect } from "effect";
-import { commitInvokeSessionWrites as commitInvokeSessionWritesWithDb } from "./commits";
+import {
+  commitInvokeSessionWritesInTransaction,
+} from "./commits";
 import {
   getDeploymentPackageMetadata as getDeploymentPackageMetadataWithDb,
   insertDeploymentPackageMetadata as insertDeploymentPackageMetadataWithDb,
@@ -102,11 +103,13 @@ import {
   publishAppSchemaV1WithRepositoryEffect,
   type AppSchemaPublicationV1Repository,
 } from "./appSchemaPublication";
+import type {
+  FlarexRuntimePersistenceTransaction,
+} from "./runtimePersistenceTransaction";
 
-export interface FlarexRuntimePersistenceTransaction {
-  readonly drizzle: FlarexMetadataDatabase;
-  readonly sql: FlarexPersistenceTx;
-}
+export type {
+  FlarexRuntimePersistenceTransaction,
+} from "./runtimePersistenceTransaction";
 
 export interface FlarexRuntimePersistenceDriver {
   readonly drizzle: FlarexMetadataDatabase;
@@ -218,8 +221,8 @@ export function createFlarexRuntimePersistence(
     listInvokeSessionDocumentWrites: (deploymentId, sessionId) =>
       listInvokeSessionDocumentWritesWithDb(drizzleDb, deploymentId, sessionId),
     commitInvokeSessionWrites: (input) =>
-      driver.transaction(({ drizzle }) =>
-        commitInvokeSessionWritesWithDb(drizzle, input),
+      driver.transaction((transaction) =>
+        commitInvokeSessionWritesInTransaction(transaction, input),
       ),
     insertOutboxEvent: (input) => insertOutboxEventWithDb(drizzleDb, input),
     listOutboxEvents: (input) => listOutboxEventsWithDb(drizzleDb, input),

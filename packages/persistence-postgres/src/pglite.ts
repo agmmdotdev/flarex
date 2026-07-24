@@ -43,6 +43,9 @@ import {
   createFlarexRuntimePersistence,
   rowsFromDriver,
 } from "./runtimePersistence";
+import {
+  createFlarexRuntimePersistenceTransaction,
+} from "./runtimePersistenceTransaction";
 import { flarexSchema } from "./schema";
 
 type PGliteLike = {
@@ -217,10 +220,10 @@ export async function createPGlitePersistence(
           client: tx as unknown as PGlite,
           schema: flarexSchema,
         });
-        return run({
-          drizzle: txDrizzle,
-          sql: createPGliteSqlClient(txDrizzle, tx),
-        });
+        return run(createFlarexRuntimePersistenceTransaction(
+          txDrizzle,
+          createPGliteSqlClient(txDrizzle, tx),
+        ));
       }),
   });
 

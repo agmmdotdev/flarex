@@ -440,7 +440,19 @@ export {
   type ScopeClockRecord,
 } from "./scopeClock";
 export * from "./documents";
-export * from "./commits";
+export {
+  type CommitInvokeSessionWritesInput,
+  type CommitInvokeSessionWritesResult,
+  type CommittedDocumentWriteRecord,
+  InvokeSessionDeleteTargetError,
+  InvokeSessionIndexOccConflictError,
+  InvokeSessionInsertConflictError,
+  InvokeSessionOccConflictError,
+  InvokeSessionPatchTargetError,
+  InvokeSessionReplaceTargetError,
+  InvokeSessionTableOccConflictError,
+  InvokeSessionUnsupportedStagedWriteError,
+} from "./commits";
 export * from "./indexEntries";
 export * from "./invokeSessions";
 export * from "./invokeSessionReads";
