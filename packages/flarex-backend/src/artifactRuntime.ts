@@ -24,6 +24,8 @@ export {
 } from "./artifactRuntime/GeneratedWorkerSource.ts";
 export {
   loadPointMutationExactRuntimeWorkerDefinitionV1Effect,
+  POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
+  POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
   POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
   PointMutationExactRuntimeHostV1Error,
   pointMutationExactRuntimeWorkerCodeIdentityV1,
@@ -34,6 +36,8 @@ export {
   type PointMutationExactRuntimeWorkerEnvV1,
 } from "./artifactRuntime/PointMutationExactRuntimeHost.ts";
 export {
+  pointMutationExactRuntimeWorkerConfigurationSource,
+  pointMutationExactRuntimeWorkerExecutionBridgeSource,
   pointMutationExactRuntimeWorkerSource,
   type PointMutationExactRuntimeWorkerSourceOptions,
 } from "./artifactRuntime/PointMutationExactRuntimeWorkerSource.ts";

@@ -170,9 +170,22 @@ describe("backend execution artifact runtime", () => {
       sourcePackage: testSourcePackage(),
       runtimeModulePath: "worker.js",
       runtimeWorkerSource: "export default {};",
+      runtimeSupportModules: [
+        {
+          path: "_runtime/config.js",
+          source: "export const config = {};",
+        },
+        {
+          path: "_runtime/bridge.js",
+          source: "export { default } from '../_flarex/execution.js';",
+        },
+      ],
       reservedBy: "test runtime",
     })).toEqual({
       "worker.js": "export default {};",
+      "_runtime/config.js": "export const config = {};",
+      "_runtime/bridge.js":
+        "export { default } from '../_flarex/execution.js';",
       "_flarex/execution.js": "export default {};",
       "users.js": "export const get = {};",
     });
@@ -208,6 +221,77 @@ describe("backend execution artifact runtime", () => {
         modules: [
           ...testSourcePackage().modules,
           {
+            path: "_runtime/config.js",
+            environment: "isolate",
+            sha256: "c".repeat(64),
+            source: "export const collision = true;",
+          },
+        ],
+      },
+      runtimeModulePath: "worker.js",
+      runtimeWorkerSource: "export default {};",
+      runtimeSupportModules: [
+        {
+          path: "_runtime/config.js",
+          source: "export const config = {};",
+        },
+      ],
+      reservedBy: "test runtime",
+    })).toThrow(ExecutionArtifactWorkerReservedModulePathError);
+
+    expect(() => executionArtifactWorkerModules({
+      sourcePackage: testSourcePackage(),
+      runtimeModulePath: "worker.js",
+      runtimeWorkerSource: "export default {};",
+      runtimeSupportModules: [
+        {
+          path: "worker.js",
+          source: "export const duplicate = true;",
+        },
+      ],
+      reservedBy: "test runtime",
+    })).toThrow(ExecutionArtifactWorkerDuplicateModulePathError);
+
+    for (const reservedAlias of [
+      "./worker.js",
+      "_runtime/./config.js",
+      "_runtime/nested/../bridge.js",
+    ]) {
+      expect(() => executionArtifactWorkerModules({
+        sourcePackage: {
+          ...testSourcePackage(),
+          modules: [
+            ...testSourcePackage().modules,
+            {
+              path: reservedAlias,
+              environment: "isolate",
+              sha256: "c".repeat(64),
+              source: "export const collision = true;",
+            },
+          ],
+        },
+        runtimeModulePath: "worker.js",
+        runtimeWorkerSource: "export default {};",
+        runtimeSupportModules: [
+          {
+            path: "_runtime/config.js",
+            source: "export const config = {};",
+          },
+          {
+            path: "_runtime/bridge.js",
+            source: "export { default } from '../_flarex/execution.js';",
+          },
+        ],
+        reservedBy: "test runtime",
+      })).toThrow(ExecutionArtifactWorkerReservedModulePathError);
+    }
+
+    expect(() => executionArtifactWorkerModules({
+      sourcePackage: {
+        ...testSourcePackage(),
+        modules: [
+          ...testSourcePackage().modules,
+          {
             path: "worker.js",
             environment: "isolate",
             sha256: "c".repeat(64),
@@ -230,6 +314,24 @@ describe("backend execution artifact runtime", () => {
             environment: "isolate",
             sha256: "c".repeat(64),
             source: "export const duplicate = true;",
+          },
+        ],
+      },
+      runtimeModulePath: "worker.js",
+      runtimeWorkerSource: "export default {};",
+      reservedBy: "test runtime",
+    })).toThrow(ExecutionArtifactWorkerDuplicateModulePathError);
+
+    expect(() => executionArtifactWorkerModules({
+      sourcePackage: {
+        ...testSourcePackage(),
+        modules: [
+          ...testSourcePackage().modules,
+          {
+            path: "app/../users.js",
+            environment: "isolate",
+            sha256: "c".repeat(64),
+            source: "export const duplicateAlias = true;",
           },
         ],
       },

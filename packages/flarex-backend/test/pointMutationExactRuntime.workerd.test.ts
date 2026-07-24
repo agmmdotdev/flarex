@@ -1,24 +1,33 @@
 import { Miniflare } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { pointMutationExactRuntimeWorkerSource } from "../src/artifactRuntime";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
+  POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
+  pointMutationExactRuntimeWorkerConfigurationSource,
+  pointMutationExactRuntimeWorkerExecutionBridgeSource,
+} from "../src/artifactRuntime";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+} from "../src/artifactRuntime/PointMutationExactRuntimeWorkerCore.generated";
 
 describe("point mutation exact-runtime workerd globals", () => {
   let runtime: Miniflare;
 
   beforeAll(() => {
-    const exactRuntimeSource = pointMutationExactRuntimeWorkerSource({
+    const exactRuntimeConfigurationSource =
+      pointMutationExactRuntimeWorkerConfigurationSource({
       executionModule: "_flarex/execution.js",
       moduleTime: Date.UTC(2026, 6, 24),
       moduleRandomSeedHex: "a".repeat(64),
-    });
+      });
     runtime = new Miniflare({
       compatibilityDate: "2026-06-18",
       modules: [
         {
           type: "ESModule",
           path: "worker.js",
-          contents: `${exactRuntimeSource}
+          contents: `${POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1}
 export default {
   fetch() {
     const blocked = (operation) => {
@@ -64,8 +73,33 @@ export default {
         },
         {
           type: "ESModule",
+          path: POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
+          contents: exactRuntimeConfigurationSource,
+        },
+        {
+          type: "ESModule",
+          path: POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
+          contents: pointMutationExactRuntimeWorkerExecutionBridgeSource(
+            "_flarex/execution.js",
+          ),
+        },
+        {
+          type: "ESModule",
           path: "_flarex/execution.js",
-          contents: "export default {};",
+          contents: `
+let timerWasBlocked = false;
+try {
+  setTimeout(() => undefined, 0);
+} catch {
+  timerWasBlocked = true;
+}
+if (!timerWasBlocked) {
+  throw new Error("Application module evaluated before timer hardening.");
+}
+if (Date.now() !== ${Date.UTC(2026, 6, 24)}) {
+  throw new Error("Application module evaluated before deterministic time.");
+}
+export default {};`,
         },
       ],
     });

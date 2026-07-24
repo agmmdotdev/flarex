@@ -384,6 +384,14 @@ interrupt/cleanup behavior, and exact syscall/journal routing.
   worker-definition identity, pinned source-package loading, the exact mutation
   entrypoint, and generated-source tests. This slice adds no database or
   scheduled host.
+- **[x] P02a.1 — author the exact-runtime core as checked TypeScript.** Replace
+  the handwritten monolithic source template with a deterministic build-time
+  JavaScript artifact, a tiny artifact-specific configuration module, and
+  a tiny literal-import execution bridge. Preserve the P02a protocol, trust,
+  import-order, failure-order, one-shot, journal, and deterministic-runtime
+  behavior exactly. Pin the built runtime bytes in the internal code identity
+  and verify generated-artifact freshness. This remains a host-definition
+  refactor and does not call Worker Loader.
 - **[ ] P02b — add the executor-owned one-shot journal RPC adapter.** Preserve
   nested table capability identity, original typed journal-failure precedence,
   late-call closure, user-error separation, interruption, and stub disposal.
@@ -485,6 +493,90 @@ materialized-module checks. The digest-format marker had to be threaded through
 that duplicate decoder in P02a, proving the drift risk. Handle this as a bounded
 compatibility-preserving follow-up before P02c activation; preserve the current
 package-specific validation order and messages while doing so.
+
+### P02a.1 Checked Runtime-Source Refactor
+
+P02a proved that the Worker Loader boundary legitimately ends in JavaScript
+source text, but it currently authors the complete runtime inside one large
+template literal. That representation weakens TypeScript checking, editor
+navigation, safe refactoring, formatting, generated-runtime source maps, and
+reviewability. P02a.1 changes how the trusted runtime source is produced, not
+what authority or behavior it has.
+
+The target module graph is:
+
+```text
+flarex-point-mutation-exact-runtime-v1.js
+  build-produced from checked TypeScript; exports the named WorkerEntrypoint
+  ├─ static import: flarex-point-mutation-exact-runtime-config-v1.js
+  │    tiny trusted artifact-specific configuration
+  └─ dynamic import after global hardening:
+       flarex-point-mutation-exact-runtime-execution-v1.js
+         generated literal import of the authenticated application
+         execution module
+```
+
+The application execution module must not become a static dependency of the
+runtime core. Static ESM dependencies evaluate before module body code, which
+would let developer module initialization run before exact runtime globals are
+installed. The checked core therefore remains the main module and installs its
+deterministic and unavailable-capability globals before dynamically importing
+the fixed internal execution bridge. Its only static local dependency is the
+trusted generated configuration module. The bridge alone contains the
+JSON-escaped literal application-module import.
+
+The core JavaScript is built ahead of Worker invocation and embedded as an
+owned source string. No request or rerun may invoke a runtime TypeScript
+compiler or bundler. A checked-in generated source owner must expose the exact
+runtime bytes and their lowercase SHA-256 identity; the package build and tests
+must fail when that artifact is stale. The host code identity must include that
+runtime-source identity, or an equivalent versioned proof, so trusted runtime
+bytes cannot change silently under one identity.
+
+All three internal module paths are host-owned reservations. Application source
+packages must fail definition construction if they collide with the main core,
+configuration, or execution-bridge path. The generated configuration module
+may carry only bounded artifact-specific values already authenticated by the
+host: module-evaluation time, pinned source-package hash, and protocol/profile
+constants. Mutation invocation time and randomness remain authenticated
+request context and must still replace the module-evaluation defaults before
+the handler runs.
+
+P02a.1 acceptance requires:
+
+1. the checked TypeScript core and generated artifact reproduce the existing
+   Node and real-workerd exact-runtime behavior;
+2. global hardening demonstrably precedes developer-module evaluation;
+3. request, result, auth, journal, document, and write validation order and
+   error classification remain unchanged;
+4. ignored and late journal work, first-failure precedence, stable-tail drain,
+   one-shot admission, and fresh mutable auth projection remain unchanged;
+5. generated-source freshness, byte identity, deterministic repeat builds, and
+   every reserved internal path are pinned by focused tests; and
+6. no `loader.load()`, database adapter, scheduler host, public route, generic
+   executor binding, or P02b journal RPC server is added.
+
+Completion receipt (2026-07-25):
+
+- the named main module is now emitted deterministically from checked
+  `PointMutationExactRuntimeWorkerCore.ts`, with a stable inline source map,
+  checked-in source bytes, and SHA-256
+  `ac8b4f12bb16c976a787e009aa63e085715700880a77bb892db44ff57b41684d`;
+- the host supplies only the trusted artifact configuration and literal
+  execution-module bridge, reserves canonical aliases of all three internal
+  paths, and includes the main path/hash, entrypoint, and exact support-module
+  path/source pairs in code identity;
+- the former public single-source generator remains as a deprecated adapter
+  over the checked core, while the production definition uses the three-module
+  graph;
+- package build and tests reproduce the generated artifact twice and reject a
+  stale checked-in copy; the real-workerd test proves application module
+  initialization observes deterministic time and blocked timers; and
+- final post-review validation passed the backend build/typecheck, Effect
+  boundary check, focused 47-test runtime suite, frozen lockfile check, and both
+  required final reviewers with no remaining findings; the preceding
+  package-wide backend checkpoint also passed 97 files and 879 tests before the
+  final focused hardening assertions and reviewer fixes.
 
 ## Resume Checklist
 

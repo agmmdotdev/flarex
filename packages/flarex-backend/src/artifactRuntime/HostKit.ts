@@ -18,6 +18,10 @@ export type ExecutionArtifactWorkerModulesOptions = {
   readonly sourcePackage: PushSourcePackage;
   readonly runtimeModulePath: string;
   readonly runtimeWorkerSource: string;
+  readonly runtimeSupportModules?: ReadonlyArray<Readonly<{
+    readonly path: string;
+    readonly source: string;
+  }>>;
   readonly reservedBy: string;
 };
 
@@ -157,21 +161,37 @@ export function executionArtifactWorkerModules(
   const entries: Array<readonly [string, string]> = [
     [options.runtimeModulePath, options.runtimeWorkerSource],
   ];
-  const seenPaths = new Set([options.runtimeModulePath]);
-  for (const module of options.sourcePackage.modules) {
-    if (module.path === options.runtimeModulePath) {
-      throw new ExecutionArtifactWorkerReservedModulePathError(module.path, options.reservedBy);
-    }
-    if (seenPaths.has(module.path)) {
+  const runtimeModuleKey = workerModuleCollisionKey(options.runtimeModulePath);
+  const seenPaths = new Set([runtimeModuleKey]);
+  const reservedPaths = new Set([runtimeModuleKey]);
+  for (const module of options.runtimeSupportModules ?? []) {
+    const collisionKey = workerModuleCollisionKey(module.path);
+    if (seenPaths.has(collisionKey)) {
       throw new ExecutionArtifactWorkerDuplicateModulePathError(module.path);
     }
-    seenPaths.add(module.path);
+    seenPaths.add(collisionKey);
+    reservedPaths.add(collisionKey);
+    entries.push([module.path, module.source]);
+  }
+  for (const module of options.sourcePackage.modules) {
+    const collisionKey = workerModuleCollisionKey(module.path);
+    if (reservedPaths.has(collisionKey)) {
+      throw new ExecutionArtifactWorkerReservedModulePathError(module.path, options.reservedBy);
+    }
+    if (seenPaths.has(collisionKey)) {
+      throw new ExecutionArtifactWorkerDuplicateModulePathError(module.path);
+    }
+    seenPaths.add(collisionKey);
     if (module.source === undefined) {
       throw new ExecutionArtifactWorkerSourceModuleMissingError(module.path);
     }
     entries.push([module.path, module.source]);
   }
   return Object.fromEntries(entries);
+}
+
+function workerModuleCollisionKey(modulePath: string): string {
+  return new URL(modulePath, "https://flarex-worker.invalid/").pathname;
 }
 
 export function executionArtifactWorkerEnv(

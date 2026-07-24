@@ -18,7 +18,9 @@
     "./test/sync-protocol": "./src/syncProtocol.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm check:exact-runtime-core && tsc -p tsconfig.json",
+    "check:exact-runtime-core": "tsx scripts/buildPointMutationExactRuntimeCore.ts check",
+    "exact-runtime-core:update": "tsx scripts/buildPointMutationExactRuntimeCore.ts update",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
@@ -45,6 +47,7 @@
   "devDependencies": {
     "@flarex/executor": "workspace:*",
     "miniflare": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

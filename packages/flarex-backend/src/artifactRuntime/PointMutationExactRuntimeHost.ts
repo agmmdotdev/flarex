@@ -21,11 +21,20 @@ import {
   type ExecutionArtifactWorkerDefinition,
 } from "./HostKit.ts";
 import {
-  pointMutationExactRuntimeWorkerSource,
+  pointMutationExactRuntimeWorkerConfigurationSource,
+  pointMutationExactRuntimeWorkerExecutionBridgeSource,
 } from "./PointMutationExactRuntimeWorkerSource.ts";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
+  POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+} from "./PointMutationExactRuntimeWorkerCore.generated.ts";
 
 export const POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1 =
   "flarex-point-mutation-exact-runtime-v1.js";
+export const POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1 =
+  "pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-config-v1.js";
+export const POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1 =
+  "pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-execution-v1.js";
 
 export type PointMutationExactRuntimeWorkerEnvV1 = Readonly<
   Record<PropertyKey, never>
@@ -73,9 +82,20 @@ export class PointMutationExactRuntimeHostV1Error extends Data.TaggedError(
 export function pointMutationExactRuntimeWorkerCodeIdentityV1(
   input: PointMutationExactRuntimeWorkerCodeIdentityV1Input,
 ): string {
+  const runtimeSupportModules = pointMutationExactRuntimeSupportModulesV1({
+    executionModule: input.artifact.executionModule,
+    moduleTime: Date.parse(`${input.compatibilityDate}T00:00:00.000Z`),
+    moduleRandomSeedHex: input.artifact.sourcePackageHash,
+  });
   return JSON.stringify([
     POINT_MUTATION_EXACT_RUNTIME_PROFILE_V1,
     POINT_MUTATION_EXACT_RUNTIME_VERSION_V1,
+    [
+      POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+      POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
+    ],
+    POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
+    ...runtimeSupportModules.map((module) => [module.path, module.source]),
     input.compatibilityDate,
     input.artifact.runtime,
     input.artifact.artifactId,
@@ -105,7 +125,9 @@ function pointMutationExactRuntimeWorkerDefinitionV1(input: {
     modules: Object.freeze(executionArtifactWorkerModules({
       sourcePackage: input.sourcePackage,
       runtimeModulePath: POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
-      runtimeWorkerSource: pointMutationExactRuntimeWorkerSource({
+      runtimeWorkerSource:
+        POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+      runtimeSupportModules: pointMutationExactRuntimeSupportModulesV1({
         executionModule: input.sourcePackage.execution,
         moduleTime,
         moduleRandomSeedHex: input.artifact.sourcePackageHash,
@@ -116,6 +138,27 @@ function pointMutationExactRuntimeWorkerDefinitionV1(input: {
     globalOutbound: null,
     entrypoint: POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
   });
+}
+
+function pointMutationExactRuntimeSupportModulesV1(
+  options: {
+    readonly executionModule: string;
+    readonly moduleTime: number;
+    readonly moduleRandomSeedHex: string;
+  },
+): ReadonlyArray<Readonly<{ readonly path: string; readonly source: string }>> {
+  return Object.freeze([
+    Object.freeze({
+      path: POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
+      source: pointMutationExactRuntimeWorkerConfigurationSource(options),
+    }),
+    Object.freeze({
+      path: POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
+      source: pointMutationExactRuntimeWorkerExecutionBridgeSource(
+        options.executionModule,
+      ),
+    }),
+  ]);
 }
 
 export const loadPointMutationExactRuntimeWorkerDefinitionV1Effect = Effect.fn(

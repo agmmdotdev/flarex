@@ -27,11 +27,17 @@ import {
 } from "../src/artifactStore";
 import {
   loadPointMutationExactRuntimeWorkerDefinitionV1Effect,
+  POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
+  POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
   POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
   PointMutationExactRuntimeHostV1Error,
   pointMutationExactRuntimeWorkerCodeIdentityV1,
   pointMutationExactRuntimeWorkerSource,
 } from "../src/artifactRuntime";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
+  POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+} from "../src/artifactRuntime/PointMutationExactRuntimeWorkerCore.generated";
 import type { PushSourcePackage } from "../src/types";
 import { sourceModuleSha256ForTest } from "./sourcePackageHashFixture";
 
@@ -50,7 +56,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     );
     expect(source).toContain("async run(input, journal)");
     expect(source).toContain("journal.resolvePointTable(name)");
-    expect(source).toContain("capability.runPointOperation");
+    expect(source).toContain("table.runPointOperation");
     expect(source).not.toContain("globalOutbound");
     expect(source).not.toContain("FLAREX_EXECUTOR");
     expect(source).not.toContain("/invoke/start");
@@ -510,11 +516,24 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     });
     expect(Object.keys(definition.modules).sort()).toEqual([
       "_flarex/execution.js",
+      POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
+      POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
       POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
       "orders.js",
-    ]);
+    ].sort());
     expect(Object.isFrozen(definition)).toBe(true);
     expect(Object.isFrozen(definition.modules)).toBe(true);
+    expect(
+      definition.modules[POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1],
+    ).toBe(POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1);
+    expect(
+      definition.modules[POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1],
+    ).toContain(`pinnedSourcePackageHash: ${JSON.stringify(ref.sourcePackageHash)}`);
+    expect(
+      definition.modules[
+        POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1
+      ],
+    ).toContain('export { default } from "../_flarex/execution.js";');
     expectTypeOf(definition.modules).toEqualTypeOf<
       Readonly<Record<string, string>>
     >();
@@ -527,6 +546,9 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
       compatibilityDate: "2026-07-24",
     });
     expect(identity).toContain("point-mutation-exact-runtime-v1");
+    expect(identity).toContain(
+      POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
+    );
     expect(identity).toContain(ref.artifactId);
     expect(identity).toContain(ref.sourcePackageHash);
     expect(identity).toContain("2026-07-24");
@@ -534,6 +556,22 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
       artifact,
       compatibilityDate: "2026-07-25",
     })).not.toBe(identity);
+    const identityParts: unknown = JSON.parse(identity);
+    expect(identityParts).toContainEqual([
+      POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+      POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
+    ]);
+    expect(identityParts).toContain(POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1);
+    expect(identityParts).toContainEqual([
+      POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
+      definition.modules[POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1],
+    ]);
+    expect(identityParts).toContainEqual([
+      POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
+      definition.modules[
+        POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1
+      ],
+    ]);
     await expect(Effect.runPromise(
       loadPointMutationExactRuntimeWorkerDefinitionV1Effect({
         store: {
