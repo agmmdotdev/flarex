@@ -317,7 +317,12 @@ export type {
 
 export {
   InvalidVerifiedCommitInputV1Error,
+  PointCommitPlannerInvariantV1Defect,
   UnsupportedPointCommitPlanV1Error,
+} from "./storedAttemptAuthentication/pointCommitPlanning";
+
+export type {
+  PointCommitPlannerInvariantV1DefectReason,
 } from "./storedAttemptAuthentication/pointCommitPlanning";
 
 const trustedStoredAttemptAuthorityBrand: unique symbol = Symbol(
@@ -1461,6 +1466,125 @@ export interface StoredPointMutationCrashRedispatchV1
   >;
 }
 
+interface StoredPointMutationCapabilityVaultV1 {
+  readonly authorityStates: WeakMap<
+    object,
+    Readonly<{
+      readonly authority: StoredAttemptAuthorityStateV1;
+      readonly executionScope: PointMutationExecutionScopeV1;
+    }>
+  >;
+  readonly authenticatedStates: WeakMap<
+    object,
+    AuthenticatedStoredAttemptStateV1
+  >;
+  readonly commitAuthorityStates: WeakMap<
+    object,
+    AuthenticatedCommitAuthorityStateV1
+  >;
+  readonly verifiedCommitInputStates: WeakMap<
+    object,
+    VerifiedCommitCapabilityStateV1
+  >;
+  readonly preparedPointCommitStates: WeakMap<
+    object,
+    PreparedPointCommitCapabilityStateV1
+  >;
+  readonly finishingPreparedPointCommitStates: WeakSet<object>;
+  readonly decisionUncertainTickets: WeakMap<
+    object,
+    PointCommitDecisionUncertainTicketStateV1
+  >;
+  readonly capturedDecisionUncertainties: WeakSet<object>;
+  readonly consumedDecisionUncertainties: WeakSet<object>;
+  readonly occConflictTickets: WeakMap<
+    object,
+    PointMutationOccConflictTicketStateV1
+  >;
+  readonly capturedOccConflicts: WeakSet<object>;
+  readonly consumedOccConflicts: WeakSet<object>;
+  readonly authorizedOccRerunStates: WeakMap<
+    object,
+    AuthorizedPointMutationOccRerunStateV1
+  >;
+  readonly mintedAuthorizedOccReruns: WeakSet<object>;
+  readonly consumedAuthorizedOccReruns: WeakSet<object>;
+}
+
+type StoredPointMutationCapabilityStageV1 =
+  | "authentication"
+  | "planning"
+  | "rollbackProof"
+  | "publisher"
+  | "finishingTransition"
+  | "executor"
+  | "attemptReplacement"
+  | "occRerunAuthorization"
+  | "occRerunExecution"
+  | "crashRedispatch";
+
+type StoredPointMutationCapabilityRequirementV1 =
+  | "commitAuthority"
+  | "pointCommitRollbackProof"
+  | "pointCommitPublisher"
+  | "pointCommitFinishing"
+  | "finishingEvidenceLoader"
+  | "pointCommitOutcomeResolution"
+  | "pointMutationAttemptReplacement"
+  | "pointMutationOccAttemptLoading"
+  | "pointMutationOccExecutionEvidence"
+  | "pointMutationOccJournal"
+  | "pointMutationOccTerminalization"
+  | "pointMutationOccContextFactory"
+  | "pointMutationOccRunner"
+  | "pointMutationOccLiveness"
+  | "pointMutationOccHeartbeatInterval"
+  | "pointMutationRedispatchAcquisition"
+  | "pointMutationRedispatchDisposition";
+
+class StoredPointMutationCapabilityConfigurationV1Defect
+  extends Data.TaggedError(
+    "StoredPointMutationCapabilityConfigurationV1Defect",
+  )<{
+    readonly stage: StoredPointMutationCapabilityStageV1;
+    readonly missing: StoredPointMutationCapabilityRequirementV1;
+  }> {}
+
+function makeStoredPointMutationCapabilityVaultV1():
+  StoredPointMutationCapabilityVaultV1 {
+  return Object.freeze({
+    authorityStates: new WeakMap(),
+    authenticatedStates: new WeakMap(),
+    commitAuthorityStates: new WeakMap(),
+    verifiedCommitInputStates: new WeakMap(),
+    preparedPointCommitStates: new WeakMap(),
+    finishingPreparedPointCommitStates: new WeakSet(),
+    decisionUncertainTickets: new WeakMap(),
+    capturedDecisionUncertainties: new WeakSet(),
+    consumedDecisionUncertainties: new WeakSet(),
+    occConflictTickets: new WeakMap(),
+    capturedOccConflicts: new WeakSet(),
+    consumedOccConflicts: new WeakSet(),
+    authorizedOccRerunStates: new WeakMap(),
+    mintedAuthorizedOccReruns: new WeakSet(),
+    consumedAuthorizedOccReruns: new WeakSet(),
+  } satisfies StoredPointMutationCapabilityVaultV1);
+}
+
+function requireStoredPointMutationCapabilityDependencyV1<Value>(
+  stage: StoredPointMutationCapabilityStageV1,
+  missing: StoredPointMutationCapabilityRequirementV1,
+  value: Value | undefined,
+): Value {
+  if (value === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing,
+    });
+  }
+  return value;
+}
+
 function isPointCommitRollbackProofPortV1(
   value: unknown,
 ): value is PointCommitRollbackProofPortV1 {
@@ -1572,55 +1696,194 @@ function isStoredAttemptFinishingEvidenceLoaderPortV1(
 
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredAttemptAuthenticationV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    undefined,
+    executionClaims,
+    "authentication",
+  );
+}
+
+export function createStoredPointCommitPlanningV1(
+  loader: StoredAttemptEvidenceLoaderPortV1,
+  configuration: StoredCommitAuthorityAuthenticationConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointCommitPlanningV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "planning",
+  );
+}
+
+export function createStoredPointCommitRollbackProofV1(
+  loader: StoredAttemptEvidenceLoaderPortV1,
+  configuration: StoredPointCommitRollbackProofConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointCommitRollbackProofV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "rollbackProof",
+  );
+}
+
+export function createStoredPointCommitPublisherV1(
+  loader: StoredAttemptEvidenceLoaderPortV1,
+  configuration: StoredPointCommitPublisherConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointCommitPublisherV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "publisher",
+  );
+}
+
+export function createStoredPointCommitFinishingTransitionV1(
+  loader: StoredAttemptEvidenceLoaderPortV1,
+  configuration: StoredPointCommitFinishingTransitionConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointCommitFinishingTransitionV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "finishingTransition",
+  );
+}
+
+export function createStoredPointCommitExecutorV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  configuration: StoredPointCommitExecutorConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointCommitExecutorV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "executor",
+  );
+}
+
+export function createStoredPointMutationAttemptReplacementV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  configuration: StoredPointMutationAttemptReplacementConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointMutationAttemptReplacementV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "attemptReplacement",
+  );
+}
+
+export function createStoredPointMutationOccRerunAuthorizationV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  configuration: StoredPointMutationOccRerunAuthorizationConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointMutationOccRerunAuthorizationV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "occRerunAuthorization",
+  );
+}
+
+export function createStoredPointMutationOccRerunExecutionV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  configuration: StoredPointMutationOccRerunExecutionConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointMutationOccRerunExecutionV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "occRerunExecution",
+  );
+}
+
+export function createStoredPointMutationCrashRedispatchV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  configuration: StoredPointMutationCrashRedispatchConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointMutationCrashRedispatchV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "crashRedispatch",
+  );
+}
+
+function createStoredPointMutationCapabilityRuntimeV1(
+  loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: undefined,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "authentication",
 ): StoredAttemptAuthenticationV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
   commitAuthority: StoredPointMutationCrashRedispatchConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "crashRedispatch",
 ): StoredPointMutationCrashRedispatchV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
   commitAuthority: StoredPointMutationOccRerunExecutionConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "occRerunExecution",
 ): StoredPointMutationOccRerunExecutionV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
   commitAuthority: StoredPointMutationOccRerunAuthorizationConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "occRerunAuthorization",
 ): StoredPointMutationOccRerunAuthorizationV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
   commitAuthority: StoredPointMutationAttemptReplacementConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "attemptReplacement",
 ): StoredPointMutationAttemptReplacementV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
   commitAuthority: StoredPointCommitExecutorConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "executor",
 ): StoredPointCommitExecutorV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: StoredPointCommitFinishingTransitionConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "finishingTransition",
 ): StoredPointCommitFinishingTransitionV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: StoredPointCommitPublisherConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "publisher",
 ): StoredPointCommitPublisherV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: StoredPointCommitRollbackProofConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "rollbackProof",
 ): StoredPointCommitRollbackProofV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: StoredCommitAuthorityAuthenticationConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "planning",
 ): StoredPointCommitPlanningV1;
-export function createStoredAttemptAuthenticationV1(
+function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority:
     | undefined
@@ -1634,6 +1897,7 @@ export function createStoredAttemptAuthenticationV1(
     | StoredPointMutationOccRerunExecutionConfigV1
     | StoredPointMutationCrashRedispatchConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: StoredPointMutationCapabilityStageV1,
 ):
   | StoredAttemptAuthenticationV1
   | StoredPointCommitPlanningV1
@@ -1645,48 +1909,23 @@ export function createStoredAttemptAuthenticationV1(
   | StoredPointMutationOccRerunAuthorizationV1
   | StoredPointMutationOccRerunExecutionV1
   | StoredPointMutationCrashRedispatchV1 {
-  const authorityStates = new WeakMap<
-    object,
-    Readonly<{
-      readonly authority: StoredAttemptAuthorityStateV1;
-      readonly executionScope: PointMutationExecutionScopeV1;
-    }>
-  >();
-  const authenticatedStates = new WeakMap<
-    object,
-    AuthenticatedStoredAttemptStateV1
-  >();
-  const commitAuthorityStates = new WeakMap<
-    object,
-    AuthenticatedCommitAuthorityStateV1
-  >();
-  const verifiedCommitInputStates = new WeakMap<
-    object,
-    VerifiedCommitCapabilityStateV1
-  >();
-  const preparedPointCommitStates = new WeakMap<
-    object,
-    PreparedPointCommitCapabilityStateV1
-  >();
-  const finishingPreparedPointCommitStates = new WeakSet<object>();
-  const decisionUncertainTickets = new WeakMap<
-    object,
-    PointCommitDecisionUncertainTicketStateV1
-  >();
-  const capturedDecisionUncertainties = new WeakSet<object>();
-  const consumedDecisionUncertainties = new WeakSet<object>();
-  const occConflictTickets = new WeakMap<
-    object,
-    PointMutationOccConflictTicketStateV1
-  >();
-  const capturedOccConflicts = new WeakSet<object>();
-  const consumedOccConflicts = new WeakSet<object>();
-  const authorizedOccRerunStates = new WeakMap<
-    object,
-    AuthorizedPointMutationOccRerunStateV1
-  >();
-  const mintedAuthorizedOccReruns = new WeakSet<object>();
-  const consumedAuthorizedOccReruns = new WeakSet<object>();
+  const {
+    authorityStates,
+    authenticatedStates,
+    commitAuthorityStates,
+    verifiedCommitInputStates,
+    preparedPointCommitStates,
+    finishingPreparedPointCommitStates,
+    decisionUncertainTickets,
+    capturedDecisionUncertainties,
+    consumedDecisionUncertainties,
+    occConflictTickets,
+    capturedOccConflicts,
+    consumedOccConflicts,
+    authorizedOccRerunStates,
+    mintedAuthorizedOccReruns,
+    consumedAuthorizedOccReruns,
+  } = makeStoredPointMutationCapabilityVaultV1();
   const mintAuthenticatedStoredAttempt = (
     state: AuthenticatedStoredAttemptStateV1,
   ): AuthenticatedStoredAttemptV1 => {
@@ -1718,158 +1957,6 @@ export function createStoredAttemptAuthenticationV1(
     finishingPreparedPointCommitStates.add(handle);
     return Result.succeed(handle);
   };
-  const pointCommitCandidate: unknown = commitAuthority !== undefined &&
-      "pointCommit" in commitAuthority
-    ? commitAuthority.pointCommit
-    : undefined;
-  const pointCommit:
-    | PointCommitRollbackProofPortV1
-    | PointCommitPublisherPortV1
-    | undefined = isPointCommitPublisherPortV1(pointCommitCandidate)
-      ? pointCommitCandidate
-      : isPointCommitRollbackProofPortV1(pointCommitCandidate)
-        ? pointCommitCandidate
-        : undefined;
-  const pointCommitOutcomeResolution =
-    isPointCommitPublisherPortV1(pointCommitCandidate) &&
-      isPointCommitOutcomeResolutionPortV1(pointCommitCandidate)
-      ? pointCommitCandidate
-      : undefined;
-  const pointCommitFinishingCandidate: unknown =
-    commitAuthority !== undefined && "pointCommitFinishing" in commitAuthority
-      ? commitAuthority.pointCommitFinishing
-      : undefined;
-  const pointCommitFinishing = isPointCommitFinishingTransitionPortV1(
-      pointCommitFinishingCandidate,
-    )
-    ? pointCommitFinishingCandidate
-    : undefined;
-  const pointMutationAttemptReplacementCandidate: unknown =
-    commitAuthority !== undefined &&
-      "pointMutationAttemptReplacement" in commitAuthority
-      ? commitAuthority.pointMutationAttemptReplacement
-      : undefined;
-  const pointMutationAttemptReplacement =
-    isPointMutationAttemptReplacementPortV1(
-        pointMutationAttemptReplacementCandidate,
-      )
-      ? pointMutationAttemptReplacementCandidate
-      : undefined;
-  const pointMutationOccRerunCandidate: unknown =
-    commitAuthority !== undefined && "pointMutationOccRerun" in commitAuthority
-      ? commitAuthority.pointMutationOccRerun
-      : undefined;
-  const pointMutationOccAttemptLoadingCandidate = isNonArrayRecord(
-      pointMutationOccRerunCandidate,
-    )
-    ? Reflect.get(pointMutationOccRerunCandidate, "attemptLoading")
-    : undefined;
-  const pointMutationOccAttemptLoading = isPointMutationSessionAttemptLoadingV1(
-    pointMutationOccAttemptLoadingCandidate,
-  )
-    ? pointMutationOccAttemptLoadingCandidate
-    : undefined;
-  const pointMutationOccExecutionEvidenceCandidate = isNonArrayRecord(
-    pointMutationOccRerunCandidate,
-  )
-    ? Reflect.get(pointMutationOccRerunCandidate, "executionEvidence")
-    : undefined;
-  const pointMutationOccExecutionEvidence =
-    isStoredOccExecutionEvidenceLoaderV1(
-      pointMutationOccExecutionEvidenceCandidate,
-    )
-      ? pointMutationOccExecutionEvidenceCandidate
-      : undefined;
-  const pointMutationOccJournalCandidate = isNonArrayRecord(
-    pointMutationOccRerunCandidate,
-  )
-    ? Reflect.get(pointMutationOccRerunCandidate, "journal")
-    : undefined;
-  const pointMutationOccJournal = isPointMutationJournalV1(
-    pointMutationOccJournalCandidate,
-  )
-    ? pointMutationOccJournalCandidate
-    : undefined;
-  const pointMutationOccTerminalizationCandidate = isNonArrayRecord(
-    pointMutationOccRerunCandidate,
-  )
-    ? Reflect.get(pointMutationOccRerunCandidate, "terminalization")
-    : undefined;
-  const pointMutationOccTerminalization =
-    isPointMutationSessionAttemptTerminalizationV1(
-      pointMutationOccTerminalizationCandidate,
-    )
-      ? pointMutationOccTerminalizationCandidate
-      : undefined;
-  const pointMutationOccContextFactoryCandidate = isNonArrayRecord(
-    pointMutationOccRerunCandidate,
-  )
-    ? Reflect.get(pointMutationOccRerunCandidate, "contextFactory")
-    : undefined;
-  const pointMutationOccContextFactory =
-    isPointMutationOccExecutionContextFactoryV1(
-      pointMutationOccContextFactoryCandidate,
-    )
-      ? pointMutationOccContextFactoryCandidate
-      : undefined;
-  const pointMutationOccRunnerCandidate = isNonArrayRecord(
-    pointMutationOccRerunCandidate,
-  )
-    ? Reflect.get(pointMutationOccRerunCandidate, "runner")
-    : undefined;
-  const pointMutationOccRunner = isPointMutationOccRuntimeNeutralRunnerV1(
-    pointMutationOccRunnerCandidate,
-  )
-      ? pointMutationOccRunnerCandidate
-      : undefined;
-  const pointMutationOccLivenessCandidate = isNonArrayRecord(
-      pointMutationOccRerunCandidate,
-    )
-    ? Reflect.get(pointMutationOccRerunCandidate, "liveness")
-    : undefined;
-  const pointMutationOccLiveness = isPointMutationExecutionClaimLivenessV1(
-      pointMutationOccLivenessCandidate,
-    )
-    ? pointMutationOccLivenessCandidate
-    : undefined;
-  const pointMutationOccHeartbeatIntervalCandidate = isNonArrayRecord(
-      pointMutationOccRerunCandidate,
-    )
-    ? Reflect.get(
-        pointMutationOccRerunCandidate,
-        "heartbeatIntervalMilliseconds",
-      )
-    : undefined;
-  const pointMutationRedispatchCandidate: unknown =
-    commitAuthority !== undefined &&
-      "pointMutationRedispatch" in commitAuthority
-      ? commitAuthority.pointMutationRedispatch
-      : undefined;
-  const pointMutationRedispatchAcquisitionCandidate = isNonArrayRecord(
-      pointMutationRedispatchCandidate,
-    )
-    ? Reflect.get(pointMutationRedispatchCandidate, "acquisition")
-    : undefined;
-  const pointMutationRedispatchAcquisition =
-    isPointMutationExecutionClaimDispatchAcquisitionV1(
-        pointMutationRedispatchAcquisitionCandidate,
-      )
-      ? pointMutationRedispatchAcquisitionCandidate
-      : undefined;
-  const pointMutationRedispatchDispositionCandidate = isNonArrayRecord(
-      pointMutationRedispatchCandidate,
-    )
-    ? Reflect.get(pointMutationRedispatchCandidate, "disposition")
-    : undefined;
-  const pointMutationRedispatchDisposition =
-    isPointMutationSessionAttemptDispositionV1(
-        pointMutationRedispatchDispositionCandidate,
-      )
-      ? pointMutationRedispatchDispositionCandidate
-      : undefined;
-
-  const finishingEvidenceLoader =
-    isStoredAttemptFinishingEvidenceLoaderPortV1(loader) ? loader : undefined;
   if (executionClaims === undefined) {
     throw new StoredCommitAuthorityConfigurationV1Error({
       reason: "missingExecutionClaimVault",
@@ -2006,11 +2093,14 @@ export function createStoredAttemptAuthenticationV1(
       return before === serializeAuthenticatedStateForTest(state);
     },
   });
-  if (
-    commitAuthority === undefined ||
-    grantKernel === undefined
-  ) {
+  if (stage === "authentication") {
     return base;
+  }
+  if (commitAuthority === undefined || grantKernel === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing: "commitAuthority",
+    });
   }
 
   const authenticateCommitAuthority = Effect.fn(
@@ -2183,7 +2273,23 @@ export function createStoredAttemptAuthenticationV1(
           serializePreparedPointCommitStateForTest(rightState.plan);
     },
   } satisfies StoredPointCommitPlanningV1);
-  if (pointCommit === undefined) return planning;
+  if (stage === "planning") return planning;
+  const pointCommitCandidate: unknown =
+    "pointCommit" in commitAuthority ? commitAuthority.pointCommit : undefined;
+  const pointCommit:
+    | PointCommitRollbackProofPortV1
+    | PointCommitPublisherPortV1
+    | undefined = isPointCommitPublisherPortV1(pointCommitCandidate)
+      ? pointCommitCandidate
+      : isPointCommitRollbackProofPortV1(pointCommitCandidate)
+        ? pointCommitCandidate
+        : undefined;
+  if (pointCommit === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing: "pointCommitRollbackProof",
+    });
+  }
 
   const provePointCommitRollback:
     StoredPointCommitRollbackProofV1["provePointCommitRollback"] = Effect.fn(
@@ -2203,11 +2309,16 @@ export function createStoredAttemptAuthenticationV1(
       );
     });
 
+  const rollbackProof = Object.freeze({
+    ...planning,
+    provePointCommitRollback,
+  } satisfies StoredPointCommitRollbackProofV1);
+  if (stage === "rollbackProof") return rollbackProof;
   if (!isPointCommitPublisherPortV1(pointCommit)) {
-    return Object.freeze({
-      ...planning,
-      provePointCommitRollback,
-    } satisfies StoredPointCommitRollbackProofV1);
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing: "pointCommitPublisher",
+    });
   }
 
   const publishPointCommit:
@@ -2229,11 +2340,25 @@ export function createStoredAttemptAuthenticationV1(
     });
 
   const publisher = Object.freeze({
-    ...planning,
-    provePointCommitRollback,
+    ...rollbackProof,
     publishPointCommit,
   } satisfies StoredPointCommitPublisherV1);
-  if (pointCommitFinishing === undefined) return publisher;
+  if (stage === "publisher") return publisher;
+  const pointCommitFinishingCandidate: unknown =
+    "pointCommitFinishing" in commitAuthority
+      ? commitAuthority.pointCommitFinishing
+      : undefined;
+  const pointCommitFinishing = isPointCommitFinishingTransitionPortV1(
+      pointCommitFinishingCandidate,
+    )
+    ? pointCommitFinishingCandidate
+    : undefined;
+  if (pointCommitFinishing === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing: "pointCommitFinishing",
+    });
+  }
 
   const enterPointCommitFinishing:
     StoredPointCommitFinishingTransitionV1[
@@ -2509,8 +2634,23 @@ export function createStoredAttemptAuthenticationV1(
     enterPointCommitFinishing,
     publishPointCommit: publishFinishingPointCommitOnce,
   } satisfies StoredPointCommitFinishingTransitionV1);
-  if (finishingEvidenceLoader === undefined) return finishingTransition;
-  if (pointCommitOutcomeResolution === undefined) return finishingTransition;
+  if (stage === "finishingTransition") return finishingTransition;
+  const finishingEvidenceLoader =
+    isStoredAttemptFinishingEvidenceLoaderPortV1(loader) ? loader : undefined;
+  const pointCommitOutcomeResolution =
+    isPointCommitOutcomeResolutionPortV1(pointCommit) ? pointCommit : undefined;
+  if (finishingEvidenceLoader === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing: "finishingEvidenceLoader",
+    });
+  }
+  if (pointCommitOutcomeResolution === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing: "pointCommitOutcomeResolution",
+    });
+  }
 
   const resolvePointCommitOutcomeFromStoredSession = Effect.fn(
     "StoredAttemptAuthentication.resolvePointCommitOutcomeFromStoredSession",
@@ -2798,7 +2938,23 @@ export function createStoredAttemptAuthenticationV1(
     finishPointCommit,
     resumePointCommit,
   } satisfies StoredPointCommitExecutorV1);
-  if (pointMutationAttemptReplacement === undefined) return executor;
+  if (stage === "executor") return executor;
+  const pointMutationAttemptReplacementCandidate: unknown =
+    "pointMutationAttemptReplacement" in commitAuthority
+      ? commitAuthority.pointMutationAttemptReplacement
+      : undefined;
+  const pointMutationAttemptReplacement =
+    isPointMutationAttemptReplacementPortV1(
+        pointMutationAttemptReplacementCandidate,
+      )
+      ? pointMutationAttemptReplacementCandidate
+      : undefined;
+  if (pointMutationAttemptReplacement === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing: "pointMutationAttemptReplacement",
+    });
+  }
 
   const replaceConflictedPointMutationAttempt:
     StoredPointMutationAttemptReplacementV1[
@@ -2829,11 +2985,26 @@ export function createStoredAttemptAuthenticationV1(
     ...executor,
     replaceConflictedPointMutationAttempt,
   } satisfies StoredPointMutationAttemptReplacementV1);
-  if (
-    pointCommitOutcomeResolution === undefined ||
-    pointMutationOccAttemptLoading === undefined
-  ) {
-    return replacement;
+  if (stage === "attemptReplacement") return replacement;
+  const pointMutationOccRerunCandidate: unknown =
+    "pointMutationOccRerun" in commitAuthority
+      ? commitAuthority.pointMutationOccRerun
+      : undefined;
+  const pointMutationOccAttemptLoadingCandidate = isNonArrayRecord(
+      pointMutationOccRerunCandidate,
+    )
+    ? Reflect.get(pointMutationOccRerunCandidate, "attemptLoading")
+    : undefined;
+  const pointMutationOccAttemptLoading = isPointMutationSessionAttemptLoadingV1(
+    pointMutationOccAttemptLoadingCandidate,
+  )
+    ? pointMutationOccAttemptLoadingCandidate
+    : undefined;
+  if (pointMutationOccAttemptLoading === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing: "pointMutationOccAttemptLoading",
+    });
   }
 
   const resolvePointMutationOccOutcome = Effect.fn(
@@ -3108,26 +3279,129 @@ export function createStoredAttemptAuthenticationV1(
     authorizePointMutationOccRerun,
     consumeAuthorizedPointMutationOccRerunForTest,
   } satisfies StoredPointMutationOccRerunAuthorizationV1);
-  if (
-    pointMutationOccExecutionEvidence === undefined ||
-    pointMutationOccJournal === undefined ||
-    pointMutationOccTerminalization === undefined ||
-    pointMutationOccContextFactory === undefined ||
-    pointMutationOccRunner === undefined ||
-    pointMutationOccLiveness === undefined ||
-    typeof pointMutationOccHeartbeatIntervalCandidate !== "number" ||
-    executionClaims === undefined
-  ) {
-    return authorization;
-  }
+  if (stage === "occRerunAuthorization") return authorization;
+  const pointMutationOccExecutionEvidenceCandidate = isNonArrayRecord(
+      pointMutationOccRerunCandidate,
+    )
+    ? Reflect.get(pointMutationOccRerunCandidate, "executionEvidence")
+    : undefined;
+  const pointMutationOccExecutionEvidence =
+    isStoredOccExecutionEvidenceLoaderV1(
+      pointMutationOccExecutionEvidenceCandidate,
+    )
+      ? pointMutationOccExecutionEvidenceCandidate
+      : undefined;
+  const pointMutationOccJournalCandidate = isNonArrayRecord(
+      pointMutationOccRerunCandidate,
+    )
+    ? Reflect.get(pointMutationOccRerunCandidate, "journal")
+    : undefined;
+  const pointMutationOccJournal = isPointMutationJournalV1(
+      pointMutationOccJournalCandidate,
+    )
+    ? pointMutationOccJournalCandidate
+    : undefined;
+  const pointMutationOccTerminalizationCandidate = isNonArrayRecord(
+      pointMutationOccRerunCandidate,
+    )
+    ? Reflect.get(pointMutationOccRerunCandidate, "terminalization")
+    : undefined;
+  const pointMutationOccTerminalization =
+    isPointMutationSessionAttemptTerminalizationV1(
+      pointMutationOccTerminalizationCandidate,
+    )
+      ? pointMutationOccTerminalizationCandidate
+      : undefined;
+  const pointMutationOccContextFactoryCandidate = isNonArrayRecord(
+      pointMutationOccRerunCandidate,
+    )
+    ? Reflect.get(pointMutationOccRerunCandidate, "contextFactory")
+    : undefined;
+  const pointMutationOccContextFactory =
+    isPointMutationOccExecutionContextFactoryV1(
+      pointMutationOccContextFactoryCandidate,
+    )
+      ? pointMutationOccContextFactoryCandidate
+      : undefined;
+  const pointMutationOccRunnerCandidate = isNonArrayRecord(
+    pointMutationOccRerunCandidate,
+  )
+    ? Reflect.get(pointMutationOccRerunCandidate, "runner")
+    : undefined;
+  const pointMutationOccRunner = isPointMutationOccRuntimeNeutralRunnerV1(
+    pointMutationOccRunnerCandidate,
+  )
+      ? pointMutationOccRunnerCandidate
+      : undefined;
+  const pointMutationOccLivenessCandidate = isNonArrayRecord(
+      pointMutationOccRerunCandidate,
+    )
+    ? Reflect.get(pointMutationOccRerunCandidate, "liveness")
+    : undefined;
+  const pointMutationOccLiveness = isPointMutationExecutionClaimLivenessV1(
+      pointMutationOccLivenessCandidate,
+    )
+    ? pointMutationOccLivenessCandidate
+    : undefined;
+  const pointMutationOccHeartbeatIntervalCandidate = isNonArrayRecord(
+      pointMutationOccRerunCandidate,
+    )
+    ? Reflect.get(
+        pointMutationOccRerunCandidate,
+        "heartbeatIntervalMilliseconds",
+      )
+    : undefined;
+  const pointMutationOccExecutionEvidencePort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "pointMutationOccExecutionEvidence",
+      pointMutationOccExecutionEvidence,
+    );
+  const pointMutationOccJournalPort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "pointMutationOccJournal",
+      pointMutationOccJournal,
+    );
+  const pointMutationOccTerminalizationPort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "pointMutationOccTerminalization",
+      pointMutationOccTerminalization,
+    );
+  const pointMutationOccContextFactoryPort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "pointMutationOccContextFactory",
+      pointMutationOccContextFactory,
+    );
+  const pointMutationOccRunnerPort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "pointMutationOccRunner",
+      pointMutationOccRunner,
+    );
+  const pointMutationOccLivenessPort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "pointMutationOccLiveness",
+      pointMutationOccLiveness,
+    );
+  const pointMutationOccHeartbeatInterval =
+    typeof pointMutationOccHeartbeatIntervalCandidate === "number"
+      ? pointMutationOccHeartbeatIntervalCandidate
+      : requireStoredPointMutationCapabilityDependencyV1<number>(
+        stage,
+        "pointMutationOccHeartbeatInterval",
+        undefined,
+      );
 
   const pointMutationExecutionLiveness =
     createPointMutationExecutionLivenessCoordinatorV1(
       executionClaims.admission,
-      pointMutationOccLiveness,
+      pointMutationOccLivenessPort,
       Object.freeze({
-        heartbeatIntervalMilliseconds:
-          pointMutationOccHeartbeatIntervalCandidate,
+        heartbeatIntervalMilliseconds: pointMutationOccHeartbeatInterval,
       }),
     );
 
@@ -3215,7 +3489,7 @@ export function createStoredAttemptAuthenticationV1(
     );
     // Runtime-local entropy may be fresh. Persisted creation time remains the
     // exact attempt seed authenticated above.
-    const entropy = yield* pointMutationOccContextFactory.make();
+    const entropy = yield* pointMutationOccContextFactoryPort.make();
 
     // The RR capture is closed. This is the last liveness/claim reload before
     // the journal admission and user-code boundary.
@@ -3241,18 +3515,21 @@ export function createStoredAttemptAuthenticationV1(
           input.snapshotToken,
         ),
       );
-      const journalAttempt = yield* pointMutationOccJournal.openAttempt(
+      const journalAttempt = yield* pointMutationOccJournalPort.openAttempt(
         currentAttempt,
         input.executionScope,
       );
-      const successfulResult = yield* pointMutationOccRunner.run(
+      const successfulResult = yield* pointMutationOccRunnerPort.run(
         capturePointMutationOccRunnerInput(
           runnerEvidence,
           context,
-          bindPointMutationOccJournal(pointMutationOccJournal, journalAttempt),
+          bindPointMutationOccJournal(
+            pointMutationOccJournalPort,
+            journalAttempt,
+          ),
         ),
       );
-      const envelope = yield* pointMutationOccJournal.sealSuccessfulResult(
+      const envelope = yield* pointMutationOccJournalPort.sealSuccessfulResult(
         journalAttempt,
         successfulResult === undefined ? null : successfulResult,
       );
@@ -3277,7 +3554,7 @@ export function createStoredAttemptAuthenticationV1(
       prepareRunningPlan,
       currentAttempt,
       input.executionScope,
-      pointMutationOccTerminalization,
+      pointMutationOccTerminalizationPort,
     );
 
     const finishingPlan = yield* input.liveness.enterFinishing(
@@ -3330,7 +3607,7 @@ export function createStoredAttemptAuthenticationV1(
               rerunState,
               admittedClaim.observation,
             );
-            const loadResult = yield* pointMutationOccExecutionEvidence
+            const loadResult = yield* pointMutationOccExecutionEvidencePort
               .loadEffect(executionAuthority)
               .pipe(
                 Effect.mapError(
@@ -3460,10 +3737,45 @@ export function createStoredAttemptAuthenticationV1(
     ...authorization,
     executeAuthorizedPointMutationOccRerun,
   } satisfies StoredPointMutationOccRerunExecutionV1);
-  if (
-    pointMutationRedispatchAcquisition === undefined ||
-    pointMutationRedispatchDisposition === undefined
-  ) return occExecution;
+  if (stage === "occRerunExecution") return occExecution;
+  const pointMutationRedispatchCandidate: unknown =
+    "pointMutationRedispatch" in commitAuthority
+      ? commitAuthority.pointMutationRedispatch
+      : undefined;
+  const pointMutationRedispatchAcquisitionCandidate = isNonArrayRecord(
+      pointMutationRedispatchCandidate,
+    )
+    ? Reflect.get(pointMutationRedispatchCandidate, "acquisition")
+    : undefined;
+  const pointMutationRedispatchAcquisition =
+    isPointMutationExecutionClaimDispatchAcquisitionV1(
+        pointMutationRedispatchAcquisitionCandidate,
+      )
+      ? pointMutationRedispatchAcquisitionCandidate
+      : undefined;
+  const pointMutationRedispatchDispositionCandidate = isNonArrayRecord(
+      pointMutationRedispatchCandidate,
+    )
+    ? Reflect.get(pointMutationRedispatchCandidate, "disposition")
+    : undefined;
+  const pointMutationRedispatchDisposition =
+    isPointMutationSessionAttemptDispositionV1(
+        pointMutationRedispatchDispositionCandidate,
+      )
+      ? pointMutationRedispatchDispositionCandidate
+      : undefined;
+  const pointMutationRedispatchAcquisitionPort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "pointMutationRedispatchAcquisition",
+      pointMutationRedispatchAcquisition,
+    );
+  const pointMutationRedispatchDispositionPort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "pointMutationRedispatchDisposition",
+      pointMutationRedispatchDisposition,
+    );
 
   const admitRedispatchClaim = (
     claim: unknown,
@@ -3561,7 +3873,7 @@ export function createStoredAttemptAuthenticationV1(
       ...selector,
       attemptFence: selector.attemptFence.toString(),
     });
-    const disposition = yield* pointMutationRedispatchDisposition
+    const disposition = yield* pointMutationRedispatchDispositionPort
       .disposeAbortOnly(loadedAttempt, executionScope);
     return Object.freeze({
       kind: "closed" as const,
@@ -3574,7 +3886,7 @@ export function createStoredAttemptAuthenticationV1(
   const closeExpiredRedispatchAttempt = Effect.fn(
     "StoredAttemptAuthentication.closeExpiredRedispatchAttempt",
   )(function* (selectorInput: unknown) {
-    const terminalization = yield* pointMutationOccTerminalization.expire(
+    const terminalization = yield* pointMutationOccTerminalizationPort.expire(
       selectorInput,
     );
     if (terminalization.terminal.lifecycle !== "expired") {
@@ -3601,7 +3913,7 @@ export function createStoredAttemptAuthenticationV1(
     | PointMutationExecutionClaimAcquisitionV1Error
     | PointMutationSessionAttemptTerminalizationExecutionV1Error
   > {
-    return yield* pointMutationRedispatchAcquisition.acquireEffect(
+    return yield* pointMutationRedispatchAcquisitionPort.acquireEffect(
       selectorInput,
     ).pipe(
       Effect.map((acquisition): PointMutationRedispatchAcquisitionOrClosedV1 =>
@@ -3663,7 +3975,8 @@ export function createStoredAttemptAuthenticationV1(
             schemaVersionId: authority.schemaVersionId,
             executionClaim: Object.freeze({ ...authority.executionClaim }),
           });
-        const loadResult = yield* pointMutationOccExecutionEvidence.loadEffect(
+        const loadResult =
+          yield* pointMutationOccExecutionEvidencePort.loadEffect(
           executionAuthority,
         ).pipe(
           Effect.mapError(
@@ -3741,7 +4054,7 @@ export function createStoredAttemptAuthenticationV1(
     return yield* resumePointCommit(selectorInput).pipe(
       Effect.catchTag("StoredAttemptAlreadyCommittedV1Error", () =>
         Effect.gen(function* () {
-          const reacquired = yield* pointMutationRedispatchAcquisition
+          const reacquired = yield* pointMutationRedispatchAcquisitionPort
             .acquireEffect(selectorInput);
           if (reacquired.kind === "replayed") {
             return publicationResultFromCommittedOutcome(reacquired.outcome);

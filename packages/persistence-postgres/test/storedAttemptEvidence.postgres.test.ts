@@ -88,6 +88,10 @@ import {
 } from "../../executor/src/pointMutationExecutionClaimAcquisition";
 import {
   createStoredAttemptAuthenticationV1,
+  createStoredPointCommitExecutorV1,
+  createStoredPointMutationCrashRedispatchV1,
+  createStoredPointMutationOccRerunAuthorizationV1,
+  createStoredPointMutationOccRerunExecutionV1,
   InvalidAuthorizedPointMutationOccRerunV1Error,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
   PointCommitUncertainOutcomeUnresolvedV1Error,
@@ -111,6 +115,7 @@ import {
   PointCommitCorruptionV1Error,
   RESOLVE_POINT_COMMIT_OUTCOME_V1,
   type PointCommitPublicationCommandV1,
+  type PointCommitOutcomeResolutionPortV1,
   type PointCommitPublisherPortV1,
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
@@ -246,7 +251,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
       )));
       const authentication = createStoredAttemptAuthenticationV1(
         current.loader,
-        undefined,
         current.executionClaims,
       );
       const authority = await runEffect(
@@ -468,7 +472,6 @@ describePostgres("real Postgres stored-attempt authority", () => {
       )));
       const authentication = createStoredAttemptAuthenticationV1(
         racing.loader,
-        undefined,
         racing.executionClaims,
       );
       const authority = await runEffect(
@@ -3359,7 +3362,7 @@ function createO08B1Authentication(
       })),
     ),
   });
-  return createStoredAttemptAuthenticationV1(current.loader, {
+  return createStoredPointMutationOccRerunAuthorizationV1(current.loader, {
     evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
     transactionGrantVerifier: current.verifier,
     functionMetadata: {
@@ -3386,8 +3389,12 @@ function createO08CAuthentication(
 ) {
   const ports = resolutionPorts(persistence);
   const publisher = createPointCommitPublisherPortV1(ports);
-  const observedPublisher: PointCommitPublisherPortV1 = Object.freeze({
+  const observedPublisher:
+    & PointCommitPublisherPortV1
+    & PointCommitOutcomeResolutionPortV1 = Object.freeze({
     prove: publisher.prove,
+    [RESOLVE_POINT_COMMIT_OUTCOME_V1]:
+      publisher[RESOLVE_POINT_COMMIT_OUTCOME_V1],
     publish: Effect.fn("TestO08C.observePublicationAttempt")((command) =>
       Effect.sync(() => commands.push(command)).pipe(
         Effect.flatMap(() => publisher.publish(command)),
@@ -3406,7 +3413,7 @@ function createO08CAuthentication(
       )
     ),
   });
-  return createStoredAttemptAuthenticationV1(current.loader, {
+  return createStoredPointCommitExecutorV1(current.loader, {
     evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
     transactionGrantVerifier: current.verifier,
     functionMetadata: {
@@ -3423,7 +3430,7 @@ function createO08DAuthentication(
   publisherPorts: PointMutationSessionAuthorityResolutionPortsV1,
 ) {
   const ports = resolutionPorts(persistence);
-  return createStoredAttemptAuthenticationV1(current.loader, {
+  return createStoredPointCommitExecutorV1(current.loader, {
     evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
     transactionGrantVerifier: current.verifier,
     functionMetadata: {
@@ -3608,7 +3615,7 @@ function createO08B2aAuthentication(
               Effect.andThen(actualLiveness.renewEffect(input)),
             ),
         });
-  return createStoredAttemptAuthenticationV1(current.loader, {
+  return createStoredPointMutationOccRerunExecutionV1(current.loader, {
     evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
     transactionGrantVerifier: current.verifier,
     functionMetadata: {
@@ -3669,7 +3676,7 @@ function createB2b2aRedispatchAuthentication(
   let executionSequence = 0;
   const terminalizationPersistence =
     createPointMutationSessionAttemptTerminalizationPersistenceV1(ports);
-  return createStoredAttemptAuthenticationV1(current.loader, {
+  return createStoredPointMutationCrashRedispatchV1(current.loader, {
     evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
     transactionGrantVerifier: current.verifier,
     functionMetadata: {

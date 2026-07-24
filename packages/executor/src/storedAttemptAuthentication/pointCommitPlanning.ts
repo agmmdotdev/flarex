@@ -47,6 +47,18 @@ export class UnsupportedPointCommitPlanV1Error extends Data.TaggedError(
   readonly issue: UnsupportedPointCommitPlanV1Issue;
 }> {}
 
+export type PointCommitPlannerInvariantV1DefectReason =
+  | "deletedPointWithTombstoneDependency"
+  | "nonMaterialDeletedPointSelected"
+  | "unchangedPointSelected"
+  | "unsupportedPointStateSelected";
+
+export class PointCommitPlannerInvariantV1Defect extends Data.TaggedError(
+  "PointCommitPlannerInvariantV1Defect",
+)<{
+  readonly reason: PointCommitPlannerInvariantV1DefectReason;
+}> {}
+
 export interface PreparedPointDependencyV1 {
   readonly documentId: AppDocumentIdV1;
   readonly tableId: CatalogTableId;
@@ -225,28 +237,29 @@ function isNetMaterialPoint(
       return Result.succeed(false);
     case "live":
       return Result.succeed(true);
-    case "deleted":
-      switch (point.dependency.observed.kind) {
+    case "deleted": {
+      const observed: LogicalReadDependencyV1["observed"] =
+        point.dependency.observed;
+      switch (observed.kind) {
         case "present":
           return Result.succeed(true);
         case "missing":
-          switch (point.dependency.observed.basis.kind) {
+          switch (observed.basis.kind) {
             case "noVisibleRevision":
               return Result.succeed(false);
             case "tombstone":
-              throw new Error(
-                "Authenticated deleted point cannot carry a tombstone dependency.",
+              return pointCommitPlannerInvariant(
+                "deletedPointWithTombstoneDependency",
               );
             default:
               return Result.fail(unsupportedReadDependency(
-                point.dependency.observed.basis,
+                observed.basis,
               ));
           }
         default:
-          return Result.fail(unsupportedReadDependency(
-            point.dependency.observed,
-          ));
+          return Result.fail(unsupportedReadDependency(observed));
       }
+    }
     default:
       return Result.fail(unsupportedPointState(point));
   }
@@ -272,8 +285,8 @@ function captureRowIntent(
     }
     case "deleted": {
       if (point.dependency.observed.kind !== "present") {
-        throw new Error(
-          "Only a deleted point with a present dependency can produce a logical delete intent.",
+        return pointCommitPlannerInvariant(
+          "nonMaterialDeletedPointSelected",
         );
       }
       return Object.freeze({
@@ -282,9 +295,9 @@ function captureRowIntent(
       });
     }
     case "unchanged":
-      throw new Error("Unchanged point cannot produce a material row intent.");
+      return pointCommitPlannerInvariant("unchangedPointSelected");
     default:
-      throw unsupportedPointState(point);
+      return pointCommitPlannerInvariant("unsupportedPointStateSelected");
   }
 }
 
@@ -353,4 +366,10 @@ function unsupportedPointState(
   return new UnsupportedPointCommitPlanV1Error({
     issue: { reason: "unsupportedPointState" },
   });
+}
+
+function pointCommitPlannerInvariant(
+  reason: PointCommitPlannerInvariantV1DefectReason,
+): never {
+  throw new PointCommitPlannerInvariantV1Defect({ reason });
 }

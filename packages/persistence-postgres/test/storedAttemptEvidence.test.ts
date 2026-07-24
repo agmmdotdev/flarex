@@ -107,7 +107,10 @@ import {
   type PointMutationExecutionClaimDispatchAcquisitionV1,
 } from "../../executor/src/pointMutationExecutionClaimAcquisition";
 import {
-  createStoredAttemptAuthenticationV1,
+  createStoredPointCommitExecutorV1,
+  createStoredPointCommitFinishingTransitionV1,
+  createStoredPointMutationCrashRedispatchV1,
+  createStoredPointMutationOccRerunExecutionV1,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
   PointCommitUncertainOutcomeUnresolvedV1Error,
   PointMutationOccUserCodeV1Error,
@@ -1003,7 +1006,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
     );
     const pointCommitSteps: string[] = [];
-    const authentication = createStoredAttemptAuthenticationV1(
+    const authentication = createStoredPointCommitFinishingTransitionV1(
       current.loader,
       {
         evidenceLoader: authorityLoader,
@@ -1030,6 +1033,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
       current.executionClaims,
     );
+    expect("reconstructPointCommitFinishing" in authentication).toBe(false);
+    expect("finishPointCommit" in authentication).toBe(false);
+    expect("resumePointCommit" in authentication).toBe(false);
     const authority = await runEffect(
       authentication.deriveAuthority(loadedAttempt, current.executionScope),
     );
@@ -5331,7 +5337,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       resolutionPorts(persistence),
   ) {
     const ports = resolutionPorts(persistence);
-    return createStoredAttemptAuthenticationV1(
+    return createStoredPointCommitExecutorV1(
       current.loader,
       {
         evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(
@@ -5382,7 +5388,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
       current.executionClaims.admission,
     );
-    return createStoredAttemptAuthenticationV1(current.loader, {
+    return createStoredPointMutationOccRerunExecutionV1(current.loader, {
       evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
       transactionGrantVerifier: current.verifier,
       functionMetadata: {
@@ -5462,7 +5468,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       terminalizationPersistence,
       executionClaims.admission,
     );
-    return createStoredAttemptAuthenticationV1(current.loader, {
+    return createStoredPointMutationCrashRedispatchV1(current.loader, {
       evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
       transactionGrantVerifier: current.verifier,
       functionMetadata: {

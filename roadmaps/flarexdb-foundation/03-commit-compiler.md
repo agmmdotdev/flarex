@@ -156,6 +156,15 @@ O07-B CommitExecutor
   data/outcome/feed/outbox/session publication
 ```
 
+The process-local capability runtime is an explicitly constructed per-instance
+value, not a singleton `Context` service. One private factory-local vault owns
+the complete same-factory capability chain. Callers select a named constructor
+for the exact lifecycle facet they require (authentication, planning, rollback
+proof, publication, finishing, execution, attempt replacement, OCC rerun, or
+crash redispatch); the former configuration-shape-dependent public overload is
+not retained. These constructors remain internal source seams and are not
+package-root exports.
+
 The journal/envelope cannot author:
 
 - scope, storage generation, schema/policy/package authority;

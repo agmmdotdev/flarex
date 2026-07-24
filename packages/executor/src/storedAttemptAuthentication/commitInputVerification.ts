@@ -58,6 +58,7 @@ export class InvalidAuthenticatedCommitAuthorityV1Error extends Data.TaggedError
 export type CommitInputAuthorityCorruptionReasonV1 =
   | "duplicateTableAuthority"
   | "pointTableAuthorityMissing"
+  | "pointWritableDependencyInvalid"
   | "pointDocumentNotObject"
   | "pointIdentityMismatch"
   | "pointCreationTimeMismatch"
@@ -130,21 +131,52 @@ export interface CommitInputAuthorityPinsV1 {
   readonly requestKey: string;
 }
 
-interface VerifiedCommitPointBaseV1 {
+type VerifiedCommitPointDependencyV1 =
+  AuthenticatedStoredAttemptPointV1["dependency"];
+type VerifiedCommitPointObservedV1 =
+  VerifiedCommitPointDependencyV1["observed"];
+type VerifiedCommitPointMissingObservedV1 = Extract<
+  VerifiedCommitPointObservedV1,
+  { readonly kind: "missing" }
+>;
+type VerifiedCommitWritablePointObservedV1 =
+  | Extract<VerifiedCommitPointObservedV1, { readonly kind: "present" }>
+  | Readonly<
+      Omit<VerifiedCommitPointMissingObservedV1, "basis"> & {
+        readonly basis: Extract<
+          VerifiedCommitPointMissingObservedV1["basis"],
+          { readonly kind: "noVisibleRevision" }
+        >;
+      }
+    >;
+type VerifiedCommitWritablePointDependencyV1 = Readonly<
+  Omit<VerifiedCommitPointDependencyV1, "observed"> & {
+    readonly observed: VerifiedCommitWritablePointObservedV1;
+  }
+>;
+
+interface VerifiedCommitPointBaseV1<
+  Dependency extends VerifiedCommitPointDependencyV1 =
+    VerifiedCommitPointDependencyV1,
+> {
   readonly documentId: AppDocumentIdV1;
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
-  readonly dependency: AuthenticatedStoredAttemptPointV1["dependency"];
+  readonly dependency: Dependency;
 }
 
 export type VerifiedCommitPointV1 =
   | Readonly<VerifiedCommitPointBaseV1 & {
       readonly kind: "unchanged";
     }>
-  | Readonly<VerifiedCommitPointBaseV1 & {
+  | Readonly<VerifiedCommitPointBaseV1<
+      VerifiedCommitWritablePointDependencyV1
+    > & {
       readonly kind: "deleted";
     }>
-  | Readonly<VerifiedCommitPointBaseV1 & {
+  | Readonly<VerifiedCommitPointBaseV1<
+      VerifiedCommitWritablePointDependencyV1
+    > & {
       readonly kind: "live";
       readonly creationTime: NonNullable<
         AuthenticatedStoredAttemptPointV1["overlayCreationTime"]
@@ -244,7 +276,16 @@ export const verifyCommitInputStateEffect = Effect.fn(
             "pointNonLiveEvidencePresent",
           );
         }
-        verifiedPoints.push(Object.freeze({ ...base, kind: "deleted" }));
+        if (!isVerifiedCommitWritablePointDependency(base.dependency)) {
+          return yield* authorityCorruptionEffect(
+            "pointWritableDependencyInvalid",
+          );
+        }
+        verifiedPoints.push(Object.freeze({
+          ...base,
+          dependency: base.dependency,
+          kind: "deleted",
+        }));
         break;
       case "live": {
         if (
@@ -270,8 +311,16 @@ export const verifyCommitInputStateEffect = Effect.fn(
             issue: { reason: "validator", issue: error.issue },
           })),
         );
+        if (!isVerifiedCommitWritablePointDependency(base.dependency)) {
+          return yield* authorityCorruptionEffect(
+            "pointWritableDependencyInvalid",
+          );
+        }
         verifiedPoints.push(captureVerifiedLivePoint(
-          base,
+          Object.freeze({
+            ...base,
+            dependency: base.dependency,
+          }),
           point.overlayCreationTime,
           point.overlayValue,
           point.overlayBytes,
@@ -434,7 +483,9 @@ function tableAwareIdPolicy(
 }
 
 function captureVerifiedLivePoint(
-  base: Readonly<VerifiedCommitPointBaseV1>,
+  base: Readonly<
+    VerifiedCommitPointBaseV1<VerifiedCommitWritablePointDependencyV1>
+  >,
   creationTime: NonNullable<
     AuthenticatedStoredAttemptPointV1["overlayCreationTime"]
   >,
@@ -453,6 +504,13 @@ function captureVerifiedLivePoint(
     },
     semanticSizeBytes,
   });
+}
+
+function isVerifiedCommitWritablePointDependency(
+  dependency: VerifiedCommitPointDependencyV1,
+): dependency is VerifiedCommitWritablePointDependencyV1 {
+  return dependency.observed.kind === "present" ||
+    dependency.observed.basis.kind === "noVisibleRevision";
 }
 
 function detachSealIdentity(
