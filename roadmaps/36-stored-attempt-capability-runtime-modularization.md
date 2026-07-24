@@ -106,6 +106,10 @@ Authority is intentionally split:
   owns O08-A exact-attempt replacement and O08-B1 fresh-attempt handoff,
   including replacement-observation validation, same-runtime execution-claim
   and rerun-capability minting, and fresh-attempt verification.
+- [`../packages/executor/src/storedAttemptAuthentication/occRerunAuthorizationOperations.ts`](../packages/executor/src/storedAttemptAuthentication/occRerunAuthorizationOperations.ts)
+  owns distinct conflict and decision-uncertainty ticket capture mechanics,
+  OCC conflict authorization and backoff, committed-outcome validation,
+  single-use rerun claims, and authorization test inspection.
 - [`../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts),
   [`../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts),
   and
@@ -145,7 +149,7 @@ The runtime already has these accepted properties:
   occurrence of that state as an invariant defect.
 
 Construction policy and capability state have moved into focused private
-modules. R01 through R05 are complete. Authentication-only construction
+modules. R01 through R06 are complete. Authentication-only construction
 composes a focused operation factory over only execution-claim admission,
 evidence loading, and the authentication vault facets. The authentication owner
 also contains the single canonical stored-evidence verifier and caller-envelope
@@ -169,8 +173,13 @@ and replacement port. After OCC authorization has independently claimed and
 validated a conflict, a separate O08-B1 handoff operation validates the
 replacement observation, mints authority through the same runtime vault,
 reloads the exact pristine attempt, and mints the private rerun capability.
-Conflict claiming, retry bounds and backoff, outcome branching, OCC execution,
-and redispatch remain with their later owners.
+One private OCC-rerun authorization module now owns the distinct conflict and
+decision-uncertainty ticket capture mechanics, exact conflict consumption,
+bounded randomized backoff, validated committed-outcome branching,
+authorized-rerun consumption, and test inspection. It composes over the
+existing replacement handoff and returns the private claim and
+outcome-resolution operations needed by later OCC execution without executing
+user code. OCC execution and redispatch remain with their later owners.
 
 ## Invariants And Trust Boundaries
 
@@ -377,7 +386,16 @@ Exit criteria:
   and
 - no retry loop or dispatch policy moves into the replacement module.
 
-### [ ] R06 - Extract OCC rerun authorization
+### [x] R06 - Extract OCC rerun authorization
+
+Status: complete. One private authorization module owns distinct OCC-conflict
+and decision-uncertainty ticket capture mechanics while preserving their
+separate recovery policies. It claims the exact conflict before the first
+Effect yield, retains the existing retry fence and randomized backoff, validates
+the committed-outcome observation, delegates only a missing outcome to the
+R05 fresh-attempt handoff, and owns the single-use authorized-rerun claim and
+test inspector. Authorization construction stops after the attempt-loading
+port and does not inspect or execute any R07 user-code dependency.
 
 Move conflict/uncertainty capture, single-consumption authorization, and
 test-only inspection behind an authorization module.
@@ -392,6 +410,9 @@ Exit criteria:
 ### [ ] R07 - Extract OCC rerun execution
 
 Move same-process authorized rerun execution and its exact dependencies.
+Reuse the existing combined rerun-claim and execution-admission `Result.gen`
+operation at every loop boundary instead of manually unwrapping the two
+dependent results.
 
 Exit criteria:
 
@@ -466,8 +487,8 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Start with the first unchecked gate only. The current next gate is R06,
-   OCC rerun authorization.
+4. Start with the first unchecked gate only. The current next gate is R07,
+   OCC rerun execution.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant

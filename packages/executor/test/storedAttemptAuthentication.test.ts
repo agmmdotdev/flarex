@@ -660,6 +660,120 @@ describe("C04A stored-attempt authentication", () => {
     expect(occRerunReads).toBe(0);
   });
 
+  it("does not inspect OCC execution dependencies while constructing authorization", async () => {
+    const current = await commitAuthorityFixture();
+    let executionReads = 0;
+    const pointCommit = {
+      prove: Effect.fn(
+        "TestPointCommit.proveAuthorizationConstructionBoundary",
+      )(
+        () =>
+          Effect.die(
+            new Error("authorization construction must not prove"),
+          ),
+      ),
+      publish: Effect.fn(
+        "TestPointCommit.publishAuthorizationConstructionBoundary",
+      )(
+        () =>
+          Effect.die(
+            new Error("authorization construction must not publish"),
+          ),
+      ),
+      [RESOLVE_POINT_COMMIT_OUTCOME_V1]: Effect.fn(
+        "TestPointCommit.resolveAuthorizationConstructionBoundary",
+      )(
+        () =>
+          Effect.die(
+            new Error("authorization construction must not resolve"),
+          ),
+      ),
+    };
+    const pointMutationOccRerun = Object.defineProperties(
+      {
+        attemptLoading: {
+          load: Effect.fn(
+            "TestPointCommit.loadAuthorizationConstructionBoundary",
+          )(
+            () =>
+              Effect.die(
+                new Error("authorization construction must not load"),
+              ),
+          ),
+        },
+      },
+      Object.fromEntries(
+        [
+          "executionEvidence",
+          "journal",
+          "terminalization",
+          "contextFactory",
+          "runner",
+          "liveness",
+          "heartbeatIntervalMilliseconds",
+        ].map((property) => [
+          property,
+          {
+            get: () => {
+              executionReads += 1;
+              throw new Error(
+                "authorization must not inspect OCC execution dependencies",
+              );
+            },
+          },
+        ]),
+      ),
+    );
+
+    expect(() =>
+      createStoredPointMutationOccRerunAuthorizationV1(
+        {
+          loadEffect: () =>
+            Effect.succeed(loaded(current.fixture.evidence)),
+          loadFinishingEffect: () =>
+            Effect.succeed(loaded(current.fixture.evidence)),
+        },
+        {
+          evidenceLoader: {
+            loadEffect: () => Effect.succeed({
+              kind: "loaded" as const,
+              evidence: current.commitEvidence,
+            }),
+          },
+          transactionGrantVerifier: current.verifier,
+          functionMetadata: {
+            load: () =>
+              Effect.succeed(structuredClone(current.functionSnapshot)),
+          },
+          pointCommit,
+          pointCommitFinishing: {
+            enterFinishing: Effect.fn(
+              "TestPointCommit.enterAuthorizationConstructionBoundary",
+            )(
+              () =>
+                Effect.die(
+                  new Error("authorization construction must not transition"),
+                ),
+            ),
+          },
+          pointMutationAttemptReplacement: {
+            replace: Effect.fn(
+              "TestPointCommit.replaceAuthorizationConstructionBoundary",
+            )(
+              () =>
+                Effect.die(
+                  new Error("authorization construction must not replace"),
+                ),
+            ),
+          },
+          pointMutationOccRerun,
+        },
+        TEST_EXECUTION_CLAIMS,
+      )
+    ).not.toThrow();
+    expect(executionReads).toBe(0);
+  });
+
   it("preserves typed lifecycle, committed, authority, and corruption results", async () => {
     const fixture = await emptyFixture();
     const cases: ReadonlyArray<Readonly<{
@@ -3164,6 +3278,43 @@ describe("C04A stored-attempt authentication", () => {
       reason: "outcomeObservationInvalid",
     });
     expect(invalidOutcome.counts()).toEqual({
+      outcomeCalls: 1,
+      replacementCalls: 0,
+      loadCalls: 1,
+    });
+
+    let unstableKindReads = 0;
+    const unstableOutcome = Object.defineProperty({}, "kind", {
+      get: () => {
+        unstableKindReads += 1;
+        return unstableKindReads === 1 ? "missing" : "future";
+      },
+    });
+    const unstableOutcomeFixture = await pointMutationOccAuthorizationFixture(
+      await makeCurrent("o08b1_unstable_outcome"),
+      { unsafeOutcomeForTest: unstableOutcome },
+    );
+    const unstableOutcomeExit = await runEffect(Effect.exit(
+      unstableOutcomeFixture.authentication.authorizePointMutationOccRerun(
+        unstableOutcomeFixture.conflict,
+      ).pipe(Effect.provideService(Random.Random, {
+        nextDoubleUnsafe: () => 0,
+        nextIntUnsafe: () => 0,
+      })),
+    ));
+    expect(Exit.isFailure(unstableOutcomeExit)).toBe(true);
+    if (Exit.isFailure(unstableOutcomeExit)) {
+      const observedDefect = Cause.findDefect(unstableOutcomeExit.cause);
+      expect(Result.isSuccess(observedDefect)).toBe(true);
+      if (Result.isSuccess(observedDefect)) {
+        expect(observedDefect.success).toBeInstanceOf(Error);
+        expect(String(observedDefect.success)).toContain(
+          "Validated OCC outcome union was not exhaustive.",
+        );
+      }
+    }
+    expect(unstableKindReads).toBe(2);
+    expect(unstableOutcomeFixture.counts()).toEqual({
       outcomeCalls: 1,
       replacementCalls: 0,
       loadCalls: 1,

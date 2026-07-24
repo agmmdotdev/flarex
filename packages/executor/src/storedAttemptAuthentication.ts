@@ -224,7 +224,6 @@ import {
   makeStoredPointMutationCapabilityVaultV1,
   serializePrivateCapabilityStateForTestV1,
   type AuthorizedPointMutationOccRerunStateV1,
-  type CapturedPointMutationOccConflictV1,
   type PointCommitDecisionUncertainTicketStateV1,
   type PointCommitScalarProvenanceV1,
   type PreparedPointCommitCapabilityStateV1,
@@ -292,6 +291,13 @@ import {
   type PointMutationOccRerunFreshAttemptMismatchV1,
   type PointMutationOccRerunOwnershipLostV1Error,
 } from "./storedAttemptAuthentication/attemptReplacementOperations";
+import {
+  InvalidAuthorizedPointMutationOccRerunV1Error,
+  InvalidPointMutationOccConflictV1Error,
+  PointMutationOccRerunExhaustedV1Error,
+  makePointCommitOutcomeTicketCaptureOperationsV1,
+  makeStoredPointMutationOccRerunAuthorizationOperationsV1,
+} from "./storedAttemptAuthentication/occRerunAuthorizationOperations";
 
 export {
   InvalidAuthenticatedStoredAttemptV1Error,
@@ -387,24 +393,18 @@ export type {
   PointMutationOccRerunFreshAttemptMismatchV1,
 } from "./storedAttemptAuthentication/attemptReplacementOperations";
 
+export {
+  InvalidAuthorizedPointMutationOccRerunV1Error,
+  InvalidPointMutationOccConflictV1Error,
+  PointMutationOccRerunExhaustedV1Error,
+} from "./storedAttemptAuthentication/occRerunAuthorizationOperations";
+
 const POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1 = 3;
 const POINT_COMMIT_SQL_RETRY_INITIAL_BACKOFF_MILLISECONDS_V1 = 10;
 const encodeCommitEnvelopeV1 = Schema.encodeSync(CommitEnvelopeV1Schema);
 const decodeTransactionArtifactRuntimeV1 = Schema.decodeUnknownSync(
   TransactionArtifactRuntimeV1Schema,
 );
-export class InvalidPointMutationOccConflictV1Error extends Data.TaggedError(
-  "InvalidPointMutationOccConflictV1Error",
-)<{
-  readonly reason: "notCaptured" | "alreadyConsumed" | "evidenceInvalid";
-}> {}
-
-export class PointMutationOccRerunExhaustedV1Error extends Data.TaggedError(
-  "PointMutationOccRerunExhaustedV1Error",
-)<{
-  readonly attemptFence: TransactionAttemptFence;
-  readonly maximumReruns: 4;
-}> {}
 
 export class PointCommitKnownSettledSqlRetryExhaustedV1Error
   extends Data.TaggedError(
@@ -494,11 +494,6 @@ function capturePointCommitKnownSettledSqlRetryFailureV1(
     cause: failure.cause,
   });
 }
-
-export class InvalidAuthorizedPointMutationOccRerunV1Error
-  extends Data.TaggedError("InvalidAuthorizedPointMutationOccRerunV1Error")<{
-    readonly reason: "notSameFactory" | "alreadyConsumed";
-  }> {}
 
 export class PointMutationOccExecutionEvidencePersistenceV1Error extends Data.TaggedError(
   "PointMutationOccExecutionEvidencePersistenceV1Error",
@@ -1655,23 +1650,17 @@ function createStoredPointMutationCapabilityRuntimeV1(
     });
   }
 
-  const captureOccConflictTicket = (
-    finishing: FinishingPreparedPointCommitV1,
-    prepared: PreparedPointCommitCapabilityStateV1,
-    error: PointCommitConflictV1Error,
-  ): void => {
-    if (capturedOccConflicts.has(error)) return;
-    capturedOccConflicts.add(error);
-    occConflictTickets.set(error, Object.freeze({
-      finishing,
-      prepared,
-      conflict: Object.freeze({
-        documentId: error.documentId,
-        snapshotCommitSeq: error.snapshotCommitSeq,
-        currentCommitSeq: error.currentCommitSeq,
-      }),
-    }));
-  };
+  const {
+    captureOccConflictTicket,
+    captureAndClaimDecisionUncertainTicket,
+  } = makePointCommitOutcomeTicketCaptureOperationsV1({
+    decisionUncertainTickets,
+    capturedDecisionUncertainties,
+    consumedDecisionUncertainties,
+    occConflictTickets,
+    capturedOccConflicts,
+    captureAttemptSelector: capturePointMutationSessionAttemptSelector,
+  });
 
   type PublishKnownSettledPointCommitV1 = (
     command: PointCommitPublicationCommandV1,
@@ -1750,39 +1739,6 @@ function createStoredPointMutationCapabilityRuntimeV1(
         ),
       );
     });
-
-  const captureAndClaimDecisionUncertainTicket = (
-    error: PointCommitDecisionUncertainV1Error,
-    finishing: FinishingPreparedPointCommitV1,
-    prepared: PreparedPointCommitCapabilityStateV1,
-    command: PointCommitPublicationCommandV1,
-  ): PointCommitDecisionUncertainTicketStateV1 => {
-    if (
-      capturedDecisionUncertainties.has(error) ||
-      consumedDecisionUncertainties.has(error)
-    ) {
-      throw new Error(
-        "A point-commit decision-uncertainty ticket was already consumed.",
-      );
-    }
-    const ticket = Object.freeze({
-      finishing,
-      prepared,
-      selector: capturePointMutationSessionAttemptSelector(prepared),
-      command,
-    });
-    capturedDecisionUncertainties.add(error);
-    decisionUncertainTickets.set(error, ticket);
-    const claimed = decisionUncertainTickets.get(error);
-    decisionUncertainTickets.delete(error);
-    consumedDecisionUncertainties.add(error);
-    if (claimed === undefined) {
-      throw new Error(
-        "A point-commit decision-uncertainty ticket could not be claimed.",
-      );
-    }
-    return claimed;
-  };
 
   type PublishCapturedFinishingPointCommitV1 = (
     finishing: FinishingPreparedPointCommitV1,
@@ -2142,155 +2098,22 @@ function createStoredPointMutationCapabilityRuntimeV1(
       mintedAuthorizedOccReruns,
     });
 
-  const resolvePointMutationOccOutcome = Effect.fn(
-    "StoredAttemptAuthentication.resolvePointMutationOccOutcome",
-  )(function* (prepared: PreparedPointCommitCapabilityStateV1) {
-    const outcome = yield* resolvePointCommitOutcomeObservation(prepared);
-    if (
-      !isNonArrayRecord(outcome) ||
-      (outcome.kind !== "missing" &&
-        outcome.kind !== "available" &&
-        outcome.kind !== "expired")
-    ) {
-      return yield* Effect.fail(
-        new PointMutationOccRerunAuthorityCorruptionV1Error({
-          reason: "outcomeObservationInvalid",
-        }),
-      );
-    }
-    return outcome;
+  const {
+    facade: authorization,
+    claimAuthorizedPointMutationOccRerun,
+    resolvePointMutationOccOutcome,
+  } = makeStoredPointMutationOccRerunAuthorizationOperationsV1({
+    base: replacement,
+    resolvePointMutationOccOutcomeObservation:
+      resolvePointCommitOutcomeObservation,
+    handoffFreshPointMutationAttempt,
+    occConflictTickets,
+    consumedOccConflicts,
+    authorizedOccRerunStates,
+    mintedAuthorizedOccReruns,
+    consumedAuthorizedOccReruns,
   });
-
-  const authorizePointMutationOccRerun: StoredPointMutationOccRerunAuthorizationV1["authorizePointMutationOccRerun"] =
-    Effect.fn("StoredAttemptAuthentication.authorizePointMutationOccRerun")(
-      function* (input) {
-        // The exact error ticket is irreversibly claimed before the first yield.
-        const ticket =
-          typeof input === "object" && input !== null
-            ? occConflictTickets.get(input)
-            : undefined;
-        if (ticket === undefined) {
-          const alreadyConsumed =
-            typeof input === "object" &&
-            input !== null &&
-            consumedOccConflicts.has(input);
-          return yield* Effect.fail(
-            new InvalidPointMutationOccConflictV1Error({
-              reason: alreadyConsumed ? "alreadyConsumed" : "notCaptured",
-            }),
-          );
-        }
-        occConflictTickets.delete(input as object);
-        consumedOccConflicts.add(input as object);
-
-        const prepared = ticket.prepared;
-        const pins = prepared.plan.authorityPins;
-        const previousSnapshot = pins.snapshotToken;
-        const conflict = ticket.conflict;
-        if (
-          conflict.snapshotCommitSeq !== previousSnapshot.commitSeq ||
-          conflict.currentCommitSeq <= conflict.snapshotCommitSeq ||
-          !prepared.plan.dependencies.some(
-            (dependency) => dependency.documentId === conflict.documentId,
-          )
-        ) {
-          return yield* Effect.fail(
-            new InvalidPointMutationOccConflictV1Error({
-              reason: "evidenceInvalid",
-            }),
-          );
-        }
-
-        const previousAttemptFence = pins.attemptFence;
-        if (previousAttemptFence >= 5n) {
-          return yield* Effect.fail(
-            new PointMutationOccRerunExhaustedV1Error({
-              attemptFence: previousAttemptFence,
-              maximumReruns: 4,
-            }),
-          );
-        }
-        const consumedReruns = Number(previousAttemptFence - 1n);
-        const backoffUpperBoundMilliseconds = Math.min(
-          100 * 2 ** consumedReruns,
-          2_000,
-        );
-        const random = yield* Random.next;
-        const backoffMilliseconds = random * backoffUpperBoundMilliseconds;
-        yield* Effect.sleep(Duration.millis(backoffMilliseconds));
-
-        const outcome = yield* resolvePointMutationOccOutcome(prepared);
-        const outcomeKind = outcome.kind;
-        if (outcomeKind === "available") {
-          return Object.freeze({ kind: "replayed", outcome });
-        }
-        if (outcomeKind === "expired") {
-          return Object.freeze({ kind: "expired", outcome });
-        }
-        if (outcomeKind !== "missing")
-          return yield* Effect.die(
-            new Error("Validated OCC outcome union was not exhaustive."),
-          );
-
-        return yield* handoffFreshPointMutationAttempt({
-          finishing: ticket.finishing,
-          prepared,
-          conflict,
-          backoffUpperBoundMilliseconds,
-          backoffMilliseconds,
-        });
-      },
-    );
-
-  const claimAuthorizedPointMutationOccRerun = (
-    input: unknown,
-  ): Result.Result<
-    AuthorizedPointMutationOccRerunStateV1,
-    InvalidAuthorizedPointMutationOccRerunV1Error
-  > => {
-    if (typeof input !== "object" || input === null) {
-      return Result.fail(
-        new InvalidAuthorizedPointMutationOccRerunV1Error({
-          reason: "notSameFactory",
-        }),
-      );
-    }
-    const state = authorizedOccRerunStates.get(input);
-    if (state === undefined) {
-      return Result.fail(
-        new InvalidAuthorizedPointMutationOccRerunV1Error({
-          reason:
-            mintedAuthorizedOccReruns.has(input) ||
-            consumedAuthorizedOccReruns.has(input)
-              ? "alreadyConsumed"
-              : "notSameFactory",
-        }),
-      );
-    }
-    authorizedOccRerunStates.delete(input);
-    consumedAuthorizedOccReruns.add(input);
-    return Result.succeed(state);
-  };
-
-  const consumeAuthorizedPointMutationOccRerunForTest: StoredPointMutationOccRerunAuthorizationV1["consumeAuthorizedPointMutationOccRerunForTest"] =
-    (input) => {
-      const state = Result.getOrThrow(
-        claimAuthorizedPointMutationOccRerun(input),
-      );
-      return Object.freeze({
-        ...state.inspection,
-        previousSnapshotToken: Object.freeze({
-          ...state.inspection.previousSnapshotToken,
-        }),
-        snapshotToken: Object.freeze({ ...state.inspection.snapshotToken }),
-      });
-    };
-
-  const authorization = Object.freeze({
-    ...replacement,
-    authorizePointMutationOccRerun,
-    consumeAuthorizedPointMutationOccRerunForTest,
-  } satisfies StoredPointMutationOccRerunAuthorizationV1);
+  const { authorizePointMutationOccRerun } = authorization;
   if (stage === "occRerunAuthorization") return authorization;
   const pointMutationOccExecutionEvidenceCandidate = isNonArrayRecord(
       pointMutationOccRerunCandidate,
