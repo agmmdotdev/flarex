@@ -80,6 +80,10 @@ Authority is intentionally split:
   owns current construction-stage policy.
 - [`../packages/executor/src/storedAttemptAuthentication/capabilityState.ts`](../packages/executor/src/storedAttemptAuthentication/capabilityState.ts)
   owns current per-instance private capability state storage.
+- [`../packages/executor/src/storedAttemptAuthentication/authenticationOperations.ts`](../packages/executor/src/storedAttemptAuthentication/authenticationOperations.ts)
+  owns the authentication capability brands, typed authentication errors,
+  authority derivation, evidence-load orchestration, capability minting and
+  lookup, and public authentication inspectors.
 - [`../packages/executor/test/storedAttemptAuthentication.test.ts`](../packages/executor/test/storedAttemptAuthentication.test.ts)
   is the main focused regression suite for capability surface and provenance.
 
@@ -113,8 +117,14 @@ The runtime already has these accepted properties:
   occurrence of that state as an invariant defect.
 
 Construction policy and capability state have moved into focused private
-modules. The domain operations and most capability contracts still live in
-the facade, so the modularization is not complete.
+modules. The R01 operation boundary has also moved: authentication-only
+construction now composes a focused operation factory over the authentication
+vault facets, and later stages reuse its private mint, load, and lookup
+operations. Canonical stored-evidence verification and caller-envelope
+comparison still live in the facade because finishing reconstruction consumes
+the same kernel. R01 remains incomplete until that kernel moves behind the
+authentication owner without duplication. Later domain operations and most
+capability contracts also still live in the facade.
 
 ## Invariants And Trust Boundaries
 
@@ -220,6 +230,12 @@ decomposition, not an exit criterion by itself.
 ## Ordered Extraction Gates
 
 ### [ ] R01 - Extract stored-attempt authentication
+
+Current cutline: the capability brands, typed errors, authority derivation,
+evidence-load orchestration, minting and lookup, and public inspectors are in
+the focused authentication operation module. The canonical evidence verifier
+and envelope comparator remain to be moved; finishing reconstruction must
+continue to reuse that single implementation.
 
 Move authority derivation, stored-evidence loading and verification, caller
 envelope comparison, authenticated-capability minting, and the authentication

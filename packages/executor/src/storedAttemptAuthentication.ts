@@ -90,8 +90,6 @@ import {
   CanonicalSuccessfulResultBytesV1Schema,
   CommitEnvelopeV1Schema,
   decodeCanonicalSessionJournalV1Effect,
-  decodeCommitEnvelopeV1Effect,
-  requireStoredForSessionAttemptCommitEnvelopeV1Effect,
   verifySuccessfulResultEvidenceV1Effect,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
@@ -180,7 +178,6 @@ import {
 } from "flarex-protocol/value";
 
 import {
-  inspectLoadedPointMutationSessionAttemptV1,
   PointMutationSessionAttemptTerminalizationContractV1Error,
   type PointMutationSessionAttemptLoadingExecutionV1Error,
   type PointMutationSessionAttemptLoadingV1,
@@ -279,6 +276,20 @@ import {
   type VerifiedCommitCapabilityStateV1,
 } from "./storedAttemptAuthentication/capabilityState";
 import {
+  InvalidStoredAttemptAuthorityV1Error,
+  StoredAttemptAlreadyCommittedV1Error,
+  StoredAttemptAuthorityMismatchV1Error,
+  StoredAttemptEnvelopeMismatchV1Error,
+  StoredAttemptNotPlannableV1Error,
+  StoredAttemptPersistenceV1Error,
+  StoredAttemptStorageCorruptionV1Error,
+  makeStoredAttemptAuthenticationOperationsV1,
+  requireLoadedStoredAttemptEvidenceEffect,
+  type AuthenticatedStoredAttemptV1,
+  type StoredAttemptAuthenticationV1Error,
+  type TrustedStoredAttemptAuthorityV1,
+} from "./storedAttemptAuthentication/authenticationOperations";
+import {
   capturePinnedFunctionSelector,
   requireLoadedCommitAuthorityEvidenceEffect,
   verifyCommitAuthorityEvidenceEffect,
@@ -328,6 +339,22 @@ export type {
 } from "./storedAttemptAuthentication/commitAuthorityModel";
 
 export {
+  InvalidStoredAttemptAuthorityV1Error,
+  StoredAttemptAlreadyCommittedV1Error,
+  StoredAttemptAuthorityMismatchV1Error,
+  StoredAttemptEnvelopeMismatchV1Error,
+  StoredAttemptNotPlannableV1Error,
+  StoredAttemptPersistenceV1Error,
+  StoredAttemptStorageCorruptionV1Error,
+} from "./storedAttemptAuthentication/authenticationOperations";
+
+export type {
+  AuthenticatedStoredAttemptV1,
+  StoredAttemptAuthenticationV1Error,
+  TrustedStoredAttemptAuthorityV1,
+} from "./storedAttemptAuthentication/authenticationOperations";
+
+export {
   CommitDocumentValidationV1Error,
   CommitInputAuthorityCorruptionV1Error,
   CommitSuccessfulResultValidationV1Error,
@@ -352,18 +379,6 @@ export type {
   PointCommitPlannerInvariantV1DefectReason,
 } from "./storedAttemptAuthentication/pointCommitPlanning";
 
-const trustedStoredAttemptAuthorityBrand: unique symbol = Symbol(
-  "FlarexExecutor/TrustedStoredAttemptAuthorityV1",
-);
-
-export interface TrustedStoredAttemptAuthorityV1 {
-  readonly [trustedStoredAttemptAuthorityBrand]: true;
-}
-
-const authenticatedStoredAttemptBrand: unique symbol = Symbol(
-  "FlarexExecutor/AuthenticatedStoredAttemptV1",
-);
-
 const PROCESS_LOCAL_CAPABILITY: true = true;
 const POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1 = 3;
 const POINT_COMMIT_SQL_RETRY_INITIAL_BACKOFF_MILLISECONDS_V1 = 10;
@@ -374,10 +389,6 @@ const decodeTransactionArtifactRuntimeV1 = Schema.decodeUnknownSync(
 const decodeFlarexDbV1StorageGeneration = Schema.decodeUnknownSync(
   FlarexDbV1StorageGenerationSchema,
 );
-
-export interface AuthenticatedStoredAttemptV1 {
-  readonly [authenticatedStoredAttemptBrand]: true;
-}
 
 const authenticatedCommitAuthorityBrand: unique symbol = Symbol(
   "FlarexExecutor/AuthenticatedCommitAuthorityV1",
@@ -734,56 +745,6 @@ export class InvalidPreparedPointCommitV1Error extends Data.TaggedError(
     | "notSameFactory";
 }> {}
 
-export class InvalidStoredAttemptAuthorityV1Error extends Data.TaggedError(
-  "InvalidStoredAttemptAuthorityV1Error",
-)<{
-  readonly reason:
-    | "notProcessLocal"
-    | "invalidLoadedAttempt"
-    | "invalidExecutionClaim";
-}> {}
-
-export class StoredAttemptAlreadyCommittedV1Error extends Data.TaggedError(
-  "StoredAttemptAlreadyCommittedV1Error",
-)<{
-  readonly updatedAtMilliseconds: number;
-}> {}
-
-export class StoredAttemptNotPlannableV1Error extends Data.TaggedError(
-  "StoredAttemptNotPlannableV1Error",
-)<{
-  readonly reason: "lifecycle" | "rootNotSealed" | "expired";
-  readonly lifecycle?: TransactionSessionLifecycleV1;
-  readonly rootState?: "open" | "sealed" | "failed";
-}> {}
-
-export class StoredAttemptAuthorityMismatchV1Error extends Data.TaggedError(
-  "StoredAttemptAuthorityMismatchV1Error",
-)<{
-  readonly reason:
-    | "placementChanged"
-    | "scopeChanged"
-    | "attemptMissing"
-    | "attemptReplaced"
-    | "generationChanged"
-    | "epochChanged"
-    | "snapshotChanged"
-    | "schemaChanged"
-    | "revocationEpochChanged"
-    | "executionClaimChanged";
-}> {}
-
-export class StoredAttemptEnvelopeMismatchV1Error extends Data.TaggedError(
-  "StoredAttemptEnvelopeMismatchV1Error",
-)<{
-  readonly reason:
-    | "attempt"
-    | "protocol"
-    | "sequence"
-    | "journalDigest"
-    | "successfulResult";
-}> {}
-
 export type StoredAttemptStorageCorruptionReasonV1 =
   | "repeatableReadCapabilityMissing"
   | "scopeClockMissingOrDuplicate"
@@ -831,29 +792,6 @@ export type StoredAttemptStorageCorruptionReasonV1 =
   | "overlayDocumentNotObject"
   | "jsonPropertyMissing"
   | "storedEvidenceInvalid";
-
-export class StoredAttemptStorageCorruptionV1Error extends Data.TaggedError(
-  "StoredAttemptStorageCorruptionV1Error",
-)<{
-  readonly reason: StoredAttemptStorageCorruptionReasonV1;
-  readonly cause?: unknown;
-}> {}
-
-export class StoredAttemptPersistenceV1Error extends Data.TaggedError(
-  "StoredAttemptPersistenceV1Error",
-)<{
-  readonly cause: unknown;
-}> {}
-
-export type StoredAttemptAuthenticationV1Error =
-  | CommitProtocolV1Error
-  | InvalidStoredAttemptAuthorityV1Error
-  | StoredAttemptAlreadyCommittedV1Error
-  | StoredAttemptNotPlannableV1Error
-  | StoredAttemptAuthorityMismatchV1Error
-  | StoredAttemptEnvelopeMismatchV1Error
-  | StoredAttemptStorageCorruptionV1Error
-  | StoredAttemptPersistenceV1Error;
 
 export interface StoredAttemptAuthorityStateV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
@@ -1697,15 +1635,6 @@ function createStoredPointMutationCapabilityRuntimeV1(
     mintedAuthorizedOccReruns,
     consumedAuthorizedOccReruns,
   } = makeStoredPointMutationCapabilityVaultV1();
-  const mintAuthenticatedStoredAttempt = (
-    state: AuthenticatedStoredAttemptStateV1,
-  ): AuthenticatedStoredAttemptV1 => {
-    const handle: AuthenticatedStoredAttemptV1 = Object.freeze({
-      [authenticatedStoredAttemptBrand]: PROCESS_LOCAL_CAPABILITY,
-    });
-    authenticatedStates.set(handle, state);
-    return handle;
-  };
   const mintFinishingPreparedPointCommit = (
     state: PreparedPointCommitCapabilityStateV1,
   ): Result.Result<
@@ -1743,127 +1672,23 @@ function createStoredPointMutationCapabilityRuntimeV1(
       reason: "unregisteredTransactionGrantVerifier",
     });
   }
-  const deriveAuthority: StoredAttemptAuthenticationV1["deriveAuthority"] =
-    Effect.fn("StoredAttemptAuthentication.deriveAuthority")(
-      function* (attempt, executionClaim) {
-        const inspection = yield* Effect.try({
-          try: () => inspectLoadedPointMutationSessionAttemptV1(attempt),
-          catch: () => new InvalidStoredAttemptAuthorityV1Error({
-            reason: "invalidLoadedAttempt",
-          }),
-        });
-        const claim = yield* Effect.fromResult(
-          executionClaims.admission.inspectStoredAttempt(executionClaim).pipe(
-            Result.mapError(() => new InvalidStoredAttemptAuthorityV1Error({
-              reason: "invalidExecutionClaim",
-            })),
-          ),
-        );
-        if (
-          claim.selector.deploymentId !== inspection.selector.deploymentId ||
-          claim.selector.scopeId !== inspection.selector.scopeId ||
-          claim.selector.sessionId !== inspection.selector.sessionId ||
-          claim.selector.attemptFence !== inspection.selector.attemptFence
-        ) {
-          return yield* Effect.fail(
-            new InvalidStoredAttemptAuthorityV1Error({
-              reason: "invalidExecutionClaim",
-            }),
-          );
-        }
-        const state = Object.freeze({
-          deploymentId: inspection.selector.deploymentId,
-          scopeId: inspection.selector.scopeId,
-          sessionId: inspection.selector.sessionId,
-          attemptFence: inspection.selector.attemptFence,
-          storageGeneration: inspection.storageGeneration,
-          storageGenerationFence: inspection.storageGenerationFence,
-          snapshotToken: Object.freeze({ ...inspection.snapshotToken }),
-          schemaVersionId: inspection.schemaVersionId,
-          executionClaim: Object.freeze({
-            claimOwner: claim.observation.claimOwner,
-            claimFence: claim.observation.claimFence,
-          }),
-        } satisfies StoredAttemptAuthorityStateV1);
-        const handle: TrustedStoredAttemptAuthorityV1 = Object.freeze({
-          [trustedStoredAttemptAuthorityBrand]: PROCESS_LOCAL_CAPABILITY,
-        });
-        authorityStates.set(handle, Object.freeze({
-          authority: state,
-          executionScope: executionClaim,
-        }));
-        return handle;
-      },
-    );
-
-  const loadAndVerifyStoredEvidence = Effect.fn(
-    "StoredAttemptAuthentication.loadAndVerifyStoredEvidence",
-  )(function* (authorityCapability: Readonly<{
-    readonly authority: StoredAttemptAuthorityStateV1;
-    readonly executionScope: PointMutationExecutionScopeV1;
-  }>) {
-    const result = yield* loader.loadEffect(
-      captureAuthorityPort(authorityCapability.authority),
-    ).pipe(Effect.mapError((error) =>
-      new StoredAttemptPersistenceV1Error({ cause: error.cause })
-    ));
-    const evidence = yield* requireLoadedEvidenceEffect(result);
-    const verified = yield* verifyCanonicalStoredEvidenceEffect(
-      authorityCapability.authority,
-      evidence,
-      authorityCapability.executionScope,
-    );
-    return Object.freeze({ evidence, verified });
+  const authenticationOperations = makeStoredAttemptAuthenticationOperationsV1({
+    loader,
+    executionClaims,
+    authorityStates,
+    authenticatedStates,
+    captureAuthorityPort,
+    verifyCanonicalStoredEvidence: verifyCanonicalStoredEvidenceEffect,
+    compareCallerEnvelopeWithVerifiedState,
+    serializeAuthenticatedStateForTest,
   });
-
-  const authenticate: StoredAttemptAuthenticationV1["authenticate"] =
-    Effect.fn("StoredAttemptAuthentication.authenticate")(
-      function* (authority, input) {
-        const decodedEnvelope = yield* decodeCommitEnvelopeV1Effect(input);
-        const envelope = yield*
-          requireStoredForSessionAttemptCommitEnvelopeV1Effect(
-            decodedEnvelope,
-          );
-        const authorityCapability = lookupAuthority(authorityStates, authority);
-        if (authorityCapability === undefined) {
-          return yield* Effect.fail(
-            new InvalidStoredAttemptAuthorityV1Error({
-              reason: "notProcessLocal",
-            }),
-          );
-        }
-        const { evidence, verified } = yield* loadAndVerifyStoredEvidence(
-          authorityCapability,
-        );
-        const envelopeMismatch = yield* compareCallerEnvelopeWithVerifiedState(
-          envelope,
-          evidence,
-          verified,
-        );
-        if (envelopeMismatch !== undefined) {
-          return yield* Effect.fail(envelopeMismatch);
-        }
-        return mintAuthenticatedStoredAttempt(verified);
-      },
-    );
-
-  const base: StoredAttemptAuthenticationV1 = Object.freeze({
-    deriveAuthority,
-    authenticate,
-    isAuthenticated: (value: unknown): boolean =>
-      typeof value === "object" &&
-      value !== null &&
-      authenticatedStates.has(value),
-    remainsAuthenticatedStateUnchangedForTest: (
-      value: AuthenticatedStoredAttemptV1,
-      action: () => void,
-    ): boolean => {
-      const state = requireAuthenticatedState(authenticatedStates, value);
-      const before = serializeAuthenticatedStateForTest(state);
-      action();
-      return before === serializeAuthenticatedStateForTest(state);
-    },
-  });
+  const {
+    facade: base,
+    mintAuthenticatedStoredAttempt,
+    lookupAuthority,
+    loadAndVerifyStoredEvidence,
+  } = authenticationOperations;
+  const { authenticate, deriveAuthority } = base;
   if (stage === "authentication") {
     return base;
   }
@@ -2488,7 +2313,8 @@ function createStoredPointMutationCapabilityRuntimeV1(
       ).pipe(Effect.mapError((error) =>
         new StoredAttemptPersistenceV1Error({ cause: error.cause })
       ));
-      const evidence = yield* requireLoadedEvidenceEffect(loadResult);
+      const evidence = yield*
+        requireLoadedStoredAttemptEvidenceEffect(loadResult);
       const authority = yield* captureRecoveredAuthorityEffect(
         selector,
         evidence,
@@ -3593,7 +3419,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
       loadedAttempt,
       executionScope,
     );
-    const authorityCapability = lookupAuthority(authorityStates, authorityHandle);
+    const authorityCapability = lookupAuthority(authorityHandle);
     if (authorityCapability === undefined) {
       return yield* Effect.fail(new InvalidStoredAttemptAuthorityV1Error({
         reason: "notProcessLocal",
@@ -4924,46 +4750,6 @@ function serializePreparedPointCommitStateForTest(
   );
 }
 
-const requireLoadedEvidenceEffect = Effect.fn(
-  "StoredAttemptAuthentication.requireLoadedEvidence",
-)(function* (
-  result: StoredAttemptEvidenceLoadResultPortV1,
-): Effect.fn.Return<
-  StoredAttemptEvidencePortV1,
-  | StoredAttemptAlreadyCommittedV1Error
-  | StoredAttemptNotPlannableV1Error
-  | StoredAttemptAuthorityMismatchV1Error
-  | StoredAttemptStorageCorruptionV1Error
-> {
-  switch (result.kind) {
-    case "loaded":
-      return result.evidence;
-    case "alreadyCommitted":
-      return yield* Effect.fail(new StoredAttemptAlreadyCommittedV1Error({
-        updatedAtMilliseconds: result.updatedAtMilliseconds,
-      }));
-    case "notPlannable":
-      return yield* Effect.fail(new StoredAttemptNotPlannableV1Error({
-        reason: result.reason,
-        ...(result.lifecycle === undefined
-          ? {}
-          : { lifecycle: result.lifecycle }),
-        ...(result.rootState === undefined
-          ? {}
-          : { rootState: result.rootState }),
-      }));
-    case "authorityMismatch":
-      return yield* Effect.fail(new StoredAttemptAuthorityMismatchV1Error({
-        reason: result.reason,
-      }));
-    case "corrupt":
-      return yield* Effect.fail(new StoredAttemptStorageCorruptionV1Error({
-        reason: result.reason,
-        ...(result.cause === undefined ? {} : { cause: result.cause }),
-      }));
-  }
-});
-
 const captureRecoveredAuthorityEffect = Effect.fn(
   "StoredAttemptAuthentication.captureRecoveredAuthority",
 )(function* (
@@ -5778,39 +5564,6 @@ function detachAuthenticatedPoint(
       : copyBytes(point.overlayBytes),
     overlaySemanticBytes: point.overlaySemanticBytes,
   });
-}
-
-function lookupAuthority(
-  states: WeakMap<
-    object,
-    Readonly<{
-      readonly authority: StoredAttemptAuthorityStateV1;
-      readonly executionScope: PointMutationExecutionScopeV1;
-    }>
-  >,
-  authority: TrustedStoredAttemptAuthorityV1,
-): Readonly<{
-  readonly authority: StoredAttemptAuthorityStateV1;
-  readonly executionScope: PointMutationExecutionScopeV1;
-}> | undefined {
-  return typeof authority === "object" && authority !== null
-    ? states.get(authority)
-    : undefined;
-}
-
-function requireAuthenticatedState(
-  states: WeakMap<object, AuthenticatedStoredAttemptStateV1>,
-  value: AuthenticatedStoredAttemptV1,
-): AuthenticatedStoredAttemptStateV1 {
-  const state = typeof value === "object" && value !== null
-    ? states.get(value)
-    : undefined;
-  if (state === undefined) {
-    throw new InvalidStoredAttemptAuthorityV1Error({
-      reason: "notProcessLocal",
-    });
-  }
-  return state;
 }
 
 function serializeAuthenticatedStateForTest(
