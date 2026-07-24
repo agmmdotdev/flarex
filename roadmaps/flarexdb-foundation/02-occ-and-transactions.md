@@ -39,7 +39,9 @@ B2b2b2b1b2b2a private count-bounded multi-scope/repeated-page composition are
 complete. O08-B2b2b2b1b2b2b0's inert singleton scheduler-checkpoint storage
 foundation and O08-B2b2b2b1b2b2b1's private bounded scheduler-run composition
 are complete; the production trigger/liveness owner and
-C06-B endpoint/response policy remain pending. C04C2
+C06-B endpoint/response policy remain pending under
+[`37-production-redelivery-and-c06b.md`](../37-production-redelivery-and-c06b.md).
+C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -1256,8 +1258,10 @@ Effect remains uninterruptible until commit/rollback/release settles. Settlement
 may cross the soft deadline, but no later invocation is then admitted.
 
 The production loop, trigger, deadlines/backoff, authenticated runtime routing,
-Dynamic Worker integration, and dispatch liveness remain unapproved and belong
-to the rest of this gate plus C06-B. Lifecycle, persisted claim fields, scope
+Dynamic Worker integration, and dispatch liveness are approved only through
+the ordered gates in
+[`37-production-redelivery-and-c06b.md`](../37-production-redelivery-and-c06b.md);
+they remain unimplemented. Lifecycle, persisted claim fields, scope
 locators, discovery hints, sweep observations, renewal observations, scheduler
 timing, and the inert scheduler row alone never mint execution authority.
 
@@ -1343,7 +1347,8 @@ timing, and the inert scheduler row alone never mint execution authority.
   It has no host trigger or execution authority.
 - **[ ] O08-B2b2b2b1b2b2b — production scheduling/redelivery.** The loop,
   triggers, host deadlines/backoff, dispatch, authenticated routing, and
-  operational liveness stay downstream with C06-B.
+  operational liveness stay downstream with C06-B under
+  [`37-production-redelivery-and-c06b.md`](../37-production-redelivery-and-c06b.md).
 
 `O11` consumes this policy later; it is not a prerequisite to define it. Only a
 snapshot lease that is live under database time pins engine history. An expired
@@ -1355,7 +1360,9 @@ grant and hard authority remain live; dispatcher latency never extends them.
 ##### [ ] C06-B — Add Stable Endpoint And Response Policy
 
 The endpoint/response contract remains owned by the focused commit-compiler
-plan. B2b2a is a private composition proof, not dispatcher or route completion.
+plan and its production execution plan,
+[`37-production-redelivery-and-c06b.md`](../37-production-redelivery-and-c06b.md).
+B2b2a is a private composition proof, not dispatcher or route completion.
 
 Path classification remains clean replacement:
 

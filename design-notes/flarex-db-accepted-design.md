@@ -1701,9 +1701,11 @@ Keep the supporting replacement primitive and three coordinators separate:
    B2b2b2b1b1 host-neutral structured liveness, B2b2b2b1b2a bounded one-page
    redelivery, B2b2b2b1b2b1 bounded inert scope enumeration, and
    B2b2b2b1b2b2a private count-bounded composition are complete.
-   B2b2b2b1b2b2b durable scheduling/redelivery remains pending and unapproved,
-   while C06-B owns endpoint and response policy. This is separate from
-   conditional O03-B2b2 snapshot-lease renewal.
+   B2b2b2b1b2b2b durable scheduling/redelivery and C06-B endpoint/response
+   policy are approved only through the ordered gates in
+   [`roadmaps/37-production-redelivery-and-c06b.md`](../roadmaps/37-production-redelivery-and-c06b.md)
+   and remain unimplemented. This is separate from conditional O03-B2b2
+   snapshot-lease renewal.
 9. O08-CD0 is the completed persistence-owned decision-provenance prerequisite.
    The real Postgres located-target runner acquires and owns one connected
    client, uses a genuine Drizzle transaction, and classifies only after
@@ -1759,8 +1761,9 @@ one-page sweep, and O08-B2b2b2b1b2b1 owns bounded inert scope enumeration.
 O08-B2b2b2b1b2b2a now owns private count-bounded multi-scope composition. O08-
 B2b2b2b1b2b2b and C06-B still own durable scheduling, redelivery, endpoint
 responses, authenticated routing, and
-production liveness. Dynamic Worker integration
-remains unapproved. The current B2a same-process
+production liveness. Dynamic Worker integration is authorized only when the
+focused production plan proves that it preserves the singular exact-attempt
+authority; it is not independently approved. The current B2a same-process
 contract remains valid and uses the same singular claim-fenced admission; no
 second execution authority exists.
 

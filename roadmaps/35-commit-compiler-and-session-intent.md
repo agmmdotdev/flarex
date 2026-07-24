@@ -25,8 +25,9 @@ O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware
 renewal, and O08-B2b2b2b1b1 host-neutral structured liveness are complete.
 O08-B2b2b2b1b2a bounded host-neutral single-page redelivery is complete.
 O08-B2b2b2b1b2b production scheduling/redelivery and dispatch, and C06-B
-endpoint/response policy remain pending; C04C2 remains conditional
-and unapproved.
+endpoint/response policy remain pending under
+[`37-production-redelivery-and-c06b.md`](./37-production-redelivery-and-c06b.md);
+C04C2 remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
 

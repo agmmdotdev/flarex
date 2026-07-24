@@ -30,7 +30,8 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   as are O08-B2b2b2b1b2b2b0's inert singleton scheduler-checkpoint persistence
   and O08-B2b2b2b1b2b2b1's private bounded scheduler-run composition. The
   production trigger/redelivery host and C06-B endpoint/response policy remain
-  pending,
+  pending under
+  [`37-production-redelivery-and-c06b.md`](../37-production-redelivery-and-c06b.md),
   while C04C2 remains conditional and
   unapproved.
 
@@ -611,6 +612,9 @@ B2b2b2b1b2b2b retains durable scheduling, routing, and production-dispatch
 liveness.
 
 ### [ ] C06-B — Add Idempotent Finish And Lost-Outcome Dispatch
+
+Focused production execution plan:
+[`37-production-redelivery-and-c06b.md`](../37-production-redelivery-and-c06b.md).
 
 Prerequisite: `O08-B2a` same-process OCC execution, O08-CD0 transaction-
 decision provenance, O08-C bounded known-settled retry, and O08-D bounded

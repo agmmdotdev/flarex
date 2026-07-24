@@ -113,7 +113,7 @@ with domain rationale in
 | [`flarexdb-foundation/01-schema-and-migrations.md`](./flarexdb-foundation/01-schema-and-migrations.md) | Active focused execution plan | Target schema/catalog, codecs, app storage, readiness, activation, prototype retirement, and conditional shipped-state migration. |
 | [`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md) | Active focused execution plan | Exact snapshots, OCC dependencies, atomic commit lane, retry classes, retention, clean prototype retirement, and conditional live migration. |
 | [`flarexdb-foundation/03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md) | Active focused execution plan | Retired standalone `C01`, completed inert `C02` protocol, active `C03`–`C09` compiler gates, and conditional `C07A`. |
-| [`36-stored-attempt-capability-runtime-modularization.md`](./36-stored-attempt-capability-runtime-modularization.md) | Active focused execution plan | Behavior-preserving decomposition of the private stored-attempt capability runtime into one per-instance vault, exact-stage construction, focused operation modules, and a thin composition facade. |
+| [`37-production-redelivery-and-c06b.md`](./37-production-redelivery-and-c06b.md) | Active focused execution plan | Production exact-attempt runtime hosting, one bounded scheduled-event composition, trigger activation, and stable C06-B finish/lost-outcome dispatch. |
 | [`flarexdb-foundation/04-payload-relational-contract.md`](./flarexdb-foundation/04-payload-relational-contract.md) | Accepted deferred contract | Relation semantics and stable occurrence identity required before `R01`/`R02`/`S12`/`C09`. |
 | [`flarexdb-foundation/05-managed-schema-deployment.md`](./flarexdb-foundation/05-managed-schema-deployment.md) | Accepted deferred contract | Migrationless developer experience and managed schema safety classes; implementation remains deferred. |
 
@@ -165,6 +165,7 @@ contain old “next slice” or append-history instructions.
 
 | Roadmap | Completed initiative |
 | --- | --- |
+| [`36-stored-attempt-capability-runtime-modularization.md`](./36-stored-attempt-capability-runtime-modularization.md) | Stored-attempt capability runtime modularization |
 | [`22-effect-migration-checklist.md`](./22-effect-migration-checklist.md) | Effect migration |
 | [`24-shared-artifact-runtime-host-kit.md`](./24-shared-artifact-runtime-host-kit.md) | Shared artifact-runtime host kit |
 | [`25-shared-artifact-runtime-host-kit-goals.md`](./25-shared-artifact-runtime-host-kit-goals.md) | Host-kit goal checklist |
