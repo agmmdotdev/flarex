@@ -1,31 +1,9 @@
-import {
-  bytesEqualFullScan as bytesEqual,
-  copyBytes,
-  isUint8ArrayWithByteLength,
-} from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { isNonBlankString } from "@flarex/utils/strings";
-import {
-  Cause,
-  Data,
-  Duration,
-  Effect,
-  Exit,
-  Random,
-  Result,
-  Schema,
-} from "effect";
+import { Effect } from "effect";
 
 import type {
-  PointCommitAttemptScalarCommandV1,
-  PointCommitAuthorityPinsV1,
-  PointCommitDependencyV1,
-  PointCommitFinishingTransitionCommandV1,
   PointCommitFinishingTransitionPortV1,
-  PointCommitFinishingTransitionResultV1,
   PointCommitFinishingTransitionV1Error,
-  PointCommitPublicationCommandV1,
   PointCommitPublicationResultV1,
   PointCommitPublicationV1Error,
   PointCommitOutcomeResolutionV1Error,
@@ -33,12 +11,7 @@ import type {
   PointCommitPublisherPortV1,
   PointCommitRollbackProofPortV1,
   PointCommitRollbackProofV1Error,
-  PointCommitRowIntentV1,
-  PointCommitSealIdentityV1,
-  PointCommitSuccessfulResultV1,
-  PointCommitTransactionCommandV1,
   PointCommitWouldCommitV1,
-  PointMutationAttemptReplacementCommandV1,
   PointMutationAttemptReplacementObservationV1,
   PointMutationAttemptReplacementPortV1,
   PointMutationAttemptReplacementV1Error,
@@ -46,15 +19,10 @@ import type {
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
   PointCommitConfirmedPreDecisionRollbackV1Error,
-  PointCommitConflictV1Error,
-  PointCommitCorruptionV1Error,
   PointCommitDecisionUncertainV1Error,
-  RESOLVE_POINT_COMMIT_OUTCOME_V1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type {
-  StoredOccExecutionEvidenceV1,
   StoredOccExecutionEvidenceLoaderV1,
-  StoredOccExecutionEvidenceLoadResultV1,
 } from "@flarex/persistence-postgres/stored-occ-execution";
 import {
   type PointMutationExecutionClaimAcquisitionV1Error,
@@ -69,65 +37,40 @@ import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
-  CanonicalSuccessfulResultBytesV1Schema,
-  CommitEnvelopeV1Schema,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
-  type CommitProtocolV1Error,
   type CanonicalSuccessfulResultV1,
   type SessionJournalV1,
 } from "flarex-protocol/commit-protocol";
 import {
-  jsonEqual,
   type Json,
   type JsonObject,
 } from "flarex-protocol/json";
 import {
-  CatalogSchemaVersionIdSchema,
   type CatalogSchemaVersionId,
   type SchemaManifestAppSchemaV1,
 } from "flarex-protocol/schema-manifest";
 import {
   PointMutationTargetSelectionV1Error,
-  canonicalizePointMutationRequestV1,
   type PointMutationTargetFunctionMetadataV1,
 } from "flarex-protocol/point-mutation-start";
 import {
-  ReplacementScopeIdV1Schema,
-  projectScopeIdUuidV1,
   type FlarexDbV1StorageGeneration,
   type ReplacementScopeIdV1,
   type ScopeUuidV1,
   type SnapshotToken,
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
-import {
-  TransactionGrantDeploymentIdV1Schema,
-  type TransactionGrantDeploymentIdV1,
+import type {
+  TransactionGrantDeploymentIdV1,
 } from "flarex-protocol/transaction-grant";
 import {
   type StoredTransactionSessionScalarsV1,
-  TransactionArtifactIdV1Schema,
-  TransactionArtifactRuntimeV1Schema,
-  TransactionAuthorizationGrantIdV1Schema,
-  TransactionArgumentsSha256V1Schema,
-  TransactionAuthorizationRevocationEpochSchema,
-  TransactionExecutionModuleV1Schema,
-  TransactionFunctionPathV1Schema,
-  TransactionIdentityAccessPolicySha256V1Schema,
-  TransactionPackageIdV1Schema,
-  TransactionPolicyVersionV1Schema,
-  TransactionRequestKeyV1Schema,
-  TransactionRequestSha256V1Schema,
-  TransactionSourcePackageSha256HexV1Schema,
-  storedTransactionSessionScalarsEqualV1,
   type TransactionAttemptFence,
   type TransactionSessionIdV1,
   type TransactionSessionLifecycleV1,
 } from "flarex-protocol/transaction-session";
 import {
-  flarexValueToJsonV1,
-  normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeValueV1,
   type FlarexValueCodecVersion,
 } from "flarex-protocol/value";
@@ -135,7 +78,6 @@ import {
 import {
   type PointMutationSessionAttemptLoadingExecutionV1Error,
   type PointMutationSessionAttemptLoadingV1,
-  type PointMutationSessionAttemptTerminalizationExecutionV1Error,
   type PointMutationSessionAttemptTerminalizationV1,
   type LoadedPointMutationSessionAttemptV1,
 } from "./pointMutationSessionActivation";
@@ -144,15 +86,10 @@ import type {
   PointMutationSessionAttemptDispositionV1,
 } from "./pointMutationSessionAttemptDisposition";
 import type {
-  PointMutationJournalAttemptV1,
   PointMutationJournalBoundaryV1Error,
   PointMutationJournalTableV1,
   PointMutationJournalV1,
 } from "./pointMutationJournal";
-import {
-  getLoadedPointMutationSessionAttemptOccRerunInspectionV1,
-  type LoadedPointMutationSessionAttemptOccRerunInspectionV1,
-} from "./pointMutationSessionAttemptState";
 import {
   type InvalidPointMutationSessionAttemptSelectorV1Error,
 } from "./pointMutationSessionAttemptSelector";
@@ -163,8 +100,6 @@ import {
 } from "./pointMutationExecutionClaim";
 import {
   createPointMutationExecutionLivenessCoordinatorV1,
-  type PointMutationExecutionLivenessControlV1,
-  type PointMutationExecutionLivenessV1Error,
 } from "./pointMutationExecutionClaimLiveness";
 import type {
   PointMutationExecutionClaimDispatchAcquisitionV1,
@@ -182,16 +117,8 @@ import {
   StoredCommitAuthorityMismatchV1Error,
   StoredCommitAuthorityNotPlannableV1Error,
   StoredCommitAuthorityPersistenceV1Error,
-  type PinnedPointMutationFunctionMetadataReaderPortV1,
-  type PinnedPointMutationFunctionMetadataSelectorV1,
   type StoredCommitAuthorityAuthenticationConfigV1,
-  type StoredCommitAuthorityCorruptionReasonV1,
-  type StoredCommitAuthorityEvidenceLoaderPortV1,
-  type StoredCommitAuthorityEvidenceLoadResultPortV1,
-  type StoredCommitAuthorityEvidencePersistencePortErrorV1,
-  type StoredCommitAuthorityEvidencePortV1,
   type StoredCommitAuthoritySchemaEvidencePortV1,
-  type StoredCommitAuthoritySessionEvidencePortV1,
 } from "./storedAttemptAuthentication/commitAuthorityModel";
 import {
   StoredPointMutationCapabilityConfigurationV1Defect,
@@ -212,17 +139,11 @@ import {
 } from "./storedAttemptAuthentication/capabilityRuntimeConstruction";
 import {
   makeStoredPointMutationCapabilityVaultV1,
-  serializePrivateCapabilityStateForTestV1,
-  type AuthorizedPointMutationOccRerunStateV1,
-  type PointCommitDecisionUncertainTicketStateV1,
-  type PointCommitScalarProvenanceV1,
-  type PreparedPointCommitCapabilityStateV1,
 } from "./storedAttemptAuthentication/capabilityState";
 import {
   InvalidStoredAttemptAuthorityV1Error,
   StoredAttemptAlreadyCommittedV1Error,
   StoredAttemptAuthorityMismatchV1Error,
-  StoredAttemptEnvelopeMismatchV1Error,
   StoredAttemptNotPlannableV1Error,
   StoredAttemptPersistenceV1Error,
   StoredAttemptStorageCorruptionV1Error,
@@ -233,26 +154,18 @@ import {
   type AuthenticatedStoredAttemptV1,
   type TrustedStoredAttemptAuthorityV1,
 } from "./storedAttemptAuthentication/authenticationOperations";
-import {
-  captureAuthorityPort,
-  dependenciesEqual,
-  type AuthenticatedStoredAttemptPointV1,
+import type {
+  AuthenticatedStoredAttemptPointV1,
 } from "./storedAttemptAuthentication/authenticationVerification";
 import {
-  capturePinnedFunctionSelector,
   verifyCommitAuthorityEvidenceEffect,
-  verifyPinnedFunctionMetadataEffect,
-  type CommitAuthorityVerificationStateV1,
-  type VerifiedCommitAuthorityEvidenceV1,
 } from "./storedAttemptAuthentication/commitAuthorityVerification";
-import { detachVerifiedGrant } from "./storedAttemptAuthentication/verifiedGrantEvidence";
 import type {
   CommitInputVerificationV1Error,
 } from "./storedAttemptAuthentication/commitInputVerification";
 import {
   InvalidVerifiedCommitInputV1Error,
   UnsupportedPointCommitPlanV1Error,
-  type PreparedPointCommitStateV1,
 } from "./storedAttemptAuthentication/pointCommitPlanning";
 import {
   InvalidPreparedPointCommitV1Error,
@@ -267,8 +180,20 @@ import {
   makeStoredPointCommitRollbackProofOperationsV1,
 } from "./storedAttemptAuthentication/pointCommitPersistenceOperations";
 import {
-  makeStoredPointCommitExecutorOperationsV1,
-  makeStoredPointCommitFinishingRecoveryOperationsV1,
+  capturePointCommitFinishingTransitionCommand,
+  capturePointCommitPublicationCommand,
+  capturePointCommitTransactionCommand,
+  capturePointMutationAttemptReplacementCommand,
+  capturePointMutationSessionAttemptSelector,
+  pointCommitPublicationCommandsEqual,
+  rebaseFinishingPreparedPointCommitState,
+} from "./storedAttemptAuthentication/pointCommitRuntimeModel";
+import {
+  PointCommitKnownSettledSqlRetryExhaustedV1Error,
+  PointCommitUncertainOutcomeRecoveryCorruptionV1Error,
+  PointCommitUncertainOutcomeUnresolvedV1Error,
+  makeStoredPointCommitExecutionPublicationOperationsV1,
+  makeStoredPointCommitKnownSettledPublicationOperationsV1,
   makeStoredPointCommitFinishingTransitionOperationsV1,
 } from "./storedAttemptAuthentication/finishingOperations";
 import {
@@ -277,7 +202,6 @@ import {
   makeStoredPointMutationAttemptReplacementOperationsV1,
   makeStoredPointMutationFreshAttemptHandoffOperationsV1,
   type AuthorizedPointMutationOccRerunV1,
-  type PointMutationOccRerunFreshAttemptMismatchV1,
   type PointMutationOccRerunOwnershipLostV1Error,
 } from "./storedAttemptAuthentication/attemptReplacementOperations";
 import {
@@ -288,16 +212,16 @@ import {
   makeStoredPointMutationOccRerunAuthorizationOperationsV1,
 } from "./storedAttemptAuthentication/occRerunAuthorizationOperations";
 import {
-  PointMutationOccExecutionAuthorityCorruptionV1Error,
-  PointMutationOccExecutionAuthorityMismatchV1Error,
-  PointMutationOccExecutionEvidencePersistenceV1Error,
-  PointMutationOccExecutionNotRunnableV1Error,
   makeStoredPointMutationOccRerunExecutionOperationsV1,
-  type ExecuteExactPointMutationAttemptKernelV1,
 } from "./storedAttemptAuthentication/occRerunExecutionOperations";
 import {
   makeStoredPointMutationCrashRedispatchOperationsV1,
 } from "./storedAttemptAuthentication/crashRedispatchOperations";
+import {
+  PointMutationOccUserCodeV1Error,
+  makeExactPointMutationExecutionOperationsV1,
+  type PointMutationAuthenticatedAttemptExecutionV1Error,
+} from "./storedAttemptAuthentication/exactPointMutationExecutionOperations";
 
 export {
   InvalidAuthenticatedStoredAttemptV1Error,
@@ -406,25 +330,11 @@ export {
   PointMutationOccExecutionNotRunnableV1Error,
 } from "./storedAttemptAuthentication/occRerunExecutionOperations";
 
-const POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1 = 3;
-const POINT_COMMIT_SQL_RETRY_INITIAL_BACKOFF_MILLISECONDS_V1 = 10;
-const encodeCommitEnvelopeV1 = Schema.encodeSync(CommitEnvelopeV1Schema);
-const decodeTransactionArtifactRuntimeV1 = Schema.decodeUnknownSync(
-  TransactionArtifactRuntimeV1Schema,
-);
-
-export class PointCommitKnownSettledSqlRetryExhaustedV1Error
-  extends Data.TaggedError(
-    "PointCommitKnownSettledSqlRetryExhaustedV1Error",
-  )<{
-    readonly attempts: 3;
-    readonly maximumAttempts: 3;
-    readonly failures: readonly [
-      PointCommitKnownSettledSqlRetryFailureV1,
-      PointCommitKnownSettledSqlRetryFailureV1,
-      PointCommitKnownSettledSqlRetryFailureV1,
-    ];
-  }> {}
+export {
+  PointCommitKnownSettledSqlRetryExhaustedV1Error,
+  PointCommitUncertainOutcomeRecoveryCorruptionV1Error,
+  PointCommitUncertainOutcomeUnresolvedV1Error,
+} from "./storedAttemptAuthentication/finishingOperations";
 
 type PointCommitOutcomeLookupSqlFailureV1 = Extract<
   PointCommitOutcomeResolutionV1Error,
@@ -445,26 +355,6 @@ export type PointCommitUncertainOutcomeSecondaryV1 =
       readonly error: PointCommitDecisionUncertainV1Error;
     }>;
 
-/** Private O08-D terminal evidence. It carries no command or rerun authority. */
-export class PointCommitUncertainOutcomeUnresolvedV1Error
-  extends Data.TaggedError(
-    "PointCommitUncertainOutcomeUnresolvedV1Error",
-  )<{
-    readonly stage:
-      | "postSettlementOutcomeLookup"
-      | "alreadyCommittedOutcomeLookup"
-      | "guardedPublication";
-    readonly primary: PointCommitDecisionUncertainV1Error;
-    readonly secondary: PointCommitUncertainOutcomeSecondaryV1;
-  }> {}
-
-export class PointCommitUncertainOutcomeRecoveryCorruptionV1Error
-  extends Data.TaggedError(
-    "PointCommitUncertainOutcomeRecoveryCorruptionV1Error",
-  )<{
-    readonly reason: "reconstructedCommandMismatch";
-  }> {}
-
 export interface PointCommitKnownSettledSqlRetryFailureV1 {
   readonly operation:
     PointCommitConfirmedPreDecisionRollbackV1Error["operation"];
@@ -473,49 +363,10 @@ export interface PointCommitKnownSettledSqlRetryFailureV1 {
   readonly cause: unknown;
 }
 
-type PointCommitKnownSettledSqlRetryStateV1 =
-  | Readonly<{
-      readonly attempt: 1;
-      readonly failures: readonly [];
-    }>
-  | Readonly<{
-      readonly attempt: 2;
-      readonly failures: readonly [
-        PointCommitKnownSettledSqlRetryFailureV1,
-      ];
-    }>
-  | Readonly<{
-      readonly attempt: 3;
-      readonly failures: readonly [
-        PointCommitKnownSettledSqlRetryFailureV1,
-        PointCommitKnownSettledSqlRetryFailureV1,
-      ];
-    }>;
-
-function capturePointCommitKnownSettledSqlRetryFailureV1(
-  failure: PointCommitConfirmedPreDecisionRollbackV1Error,
-): PointCommitKnownSettledSqlRetryFailureV1 {
-  return Object.freeze({
-    operation: failure.operation,
-    sqlState: failure.sqlState,
-    cause: failure.cause,
-  });
-}
-
-export class PointMutationOccExecutionContextV1Error extends Data.TaggedError(
-  "PointMutationOccExecutionContextV1Error",
-)<{
-  readonly reason:
-    | "invalidExecutionId"
-    | "invalidLogScopeId"
-    | "invalidRandomSeed";
-}> {}
-
-export class PointMutationOccUserCodeV1Error extends Data.TaggedError(
-  "PointMutationOccUserCodeV1Error",
-)<{
-  readonly cause: unknown;
-}> {}
+export {
+  PointMutationOccExecutionContextV1Error,
+  PointMutationOccUserCodeV1Error,
+} from "./storedAttemptAuthentication/exactPointMutationExecutionOperations";
 
 export interface PointMutationOccExecutionContextV1 {
   readonly executionId: string;
@@ -547,11 +398,6 @@ export interface PointMutationOccRuntimeNeutralRunnerInputV1 {
   readonly context: PointMutationOccExecutionContextV1;
   readonly journal: PointMutationOccBoundJournalV1;
 }
-
-type PointMutationOccDetachedRunnerEvidenceV1 = Omit<
-  PointMutationOccRuntimeNeutralRunnerInputV1,
-  "context" | "journal"
->;
 
 export interface PointMutationOccExecutionContextFactoryV1 {
   readonly make: () => Effect.Effect<
@@ -1172,26 +1018,6 @@ export interface StoredPointMutationOccRerunAuthorizationV1
   ) => AuthorizedPointMutationOccRerunInspectionV1;
 }
 
-type PointMutationAuthenticatedAttemptExecutionV1Error =
-  | PointMutationOccExecutionEvidencePersistenceV1Error
-  | PointMutationOccExecutionNotRunnableV1Error
-  | PointMutationOccExecutionAuthorityMismatchV1Error
-  | PointMutationOccExecutionAuthorityCorruptionV1Error
-  | PointMutationOccExecutionContextV1Error
-  | PointMutationOccUserCodeV1Error
-  | PointMutationJournalBoundaryV1Error
-  | CommitProtocolV1Error
-  | PointMutationSessionAttemptLoadingExecutionV1Error
-  | PointMutationSessionAttemptTerminalizationExecutionV1Error
-  | StoredAttemptAuthenticationV1Error
-  | StoredCommitAuthorityAuthenticationV1Error
-  | CommitInputVerificationV1Error
-  | PointCommitPlanningV1Error
-  | PointCommitFinishingExecutionV1Error
-  | PointCommitRecoveredPublicationExecutionV1Error
-  | PointCommitOutcomeResolutionV1Error
-  | PointMutationExecutionLivenessV1Error;
-
 export type PointMutationOccRerunExecutionV1Error =
   | InvalidAuthorizedPointMutationOccRerunV1Error
   | PointMutationAuthenticatedAttemptExecutionV1Error
@@ -1614,115 +1440,10 @@ function createStoredPointMutationCapabilityRuntimeV1(
     captureAttemptSelector: capturePointMutationSessionAttemptSelector,
   });
 
-  type PublishKnownSettledPointCommitV1 = (
-    command: PointCommitPublicationCommandV1,
-    state: PointCommitKnownSettledSqlRetryStateV1,
-  ) => Effect.Effect<
-    PointCommitPublicationResultV1,
-    PointCommitKnownSettledSqlPublicationV1Error,
-    never
-  >;
-
-  const publishKnownSettledPointCommit: PublishKnownSettledPointCommitV1 =
-    Effect.fn(
-      "StoredAttemptAuthentication.publishKnownSettledPointCommit",
-    )(function (command, state) {
-      return pointCommit.publish(command).pipe(
-        Effect.catchTag(
-          "PointCommitConfirmedPreDecisionRollbackV1Error",
-          (failure) => {
-            if (
-              !(failure instanceof
-                PointCommitConfirmedPreDecisionRollbackV1Error)
-            ) {
-              return Effect.die(failure);
-            }
-            const capturedFailure =
-              capturePointCommitKnownSettledSqlRetryFailureV1(failure);
-            if (state.attempt === POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1) {
-              const failures: readonly [
-                PointCommitKnownSettledSqlRetryFailureV1,
-                PointCommitKnownSettledSqlRetryFailureV1,
-                PointCommitKnownSettledSqlRetryFailureV1,
-              ] = Object.freeze([
-                state.failures[0],
-                state.failures[1],
-                capturedFailure,
-              ]);
-              return Effect.fail(
-                new PointCommitKnownSettledSqlRetryExhaustedV1Error({
-                  attempts: POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1,
-                  maximumAttempts:
-                    POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1,
-                  failures,
-                }),
-              );
-            }
-            let nextState: PointCommitKnownSettledSqlRetryStateV1;
-            if (state.attempt === 1) {
-              const failures: readonly [
-                PointCommitKnownSettledSqlRetryFailureV1,
-              ] = [capturedFailure];
-              nextState = Object.freeze({
-                attempt: 2,
-                failures: Object.freeze(failures),
-              });
-            } else {
-              const failures: readonly [
-                PointCommitKnownSettledSqlRetryFailureV1,
-                PointCommitKnownSettledSqlRetryFailureV1,
-              ] = [state.failures[0], capturedFailure];
-              nextState = Object.freeze({
-                attempt: 3,
-                failures: Object.freeze(failures),
-              });
-            }
-            const backoffUpperBoundMilliseconds =
-              POINT_COMMIT_SQL_RETRY_INITIAL_BACKOFF_MILLISECONDS_V1 *
-              2 ** (state.attempt - 1);
-            return Effect.gen(function* () {
-              const random = yield* Random.next;
-              yield* Effect.sleep(
-                Duration.millis(random * backoffUpperBoundMilliseconds),
-              );
-              return yield* publishKnownSettledPointCommit(command, nextState);
-            });
-          },
-        ),
-      );
-    });
-
-  type PublishCapturedFinishingPointCommitV1 = (
-    finishing: FinishingPreparedPointCommitV1,
-    prepared: PreparedPointCommitCapabilityStateV1,
-    command: PointCommitPublicationCommandV1,
-  ) => Effect.Effect<
-    PointCommitPublicationResultV1,
-    PointCommitKnownSettledSqlPublicationV1Error,
-    never
-  >;
-
-  const publishCapturedFinishingPointCommit:
-    PublishCapturedFinishingPointCommitV1 = Effect.fn(
-      "StoredAttemptAuthentication.publishCapturedFinishingPointCommit",
-    )(function* (finishing, prepared, command) {
-      const failures: readonly [] = [];
-      return yield* publishKnownSettledPointCommit(
-        command,
-        Object.freeze({
-          attempt: 1,
-          failures: Object.freeze(failures),
-        }),
-      ).pipe(
-        Effect.tapErrorTag(
-          "PointCommitConflictV1Error",
-          (error) => Effect.sync(() => {
-            if (error instanceof PointCommitConflictV1Error) {
-              captureOccConflictTicket(finishing, prepared, error);
-            }
-          }),
-        ),
-      );
+  const { publishCapturedFinishingPointCommit } =
+    makeStoredPointCommitKnownSettledPublicationOperationsV1({
+      pointCommit,
+      captureOccConflictTicket,
     });
 
   const {
@@ -1758,67 +1479,15 @@ function createStoredPointMutationCapabilityRuntimeV1(
     });
   }
 
-  const resolvePointCommitOutcomeFromStoredSession = Effect.fn(
-    "StoredAttemptAuthentication.resolvePointCommitOutcomeFromStoredSession",
-  )(function* (
-    deploymentId: TransactionGrantDeploymentIdV1,
-    scopeUuid: ScopeUuidV1,
-    session: Pick<
-      StoredCommitAuthoritySessionEvidencePortV1,
-      | "requestKey"
-      | "identityAccessPolicySha256"
-      | "functionPath"
-      | "requestSha256"
-    >,
-  ) {
-    return yield* pointCommitOutcomeResolution[
-      RESOLVE_POINT_COMMIT_OUTCOME_V1
-    ](
-      deploymentId,
-      Object.freeze({
-        scopeUuid,
-        requestKey: TransactionRequestKeyV1Schema.make(session.requestKey),
-        expectedIdentityAccessPolicySha256:
-          TransactionIdentityAccessPolicySha256V1Schema.make(
-            copyBytes(session.identityAccessPolicySha256),
-          ),
-        expectedFunctionPath: TransactionFunctionPathV1Schema.make(
-          session.functionPath,
-        ),
-        expectedRequestSha256: TransactionRequestSha256V1Schema.make(
-          copyBytes(session.requestSha256),
-        ),
-      }),
-    );
-  });
-
-  const resolvePointCommitOutcomeObservation = Effect.fn(
-    "StoredAttemptAuthentication.resolvePointCommitOutcomeObservation",
-  )(function* (prepared: PreparedPointCommitCapabilityStateV1) {
-    const pins = prepared.plan.authorityPins;
-    return yield* resolvePointCommitOutcomeFromStoredSession(
-      pins.deploymentId,
-      prepared.plan.sealIdentity.scopeUuid,
-      prepared.provenance.session,
-    );
-  });
-
-  const resolvePointCommitOutcomeForRecovery = Effect.fn(
-    "StoredAttemptAuthentication.resolvePointCommitOutcomeForRecovery",
-  )(function* (prepared: PreparedPointCommitCapabilityStateV1) {
-    const outcome = yield* resolvePointCommitOutcomeObservation(prepared);
-    if (!isCommittedPointOutcomeResolutionV1(outcome)) {
-      return yield* Effect.fail(new PointCommitCorruptionV1Error({
-        reason: "publishedOutcomeInvalid",
-      }));
-    }
-    return outcome;
-  });
-
   const {
-    reconstructPointCommitFinishing,
-    reconstructPointCommitFinishingFromSelector,
-  } = makeStoredPointCommitFinishingRecoveryOperationsV1({
+    facade: executor,
+    resolvePointCommitOutcomeFromStoredSession,
+    resolvePointCommitOutcomeObservation,
+    publishFinishingPointCommit,
+    publicationResultFromCommittedOutcome,
+  } = makeStoredPointCommitExecutionPublicationOperationsV1({
+    base: finishingTransition,
+    pointCommitOutcomeResolution,
     finishingEvidenceLoader,
     mintAuthenticatedStoredAttempt,
     authenticateCommitAuthority,
@@ -1826,172 +1495,13 @@ function createStoredPointMutationCapabilityRuntimeV1(
     planPointCommit,
     preparedPointCommitStates,
     finishingPreparedPointCommitStates,
+    lookupFinishingPreparedPointCommit,
+    publishCapturedFinishingPointCommit,
+    captureAndClaimDecisionUncertainTicket,
+    capturePublicationCommand: capturePointCommitPublicationCommand,
+    publicationCommandsEqual: pointCommitPublicationCommandsEqual,
   });
 
-  const unresolvedFromOutcomeLookup = (
-    primary: PointCommitDecisionUncertainV1Error,
-    stage:
-      | "postSettlementOutcomeLookup"
-      | "alreadyCommittedOutcomeLookup",
-    error: PointCommitOutcomeLookupSqlFailureV1,
-  ): PointCommitUncertainOutcomeUnresolvedV1Error =>
-    new PointCommitUncertainOutcomeUnresolvedV1Error({
-      stage,
-      primary,
-      secondary: Object.freeze({
-        kind: "outcomeLookupFailed",
-        error,
-      }),
-    });
-
-  const resolveAlreadyCommittedUncertainOutcome = Effect.fn(
-    "StoredAttemptAuthentication.resolveAlreadyCommittedUncertainOutcome",
-  )(function* (
-    primary: PointCommitDecisionUncertainV1Error,
-    ticket: PointCommitDecisionUncertainTicketStateV1,
-  ) {
-    const outcome = yield* resolvePointCommitOutcomeForRecovery(
-      ticket.prepared,
-    ).pipe(
-      Effect.catchTags({
-        PointCommitSqlErrorV1: (error) => Effect.fail(
-          unresolvedFromOutcomeLookup(
-            primary,
-            "alreadyCommittedOutcomeLookup",
-            error,
-          ),
-        ),
-        CommittedPointOutcomeSqlErrorV1: (error) => Effect.fail(
-          unresolvedFromOutcomeLookup(
-            primary,
-            "alreadyCommittedOutcomeLookup",
-            error,
-          ),
-        ),
-      }),
-    );
-    if (outcome.kind === "missing") {
-      return yield* Effect.fail(new PointCommitCorruptionV1Error({
-        reason: "committedOutcomeMissing",
-      }));
-    }
-    return publicationResultFromCommittedOutcome(outcome);
-  });
-
-  const recoverPointCommitDecisionUncertain = Effect.fn(
-    "StoredAttemptAuthentication.recoverPointCommitDecisionUncertain",
-  )(function* (
-    primary: PointCommitDecisionUncertainV1Error,
-    ticket: PointCommitDecisionUncertainTicketStateV1,
-  ) {
-    if (primary.outcomeCheck.kind === "lookupFailed") {
-      return yield* Effect.fail(unresolvedFromOutcomeLookup(
-        primary,
-        "postSettlementOutcomeLookup",
-        primary.outcomeCheck.error,
-      ));
-    }
-
-    const reconstructed = yield* reconstructPointCommitFinishingFromSelector(
-      ticket.selector,
-    ).pipe(
-      Effect.catchTag(
-        "StoredAttemptAlreadyCommittedV1Error",
-        () => resolveAlreadyCommittedUncertainOutcome(primary, ticket),
-      ),
-    );
-    if (isPointCommitPublicationResultV1(reconstructed)) return reconstructed;
-
-    const recoveredPrepared = preparedPointCommitStates.get(reconstructed);
-    if (recoveredPrepared === undefined) {
-      return yield* Effect.die(new Error(
-        "Recovered finishing capability lost its factory-local state.",
-      ));
-    }
-    const recoveredCommand = capturePointCommitPublicationCommand(
-      recoveredPrepared,
-    );
-    if (!pointCommitPublicationCommandsEqual(
-      ticket.command,
-      recoveredCommand,
-    )) {
-      return yield* Effect.fail(
-        new PointCommitUncertainOutcomeRecoveryCorruptionV1Error({
-          reason: "reconstructedCommandMismatch",
-        }),
-      );
-    }
-
-    return yield* publishCapturedFinishingPointCommit(
-      reconstructed,
-      recoveredPrepared,
-      ticket.command,
-    ).pipe(
-      Effect.catchTag(
-        "PointCommitDecisionUncertainV1Error",
-        (secondary) => {
-          if (!(secondary instanceof PointCommitDecisionUncertainV1Error)) {
-            return Effect.die(secondary);
-          }
-          captureAndClaimDecisionUncertainTicket(
-            secondary,
-            reconstructed,
-            recoveredPrepared,
-            ticket.command,
-          );
-          return Effect.fail(
-            new PointCommitUncertainOutcomeUnresolvedV1Error({
-              stage: "guardedPublication",
-              primary,
-              secondary: Object.freeze({
-                kind: "secondDecisionUncertain",
-                error: secondary,
-              }),
-            }),
-          );
-        },
-      ),
-    );
-  });
-
-  const publishFinishingPointCommit:
-    StoredPointCommitExecutorV1["publishPointCommit"] = Effect.fn(
-      "StoredAttemptAuthentication.publishFinishingPointCommit",
-    )(function* (input) {
-      const captured = yield* Effect.fromResult(
-        lookupFinishingPreparedPointCommit(input),
-      );
-      const command = capturePointCommitPublicationCommand(
-        captured.prepared,
-      );
-      return yield* publishCapturedFinishingPointCommit(
-        captured.finishing,
-        captured.prepared,
-        command,
-      ).pipe(
-        Effect.catchTag(
-          "PointCommitDecisionUncertainV1Error",
-          (primary) => {
-            if (!(primary instanceof PointCommitDecisionUncertainV1Error)) {
-              return Effect.die(primary);
-            }
-            const ticket = captureAndClaimDecisionUncertainTicket(
-              primary,
-              captured.finishing,
-              captured.prepared,
-              command,
-            );
-            return recoverPointCommitDecisionUncertain(primary, ticket);
-          },
-        ),
-      );
-    });
-
-  const executor = makeStoredPointCommitExecutorOperationsV1({
-    base: finishingTransition,
-    publishPointCommit: publishFinishingPointCommit,
-    reconstructPointCommitFinishing,
-  });
   const { resumePointCommit } = executor;
   if (stage === "executor") return executor;
   const pointMutationAttemptReplacementCandidate: unknown =
@@ -2191,156 +1701,22 @@ function createStoredPointMutationCapabilityRuntimeV1(
       }),
     );
 
-  const executeExactPointMutationAttemptKernel:
-    ExecuteExactPointMutationAttemptKernelV1<
-      PointMutationAuthenticatedAttemptExecutionV1Error
-    > = Effect.fn(
-    "StoredAttemptAuthentication.executeExactPointMutationAttemptKernel",
-  )(function* <InspectionUnavailableError, CurrentValidationError>(input: Readonly<{
-    readonly selector: PointMutationSessionAttemptSelectorV1;
-    readonly attemptFence: TransactionAttemptFence;
-    readonly snapshotToken: SnapshotToken;
-    readonly executionScope: PointMutationExecutionScopeV1;
-    readonly liveness: PointMutationExecutionLivenessControlV1;
-    readonly executionEvidence: StoredOccExecutionEvidenceV1;
-    readonly verificationState: CommitAuthorityVerificationStateV1;
-    readonly verifiedEvidence: VerifiedCommitAuthorityEvidenceV1;
-    readonly expectedRequestSha256?: Uint8Array;
-    readonly currentInspectionUnavailable: () => InspectionUnavailableError;
-    readonly validateCurrent: (
-      current: LoadedPointMutationSessionAttemptOccRerunInspectionV1,
-    ) => Effect.Effect<void, CurrentValidationError>;
-  }>) {
-    if (input.executionEvidence.session.artifactRuntime !== "dynamic-worker") {
-      return yield* Effect.fail(
-        new PointMutationOccExecutionAuthorityCorruptionV1Error({
-          reason: "runtimePinInvalid",
-        }),
-      );
-    }
-    const canonicalRequest = yield* Effect.promise(() =>
-      canonicalizePointMutationRequestV1({
-        deploymentId: input.verificationState.authority.deploymentId,
-        functionPath: TransactionFunctionPathV1Schema.make(
-          input.verificationState.session.functionPath,
-        ),
-        validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
-          copyBytes(input.verificationState.session.validatedArgsSha256),
-        ),
-        requestKey: TransactionRequestKeyV1Schema.make(
-          input.verificationState.session.requestKey,
-        ),
-      })
-    );
-    if (
-      !bytesEqual(
-        canonicalRequest.sha256,
-        input.verificationState.session.requestSha256,
-      ) ||
-      (input.expectedRequestSha256 !== undefined &&
-        !bytesEqual(canonicalRequest.sha256, input.expectedRequestSha256))
-    ) {
-      return yield* Effect.fail(
-        new PointMutationOccExecutionAuthorityCorruptionV1Error({
-          reason: "requestEvidenceInvalid",
-        }),
-      );
-    }
-    const metadataUnknown = yield* commitAuthority.functionMetadata.load(
-      capturePinnedFunctionSelector(input.verificationState),
-    );
-    const functionMetadata = yield* verifyPinnedFunctionMetadataEffect(
-      input.verificationState,
-      metadataUnknown,
-    );
-    const runnerEvidence = capturePointMutationOccRunnerEvidence(
-      input.verifiedEvidence,
-      functionMetadata,
-    );
-    // Runtime-local entropy may be fresh. Persisted creation time remains the
-    // exact attempt seed authenticated above.
-    const entropy = yield* pointMutationOccContextFactoryPort.make();
-
-    // The RR capture is closed. This is the last liveness/claim reload before
-    // the journal admission and user-code boundary.
-    const currentAttempt = yield* pointMutationOccAttemptLoading.load({
-      deploymentId: input.selector.deploymentId,
-      scopeId: input.selector.scopeId,
-      sessionId: input.selector.sessionId,
-      attemptFence: input.selector.attemptFence.toString(),
-    });
-    const currentInspection =
-      getLoadedPointMutationSessionAttemptOccRerunInspectionV1(currentAttempt);
-    if (currentInspection === undefined) {
-      return yield* Effect.fail(input.currentInspectionUnavailable());
-    }
-    yield* input.validateCurrent(currentInspection);
-
-    const prepareRunningPlan = Effect.gen(function* () {
-      const context = yield* Effect.fromResult(
-        capturePointMutationOccExecutionContext(
-          entropy,
-          input.executionEvidence.creationTimeSeed,
-          input.attemptFence,
-          input.snapshotToken,
-        ),
-      );
-      const journalAttempt = yield* pointMutationOccJournalPort.openAttempt(
-        currentAttempt,
-        input.executionScope,
-      );
-      const successfulResult = yield* pointMutationOccRunnerPort.run(
-        capturePointMutationOccRunnerInput(
-          runnerEvidence,
-          context,
-          bindPointMutationOccJournal(
-            pointMutationOccJournalPort,
-            journalAttempt,
-          ),
-        ),
-      );
-      const envelope = yield* pointMutationOccJournalPort.sealSuccessfulResult(
-        journalAttempt,
-        successfulResult === undefined ? null : successfulResult,
-      );
-      const encodedEnvelope = yield* Effect.sync(() =>
-        encodeCommitEnvelopeV1(envelope)
-      );
-      const storedAuthority = yield* deriveAuthority(
-        currentAttempt,
-        input.executionScope,
-      );
-      const storedAttempt = yield* authenticate(
-        storedAuthority,
-        encodedEnvelope,
-      );
-      const authenticatedAuthority = yield* authenticateCommitAuthority(
-        storedAttempt,
-      );
-      const verifiedInput = yield* verifyCommitInput(authenticatedAuthority);
-      return yield* planPointCommit(verifiedInput);
-    });
-    const runningPlan = yield* abortOnPreFinishingFailure(
-      prepareRunningPlan,
-      currentAttempt,
-      input.executionScope,
-      pointMutationOccTerminalizationPort,
-    );
-
-    const finishingPlan = yield* input.liveness.enterFinishing(
-      enterPointCommitFinishing(runningPlan),
-    );
-    return yield* publishFinishingPointCommit(finishingPlan).pipe(
-      Effect.map((result) => Object.freeze({
-        kind: "completed" as const,
-        result,
-      })),
-      Effect.catchTag("PointCommitConflictV1Error", (error) =>
-        Effect.succeed(Object.freeze({
-          kind: "conflict" as const,
-          error,
-        }))),
-    );
+  const {
+    executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
+  } = makeExactPointMutationExecutionOperationsV1({
+    functionMetadata: commitAuthority.functionMetadata,
+    contextFactory: pointMutationOccContextFactoryPort,
+    attemptLoading: pointMutationOccAttemptLoading,
+    journal: pointMutationOccJournalPort,
+    runner: pointMutationOccRunnerPort,
+    terminalization: pointMutationOccTerminalizationPort,
+    deriveAuthority,
+    authenticate,
+    authenticateCommitAuthority,
+    verifyCommitInput,
+    planPointCommit,
+    enterPointCommitFinishing,
+    publishFinishingPointCommit,
   });
 
   const occExecution = makeStoredPointMutationOccRerunExecutionOperationsV1({
@@ -2420,677 +1796,4 @@ function createStoredPointMutationCapabilityRuntimeV1(
     resolvePointCommitOutcomeFromStoredSession,
     publicationResultFromCommittedOutcome,
   });
-}
-
-function publicationResultFromCommittedOutcome(
-  outcome: Exclude<
-    CommittedPointOutcomeResolutionV1,
-    { readonly kind: "missing" }
-  >,
-): PointCommitPublicationResultV1 {
-  return outcome.kind === "expired"
-    ? Object.freeze({ kind: "expired", token: outcome.token })
-    : Object.freeze({
-        kind: "replayed",
-        token: outcome.token,
-        successfulResult: outcome.successfulResult,
-      });
-}
-
-function capturePointMutationOccExecutionContext(
-  entropy: Readonly<{
-    readonly executionId: unknown;
-    readonly logScopeId: unknown;
-    readonly randomSeed: unknown;
-  }>,
-  creationTimeSeed: AppCreationTimeV1,
-  attemptFence: TransactionAttemptFence,
-  snapshotToken: SnapshotToken,
-): Result.Result<
-  PointMutationOccExecutionContextV1,
-  PointMutationOccExecutionContextV1Error
-> {
-  if (!isNonBlankString(entropy.executionId)) {
-    return Result.fail(
-      new PointMutationOccExecutionContextV1Error({
-        reason: "invalidExecutionId",
-      }),
-    );
-  }
-  if (!isNonBlankString(entropy.logScopeId)) {
-    return Result.fail(
-      new PointMutationOccExecutionContextV1Error({
-        reason: "invalidLogScopeId",
-      }),
-    );
-  }
-  if (!isUint8ArrayWithByteLength(entropy.randomSeed, 32)) {
-    return Result.fail(
-      new PointMutationOccExecutionContextV1Error({
-        reason: "invalidRandomSeed",
-      }),
-    );
-  }
-  return Result.succeed(
-    Object.freeze({
-      executionId: entropy.executionId,
-      logScopeId: entropy.logScopeId,
-      randomSeed: copyBytes(entropy.randomSeed),
-      executionTime: creationTimeSeed,
-      initialCreationTimeCursor: creationTimeSeed,
-      attemptFence,
-      snapshotToken: Object.freeze({ ...snapshotToken }),
-    }),
-  );
-}
-
-function bindPointMutationOccJournal(
-  journal: PointMutationJournalV1,
-  attempt: PointMutationJournalAttemptV1,
-): PointMutationOccBoundJournalV1 {
-  return Object.freeze({
-    resolvePointTable: (tableName: unknown) =>
-      journal.resolvePointTable(attempt, tableName),
-    runPointOperation: (
-      table: PointMutationJournalTableV1,
-      operation: unknown,
-    ) => journal.runPointOperation(table, operation),
-  });
-}
-
-function capturePointMutationOccRunnerEvidence(
-  evidence: VerifiedCommitAuthorityEvidenceV1,
-  functionMetadata: PointMutationTargetFunctionMetadataV1,
-): PointMutationOccDetachedRunnerEvidenceV1 {
-  return Object.freeze({
-    argumentsJson: Object.freeze(structuredClone(evidence.argumentsJson)),
-    argumentArraySemanticBytes: evidence.argumentArraySemanticBytes,
-    verifiedGrant: detachVerifiedGrant(evidence.verifiedGrant),
-    schemaManifest: Object.freeze(structuredClone(evidence.schemaManifest)),
-    stableBindings: Object.freeze(structuredClone(evidence.stableBindings)),
-    functionMetadata: Object.freeze(structuredClone(functionMetadata)),
-  });
-}
-
-function capturePointMutationOccRunnerInput(
-  evidence: PointMutationOccDetachedRunnerEvidenceV1,
-  context: PointMutationOccExecutionContextV1,
-  journal: PointMutationOccBoundJournalV1,
-): PointMutationOccRuntimeNeutralRunnerInputV1 {
-  return Object.freeze({
-    ...evidence,
-    context: Object.freeze({
-      ...context,
-      randomSeed: copyBytes(context.randomSeed),
-      snapshotToken: Object.freeze({ ...context.snapshotToken }),
-    }),
-    journal,
-  });
-}
-
-function abortOnPreFinishingFailure<A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-  attempt: LoadedPointMutationSessionAttemptV1,
-  executionClaim: PointMutationExecutionScopeV1,
-  terminalization: PointMutationSessionAttemptTerminalizationV1,
-): Effect.Effect<
-  A,
-  E | PointMutationSessionAttemptTerminalizationExecutionV1Error,
-  R
-> {
-  return Effect.onExit(effect, (primaryExit) => {
-    if (Exit.isSuccess(primaryExit)) return Effect.void;
-    return Effect.uninterruptible(
-      terminalization.abort(attempt, executionClaim),
-    ).pipe(
-      Effect.exit,
-      Effect.flatMap((cleanupExit) =>
-        Exit.isFailure(cleanupExit)
-          ? Effect.failCause(
-              Cause.combine(primaryExit.cause, cleanupExit.cause),
-            )
-          : Effect.void,
-      ),
-    );
-  });
-}
-
-function lookupPreparedPointCommitState(
-  states: WeakMap<object, PreparedPointCommitCapabilityStateV1>,
-  value: PreparedPointCommitV1,
-): PreparedPointCommitCapabilityStateV1 | undefined {
-  return typeof value === "object" && value !== null
-    ? states.get(value)
-    : undefined;
-}
-
-function rebaseFinishingPreparedPointCommitState(
-  state: PreparedPointCommitCapabilityStateV1,
-  result: PointCommitFinishingTransitionResultV1,
-): Result.Result<
-  PreparedPointCommitCapabilityStateV1,
-  PointCommitCorruptionV1Error
-> {
-  const session = state.provenance.session;
-  const seal = state.plan.sealIdentity;
-  const pins = state.plan.authorityPins;
-  if (
-    (result.kind !== "transitioned" && result.kind !== "observed") ||
-    result.scopeUuid !== seal.scopeUuid ||
-    result.sessionId !== pins.sessionId ||
-    result.attemptFence !== pins.attemptFence ||
-    result.priorSessionUpdatedAtMilliseconds !==
-      session.updatedAtMilliseconds ||
-    !isPositiveSafeInteger(result.finishingSessionUpdatedAtMilliseconds) ||
-    result.finishingSessionUpdatedAtMilliseconds <
-      result.priorSessionUpdatedAtMilliseconds ||
-    result.finishingSessionUpdatedAtMilliseconds >=
-      session.authorizationGrantExpiresAtMilliseconds ||
-    result.finishingSessionUpdatedAtMilliseconds >=
-      session.hardExpiresAtMilliseconds ||
-    result.finishingSessionUpdatedAtMilliseconds >=
-      seal.leaseExpiresAtMilliseconds ||
-    session.lifecycle !== "running" ||
-    seal.lifecycle !== "running" ||
-    seal.sessionUpdatedAtMilliseconds !== session.updatedAtMilliseconds
-  ) {
-    return Result.fail(new PointCommitCorruptionV1Error({
-      reason: "finishingTransitionInvalid",
-    }));
-  }
-  const finishingUpdatedAtMilliseconds =
-    result.finishingSessionUpdatedAtMilliseconds;
-  const provenance = Object.freeze({
-    authority: Object.freeze({
-      ...state.provenance.authority,
-      snapshotToken: Object.freeze({
-        ...state.provenance.authority.snapshotToken,
-      }),
-    }),
-    session: Object.freeze({
-      ...session,
-      lifecycle: "finishing" as const,
-      updatedAtMilliseconds: finishingUpdatedAtMilliseconds,
-      identityAccessPolicySha256:
-        copyBytes(session.identityAccessPolicySha256),
-      validatedArgsSha256: copyBytes(session.validatedArgsSha256),
-      authorizationGrantSha256:
-        copyBytes(session.authorizationGrantSha256),
-      requestSha256: copyBytes(session.requestSha256),
-    }),
-    executionClaim: null,
-  } satisfies PointCommitScalarProvenanceV1);
-  const dependencies = Object.freeze(state.plan.dependencies.map(
-    (dependency) => Object.freeze({
-      documentId: dependency.documentId,
-      tableId: dependency.tableId,
-      rowId: dependency.rowId,
-      dependency: Object.freeze(structuredClone(dependency.dependency)),
-    }),
-  ));
-  const sourceIntent = state.plan.rowIntent;
-  const rowIntent = sourceIntent === null
-    ? null
-    : sourceIntent.kind === "deleted"
-      ? Object.freeze({
-          documentId: sourceIntent.documentId,
-          tableId: sourceIntent.tableId,
-          rowId: sourceIntent.rowId,
-          dependency: Object.freeze(structuredClone(sourceIntent.dependency)),
-          kind: "deleted" as const,
-        })
-      : Object.freeze({
-          documentId: sourceIntent.documentId,
-          tableId: sourceIntent.tableId,
-          rowId: sourceIntent.rowId,
-          dependency: Object.freeze(structuredClone(sourceIntent.dependency)),
-          kind: "live" as const,
-          creationTime: sourceIntent.creationTime,
-          value: normalizeFlarexValueV1(
-            sourceIntent.value,
-            "appDocument",
-          ).value,
-          canonicalBytes: copyBytes(sourceIntent.canonicalBytes),
-          semanticSizeBytes: sourceIntent.semanticSizeBytes,
-        });
-  const successfulResult = state.plan.successfulResult;
-  const plan = Object.freeze({
-    authorityPins: Object.freeze({
-      ...pins,
-      snapshotToken: Object.freeze({ ...pins.snapshotToken }),
-    }),
-    sealIdentity: Object.freeze({
-      ...seal,
-      lifecycle: "finishing" as const,
-      sessionUpdatedAtMilliseconds: finishingUpdatedAtMilliseconds,
-      journalSha256: copyBytes(seal.journalSha256),
-      resultSha256: copyBytes(seal.resultSha256),
-    }),
-    dependencies,
-    rowIntent,
-    successfulResult: Object.freeze({
-      valueCodecVersion: successfulResult.valueCodecVersion,
-      value: structuredClone(successfulResult.value),
-      canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(
-        copyBytes(successfulResult.canonicalBytes),
-      ),
-      semanticSizeBytes: successfulResult.semanticSizeBytes,
-      sha256Hex: successfulResult.sha256Hex,
-    }),
-  } satisfies PreparedPointCommitStateV1);
-  return Result.succeed(Object.freeze({
-    plan,
-    provenance,
-    executionAuthority: state.executionAuthority,
-  }));
-}
-
-function capturePointCommitFinishingTransitionCommand(
-  state: PreparedPointCommitCapabilityStateV1,
-): PointCommitFinishingTransitionCommandV1 {
-  const scalar = capturePointCommitAttemptScalarCommand(state);
-  if (
-    scalar.session.lifecycle !== "running" ||
-    scalar.sealIdentity.lifecycle !== "running"
-  ) {
-    throw new Error("C05-A requires running prepared point-commit authority.");
-  }
-  const executionClaim = state.provenance.authority.executionClaim;
-  if (executionClaim === undefined) {
-    throw new Error("C05-A execution claim is unavailable.");
-  }
-  return Object.freeze({
-    authorityPins: scalar.authorityPins,
-    session: Object.freeze({
-      ...scalar.session,
-      lifecycle: "running" as const,
-    }),
-    sealIdentity: Object.freeze({
-      ...scalar.sealIdentity,
-      lifecycle: "running" as const,
-    }),
-    executionClaim: Object.freeze({ ...executionClaim }),
-  });
-}
-
-function capturePointCommitAttemptScalarCommand(
-  state: PreparedPointCommitCapabilityStateV1,
-): PointCommitAttemptScalarCommandV1 {
-  const pins = state.plan.authorityPins;
-  const session = state.provenance.session;
-  const seal = state.plan.sealIdentity;
-  return Object.freeze({
-    authorityPins: Object.freeze({
-      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-        pins.deploymentId,
-      ),
-      scopeId: ReplacementScopeIdV1Schema.make(pins.scopeId),
-      sessionId: pins.sessionId,
-      attemptFence: pins.attemptFence,
-      storageGeneration: pins.storageGeneration,
-      storageGenerationFence: pins.storageGenerationFence,
-      snapshotToken: Object.freeze({ ...pins.snapshotToken }),
-      schemaVersionId: CatalogSchemaVersionIdSchema.make(
-        pins.schemaVersionId,
-      ),
-      packageId: TransactionPackageIdV1Schema.make(pins.packageId),
-      artifactRuntime: decodeTransactionArtifactRuntimeV1(
-        pins.artifactRuntime,
-      ),
-      artifactId: TransactionArtifactIdV1Schema.make(pins.artifactId),
-      sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
-        pins.sourcePackageHash,
-      ),
-      executionModule: TransactionExecutionModuleV1Schema.make(
-        pins.executionModule,
-      ),
-      functionPath: TransactionFunctionPathV1Schema.make(
-        pins.functionPath,
-      ),
-      functionKind: pins.functionKind,
-      policyVersion: TransactionPolicyVersionV1Schema.make(
-        pins.policyVersion,
-      ),
-      authorizationRevocationEpoch:
-        TransactionAuthorizationRevocationEpochSchema.make(
-          pins.authorizationRevocationEpoch,
-        ),
-      requestKey: TransactionRequestKeyV1Schema.make(pins.requestKey),
-    }),
-    session: Object.freeze({
-      ...session,
-      authorizationGrantId: TransactionAuthorizationGrantIdV1Schema.make(
-        session.authorizationGrantId,
-      ),
-      identityAccessPolicySha256:
-        copyBytes(session.identityAccessPolicySha256),
-      validatedArgsSha256: copyBytes(session.validatedArgsSha256),
-      authorizationGrantSha256:
-        copyBytes(session.authorizationGrantSha256),
-      requestSha256: copyBytes(session.requestSha256),
-    }),
-    sealIdentity: Object.freeze({
-      ...seal,
-      journalSha256: copyBytes(seal.journalSha256),
-      resultSha256: copyBytes(seal.resultSha256),
-    }),
-  } satisfies PointCommitAttemptScalarCommandV1);
-}
-
-function capturePointCommitTransactionCommand(
-  state: PreparedPointCommitCapabilityStateV1,
-): PointCommitTransactionCommandV1 {
-  const scalar = capturePointCommitAttemptScalarCommand(state);
-  const dependencies = capturePointCommitDependencies(state);
-  const rowIntent = state.plan.rowIntent === null
-    ? null
-    : state.plan.rowIntent.kind === "deleted"
-      ? Object.freeze({
-          documentId: state.plan.rowIntent.documentId,
-          tableId: state.plan.rowIntent.tableId,
-          rowId: state.plan.rowIntent.rowId,
-          dependency: Object.freeze(structuredClone(
-            state.plan.rowIntent.dependency,
-          )),
-          kind: "deleted" as const,
-        })
-      : Object.freeze({
-          documentId: state.plan.rowIntent.documentId,
-          tableId: state.plan.rowIntent.tableId,
-          rowId: state.plan.rowIntent.rowId,
-          dependency: Object.freeze(structuredClone(
-            state.plan.rowIntent.dependency,
-          )),
-          kind: "live" as const,
-          creationTime: state.plan.rowIntent.creationTime,
-          value: normalizeFlarexValueV1(
-            state.plan.rowIntent.value,
-            "appDocument",
-          ).value,
-          canonicalBytes: copyBytes(state.plan.rowIntent.canonicalBytes),
-          semanticSizeBytes: state.plan.rowIntent.semanticSizeBytes,
-        });
-  return Object.freeze({
-    ...scalar,
-    dependencies,
-    rowIntent,
-  } satisfies PointCommitTransactionCommandV1);
-}
-
-function capturePointMutationAttemptReplacementCommand(
-  state: PreparedPointCommitCapabilityStateV1,
-): PointMutationAttemptReplacementCommandV1 {
-  return Object.freeze({
-    ...capturePointCommitAttemptScalarCommand(state),
-    dependencies: capturePointCommitDependencies(state),
-  });
-}
-
-function capturePointCommitDependencies(
-  state: PreparedPointCommitCapabilityStateV1,
-): PointCommitTransactionCommandV1["dependencies"] {
-  return Object.freeze(state.plan.dependencies.map(
-    (dependency) => Object.freeze({
-      documentId: dependency.documentId,
-      tableId: dependency.tableId,
-      rowId: dependency.rowId,
-      dependency: Object.freeze(structuredClone(dependency.dependency)),
-    }),
-  ));
-}
-
-function capturePointCommitPublicationCommand(
-  state: PreparedPointCommitCapabilityStateV1,
-): PointCommitPublicationCommandV1 {
-  const command = capturePointCommitTransactionCommand(state);
-  const result = state.plan.successfulResult;
-  const stableBytes = copyBytes(result.canonicalBytes);
-  return Object.freeze({
-    ...command,
-    successfulResult: Object.freeze({
-      valueCodecVersion: result.valueCodecVersion,
-      value: structuredClone(result.value),
-      get canonicalBytes(): PointCommitPublicationCommandV1[
-        "successfulResult"
-      ]["canonicalBytes"] {
-        return CanonicalSuccessfulResultBytesV1Schema.make(
-          copyBytes(stableBytes),
-        );
-      },
-      semanticSizeBytes: result.semanticSizeBytes,
-      sha256Hex: result.sha256Hex,
-    }),
-  } satisfies PointCommitPublicationCommandV1);
-}
-
-function capturePointMutationSessionAttemptSelector(
-  state: PreparedPointCommitCapabilityStateV1,
-): PointMutationSessionAttemptSelectorV1 {
-  const pins = state.plan.authorityPins;
-  return Object.freeze({
-    deploymentId: pins.deploymentId,
-    scopeId: pins.scopeId,
-    sessionId: pins.sessionId,
-    attemptFence: pins.attemptFence,
-  });
-}
-
-function isCommittedPointOutcomeResolutionV1(
-  value: unknown,
-): value is CommittedPointOutcomeResolutionV1 {
-  return isNonArrayRecord(value) &&
-    (value.kind === "missing" ||
-      value.kind === "available" ||
-      value.kind === "expired");
-}
-
-function isPointCommitPublicationResultV1(
-  value: unknown,
-): value is PointCommitPublicationResultV1 {
-  return isNonArrayRecord(value) &&
-    (value.kind === "published" ||
-      value.kind === "replayed" ||
-      value.kind === "expired");
-}
-
-const POINT_COMMIT_AUTHORITY_PIN_SCALAR_FIELDS = [
-  "deploymentId",
-  "scopeId",
-  "sessionId",
-  "attemptFence",
-  "storageGeneration",
-  "storageGenerationFence",
-  "schemaVersionId",
-  "packageId",
-  "artifactRuntime",
-  "artifactId",
-  "sourcePackageHash",
-  "executionModule",
-  "functionPath",
-  "functionKind",
-  "policyVersion",
-  "authorizationRevocationEpoch",
-  "requestKey",
-] as const satisfies ReadonlyArray<
-  Exclude<keyof PointCommitAuthorityPinsV1, "snapshotToken">
->;
-
-const POINT_COMMIT_SEAL_IDENTITY_SCALAR_FIELDS = [
-  "scopeUuid",
-  "lifecycle",
-  "sessionUpdatedAtMilliseconds",
-  "leaseExpiresAtMilliseconds",
-  "rootCreatedAtMilliseconds",
-  "rootUpdatedAtMilliseconds",
-  "sealedAtMilliseconds",
-  "finalSyscallSequence",
-  "creationTimeSeed",
-  "nextCreationTime",
-  "journalFormat",
-  "journalProtocolVersion",
-  "journalValueCodecVersion",
-  "journalByteLength",
-  "resultValueCodecVersion",
-  "resultSemanticBytes",
-  "resultByteLength",
-  "readDocuments",
-  "readSemanticBytes",
-  "pointDependencyCount",
-  "writeOperations",
-  "writeSemanticBytes",
-  "materialWriteEventEvidenceBytes",
-] as const satisfies ReadonlyArray<
-  Exclude<
-    keyof PointCommitSealIdentityV1,
-    "journalSha256" | "resultSha256"
-  >
->;
-
-function pointCommitPublicationCommandsEqual(
-  left: PointCommitPublicationCommandV1,
-  right: PointCommitPublicationCommandV1,
-): boolean {
-  const commandFieldsAreExhaustive: Exclude<
-    keyof PointCommitPublicationCommandV1,
-    | "authorityPins"
-    | "session"
-    | "sealIdentity"
-    | "dependencies"
-    | "rowIntent"
-    | "successfulResult"
-  > extends never ? true : never = true;
-  void commandFieldsAreExhaustive;
-  if (!pointCommitAuthorityPinsEqual(
-    left.authorityPins,
-    right.authorityPins,
-  )) return false;
-  if (!storedTransactionSessionScalarsEqualV1(
-    left.session,
-    right.session,
-  )) return false;
-  if (!pointCommitSealIdentitiesEqual(
-    left.sealIdentity,
-    right.sealIdentity,
-  )) return false;
-  if (left.dependencies.length !== right.dependencies.length) return false;
-  for (let index = 0; index < left.dependencies.length; index += 1) {
-    const leftDependency = left.dependencies[index];
-    const rightDependency = right.dependencies[index];
-    if (
-      leftDependency === undefined ||
-      rightDependency === undefined ||
-      !pointCommitDependenciesEqual(leftDependency, rightDependency)
-    ) return false;
-  }
-  return pointCommitRowIntentsEqual(left.rowIntent, right.rowIntent) &&
-    pointCommitSuccessfulResultsEqual(
-      left.successfulResult,
-      right.successfulResult,
-    );
-}
-
-function pointCommitAuthorityPinsEqual(
-  left: PointCommitAuthorityPinsV1,
-  right: PointCommitAuthorityPinsV1,
-): boolean {
-  const fieldsAreExhaustive: Exclude<
-    keyof PointCommitAuthorityPinsV1,
-    | typeof POINT_COMMIT_AUTHORITY_PIN_SCALAR_FIELDS[number]
-    | "snapshotToken"
-  > extends never ? true : never = true;
-  void fieldsAreExhaustive;
-  for (const field of POINT_COMMIT_AUTHORITY_PIN_SCALAR_FIELDS) {
-    if (left[field] !== right[field]) return false;
-  }
-  return left.snapshotToken.scopeId === right.snapshotToken.scopeId &&
-    left.snapshotToken.epoch === right.snapshotToken.epoch &&
-    left.snapshotToken.commitSeq === right.snapshotToken.commitSeq;
-}
-
-function pointCommitSealIdentitiesEqual(
-  left: PointCommitSealIdentityV1,
-  right: PointCommitSealIdentityV1,
-): boolean {
-  const fieldsAreExhaustive: Exclude<
-    keyof PointCommitSealIdentityV1,
-    | typeof POINT_COMMIT_SEAL_IDENTITY_SCALAR_FIELDS[number]
-    | "journalSha256"
-    | "resultSha256"
-  > extends never ? true : never = true;
-  void fieldsAreExhaustive;
-  for (const field of POINT_COMMIT_SEAL_IDENTITY_SCALAR_FIELDS) {
-    if (left[field] !== right[field]) return false;
-  }
-  return bytesEqual(left.journalSha256, right.journalSha256) &&
-    bytesEqual(left.resultSha256, right.resultSha256);
-}
-
-function pointCommitDependenciesEqual(
-  left: PointCommitDependencyV1,
-  right: PointCommitDependencyV1,
-): boolean {
-  const fieldsAreExhaustive: Exclude<
-    keyof PointCommitDependencyV1,
-    "documentId" | "tableId" | "rowId" | "dependency"
-  > extends never ? true : never = true;
-  void fieldsAreExhaustive;
-  return left.documentId === right.documentId &&
-    left.tableId === right.tableId &&
-    left.rowId === right.rowId &&
-    dependenciesEqual(left.dependency, right.dependency);
-}
-
-function pointCommitRowIntentsEqual(
-  left: PointCommitRowIntentV1 | null,
-  right: PointCommitRowIntentV1 | null,
-): boolean {
-  if (left === null || right === null) return left === right;
-  if (
-    left.kind !== right.kind ||
-    !pointCommitDependenciesEqual(left, right)
-  ) return false;
-  if (left.kind === "deleted" && right.kind === "deleted") return true;
-  if (left.kind !== "live" || right.kind !== "live") return false;
-  const liveFieldsAreExhaustive: Exclude<
-    keyof Extract<PointCommitRowIntentV1, { readonly kind: "live" }>,
-    | keyof PointCommitDependencyV1
-    | "kind"
-    | "creationTime"
-    | "value"
-    | "canonicalBytes"
-    | "semanticSizeBytes"
-  > extends never ? true : never = true;
-  void liveFieldsAreExhaustive;
-  return left.creationTime === right.creationTime &&
-    left.semanticSizeBytes === right.semanticSizeBytes &&
-    bytesEqual(left.canonicalBytes, right.canonicalBytes) &&
-    jsonEqual(
-      flarexValueToJsonV1(left.value, "appDocument"),
-      flarexValueToJsonV1(right.value, "appDocument"),
-    );
-}
-
-function pointCommitSuccessfulResultsEqual(
-  left: PointCommitSuccessfulResultV1,
-  right: PointCommitSuccessfulResultV1,
-): boolean {
-  const fieldsAreExhaustive: Exclude<
-    keyof PointCommitSuccessfulResultV1,
-    | "valueCodecVersion"
-    | "value"
-    | "canonicalBytes"
-    | "semanticSizeBytes"
-    | "sha256Hex"
-  > extends never ? true : never = true;
-  void fieldsAreExhaustive;
-  const leftCanonicalBytes = left.canonicalBytes;
-  const rightCanonicalBytes = right.canonicalBytes;
-  return left.valueCodecVersion === right.valueCodecVersion &&
-    left.semanticSizeBytes === right.semanticSizeBytes &&
-    left.sha256Hex === right.sha256Hex &&
-    bytesEqual(leftCanonicalBytes, rightCanonicalBytes) &&
-    jsonEqual(
-      flarexValueToJsonV1(left.value),
-      flarexValueToJsonV1(right.value),
-    );
 }

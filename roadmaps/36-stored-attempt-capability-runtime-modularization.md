@@ -2,7 +2,8 @@
 
 ## Status And Scope
 
-Status: active focused execution plan.
+Status: implementation complete; final R09 real-Postgres validation remains
+pending because this checkout has no configured test database connection.
 
 This plan owns the behavior-preserving decomposition of
 [`storedAttemptAuthentication.ts`](../packages/executor/src/storedAttemptAuthentication.ts).
@@ -100,8 +101,15 @@ Authority is intentionally split:
   prepared-capability state.
 - [`../packages/executor/src/storedAttemptAuthentication/finishingOperations.ts`](../packages/executor/src/storedAttemptAuthentication/finishingOperations.ts)
   owns C05-A running-to-finishing transition, C05-B finishing reconstruction,
-  and the normal finish/resume compositions while delegating publication to
-  the existing O07/O08 owners.
+  known-settled publication retry, bounded uncertainty recovery, and the normal
+  finish/resume compositions while delegating transaction publication to the
+  existing O07/O08 owners.
+- [`../packages/executor/src/storedAttemptAuthentication/pointCommitRuntimeModel.ts`](../packages/executor/src/storedAttemptAuthentication/pointCommitRuntimeModel.ts)
+  owns the closed point-commit command capture, finishing-state rebasing, and
+  exact publication-command comparison model.
+- [`../packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts`](../packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts)
+  owns the shared exact-attempt execution kernel, execution-context capture,
+  journal binding, runner evidence, and pre-finishing abort cleanup.
 - [`../packages/executor/src/storedAttemptAuthentication/attemptReplacementOperations.ts`](../packages/executor/src/storedAttemptAuthentication/attemptReplacementOperations.ts)
   owns O08-A exact-attempt replacement and O08-B1 fresh-attempt handoff,
   including replacement-observation validation, same-runtime execution-claim
@@ -152,6 +160,10 @@ The runtime already has these accepted properties:
   uncertainty, and rerun capabilities.
 - Capability handles are frozen, process-local, non-serializable, and valid
   only with the vault that minted them.
+- The facade now retains the internal contracts, capability brands, named
+  exact-stage constructors, and stage-gated composition root. Closed execution,
+  publication, recovery, and command-model implementations live with their
+  private domain owners.
 - Commit-input verification rejects writable points carrying tombstone
   dependencies as typed stored corruption. The pure planner treats a forged
   occurrence of that state as an invariant defect.
@@ -474,6 +486,13 @@ Exit criteria:
 
 ### [ ] R09 - Reduce the facade to composition and contracts
 
+Status: implementation and non-Postgres validation complete. The facade is now
+the contract and stage-gated composition boundary over the one per-instance
+vault. The only remaining exit criterion is a current run of the required
+real-Postgres proofs with `FLAREX_POSTGRES_DATABASE_URL` configured; the
+installed local service requires credentials that are not available to this
+checkout.
+
 Consolidate the final internal composition flow after all operation extractions.
 Move pure models or contract families only when they have a clear domain owner
 and doing so does not create runtime cycles or widen exports.
@@ -525,8 +544,9 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Start with the first unchecked gate only. The current next gate is R09,
-   reducing the facade to composition and contracts.
+4. Do not widen R09. Its implementation and non-Postgres validation are
+   complete; configure `FLAREX_POSTGRES_DATABASE_URL`, run the required
+   real-Postgres proofs, and check R09 only if they pass.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant
