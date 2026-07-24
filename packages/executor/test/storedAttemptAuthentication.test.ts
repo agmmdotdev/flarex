@@ -583,6 +583,83 @@ describe("C04A stored-attempt authentication", () => {
     expect(recoveryReads).toBe(0);
   });
 
+  it("does not inspect OCC rerun dependencies while constructing replacement", async () => {
+    const current = await commitAuthorityFixture();
+    let occRerunReads = 0;
+    const pointCommit = {
+      prove: Effect.fn("TestPointCommit.proveReplacementConstructionBoundary")(
+        () => Effect.die(new Error("replacement construction must not prove")),
+      ),
+      publish: Effect.fn(
+        "TestPointCommit.publishReplacementConstructionBoundary",
+      )(
+        () => Effect.die(new Error("replacement construction must not publish")),
+      ),
+      [RESOLVE_POINT_COMMIT_OUTCOME_V1]: Effect.fn(
+        "TestPointCommit.resolveReplacementConstructionBoundary",
+      )(
+        () => Effect.die(new Error("replacement construction must not resolve")),
+      ),
+    };
+    const configuration = Object.defineProperty(
+      {
+        evidenceLoader: {
+          loadEffect: () => Effect.succeed({
+            kind: "loaded" as const,
+            evidence: current.commitEvidence,
+          }),
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () =>
+            Effect.succeed(structuredClone(current.functionSnapshot)),
+        },
+        pointCommit,
+        pointCommitFinishing: {
+          enterFinishing: Effect.fn(
+            "TestPointCommit.enterReplacementConstructionBoundary",
+          )(
+            () =>
+              Effect.die(
+                new Error("replacement construction must not transition"),
+              ),
+          ),
+        },
+        pointMutationAttemptReplacement: {
+          replace: Effect.fn(
+            "TestPointCommit.replaceConstructionBoundary",
+          )(
+            () =>
+              Effect.die(
+                new Error("replacement construction must not replace"),
+              ),
+          ),
+        },
+      },
+      "pointMutationOccRerun",
+      {
+        get: () => {
+          occRerunReads += 1;
+          throw new Error("replacement must not inspect OCC rerun dependencies");
+        },
+      },
+    );
+
+    expect(() =>
+      createStoredPointMutationAttemptReplacementV1(
+        {
+          loadEffect: () =>
+            Effect.succeed(loaded(current.fixture.evidence)),
+          loadFinishingEffect: () =>
+            Effect.succeed(loaded(current.fixture.evidence)),
+        },
+        configuration,
+        TEST_EXECUTION_CLAIMS,
+      )
+    ).not.toThrow();
+    expect(occRerunReads).toBe(0);
+  });
+
   it("preserves typed lifecycle, committed, authority, and corruption results", async () => {
     const fixture = await emptyFixture();
     const cases: ReadonlyArray<Readonly<{

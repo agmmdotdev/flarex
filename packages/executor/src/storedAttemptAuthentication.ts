@@ -124,7 +124,6 @@ import {
   TransactionRequestKeyV1Schema,
   TransactionRequestSha256V1Schema,
   TransactionSourcePackageSha256HexV1Schema,
-  TransactionAttemptFenceSchema,
   storedTransactionSessionScalarsEqualV1,
   type TransactionAttemptFence,
   type TransactionSessionIdV1,
@@ -283,6 +282,16 @@ import {
   makeStoredPointCommitFinishingRecoveryOperationsV1,
   makeStoredPointCommitFinishingTransitionOperationsV1,
 } from "./storedAttemptAuthentication/finishingOperations";
+import {
+  PointMutationOccRerunAuthorityCorruptionV1Error,
+  PointMutationOccRerunFreshAttemptV1Error,
+  makeStoredPointMutationAttemptReplacementOperationsV1,
+  makeStoredPointMutationFreshAttemptHandoffOperationsV1,
+  pointMutationOccFreshAttemptMismatch,
+  type AuthorizedPointMutationOccRerunV1,
+  type PointMutationOccRerunFreshAttemptMismatchV1,
+  type PointMutationOccRerunOwnershipLostV1Error,
+} from "./storedAttemptAuthentication/attemptReplacementOperations";
 
 export {
   InvalidAuthenticatedStoredAttemptV1Error,
@@ -367,25 +376,23 @@ export {
   InvalidPreparedPointCommitV1Error,
 } from "./storedAttemptAuthentication/planningOperations";
 
-const PROCESS_LOCAL_CAPABILITY: true = true;
+export {
+  PointMutationOccRerunAuthorityCorruptionV1Error,
+  PointMutationOccRerunFreshAttemptV1Error,
+  PointMutationOccRerunOwnershipLostV1Error,
+} from "./storedAttemptAuthentication/attemptReplacementOperations";
+
+export type {
+  AuthorizedPointMutationOccRerunV1,
+  PointMutationOccRerunFreshAttemptMismatchV1,
+} from "./storedAttemptAuthentication/attemptReplacementOperations";
+
 const POINT_COMMIT_SQL_RETRY_MAXIMUM_ATTEMPTS_V1 = 3;
 const POINT_COMMIT_SQL_RETRY_INITIAL_BACKOFF_MILLISECONDS_V1 = 10;
 const encodeCommitEnvelopeV1 = Schema.encodeSync(CommitEnvelopeV1Schema);
 const decodeTransactionArtifactRuntimeV1 = Schema.decodeUnknownSync(
   TransactionArtifactRuntimeV1Schema,
 );
-const authorizedPointMutationOccRerunBrand: unique symbol = Symbol(
-  "FlarexExecutor/AuthorizedPointMutationOccRerunV1",
-);
-
-/**
- * Private O08-B1 authority. It is process-local and must be synchronously
- * consumed by the later B2 gate immediately before execution revalidation.
- */
-export interface AuthorizedPointMutationOccRerunV1 {
-  readonly [authorizedPointMutationOccRerunBrand]: true;
-}
-
 export class InvalidPointMutationOccConflictV1Error extends Data.TaggedError(
   "InvalidPointMutationOccConflictV1Error",
 )<{
@@ -398,11 +405,6 @@ export class PointMutationOccRerunExhaustedV1Error extends Data.TaggedError(
   readonly attemptFence: TransactionAttemptFence;
   readonly maximumReruns: 4;
 }> {}
-
-export class PointMutationOccRerunOwnershipLostV1Error
-  extends Data.TaggedError("PointMutationOccRerunOwnershipLostV1Error")<{
-    readonly reason: "alreadyReplaced";
-  }> {}
 
 export class PointCommitKnownSettledSqlRetryExhaustedV1Error
   extends Data.TaggedError(
@@ -492,35 +494,6 @@ function capturePointCommitKnownSettledSqlRetryFailureV1(
     cause: failure.cause,
   });
 }
-
-export type PointMutationOccRerunFreshAttemptMismatchV1 =
-  | "deployment"
-  | "scope"
-  | "session"
-  | "attemptFence"
-  | "storageGeneration"
-  | "storageGenerationFence"
-  | "epoch"
-  | "schema"
-  | "requestKey"
-  | "snapshotNotAdvanced"
-  | "conflictingCommitNotVisible"
-  | "attemptNotPristine";
-
-export class PointMutationOccRerunFreshAttemptV1Error
-  extends Data.TaggedError("PointMutationOccRerunFreshAttemptV1Error")<{
-    readonly reason: PointMutationOccRerunFreshAttemptMismatchV1;
-  }> {}
-
-export class PointMutationOccRerunAuthorityCorruptionV1Error
-  extends Data.TaggedError(
-    "PointMutationOccRerunAuthorityCorruptionV1Error",
-  )<{
-    readonly reason:
-      | "outcomeObservationInvalid"
-      | "replacementObservationInvalid"
-      | "loadedAttemptStateUnavailable";
-  }> {}
 
 export class InvalidAuthorizedPointMutationOccRerunV1Error
   extends Data.TaggedError("InvalidAuthorizedPointMutationOccRerunV1Error")<{
@@ -2130,35 +2103,15 @@ function createStoredPointMutationCapabilityRuntimeV1(
     });
   }
 
-  const replaceConflictedPointMutationAttempt:
-    StoredPointMutationAttemptReplacementV1[
-      "replaceConflictedPointMutationAttempt"
-    ] = Effect.fn(
-      "StoredAttemptAuthentication.replaceConflictedPointMutationAttempt",
-    )(function* (input) {
-      const state = lookupPreparedPointCommitState(
-        preparedPointCommitStates,
-        input,
-      );
-      if (state === undefined) {
-        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
-          reason: "notSameFactory",
-        }));
-      }
-      if (!finishingPreparedPointCommitStates.has(input)) {
-        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
-          reason: "notFinishing",
-        }));
-      }
-      return yield* pointMutationAttemptReplacement.replace(
-        capturePointMutationAttemptReplacementCommand(state),
-      );
-    });
-
-  const replacement = Object.freeze({
-    ...executor,
-    replaceConflictedPointMutationAttempt,
-  } satisfies StoredPointMutationAttemptReplacementV1);
+  const replacement = makeStoredPointMutationAttemptReplacementOperationsV1({
+    base: executor,
+    pointMutationAttemptReplacement,
+    preparedPointCommitStates,
+    finishingPreparedPointCommitStates,
+    captureReplacementCommand:
+      capturePointMutationAttemptReplacementCommand,
+  });
+  const { replaceConflictedPointMutationAttempt } = replacement;
   if (stage === "attemptReplacement") return replacement;
   const pointMutationOccRerunCandidate: unknown =
     "pointMutationOccRerun" in commitAuthority
@@ -2180,6 +2133,14 @@ function createStoredPointMutationCapabilityRuntimeV1(
       missing: "pointMutationOccAttemptLoading",
     });
   }
+  const handoffFreshPointMutationAttempt =
+    makeStoredPointMutationFreshAttemptHandoffOperationsV1({
+      replaceConflictedPointMutationAttempt,
+      pointMutationOccAttemptLoading,
+      executionClaimIssuer: executionClaims.issuer,
+      authorizedOccRerunStates,
+      mintedAuthorizedOccReruns,
+    });
 
   const resolvePointMutationOccOutcome = Effect.fn(
     "StoredAttemptAuthentication.resolvePointMutationOccOutcome",
@@ -2271,133 +2232,10 @@ function createStoredPointMutationCapabilityRuntimeV1(
             new Error("Validated OCC outcome union was not exhaustive."),
           );
 
-        const replacementObservation =
-          yield* replaceConflictedPointMutationAttempt(ticket.finishing);
-        if (!isNonArrayRecord(replacementObservation)) {
-          return yield* Effect.fail(
-            new PointMutationOccRerunAuthorityCorruptionV1Error({
-              reason: "replacementObservationInvalid",
-            }),
-          );
-        }
-        const replacementKind = replacementObservation.kind;
-        if (
-          replacementKind !== "replaced" &&
-          replacementKind !== "alreadyReplaced"
-        ) {
-          return yield* Effect.fail(
-            new PointMutationOccRerunAuthorityCorruptionV1Error({
-              reason: "replacementObservationInvalid",
-            }),
-          );
-        }
-        const attemptFence = TransactionAttemptFenceSchema.make(
-          previousAttemptFence + 1n,
-        );
-        if (
-          replacementObservation.scopeUuid !==
-            prepared.plan.sealIdentity.scopeUuid ||
-          replacementObservation.sessionId !== pins.sessionId ||
-          replacementObservation.previousAttemptFence !==
-            previousAttemptFence ||
-          replacementObservation.attemptFence !== attemptFence
-        ) {
-          return yield* Effect.fail(
-            new PointMutationOccRerunAuthorityCorruptionV1Error({
-              reason: "replacementObservationInvalid",
-            }),
-          );
-        }
-        if (replacementKind === "alreadyReplaced") {
-          return yield* Effect.fail(
-            new PointMutationOccRerunOwnershipLostV1Error({
-              reason: "alreadyReplaced",
-            }),
-          );
-        }
-        if (executionClaims === undefined) {
-          return yield* Effect.fail(
-            new PointMutationOccRerunAuthorityCorruptionV1Error({
-              reason: "replacementObservationInvalid",
-            }),
-          );
-        }
-        const executionClaim = executionClaims.issuer.mint({
-          selector: Object.freeze({
-            deploymentId: pins.deploymentId,
-            scopeId: pins.scopeId,
-            sessionId: pins.sessionId,
-            attemptFence,
-          }),
-          observation: replacementObservation.executionClaim,
-          mode: "execute",
-        });
-
-        // Once O08-A settles, cancellation intentionally leaves the durable
-        // pristine attempt without process-local execution authority.
-        yield* Effect.yieldNow;
-        const loadedAttempt = yield* pointMutationOccAttemptLoading.load({
-          deploymentId: pins.deploymentId,
-          scopeId: pins.scopeId,
-          sessionId: pins.sessionId,
-          attemptFence: attemptFence.toString(),
-        });
-        const loaded =
-          getLoadedPointMutationSessionAttemptOccRerunInspectionV1(
-            loadedAttempt,
-          );
-        if (loaded === undefined) {
-          return yield* Effect.fail(
-            new PointMutationOccRerunAuthorityCorruptionV1Error({
-              reason: "loadedAttemptStateUnavailable",
-            }),
-          );
-        }
-        const freshMismatch = pointMutationOccFreshAttemptMismatch(
+        return yield* handoffFreshPointMutationAttempt({
+          finishing: ticket.finishing,
           prepared,
           conflict,
-          attemptFence,
-          loaded,
-        );
-        if (freshMismatch !== undefined) {
-          return yield* Effect.fail(
-            new PointMutationOccRerunFreshAttemptV1Error({
-              reason: freshMismatch,
-            }),
-          );
-        }
-
-        // B2 must still recheck the outcome and liveness immediately before use.
-        yield* Effect.yieldNow;
-        const inspection = Object.freeze({
-          deploymentId: pins.deploymentId,
-          scopeId: pins.scopeId,
-          sessionId: pins.sessionId,
-          requestKey: pins.requestKey,
-          previousAttemptFence,
-          attemptFence,
-          previousSnapshotToken: Object.freeze({ ...previousSnapshot }),
-          snapshotToken: Object.freeze({ ...loaded.snapshotToken }),
-          conflictDocumentId: conflict.documentId,
-          conflictingCommitSeq: conflict.currentCommitSeq,
-        } satisfies AuthorizedPointMutationOccRerunInspectionV1);
-        const rerun: AuthorizedPointMutationOccRerunV1 = Object.freeze({
-          [authorizedPointMutationOccRerunBrand]: PROCESS_LOCAL_CAPABILITY,
-        });
-        authorizedOccRerunStates.set(
-          rerun,
-          Object.freeze({
-            loadedAttempt,
-            executionClaim,
-            prepared,
-            conflict,
-            inspection,
-          }),
-        );
-        mintedAuthorizedOccReruns.add(rerun);
-        return Object.freeze({
-          kind: "authorized",
-          rerun,
           backoffUpperBoundMilliseconds,
           backoffMilliseconds,
         });
@@ -3617,41 +3455,6 @@ function abortOnPreFinishingFailure<A, E, R>(
       ),
     );
   });
-}
-
-function pointMutationOccFreshAttemptMismatch(
-  prepared: PreparedPointCommitCapabilityStateV1,
-  conflict: CapturedPointMutationOccConflictV1,
-  expectedAttemptFence: TransactionAttemptFence,
-  loaded: LoadedPointMutationSessionAttemptOccRerunInspectionV1,
-): PointMutationOccRerunFreshAttemptMismatchV1 | undefined {
-  const pins = prepared.plan.authorityPins;
-  const previousSnapshot = pins.snapshotToken;
-  if (loaded.selector.deploymentId !== pins.deploymentId) return "deployment";
-  if (loaded.selector.scopeId !== pins.scopeId) return "scope";
-  if (loaded.selector.sessionId !== pins.sessionId) return "session";
-  if (loaded.selector.attemptFence !== expectedAttemptFence) {
-    return "attemptFence";
-  }
-  if (loaded.storageGeneration !== pins.storageGeneration) {
-    return "storageGeneration";
-  }
-  if (loaded.storageGenerationFence !== pins.storageGenerationFence) {
-    return "storageGenerationFence";
-  }
-  if (loaded.snapshotToken.epoch !== previousSnapshot.epoch) return "epoch";
-  if (loaded.schemaVersionId !== pins.schemaVersionId) return "schema";
-  if (loaded.requestKey !== pins.requestKey) return "requestKey";
-  if (loaded.snapshotToken.commitSeq <= previousSnapshot.commitSeq) {
-    return "snapshotNotAdvanced";
-  }
-  if (loaded.snapshotToken.commitSeq < conflict.currentCommitSeq) {
-    return "conflictingCommitNotVisible";
-  }
-  if (loaded.attemptFacet.kind !== "pristineOpen") {
-    return "attemptNotPristine";
-  }
-  return undefined;
 }
 
 function lookupPreparedPointCommitState(

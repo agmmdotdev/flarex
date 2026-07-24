@@ -102,6 +102,10 @@ Authority is intentionally split:
   owns C05-A running-to-finishing transition, C05-B finishing reconstruction,
   and the normal finish/resume compositions while delegating publication to
   the existing O07/O08 owners.
+- [`../packages/executor/src/storedAttemptAuthentication/attemptReplacementOperations.ts`](../packages/executor/src/storedAttemptAuthentication/attemptReplacementOperations.ts)
+  owns O08-A exact-attempt replacement and O08-B1 fresh-attempt handoff,
+  including replacement-observation validation, same-runtime execution-claim
+  and rerun-capability minting, and fresh-attempt verification.
 - [`../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts),
   [`../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts),
   and
@@ -141,7 +145,7 @@ The runtime already has these accepted properties:
   occurrence of that state as an invariant defect.
 
 Construction policy and capability state have moved into focused private
-modules. R01 through R04 are complete. Authentication-only construction
+modules. R01 through R05 are complete. Authentication-only construction
 composes a focused operation factory over only execution-claim admission,
 evidence loading, and the authentication vault facets. The authentication owner
 also contains the single canonical stored-evidence verifier and caller-envelope
@@ -158,8 +162,15 @@ reconstruction now compose focused factories over the same prepared and
 finishing capability state. The final finish and resume operations remain
 sequential compositions over the existing transition, reconstruction, and
 publication owners; transition-only construction does not inspect recovery or
-outcome-resolution dependencies. Later O08 domain operations and most
-capability contracts still live in the facade.
+outcome-resolution dependencies. Remaining O08 domain operations and most
+capability contracts still live in the facade. Exact-attempt replacement now
+composes a focused operation factory over only the finishing capability state
+and replacement port. After OCC authorization has independently claimed and
+validated a conflict, a separate O08-B1 handoff operation validates the
+replacement observation, mints authority through the same runtime vault,
+reloads the exact pristine attempt, and mints the private rerun capability.
+Conflict claiming, retry bounds and backoff, outcome branching, OCC execution,
+and redispatch remain with their later owners.
 
 ## Invariants And Trust Boundaries
 
@@ -347,7 +358,14 @@ Exit criteria:
 - failure after entering `finishing` retains the same durable recovery
   authority.
 
-### [ ] R05 - Extract exact-attempt replacement
+### [x] R05 - Extract exact-attempt replacement
+
+Status: complete. One private attempt-replacement module owns the public O08-A
+replacement facet and the internal O08-B1 fresh-attempt handoff. Replacement-
+only construction returns before reading OCC-rerun dependencies. The later
+authorization flow still owns conflict consumption, retry bounds, backoff, and
+outcome branching, and invokes the extracted handoff only for a missing
+committed outcome.
 
 Move O08-A replacement and bounded fresh-attempt handoff without absorbing OCC
 execution or crash redispatch.
@@ -448,8 +466,8 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Start with the first unchecked gate only. The current next gate is R05,
-   exact-attempt replacement.
+4. Start with the first unchecked gate only. The current next gate is R06,
+   OCC rerun authorization.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant
