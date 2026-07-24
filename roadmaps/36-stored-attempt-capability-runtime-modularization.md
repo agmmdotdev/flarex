@@ -81,9 +81,16 @@ Authority is intentionally split:
 - [`../packages/executor/src/storedAttemptAuthentication/capabilityState.ts`](../packages/executor/src/storedAttemptAuthentication/capabilityState.ts)
   owns current per-instance private capability state storage.
 - [`../packages/executor/src/storedAttemptAuthentication/authenticationOperations.ts`](../packages/executor/src/storedAttemptAuthentication/authenticationOperations.ts)
-  owns the authentication capability brands, typed authentication errors,
-  authority derivation, evidence-load orchestration, capability minting and
-  lookup, and public authentication inspectors.
+  owns the authentication capability brands, authority derivation,
+  evidence-load orchestration, capability minting and lookup, and public
+  authentication inspectors.
+- [`../packages/executor/src/storedAttemptAuthentication/authenticationVerification.ts`](../packages/executor/src/storedAttemptAuthentication/authenticationVerification.ts)
+  owns recovered-authority capture, canonical stored-evidence verification,
+  caller-envelope comparison, authenticated state capture, and their exact
+  validation and ownership helpers.
+- [`../packages/executor/src/storedAttemptAuthentication/authenticationErrors.ts`](../packages/executor/src/storedAttemptAuthentication/authenticationErrors.ts)
+  owns the typed authentication, persistence, mismatch, and stored-corruption
+  error contracts.
 - [`../packages/executor/test/storedAttemptAuthentication.test.ts`](../packages/executor/test/storedAttemptAuthentication.test.ts)
   is the main focused regression suite for capability surface and provenance.
 
@@ -117,14 +124,13 @@ The runtime already has these accepted properties:
   occurrence of that state as an invariant defect.
 
 Construction policy and capability state have moved into focused private
-modules. The R01 operation boundary has also moved: authentication-only
-construction now composes a focused operation factory over the authentication
-vault facets, and later stages reuse its private mint, load, and lookup
-operations. Canonical stored-evidence verification and caller-envelope
-comparison still live in the facade because finishing reconstruction consumes
-the same kernel. R01 remains incomplete until that kernel moves behind the
-authentication owner without duplication. Later domain operations and most
-capability contracts also still live in the facade.
+modules. R01 is complete: authentication-only construction composes a focused
+operation factory over only execution-claim admission, evidence loading, and
+the authentication vault facets. The authentication owner also contains the
+single canonical stored-evidence verifier and caller-envelope comparator;
+finishing reconstruction reuses that same implementation rather than
+duplicating it. Later domain operations and most capability contracts still
+live in the facade.
 
 ## Invariants And Trust Boundaries
 
@@ -229,13 +235,12 @@ decomposition, not an exit criterion by itself.
 
 ## Ordered Extraction Gates
 
-### [ ] R01 - Extract stored-attempt authentication
+### [x] R01 - Extract stored-attempt authentication
 
-Current cutline: the capability brands, typed errors, authority derivation,
-evidence-load orchestration, minting and lookup, and public inspectors are in
-the focused authentication operation module. The canonical evidence verifier
-and envelope comparator remain to be moved; finishing reconstruction must
-continue to reuse that single implementation.
+Status: complete. Authentication operations, canonical verification, typed
+errors, capability minting and lookup, and public inspectors have focused
+private owners. Authentication and finishing reconstruction share the same
+verification kernel.
 
 Move authority derivation, stored-evidence loading and verification, caller
 envelope comparison, authenticated-capability minting, and the authentication
@@ -396,8 +401,8 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Start with the first unchecked gate only. The current next gate is R01,
-   stored-attempt authentication.
+4. Start with the first unchecked gate only. The current next gate is R02,
+   commit authority and logical planning.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant

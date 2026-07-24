@@ -1,13 +1,9 @@
-import { Data, Effect, Result } from "effect";
+import { Effect, Result } from "effect";
 
 import {
   decodeCommitEnvelopeV1Effect,
   requireStoredForSessionAttemptCommitEnvelopeV1Effect,
-  type CommitProtocolV1Error,
-  type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
-import type { TransactionSessionLifecycleV1 } from
-  "flarex-protocol/transaction-session";
 
 import {
   inspectLoadedPointMutationSessionAttemptV1,
@@ -20,12 +16,24 @@ import type {
   AuthenticatedStoredAttemptStateV1,
   StoredAttemptAuthorityStateV1,
   StoredAttemptAuthenticationV1,
-  StoredAttemptEvidenceAuthorityPortV1,
   StoredAttemptEvidenceLoaderPortV1,
   StoredAttemptEvidenceLoadResultPortV1,
   StoredAttemptEvidencePortV1,
-  StoredAttemptStorageCorruptionReasonV1,
 } from "../storedAttemptAuthentication";
+import {
+  InvalidStoredAttemptAuthorityV1Error,
+  StoredAttemptAlreadyCommittedV1Error,
+  StoredAttemptAuthorityMismatchV1Error,
+  StoredAttemptNotPlannableV1Error,
+  StoredAttemptPersistenceV1Error,
+  StoredAttemptStorageCorruptionV1Error,
+} from "./authenticationErrors";
+import {
+  captureAuthorityPort,
+  compareCallerEnvelopeWithVerifiedState,
+  serializeAuthenticatedStateForTest,
+  verifyCanonicalStoredEvidenceEffect,
+} from "./authenticationVerification";
 
 const trustedStoredAttemptAuthorityBrand: unique symbol = Symbol(
   "FlarexExecutor/TrustedStoredAttemptAuthorityV1",
@@ -45,79 +53,6 @@ export interface AuthenticatedStoredAttemptV1 {
   readonly [authenticatedStoredAttemptBrand]: true;
 }
 
-export class InvalidStoredAttemptAuthorityV1Error extends Data.TaggedError(
-  "InvalidStoredAttemptAuthorityV1Error",
-)<{
-  readonly reason:
-    | "notProcessLocal"
-    | "invalidLoadedAttempt"
-    | "invalidExecutionClaim";
-}> {}
-
-export class StoredAttemptAlreadyCommittedV1Error extends Data.TaggedError(
-  "StoredAttemptAlreadyCommittedV1Error",
-)<{
-  readonly updatedAtMilliseconds: number;
-}> {}
-
-export class StoredAttemptNotPlannableV1Error extends Data.TaggedError(
-  "StoredAttemptNotPlannableV1Error",
-)<{
-  readonly reason: "lifecycle" | "rootNotSealed" | "expired";
-  readonly lifecycle?: TransactionSessionLifecycleV1;
-  readonly rootState?: "open" | "sealed" | "failed";
-}> {}
-
-export class StoredAttemptAuthorityMismatchV1Error extends Data.TaggedError(
-  "StoredAttemptAuthorityMismatchV1Error",
-)<{
-  readonly reason:
-    | "placementChanged"
-    | "scopeChanged"
-    | "attemptMissing"
-    | "attemptReplaced"
-    | "generationChanged"
-    | "epochChanged"
-    | "snapshotChanged"
-    | "schemaChanged"
-    | "revocationEpochChanged"
-    | "executionClaimChanged";
-}> {}
-
-export class StoredAttemptEnvelopeMismatchV1Error extends Data.TaggedError(
-  "StoredAttemptEnvelopeMismatchV1Error",
-)<{
-  readonly reason:
-    | "attempt"
-    | "protocol"
-    | "sequence"
-    | "journalDigest"
-    | "successfulResult";
-}> {}
-
-export class StoredAttemptStorageCorruptionV1Error extends Data.TaggedError(
-  "StoredAttemptStorageCorruptionV1Error",
-)<{
-  readonly reason: StoredAttemptStorageCorruptionReasonV1;
-  readonly cause?: unknown;
-}> {}
-
-export class StoredAttemptPersistenceV1Error extends Data.TaggedError(
-  "StoredAttemptPersistenceV1Error",
-)<{
-  readonly cause: unknown;
-}> {}
-
-export type StoredAttemptAuthenticationV1Error =
-  | CommitProtocolV1Error
-  | InvalidStoredAttemptAuthorityV1Error
-  | StoredAttemptAlreadyCommittedV1Error
-  | StoredAttemptNotPlannableV1Error
-  | StoredAttemptAuthorityMismatchV1Error
-  | StoredAttemptEnvelopeMismatchV1Error
-  | StoredAttemptStorageCorruptionV1Error
-  | StoredAttemptPersistenceV1Error;
-
 type StoredAttemptAuthorityCapabilityStateV1 = Readonly<{
   readonly authority: StoredAttemptAuthorityStateV1;
   readonly executionScope: PointMutationExecutionScopeV1;
@@ -125,7 +60,10 @@ type StoredAttemptAuthorityCapabilityStateV1 = Readonly<{
 
 export interface StoredAttemptAuthenticationOperationDependenciesV1 {
   readonly loader: StoredAttemptEvidenceLoaderPortV1;
-  readonly executionClaims: PointMutationExecutionClaimVaultV1;
+  readonly executionClaims: Pick<
+    PointMutationExecutionClaimVaultV1,
+    "admission"
+  >;
   readonly authorityStates: WeakMap<
     object,
     StoredAttemptAuthorityCapabilityStateV1
@@ -134,29 +72,6 @@ export interface StoredAttemptAuthenticationOperationDependenciesV1 {
     object,
     AuthenticatedStoredAttemptStateV1
   >;
-  readonly captureAuthorityPort: (
-    authority: StoredAttemptAuthorityStateV1,
-  ) => StoredAttemptEvidenceAuthorityPortV1;
-  readonly verifyCanonicalStoredEvidence: (
-    authority: StoredAttemptAuthorityStateV1,
-    evidence: StoredAttemptEvidencePortV1,
-    executionScope?: PointMutationExecutionScopeV1,
-  ) => Effect.Effect<
-    AuthenticatedStoredAttemptStateV1,
-    | StoredAttemptAuthorityMismatchV1Error
-    | StoredAttemptStorageCorruptionV1Error
-  >;
-  readonly compareCallerEnvelopeWithVerifiedState: (
-    envelope: StoredForSessionAttemptCommitEnvelopeV1,
-    evidence: StoredAttemptEvidencePortV1,
-    verified: AuthenticatedStoredAttemptStateV1,
-  ) => Effect.Effect<
-    StoredAttemptEnvelopeMismatchV1Error | undefined,
-    StoredAttemptStorageCorruptionV1Error
-  >;
-  readonly serializeAuthenticatedStateForTest: (
-    state: AuthenticatedStoredAttemptStateV1,
-  ) => string;
 }
 
 export interface StoredAttemptAuthenticationOperationsV1 {
@@ -230,10 +145,6 @@ export function makeStoredAttemptAuthenticationOperationsV1(
     executionClaims,
     authorityStates,
     authenticatedStates,
-    captureAuthorityPort,
-    verifyCanonicalStoredEvidence,
-    compareCallerEnvelopeWithVerifiedState,
-    serializeAuthenticatedStateForTest,
   } = dependencies;
 
   const mintAuthenticatedStoredAttempt = (
@@ -315,7 +226,7 @@ export function makeStoredAttemptAuthenticationOperationsV1(
       new StoredAttemptPersistenceV1Error({ cause: error.cause })
     ));
     const evidence = yield* requireLoadedStoredAttemptEvidenceEffect(result);
-    const verified = yield* verifyCanonicalStoredEvidence(
+    const verified = yield* verifyCanonicalStoredEvidenceEffect(
       authorityCapability.authority,
       evidence,
       authorityCapability.executionScope,

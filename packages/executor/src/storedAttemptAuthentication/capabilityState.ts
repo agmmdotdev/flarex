@@ -1,3 +1,5 @@
+import { Encoding } from "effect";
+
 import type { PointCommitPublicationCommandV1 } from
   "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationSessionAttemptSelectorV1 } from
@@ -133,4 +135,28 @@ export function makeStoredPointMutationCapabilityVaultV1():
     mintedAuthorizedOccReruns: new WeakSet(),
     consumedAuthorizedOccReruns: new WeakSet(),
   } satisfies StoredPointMutationCapabilityVaultV1);
+}
+
+export function serializePrivateCapabilityStateForTestV1(
+  state: unknown,
+  onUndefined: () => Error,
+): string {
+  const serialized = JSON.stringify(
+    state,
+    (_key: string, value: unknown): unknown => {
+      if (typeof value === "bigint") {
+        return Object.freeze({ bigint: value.toString() });
+      }
+      if (value instanceof Uint8Array) {
+        return Object.freeze({
+          bytes: Encoding.encodeBase64Url(value),
+        });
+      }
+      return value;
+    },
+  );
+  if (serialized === undefined) {
+    throw onUndefined();
+  }
+  return serialized;
 }
