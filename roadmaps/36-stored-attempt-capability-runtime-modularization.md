@@ -2,16 +2,13 @@
 
 ## Status And Scope
 
-Status: implementation complete; final R09 real-Postgres validation remains
-pending because this checkout has no configured test database connection.
+Status: complete.
 
-This plan owns the behavior-preserving decomposition of
+This plan records the completed behavior-preserving decomposition of
 [`storedAttemptAuthentication.ts`](../packages/executor/src/storedAttemptAuthentication.ts).
-That file is currently both the private capability contract facade and the
-implementation site for authentication, commit preparation, publication,
-retry, and crash-redispatch operations. The accepted destination is a small
-domain-facing composition root over focused private modules that share one
-explicitly constructed capability vault.
+That file is now the private capability contract facade and stage-gated
+composition root over focused private modules that share one explicitly
+constructed capability vault.
 
 This is a maintainability and authority-boundary refactor. It does not authorize
 new runtime behavior, a public API, a new persistence contract, a retry-policy
@@ -484,14 +481,13 @@ Exit criteria:
 - finishing continues through the independent C05-B authority path; and
 - construction of all earlier facets ignores redispatch-only dependencies.
 
-### [ ] R09 - Reduce the facade to composition and contracts
+### [x] R09 - Reduce the facade to composition and contracts
 
-Status: implementation and non-Postgres validation complete. The facade is now
-the contract and stage-gated composition boundary over the one per-instance
-vault. The only remaining exit criterion is a current run of the required
-real-Postgres proofs with `FLAREX_POSTGRES_DATABASE_URL` configured; the
-installed local service requires credentials that are not available to this
-checkout.
+Status: complete. The facade is the contract and stage-gated composition
+boundary over the one per-instance vault. Operation implementations live with
+their private domain owners, no runtime import cycle or public-surface widening
+was introduced, and the complete executor and required real-Postgres proof
+gates pass.
 
 Consolidate the final internal composition flow after all operation extractions.
 Move pure models or contract families only when they have a clear domain owner
@@ -544,9 +540,9 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Do not widen R09. Its implementation and non-Postgres validation are
-   complete; configure `FLAREX_POSTGRES_DATABASE_URL`, run the required
-   real-Postgres proofs, and check R09 only if they pass.
+4. This focused plan has no unchecked gate. Return to the owning foundation
+   roadmap for subsequent runtime or production-host work; do not widen this
+   completed modularization plan.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant
@@ -557,9 +553,9 @@ A future compacted session should resume as follows:
 
 ## Completion Condition
 
-This plan is complete when R01-R09 are checked, the facade is a small
+This plan is complete: R01-R09 are checked, the facade is a small
 composition/contract boundary over one per-instance vault, every named
 constructor still returns its exact lifecycle facet, all same-factory and
-error/transaction invariants remain proven, no internal module has been
-accidentally promoted to public API, and the foundation roadmap accurately
-describes the resulting current architecture.
+error/transaction invariants remain proven, no internal module was accidentally
+promoted to public API, and the foundation roadmap describes the resulting
+current architecture.
