@@ -269,6 +269,16 @@ import {
   type StoredPointMutationCapabilityStageV1,
 } from "./storedAttemptAuthentication/capabilityRuntimeConstruction";
 import {
+  makeStoredPointMutationCapabilityVaultV1,
+  type AuthorizedPointMutationOccRerunStateV1,
+  type CapturedPointMutationOccConflictV1,
+  type PointCommitDecisionUncertainTicketStateV1,
+  type PointCommitScalarProvenanceV1,
+  type PointMutationOccConflictTicketStateV1,
+  type PreparedPointCommitCapabilityStateV1,
+  type VerifiedCommitCapabilityStateV1,
+} from "./storedAttemptAuthentication/capabilityState";
+import {
   capturePinnedFunctionSelector,
   requireLoadedCommitAuthorityEvidenceEffect,
   verifyCommitAuthorityEvidenceEffect,
@@ -1091,52 +1101,6 @@ export interface AuthenticatedCommitAuthorityStateV1 {
   readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
 }
 
-interface PointCommitScalarProvenanceV1 {
-  readonly authority: Readonly<StoredAttemptAuthorityStateV1>;
-  readonly session: Readonly<StoredAttemptSessionScalarsPortV1>;
-  readonly executionClaim: PointMutationExecutionScopeV1 | null;
-}
-
-interface VerifiedCommitCapabilityStateV1 {
-  readonly input: VerifiedCommitInputStateV1;
-  readonly provenance: PointCommitScalarProvenanceV1;
-  /** Complete authenticated execution provenance retained privately for B2. */
-  readonly executionAuthority: AuthenticatedCommitAuthorityStateV1;
-}
-
-interface PreparedPointCommitCapabilityStateV1 {
-  readonly plan: PreparedPointCommitStateV1;
-  readonly provenance: PointCommitScalarProvenanceV1;
-  readonly executionAuthority: AuthenticatedCommitAuthorityStateV1;
-}
-
-interface CapturedPointMutationOccConflictV1 {
-  readonly documentId: AppDocumentIdV1;
-  readonly snapshotCommitSeq: SnapshotToken["commitSeq"];
-  readonly currentCommitSeq: SnapshotToken["commitSeq"];
-}
-
-interface PointMutationOccConflictTicketStateV1 {
-  readonly finishing: FinishingPreparedPointCommitV1;
-  readonly prepared: PreparedPointCommitCapabilityStateV1;
-  readonly conflict: CapturedPointMutationOccConflictV1;
-}
-
-interface PointCommitDecisionUncertainTicketStateV1 {
-  readonly finishing: FinishingPreparedPointCommitV1;
-  readonly prepared: PreparedPointCommitCapabilityStateV1;
-  readonly selector: PointMutationSessionAttemptSelectorV1;
-  readonly command: PointCommitPublicationCommandV1;
-}
-
-interface AuthorizedPointMutationOccRerunStateV1 {
-  readonly loadedAttempt: LoadedPointMutationSessionAttemptV1;
-  readonly executionClaim: PointMutationExecutionClaimV1;
-  readonly prepared: PreparedPointCommitCapabilityStateV1;
-  readonly conflict: CapturedPointMutationOccConflictV1;
-  readonly inspection: AuthorizedPointMutationOccRerunInspectionV1;
-}
-
 export interface StoredCommitInputVerificationV1
   extends StoredCommitAuthorityAuthenticationV1 {
   readonly verifyCommitInput: (
@@ -1481,72 +1445,6 @@ export interface StoredPointMutationCrashRedispatchV1
     PointMutationCrashRedispatchV1Error,
     never
   >;
-}
-
-interface StoredPointMutationCapabilityVaultV1 {
-  readonly authorityStates: WeakMap<
-    object,
-    Readonly<{
-      readonly authority: StoredAttemptAuthorityStateV1;
-      readonly executionScope: PointMutationExecutionScopeV1;
-    }>
-  >;
-  readonly authenticatedStates: WeakMap<
-    object,
-    AuthenticatedStoredAttemptStateV1
-  >;
-  readonly commitAuthorityStates: WeakMap<
-    object,
-    AuthenticatedCommitAuthorityStateV1
-  >;
-  readonly verifiedCommitInputStates: WeakMap<
-    object,
-    VerifiedCommitCapabilityStateV1
-  >;
-  readonly preparedPointCommitStates: WeakMap<
-    object,
-    PreparedPointCommitCapabilityStateV1
-  >;
-  readonly finishingPreparedPointCommitStates: WeakSet<object>;
-  readonly decisionUncertainTickets: WeakMap<
-    object,
-    PointCommitDecisionUncertainTicketStateV1
-  >;
-  readonly capturedDecisionUncertainties: WeakSet<object>;
-  readonly consumedDecisionUncertainties: WeakSet<object>;
-  readonly occConflictTickets: WeakMap<
-    object,
-    PointMutationOccConflictTicketStateV1
-  >;
-  readonly capturedOccConflicts: WeakSet<object>;
-  readonly consumedOccConflicts: WeakSet<object>;
-  readonly authorizedOccRerunStates: WeakMap<
-    object,
-    AuthorizedPointMutationOccRerunStateV1
-  >;
-  readonly mintedAuthorizedOccReruns: WeakSet<object>;
-  readonly consumedAuthorizedOccReruns: WeakSet<object>;
-}
-
-function makeStoredPointMutationCapabilityVaultV1():
-  StoredPointMutationCapabilityVaultV1 {
-  return Object.freeze({
-    authorityStates: new WeakMap(),
-    authenticatedStates: new WeakMap(),
-    commitAuthorityStates: new WeakMap(),
-    verifiedCommitInputStates: new WeakMap(),
-    preparedPointCommitStates: new WeakMap(),
-    finishingPreparedPointCommitStates: new WeakSet(),
-    decisionUncertainTickets: new WeakMap(),
-    capturedDecisionUncertainties: new WeakSet(),
-    consumedDecisionUncertainties: new WeakSet(),
-    occConflictTickets: new WeakMap(),
-    capturedOccConflicts: new WeakSet(),
-    consumedOccConflicts: new WeakSet(),
-    authorizedOccRerunStates: new WeakMap(),
-    mintedAuthorizedOccReruns: new WeakSet(),
-    consumedAuthorizedOccReruns: new WeakSet(),
-  } satisfies StoredPointMutationCapabilityVaultV1);
 }
 
 function isPointMutationOccExecutionContextFactoryV1(
