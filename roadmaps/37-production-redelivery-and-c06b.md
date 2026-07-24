@@ -5,8 +5,8 @@
 Status: active focused execution plan. P00 records the accepted boundary, P01
 selects the exact-attempt runtime-host contract, and P02a freezes the
 host-neutral protocol and generated Dynamic Worker entrypoint; all three are
-complete. P02b, the executor-owned one-shot journal RPC adapter, is the current
-gate.
+complete. P02b adds the executor-owned one-shot journal RPC adapter and is also
+complete. P02c, composing and proving one exact rerun, is the current gate.
 
 This plan owns the remaining production portion of
 `O08-B2b2b2b1b2b2b` and the subsequent `C06-B` endpoint/response policy:
@@ -278,6 +278,48 @@ existing semaphore.
 - The event-owned Postgres client closes only after scheduler checkpoint/release
   and every admitted attempt lifecycle has settled.
 
+### P02b Journal RPC Ownership
+
+P02b is an executor-package Cloudflare adapter, exposed through an intentional
+`@flarex/executor` subpath. It does not replace or widen the runtime-neutral
+runner contract. The adapter is a plain attempt-scoped factory rather than a
+singleton Effect service because every admitted attempt owns a distinct
+capability graph and lifetime.
+
+The factory receives only the already-bound `PointMutationOccBoundJournalV1`
+whose underlying attempt handle remains in the executor. It returns:
+
+- one parent `RpcTarget`, whose table-resolution method returns a child
+  `RpcTarget` retaining the corresponding process-local table handle;
+- one uninterruptible `closeAndDrain` Effect owned by the executor call; and
+- no environment binding, scalar capability identifier, registry key, or
+  serializable journal handle.
+
+Every parent or child method checks and records admission synchronously before
+starting its local Effect. The shared session state tracks all admitted calls
+and their admission order. A failed local Effect stores its full original
+`Cause<PointMutationJournalBoundaryV1Error>` locally while the remote caller
+receives only one fixed stop error with no provider-authored stack or cause
+detail. The RPC runtime may attach a receiving-side stack. `closeAndDrain`
+first closes the entire parent/child graph, then waits for a stable empty
+admitted-call set, and finally re-emits the earliest admitted local failure
+cause. This preserves the original typed error object, defects, and
+interruption instead of reclassifying them through a Promise rejection.
+
+Closure is idempotent and shared by every child target. A child returned before
+closure therefore cannot outlive its parent, while table resolution or
+operation calls attempted after closure fail without invoking the journal.
+Remote `RpcStub`s remain owned by the P02c call site that receives them and must
+be disposed there in a `finally`/scope boundary; P02b proves that the real
+workerd stubs expose disposal, but does not invent a local disposal operation
+for server-side `RpcTarget` objects.
+
+P02b deliberately stops before constructing a Worker Loader definition,
+calling the artifact-runtime service binding, changing the runtime-neutral
+runner, or translating user-code and host failures. P02c will compose one
+runner call around `closeAndDrain`, give any retained journal cause precedence,
+then classify the independent Dynamic Worker outcome.
+
 ### Authentication, Replay, And Version Skew
 
 The executor-to-artifact-runtime call uses a Wrangler service binding targeted
@@ -392,7 +434,7 @@ interrupt/cleanup behavior, and exact syscall/journal routing.
   behavior exactly. Pin the built runtime bytes in the internal code identity
   and verify generated-artifact freshness. This remains a host-definition
   refactor and does not call Worker Loader.
-- **[ ] P02b — add the executor-owned one-shot journal RPC adapter.** Preserve
+- **[x] P02b — add the executor-owned one-shot journal RPC adapter.** Preserve
   nested table capability identity, original typed journal-failure precedence,
   late-call closure, user-error separation, interruption, and stub disposal.
 - **[ ] P02c — compose and prove one exact rerun.** Wire the named
@@ -578,27 +620,58 @@ Completion receipt (2026-07-25):
   package-wide backend checkpoint also passed 97 files and 879 tests before the
   final focused hardening assertions and reviewer fixes.
 
+### Current P02b Boundary
+
+Completion receipt (2026-07-25):
+
+- `@flarex/executor/point-mutation-journal-rpc` now owns one attempt-scoped
+  parent `RpcTarget`, nested table targets that retain the original process-
+  local table handles, and one uninterruptible `closeAndDrain` Effect;
+- every RPC method admits synchronously, retains its complete local Effect
+  cause by admission order, returns only the fixed redacted stop error
+  remotely, and shares one fail-closed lifecycle across the parent and all
+  children;
+- closure is idempotent, stops new parent and child calls, and drains the
+  stable admitted-call set before re-emitting the earliest cause without
+  turning typed failures, defects, or interruption into each other;
+- the real-workerd two-Worker proof covers nested capability identity, actual
+  `RpcStub` disposal, remote redaction, original typed-error identity,
+  close-before-drain, late-call rejection, failure admission order, defects,
+  and interruption; its explicit transferred-stream latch has no fixed-delay
+  ordering assumption or provider-global cross-request Promise; and
+- final post-review validation passed the executor typecheck, all 26 active
+  files and 327 active package tests, the Effect runtime-boundary check,
+  focused 7-test workerd suite, frozen lockfile check, diff check, and both
+  required final reviewers with no remaining findings.
+
+P02b does not load a Dynamic Worker, add an artifact-runtime or executor
+entrypoint, alter the runtime-neutral runner, host a scheduled event, expose a
+route, or activate redelivery.
+
 ## Resume Checklist
 
-Current gate: **P02b — add the executor-owned one-shot journal RPC adapter.**
+Current gate: **P02c — compose and prove one exact rerun.**
 
 On resume:
 
-1. read this plan and the P02a protocol/generated-runtime contracts;
-2. keep the underlying `PointMutationJournalV1` handles inside the originating
-   executor process and expose only one parent plus nested table `RpcTarget`s;
-3. admit exactly one run, retain the first typed local journal failure, close
-   new admissions when the run settles, and drain already-admitted calls;
-4. make late calls and child capabilities fail closed, preserve interruption,
-   and dispose every RPC stub deterministically; and
-5. add focused tests before composing the artifact-runtime hop or changing the
-   runtime-neutral runner in P02c.
+1. read this plan plus the P02a protocol/runtime and P02b journal-RPC
+   boundaries;
+2. first close and prove the initial-versus-redelivery runtime-profile gap for
+   asynchronous Web Crypto, WebAssembly, and `performance.now()` rather than
+   activating two observably different execution profiles;
+3. add the private named artifact-runtime RPC entrypoint and executor runner
+   composition around one strict projected request and the invocation-scoped
+   parent journal target;
+4. always settle `closeAndDrain`, give its retained journal cause precedence,
+   classify the independent host/user outcome, and dispose every received RPC
+   stub in its owning scope; and
+5. prove the existing stored-attempt graph is the only execution authority and
+   that no ordinary invoke route, new session, generic executor binding,
+   database client in the Dynamic Worker, or serialized journal handle
+   participates.
 
-Do not add the artifact-runtime service-binding composition, database scheduler
-host, cron handler, scheduled export, Wrangler trigger, or `C06-B` route during
-P02b. When P02c begins, treat initial-versus-redelivery runtime-profile parity
-as its first activation gate rather than accepting the current native initial
-runtime as replay-equivalent.
+Do not add the database scheduler host, cron handler, scheduled export,
+Wrangler trigger, public route, or `C06-B` response policy during P02c.
 
 ## Completion Condition
 

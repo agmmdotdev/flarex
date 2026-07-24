@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./point-mutation-journal": "./src/pointMutationJournal.ts",
+    "./point-mutation-journal-rpc": "./src/pointMutationJournalRpc.ts",
     "./point-mutation-start": "./src/pointMutationStartPreparation.ts",
     "./point-mutation-session": "./src/pointMutationSessionActivation.ts",
     "./transaction-grant": "./src/transactionGrant.ts"
@@ -28,6 +29,7 @@
   },
   "devDependencies": {
     "@types/pg": "^8.20.0",
+    "miniflare": "catalog:",
     "pg": "^8.22.0",
     "typescript": "catalog:",
     "vite": "catalog:",
