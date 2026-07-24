@@ -447,6 +447,51 @@ interrupt/cleanup behavior, and exact syscall/journal routing.
   `performance.now()`, while the exact-rerun profile deliberately blocks or
   fixes them.
 
+#### P02c Ordered Subgates
+
+P02c does not make the cached ordinary invoke Worker into an exact runtime.
+That Worker uses `loader.get()`, retains user-module state, and owns the
+start/syscall/finish/abort lifecycle that P01 explicitly rejected for exact
+attempts. Copying only the Web Crypto, WebAssembly, or `performance` guards
+into that source would still leave different module-state, clock, RNG, timer,
+cache, network, intrinsic-hardening, and authority semantics.
+
+Runtime-profile parity is therefore structural: the future initial point-
+mutation attempt and every exact redelivery must both enter the same
+`PointMutationOccRuntimeNeutralRunnerV1` implementation and fresh
+`FlarexPointMutationExactRuntimeV1` Worker profile. The legacy invoke route is
+not evidence of parity and remains outside this point-mutation path. P02c may
+construct and prove the inactive exact runner, but P04 must not activate
+scheduled redelivery until the initial point-mutation host also selects that
+same runner.
+
+Implement P02c in these bounded checkpoints:
+
+1. **P02c.1 — artifact-runtime exact RPC host.** Add one named private
+   `WorkerEntrypoint` that strictly decodes the request before material
+   allocation, revalidates the pinned source package through the existing
+   artifact store, calls `loader.load()` once, selects only the named exact
+   Dynamic Worker entrypoint, forwards the invocation-scoped journal target as
+   a method argument, awaits the complete call, and disposes every received
+   child/entrypoint stub. Add no Fetch route or generic executor binding.
+2. **P02c.2 — executor exact runner.** Project the already-authenticated
+   runtime-neutral input into the strict request, create the P02b journal
+   session, call the private artifact-runtime binding, always close and drain
+   the journal graph, give its retained cause precedence, decode the strict
+   result, and distinguish user failure from the bounded host/transport error
+   channel without turning defects or interruption into typed failures.
+3. **P02c.3 — stored-attempt composition proof.** Install that runner only in
+   the existing exact-attempt dependency graph and prove one initial execution
+   of that graph plus one redelivery-shaped execution use no ordinary invoke
+   route, replacement session, serialized journal authority, Dynamic Worker
+   database binding, or parallel retry state machine. This is construction and
+   test proof, not scheduler activation.
+4. **P02c.4 — activation parity proof.** Before P04, route the production
+   initial point-mutation host through the same runner and pin the full fresh
+   runtime profile on both paths. Do not treat three blocked globals as a
+   substitute for identical Worker freshness, deterministic inputs,
+   unavailable capabilities, and intrinsic hardening.
+
 ### [ ] P03 — Host One Bounded Scheduler Event
 
 Compose one platform event over one event-owned database client and one existing
@@ -656,22 +701,26 @@ On resume:
 
 1. read this plan plus the P02a protocol/runtime and P02b journal-RPC
    boundaries;
-2. first close and prove the initial-versus-redelivery runtime-profile gap for
-   asynchronous Web Crypto, WebAssembly, and `performance.now()` rather than
-   activating two observably different execution profiles;
-3. add the private named artifact-runtime RPC entrypoint and executor runner
-   composition around one strict projected request and the invocation-scoped
+2. implement P02c.1 as the private named artifact-runtime RPC host around one
+   strict request, one fresh `loader.load()` Worker, and the invocation-scoped
    parent journal target;
+3. implement P02c.2 as the executor-owned runtime-neutral runner with journal-
+   cause precedence, bounded host/user classification, interruption, and
+   deterministic stub disposal;
 4. always settle `closeAndDrain`, give its retained journal cause precedence,
    classify the independent host/user outcome, and dispose every received RPC
    stub in its owning scope; and
-5. prove the existing stored-attempt graph is the only execution authority and
+5. prove in P02c.3 that the existing stored-attempt graph is the only execution
+   authority and
    that no ordinary invoke route, new session, generic executor binding,
    database client in the Dynamic Worker, or serialized journal handle
    participates.
 
 Do not add the database scheduler host, cron handler, scheduled export,
-Wrangler trigger, public route, or `C06-B` response policy during P02c.
+Wrangler trigger, public route, or `C06-B` response policy during P02c. P04
+remains blocked until P02c.4 proves that the production initial point-mutation
+host uses this same fresh exact runner; the legacy cached invoke Worker does not
+satisfy that gate.
 
 ## Completion Condition
 
