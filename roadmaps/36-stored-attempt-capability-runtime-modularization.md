@@ -114,6 +114,10 @@ Authority is intentionally split:
   owns same-process authorized OCC rerun execution, claim/admission
   composition, liveness-scoped evidence loading and verification, rerun
   conflict looping, and the shared OCC execution-evidence interpretation.
+- [`../packages/executor/src/storedAttemptAuthentication/crashRedispatchOperations.ts`](../packages/executor/src/storedAttemptAuthentication/crashRedispatchOperations.ts)
+  owns exact-selector crash redispatch, inert safe-state routing, acquired-claim
+  admission, finishing recovery delegation, expired-authority closure, and
+  dirty/failed-attempt disposition.
 - [`../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts),
   [`../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts),
   and
@@ -153,7 +157,7 @@ The runtime already has these accepted properties:
   occurrence of that state as an invariant defect.
 
 Construction policy and capability state have moved into focused private
-modules. R01 through R07 are complete. Authentication-only construction
+modules. R01 through R08 are complete. Authentication-only construction
 composes a focused operation factory over only execution-claim admission,
 evidence loading, and the authentication vault facets. The authentication owner
 also contains the single canonical stored-evidence verifier and caller-envelope
@@ -188,7 +192,14 @@ through one combined `Result.gen` claim/admission operation, rechecks outcome
 and liveness, loads and verifies exact execution evidence, invokes the shared
 exact-attempt kernel, and loops conflicts back through authorization. The
 shared kernel remains at the composition seam because crash redispatch also
-uses it. Crash redispatch remains with its later owner.
+uses it. A separate crash-redispatch module now owns exact-selector decoding
+and classification, admits no claim for replayed, busy, or independently
+recoverable finishing states, and consumes only the singular matching claim
+after an acquired classification. Acquired execution and finish-only work
+remain liveness-scoped, finishing recovery still delegates to the independent
+C05-B path, and abort-only work still delegates to the existing disposition
+owner. The facade retains construction-stage dependency validation and injects
+the existing authority, execution, recovery, and publication operations.
 
 ## Invariants And Trust Boundaries
 
@@ -439,7 +450,16 @@ Exit criteria:
   unchanged; and
 - construction of earlier facets does not read rerun-execution dependencies.
 
-### [ ] R08 - Extract crash redispatch
+### [x] R08 - Extract crash redispatch
+
+Status: complete. One private crash-redispatch module owns exact-selector
+decoding, acquisition classification, acquired-claim admission, stale-authority
+closure, finishing recovery delegation, exact execution composition, and
+abort-only disposition. Replayed, busy, and finishing classifications remain
+inert with respect to execution claims. Execute, finish-only, and abort-only
+branches consume only their matching same-factory claim after acquisition.
+Construction of every earlier facet still returns before inspecting either
+redispatch-only dependency.
 
 Move exact-selector safe-state classification and redispatch composition while
 retaining the singular owners for execution claims, finishing recovery, and
@@ -505,8 +525,8 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Start with the first unchecked gate only. The current next gate is R08,
-   crash redispatch.
+4. Start with the first unchecked gate only. The current next gate is R09,
+   reducing the facade to composition and contracts.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant
