@@ -19,7 +19,7 @@ foundation.
 
 ## Why This Refactor Exists
 
-The current facade is approximately 5,600 lines and composes several completed
+The current facade is approximately 4,400 lines and composes several completed
 foundation gates in one lexical scope. That arrangement made the original
 same-factory capability chain easy to prove, but it now has four costs:
 
@@ -91,6 +91,16 @@ Authority is intentionally split:
 - [`../packages/executor/src/storedAttemptAuthentication/authenticationErrors.ts`](../packages/executor/src/storedAttemptAuthentication/authenticationErrors.ts)
   owns the typed authentication, persistence, mismatch, and stored-corruption
   error contracts.
+- [`../packages/executor/src/storedAttemptAuthentication/planningOperations.ts`](../packages/executor/src/storedAttemptAuthentication/planningOperations.ts)
+  owns C04B1 commit-authority authentication, C04B2 commit-input verification,
+  C04C1 logical planning, their process-local capability handles, and their
+  public test inspectors.
+- [`../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitAuthorityVerification.ts),
+  [`../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts`](../packages/executor/src/storedAttemptAuthentication/commitInputVerification.ts),
+  and
+  [`../packages/executor/src/storedAttemptAuthentication/pointCommitPlanning.ts`](../packages/executor/src/storedAttemptAuthentication/pointCommitPlanning.ts)
+  remain the focused authority-verification, input-verification, and pure
+  planning kernels composed by the planning operation owner.
 - [`../packages/executor/test/storedAttemptAuthentication.test.ts`](../packages/executor/test/storedAttemptAuthentication.test.ts)
   is the main focused regression suite for capability surface and provenance.
 
@@ -124,13 +134,17 @@ The runtime already has these accepted properties:
   occurrence of that state as an invariant defect.
 
 Construction policy and capability state have moved into focused private
-modules. R01 is complete: authentication-only construction composes a focused
-operation factory over only execution-claim admission, evidence loading, and
-the authentication vault facets. The authentication owner also contains the
-single canonical stored-evidence verifier and caller-envelope comparator;
-finishing reconstruction reuses that same implementation rather than
-duplicating it. Later domain operations and most capability contracts still
-live in the facade.
+modules. R01 and R02 are complete. Authentication-only construction composes a
+focused operation factory over only execution-claim admission, evidence
+loading, and the authentication vault facets. The authentication owner also
+contains the single canonical stored-evidence verifier and caller-envelope
+comparator; finishing reconstruction reuses that same implementation rather
+than duplicating it. Planning composes a second private operation factory over
+the same vault for distinct C04B1, C04B2, and C04C1 operations. It reuses the
+existing authority-verification, input-verification, and pure-planning kernels,
+and planning-stage construction returns before any point-commit dependency is
+inspected. Later domain operations and most capability contracts still live in
+the facade.
 
 ## Invariants And Trust Boundaries
 
@@ -256,7 +270,13 @@ Exit criteria:
 - constructing the authentication facet reads no commit-authority or later
   dependency.
 
-### [ ] R02 - Extract commit authority and logical planning
+### [x] R02 - Extract commit authority and logical planning
+
+Status: complete. One private planning-operation factory owns the distinct
+C04B1, C04B2, and C04C1 Effect operations, their opaque process-local
+capability handles, same-factory lookup, state capture, and test inspectors. It
+composes the already-separated authority-verification, input-verification, and
+pure-planning kernels over the existing single runtime vault.
 
 Move authenticated commit-authority construction, commit-input verification,
 pure point planning, capability minting, and their test inspectors into focused
@@ -401,8 +421,8 @@ A future compacted session should resume as follows:
    work.
 3. Confirm the named exact-stage constructors, construction-policy module, and
    capability-state vault still exist.
-4. Start with the first unchecked gate only. The current next gate is R02,
-   commit authority and logical planning.
+4. Start with the first unchecked gate only. The current next gate is R03,
+   rollback and publication adapters.
 5. Before editing an Effect flow, apply the repository Effect guidance and
    inspect the installed Effect version.
 6. Validate the bounded slice, run both required reviewers for a significant
