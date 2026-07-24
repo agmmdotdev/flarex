@@ -143,11 +143,16 @@ export class FinishPushRequest extends Schema.Class<FinishPushRequest>(
   activate: Schema.optional(Schema.Boolean),
 }) {}
 
+export const SOURCE_MODULE_DIGEST_FORMAT_V1 = "sha256-framed-v1" as const;
+
 export class PushSourcePackage extends Schema.Class<PushSourcePackage>(
   "PushSourcePackage",
 )({
   modules: Schema.Array(PushSourceModule),
   functions: Schema.Array(Schema.String),
+  sourceModuleDigestFormat: Schema.optional(
+    Schema.Literal(SOURCE_MODULE_DIGEST_FORMAT_V1),
+  ),
   schema: Schema.optional(Schema.String),
   authConfig: Schema.optional(AuthConfigSchema),
   authConfigModule: Schema.optional(Schema.String),

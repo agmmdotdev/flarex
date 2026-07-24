@@ -60,6 +60,14 @@ export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourceP
     if (!Array.isArray(sourcePackage.functions)) {
       return yield* deploymentValidationFailureEffect("Source package functions must be an array.");
     }
+    if (
+      sourcePackage.sourceModuleDigestFormat !== undefined &&
+      sourcePackage.sourceModuleDigestFormat !== "sha256-framed-v1"
+    ) {
+      return yield* deploymentValidationFailureEffect(
+        "Source package module digest format is unsupported.",
+      );
+    }
     if (typeof sourcePackage.execution !== "string" || sourcePackage.execution.length === 0) {
       return yield* deploymentValidationFailureEffect("Source package execution module is required.");
     }
@@ -151,6 +159,12 @@ export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourceP
     return {
       modules,
       functions,
+      ...(sourcePackage.sourceModuleDigestFormat === undefined
+        ? {}
+        : {
+            sourceModuleDigestFormat:
+              sourcePackage.sourceModuleDigestFormat,
+          }),
       ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
       ...(authConfig === undefined ? {} : { authConfig }),
       ...(sourcePackage.authConfigModule === undefined

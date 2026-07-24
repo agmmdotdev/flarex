@@ -59,6 +59,7 @@ describe("deployment request payloads", () => {
   it("normalizes public start source package entries for backend ownership", async () => {
     const body = {
       sourcePackage: {
+        sourceModuleDigestFormat: "sha256-framed-v1",
         modules: [{
           path: "convex/users.ts",
           environment: "isolate",
@@ -113,6 +114,7 @@ describe("deployment request payloads", () => {
 
 function sourcePackage(): {
   sourcePackage: {
+    sourceModuleDigestFormat: "sha256-framed-v1";
     modules: Array<{
       path: string;
       environment: "isolate";
@@ -123,6 +125,7 @@ function sourcePackage(): {
   };
 }["sourcePackage"] {
   return {
+    sourceModuleDigestFormat: "sha256-framed-v1",
     modules: [{
       path: "convex/users.ts",
       environment: "isolate",

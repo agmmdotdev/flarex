@@ -39,6 +39,9 @@ const StoredDeploymentSchemaShape = Schema.Struct({
 const StoredPushSourcePackageShape = Schema.Struct({
   modules: Schema.Array(Schema.Unknown),
   functions: Schema.Array(Schema.Unknown),
+  sourceModuleDigestFormat: Schema.optional(
+    Schema.Literal("sha256-framed-v1"),
+  ),
   schema: Schema.optional(Schema.String),
   authConfig: Schema.optional(Schema.Unknown),
   authConfigModule: Schema.optional(Schema.String),

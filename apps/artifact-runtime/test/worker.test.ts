@@ -1,4 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -16,6 +17,7 @@ import {
   R2BackendExecutionArtifactStore,
   type R2BucketLike,
 } from "flarex-backend/artifact-store";
+import { sourceModuleDigestInputV1 } from "flarex/artifacts";
 import type {
   ActiveDeploymentStatus,
   PushSourcePackage,
@@ -1036,37 +1038,14 @@ describe("artifact runtime worker", () => {
     expect(loader.loaded).toEqual([]);
   });
 
-  it("reports missing source modules before loading a Dynamic Worker", async () => {
+  it("rejects missing source modules before publishing an artifact", async () => {
     const sourcePackage = sourcePackageWithMissingSource();
     const bucket = new FakeR2Bucket();
-    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
-    const loader = new FakeWorkerLoader(async () => {
-      throw new Error("loader should not run when source modules are missing");
-    });
-    const worker = createArtifactRuntimeWorker();
-    const payload: ExecutionArtifactInvokePayload = {
-      deploymentId: "deployment1",
-      ref,
-      identity: anonymousIdentity,
-      request: {
-        path: "users:get",
-        kind: "query",
-        args: {},
-      },
-    };
+    const store = new R2BackendExecutionArtifactStore(bucket);
 
-    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
-      ARTIFACTS: bucket,
-      FLAREX_EXECUTOR: fakeExecutorBinding(),
-      LOADER: loader,
-      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
-    });
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({
-      error: "Source package module _flarex/execution.js has no source.",
-    });
-    expect(loader.loaded).toEqual([]);
+    await expect(store.put(sourcePackage)).rejects.toThrow(
+      "Execution artifact module is not materialized:",
+    );
   });
 
   it("rejects reserved and duplicate source package module paths before loading", async () => {
@@ -1135,7 +1114,7 @@ function runtimeInvokeRequest(
 }
 
 function testSourcePackage(): PushSourcePackage {
-  return {
+  return withSourceModuleHashes({
     modules: [
       {
         path: "_flarex/execution.js",
@@ -1152,11 +1131,11 @@ function testSourcePackage(): PushSourcePackage {
     ],
     functions: ["users.js"],
     execution: "_flarex/execution.js",
-  };
+  });
 }
 
 function executableSourcePackage(): PushSourcePackage {
-  return {
+  return withSourceModuleHashes({
     modules: [
       {
         path: "_flarex/execution.js",
@@ -1181,11 +1160,11 @@ function executableSourcePackage(): PushSourcePackage {
     ],
     functions: ["users.js"],
     execution: "_flarex/execution.js",
-  };
+  });
 }
 
 function executableDbSourcePackage(): PushSourcePackage {
-  return {
+  return withSourceModuleHashes({
     modules: [
       {
         path: "_flarex/execution.js",
@@ -1215,11 +1194,11 @@ function executableDbSourcePackage(): PushSourcePackage {
     ],
     functions: ["messages.js"],
     execution: "_flarex/execution.js",
-  };
+  });
 }
 
 function executableMutationSourcePackage(): PushSourcePackage {
-  return {
+  return withSourceModuleHashes({
     modules: [
       {
         path: "_flarex/execution.js",
@@ -1246,11 +1225,11 @@ function executableMutationSourcePackage(): PushSourcePackage {
     ],
     functions: ["messages.js"],
     execution: "_flarex/execution.js",
-  };
+  });
 }
 
 function executableNestedSourcePackage(): PushSourcePackage {
-  return {
+  return withSourceModuleHashes({
     modules: [
       {
         path: "_flarex/execution.js",
@@ -1293,11 +1272,12 @@ export default {
     ],
     functions: ["messages.js"],
     execution: "_flarex/execution.js",
-  };
+  });
 }
 
 function sourcePackageWithMissingSource(): PushSourcePackage {
   return {
+    sourceModuleDigestFormat: "sha256-framed-v1",
     modules: [
       {
         path: "_flarex/execution.js",
@@ -1317,7 +1297,7 @@ function sourcePackageWithMissingSource(): PushSourcePackage {
 }
 
 function sourcePackageWithRuntimeModulePath(): PushSourcePackage {
-  return {
+  return withSourceModuleHashes({
     modules: [
       {
         path: "flarex-runtime-worker.js",
@@ -1328,11 +1308,11 @@ function sourcePackageWithRuntimeModulePath(): PushSourcePackage {
     ],
     functions: ["flarex-runtime-worker.js"],
     execution: "flarex-runtime-worker.js",
-  };
+  });
 }
 
 function sourcePackageWithDuplicateModulePath(): PushSourcePackage {
-  return {
+  return withSourceModuleHashes({
     modules: [
       {
         path: "_flarex/execution.js",
@@ -1355,6 +1335,25 @@ function sourcePackageWithDuplicateModulePath(): PushSourcePackage {
     ],
     functions: ["users.js"],
     execution: "_flarex/execution.js",
+  });
+}
+
+function withSourceModuleHashes(
+  sourcePackage: PushSourcePackage,
+): PushSourcePackage {
+  return {
+    ...sourcePackage,
+    sourceModuleDigestFormat: "sha256-framed-v1",
+    modules: sourcePackage.modules.map(module =>
+      module.source === undefined
+        ? module
+        : {
+            ...module,
+            sha256: createHash("sha256")
+              .update(sourceModuleDigestInputV1(module.source, module.sourceMap))
+              .digest("hex"),
+          }
+    ),
   };
 }
 
@@ -1467,11 +1466,11 @@ class FakeR2Bucket implements R2BucketLike {
     return Promise.resolve();
   }
 
-  get(key: string): Promise<{ json<T>(): Promise<T> } | null> {
+  get(key: string): Promise<{ text(): Promise<string> } | null> {
     const value = this.objects.get(key);
     if (value === undefined) return Promise.resolve(null);
     return Promise.resolve({
-      json: <T>() => Promise.resolve(JSON.parse(value) as T),
+      text: () => Promise.resolve(value),
     });
   }
 

@@ -192,6 +192,7 @@ export type PushSourceModule = {
 export type PushSourcePackage = {
   modules: PushSourceModule[];
   functions: string[];
+  sourceModuleDigestFormat?: "sha256-framed-v1";
   schema?: string;
   authConfig?: AuthConfig;
   authConfigModule?: string;

@@ -1,4 +1,5 @@
 import type { DeploymentFunctions, PushSourcePackage } from "../src/types";
+import { sourceModuleSha256ForTest } from "./sourcePackageHashFixture";
 
 export type SourcePackageForFunctionsOptions = {
   readonly execution?: string;
@@ -13,17 +14,21 @@ export function sourcePackageForFunctions(
 ): PushSourcePackage {
   const execution = options.execution ?? "_flarex/execution.js";
   const schema = options.schema ?? "_flarex/schema.js";
-  const moduleHash = options.moduleHash ?? "0".repeat(64);
   const functionModulePaths = [
     ...new Set(functions.functions.map(fn => `${moduleNameFromFunctionPath(fn.path)}.js`)),
   ].sort();
   const source = options.includeModuleSource === false
     ? undefined
     : "export default {};";
+  const moduleHash = options.moduleHash ??
+    (source === undefined
+      ? "0".repeat(64)
+      : sourceModuleSha256ForTest(source));
   const modules = [execution, schema, ...functionModulePaths].map(path =>
     sourcePackageModule(path, moduleHash, source),
   );
   return {
+    sourceModuleDigestFormat: "sha256-framed-v1",
     modules,
     functions: functionModulePaths,
     schema,

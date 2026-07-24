@@ -20,6 +20,7 @@ import {
   deployPushJsonHeaders,
   type BackendHarness,
 } from "./backendHarness";
+import { sourceModuleSha256ForTest } from "./sourcePackageHashFixture";
 
 export type LifecycleQueryInvokeRequest = InvokeRequest & {
   readonly kind: "query";
@@ -81,17 +82,18 @@ export function testLifecycleInvokeRequest(): LifecycleQueryInvokeRequest {
 
 export function testLifecycleSourcePackage(): PushSourcePackage {
   return {
+    sourceModuleDigestFormat: "sha256-framed-v1",
     modules: [
       {
         path: "_flarex/execution.js",
         environment: "isolate",
-        sha256: "a".repeat(64),
+        sha256: sourceModuleSha256ForTest("export default {};"),
         source: "export default {};",
       },
       {
         path: "users.js",
         environment: "isolate",
-        sha256: "b".repeat(64),
+        sha256: sourceModuleSha256ForTest("export const get = {};"),
         source: "export const get = {};",
       },
     ],

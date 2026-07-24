@@ -32,7 +32,10 @@ import {
 } from "flarex-backend/artifact-runtime";
 import { materializedExecutionArtifactInvokePayload } from "flarex-protocol/artifact-runtime";
 import { decodeAuthConfigPromise, type ExecutionIdentity } from "flarex-protocol/auth";
-import type { ExecutionArtifactRef } from "flarex/artifacts";
+import {
+  SOURCE_MODULE_DIGEST_FORMAT_V1,
+  type ExecutionArtifactRef,
+} from "flarex/artifacts";
 import type { PushSourcePackage } from "flarex-backend/types";
 
 import {
@@ -268,6 +271,14 @@ async function validateMaterializableSourcePackage(
   if (!Array.isArray(value.functions) || typeof value.execution !== "string") {
     throw new Error(`Deployment package ${packageId} is not a valid source package.`);
   }
+  if (
+    value.sourceModuleDigestFormat !== undefined &&
+    value.sourceModuleDigestFormat !== SOURCE_MODULE_DIGEST_FORMAT_V1
+  ) {
+    throw new Error(
+      `Deployment package ${packageId} has an invalid source module digest format.`,
+    );
+  }
   const functions = value.functions;
   const execution = value.execution;
   const authConfigModule = value.authConfigModule;
@@ -295,6 +306,11 @@ async function validateMaterializableSourcePackage(
       }
       return fn;
     }),
+    ...(value.sourceModuleDigestFormat === undefined
+      ? {}
+      : {
+          sourceModuleDigestFormat: SOURCE_MODULE_DIGEST_FORMAT_V1,
+        }),
     ...(typeof value.schema === "string" ? { schema: value.schema } : {}),
     ...(authConfig === undefined ? {} : { authConfig }),
     ...(typeof authConfigModule === "string"

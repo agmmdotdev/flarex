@@ -1,11 +1,13 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  assertExecutionArtifactRefMatchesMaterializedSourcePackage,
   assertExecutionArtifactRefMatchesSourcePackage,
   cloneArtifactSourcePackage,
   executionArtifactManifestKey,
   executionArtifactRefForSourcePackage,
   executionArtifactRefsEqual,
   executionArtifactSourcePackageKey,
+  sourceModuleDigestInputV1,
   stableSourcePackageManifest,
   validateExecutionArtifactRef,
   validateStoredExecutionArtifactManifest,
@@ -121,6 +123,83 @@ describe("execution artifact refs", () => {
         package_,
       ),
     ).rejects.toThrow(`Execution artifact ref does not match source package: ${ref.artifactId}`);
+  });
+
+  it("authenticates materialized module source and source-map bytes", async () => {
+    const package_: MaterializedArtifactSourcePackage = {
+      sourceModuleDigestFormat: "sha256-framed-v1",
+      modules: [{
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "8467b10c7c9cf858f2a3ae183559ce3c45c643e9d3555aaa60c4e9fcb44946a1",
+        source: "export default {};",
+        sourceMap: "{}",
+      }],
+      functions: [],
+      execution: "_flarex/execution.js",
+    };
+    const ref = await executionArtifactRefForSourcePackage(package_);
+
+    await expect(
+      assertExecutionArtifactRefMatchesMaterializedSourcePackage(ref, package_),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertExecutionArtifactRefMatchesMaterializedSourcePackage(ref, {
+        ...package_,
+        modules: package_.modules.map(module => ({
+          ...module,
+          source: `${module.source}\n// tampered`,
+        })),
+      }),
+    ).rejects.toThrow(
+      `Execution artifact module digest mismatch for _flarex/execution.js: ${ref.artifactId}`,
+    );
+    await expect(
+      assertExecutionArtifactRefMatchesMaterializedSourcePackage(ref, {
+        ...package_,
+        modules: package_.modules.map(module => ({
+          ...module,
+          sourceMap: '{"tampered":true}',
+        })),
+      }),
+    ).rejects.toThrow(
+      `Execution artifact module digest mismatch for _flarex/execution.js: ${ref.artifactId}`,
+    );
+  });
+
+  it("frames raw NUL bytes and source-map presence without collisions", () => {
+    expect(sourceModuleDigestInputV1("a\0b", undefined)).not.toEqual(
+      sourceModuleDigestInputV1("a", "\0b"),
+    );
+    expect(sourceModuleDigestInputV1("source", undefined)).not.toEqual(
+      sourceModuleDigestInputV1("source", ""),
+    );
+  });
+
+  it("continues to verify legacy stored module digests outside exact runtime", async () => {
+    const package_: MaterializedArtifactSourcePackage = {
+      modules: [{
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "033863feac98da798b6b567b0db7f287e6ba73c4dea19178f0fca8b2e12e3843",
+        source: "export default {};",
+        sourceMap: "{}",
+      }],
+      functions: [],
+      execution: "_flarex/execution.js",
+    };
+    const ref = await executionArtifactRefForSourcePackage(package_);
+    expect(ref).toEqual({
+      runtime: "dynamic-worker",
+      artifactId: "artifact_aaf8f077a12db1dd330a40910d077807",
+      sourcePackageHash:
+        "aaf8f077a12db1dd330a40910d0778073c0b0c5c72d757402bcedf6ca6845061",
+      executionModule: "_flarex/execution.js",
+    });
+
+    await expect(
+      assertExecutionArtifactRefMatchesMaterializedSourcePackage(ref, package_),
+    ).resolves.toBeUndefined();
   });
 
   it("validates stored artifact refs from unknown input", async () => {

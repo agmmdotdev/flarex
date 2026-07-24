@@ -80,6 +80,7 @@ function jsonRequest(
 
 function testSourcePackage(): SourcePackage {
   return {
+    sourceModuleDigestFormat: "sha256-framed-v1",
     modules: [{
       path: "_flarex/execution.js",
       source: "export default {};",

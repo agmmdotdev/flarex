@@ -3,6 +3,7 @@ import {
   decodeAbandonPushRequestEffect,
   decodeAnalyzedStartPushRequestEffect,
   decodeFinishPushRequestEffect,
+  decodePushSourcePackageEffect,
   decodeStartPushRequestEffect,
   DeploymentProtocolValidationError,
   type AbandonPushRequest,
@@ -41,9 +42,11 @@ export const decodePublicStartPushPayload = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<StartPushRequest, DeploymentProtocolValidationError> {
-  return yield* decodeStartPushRequestEffect(value).pipe(
-    Effect.map(backendStartPushRequest),
+  const request = yield* decodeStartPushRequestEffect(value);
+  yield* requireFramedSourceModuleDigests(
+    request.sourcePackage.sourceModuleDigestFormat,
   );
+  return backendStartPushRequest(request);
 });
 
 export const decodePublicAnalyzedStartPushPayload = Effect.fn(
@@ -51,7 +54,14 @@ export const decodePublicAnalyzedStartPushPayload = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
-  return yield* decodeDeploymentAnalyzedStartPushPayload(value);
+  const request = yield* decodeDeploymentAnalyzedStartPushPayload(value);
+  const sourcePackage = yield* decodePushSourcePackageEffect(
+    request.sourcePackage,
+  );
+  yield* requireFramedSourceModuleDigests(
+    sourcePackage.sourceModuleDigestFormat,
+  );
+  return request;
 });
 
 export const decodePublicFinishPushPayload = Effect.fn(
@@ -81,6 +91,12 @@ function backendStartPushRequest(request: ProtocolStartPushRequest): StartPushRe
         ...(module.sourceMap === undefined ? {} : { sourceMap: module.sourceMap }),
       })),
       functions: [...request.sourcePackage.functions],
+      ...(request.sourcePackage.sourceModuleDigestFormat === undefined
+        ? {}
+        : {
+            sourceModuleDigestFormat:
+              request.sourcePackage.sourceModuleDigestFormat,
+          }),
       ...(request.sourcePackage.schema === undefined
         ? {}
         : { schema: request.sourcePackage.schema }),
@@ -93,4 +109,17 @@ function backendStartPushRequest(request: ProtocolStartPushRequest): StartPushRe
       execution: request.sourcePackage.execution,
     },
   };
+}
+
+function requireFramedSourceModuleDigests(
+  format: string | undefined,
+): Effect.Effect<void, DeploymentProtocolValidationError> {
+  return format === "sha256-framed-v1"
+    ? Effect.void
+    : Effect.fail(new DeploymentProtocolValidationError({
+        schema: "PushSourcePackage",
+        message:
+          "New pushes require sha256-framed-v1 source-module digests.",
+        cause: format,
+      }));
 }

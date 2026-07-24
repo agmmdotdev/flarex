@@ -3,9 +3,14 @@ import {
   executionArtifactRefForSourcePackage,
   executionArtifactSourcePackageKey,
 } from "flarex/artifacts";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { R2BackendExecutionArtifactStore } from "../src/artifactStore";
+import {
+  BackendExecutionArtifactIntegrityError,
+  R2BackendExecutionArtifactStore,
+} from "../src/artifactStore";
 import type { PushSourcePackage } from "../src/types";
+import { sourceModuleSha256ForTest } from "./sourcePackageHashFixture";
 
 describe("backend execution artifact store", () => {
   it("stores source packages by deterministic execution artifact reference", async () => {
@@ -47,9 +52,137 @@ describe("backend execution artifact store", () => {
       JSON.stringify(testSourcePackage("f".repeat(64))),
     );
 
-    await expect(store.get(ref)).rejects.toThrow(
-      `Execution artifact ref does not match source package: ${ref.artifactId}`,
+    const failure = await store.get(ref).then(
+      () => undefined,
+      cause => cause,
     );
+    expect(failure).toMatchObject({
+      _tag: "BackendExecutionArtifactIntegrityError",
+      artifactId: ref.artifactId,
+    } satisfies Partial<BackendExecutionArtifactIntegrityError>);
+    expect(failure.cause).toMatchObject({
+      message: `Execution artifact ref does not match source package: ${ref.artifactId}`,
+    });
+  });
+
+  it("classifies missing or malformed stored source objects as integrity failures", async () => {
+    const bucket = new FakeR2Bucket();
+    const store = new R2BackendExecutionArtifactStore(bucket);
+    const sourcePackage = testSourcePackage();
+    const ref = await store.put(sourcePackage);
+    const sourcePackageKey = executionArtifactSourcePackageKey(ref);
+
+    await bucket.delete(sourcePackageKey);
+    await expect(store.get(ref)).rejects.toMatchObject({
+      _tag: "BackendExecutionArtifactIntegrityError",
+      artifactId: ref.artifactId,
+      cause: {
+        message: `Execution artifact source package is missing: ${ref.artifactId}`,
+      },
+    } satisfies Partial<BackendExecutionArtifactIntegrityError>);
+
+    await bucket.put(sourcePackageKey, "{");
+    await expect(store.get(ref)).rejects.toMatchObject({
+      _tag: "BackendExecutionArtifactIntegrityError",
+      artifactId: ref.artifactId,
+      cause: {
+        name: "SyntaxError",
+      },
+    } satisfies Partial<BackendExecutionArtifactIntegrityError>);
+  });
+
+  it("preserves R2 object and body acquisition failures as load failures", async () => {
+    const bucket = new FakeR2Bucket();
+    const store = new R2BackendExecutionArtifactStore(bucket);
+    const sourcePackage = testSourcePackage();
+    const ref = await store.put(sourcePackage);
+    const objectFailure = new Error("R2 unavailable");
+    bucket.failGet(executionArtifactManifestKey(ref), objectFailure);
+
+    await expect(store.get(ref)).rejects.toBe(objectFailure);
+
+    bucket.clearGetFailure(executionArtifactManifestKey(ref));
+    const bodyFailure = new Error("R2 body unavailable");
+    bucket.failText(executionArtifactManifestKey(ref), bodyFailure);
+    await expect(store.get(ref)).rejects.toBe(bodyFailure);
+  });
+
+  it("rejects mismatched module bytes before publishing any artifact objects", async () => {
+    const bucket = new FakeR2Bucket();
+    const store = new R2BackendExecutionArtifactStore(bucket);
+    const sourcePackage = testSourcePackage();
+    sourcePackage.modules[0] = {
+      ...sourcePackage.modules[0]!,
+      source: "export default { tampered: true };",
+    };
+
+    await expect(store.put(sourcePackage)).rejects.toThrow(
+      "Execution artifact module digest mismatch for _flarex/execution.js",
+    );
+    expect(bucket.keys()).toEqual([]);
+  });
+
+  it("snapshots caller-owned source packages before asynchronous validation", async () => {
+    const bucket = new FakeR2Bucket();
+    const store = new R2BackendExecutionArtifactStore(bucket);
+    const sourcePackage = testSourcePackage();
+    const executionModule = sourcePackage.modules[0]!;
+    const originalSource = executionModule.source;
+    let visibleSource = originalSource;
+    Object.defineProperty(executionModule, "source", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        queueMicrotask(() => {
+          visibleSource = "export default { tampered: true };";
+        });
+        return visibleSource;
+      },
+    });
+
+    const ref = await store.put(sourcePackage);
+
+    expect(visibleSource).not.toBe(originalSource);
+    const stored = await store.get(ref);
+    expect(stored.modules[0]).toMatchObject({
+      path: "_flarex/execution.js",
+      source: originalSource,
+    });
+  });
+
+  it("requires framed digests for new artifacts but reads legacy stored artifacts", async () => {
+    const bucket = new FakeR2Bucket();
+    const store = new R2BackendExecutionArtifactStore(bucket);
+    const framed = testSourcePackage();
+    const {
+      sourceModuleDigestFormat: _format,
+      ...legacyPackage
+    } = framed;
+    legacyPackage.modules = legacyPackage.modules.map(module => ({
+      ...module,
+      sha256: legacySourceModuleSha256(
+        module.source ?? "",
+        module.sourceMap,
+      ),
+    }));
+
+    await expect(store.put(legacyPackage)).rejects.toThrow(
+      "New execution artifacts require framed V1 source-module digests.",
+    );
+    expect(bucket.keys()).toEqual([]);
+
+    const legacyRef = await executionArtifactRefForSourcePackage(legacyPackage);
+    const sourcePackagePath = executionArtifactSourcePackageKey(legacyRef);
+    await bucket.put(sourcePackagePath, JSON.stringify(legacyPackage));
+    await bucket.put(
+      executionArtifactManifestKey(legacyRef),
+      JSON.stringify({
+        version: 1,
+        ref: legacyRef,
+        sourcePackagePath,
+      }),
+    );
+    await expect(store.get(legacyRef)).resolves.toEqual(legacyPackage);
   });
 
   it("rejects manifest ref mismatches", async () => {
@@ -63,9 +196,17 @@ describe("backend execution artifact store", () => {
       sourcePackagePath: executionArtifactSourcePackageKey(ref),
     }));
 
-    await expect(store.get(ref)).rejects.toThrow(
-      `Execution artifact manifest ref mismatch for ${ref.artifactId}`,
+    const failure = await store.get(ref).then(
+      () => undefined,
+      cause => cause,
     );
+    expect(failure).toMatchObject({
+      _tag: "BackendExecutionArtifactIntegrityError",
+      artifactId: ref.artifactId,
+    } satisfies Partial<BackendExecutionArtifactIntegrityError>);
+    expect(failure.cause).toMatchObject({
+      message: `Execution artifact manifest ref mismatch for ${ref.artifactId}.`,
+    });
   });
 
   it("deletes artifact source package and manifest objects", async () => {
@@ -79,19 +220,22 @@ describe("backend execution artifact store", () => {
   });
 });
 
-function testSourcePackage(functionModuleHash = "c".repeat(64)): PushSourcePackage {
+function testSourcePackage(
+  functionModuleHash = sourceModuleSha256ForTest("export const list = {};"),
+): PushSourcePackage {
   return {
+    sourceModuleDigestFormat: "sha256-framed-v1",
     modules: [
       {
         path: "_flarex/execution.js",
         environment: "isolate",
-        sha256: "a".repeat(64),
+        sha256: sourceModuleSha256ForTest("export default {};"),
         source: "export default {};",
       },
       {
         path: "_flarex/schema.js",
         environment: "isolate",
-        sha256: "b".repeat(64),
+        sha256: sourceModuleSha256ForTest("export default {};"),
         source: "export default {};",
       },
       {
@@ -107,8 +251,21 @@ function testSourcePackage(functionModuleHash = "c".repeat(64)): PushSourcePacka
   };
 }
 
+function legacySourceModuleSha256(
+  source: string,
+  sourceMap?: string,
+): string {
+  return createHash("sha256")
+    .update(source)
+    .update("\0")
+    .update(sourceMap ?? "")
+    .digest("hex");
+}
+
 class FakeR2Bucket {
-  private readonly objects = new Map<string, { value: unknown; contentType?: string }>();
+  private readonly objects = new Map<string, { value: string; contentType?: string }>();
+  private readonly getFailures = new Map<string, Error>();
+  private readonly textFailures = new Map<string, Error>();
 
   async put(
     key: string,
@@ -117,23 +274,42 @@ class FakeR2Bucket {
   ): Promise<void> {
     const contentType = options?.httpMetadata?.contentType;
     this.objects.set(key, {
-      value: JSON.parse(value) as unknown,
+      value,
       ...(contentType === undefined ? {} : { contentType }),
     });
   }
 
-  async get(key: string): Promise<{ json<T>(): Promise<T> } | null> {
+  async get(key: string): Promise<{ text(): Promise<string> } | null> {
+    const getFailure = this.getFailures.get(key);
+    if (getFailure !== undefined) throw getFailure;
     const object = this.objects.get(key);
     if (object === undefined) return null;
+    const textFailure = this.textFailures.get(key);
     return {
-      json: async <T>() => object.value as T,
+      text: async () => {
+        if (textFailure !== undefined) throw textFailure;
+        return object.value;
+      },
     };
   }
 
   async delete(key: string | string[]): Promise<void> {
     for (const item of Array.isArray(key) ? key : [key]) {
       this.objects.delete(item);
+      this.textFailures.delete(item);
     }
+  }
+
+  failText(key: string, failure: Error): void {
+    this.textFailures.set(key, failure);
+  }
+
+  failGet(key: string, failure: Error): void {
+    this.getFailures.set(key, failure);
+  }
+
+  clearGetFailure(key: string): void {
+    this.getFailures.delete(key);
   }
 
   keys(): string[] {

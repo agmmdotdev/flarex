@@ -1,0 +1,194 @@
+import { Data, Effect } from "effect";
+import {
+  assertExecutionArtifactRefMatchesMaterializedSourcePackage,
+  SOURCE_MODULE_DIGEST_FORMAT_V1,
+  type ExecutionArtifactRef,
+} from "flarex/artifacts";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
+  POINT_MUTATION_EXACT_RUNTIME_PROFILE_V1,
+  POINT_MUTATION_EXACT_RUNTIME_VERSION_V1,
+  type PointMutationExactRuntimeArtifactRefV1,
+} from "flarex-protocol/point-mutation-exact-runtime";
+
+import {
+  BackendExecutionArtifactIntegrityError,
+  type BackendExecutionArtifactStore,
+} from "../artifactStore.ts";
+import type { PushSourcePackage } from "../types.ts";
+import {
+  executionArtifactWorkerModules,
+  type ExecutionArtifactWorkerDefinition,
+} from "./HostKit.ts";
+import {
+  pointMutationExactRuntimeWorkerSource,
+} from "./PointMutationExactRuntimeWorkerSource.ts";
+
+export const POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1 =
+  "flarex-point-mutation-exact-runtime-v1.js";
+
+export type PointMutationExactRuntimeWorkerEnvV1 = Readonly<
+  Record<PropertyKey, never>
+>;
+
+export interface PointMutationExactRuntimeWorkerDefinitionV1
+  extends ExecutionArtifactWorkerDefinition {
+  readonly compatibilityDate: string;
+  readonly modules: Readonly<Record<string, string>>;
+  readonly env: PointMutationExactRuntimeWorkerEnvV1;
+  readonly globalOutbound: null;
+  readonly entrypoint: typeof POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1;
+}
+
+export interface PointMutationExactRuntimeWorkerCodeIdentityV1Input {
+  readonly artifact: PointMutationExactRuntimeArtifactRefV1;
+  readonly compatibilityDate: string;
+}
+
+export interface LoadPointMutationExactRuntimeWorkerDefinitionV1Input
+  extends PointMutationExactRuntimeWorkerCodeIdentityV1Input {
+  readonly store: Pick<BackendExecutionArtifactStore, "get">;
+}
+
+export type PointMutationExactRuntimeHostV1Issue =
+  | Readonly<{
+      readonly reason: "sourcePackageLoadFailed";
+      readonly cause: unknown;
+    }>
+  | Readonly<{
+      readonly reason: "sourcePackagePinMismatch";
+      readonly cause: unknown;
+    }>
+  | Readonly<{
+      readonly reason: "workerDefinitionFailed";
+      readonly cause: unknown;
+    }>;
+
+export class PointMutationExactRuntimeHostV1Error extends Data.TaggedError(
+  "PointMutationExactRuntimeHostV1Error",
+)<{
+  readonly issue: PointMutationExactRuntimeHostV1Issue;
+}> {}
+
+export function pointMutationExactRuntimeWorkerCodeIdentityV1(
+  input: PointMutationExactRuntimeWorkerCodeIdentityV1Input,
+): string {
+  return JSON.stringify([
+    POINT_MUTATION_EXACT_RUNTIME_PROFILE_V1,
+    POINT_MUTATION_EXACT_RUNTIME_VERSION_V1,
+    input.compatibilityDate,
+    input.artifact.runtime,
+    input.artifact.artifactId,
+    input.artifact.sourcePackageHash,
+    input.artifact.executionModule,
+  ]);
+}
+
+function pointMutationExactRuntimeWorkerDefinitionV1(input: {
+  readonly sourcePackage: PushSourcePackage;
+  readonly artifact: PointMutationExactRuntimeArtifactRefV1;
+  readonly compatibilityDate: string;
+}): PointMutationExactRuntimeWorkerDefinitionV1 {
+  const hasDateShape = /^\d{4}-\d{2}-\d{2}$/.test(input.compatibilityDate);
+  const moduleTime = hasDateShape
+    ? Date.parse(`${input.compatibilityDate}T00:00:00.000Z`)
+    : Number.NaN;
+  if (
+    !Number.isFinite(moduleTime) ||
+    new Date(moduleTime).toISOString().slice(0, 10) !== input.compatibilityDate
+  ) {
+    throw new Error("Exact point-mutation runtime compatibility date is invalid.");
+  }
+  return Object.freeze({
+    compatibilityDate: input.compatibilityDate,
+    mainModule: POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+    modules: Object.freeze(executionArtifactWorkerModules({
+      sourcePackage: input.sourcePackage,
+      runtimeModulePath: POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+      runtimeWorkerSource: pointMutationExactRuntimeWorkerSource({
+        executionModule: input.sourcePackage.execution,
+        moduleTime,
+        moduleRandomSeedHex: input.artifact.sourcePackageHash,
+      }),
+      reservedBy: "exact point-mutation runtime",
+    })),
+    env: Object.freeze({}),
+    globalOutbound: null,
+    entrypoint: POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
+  });
+}
+
+export const loadPointMutationExactRuntimeWorkerDefinitionV1Effect = Effect.fn(
+  "PointMutationExactRuntimeHost.loadWorkerDefinition",
+)(function* (
+  input: LoadPointMutationExactRuntimeWorkerDefinitionV1Input,
+): Effect.fn.Return<
+  Readonly<{
+    readonly codeIdentity: string;
+    readonly definition: PointMutationExactRuntimeWorkerDefinitionV1;
+    readonly loadMode: "fresh";
+  }>,
+  PointMutationExactRuntimeHostV1Error
+> {
+  const artifact = exactRuntimeArtifactRef(input.artifact);
+  const sourcePackage = yield* Effect.tryPromise({
+    try: () => input.store.get(artifact),
+    catch: (cause) =>
+      new PointMutationExactRuntimeHostV1Error({
+        issue: {
+          reason: cause instanceof BackendExecutionArtifactIntegrityError
+            ? "sourcePackagePinMismatch"
+            : "sourcePackageLoadFailed",
+          cause,
+        },
+      }),
+  });
+  yield* Effect.tryPromise({
+    try: async () => {
+      await assertExecutionArtifactRefMatchesMaterializedSourcePackage(
+        artifact,
+        sourcePackage,
+      );
+      if (
+        sourcePackage.sourceModuleDigestFormat !==
+          SOURCE_MODULE_DIGEST_FORMAT_V1
+      ) {
+        throw new Error(
+          "Exact point-mutation runtime requires framed V1 source-module digests.",
+        );
+      }
+    },
+    catch: (cause) =>
+      new PointMutationExactRuntimeHostV1Error({
+        issue: { reason: "sourcePackagePinMismatch", cause },
+      }),
+  });
+  const definition = yield* Effect.try({
+    try: () =>
+      pointMutationExactRuntimeWorkerDefinitionV1({
+        sourcePackage,
+        artifact: input.artifact,
+        compatibilityDate: input.compatibilityDate,
+      }),
+    catch: (cause) =>
+      new PointMutationExactRuntimeHostV1Error({
+        issue: { reason: "workerDefinitionFailed", cause },
+      }),
+  });
+  return Object.freeze({
+    codeIdentity: pointMutationExactRuntimeWorkerCodeIdentityV1(input),
+    definition,
+    loadMode: "fresh",
+  });
+});
+
+function exactRuntimeArtifactRef(
+  artifact: PointMutationExactRuntimeArtifactRefV1,
+): ExecutionArtifactRef {
+  return Object.freeze({
+    runtime: artifact.runtime,
+    artifactId: artifact.artifactId,
+    sourcePackageHash: artifact.sourcePackageHash,
+    executionModule: artifact.executionModule,
+  });
+}

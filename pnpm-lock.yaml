@@ -109,6 +109,9 @@ importers:
       '@flarex/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      flarex:
+        specifier: workspace:*
+        version: link:../../packages/flarex
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

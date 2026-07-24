@@ -33,6 +33,7 @@ import {
   dataJsonUrl,
   signJwt,
 } from "./authFixtures";
+import { sourceModuleSha256ForTest } from "./sourcePackageHashFixture";
 
 type MiniflareWebSocket = {
   accept(): void;
@@ -7827,17 +7828,18 @@ function testSourcePackage(options: {
   authConfigModule?: string;
 } = {}): PushSourcePackage {
   return {
+    sourceModuleDigestFormat: "sha256-framed-v1",
     modules: [
       {
         path: "_flarex/execution.js",
         environment: "isolate",
-        sha256: "a".repeat(64),
+        sha256: sourceModuleSha256ForTest("export default {};"),
         source: "export default {};",
       },
       {
         path: "users.js",
         environment: "isolate",
-        sha256: "b".repeat(64),
+        sha256: sourceModuleSha256ForTest("export const get = {};"),
         source: "export const get = {};",
       },
       ...(options.authConfigModule === undefined
@@ -7845,7 +7847,7 @@ function testSourcePackage(options: {
         : [{
             path: options.authConfigModule,
             environment: "isolate",
-            sha256: "c".repeat(64),
+            sha256: sourceModuleSha256ForTest("export default {};"),
             source: "export default {};",
           } satisfies PushSourceModule]),
     ],

@@ -4,6 +4,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { stat } from "node:fs/promises";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import {
+  SOURCE_MODULE_DIGEST_FORMAT_V1,
+  sourceModuleDigestInputV1,
+} from "flarex/artifacts";
+import {
   decodeAuthConfigPromise,
   type AuthConfig,
 } from "flarex-protocol/auth";
@@ -21,6 +25,7 @@ export type SourceModule = {
 export type SourcePackage = {
   modules: SourceModule[];
   functions: string[];
+  sourceModuleDigestFormat: typeof SOURCE_MODULE_DIGEST_FORMAT_V1;
   schema?: string;
   authConfig?: AuthConfig;
   authConfigModule?: string;
@@ -62,6 +67,7 @@ export async function bundleSourcePackage(
   return {
     modules,
     functions: functions.map(module => module.path).sort(compareUtf16Strings),
+    sourceModuleDigestFormat: SOURCE_MODULE_DIGEST_FORMAT_V1,
     ...(schema ? { schema: schema.path } : {}),
     ...(authConfig === undefined ? {} : { authConfig }),
     ...(authConfigModule === undefined ? {} : { authConfigModule: authConfigModule.path }),
@@ -217,9 +223,7 @@ function normalizeSourcePath(source: string, appDir: string): string {
 
 function sourceHash(source: string, sourceMap?: string): string {
   return createHash("sha256")
-    .update(source)
-    .update("\0")
-    .update(sourceMap ?? "")
+    .update(sourceModuleDigestInputV1(source, sourceMap))
     .digest("hex");
 }
 

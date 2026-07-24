@@ -2,6 +2,9 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { AuthConfig } from "flarex-protocol/auth";
+import { SOURCE_MODULE_DIGEST_FORMAT_V1 } from "flarex-protocol/deployment";
+
+export { SOURCE_MODULE_DIGEST_FORMAT_V1 } from "flarex-protocol/deployment";
 
 export type ArtifactSourceModule = {
   path: string;
@@ -12,6 +15,7 @@ export type ArtifactSourceModule = {
 export type ArtifactSourcePackage = {
   modules: ArtifactSourceModule[];
   functions: string[];
+  sourceModuleDigestFormat?: typeof SOURCE_MODULE_DIGEST_FORMAT_V1;
   schema?: string;
   authConfig?: AuthConfig;
   authConfigModule?: string;
@@ -54,6 +58,56 @@ export type StoredExecutionArtifactManifest = {
   ref: ExecutionArtifactRef;
   sourcePackagePath: string;
 };
+
+const sourceModuleDigestDomainV1 = new TextEncoder().encode(
+  "flarex.source-module.v1",
+);
+
+/**
+ * Frames source-module bytes for the V1 SHA-256 digest.
+ *
+ * The domain, byte lengths, and source-map presence marker keep every
+ * `(source, sourceMap)` representation distinct, including raw NUL bytes and
+ * omitted versus empty source maps.
+ */
+export function sourceModuleDigestInputV1(
+  source: string,
+  sourceMap: string | undefined,
+): Uint8Array<ArrayBuffer> {
+  const encoder = new TextEncoder();
+  const sourceBytes = encoder.encode(source);
+  const sourceMapBytes = sourceMap === undefined
+    ? undefined
+    : encoder.encode(sourceMap);
+  const sourceMapByteLength = sourceMapBytes?.byteLength ?? 0;
+  const output = new Uint8Array(
+    sourceModuleDigestDomainV1.byteLength +
+      1 +
+      8 +
+      sourceBytes.byteLength +
+      1 +
+      8 +
+      sourceMapByteLength,
+  );
+  const view = new DataView(output.buffer);
+  let offset = 0;
+  output.set(sourceModuleDigestDomainV1, offset);
+  offset += sourceModuleDigestDomainV1.byteLength;
+  output[offset] = 0;
+  offset += 1;
+  view.setBigUint64(offset, BigInt(sourceBytes.byteLength), false);
+  offset += 8;
+  output.set(sourceBytes, offset);
+  offset += sourceBytes.byteLength;
+  output[offset] = sourceMapBytes === undefined ? 0 : 1;
+  offset += 1;
+  view.setBigUint64(offset, BigInt(sourceMapByteLength), false);
+  offset += 8;
+  if (sourceMapBytes !== undefined) {
+    output.set(sourceMapBytes, offset);
+  }
+  return output;
+}
 
 export function executionArtifactManifestKey(
   ref: ExecutionArtifactRef,
@@ -105,6 +159,11 @@ export function cloneArtifactSourcePackage(
   return {
     modules: sourcePackage.modules.map((module) => ({ ...module })),
     functions: [...sourcePackage.functions],
+    ...(sourcePackage.sourceModuleDigestFormat === undefined
+      ? {}
+      : {
+          sourceModuleDigestFormat: sourcePackage.sourceModuleDigestFormat,
+        }),
     ...(sourcePackage.schema === undefined
       ? {}
       : { schema: sourcePackage.schema }),
@@ -163,6 +222,37 @@ export async function assertExecutionArtifactRefMatchesSourcePackage(
   }
 }
 
+export async function assertExecutionArtifactRefMatchesMaterializedSourcePackage(
+  ref: ExecutionArtifactRef,
+  sourcePackage: StoredArtifactSourcePackage,
+): Promise<void> {
+  await assertExecutionArtifactRefMatchesSourcePackage(ref, sourcePackage);
+  if (!Array.isArray(sourcePackage.modules)) {
+    throw new Error(`Execution artifact modules are invalid: ${ref.artifactId}`);
+  }
+  for (const module of sourcePackage.modules) {
+    if (
+      !isNonArrayRecord(module) ||
+      typeof module.path !== "string" ||
+      typeof module.sha256 !== "string" ||
+      typeof module.source !== "string" ||
+      (module.sourceMap !== undefined && typeof module.sourceMap !== "string")
+    ) {
+      throw new Error(`Execution artifact module is not materialized: ${ref.artifactId}`);
+    }
+    const actualDigest = await sourceModuleSha256(
+      module.source,
+      module.sourceMap,
+      sourcePackage.sourceModuleDigestFormat,
+    );
+    if (actualDigest !== module.sha256) {
+      throw new Error(
+        `Execution artifact module digest mismatch for ${module.path}: ${ref.artifactId}`,
+      );
+    }
+  }
+}
+
 export function stableSourcePackageManifest(sourcePackage: ArtifactSourcePackage): string {
   return JSON.stringify({
     execution: sourcePackage.execution,
@@ -171,6 +261,11 @@ export function stableSourcePackageManifest(sourcePackage: ArtifactSourcePackage
       ? null
       : canonicalValue(sourcePackage.authConfig),
     authConfigModule: sourcePackage.authConfigModule ?? null,
+    ...(sourcePackage.sourceModuleDigestFormat === undefined
+      ? {}
+      : {
+          sourceModuleDigestFormat: sourcePackage.sourceModuleDigestFormat,
+        }),
     functions: [...sourcePackage.functions].sort(compareUtf16Strings),
     modules: [...sourcePackage.modules]
       .map(module => ({
@@ -222,5 +317,22 @@ function canonicalValue(value: unknown): unknown {
 
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return encodeBytesToLowercaseHex(new Uint8Array(digest));
+}
+
+function sourceModuleSha256(
+  source: string,
+  sourceMap: string | undefined,
+  format: typeof SOURCE_MODULE_DIGEST_FORMAT_V1 | undefined,
+): Promise<string> {
+  return format === SOURCE_MODULE_DIGEST_FORMAT_V1
+    ? sha256BytesHex(sourceModuleDigestInputV1(source, sourceMap))
+    : sha256Hex(`${source}\0${sourceMap ?? ""}`);
+}
+
+async function sha256BytesHex(
+  value: Uint8Array<ArrayBuffer>,
+): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", value);
   return encodeBytesToLowercaseHex(new Uint8Array(digest));
 }

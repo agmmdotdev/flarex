@@ -19,13 +19,23 @@ import {
 
 describe("public deployment push route boundary", () => {
   const analyzedStartBody = {
-    sourcePackage: { modules: [], functions: [], execution: "__execution.js" },
+    sourcePackage: {
+      sourceModuleDigestFormat: "sha256-framed-v1",
+      modules: [],
+      functions: [],
+      execution: "__execution.js",
+    },
     error: "analysis failed",
   };
 
   it("decodes source-only start-push requests to raw route input before protocol parsing", async () => {
     const body = {
-      sourcePackage: { modules: [], functions: [], execution: "__execution.js" },
+      sourcePackage: {
+        sourceModuleDigestFormat: "sha256-framed-v1",
+        modules: [],
+        functions: [],
+        execution: "__execution.js",
+      },
     };
 
     const routeInput = await Effect.runPromise(decodePublicStartPushRouteInput(jsonRequest(body)));

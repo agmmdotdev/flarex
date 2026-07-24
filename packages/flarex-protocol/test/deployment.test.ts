@@ -334,6 +334,16 @@ describe("deployment protocol schemas", () => {
     await expect(Effect.runPromise(decodeStartPushRequestEffect({ sourcePackage: sourcePackage() }))).resolves.toEqual({
       sourcePackage: sourcePackage(),
     });
+    await expect(Effect.runPromise(decodeStartPushRequestEffect({
+      sourcePackage: {
+        ...sourcePackage(),
+        sourceModuleDigestFormat: "sha256-framed-v1",
+      },
+    }))).resolves.toMatchObject({
+      sourcePackage: {
+        sourceModuleDigestFormat: "sha256-framed-v1",
+      },
+    });
     await expect(Effect.runPromise(decodeStartPushRequestEffect(null)))
       .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(decodeStartPushRequestEffect({})))

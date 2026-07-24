@@ -30,6 +30,7 @@ import {
   deployPushJsonHeaders,
   type BackendHarness,
 } from "./backendHarness";
+import { sourceModuleSha256ForTest } from "./sourcePackageHashFixture";
 import {
   createRsaSigningKeys,
   dataJsonUrl,
@@ -427,6 +428,25 @@ describe("deployment push lifecycle", () => {
     expect(invalidSourcePackage.status).toBe(400);
     await expect(invalidSourcePackage.json()).resolves.toEqual({
       error: "Source package must include modules, functions, and execution fields with valid module entries.",
+    });
+
+    const {
+      sourceModuleDigestFormat: _digestFormat,
+      ...legacySourcePackage
+    } = sourcePackage();
+    const legacySourcePackageResponse = await startPushRawResponse(
+      "push-start-bad-body",
+      {
+        sourcePackage: legacySourcePackage,
+        analysis: {
+          schema: candidateSchema(),
+          functions: candidateFunctions(),
+        },
+      },
+    );
+    expect(legacySourcePackageResponse.status).toBe(400);
+    await expect(legacySourcePackageResponse.json()).resolves.toEqual({
+      error: "New pushes require sha256-framed-v1 source-module digests.",
     });
 
     const invalidDiagnostics = await startPushRawResponse("push-start-bad-body", {
@@ -1195,21 +1215,22 @@ function analyzedPush(
 }
 
 function sourcePackage(
-  functionModuleHash = "c".repeat(64),
+  functionModuleHash = sourceModuleSha256ForTest("export const list = {};"),
   functionModulePath = "lessons.js",
 ): StartPushRequest["sourcePackage"] {
   return {
+    sourceModuleDigestFormat: "sha256-framed-v1",
     modules: [
       {
         path: "_flarex/execution.js",
         environment: "isolate",
-        sha256: "a".repeat(64),
+        sha256: sourceModuleSha256ForTest("export default {};"),
         source: "export default {};",
       },
       {
         path: "_flarex/schema.js",
         environment: "isolate",
-        sha256: "b".repeat(64),
+        sha256: sourceModuleSha256ForTest("export default {};"),
         source: "export default {};",
       },
       {
@@ -1236,7 +1257,7 @@ function sourcePackageWithAuthConfig(
       {
         path: "_flarex/auth.config.js",
         environment: "isolate",
-        sha256: "d".repeat(64),
+        sha256: sourceModuleSha256ForTest("export default {};"),
         source: "export default {};",
       },
     ],

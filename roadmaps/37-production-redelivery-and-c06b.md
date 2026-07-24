@@ -2,10 +2,11 @@
 
 ## Status And Scope
 
-Status: active focused execution plan. P00 records the accepted boundary and
-P01 selects the exact-attempt runtime-host contract; both are complete. P02a,
-the host-neutral exact-runtime protocol and generated Dynamic Worker entrypoint,
-is the current gate.
+Status: active focused execution plan. P00 records the accepted boundary, P01
+selects the exact-attempt runtime-host contract, and P02a freezes the
+host-neutral protocol and generated Dynamic Worker entrypoint; all three are
+complete. P02b, the executor-owned one-shot journal RPC adapter, is the current
+gate.
 
 This plan owns the remaining production portion of
 `O08-B2b2b2b1b2b2b` and the subsequent `C06-B` endpoint/response policy:
@@ -97,7 +98,7 @@ input without:
    connection, exact-attempt claim/liveness process, journal, commit pipeline,
    and deterministic cleanup.
 2. `apps/artifact-runtime` retains source-package validation, Worker Loader
-   construction, and Dynamic Worker code caching. It receives exact reruns only
+   construction, and fresh Dynamic Worker loading. It receives exact reruns only
    through a named private RPC entrypoint, never through its ordinary invoke
    Fetch route.
 3. One scheduled event invokes at most one bounded scheduler run. The existing
@@ -165,7 +166,7 @@ executor scheduled event
   -> outcome-first acquire + same-factory claim admission
   -> executor-owned runtime-neutral runner
   -> named private artifact-runtime RPC entrypoint
-  -> content-addressed source validation + cached exact-runtime Worker code
+  -> content-addressed source validation + one fresh exact-runtime Worker
   -> generated Dynamic Worker exact-mutation entrypoint
   -> forwarded one-shot journal RpcTarget back to the originating executor call
   -> result returned to executor
@@ -187,16 +188,21 @@ The Dynamic Worker wrapper hides the raw journal stub behind the restricted
 mutation context. Developer code receives only the database operations already
 represented by `PointMutationOccBoundJournalV1`.
 
-### Why The Capability Is Not Cached
+### Why The Exact Runtime Is Fresh
 
-Worker Loader `get()` may reuse code while routing later requests to different
-isolates. Its code callback and initial env are therefore not per-attempt
-authority. The exact runtime caches only immutable code under an identity that
-includes artifact/source hash, compatibility date, exact-runtime profile, and
-protocol version.
+Worker Loader `get()` may reuse an isolate, while Convex-compatible mutation
+semantics require an invocation clock, seeded RNG, and no user-module state from
+an earlier attempt. P02 therefore uses Worker Loader `load()`, whose documented
+contract creates a fresh Dynamic Worker for each call. `get()` is no longer an
+accepted exact-attempt path.
+
+The host still computes an immutable definition identity from artifact/source
+hash, compatibility date, exact-runtime profile, and protocol version for
+auditing and definition agreement. That identity is not permission to cache an
+isolate or module state.
 
 The one-shot journal stub is passed as an RPC method argument for each run. It
-is never placed in cached Worker env, module state, R2, Postgres, a continuation,
+is never placed in Worker env, module state, R2, Postgres, a continuation,
 or the scheduler checkpoint. Workers RPC permits forwarding a received stub to
 a third Worker, and that proxy exists only for the active execution contexts.
 If implementation cannot prove this forwarding and disposal behavior in the
@@ -287,7 +293,7 @@ and is never reconstructible from attempt IDs, grants, hashes, or scheduler
 state.
 
 The exact-runtime protocol version participates in both strict decoding and the
-Dynamic Worker code-cache identity. An executor/artifact-runtime version
+Dynamic Worker definition identity. An executor/artifact-runtime version
 mismatch fails before user code runs; there is no permissive fallback to the
 ordinary invoke profile.
 
@@ -306,9 +312,10 @@ ordinary invoke profile.
 4. **Send a journal/session token over HTTP.** Rejected because serialization
    cannot preserve WeakMap/same-factory authority and would create a forgeable
    or database-reconstructible substitute.
-5. **Cache a per-attempt binding in Dynamic Worker env or module state.**
-   Rejected because Worker Loader code caching and isolate routing are not
-   attempt lifetime or identity guarantees.
+5. **Use Worker Loader `get()` or cache a per-attempt binding in Dynamic Worker
+   env/module state.** Rejected because isolate reuse is incompatible with
+   exact-attempt clock/RNG state and because loader identity is not an attempt
+   lifetime or authority guarantee.
 
 ### Platform Evidence
 
@@ -324,8 +331,11 @@ semantics:
   defines stub disposal and automatic cleanup at the end of an event handler;
   and
 - [Worker Loader API](https://developers.cloudflare.com/dynamic-workers/api-reference/)
-  does not guarantee isolate reuse or identity, so correctness cannot depend on
-  cached isolate state.
+  defines `load()` as a fresh Worker and does not guarantee isolate reuse or
+  identity for `get()`, so exact-attempt correctness uses `load()`;
+- [Convex runtime restrictions](https://docs.convex.dev/functions/runtimes#restrictions-on-queries-and-mutations)
+  require seeded `Math.random()` and a function-start-frozen clock for mutation
+  determinism.
 
 ## Execution Gates
 
@@ -369,9 +379,9 @@ claim-fenced journal, and runtime-neutral runner owners. Add focused tests for
 authority forgery, pin mismatch, new-session drift, failure/defect separation,
 interrupt/cleanup behavior, and exact syscall/journal routing.
 
-- **[ ] P02a — freeze the exact-runtime protocol and generated Worker
+- **[x] P02a — freeze the exact-runtime protocol and generated Worker
   entrypoint.** Add strict bounded request/result contracts, immutable
-  code-cache identity, pinned source-package loading, the exact mutation
+  worker-definition identity, pinned source-package loading, the exact mutation
   entrypoint, and generated-source tests. This slice adds no database or
   scheduled host.
 - **[ ] P02b — add the executor-owned one-shot journal RPC adapter.** Preserve
@@ -380,7 +390,12 @@ interrupt/cleanup behavior, and exact syscall/journal routing.
 - **[ ] P02c — compose and prove one exact rerun.** Wire the named
   artifact-runtime RPC entrypoint to the executor runner and existing stored-
   attempt graph. Prove no ordinary invoke route, new session, generic executor
-  binding, or serialized authority participates.
+  binding, or serialized authority participates. Before either path is
+  activated, make the initial point-mutation attempt and exact redelivery use
+  one identical runtime profile; the current initial artifact runtime still
+  exposes native asynchronous Web Crypto, WebAssembly, and advancing
+  `performance.now()`, while the exact-rerun profile deliberately blocks or
+  fixes them.
 
 ### [ ] P03 — Host One Bounded Scheduler Event
 
@@ -413,23 +428,85 @@ for changed persistence behavior. Update the living roadmaps to match the
 implemented boundary and leave deployment/activation explicitly pending unless
 separately authorized.
 
+### Current P02a Boundary
+
+`flarex-protocol/point-mutation-exact-runtime` owns the literal V1 request and
+result formats. Requests carry the verified artifact/function projection, the
+complete bounded authenticated user identity with claim and key-order parity,
+owned arguments, the table-ID/name projection, and deterministic execution
+context. They never carry a verified grant, attempt handle, serialized journal
+handle, bearer token, database client, or persistence capability.
+
+New source packages use the explicit `sha256-framed-v1` module-digest format.
+Its domain-separated, length-framed preimage distinguishes raw NUL bytes and
+absent versus empty source maps. New push admission and artifact publication
+require that marker. Ordinary artifact reads remain compatible with unmarked
+legacy digests, but exact reruns reject them because the old delimiter format
+cannot prove the same byte identity.
+
+`flarex-backend/artifact-runtime` owns the dedicated named
+`WorkerEntrypoint`, immutable worker-definition identity, pinned source-package
+loading and integrity classification, frozen modules, empty env,
+`globalOutbound: null`, and fresh Worker loading. The generated Worker admits
+one invocation and installs the deterministic profile before importing user
+modules:
+
+- `Date`, `Math.random`, and `performance` use authenticated attempt or pinned
+  module inputs;
+- inherited and own timers, Cache API, fetch, MessageChannel,
+  BroadcastChannel, WebSocketPair, ambient-time `File`, async WebAssembly, and
+  async Web Crypto are unavailable, including through the workerd global
+  prototype chain;
+- import-time time is compatibility-date midnight and import-time randomness
+  is seeded by source-package hash; and
+- Web Crypto digest and the other blocked asynchronous platform surfaces are
+  explicit Flarex exact-rerun differences. They remain unavailable until a
+  deterministic scheduler can preserve their completion ordering relative to
+  journal RPC.
+
+The journal remains a method argument. Table resolution returns nested RPC
+capabilities, operations receive globally ordered bigint syscall sequences,
+and write values are synchronously normalized, bounded, detached, and frozen.
+Handler settlement closes new database admission; already-admitted work drains
+to a stable tail, while the first local or remote journal failure remains
+fatal. Journal documents must preserve system fields and requested/table
+identity. The generated entrypoint never calls the ordinary invoke
+start/syscall/finish/abort routes.
+
+P02a adds no database client, journal RPC server implementation, scheduled
+handler, Wrangler trigger, public route, or `C06-B` endpoint. It is not yet the
+initial mutation host, so P02c must not activate exact redelivery until the
+initial path uses the same runtime profile.
+
+One non-blocking adapter debt remains visible: the local executor materializer
+manually reconstructs `PushSourcePackage` after storage instead of entering
+through the protocol-owned decoder and then applying only the stronger
+materialized-module checks. The digest-format marker had to be threaded through
+that duplicate decoder in P02a, proving the drift risk. Handle this as a bounded
+compatibility-preserving follow-up before P02c activation; preserve the current
+package-specific validation order and messages while doing so.
+
 ## Resume Checklist
 
-Current gate: **P02a — freeze the exact-runtime protocol and generated Worker
-entrypoint.**
+Current gate: **P02b — add the executor-owned one-shot journal RPC adapter.**
 
 On resume:
 
-1. read this plan and its four linked authority documents;
-2. keep `P02a` host-neutral and independent of scheduler/connection ownership;
-3. define the strict exact-runtime format/version and tagged host failures;
-4. generate a dedicated Dynamic Worker entrypoint that receives the one-shot
-   journal capability as an RPC argument and never calls ordinary invoke; and
-5. pin source validation, code identity, no-network behavior, request/result
-   decoding, and generated-source invariants with focused tests.
+1. read this plan and the P02a protocol/generated-runtime contracts;
+2. keep the underlying `PointMutationJournalV1` handles inside the originating
+   executor process and expose only one parent plus nested table `RpcTarget`s;
+3. admit exactly one run, retain the first typed local journal failure, close
+   new admissions when the run settles, and drain already-admitted calls;
+4. make late calls and child capabilities fail closed, preserve interruption,
+   and dispose every RPC stub deterministically; and
+5. add focused tests before composing the artifact-runtime hop or changing the
+   runtime-neutral runner in P02c.
 
-Do not add a database client, journal RPC implementation, cron handler,
-scheduled export, Wrangler trigger, or `C06-B` route during P02a.
+Do not add the artifact-runtime service-binding composition, database scheduler
+host, cron handler, scheduled export, Wrangler trigger, or `C06-B` route during
+P02b. When P02c begins, treat initial-versus-redelivery runtime-profile parity
+as its first activation gate rather than accepting the current native initial
+runtime as replay-equivalent.
 
 ## Completion Condition
 
