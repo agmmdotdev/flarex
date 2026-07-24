@@ -163,7 +163,11 @@ for the exact lifecycle facet they require (authentication, planning, rollback
 proof, publication, finishing, execution, attempt replacement, OCC rerun, or
 crash redispatch); the former configuration-shape-dependent public overload is
 not retained. These constructors remain internal source seams and are not
-package-root exports.
+package-root exports. The behavior-preserving decomposition of this runtime is
+owned by
+[`../36-stored-attempt-capability-runtime-modularization.md`](../36-stored-attempt-capability-runtime-modularization.md);
+that focused plan cannot change the lifecycle, authority, transaction, retry,
+or recovery contracts owned here.
 
 The journal/envelope cannot author:
 
