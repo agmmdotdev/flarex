@@ -54,13 +54,13 @@ import type {
   AuthenticatedStoredAttemptStateV1,
   PointMutationCrashRedispatchResultV1,
   PointMutationCrashRedispatchV1Error,
+  PointMutationInitialExecutionV1,
   StoredAttemptAuthorityStateV1,
   StoredAttemptAuthenticationV1,
   StoredPointCommitExecutorV1,
   StoredPointCommitFinishingTransitionV1,
   StoredPointCommitPlanningV1,
   StoredPointMutationCrashRedispatchV1,
-  StoredPointMutationOccRerunExecutionV1,
 } from "../storedAttemptAuthentication";
 import type {
   AuthenticatedStoredAttemptV1,
@@ -130,7 +130,7 @@ export interface StoredPointMutationCrashRedispatchDependenciesV1<
   KernelError extends PointMutationCrashRedispatchV1Error =
     PointMutationCrashRedispatchV1Error,
 > {
-  readonly base: StoredPointMutationOccRerunExecutionV1;
+  readonly base: PointMutationInitialExecutionV1;
   readonly acquisition: PointMutationExecutionClaimDispatchAcquisitionV1;
   readonly disposition: Pick<
     PointMutationSessionAttemptDispositionV1,

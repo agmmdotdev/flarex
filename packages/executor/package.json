@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./point-mutation-exact-runtime-binding": "./src/pointMutationExactRuntimeBinding.ts",
     "./point-mutation-exact-runtime-runner": "./src/pointMutationExactRuntimeRunner.ts",
+    "./point-mutation-initial-execution": "./src/pointMutationInitialExecution.ts",
     "./point-mutation-journal": "./src/pointMutationJournal.ts",
     "./point-mutation-journal-rpc": "./src/pointMutationJournalRpc.ts",
     "./point-mutation-start": "./src/pointMutationStartPreparation.ts",

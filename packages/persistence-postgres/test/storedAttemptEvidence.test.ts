@@ -34,7 +34,6 @@ import {
   canonicalizeTransactionGrantProtectedHeaderV1,
   deriveInertTransactionGrantEvidenceV1,
   encodeTransactionGrantEd25519SignatureV1,
-  transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
   TransactionGrantDeploymentIdV1Schema,
 } from "flarex-protocol/transaction-grant";
 import {
@@ -89,10 +88,16 @@ import {
 } from "vitest";
 
 import {
+  createPointMutationSessionActivationV1,
   createPointMutationSessionAttemptLoadingV1,
   createPointMutationSessionAttemptTerminalizationV1,
+  inspectActivatedPointMutationSessionV1,
   type PointMutationSessionAttemptLoadingV1,
 } from "../../executor/src/pointMutationSessionActivation";
+import {
+  createExecutorPointMutationStartPreparationV1,
+  inspectExecutorPreparedPointMutationStartV1,
+} from "../../executor/src/pointMutationStartPreparation";
 import { createPointMutationSessionAttemptDispositionV1 } from
   "../../executor/src/pointMutationSessionAttemptDisposition";
 import { createPointMutationAttemptRedeliveryV1 } from
@@ -125,6 +130,7 @@ import {
 import {
   createStoredPointCommitExecutorV1,
   createStoredPointCommitFinishingTransitionV1,
+  createPointMutationInitialExecutionV1,
   createStoredPointMutationCrashRedispatchV1,
   createStoredPointMutationOccRerunExecutionV1,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
@@ -135,6 +141,7 @@ import {
   type StoredAttemptEvidenceLoaderPortV1,
 } from "../../executor/src/storedAttemptAuthentication";
 import {
+  createPointMutationStartAdmissionV1,
   createTransactionGrantVerificationKeyNamespaceV1,
   createTransactionGrantVerifierV1,
 } from "../../executor/src/transactionGrant";
@@ -2294,6 +2301,124 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     }
     expect(ordinaryInvokeCalls).toBe(0);
     expect(disposedResponses).toBe(2);
+  });
+
+  it("executes the original activated attempt through the private exact-runtime binding runner", async () => {
+    const bindingRequests: PointMutationExactRuntimeRequestV1[] = [];
+    const journalTargets: unknown[] = [];
+    let disposedResponses = 0;
+    let current:
+      | Awaited<ReturnType<typeof c04b2ActivatedInitialScenario>>
+      | undefined;
+    const binding = Object.freeze({
+      run: async (
+        request: PointMutationExactRuntimeRequestV1,
+        journal: Parameters<
+          PointMutationExactRuntimeArtifactHostBindingV1["run"]
+        >[1],
+      ) => {
+        bindingRequests.push(request);
+        journalTargets.push(journal);
+        const table = await journal.resolvePointTable("users");
+        const inserted = await table.runPointOperation({
+          kind: "insert",
+          syscallSequence: "1",
+          fields: { name: `initial-${bindingRequests.length}` },
+        });
+        if (
+          inserted.kind !== "completed" ||
+          inserted.outcome.kind !== "inserted"
+        ) {
+          throw new Error("Expected the exact-runtime insert to complete.");
+        }
+        if (bindingRequests.length === 1) {
+          if (current === undefined) {
+            throw new Error("Missing the initial exact-runtime scenario.");
+          }
+          if (!isCanonicalFlarexRuntimeObjectV1(inserted.outcome.document)) {
+            throw new Error("Expected the inserted document projection.");
+          }
+          const identity = decodeAppDocumentIdentityV1(
+            inserted.outcome.documentId,
+          );
+          await commitCompetingLiveIntent(
+            current.anchor.scopeId,
+            current.schemaVersionId,
+            projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+            Object.freeze({
+              kind: "live" as const,
+              tableId: identity.tableId,
+              rowId: identity.rowId,
+              creationTime: decodeAppCreationTimeV1(
+                inserted.outcome.document._creationTime,
+              ),
+              value: inserted.outcome.document,
+            }),
+          );
+        }
+        return disposableExactRuntimeSuccessResponse(() => {
+          disposedResponses += 1;
+        });
+      },
+    }) satisfies PointMutationExactRuntimeArtifactHostBindingV1;
+    const runner = makePointMutationExactRuntimeBindingRunnerV1(binding);
+    current = await c04b2ActivatedInitialScenario("p02c4b_initial_exact");
+    const execution = createInitialPointMutationExecution(
+      current,
+      runner,
+    );
+
+    await expect(runFailure(
+      execution.executeInitialPointMutationAttempt(
+        Object.freeze({ ...current.activated }),
+      ),
+    )).resolves.toMatchObject({
+      _tag: "InvalidActivatedPointMutationSessionV1Error",
+    });
+    expect(bindingRequests).toHaveLength(0);
+
+    await expect(runEffect(
+      execution.executeInitialPointMutationAttempt(current.activated),
+    )).resolves.toMatchObject({
+      kind: "published",
+      successfulResult: { valueJson: { ok: true } },
+    });
+
+    expect(bindingRequests).toHaveLength(2);
+    expect(journalTargets).toHaveLength(2);
+    expect(journalTargets[0]).not.toBe(journalTargets[1]);
+    for (const journal of journalTargets) {
+      expect(journal).toMatchObject({
+        resolvePointTable: expect.any(Function),
+      });
+    }
+    for (const request of bindingRequests) {
+      expect(request).toMatchObject({
+        artifact: { runtime: "dynamic-worker" },
+        function: { path: "users:create", kind: "mutation" },
+        auth: { kind: "anonymous" },
+      });
+      expect(request).not.toHaveProperty("session");
+      expect(request).not.toHaveProperty("journal");
+      expect(request).not.toHaveProperty("database");
+      expect(request).not.toHaveProperty("retry");
+    }
+    expect(disposedResponses).toBe(2);
+
+    const sessions = await persistence.query<{ session_count: string }>(
+      `select count(*)::text as session_count
+       from fx_system_tx_session
+       where scope_uuid = $1`,
+      [projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid],
+    );
+    expect(sessions.rows).toEqual([{ session_count: "1" }]);
+    await expect(runFailure(
+      execution.executeInitialPointMutationAttempt(current.activated),
+    )).resolves.toMatchObject({
+      _tag: "InvalidPointMutationExecutionClaimV1Error",
+      reason: "consumed",
+    });
+    expect(bindingRequests).toHaveLength(2);
   });
 
   it("discovers and redispatches one bounded page without returning result payloads", async () => {
@@ -5032,7 +5157,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   }
 
-  async function c04b2Scenario(
+  async function c04b2ActivatedInitialScenario(
     label: string,
     loaderOptions: ScenarioOptions = {},
     seedRow = false,
@@ -5117,15 +5242,21 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const requestKey = TransactionRequestKeyV1Schema.make(`request:${label}`);
     const revocationEpoch =
       TransactionAuthorizationRevocationEpochSchema.make(0n);
-    const prepared = await preparePointMutationStartEvidenceV1(
-      target,
-      {
+    const preparedHandle = await createExecutorPointMutationStartPreparationV1({
+      loadActiveTargetMetadata: async () => structuredClone(target),
+      loadCurrentScopeAuthority: async () => ({
         deploymentId,
-        functionPath: TransactionFunctionPathV1Schema.make("users:create"),
-        args: {},
-        requestKey,
-      },
-      revocationEpoch,
+        scopeId,
+        authorizationRevocationEpoch: revocationEpoch,
+      }),
+    }).prepare({
+      deploymentId,
+      functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+      args: {},
+      requestKey,
+    });
+    const prepared = inspectExecutorPreparedPointMutationStartV1(
+      preparedHandle,
     );
     const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
       policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
@@ -5159,59 +5290,55 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       signature: encodeTransactionGrantEd25519SignatureV1(new Uint8Array(64)),
     });
     const ports = resolutionPorts(persistence);
-    const activation = await activatePointMutationSession(
+    const verifier = createTransactionGrantVerifierV1({
+      clock: { now: () => new Date() },
+      verificationKeyNamespace:
+        createTransactionGrantVerificationKeyNamespaceV1({
+          deploymentId,
+          keys: [
+            {
+              state: "active",
+              kid,
+              purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
+              issuedAtInclusiveEpochMilliseconds:
+                issuedAtMilliseconds - 1_000,
+              verificationEndsAtExclusiveEpochMilliseconds:
+                expiresAtMilliseconds + 1_000,
+              verify: async () => true,
+            },
+          ],
+        }),
+      grantRetentionPolicy: Result.getOrThrow(
+        makeGrantRetentionPolicyV1Result({
+          maximumGrantLifetimeMilliseconds: 120_000,
+          maximumFutureIssuedAtSkewMilliseconds: 0,
+          maximumLiveSnapshotRetentionMilliseconds: 120_000,
+        }),
+      ),
+    });
+    const verified = await verifier.verify({
+      jws: grant.jws,
+      expectedStart: preparedHandle,
+    });
+    const admitted = await runEffect(createPointMutationStartAdmissionV1({
+      resolveCurrent: () => Effect.succeed({
+        deploymentId,
+        scopeId,
+        authorizationRevocationEpoch: revocationEpoch,
+      }),
+    }).admit(verified));
+    const executionClaims = createPointMutationExecutionClaimVaultV1();
+    const activated = await runEffect(createPointMutationSessionActivationV1(
       createPointMutationSessionActivationPersistenceV1(ports, {
         leaseDurationMilliseconds: 60_000,
         randomUuid: nextUuid,
       }),
-      pointMutationSessionActivationFixture(deploymentId, scopeId, {
-        evidence: {
-          packageId: prepared.logicalPins.packageId,
-          artifactRuntime: prepared.logicalPins.artifactRuntime,
-          artifactId: prepared.logicalPins.artifactId,
-          sourcePackageHash: prepared.logicalPins.sourcePackageHash,
-          executionModule: prepared.logicalPins.executionModule,
-          functionPath: prepared.logicalPins.functionPath,
-          functionKind: prepared.logicalPins.functionKind,
-          schemaVersionId: prepared.logicalPins.schemaVersionId,
-          policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
-          identityAccessPolicySha256:
-            transactionGrantIdentityAccessPolicySha256BytesV1FromHex(
-              policy.sha256Hex,
-            ),
-          validatedArgsJson: structuredClone(
-            prepared.validatedArguments.valueJson,
-          ),
-          validatedArgsValueCodecVersion:
-            prepared.logicalPins.validatedArgsValueCodecVersion,
-          validatedArgsCanonicalBytes:
-            prepared.validatedArguments.canonicalBytes,
-          validatedArgsSha256: prepared.validatedArguments.sha256,
-          authorizationGrantId: grant.authorizationGrantId,
-          authorizationGrantJson: structuredClone(grant.authorizationGrantJson),
-          authorizationGrantValueCodecVersion:
-            grant.authorizationGrantValueCodecVersion,
-          authorizationGrantCanonicalBytes:
-            grant.authorizationGrantCanonicalBytes,
-          authorizationGrantSha256: grant.authorizationGrantSha256,
-          authorizationRevocationEpoch: revocationEpoch,
-          authorizationGrantExpiresAt: new Date(expiresAtMilliseconds),
-          requestKey,
-          requestSha256: prepared.requestEvidence.sha256,
-        },
-      }),
-    );
+      executionClaims.issuer,
+    ).activate(admitted));
+    const activation = inspectActivatedPointMutationSessionV1(activated);
     if (activation.status !== "created") {
       throw new Error("Expected a newly created C04B2 scenario.");
     }
-    const executionClaims = createPointMutationExecutionClaimVaultV1();
-    const executionScope = await runEffect(Effect.fromResult(
-      executionClaims.admission.admit(executionClaims.issuer.mint({
-        selector: selectorFromAnchor(activation.anchor),
-        observation: activation.executionClaim,
-        mode: "execute",
-      }), "execute"),
-    ));
     const store = createSessionJournalStorePersistenceV1(ports, {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
@@ -5224,52 +5351,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       persistence,
       anchor: activation.anchor,
       executionClaims,
-      executionScope,
+      activated,
+      storedExecutionClaim: activation.executionClaim,
       schemaVersionId,
       store,
-      attempt: await runEffect(
-        store.openAttemptEffect({
-          selector: selectorFromAnchor(activation.anchor),
-          executionClaim: activation.executionClaim,
-          snapshotToken: activation.anchor.snapshotToken,
-          schemaVersionId,
-        }),
-      ),
       loader: createStoredAttemptEvidenceLoaderV1(ports, loaderOptions),
-      authority: authorityFromAnchor(
-        activation.anchor,
-        schemaVersionId,
-        activation.executionClaim,
-      ),
       loading: createPointMutationSessionAttemptLoadingV1(
         createPointMutationSessionAttemptLoadPersistenceV1(ports),
       ),
-      verifier: createTransactionGrantVerifierV1({
-        clock: { now: () => new Date(0) },
-        verificationKeyNamespace:
-          createTransactionGrantVerificationKeyNamespaceV1({
-            deploymentId,
-            keys: [
-              {
-                state: "active",
-                kid,
-                purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
-                issuedAtInclusiveEpochMilliseconds:
-                  issuedAtMilliseconds - 1_000,
-                verificationEndsAtExclusiveEpochMilliseconds:
-                  expiresAtMilliseconds + 1_000,
-                verify: async () => true,
-              },
-            ],
-          }),
-        grantRetentionPolicy: Result.getOrThrow(
-          makeGrantRetentionPolicyV1Result({
-            maximumGrantLifetimeMilliseconds: 120_000,
-            maximumFutureIssuedAtSkewMilliseconds: 0,
-            maximumLiveSnapshotRetentionMilliseconds: 120_000,
-          }),
-        ),
-      }),
+      verifier,
       functionSnapshot: Object.freeze({
         deploymentId,
         scopeId,
@@ -5284,6 +5374,52 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         functionMetadata: structuredClone(functionMetadata),
       }),
       seededDocumentId,
+    });
+  }
+
+  async function c04b2Scenario(
+    label: string,
+    loaderOptions: ScenarioOptions = {},
+    seedRow = false,
+    returnsValidator: PointMutationTargetFunctionMetadataV1["returnsValidator"] = {
+      type: "object",
+      value: {
+        ok: { optional: false, fieldType: { type: "boolean" } },
+      },
+    },
+  ) {
+    const current = await c04b2ActivatedInitialScenario(
+      label,
+      loaderOptions,
+      seedRow,
+      returnsValidator,
+    );
+    const executionScope = await runEffect(Effect.fromResult(
+      current.executionClaims.admission.admit(
+        current.executionClaims.issuer.mint({
+          selector: selectorFromAnchor(current.anchor),
+          observation: current.storedExecutionClaim,
+          mode: "execute",
+        }),
+        "execute",
+      ),
+    ));
+    return Object.freeze({
+      ...current,
+      executionScope,
+      attempt: await runEffect(
+        current.store.openAttemptEffect({
+          selector: selectorFromAnchor(current.anchor),
+          executionClaim: current.storedExecutionClaim,
+          snapshotToken: current.anchor.snapshotToken,
+          schemaVersionId: current.schemaVersionId,
+        }),
+      ),
+      authority: authorityFromAnchor(
+        current.anchor,
+        current.schemaVersionId,
+        current.storedExecutionClaim,
+      ),
     });
   }
 
@@ -5564,6 +5700,58 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
           }),
         heartbeatIntervalMilliseconds,
+      },
+    }, current.executionClaims);
+  }
+
+  function createInitialPointMutationExecution(
+    current: Awaited<ReturnType<typeof c04b2ActivatedInitialScenario>>,
+    runner: PointMutationOccRuntimeNeutralRunnerV1,
+  ) {
+    const ports = resolutionPorts(persistence);
+    let executionSequence = 0;
+    const terminalization = createPointMutationSessionAttemptTerminalizationV1(
+      createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
+      current.executionClaims.admission,
+    );
+    return createPointMutationInitialExecutionV1(current.loader, {
+      evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit: createPointCommitPublisherPortV1(ports),
+      pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+      pointMutationAttemptReplacement:
+        createPointMutationAttemptReplacementPortV1(ports, {
+          leaseDurationMilliseconds: 60_000,
+        }),
+      pointMutationOccRerun: {
+        attemptLoading: current.loading,
+        executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports),
+        journal: createPointMutationJournalV1(
+          current.store,
+          current.executionClaims.admission,
+        ),
+        terminalization,
+        contextFactory: {
+          make: () =>
+            Effect.sync(() => {
+              executionSequence += 1;
+              return Object.freeze({
+                executionId: `p02c4b-${executionSequence}`,
+                logScopeId: `p02c4b-log-${executionSequence}`,
+                randomSeed: new Uint8Array(32).fill(executionSequence),
+              });
+            }),
+        },
+        runner,
+        liveness: createPointMutationExecutionClaimLivenessV1(ports, {
+          claimDurationMilliseconds: 60_000,
+          leaseRenewalDurationMilliseconds: 120_000,
+          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        }),
+        heartbeatIntervalMilliseconds: 20_000,
       },
     }, current.executionClaims);
   }

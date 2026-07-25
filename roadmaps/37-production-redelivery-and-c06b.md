@@ -7,10 +7,11 @@ selects the exact-attempt runtime-host contract, and P02a freezes the
 host-neutral protocol and generated Dynamic Worker entrypoint; all three are
 complete. P02b adds the executor-owned one-shot journal RPC adapter and is also
 complete. The P02c.4 preflight found that no production initial point-mutation
-host exists yet; P02c.4b, adding the missing executor-owned initial
-exact-attempt operation without activating a route, is the current implementable
-gate. Hosted composition remains blocked on the coherent active-metadata and
-private prepared-start prerequisites recorded below.
+host exists yet. P02c.4b now adds the missing executor-owned initial
+exact-attempt operation without activating a route. Hosted composition remains
+blocked on the coherent active-metadata and private prepared-start prerequisites
+recorded below; P03 inert scheduler-host construction is the next implementable
+gate while P04 activation remains blocked.
 
 This plan owns the remaining production portion of
 `O08-B2b2b2b1b2b2b` and the subsequent `C06-B` endpoint/response policy:
@@ -500,7 +501,7 @@ Implement P02c in these bounded checkpoints:
    inputs, unavailable capabilities, and intrinsic hardening.
    1. **[x] P02c.4a — missing-host preflight.** Establish the current
       production composition and the exact missing ownership boundaries.
-   2. **[ ] P02c.4b — executor initial exact-attempt operation.** Add the
+   2. **[x] P02c.4b — executor initial exact-attempt operation.** Add the
       executor-owned operation that consumes only genuine same-composition
       prepared/admitted activation authority and the activation's original
       execution claim, then enters the same exact-attempt kernel, journal,
@@ -884,20 +885,53 @@ admission, activation, and private transport owners. P03 may continue as inert
 scheduler-host construction, but P04 activation remains blocked through
 P02c.4d.
 
+### P02c.4b Executor Initial Exact-Attempt Boundary
+
+The executor now exposes an intentional private package subpath and factory for
+the original activated attempt. The operation accepts only the opaque activated
+session handle, consumes the activation's original one-shot execution claim
+before asynchronous work begins, and reconstructs stored authority from an
+independently owned snapshot of the prepared activation evidence. It does not
+accept a caller-authored session selector, stored evidence, journal capability,
+database capability, or retry instruction.
+
+The first attempt enters the same stored-attempt evidence loader, commit
+authority verification, liveness coordinator, one-shot journal, exact-attempt
+kernel, and runtime-neutral runner used by exact redelivery. A genuine OCC
+conflict alone authorizes the existing replacement-attempt flow; the original
+attempt is not simulated through the OCC-rerun or crash-redispatch APIs.
+
+The PGlite integration proof begins with real executor preparation, grant
+verification and admission, and atomic session activation. Its initial-attempt
+fixture neither mints a parallel legacy execution scope nor opens a raw journal
+attempt. It then executes the original attempt through the binding-backed
+exact-runtime runner, forces a real competing commit, and executes the
+authorized replacement through that same runner. The proof observes one durable
+session, two distinct one-shot journal RPC targets, two disposed binding
+responses, no serialized session, journal, database, or retry authority, and
+rejection of a second use of the consumed original claim. A real-PostgreSQL
+locking and isolation proof remains a hosted/deployed-shape obligation rather
+than evidence claimed by this PGlite lane.
+
+This is private executor composition and integration proof only. It does not
+add a production host, route, scheduler, scheduled export, trigger, or deployed
+runtime-profile parity proof. P02c.4c remains blocked on the coherent active
+metadata and private prepared-start owners described in P02c.4a; P02c.4d
+remains the deployed-shape parity gate.
+
 ## Resume Checklist
 
-Current implementable gate: **P02c.4b — executor initial exact-attempt
-operation.**
+Current implementable gate: **P03 — inert bounded scheduler-event host.**
 
 On resume:
 
 1. read this plan plus the completed P02a, P02b, and P02c.1-P02c.3
-   boundaries and the P02c.4a missing-host preflight;
+   boundaries, the P02c.4a missing-host preflight, and the completed private
+   P02c.4b boundary;
 2. treat the private artifact-runtime named entrypoint, the binding adapter,
    and the stored-attempt exact kernel as the only exact-attempt runtime path;
-3. add the private P02c.4b operation from genuine admitted/activated authority
-   and the original execution claim to that same exact kernel, without routing
-   through replacement or redispatch;
+3. host one inert bounded scheduler event over one event-owned database client,
+   without adding a scheduled export, Wrangler trigger, or deployment;
 4. do not begin hosted P02c.4c until roadmap 17's coherent active-metadata
    reader and O03-A2's private prepared-start transport can supply the accepted
    production authority;

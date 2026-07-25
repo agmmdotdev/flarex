@@ -33,6 +33,7 @@ export type StoredPointMutationCapabilityStageV1 =
   | "attemptReplacement"
   | "occRerunAuthorization"
   | "occRerunExecution"
+  | "initialExecution"
   | "crashRedispatch";
 
 export type StoredPointMutationCapabilityRequirementV1 =

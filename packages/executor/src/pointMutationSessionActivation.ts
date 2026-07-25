@@ -57,6 +57,10 @@ import {
   type PointMutationExecutionClaimIssuerV1,
 } from "./pointMutationExecutionClaim";
 import {
+  getActivatedPointMutationSessionStateV1,
+  registerActivatedPointMutationSessionStateV1,
+} from "./pointMutationSessionActivationState";
+import {
   capturePointMutationSessionAttemptTerminalizationResultV1,
   PointMutationSessionAttemptTerminalizationContractV1Error,
   type PointMutationSessionAttemptTerminalizationContractIssueV1,
@@ -73,16 +77,6 @@ export interface ActivatedPointMutationSessionV1 {
 
 export type ActivatedPointMutationSessionInspectionV1 =
   PointMutationSessionActivationResultV1;
-
-interface ActivatedPointMutationSessionStateV1 {
-  readonly inspection: ActivatedPointMutationSessionInspectionV1;
-  readonly executionClaim?: PointMutationExecutionClaimV1;
-}
-
-const activatedSessionStateByHandle = new WeakMap<
-  object,
-  ActivatedPointMutationSessionStateV1
->();
 
 const loadedPointMutationSessionAttemptBrand: unique symbol = Symbol(
   "FlarexExecutor/LoadedPointMutationSessionAttemptV1",
@@ -111,6 +105,7 @@ export interface LoadedPointMutationSessionAttemptInspectionV1 {
 }
 
 export class InvalidActivatedPointMutationSessionV1Error extends Error {
+  readonly _tag = "InvalidActivatedPointMutationSessionV1Error" as const;
   readonly name = "InvalidActivatedPointMutationSessionV1Error";
 
   constructor() {
@@ -219,6 +214,7 @@ export function createPointMutationSessionActivationV1(
       inspectAdmittedPointMutationStartResultV1(admittedStart),
     );
     const prepared = preparePersistenceActivation(admitted);
+    const retainedPrepared = snapshotPreparedActivation(prepared);
     const result = yield* persistence.activateEffect(prepared);
     const handle = Object.freeze({
       [activatedPointMutationSessionBrand]: true as const,
@@ -235,8 +231,9 @@ export function createPointMutationSessionActivationV1(
           mode: "execute",
         })
       : undefined;
-    activatedSessionStateByHandle.set(handle, Object.freeze({
+    registerActivatedPointMutationSessionStateV1(handle, Object.freeze({
       inspection: result,
+      prepared: retainedPrepared,
       ...(executionClaim === undefined ? {} : { executionClaim }),
     }));
     return handle;
@@ -352,7 +349,7 @@ export function inspectActivatedPointMutationSessionV1(
   if (typeof value !== "object" || value === null) {
     throw new InvalidActivatedPointMutationSessionV1Error();
   }
-  const state = activatedSessionStateByHandle.get(value);
+  const state = getActivatedPointMutationSessionStateV1(value);
   if (state === undefined) {
     throw new InvalidActivatedPointMutationSessionV1Error();
   }
@@ -365,7 +362,7 @@ export function pointMutationExecutionClaimV1FromActivated(
   if (typeof value !== "object" || value === null) {
     throw new InvalidActivatedPointMutationSessionV1Error();
   }
-  const state = activatedSessionStateByHandle.get(value);
+  const state = getActivatedPointMutationSessionStateV1(value);
   if (state === undefined) {
     throw new InvalidActivatedPointMutationSessionV1Error();
   }
@@ -525,4 +522,15 @@ function preparePersistenceActivation(
       requestSha256: preparedStart.requestEvidence.sha256,
     }),
   } satisfies PreparedPointMutationSessionActivationV1);
+}
+
+function snapshotPreparedActivation(
+  value: PreparedPointMutationSessionActivationV1,
+): PreparedPointMutationSessionActivationV1 {
+  const snapshot = structuredClone(value);
+  return Object.freeze({
+    deploymentId: snapshot.deploymentId,
+    scopeId: snapshot.scopeId,
+    evidence: Object.freeze({ ...snapshot.evidence }),
+  });
 }

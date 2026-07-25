@@ -76,6 +76,9 @@ import {
 } from "flarex-protocol/value";
 
 import {
+  ActivatedPointMutationSessionBusyV1Error,
+  InvalidActivatedPointMutationSessionV1Error,
+  type ActivatedPointMutationSessionV1,
   type PointMutationSessionAttemptLoadingExecutionV1Error,
   type PointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptTerminalizationV1,
@@ -218,6 +221,10 @@ import {
   makeStoredPointMutationOccRerunExecutionOperationsV1,
 } from "./storedAttemptAuthentication/occRerunExecutionOperations";
 import {
+  PointMutationInitialExecutionAuthorityV1Error,
+  makeInitialPointMutationExecutionOperationsV1,
+} from "./storedAttemptAuthentication/initialPointMutationExecutionOperations";
+import {
   makeStoredPointMutationCrashRedispatchOperationsV1,
 } from "./storedAttemptAuthentication/crashRedispatchOperations";
 import {
@@ -235,6 +242,10 @@ export {
   StoredCommitAuthorityNotPlannableV1Error,
   StoredCommitAuthorityPersistenceV1Error,
 } from "./storedAttemptAuthentication/commitAuthorityModel";
+
+export {
+  PointMutationInitialExecutionAuthorityV1Error,
+} from "./storedAttemptAuthentication/initialPointMutationExecutionOperations";
 
 export type {
   PinnedPointMutationFunctionMetadataReaderPortV1,
@@ -1038,6 +1049,25 @@ export interface StoredPointMutationOccRerunExecutionV1
   >;
 }
 
+export type PointMutationInitialExecutionV1Error =
+  | InvalidActivatedPointMutationSessionV1Error
+  | ActivatedPointMutationSessionBusyV1Error
+  | InvalidPointMutationExecutionClaimV1Error
+  | PointMutationInitialExecutionAuthorityV1Error
+  | PointMutationAuthenticatedAttemptExecutionV1Error
+  | PointMutationOccRerunExecutionV1Error;
+
+export interface PointMutationInitialExecutionV1
+  extends StoredPointMutationOccRerunExecutionV1 {
+  readonly executeInitialPointMutationAttempt: (
+    activated: ActivatedPointMutationSessionV1,
+  ) => Effect.Effect<
+    PointCommitPublicationResultV1,
+    PointMutationInitialExecutionV1Error,
+    never
+  >;
+}
+
 export type PointMutationCrashRedispatchResultV1 =
   | PointCommitPublicationResultV1
   | Readonly<{ readonly kind: "busy" }>
@@ -1061,7 +1091,7 @@ export type PointMutationCrashRedispatchV1Error =
   | PointMutationAuthenticatedAttemptExecutionV1Error;
 
 export interface StoredPointMutationCrashRedispatchV1
-  extends StoredPointMutationOccRerunExecutionV1 {
+  extends PointMutationInitialExecutionV1 {
   readonly redispatchExactPointMutationAttempt: (
     selector: unknown,
   ) => Effect.Effect<
@@ -1205,6 +1235,19 @@ export function createStoredPointMutationOccRerunExecutionV1(
   );
 }
 
+export function createPointMutationInitialExecutionV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  configuration: StoredPointMutationOccRerunExecutionConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): PointMutationInitialExecutionV1 {
+  return createStoredPointMutationCapabilityRuntimeV1(
+    loader,
+    configuration,
+    executionClaims,
+    "initialExecution",
+  );
+}
+
 export function createStoredPointMutationCrashRedispatchV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
   configuration: StoredPointMutationCrashRedispatchConfigV1,
@@ -1230,6 +1273,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
   executionClaims: PointMutationExecutionClaimVaultV1,
   stage: "crashRedispatch",
 ): StoredPointMutationCrashRedispatchV1;
+function createStoredPointMutationCapabilityRuntimeV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  commitAuthority: StoredPointMutationOccRerunExecutionConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+  stage: "initialExecution",
+): PointMutationInitialExecutionV1;
 function createStoredPointMutationCapabilityRuntimeV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
   commitAuthority: StoredPointMutationOccRerunExecutionConfigV1,
@@ -1303,6 +1352,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
   | StoredPointMutationAttemptReplacementV1
   | StoredPointMutationOccRerunAuthorizationV1
   | StoredPointMutationOccRerunExecutionV1
+  | PointMutationInitialExecutionV1
   | StoredPointMutationCrashRedispatchV1 {
   const {
     authorityStates,
@@ -1736,6 +1786,20 @@ function createStoredPointMutationCapabilityRuntimeV1(
     publicationResultFromCommittedOutcome,
   });
   if (stage === "occRerunExecution") return occExecution;
+  const initialExecution = Object.freeze({
+    ...occExecution,
+    ...makeInitialPointMutationExecutionOperationsV1({
+      rerun: occExecution,
+      executionClaimAdmission: executionClaims.admission,
+      executionLiveness: pointMutationExecutionLiveness,
+      executionEvidence: pointMutationOccExecutionEvidencePort,
+      verifyCommitAuthorityEvidence: (state, evidence) =>
+        verifyCommitAuthorityEvidenceEffect(state, evidence, grantKernel),
+      executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
+      publicationResultFromCommittedOutcome,
+    }),
+  } satisfies PointMutationInitialExecutionV1);
+  if (stage === "initialExecution") return initialExecution;
   const pointMutationRedispatchCandidate: unknown =
     "pointMutationRedispatch" in commitAuthority
       ? commitAuthority.pointMutationRedispatch
@@ -1776,7 +1840,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
     );
 
   return makeStoredPointMutationCrashRedispatchOperationsV1({
-    base: occExecution,
+    base: initialExecution,
     acquisition: pointMutationRedispatchAcquisitionPort,
     disposition: pointMutationRedispatchDispositionPort,
     executionClaims,
