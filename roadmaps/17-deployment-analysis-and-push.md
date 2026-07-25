@@ -745,6 +745,28 @@ activation remain blocked until their production host composition is proven.
    activation, ingress, deployment, and cleanup authority remain absent.
    Terminal inert C4 is still the first consumer that closes this private chain,
    and none of these private foundations is shipped.
+
+   The private A1b2 composition owner is the existing `apps/executor` production
+   root for the currently composed shared `primary/public` target. That root
+   already owns request-scoped PostgreSQL and the authenticated
+   backend-to-executor boundary. The backend remains the fresh source/semantic
+   authority, the analyzer remains resource-free, and persistence remains a
+   dependency leaf; none may serialize or recreate another owner's
+   process-local capabilities.
+
+   The provisional A1b2a0 portable contract now adds canonical V2 command
+   reservation, output-manifest, and receipt frames for `source_page`,
+   `parse_module`, `link_page`, and `registration_page` only. Reservation binds
+   attempt/candidate identity, current progress and predecessor receipt, the
+   exact command-budget digest, authenticated input, analyzer/verifier
+   identities, and the command range/predecessor tails without owner, fence,
+   lease, clock, request, deployment, or opaque-handle identity. Output and
+   receipt frames bind ordered evidence, diagnostics, actual and cumulative
+   usage, and next progress. These bytes are inert commitments, not a lease,
+   work token, replay grant, or settlement authority. Verifier-owned evidence
+   rehydration, additive target persistence and repository operations, and the
+   executor host composition remain separate later A1b2 gates.
+
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact
    candidate, artifact, schema, validator, registration, and verifier pins.

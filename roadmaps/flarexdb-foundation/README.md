@@ -857,6 +857,20 @@ projection. No durable verifier-progress composition, C3/C4 publication,
 verdict, readiness, activation, ingress, deployment, cleanup, or production
 authority is shipped by this foundation.
 
+For A1b2, the existing `apps/executor` production root is the sole composition
+owner for the currently wired shared `primary/public` target because it already
+owns request-scoped PostgreSQL and the authenticated backend-to-executor
+boundary. The backend continues to own fresh source/semantic authority, the
+analyzer stays resource-free, and persistence stays a dependency leaf. The
+provisional portable A1b2a0 contract defines canonical reservation,
+output-manifest, and receipt bytes for the four non-finalizing verifier
+commands. Those frames bind authenticated inputs, the 26-dimension command
+budget, progress/predecessor evidence, ordered outputs, actual/cumulative
+usage, and next progress while excluding leases, owners, fences, clocks,
+requests, deployment identifiers, and opaque handles from semantic identity.
+They remain inert: verifier evidence rehydration, additive target persistence
+and repository behavior, and executor host composition are later A1b2 gates.
+
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the
 semantic upload attempt, incarnation/source correlation, fences, cumulative

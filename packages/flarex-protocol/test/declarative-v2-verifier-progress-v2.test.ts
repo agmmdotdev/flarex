@@ -9,6 +9,9 @@ import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2,
   DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2,
+  type DeclarativeV2VerifierCommandOutputManifestFrameV2,
+  type DeclarativeV2VerifierCommandReceiptFrameV2,
+  type DeclarativeV2VerifierCommandReservationFrameV2,
   decodeDeclarativeV2VerifierProgressFrameV2,
   encodeDeclarativeV2VerifierProgressFrameV2,
   requireDeclarativeV2VerifierProtocolIdentitiesV2,
@@ -18,6 +21,7 @@ const budget = Object.freeze({
   maximumFrameBytes: 10_000,
   maximumCanonicalBytes: 0,
 });
+const PERSISTABLE_U64_MAX = DECLARATIVE_V2_MAX_SIGNED_INT64_V1;
 
 describe("Declarative V2 verifier Budget/Progress V2", () => {
   it("pins the 26-dimension budget frame with an independent oracle", async () => {
@@ -52,6 +56,439 @@ describe("Declarative V2 verifier Budget/Progress V2", () => {
         maximumFrameBytes: expected.byteLength - 1,
         maximumCanonicalBytes: 0,
       }),
+    )).toBe(true);
+  });
+
+  it("preserves every pre-existing V2 frame byte layout", () => {
+    const values = Object.fromEntries(
+      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(
+        (dimension, index) => [dimension, BigInt(index + 1)],
+      ),
+    );
+    for (const kind of [
+      "attempt_ceilings",
+      "attempt_usage",
+      "command_budget",
+    ] as const) {
+      expect(Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2(
+          { kind, ...values },
+          budget,
+        ),
+      ).canonicalBytes).toEqual(concat(
+        utf8(`flarex.declarative-v2/${kind}/v2\0`),
+        u32(26),
+        ...DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(
+          (dimension) => u64(values[dimension]!),
+        ),
+      ));
+    }
+
+    expect(Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2({
+        kind: "attempt_identity",
+        candidateSha256: digest(1),
+        progressProtocolIdentity:
+          DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2,
+        budgetProtocolIdentity:
+          DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2,
+        ceilingsSha256: digest(2),
+      }, budget),
+    ).canonicalBytes).toEqual(concat(
+      utf8("flarex.declarative-v2/attempt_identity/v2\0"),
+      u32(4),
+      digest(1),
+      sizedUtf8(DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2),
+      sizedUtf8(DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2),
+      digest(2),
+    ));
+
+    expect(Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2({
+        kind: "progress_cursor",
+        phase: "registration",
+        settledSequence: 1n,
+        moduleOrdinal: 2n,
+        edgeOrdinal: 3n,
+        pageOrdinal: 4n,
+        previousReceiptSha256: digest(5),
+      }, budget),
+    ).canonicalBytes).toEqual(concat(
+      utf8("flarex.declarative-v2/progress_cursor/v2\0"),
+      u32(6),
+      new Uint8Array([4]),
+      u64(1n),
+      u64(2n),
+      u64(3n),
+      u64(4n),
+      new Uint8Array([1]),
+      digest(5),
+    ));
+  });
+
+  it("pins portable durable-command reservation, output, and receipt frames", async () => {
+    const reservationFrame = makeReservation();
+    const reservation = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(reservationFrame, budget),
+    );
+    const expectedReservation = concat(
+      utf8("flarex.declarative-v2/command_reservation/v2\0"),
+      u32(12),
+      digest(1),
+      digest(2),
+      new Uint8Array([1]),
+      u64(1n),
+      digest(3),
+      new Uint8Array([1]),
+      digest(4),
+      digest(5),
+      digest(6),
+      digest(7),
+      digest(8),
+      digest(9),
+      digest(10),
+    );
+    expect(reservation.canonicalBytes).toEqual(expectedReservation);
+    expect(hex(await sha256(expectedReservation))).toBe(
+      "3e88ee2756098c3e498b6755dd038a2f18408a1e2de490e4dc68557fd2d05ca3",
+    );
+
+    const outputFrame = makeOutputManifest();
+    const output = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(outputFrame, budget),
+    );
+    const expectedOutput = concat(
+      utf8("flarex.declarative-v2/command_output_manifest/v2\0"),
+      u32(8),
+      digest(11),
+      new Uint8Array([2]),
+      u64(2n),
+      digest(12),
+      u64(3n),
+      digest(13),
+      u64(4n),
+      digest(14),
+    );
+    expect(output.canonicalBytes).toEqual(expectedOutput);
+    expect(hex(await sha256(expectedOutput))).toBe(
+      "5c18284515047ee22da29b8309b367483482eb477e849a6f9fd56dca2eebddf6",
+    );
+
+    const receiptFrame = makeReceipt();
+    const receipt = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(receiptFrame, budget),
+    );
+    const expectedReceipt = concat(
+      utf8("flarex.declarative-v2/command_receipt/v2\0"),
+      u32(5),
+      digest(15),
+      digest(16),
+      digest(17),
+      digest(18),
+      digest(19),
+    );
+    expect(receipt.canonicalBytes).toEqual(expectedReceipt);
+    expect(hex(await sha256(expectedReceipt))).toBe(
+      "342e9053db2a4e7b9fa63a6e587c0092ca0b61612946ee682572982d46973e92",
+    );
+
+    for (const encoded of [reservation, output, receipt]) {
+      const first = Result.getOrThrow(
+        decodeDeclarativeV2VerifierProgressFrameV2(
+          encoded.canonicalBytes,
+          budget,
+        ),
+      );
+      const second = Result.getOrThrow(
+        decodeDeclarativeV2VerifierProgressFrameV2(
+          encoded.canonicalBytes,
+          budget,
+        ),
+      );
+      expect(first.frame).toEqual(encoded.frame);
+      expect(second.frame).toEqual(first.frame);
+      expect(second.canonicalBytes).toEqual(first.canonicalBytes);
+      expect(second.canonicalBytes).not.toBe(first.canonicalBytes);
+    }
+    expect(Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(
+        makeReservation({ predecessorReceiptSha256: null }),
+        budget,
+      ),
+    ).frame).toEqual(makeReservation({ predecessorReceiptSha256: null }));
+
+    const reverseOrder = Object.fromEntries(
+      Object.entries(reservationFrame).reverse(),
+    );
+    expect(Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(reverseOrder, budget),
+    ).canonicalBytes).toEqual(reservation.canonicalBytes);
+  });
+
+  it("binds all 26 command-budget dimensions into deterministic reservation bytes", async () => {
+    const baselineValues = Object.fromEntries(
+      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(
+        (dimension, index) => [dimension, BigInt(index + 1)],
+      ),
+    );
+    const baselineBudget = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2({
+        kind: "command_budget",
+        ...baselineValues,
+      }, budget),
+    ).canonicalBytes;
+    const baselineBudgetSha256 = await sha256(baselineBudget);
+    const baselineReservation = makeReservation({
+      commandBudgetSha256: baselineBudgetSha256,
+    });
+    const firstReplay = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(
+        baselineReservation,
+        budget,
+      ),
+    ).canonicalBytes;
+    const secondReplay = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(
+        baselineReservation,
+        budget,
+      ),
+    ).canonicalBytes;
+    expect(secondReplay).toEqual(firstReplay);
+
+    for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+      const changedValues = {
+        ...baselineValues,
+        [dimension]: baselineValues[dimension]! + 1n,
+      };
+      const changedBudget = Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2({
+          kind: "command_budget",
+          ...changedValues,
+        }, budget),
+      ).canonicalBytes;
+      const changedBudgetSha256 = await sha256(changedBudget);
+      expect(changedBudgetSha256).not.toEqual(baselineBudgetSha256);
+      expect(Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2(
+          makeReservation({ commandBudgetSha256: changedBudgetSha256 }),
+          budget,
+        ),
+      ).canonicalBytes).not.toEqual(firstReplay);
+    }
+  });
+
+  it("enforces durable command kinds, exact digests, u64 bounds, and owned bytes", () => {
+    for (const commandKind of [
+      "source_page",
+      "parse_module",
+      "link_page",
+      "registration_page",
+    ] as const) {
+      expect(Result.isSuccess(
+        encodeDeclarativeV2VerifierProgressFrameV2(
+          makeReservation({ commandKind }),
+          budget,
+        ),
+      )).toBe(true);
+    }
+    expectEncodeInvalid(makeReservation({
+      commandKind: "finalize" as "source_page",
+    }));
+    expectEncodeInvalid(makeOutputManifest({
+      commandKind: "finalize" as "parse_module",
+    }));
+    expectEncodeInvalid(makeReservation({ sequence: 0n }));
+    expectEncodeInvalid(makeReservation({ sequence: PERSISTABLE_U64_MAX + 1n }));
+    expect(Result.isSuccess(
+      encodeDeclarativeV2VerifierProgressFrameV2(
+        makeReservation({ sequence: PERSISTABLE_U64_MAX }),
+        budget,
+      ),
+    )).toBe(true);
+    expect(Result.isSuccess(
+      encodeDeclarativeV2VerifierProgressFrameV2(
+        makeOutputManifest({
+          sequence: PERSISTABLE_U64_MAX,
+          evidenceCount: PERSISTABLE_U64_MAX,
+          diagnosticCount: PERSISTABLE_U64_MAX,
+        }),
+        budget,
+      ),
+    )).toBe(true);
+    expectEncodeInvalid(makeOutputManifest({
+      evidenceCount: PERSISTABLE_U64_MAX + 1n,
+    }));
+    expectEncodeInvalid(makeOutputManifest({ diagnosticCount: -1n }));
+    for (const [field, value] of [
+      ["ownerId", "caller-owned"],
+      ["fence", 1n],
+      ["leaseExpiresAt", "2026-01-01T00:00:00.000Z"],
+      ["timestamp", "2026-01-01T00:00:00.000Z"],
+      ["requestId", "caller-owned"],
+      ["deploymentId", "caller-owned"],
+      ["opaqueHandle", "caller-owned"],
+    ] as const) {
+      expectEncodeInvalid({ ...makeReservation(), [field]: value });
+    }
+    expectEncodeInvalid({
+      ...makeReservation(),
+      attemptSha256: new Uint8Array(31),
+    });
+
+    const aliased = makeReservation();
+    const encoded = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(aliased, budget),
+    );
+    aliased.attemptSha256[0] = 99;
+    aliased.predecessorReceiptSha256![0] = 99;
+    expect(encoded.frame.kind).toBe("command_reservation");
+    if (encoded.frame.kind !== "command_reservation") {
+      throw new Error("Expected reservation.");
+    }
+    expect(encoded.frame.attemptSha256[0]).toBe(1);
+    expect(encoded.frame.predecessorReceiptSha256?.[0]).toBe(4);
+
+    const detached = digest(20);
+    structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    expectEncodeInvalid(makeReceipt({ reservationSha256: detached }));
+    expectEncodeInvalid(makeReceipt({
+      reservationSha256: Object.create(Uint8Array.prototype) as Uint8Array,
+    }));
+    expectEncodeInvalid(makeReceipt({
+      reservationSha256: new Proxy(digest(21), {}),
+    }));
+  });
+
+  it("fails hostile records without invoking accessors or accepting forged structure", () => {
+    let getterReads = 0;
+    const accessor = {
+      ...makeReservation(),
+      get commandInputSha256() {
+        getterReads += 1;
+        throw new Error("must not run");
+      },
+    };
+    expectEncodeInvalid(accessor);
+    expect(getterReads).toBe(0);
+
+    const proxy = new Proxy(makeReservation(), {
+      ownKeys() {
+        throw new Error("hostile ownKeys");
+      },
+    });
+    expectEncodeInvalid(proxy);
+    const descriptorProxy = new Proxy(makeReservation(), {
+      getOwnPropertyDescriptor() {
+        throw new Error("hostile descriptor");
+      },
+    });
+    expectEncodeInvalid(descriptorProxy);
+    const revoked = Proxy.revocable(makeReservation(), {});
+    revoked.revoke();
+    expectEncodeInvalid(revoked.proxy);
+
+    const symbol = {
+      ...makeReceipt(),
+      [Symbol("extra")]: true,
+    };
+    expectEncodeInvalid(symbol);
+    const missing = { ...makeReceipt() } as Record<string, unknown>;
+    delete missing.outputManifestSha256;
+    expectEncodeInvalid(missing);
+
+    let ownKeyReads = 0;
+    const descriptorReads = new Map<PropertyKey, number>();
+    const counted = new Proxy(makeReservation(), {
+      ownKeys(target) {
+        ownKeyReads += 1;
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target, property) {
+        descriptorReads.set(property, (descriptorReads.get(property) ?? 0) + 1);
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+    });
+    expect(Result.isSuccess(
+      encodeDeclarativeV2VerifierProgressFrameV2(counted, budget),
+    )).toBe(true);
+    expect(ownKeyReads).toBe(1);
+    expect([...descriptorReads.values()].every((reads) => reads === 1)).toBe(
+      true,
+    );
+
+    let oversizedDescriptorReads = 0;
+    const oversized = new Proxy(
+      Object.fromEntries(
+        Array.from({ length: 28 }, (_, index) => [`field${index}`, index]),
+      ),
+      {
+        getOwnPropertyDescriptor(target, property) {
+          oversizedDescriptorReads += 1;
+          return Reflect.getOwnPropertyDescriptor(target, property);
+        },
+      },
+    );
+    expectEncodeInvalid(oversized);
+    expect(oversizedDescriptorReads).toBe(0);
+  });
+
+  it("rejects malformed durable bytes and admits exact frame ceilings only", () => {
+    const encoded = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(makeReservation(), budget),
+    ).canonicalBytes;
+    expect(Result.isSuccess(
+      decodeDeclarativeV2VerifierProgressFrameV2(encoded, {
+        maximumFrameBytes: encoded.byteLength,
+        maximumCanonicalBytes: 0,
+      }),
+    )).toBe(true);
+    expect(Result.isFailure(
+      decodeDeclarativeV2VerifierProgressFrameV2(encoded, {
+        maximumFrameBytes: encoded.byteLength - 1,
+        maximumCanonicalBytes: 0,
+      }),
+    )).toBe(true);
+    for (let boundary = 0; boundary < encoded.byteLength; boundary += 1) {
+      expect(Result.isFailure(
+        decodeDeclarativeV2VerifierProgressFrameV2(
+          encoded.subarray(0, boundary),
+          budget,
+        ),
+      )).toBe(true);
+    }
+    expect(Result.isFailure(
+      decodeDeclarativeV2VerifierProgressFrameV2(
+        concat(encoded, new Uint8Array([0])),
+        budget,
+      ),
+    )).toBe(true);
+
+    const wrongKind = new Uint8Array(encoded);
+    const reservationName = utf8("command_reservation");
+    const receiptName = utf8("command_receipt");
+    const kindOffset = findBytes(wrongKind, reservationName);
+    wrongKind.set(receiptName, kindOffset);
+    wrongKind.fill(0x78, kindOffset + receiptName.length, kindOffset + reservationName.length);
+    expect(Result.isFailure(
+      decodeDeclarativeV2VerifierProgressFrameV2(wrongKind, budget),
+    )).toBe(true);
+
+    const wrongCommand = new Uint8Array(encoded);
+    const commandTagOffset = utf8(
+      "flarex.declarative-v2/command_reservation/v2\0",
+    ).byteLength + 4 + 32 + 32;
+    wrongCommand[commandTagOffset] = 5;
+    expect(Result.isFailure(
+      decodeDeclarativeV2VerifierProgressFrameV2(wrongCommand, budget),
+    )).toBe(true);
+
+    const wrongFieldCount = new Uint8Array(encoded);
+    const domainLength = utf8(
+      "flarex.declarative-v2/command_reservation/v2\0",
+    ).byteLength;
+    wrongFieldCount[domainLength + 3] = 11;
+    expect(Result.isFailure(
+      decodeDeclarativeV2VerifierProgressFrameV2(wrongFieldCount, budget),
     )).toBe(true);
   });
 
@@ -244,6 +681,66 @@ describe("Declarative V2 verifier Budget/Progress V2", () => {
   });
 });
 
+function makeReservation(
+  overrides: Partial<DeclarativeV2VerifierCommandReservationFrameV2> = {},
+): DeclarativeV2VerifierCommandReservationFrameV2 {
+  return {
+    kind: "command_reservation",
+    attemptSha256: digest(1),
+    candidateSha256: digest(2),
+    commandKind: "source_page",
+    sequence: 1n,
+    currentProgressSha256: digest(3),
+    predecessorReceiptSha256: digest(4),
+    commandBudgetSha256: digest(5),
+    commandInputSha256: digest(6),
+    freshAuthenticatedInputSha256: digest(7),
+    analyzerIdentitySha256: digest(8),
+    verifierIdentitySha256: digest(9),
+    rangeAndPredecessorTailsSha256: digest(10),
+    ...overrides,
+  };
+}
+
+function makeOutputManifest(
+  overrides: Partial<DeclarativeV2VerifierCommandOutputManifestFrameV2> = {},
+): DeclarativeV2VerifierCommandOutputManifestFrameV2 {
+  return {
+    kind: "command_output_manifest",
+    reservationSha256: digest(11),
+    commandKind: "parse_module",
+    sequence: 2n,
+    evidenceRootSha256: digest(12),
+    evidenceCount: 3n,
+    diagnosticsRootSha256: digest(13),
+    diagnosticCount: 4n,
+    nextProgressSha256: digest(14),
+    ...overrides,
+  };
+}
+
+function makeReceipt(
+  overrides: Partial<DeclarativeV2VerifierCommandReceiptFrameV2> = {},
+): DeclarativeV2VerifierCommandReceiptFrameV2 {
+  return {
+    kind: "command_receipt",
+    reservationSha256: digest(15),
+    commandUsageSha256: digest(16),
+    resultingAttemptUsageSha256: digest(17),
+    outputManifestSha256: digest(18),
+    nextProgressSha256: digest(19),
+    ...overrides,
+  };
+}
+
+function expectEncodeInvalid(input: unknown): void {
+  const result = encodeDeclarativeV2VerifierProgressFrameV2(input, budget);
+  expect(Result.isFailure(result)).toBe(true);
+  if (Result.isFailure(result)) {
+    expect(result.failure.reason).toBe("invalidInput");
+  }
+}
+
 function digest(value: number): Uint8Array {
   return new Uint8Array(32).fill(value);
 }
@@ -256,6 +753,11 @@ function u32(value: number): Uint8Array {
   const bytes = new Uint8Array(4);
   new DataView(bytes.buffer).setUint32(0, value, false);
   return bytes;
+}
+
+function sizedUtf8(value: string): Uint8Array {
+  const bytes = utf8(value);
+  return concat(u32(bytes.byteLength), bytes);
 }
 
 function u64(value: bigint): Uint8Array {
