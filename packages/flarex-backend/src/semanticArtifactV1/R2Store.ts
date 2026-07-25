@@ -18,6 +18,11 @@ const SHA256_BYTES = 32;
 
 export type SemanticArtifactV1ObjectKind = "block" | "tree" | "root";
 
+export type SemanticArtifactV1R2Operation =
+  | "putImmutable"
+  | "readImmutable"
+  | "readImmutableAdmitted";
+
 export interface SemanticArtifactV1R2Budget {
   readonly maximumCalls: number;
   readonly maximumBodyBytes: number;
@@ -33,7 +38,7 @@ export interface SemanticArtifactV1R2Usage {
 export class SemanticArtifactV1R2InputError extends Data.TaggedError(
   "SemanticArtifactV1R2InputError",
 )<{
-  readonly operation: "putImmutable" | "readImmutable";
+  readonly operation: SemanticArtifactV1R2Operation;
   readonly reason: "invalidBudget" | "invalidDigest" | "invalidBytes" | "budgetExceeded";
 }> {}
 
@@ -52,7 +57,12 @@ export class SemanticArtifactV1R2CorruptionError extends Data.TaggedError(
   "SemanticArtifactV1R2CorruptionError",
 )<{
   readonly key: string;
-  readonly reason: "invalidBody" | "digestMismatch" | "keyCollision";
+  readonly reason:
+    | "invalidBody"
+    | "digestMismatch"
+    | "keyCollision"
+    | "invalidMetadata"
+    | "sizeMismatch";
 }> {}
 
 export class SemanticArtifactV1R2SettlementUncertainError extends Data.TaggedError(
@@ -81,6 +91,19 @@ export interface SemanticArtifactV1R2Object extends SemanticArtifactV1R2Receipt 
   readonly bytes: Uint8Array;
 }
 
+export interface SemanticArtifactV1R2AdmissionReceipt {
+  readonly key: string;
+  readonly digest: Uint8Array;
+  readonly byteLength: number;
+}
+
+export interface SemanticArtifactV1R2AdmittedObject {
+  readonly key: string;
+  readonly digest: Uint8Array;
+  readonly byteLength: number;
+  readonly bytes: Uint8Array;
+}
+
 export interface SemanticArtifactV1R2Store {
   readonly putImmutable: (
     kind: SemanticArtifactV1ObjectKind,
@@ -93,6 +116,16 @@ export interface SemanticArtifactV1R2Store {
     digest: unknown,
     budget: unknown,
   ) => Effect.Effect<SemanticArtifactV1R2Object, SemanticArtifactV1R2Error>;
+  readonly readImmutableAdmitted: <E>(
+    kind: SemanticArtifactV1ObjectKind,
+    digest: unknown,
+    admit: (
+      receipt: SemanticArtifactV1R2AdmissionReceipt,
+    ) => Effect.Effect<void, E, never>,
+  ) => Effect.Effect<
+    SemanticArtifactV1R2AdmittedObject,
+    SemanticArtifactV1R2Error | E
+  >;
 }
 
 export interface SemanticArtifactV1R2Bucket {
@@ -109,6 +142,7 @@ const uncertainCause = new WeakMap<SemanticArtifactV1R2SettlementUncertainError,
 
 class BodyFailure extends Error {}
 class BodyBudgetFailure extends Error {}
+class BodySizeMismatch extends Error {}
 
 export function semanticArtifactV1R2ResourceCause(
   error: SemanticArtifactV1R2ResourceError,
@@ -126,6 +160,111 @@ export function makeSemanticArtifactV1R2Store(
   bucket: SemanticArtifactV1R2Bucket,
   sha256: SemanticArtifactV1Sha256,
 ): SemanticArtifactV1R2Store {
+  const readImmutableAdmitted = Effect.fn(
+    "SemanticArtifactV1R2.readImmutableAdmitted",
+  )(
+    function* <E>(
+      kind: SemanticArtifactV1ObjectKind,
+      digestInput: unknown,
+      admit: (
+        receipt: SemanticArtifactV1R2AdmissionReceipt,
+      ) => Effect.Effect<void, E, never>,
+    ): Effect.fn.Return<
+      SemanticArtifactV1R2AdmittedObject,
+      SemanticArtifactV1R2Error | E
+    > {
+      const digest = yield* captureDigest(
+        "readImmutableAdmitted",
+        digestInput,
+      );
+      const key = keyFor(kind, digest);
+      const object = yield* Effect.tryPromise({
+        try: () => Reflect.apply(bucket.get, bucket, [key]) as PromiseLike<unknown>,
+        catch: cause => resourceFailure("get", key, cause),
+      });
+      if (object === null) {
+        return yield* Effect.fail(new SemanticArtifactV1R2NotFoundError({ key }));
+      }
+      if (!isNonArrayRecord(object)) {
+        return yield* Effect.fail(new SemanticArtifactV1R2CorruptionError({
+          key,
+          reason: "invalidMetadata",
+        }));
+      }
+      let byteLength: unknown;
+      try {
+        byteLength = object.size;
+      } catch (cause) {
+        return yield* Effect.die(cause);
+      }
+      if (
+        typeof byteLength !== "number" ||
+        !Number.isSafeInteger(byteLength) ||
+        byteLength < 1
+      ) {
+        return yield* Effect.fail(new SemanticArtifactV1R2CorruptionError({
+          key,
+          reason: "invalidMetadata",
+        }));
+      }
+      const admissionReceipt = Object.freeze({
+        key,
+        digest: copyBytes(digest),
+        byteLength,
+      });
+      yield* admit(admissionReceipt);
+
+      let body: unknown;
+      try {
+        body = object.body;
+      } catch (cause) {
+        return yield* Effect.die(cause);
+      }
+      if (!isNonArrayRecord(body)) {
+        return yield* Effect.fail(new SemanticArtifactV1R2CorruptionError({
+          key,
+          reason: "invalidBody",
+        }));
+      }
+      const bytes = yield* Effect.tryPromise({
+        try: signal => readBody(body, byteLength, signal, true),
+        catch: cause =>
+          cause instanceof BodySizeMismatch
+            ? new SemanticArtifactV1R2CorruptionError({
+              key,
+              reason: "sizeMismatch",
+            })
+            : cause instanceof BodyFailure
+              ? new SemanticArtifactV1R2CorruptionError({
+                key,
+                reason: "invalidBody",
+              })
+              : resourceFailure("readBody", key, cause),
+      });
+      if (bytes.byteLength !== byteLength) {
+        return yield* Effect.fail(new SemanticArtifactV1R2CorruptionError({
+          key,
+          reason: "sizeMismatch",
+        }));
+      }
+      const actual = yield* sha256(bytes, {
+        maximumInputBytes: byteLength,
+      });
+      if (!bytesEqualFullScan(actual, digest)) {
+        return yield* Effect.fail(new SemanticArtifactV1R2CorruptionError({
+          key,
+          reason: "digestMismatch",
+        }));
+      }
+      return Object.freeze({
+        key,
+        digest: copyBytes(digest),
+        byteLength,
+        bytes: copyBytes(bytes),
+      });
+    },
+  );
+
   const readBounded = Effect.fn("SemanticArtifactV1R2.readBody")(
     function* (
       key: string,
@@ -329,11 +468,15 @@ export function makeSemanticArtifactV1R2Store(
       }));
     },
   );
-  return Object.freeze({ putImmutable, readImmutable });
+  return Object.freeze({
+    putImmutable,
+    readImmutable,
+    readImmutableAdmitted,
+  });
 }
 
 function captureBudget(
-  operation: "putImmutable" | "readImmutable",
+  operation: SemanticArtifactV1R2Operation,
   input: unknown,
 ): Effect.Effect<SemanticArtifactV1R2Budget, SemanticArtifactV1R2InputError> {
   if (
@@ -355,7 +498,7 @@ function captureBudget(
 }
 
 function captureDigest(
-  operation: "putImmutable" | "readImmutable",
+  operation: SemanticArtifactV1R2Operation,
   input: unknown,
 ): Effect.Effect<Uint8Array, SemanticArtifactV1R2InputError> {
   return isUint8ArrayWithByteLength(input, SHA256_BYTES)
@@ -367,7 +510,7 @@ function captureDigest(
 }
 
 function budgetExceeded(
-  operation: "putImmutable" | "readImmutable",
+  operation: SemanticArtifactV1R2Operation,
 ): Effect.Effect<never, SemanticArtifactV1R2InputError> {
   return Effect.fail(new SemanticArtifactV1R2InputError({
     operation,
@@ -473,6 +616,7 @@ async function readBody(
   body: Readonly<Record<PropertyKey, unknown>>,
   maximum: number,
   signal: AbortSignal,
+  exactSize = false,
 ): Promise<Uint8Array> {
   let reader: unknown;
   try {
@@ -517,8 +661,11 @@ async function readBody(
         const next = total + chunkByteLength;
         if (
           !Number.isSafeInteger(next) ||
-          checkedMultiply(next, 2) > maximum
-        ) throw new BodyBudgetFailure();
+          (exactSize ? next > maximum : checkedMultiply(next, 2) > maximum)
+        ) {
+          if (exactSize) throw new BodySizeMismatch();
+          throw new BodyBudgetFailure();
+        }
         const chunk = copyBytes(item.value as Uint8Array);
         chunks.push(chunk);
         total = next;
@@ -526,7 +673,11 @@ async function readBody(
     } catch (cause) {
       primaryFailure = true;
       if (
-        (cause instanceof BodyFailure || cause instanceof BodyBudgetFailure) &&
+        (
+          cause instanceof BodyFailure ||
+          cause instanceof BodyBudgetFailure ||
+          cause instanceof BodySizeMismatch
+        ) &&
         typeof cancel === "function"
       ) {
         try {

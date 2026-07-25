@@ -28,6 +28,11 @@ export type SourceArtifactV2ObjectKind =
   | "module"
   | "completed-root";
 
+export type SourceArtifactV2R2Operation =
+  | "putImmutable"
+  | "readImmutable"
+  | "readImmutableAdmitted";
+
 export interface SourceArtifactV2R2Budget {
   readonly maximumBodyBytes: number;
   readonly maximumHashBytes: number;
@@ -36,7 +41,7 @@ export interface SourceArtifactV2R2Budget {
 export class SourceArtifactV2R2InputError extends Data.TaggedError(
   "SourceArtifactV2R2InputError",
 )<{
-  readonly operation: "putImmutable" | "readImmutable";
+  readonly operation: SourceArtifactV2R2Operation;
   readonly field: string;
   readonly reason: "invalidBudget" | "invalidBytes" | "invalidDigest";
 }> {}
@@ -58,7 +63,12 @@ export class SourceArtifactV2R2CorruptionError extends Data.TaggedError(
   "SourceArtifactV2R2CorruptionError",
 )<{
   readonly key: string;
-  readonly reason: "digestMismatch" | "keyCollision" | "invalidBody";
+  readonly reason:
+    | "digestMismatch"
+    | "keyCollision"
+    | "invalidBody"
+    | "invalidMetadata"
+    | "sizeMismatch";
 }> {}
 
 export class SourceArtifactV2R2SettlementUncertainError extends Data.TaggedError(
@@ -88,6 +98,12 @@ export interface SourceArtifactV2R2Object {
   readonly bytes: Uint8Array;
 }
 
+export interface SourceArtifactV2R2AdmissionReceipt {
+  readonly key: string;
+  readonly digest: Uint8Array;
+  readonly byteLength: number;
+}
+
 export interface SourceArtifactV2R2Store {
   readonly putImmutable: (
     kind: SourceArtifactV2ObjectKind,
@@ -100,6 +116,13 @@ export interface SourceArtifactV2R2Store {
     digest: unknown,
     budget: unknown,
   ) => Effect.Effect<SourceArtifactV2R2Object, SourceArtifactV2R2Error, never>;
+  readonly readImmutableAdmitted: <E>(
+    kind: SourceArtifactV2ObjectKind,
+    digest: unknown,
+    admit: (
+      receipt: SourceArtifactV2R2AdmissionReceipt,
+    ) => Effect.Effect<void, E, never>,
+  ) => Effect.Effect<SourceArtifactV2R2Object, SourceArtifactV2R2Error | E, never>;
 }
 
 export interface SourceArtifactV2R2Bucket {
@@ -115,6 +138,7 @@ const resourceCause = new WeakMap<SourceArtifactV2R2ResourceError, unknown>();
 const uncertainCause = new WeakMap<SourceArtifactV2R2SettlementUncertainError, unknown>();
 
 class SourceArtifactV2R2BodyCorruption extends Error {}
+class SourceArtifactV2R2BodySizeMismatch extends Error {}
 
 export function sourceArtifactV2R2ResourceCause(
   error: SourceArtifactV2R2ResourceError,
@@ -132,6 +156,99 @@ export function makeSourceArtifactV2R2Store(
   bucket: SourceArtifactV2R2Bucket,
   sha256: SourceArtifactV2Sha256,
 ): SourceArtifactV2R2Store {
+  const readImmutableAdmitted = Effect.fn(
+    "SourceArtifactV2R2.readImmutableAdmitted",
+  )(
+    function* <E>(
+      kind: SourceArtifactV2ObjectKind,
+      digestInput: unknown,
+      admit: (
+        receipt: SourceArtifactV2R2AdmissionReceipt,
+      ) => Effect.Effect<void, E, never>,
+    ): Effect.fn.Return<
+      SourceArtifactV2R2Object,
+      SourceArtifactV2R2Error | E
+    > {
+      const digest = yield* decodeDigest("readImmutableAdmitted", digestInput);
+      const key = objectKey(kind, digest);
+      const object = yield* Effect.tryPromise({
+        try: () => Reflect.apply(bucket.get, bucket, [key]) as PromiseLike<unknown>,
+        catch: cause => resourceFailure("get", key, cause),
+      });
+      if (object === null) {
+        return yield* Effect.fail(new SourceArtifactV2R2NotFoundError({ key }));
+      }
+      if (!isNonArrayRecord(object)) {
+        return yield* Effect.fail(new SourceArtifactV2R2CorruptionError({
+          key,
+          reason: "invalidMetadata",
+        }));
+      }
+      let byteLength: unknown;
+      try {
+        byteLength = object.size;
+      } catch (cause) {
+        return yield* Effect.die(cause);
+      }
+      if (
+        typeof byteLength !== "number" ||
+        !Number.isSafeInteger(byteLength) ||
+        byteLength < 1
+      ) {
+        return yield* Effect.fail(new SourceArtifactV2R2CorruptionError({
+          key,
+          reason: "invalidMetadata",
+        }));
+      }
+      const admissionReceipt = Object.freeze({
+        key,
+        digest: copyBytes(digest),
+        byteLength,
+      });
+      yield* admit(admissionReceipt);
+
+      let body: unknown;
+      try {
+        body = object.body;
+      } catch (cause) {
+        return yield* Effect.die(cause);
+      }
+      if (!isNonArrayRecord(body)) {
+        return yield* Effect.fail(new SourceArtifactV2R2CorruptionError({
+          key,
+          reason: "invalidBody",
+        }));
+      }
+      const bytes = yield* Effect.tryPromise({
+        try: signal => readBodyBounded(body, byteLength, signal, true),
+        catch: cause =>
+          cause instanceof SourceArtifactV2R2BodySizeMismatch
+            ? new SourceArtifactV2R2CorruptionError({
+              key,
+              reason: "sizeMismatch",
+            })
+            : cause instanceof SourceArtifactV2R2BodyCorruption
+              ? new SourceArtifactV2R2CorruptionError({
+                key,
+                reason: "invalidBody",
+              })
+              : resourceFailure("readBody", key, cause),
+      });
+      if (bytes.byteLength !== byteLength) {
+        return yield* Effect.fail(new SourceArtifactV2R2CorruptionError({
+          key,
+          reason: "sizeMismatch",
+        }));
+      }
+      yield* verifyDigest(key, bytes, digest, byteLength, sha256);
+      return Object.freeze({
+        key,
+        digest: copyBytes(digest),
+        bytes: copyBytes(bytes),
+      });
+    },
+  );
+
   const readImmutable = Effect.fn("SourceArtifactV2R2.readImmutable")(
     function* (
       kind: SourceArtifactV2ObjectKind,
@@ -267,11 +384,15 @@ export function makeSourceArtifactV2R2Store(
     },
   );
 
-  return Object.freeze({ putImmutable, readImmutable });
+  return Object.freeze({
+    putImmutable,
+    readImmutable,
+    readImmutableAdmitted,
+  });
 }
 
 function decodeBudget(
-  operation: "putImmutable" | "readImmutable",
+  operation: SourceArtifactV2R2Operation,
   value: unknown,
 ): Effect.Effect<SourceArtifactV2R2Budget, SourceArtifactV2R2InputError> {
   if (
@@ -294,7 +415,7 @@ function decodeBudget(
 }
 
 function decodeDigest(
-  operation: "putImmutable" | "readImmutable",
+  operation: SourceArtifactV2R2Operation,
   value: unknown,
 ): Effect.Effect<Uint8Array, SourceArtifactV2R2InputError> {
   return isUint8ArrayWithByteLength(value, SOURCE_ARTIFACT_V2_SHA256_BYTES)
@@ -307,7 +428,7 @@ function decodeDigest(
 }
 
 function captureBytes(
-  operation: "putImmutable" | "readImmutable",
+  operation: SourceArtifactV2R2Operation,
   value: unknown,
   maximum: number,
 ): Effect.Effect<Uint8Array, SourceArtifactV2R2InputError> {
@@ -415,6 +536,7 @@ async function readBodyBounded(
   body: Readonly<Record<PropertyKey, unknown>>,
   maximum: number,
   signal: AbortSignal,
+  exactSize = false,
 ): Promise<Uint8Array> {
   let getReader: unknown;
   let reader: unknown;
@@ -474,6 +596,11 @@ async function readBodyBounded(
         }
         const nextTotal = total + chunkByteLength;
         if (!Number.isSafeInteger(nextTotal) || nextTotal > maximum) {
+          if (exactSize) {
+            throw new SourceArtifactV2R2BodySizeMismatch(
+              "R2 object body exceeded its stored byte-size metadata.",
+            );
+          }
           throw new SourceArtifactV2R2BodyCorruption(
             "R2 object exceeded its caller-supplied byte budget.",
           );
@@ -484,7 +611,13 @@ async function readBodyBounded(
       }
     } catch (cause) {
       hasPrimaryFailure = true;
-      if (cause instanceof SourceArtifactV2R2BodyCorruption && typeof cancel === "function") {
+      if (
+        (
+          cause instanceof SourceArtifactV2R2BodyCorruption ||
+          cause instanceof SourceArtifactV2R2BodySizeMismatch
+        ) &&
+        typeof cancel === "function"
+      ) {
         try {
           void Promise.resolve(Reflect.apply(cancel, reader, [cause.message])).catch(() => undefined);
         } catch {

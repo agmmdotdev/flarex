@@ -1,6 +1,6 @@
 import { webcrypto } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { Effect, Result } from "effect";
+import { Cause, Data, Effect, Exit, Result } from "effect";
 import type {
   DeploymentProjectScopeAuthorizerV1,
   DeploymentProjectScopeWitnessV1,
@@ -96,6 +96,10 @@ const ceilings = {
   ...budgets,
   timeMilliseconds: 100_000,
 };
+
+class SemanticArtifactV1TestAdmissionError extends Data.TaggedError(
+  "SemanticArtifactV1TestAdmissionError",
+)<{ readonly reason: "budgetExceeded" }> {}
 
 describe("Semantic Artifact V1 private inert core", () => {
   it("requires an opaque single-use finalized-source proof", async () => {
@@ -256,6 +260,181 @@ describe("Semantic Artifact V1 private inert core", () => {
         expect.objectContaining({ read: expect.anything() }),
       );
     }
+  });
+
+  it("admits semantic R2 size metadata before body work without remapping failures", async () => {
+    const bytes = new TextEncoder().encode("semantic\n");
+    const sha256 = makeSemanticArtifactV1Sha256(input =>
+      webcrypto.subtle.digest("SHA-256", input)
+    );
+    const digest = await Effect.runPromise(sha256(bytes, {
+      maximumInputBytes: bytes.byteLength,
+    }));
+    const events: string[] = [];
+    let bodyAccesses = 0;
+    let hashes = 0;
+    const exact = makeSemanticArtifactV1R2Store({
+      put: async () => ({}),
+      get: async () => Object.defineProperties({}, {
+        size: {
+          enumerable: true,
+          get: () => {
+            events.push("size");
+            return bytes.byteLength;
+          },
+        },
+        body: {
+          enumerable: true,
+          get: () => {
+            bodyAccesses += 1;
+            events.push("body");
+            return new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new Uint8Array(bytes));
+                controller.close();
+              },
+            });
+          },
+        },
+      }),
+    }, makeSemanticArtifactV1Sha256(input => {
+      hashes += 1;
+      events.push("hash");
+      return webcrypto.subtle.digest("SHA-256", input);
+    }));
+    const value = await Effect.runPromise(exact.readImmutableAdmitted(
+      "block",
+      digest,
+      receipt => Effect.sync(() => {
+        events.push("admit");
+        expect(Object.isFrozen(receipt)).toBe(true);
+        receipt.digest.fill(0);
+      }),
+    ));
+    expect(value.bytes).toEqual(bytes);
+    expect(events).toEqual(["size", "admit", "body", "hash"]);
+    expect({ bodyAccesses, hashes }).toEqual({ bodyAccesses: 1, hashes: 1 });
+
+    let rejectedBodyAccesses = 0;
+    const rejected = makeSemanticArtifactV1R2Store({
+      put: async () => ({}),
+      get: async () => Object.defineProperties({}, {
+        size: { enumerable: true, value: bytes.byteLength },
+        body: {
+          enumerable: true,
+          get: () => {
+            rejectedBodyAccesses += 1;
+            return null;
+          },
+        },
+      }),
+    }, sha256);
+    const typed = new SemanticArtifactV1TestAdmissionError({
+      reason: "budgetExceeded",
+    });
+    expect(await Effect.runPromise(Effect.flip(
+      rejected.readImmutableAdmitted(
+        "block",
+        digest,
+        receipt => receipt.byteLength > bytes.byteLength - 1
+          ? Effect.fail(typed)
+          : Effect.void,
+      ),
+    ))).toBe(typed);
+    expect(rejectedBodyAccesses).toBe(0);
+
+    const defect = new Error("semantic admission defect");
+    expect(defectOfSemantic(await Effect.runPromiseExit(
+      rejected.readImmutableAdmitted(
+        "block",
+        digest,
+        () => Effect.die(defect),
+      ),
+    ))).toBe(defect);
+    expect(rejectedBodyAccesses).toBe(0);
+
+    const interruptedAdmission = await Effect.runPromiseExit(
+      rejected.readImmutableAdmitted(
+        "block",
+        digest,
+        () => Effect.interrupt,
+      ),
+    );
+    expect(Exit.isFailure(interruptedAdmission)).toBe(true);
+    if (Exit.isSuccess(interruptedAdmission)) {
+      throw new Error("Expected interrupted admission.");
+    }
+    expect(Cause.hasInterruptsOnly(interruptedAdmission.cause)).toBe(true);
+    expect(rejectedBodyAccesses).toBe(0);
+
+    const invalid = makeSemanticArtifactV1R2Store({
+      put: async () => ({}),
+      get: async () => ({ size: Number.NaN }),
+    }, sha256);
+    expect(await Effect.runPromise(Effect.flip(
+      invalid.readImmutableAdmitted("block", digest, () => Effect.void),
+    ))).toMatchObject({
+      _tag: "SemanticArtifactV1R2CorruptionError",
+      reason: "invalidMetadata",
+    });
+
+    const metadataDefect = new Error("semantic metadata getter defect");
+    const hostileMetadata = makeSemanticArtifactV1R2Store({
+      put: async () => ({}),
+      get: async () => Object.defineProperty({}, "size", {
+        enumerable: true,
+        get: () => {
+          throw metadataDefect;
+        },
+      }),
+    }, sha256);
+    expect(defectOfSemantic(await Effect.runPromiseExit(
+      hostileMetadata.readImmutableAdmitted(
+        "block",
+        digest,
+        () => Effect.void,
+      ),
+    ))).toBe(metadataDefect);
+
+    const bodyDefect = new Error("semantic body getter defect");
+    const hostileBody = makeSemanticArtifactV1R2Store({
+      put: async () => ({}),
+      get: async () => Object.defineProperties({}, {
+        size: { enumerable: true, value: bytes.byteLength },
+        body: {
+          enumerable: true,
+          get: () => {
+            throw bodyDefect;
+          },
+        },
+      }),
+    }, sha256);
+    expect(defectOfSemantic(await Effect.runPromiseExit(
+      hostileBody.readImmutableAdmitted(
+        "block",
+        digest,
+        () => Effect.void,
+      ),
+    ))).toBe(bodyDefect);
+
+    const sizeMismatch = makeSemanticArtifactV1R2Store({
+      put: async () => ({}),
+      get: async () => ({
+        size: bytes.byteLength + 1,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(bytes));
+            controller.close();
+          },
+        }),
+      }),
+    }, sha256);
+    expect(await Effect.runPromise(Effect.flip(
+      sizeMismatch.readImmutableAdmitted("block", digest, () => Effect.void),
+    ))).toMatchObject({
+      _tag: "SemanticArtifactV1R2CorruptionError",
+      reason: "sizeMismatch",
+    });
   });
 
   it("publishes block/tree/root last and returns only tuple-bound inert evidence", async () => {
@@ -1041,6 +1220,13 @@ describe("Semantic Artifact V1 private inert core", () => {
     }))).resolves.toMatchObject({ _tag: "Failure" });
   });
 });
+
+function defectOfSemantic<A, E>(exit: Exit.Exit<A, E>): unknown {
+  if (Exit.isSuccess(exit)) throw new Error("Expected failed Effect.");
+  const defect = Cause.findDefect(exit.cause);
+  if (Result.isFailure(defect)) throw new Error("Expected defect Cause.");
+  return defect.success;
+}
 
 function makeFixture(options: {
   readonly sourceCorrelationGeneration?: number;

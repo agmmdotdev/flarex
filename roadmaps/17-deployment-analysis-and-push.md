@@ -455,9 +455,10 @@ Declarative V2 is a deliberate programming-model boundary, not a bounded
 implementation of the dynamic V1 analyzer:
 
 ```text
-trusted prebuild
+version-pinned prebuild, normally flarex-dev on a developer machine or CI
   -> immutable prebuilt ESM modules
   -> canonical bounded NDJSON semantic declarations
+  -> untrusted upload boundary
   -> server-derived source and semantic roots
   -> bounded static core verification and durable link progress
   -> immutable candidate plus both analysis projections
@@ -474,11 +475,22 @@ evaluation-discovered metadata remains V1-only, compatibility-only, and
 PAM-ineligible. There is no auto-detection, fallback, shadow path, dual write,
 or dual authority between V1 and V2.
 
-V2 input is prebuilt immutable ESM plus canonical bounded NDJSON. TypeScript or
-Vite compilation, arbitrary module evaluation, whole-AST/whole-JSON
-materialization, and runtime metadata discovery are outside the bounded trusted
-operation. Developer tooling may hide generation ergonomics but cannot move
-compilation into that operation. The backend derives ordinals, counts, digests,
+V2 input is prebuilt immutable ESM plus canonical bounded NDJSON. “Trusted
+prebuild” means a version-pinned transformation contract, not authority derived
+from where the transformation runs. The normal producer is `flarex-dev` on a
+developer machine or CI. An optional hosted build service may provide
+convenience, but it remains isolated and non-authoritative. Its ESM, NDJSON,
+chunks, source maps, totals, and digests cross the same untrusted upload
+boundary as local output.
+
+TypeScript or Vite/Rolldown/esbuild compilation, package installation,
+arbitrary build plugins, network dependency resolution, arbitrary module
+evaluation, whole-AST/whole-JSON materialization, and runtime metadata discovery
+are outside the bounded authoritative verifier. Developer tooling may hide
+generation ergonomics but cannot move compilation into that operation. The
+declarative IR is the V2 product authority after validation; it is not evidence
+about arbitrary runtime exports. The backend independently validates canonical
+declaration bytes and executable core, then derives ordinals, counts, digests,
 roots, manifest-last completeness, and EOF from bytes it accepted; caller
 totals, hashes, and completeness claims never become authority.
 
@@ -509,6 +521,13 @@ inputs, source maps, provenance, or rollback material into the runtime host
 unless a specific item is also a proven runtime dependency. This contract is
 host-neutral; choosing Dynamic Worker or another materialization host remains a
 separate implementation and topology decision.
+
+Flarex never accepts caller-generated V8 or Cloudflare bytecode as a deployment
+or protocol artifact. Declarative V2 runtime projections contain portable,
+verified JavaScript modules plus Flarex-owned metadata. Cloudflare Worker Loader
+alone owns engine-specific parsing, compilation, and isolate materialization;
+bytecode and isolate state are neither portable Flarex identity nor caller
+authority.
 
 Runtime grouping is an internal physical optimization, never a function,
 transaction, data-partition, tenant, or authority boundary. Start with one

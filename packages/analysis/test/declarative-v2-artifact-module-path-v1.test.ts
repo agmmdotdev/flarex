@@ -481,7 +481,9 @@ describe("Declarative V2 artifact module path V1", () => {
       ),
     ]);
     expect(root).not.toContain("declarativeV2ArtifactModulePathV1");
-    expect(internal).not.toContain("declarativeV2ArtifactModulePathV1");
+    expect(root).not.toContain("DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1");
+    expect(internal).toContain("DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1");
+    expect(internal).toContain("makeDeclarativeV2ArtifactModulePathFactoryV1");
     expect(source).not.toMatch(/\.normalize\s*\(/u);
     expect(source).not.toContain("path.normalize");
     expect(source).not.toContain("TextDecoder");

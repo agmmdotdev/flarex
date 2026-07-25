@@ -562,6 +562,19 @@ export * from "./declarativeV2SemanticRecordsV1";
 export * from "./declarativeV2VerificationEvidenceV2";
 export * from "./declarativeV2VerifierExecutableV1";
 export {
+  DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
+  DeclarativeV2ArtifactModulePathV1Error,
+  makeDeclarativeV2ArtifactModulePathFactoryV1,
+} from "./declarativeV2ArtifactModulePathV1";
+export type {
+  DeclarativeV2ArtifactModulePathFactoryV1,
+  DeclarativeV2ArtifactModulePathFinishResultV1,
+  DeclarativeV2ArtifactModulePathHandleV1,
+  DeclarativeV2ArtifactModulePathStepReceiptV1,
+  DeclarativeV2ArtifactModulePathUsageV1,
+  DeclarativeV2ArtifactModulePathValidatorV1,
+} from "./declarativeV2ArtifactModulePathV1";
+export {
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_CONTRACT_V1,
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_TABLE_IDENTITY_V1,
 } from "./declarativeV2VerifierExecutableV1.contract";

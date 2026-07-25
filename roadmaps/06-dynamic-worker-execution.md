@@ -84,6 +84,7 @@ are useful closeout evidence, but this file owns the continuing runtime truth.
 public backend Worker
   -> resolve active deployment and executionArtifactRef
   -> artifact-runtime service binding with exact ref + execution identity
+     and, in the current compatibility mode, possibly the source package
   -> artifact-runtime Worker authenticates request
   -> load exact source package from R2 when payload is ref-only
   -> validate ref/header/source-package agreement
@@ -160,7 +161,7 @@ bindings in hosted execution.
 ### Artifact Identity And Loading
 
 An execution artifact reference is deterministically derived from the source
-package. Runtime requests carry:
+package. The current runtime request contract carries:
 
 - `artifactId`;
 - `sourcePackageHash`;
@@ -169,10 +170,12 @@ package. Runtime requests carry:
 - function path, arguments, and optional idempotency/partition data; and
 - the source package itself or a ref-only request resolved by the runtime store.
 
-The hosted path is configured for ref-only invocation: the public backend sends
-the active reference, and the artifact-runtime Worker loads the exact package
-from R2. Runtime route headers must match the payload reference, and the R2
-adapter verifies stored manifest/package identity before returning source.
+The hosted adapter supports both forms. The public backend sends the source
+package unless `FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE` is exactly `"true"`; in
+that configured ref-only mode, the artifact-runtime Worker loads the exact
+package from R2. Runtime route headers must match the payload reference, and the
+R2 adapter verifies stored manifest/package identity before returning source.
+This is current compatibility behavior, not the optimized production target.
 
 Source-package modules are rejected before Worker Loader materialization if a
 module is missing source, duplicates another path, or collides with the reserved
@@ -184,6 +187,13 @@ The shared runtime service caches materialized artifacts by `artifactId` plus
 `sourcePackageHash`. A repeated exact reference reuses the materialization. If
 an artifact ID appears with a different hash, the old artifact is disposed
 before replacement.
+
+The current route resolves or receives the complete source package before it
+asks that cache for a materialized artifact. Consequently, source-forwarding
+mode can serialize the complete package for a cache hit, while ref-only mode
+can read and decode R2 before discovering the same hit. The cache therefore
+avoids repeated Worker construction but does not yet provide a cache-before-
+artifact-load hot path.
 
 The hosted Worker Loader identity additionally includes:
 
@@ -305,10 +315,14 @@ roadmap 17.
 ### Generate A Managed Runtime Shell
 
 Cloudflare Workers cannot safely evaluate arbitrary uploaded code with
-`eval()` or `new Function()`. Flarex assembles the validated source-package
-modules with a generated main module and asks Worker Loader or Miniflare to
-create an isolated runtime. This keeps the developer experience module-based
-while making the sandbox and capabilities platform-controlled.
+`eval()` or `new Function()`. Flarex assembles verified portable JavaScript
+module source with a generated main module and passes those modules to Worker
+Loader or Miniflare. Worker Loader owns engine-specific parsing, compilation,
+and isolate materialization inside Cloudflare. Flarex does not create, trust,
+transport, or persist caller-supplied V8 bytecode, Cloudflare bytecode, or
+isolate state; none is portable Flarex artifact identity. This keeps the
+developer experience module-based while making the sandbox and capabilities
+platform-controlled.
 
 ### Keep The Artifact Runtime Separate From The Trusted Executor
 
@@ -322,7 +336,28 @@ function kind, visibility, arguments, identity, and results independently.
 The hosted artifact-runtime owns R2 loading so source packages are not copied
 through every backend invocation. The active reference remains small and
 content-bound, while R2 verification and materialization remain behind a
-private capability.
+private capability. The production form of this decision is stricter than the
+current compatibility switch:
+
+- the backend sends only the active runtime-projection reference, invocation,
+  and execution identity;
+- the artifact runtime checks its exact materialization-identity cache before
+  any R2 read or deployment-artifact reconstruction;
+- one process-local singleflight owns a cold load/materialization for a given
+  materialization identity, while concurrent callers await that result;
+- a miss loads only the immutable runtime projection, not the canonical
+  deployment package; and
+- a warm hit performs no Source Artifact, Semantic Artifact, canonical package,
+  or R2 read.
+
+That materialization identity includes the projection digest, compatibility
+date, generated runtime-shell identity, executor transport/configuration, and
+authorization credential versions. Correctness never depends on a process
+cache, singleflight, Worker Loader reuse, or a warm isolate. Cache loss must
+reconstruct the same runtime projection from the active immutable reference and
+current host-owned materialization configuration. Platform cache loss or isolate
+eviction may therefore repeat Worker Loader compilation from the same immutable
+runtime projection.
 
 ### Share Host Construction Without Hiding Differences
 
@@ -434,6 +469,15 @@ metadata validation, session atomicity, or least-authority contexts.
 - Cache size has no explicit application-level eviction policy. Worker instance
   lifetime and Worker Loader behavior bound it operationally, but high artifact
   churn needs measurement and deliberate reclamation/GC.
+- The current request/cache ordering is not a true warm-path cache: source-
+  forwarding mode may serialize the complete source package on every invoke,
+  and ref-only mode resolves R2 source before checking the materialization
+  cache. There is no per-reference singleflight for concurrent cold misses.
+- Current Worker definitions copy every source-package module in addition to
+  the generated runtime shell. Analysis-only modules, schema/auth inputs,
+  source maps, and duplicated execution material are not yet excluded through
+  a verified minimal runtime projection. This inflates transfer,
+  materialization, compilation, and cold-start work.
 - R2 source-package garbage collection for abandoned, superseded, or unreferenced
   artifacts is not implemented as a proven hosted policy.
 - The conditional facet-backed invocation path is not implemented or measured.
@@ -455,16 +499,36 @@ Keep the production path narrow and explicit:
 
 ```text
 active Postgres-backed deployment/package generation
-  -> exact executionArtifactRef
+  -> exact active runtime-projection manifest and group reference
   -> authenticated artifact-runtime Worker
-  -> verified R2 source package
+  -> cache by exact materialization identity before artifact loading
+  -> on miss only: singleflight verified R2 runtime-projection load
   -> identity/version-keyed Dynamic Worker baseline
-     or measured per-session supervisor + per-attempt facet
+     or a separately measured per-session supervisor + per-attempt facet
   -> mandatory authenticated internal invoke
   -> egress-denied developer runtime
   -> private authenticated executor binding
   -> exact-snapshot session and atomic Postgres commit
 ```
+
+The required steady-state warm path is:
+
+```text
+coherent active-manifest read
+  -> reference-only artifact-runtime request
+  -> exact-materialization-identity Worker cache hit
+  -> cached WorkerStub invoke
+  -> executor session
+```
+
+It contains no source-package transfer, R2 artifact read, Source Artifact V2
+read, Semantic Artifact V1 read, semantic decode, Worker definition rebuild, or
+Worker Loader callback. The required cold path loads one minimal immutable
+runtime projection, verifies its digest and active-manifest pins, and
+materializes it once for concurrent callers. Deployment-time cold
+materialization and startup within policy proves readiness. It does not promise
+a later regional cache hit, persistent isolate, or globally prewarmed
+deployment.
 
 Local Miniflare should remain a fast conformance adapter for the same source,
 context, syscall, identity, retry, and response contracts. Legacy
@@ -495,16 +559,30 @@ legacy engine. A green proof leads to a separate cutover decision.
    storage generation/fence and package artifact before invocation; fail closed
    rather than falling back to a prototype engine. Use bounded source/deployment
    activation rollback, not a dual-storage comparison gate.
-4. **Provide the hosted analysis runtime.** Reuse the managed source-package
+4. **Optimize the execution-artifact handoff before Declarative V2 cutover.**
+   Define the immutable minimal runtime-projection and function-to-group
+   manifest owned by roadmap 17; make hosted invocation reference-only; check
+   the full materialization-identity cache before R2 loading; singleflight
+   concurrent misses under that same identity;
+   exclude analysis, semantic, schema/auth, source-map, provenance, and rollback
+   material unless it is a proven transitive runtime dependency; and pin
+   cache-hit, cache-miss, allocation, failure, cancellation, and retry behavior
+   with focused tests. Benchmark warm and cold P50/P95/P99 separately, including
+   backend-to-runtime dispatch, R2 load, definition construction, Worker Loader
+   callback, isolate initialization, handler time, executor transport, and
+   Postgres time. Compare current full-package forwarding, current ref-only
+   loading, and the optimized projection path before considering service
+   collapse or Workers RPC.
+5. **Provide the hosted analysis runtime.** Reuse the managed source-package
    isolate boundary with analysis-specific globals, no executor binding, bounded
    diagnostics/time, and separate cold-isolate determinism proof.
-5. **Close runtime capability gaps deliberately.** Specify and test actions,
+6. **Close runtime capability gaps deliberately.** Specify and test actions,
    workflow mutations, hosted live-query query sessions, and cross-artifact
    nested calls before exposing them; keep unsupported capabilities fail-closed.
-6. **Add lifecycle and operability controls.** Define cache limits/eviction,
+7. **Add lifecycle and operability controls.** Define cache limits/eviction,
    R2 artifact retention and GC, token rotation/revocation, structured error
    correlation, and source-mapped hosted diagnostics.
-7. **Run the first application acceptance proof.** Compose the completed
+8. **Run the first application acceptance proof.** Compose the completed
    metadata/readiness, `C07`, redelivery, and `C06-B` gates into one
    feature-flagged `runtime-topology-probe` point mutation. Prove success, OCC
    rerun, lost-response replay, restart/redelivery, and terminal cleanup before

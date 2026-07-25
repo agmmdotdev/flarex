@@ -3,7 +3,7 @@ import {
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
-import { Cause, Effect, Exit, Fiber, Result } from "effect";
+import { Cause, Data, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import type {
   SourceArtifactV2Attempt,
@@ -41,6 +41,10 @@ import {
 
 const DIGEST = new Uint8Array(32).fill(0x11);
 const FRAME_BUDGET = { maximumFrameBytesMaterialized: 100_000 };
+
+class SourceArtifactV2TestAdmissionError extends Data.TaggedError(
+  "SourceArtifactV2TestAdmissionError",
+)<{ readonly reason: "budgetExceeded" }> {}
 
 describe("source artifact v2 inert upload core", () => {
   it("frames every immutable object family deterministically with owned bytes", async () => {
@@ -528,6 +532,236 @@ describe("source artifact v2 inert upload core", () => {
       { maximumBodyBytes: 1, maximumHashBytes: 1 },
     )))).toBe(true);
     expect({ cancels, releases }).toEqual({ cancels: 1, releases: 1 });
+  });
+
+  it("admits immutable R2 metadata before body access and preserves typed and Cause failures", async () => {
+    const bytes = Uint8Array.of(1, 2, 3);
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const events: string[] = [];
+    let lookups = 0;
+    let sizeReads = 0;
+    let bodyReads = 0;
+    let hashes = 0;
+    const exact = makeSourceArtifactV2R2Store({
+      put: async () => ({}),
+      get: async () => {
+        lookups += 1;
+        events.push("lookup");
+        return Object.defineProperties({}, {
+          size: {
+            enumerable: true,
+            get: () => {
+              sizeReads += 1;
+              events.push("size");
+              return bytes.byteLength;
+            },
+          },
+          body: {
+            enumerable: true,
+            get: () => {
+              bodyReads += 1;
+              events.push("body");
+              return new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(copyBytes(bytes));
+                  controller.close();
+                },
+              });
+            },
+          },
+        });
+      },
+    }, makeSourceArtifactV2Sha256(input => {
+      hashes += 1;
+      events.push("hash");
+      return crypto.subtle.digest("SHA-256", input);
+    }));
+    const admitted = await Effect.runPromise(exact.readImmutableAdmitted(
+      "source-block",
+      digest,
+      receipt => Effect.sync(() => {
+        events.push("admit");
+        expect(Object.isFrozen(receipt)).toBe(true);
+        expect(receipt.byteLength).toBe(bytes.byteLength);
+        receipt.digest.fill(0);
+      }),
+    ));
+    expect(admitted.bytes).toEqual(bytes);
+    expect({ lookups, sizeReads, bodyReads, hashes }).toEqual({
+      lookups: 1,
+      sizeReads: 1,
+      bodyReads: 1,
+      hashes: 1,
+    });
+    expect(events).toEqual(["lookup", "size", "admit", "body", "hash"]);
+
+    let rejectedBodyReads = 0;
+    let rejectedHashes = 0;
+    const rejected = makeSourceArtifactV2R2Store({
+      put: async () => ({}),
+      get: async () => Object.defineProperties({}, {
+        size: { enumerable: true, value: bytes.byteLength },
+        body: {
+          enumerable: true,
+          get: () => {
+            rejectedBodyReads += 1;
+            return null;
+          },
+        },
+      }),
+    }, makeSourceArtifactV2Sha256(input => {
+      rejectedHashes += 1;
+      return crypto.subtle.digest("SHA-256", input);
+    }));
+    const admissionFailure = new SourceArtifactV2TestAdmissionError({
+      reason: "budgetExceeded",
+    });
+    expect(failureOf(await Effect.runPromiseExit(
+      rejected.readImmutableAdmitted(
+        "source-block",
+        digest,
+        receipt => receipt.byteLength > bytes.byteLength - 1
+          ? Effect.fail(admissionFailure)
+          : Effect.void,
+      ),
+    ))).toBe(admissionFailure);
+    expect({ rejectedBodyReads, rejectedHashes }).toEqual({
+      rejectedBodyReads: 0,
+      rejectedHashes: 0,
+    });
+
+    const admissionDefect = new Error("admission defect");
+    expect(defectOf(await Effect.runPromiseExit(
+      rejected.readImmutableAdmitted(
+        "source-block",
+        digest,
+        () => Effect.die(admissionDefect),
+      ),
+    ))).toBe(admissionDefect);
+    expect(rejectedBodyReads).toBe(0);
+
+    const interruptedAdmission = await Effect.runPromiseExit(
+      rejected.readImmutableAdmitted(
+        "source-block",
+        digest,
+        () => Effect.interrupt,
+      ),
+    );
+    expect(Exit.isFailure(interruptedAdmission)).toBe(true);
+    if (Exit.isSuccess(interruptedAdmission)) {
+      throw new Error("Expected interrupted admission.");
+    }
+    expect(Cause.hasInterruptsOnly(interruptedAdmission.cause)).toBe(true);
+    expect(rejectedBodyReads).toBe(0);
+
+    const invalidMetadata = makeSourceArtifactV2R2Store({
+      put: async () => ({}),
+      get: async () => Object.defineProperties({}, {
+        size: { enumerable: true, value: -1 },
+        body: {
+          enumerable: true,
+          get: () => {
+            throw new Error("body must remain inaccessible");
+          },
+        },
+      }),
+    }, liveTestSha());
+    expect(failureOf(await Effect.runPromiseExit(
+      invalidMetadata.readImmutableAdmitted(
+        "source-block",
+        digest,
+        () => Effect.void,
+      ),
+    ))).toMatchObject({
+      _tag: "SourceArtifactV2R2CorruptionError",
+      reason: "invalidMetadata",
+    });
+
+    const metadataDefect = new Error("source metadata getter defect");
+    const hostileMetadata = makeSourceArtifactV2R2Store({
+      put: async () => ({}),
+      get: async () => Object.defineProperty({}, "size", {
+        enumerable: true,
+        get: () => {
+          throw metadataDefect;
+        },
+      }),
+    }, liveTestSha());
+    expect(defectOf(await Effect.runPromiseExit(
+      hostileMetadata.readImmutableAdmitted(
+        "source-block",
+        digest,
+        () => Effect.void,
+      ),
+    ))).toBe(metadataDefect);
+
+    const bodyDefect = new Error("source body getter defect");
+    const hostileBody = makeSourceArtifactV2R2Store({
+      put: async () => ({}),
+      get: async () => Object.defineProperties({}, {
+        size: { enumerable: true, value: bytes.byteLength },
+        body: {
+          enumerable: true,
+          get: () => {
+            throw bodyDefect;
+          },
+        },
+      }),
+    }, liveTestSha());
+    expect(defectOf(await Effect.runPromiseExit(
+      hostileBody.readImmutableAdmitted(
+        "source-block",
+        digest,
+        () => Effect.void,
+      ),
+    ))).toBe(bodyDefect);
+
+    const mismatchedSize = makeSourceArtifactV2R2Store({
+      put: async () => ({}),
+      get: async () => ({
+        size: bytes.byteLength + 1,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(copyBytes(bytes));
+            controller.close();
+          },
+        }),
+      }),
+    }, liveTestSha());
+    expect(failureOf(await Effect.runPromiseExit(
+      mismatchedSize.readImmutableAdmitted(
+        "source-block",
+        digest,
+        () => Effect.void,
+      ),
+    ))).toMatchObject({
+      _tag: "SourceArtifactV2R2CorruptionError",
+      reason: "sizeMismatch",
+    });
+
+    const wrongBytes = Uint8Array.of(3, 2, 1);
+    const digestMismatch = makeSourceArtifactV2R2Store({
+      put: async () => ({}),
+      get: async () => ({
+        size: wrongBytes.byteLength,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(wrongBytes);
+            controller.close();
+          },
+        }),
+      }),
+    }, liveTestSha());
+    expect(failureOf(await Effect.runPromiseExit(
+      digestMismatch.readImmutableAdmitted(
+        "source-block",
+        digest,
+        () => Effect.void,
+      ),
+    ))).toMatchObject({
+      _tag: "SourceArtifactV2R2CorruptionError",
+      reason: "digestMismatch",
+    });
   });
 
   it("resumes the exact begin and reopen commands after their durable budget reservation", async () => {

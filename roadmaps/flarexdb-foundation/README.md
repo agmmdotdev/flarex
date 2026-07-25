@@ -729,6 +729,11 @@ start Payload feature parity. Their contract is in
    `FlarexDeclarativeExecutableCoreV1`, and derives the immutable candidate,
    both analysis projections, minimal runtime projections, and the exact
    function-to-execution-group manifest without evaluating runtime metadata.
+   The version-pinned prebuild normally runs in `flarex-dev` on a developer
+   machine or CI; an optional hosted builder remains non-authoritative. The
+   backend verifies the portable inputs and derives their identities, while
+   Worker Loader alone owns engine-specific runtime compilation and
+   materialization.
    Source/semantic deployment evidence stays off the steady-state invoke path:
    the artifact runtime receives only a coherent active group reference and
    invocation data, checks its full projection/configuration/credential
