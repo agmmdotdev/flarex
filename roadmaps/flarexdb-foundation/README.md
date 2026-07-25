@@ -726,9 +726,15 @@ start Payload feature parity. Their contract is in
 1. Complete roadmap 17's staged atomic Declarative V2 vertical for the composed
    shared `primary/public` target. V2 consumes prebuilt immutable ESM plus
    canonical bounded NDJSON declarations, independently verifies generated
-   `FlarexDeclarativeExecutableCoreV1`, and derives immutable candidate plus
-   both analysis projections without evaluating runtime metadata. V1 remains
-   dynamic, compatibility-only, and PAM-ineligible.
+   `FlarexDeclarativeExecutableCoreV1`, and derives the immutable candidate,
+   both analysis projections, minimal runtime projections, and the exact
+   function-to-execution-group manifest without evaluating runtime metadata.
+   Source/semantic deployment evidence stays off the steady-state invoke path:
+   the artifact runtime receives only a coherent active group reference and
+   invocation data, checks its full projection/configuration/credential
+   materialization identity before R2, and singleflights a cold projection load
+   under that same identity. V1 remains dynamic, compatibility-only, and
+   PAM-ineligible.
 2. `S03-D4`: lock the located scope clock first, then derive target-native
    readiness from the exact candidate/verifier evidence and real target rows,
    indexes, uniqueness, edges, and adapter evidence. S03-D4 alone writes either
@@ -737,9 +743,10 @@ start Payload feature parity. Their contract is in
 3. `S04`: under the same scope-clock-first order, revalidate the complete
    readiness evidence and CAS one target-local activation revision/head. The
    coherent reader resolves one package/artifact/source/semantic/
-   function-validator/schema snapshot; it never falls back to DeploymentDO,
-   legacy `prepareInvoke`, `activePackageId`, `analysisJson`, the legacy schema
-   pointer, or partition routing.
+   function-validator/schema/runtime-projection/function-group-manifest
+   snapshot; it never falls back to DeploymentDO, legacy `prepareInvoke`,
+   `activePackageId`, `analysisJson`, the legacy schema pointer, or partition
+   routing.
 4. `O11`: snapshot-retention floors and explicit out-of-retention behavior;
    consume reconnect floors only after roadmap 21 supplies their accepted
    contract and DDL.
@@ -781,12 +788,16 @@ evidence, creates the sole page manifest, derives the caller-comparison-only
 progress transition, and provides bounded fixed-order phase-tail observation.
 Captured source/semantic object references are inert commitments, not proof of
 existence, authentication, finalization, or read authority. Stage 3 later writes
-only static-finalization evidence and the two candidate projections; S03-D4,
-under the scope-clock-first order, exclusively writes both terminal verdict
-outcomes and lifecycle before S04 activation CAS. Static verification,
-authenticated source reading, readiness, activation writes, coherent reads,
-ingress, dispatch, client cutover, and cleanup remain later stages of the same
-approved vertical.
+static-finalization evidence, the two candidate analysis projections, and the
+separately versioned runtime projection artifacts plus function-group manifest;
+S03-D4, under the scope-clock-first order, exclusively writes both terminal
+verdict outcomes and lifecycle before S04 activation CAS. The existing accepted
+C4 contract still owns only static finalization plus the two analysis
+projections. Runtime projection frames, storage, candidate commitments, and
+manifest completeness require their own private no-authority preflight before
+that implementation gate may expand. Static verification, authenticated source
+reading, readiness, activation writes, coherent reads, ingress, dispatch,
+client cutover, and cleanup remain later stages of the same approved vertical.
 
 The first provisional Stage-3 contract foundation is present but remains
 private, production-unreachable, and non-authoritative. Budget/Progress V2 pins
@@ -826,10 +837,14 @@ application catch/finally cannot observe or suppress them, and trusted lowering
 rejects code that relies on such completion. A1b1 still owns the authenticated
 source/semantic reader and host composition, A1b2 owns durable S1 V2
 reserve/resume/settle integration, and terminal inert C4 alone persists C3
-completion and publishes the two projections plus static-finalization evidence.
-No analyzer route or binding, authenticated reader, durable verifier-progress
-composition, C3/C4 publication, verdict, readiness, activation, ingress,
-deployment, cleanup, or production authority is shipped by this foundation.
+completion and publishes static-finalization evidence plus the two analysis
+projections. The separately preflighted runtime projection artifacts and
+function-group manifest must join that same inert candidate boundary before
+readiness; they cannot be inferred from or stored as either analysis
+projection. No analyzer route or binding, authenticated reader, durable
+verifier-progress composition, C3/C4 publication, verdict, readiness,
+activation, ingress, deployment, cleanup, or production authority is shipped
+by this foundation.
 
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the

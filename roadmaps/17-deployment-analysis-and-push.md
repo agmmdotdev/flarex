@@ -3,10 +3,12 @@
 ## Status And Scope
 
 **Status:** Dynamic V1 has an implemented local/backend compatibility baseline.
-Declarative V2 is the accepted production metadata direction; its private S0
-physical foundation and private S1 durable verifier-progress owner are
-implemented and inert, while static verification, candidate publication,
-readiness, activation, ingress/dispatch, and final cutover remain incomplete.
+Declarative V2 is the accepted production metadata direction. Its private S0
+physical foundation, S1 durable verifier progress, Semantic Artifact V1
+provenance, and generated bounded-verifier foundation are implemented and
+inert. Authenticated streaming reader/host composition, durable verifier
+execution, static/candidate/runtime projection publication, readiness,
+activation, ingress/dispatch, and final cutover remain incomplete.
 
 This roadmap owns:
 
@@ -16,6 +18,8 @@ This roadmap owns:
 - the push candidate lifecycle;
 - the relationship between analysis, final codegen, artifact persistence, and
   activation;
+- the immutable deployment-to-runtime projection and function-to-execution-
+  group manifest handed to the artifact runtime;
 - active deployment metadata used by invocation; and
 - the trust, validation, and failure rules across those boundaries.
 
@@ -227,6 +231,13 @@ transports.
 
 Source-package identity, analyzed metadata, and artifact identity must remain
 joined. No direct schema/function metadata route may bypass the push lifecycle.
+The canonical deployment inputs are not themselves the steady-state invocation
+payload. Activation binds a minimal immutable runtime projection and a
+function-to-execution-group manifest to the same candidate identity. A warm
+invoke carries only the selected active reference, function path, arguments,
+execution identity, and operation-specific fields. It must not transfer or
+reread Source Artifact V2, Semantic Artifact V1, canonical NDJSON, analysis
+inputs, source maps, provenance, or rollback evidence.
 
 ## Ownership Boundaries
 
@@ -280,6 +291,13 @@ joined. No direct schema/function metadata route may bypass the push lifecycle.
     derived and verified against the exact source package.
 15. **Legacy storage is not future authority.** Current DeploymentDO activation
     proves the compatibility lifecycle, not FlarexDB schema/index readiness.
+16. **Deployment evidence stays off the warm invoke path.** Source Artifact V2
+    and Semantic Artifact V1 are authenticated verification inputs. C4 derives
+    an immutable minimal runtime projection and function-to-group manifest;
+    S03-D4 proves every referenced group can cold-materialize; S04 activates
+    those exact digests. A warm invoke consumes only the coherent active
+    manifest and selected group reference. No cache, prewarm, or Worker Loader
+    reuse is correctness authority.
 
 ## Decisions And Rationale
 
@@ -416,6 +434,20 @@ activation without readiness.
   package.
 - Concurrent candidate supersession is simpler than Convex's full schema race,
   wait-for-schema, and index-backfill protocol.
+- The current V1 artifact-runtime handoff is not the Declarative V2 target:
+  compatibility mode may forward a complete source package, configured
+  ref-only mode resolves R2 source before the materialization-cache lookup, and
+  Worker definitions copy the complete package rather than a verified minimal
+  runtime projection. Source/semantic authenticated reading and static
+  verification are not yet composed with a runtime-projection publication,
+  readiness, activation, or reference-only production invoke path.
+- A1b1's production contract is authenticated bounded tree-walking, not
+  whole-artifact reconstruction disguised behind cursors. Any provisional
+  reader that first reconstructs finalized source modules and the semantic
+  stream in process memory is validation scaffolding only and cannot become the
+  production composition until it is replaced by streaming R2 cursors or an
+  explicit immutable ceiling has a measured worst-case concurrent-allocation
+  proof for the analyzer host envelope.
 
 ## Target Direction
 
@@ -429,9 +461,11 @@ trusted prebuild
   -> server-derived source and semantic roots
   -> bounded static core verification and durable link progress
   -> immutable candidate plus both analysis projections
+  -> minimal runtime projections plus function-to-group manifest
   -> target-native readiness evidence
   -> scope-clock-fenced activation revision/head CAS
   -> one coherent active reader
+  -> reference-only artifact-runtime invocation
 ```
 
 The V2 declaration is authoritative metadata. Undeclared runtime exports are
@@ -462,6 +496,35 @@ capabilities, higher-order executable values, `eval`/function synthesis, and
 equivalent code loading are rejected unless trusted tooling lowers them to the
 versioned safe ABI. Fixed-platform evaluation and a runtime membrane are not
 readiness authorities. Runtime markers and exporters carry no V2 authority.
+
+The canonical source and semantic artifacts are deployment evidence, not
+runtime bundles. After static verification, the backend deterministically
+constructs the smallest correct runtime projection for each capability and
+execution group: the generated runtime shell, selected executable entry
+modules, and only their proven transitive runtime chunks. The accompanying
+immutable manifest maps every function path to its kind, visibility, validator
+pins, capability profile, execution group, and exact projection digest. It
+must not copy analysis-only modules, canonical NDJSON, schema/auth analysis
+inputs, source maps, provenance, or rollback material into the runtime host
+unless a specific item is also a proven runtime dependency. This contract is
+host-neutral; choosing Dynamic Worker or another materialization host remains a
+separate implementation and topology decision.
+
+Runtime grouping is an internal physical optimization, never a function,
+transaction, data-partition, tenant, or authority boundary. Start with one
+transaction group when it fits measured size/startup headroom; split by
+capability profile, dependency affinity, and observed nested-call affinity only
+when the platform envelope requires it. Stable deterministic group IDs and
+digests permit cache reuse without making cache state authoritative.
+
+Authenticated verifier input is likewise a bounded stream, not a requirement
+to reconstruct the complete source and semantic artifacts before verification.
+The production reader walks the authenticated content-addressed trees through
+opaque request-local cursors, charges work before caller-proportional
+allocation, and retains only the verifier's declared fixed-width arenas plus
+bounded input windows. A deliberately retained whole-artifact fast path would
+require an explicit immutable admission ceiling and measured concurrent-memory
+proof; it cannot arise accidentally from a convenience reader.
 
 Canonical immutable frames bind source, semantic, package, artifact, schema,
 validator, core-language, ABI, grammar, Unicode, parser-table, analyzer,
@@ -576,14 +639,28 @@ activation remain blocked until their production host composition is proven.
    Successful R2 receipts are checked against the reservation. CPU framing and
    capture remain interruptible, while only the short SQLite/R2 settlement and
    reconciliation decision windows are masked.
-3. **Static verification, finalization, and candidate projection.** Consume
+3. **Static verification, finalization, candidate projection, and runtime
+   projection.** Consume
    authenticated immutable source/semantic evidence supplied by the later
-   private reader/composition stages, independently verify the generated core
-   and safe ABI, derive the handler-set digest and both `DeploymentAnalysis`
-   projections, and publish only immutable static-finalization evidence plus
-   those two candidate projections. Stage 3 leaves the attempt at
-   `registering`/`verdict`; it writes neither a ready nor rejected verdict and
-   does not make the candidate active.
+   private reader/composition stages through bounded authenticated cursors,
+   without requiring whole-artifact reconstruction, independently verify the
+   generated core and safe ABI, derive the handler-set digest and both
+   `DeploymentAnalysis` projections, deterministically construct the minimal
+   runtime projections and function-to-group manifest, and publish only
+   immutable static-finalization evidence, the two candidate analysis
+   projections, and the separately versioned runtime artifacts and manifest.
+   Stage 3 leaves the attempt at `registering`/`verdict`; it writes neither a
+   ready nor rejected verdict and does not make the candidate active. Runtime
+   projection publication does not load a runtime host or grant invocation
+   authority.
+
+   Runtime projections and the function-to-group manifest are not a third
+   `DeploymentAnalysis` projection and must not be squeezed into either of the
+   two existing candidate-projection rows. Their versioned frame, object
+   storage, root/manifest binding, and candidate commitments require a private
+   no-authority preflight before Stage 3 implementation. That prerequisite may
+   add immutable object/storage shapes, but it cannot change the already-frozen
+   two analysis projection kinds or bypass later readiness and activation.
 
    The first provisional C3/C4 foundation is implemented but intentionally
    unusable on its own. Private protocol subpaths now pin Budget/Progress V2,
@@ -645,18 +722,30 @@ activation remain blocked until their production host composition is proven.
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact
    candidate, artifact, schema, validator, registration, and verifier pins.
+   Cold-materialize every transaction and edge-action runtime projection
+   through a hosted-equivalent Worker Loader lane, independently enforce raw,
+   compressed, and startup envelopes with policy headroom, and retain
+   per-group receipts. A successful readiness probe proves materializability,
+   not a future regional cache hit or warm isolate.
    S03-D4 alone writes either the ready or rejected verdict and the terminal
    verifier lifecycle. Rejection may reject declared handlers but never discover
    or rewrite semantic metadata.
 5. **S04 activation and coherent reader.** Lock scope clock first, then CAS one
    target-local activation revision/head. The reader resolves only the exact
    readiness-approved package/artifact/source/semantic/function-validator/
-   schema snapshot. Retain all incomplete, rejected, superseded, active, and
-   rollback-referenced evidence initially.
+   schema/runtime-projection snapshot. Its revision-fenced result is the only
+   runtime selection authority and may support a correctness-preserving cache;
+   stale, missing, or ambiguous revision evidence fails closed. Retain all
+   incomplete, rejected, superseded, active, and rollback-referenced evidence
+   initially.
 6. **Ingress, dispatch, and client consumption.** Add versioned bounded V2
    upload/finalization, pinned analyzer handshake/dispatch, and flarex-dev
-   consumption as the real two-sided caller. Preserve legacy whole-package V1
-   unchanged and non-authoritative.
+   consumption as the real two-sided caller. Artifact-runtime dispatch carries
+   only the selected runtime-projection/group reference plus invocation data.
+   Its full materialization-identity cache is checked before any R2 load, and
+   concurrent cold misses are singleflighted under the same projection,
+   compatibility, runtime-shell, executor-configuration, and credential-version
+   identity. Preserve legacy whole-package V1 unchanged and non-authoritative.
 7. **Atomic activation/cutover.** Enable only after all preceding private
    stages and PGlite plus zero-skip PostgreSQL race/crash/corruption proof are
    green. Switch without fallback, shadowing, or dual authority.
