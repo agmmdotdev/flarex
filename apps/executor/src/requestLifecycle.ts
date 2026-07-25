@@ -7,6 +7,13 @@ export interface ExecutorDatabaseClient {
 
 export interface ExecutorWorkerEnv {
   readonly HYPERDRIVE_CACHE_DISABLED?: Pick<Hyperdrive, "connectionString">;
+  /**
+   * Inactive until the P02c.4 production initial-attempt parity gate.
+   * Wrangler targets only the versioned private artifact-runtime entrypoint.
+   * The activation composition root will establish its narrower RPC type
+   * before use.
+   */
+  readonly FLAREX_POINT_MUTATION_EXACT_RUNTIME_V1?: unknown;
   readonly FLAREX_EXECUTOR_TOKEN?: string;
 }
 

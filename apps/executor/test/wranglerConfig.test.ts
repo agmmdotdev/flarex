@@ -31,6 +31,13 @@ describe("private executor Wrangler configuration", () => {
           id: "00000000000000000000000000000000",
         },
       ],
+      services: [
+        {
+          binding: "FLAREX_POINT_MUTATION_EXACT_RUNTIME_V1",
+          service: "flarex-artifact-runtime",
+          entrypoint: "FlarexPointMutationExactRuntimeArtifactHostV1",
+        },
+      ],
     });
     expect(config).not.toHaveProperty("route");
     expect(config).not.toHaveProperty("routes");

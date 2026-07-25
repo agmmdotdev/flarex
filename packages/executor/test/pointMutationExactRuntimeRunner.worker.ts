@@ -50,6 +50,9 @@ import {
   type PointMutationExactRuntimeArtifactHostBindingV1,
 } from "@flarex/executor/point-mutation-exact-runtime-runner";
 import {
+  makePointMutationExactRuntimeBindingRunnerV1,
+} from "@flarex/executor/point-mutation-exact-runtime-binding";
+import {
   InvalidPointMutationJournalCapabilityV1Error,
   type PointMutationJournalTableV1,
 } from "../src/pointMutationJournal";
@@ -233,11 +236,13 @@ async function rejectionScenario(expectedTransport: boolean) {
   const rejection = new Error(
     expectedTransport ? "expected transport" : "remote defect",
   );
-  const runner = makePointMutationExactRuntimeRunnerV1({
-    binding: bindingFrom(() => Promise.reject(rejection)),
-    isExpectedTransportFailure: (cause) =>
-      expectedTransport && cause === rejection,
-  });
+  const binding = bindingFrom(() => Promise.reject(rejection));
+  const runner = expectedTransport
+    ? makePointMutationExactRuntimeRunnerV1({
+      binding,
+      isExpectedTransportFailure: (cause) => cause === rejection,
+    })
+    : makePointMutationExactRuntimeBindingRunnerV1(binding);
   const exit = await Effect.runPromiseExit(runner.run(input));
   let identityPreserved = false;
   if (Exit.isFailure(exit)) {
@@ -346,10 +351,7 @@ async function interruptionScenario() {
 }
 
 function makeRunner(binding: PointMutationExactRuntimeArtifactHostBindingV1) {
-  return makePointMutationExactRuntimeRunnerV1({
-    binding,
-    isExpectedTransportFailure: () => false,
-  });
+  return makePointMutationExactRuntimeBindingRunnerV1(binding);
 }
 
 function bindingFrom(

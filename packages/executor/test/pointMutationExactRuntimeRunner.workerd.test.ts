@@ -192,7 +192,8 @@ function workspacePackageResolution(): Plugin {
     name: "flarex-p02c2-workspace-package-resolution",
     resolveId(id) {
       if (
-        id === "@flarex/executor/point-mutation-exact-runtime-runner"
+        id === "@flarex/executor/point-mutation-exact-runtime-runner" ||
+        id === "@flarex/executor/point-mutation-exact-runtime-binding"
       ) {
         return fileURLToPath(import.meta.resolve(id));
       }

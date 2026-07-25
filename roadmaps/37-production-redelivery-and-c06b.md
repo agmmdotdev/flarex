@@ -6,7 +6,8 @@ Status: active focused execution plan. P00 records the accepted boundary, P01
 selects the exact-attempt runtime-host contract, and P02a freezes the
 host-neutral protocol and generated Dynamic Worker entrypoint; all three are
 complete. P02b adds the executor-owned one-shot journal RPC adapter and is also
-complete. P02c.3, proving stored-attempt composition, is the current gate.
+complete. P02c.4, proving production initial-attempt runtime parity before
+activation, is the current gate.
 
 This plan owns the remaining production portion of
 `O08-B2b2b2b1b2b2b` and the subsequent `C06-B` endpoint/response policy:
@@ -480,7 +481,7 @@ Implement P02c in these bounded checkpoints:
    the journal graph, give its retained cause precedence, decode the strict
    result, and distinguish user failure from the bounded host/transport error
    channel without turning defects or interruption into typed failures.
-3. **P02c.3 — stored-attempt composition proof.** Install that runner only in
+3. **[x] P02c.3 — stored-attempt composition proof.** Install that runner only in
    the existing exact-attempt dependency graph and prove one initial execution
    of that graph plus one redelivery-shaped execution use no ordinary invoke
    route, replacement session, serialized journal authority, Dynamic Worker
@@ -779,25 +780,61 @@ add an executor service binding, create another execution authority, add a
 scheduler or trigger, alter the ordinary cached invoke route, or activate
 execution.
 
+### P02c.3 Boundary
+
+`makePointMutationExactRuntimeBindingRunnerV1` is the sole production binding
+adapter for the executor exact runner. It accepts only the private
+artifact-runtime RPC port and installs the already-completed P02c.2
+implementation as the existing stored-attempt graph's runtime-neutral runner;
+it does not add another stored-attempt constructor, journal owner, retry loop,
+or execution state machine.
+
+The executor Wrangler configuration now declares
+`FLAREX_POINT_MUTATION_EXACT_RUNTIME_V1` as a service binding to
+`flarex-artifact-runtime#FlarexPointMutationExactRuntimeArtifactHostV1`.
+That binding selects only the versioned named entrypoint and remains unused by
+the Fetch host until P02c.4 activates the production initial point-mutation
+path.
+
+Workers RPC exposes propagated remote exceptions and platform call failures on
+the same rejected-Promise surface without a documented discriminator. The
+production adapter therefore classifies no rejected call as an expected
+transport failure. Expected artifact, load, protocol, and user failures must
+cross the strict P02c.1 host-response contract; an ambiguous rejection remains
+a defect instead of being relabeled as recoverable infrastructure failure.
+
+The stored-attempt composition proof uses one binding-backed runner object for
+both an initial-shaped fresh handoff and an expired-attempt redelivery-shaped
+execution. Both enter the existing authenticated exact-attempt kernel, publish
+through the existing commit owner, allocate a distinct invocation-scoped live
+journal RPC target, and dispose the received RPC result. The proof also pins
+that neither call uses the ordinary artifact Fetch route, creates a replacement
+session, sends serialized journal, database, session, or retry authority, or
+causes an extra binding call that could act as a parallel retry machine.
+
+P02c.3 does not route the production initial point-mutation host through this
+runner, expose a public route, add a scheduler or trigger, or activate
+redelivery. Those activation and runtime-profile parity obligations remain the
+P02c.4 gate.
+
 ## Resume Checklist
 
-Current gate: **P02c.3 — stored-attempt composition proof.**
+Current gate: **P02c.4 — activation parity proof.**
 
 On resume:
 
-1. read this plan plus the P02a protocol/runtime and P02b journal-RPC
+1. read this plan plus the completed P02a, P02b, and P02c.1-P02c.3
    boundaries;
-2. treat the completed P02c.1 private RPC host and P02c.2 exact runner as the
-   only artifact-runtime path for exact attempts;
-3. install that runner only through the existing stored-attempt dependency
-   graph, with one private named artifact-runtime binding adapter and a narrow
-   expected-transport classifier;
-4. prove one initial-shaped execution and one redelivery-shaped execution use
-   the same runtime-neutral runner without creating a replacement session,
-   parallel retry machine, serialized journal authority, or Dynamic Worker
-   database binding; and
-5. keep the ordinary cached invoke route outside this exact-attempt path and
-   leave production activation blocked for P02c.4 parity proof.
+2. treat the private artifact-runtime named entrypoint, the binding adapter,
+   and the stored-attempt exact kernel as the only exact-attempt runtime path;
+3. locate the production initial point-mutation host and route it through this
+   same binding-backed runtime-neutral runner without changing the ordinary
+   cached invoke route;
+4. prove the initial host and exact redelivery select one identical fresh
+   Worker profile, including module-state freshness, deterministic time and
+   randomness, unavailable capabilities, and intrinsic hardening; and
+5. keep the scheduler, scheduled export, Wrangler trigger, public routes, and
+   `C06-B` response policy out of P02c.4.
 
 Do not add the database scheduler host, cron handler, scheduled export,
 Wrangler trigger, public route, or `C06-B` response policy during P02c. P04

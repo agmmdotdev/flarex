@@ -1,3 +1,5 @@
+/// <reference types="@cloudflare/workers-types" />
+
 import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Random, Result, Schema } from "effect";
 import {
@@ -40,6 +42,16 @@ import {
   preparePointMutationStartEvidenceV1,
   type PointMutationTargetFunctionMetadataV1,
 } from "flarex-protocol/point-mutation-start";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+  POINT_MUTATION_EXACT_RUNTIME_RESULT_VERSION_V1,
+  type PointMutationExactRuntimeRequestV1,
+} from "flarex-protocol/point-mutation-exact-runtime";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+  type PointMutationExactRuntimeHostResponseV1,
+} from "flarex-protocol/point-mutation-exact-runtime-host";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
@@ -97,6 +109,10 @@ import {
 import { decodePointMutationSessionAttemptSelectorV1 } from
   "../../executor/src/pointMutationSessionAttemptSelector";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
+import {
+  makePointMutationExactRuntimeBindingRunnerV1,
+  type PointMutationExactRuntimeArtifactHostBindingV1,
+} from "../../executor/src/pointMutationExactRuntimeBinding";
 import {
   createPointMutationExecutionClaimVaultV1,
   type PointMutationExecutionClaimVaultV1,
@@ -2173,6 +2189,111 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       last_commit_seq: "1",
       last_outbox_seq: "1",
     });
+  });
+
+  it("composes initial-shaped and redelivery-shaped execution through one private exact-runtime binding runner", async () => {
+    const bindingRequests: PointMutationExactRuntimeRequestV1[] = [];
+    const journalTargets: unknown[] = [];
+    let disposedResponses = 0;
+    let ordinaryInvokeCalls = 0;
+    const binding = Object.freeze({
+      run: async (
+        request: PointMutationExactRuntimeRequestV1,
+        journal: Parameters<
+          PointMutationExactRuntimeArtifactHostBindingV1["run"]
+        >[1],
+      ) => {
+        bindingRequests.push(request);
+        journalTargets.push(journal);
+        return disposableExactRuntimeSuccessResponse(() => {
+          disposedResponses += 1;
+        });
+      },
+      fetch: async () => {
+        ordinaryInvokeCalls += 1;
+        throw new Error("The exact-runtime binding must not use Fetch.");
+      },
+    }) satisfies PointMutationExactRuntimeArtifactHostBindingV1 & Readonly<{
+      readonly fetch: () => Promise<never>;
+    }>;
+    const runner = makePointMutationExactRuntimeBindingRunnerV1(binding);
+
+    const initial = await prepareO08B1Conflict(
+      "p02c3_initial_shaped",
+      {},
+      runner,
+    );
+    const authorized = await runEffect(
+      initial.authentication
+        .authorizePointMutationOccRerun(initial.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected the P02c.3 initial-shaped handoff to authorize.");
+    }
+    await expect(runEffect(
+      initial.authentication.executeAuthorizedPointMutationOccRerun(
+        authorized.rerun,
+      ),
+    )).resolves.toMatchObject({
+      kind: "published",
+      successfulResult: { valueJson: { ok: true } },
+    });
+
+    const redelivery = await c04b2Scenario("p02c3_redelivery_shaped");
+    await expireExactExecutionClaim(redelivery.anchor.sessionId);
+    const redeliveryGraph = createB2b2aRedispatchAuthentication(
+      redelivery,
+      createPointMutationExecutionClaimVaultV1(),
+      runner,
+      {
+        randomOwner: () => "92000000-0000-4000-8000-000000000020",
+      },
+    );
+    await expect(runEffect(
+      redeliveryGraph.redispatchExactPointMutationAttempt(
+        selectorInputFromAnchor(redelivery.anchor),
+      ),
+    )).resolves.toMatchObject({
+      kind: "published",
+      successfulResult: { valueJson: { ok: true } },
+    });
+
+    expect(bindingRequests).toHaveLength(2);
+    expect(journalTargets).toHaveLength(2);
+    expect(journalTargets[0]).not.toBe(journalTargets[1]);
+    for (const journal of journalTargets) {
+      expect(journal).toMatchObject({
+        resolvePointTable: expect.any(Function),
+      });
+    }
+    for (const request of bindingRequests) {
+      expect(request).toMatchObject({
+        artifact: { runtime: "dynamic-worker" },
+        function: { path: "users:create", kind: "mutation" },
+        auth: { kind: "anonymous" },
+      });
+      expect(request).not.toHaveProperty("session");
+      expect(request).not.toHaveProperty("journal");
+      expect(request).not.toHaveProperty("database");
+      expect(request).not.toHaveProperty("retry");
+    }
+    for (const current of [initial.current, redelivery]) {
+      const sessions = await persistence.query<{ session_count: string }>(
+        `select count(*)::text as session_count
+         from fx_system_tx_session
+         where scope_uuid = $1`,
+        [projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid],
+      );
+      expect(sessions.rows).toEqual([{ session_count: "1" }]);
+    }
+    expect(ordinaryInvokeCalls).toBe(0);
+    expect(disposedResponses).toBe(2);
   });
 
   it("discovers and redispatches one bounded page without returning result payloads", async () => {
@@ -6353,4 +6474,20 @@ function deferredSignal(): Readonly<{
     promise,
     resolve: () => resolver?.(),
   });
+}
+
+function disposableExactRuntimeSuccessResponse(
+  dispose: () => void,
+): PointMutationExactRuntimeHostResponseV1 & Disposable {
+  return {
+    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
+    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+    kind: "success",
+    result: {
+      format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+      version: POINT_MUTATION_EXACT_RUNTIME_RESULT_VERSION_V1,
+      value: { ok: true },
+    },
+    [Symbol.dispose]: dispose,
+  };
 }
