@@ -595,10 +595,9 @@ activation remain blocked until their production host composition is proven.
    vectors own the committed bytes and digests; research receipts are not
    protocol constants.
 
-   These codecs publish no evidence and create no consumer authority. A later
-   atomic C3-to-C4 range must still supply generated grammar/Unicode/parser/ABI
-   assets, authenticated source and semantic reads, durable V2 progress,
-   independent static verification, two-cold equality, and the one
+   These codecs publish no evidence and create no consumer authority. The
+   atomic C3-to-C4 range must still supply authenticated source and semantic
+   reads, durable V2 progress integration, and the one
    projection/static-finalization transaction. Restart reconstruction must
    reacquire fresh C2 evidence through the backend-owned proof path and compare
    it with durable candidate/C3 commitments; callers cannot reconstruct that
@@ -619,12 +618,30 @@ activation remain blocked until their production host composition is proven.
    whose correctness depends on observing, completing around, or suppressing
    such a host-owned outcome.
 
-   This asset is specification and bounded-allocation evidence only. The
-   streaming lexer/parser/linker/value-flow verifier that consumes it is not
-   implemented, and no analyzer host, source/semantic reader, S1 V2 operation,
-   C3 completion, or C4 publication imports it yet. It remains provisional and
-   production-unreachable until the authenticated C3 host and terminal inert
-   C4 consumer close the approved atomic range.
+   The private verifier foundation now includes a reproducible executable
+   contract, deterministic generator, and generated LR action/goto/production
+   tables. Those tables are the sole syntax authority. Fatal incremental UTF-8
+   processing, preallocated fixed-width arenas and opaque cursors bound all
+   retained token, text, parser, semantic, link, value-flow, ordering, and
+   output state. Semantic and link analysis are resumable fixed-quantum
+   operations rather than synchronous native graph or presentation passes.
+   The verification-evidence owner streams canonical bytes through its opaque
+   sink, hashes the owned arena range incrementally, and uses metered linear
+   indexing rather than a caller-proportional contiguous frame or unmetered
+   lookup. Artifact module paths cross the verifier boundary only through the
+   canonical opaque exact-byte path contract; a valid path remains inert and
+   supplies no source or semantic authority.
+
+   This entire range remains private, production-unreachable, provisional,
+   inert, and non-authoritative. It has no authenticated source/semantic
+   reader, analyzer endpoint or binding, A0a/R0a/C2 host composition, durable
+   S1 V2 reserve/resume/settle consumer, C3 completion persistence, C4
+   projection/static-finalization publication, readiness, activation, ingress,
+   deployment, or cleanup authority. A1b1 owns the authenticated reader/host
+   composition, A1b2 owns durable verifier-progress integration, and terminal
+   inert C4 is the first consumer that closes this private chain. Later
+   readiness, activation, ingress, deployment, and cleanup stages remain
+   unchanged and none of these private foundations is shipped.
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact
    candidate, artifact, schema, validator, registration, and verifier pins.

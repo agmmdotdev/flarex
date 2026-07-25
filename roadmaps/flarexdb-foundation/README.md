@@ -799,19 +799,37 @@ static-finalization page, change an attempt lifecycle, or write any verdict,
 scope-clock, readiness, revision, or head row. V1 evidence remains retained
 without reinterpretation.
 
-The generated Core asset foundation is also present only as a provisional
-private dependency of that same atomic range. It fixes the Core V1 lexical,
-grammar, value/operator, capability, query/range ABI, diagnostic, and
-catchability tables; exact vendored Unicode 14 behavior inputs; aligned
-fixed-width table representation; reproducible generator identities; an owned
-strict loader; and checked-BigInt arena planning against every Budget/Progress
-V2 dimension. It does not implement the streaming parser/linker/value-flow
-engine or consume verifier progress. In particular, host Effect failure,
-defect, interruption, uncertainty, and full Cause are not application
-exceptions: application catch/finally cannot observe or suppress them, and
-trusted lowering must reject code that relies on such completion. No parser,
-analyzer host, reader, projection, verdict, readiness, or activation authority
-is shipped by this foundation.
+The generated Core foundation is also present only as a provisional private
+dependency of that same atomic range. A1a fixes the Core V1 lexical, grammar,
+value/operator, capability, query/range ABI, diagnostic, catchability, vendored
+Unicode 14, fixed-width arena, and checked-BigInt admission contracts. The
+private verifier adds a reproducible executable contract, deterministic
+generator, and generated LR action/goto/production tables as the sole syntax
+authority. Fatal incremental UTF-8 processing and preallocated fixed-width
+arenas plus opaque cursors bound retained token, text, parser, semantic, link,
+value-flow, ordering, and output state. Semantic and link analysis are
+resumable fixed-quantum operations rather than synchronous native graph or
+presentation passes.
+
+Canonical verification evidence remains owned by its domain codec: it streams
+bytes through an opaque sink, hashes the owned arena range incrementally, and
+uses metered linear indexing without constructing a caller-proportional
+contiguous authority frame. Artifact module paths enter verifier state only
+through the canonical opaque exact-byte path contract. The path spelling,
+semantic records, generated tables, and verifier handles remain inert and
+cannot authenticate source or semantic objects by themselves.
+
+This entire verifier range remains private, production-unreachable,
+provisional, inert, and non-authoritative. Host Effect failure, defect,
+interruption, uncertainty, and full Cause are not application exceptions:
+application catch/finally cannot observe or suppress them, and trusted lowering
+rejects code that relies on such completion. A1b1 still owns the authenticated
+source/semantic reader and host composition, A1b2 owns durable S1 V2
+reserve/resume/settle integration, and terminal inert C4 alone persists C3
+completion and publishes the two projections plus static-finalization evidence.
+No analyzer route or binding, authenticated reader, durable verifier-progress
+composition, C3/C4 publication, verdict, readiness, activation, ingress,
+deployment, cleanup, or production authority is shipped by this foundation.
 
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the

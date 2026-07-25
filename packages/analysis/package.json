@@ -14,9 +14,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check:declarative-v2-verifier": "tsx scripts/declarativeV2VerifierV1.ts check",
+    "check:declarative-v2-verifier-executable": "tsx scripts/declarativeV2VerifierExecutableV1.ts check",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "update:declarative-v2-verifier": "tsx scripts/declarativeV2VerifierV1.ts update"
+    "update:declarative-v2-verifier": "tsx scripts/declarativeV2VerifierV1.ts update",
+    "update:declarative-v2-verifier-executable": "tsx scripts/declarativeV2VerifierExecutableV1.ts update"
   },
   "dependencies": {
     "@flarex/utils": "workspace:*",
