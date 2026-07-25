@@ -21,6 +21,9 @@ import {
   decodePointMutationMultiScopeRedeliveryContinuationV1,
   encodePointMutationMultiScopeRedeliveryContinuationV1,
 } from "./pointMutationMultiScopeRedeliveryContinuationCodec";
+import type {
+  PointMutationRedeliverySchedulerHostRunV1,
+} from "./pointMutationRedeliverySchedulerHostContract";
 
 export interface PointMutationRedeliverySchedulerAcquireNotDueV1 {
   readonly kind: "notDue";
@@ -164,7 +167,8 @@ export type PointMutationRedeliverySchedulerRunResultV1 =
       readonly nextRunAt: Date;
     }>;
 
-export interface PointMutationRedeliverySchedulerRunV1<Failure> {
+export interface PointMutationRedeliverySchedulerRunV1<Failure>
+  extends PointMutationRedeliverySchedulerHostRunV1<Failure> {
   readonly runEffect: () => Effect.Effect<
     PointMutationRedeliverySchedulerRunResultV1,
     Failure,

@@ -1,5 +1,12 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 
+import {
+  reportSecondaryCleanupError,
+  type ExecutorCleanupErrorInput,
+} from "./cleanupReporting";
+
+export type { ExecutorCleanupErrorInput } from "./cleanupReporting";
+
 export interface ExecutorDatabaseClient {
   connect(): Promise<unknown>;
   end(): Promise<void>;
@@ -24,11 +31,6 @@ export interface ExecutorHandlerFactoryInput<
 > {
   readonly client: Client;
   readonly capabilityToken: string;
-}
-
-export interface ExecutorCleanupErrorInput {
-  readonly primaryError: unknown;
-  readonly cleanupError: unknown;
 }
 
 export interface RequestScopedExecutorWorkerDependencies<
@@ -123,7 +125,7 @@ export function createRequestScopedExecutorWorker<
             await client.end();
           } catch (cleanupError) {
             if (!primaryFailure.failed) throw cleanupError;
-            await reportSecondaryCleanupError(dependencies, {
+            await reportSecondaryCleanupError(dependencies.onCleanupError, {
               primaryError: primaryFailure.error,
               cleanupError,
             });
@@ -163,15 +165,4 @@ function configurationErrorResponse(error: Error): Response {
     },
     { status: 500 },
   );
-}
-
-async function reportSecondaryCleanupError<Client extends ExecutorDatabaseClient>(
-  dependencies: RequestScopedExecutorWorkerDependencies<Client>,
-  input: ExecutorCleanupErrorInput,
-): Promise<void> {
-  try {
-    await dependencies.onCleanupError?.(input);
-  } catch {
-    // Cleanup reporting is best effort and must never replace the primary error.
-  }
 }

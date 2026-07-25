@@ -41,6 +41,7 @@ describe("private executor Wrangler configuration", () => {
     });
     expect(config).not.toHaveProperty("route");
     expect(config).not.toHaveProperty("routes");
+    expect(config).not.toHaveProperty("triggers");
     expect(config).not.toHaveProperty("vars.FLAREX_EXECUTOR_TOKEN");
   });
 

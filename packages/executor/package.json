@@ -12,6 +12,7 @@
     "./point-mutation-initial-execution": "./src/pointMutationInitialExecution.ts",
     "./point-mutation-journal": "./src/pointMutationJournal.ts",
     "./point-mutation-journal-rpc": "./src/pointMutationJournalRpc.ts",
+    "./point-mutation-redelivery-scheduler-host-contract": "./src/pointMutationRedeliverySchedulerHostContract.ts",
     "./point-mutation-start": "./src/pointMutationStartPreparation.ts",
     "./point-mutation-session": "./src/pointMutationSessionActivation.ts",
     "./transaction-grant": "./src/transactionGrant.ts"

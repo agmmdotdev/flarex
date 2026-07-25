@@ -10,8 +10,9 @@ complete. The P02c.4 preflight found that no production initial point-mutation
 host exists yet. P02c.4b now adds the missing executor-owned initial
 exact-attempt operation without activating a route. Hosted composition remains
 blocked on the coherent active-metadata and private prepared-start prerequisites
-recorded below; P03 inert scheduler-host construction is the next implementable
-gate while P04 activation remains blocked.
+recorded below. P03 now supplies the inert scheduler-event lifecycle host
+without activating the Worker. P04 remains blocked until P02c.4c and P02c.4d
+can compose and prove the real hosted exact-attempt graph.
 
 This plan owns the remaining production portion of
 `O08-B2b2b2b1b2b2b` and the subsequent `C06-B` endpoint/response policy:
@@ -520,7 +521,7 @@ Implement P02c in these bounded checkpoints:
       state freshness, deterministic time/randomness, unavailable
       capabilities, and intrinsic hardening.
 
-### [ ] P03 — Host One Bounded Scheduler Event
+### [x] P03 — Host One Bounded Scheduler Event
 
 Compose one platform event over one event-owned database client and one existing
 bounded scheduler run. Preserve checkpoint-before-next-work ordering, fenced
@@ -919,9 +920,52 @@ runtime-profile parity proof. P02c.4c remains blocked on the coherent active
 metadata and private prepared-start owners described in P02c.4a; P02c.4d
 remains the deployed-shape parity gate.
 
+### P03 Inert Scheduler-Event Host Boundary
+
+`apps/executor` now owns an inert scheduled-event lifecycle adapter. It accepts
+the scheduler-owned leaf `runEffect` capability through the intentional
+`point-mutation-redelivery-scheduler-host-contract` subpath; the existing
+bounded scheduler-run interface extends that contract, while the host
+deliberately does not interpret the domain result or publish the scheduler
+constructor.
+
+Each invocation validates cache-disabled Hyperdrive configuration before
+allocation, creates exactly one event-owned database client, connects it,
+constructs exactly one bounded run from that connected client, awaits the full
+run, and closes the client through `Effect.acquireUseRelease`. The Promise
+returned to the platform includes both scheduler settlement and cleanup; no
+work is detached through `waitUntil`. The host adds no invocation retry,
+timeout, checkpoint, or lease policy around `runEffect`, so the existing
+bounded run remains the sole owner of checkpoint-before-next-work ordering,
+soft admission deadlines, fenced settlement, and its one confirmed-rollback
+retry.
+
+Missing Hyperdrive is a deterministic host configuration failure: the adapter
+calls `ScheduledController.noRetry()` and rejects before client allocation.
+Connect, scheduler, and cleanup failures reject without disabling platform
+retry. A retry or duplicate wake therefore starts a fresh event/client and
+relies on the existing database checkpoint and fenced acquisition for safety,
+not an isolate-local lock. If cleanup also fails after an established primary
+failure, the adapter reports the full primary `Cause` plus the typed cleanup
+failure on a best-effort channel and preserves the primary failure. A cleanup
+failure after successful work fails the event so the durable checkpoint governs
+the retry.
+
+Focused host tests plus the existing bounded-run suite pin
+missing-configuration retry suppression, returned-Promise lifetime through run
+and cleanup, connect-failure cleanup, primary-versus-secondary failure
+precedence, successful-run cleanup failure, independent duplicate wakes,
+checkpoint ordering, deadlines, fencing, and internal retry bounds. The
+default Worker still exports Fetch only, and Wrangler still declares no
+scheduled trigger. P03 therefore does not activate a scheduled event or
+construct the blocked production exact-attempt graph; P02c.4c supplies that
+graph only after its metadata and private prepared-start prerequisites exist,
+and P04 owns the eventual export and trigger.
+
 ## Resume Checklist
 
-Current implementable gate: **P03 — inert bounded scheduler-event host.**
+Current activation gate: **blocked before P02c.4c** on the coherent active
+metadata and private prepared-start prerequisites recorded in P02c.4a.
 
 On resume:
 
@@ -930,8 +974,8 @@ On resume:
    P02c.4b boundary;
 2. treat the private artifact-runtime named entrypoint, the binding adapter,
    and the stored-attempt exact kernel as the only exact-attempt runtime path;
-3. host one inert bounded scheduler event over one event-owned database client,
-   without adding a scheduled export, Wrangler trigger, or deployment;
+3. reuse the completed P03 lifecycle adapter as the only scheduled-event
+   resource and runtime boundary; do not create a parallel host;
 4. do not begin hosted P02c.4c until roadmap 17's coherent active-metadata
    reader and O03-A2's private prepared-start transport can supply the accepted
    production authority;

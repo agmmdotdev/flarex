@@ -5,6 +5,7 @@ import executorWorker, { createExecutorWorker } from "../src/worker";
 describe("production executor Worker wrapper", () => {
   it("exports the request-scoped Worker and fails closed before database allocation", async () => {
     expect(typeof executorWorker.fetch).toBe("function");
+    expect("scheduled" in executorWorker).toBe(false);
 
     const response = await createExecutorWorker().fetch(
       new Request("https://flarex-executor.internal/invoke/start", {
