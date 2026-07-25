@@ -18,6 +18,8 @@ export const DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2 =
   "flarex.declarative-v2/verifier-budget/v2" as const;
 export const DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2 =
   "flarex.declarative-v2/verifier-progress-static/v2" as const;
+export const DECLARATIVE_V2_VERIFIER_EVIDENCE_PAGE_PROTOCOL_IDENTITY_V2 =
+  "flarex.declarative-v2/verifier-evidence-page/v2" as const;
 
 export const DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2 = [
   "calls",
@@ -127,13 +129,35 @@ export interface DeclarativeV2VerifierCommandReceiptFrameV2 {
   readonly nextProgressSha256: Uint8Array;
 }
 
+export type DeclarativeV2VerifierRestartCommandKindV2 = Extract<
+  DeclarativeV2VerifierDurableCommandKindV2,
+  "parse_module" | "link_page"
+>;
+
+export interface DeclarativeV2VerifierEvidencePageManifestFrameV2 {
+  readonly kind: "evidence_page_manifest";
+  readonly reservationSha256: Uint8Array;
+  readonly commandKind: DeclarativeV2VerifierRestartCommandKindV2;
+  readonly sequence: bigint;
+  readonly pageOrdinal: bigint;
+  readonly firstEvidenceOrdinal: bigint;
+  readonly evidenceCount: bigint;
+  readonly firstDiagnosticOrdinal: bigint;
+  readonly diagnosticCount: bigint;
+  readonly predecessorPageSha256: Uint8Array | null;
+  readonly payloadByteLength: bigint;
+  readonly payloadSha256: Uint8Array;
+  readonly cumulativeDiagnosticsRootSha256: Uint8Array;
+}
+
 export type DeclarativeV2VerifierProgressFrameV2 =
   | DeclarativeV2VerifierBudgetFrameV2
   | DeclarativeV2VerifierAttemptIdentityFrameV2
   | DeclarativeV2VerifierProgressCursorFrameV2
   | DeclarativeV2VerifierCommandReservationFrameV2
   | DeclarativeV2VerifierCommandOutputManifestFrameV2
-  | DeclarativeV2VerifierCommandReceiptFrameV2;
+  | DeclarativeV2VerifierCommandReceiptFrameV2
+  | DeclarativeV2VerifierEvidencePageManifestFrameV2;
 
 export interface DeclarativeV2VerifierEncodedFrameV2 {
   readonly frame: DeclarativeV2VerifierProgressFrameV2;
@@ -189,6 +213,7 @@ const FRAME_KINDS = new Set<FrameKind>([
   "command_reservation",
   "command_output_manifest",
   "command_receipt",
+  "evidence_page_manifest",
 ]);
 const PHASES = new Set<DeclarativeV2VerifierPhaseV1>([
   "source",
@@ -204,6 +229,12 @@ const DURABLE_COMMAND_KINDS = new Set<
   "parse_module",
   "link_page",
   "registration_page",
+]);
+const RESTART_COMMAND_KINDS = new Set<
+  DeclarativeV2VerifierRestartCommandKindV2
+>([
+  "parse_module",
+  "link_page",
 ]);
 const FRAME_FIELDS = {
   attempt_identity: [
@@ -253,6 +284,20 @@ const FRAME_FIELDS = {
     "resultingAttemptUsageSha256",
     "outputManifestSha256",
     "nextProgressSha256",
+  ],
+  evidence_page_manifest: [
+    "reservationSha256",
+    "commandKind",
+    "sequence",
+    "pageOrdinal",
+    "firstEvidenceOrdinal",
+    "evidenceCount",
+    "firstDiagnosticOrdinal",
+    "diagnosticCount",
+    "predecessorPageSha256",
+    "payloadByteLength",
+    "payloadSha256",
+    "cumulativeDiagnosticsRootSha256",
   ],
 } as const satisfies Readonly<Record<FrameKind, readonly string[]>>;
 
@@ -372,6 +417,90 @@ export function requireDeclarativeV2VerifierProtocolIdentitiesV2(
   }));
 }
 
+export function validateDeclarativeV2VerifierEvidencePageTransitionV2(
+  previousInput: unknown,
+  previousPageSha256Input: unknown,
+  currentInput: unknown,
+): Result.Result<
+  void,
+  DeclarativeV2VerifierProgressV2Error
+> {
+  return Result.gen(function* () {
+    const previous = yield* captureFrame(previousInput, "decode");
+    const current = yield* captureFrame(currentInput, "decode");
+    if (
+      previous.kind !== "evidence_page_manifest" ||
+      current.kind !== "evidence_page_manifest" ||
+      !isDigest(previousPageSha256Input) ||
+      current.reservationSha256 === null ||
+      current.predecessorPageSha256 === null ||
+      !bytesEqualFullScan(
+        previous.reservationSha256 as Uint8Array,
+        current.reservationSha256 as Uint8Array,
+      ) ||
+      previous.commandKind !== current.commandKind ||
+      previous.sequence !== current.sequence ||
+      previous.pageOrdinal === DECLARATIVE_V2_MAX_SIGNED_INT64_V1 ||
+      current.pageOrdinal !== (previous.pageOrdinal as bigint) + 1n ||
+      current.firstEvidenceOrdinal !==
+        (previous.firstEvidenceOrdinal as bigint) +
+          (previous.evidenceCount as bigint) ||
+      current.firstDiagnosticOrdinal !==
+        (previous.firstDiagnosticOrdinal as bigint) +
+          (previous.diagnosticCount as bigint) ||
+      !bytesEqualFullScan(
+        current.predecessorPageSha256 as Uint8Array,
+        previousPageSha256Input,
+      )
+    ) {
+      return yield* Result.fail(
+        progressError("decode", "invalidInput", "evidencePageTransition"),
+      );
+    }
+  });
+}
+
+export function validateDeclarativeV2VerifierFinalEvidencePageV2(
+  finalPageInput: unknown,
+  finalPageSha256Input: unknown,
+  outputManifestInput: unknown,
+): Result.Result<
+  void,
+  DeclarativeV2VerifierProgressV2Error
+> {
+  return Result.gen(function* () {
+    const finalPage = yield* captureFrame(finalPageInput, "decode");
+    const output = yield* captureFrame(outputManifestInput, "decode");
+    if (
+      finalPage.kind !== "evidence_page_manifest" ||
+      output.kind !== "command_output_manifest" ||
+      !isDigest(finalPageSha256Input) ||
+      !bytesEqualFullScan(
+        finalPage.reservationSha256 as Uint8Array,
+        output.reservationSha256 as Uint8Array,
+      ) ||
+      finalPage.commandKind !== output.commandKind ||
+      finalPage.sequence !== output.sequence ||
+      (finalPage.firstEvidenceOrdinal as bigint) +
+          (finalPage.evidenceCount as bigint) !== output.evidenceCount ||
+      (finalPage.firstDiagnosticOrdinal as bigint) +
+          (finalPage.diagnosticCount as bigint) !== output.diagnosticCount ||
+      !bytesEqualFullScan(
+        finalPageSha256Input,
+        output.evidenceRootSha256 as Uint8Array,
+      ) ||
+      !bytesEqualFullScan(
+        finalPage.cumulativeDiagnosticsRootSha256 as Uint8Array,
+        output.diagnosticsRootSha256 as Uint8Array,
+      )
+    ) {
+      return yield* Result.fail(
+        progressError("decode", "invalidInput", "finalEvidencePage"),
+      );
+    }
+  });
+}
+
 function decodeFrameBudget(
   input: unknown,
   operation: "encode" | "decode",
@@ -478,6 +607,9 @@ function captureFrame(
   }
   if (kind === "command_receipt") {
     return captureCommandReceipt(captured, operation);
+  }
+  if (kind === "evidence_page_manifest") {
+    return captureEvidencePageManifest(captured, operation);
   }
   const phase = captured.phase;
   const settledSequence = captured.settledSequence;
@@ -637,6 +769,69 @@ function captureCommandReceipt(
   }));
 }
 
+function captureEvidencePageManifest(
+  input: Readonly<Record<string, unknown>>,
+  operation: "encode" | "decode",
+): Result.Result<CapturedFrame, DeclarativeV2VerifierProgressV2Error> {
+  const commandKind = input.commandKind;
+  const sequence = input.sequence;
+  const pageOrdinal = input.pageOrdinal;
+  const firstEvidenceOrdinal = input.firstEvidenceOrdinal;
+  const evidenceCount = input.evidenceCount;
+  const firstDiagnosticOrdinal = input.firstDiagnosticOrdinal;
+  const diagnosticCount = input.diagnosticCount;
+  const predecessorPageSha256 = input.predecessorPageSha256;
+  const payloadByteLength = input.payloadByteLength;
+  if (
+    !isRestartCommandKind(commandKind) ||
+    !isPositiveU64(sequence) ||
+    !isU64(pageOrdinal) ||
+    !isU64(firstEvidenceOrdinal) ||
+    !isPositiveU64(evidenceCount) ||
+    !isU64(firstDiagnosticOrdinal) ||
+    !isU64(diagnosticCount) ||
+    !isPositiveU64(payloadByteLength) ||
+    !isDigest(input.reservationSha256) ||
+    !isDigest(input.payloadSha256) ||
+    !isDigest(input.cumulativeDiagnosticsRootSha256) ||
+    !(
+      predecessorPageSha256 === null ||
+      isDigest(predecessorPageSha256)
+    ) ||
+    (pageOrdinal === 0n) !== (predecessorPageSha256 === null) ||
+    !isCheckedU64Range(firstEvidenceOrdinal, evidenceCount) ||
+    !isCheckedU64Range(firstDiagnosticOrdinal, diagnosticCount) ||
+    diagnosticCount > evidenceCount ||
+    (
+      pageOrdinal === 0n &&
+      (firstEvidenceOrdinal !== 0n || firstDiagnosticOrdinal !== 0n)
+    )
+  ) {
+    return Result.fail(
+      progressError(operation, "invalidInput", "evidence_page_manifest"),
+    );
+  }
+  return Result.succeed(Object.freeze({
+    kind: "evidence_page_manifest",
+    reservationSha256: copyDigest(input.reservationSha256),
+    commandKind,
+    sequence,
+    pageOrdinal,
+    firstEvidenceOrdinal,
+    evidenceCount,
+    firstDiagnosticOrdinal,
+    diagnosticCount,
+    predecessorPageSha256: predecessorPageSha256 === null
+      ? null
+      : copyDigest(predecessorPageSha256),
+    payloadByteLength,
+    payloadSha256: copyDigest(input.payloadSha256),
+    cumulativeDiagnosticsRootSha256: copyDigest(
+      input.cumulativeDiagnosticsRootSha256,
+    ),
+  }));
+}
+
 function frameByteLength(frame: CapturedFrame): number {
   const domainLength = domainBytes(frame.kind).byteLength;
   if (
@@ -702,6 +897,24 @@ function frameByteLength(frame: CapturedFrame): number {
   }
   if (frame.kind === "command_receipt") {
     return checkedLength(domainLength, 4, 32, 32, 32, 32, 32);
+  }
+  if (frame.kind === "evidence_page_manifest") {
+    return checkedLength(
+      domainLength,
+      4,
+      32,
+      1,
+      8,
+      8,
+      8,
+      8,
+      8,
+      8,
+      frame.predecessorPageSha256 === null ? 1 : 33,
+      8,
+      32,
+      32,
+    );
   }
   return checkedLength(
     domainLength,
@@ -828,6 +1041,47 @@ function encodeCapturedFrame(
     ] as const) {
       offset = writeBytes(output, offset, frame[field] as Uint8Array);
     }
+    return output;
+  }
+  if (frame.kind === "evidence_page_manifest") {
+    offset = writeBytes(
+      output,
+      offset,
+      frame.reservationSha256 as Uint8Array,
+    );
+    output[offset] = restartCommandKindTag(
+      frame.commandKind as DeclarativeV2VerifierRestartCommandKindV2,
+    );
+    offset += 1;
+    for (const field of [
+      "sequence",
+      "pageOrdinal",
+      "firstEvidenceOrdinal",
+      "evidenceCount",
+      "firstDiagnosticOrdinal",
+      "diagnosticCount",
+    ] as const) {
+      writeU64(output, offset, frame[field] as bigint);
+      offset += 8;
+    }
+    const predecessorPageSha256 = frame.predecessorPageSha256 as
+      | Uint8Array
+      | null;
+    if (predecessorPageSha256 === null) {
+      output[offset] = 0;
+      offset += 1;
+    } else {
+      output[offset] = 1;
+      offset = writeBytes(output, offset + 1, predecessorPageSha256);
+    }
+    writeU64(output, offset, frame.payloadByteLength as bigint);
+    offset += 8;
+    offset = writeBytes(output, offset, frame.payloadSha256 as Uint8Array);
+    writeBytes(
+      output,
+      offset,
+      frame.cumulativeDiagnosticsRootSha256 as Uint8Array,
+    );
     return output;
   }
   output[offset] = phaseTag(frame.phase as DeclarativeV2VerifierPhaseV1);
@@ -1049,6 +1303,70 @@ function parseOwnedFrame(
       }
       return Object.freeze(values) as CapturedFrame;
     }
+    if (kind === "evidence_page_manifest") {
+      const reservation = yield* readRequiredDigest(input, offset, kind);
+      offset = reservation.offset;
+      const commandKind = restartCommandKindFromTag(input[offset] ?? 0);
+      if (commandKind === undefined) {
+        return yield* Result.fail(
+          progressError("decode", "malformed", `${kind}.commandKind`),
+        );
+      }
+      offset += 1;
+      const counters: bigint[] = [];
+      for (let index = 0; index < 6; index += 1) {
+        const value = readU64(input, offset);
+        if (value === undefined) {
+          return yield* Result.fail(
+            progressError("decode", "malformed", kind),
+          );
+        }
+        counters.push(value);
+        offset += 8;
+      }
+      if (counters[0] === 0n || counters[3] === 0n) {
+        return yield* Result.fail(
+          progressError("decode", "malformed", kind),
+        );
+      }
+      const predecessor = yield* readOptionalDigest(input, offset, kind);
+      offset = predecessor.offset;
+      const payloadByteLength = readU64(input, offset);
+      if (payloadByteLength === undefined || payloadByteLength === 0n) {
+        return yield* Result.fail(
+          progressError("decode", "malformed", `${kind}.payloadByteLength`),
+        );
+      }
+      offset += 8;
+      const payload = yield* readRequiredDigest(input, offset, kind);
+      offset = payload.offset;
+      const diagnostics = yield* readRequiredDigest(input, offset, kind);
+      offset = diagnostics.offset;
+      const parsed = yield* captureEvidencePageManifest(
+        Object.freeze({
+          kind,
+          reservationSha256: reservation.value,
+          commandKind,
+          sequence: counters[0]!,
+          pageOrdinal: counters[1]!,
+          firstEvidenceOrdinal: counters[2]!,
+          evidenceCount: counters[3]!,
+          firstDiagnosticOrdinal: counters[4]!,
+          diagnosticCount: counters[5]!,
+          predecessorPageSha256: predecessor.value,
+          payloadByteLength,
+          payloadSha256: payload.value,
+          cumulativeDiagnosticsRootSha256: diagnostics.value,
+        }),
+        "decode",
+      );
+      if (offset !== input.byteLength) {
+        return yield* Result.fail(
+          progressError("decode", "malformed", "trailing"),
+        );
+      }
+      return parsed;
+    }
     if (offset >= input.byteLength) {
       return yield* Result.fail(progressError("decode", "malformed"));
     }
@@ -1216,6 +1534,19 @@ function isDurableCommandKind(
     DURABLE_COMMAND_KINDS.has(
       value as DeclarativeV2VerifierDurableCommandKindV2,
     );
+}
+
+function isRestartCommandKind(
+  value: unknown,
+): value is DeclarativeV2VerifierRestartCommandKindV2 {
+  return typeof value === "string" &&
+    RESTART_COMMAND_KINDS.has(
+      value as DeclarativeV2VerifierRestartCommandKindV2,
+    );
+}
+
+function isCheckedU64Range(first: bigint, count: bigint): boolean {
+  return first <= DECLARATIVE_V2_MAX_SIGNED_INT64_V1 - count;
 }
 
 function isDigest(value: unknown): value is Uint8Array {
@@ -1454,6 +1785,25 @@ function durableCommandKindFromTag(
       return "link_page";
     case 4:
       return "registration_page";
+    default:
+      return undefined;
+  }
+}
+
+function restartCommandKindTag(
+  commandKind: DeclarativeV2VerifierRestartCommandKindV2,
+): number {
+  return commandKind === "parse_module" ? 1 : 2;
+}
+
+function restartCommandKindFromTag(
+  tag: number,
+): DeclarativeV2VerifierRestartCommandKindV2 | undefined {
+  switch (tag) {
+    case 1:
+      return "parse_module";
+    case 2:
+      return "link_page";
     default:
       return undefined;
   }

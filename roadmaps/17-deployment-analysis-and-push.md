@@ -764,8 +764,24 @@ activation remain blocked until their production host composition is proven.
    receipt frames bind ordered evidence, diagnostics, actual and cumulative
    usage, and next progress. These bytes are inert commitments, not a lease,
    work token, replay grant, or settlement authority. Verifier-owned evidence
-   rehydration, additive target persistence and repository operations, and the
-   executor host composition remain separate later A1b2 gates.
+   restart state now has a separate private portable owner rather than widening
+   the report-evidence codec. A versioned parse/link page manifest binds the
+   exact reservation, contiguous page/evidence/diagnostic ranges, predecessor
+   page, payload length/digest, and cumulative diagnostic root; the final
+   canonical page digest is the command output's evidence root. Canonical
+   length-framed restart records preserve complete static imports (including
+   unused bindings), export-to-local-function bindings, admitted functions,
+   direct-call/value-flow evidence, deterministic diagnostics, resolved link
+   edges, module order/cycle results, and terminal exact counts/roots. These
+   roots are not caller summaries: a domain-separated rolling root commits
+   each preceding canonical record digest, the single graph-wide cycle result
+   commits the complete deterministic module-order root, and link completion
+   must reproduce the parse-pages root admitted when the link sequence began.
+   bytes encode no live proof, session, cursor, lease, fence, clock, request,
+   transport, Cause, or opaque handle and do not rehydrate one. The producer
+   and verifier-owned bounded rehydrator, additive target persistence and
+   repository operations, and executor host composition remain separate later
+   A1b2 gates.
 
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact

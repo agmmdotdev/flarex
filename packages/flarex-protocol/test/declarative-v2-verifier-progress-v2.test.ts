@@ -8,13 +8,17 @@ import {
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2,
+  DECLARATIVE_V2_VERIFIER_EVIDENCE_PAGE_PROTOCOL_IDENTITY_V2,
   DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2,
   type DeclarativeV2VerifierCommandOutputManifestFrameV2,
   type DeclarativeV2VerifierCommandReceiptFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
+  type DeclarativeV2VerifierEvidencePageManifestFrameV2,
   decodeDeclarativeV2VerifierProgressFrameV2,
   encodeDeclarativeV2VerifierProgressFrameV2,
   requireDeclarativeV2VerifierProtocolIdentitiesV2,
+  validateDeclarativeV2VerifierEvidencePageTransitionV2,
+  validateDeclarativeV2VerifierFinalEvidencePageV2,
 } from "../src/declarative-v2-verifier-progress-v2";
 
 const budget = Object.freeze({
@@ -223,6 +227,185 @@ describe("Declarative V2 verifier Budget/Progress V2", () => {
     expect(Result.getOrThrow(
       encodeDeclarativeV2VerifierProgressFrameV2(reverseOrder, budget),
     ).canonicalBytes).toEqual(reservation.canonicalBytes);
+  });
+
+  it("pins the separate portable restart evidence-page manifest domain", async () => {
+    expect(DECLARATIVE_V2_VERIFIER_EVIDENCE_PAGE_PROTOCOL_IDENTITY_V2).toBe(
+      "flarex.declarative-v2/verifier-evidence-page/v2",
+    );
+    const frame = makeEvidencePage();
+    const encoded = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+    );
+    const expected = concat(
+      utf8("flarex.declarative-v2/evidence_page_manifest/v2\0"),
+      u32(12),
+      digest(21),
+      new Uint8Array([1]),
+      u64(3n),
+      u64(0n),
+      u64(0n),
+      u64(2n),
+      u64(0n),
+      u64(1n),
+      new Uint8Array([0]),
+      u64(37n),
+      digest(22),
+      digest(23),
+    );
+    expect(encoded.canonicalBytes).toEqual(expected);
+    expect(hex(await sha256(expected))).toBe(
+      "209a63640c5bf05b9f31112d955b9d06c395d63e0b67c7001c2404d84c4043e8",
+    );
+    const first = Result.getOrThrow(
+      decodeDeclarativeV2VerifierProgressFrameV2(expected, {
+        maximumFrameBytes: expected.byteLength,
+        maximumCanonicalBytes: 0,
+      }),
+    );
+    const second = Result.getOrThrow(
+      decodeDeclarativeV2VerifierProgressFrameV2(expected, budget),
+    );
+    expect(first.frame).toEqual(frame);
+    expect(second.frame).toEqual(first.frame);
+    expect(second.canonicalBytes).toEqual(first.canonicalBytes);
+    expect(second.canonicalBytes).not.toBe(first.canonicalBytes);
+    expect(Result.isFailure(
+      decodeDeclarativeV2VerifierProgressFrameV2(expected, {
+        maximumFrameBytes: expected.byteLength - 1,
+        maximumCanonicalBytes: 0,
+      }),
+    )).toBe(true);
+  });
+
+  it("rejects restart page gaps, overlaps, predecessor drift, and final-root drift", async () => {
+    const first = makeEvidencePage();
+    const firstBytes = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(first, budget),
+    ).canonicalBytes;
+    const firstSha256 = await sha256(firstBytes);
+    const second = makeEvidencePage({
+      pageOrdinal: 1n,
+      firstEvidenceOrdinal: 2n,
+      evidenceCount: 3n,
+      firstDiagnosticOrdinal: 1n,
+      diagnosticCount: 2n,
+      predecessorPageSha256: firstSha256,
+      payloadByteLength: 51n,
+      payloadSha256: digest(24),
+      cumulativeDiagnosticsRootSha256: digest(25),
+    });
+    expect(Result.isSuccess(
+      validateDeclarativeV2VerifierEvidencePageTransitionV2(
+        first,
+        firstSha256,
+        second,
+      ),
+    )).toBe(true);
+    for (const malformed of [
+      makeEvidencePage({ ...second, pageOrdinal: 2n }),
+      makeEvidencePage({ ...second, firstEvidenceOrdinal: 1n }),
+      makeEvidencePage({ ...second, firstEvidenceOrdinal: 3n }),
+      makeEvidencePage({ ...second, firstDiagnosticOrdinal: 0n }),
+      makeEvidencePage({ ...second, firstDiagnosticOrdinal: 2n }),
+      makeEvidencePage({ ...second, predecessorPageSha256: digest(99) }),
+      makeEvidencePage({ ...second, reservationSha256: digest(98) }),
+      makeEvidencePage({ ...second, sequence: 4n }),
+      makeEvidencePage({ ...second, commandKind: "link_page" }),
+    ]) {
+      expect(Result.isFailure(
+        validateDeclarativeV2VerifierEvidencePageTransitionV2(
+          first,
+          firstSha256,
+          malformed,
+        ),
+      )).toBe(true);
+    }
+
+    const secondSha256 = await sha256(
+      Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2(second, budget),
+      ).canonicalBytes,
+    );
+    const output = makeOutputManifest({
+      reservationSha256: digest(21),
+      commandKind: "parse_module",
+      sequence: 3n,
+      evidenceRootSha256: secondSha256,
+      evidenceCount: 5n,
+      diagnosticsRootSha256: digest(25),
+      diagnosticCount: 3n,
+    });
+    expect(Result.isSuccess(
+      validateDeclarativeV2VerifierFinalEvidencePageV2(
+        second,
+        secondSha256,
+        output,
+      ),
+    )).toBe(true);
+    for (const malformed of [
+      makeOutputManifest({ ...output, evidenceRootSha256: digest(88) }),
+      makeOutputManifest({ ...output, evidenceCount: 4n }),
+      makeOutputManifest({ ...output, diagnosticCount: 2n }),
+      makeOutputManifest({ ...output, diagnosticsRootSha256: digest(87) }),
+    ]) {
+      expect(Result.isFailure(
+        validateDeclarativeV2VerifierFinalEvidencePageV2(
+          second,
+          secondSha256,
+          malformed,
+        ),
+      )).toBe(true);
+    }
+  });
+
+  it("rejects empty, noncontiguous, overflowing, or non-restart evidence pages", () => {
+    expectEncodeInvalid(makeEvidencePage({ commandKind: "source_page" as "parse_module" }));
+    expectEncodeInvalid(makeEvidencePage({ commandKind: "registration_page" as "parse_module" }));
+    expectEncodeInvalid(makeEvidencePage({ commandKind: "finalize" as "parse_module" }));
+    expectEncodeInvalid(makeEvidencePage({ sequence: 0n }));
+    expectEncodeInvalid(makeEvidencePage({ evidenceCount: 0n }));
+    expectEncodeInvalid(makeEvidencePage({ evidenceCount: 1n, diagnosticCount: 2n }));
+    expectEncodeInvalid(makeEvidencePage({ payloadByteLength: 0n }));
+    expectEncodeInvalid(makeEvidencePage({ pageOrdinal: 0n, predecessorPageSha256: digest(1) }));
+    expectEncodeInvalid(makeEvidencePage({ pageOrdinal: 1n, predecessorPageSha256: null }));
+    expectEncodeInvalid(makeEvidencePage({ firstEvidenceOrdinal: 1n }));
+    expectEncodeInvalid(makeEvidencePage({ firstDiagnosticOrdinal: 1n }));
+    expectEncodeInvalid(makeEvidencePage({
+      firstEvidenceOrdinal: PERSISTABLE_U64_MAX,
+      evidenceCount: 1n,
+    }));
+    expectEncodeInvalid(makeEvidencePage({
+      firstDiagnosticOrdinal: PERSISTABLE_U64_MAX,
+      diagnosticCount: 1n,
+    }));
+    expect(Result.isSuccess(
+      encodeDeclarativeV2VerifierProgressFrameV2(
+        makeEvidencePage({
+          pageOrdinal: 1n,
+          firstEvidenceOrdinal: PERSISTABLE_U64_MAX - 1n,
+          evidenceCount: 1n,
+          firstDiagnosticOrdinal: PERSISTABLE_U64_MAX,
+          diagnosticCount: 0n,
+          predecessorPageSha256: digest(31),
+          payloadByteLength: PERSISTABLE_U64_MAX,
+        }),
+        budget,
+      ),
+    )).toBe(true);
+
+    const owned = makeEvidencePage();
+    const encoded = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(owned, budget),
+    );
+    owned.reservationSha256[0] = 99;
+    owned.payloadSha256[0] = 99;
+    expect(encoded.frame.kind).toBe("evidence_page_manifest");
+    if (encoded.frame.kind !== "evidence_page_manifest") {
+      throw new Error("Expected evidence page.");
+    }
+    expect(encoded.frame.reservationSha256[0]).toBe(21);
+    expect(encoded.frame.payloadSha256[0]).toBe(22);
   });
 
   it("binds all 26 command-budget dimensions into deterministic reservation bytes", async () => {
@@ -729,6 +912,27 @@ function makeReceipt(
     resultingAttemptUsageSha256: digest(17),
     outputManifestSha256: digest(18),
     nextProgressSha256: digest(19),
+    ...overrides,
+  };
+}
+
+function makeEvidencePage(
+  overrides: Partial<DeclarativeV2VerifierEvidencePageManifestFrameV2> = {},
+): DeclarativeV2VerifierEvidencePageManifestFrameV2 {
+  return {
+    kind: "evidence_page_manifest",
+    reservationSha256: digest(21),
+    commandKind: "parse_module",
+    sequence: 3n,
+    pageOrdinal: 0n,
+    firstEvidenceOrdinal: 0n,
+    evidenceCount: 2n,
+    firstDiagnosticOrdinal: 0n,
+    diagnosticCount: 1n,
+    predecessorPageSha256: null,
+    payloadByteLength: 37n,
+    payloadSha256: digest(22),
+    cumulativeDiagnosticsRootSha256: digest(23),
     ...overrides,
   };
 }

@@ -561,6 +561,7 @@ export function planDeclarativeV2VerifierArenaV1(
 export * from "./declarativeV2SemanticRecordsV1";
 export * from "./declarativeV2VerificationEvidenceV2";
 export * from "./declarativeV2VerifierExecutableV1";
+export * from "./declarativeV2VerifierRestartEvidenceV1";
 export {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
   DeclarativeV2ArtifactModulePathV1Error,

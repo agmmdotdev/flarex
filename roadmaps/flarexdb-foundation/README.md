@@ -868,8 +868,19 @@ commands. Those frames bind authenticated inputs, the 26-dimension command
 budget, progress/predecessor evidence, ordered outputs, actual/cumulative
 usage, and next progress while excluding leases, owners, fences, clocks,
 requests, deployment identifiers, and opaque handles from semantic identity.
-They remain inert: verifier evidence rehydration, additive target persistence
-and repository behavior, and executor host composition are later A1b2 gates.
+The private A1b2a1 portable restart contract adds parse/link-only page manifests
+and canonical length-framed restart records for complete module, binding,
+function, call/value-flow, diagnostic, resolved-edge, module-order, cycle, and
+terminal count/root state. Restart semantics remain separate from caller
+summaries: domain-separated rolling roots commit preceding
+canonical record digests, the single graph-wide cycle result commits the full
+deterministic module-order root, and link completion must match its admitted
+parse-pages root. The contract remains separate from report evidence and
+encodes no live proof, session, cursor, lease, fence,
+clock, request, transport, Cause, or opaque handle. These contracts remain
+inert: their producer and bounded verifier-owned rehydrator, additive target
+persistence and repository behavior, and executor host composition are later
+A1b2 gates.
 
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the
