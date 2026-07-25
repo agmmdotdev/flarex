@@ -90,6 +90,9 @@ import type {
   PointMutationJournalTableV1,
   PointMutationJournalV1,
 } from "./pointMutationJournal";
+import type {
+  PointMutationExactRuntimeRunnerHostV1Error,
+} from "./pointMutationExactRuntimeRunner";
 import {
   type InvalidPointMutationSessionAttemptSelectorV1Error,
 } from "./pointMutationSessionAttemptSelector";
@@ -413,7 +416,8 @@ export interface PointMutationOccExecutionContextFactoryV1 {
 
 export type PointMutationOccRuntimeNeutralRunnerV1Error =
   | PointMutationOccUserCodeV1Error
-  | PointMutationJournalBoundaryV1Error;
+  | PointMutationJournalBoundaryV1Error
+  | PointMutationExactRuntimeRunnerHostV1Error;
 
 export interface PointMutationOccRuntimeNeutralRunnerV1 {
   readonly run: (

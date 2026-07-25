@@ -6,7 +6,7 @@ Status: active focused execution plan. P00 records the accepted boundary, P01
 selects the exact-attempt runtime-host contract, and P02a freezes the
 host-neutral protocol and generated Dynamic Worker entrypoint; all three are
 complete. P02b adds the executor-owned one-shot journal RPC adapter and is also
-complete. P02c.2, constructing the executor exact runner, is the current gate.
+complete. P02c.3, proving stored-attempt composition, is the current gate.
 
 This plan owns the remaining production portion of
 `O08-B2b2b2b1b2b2b` and the subsequent `C06-B` endpoint/response policy:
@@ -474,7 +474,7 @@ Implement P02c in these bounded checkpoints:
    Dynamic Worker entrypoint, forwards the invocation-scoped journal target as
    a method argument, awaits the complete call, and disposes every received
    child/entrypoint stub. Add no Fetch route or generic executor binding.
-2. **P02c.2 — executor exact runner.** Project the already-authenticated
+2. **[x] P02c.2 — executor exact runner.** Project the already-authenticated
    runtime-neutral input into the strict request, create the P02b journal
    session, call the private artifact-runtime binding, always close and drain
    the journal graph, give its retained cause precedence, decode the strict
@@ -721,8 +721,8 @@ Completion receipt (2026-07-25):
   therefore scopes and disposes the raw Dynamic Worker result, copies its own
   data properties while removing only the platform-owned `Symbol.dispose`,
   and applies the strict protocol decoder to that plain boundary value. P02c.2
-  must apply the same host-response adaptation at its own RPC caller boundary
-  rather than weakening either strict protocol decoder; and
+  applies the same host-response adaptation at its own RPC caller boundary
+  without weakening either strict protocol decoder; and
 - focused protocol, backend, and artifact-runtime tests cover strict
   version/shape rejection, decode-before-R2 ordering, fresh-load count, named
   entrypoint selection, capability forwarding, strict result validation,
@@ -734,27 +734,70 @@ P02c.1 does not construct the executor runner, create or settle the P02b
 journal session, install anything in the stored-attempt graph, add a scheduler
 or trigger, alter the ordinary cached invoke route, or activate execution.
 
+### P02c.2 Boundary
+
+- `makePointMutationExactRuntimeRunnerV1` is the executor-owned implementation
+  of the existing runtime-neutral runner contract. It projects only literal
+  artifact, function, authenticated identity, argument, stable table-binding,
+  and deterministic context fields into the strict P02a request; it does not
+  send the verified-grant inspection, schema manifest, attempt fence, snapshot
+  token, journal handle, or another process-local authority across RPC;
+- anonymous and verified-bearer grant evidence become the exact runtime auth
+  contract, including the established `issuer|subject` token identifier.
+  `trustedDev` remains unsupported by the point-mutation policy and fails
+  closed during strict request projection before the artifact binding runs;
+- every invocation creates one P02b journal RPC session, passes only its live
+  parent target to the private artifact-runtime method, awaits the complete
+  uncancellable Workers RPC chain, and then closes and drains the journal
+  graph. A pending interruption is re-emitted only after the RPC settles and
+  cleanup completes, so it cannot detach a remote Worker that still owns the
+  journal capability;
+- journal settlement retains full `Cause` semantics and wins over the
+  independent host outcome. A successful host result is accepted only after
+  drain; a local typed journal failure, defect, or interruption is re-emitted
+  without reconstruction, including when remote user code caught the redacted
+  journal stop;
+- the runner owns and disposes the top-level host RPC result, copies only its
+  own data properties while removing the platform-owned `Symbol.dispose`, and
+  applies the unchanged strict host-response decoder. User failure becomes
+  `PointMutationOccUserCodeV1Error`; request, artifact, load, protocol, and
+  adapter-proven transport failures use the bounded
+  `PointMutationExactRuntimeRunnerHostV1Error` channel;
+- Cloudflare propagates remote exceptions and platform call failures through
+  one rejected-Promise surface. The runner therefore requires its trusted host
+  adapter to positively classify an expected transport failure; every
+  unclassified rejection remains a defect. This prevents a broad `catch` from
+  relabeling remote defects as recoverable infrastructure errors; and
+- the focused real-workerd suite covers anonymous and bearer projection,
+  unsupported-auth fail-closed behavior, user/host/transport separation,
+  strict excess-property rejection, response disposal, original journal-cause
+  precedence, defect identity, interruption ordering, open admission until host
+  settlement, and late journal rejection.
+
+P02c.2 does not install the runner into the stored-attempt composition graph,
+add an executor service binding, create another execution authority, add a
+scheduler or trigger, alter the ordinary cached invoke route, or activate
+execution.
+
 ## Resume Checklist
 
-Current gate: **P02c.2 — executor exact runner.**
+Current gate: **P02c.3 — stored-attempt composition proof.**
 
 On resume:
 
 1. read this plan plus the P02a protocol/runtime and P02b journal-RPC
    boundaries;
-2. treat the completed P02c.1 private RPC host and response contract as the
-   only artifact-runtime path for this runner;
-3. implement P02c.2 as the executor-owned runtime-neutral runner with journal-
-   cause precedence, bounded host/user classification, interruption, and
-   deterministic stub disposal;
-4. always settle `closeAndDrain`, give its retained journal cause precedence,
-   classify the independent host/user outcome, and dispose every received RPC
-   stub in its owning scope; and
-5. prove in P02c.3 that the existing stored-attempt graph is the only execution
-   authority and
-   that no ordinary invoke route, new session, generic executor binding,
-   database client in the Dynamic Worker, or serialized journal handle
-   participates.
+2. treat the completed P02c.1 private RPC host and P02c.2 exact runner as the
+   only artifact-runtime path for exact attempts;
+3. install that runner only through the existing stored-attempt dependency
+   graph, with one private named artifact-runtime binding adapter and a narrow
+   expected-transport classifier;
+4. prove one initial-shaped execution and one redelivery-shaped execution use
+   the same runtime-neutral runner without creating a replacement session,
+   parallel retry machine, serialized journal authority, or Dynamic Worker
+   database binding; and
+5. keep the ordinary cached invoke route outside this exact-attempt path and
+   leave production activation blocked for P02c.4 parity proof.
 
 Do not add the database scheduler host, cron handler, scheduled export,
 Wrangler trigger, public route, or `C06-B` response policy during P02c. P04
