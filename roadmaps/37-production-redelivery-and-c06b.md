@@ -6,8 +6,11 @@ Status: active focused execution plan. P00 records the accepted boundary, P01
 selects the exact-attempt runtime-host contract, and P02a freezes the
 host-neutral protocol and generated Dynamic Worker entrypoint; all three are
 complete. P02b adds the executor-owned one-shot journal RPC adapter and is also
-complete. P02c.4, proving production initial-attempt runtime parity before
-activation, is the current gate.
+complete. The P02c.4 preflight found that no production initial point-mutation
+host exists yet; P02c.4b, adding the missing executor-owned initial
+exact-attempt operation without activating a route, is the current implementable
+gate. Hosted composition remains blocked on the coherent active-metadata and
+private prepared-start prerequisites recorded below.
 
 This plan owns the remaining production portion of
 `O08-B2b2b2b1b2b2b` and the subsequent `C06-B` endpoint/response policy:
@@ -487,11 +490,34 @@ Implement P02c in these bounded checkpoints:
    route, replacement session, serialized journal authority, Dynamic Worker
    database binding, or parallel retry state machine. This is construction and
    test proof, not scheduler activation.
-4. **P02c.4 — activation parity proof.** Before P04, route the production
-   initial point-mutation host through the same runner and pin the full fresh
-   runtime profile on both paths. Do not treat three blocked globals as a
-   substitute for identical Worker freshness, deterministic inputs,
-   unavailable capabilities, and intrinsic hardening.
+4. **[ ] P02c.4 — initial-attempt activation and parity proof.** The original
+   wording assumed that a production initial point-mutation host already
+   existed. The P02c.4a preflight disproved that assumption, so complete this
+   gate through the ordered substeps below. Before P04, the resulting hosted
+   initial point-mutation path must use the same runner as redelivery and pin
+   the full fresh runtime profile on both paths. Do not treat three blocked
+   globals as a substitute for identical Worker freshness, deterministic
+   inputs, unavailable capabilities, and intrinsic hardening.
+   1. **[x] P02c.4a — missing-host preflight.** Establish the current
+      production composition and the exact missing ownership boundaries.
+   2. **[ ] P02c.4b — executor initial exact-attempt operation.** Add the
+      executor-owned operation that consumes only genuine same-composition
+      prepared/admitted activation authority and the activation's original
+      execution claim, then enters the same exact-attempt kernel, journal,
+      commit, liveness, and binding-backed runtime-neutral runner used by
+      redelivery. Keep it private and non-routing. Do not simulate an initial
+      attempt through the OCC-replacement or crash-redelivery APIs.
+   3. **[ ] P02c.4c — hosted initial composition.** After the owning
+      active-metadata and private prepared-start prerequisites exist, compose
+      executor preparation, grant admission, atomic session activation, and
+      P02c.4b inside the production trusted host. Use the existing exact-runtime
+      service binding without changing the ordinary cached invoke route or
+      accepting serialized process-local authority.
+   4. **[ ] P02c.4d — deployed-shape parity proof.** Prove that hosted initial
+      execution and exact redelivery select the same binding adapter, runtime-
+      neutral runner, fresh `FlarexPointMutationExactRuntimeV1` load, module-
+      state freshness, deterministic time/randomness, unavailable
+      capabilities, and intrinsic hardening.
 
 ### [ ] P03 — Host One Bounded Scheduler Event
 
@@ -817,23 +843,66 @@ runner, expose a public route, add a scheduler or trigger, or activate
 redelivery. Those activation and runtime-profile parity obligations remain the
 P02c.4 gate.
 
+### P02c.4a Missing-Host Preflight
+
+The preflight found no production initial point-mutation host to reroute:
+
+- `apps/executor/src/worker.ts` composes only the request-scoped legacy
+  `createFlarexExecutor` Fetch facade plus the internal deployment-to-scope
+  lookup. It imports no point-mutation preparation, admission, activation,
+  journal, commit, or exact-execution operation.
+- `apps/executor/src/requestLifecycle.ts` deliberately types
+  `FLAREX_POINT_MUTATION_EXACT_RUNTIME_V1` as inactive `unknown`; no production
+  composition narrows or calls it.
+- `createPointMutationSessionActivationV1` is the implemented private,
+  non-routing O03 activation boundary. It returns an opaque activated-session
+  handle and mints the original execution claim, but no operation currently
+  consumes those two capabilities to perform the initial exact attempt.
+- The exact execution kernel is currently reachable only from stored OCC-rerun
+  and crash-redelivery composition. Reusing either operation for an initial
+  attempt would fabricate replacement/redelivery semantics and a second
+  authority path.
+- P02c.3's “initial-shaped” proof starts only after its fixture has already run
+  and sealed an attempt, entered finishing, and forced a real OCC conflict. It
+  proves that the fresh replacement handoff and crash redelivery share one
+  runner; it is not evidence that the original production attempt uses that
+  runner.
+
+Hosted P02c.4c also cannot be implemented honestly yet. O03-A2 still assigns
+production two-sided prepared-start metadata to the coherent active package,
+artifact, source, function-validator, schema, and activation-fence reader.
+Roadmap 17 records `PAM-B` and `C03-V` as pending, and O03-A2's deferred private
+Worker/key adapter has no hosted prepared-start consumer. A new RPC or Fetch
+shape in this plan would therefore invent caller-authored metadata or
+serialized authority instead of consuming the accepted source of truth.
+
+P02c.4b is intentionally separable from those hosted prerequisites: it closes
+the executor's missing same-process lifecycle from genuine activation
+capabilities to the already accepted exact runtime and commit pipeline. It must
+remain production-unreachable until P02c.4c composes the real metadata,
+admission, activation, and private transport owners. P03 may continue as inert
+scheduler-host construction, but P04 activation remains blocked through
+P02c.4d.
+
 ## Resume Checklist
 
-Current gate: **P02c.4 — activation parity proof.**
+Current implementable gate: **P02c.4b — executor initial exact-attempt
+operation.**
 
 On resume:
 
 1. read this plan plus the completed P02a, P02b, and P02c.1-P02c.3
-   boundaries;
+   boundaries and the P02c.4a missing-host preflight;
 2. treat the private artifact-runtime named entrypoint, the binding adapter,
    and the stored-attempt exact kernel as the only exact-attempt runtime path;
-3. locate the production initial point-mutation host and route it through this
-   same binding-backed runtime-neutral runner without changing the ordinary
-   cached invoke route;
-4. prove the initial host and exact redelivery select one identical fresh
-   Worker profile, including module-state freshness, deterministic time and
-   randomness, unavailable capabilities, and intrinsic hardening; and
-5. keep the scheduler, scheduled export, Wrangler trigger, public routes, and
+3. add the private P02c.4b operation from genuine admitted/activated authority
+   and the original execution claim to that same exact kernel, without routing
+   through replacement or redispatch;
+4. do not begin hosted P02c.4c until roadmap 17's coherent active-metadata
+   reader and O03-A2's private prepared-start transport can supply the accepted
+   production authority;
+5. reserve full initial/redelivery runtime-profile proof for P02c.4d; and
+6. keep the scheduler, scheduled export, Wrangler trigger, public routes, and
    `C06-B` response policy out of P02c.4.
 
 Do not add the database scheduler host, cron handler, scheduled export,
