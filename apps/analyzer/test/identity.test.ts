@@ -21,11 +21,11 @@ describe("private analyzer deterministic identity", () => {
     expect(installed.identity).toEqual({
       protocolIdentity: "flarex.private-source-analyzer-handshake.v1",
       protocolVersion: 1,
-      implementationIdentity: "132133d11c8dec3c963e33736cd043c535891c6dc757f607515d0db638748725",
-      configurationIdentity: "62b0a1e20b0b3a06c98c4220cb0f2fd6008c677bbc8ec1e24c986e9fa2c1768a",
+      implementationIdentity: "b589730fb8aaa6eeefd461583040133d202e7278726a77abe6834ef5811d1f17",
+      configurationIdentity: "c0ffa918d2cbfe69cc6193807caecdccf6d50c391bc2525db300b5a4cc4ce795",
     });
     expect(canonicalPrivateAnalyzerHostConfigurationV1(installed.configuration)).toBe(
-      '{"compatibilityDate":"2026-06-14","compatibilityFlags":[],"deploymentPosture":{"format":"flarex.private-source-analyzer-deployment-posture","previewUrls":false,"resourceBindings":[],"routes":[],"version":1,"workersDev":false},"format":"flarex.private-source-analyzer-host-configuration","handshake":{"contentType":"application/json","framing":"canonical-json-utf8-full-scan-v1","maximumBodyReadMilliseconds":5000,"method":"POST","path":"/__flarex_private/source-analyzer-v2/identity","redaction":"private-code-only-v1","statuses":{"bodyReadFailed":400,"bodyReadTimedOut":408,"identityMismatch":409,"malformed":400,"methodNotAllowed":405,"notFound":404,"payloadTooLarge":413,"success":200,"unsupportedMediaType":415}},"handshakeCodecVersion":1,"protocolIdentity":"flarex.private-source-analyzer-handshake.v1","protocolVersion":1,"toolchain":{"effect":"4.0.0-beta.90","esbuild":"0.27.3","typescript":"7.0.2","workersTypes":"4.20260613.1","wrangler":"4.100.0"},"version":1}',
+      '{"compatibilityDate":"2026-06-14","compatibilityFlags":[],"deploymentPosture":{"format":"flarex.private-source-analyzer-deployment-posture","previewUrls":false,"resourceBindings":[],"routes":[],"version":1,"workersDev":false},"format":"flarex.private-source-analyzer-host-configuration","handshake":{"contentType":"application/json","framing":"canonical-json-utf8-full-scan-v1","maximumBodyReadMilliseconds":5000,"method":"POST","path":"/__flarex_private/source-analyzer-v2/identity","redaction":"private-code-only-v1","statuses":{"bodyReadFailed":400,"bodyReadTimedOut":408,"identityMismatch":409,"malformed":400,"methodNotAllowed":405,"notFound":404,"payloadTooLarge":413,"success":200,"unsupportedMediaType":415}},"handshakeCodecVersion":1,"protocolIdentity":"flarex.private-source-analyzer-handshake.v1","protocolVersion":1,"toolchain":{"effect":"4.0.0-beta.90","esbuild":"0.27.3","typescript":"7.0.2","workersTypes":"4.20260613.1","wrangler":"4.100.0"},"verification":{"contentType":"application/x-flarex-declarative-v2-verification-v1","maximumBodyReadMilliseconds":30000,"maximumFrameBytes":65536,"method":"POST","path":"/__flarex_private/source-analyzer-v2/verify","protocolIdentity":"flarex.private-source-analyzer-verification.v1","protocolVersion":1,"transitionQuantum":1024},"version":1}',
     );
   });
 
@@ -91,7 +91,10 @@ describe("private analyzer deterministic identity", () => {
     ) as { readonly exports?: unknown };
     expect(analysisPackageJson.exports).toEqual({
       ".": "./src/index.ts",
+      "./internal/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",
+      "./internal/private-analyzer-verification-v1": "./src/privateAnalyzerVerificationV1.ts",
       "./internal/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts",
+      "./internal/private-sha256-v1": "./src/privateSha256V1.ts",
     });
 
     const wrangler = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8")) as unknown;

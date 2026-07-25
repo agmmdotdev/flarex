@@ -5,6 +5,14 @@ import {
   PRIVATE_ANALYZER_PROTOCOL_IDENTITY_V1,
   PRIVATE_ANALYZER_PROTOCOL_VERSION_V1,
 } from "@flarex/analysis/internal/private-analyzer-release-v1";
+import {
+  PRIVATE_ANALYZER_VERIFICATION_CONTENT_TYPE_V1,
+  PRIVATE_ANALYZER_VERIFICATION_MAXIMUM_FRAME_BYTES_V1,
+  PRIVATE_ANALYZER_VERIFICATION_PATH_V1,
+  PRIVATE_ANALYZER_VERIFICATION_PROTOCOL_IDENTITY_V1,
+  PRIVATE_ANALYZER_VERIFICATION_PROTOCOL_VERSION_V1,
+  PRIVATE_ANALYZER_VERIFICATION_TRANSITION_QUANTUM_V1,
+} from "@flarex/analysis/internal/private-analyzer-verification-v1";
 import { Data, Result } from "effect";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 
@@ -70,6 +78,20 @@ export interface PrivateAnalyzerHostConfigurationV1 {
       readonly bodyReadTimedOut: 408;
     };
   };
+  readonly verification: {
+    readonly method: "POST";
+    readonly path: typeof PRIVATE_ANALYZER_VERIFICATION_PATH_V1;
+    readonly contentType: typeof PRIVATE_ANALYZER_VERIFICATION_CONTENT_TYPE_V1;
+    readonly protocolIdentity:
+      typeof PRIVATE_ANALYZER_VERIFICATION_PROTOCOL_IDENTITY_V1;
+    readonly protocolVersion:
+      typeof PRIVATE_ANALYZER_VERIFICATION_PROTOCOL_VERSION_V1;
+    readonly maximumFrameBytes:
+      typeof PRIVATE_ANALYZER_VERIFICATION_MAXIMUM_FRAME_BYTES_V1;
+    readonly transitionQuantum:
+      typeof PRIVATE_ANALYZER_VERIFICATION_TRANSITION_QUANTUM_V1;
+    readonly maximumBodyReadMilliseconds: 30_000;
+  };
   readonly toolchain: PrivateAnalyzerToolchainV1;
 }
 
@@ -112,6 +134,16 @@ export function privateAnalyzerHostConfigurationV1(
         bodyReadFailed: 400,
         bodyReadTimedOut: 408,
       }),
+    }),
+    verification: Object.freeze({
+      method: "POST",
+      path: PRIVATE_ANALYZER_VERIFICATION_PATH_V1,
+      contentType: PRIVATE_ANALYZER_VERIFICATION_CONTENT_TYPE_V1,
+      protocolIdentity: PRIVATE_ANALYZER_VERIFICATION_PROTOCOL_IDENTITY_V1,
+      protocolVersion: PRIVATE_ANALYZER_VERIFICATION_PROTOCOL_VERSION_V1,
+      maximumFrameBytes: PRIVATE_ANALYZER_VERIFICATION_MAXIMUM_FRAME_BYTES_V1,
+      transitionQuantum: PRIVATE_ANALYZER_VERIFICATION_TRANSITION_QUANTUM_V1,
+      maximumBodyReadMilliseconds: 30_000,
     }),
     toolchain: Object.freeze({ ...toolchain }),
   });

@@ -49,6 +49,7 @@ import {
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1,
   loadDeclarativeV2VerifierExecutableAssetV1,
   loadGeneratedDeclarativeV2VerifierExecutableAssetV1,
+  makeDeclarativeV2VerifierResultAccessFactoryV1,
   stepDeclarativeV2VerifierLinkerV1,
   type DeclarativeV2VerifierExecutableV1Error,
   type DeclarativeV2VerifierEngineV1,
@@ -100,6 +101,103 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) =>
     rm(path, { recursive: true, force: true })
   ));
+});
+
+describe("private verifier result access", () => {
+  test("streams opaque module and link evidence and resolves exact handlers", () => {
+    const source = "export function ready() {}";
+    const module = runModuleResult(source, "functions/access.js", 0n);
+    const maximum = budget("command_budget", UTF8_ENCODER.encode(source).byteLength);
+    const required = budget("attempt_usage", UTF8_ENCODER.encode(source).byteLength);
+    const linked = linkModuleResults([module], maximum, required);
+    if (Result.isFailure(linked)) throw linked.failure;
+    const access = makeDeclarativeV2VerifierResultAccessFactoryV1();
+
+    const lookup = access.handlerLookup(
+      module,
+      artifactModulePath("functions/access.js"),
+      UTF8_ENCODER.encode("ready"),
+      maximum,
+    );
+    if (Result.isFailure(lookup)) throw lookup.failure;
+    expect(access.stepHandlerLookup(lookup.success, 0)).toMatchObject({
+      success: { status: "pending", transitionCount: 0 },
+    });
+    let matched: boolean | undefined;
+    while (matched === undefined) {
+      const step = access.stepHandlerLookup(lookup.success, 1);
+      if (Result.isFailure(step)) throw step.failure;
+      if (step.success.status === "complete") matched = step.success.matched;
+    }
+    expect(matched).toBe(true);
+    expect(access.stepHandlerLookup(lookup.success, 1)).toMatchObject({
+      failure: { operation: "access", reason: "closed" },
+    });
+
+    const moduleCursor = access.moduleEvidence(module, maximum);
+    if (Result.isFailure(moduleCursor)) throw moduleCursor.failure;
+    let moduleEvidence = 0;
+    while (true) {
+      const read = access.readModuleEvidence(moduleCursor.success, 1);
+      if (Result.isFailure(read)) throw read.failure;
+      if (read.success.status === "complete") break;
+      if (read.success.status === "item") moduleEvidence += 1;
+    }
+    expect(moduleEvidence).toBeGreaterThan(0);
+
+    const linkCursor = access.linkEvidence(linked.success, maximum);
+    if (Result.isFailure(linkCursor)) throw linkCursor.failure;
+    let linkEvidence = 0;
+    while (true) {
+      const read = access.readLinkEvidence(linkCursor.success, 1);
+      if (Result.isFailure(read)) throw read.failure;
+      if (read.success.status === "complete") break;
+      if (read.success.status === "item") linkEvidence += 1;
+    }
+    expect(linkEvidence).toBeGreaterThanOrEqual(0);
+  });
+
+  test("rejects excessive allowances and cross-factory or forged handles", () => {
+    const source = "export function ready() {}";
+    const module = runModuleResult(
+      source,
+      "functions/access-boundary.js",
+      0n,
+    );
+    const maximum = budget("command_budget", UTF8_ENCODER.encode(source).byteLength);
+    const first = makeDeclarativeV2VerifierResultAccessFactoryV1();
+    const second = makeDeclarativeV2VerifierResultAccessFactoryV1();
+    const cursor = first.moduleEvidence(module, maximum);
+    if (Result.isFailure(cursor)) throw cursor.failure;
+    expect(first.readModuleEvidence(cursor.success, 1_025)).toMatchObject({
+      failure: { operation: "access", reason: "invalidInput" },
+    });
+    expect(second.readModuleEvidence(cursor.success, 1)).toMatchObject({
+      failure: { operation: "access", reason: "invalidInput" },
+    });
+    expect(first.readModuleEvidence(Object.freeze({
+      _tag: "DeclarativeV2VerifierModuleEvidenceCursorV1",
+    }), 1)).toMatchObject({
+      failure: { operation: "access", reason: "invalidInput" },
+    });
+    let accessorCalls = 0;
+    const accessorBudget = Object.defineProperty({}, "kind", {
+      enumerable: true,
+      get() {
+        accessorCalls += 1;
+        return "command_budget";
+      },
+    });
+    expect(first.moduleEvidence(module, accessorBudget as never)).toMatchObject({
+      failure: { operation: "access", reason: "invalidInput" },
+    });
+    expect(accessorCalls).toBe(0);
+    const revokedBudget = Proxy.revocable(maximum, {});
+    revokedBudget.revoke();
+    expect(first.moduleEvidence(module, revokedBudget.proxy)).toMatchObject({
+      failure: { operation: "access", reason: "invalidInput" },
+    });
+  });
 });
 
 function generatedAsset(): Uint8Array {

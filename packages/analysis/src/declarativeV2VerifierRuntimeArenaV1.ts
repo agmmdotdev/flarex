@@ -5,10 +5,17 @@ import type {
   DeclarativeV2VerifierBudgetFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
 
-import type {
-  DeclarativeV2VerifierArenaPlanV1,
-  DeclarativeV2VerifierArenaRegionV1,
-} from "./declarativeV2VerifierV1";
+interface DeclarativeV2VerifierArenaRegionV1 {
+  readonly name: string;
+  readonly offset: number;
+  readonly byteLength: number;
+}
+
+interface DeclarativeV2VerifierArenaPlanV1 {
+  readonly requiredBytes: number;
+  readonly regions: ReadonlyArray<DeclarativeV2VerifierArenaRegionV1>;
+  readonly usage: DeclarativeV2VerifierBudgetFrameV2;
+}
 
 const MAXIMUM_TRANSITIONS_PER_CALL = 1_024;
 const MAX_U32 = 0xffff_ffff;

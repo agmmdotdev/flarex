@@ -20,10 +20,20 @@ import {
   type DeclarativeV2ArtifactModulePathHandleV1,
 } from "./declarativeV2ArtifactModulePathV1";
 import {
+  GENERATED_DECLARATIVE_V2_VERIFIER_ASSET_BASE64_V1,
   GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1,
-  loadGeneratedDeclarativeV2VerifierAssetV1,
-  planDeclarativeV2VerifierArenaV1,
-} from "./declarativeV2VerifierV1";
+} from "./declarativeV2VerifierV1.generated";
+import {
+  DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1,
+  DECLARATIVE_V2_VERIFIER_ARENA_WIDTHS_V1,
+  DECLARATIVE_V2_VERIFIER_ASSET_ALIGNMENT_V1,
+  DECLARATIVE_V2_VERIFIER_ASSET_FORMAT_VERSION_V1,
+  DECLARATIVE_V2_VERIFIER_ASSET_HEADER_BYTES_V1,
+  DECLARATIVE_V2_VERIFIER_ASSET_MAGIC_V1,
+  DECLARATIVE_V2_VERIFIER_ASSET_SECTION_ENTRY_BYTES_V1,
+  DECLARATIVE_V2_VERIFIER_ASSET_SECTIONS_V1,
+  DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1,
+} from "./declarativeV2VerifierV1.contract";
 import {
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_ASSET_BASE64_V1,
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1,
@@ -89,6 +99,9 @@ const MAX_U32 = 0xffff_ffff;
 const EXECUTABLE_ASSET_RESULT = Encoding.decodeBase64(
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_ASSET_BASE64_V1,
 );
+const SPECIFICATION_ASSET_RESULT = Encoding.decodeBase64(
+  GENERATED_DECLARATIVE_V2_VERIFIER_ASSET_BASE64_V1,
+);
 
 export {
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_CONTRACT_V1,
@@ -115,7 +128,8 @@ export class DeclarativeV2VerifierExecutableV1Error extends Data.TaggedError(
     | "create"
     | "step"
     | "finish"
-    | "link";
+    | "link"
+    | "access";
   readonly reason: DeclarativeV2VerifierExecutableV1ErrorReason;
   readonly dimension?: string;
   readonly observed?: bigint;
@@ -300,6 +314,7 @@ interface DeclarativeV2VerifierOwnedModuleArenaV1 {
   readonly exportView: DataView;
   readonly functionView: DataView;
   readonly diagnosticView: DataView;
+  readonly evidenceIndexView: DataView;
   readonly sourceSha256: Uint8Array;
   readonly moduleOrdinal: bigint;
   readonly importCount: number;
@@ -1353,6 +1368,370 @@ function canonicalTerminalId(name: string): number | undefined {
     (terminal) => terminal.name === name,
   )?.id;
 }
+
+interface LocalVerifierPlanFailureV1 {
+  readonly reason:
+    | "invalidInput"
+    | "invalidBudget"
+    | "budgetExceeded"
+    | "addressabilityExceeded"
+    | "overflow";
+  readonly path?: string;
+  readonly observed?: bigint;
+  readonly maximum?: bigint;
+}
+
+interface LocalVerifierArenaPlanV1 {
+  readonly requiredBytes: number;
+  readonly regions: ReadonlyArray<Readonly<{
+    readonly name: string;
+    readonly offset: number;
+    readonly byteLength: number;
+  }>>;
+  readonly usage: DeclarativeV2VerifierBudgetFrameV2;
+}
+
+const localPlanFailure = (
+  reason: LocalVerifierPlanFailureV1["reason"],
+  path?: string,
+  observed?: bigint,
+  maximum?: bigint,
+): LocalVerifierPlanFailureV1 => Object.freeze({
+  reason,
+  ...(path === undefined ? {} : { path }),
+  ...(observed === undefined ? {} : { observed }),
+  ...(maximum === undefined ? {} : { maximum }),
+});
+
+const captureLocalBudgetFrame = (
+  value: unknown,
+  kind: "command_budget" | "attempt_usage",
+): DeclarativeV2VerifierBudgetFrameV2 | undefined => {
+  if (value === null || typeof value !== "object") return undefined;
+  const expected = ["kind", ...DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2];
+  let keys: readonly PropertyKey[];
+  try {
+    keys = Reflect.ownKeys(value);
+  } catch {
+    return undefined;
+  }
+  if (
+    keys.length !== expected.length ||
+    keys.some(key => typeof key !== "string" || !expected.includes(key))
+  ) return undefined;
+  const captured: Record<string, string | bigint> = { kind };
+  for (const key of expected) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, key);
+    } catch {
+      return undefined;
+    }
+    if (descriptor === undefined || !("value" in descriptor)) return undefined;
+    if (key === "kind") {
+      if (descriptor.value !== kind) return undefined;
+      continue;
+    }
+    if (
+      typeof descriptor.value !== "bigint" ||
+      descriptor.value < 0n ||
+      descriptor.value > MAX_SIGNED_INT64
+    ) return undefined;
+    captured[key] = descriptor.value;
+  }
+  return Object.freeze(captured) as DeclarativeV2VerifierBudgetFrameV2;
+};
+
+const planDeclarativeV2VerifierArenaV1 = (
+  input: unknown,
+): Result.Result<LocalVerifierArenaPlanV1, LocalVerifierPlanFailureV1> => {
+  if (input === null || typeof input !== "object") {
+    return Result.fail(localPlanFailure("invalidInput"));
+  }
+  let maximumsValue: unknown;
+  let requiredValue: unknown;
+  try {
+    const keys = Reflect.ownKeys(input);
+    if (
+      keys.length !== 2 ||
+      !Object.hasOwn(input, "maximums") ||
+      !Object.hasOwn(input, "required")
+    ) return Result.fail(localPlanFailure("invalidInput"));
+    const maximumsDescriptor = Object.getOwnPropertyDescriptor(
+      input,
+      "maximums",
+    );
+    const requiredDescriptor = Object.getOwnPropertyDescriptor(
+      input,
+      "required",
+    );
+    if (
+      maximumsDescriptor === undefined ||
+      requiredDescriptor === undefined ||
+      !("value" in maximumsDescriptor) ||
+      !("value" in requiredDescriptor)
+    ) return Result.fail(localPlanFailure("invalidInput"));
+    maximumsValue = maximumsDescriptor.value;
+    requiredValue = requiredDescriptor.value;
+  } catch {
+    return Result.fail(localPlanFailure("invalidInput"));
+  }
+  const maximums = captureLocalBudgetFrame(maximumsValue, "command_budget");
+  const required = captureLocalBudgetFrame(requiredValue, "attempt_usage");
+  if (maximums === undefined || required === undefined) {
+    return Result.fail(localPlanFailure("invalidBudget"));
+  }
+  if (required.sourceMapBytes !== 0n) {
+    return Result.fail(localPlanFailure(
+      "invalidInput",
+      "sourceMapBytes",
+      required.sourceMapBytes,
+      0n,
+    ));
+  }
+  for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+    if (required[dimension] > maximums[dimension]) {
+      return Result.fail(localPlanFailure(
+        "budgetExceeded",
+        dimension,
+        required[dimension],
+        maximums[dimension],
+      ));
+    }
+  }
+  const bodyBytes =
+    required.sourceBytes + required.sourceMapBytes + required.semanticBytes;
+  if (bodyBytes > required.objectBodyBytes) {
+    return Result.fail(localPlanFailure(
+      "budgetExceeded",
+      "objectBodyBytes",
+      bodyBytes,
+      required.objectBodyBytes,
+    ));
+  }
+  for (const dimension of [
+    "modules",
+    "importEdges",
+    "exports",
+    "functions",
+    "tokens",
+    "parserStates",
+    "nestingDepth",
+    "schemaNodes",
+    "validatorNodes",
+    "graphNodes",
+    "frontierEntries",
+  ] as const) {
+    if (required[dimension] > BigInt(MAX_U32)) {
+      return Result.fail(localPlanFailure(
+        "addressabilityExceeded",
+        dimension,
+        required[dimension],
+        BigInt(MAX_U32),
+      ));
+    }
+  }
+  const regions: Array<Readonly<{
+    readonly name: string;
+    readonly offset: number;
+    readonly byteLength: number;
+  }>> = [];
+  let total = BigInt(DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1.arena.baseBytes);
+  const append = (
+    name: string,
+    count: bigint,
+    width: bigint,
+  ): LocalVerifierPlanFailureV1 | undefined => {
+    const length = count * width;
+    const next = total + length;
+    if (length > MAX_SIGNED_INT64 || next > MAX_SIGNED_INT64) {
+      return localPlanFailure("overflow", name);
+    }
+    if (next > BigInt(MAX_U32)) {
+      return localPlanFailure(
+        "addressabilityExceeded",
+        name,
+        next,
+        BigInt(MAX_U32),
+      );
+    }
+    regions.push(Object.freeze({
+      name,
+      offset: Number(total),
+      byteLength: Number(length),
+    }));
+    total = next;
+    return undefined;
+  };
+  for (const width of DECLARATIVE_V2_VERIFIER_ARENA_WIDTHS_V1) {
+    const failure = append(
+      width.name,
+      required[width.dimension],
+      BigInt(width.bytes),
+    );
+    if (failure !== undefined) return Result.fail(failure);
+  }
+  for (const factor of DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1) {
+    const failure = append(
+      `${factor.dimension}Storage`,
+      required[factor.dimension],
+      BigInt(factor.factor),
+    );
+    if (failure !== undefined) return Result.fail(failure);
+  }
+  if (
+    required.tableBytes <
+      BigInt(GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1.assetByteLength)
+  ) {
+    return Result.fail(localPlanFailure(
+      "budgetExceeded",
+      "tableBytes",
+      BigInt(GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1.assetByteLength),
+      required.tableBytes,
+    ));
+  }
+  return Result.succeed(Object.freeze({
+    requiredBytes: Number(total),
+    regions: Object.freeze(regions),
+    usage: required,
+  }));
+};
+
+const loadGeneratedDeclarativeV2VerifierAssetV1 = (
+  budget: Readonly<{ readonly maximumTableBytes: number }>,
+): Result.Result<
+  Readonly<{
+    readonly usage: Readonly<{ readonly tableBytes: number }>;
+    readonly copySectionBytes: (name: string) => Uint8Array | undefined;
+  }>,
+  LocalVerifierPlanFailureV1
+> => {
+  if (
+    !isNonNegativeSafeInteger(budget.maximumTableBytes) ||
+    Result.isFailure(SPECIFICATION_ASSET_RESULT)
+  ) return Result.fail(localPlanFailure("invalidBudget"));
+  const bytes = SPECIFICATION_ASSET_RESULT.success;
+  if (bytes.byteLength > budget.maximumTableBytes) {
+    return Result.fail(localPlanFailure(
+      "budgetExceeded",
+      "tableBytes",
+      BigInt(bytes.byteLength),
+      BigInt(budget.maximumTableBytes),
+    ));
+  }
+  const directory = new DataView(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength,
+  );
+  const magic = encodeUtf8Owned(DECLARATIVE_V2_VERIFIER_ASSET_MAGIC_V1);
+  if (
+    bytes.byteLength < DECLARATIVE_V2_VERIFIER_ASSET_HEADER_BYTES_V1 ||
+    !bytesEqualFullScan(bytes.subarray(0, magic.byteLength), magic)
+  ) return Result.fail(localPlanFailure("invalidInput"));
+  const version = readU32(bytes, 8);
+  const headerBytes = readU32(bytes, 12);
+  const sectionCount = readU32(bytes, 16);
+  const sectionEntryBytes = readU32(bytes, 20);
+  const alignment = readU32(bytes, 24);
+  const reserved = readU32(bytes, 28);
+  if (
+    version !== DECLARATIVE_V2_VERIFIER_ASSET_FORMAT_VERSION_V1 ||
+    headerBytes !== DECLARATIVE_V2_VERIFIER_ASSET_HEADER_BYTES_V1 ||
+    sectionCount !== DECLARATIVE_V2_VERIFIER_ASSET_SECTIONS_V1.length ||
+    sectionEntryBytes !==
+      DECLARATIVE_V2_VERIFIER_ASSET_SECTION_ENTRY_BYTES_V1 ||
+    alignment !== DECLARATIVE_V2_VERIFIER_ASSET_ALIGNMENT_V1 ||
+    reserved !== 0
+  ) {
+    return Result.fail(localPlanFailure("invalidInput"));
+  }
+  const tableEnd = headerBytes + sectionCount * sectionEntryBytes;
+  let expectedOffset = align(tableEnd, alignment);
+  if (
+    tableEnd > bytes.byteLength ||
+    expectedOffset > bytes.byteLength ||
+    !bytesAreZero(bytes, tableEnd, expectedOffset)
+  ) return Result.fail(localPlanFailure("invalidInput"));
+  const sections: Array<Readonly<{
+    readonly name: string;
+    readonly offset: number;
+    readonly byteLength: number;
+  }>> = [];
+  for (let index = 0; index < sectionCount; index += 1) {
+    const definition = DECLARATIVE_V2_VERIFIER_ASSET_SECTIONS_V1[index]!;
+    const entry = headerBytes + index * sectionEntryBytes;
+    const id = directory.getUint32(entry, false);
+    const recordBytes = directory.getUint32(entry + 4, false);
+    const offset = directory.getUint32(entry + 8, false);
+    const byteLength = directory.getUint32(entry + 12, false);
+    const count = directory.getUint32(entry + 16, false);
+    const flags = directory.getUint32(entry + 20, false);
+    if (
+      id !== definition.id ||
+      recordBytes !== definition.recordBytes ||
+      offset !== expectedOffset ||
+      flags !== 0 ||
+      byteLength % recordBytes !== 0 ||
+      count !== byteLength / recordBytes ||
+      offset + byteLength > bytes.byteLength
+    ) {
+      return Result.fail(localPlanFailure("invalidInput"));
+    }
+    if (
+      recordBytes >= 4 &&
+      definition.name !== "stringPool" &&
+      definition.name !== "canonicalSpecification"
+    ) {
+      for (let row = 0; row < count; row += 1) {
+        const rowId = readU32(bytes, offset + row * recordBytes);
+        if (
+          definition.name.startsWith("unicode")
+            ? rowId === undefined
+            : rowId !== row + 1
+        ) return Result.fail(localPlanFailure("invalidInput"));
+      }
+    }
+    if (definition.name.startsWith("unicode")) {
+      let previousEnd = -1;
+      for (let row = 0; row < count; row += 1) {
+        const start = readU32(bytes, offset + row * 8);
+        const end = readU32(bytes, offset + row * 8 + 4);
+        if (
+          start === undefined ||
+          end === undefined ||
+          start > end ||
+          end > 0x10ffff ||
+          start <= previousEnd
+        ) return Result.fail(localPlanFailure("invalidInput"));
+        previousEnd = end;
+      }
+    }
+    sections.push(Object.freeze({
+      name: definition.name,
+      offset,
+      byteLength,
+    }));
+    const unalignedEnd = offset + byteLength;
+    expectedOffset = align(unalignedEnd, alignment);
+    if (
+      expectedOffset > bytes.byteLength ||
+      !bytesAreZero(bytes, unalignedEnd, expectedOffset)
+    ) return Result.fail(localPlanFailure("invalidInput"));
+  }
+  if (expectedOffset !== bytes.byteLength) {
+    return Result.fail(localPlanFailure("invalidInput"));
+  }
+  return Result.succeed(Object.freeze({
+    usage: Object.freeze({ tableBytes: bytes.byteLength }),
+    copySectionBytes: (name: string) => {
+      const section = sections.find(candidate => candidate.name === name);
+      return section === undefined
+        ? undefined
+        : bytes.slice(section.offset, section.offset + section.byteLength);
+    },
+  }));
+};
 
 export function createDeclarativeV2VerifierEngineV1(
   rawInput: unknown,
@@ -5893,6 +6272,7 @@ export function createDeclarativeV2VerifierEngineV1(
       exportView,
       functionView,
       diagnosticView,
+      evidenceIndexView,
       sourceSha256: ownedSourceSha256,
       moduleOrdinal: input.moduleOrdinal,
       importCount,
@@ -6611,6 +6991,7 @@ export interface DeclarativeV2VerifierLinkerV1 {
 
 export interface DeclarativeV2VerifierLinkPendingV1 {
   readonly status: "pending";
+  readonly readyForModule: boolean;
   readonly transitionCount: number;
   readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
   readonly usage: DeclarativeV2VerifierBudgetFrameV2;
@@ -7756,7 +8137,11 @@ const driveLinkerV1 = (
     return Result.fail(callCharge.failure);
   }
   let transitions = 0;
-  while (transitions < allowance.success && state.phase !== "complete") {
+  while (
+    transitions < allowance.success &&
+    state.phase !== "complete" &&
+    !(state.phase === "accepting" && !state.sealed)
+  ) {
     const advanced = advanceLinkerOne(state);
     transitions += 1;
     if (Result.isFailure(advanced)) {
@@ -7767,6 +8152,7 @@ const driveLinkerV1 = (
   if (state.phase !== "complete") {
     return Result.succeed(Object.freeze({
       status: "pending",
+      readyForModule: state.phase === "accepting" && !state.sealed,
       transitionCount: transitions,
       deltaUsage: frozenUsageDelta(state.usage, before),
       usage: frozenUsage(state.usage),
@@ -7815,4 +8201,833 @@ export function finishDeclarativeV2VerifierLinkerV1(
     if (state.phase === "accepting") state.phase = "indexing";
   }
   return driveLinkerV1(state, rawAllowance);
+}
+
+/**
+ * Private, package-internal access to verifier-owned evidence. The public
+ * package root does not export this surface; it is intentionally reachable
+ * only through the Declarative V2 verifier internal subpath.
+ */
+export interface DeclarativeV2VerifierModuleEvidenceCursorV1 {
+  readonly _tag: "DeclarativeV2VerifierModuleEvidenceCursorV1";
+}
+
+export interface DeclarativeV2VerifierLinkEvidenceCursorV1 {
+  readonly _tag: "DeclarativeV2VerifierLinkEvidenceCursorV1";
+}
+
+export interface DeclarativeV2VerifierHandlerLookupV1 {
+  readonly _tag: "DeclarativeV2VerifierHandlerLookupV1";
+}
+
+export interface DeclarativeV2VerifierAccessPendingV1 {
+  readonly status: "pending";
+  readonly transitionCount: number;
+  readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+  readonly usage: DeclarativeV2VerifierBudgetFrameV2;
+}
+
+export interface DeclarativeV2VerifierEvidenceItemV1 {
+  readonly status: "item";
+  readonly transitionCount: number;
+  readonly evidence: DeclarativeV2VerificationEvidenceCursorV2;
+  readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+  readonly usage: DeclarativeV2VerifierBudgetFrameV2;
+}
+
+export interface DeclarativeV2VerifierEvidenceCompleteV1 {
+  readonly status: "complete";
+  readonly transitionCount: number;
+  readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+  readonly usage: DeclarativeV2VerifierBudgetFrameV2;
+}
+
+export type DeclarativeV2VerifierEvidenceReadV1 =
+  | DeclarativeV2VerifierAccessPendingV1
+  | DeclarativeV2VerifierEvidenceItemV1
+  | DeclarativeV2VerifierEvidenceCompleteV1;
+
+export interface DeclarativeV2VerifierHandlerLookupCompleteV1 {
+  readonly status: "complete";
+  readonly matched: boolean;
+  readonly transitionCount: number;
+  readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+  readonly usage: DeclarativeV2VerifierBudgetFrameV2;
+}
+
+export type DeclarativeV2VerifierHandlerLookupStepV1 =
+  | DeclarativeV2VerifierAccessPendingV1
+  | DeclarativeV2VerifierHandlerLookupCompleteV1;
+
+interface ModuleEvidenceAccessStateV1 {
+  readonly owned: DeclarativeV2VerifierOwnedModuleArenaV1;
+  readonly maximum: DeclarativeV2VerifierBudgetFrameV2;
+  readonly usage: ReturnType<typeof zeroUsage>;
+  index: number;
+  closed: boolean;
+}
+
+interface LinkEvidenceAccessStateV1 {
+  readonly owned: LinkResultPresentationV1;
+  readonly maximum: DeclarativeV2VerifierBudgetFrameV2;
+  readonly usage: ReturnType<typeof zeroUsage>;
+  order: number;
+  scan: number;
+  closed: boolean;
+}
+
+interface HandlerLookupStateV1 {
+  readonly owned: DeclarativeV2VerifierOwnedModuleArenaV1;
+  readonly maximum: DeclarativeV2VerifierBudgetFrameV2;
+  readonly usage: ReturnType<typeof zeroUsage>;
+  readonly path: DeclarativeV2ArtifactModulePathHandleV1;
+  readonly expectedExport: Uint8Array;
+  readonly capturedExport: Uint8Array;
+  phase: "copyExport" | "modulePath" | "findExport" | "compareExport" |
+    "findFunction" | "compareFunction" | "complete" | "failed";
+  byteIndex: number;
+  recordIndex: number;
+  localToken: number;
+  matched: boolean;
+}
+
+const accessUsageCharge = (
+  usage: ReturnType<typeof zeroUsage>,
+  maximum: DeclarativeV2VerifierBudgetFrameV2,
+  dimension: typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2[number],
+  amount: bigint,
+): Result.Result<void, DeclarativeV2VerifierExecutableV1Error> => {
+  const observed = usage[dimension] + amount;
+  if (observed > maximum[dimension]) {
+    return Result.fail(executableError("access", "budgetExceeded", {
+      dimension,
+      observed,
+      maximum: maximum[dimension],
+    }));
+  }
+  usage[dimension] = observed;
+  return Result.succeed(undefined);
+};
+
+const captureAccessBudgetV1 = (
+  value: DeclarativeV2VerifierBudgetFrameV2,
+): Result.Result<
+  DeclarativeV2VerifierBudgetFrameV2,
+  DeclarativeV2VerifierExecutableV1Error
+> => {
+  const captured =
+    captureLocalBudgetFrame(value, "command_budget") ??
+    captureLocalBudgetFrame(value, "attempt_usage");
+  if (captured === undefined) {
+    return Result.fail(executableError("access", "invalidInput"));
+  }
+  const members = Object.fromEntries(
+    DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(
+      dimension => [dimension, captured[dimension]] as const,
+    ),
+  );
+  const maximums = Object.freeze({
+    kind: "command_budget",
+    ...members,
+  }) as DeclarativeV2VerifierBudgetFrameV2;
+  const required = Object.freeze({
+    kind: "attempt_usage",
+    ...members,
+  }) as DeclarativeV2VerifierBudgetFrameV2;
+  const planned = planDeclarativeV2VerifierArenaV1({
+    maximums,
+    required,
+  });
+  return Result.isFailure(planned)
+    ? Result.fail(executableError("access", "invalidInput"))
+    : Result.succeed(planned.success.usage);
+};
+
+const accessAllowanceV1 = (
+  value: unknown,
+): Result.Result<number, DeclarativeV2VerifierExecutableV1Error> => {
+  if (
+    !isNonNegativeSafeInteger(value) ||
+    value > DECLARATIVE_V2_VERIFIER_TRANSITION_QUANTUM_V1
+  ) {
+    return Result.fail(executableError("access", "invalidInput", {
+      dimension: "transitionQuantum",
+    }));
+  }
+  return Result.succeed(value);
+};
+
+const tokenOffsetV1 = (
+  owned: DeclarativeV2VerifierOwnedModuleArenaV1,
+  token: number,
+): number => owned.tokenView.getUint32(token * 56 + 12, false);
+
+const tokenLengthV1 = (
+  owned: DeclarativeV2VerifierOwnedModuleArenaV1,
+  token: number,
+): number => owned.tokenView.getUint32(token * 56 + 16, false);
+
+const arenaTextCursorV1 = (
+  owned: DeclarativeV2VerifierOwnedModuleArenaV1,
+  bytes: Uint8Array,
+  offset: number,
+  byteLength: number,
+): DeclarativeV2VerificationEvidenceTextCursorV2 => {
+  let cursor = 0;
+  const created = makeDeclarativeV2VerificationEvidenceTextCursorV2(
+    byteLength,
+    () => {
+      if (cursor >= byteLength) return undefined;
+      const absolute = offset + cursor;
+      const first = bytes[absolute]!;
+      const width = first <= 0x7f ? 1 : first <= 0xdf ? 2 : first <= 0xef ? 3 : 4;
+      let scalar = first & (
+        width === 1 ? 0x7f : width === 2 ? 0x1f : width === 3 ? 0x0f : 0x07
+      );
+      for (let index = 1; index < width; index += 1) {
+        scalar = (scalar << 6) | (bytes[absolute + index]! & 0x3f);
+      }
+      cursor += width;
+      return scalar;
+    },
+  );
+  if (Result.isFailure(created)) {
+    throw new Error("Verifier-owned canonical text was rejected.");
+  }
+  void owned;
+  return created.success;
+};
+
+const tokenEvidenceTextV1 = (
+  owned: DeclarativeV2VerifierOwnedModuleArenaV1,
+  token: number,
+  trimStart = 0,
+  trimEnd = 0,
+): DeclarativeV2VerificationEvidenceTextCursorV2 =>
+  arenaTextCursorV1(
+    owned,
+    owned.stringBytes,
+    tokenOffsetV1(owned, token) + trimStart,
+    tokenLengthV1(owned, token) - trimStart - trimEnd,
+  );
+
+const moduleEvidenceAtV1 = (
+  owned: DeclarativeV2VerifierOwnedModuleArenaV1,
+  index: number,
+): DeclarativeV2VerificationEvidenceCursorV2 => {
+  const modulePathOffset = owned.moduleView.getUint32(0, false);
+  const modulePathLength = owned.moduleView.getUint32(4, false);
+  if (index === 0) {
+    const created = makeDeclarativeV2ModuleSummaryEvidenceCursorV2(
+      owned.moduleOrdinal,
+      arenaTextCursorV1(
+        owned,
+        owned.outputBytes,
+        modulePathOffset,
+        modulePathLength,
+      ),
+      owned.sourceSha256,
+      owned.usage.sourceBytes,
+      BigInt(owned.importCount),
+      BigInt(owned.exportCount),
+      BigInt(owned.functionCount),
+      BigInt(owned.callCount),
+      BigInt(owned.valueFlowCount),
+    );
+    if (Result.isFailure(created)) throw new Error("Owned module evidence is invalid.");
+    return created.success;
+  }
+  if (index <= owned.callCount) {
+    const recordIndex = owned.importCount + index - 1;
+    const offset = recordIndex * 64;
+    const functionIndex = owned.importEdgeView.getUint32(offset + 20, false) - 1;
+    const targetKind = owned.importEdgeView.getUint32(offset + 16, false);
+    const importIndex = owned.importEdgeView.getUint32(offset + 28, false);
+    const created = makeDeclarativeV2ImportCallEvidenceCursorV2(
+      owned.moduleOrdinal,
+      BigInt(owned.importEdgeView.getUint32(offset + 32, false)),
+      tokenEvidenceTextV1(
+        owned,
+        owned.functionView.getUint32(functionIndex * 144, false) - 1,
+      ),
+      targetKind === 3
+        ? "local"
+        : targetKind === 1
+        ? "artifactImport"
+        : targetKind === 2
+        ? "platformImport"
+        : "abi",
+      targetKind === 3 || targetKind === 4 || importIndex === 0
+        ? null
+        : tokenEvidenceTextV1(
+          owned,
+          owned.importEdgeView.getUint32((importIndex - 1) * 64 + 12, false) - 1,
+          1,
+          1,
+        ),
+      tokenEvidenceTextV1(
+        owned,
+        owned.importEdgeView.getUint32(offset + 24, false) - 1,
+      ),
+    );
+    if (Result.isFailure(created)) throw new Error("Owned call evidence is invalid.");
+    return created.success;
+  }
+  const valueStart = 1 + owned.callCount;
+  if (index < valueStart + owned.valueFlowCount) {
+    const ordinal = index - valueStart;
+    const recordIndex = owned.evidenceIndexView.getUint32(ordinal * 4, false);
+    const offset = recordIndex * 64;
+    const functionIndex = owned.importEdgeView.getUint32(offset + 20, false) - 1;
+    const abiId = owned.importEdgeView.getUint32(offset + 36, false) - 1;
+    const abi = DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1[abiId];
+    if (abi === undefined) throw new Error("Owned ABI evidence is invalid.");
+    const created = makeDeclarativeV2ValueFlowEvidenceCursorV2(
+      owned.moduleOrdinal,
+      tokenEvidenceTextV1(
+        owned,
+        owned.functionView.getUint32(functionIndex * 144, false) - 1,
+      ),
+      BigInt(owned.importEdgeView.getUint32(offset + 44, false)),
+      abi.name,
+      abi.capability,
+      abi.catchability,
+    );
+    if (Result.isFailure(created)) throw new Error("Owned value evidence is invalid.");
+    return created.success;
+  }
+  const diagnosticOrder = index - valueStart - owned.valueFlowCount;
+  const recordIndex = owned.evidenceIndexView.getUint32(
+    (owned.valueFlowCount + diagnosticOrder) * 4,
+    false,
+  );
+  const offset = recordIndex * 32;
+  const id = owned.diagnosticView.getUint32(offset, false);
+  const definition = DECLARATIVE_V2_CORE_DIAGNOSTICS_V1.find(
+    candidate => candidate.id === id,
+  );
+  if (definition === undefined) throw new Error("Owned diagnostic evidence is invalid.");
+  const created = makeDeclarativeV2DiagnosticEvidenceCursorV2(
+    definition.phase,
+    owned.moduleOrdinal,
+    owned.diagnosticView.getBigUint64(offset + 8, false),
+    BigInt(id),
+    definition.code,
+    definition.rule,
+  );
+  if (Result.isFailure(created)) throw new Error("Owned diagnostic evidence is invalid.");
+  return created.success;
+};
+
+export interface DeclarativeV2VerifierResultAccessFactoryV1 {
+  readonly moduleEvidence: (
+    result: unknown,
+    maximum: DeclarativeV2VerifierBudgetFrameV2,
+  ) => Result.Result<
+    DeclarativeV2VerifierModuleEvidenceCursorV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly readModuleEvidence: (
+    cursor: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierEvidenceReadV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly handlerLookup: (
+    result: unknown,
+    modulePath: unknown,
+    exportNameUtf8: unknown,
+    maximum: DeclarativeV2VerifierBudgetFrameV2,
+  ) => Result.Result<
+    DeclarativeV2VerifierHandlerLookupV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly stepHandlerLookup: (
+    lookup: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierHandlerLookupStepV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly linkEvidence: (
+    result: unknown,
+    maximum: DeclarativeV2VerifierBudgetFrameV2,
+  ) => Result.Result<
+    DeclarativeV2VerifierLinkEvidenceCursorV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly readLinkEvidence: (
+    cursor: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierEvidenceReadV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly close: (
+    handle: unknown,
+  ) => Result.Result<void, DeclarativeV2VerifierExecutableV1Error>;
+}
+
+export function makeDeclarativeV2VerifierResultAccessFactoryV1():
+  DeclarativeV2VerifierResultAccessFactoryV1 {
+  const moduleCursors = new WeakMap<object, ModuleEvidenceAccessStateV1>();
+  const linkCursors = new WeakMap<object, LinkEvidenceAccessStateV1>();
+  const lookups = new WeakMap<object, HandlerLookupStateV1>();
+  const moduleCursor = (): DeclarativeV2VerifierModuleEvidenceCursorV1 =>
+    Object.freeze({ _tag: "DeclarativeV2VerifierModuleEvidenceCursorV1" });
+  const linkCursor = (): DeclarativeV2VerifierLinkEvidenceCursorV1 =>
+    Object.freeze({ _tag: "DeclarativeV2VerifierLinkEvidenceCursorV1" });
+  const lookupHandle = (): DeclarativeV2VerifierHandlerLookupV1 =>
+    Object.freeze({ _tag: "DeclarativeV2VerifierHandlerLookupV1" });
+
+  const moduleEvidence: DeclarativeV2VerifierResultAccessFactoryV1["moduleEvidence"] =
+    (rawResult, rawMaximum) => {
+      const owned = rawResult !== null && typeof rawResult === "object"
+        ? OWNED_MODULE_RESULTS.get(rawResult)
+        : undefined;
+      const maximum = captureAccessBudgetV1(rawMaximum);
+      if (owned === undefined || Result.isFailure(maximum)) {
+        return Result.fail(executableError("access", "invalidInput"));
+      }
+      const handle = moduleCursor();
+      moduleCursors.set(handle, {
+        owned,
+        maximum: maximum.success,
+        usage: zeroUsage(),
+        index: 0,
+        closed: false,
+      });
+      return Result.succeed(handle);
+    };
+
+  const readModuleEvidence:
+    DeclarativeV2VerifierResultAccessFactoryV1["readModuleEvidence"] =
+      (rawCursor, rawAllowance) => {
+        const state = rawCursor !== null && typeof rawCursor === "object"
+          ? moduleCursors.get(rawCursor)
+          : undefined;
+        if (state === undefined) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        if (state.closed) return Result.fail(executableError("access", "closed"));
+        const allowance = accessAllowanceV1(rawAllowance);
+        if (Result.isFailure(allowance)) {
+          state.closed = true;
+          return Result.fail(allowance.failure);
+        }
+        const before = usageSnapshot(state.usage);
+        const call = accessUsageCharge(state.usage, state.maximum, "calls", 1n);
+        if (Result.isFailure(call)) {
+          state.closed = true;
+          return Result.fail(call.failure);
+        }
+        if (allowance.success === 0) {
+          return Result.succeed(Object.freeze({
+            status: "pending",
+            transitionCount: 0,
+            deltaUsage: frozenUsageDelta(state.usage, before),
+            usage: frozenUsage(state.usage),
+          }));
+        }
+        const count = 1 + state.owned.callCount +
+          state.owned.valueFlowCount + state.owned.diagnosticCount;
+        if (state.index >= count) {
+          state.closed = true;
+          return Result.succeed(Object.freeze({
+            status: "complete",
+            transitionCount: 1,
+            deltaUsage: frozenUsageDelta(state.usage, before),
+            usage: frozenUsage(state.usage),
+          }));
+        }
+        const evidence = moduleEvidenceAtV1(state.owned, state.index);
+        state.index += 1;
+        return Result.succeed(Object.freeze({
+          status: "item",
+          transitionCount: 1,
+          evidence,
+          deltaUsage: frozenUsageDelta(state.usage, before),
+          usage: frozenUsage(state.usage),
+        }));
+      };
+
+  const handlerLookup: DeclarativeV2VerifierResultAccessFactoryV1["handlerLookup"] =
+    (rawResult, rawPath, rawExport, rawMaximum) => {
+      const owned = rawResult !== null && typeof rawResult === "object"
+        ? OWNED_MODULE_RESULTS.get(rawResult)
+        : undefined;
+      const path = DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1.capture(rawPath);
+      const maximum = captureAccessBudgetV1(rawMaximum);
+      if (
+        owned === undefined ||
+        Result.isFailure(path) ||
+        Result.isFailure(maximum) ||
+        !isUint8Array(rawExport)
+      ) {
+        return Result.fail(executableError("access", "invalidInput"));
+      }
+      const byteLength = TYPED_ARRAY_BYTE_LENGTH_GETTER?.call(rawExport) as unknown;
+      if (
+        typeof byteLength !== "number" ||
+        byteLength < 1 ||
+        BigInt(byteLength) > maximum.success.stringBytes ||
+        BigInt(byteLength) > maximum.success.outputBytes ||
+        byteLength > MAX_U32
+      ) {
+        return Result.fail(executableError("access", "budgetExceeded", {
+          dimension: "stringBytes",
+        }));
+      }
+      const handle = lookupHandle();
+      lookups.set(handle, {
+        owned,
+        maximum: maximum.success,
+        usage: zeroUsage(),
+        path: path.success,
+        expectedExport: rawExport,
+        capturedExport: new Uint8Array(byteLength),
+        phase: "copyExport",
+        byteIndex: 0,
+        recordIndex: 0,
+        localToken: -1,
+        matched: false,
+      });
+      return Result.succeed(handle);
+    };
+
+  const stepHandlerLookup:
+    DeclarativeV2VerifierResultAccessFactoryV1["stepHandlerLookup"] =
+      (rawLookup, rawAllowance) => {
+        const state = rawLookup !== null && typeof rawLookup === "object"
+          ? lookups.get(rawLookup)
+          : undefined;
+        if (state === undefined) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        if (state.phase === "failed" || state.phase === "complete") {
+          return Result.fail(executableError("access", "closed"));
+        }
+        const allowance = accessAllowanceV1(rawAllowance);
+        if (Result.isFailure(allowance)) {
+          state.phase = "failed";
+          return Result.fail(allowance.failure);
+        }
+        const before = usageSnapshot(state.usage);
+        const call = accessUsageCharge(state.usage, state.maximum, "calls", 1n);
+        if (Result.isFailure(call)) {
+          state.phase = "failed";
+          return Result.fail(call.failure);
+        }
+        let transitions = 0;
+        const charge = (
+          dimension: typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2[number],
+        ): boolean => {
+          const charged = accessUsageCharge(
+            state.usage,
+            state.maximum,
+            dimension,
+            1n,
+          );
+          if (Result.isFailure(charged)) {
+            state.phase = "failed";
+            return false;
+          }
+          return true;
+        };
+        while (transitions < allowance.success && state.phase !== "complete") {
+          transitions += 1;
+          if (state.phase === "copyExport") {
+            if (state.byteIndex >= state.capturedExport.byteLength) {
+              state.phase = "modulePath";
+              state.byteIndex = 0;
+              continue;
+            }
+            if (!charge("stringBytes") || !charge("outputBytes")) break;
+            state.capturedExport[state.byteIndex] =
+              state.expectedExport[state.byteIndex]!;
+            state.byteIndex += 1;
+            continue;
+          }
+          if (state.phase === "modulePath") {
+            const expectedLength =
+              DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1.byteLength(state.path);
+            if (Result.isFailure(expectedLength)) {
+              state.phase = "failed";
+              break;
+            }
+            const actualLength = state.owned.moduleView.getUint32(4, false);
+            if (expectedLength.success !== actualLength) {
+              state.phase = "complete";
+              continue;
+            }
+            if (state.byteIndex >= actualLength) {
+              state.phase = "findExport";
+              state.byteIndex = 0;
+              continue;
+            }
+            if (!charge("stringBytes")) break;
+            const expected = DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1.byteAt(
+              state.path,
+              state.byteIndex,
+            );
+            if (
+              Result.isFailure(expected) ||
+              expected.success !==
+                state.owned.outputBytes[
+                  state.owned.moduleView.getUint32(0, false) + state.byteIndex
+                ]
+            ) {
+              state.phase = "complete";
+              continue;
+            }
+            state.byteIndex += 1;
+            continue;
+          }
+          if (state.phase === "findExport") {
+            if (state.recordIndex >= state.owned.exportCount) {
+              state.phase = "complete";
+              continue;
+            }
+            state.phase = "compareExport";
+            state.byteIndex = 0;
+            continue;
+          }
+          if (state.phase === "compareExport") {
+            const offset = state.recordIndex * 48;
+            const isDefault = state.owned.exportView.getUint32(
+              offset + 8,
+              false,
+            ) === 1;
+            const stored = state.owned.exportView.getUint32(offset, false);
+            const token = stored - 1;
+            const expectedLength = state.capturedExport.byteLength;
+            const actualLength = isDefault ? 7 : tokenLengthV1(state.owned, token);
+            if (expectedLength !== actualLength) {
+              state.recordIndex += 1;
+              state.phase = "findExport";
+              continue;
+            }
+            if (state.byteIndex >= actualLength) {
+              state.localToken =
+                state.owned.exportView.getUint32(offset + 4, false) - 1;
+              state.recordIndex = 0;
+              state.byteIndex = 0;
+              state.phase = "findFunction";
+              continue;
+            }
+            if (!charge("stringBytes")) break;
+            const actual = isDefault
+              ? "default".charCodeAt(state.byteIndex)
+              : state.owned.stringBytes[
+                tokenOffsetV1(state.owned, token) + state.byteIndex
+              ];
+            if (actual !== state.capturedExport[state.byteIndex]) {
+              state.recordIndex += 1;
+              state.byteIndex = 0;
+              state.phase = "findExport";
+              continue;
+            }
+            state.byteIndex += 1;
+            continue;
+          }
+          if (state.phase === "findFunction") {
+            if (state.recordIndex >= state.owned.functionCount) {
+              state.phase = "complete";
+              continue;
+            }
+            state.phase = "compareFunction";
+            state.byteIndex = 0;
+            continue;
+          }
+          const token = state.owned.functionView.getUint32(
+            state.recordIndex * 144,
+            false,
+          ) - 1;
+          const leftLength = tokenLengthV1(state.owned, token);
+          const rightLength = tokenLengthV1(state.owned, state.localToken);
+          if (leftLength !== rightLength) {
+            state.recordIndex += 1;
+            state.phase = "findFunction";
+            continue;
+          }
+          if (state.byteIndex >= leftLength) {
+            state.matched = true;
+            state.phase = "complete";
+            continue;
+          }
+          if (!charge("stringBytes")) break;
+          if (
+            state.owned.stringBytes[tokenOffsetV1(state.owned, token) +
+              state.byteIndex] !==
+              state.owned.stringBytes[
+                tokenOffsetV1(state.owned, state.localToken) + state.byteIndex
+              ]
+          ) {
+            state.recordIndex += 1;
+            state.byteIndex = 0;
+            state.phase = "findFunction";
+            continue;
+          }
+          state.byteIndex += 1;
+        }
+        if (state.phase === "failed") {
+          return Result.fail(executableError("access", "budgetExceeded"));
+        }
+        if (state.phase === "complete") {
+          return Result.succeed(Object.freeze({
+            status: "complete",
+            matched: state.matched,
+            transitionCount: transitions,
+            deltaUsage: frozenUsageDelta(state.usage, before),
+            usage: frozenUsage(state.usage),
+          }));
+        }
+        return Result.succeed(Object.freeze({
+          status: "pending",
+          transitionCount: transitions,
+          deltaUsage: frozenUsageDelta(state.usage, before),
+          usage: frozenUsage(state.usage),
+        }));
+      };
+
+  const linkEvidence: DeclarativeV2VerifierResultAccessFactoryV1["linkEvidence"] =
+    (rawResult, rawMaximum) => {
+      const owned = rawResult !== null && typeof rawResult === "object"
+        ? OWNED_LINK_RESULTS.get(rawResult)
+        : undefined;
+      const maximum = captureAccessBudgetV1(rawMaximum);
+      if (owned === undefined || Result.isFailure(maximum)) {
+        return Result.fail(executableError("access", "invalidInput"));
+      }
+      const handle = linkCursor();
+      linkCursors.set(handle, {
+        owned,
+        maximum: maximum.success,
+        usage: zeroUsage(),
+        order: 0,
+        scan: 0,
+        closed: false,
+      });
+      return Result.succeed(handle);
+    };
+
+  const readLinkEvidence:
+    DeclarativeV2VerifierResultAccessFactoryV1["readLinkEvidence"] =
+      (rawCursor, rawAllowance) => {
+        const state = rawCursor !== null && typeof rawCursor === "object"
+          ? linkCursors.get(rawCursor)
+          : undefined;
+        if (state === undefined) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        if (state.closed) return Result.fail(executableError("access", "closed"));
+        const allowance = accessAllowanceV1(rawAllowance);
+        if (Result.isFailure(allowance)) {
+          state.closed = true;
+          return Result.fail(allowance.failure);
+        }
+        const before = usageSnapshot(state.usage);
+        const call = accessUsageCharge(state.usage, state.maximum, "calls", 1n);
+        if (Result.isFailure(call)) {
+          state.closed = true;
+          return Result.fail(call.failure);
+        }
+        let transitions = 0;
+        const link = state.owned.state;
+        while (transitions < allowance.success) {
+          if (state.order >= link.diagnosticCount) {
+            state.closed = true;
+            return Result.succeed(Object.freeze({
+              status: "complete",
+              transitionCount: transitions,
+              deltaUsage: frozenUsageDelta(state.usage, before),
+              usage: frozenUsage(state.usage),
+            }));
+          }
+          if (state.scan >= link.diagnosticCount) {
+            state.closed = true;
+            return Result.fail(executableError("access", "invalidState"));
+          }
+          transitions += 1;
+          const index = state.scan++;
+          if (
+            link.diagnosticView.getUint32(index * 32 + 16, false) !== state.order
+          ) continue;
+          const offset = index * 32;
+          const id = link.diagnosticView.getUint32(offset, false);
+          const definition = DECLARATIVE_V2_CORE_DIAGNOSTICS_V1.find(
+            candidate => candidate.id === id,
+          );
+          if (definition === undefined) {
+            state.closed = true;
+            return Result.fail(executableError("access", "invalidState"));
+          }
+          const evidence = makeDeclarativeV2DiagnosticEvidenceCursorV2(
+            "link",
+            link.diagnosticView.getBigUint64(offset + 8, false),
+            0n,
+            BigInt(id),
+            definition.code,
+            definition.rule,
+          );
+          if (Result.isFailure(evidence)) {
+            state.closed = true;
+            return Result.fail(executableError("access", "invalidState"));
+          }
+          state.order += 1;
+          state.scan = 0;
+          return Result.succeed(Object.freeze({
+            status: "item",
+            transitionCount: transitions,
+            evidence: evidence.success,
+            deltaUsage: frozenUsageDelta(state.usage, before),
+            usage: frozenUsage(state.usage),
+          }));
+        }
+        return Result.succeed(Object.freeze({
+          status: "pending",
+          transitionCount: transitions,
+          deltaUsage: frozenUsageDelta(state.usage, before),
+          usage: frozenUsage(state.usage),
+        }));
+      };
+
+  const close: DeclarativeV2VerifierResultAccessFactoryV1["close"] =
+    rawHandle => {
+      if (rawHandle === null || typeof rawHandle !== "object") {
+        return Result.fail(executableError("access", "invalidInput"));
+      }
+      const module = moduleCursors.get(rawHandle);
+      if (module !== undefined) {
+        if (module.closed) return Result.fail(executableError("access", "closed"));
+        module.closed = true;
+        return Result.succeed(undefined);
+      }
+      const link = linkCursors.get(rawHandle);
+      if (link !== undefined) {
+        if (link.closed) return Result.fail(executableError("access", "closed"));
+        link.closed = true;
+        return Result.succeed(undefined);
+      }
+      const lookup = lookups.get(rawHandle);
+      if (lookup !== undefined) {
+        if (lookup.phase === "failed" || lookup.phase === "complete") {
+          return Result.fail(executableError("access", "closed"));
+        }
+        lookup.phase = "failed";
+        return Result.succeed(undefined);
+      }
+      return Result.fail(executableError("access", "invalidInput"));
+    };
+
+  return Object.freeze({
+    moduleEvidence,
+    readModuleEvidence,
+    handlerLookup,
+    stepHandlerLookup,
+    linkEvidence,
+    readLinkEvidence,
+    close,
+  });
 }

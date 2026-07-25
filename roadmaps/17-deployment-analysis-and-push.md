@@ -6,9 +6,10 @@
 Declarative V2 is the accepted production metadata direction. Its private S0
 physical foundation, S1 durable verifier progress, Semantic Artifact V1
 provenance, and generated bounded-verifier foundation are implemented and
-inert. Authenticated streaming reader/host composition, durable verifier
-execution, static/candidate/runtime projection publication, readiness,
-activation, ingress/dispatch, and final cutover remain incomplete.
+inert. Authenticated source/semantic readers and the request-scoped private
+analyzer dispatch host are also implemented and inert. Durable verifier-progress
+integration, static/candidate/runtime projection publication, readiness,
+activation, production ingress/binding, and final cutover remain incomplete.
 
 This roadmap owns:
 
@@ -729,15 +730,21 @@ activation remain blocked until their production host composition is proven.
    supplies no source or semantic authority.
 
    This entire range remains private, production-unreachable, provisional,
-   inert, and non-authoritative. It has no authenticated source/semantic
-   reader, analyzer endpoint or binding, A0a/R0a/C2 host composition, durable
-   S1 V2 reserve/resume/settle consumer, C3 completion persistence, C4
-   projection/static-finalization publication, readiness, activation, ingress,
-   deployment, or cleanup authority. A1b1 owns the authenticated reader/host
-   composition, A1b2 owns durable verifier-progress integration, and terminal
-   inert C4 is the first consumer that closes this private chain. Later
-   readiness, activation, ingress, deployment, and cleanup stages remain
-   unchanged and none of these private foundations is shipped.
+   inert, and non-authoritative. The backend now reacquires fresh A0a/R0a/C2
+   evidence, opens request-scoped authenticated source/semantic cursors, and
+   dispatches only those captured bytes through a fresh release handshake to
+   the private analyzer host. The analyzer streams bounded verifier and linker
+   work and returns request-bound opaque evidence. Its signed request partitions
+   every one of the 26 cumulative dimensions into disjoint per-module, linker,
+   and host allocations; the backend and analyzer independently require their
+   checked sums to equal the attempt-usage frame, so modules, lookups, and
+   evidence encoders cannot reset or multiply a caller ceiling. No backend root route,
+   Wrangler binding, production composer, or durable progress owner consumes
+   it. A1b2 still owns S1 V2 reserve/resume/settle integration. C3 completion
+   persistence, C4 projection/static-finalization publication, readiness,
+   activation, ingress, deployment, and cleanup authority remain absent.
+   Terminal inert C4 is still the first consumer that closes this private chain,
+   and none of these private foundations is shipped.
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact
    candidate, artifact, schema, validator, registration, and verifier pins.

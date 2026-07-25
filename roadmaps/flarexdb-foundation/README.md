@@ -839,17 +839,23 @@ This entire verifier range remains private, production-unreachable,
 provisional, inert, and non-authoritative. Host Effect failure, defect,
 interruption, uncertainty, and full Cause are not application exceptions:
 application catch/finally cannot observe or suppress them, and trusted lowering
-rejects code that relies on such completion. A1b1 still owns the authenticated
-source/semantic reader and host composition, A1b2 owns durable S1 V2
+rejects code that relies on such completion. Fresh A0a/R0a/C2 evidence now
+opens request-scoped authenticated source/semantic cursors, and a private
+request-scoped host can stream those bytes through the bounded verifier after a
+fresh analyzer release handshake. Its response is opaque, request-bound
+evidence only. The private request partitions all 26 cumulative dimensions
+into disjoint module, linker, and host allocations whose checked sums must
+equal the signed attempt usage at both ends; no component may reset the
+caller ceiling. There is no backend root route, production binding/composer,
+target-database write, or publication authority. A1b2 owns durable S1 V2
 reserve/resume/settle integration, and terminal inert C4 alone persists C3
 completion and publishes static-finalization evidence plus the two analysis
 projections. The separately preflighted runtime projection artifacts and
 function-group manifest must join that same inert candidate boundary before
 readiness; they cannot be inferred from or stored as either analysis
-projection. No analyzer route or binding, authenticated reader, durable
-verifier-progress composition, C3/C4 publication, verdict, readiness,
-activation, ingress, deployment, cleanup, or production authority is shipped
-by this foundation.
+projection. No durable verifier-progress composition, C3/C4 publication,
+verdict, readiness, activation, ingress, deployment, cleanup, or production
+authority is shipped by this foundation.
 
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the

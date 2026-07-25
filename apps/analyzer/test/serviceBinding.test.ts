@@ -22,11 +22,16 @@ describe("private analyzer Miniflare service binding", () => {
             contents: `export default {
               fetch(request, env) {
                 const incoming = new URL(request.url);
-                if (incoming.pathname !== "/call") {
+                const target = incoming.pathname === "/call"
+                  ? "/__flarex_private/source-analyzer-v2/identity"
+                  : incoming.pathname === "/verify"
+                  ? "/__flarex_private/source-analyzer-v2/verify"
+                  : undefined;
+                if (target === undefined) {
                   return new Response("caller-not-found", { status: 404 });
                 }
                 return env.ANALYZER.fetch(
-                  "https://private-analyzer.internal/__flarex_private/source-analyzer-v2/identity",
+                  "https://private-analyzer.internal" + target,
                   { method: request.method, headers: request.headers, body: request.body }
                 );
               }
@@ -72,5 +77,18 @@ describe("private analyzer Miniflare service binding", () => {
     );
     expect(publicAttempt.status).toBe(404);
     expect(await publicAttempt.text()).toBe("caller-not-found");
+  });
+
+  it("streams verification requests through the same private binding", async () => {
+    const response = await runtime.dispatchFetch("https://caller.test/verify", {
+      method: "POST",
+      headers: {
+        "content-type":
+          "application/x-flarex-declarative-v2-verification-v1",
+      },
+      body: new Uint8Array([1, 0, 0, 0, 1, 0]).buffer,
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "identityMismatch" });
   });
 });
