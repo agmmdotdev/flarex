@@ -105,6 +105,18 @@ with domain rationale in
 | --- | --- |
 | [`effect-native-guidance/`](./effect-native-guidance/README.md) | Active Effect implementation guidance derived from current executor, Postgres persistence, protocol, backend, host, and test patterns. It defines target boundaries and incremental adoption rules without becoming a file-by-file migration plan. |
 
+## Accepted Architecture Directions Pending Preflight
+
+These records preserve an accepted boundary and rationale, but deliberately do
+not authorize implementation. Complete and accept the mandatory preflight in
+the owning record before creating packages, moving contracts, or migrating
+consumers.
+
+| Decision record | Classification | Purpose |
+| --- | --- | --- |
+| [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md) | Accepted direction; preflight required | Standard versioned contract chain between developer definitions, direct fixtures, artifact generation, analysis, verification, and runtime projection without making SDK objects downstream authority. |
+| [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md) | Accepted direction; preflight required | Shared user-code execution semantics with Cloudflare Dynamic Worker and in-process adapters while preserving executor and FlarexDB authority and retaining platform evidence. |
+
 ## Foundation Execution And Deferred Contracts
 
 | Plan | Classification | Purpose |

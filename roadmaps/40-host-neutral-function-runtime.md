@@ -1,0 +1,425 @@
+# Host-Neutral Function Runtime
+
+## Status And Scope
+
+**Status:** Accepted architectural direction; implementation is deferred until
+the preflight in this record is completed, reviewed, and accepted.
+
+This record owns the proposed portable user-code execution semantics shared by:
+
+- the isolated Cloudflare Dynamic Worker production host; and
+- a fast in-process host used for focused internal and developer tests.
+
+The decision is to make the host swappable above Cloudflare Worker Loader and
+below verified user-code execution semantics. Both hosts should invoke one
+owned runtime kernel rather than separately implement function lookup,
+validation, `ctx`, database operations, nested calls, deterministic
+environment, and result normalization.
+
+This record does not approve a new package, production reroute, Dynamic Worker
+change, test-SDK behavior change, FlarexDB authority change, or replacement of
+Miniflare/workerd evidence. Those require the completed preflight and a
+separately bounded implementation slice.
+
+## Why This Boundary Is Needed
+
+Most user-code semantic tests should not require Miniflare, Worker Loader, or a
+Cloudflare service-binding graph. They should be able to execute an ordinary
+verified function module against controlled identity, time, randomness, and
+database-journal capabilities.
+
+Production still requires a fresh isolated Dynamic Worker. That host proves
+properties an in-process runner cannot prove: module/isolate freshness,
+Cloudflare global behavior, module-map loading, RPC serialization, disposal,
+compatibility-date behavior, and platform resource boundaries.
+
+The accepted split is:
+
+```text
+verified runtime projection + execution request
+                         |
+                         v
+             host-neutral function runtime
+             |       |       |       |
+             |       |       |       +-- deterministic time/random
+             |       |       +---------- function lookup/nested calls
+             |       +------------------ ctx.auth and ctx.db
+             +-------------------------- validation/result semantics
+                         |
+              +----------+-----------+
+              |                      |
+              v                      v
+    Cloudflare Dynamic Worker   in-process test host
+              |                      |
+       journal RPC adapter      controlled journal adapter
+              |                      |
+              +----------+-----------+
+                         v
+                   trusted executor
+                         |
+                         v
+              authoritative FlarexDB/Postgres
+```
+
+The Dynamic Worker does not receive FlarexDB or Postgres authority. User code
+receives a restricted `ctx.db` facade. Its logical operations cross a
+journal/syscall capability into the trusted executor, which retains session,
+snapshot, OCC, commit, idempotency, feed, outbox, and persistence authority.
+
+## Current Sources Of Truth
+
+Current behavior must be verified against:
+
+- [`packages/executor/src/storedAttemptAuthentication.ts`](../packages/executor/src/storedAttemptAuthentication.ts)
+  for `PointMutationOccRuntimeNeutralRunnerV1`;
+- [`packages/executor/src/pointMutationExactRuntimeRunner.ts`](../packages/executor/src/pointMutationExactRuntimeRunner.ts)
+  for the structural artifact-host binding and executor-side journal
+  settlement;
+- [`packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeWorkerCore.ts`](../packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeWorkerCore.ts)
+  for the current Cloudflare-bound exact point-mutation runtime;
+- [`packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`](../packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts)
+  for current ordinary generated `ctx.db`, query builder, nested-call, and
+  executor syscall semantics;
+- [`packages/flarex-backend/test/pointMutationExactRuntime.workerd.test.ts`](../packages/flarex-backend/test/pointMutationExactRuntime.workerd.test.ts),
+  [`packages/executor/test/pointMutationExactRuntimeRunner.workerd.test.ts`](../packages/executor/test/pointMutationExactRuntimeRunner.workerd.test.ts),
+  and adjacent tests for current workerd and adapter evidence;
+- [`06-dynamic-worker-execution.md`](./06-dynamic-worker-execution.md) for
+  Dynamic Worker capabilities, isolation, materialization, identity, and
+  runtime-shell ownership;
+- [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md)
+  and [`15-test-sdk.md`](./15-test-sdk.md) for evidence lanes and the rule that
+  tests reuse production semantics rather than define a second backend;
+- [`16-package-boundaries.md`](./16-package-boundaries.md) for dependency and
+  host ownership; and
+- [`37-production-redelivery-and-c06b.md`](./37-production-redelivery-and-c06b.md)
+  for the private exact-attempt runtime host and current production gates.
+
+## Current Architecture
+
+The trusted executor already accepts a
+`PointMutationOccRuntimeNeutralRunnerV1`. The exact implementation projects
+verified stored-attempt inputs into a strict request, constructs a journal RPC
+session, calls a small structural artifact-host binding, decodes the result,
+and settles the journal. This is a useful host seam.
+
+It is not yet a host-neutral user-code engine. The concrete exact runtime still
+extends Cloudflare `WorkerEntrypoint`, loads generated execution modules, builds
+the developer context, patches deterministic globals, runs the handler, drains
+the journal, and normalizes the result inside the Dynamic Worker core.
+
+The ordinary generated runtime separately contains related context, database,
+query-builder, nested-call, validation, and syscall source. Local development
+and the public test harness use Miniflare-managed runtime materialization for
+real user-code execution.
+
+Therefore the repository already has:
+
+- an executor-to-runtime runner interface;
+- a structural Cloudflare host-binding port;
+- protocol-owned exact request and result contracts;
+- authored TypeScript for the exact runtime core; and
+- workerd boundary coverage.
+
+It does not yet have one portable kernel that both a Cloudflare host and an
+ordinary in-process host can invoke to execute the same user function.
+
+## Decisions And Rationale
+
+### Standardize Runtime Semantics, Not Cloudflare APIs
+
+The in-process host must not emulate `WorkerEntrypoint`, Worker Loader, service
+bindings, or Miniflare. It supplies ordinary ports to the shared runtime
+kernel. The Cloudflare adapter supplies equivalent ports from its isolated
+environment.
+
+### Keep Database Authority Behind A Logical Port
+
+The runtime kernel may depend on a narrow database-journal capability whose
+operations match the accepted user-code semantics. It may not depend on
+Drizzle, Postgres, PGlite, executor repositories, transaction objects, physical
+table IDs as caller authority, or arbitrary Fetch/service bindings.
+
+The Cloudflare adapter translates this port to the one-attempt journal RPC
+capability. An in-process test may supply:
+
+- a deterministic recording journal for runtime semantic tests;
+- an explicitly limited in-memory journal for pure contract tests; or
+- the real trusted executor journal adapter for broader integration tests.
+
+The fake/recording implementation is test evidence, not application-data
+authority and not an alternate commit engine.
+
+### Share One Execution Kernel
+
+Subject to preflight, the shared kernel should own:
+
+- function lookup, kind, and visibility enforcement;
+- argument and return validation;
+- `ctx.auth`;
+- `ctx.db` reader/writer construction;
+- query-builder behavior that is part of the developer contract;
+- `ctx.runQuery` and `ctx.runMutation`;
+- nested-call kind, depth, identity, and transaction rules;
+- deterministic clock and randomness inputs;
+- handler execution and async result handling;
+- journal close/drain order;
+- user-code versus journal/host failure classification; and
+- canonical result normalization.
+
+Host adapters retain module materialization, isolation, transport,
+serialization, cancellation translation, logging/redaction boundaries, and
+resource ownership.
+
+### Use Per-Invocation Capabilities
+
+Identity, database journal, clock, random seed, function registry, and
+attempt-specific state are explicit per-invocation values. They must not become
+global mutable singletons or one application-wide Context service because
+multiple attempts and runtime instances must coexist safely.
+
+Effect may describe the execution operation, typed failures, interruption, and
+scoped adapter lifecycle where its semantics fit. The preflight must assess the
+installed Effect version and choose explicit ports, services, Layers, and
+runtime bridges by lifetime rather than by package-wide style.
+
+### Keep The Cloudflare Host As The Production Isolation Boundary
+
+The production adapter continues to own:
+
+- Worker Loader module maps and entrypoint configuration;
+- fresh-versus-cached isolate policy;
+- Cloudflare compatibility date and runtime-shell identity;
+- service-binding/RPC construction;
+- unavailable globals and outbound capability restrictions;
+- import-time deterministic environment behavior;
+- platform disposal and resource limits; and
+- hosted observability.
+
+An in-process pass can never substitute for those proofs.
+
+### Prefer A Dedicated Domain Owner If The Preflight Proves It
+
+The leading package candidate is `@flarex/function-runtime`. It would own only
+the host-neutral execution model, kernel, typed failures, and capability ports.
+
+Cloudflare adaptation should initially remain with the existing artifact
+runtime owner. Test composition should remain with `flarex-test` or a private
+test-support subpath. The preflight must prove at least two real consumers and
+may choose a narrower existing owner if extraction would only rename one
+implementation.
+
+## Candidate Contract Shape
+
+The following names illustrate responsibilities; they are not approved public
+types:
+
+```ts
+interface FunctionExecutionEngineV1 {
+  readonly execute: (
+    request: VerifiedFunctionExecutionRequestV1,
+    capabilities: FunctionExecutionCapabilitiesV1,
+  ) => Effect.Effect<
+    FunctionExecutionSuccessV1,
+    FunctionExecutionFailureV1
+  >;
+}
+
+interface FunctionExecutionCapabilitiesV1 {
+  readonly functions: FunctionRegistryPortV1;
+  readonly database: FunctionDatabaseJournalPortV1;
+  readonly identity: ExecutionIdentityV1;
+  readonly clock: FunctionExecutionClockV1;
+  readonly random: FunctionExecutionRandomV1;
+}
+```
+
+The request must contain only already-verified, bounded execution inputs. The
+function registry is an invocation capability, not proof that arbitrary
+exports are valid. The adapter or projection owner establishes module
+authenticity and function metadata before the kernel runs.
+
+## Test Evidence Lanes
+
+The target has three complementary lanes:
+
+| Lane | Host | What it proves |
+| --- | --- | --- |
+| Runtime semantic | In-process | Function lookup, validation, context behavior, nested calls, deterministic inputs, result/failure normalization, and logical journal sequence |
+| Adapter parity | In-process plus workerd | The same verified fixture produces equivalent result and logical journal behavior through both hosts |
+| Platform | Miniflare/workerd/hosted Cloudflare | Module-map loading, isolate/module freshness, globals, RPC serialization/disposal, compatibility date, service bindings, restrictions, and resource behavior |
+
+The public `flarex-test` harness may later use the faster host for explicitly
+scoped tests, but its real-runtime contract must not silently change. That
+decision belongs to a later test-SDK preflight after runtime parity exists.
+
+## Mandatory Preflight Before Implementation
+
+The preflight is a research deliverable. It must inspect current code, generated
+artifacts, build scripts, tests, and host behavior and produce an accepted
+amendment to this record before extraction begins.
+
+### P1. Execution-Semantics Inventory
+
+Inventory the exact and ordinary runtime implementations for:
+
+- function module resolution and cache behavior;
+- function markers, kind, visibility, and handler extraction;
+- argument and return validation;
+- `ctx.auth`;
+- every `ctx.db` and query-builder method;
+- nested query/mutation behavior;
+- time, randomness, and other global patching;
+- result normalization and serialization;
+- journal close, drain, settlement, and disposal;
+- error classification, messages, and cause handling; and
+- request admission, single-use state, interruption, and cleanup.
+
+Mark exact duplication, intentional divergence, legacy-only behavior, and
+Cloudflare-only mechanics.
+
+### P2. Authority And Trust Matrix
+
+For every input and capability, identify:
+
+- who authenticates or verifies it;
+- whether it is serialized, process-local, or RPC-only;
+- who may construct it;
+- its lifetime and disposal owner;
+- whether user code can retain or forge it;
+- whether it can read, journal, commit, activate, or route; and
+- its behavior after interruption, retry, or uncertain outcome.
+
+This step must prove that the new boundary cannot bypass the existing
+transaction grant, session, journal, OCC, commit, or persistence owners.
+
+### P3. Host-Neutrality Options
+
+Compare at least:
+
+1. extracting a portable kernel invoked by both hosts;
+2. retaining a Cloudflare-oriented core with a smaller portable execution
+   operation inside it; and
+3. retaining current code and adding only black-box contract fixtures.
+
+For each option, assess generated-source build constraints, module imports,
+bundle size, Cloudflare compatibility, in-process module loading, typed errors,
+Effect runtime bridges, and expected duplication removed.
+
+### P4. Module Loading And Freshness Research
+
+Define what the in-process adapter receives:
+
+- already-loaded module exports;
+- an explicit function registry;
+- a module-loader port; or
+- a fresh JavaScript realm.
+
+Research Node/JavaScript module-cache behavior and choose a design that is
+honest about what it does not isolate. Do not add cache-busting, `vm`, or data
+URL loading merely to imitate Worker Loader unless a concrete test requirement
+and lifecycle proof justify it.
+
+Import-time deterministic time/random behavior must remain a separate platform
+claim unless the selected in-process mechanism actually proves it.
+
+### P5. Contract And Package Ownership
+
+Propose concrete internal types, subpath exports, error owners, dependency
+direction, and host composition. Confirm that the portable owner imports no
+Cloudflare, Miniflare, backend, executor host, persistence, R2, Node-only
+tooling, or deployable application.
+
+Assess whether protocol request/result types can be reused exactly or need a
+separate in-process operation type. Do not redeclare weaker lookalike wire
+contracts.
+
+### P6. First Vertical And Compatibility Plan
+
+The default candidate is exact point mutation only. The preflight must identify
+every changed caller and generated artifact, prove whether current source bytes
+or only behavior must remain stable, and define the removal gate for any
+temporary adapter.
+
+Queries, ordinary mutations, workflow mutations, actions, HTTP actions, and
+scheduling are separate consumers. They do not enter the first slice unless
+the preflight proves that excluding one would create two semantic kernels.
+
+### P7. Validation Plan
+
+Specify focused tests for:
+
+- identical function fixture, request, identity, time, seed, and journal
+  producing equivalent in-process and workerd results;
+- identical logical operation ordering and first-failure behavior;
+- malformed metadata, wrong function kind, invalid arguments and returns;
+- handler failure versus journal failure versus host defect;
+- nested calls and depth enforcement;
+- journal close/drain/disposal under success, failure, and interruption;
+- deterministic repeated in-process execution;
+- Cloudflare-only freshness, globals, RPC, and module-map properties; and
+- unchanged OCC, commit, idempotency, feed, outbox, and authoritative row
+  behavior.
+
+## Preflight Exit Criteria
+
+Implementation may begin only after the preflight has:
+
+1. mapped the complete first-vertical execution lifecycle;
+2. separated portable semantics from Cloudflare, executor, and persistence
+   authority;
+3. selected the kernel boundary and package owner;
+4. proposed concrete versioned request, capability, result, and error types;
+5. defined per-invocation lifecycle and interruption/disposal behavior;
+6. identified behavior or byte-level compatibility obligations;
+7. defined adapter-parity and platform-only tests;
+8. selected the smallest first vertical and rollback/removal gate; and
+9. been recorded as an accepted update to this roadmap.
+
+An incomplete answer to any item keeps this decision research-only.
+
+## Known Risks
+
+- The in-process adapter could become an attractive but semantically different
+  mock backend.
+- Extracting only names while leaving duplicated behavior would create the
+  appearance of a standard without parity.
+- Moving Cloudflare or executor capabilities into the portable kernel would
+  widen user-code authority.
+- A global service/runtime could leak attempt identity, module state, clock, or
+  randomness across executions.
+- Node module-cache behavior could be mistaken for fresh-isolate proof.
+- Ordinary generated runtime and exact point-mutation runtime semantics may
+  differ intentionally; extraction could erase those distinctions.
+- A large first migration could change journal ordering, failure
+  classification, or transaction behavior.
+
+## Target Direction
+
+The target permits a fast full semantic lane without weakening the production
+boundary:
+
+```text
+canonical program fixture
+  -> build and analyzer fixtures
+  -> verified runtime projection fixture
+  -> in-process function runtime
+  -> recording or trusted executor journal
+```
+
+The production lane consumes the same verified runtime semantics:
+
+```text
+active verified runtime projection
+  -> Worker Loader
+  -> fresh isolated Dynamic Worker
+  -> same function runtime kernel
+  -> one-attempt journal RPC
+  -> trusted executor and FlarexDB
+```
+
+## Next Correctness Gate
+
+Perform only the mandatory preflight above. Do not create
+`@flarex/function-runtime`, move runtime code, change generated Worker source,
+reroute the exact-attempt host, or alter `flarex-test` until the preflight
+result is reviewed and this record names the approved first vertical.
