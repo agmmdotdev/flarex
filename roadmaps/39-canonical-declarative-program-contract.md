@@ -694,9 +694,19 @@ semantics, and no downstream domain accepts an SDK object as authority.
 
 ## Next Correctness Gate
 
-Implement only the approved global-table/unpartitioned-mutation vertical:
-create the internal package contract and fixture builder, add the opt-in
-`flarex-dev` adapter and canonical analysis entrypoint, and prove parity. Do
-not route production, change artifact versions, migrate placement or partition
-policy, or touch readiness, activation, OCC, commit, feed, outbox, or
-application-row semantics.
+The approved global-table/unpartitioned-mutation vertical is complete. Before a
+second consumer is added, perform a separate materialization preflight that
+maps the canonical program into the existing Source Artifact V2 and Semantic
+Artifact V1 owners without changing either artifact version or letting the
+program become verification authority.
+
+The host-neutral function-runtime work in roadmap 40 does not wait for that
+materializer merely to obtain an execution fixture. Its first exact
+point-mutation slice consumes the already authenticated active function
+metadata, schema manifest, and stable bindings held by the trusted executor.
+Roadmap 40 must keep that verified execution projection distinct from this
+developer-intent contract.
+
+Do not route production, change artifact versions, migrate placement or
+partition policy, or touch readiness, activation, OCC, commit, feed, outbox,
+or application-row semantics.

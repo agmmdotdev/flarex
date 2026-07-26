@@ -2,10 +2,11 @@
 
 ## Status And Scope
 
-**Status:** Preflight accepted and the prerequisite journal-boundary correction
-is implemented and validated. Portable-kernel extraction and a new package
-remain deferred until the verified runtime projection carries the validator
-semantics required by this record.
+**Status:** Preflight and the first-extraction amendment are accepted. The
+prerequisite journal-boundary correction and canonical declarative-program
+first vertical are implemented and validated. The next approved slice is a
+host-neutral exact public point-mutation kernel plus in-process and workerd
+adapters. Production routing and broader runtime capabilities remain deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -204,11 +205,51 @@ needed by a portable kernel. The exact core normalizes a returned value but
 does not enforce the analyzed return validator. The ordinary generated runtime
 does enforce analyzed validators.
 
-The shared function runtime must therefore wait for the standard-contract work
-owned by roadmap 39 to define a verified runtime projection that contains the
-required validator and function-registry semantics. This roadmap will consume
-that projection; it will not invent a second analyzer artifact or accept
-developer API declarations directly.
+The shared function runtime must consume a verified execution projection that
+contains the required validator and function-registry semantics. It will not
+invent a second analyzer artifact or accept developer API declarations
+directly.
+
+### Gate Re-Evaluation After The Canonical Program Slice
+
+Roadmap 39 now provides the standard developer-intent and analyzer-input
+contract. It deliberately does not mint runtime authority, and its later
+Source Artifact V2/Semantic Artifact V1 materializer gate remains open.
+
+That later materializer is not the immediate blocker for the exact
+point-mutation runtime. The current trusted execution path already loads and
+authenticates the active deployment projection before user code runs:
+
+- `PointMutationOccRuntimeNeutralRunnerInputV1` contains the verified grant,
+  canonical arguments, schema manifest, stable table bindings, and
+  `PointMutationTargetFunctionMetadataV1`;
+- the function metadata contains the path, execution module, exact mutation
+  kind, public visibility, argument validator, and return validator; and
+- `verifyPinnedFunctionMetadataEffect` checks that loaded metadata against the
+  authenticated attempt state before the runner receives it.
+
+The concrete loss occurs one boundary later.
+`projectExactRuntimeRequestV1` currently copies only the function path, module,
+kind, and visibility into `PointMutationExactRuntimeRequestV1`. The argument
+validator and return validator are discarded, so the isolated core cannot
+apply the same pinned validation contract. The first runtime slice must repair
+that projection rather than treating the canonical program, analyzer output,
+or a test registry as authority.
+
+The resulting trust chain is:
+
+```text
+active authenticated deployment metadata
+  -> trusted executor verification
+  -> strict exact-runtime wire request including pinned validators
+  -> isolated host adapter
+  -> host-neutral invocation input
+  -> portable point-mutation kernel
+```
+
+Direct in-process tests may construct the same strict invocation input through
+an explicit test fixture builder. That builder is evidence only: it does not
+produce an authenticated deployment, transaction grant, or commit authority.
 
 ### Selected Host-Neutrality Option
 
@@ -229,10 +270,9 @@ or acquire timer/network assumptions that the exact profile removes.
 
 ### Boundary And Package Decision
 
-Do not create `@flarex/function-runtime` in the prerequisite slice. After the
-verified runtime projection gate is complete, the first extraction candidate
-is the intentional subpath `@flarex/function-runtime/point-mutation`, with no
-package-root catch-all.
+The verified projection gate above is now sufficiently concrete for the first
+extraction. Create the intentional subpath
+`@flarex/function-runtime/point-mutation`, with no package-root catch-all.
 
 That portable owner may contain only:
 
@@ -249,6 +289,12 @@ exports or an explicit registry and makes no claim about fresh module state,
 import-time deterministic globals, ambient restrictions, or isolate security.
 Do not add `vm`, data-URL imports, or cache busting merely to imitate Worker
 Loader.
+
+The package is justified immediately by two real adapters: the isolated
+Cloudflare core and the in-process semantic-test host. The package may depend
+only on portable protocol/value contracts required by the kernel. It must not
+start an Effect runtime in the sandbox; typed Effect adaptation remains with
+the trusted executor and host.
 
 ### Compatibility And Evidence
 
@@ -359,33 +405,111 @@ implementation.
 
 ## Candidate Contract Shape
 
-The following names illustrate responsibilities; they are not approved public
-types:
+The first extraction approves the following responsibility split. Exact names
+may be adjusted mechanically during implementation, but changing ownership,
+authority, or lifecycle requires another roadmap amendment:
 
 ```ts
-interface FunctionExecutionEngineV1 {
-  readonly execute: (
-    request: VerifiedFunctionExecutionRequestV1,
-    capabilities: FunctionExecutionCapabilitiesV1,
-  ) => Effect.Effect<
-    FunctionExecutionSuccessV1,
-    FunctionExecutionFailureV1
-  >;
+interface PointMutationRuntimeFunctionV1 {
+  readonly path: string;
+  readonly kind: "mutation";
+  readonly visibility: "public";
+  readonly argsValidator: ObjectValidatorJsonV1 | AnyValidatorJsonV1;
+  readonly returnsValidator: ValidatorJsonV1 | null;
 }
 
-interface FunctionExecutionCapabilitiesV1 {
-  readonly functions: FunctionRegistryPortV1;
-  readonly database: FunctionDatabaseJournalPortV1;
-  readonly identity: ExecutionIdentityV1;
-  readonly clock: FunctionExecutionClockV1;
-  readonly random: FunctionExecutionRandomV1;
+interface PointMutationRuntimeInputV1 {
+  readonly function: PointMutationRuntimeFunctionV1;
+  readonly arguments: CanonicalFlarexRuntimeObjectV1;
+  readonly tables: ReadonlyArray<PointMutationRuntimeTableV1>;
+}
+
+interface PointMutationFunctionRegistryV1 {
+  readonly resolve: (path: string) => unknown | PromiseLike<unknown>;
+}
+
+interface PointMutationInvocationV1 {
+  readonly context: PointMutationRuntimeContextV1;
+  readonly journal: PointMutationRuntimeJournalV1;
+}
+
+interface PointMutationRuntimeV1 {
+  readonly execute: (
+    input: PointMutationRuntimeInputV1,
+    registry: PointMutationFunctionRegistryV1,
+    invocation: PointMutationInvocationV1,
+  ) => Promise<CanonicalFlarexRuntimeValueV1>;
 }
 ```
 
-The request must contain only already-verified, bounded execution inputs. The
-function registry is an invocation capability, not proof that arbitrary
-exports are valid. The adapter or projection owner establishes module
-authenticity and function metadata before the kernel runs.
+The strict exact-runtime wire request remains protocol-owned and includes
+artifact, authentication, deterministic-host, and transport data that the
+portable kernel does not need. The Cloudflare adapter decodes that request and
+projects only the function definition, canonical arguments, table bindings,
+context, registry, and logical journal into the kernel.
+
+The function registry is per invocation and resolves an already-loaded module
+graph. It is not proof that arbitrary exports are valid. The kernel still
+checks the runtime marker shape, exact mutation kind, public visibility, and
+handler. The adapter or projection owner establishes module authenticity and
+pinned function metadata before the kernel runs.
+
+The invocation owns one close/drain lifecycle. The kernel:
+
+1. resolves and checks the function;
+2. validates canonical arguments against the pinned argument validator using
+   table-aware ID policy;
+3. invokes the handler with the restricted context;
+4. closes admission to new journal operations;
+5. drains the stable operation tail;
+6. preserves journal failure precedence over a concurrent handler failure;
+7. normalizes the returned value, treating `undefined` as `null`;
+8. validates that normalized value against the pinned return validator when
+   one exists; and
+9. returns the canonical value.
+
+The adapter owns final disposal even when lookup, validation, handler, drain,
+normalization, or return validation fails. Cloudflare global hardening,
+deterministic global installation, module import timing, one-shot Worker
+admission, and RPC-stub disposal remain in the isolated shell. An in-process
+adapter supplies already-loaded exports and explicit context/journal objects;
+it does not mutate process globals or claim import-time determinism.
+
+Runtime failures are a closed portable union covering function lookup/shape,
+argument validation, user handler, journal drain, result normalization, and
+return validation. Host adapters translate that union into their existing
+redacted boundary errors. Raw user exceptions and foreign journal causes stay
+as private causes and are not serialized as public diagnostics.
+
+### First Approved Extraction Vertical
+
+The first implementation slice is deliberately exact public point mutation
+only:
+
+1. add `@flarex/function-runtime/point-mutation` with the portable Promise
+   kernel, explicit registry/context/journal contracts, typed failures, and
+   direct fixture support;
+2. extend the exact-runtime protocol request with the already-pinned argument
+   and return validators and project them from the trusted runner input;
+3. make the generated Cloudflare core import the portable kernel as a reserved
+   runtime-support module after global hardening;
+4. retain request admission, deterministic globals, module materialization,
+   RPC disposal, result envelope construction, and host error translation in
+   the Cloudflare shell;
+5. add an in-process adapter that receives an explicit registry and recording
+   journal; and
+6. run one shared fixture through both adapters, asserting result, validation,
+   logical journal sequence, close/drain ordering, and first-failure parity.
+
+The portable module's generated source and digest become part of the exact
+runtime code identity. The build must prove two byte-identical clean outputs.
+No temporary duplicated kernel is allowed: after parity passes, the extracted
+lookup/validation/invocation/settlement/result logic is removed from the
+Cloudflare core in the same slice.
+
+This vertical does not add query builders, nested calls, general mutations,
+actions, scheduling, public `flarex-test` behavior, production routing, or a
+new deployment artifact version.
 
 ## Test Evidence Lanes
 
@@ -568,10 +692,12 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-Wait for roadmap 39's verified runtime projection and validator gate. Then
-amend this record with the concrete portable request, registry, capability,
-result, and error types before starting the exact point-mutation extraction.
+Implement only the approved exact public point-mutation extraction above.
+Begin with the package contract and shared in-process fixture, then connect the
+same kernel to the generated Cloudflare support-module graph and prove workerd
+parity before removing the duplicated core logic.
 
-Do not create `@flarex/function-runtime`, move the runtime kernel, change
-generated Worker source, reroute the exact-attempt host, or alter `flarex-test`
-before that amendment is accepted.
+Do not add broader function kinds or database capabilities, reroute production,
+alter `flarex-test`, change OCC/commit/feed/outbox/application-row semantics, or
+claim that the in-process adapter proves Worker Loader isolation and
+deterministic globals.
