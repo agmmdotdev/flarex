@@ -1,0 +1,4 @@
+interface:
+  display_name: "Effect-TS Error Handling"
+  short_description: "Typed errors, retries, and recovery for Effect-TS"
+  default_prompt: "Use $effect-ts-error-handling to implement or review typed error handling in this Effect-TS code path."

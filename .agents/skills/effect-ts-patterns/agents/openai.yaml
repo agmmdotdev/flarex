@@ -1,0 +1,4 @@
+interface:
+  display_name: "Effect TypeScript Patterns"
+  short_description: "Apply idiomatic Effect patterns and architecture"
+  default_prompt: "Use $effect-ts-patterns to implement or refactor this code with appropriate Effect constructs, domain organization, service contracts, Layer composition, Context lifetimes, boundary codecs, and ownership patterns."

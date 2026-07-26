@@ -24,8 +24,8 @@ correctness and the quality of TypeScript/Effect implementation.
   `typescript-diff-reviewer` and `code-quality-diff-reviewer`. Docs-only,
   formatting-only, generated refresh, and minor mechanical changes do not
   require them.
-- Effect implementation and TypeScript review use the global
-  `effect-ts-patterns` skill plus
+- Effect implementation and TypeScript review use the repo-local
+  `.agents/skills/effect-ts-patterns/SKILL.md` skill plus
   `.codex/agents/effect-review-guide.md`. The skill owns reusable workflow and
   curated examples; the checked-in overlay owns Flarex's version-specific APIs,
   contracts, Cloudflare boundaries, and reviewer responsibility split.
@@ -84,9 +84,9 @@ caller boundary.
 
 ## Effect Implementation And Review Boundary
 
-The global skill and Flarex overlay record the durable distinctions established
-from the current Effect v4 source, Flarex code, and curated T3 Code application
-evidence:
+The repo-local skill and Flarex overlay record the durable distinctions
+established from the current Effect v4 source, Flarex code, and curated T3
+Code application evidence:
 
 - observable Effect-producing operations and service-method implementations
   normally use named `Effect.fn`;
@@ -125,9 +125,12 @@ Effect migration.
 
 - `AGENTS.md` is the workspace workflow authority.
 - `.codex/agents/*.toml` is the source of truth for each reviewer.
-- `C:\Users\Admin\.codex\skills\effect-ts-patterns\SKILL.md` is the global
-  implementation and review workflow; its optional references contain the
-  detailed pattern catalog and curated examples.
+- `.agents/skills/effect-ts-patterns/SKILL.md` is the repo-local implementation
+  and review workflow; its optional references contain the detailed pattern
+  catalog and curated examples.
+- `.agents/skills/effect-ts-error-handling/SKILL.md` is the repo-local focused
+  workflow for failure classification, mapping, recovery, retry, and boundary
+  logging.
 - `.codex/agents/effect-review-guide.md` is the concise Flarex overlay for
   installed-version facts, contracts, platform boundaries, review scope, and
   reviewer ownership.
@@ -142,8 +145,8 @@ Effect migration.
   Convex-inspired behavior.
 
 The local `opensrc/` cache is optional and may be refreshed for deeper research.
-The global skill and checked-in overlay keep the decision rules available when
-that cache is absent.
+The repo-local skills and checked-in overlay keep the decision rules available
+when that cache is absent.
 
 ## Known Limitations
 

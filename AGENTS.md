@@ -55,14 +55,15 @@ skill usage, validation expectations, and response format.
 
 Any agent implementing or refactoring Effect code, and the TypeScript reviewer
 when a changed TypeScript flow uses or may semantically require Effect, must
-read and apply the global
-`C:\Users\Admin\.codex\skills\effect-ts-patterns\SKILL.md` plus the Flarex
-overlay in `.codex/agents/effect-review-guide.md` before acting. Trigger this
+read and apply the repo-local
+`.agents/skills/effect-ts-patterns/SKILL.md` plus the Flarex overlay in
+`.codex/agents/effect-review-guide.md` before acting. Trigger this
 rule when a touched flow imports or should use Effect, Option, Result, Exit,
 Match, Schema, Config, Context, Layer, Scope, Fiber, Effect HTTP, Effect tests,
-runtime bridges, or typed Effect errors. Load the global
-`effect-ts-error-handling` skill as well when failure classification, recovery,
-retry, foreign error mapping, or boundary logging changes.
+runtime bridges, or typed Effect errors. Load the repo-local
+`.agents/skills/effect-ts-error-handling/SKILL.md` as well when failure
+classification, recovery, retry, foreign error mapping, or boundary logging
+changes.
 
 Apply the Effect standard during implementation, not only during review. Choose
 `Effect.fn`, `Effect.gen`, pipelines, `Option`, `Result`, `Exit`, `Match`,
@@ -125,10 +126,10 @@ contract requires it. Judge the boundary and failure semantics, not syntax
 alone, and do not turn the review into a package-wide migration.
 
 When a diff imports Effect or the applicability assessment identifies a flow
-that should use it, the TypeScript reviewer must read the global skill and
+that should use it, the TypeScript reviewer must read the repo-local skill and
 Flarex overlay completely and report its actual Effect coverage. The
-global skill owns reusable workflow and examples; the checked-in overlay owns
-Flarex's installed-version facts, public contracts, trust boundaries,
+repo-local skill owns reusable workflow and examples; the checked-in overlay
+owns Flarex's installed-version facts, public contracts, trust boundaries,
 Cloudflare differences, and reviewer responsibility split. The code-quality
 reviewer continues to inspect behavioral, data, security, transaction,
 reliability, performance, operability, maintainability, and test consequences,

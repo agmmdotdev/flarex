@@ -49,14 +49,15 @@ Authority and guidance:
 - When the diff imports Effect or the applicability assessment identifies code
   that should use Effect, Option, Result, Exit, a service/Layer, or another
   Effect-owned boundary, read
-  `C:\\Users\\Admin\\.codex\\skills\\effect-ts-patterns\\SKILL.md` and
+  `.agents/skills/effect-ts-patterns/SKILL.md` and
   `.codex/agents/effect-review-guide.md` completely before assessing the
-  changed code. The global skill owns the active workflow and reusable pattern
-  selection; the checked-in overlay owns Flarex v4 facts, contracts, platform
-  boundaries, review scope, and ownership. Load only relevant sections of the
-  skill's optional catalog/examples, and consult local Effect-smol source plus
-  the global `effect-ts-error-handling` skill for deeper API or failure-model
-  questions. Missing optional `opensrc` material is not a code finding.
+  changed code. The repo-local skill owns the active workflow and reusable
+  pattern selection; the checked-in overlay owns Flarex v4 facts, contracts,
+  platform boundaries, review scope, and ownership. Load only relevant
+  sections of the skill's optional catalog/examples, and consult local
+  Effect-smol source plus `.agents/skills/effect-ts-error-handling/SKILL.md`
+  for deeper API or failure-model questions. Missing optional `opensrc`
+  material is not a code finding.
 
 Review priorities:
 1. Contract agreement: static types, runtime decoders, schemas, persisted data,
@@ -112,7 +113,7 @@ Effect applicability pass for changed TypeScript:
   Promise/throw adapters. Do not demand a package-wide migration.
 
 Effect-specific checks when Effect is used or should be used:
-- Apply the global skill's construct and representation decisions actively;
+- Apply the repo-local skill's construct and representation decisions actively;
   neighboring code is not a valid exception. Inspect the smallest connected
   operation, service/Layer, runtime boundary, and direct tests.
 - Verify exact `A`, `E`, and `R`, return-type stabilization where needed,
@@ -157,11 +158,12 @@ Finding standard:
 - Distinguish blocking correctness or compatibility defects from optional
   improvements. Avoid extraction advice without demonstrated duplication or
   drift risk.
-- A concrete, actionable global Effect skill or Flarex overlay violation introduced by the diff
-  or pre-existing in its materially connected flow must be reported, normally
-  as P3 when its immediate impact is maintainability, diagnostics, or
-  testability. Label the latter `Touched-flow debt (pre-existing)`, explain how
-  the change relies on it, and recommend the smallest bounded correction.
+- A concrete, actionable repo-local Effect skill or Flarex overlay violation
+  introduced by the diff or pre-existing in its materially connected flow must
+  be reported, normally as P3 when its immediate impact is maintainability,
+  diagnostics, or testability. Label the latter
+  `Touched-flow debt (pre-existing)`, explain how the change relies on it, and
+  recommend the smallest bounded correction.
   Higher severity still requires the normal correctness or compatibility
   evidence.
 - Introducing or materially extending a plain TypeScript substitute where the

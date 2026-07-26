@@ -1,20 +1,20 @@
 # Flarex Effect Implementation And Review Overlay
 
-This is the Flarex-specific overlay for the global
-`C:\Users\Admin\.codex\skills\effect-ts-patterns\SKILL.md`. Any agent that
+This is the Flarex-specific overlay for the repo-local
+`.agents/skills/effect-ts-patterns/SKILL.md`. Any agent that
 implements or refactors code importing Effect modules, or plain TypeScript
 whose semantics should use Effect, Option, Result, Exit, Match, Schema, Config,
 a Context service, Layer, Scope, Fiber, runtime bridge, Effect HTTP flow, typed
-Effect errors, or Effect-based tests, must read the global skill and this file
-before acting. During standing checkpoint review, the TypeScript reviewer must
-first assess every materially changed TypeScript operation for that
+Effect errors, or Effect-based tests, must read the repo-local skill and this
+file before acting. During standing checkpoint review, the TypeScript reviewer
+must first assess every materially changed TypeScript operation for that
 applicability and solely owns the resulting Effect implementation-quality
 review.
 
-The global skill owns reusable construct selection, workflow, examples, and
-active touched-flow improvement. This overlay owns Flarex's installed-version
-facts, public contracts, trust boundaries, Cloudflare differences, review
-scope, and reviewer responsibility split.
+The repo-local skill owns reusable construct selection, workflow, examples,
+and active touched-flow improvement. This overlay owns Flarex's
+installed-version facts, public contracts, trust boundaries, Cloudflare
+differences, review scope, and reviewer responsibility split.
 
 ## Active Implementation Rule
 
@@ -35,13 +35,13 @@ Apply these sources in order:
 
 1. Flarex's accepted design, public contracts, trust boundaries, and installed
    Effect exports and types.
-2. The global `effect-ts-patterns` skill and its optional pattern and example
-   references.
+2. The repo-local `.agents/skills/effect-ts-patterns/SKILL.md` skill and its
+   optional pattern and example references.
 3. The local Effect-smol snapshot at
    `opensrc/repos/github.com/effect-TS/effect-smol`, especially `LLMS.md`,
    `.patterns/`, migration notes, and representative source.
-4. The global `effect-ts-error-handling` skill for failure classification,
-   mapping, recovery, retry, and boundary logging.
+4. The repo-local `.agents/skills/effect-ts-error-handling/SKILL.md` skill for
+   failure classification, mapping, recovery, retry, and boundary logging.
 5. Curated T3 Code application evidence under
    `opensrc/repos/github.com/pingdotgg/t3code`.
 
@@ -291,8 +291,8 @@ lifecycle, performance, or boundary reason; neighboring style is not enough.
 
 Use these paths instead of scanning entire repositories:
 
-- Global examples:
-  `C:\Users\Admin\.codex\skills\effect-ts-patterns\references\curated-examples.md`
+- Repo-local examples:
+  `.agents/skills/effect-ts-patterns/references/curated-examples.md`
 - Flarex pattern map:
   `roadmaps/effect-native-guidance/README.md` and its focused domain guides
 - Effect-smol: `LLMS.md`, `.patterns/effect.md`, `.patterns/testing.md`,
