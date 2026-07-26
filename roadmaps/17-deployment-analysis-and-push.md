@@ -841,6 +841,16 @@ activation remain blocked until their production host composition is proven.
    composer, binding, route, candidate-preparation authority, or real-system
    harness is implemented by this adapter.
 
+   The private A1b2c0b0 executor-HTTP contract now defines only a canonical,
+   bounded transport envelope for the four durable verifier commands:
+   `source_page`, `registration_page`, `parse_module`, and `link_page`. The
+   envelope carries the accepted reservation and all 26 command-budget
+   dimensions plus command-specific ordered module, source-byte, or
+   semantic-byte frames. Decoded frames remain inert data. No fresh backend
+   producer, analyzer command host, executor composer, candidate authority,
+   binding, route, real-system harness, readiness, or activation is implemented
+   by this contract.
+
    These Declarative V2 contracts replace only the deployment-analysis and
    artifact-verification path named by this roadmap. Component suffixes such as
    `CoreV1`, Semantic Artifact V1, or Progress V2 do not authorize a general

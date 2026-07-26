@@ -923,6 +923,14 @@ client, Drizzle database, transaction capability, locator, OCC or application
 commit authority, and it does not implement executor composition, routing,
 candidate preparation, the real-system harness, readiness, or activation.
 
+The private A1b2c0b0 executor-HTTP contract now owns only the canonical bounded
+transport envelope for `source_page`, `registration_page`, `parse_module`, and
+`link_page`. It carries the accepted reservation, all 26 command-budget
+dimensions, and command-specific ordered module, source-byte, or semantic-byte
+frames. Its decoded values are inert: no fresh backend producer, analyzer
+command host, executor composition, candidate authority, binding, route,
+real-system harness, readiness, or activation exists at this boundary.
+
 The immediate cross-plan milestone is a private end-to-end correctness and
 stress harness, not a developer API or activation gate. A1b2 first composes
 authenticated analysis with durable verifier progress in `apps/executor`;

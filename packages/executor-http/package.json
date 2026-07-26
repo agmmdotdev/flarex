@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./fetch": "./src/fetch.ts",
+    "./internal-declarative-v2-authenticated-command-v1": "./src/declarativeV2AuthenticatedCommandV1.ts",
     "./internal-deployment-project-scope-lookup-v1": "./src/deploymentProjectScopeLookupV1.ts"
   },
   "scripts": {
