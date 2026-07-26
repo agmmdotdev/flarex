@@ -2,10 +2,11 @@ import type {
   RunSessionJournalPointOperationV1Result,
 } from "@flarex/persistence-postgres/session-journal-store";
 import { RpcTarget, type RpcStub } from "cloudflare:workers";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Data, Effect, Exit } from "effect";
 
 import type {
   PointMutationJournalBoundaryV1Error,
+  PointMutationJournalLogicalOutcomeV1,
   PointMutationJournalTableV1,
 } from "./pointMutationJournal";
 import type {
@@ -15,10 +16,22 @@ import type {
 const REMOTE_STOP_ERROR_NAME = "FlarexJournalRpcStopped";
 const REMOTE_STOP_ERROR_MESSAGE = "The journal RPC capability is unavailable.";
 
+export class PointMutationJournalResultRejectedV1Error
+  extends Data.TaggedError("PointMutationJournalResultRejectedV1Error")<{
+    readonly result: Exclude<
+      RunSessionJournalPointOperationV1Result,
+      { readonly kind: "completed" }
+    >;
+  }> {}
+
+export type PointMutationJournalRpcBoundaryV1Error =
+  | PointMutationJournalBoundaryV1Error
+  | PointMutationJournalResultRejectedV1Error;
+
 export interface PointMutationJournalRpcTableMethodsV1 {
   readonly runPointOperation: (
     operation: unknown,
-  ) => Promise<RunSessionJournalPointOperationV1Result>;
+  ) => Promise<PointMutationJournalLogicalOutcomeV1>;
 }
 
 export type PointMutationJournalRpcTableTargetV1 =
@@ -47,7 +60,7 @@ export interface PointMutationJournalRpcSessionV1 {
   readonly target: PointMutationJournalRpcParentTargetV1;
   readonly closeAndDrain: Effect.Effect<
     void,
-    PointMutationJournalBoundaryV1Error,
+    PointMutationJournalRpcBoundaryV1Error,
     never
   >;
 }
@@ -111,19 +124,41 @@ class PointMutationJournalRpcTableTarget
 
   runPointOperation(
     operation: unknown,
-  ): Promise<RunSessionJournalPointOperationV1Result> {
+  ): Promise<PointMutationJournalLogicalOutcomeV1> {
     return this.#state.run(() =>
-      this.#state.journal.runPointOperation(this.#table, operation)
+      this.#state.journal.runPointOperation(this.#table, operation).pipe(
+        Effect.flatMap(projectPointMutationJournalRpcOutcomeV1),
+      )
     );
   }
 }
+
+const projectPointMutationJournalRpcOutcomeV1 = Effect.fn(
+  "PointMutationJournalRpc.projectOutcome",
+)(function* (
+  result: RunSessionJournalPointOperationV1Result,
+): Effect.fn.Return<
+  PointMutationJournalLogicalOutcomeV1,
+  PointMutationJournalResultRejectedV1Error
+> {
+  switch (result.kind) {
+    case "completed":
+      return result.outcome;
+    case "rejected":
+    case "sequenceRejected":
+    case "stateRejected":
+      return yield* Effect.fail(
+        new PointMutationJournalResultRejectedV1Error({ result }),
+      );
+  }
+});
 
 class PointMutationJournalRpcSessionStateV1 {
   readonly journal: PointMutationOccBoundJournalV1;
   readonly #admitted = new Set<Promise<void>>();
   readonly #failureCauses = new Map<
     number,
-    Cause.Cause<PointMutationJournalBoundaryV1Error>
+    Cause.Cause<PointMutationJournalRpcBoundaryV1Error>
   >();
   #accepting = true;
   #nextAdmission = 0;
@@ -136,7 +171,7 @@ class PointMutationJournalRpcSessionStateV1 {
   run<A>(
     makeEffect: () => Effect.Effect<
       A,
-      PointMutationJournalBoundaryV1Error,
+      PointMutationJournalRpcBoundaryV1Error,
       never
     >,
   ): Promise<A> {
@@ -182,11 +217,11 @@ class PointMutationJournalRpcSessionStateV1 {
   }
 
   firstCause():
-    | Cause.Cause<PointMutationJournalBoundaryV1Error>
+    | Cause.Cause<PointMutationJournalRpcBoundaryV1Error>
     | undefined {
     let earliestAdmission: number | undefined;
     let earliestCause:
-      | Cause.Cause<PointMutationJournalBoundaryV1Error>
+      | Cause.Cause<PointMutationJournalRpcBoundaryV1Error>
       | undefined;
     for (const [admission, cause] of this.#failureCauses) {
       if (
@@ -202,7 +237,7 @@ class PointMutationJournalRpcSessionStateV1 {
 
   #retainCause(
     admission: number,
-    cause: Cause.Cause<PointMutationJournalBoundaryV1Error>,
+    cause: Cause.Cause<PointMutationJournalRpcBoundaryV1Error>,
   ): void {
     this.#failureCauses.set(admission, cause);
   }

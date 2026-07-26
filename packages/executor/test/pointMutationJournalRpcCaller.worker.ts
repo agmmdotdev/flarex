@@ -31,6 +31,8 @@ export default {
     switch (path) {
       case "/success":
         return Response.json(await successScenario(env));
+      case "/result-rejected":
+        return Response.json(await resultRejectedScenario(env));
       case "/failure":
         return Response.json(await failureScenario(env));
       case "/late":
@@ -70,6 +72,25 @@ async function successScenario(env: Env) {
     result,
     state: await env.JOURNAL.inspect("success"),
   };
+}
+
+async function resultRejectedScenario(env: Env) {
+  return Promise.all(
+    ["rejected", "sequenceRejected", "stateRejected"].map(
+      async (resultKind) => {
+        const id = `result-${resultKind}`;
+        const parent = await env.JOURNAL.open(id, "resultRejected");
+        const table = await parent.resolvePointTable("orders");
+        const remote = await rejectionReceipt(
+          table.runPointOperation({ id: resultKind }),
+        );
+        const local = await env.JOURNAL.finishClose(id);
+        table[Symbol.dispose]();
+        parent[Symbol.dispose]();
+        return { local, remote };
+      },
+    ),
+  );
 }
 
 async function failureScenario(env: Env) {

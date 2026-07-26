@@ -2,8 +2,10 @@
 
 ## Status And Scope
 
-**Status:** Accepted architectural direction; implementation is deferred until
-the preflight in this record is completed, reviewed, and accepted.
+**Status:** Preflight accepted and the prerequisite journal-boundary correction
+is implemented and validated. Portable-kernel extraction and a new package
+remain deferred until the verified runtime projection carries the validator
+semantics required by this record.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -122,6 +124,153 @@ Therefore the repository already has:
 
 It does not yet have one portable kernel that both a Cloudflare host and an
 ordinary in-process host can invoke to execute the same user function.
+
+## Accepted Preflight Result
+
+The first-vertical preflight completed against the current exact runtime,
+ordinary generated runtime, generated-core build, executor journal, RPC
+adapter, host, and focused tests. It supersedes the earlier assumption that the
+exact runtime was still maintained as one handwritten template literal or was
+not connected to Worker Loader.
+
+### Current Lifecycle And Implementation
+
+The exact runtime is now authored as ordinary TypeScript in
+`PointMutationExactRuntimeWorkerCore.ts`. A deterministic build converts that
+file to `PointMutationExactRuntimeWorkerCore.generated.ts`; the generated
+source is combined with the artifact's application modules and loaded through
+`loader.load()` by the private artifact-runtime entrypoint. The executor
+constructs an attempt-scoped journal RPC graph, calls the private host binding,
+then closes and drains the graph before resolving the host and journal exits.
+
+The isolated core currently owns:
+
+- one-shot request admission;
+- deterministic module-time `Date` and seeded `Math.random`;
+- ambient network, timer, crypto, and async restrictions;
+- post-hardening import of the application execution bridge;
+- exact public-mutation lookup and handler extraction;
+- restricted `ctx.auth` and point `ctx.db` methods;
+- syscall sequencing, stable-tail draining, and RPC-stub disposal; and
+- runtime-value normalization.
+
+The ordinary generated runtime remains a separate, broader implementation. It
+also has query builders, nested `runQuery` and `runMutation`, and analyzed
+argument/return validation behavior. Those are not current exact-runtime
+capabilities and must not be called parity merely because their names overlap.
+
+### Correctness Prerequisite Found By The Preflight
+
+The preflight found that the executor RPC adapter exposed
+`RunSessionJournalPointOperationV1Result` directly. That persistence-owned
+delivery envelope has `completed`, `rejected`, `sequenceRejected`, and
+`stateRejected` variants, while the exact runtime accepts only the logical
+successful outcomes `missing`, `present`, `inserted`, and `unit`.
+
+The tests had covered the two sides separately with incompatible expectations:
+the executor workerd test expected the delivery envelope, while the
+exact-runtime tests used logical outcomes. A real exact-runtime `ctx.db` call
+could therefore receive a valid persistence envelope and reject it as an
+invalid runtime journal outcome.
+
+The prerequisite slice now:
+
+1. keep persistence delivery, replay, sequence, and journal-state outcomes
+   inside the trusted executor;
+2. project only a completed logical outcome across the attempt-scoped RPC
+   capability;
+3. convert every non-completed delivery envelope to an executor-owned typed
+   journal failure;
+4. preserve that local failure through close/drain while exposing only the
+   existing redacted remote stop error; and
+5. pin the boundary with workerd coverage for success, rejection,
+   first-failure precedence, close/drain, late calls, and disposal.
+
+`PointMutationJournalV1` retains its persistence-aware result and precise core
+error channel. The RPC adapter alone owns the logical-outcome projection and
+the additional typed rejection. The exact-runtime test fixture is constrained
+by the same executor logical-outcome type, so the workerd adapter and runtime
+expectations cannot silently diverge at compile time.
+
+This correction does not alter journal persistence, replay authority, OCC,
+commit compilation or execution, transaction evidence, idempotency outcomes,
+feeds, outbox behavior, or authoritative application rows.
+
+### Validator And Runtime-Projection Gate
+
+Arguments are validated before exact execution, but the current exact request
+projection does not carry the pinned argument and return validator semantics
+needed by a portable kernel. The exact core normalizes a returned value but
+does not enforce the analyzed return validator. The ordinary generated runtime
+does enforce analyzed validators.
+
+The shared function runtime must therefore wait for the standard-contract work
+owned by roadmap 39 to define a verified runtime projection that contains the
+required validator and function-registry semantics. This roadmap will consume
+that projection; it will not invent a second analyzer artifact or accept
+developer API declarations directly.
+
+### Selected Host-Neutrality Option
+
+The preflight selects option 2: retain the current Cloudflare-oriented shell
+and later extract a smaller portable execution operation inside it.
+
+Extracting the full core now would either move Cloudflare-only global hardening
+and RPC lifecycle into a supposedly portable package or duplicate missing
+validator and nested-call semantics. Black-box fixtures alone would leave two
+semantic implementations. A smaller operation allows the production shell to
+retain the properties only Worker Loader and a fresh isolate can prove.
+
+The later portable operation should remain plain TypeScript and Promise-based
+at the sandbox boundary. Effect remains appropriate in the trusted
+host/executor for typed failures, lifecycle settlement, and composition, but
+the sandbox kernel must not evaluate an Effect runtime before global hardening
+or acquire timer/network assumptions that the exact profile removes.
+
+### Boundary And Package Decision
+
+Do not create `@flarex/function-runtime` in the prerequisite slice. After the
+verified runtime projection gate is complete, the first extraction candidate
+is the intentional subpath `@flarex/function-runtime/point-mutation`, with no
+package-root catch-all.
+
+That portable owner may contain only:
+
+- the verified point-mutation execution input consumed by the kernel;
+- a per-invocation function registry;
+- restricted auth, clock, random, and logical journal ports;
+- function lookup, validation, context, handler, and result semantics; and
+- runtime-owned typed failures.
+
+It must not import Cloudflare, Miniflare, backend, executor-host, persistence,
+R2, Node tooling, Drizzle, OCC, or commit owners. The Cloudflare adapter remains
+with the artifact-runtime owner. The in-process adapter receives already-loaded
+exports or an explicit registry and makes no claim about fresh module state,
+import-time deterministic globals, ambient restrictions, or isolate security.
+Do not add `vm`, data-URL imports, or cache busting merely to imitate Worker
+Loader.
+
+### Compatibility And Evidence
+
+The generated core source SHA is part of exact-runtime identity. A later
+extraction that changes generated bytes must update that identity deliberately
+and prove behavior parity; source stability must not be assumed. If the
+portable operation becomes another generated module, its bytes must be
+included in the same identity and it must be imported only after the
+Cloudflare shell has hardened globals.
+
+The first extraction remains exact public point mutation only. It requires:
+
+- one fixture executed through in-process and workerd adapters with the same
+  verified projection, identity, time, seed, result, and logical journal;
+- explicit parity for lookup, validators, context, operation order,
+  first-failure selection, close/drain, and result normalization;
+- separate platform evidence for module maps, freshness, globals, RPC,
+  disposal, compatibility date, and isolation; and
+- unchanged OCC, commit, idempotency, feed, outbox, and row-authority tests.
+
+Queries, broader mutations, actions, HTTP actions, scheduling, and the public
+test SDK remain later consumers with their own acceptance gates.
 
 ## Decisions And Rationale
 
@@ -419,7 +568,10 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-Perform only the mandatory preflight above. Do not create
-`@flarex/function-runtime`, move runtime code, change generated Worker source,
-reroute the exact-attempt host, or alter `flarex-test` until the preflight
-result is reviewed and this record names the approved first vertical.
+Wait for roadmap 39's verified runtime projection and validator gate. Then
+amend this record with the concrete portable request, registry, capability,
+result, and error types before starting the exact point-mutation extraction.
+
+Do not create `@flarex/function-runtime`, move the runtime kernel, change
+generated Worker source, reroute the exact-attempt host, or alter `flarex-test`
+before that amendment is accepted.

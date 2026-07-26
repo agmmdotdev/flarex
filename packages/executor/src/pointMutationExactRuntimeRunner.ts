@@ -17,11 +17,9 @@ import type {
   TransactionGrantInertAuthV1,
 } from "flarex-protocol/transaction-grant";
 
-import type {
-  PointMutationJournalBoundaryV1Error,
-} from "./pointMutationJournal";
 import {
   makePointMutationJournalRpcSessionV1,
+  type PointMutationJournalRpcBoundaryV1Error,
   type PointMutationJournalRpcParentTargetV1,
   type PointMutationJournalRpcSessionV1,
 } from "./pointMutationJournalRpc";
@@ -54,7 +52,7 @@ type PointMutationExactRuntimeCallV1Error =
 
 type PointMutationExactRuntimeRunnerV1Error =
   | PointMutationExactRuntimeCallV1Error
-  | PointMutationJournalBoundaryV1Error;
+  | PointMutationJournalRpcBoundaryV1Error;
 
 /**
  * The private named artifact-runtime entrypoint as observed by the executor.
@@ -198,7 +196,7 @@ const runWithJournalSettlementV1 = Effect.fn(
 
 function resolveRunnerExitsV1(
   hostExit: Exit.Exit<unknown, PointMutationExactRuntimeCallV1Error>,
-  journalExit: Exit.Exit<void, PointMutationJournalBoundaryV1Error>,
+  journalExit: Exit.Exit<void, PointMutationJournalRpcBoundaryV1Error>,
 ): Effect.Effect<unknown, PointMutationExactRuntimeRunnerV1Error> {
   if (Exit.isFailure(journalExit)) {
     return Effect.failCause(journalExit.cause);

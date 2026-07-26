@@ -1,6 +1,7 @@
 import type {
   PinnedPointTableV1,
   RunSessionJournalPointOperationV1Result,
+  SessionJournalPointSuccessV1,
   SessionJournalAttemptV1,
   SessionJournalPointOperationV1,
   SessionJournalStorePersistenceV1,
@@ -145,6 +146,9 @@ export interface PointMutationJournalV1 {
     PointMutationJournalBoundaryV1Error | CommitProtocolV1Error
   >;
 }
+
+export type PointMutationJournalLogicalOutcomeV1 =
+  SessionJournalPointSuccessV1;
 
 interface JournalAttemptCoordinatorV1 {
   readonly inspection: LoadedPointMutationSessionAttemptInspectionV1;

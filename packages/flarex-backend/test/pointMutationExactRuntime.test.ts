@@ -1,5 +1,8 @@
 import { execFileSync } from "node:child_process";
 
+import type {
+  PointMutationJournalLogicalOutcomeV1,
+} from "@flarex/executor/point-mutation-journal";
 import { Effect } from "effect";
 import {
   executionArtifactSourcePackageKey,
@@ -14,6 +17,9 @@ import {
   type PointMutationExactRuntimeArtifactRefV1,
   type PointMutationExactRuntimeRequestV1,
 } from "flarex-protocol/point-mutation-exact-runtime";
+import {
+  decodeAppDocumentIdV1,
+} from "flarex-protocol/app-document-id";
 import {
   requirePointMutationArgumentSemanticSizeV1,
 } from "flarex-protocol/point-mutation-start";
@@ -41,8 +47,12 @@ import {
 import type { PushSourcePackage } from "../src/types";
 import { sourceModuleSha256ForTest } from "./sourcePackageHashFixture";
 
-const testOrderId = "1:11111111-1111-1111-1111-111111111111";
-const testInsertedOrderId = "1:22222222-2222-2222-2222-222222222222";
+const testOrderId = decodeAppDocumentIdV1(
+  "1:11111111-1111-1111-1111-111111111111",
+);
+const testInsertedOrderId = decodeAppDocumentIdV1(
+  "1:22222222-2222-2222-2222-222222222222",
+);
 
 describe("point mutation exact-runtime Dynamic Worker host", () => {
   const orderId = testOrderId;
@@ -131,7 +141,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
         return {
           runPointOperation: async (
             operation: Readonly<Record<string, unknown>>,
-          ) => {
+          ): Promise<PointMutationJournalLogicalOutcomeV1> => {
             calls.push({ table, operation });
             switch (operation.kind) {
               case "get":

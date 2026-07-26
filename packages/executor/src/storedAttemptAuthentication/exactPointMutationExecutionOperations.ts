@@ -39,6 +39,9 @@ import type {
   PointMutationJournalV1,
 } from "../pointMutationJournal";
 import type {
+  PointMutationJournalResultRejectedV1Error,
+} from "../pointMutationJournalRpc";
+import type {
   PointMutationExactRuntimeRunnerHostV1Error,
 } from "../pointMutationExactRuntimeRunner";
 import type {
@@ -111,6 +114,7 @@ export type PointMutationAuthenticatedAttemptExecutionV1Error =
   | PointMutationOccExecutionContextV1Error
   | PointMutationOccUserCodeV1Error
   | PointMutationJournalBoundaryV1Error
+  | PointMutationJournalResultRejectedV1Error
   | PointMutationExactRuntimeRunnerHostV1Error
   | CommitProtocolV1Error
   | PointMutationSessionAttemptLoadingExecutionV1Error

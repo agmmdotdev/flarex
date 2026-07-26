@@ -94,6 +94,9 @@ import type {
   PointMutationJournalV1,
 } from "./pointMutationJournal";
 import type {
+  PointMutationJournalResultRejectedV1Error,
+} from "./pointMutationJournalRpc";
+import type {
   PointMutationExactRuntimeRunnerHostV1Error,
 } from "./pointMutationExactRuntimeRunner";
 import {
@@ -428,6 +431,7 @@ export interface PointMutationOccExecutionContextFactoryV1 {
 export type PointMutationOccRuntimeNeutralRunnerV1Error =
   | PointMutationOccUserCodeV1Error
   | PointMutationJournalBoundaryV1Error
+  | PointMutationJournalResultRejectedV1Error
   | PointMutationExactRuntimeRunnerHostV1Error;
 
 export interface PointMutationOccRuntimeNeutralRunnerV1 {

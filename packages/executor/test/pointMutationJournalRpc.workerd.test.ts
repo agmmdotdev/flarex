@@ -57,9 +57,8 @@ describe("point-mutation journal RPC adapter in workerd", () => {
       disposal: { parent: "function", table: "function" },
       disposedChild: true,
       result: {
-        kind: "completed",
-        delivery: "executed",
-        outcome: { kind: "missing", document: null },
+        kind: "missing",
+        document: null,
       },
       state: {
         closeFinished: false,
@@ -68,6 +67,58 @@ describe("point-mutation journal RPC adapter in workerd", () => {
         tableIdentityPreserved: true,
       },
     });
+  });
+
+  it("keeps persistence rejection envelopes local and stops the remote capability", async () => {
+    const result = await scenario("/result-rejected");
+
+    expect(result).toMatchObject([
+      {
+        local: {
+          kind: "failure",
+          tag: "PointMutationJournalResultRejectedV1Error",
+          resultKind: "rejected",
+          reason: "invalidDocument",
+        },
+        remote: {
+          rejected: true,
+          name: "FlarexJournalRpcStopped",
+          message: "The journal RPC capability is unavailable.",
+        },
+      },
+      {
+        local: {
+          kind: "failure",
+          tag: "PointMutationJournalResultRejectedV1Error",
+          resultKind: "sequenceRejected",
+          reason: "sequenceGap",
+        },
+        remote: {
+          rejected: true,
+          name: "FlarexJournalRpcStopped",
+          message: "The journal RPC capability is unavailable.",
+        },
+      },
+      {
+        local: {
+          kind: "failure",
+          tag: "PointMutationJournalResultRejectedV1Error",
+          resultKind: "stateRejected",
+          reason: "journalSealed",
+        },
+        remote: {
+          rejected: true,
+          name: "FlarexJournalRpcStopped",
+          message: "The journal RPC capability is unavailable.",
+        },
+      },
+    ]);
+    expect(Array.isArray(result)).toBe(true);
+    if (!Array.isArray(result)) return;
+    for (const entry of result) {
+      expect(errorStack(entry, "remote")).not.toContain("provider.js");
+      expect(errorStack(entry, "remote")).not.toContain("journalSealed");
+    }
   });
 
   it("redacts the remote rejection and re-emits the original local failure", async () => {
@@ -130,8 +181,8 @@ describe("point-mutation journal RPC adapter in workerd", () => {
       },
       local: { kind: "success" },
       result: {
-        kind: "completed",
-        delivery: "executed",
+        kind: "missing",
+        document: null,
       },
       afterRelease: {
         closeFinished: true,

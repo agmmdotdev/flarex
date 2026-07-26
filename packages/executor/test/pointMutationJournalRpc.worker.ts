@@ -3,11 +3,12 @@ import { Cause, Effect, Exit } from "effect";
 
 import {
   makePointMutationJournalRpcSessionV1,
+  PointMutationJournalResultRejectedV1Error,
   type PointMutationJournalRpcSessionV1,
+  type PointMutationJournalRpcBoundaryV1Error,
 } from "@flarex/executor/point-mutation-journal-rpc";
 import {
   InvalidPointMutationJournalCapabilityV1Error,
-  type PointMutationJournalBoundaryV1Error,
   type PointMutationJournalTableV1,
 } from "../src/pointMutationJournal";
 import type {
@@ -16,9 +17,13 @@ import type {
 import type {
   RunSessionJournalPointOperationV1Result,
 } from "@flarex/persistence-postgres/session-journal-store";
+import {
+  CommitSyscallSequenceV1Schema,
+} from "flarex-protocol/commit-protocol";
 
 type Scenario =
   | "success"
+  | "resultRejected"
   | "operationFailure"
   | "delayedSuccess"
   | "orderedFailures"
@@ -35,7 +40,7 @@ interface ScenarioRecord {
   tableIdentityPreserved: boolean;
   closePromise:
     | Promise<
-      Exit.Exit<void, PointMutationJournalBoundaryV1Error>
+      Exit.Exit<void, PointMutationJournalRpcBoundaryV1Error>
     >
     | undefined;
   closeFinished: boolean;
@@ -45,6 +50,29 @@ const EXECUTED_MISSING = Object.freeze({
   kind: "completed",
   delivery: "executed",
   outcome: Object.freeze({ kind: "missing", document: null }),
+} satisfies RunSessionJournalPointOperationV1Result);
+
+const BUSINESS_REJECTED = Object.freeze({
+  kind: "rejected",
+  delivery: "executed",
+  issue: Object.freeze({
+    reason: "invalidDocument",
+    operation: "insert",
+  }),
+} satisfies RunSessionJournalPointOperationV1Result);
+
+const SEQUENCE_REJECTED = Object.freeze({
+  kind: "sequenceRejected",
+  issue: Object.freeze({
+    reason: "sequenceGap",
+    actual: CommitSyscallSequenceV1Schema.make(2n),
+    expectedNext: CommitSyscallSequenceV1Schema.make(1n),
+  }),
+} satisfies RunSessionJournalPointOperationV1Result);
+
+const STATE_REJECTED = Object.freeze({
+  kind: "stateRejected",
+  issue: Object.freeze({ reason: "journalSealed" }),
 } satisfies RunSessionJournalPointOperationV1Result);
 
 const records = new Map<string, ScenarioRecord>();
@@ -71,6 +99,8 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
         switch (record.scenario) {
           case "success":
             return Effect.succeed(EXECUTED_MISSING);
+          case "resultRejected":
+            return Effect.succeed(rejectedResultForOperation(operation));
           case "operationFailure":
             return Effect.fail(record.firstError);
           case "delayedSuccess":
@@ -134,6 +164,16 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
     if (Exit.isSuccess(exit)) return Object.freeze({ kind: "success" });
     const failed = exit.cause.reasons.find(Cause.isFailReason);
     if (failed !== undefined) {
+      if (
+        failed.error instanceof PointMutationJournalResultRejectedV1Error
+      ) {
+        return Object.freeze({
+          kind: "failure",
+          tag: failed.error._tag,
+          resultKind: failed.error.result.kind,
+          reason: failed.error.result.issue.reason,
+        });
+      }
       return Object.freeze({
         kind: "failure",
         identity: failed.error === record.firstError
@@ -168,6 +208,27 @@ function isFirstOperation(operation: unknown): boolean {
   return typeof operation === "object" &&
     operation !== null &&
     Reflect.get(operation, "id") === "first";
+}
+
+function rejectedResultForOperation(
+  operation: unknown,
+): Exclude<
+  RunSessionJournalPointOperationV1Result,
+  { readonly kind: "completed" }
+> {
+  if (typeof operation !== "object" || operation === null) {
+    throw new Error("missing rejected-result test operation");
+  }
+  switch (Reflect.get(operation, "id")) {
+    case "rejected":
+      return BUSINESS_REJECTED;
+    case "sequenceRejected":
+      return SEQUENCE_REJECTED;
+    case "stateRejected":
+      return STATE_REJECTED;
+    default:
+      throw new Error("unknown rejected-result test operation");
+  }
 }
 
 async function awaitOperationGate(operation: unknown): Promise<void> {
