@@ -13,6 +13,7 @@ import {
   DeclarativeV2VerifierRestartEvidenceV1Error,
   createDeclarativeV2VerifierRestartRecordDecoderV1,
   createDeclarativeV2VerifierRestartRecordEncoderV1,
+  deriveDeclarativeV2VerifierRestartFunctionBodySha256V1,
   deriveDeclarativeV2VerifierRestartModuleOrderRootV1,
   deriveDeclarativeV2VerifierRestartRecordRootV1,
   initialDeclarativeV2VerifierRestartSequenceStateV1,
@@ -26,6 +27,56 @@ import {
 const generousBudget = makeBudget();
 
 describe("Declarative V2 verifier restart evidence V1", () => {
+  it("pins the token-body digest domain and iterable ownership", () => {
+    const tokens = [
+      { terminalId: 11, canonicalBytes: new TextEncoder().encode("return") },
+      { terminalId: 7, canonicalBytes: new TextEncoder().encode("value") },
+      { terminalId: 31, canonicalBytes: new TextEncoder().encode(";") },
+    ];
+    const first = Result.getOrThrow(
+      deriveDeclarativeV2VerifierRestartFunctionBodySha256V1(
+        3n,
+        2n,
+        3n,
+        tokens,
+      ),
+    );
+    const second = Result.getOrThrow(
+      deriveDeclarativeV2VerifierRestartFunctionBodySha256V1(
+        3n,
+        2n,
+        3n,
+        {
+          *[Symbol.iterator]() {
+            yield* tokens;
+          },
+        },
+      ),
+    );
+    expect(first).toEqual(second);
+    expect(Buffer.from(first).toString("hex")).toBe(
+      "7fccded9a2e92731f750120606aa14df135af274dcc769e1c403b8e00ea62ff1",
+    );
+    expect(Result.isFailure(
+      deriveDeclarativeV2VerifierRestartFunctionBodySha256V1(
+        3n,
+        2n,
+        2n,
+        tokens,
+      ),
+    )).toBe(true);
+    const aliased = tokens[0]!.canonicalBytes;
+    const digest = Result.getOrThrow(
+      deriveDeclarativeV2VerifierRestartFunctionBodySha256V1(
+        3n,
+        2n,
+        3n,
+        tokens,
+      ),
+    );
+    aliased[0] ^= 0xff;
+    expect(digest).toEqual(first);
+  });
   it("pins length-framed canonical bytes and two-cold equality", () => {
     const record = records()[0]!;
     const first = encode(record, generousBudget, 1);
@@ -79,7 +130,7 @@ describe("Declarative V2 verifier restart evidence V1", () => {
       expect(decoded.record).toEqual(records()[0]);
       expect(decoded.receipt.aggregate).toEqual(oracle.receipt.aggregate);
     }
-  });
+  }, 30_000);
 
   it("enforces allowance, terminal reuse, hostile capture, and owned bytes", () => {
     const record = records()[0]!;

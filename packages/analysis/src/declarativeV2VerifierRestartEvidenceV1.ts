@@ -39,6 +39,10 @@ const RECORD_ROOT_DOMAIN =
   "flarex.declarative-v2/verifier-restart-root/step/v1\0";
 const MODULE_ORDER_ROOT_DOMAIN =
   "flarex.declarative-v2/verifier-module-order-root/step/v1\0";
+const DIAGNOSTIC_ROOT_DOMAIN =
+  "flarex.declarative-v2/verifier-restart-diagnostic-root/step/v1\0";
+const FUNCTION_BODY_DOMAIN =
+  "flarex.declarative-v2/verifier-restart-function-body/v1\0";
 const UTF8_ENCODER = new TextEncoder();
 const SHA256_INITIAL = Object.freeze([
   0x6a09e667,
@@ -2196,6 +2200,225 @@ function writeU64(output: Uint8Array, offset: number, value: bigint): void {
     output[offset + index] = Number(value & 0xffn);
     value >>= 8n;
   }
+}
+
+function writeU32(output: Uint8Array, offset: number, value: number): void {
+  output[offset] = value >>> 24;
+  output[offset + 1] = value >>> 16;
+  output[offset + 2] = value >>> 8;
+  output[offset + 3] = value;
+}
+
+export interface DeclarativeV2VerifierRestartBodyTokenV1 {
+  readonly terminalId: number;
+  readonly canonicalBytes: Uint8Array;
+}
+
+export function makeDeclarativeV2VerifierRestartFunctionBodyPrefixV1(
+  moduleOrdinalInput: unknown,
+  functionOrdinalInput: unknown,
+  bodyTokenCountInput: unknown,
+): Result.Result<
+  Uint8Array,
+  DeclarativeV2VerifierRestartEvidenceV1Error
+> {
+  if (
+    !isU64(moduleOrdinalInput) ||
+    !isU64(functionOrdinalInput) ||
+    !isU64(bodyTokenCountInput)
+  ) {
+    return Result.fail(restartError("validateSequence", "invalidInput"));
+  }
+  const domain = UTF8_ENCODER.encode(FUNCTION_BODY_DOMAIN);
+  const prefix = new Uint8Array(domain.byteLength + 24);
+  prefix.set(domain, 0);
+  writeU64(prefix, domain.byteLength, moduleOrdinalInput);
+  writeU64(prefix, domain.byteLength + 8, functionOrdinalInput);
+  writeU64(prefix, domain.byteLength + 16, bodyTokenCountInput);
+  return Result.succeed(prefix);
+}
+
+export function makeDeclarativeV2VerifierRestartFunctionBodyTokenPrefixV1(
+  terminalIdInput: unknown,
+  canonicalByteLengthInput: unknown,
+): Result.Result<
+  Uint8Array,
+  DeclarativeV2VerifierRestartEvidenceV1Error
+> {
+  if (
+    typeof terminalIdInput !== "number" ||
+    !Number.isSafeInteger(terminalIdInput) ||
+    terminalIdInput < 0 ||
+    terminalIdInput > 0xffff_ffff ||
+    !isU64(canonicalByteLengthInput) ||
+    canonicalByteLengthInput > 0xffff_ffffn
+  ) {
+    return Result.fail(restartError("validateSequence", "invalidInput"));
+  }
+  const prefix = new Uint8Array(12);
+  writeU32(prefix, 0, terminalIdInput);
+  writeU64(prefix, 4, canonicalByteLengthInput);
+  return Result.succeed(prefix);
+}
+
+/**
+ * The function body identity is deliberately independent of source chunking.
+ * Its token sequence excludes both enclosing braces and binds the generated
+ * terminal identity plus the verifier-owned canonical spelling of every body
+ * token. The iterable is consumed exactly once and is never retained.
+ */
+export function deriveDeclarativeV2VerifierRestartFunctionBodySha256V1(
+  moduleOrdinalInput: unknown,
+  functionOrdinalInput: unknown,
+  bodyTokenCountInput: unknown,
+  tokensInput: Iterable<DeclarativeV2VerifierRestartBodyTokenV1>,
+): Result.Result<
+  Uint8Array,
+  DeclarativeV2VerifierRestartEvidenceV1Error
+> {
+  if (
+    !isU64(moduleOrdinalInput) ||
+    !isU64(functionOrdinalInput) ||
+    !isU64(bodyTokenCountInput)
+  ) {
+    return Result.fail(restartError("validateSequence", "invalidInput"));
+  }
+  const prefix = makeDeclarativeV2VerifierRestartFunctionBodyPrefixV1(
+    moduleOrdinalInput,
+    functionOrdinalInput,
+    bodyTokenCountInput,
+  );
+  if (Result.isFailure(prefix)) return Result.fail(prefix.failure);
+  const chunks: Uint8Array[] = [];
+  let byteLength = prefix.success.byteLength;
+  let observedCount = 0n;
+  for (const token of tokensInput) {
+      if (
+        token === null ||
+        typeof token !== "object" ||
+        !Number.isSafeInteger(token.terminalId) ||
+        token.terminalId < 0 ||
+        token.terminalId > 0xffff_ffff ||
+        !isUint8Array(token.canonicalBytes)
+      ) {
+        return Result.fail(
+          restartError("validateSequence", "invalidInput", {
+            path: "bodyToken",
+          }),
+        );
+      }
+      const visible = TYPED_ARRAY_BYTE_LENGTH_GETTER?.call(
+        token.canonicalBytes,
+      ) as unknown;
+      if (
+        typeof visible !== "number" ||
+        !Number.isSafeInteger(visible) ||
+        visible < 0 ||
+        visible > 0xffff_ffff
+      ) {
+        return Result.fail(
+          restartError("validateSequence", "invalidInput", {
+            path: "bodyToken.canonicalBytes",
+          }),
+        );
+      }
+      const owned = new Uint8Array(visible);
+      owned.set(UINT8_ARRAY_SUBARRAY.call(
+        token.canonicalBytes,
+        0,
+        visible,
+      ) as Uint8Array);
+      const header = makeDeclarativeV2VerifierRestartFunctionBodyTokenPrefixV1(
+        token.terminalId,
+        BigInt(visible),
+      );
+      if (Result.isFailure(header)) return Result.fail(header.failure);
+      chunks.push(header.success, owned);
+      byteLength += header.success.byteLength + owned.byteLength;
+      observedCount += 1n;
+      if (
+        byteLength > 0xffff_ffff ||
+        observedCount > MAX_SIGNED_INT64
+      ) {
+        return Result.fail(
+          restartError("validateSequence", "invalidBudget", {
+            path: "bodyTokenBytes",
+          }),
+        );
+      }
+  }
+  if (observedCount !== bodyTokenCountInput) {
+    return Result.fail(
+      restartError("validateSequence", "terminalMismatch", {
+        path: "bodyTokenCount",
+      }),
+    );
+  }
+  const preimage = new Uint8Array(byteLength);
+  let offset = 0;
+  preimage.set(prefix.success, offset);
+  offset += prefix.success.byteLength;
+  for (const chunk of chunks) {
+    preimage.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return Result.succeed(sha256FixedInput(preimage));
+}
+
+export function deriveDeclarativeV2VerifierRestartCanonicalBytesSha256V1(
+  canonicalBytesInput: unknown,
+): Result.Result<
+  Uint8Array,
+  DeclarativeV2VerifierRestartEvidenceV1Error
+> {
+  if (!isUint8Array(canonicalBytesInput)) {
+    return Result.fail(restartError("validateSequence", "invalidInput"));
+  }
+  const byteLength = TYPED_ARRAY_BYTE_LENGTH_GETTER?.call(
+    canonicalBytesInput,
+  ) as unknown;
+  if (
+    typeof byteLength !== "number" ||
+    !Number.isSafeInteger(byteLength) ||
+    byteLength < 0
+  ) {
+    return Result.fail(restartError("validateSequence", "invalidInput"));
+  }
+  const owned = new Uint8Array(byteLength);
+  owned.set(UINT8_ARRAY_SUBARRAY.call(
+    canonicalBytesInput,
+    0,
+    byteLength,
+  ) as Uint8Array);
+  return Result.succeed(sha256FixedInput(owned));
+}
+
+export function deriveDeclarativeV2VerifierRestartDiagnosticRootV1(
+  diagnosticOrdinalInput: unknown,
+  previousRootSha256Input: unknown,
+  canonicalRecordSha256Input: unknown,
+): Result.Result<
+  Uint8Array,
+  DeclarativeV2VerifierRestartEvidenceV1Error
+> {
+  if (
+    !isU64(diagnosticOrdinalInput) ||
+    !isDigest(previousRootSha256Input) ||
+    !isDigest(canonicalRecordSha256Input)
+  ) {
+    return Result.fail(restartError("validateSequence", "invalidInput"));
+  }
+  const domain = UTF8_ENCODER.encode(DIAGNOSTIC_ROOT_DOMAIN);
+  const preimage = new Uint8Array(domain.byteLength + 8 + 64);
+  let offset = 0;
+  preimage.set(domain, offset);
+  offset += domain.byteLength;
+  writeU64(preimage, offset, diagnosticOrdinalInput);
+  offset += 8;
+  preimage.set(previousRootSha256Input, offset);
+  offset += DIGEST_BYTES;
+  preimage.set(canonicalRecordSha256Input, offset);
+  return Result.succeed(sha256FixedInput(preimage));
 }
 
 function commandKindTag(

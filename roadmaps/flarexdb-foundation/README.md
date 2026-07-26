@@ -877,9 +877,15 @@ canonical record digests, the single graph-wide cycle result commits the full
 deterministic module-order root, and link completion must match its admitted
 parse-pages root. The contract remains separate from report evidence and
 encodes no live proof, session, cursor, lease, fence,
-clock, request, transport, Cause, or opaque handle. These contracts remain
-inert: their producer and bounded verifier-owned rehydrator, additive target
-persistence and repository behavior, and executor host composition are later
+clock, request, transport, Cause, or opaque handle. The private A1b2a1b
+analysis gate now produces those bytes from verifier-owned fixed-width state
+and, only after a fresh factory-local authenticated claim, performs
+metadata-first bounded validation and deterministic linker replay before
+registering new process-local module/link handles. Recovery usage is separate
+from immutable settled attempt usage, and incomplete recovery grants no
+authority. This producer/rehydrator remains pure, inert, and
+production-unreachable; additive target persistence and repository behavior,
+durable lease/fence ownership, and executor host composition remain later
 A1b2 gates.
 
 The private Semantic Artifact V1 foundation now supplies immutable semantic

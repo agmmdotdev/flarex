@@ -78,12 +78,27 @@ import {
   type DeclarativeV2ValueFlowFrameV2,
 } from "./declarativeV2VerificationEvidenceV2";
 import {
+  deriveDeclarativeV2VerifierRestartCanonicalBytesSha256V1,
+  makeDeclarativeV2VerifierRestartFunctionBodyPrefixV1,
+  makeDeclarativeV2VerifierRestartFunctionBodyTokenPrefixV1,
+  type DeclarativeV2RestartDiagnosticRecordV1,
+  type DeclarativeV2RestartDirectCallRecordV1,
+  type DeclarativeV2RestartExportBindingRecordV1,
+  type DeclarativeV2RestartFunctionRecordV1,
+  type DeclarativeV2RestartModuleIdentityRecordV1,
+  type DeclarativeV2RestartResolvedEdgeRecordV1,
+  type DeclarativeV2RestartStaticImportRecordV1,
+  type DeclarativeV2RestartValueFlowRecordV1,
+  type DeclarativeV2VerifierRestartRecordV1,
+} from "./declarativeV2VerifierRestartEvidenceV1";
+import {
   createDeclarativeV2VerifierRuntimeSha256V1,
   createDeclarativeV2VerifierRuntimeArenaV1,
   declarativeV2VerifierRuntimeArenaRegionV1,
   finishDeclarativeV2VerifierRuntimeSha256V1,
   stepDeclarativeV2VerifierRuntimeSha256V1,
   type DeclarativeV2VerifierRuntimeArenaHandleV1,
+  type DeclarativeV2VerifierRuntimeSha256V1,
 } from "./declarativeV2VerifierRuntimeArenaV1";
 
 const TYPED_ARRAY_PROTOTYPE: object = Object.getPrototypeOf(
@@ -2201,7 +2216,8 @@ export function createDeclarativeV2VerifierEngineV1(
         : "stringBytes";
       return false;
     }
-    const offset = tokenRecordOffset(tokenCount);
+    const emittedIndex = tokenCount;
+    const offset = tokenRecordOffset(emittedIndex);
     tokenView.setUint32(offset, tokenKindId(kind), false);
     tokenView.setUint32(offset + 4, start, false);
     tokenView.setUint32(offset + 8, end, false);
@@ -2211,6 +2227,10 @@ export function createDeclarativeV2VerifierEngineV1(
     stringBytes.set(raw, stringCursor);
     stringCursor += raw.length;
     tokenCount += 1;
+    const fallbackTerminal = canonicalTokenTerminals(tokenAt(emittedIndex))[0];
+    if (fallbackTerminal !== undefined) {
+      tokenView.setUint32(offset + 36, fallbackTerminal + 1, false);
+    }
     canonicalParserWaitingForForHeader = false;
     usage.tokens += 1n;
     usage.tokenBytes += BigInt(tokenByteLength);
@@ -2830,6 +2850,11 @@ export function createDeclarativeV2VerifierEngineV1(
       if (synthetic) {
         canonicalParserInjectedTerminal = undefined;
       } else {
+        tokenView.setUint32(
+          tokenRecordOffset(canonicalParserCursor) + 36,
+          lookahead + 1,
+          false,
+        );
         canonicalParserCursor += 1;
         canonicalParserInjectionMask = 0;
         resetForHeaderScan();
@@ -3169,7 +3194,8 @@ export function createDeclarativeV2VerifierEngineV1(
         state.operation,
       );
     }
-    const offset = tokenRecordOffset(tokenCount);
+    const emittedIndex = tokenCount;
+    const offset = tokenRecordOffset(emittedIndex);
     tokenView.setUint32(offset, tokenKindId(kind), false);
     tokenView.setUint32(offset + 4, tokenStart, false);
     tokenView.setUint32(offset + 8, state.end, false);
@@ -3178,6 +3204,10 @@ export function createDeclarativeV2VerifierEngineV1(
     tokenView.setUint32(offset + 20, currentTokenLineBefore ? 1 : 0, false);
     stringCursor += state.outputLength;
     tokenCount += 1;
+    const fallbackTerminal = canonicalTokenTerminals(tokenAt(emittedIndex))[0];
+    if (fallbackTerminal !== undefined) {
+      tokenView.setUint32(offset + 36, fallbackTerminal + 1, false);
+    }
     usage.tokens += 1n;
     usage.tokenBytes += BigInt(state.rawByteLength);
     currentTokenLineBefore = false;
@@ -5023,6 +5053,11 @@ export function createDeclarativeV2VerifierEngineV1(
       functionView.setUint32(offset + 8, bodyStart, false);
       functionView.setUint32(offset + 12, bodyEnd, false);
       functionView.setUint32(offset + 16, index, false);
+      functionView.setUint32(
+        offset + 24,
+        Math.max(0, bodyEnd - bodyStart - 1),
+        false,
+      );
       functionCount += 1;
       return index;
     };
@@ -5120,9 +5155,17 @@ export function createDeclarativeV2VerifierEngineV1(
       if (functionIndex === undefined) return;
       let expectsBinding = true;
       let delimiterDepth = 0;
+      let parameterCount = paramsEnd === paramsStart + 1 ? 0 : 1;
       for (let index = paramsStart + 1; index < paramsEnd; index += 1) {
         yield 1;
         const token = at(index);
+        if (
+          tokenMatches(index, ",") &&
+          delimiterDepth === 0 &&
+          index + 1 < paramsEnd
+        ) {
+          parameterCount += 1;
+        }
         if (token.kind === "identifier" && expectsBinding) {
           markBinding(index, functionIndex);
           expectsBinding = false;
@@ -5167,6 +5210,11 @@ export function createDeclarativeV2VerifierEngineV1(
           expectsBinding = true;
         }
       }
+      functionView.setUint32(
+        functionRecordOffset(functionIndex) + 20,
+        parameterCount,
+        false,
+      );
       if (exported) {
         appendExport(
           isDefault ? undefined : nameToken.index,
@@ -7017,6 +7065,7 @@ interface LinkerStateV1 {
   importCount: number;
   exportCount: number;
   diagnosticCount: number;
+  hasCycleDiagnostic: boolean;
   textCursor: number;
   sealed: boolean;
   phase:
@@ -7039,10 +7088,13 @@ interface LinkerStateV1 {
     | "moduleSpecifier"
     | "findExport"
     | "exportName"
+    | "findExportFunction"
+    | "compareExportFunction"
     | "complete";
   copySourceRecord: number;
   copyRecordOrder: number;
   copyByteIndex: number;
+  copyFunctionIndex: number;
   copyImportStart: number;
   copyExportStart: number;
   orderOuter: number;
@@ -7260,6 +7312,7 @@ export function createDeclarativeV2VerifierLinkerV1(
     importCount: 0,
     exportCount: 0,
     diagnosticCount: 0,
+    hasCycleDiagnostic: false,
     textCursor: 0,
     sealed: false,
     phase: "accepting",
@@ -7270,6 +7323,7 @@ export function createDeclarativeV2VerifierLinkerV1(
     copySourceRecord: 0,
     copyRecordOrder: 0,
     copyByteIndex: 0,
+    copyFunctionIndex: 0,
     copyImportStart: 0,
     copyExportStart: 0,
     orderOuter: 1,
@@ -7299,6 +7353,20 @@ export function createDeclarativeV2VerifierLinkerV1(
   const handle = linkerHandle();
   OWNED_LINKERS.set(handle, state);
   return Result.succeed(handle);
+}
+
+export function readDeclarativeV2VerifierLinkerUsageV1(
+  rawLinker: unknown,
+): Result.Result<
+  DeclarativeV2VerifierBudgetFrameV2,
+  DeclarativeV2VerifierExecutableV1Error
+> {
+  const state = rawLinker !== null && typeof rawLinker === "object"
+    ? OWNED_LINKERS.get(rawLinker)
+    : undefined;
+  return state === undefined
+    ? Result.fail(executableError("link", "invalidInput"))
+    : Result.succeed(frozenUsage(state.usage));
 }
 
 export function appendDeclarativeV2VerifierLinkerModuleV1(
@@ -7507,6 +7575,7 @@ const addLinkDiagnosticV1 = (
   state.diagnosticView.setUint32(offset, definition.id, false);
   state.diagnosticView.setBigUint64(offset + 8, moduleOrdinal, false);
   state.diagnosticView.setUint32(offset + 16, state.diagnosticCount, false);
+  if (code === "CORE_MODULE_CYCLE") state.hasCycleDiagnostic = true;
   state.diagnosticCount += 1;
   return Result.succeed(undefined);
 };
@@ -7724,10 +7793,67 @@ const advanceLinkerOne = (
         state.copyByteIndex,
         false,
       );
+      state.copyFunctionIndex = 0;
+      state.copyByteIndex = 0;
+      state.copyPhase = "findExportFunction";
+      return Result.succeed(undefined);
+    }
+    if (state.copyPhase === "findExportFunction") {
+      if (state.copyFunctionIndex >= source.functionCount) {
+        return Result.fail(executableError("link", "invalidState"));
+      }
+      state.copyByteIndex = 0;
+      state.copyPhase = "compareExportFunction";
+      return Result.succeed(undefined);
+    }
+    if (state.copyPhase === "compareExportFunction") {
+      const sourceExportOffset = state.copySourceRecord * 48;
+      const localStored = source.exportView.getUint32(
+        sourceExportOffset + 4,
+        false,
+      );
+      const functionStored = source.functionView.getUint32(
+        state.copyFunctionIndex * 144,
+        false,
+      );
+      if (localStored === 0 || functionStored === 0) {
+        return Result.fail(executableError("link", "invalidState"));
+      }
+      const localLength = sourceTokenLength(source, localStored - 1);
+      const functionLength = sourceTokenLength(source, functionStored - 1);
+      if (localLength !== functionLength) {
+        state.copyFunctionIndex += 1;
+        state.copyPhase = "findExportFunction";
+        return Result.succeed(undefined);
+      }
+      if (state.copyByteIndex < localLength) {
+        if (
+          sourceTokenByte(source, localStored - 1, state.copyByteIndex) !==
+            sourceTokenByte(
+              source,
+              functionStored - 1,
+              state.copyByteIndex,
+            )
+        ) {
+          state.copyFunctionIndex += 1;
+          state.copyByteIndex = 0;
+          state.copyPhase = "findExportFunction";
+          return Result.succeed(undefined);
+        }
+        state.copyByteIndex += 1;
+        return Result.succeed(undefined);
+      }
+      const destination = state.exportCount * 48;
+      state.exportView.setUint32(
+        destination + 8,
+        state.copyFunctionIndex + 1,
+        false,
+      );
       state.exportCount += 1;
       state.copyRecordOrder += 1;
       state.copySourceRecord = 0;
       state.copyByteIndex = 0;
+      state.copyFunctionIndex = 0;
       state.copyPhase = "findExport";
       return Result.succeed(undefined);
     }
@@ -8009,6 +8135,20 @@ const advanceLinkerOne = (
       } else state.exportIndex += 1;
       return Result.succeed(undefined);
     }
+    const resolvedModuleIndex = orderedModule(
+      state,
+      state.pendingTargetPosition,
+    );
+    state.importEdgeView.setUint32(
+      importedOffset + 20,
+      resolvedModuleIndex + 1,
+      false,
+    );
+    state.importEdgeView.setUint32(
+      importedOffset + 24,
+      state.exportView.getUint32(state.exportIndex * 48 + 8, false),
+      false,
+    );
     const targetState = state.graph.getUint32(
       state.pendingTargetPosition * 64 + 12,
       false,
@@ -8517,6 +8657,139 @@ const moduleEvidenceAtV1 = (
   );
   if (Result.isFailure(created)) throw new Error("Owned diagnostic evidence is invalid.");
   return created.success;
+};
+
+const deriveRestartModuleEvidenceSha256V1 = function* (
+  owned: DeclarativeV2VerifierOwnedModuleArenaV1,
+  maximum: DeclarativeV2VerifierBudgetFrameV2,
+  workUsage: ReturnType<typeof zeroUsage>,
+): Generator<number, string, void> {
+  const maximumFrameBytes = Number(
+    maximum.frameBytes > BigInt(MAX_U32)
+      ? BigInt(MAX_U32)
+      : maximum.frameBytes,
+  );
+  const maximumCanonicalBytes = Number(
+    maximum.canonicalBytes > BigInt(MAX_U32)
+      ? BigInt(MAX_U32)
+      : maximum.canonicalBytes,
+  );
+  const budget = makeDeclarativeV2VerificationEvidenceBudgetV2(
+    maximumFrameBytes,
+    maximumCanonicalBytes,
+  );
+  if (Result.isFailure(budget)) {
+    throw executableError("access", "budgetExceeded");
+  }
+  const hash = createDeclarativeV2VerifierRuntimeSha256V1(owned.runtimeArena);
+  if (Result.isFailure(hash)) {
+    throw executableError("access", "invalidState");
+  }
+  const byte = new Uint8Array(1);
+  let hashByteCount = 0n;
+  const evidenceCount = 1 + owned.callCount + owned.valueFlowCount +
+    owned.diagnosticCount;
+  for (let index = 0; index < evidenceCount; index += 1) {
+    const evidence = moduleEvidenceAtV1(owned, index);
+    let pendingByte: number | undefined;
+    const sink = makeIncrementalCanonicalJsonByteSinkV1((value, _offset) => {
+      if (pendingByte !== undefined) {
+        throw new Error("Evidence sink emitted more than one byte per transition.");
+      }
+      pendingByte = value;
+    });
+    const encoder = createDeclarativeV2VerificationEvidenceSinkEncoderV2(
+      evidence,
+      budget.success,
+      sink,
+    );
+    if (Result.isFailure(encoder)) {
+      throw executableError("access", "invalidState");
+    }
+    for (;;) {
+      yield 1;
+      const encoded = encoder.success.step(1);
+      if (Result.isFailure(encoded)) {
+        throw executableError(
+          "access",
+          encoded.failure.reason === "budgetExceeded"
+            ? "budgetExceeded"
+            : "invalidState",
+        );
+      }
+      if (pendingByte !== undefined) {
+        const canonicalCharge = accessUsageCharge(
+          workUsage,
+          maximum,
+          "canonicalBytes",
+          1n,
+        );
+        const hashCharge = accessUsageCharge(
+          workUsage,
+          maximum,
+          "hashBytes",
+          1n,
+        );
+        if (Result.isFailure(canonicalCharge)) throw canonicalCharge.failure;
+        if (Result.isFailure(hashCharge)) throw hashCharge.failure;
+        byte[0] = pendingByte;
+        pendingByte = undefined;
+        let consumed = false;
+        while (!consumed) {
+          yield 1;
+          const hashed = stepDeclarativeV2VerifierRuntimeSha256V1(
+            hash.success,
+            byte,
+            1,
+          );
+          if (Result.isFailure(hashed)) {
+            throw executableError("access", "budgetExceeded", {
+              dimension: "hashBytes",
+            });
+          }
+          consumed = hashed.success.receipt.delta.consumedBytes === 1n;
+        }
+        hashByteCount += 1n;
+        if (hashByteCount > maximum.hashBytes) {
+          throw executableError("access", "budgetExceeded", {
+            dimension: "hashBytes",
+            observed: hashByteCount,
+            maximum: maximum.hashBytes,
+          });
+        }
+      }
+      if (encoded.success.status === "complete") break;
+    }
+  }
+  let digest: Uint8Array | undefined;
+  while (digest === undefined) {
+    yield 1;
+    const finished = finishDeclarativeV2VerifierRuntimeSha256V1(
+      hash.success,
+      1,
+    );
+    if (Result.isFailure(finished)) {
+      throw executableError("access", "invalidState");
+    }
+    if (finished.success.status === "complete") {
+      digest = finished.success.digest;
+    }
+  }
+  const digestOutputCharge = accessUsageCharge(
+    workUsage,
+    maximum,
+    "outputBytes",
+    64n,
+  );
+  if (Result.isFailure(digestOutputCharge)) throw digestOutputCharge.failure;
+  let hexadecimal = "";
+  for (let index = 0; index < digest.byteLength; index += 1) {
+    yield 1;
+    const byte = digest[index]!;
+    hexadecimal += "0123456789abcdef"[byte >>> 4]!;
+    hexadecimal += "0123456789abcdef"[byte & 0x0f]!;
+  }
+  return hexadecimal;
 };
 
 export interface DeclarativeV2VerifierResultAccessFactoryV1 {
@@ -9029,5 +9302,2286 @@ export function makeDeclarativeV2VerifierResultAccessFactoryV1():
     linkEvidence,
     readLinkEvidence,
     close,
+  });
+}
+
+export interface DeclarativeV2VerifierRestartRecordCursorV1 {
+  readonly _tag: "DeclarativeV2VerifierRestartRecordCursorV1";
+}
+
+export interface DeclarativeV2VerifierRestartRecordReadPendingV1 {
+  readonly status: "pending";
+  readonly transitionCount: number;
+  readonly hashBytes: bigint;
+  readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+}
+
+export interface DeclarativeV2VerifierRestartRecordReadItemV1 {
+  readonly status: "item";
+  readonly transitionCount: number;
+  readonly hashBytes: bigint;
+  readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+  readonly record: DeclarativeV2VerifierRestartRecordV1;
+}
+
+export interface DeclarativeV2VerifierRestartRecordReadCompleteV1 {
+  readonly status: "complete";
+  readonly transitionCount: number;
+  readonly hashBytes: bigint;
+  readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+}
+
+export type DeclarativeV2VerifierRestartRecordReadV1 =
+  | DeclarativeV2VerifierRestartRecordReadPendingV1
+  | DeclarativeV2VerifierRestartRecordReadItemV1
+  | DeclarativeV2VerifierRestartRecordReadCompleteV1;
+
+export interface DeclarativeV2VerifierRestartModuleBuilderV1 {
+  readonly _tag: "DeclarativeV2VerifierRestartModuleBuilderV1";
+}
+
+export type DeclarativeV2VerifierRestartModuleBuilderStepV1 =
+  | Readonly<{
+    readonly status: "pending";
+    readonly transitionCount: number;
+    readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+  }>
+  | Readonly<{
+    readonly status: "complete";
+    readonly transitionCount: number;
+    readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+    readonly result: DeclarativeV2VerifierModuleResultV1;
+  }>;
+
+export interface DeclarativeV2VerifierExecutableRestartBridgeV1 {
+  readonly admitModuleResult: (
+    moduleResult: unknown,
+  ) => Result.Result<void, DeclarativeV2VerifierExecutableV1Error>;
+  readonly openModuleRecords: (
+    moduleResult: unknown,
+    authenticatedInputSha256: unknown,
+    maximum: DeclarativeV2VerifierBudgetFrameV2,
+  ) => Result.Result<
+    DeclarativeV2VerifierRestartRecordCursorV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly readModuleRecord: (
+    cursor: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierRestartRecordReadV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly openLinkRecords: (
+    linkResult: unknown,
+    parsePagesRootSha256: unknown,
+    maximum: DeclarativeV2VerifierBudgetFrameV2,
+  ) => Result.Result<
+    DeclarativeV2VerifierRestartRecordCursorV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly readLinkRecord: (
+    cursor: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierRestartRecordReadV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly createModuleBuilder: (
+    maximum: DeclarativeV2VerifierBudgetFrameV2,
+    settledUsage: DeclarativeV2VerifierBudgetFrameV2,
+  ) => Result.Result<
+    DeclarativeV2VerifierRestartModuleBuilderV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly appendModuleRecord: (
+    builder: unknown,
+    record: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierBudgetFrameV2,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly finishModuleBuilder: (
+    builder: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierRestartModuleBuilderStepV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly adoptLinkResult: (
+    result: unknown,
+    parsePagesRootSha256: unknown,
+  ) => Result.Result<void, DeclarativeV2VerifierExecutableV1Error>;
+  readonly revoke: (
+    result: unknown,
+  ) => Result.Result<void, DeclarativeV2VerifierExecutableV1Error>;
+}
+
+interface RestartModuleCursorStateV1 {
+  readonly owned: DeclarativeV2VerifierOwnedModuleArenaV1;
+  readonly maximum: DeclarativeV2VerifierBudgetFrameV2;
+  readonly workUsage: ReturnType<typeof zeroUsage>;
+  readonly hashArena: DeclarativeV2VerifierRuntimeArenaHandleV1;
+  readonly authenticatedInputSha256: Uint8Array;
+  readonly restartRecords: ReadonlyArray<DeclarativeV2VerifierRestartRecordV1> |
+    undefined;
+  bodyHash: RestartModuleBodyHashStateV1 | undefined;
+  orderSearch: RestartModuleOrderSearchStateV1 | undefined;
+  recordIterator: RestartRecordIteratorV1 | undefined;
+  index: number;
+  closed: boolean;
+}
+
+interface RestartModuleOrderSearchStateV1 {
+  readonly kind: "import" | "export" | "diagnostic";
+  readonly targetOrder: number;
+  candidateIndex: number;
+}
+
+interface RestartModuleBodyHashStateV1 {
+  readonly functionOrdinal: number;
+  searchIndex: number;
+  functionIndex: number | undefined;
+  hash: DeclarativeV2VerifierRuntimeSha256V1 | undefined;
+  prefix: Uint8Array | undefined;
+  prefixOffset: number;
+  tokenIndex: number;
+  bodyEnd: number;
+  tokenPrefix: Uint8Array | undefined;
+  tokenPrefixOffset: number;
+  tokenByteOffset: number;
+  tokenByteLength: number;
+  tokenByteCursor: number;
+  digest: Uint8Array | undefined;
+  phase:
+    | "search"
+    | "prefix"
+    | "tokenPrefix"
+    | "tokenBytes"
+    | "finish"
+    | "ready";
+}
+
+interface RestartLinkCursorStateV1 {
+  readonly owned: LinkResultPresentationV1;
+  readonly maximum: DeclarativeV2VerifierBudgetFrameV2;
+  readonly workUsage: ReturnType<typeof zeroUsage>;
+  readonly parsePagesRootSha256: Uint8Array;
+  sourceSearchIndex: number;
+  diagnosticSearchIndex: number;
+  recordIterator: RestartRecordIteratorV1 | undefined;
+  index: number;
+  closed: boolean;
+}
+
+interface RestartRecordWorkV1 {
+  readonly dimension?:
+    typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2[number];
+  readonly amount?: bigint;
+}
+
+type RestartRecordIteratorV1 = Generator<
+  RestartRecordWorkV1,
+  DeclarativeV2VerifierRestartRecordV1 | undefined,
+  void
+>;
+
+interface RestartModuleBuilderStateV1 {
+  readonly maximum: DeclarativeV2VerifierBudgetFrameV2;
+  readonly usage: DeclarativeV2VerifierBudgetFrameV2;
+  readonly workUsage: ReturnType<typeof zeroUsage>;
+  readonly records: DeclarativeV2VerifierRestartRecordV1[];
+  iterator:
+    | Generator<
+      number,
+      Result.Result<
+        DeclarativeV2VerifierModuleResultV1,
+        DeclarativeV2VerifierExecutableV1Error
+      >,
+      void
+    >
+    | undefined;
+  closed: boolean;
+}
+
+interface RestartResultProvenanceV1 {
+  readonly owner: object;
+  readonly restartRecords?: ReadonlyArray<DeclarativeV2VerifierRestartRecordV1>;
+  readonly parsePagesRootSha256?: Uint8Array;
+  revoked: boolean;
+}
+
+const RESTART_RESULT_PROVENANCE = new WeakMap<
+  object,
+  RestartResultProvenanceV1
+>();
+
+const restartAllowanceV1 = (
+  raw: unknown,
+): Result.Result<number, DeclarativeV2VerifierExecutableV1Error> =>
+  typeof raw === "number" &&
+    Number.isSafeInteger(raw) &&
+    raw >= 0 &&
+    raw <= 1_024
+    ? Result.succeed(raw)
+    : Result.fail(executableError("access", "invalidInput"));
+
+const restartOwnedBytesTextV1 = function* (
+  bytes: Uint8Array,
+  offset: number,
+  length: number,
+  dimension: "tokenBytes" | "outputBytes",
+): Generator<RestartRecordWorkV1, string, void> {
+  yield { dimension, amount: BigInt(length) };
+  yield { dimension: "stringBytes", amount: BigInt(length) };
+  let text = "";
+  let cursor = offset;
+  const end = offset + length;
+  while (cursor < end) {
+    yield {};
+    const first = bytes[cursor]!;
+    let codePoint: number;
+    let width: number;
+    if (first <= 0x7f) {
+      codePoint = first;
+      width = 1;
+    } else if (first >= 0xc2 && first <= 0xdf) {
+      codePoint = ((first & 0x1f) << 6) | (bytes[cursor + 1]! & 0x3f);
+      width = 2;
+    } else if (first >= 0xe0 && first <= 0xef) {
+      codePoint =
+        ((first & 0x0f) << 12) |
+        ((bytes[cursor + 1]! & 0x3f) << 6) |
+        (bytes[cursor + 2]! & 0x3f);
+      width = 3;
+    } else if (first >= 0xf0 && first <= 0xf4) {
+      codePoint =
+        ((first & 0x07) << 18) |
+        ((bytes[cursor + 1]! & 0x3f) << 12) |
+        ((bytes[cursor + 2]! & 0x3f) << 6) |
+        (bytes[cursor + 3]! & 0x3f);
+      width = 4;
+    } else {
+      throw new Error("Verified text lost its UTF-8 invariant.");
+    }
+    if (
+      cursor + width > end ||
+      (width > 1 &&
+        (
+          codePoint < (width === 2 ? 0x80 : width === 3 ? 0x800 : 0x1_0000) ||
+          codePoint > 0x10ffff ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ))
+    ) {
+      throw new Error("Verified text lost its UTF-8 invariant.");
+    }
+    text += String.fromCodePoint(codePoint);
+    cursor += width;
+  }
+  return text;
+};
+
+const restartOwnedTextV1 = function* (
+  owned: DeclarativeV2VerifierOwnedModuleArenaV1,
+  tokenIndex: number,
+  trimStart = 0,
+  trimEnd = 0,
+): Generator<RestartRecordWorkV1, string, void> {
+  const offset = tokenOffsetV1(owned, tokenIndex) + trimStart;
+  const length = tokenLengthV1(owned, tokenIndex) - trimStart - trimEnd;
+  return yield* restartOwnedBytesTextV1(
+    owned.stringBytes,
+    offset,
+    length,
+    "tokenBytes",
+  );
+};
+
+const restartModulePathV1 = function* (
+  owned: DeclarativeV2VerifierOwnedModuleArenaV1,
+): Generator<RestartRecordWorkV1, string, void> {
+  const offset = owned.moduleView.getUint32(0, false);
+  const length = owned.moduleView.getUint32(4, false);
+  return yield* restartOwnedBytesTextV1(
+    owned.outputBytes,
+    offset,
+    length,
+    "outputBytes",
+  );
+};
+
+const restartModuleRecordAtV1 = function* (
+  state: RestartModuleCursorStateV1,
+  orderedIndex?: number,
+  bodyFunctionIndex?: number,
+  bodySha256?: Uint8Array,
+): RestartRecordIteratorV1 {
+  const owned = state.owned;
+  let position = state.index;
+  if (position === 0) {
+    return Object.freeze({
+      kind: "module_identity_v1",
+      recordOrdinal: 0n,
+      moduleOrdinal: owned.moduleOrdinal,
+      modulePath: yield* restartModulePathV1(owned),
+      sourceSha256: new Uint8Array(owned.sourceSha256),
+      sourceByteLength: owned.moduleView.getBigUint64(16, false),
+      authenticatedInputSha256: new Uint8Array(
+        state.authenticatedInputSha256,
+      ),
+    } satisfies DeclarativeV2RestartModuleIdentityRecordV1);
+  }
+  position -= 1;
+  if (position < owned.importCount) {
+    const index = orderedIndex;
+    if (index === undefined) {
+      throw new Error("Verified import order was not incrementally settled.");
+    }
+    const offset = index * 64;
+    const importedStored = owned.importEdgeView.getUint32(offset + 4, false);
+    const localStored = owned.importEdgeView.getUint32(offset + 8, false);
+    const moduleStored = owned.importEdgeView.getUint32(offset + 12, false);
+    if (localStored === 0 || moduleStored === 0) {
+      throw new Error("Verified import lost its bindings.");
+    }
+    return Object.freeze({
+      kind: "static_import_v1",
+      recordOrdinal: BigInt(state.index),
+      moduleOrdinal: owned.moduleOrdinal,
+      importOrdinal: BigInt(position),
+      sourceModulePath: yield* restartOwnedTextV1(
+        owned,
+        moduleStored - 1,
+        1,
+        1,
+      ),
+      importedName: importedStored === 0
+        ? "default"
+        : yield* restartOwnedTextV1(owned, importedStored - 1),
+      localName: yield* restartOwnedTextV1(owned, localStored - 1),
+    } satisfies DeclarativeV2RestartStaticImportRecordV1);
+  }
+  position -= owned.importCount;
+  if (position < owned.exportCount) {
+    const index = orderedIndex;
+    if (index === undefined) {
+      throw new Error("Verified export order was not incrementally settled.");
+    }
+    const offset = index * 48;
+    const localStored = owned.exportView.getUint32(offset + 4, false);
+    const exportStored = owned.exportView.getUint32(offset, false);
+    const isDefault = owned.exportView.getUint32(offset + 8, false) === 1;
+    if (localStored === 0 || (!isDefault && exportStored === 0)) {
+      throw new Error("Verified export lost its bindings.");
+    }
+    return Object.freeze({
+      kind: "export_binding_v1",
+      recordOrdinal: BigInt(state.index),
+      moduleOrdinal: owned.moduleOrdinal,
+      exportOrdinal: BigInt(position),
+      exportName: isDefault
+        ? "default"
+        : yield* restartOwnedTextV1(owned, exportStored - 1),
+      localFunctionName: yield* restartOwnedTextV1(owned, localStored - 1),
+    } satisfies DeclarativeV2RestartExportBindingRecordV1);
+  }
+  position -= owned.exportCount;
+  if (position < owned.functionCount) {
+    const index = bodyFunctionIndex;
+    if (index === undefined || bodySha256 === undefined) {
+      throw new Error("Verified function body was not incrementally settled.");
+    }
+    const offset = index * 144;
+    const nameStored = owned.functionView.getUint32(offset, false);
+    if (nameStored === 0) throw new Error("Verified function lost its name.");
+    return Object.freeze({
+      kind: "function_v1",
+      recordOrdinal: BigInt(state.index),
+      moduleOrdinal: owned.moduleOrdinal,
+      functionOrdinal: BigInt(position),
+      functionName: yield* restartOwnedTextV1(owned, nameStored - 1),
+      async: owned.functionView.getUint32(offset + 4, false) === 1,
+      parameterCount: BigInt(owned.functionView.getUint32(offset + 20, false)),
+      bodySha256: new Uint8Array(bodySha256),
+    } satisfies DeclarativeV2RestartFunctionRecordV1);
+  }
+  position -= owned.functionCount;
+  if (position < owned.callCount) {
+    const offset = (owned.importCount + position) * 64;
+    const functionIndex =
+      owned.importEdgeView.getUint32(offset + 20, false) - 1;
+    const targetStored = owned.importEdgeView.getUint32(offset + 24, false);
+    const importStored = owned.importEdgeView.getUint32(offset + 28, false);
+    const targetCode = owned.importEdgeView.getUint32(offset + 16, false);
+    if (targetStored === 0 || functionIndex < 0) {
+      throw new Error("Verified call lost its target.");
+    }
+    const functionStored = owned.functionView.getUint32(
+      functionIndex * 144,
+      false,
+    );
+    let targetModulePath: string | null = null;
+    if (importStored !== 0 && targetCode !== 3 && targetCode !== 4) {
+      const moduleStored = owned.importEdgeView.getUint32(
+        (importStored - 1) * 64 + 12,
+        false,
+      );
+      if (moduleStored === 0) throw new Error("Verified call lost its module.");
+      targetModulePath = yield* restartOwnedTextV1(
+        owned,
+        moduleStored - 1,
+        1,
+        1,
+      );
+    }
+    return Object.freeze({
+      kind: "direct_call_v1",
+      recordOrdinal: BigInt(state.index),
+      moduleOrdinal: owned.moduleOrdinal,
+      callOrdinal: BigInt(position),
+      callerFunctionOrdinal: BigInt(functionIndex),
+      targetKind: targetCode === 3
+        ? "local"
+        : targetCode === 1
+        ? "artifactImport"
+        : targetCode === 2
+        ? "platformImport"
+        : "abi",
+      targetModulePath,
+      targetName: yield* restartOwnedTextV1(owned, targetStored - 1),
+    } satisfies DeclarativeV2RestartDirectCallRecordV1);
+  }
+  position -= owned.callCount;
+  if (position < owned.valueFlowCount) {
+    const recordIndex = owned.evidenceIndexView.getUint32(position * 4, false);
+    const offset = recordIndex * 64;
+    const functionIndex =
+      owned.importEdgeView.getUint32(offset + 20, false) - 1;
+    const abiId = owned.importEdgeView.getUint32(offset + 36, false) - 1;
+    const abi = DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1[abiId];
+    if (abi === undefined || functionIndex < 0) {
+      throw new Error("Verified value flow lost its ABI.");
+    }
+    return Object.freeze({
+      kind: "value_flow_v1",
+      recordOrdinal: BigInt(state.index),
+      moduleOrdinal: owned.moduleOrdinal,
+      flowOrdinal: BigInt(position),
+      functionOrdinal: BigInt(functionIndex),
+      operationName: abi.name,
+      capability: abi.capability,
+      catchability: abi.catchability as "application" | "mixed" | "host",
+    } satisfies DeclarativeV2RestartValueFlowRecordV1);
+  }
+  position -= owned.valueFlowCount;
+  if (position < owned.diagnosticCount) {
+    const recordIndex = owned.evidenceIndexView.getUint32(
+      (owned.valueFlowCount + position) * 4,
+      false,
+    );
+    const offset = recordIndex * 32;
+    const id = owned.diagnosticView.getUint32(offset, false);
+    const definition = DECLARATIVE_V2_CORE_DIAGNOSTICS_V1.find(
+      candidate => candidate.id === id,
+    );
+    if (definition === undefined) {
+      throw new Error("Verified diagnostic lost its definition.");
+    }
+    return Object.freeze({
+      kind: "diagnostic_v1",
+      recordOrdinal: BigInt(state.index),
+      phase: definition.phase === "link" ? "link" : definition.phase === "valueFlow"
+        ? "valueFlow"
+        : "parse",
+      moduleOrdinal: owned.moduleOrdinal,
+      diagnosticOrdinal: BigInt(position),
+      byteOffset: owned.diagnosticView.getBigUint64(offset + 8, false),
+      diagnosticId: BigInt(id),
+      code: definition.code,
+      message: definition.rule,
+    } satisfies DeclarativeV2RestartDiagnosticRecordV1);
+  }
+  position -= owned.diagnosticCount;
+  if (position === 0) {
+    return Object.freeze({
+      kind: "parse_terminal_v1",
+      recordOrdinal: BigInt(state.index),
+      moduleOrdinal: owned.moduleOrdinal,
+      importCount: BigInt(owned.importCount),
+      exportCount: BigInt(owned.exportCount),
+      functionCount: BigInt(owned.functionCount),
+      callCount: BigInt(owned.callCount),
+      valueFlowCount: BigInt(owned.valueFlowCount),
+      diagnosticCount: BigInt(owned.diagnosticCount),
+      sourceSha256: new Uint8Array(owned.sourceSha256),
+      authenticatedInputSha256: new Uint8Array(
+        state.authenticatedInputSha256,
+      ),
+      precedingRecordsRootSha256: new Uint8Array(32),
+    });
+  }
+  return undefined;
+};
+
+const advanceRestartBodyHashV1 = (
+  state: RestartModuleCursorStateV1,
+): Readonly<{
+  readonly transitionCount: number;
+  readonly hashBytes: bigint;
+}> => {
+  const body = state.bodyHash;
+  if (body === undefined || body.phase === "ready") {
+    throw new Error("Restart function body hash is not pending.");
+  }
+  const owned = state.owned;
+  if (body.phase === "search") {
+    if (body.searchIndex >= owned.functionCount) {
+      throw new Error("Verified function lost its deterministic order.");
+    }
+    const offset = body.searchIndex * 144;
+    if (
+      owned.functionView.getUint32(offset + 16, false) !== body.functionOrdinal
+    ) {
+      body.searchIndex += 1;
+      return Object.freeze({ transitionCount: 1, hashBytes: 0n });
+    }
+    body.functionIndex = body.searchIndex;
+    const bodyStart = owned.functionView.getUint32(offset + 8, false);
+    body.bodyEnd = owned.functionView.getUint32(offset + 12, false);
+    const bodyTokenCount = owned.functionView.getUint32(offset + 24, false);
+    if (
+      body.bodyEnd <= bodyStart ||
+      bodyTokenCount !== Math.max(0, body.bodyEnd - bodyStart - 1)
+    ) {
+      throw new Error("Verified function lost its body range.");
+    }
+    const prefix = makeDeclarativeV2VerifierRestartFunctionBodyPrefixV1(
+      owned.moduleOrdinal,
+      BigInt(body.functionOrdinal),
+      BigInt(bodyTokenCount),
+    );
+    const hash = createDeclarativeV2VerifierRuntimeSha256V1(state.hashArena);
+    if (Result.isFailure(prefix) || Result.isFailure(hash)) {
+      throw new Error("Verified function body hash could not be initialized.");
+    }
+    body.prefix = prefix.success;
+    body.hash = hash.success;
+    body.tokenIndex = bodyStart + 1;
+    body.phase = "prefix";
+    return Object.freeze({ transitionCount: 1, hashBytes: 0n });
+  }
+  if (body.phase === "prefix") {
+    const hashed = stepDeclarativeV2VerifierRuntimeSha256V1(
+      body.hash,
+      UINT8_ARRAY_SUBARRAY.call(
+        body.prefix,
+        body.prefixOffset,
+        body.prefix!.byteLength,
+      ) as Uint8Array,
+      1,
+    );
+    if (Result.isFailure(hashed)) {
+      throw new Error("Verified function body prefix hashing failed.");
+    }
+    body.prefixOffset += Number(
+      hashed.success.receipt.delta.consumedBytes,
+    );
+    if (body.prefixOffset === body.prefix!.byteLength) {
+      body.phase = "tokenPrefix";
+    }
+    return Object.freeze({
+      transitionCount: Number(hashed.success.receipt.delta.transitions),
+      hashBytes: hashed.success.receipt.delta.hashBytes,
+    });
+  }
+  if (body.phase === "tokenPrefix") {
+    if (body.tokenIndex >= body.bodyEnd) {
+      body.phase = "finish";
+      return Object.freeze({ transitionCount: 1, hashBytes: 0n });
+    }
+    if (body.tokenPrefix === undefined) {
+      const terminalStored = owned.tokenView.getUint32(
+        body.tokenIndex * 56 + 36,
+        false,
+      );
+      if (terminalStored === 0) {
+        throw new Error("Verified body token lost its parser terminal.");
+      }
+      body.tokenByteOffset = tokenOffsetV1(owned, body.tokenIndex);
+      body.tokenByteLength = tokenLengthV1(owned, body.tokenIndex);
+      const prefix = makeDeclarativeV2VerifierRestartFunctionBodyTokenPrefixV1(
+        terminalStored - 1,
+        BigInt(body.tokenByteLength),
+      );
+      if (Result.isFailure(prefix)) {
+        throw new Error("Verified body token prefix was not canonical.");
+      }
+      body.tokenPrefix = prefix.success;
+      body.tokenPrefixOffset = 0;
+      body.tokenByteCursor = 0;
+      return Object.freeze({ transitionCount: 1, hashBytes: 0n });
+    }
+    const hashed = stepDeclarativeV2VerifierRuntimeSha256V1(
+      body.hash,
+      UINT8_ARRAY_SUBARRAY.call(
+        body.tokenPrefix,
+        body.tokenPrefixOffset,
+        body.tokenPrefix.byteLength,
+      ) as Uint8Array,
+      1,
+    );
+    if (Result.isFailure(hashed)) {
+      throw new Error("Verified body token prefix hashing failed.");
+    }
+    body.tokenPrefixOffset += Number(
+      hashed.success.receipt.delta.consumedBytes,
+    );
+    if (body.tokenPrefixOffset === body.tokenPrefix.byteLength) {
+      body.phase = "tokenBytes";
+    }
+    return Object.freeze({
+      transitionCount: Number(hashed.success.receipt.delta.transitions),
+      hashBytes: hashed.success.receipt.delta.hashBytes,
+    });
+  }
+  if (body.phase === "tokenBytes") {
+    if (body.tokenByteCursor === body.tokenByteLength) {
+      body.tokenIndex += 1;
+      body.tokenPrefix = undefined;
+      body.phase = "tokenPrefix";
+      return Object.freeze({ transitionCount: 1, hashBytes: 0n });
+    }
+    const hashed = stepDeclarativeV2VerifierRuntimeSha256V1(
+      body.hash,
+      UINT8_ARRAY_SUBARRAY.call(
+        owned.stringBytes,
+        body.tokenByteOffset + body.tokenByteCursor,
+        body.tokenByteOffset + body.tokenByteLength,
+      ) as Uint8Array,
+      1,
+    );
+    if (Result.isFailure(hashed)) {
+      throw new Error("Verified body token hashing failed.");
+    }
+    body.tokenByteCursor += Number(
+      hashed.success.receipt.delta.consumedBytes,
+    );
+    return Object.freeze({
+      transitionCount: Number(hashed.success.receipt.delta.transitions),
+      hashBytes: hashed.success.receipt.delta.hashBytes,
+    });
+  }
+  const finished = finishDeclarativeV2VerifierRuntimeSha256V1(body.hash, 1);
+  if (Result.isFailure(finished)) {
+    throw new Error("Verified function body hash finalization failed.");
+  }
+  if (finished.success.status === "complete") {
+    body.digest = new Uint8Array(finished.success.digest);
+    body.phase = "ready";
+  }
+  return Object.freeze({
+    transitionCount: Number(finished.success.receipt.delta.transitions),
+    hashBytes: finished.success.receipt.delta.hashBytes,
+  });
+};
+
+const advanceRestartRecordIteratorV1 = (
+  state: {
+    readonly maximum: DeclarativeV2VerifierBudgetFrameV2;
+    readonly workUsage: ReturnType<typeof zeroUsage>;
+    recordIterator: RestartRecordIteratorV1 | undefined;
+  },
+  allowance: number,
+): Result.Result<
+  Readonly<{
+    readonly transitionCount: number;
+    readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+    readonly record?: DeclarativeV2VerifierRestartRecordV1;
+  }>,
+  DeclarativeV2VerifierExecutableV1Error
+> => {
+  const before = usageSnapshot(state.workUsage);
+  let used = 0;
+  while (used < allowance) {
+    const call = accessUsageCharge(
+      state.workUsage,
+      state.maximum,
+      "calls",
+      1n,
+    );
+    if (Result.isFailure(call)) return Result.fail(call.failure);
+    let advanced: IteratorResult<
+      RestartRecordWorkV1,
+      DeclarativeV2VerifierRestartRecordV1 | undefined
+    >;
+    try {
+      advanced = state.recordIterator!.next();
+    } catch (cause) {
+      if (cause instanceof DeclarativeV2VerifierExecutableV1Error) {
+        return Result.fail(cause);
+      }
+      throw cause;
+    }
+    used += 1;
+    if (advanced.done) {
+      state.recordIterator = undefined;
+      return Result.succeed(Object.freeze({
+        transitionCount: used,
+        deltaUsage: frozenUsageDelta(state.workUsage, before),
+        ...(advanced.value === undefined ? {} : { record: advanced.value }),
+      }));
+    }
+    if (
+      advanced.value.dimension !== undefined &&
+      advanced.value.amount !== undefined
+    ) {
+      const charged = accessUsageCharge(
+        state.workUsage,
+        state.maximum,
+        advanced.value.dimension,
+        advanced.value.amount,
+      );
+      if (Result.isFailure(charged)) return Result.fail(charged.failure);
+    }
+  }
+  return Result.succeed(Object.freeze({
+    transitionCount: used,
+    deltaUsage: frozenUsageDelta(state.workUsage, before),
+  }));
+};
+
+/**
+ * This bridge is intentionally package-private. It exposes record-at-a-time
+ * views over verifier-owned arenas and performs final-only registration of
+ * rehydrated results. The restart runtime must authenticate and validate the
+ * records before calling the builder.
+ */
+export function makeDeclarativeV2VerifierExecutableRestartBridgeV1():
+  DeclarativeV2VerifierExecutableRestartBridgeV1 {
+  const owner = Object.freeze({});
+  const moduleCursors = new WeakMap<object, RestartModuleCursorStateV1>();
+  const linkCursors = new WeakMap<object, RestartLinkCursorStateV1>();
+  const builders = new WeakMap<object, RestartModuleBuilderStateV1>();
+  const cursor = (): DeclarativeV2VerifierRestartRecordCursorV1 =>
+    Object.freeze({ _tag: "DeclarativeV2VerifierRestartRecordCursorV1" });
+  const builder = (): DeclarativeV2VerifierRestartModuleBuilderV1 =>
+    Object.freeze({ _tag: "DeclarativeV2VerifierRestartModuleBuilderV1" });
+
+  const admitModuleResult:
+    DeclarativeV2VerifierExecutableRestartBridgeV1["admitModuleResult"] =
+      rawResult => {
+        const provenance = rawResult !== null && typeof rawResult === "object"
+          ? RESTART_RESULT_PROVENANCE.get(rawResult)
+          : undefined;
+        return provenance?.owner === owner &&
+            !provenance.revoked &&
+            rawResult !== null &&
+            typeof rawResult === "object" &&
+            OWNED_MODULE_RESULTS.get(rawResult) !== undefined
+          ? Result.succeed(undefined)
+          : Result.fail(executableError("access", "invalidInput"));
+      };
+
+  const openModuleRecords:
+    DeclarativeV2VerifierExecutableRestartBridgeV1["openModuleRecords"] =
+      (rawResult, rawAuthenticatedInputSha256, maximum) => {
+        const provenance = rawResult !== null && typeof rawResult === "object"
+          ? RESTART_RESULT_PROVENANCE.get(rawResult)
+          : undefined;
+        const owned = rawResult !== null && typeof rawResult === "object"
+          ? OWNED_MODULE_RESULTS.get(rawResult)
+          : undefined;
+        if (provenance?.owner === owner && provenance.revoked) {
+          return Result.fail(executableError("access", "closed"));
+        }
+        if (
+          (provenance !== undefined &&
+            (provenance.owner !== owner || provenance.revoked)) ||
+          owned === undefined ||
+          !isUint8ArrayWithByteLength(rawAuthenticatedInputSha256, 32)
+        ) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        const restartRecords = provenance?.restartRecords;
+        if (
+          restartRecords !== undefined &&
+          (
+            restartRecords[0]?.kind !== "module_identity_v1" ||
+            !bytesEqualFullScan(
+              restartRecords[0].authenticatedInputSha256,
+              rawAuthenticatedInputSha256,
+            )
+          )
+        ) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        const hashMaximum = Object.freeze({
+          ...maximum,
+          kind: "command_budget",
+        } satisfies DeclarativeV2VerifierBudgetFrameV2);
+        const hashArena = createDeclarativeV2VerifierRuntimeArenaV1({
+          requiredBytes: 0,
+          regions: Object.freeze([]),
+          usage: hashMaximum,
+        });
+        if (Result.isFailure(hashArena)) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        const handle = cursor();
+        moduleCursors.set(handle, {
+          owned,
+          maximum,
+          workUsage: zeroUsage(),
+          hashArena: hashArena.success,
+          authenticatedInputSha256: new Uint8Array(rawAuthenticatedInputSha256),
+          restartRecords,
+          bodyHash: undefined,
+          orderSearch: undefined,
+          recordIterator: undefined,
+          index: 0,
+          closed: false,
+        });
+        return Result.succeed(handle);
+      };
+
+  const readModuleRecord:
+    DeclarativeV2VerifierExecutableRestartBridgeV1["readModuleRecord"] =
+      (rawCursor, rawAllowance) => {
+        const state = rawCursor !== null && typeof rawCursor === "object"
+          ? moduleCursors.get(rawCursor)
+          : undefined;
+        if (state === undefined) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        if (state.closed) {
+          return Result.fail(executableError("access", "closed"));
+        }
+        const allowance = restartAllowanceV1(rawAllowance);
+        if (Result.isFailure(allowance)) {
+          state.closed = true;
+          return Result.fail(allowance.failure);
+        }
+        if (allowance.success === 0) {
+          return Result.succeed(Object.freeze({
+            status: "pending",
+            transitionCount: 0,
+            hashBytes: 0n,
+            deltaUsage: frozenUsage(zeroUsage()),
+          }));
+        }
+        const before = usageSnapshot(state.workUsage);
+        if (state.restartRecords === undefined) {
+          let used = 0;
+          let hashBytes = 0n;
+          if (state.recordIterator !== undefined) {
+            const advanced = advanceRestartRecordIteratorV1(
+              state,
+              allowance.success,
+            );
+            if (Result.isFailure(advanced)) {
+              state.closed = true;
+              return Result.fail(advanced.failure);
+            }
+            if (advanced.success.record === undefined) {
+              return Result.succeed(Object.freeze({
+                status: "pending",
+                transitionCount: advanced.success.transitionCount,
+                hashBytes: 0n,
+                deltaUsage: advanced.success.deltaUsage,
+              }));
+            }
+            state.index += 1;
+            return Result.succeed(Object.freeze({
+              status: "item",
+              transitionCount: advanced.success.transitionCount,
+              hashBytes: 0n,
+              deltaUsage: advanced.success.deltaUsage,
+              record: advanced.success.record,
+            }));
+          }
+          const orderedPosition = state.index - 1;
+          const orderKind = orderedPosition >= 0 &&
+              orderedPosition < state.owned.importCount
+            ? "import"
+            : orderedPosition >= state.owned.importCount &&
+                orderedPosition <
+                  state.owned.importCount + state.owned.exportCount
+            ? "export"
+            : undefined;
+          if (orderKind !== undefined) {
+            const targetOrder = orderKind === "import"
+              ? orderedPosition
+              : orderedPosition - state.owned.importCount;
+            state.orderSearch ??= {
+              kind: orderKind,
+              targetOrder,
+              candidateIndex: 0,
+            };
+            const search = state.orderSearch;
+            const count = orderKind === "import"
+              ? state.owned.importCount
+              : state.owned.exportCount;
+            const view = orderKind === "import"
+              ? state.owned.importEdgeView
+              : state.owned.exportView;
+            const width = orderKind === "import" ? 64 : 48;
+            const orderOffset = orderKind === "import" ? 40 : 12;
+            while (
+              used < allowance.success &&
+              search.candidateIndex < count
+            ) {
+              const call = accessUsageCharge(
+                state.workUsage,
+                state.maximum,
+                "calls",
+                1n,
+              );
+              if (Result.isFailure(call)) {
+                state.closed = true;
+                return Result.fail(call.failure);
+              }
+              const candidate = search.candidateIndex;
+              search.candidateIndex += 1;
+              used += 1;
+              if (
+                view.getUint32(candidate * width + orderOffset, false) !==
+                  targetOrder
+              ) continue;
+              state.orderSearch = undefined;
+              state.recordIterator = restartModuleRecordAtV1(state, candidate);
+              const advanced = advanceRestartRecordIteratorV1(
+                state,
+                allowance.success - used,
+              );
+              if (Result.isFailure(advanced)) {
+                state.closed = true;
+                return Result.fail(advanced.failure);
+              }
+              if (advanced.success.record === undefined) {
+                return Result.succeed(Object.freeze({
+                  status: "pending",
+                  transitionCount: used + advanced.success.transitionCount,
+                  hashBytes: 0n,
+                  deltaUsage: frozenUsageDelta(state.workUsage, before),
+                }));
+              }
+              state.index += 1;
+              return Result.succeed(Object.freeze({
+                status: "item",
+                transitionCount: used + advanced.success.transitionCount,
+                hashBytes: 0n,
+                deltaUsage: frozenUsageDelta(state.workUsage, before),
+                record: advanced.success.record,
+              }));
+            }
+            if (search.candidateIndex >= count) {
+              throw new Error("Verified arena lost a deterministic record order.");
+            }
+            return Result.succeed(Object.freeze({
+              status: "pending",
+              transitionCount: used,
+              hashBytes: 0n,
+              deltaUsage: frozenUsageDelta(state.workUsage, before),
+            }));
+          }
+          const functionOrdinal =
+            state.index - 1 - state.owned.importCount - state.owned.exportCount;
+          if (
+            functionOrdinal >= 0 &&
+            functionOrdinal < state.owned.functionCount
+          ) {
+            state.bodyHash ??= {
+              functionOrdinal,
+              searchIndex: 0,
+              functionIndex: undefined,
+              hash: undefined,
+              prefix: undefined,
+              prefixOffset: 0,
+              tokenIndex: 0,
+              bodyEnd: 0,
+              tokenPrefix: undefined,
+              tokenPrefixOffset: 0,
+              tokenByteOffset: 0,
+              tokenByteLength: 0,
+              tokenByteCursor: 0,
+              digest: undefined,
+              phase: "search",
+            };
+            while (
+              used < allowance.success &&
+              state.bodyHash.phase !== "ready"
+            ) {
+              const call = accessUsageCharge(
+                state.workUsage,
+                state.maximum,
+                "calls",
+                1n,
+              );
+              if (Result.isFailure(call)) {
+                state.closed = true;
+                return Result.fail(call.failure);
+              }
+              const advanced = advanceRestartBodyHashV1(state);
+              if (advanced.hashBytes > 0n) {
+                const charged = accessUsageCharge(
+                  state.workUsage,
+                  state.maximum,
+                  "hashBytes",
+                  advanced.hashBytes,
+                );
+                if (Result.isFailure(charged)) {
+                  state.closed = true;
+                  return Result.fail(charged.failure);
+                }
+              }
+              used += advanced.transitionCount;
+              hashBytes += advanced.hashBytes;
+            }
+            if (state.bodyHash.phase !== "ready") {
+              return Result.succeed(Object.freeze({
+                status: "pending",
+                transitionCount: used,
+                hashBytes,
+                deltaUsage: frozenUsageDelta(state.workUsage, before),
+              }));
+            }
+            if (used >= allowance.success) {
+              return Result.succeed(Object.freeze({
+                status: "pending",
+                transitionCount: used,
+                hashBytes,
+                deltaUsage: frozenUsageDelta(state.workUsage, before),
+              }));
+            }
+            state.recordIterator = restartModuleRecordAtV1(
+              state,
+              undefined,
+              state.bodyHash.functionIndex,
+              state.bodyHash.digest,
+            );
+            state.bodyHash = undefined;
+            const advanced = advanceRestartRecordIteratorV1(
+              state,
+              allowance.success - used,
+            );
+            if (Result.isFailure(advanced)) {
+              state.closed = true;
+              return Result.fail(advanced.failure);
+            }
+            if (advanced.success.record === undefined) {
+              return Result.succeed(Object.freeze({
+                status: "pending",
+                transitionCount: used + advanced.success.transitionCount,
+                hashBytes,
+                deltaUsage: frozenUsageDelta(state.workUsage, before),
+              }));
+            }
+            state.index += 1;
+            return Result.succeed(Object.freeze({
+              status: "item",
+              transitionCount: used + advanced.success.transitionCount,
+              hashBytes,
+              deltaUsage: frozenUsageDelta(state.workUsage, before),
+              record: advanced.success.record,
+            }));
+          }
+        }
+        if (state.restartRecords === undefined) {
+          state.recordIterator = restartModuleRecordAtV1(state);
+          const advanced = advanceRestartRecordIteratorV1(
+            state,
+            allowance.success,
+          );
+          if (Result.isFailure(advanced)) {
+            state.closed = true;
+            return Result.fail(advanced.failure);
+          }
+          if (advanced.success.record !== undefined) {
+            state.index += 1;
+            return Result.succeed(Object.freeze({
+              status: "item",
+              transitionCount: advanced.success.transitionCount,
+              hashBytes: 0n,
+              deltaUsage: advanced.success.deltaUsage,
+              record: advanced.success.record,
+            }));
+          }
+          if (state.recordIterator !== undefined) {
+            return Result.succeed(Object.freeze({
+              status: "pending",
+              transitionCount: advanced.success.transitionCount,
+              hashBytes: 0n,
+              deltaUsage: advanced.success.deltaUsage,
+            }));
+          }
+        }
+        const call = accessUsageCharge(
+          state.workUsage,
+          state.maximum,
+          "calls",
+          1n,
+        );
+        if (Result.isFailure(call)) {
+          state.closed = true;
+          return Result.fail(call.failure);
+        }
+        const record = state.restartRecords?.[state.index];
+        if (record === undefined) {
+          state.closed = true;
+          return Result.succeed(Object.freeze({
+            status: "complete",
+            transitionCount: 1,
+            hashBytes: 0n,
+            deltaUsage: frozenUsageDelta(state.workUsage, before),
+          }));
+        }
+        state.index += 1;
+        return Result.succeed(Object.freeze({
+          status: "item",
+          transitionCount: 1,
+          hashBytes: 0n,
+          deltaUsage: frozenUsageDelta(state.workUsage, before),
+          record,
+        }));
+      };
+
+  const openLinkRecords:
+    DeclarativeV2VerifierExecutableRestartBridgeV1["openLinkRecords"] =
+      (rawResult, rawParsePagesRootSha256, maximum) => {
+        const provenance = rawResult !== null && typeof rawResult === "object"
+          ? RESTART_RESULT_PROVENANCE.get(rawResult)
+          : undefined;
+        const owned = rawResult !== null && typeof rawResult === "object"
+          ? OWNED_LINK_RESULTS.get(rawResult)
+          : undefined;
+        if (provenance?.owner === owner && provenance.revoked) {
+          return Result.fail(executableError("access", "closed"));
+        }
+        if (
+          (provenance !== undefined &&
+            (provenance.owner !== owner || provenance.revoked)) ||
+          owned === undefined ||
+          !isUint8ArrayWithByteLength(rawParsePagesRootSha256, 32)
+        ) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        if (
+          provenance?.parsePagesRootSha256 !== undefined &&
+          !bytesEqualFullScan(
+            provenance.parsePagesRootSha256,
+            rawParsePagesRootSha256,
+          )
+        ) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        const handle = cursor();
+        linkCursors.set(handle, {
+          owned,
+          maximum,
+          workUsage: zeroUsage(),
+          parsePagesRootSha256: new Uint8Array(rawParsePagesRootSha256),
+          sourceSearchIndex: 0,
+          diagnosticSearchIndex: 0,
+          recordIterator: undefined,
+          index: 0,
+          closed: false,
+        });
+        return Result.succeed(handle);
+      };
+
+  const readLinkRecord:
+    DeclarativeV2VerifierExecutableRestartBridgeV1["readLinkRecord"] =
+      (rawCursor, rawAllowance) => {
+        const state = rawCursor !== null && typeof rawCursor === "object"
+          ? linkCursors.get(rawCursor)
+          : undefined;
+        if (state === undefined) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        if (state.closed) {
+          return Result.fail(executableError("access", "closed"));
+        }
+        const allowance = restartAllowanceV1(rawAllowance);
+        if (Result.isFailure(allowance)) {
+          state.closed = true;
+          return Result.fail(allowance.failure);
+        }
+        if (allowance.success === 0) {
+          return Result.succeed(Object.freeze({
+            status: "pending",
+            transitionCount: 0,
+            hashBytes: 0n,
+            deltaUsage: frozenUsage(zeroUsage()),
+          }));
+        }
+        const before = usageSnapshot(state.workUsage);
+        const link = state.owned.state;
+        if (state.recordIterator !== undefined) {
+          const advanced = advanceRestartRecordIteratorV1(
+            state,
+            allowance.success,
+          );
+          if (Result.isFailure(advanced)) {
+            state.closed = true;
+            return Result.fail(advanced.failure);
+          }
+          if (advanced.success.record === undefined) {
+            return Result.succeed(Object.freeze({
+              status: "pending",
+              transitionCount: advanced.success.transitionCount,
+              hashBytes: 0n,
+              deltaUsage: advanced.success.deltaUsage,
+            }));
+          }
+          state.index += 1;
+          return Result.succeed(Object.freeze({
+            status: "item",
+            transitionCount: advanced.success.transitionCount,
+            hashBytes: 0n,
+            deltaUsage: advanced.success.deltaUsage,
+            record: advanced.success.record,
+          }));
+        }
+        if (state.index < link.importCount) {
+          let used = 0;
+          while (
+            used < allowance.success &&
+            state.sourceSearchIndex < link.count
+          ) {
+            const call = accessUsageCharge(
+              state.workUsage,
+              state.maximum,
+              "calls",
+              1n,
+            );
+            if (Result.isFailure(call)) {
+              state.closed = true;
+              return Result.fail(call.failure);
+            }
+            const sourceModule = state.sourceSearchIndex;
+            state.sourceSearchIndex += 1;
+            used += 1;
+            const moduleOffset = sourceModule * 64;
+            const start = link.moduleView.getUint32(moduleOffset + 16, false);
+            const count = link.moduleView.getUint32(moduleOffset + 20, false);
+            if (state.index < start || state.index >= start + count) continue;
+            const importOrdinal = state.index - start;
+            const offset = state.index * 64;
+            const targetStored = link.importEdgeView.getUint32(
+              offset + 20,
+              false,
+            );
+            const targetModuleIndex = targetStored === 0
+              ? null
+              : targetStored - 1;
+            const targetFunctionStored = link.importEdgeView.getUint32(
+              offset + 24,
+              false,
+            );
+            const targetOffset = link.importEdgeView.getUint32(offset, false);
+            const targetLength = link.importEdgeView.getUint32(
+              offset + 4,
+              false,
+            );
+            state.sourceSearchIndex = 0;
+            state.recordIterator = (function* resolvedEdgeRecord():
+              RestartRecordIteratorV1 {
+              const targetName = yield* restartOwnedBytesTextV1(
+                link.textBytes,
+                targetOffset,
+                targetLength,
+                "outputBytes",
+              );
+              return Object.freeze({
+                kind: "resolved_edge_v1",
+                recordOrdinal: BigInt(state.index),
+                edgeOrdinal: BigInt(state.index),
+                sourceModuleOrdinal: link.moduleView.getBigUint64(
+                  moduleOffset + 8,
+                  false,
+                ),
+                importOrdinal: BigInt(importOrdinal),
+                targetKind:
+                  link.importEdgeView.getUint32(offset + 16, false) === 1
+                    ? "module"
+                    : "platform",
+                targetModuleOrdinal: targetModuleIndex === null
+                  ? null
+                  : link.moduleView.getBigUint64(
+                    targetModuleIndex * 64 + 8,
+                    false,
+                  ),
+                targetFunctionOrdinal: targetModuleIndex === null
+                  ? null
+                  : targetFunctionStored === 0
+                  ? null
+                  : BigInt(targetFunctionStored - 1),
+                targetName,
+              } satisfies DeclarativeV2RestartResolvedEdgeRecordV1);
+            })();
+            const advanced = advanceRestartRecordIteratorV1(
+              state,
+              allowance.success - used,
+            );
+            if (Result.isFailure(advanced)) {
+              state.closed = true;
+              return Result.fail(advanced.failure);
+            }
+            if (advanced.success.record === undefined) {
+              return Result.succeed(Object.freeze({
+                status: "pending",
+                transitionCount: used + advanced.success.transitionCount,
+                hashBytes: 0n,
+                deltaUsage: frozenUsageDelta(state.workUsage, before),
+              }));
+            }
+            state.index += 1;
+            return Result.succeed(Object.freeze({
+              status: "item",
+              transitionCount: used + advanced.success.transitionCount,
+              hashBytes: 0n,
+              deltaUsage: frozenUsageDelta(state.workUsage, before),
+              record: advanced.success.record,
+            }));
+          }
+          if (state.sourceSearchIndex >= link.count) {
+            throw new Error("Linked import lost its source module.");
+          }
+          return Result.succeed(Object.freeze({
+            status: "pending",
+            transitionCount: used,
+            hashBytes: 0n,
+            deltaUsage: frozenUsageDelta(state.workUsage, before),
+          }));
+        }
+        let position = state.index - link.importCount;
+        let record: DeclarativeV2VerifierRestartRecordV1 | undefined;
+        if (record === undefined && position < link.count) {
+          const moduleIndex = orderedModule(link, position);
+          record = Object.freeze({
+            kind: "module_order_v1",
+            recordOrdinal: BigInt(state.index),
+            orderOrdinal: BigInt(position),
+            moduleOrdinal: link.moduleView.getBigUint64(
+              moduleIndex * 64 + 8,
+              false,
+            ),
+          });
+        } else if (record === undefined) {
+          position -= link.count;
+          if (position === 0) {
+            record = Object.freeze({
+              kind: "cycle_result_v1",
+              recordOrdinal: BigInt(state.index),
+              cycleOrdinal: 0n,
+              moduleCount: BigInt(link.count),
+              membersRootSha256: new Uint8Array(32),
+              accepted: !link.hasCycleDiagnostic,
+            });
+          } else {
+            position -= 1;
+            if (position < link.diagnosticCount) {
+              if (state.diagnosticSearchIndex >= link.diagnosticCount) {
+                throw new Error(
+                  "Linked diagnostic lost its deterministic order.",
+                );
+              }
+              const index = state.diagnosticSearchIndex;
+              state.diagnosticSearchIndex += 1;
+              if (
+                link.diagnosticView.getUint32(index * 32 + 16, false) !==
+                  position
+              ) {
+                const call = accessUsageCharge(
+                  state.workUsage,
+                  state.maximum,
+                  "calls",
+                  1n,
+                );
+                if (Result.isFailure(call)) {
+                  state.closed = true;
+                  return Result.fail(call.failure);
+                }
+                return Result.succeed(Object.freeze({
+                  status: "pending",
+                  transitionCount: 1,
+                  hashBytes: 0n,
+                  deltaUsage: frozenUsageDelta(state.workUsage, before),
+                }));
+              }
+              state.diagnosticSearchIndex = 0;
+              const offset = index * 32;
+              const id = link.diagnosticView.getUint32(offset, false);
+              const definition = DECLARATIVE_V2_CORE_DIAGNOSTICS_V1.find(
+                candidate => candidate.id === id,
+              );
+              if (definition === undefined) {
+                throw new Error("Linked diagnostic lost its definition.");
+              }
+              record = Object.freeze({
+                kind: "diagnostic_v1",
+                recordOrdinal: BigInt(state.index),
+                phase: "link",
+                moduleOrdinal: link.diagnosticView.getBigUint64(
+                  offset + 8,
+                  false,
+                ),
+                diagnosticOrdinal: BigInt(position),
+                byteOffset: 0n,
+                diagnosticId: BigInt(id),
+                code: definition.code,
+                message: definition.rule,
+              });
+            } else {
+              position -= link.diagnosticCount;
+              if (position === 0) {
+                record = Object.freeze({
+                  kind: "link_terminal_v1",
+                  recordOrdinal: BigInt(state.index),
+                  moduleCount: BigInt(link.count),
+                  edgeCount: BigInt(link.importCount),
+                  orderCount: BigInt(link.count),
+                  cycleCount: 1n,
+                  diagnosticCount: BigInt(link.diagnosticCount),
+                  parsePagesRootSha256: new Uint8Array(
+                    state.parsePagesRootSha256,
+                  ),
+                  precedingRecordsRootSha256: new Uint8Array(32),
+                });
+              }
+            }
+          }
+        }
+        if (record === undefined) {
+          const call = accessUsageCharge(
+            state.workUsage,
+            state.maximum,
+            "calls",
+            1n,
+          );
+          if (Result.isFailure(call)) {
+            state.closed = true;
+            return Result.fail(call.failure);
+          }
+          state.closed = true;
+          return Result.succeed(Object.freeze({
+            status: "complete",
+            transitionCount: 1,
+            hashBytes: 0n,
+            deltaUsage: frozenUsageDelta(state.workUsage, before),
+          }));
+        }
+        const call = accessUsageCharge(
+          state.workUsage,
+          state.maximum,
+          "calls",
+          1n,
+        );
+        if (Result.isFailure(call)) {
+          state.closed = true;
+          return Result.fail(call.failure);
+        }
+        state.index += 1;
+        return Result.succeed(Object.freeze({
+          status: "item",
+          transitionCount: 1,
+          hashBytes: 0n,
+          deltaUsage: frozenUsageDelta(state.workUsage, before),
+          record,
+        }));
+      };
+
+  const createModuleBuilder:
+    DeclarativeV2VerifierExecutableRestartBridgeV1["createModuleBuilder"] =
+      (rawMaximum, rawUsage) => {
+        const maximum = captureAccessBudgetV1(rawMaximum);
+        const usage =
+          captureLocalBudgetFrame(rawUsage, "attempt_usage") ??
+          captureLocalBudgetFrame(rawUsage, "command_budget");
+        if (Result.isFailure(maximum) || usage === undefined) {
+          return Result.fail(executableError("access", "invalidBudget"));
+        }
+        const handle = builder();
+        builders.set(handle, {
+          maximum: maximum.success,
+          usage,
+          workUsage: zeroUsage(),
+          records: [],
+          iterator: undefined,
+          closed: false,
+        });
+        return Result.succeed(handle);
+      };
+
+  const appendModuleRecord:
+    DeclarativeV2VerifierExecutableRestartBridgeV1["appendModuleRecord"] =
+      (rawBuilder, rawRecord) => {
+        const state = rawBuilder !== null && typeof rawBuilder === "object"
+          ? builders.get(rawBuilder)
+          : undefined;
+        if (state === undefined) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        if (state.closed) {
+          return Result.fail(executableError("access", "closed"));
+        }
+        if (
+          rawRecord === null ||
+          typeof rawRecord !== "object" ||
+          !("kind" in rawRecord) ||
+          typeof rawRecord.kind !== "string"
+        ) {
+          state.closed = true;
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        const before = usageSnapshot(state.workUsage);
+        const call = accessUsageCharge(
+          state.workUsage,
+          state.maximum,
+          "calls",
+          1n,
+        );
+        const reference = Result.isFailure(call)
+          ? call
+          : accessUsageCharge(
+            state.workUsage,
+            state.maximum,
+            "tableBytes",
+            8n,
+          );
+        if (Result.isFailure(reference)) {
+          state.closed = true;
+          return Result.fail(reference.failure);
+        }
+        state.records.push(rawRecord as DeclarativeV2VerifierRestartRecordV1);
+        return Result.succeed(
+          frozenUsageDelta(state.workUsage, before),
+        );
+      };
+
+  const finishModuleBuilder:
+    DeclarativeV2VerifierExecutableRestartBridgeV1["finishModuleBuilder"] =
+      (rawBuilder, rawAllowance) => {
+        const state = rawBuilder !== null && typeof rawBuilder === "object"
+          ? builders.get(rawBuilder)
+          : undefined;
+        if (state === undefined) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        if (state.closed) {
+          return Result.fail(executableError("access", "closed"));
+        }
+        const allowance = restartAllowanceV1(rawAllowance);
+        if (Result.isFailure(allowance)) {
+          state.closed = true;
+          return Result.fail(allowance.failure);
+        }
+        if (allowance.success === 0) {
+          return Result.succeed(Object.freeze({
+            status: "pending",
+            transitionCount: 0,
+            deltaUsage: frozenUsage(zeroUsage()),
+          }));
+        }
+        const usageBefore = usageSnapshot(state.workUsage);
+        state.iterator ??= (function* moduleBuilderIterator() {
+        yield 1;
+        const identity = state.records[0];
+        const terminal = state.records[state.records.length - 1];
+        if (
+          identity?.kind !== "module_identity_v1" ||
+          terminal?.kind !== "parse_terminal_v1"
+        ) {
+          return Result.fail(executableError("access", "invalidState"));
+        }
+        const chargeBuilder = (
+          dimension: typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2[number],
+          amount: bigint,
+        ): void => {
+          const charged = accessUsageCharge(
+            state.workUsage,
+            state.maximum,
+            dimension,
+            amount,
+          );
+          if (Result.isFailure(charged)) throw charged.failure;
+        };
+        const arenaCount = (value: bigint, _path: string): number => {
+          if (value < 0n || value > 0xffff_ffffn) {
+            throw executableError("access", "budgetExceeded", {
+              dimension: "tableBytes",
+              observed: value,
+              maximum: 0xffff_ffffn,
+            });
+          }
+          return Number(value);
+        };
+        const importCount = arenaCount(terminal.importCount, "importCount");
+        const exportCount = arenaCount(terminal.exportCount, "exportCount");
+        const functionCount = arenaCount(
+          terminal.functionCount,
+          "functionCount",
+        );
+        const callCount = arenaCount(terminal.callCount, "callCount");
+        const flowCount = arenaCount(
+          terminal.valueFlowCount,
+          "valueFlowCount",
+        );
+        const diagnosticCount = arenaCount(
+          terminal.diagnosticCount,
+          "diagnosticCount",
+        );
+        chargeBuilder("modules", 1n);
+        chargeBuilder(
+          "importEdges",
+          terminal.importCount + terminal.callCount,
+        );
+        chargeBuilder("exports", terminal.exportCount);
+        chargeBuilder("functions", terminal.functionCount);
+        chargeBuilder("graphNodes", terminal.valueFlowCount);
+        chargeBuilder("diagnosticBytes", terminal.diagnosticCount);
+        const partitionReferenceCount =
+          terminal.importCount +
+          terminal.exportCount +
+          terminal.functionCount +
+          terminal.callCount +
+          terminal.valueFlowCount +
+          terminal.diagnosticCount;
+        const maximumTextReferenceCount =
+          1n +
+          terminal.importCount * 3n +
+          terminal.exportCount * 2n +
+          terminal.functionCount +
+          terminal.callCount;
+        const tokenIndexBytes =
+          terminal.importCount * 12n +
+          terminal.exportCount * 8n +
+          terminal.functionCount * 4n +
+          terminal.callCount * 4n;
+        chargeBuilder(
+          "tableBytes",
+          partitionReferenceCount * 8n +
+            maximumTextReferenceCount * 16n +
+            tokenIndexBytes,
+        );
+        const imports =
+          new Array<DeclarativeV2RestartStaticImportRecordV1>(importCount);
+        const exports =
+          new Array<DeclarativeV2RestartExportBindingRecordV1>(exportCount);
+        const functions =
+          new Array<DeclarativeV2RestartFunctionRecordV1>(functionCount);
+        const calls =
+          new Array<DeclarativeV2RestartDirectCallRecordV1>(callCount);
+        const flows =
+          new Array<DeclarativeV2RestartValueFlowRecordV1>(flowCount);
+        const diagnostics =
+          new Array<DeclarativeV2RestartDiagnosticRecordV1>(diagnosticCount);
+        let importIndex = 0;
+        let exportIndex = 0;
+        let functionIndex = 0;
+        let callIndex = 0;
+        let flowIndex = 0;
+        let diagnosticIndex = 0;
+        for (const record of state.records) {
+          yield 1;
+          switch (record.kind) {
+            case "static_import_v1":
+              if (importIndex >= imports.length) {
+                return Result.fail(executableError("access", "invalidState"));
+              }
+              imports[importIndex++] = record;
+              break;
+            case "export_binding_v1":
+              if (exportIndex >= exports.length) {
+                return Result.fail(executableError("access", "invalidState"));
+              }
+              exports[exportIndex++] = record;
+              break;
+            case "function_v1":
+              if (functionIndex >= functions.length) {
+                return Result.fail(executableError("access", "invalidState"));
+              }
+              functions[functionIndex++] = record;
+              break;
+            case "direct_call_v1":
+              if (callIndex >= calls.length) {
+                return Result.fail(executableError("access", "invalidState"));
+              }
+              calls[callIndex++] = record;
+              break;
+            case "value_flow_v1":
+              if (flowIndex >= flows.length) {
+                return Result.fail(executableError("access", "invalidState"));
+              }
+              flows[flowIndex++] = record;
+              break;
+            case "diagnostic_v1":
+              if (diagnosticIndex >= diagnostics.length) {
+                return Result.fail(executableError("access", "invalidState"));
+              }
+              diagnostics[diagnosticIndex++] = record;
+              break;
+            default:
+              break;
+          }
+        }
+        if (
+          importIndex !== imports.length ||
+          exportIndex !== exports.length ||
+          functionIndex !== functions.length ||
+          callIndex !== calls.length ||
+          flowIndex !== flows.length ||
+          diagnosticIndex !== diagnostics.length
+        ) {
+          return Result.fail(executableError("access", "invalidState"));
+        }
+        interface BuilderTextV1 {
+          readonly value: string;
+          readonly quoted: boolean;
+        }
+        chargeBuilder("tokens", 1n);
+        const strings: BuilderTextV1[] = [{
+          value: identity.modulePath,
+          quoted: false,
+        }];
+        const textEquals = function* (
+          left: BuilderTextV1,
+          right: BuilderTextV1,
+        ): Generator<number, boolean, void> {
+          yield 1;
+          if (
+            left.quoted !== right.quoted ||
+            left.value.length !== right.value.length
+          ) return false;
+          for (let index = 0; index < left.value.length; index += 1) {
+            yield 1;
+            if (left.value.charCodeAt(index) !== right.value.charCodeAt(index)) {
+              return false;
+            }
+          }
+          return true;
+        };
+        const tokenIndex = function* (
+          value: string,
+          quoted = false,
+        ): Generator<number, number, void> {
+          const candidate = { value, quoted };
+          for (let index = 0; index < strings.length; index += 1) {
+            if (yield* textEquals(strings[index]!, candidate)) return index;
+          }
+          yield 1;
+          chargeBuilder("tokens", 1n);
+          strings.push(Object.freeze(candidate));
+          return strings.length - 1;
+        };
+        const importTokens = new Uint32Array(imports.length * 3);
+        for (let index = 0; index < imports.length; index += 1) {
+          const record = imports[index]!;
+          importTokens[index * 3] = yield* tokenIndex(record.importedName);
+          importTokens[index * 3 + 1] = yield* tokenIndex(record.localName);
+          importTokens[index * 3 + 2] = yield* tokenIndex(
+            record.sourceModulePath,
+            true,
+          );
+        }
+        const exportTokens = new Uint32Array(exports.length * 2);
+        for (let index = 0; index < exports.length; index += 1) {
+          const record = exports[index]!;
+          exportTokens[index * 2] = yield* tokenIndex(record.exportName);
+          exportTokens[index * 2 + 1] = yield* tokenIndex(
+            record.localFunctionName,
+          );
+        }
+        const functionTokens = new Uint32Array(functions.length);
+        for (let index = 0; index < functions.length; index += 1) {
+          functionTokens[index] = yield* tokenIndex(
+            functions[index]!.functionName,
+          );
+        }
+        const callTokens = new Uint32Array(calls.length);
+        for (let index = 0; index < calls.length; index += 1) {
+          callTokens[index] = yield* tokenIndex(calls[index]!.targetName);
+        }
+        const utf8ByteLengthOf = function* (
+          text: BuilderTextV1,
+        ): Generator<number, number, void> {
+          let byteLength = text.quoted ? 2 : 0;
+          for (let index = 0; index < text.value.length; index += 1) {
+            yield 1;
+            const first = text.value.charCodeAt(index);
+            if (first <= 0x7f) byteLength += 1;
+            else if (first <= 0x7ff) byteLength += 2;
+            else if (first >= 0xd800 && first <= 0xdbff) {
+              index += 1;
+              byteLength += 4;
+            } else byteLength += 3;
+          }
+          return byteLength;
+        };
+        const encodeText = function* (
+          text: BuilderTextV1,
+          maximumBytes: number,
+        ): Generator<number, Uint8Array, void> {
+          const byteLength = yield* utf8ByteLengthOf(text);
+          if (byteLength > maximumBytes) {
+            throw executableError("access", "budgetExceeded", {
+              dimension: "stringBytes",
+              observed: BigInt(byteLength),
+              maximum: BigInt(maximumBytes),
+            });
+          }
+          chargeBuilder("stringBytes", BigInt(byteLength));
+          chargeBuilder("tableBytes", BigInt(byteLength));
+          const output = new Uint8Array(byteLength);
+          let offset = 0;
+          const write = function* (byte: number): Generator<number, void, void> {
+            yield 1;
+            output[offset] = byte;
+            offset += 1;
+          };
+          if (text.quoted) yield* write(0x22);
+          for (let index = 0; index < text.value.length; index += 1) {
+            const first = text.value.charCodeAt(index);
+            let codePoint = first;
+            if (first >= 0xd800 && first <= 0xdbff) {
+              const second = text.value.charCodeAt(index + 1);
+              codePoint =
+                0x1_0000 + ((first - 0xd800) << 10) + (second - 0xdc00);
+              index += 1;
+            }
+            if (codePoint <= 0x7f) {
+              yield* write(codePoint);
+            } else if (codePoint <= 0x7ff) {
+              yield* write(0xc0 | (codePoint >>> 6));
+              yield* write(0x80 | (codePoint & 0x3f));
+            } else if (codePoint <= 0xffff) {
+              yield* write(0xe0 | (codePoint >>> 12));
+              yield* write(0x80 | ((codePoint >>> 6) & 0x3f));
+              yield* write(0x80 | (codePoint & 0x3f));
+            } else {
+              yield* write(0xf0 | (codePoint >>> 18));
+              yield* write(0x80 | ((codePoint >>> 12) & 0x3f));
+              yield* write(0x80 | ((codePoint >>> 6) & 0x3f));
+              yield* write(0x80 | (codePoint & 0x3f));
+            }
+          }
+          if (text.quoted) yield* write(0x22);
+          return output;
+        };
+        const encodedStrings: Uint8Array[] = [];
+        let totalStringBytes = 0;
+        for (const text of strings) {
+          const remainingBigInt =
+            state.maximum.stringBytes - BigInt(totalStringBytes);
+          if (remainingBigInt < 0n) {
+            return Result.fail(executableError("access", "budgetExceeded", {
+              dimension: "stringBytes",
+              observed: BigInt(totalStringBytes),
+              maximum: state.maximum.stringBytes,
+            }));
+          }
+          const remaining = Number(
+            remainingBigInt > 0xffff_ffffn
+              ? 0xffff_ffffn
+              : remainingBigInt,
+          );
+          const encoded = yield* encodeText(text, remaining);
+          totalStringBytes += encoded.byteLength;
+          encodedStrings.push(encoded);
+        }
+        if (
+          BigInt(totalStringBytes) > state.maximum.stringBytes ||
+          BigInt(strings.length) > state.maximum.tokens
+        ) {
+          return Result.fail(executableError("access", "budgetExceeded"));
+        }
+        chargeBuilder("tableBytes", BigInt(totalStringBytes));
+        const stringBytes = new Uint8Array(totalStringBytes);
+        chargeBuilder("tableBytes", BigInt(strings.length * 56));
+        const tokenView = new DataView(new ArrayBuffer(strings.length * 56));
+        let stringOffset = 0;
+        for (let index = 0; index < encodedStrings.length; index += 1) {
+          const bytes = encodedStrings[index]!;
+          for (let byteIndex = 0; byteIndex < bytes.byteLength; byteIndex += 1) {
+            yield 1;
+            stringBytes[stringOffset + byteIndex] = bytes[byteIndex]!;
+          }
+          tokenView.setUint32(index * 56 + 12, stringOffset, false);
+          tokenView.setUint32(index * 56 + 16, bytes.byteLength, false);
+          stringOffset += bytes.byteLength;
+        }
+        chargeBuilder("outputBytes", BigInt(encodedStrings[0]!.byteLength));
+        const outputBytes = new Uint8Array(encodedStrings[0]!.byteLength);
+        for (let index = 0; index < outputBytes.byteLength; index += 1) {
+          yield 1;
+          outputBytes[index] = encodedStrings[0]![index]!;
+        }
+        chargeBuilder("tableBytes", 64n);
+        const moduleView = new DataView(new ArrayBuffer(64));
+        moduleView.setUint32(0, 0, false);
+        moduleView.setUint32(4, outputBytes.byteLength, false);
+        moduleView.setBigUint64(8, identity.moduleOrdinal, false);
+        moduleView.setBigUint64(16, identity.sourceByteLength, false);
+        chargeBuilder(
+          "tableBytes",
+          BigInt((imports.length + calls.length) * 64),
+        );
+        const importEdgeView = new DataView(
+          new ArrayBuffer((imports.length + calls.length) * 64),
+        );
+        for (let index = 0; index < imports.length; index += 1) {
+          yield 1;
+          const record = imports[index]!;
+          const offset = index * 64;
+          importEdgeView.setUint32(
+            offset + 4,
+            importTokens[index * 3]! + 1,
+            false,
+          );
+          importEdgeView.setUint32(
+            offset + 8,
+            importTokens[index * 3 + 1]! + 1,
+            false,
+          );
+          importEdgeView.setUint32(
+            offset + 12,
+            importTokens[index * 3 + 2]! + 1,
+            false,
+          );
+          importEdgeView.setUint32(
+            offset + 16,
+            record.sourceModulePath.charCodeAt(0) === 0x2e ? 1 : 2,
+            false,
+          );
+          importEdgeView.setUint32(offset + 40, index, false);
+        }
+        for (let index = 0; index < calls.length; index += 1) {
+          yield 1;
+          const record = calls[index]!;
+          const offset = (imports.length + index) * 64;
+          importEdgeView.setUint32(
+            offset + 16,
+            record.targetKind === "artifactImport"
+              ? 1
+              : record.targetKind === "platformImport"
+              ? 2
+              : record.targetKind === "local"
+              ? 3
+              : 4,
+            false,
+          );
+          importEdgeView.setUint32(
+            offset + 20,
+            Number(record.callerFunctionOrdinal) + 1,
+            false,
+          );
+          importEdgeView.setUint32(
+            offset + 24,
+            callTokens[index]! + 1,
+            false,
+          );
+          let importIndex = -1;
+          if (record.targetModulePath !== null) {
+            for (let candidateIndex = 0; candidateIndex < imports.length; candidateIndex += 1) {
+              if (
+                yield* textEquals(
+                  { value: imports[candidateIndex]!.sourceModulePath, quoted: false },
+                  { value: record.targetModulePath, quoted: false },
+                )
+              ) {
+                importIndex = candidateIndex;
+                break;
+              }
+            }
+          }
+          importEdgeView.setUint32(offset + 28, importIndex + 1, false);
+          importEdgeView.setUint32(offset + 32, Number(record.callOrdinal), false);
+          let flow: DeclarativeV2RestartValueFlowRecordV1 | undefined;
+          for (const candidate of flows) {
+            yield 1;
+            if (
+              candidate.functionOrdinal === record.callerFunctionOrdinal &&
+              (yield* textEquals(
+                { value: candidate.operationName, quoted: false },
+                { value: record.targetName, quoted: false },
+              ))
+            ) {
+              flow = candidate;
+              break;
+            }
+          }
+          if (flow !== undefined) {
+            let abi = -1;
+            for (
+              let candidateIndex = 0;
+              candidateIndex < DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1.length;
+              candidateIndex += 1
+            ) {
+              if (
+                yield* textEquals(
+                  {
+                    value:
+                      DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1[candidateIndex]!.name,
+                    quoted: false,
+                  },
+                  { value: flow.operationName, quoted: false },
+                )
+              ) {
+                abi = candidateIndex;
+                break;
+              }
+            }
+            if (abi >= 0) {
+              importEdgeView.setUint32(offset + 36, abi + 1, false);
+              importEdgeView.setUint32(offset + 44, Number(flow.flowOrdinal), false);
+            }
+          }
+        }
+        chargeBuilder("tableBytes", BigInt(exports.length * 48));
+        const exportView = new DataView(new ArrayBuffer(exports.length * 48));
+        for (let index = 0; index < exports.length; index += 1) {
+          yield 1;
+          const record = exports[index]!;
+          const offset = index * 48;
+          exportView.setUint32(
+            offset,
+            record.exportName === "default" ? 0 : exportTokens[index * 2]! + 1,
+            false,
+          );
+          exportView.setUint32(
+            offset + 4,
+            exportTokens[index * 2 + 1]! + 1,
+            false,
+          );
+          exportView.setUint32(offset + 8, record.exportName === "default" ? 1 : 0, false);
+          exportView.setUint32(offset + 12, index, false);
+        }
+        chargeBuilder("tableBytes", BigInt(functions.length * 144));
+        const functionView = new DataView(new ArrayBuffer(functions.length * 144));
+        for (let index = 0; index < functions.length; index += 1) {
+          yield 1;
+          const record = functions[index]!;
+          const offset = index * 144;
+          functionView.setUint32(offset, functionTokens[index]! + 1, false);
+          functionView.setUint32(offset + 4, record.async ? 1 : 0, false);
+          functionView.setUint32(offset + 16, index, false);
+          functionView.setUint32(offset + 20, Number(record.parameterCount), false);
+          for (
+            let byteIndex = 0;
+            byteIndex < record.bodySha256.byteLength;
+            byteIndex += 1
+          ) {
+            yield 1;
+            functionView.setUint8(offset + 32 + byteIndex, record.bodySha256[byteIndex]!);
+          }
+        }
+        chargeBuilder("tableBytes", BigInt(diagnostics.length * 32));
+        const diagnosticView = new DataView(new ArrayBuffer(diagnostics.length * 32));
+        for (let index = 0; index < diagnostics.length; index += 1) {
+          yield 1;
+          const record = diagnostics[index]!;
+          const offset = index * 32;
+          diagnosticView.setUint32(offset, Number(record.diagnosticId), false);
+          diagnosticView.setBigUint64(offset + 8, record.byteOffset, false);
+          diagnosticView.setUint32(offset + 16, index, false);
+        }
+        chargeBuilder(
+          "tableBytes",
+          BigInt((flows.length + diagnostics.length) * 4),
+        );
+        const evidenceIndexView = new DataView(
+          new ArrayBuffer((flows.length + diagnostics.length) * 4),
+        );
+        for (let index = 0; index < flows.length; index += 1) {
+          const flow = flows[index]!;
+          let callIndex = -1;
+          for (let candidateIndex = 0; candidateIndex < calls.length; candidateIndex += 1) {
+            yield 1;
+            const call = calls[candidateIndex]!;
+            if (
+              call.callerFunctionOrdinal === flow.functionOrdinal &&
+              (yield* textEquals(
+                { value: call.targetName, quoted: false },
+                { value: flow.operationName, quoted: false },
+              ))
+            ) {
+              callIndex = candidateIndex;
+              break;
+            }
+          }
+          evidenceIndexView.setUint32(index * 4, imports.length + Math.max(0, callIndex), false);
+        }
+        for (let index = 0; index < diagnostics.length; index += 1) {
+          yield 1;
+          evidenceIndexView.setUint32((flows.length + index) * 4, index, false);
+        }
+        const reconstructedUsage = Object.freeze({
+          ...state.usage,
+          sourceBytes: identity.sourceByteLength,
+        } satisfies DeclarativeV2VerifierBudgetFrameV2);
+        yield 1;
+        const runtimeArena = createDeclarativeV2VerifierRuntimeArenaV1({
+          requiredBytes: 0,
+          regions: Object.freeze([]),
+          usage: Object.freeze({
+            ...state.maximum,
+            kind: "command_budget",
+          }),
+        });
+        if (Result.isFailure(runtimeArena)) {
+          return Result.fail(executableError("access", "invalidBudget"));
+        }
+        const incompleteOwned = Object.freeze({
+          runtimeArena: runtimeArena.success,
+          tokenView,
+          stringBytes,
+          outputBytes,
+          moduleView,
+          importEdgeView,
+          exportView,
+          functionView,
+          diagnosticView,
+          evidenceIndexView,
+          sourceSha256: new Uint8Array(identity.sourceSha256),
+          moduleOrdinal: identity.moduleOrdinal,
+          importCount: imports.length,
+          exportCount: exports.length,
+          functionCount: functions.length,
+          callCount: calls.length,
+          valueFlowCount: flows.length,
+          diagnosticCount: diagnostics.length,
+          evidenceSha256: "",
+          verified: diagnostics.length === 0,
+          usage: reconstructedUsage,
+        } satisfies DeclarativeV2VerifierOwnedModuleArenaV1);
+        const evidenceSha256 = yield* deriveRestartModuleEvidenceSha256V1(
+          incompleteOwned,
+          state.maximum,
+          state.workUsage,
+        );
+        const owned = Object.freeze({
+          ...incompleteOwned,
+          evidenceSha256,
+        });
+        const result = Object.freeze({
+          _tag: "DeclarativeV2VerifierModuleResultV1",
+          verified: owned.verified,
+          moduleOrdinal: owned.moduleOrdinal,
+          importCount: BigInt(owned.importCount),
+          exportCount: BigInt(owned.exportCount),
+          functionCount: BigInt(owned.functionCount),
+          callCount: BigInt(owned.callCount),
+          valueFlowCount: BigInt(owned.valueFlowCount),
+          diagnosticCount: BigInt(owned.diagnosticCount),
+          evidenceSha256: owned.evidenceSha256,
+          usage: reconstructedUsage,
+        } satisfies DeclarativeV2VerifierModuleResultV1);
+        OWNED_MODULE_RESULTS.set(
+          result,
+          owned as DeclarativeV2VerifierOwnedModuleArenaV1,
+        );
+        RESTART_RESULT_PROVENANCE.set(result, {
+          owner,
+          restartRecords: Object.freeze(state.records),
+          revoked: false,
+        });
+        return Result.succeed(result);
+        })();
+        let used = 0;
+        while (used < allowance.success) {
+          let advanced: IteratorResult<
+            number,
+            Result.Result<
+              DeclarativeV2VerifierModuleResultV1,
+              DeclarativeV2VerifierExecutableV1Error
+            >
+          >;
+          try {
+            advanced = state.iterator.next();
+          } catch (cause) {
+            state.closed = true;
+            if (cause instanceof DeclarativeV2VerifierExecutableV1Error) {
+              return Result.fail(cause);
+            }
+            throw cause;
+          }
+          const chargedCall = accessUsageCharge(
+            state.workUsage,
+            state.maximum,
+            "calls",
+            1n,
+          );
+          if (Result.isFailure(chargedCall)) {
+            state.closed = true;
+            return Result.fail(chargedCall.failure);
+          }
+          used += 1;
+          if (!advanced.done) continue;
+          state.closed = true;
+          if (Result.isFailure(advanced.value)) {
+            return Result.fail(advanced.value.failure);
+          }
+          return Result.succeed(Object.freeze({
+            status: "complete",
+            transitionCount: used,
+            deltaUsage: frozenUsageDelta(state.workUsage, usageBefore),
+            result: advanced.value.success,
+          }));
+        }
+        return Result.succeed(Object.freeze({
+          status: "pending",
+          transitionCount: used,
+          deltaUsage: frozenUsageDelta(state.workUsage, usageBefore),
+        }));
+      };
+
+  const adoptLinkResult:
+    DeclarativeV2VerifierExecutableRestartBridgeV1["adoptLinkResult"] =
+      (rawResult, rawParsePagesRootSha256) => {
+        if (
+          rawResult === null ||
+          typeof rawResult !== "object" ||
+          OWNED_LINK_RESULTS.get(rawResult) === undefined ||
+          !isUint8ArrayWithByteLength(rawParsePagesRootSha256, 32) ||
+          RESTART_RESULT_PROVENANCE.has(rawResult)
+        ) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        RESTART_RESULT_PROVENANCE.set(rawResult, {
+          owner,
+          parsePagesRootSha256: new Uint8Array(rawParsePagesRootSha256),
+          revoked: false,
+        });
+        return Result.succeed(undefined);
+      };
+
+  const revoke: DeclarativeV2VerifierExecutableRestartBridgeV1["revoke"] =
+    rawResult => {
+      const provenance = rawResult !== null && typeof rawResult === "object"
+        ? RESTART_RESULT_PROVENANCE.get(rawResult)
+        : undefined;
+      if (provenance === undefined || provenance.owner !== owner) {
+        return Result.fail(executableError("access", "invalidInput"));
+      }
+      if (provenance.revoked) {
+        return Result.fail(executableError("access", "closed"));
+      }
+      provenance.revoked = true;
+      OWNED_MODULE_RESULTS.delete(rawResult as object);
+      OWNED_LINK_RESULTS.delete(rawResult as object);
+      return Result.succeed(undefined);
+    };
+
+  return Object.freeze({
+    admitModuleResult,
+    openModuleRecords,
+    readModuleRecord,
+    openLinkRecords,
+    readLinkRecord,
+    createModuleBuilder,
+    appendModuleRecord,
+    finishModuleBuilder,
+    adoptLinkResult,
+    revoke,
   });
 }

@@ -778,10 +778,18 @@ activation remain blocked until their production host composition is proven.
    commits the complete deterministic module-order root, and link completion
    must reproduce the parse-pages root admitted when the link sequence began.
    bytes encode no live proof, session, cursor, lease, fence, clock, request,
-   transport, Cause, or opaque handle and do not rehydrate one. The producer
-   and verifier-owned bounded rehydrator, additive target persistence and
-   repository operations, and executor host composition remain separate later
-   A1b2 gates.
+   transport, Cause, or opaque handle. The private A1b2a1b analysis gate now
+   produces these records directly from verifier-owned module/link arenas and
+   rehydrates them only after a factory-local synchronous claim binds fresh
+   authenticated input plus the exact reservation, output, receipt, usage, and
+   parse-page commitments. Rehydration validates metadata before payload,
+   canonical bytes, page/range/root continuity, and deterministic linker replay
+   before registering fresh process-local module or link authority; partial or
+   cancelled recovery yields no handle and never reconstructs or recharges
+   durable attempt usage. This gate remains pure, private, inert, and
+   production-unreachable. Additive target persistence and repository
+   operations, durable lease/fence ownership, and executor host composition
+   remain separate later A1b2 gates.
 
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact

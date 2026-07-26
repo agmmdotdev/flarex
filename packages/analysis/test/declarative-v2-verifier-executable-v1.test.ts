@@ -49,6 +49,7 @@ import {
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1,
   loadDeclarativeV2VerifierExecutableAssetV1,
   loadGeneratedDeclarativeV2VerifierExecutableAssetV1,
+  makeDeclarativeV2VerifierExecutableRestartBridgeV1,
   makeDeclarativeV2VerifierResultAccessFactoryV1,
   stepDeclarativeV2VerifierLinkerV1,
   type DeclarativeV2VerifierExecutableV1Error,
@@ -196,6 +197,133 @@ describe("private verifier result access", () => {
     revokedBudget.revoke();
     expect(first.moduleEvidence(module, revokedBudget.proxy)).toMatchObject({
       failure: { operation: "access", reason: "invalidInput" },
+    });
+  });
+});
+
+describe("private verifier restart bridge", () => {
+  test("derives exact parameter and token-body identities without presentation state", () => {
+    const source =
+      "export async function ready({ value } = {}, ...rest) { return value; } " +
+      "export function trailing(value,) { return value; }";
+    const module = runModuleResult(source, "functions/restart.js", 7n);
+    const bridge = makeDeclarativeV2VerifierExecutableRestartBridgeV1();
+    const restartBudget = budget(
+      "command_budget",
+      UTF8_ENCODER.encode(source).byteLength,
+    );
+    const opened = bridge.openModuleRecords(
+      module,
+      new Uint8Array(32).fill(9),
+      restartBudget,
+    );
+    if (Result.isFailure(opened)) throw opened.failure;
+    const records = [];
+    for (let iteration = 0; iteration < 10_000; iteration += 1) {
+      const read = bridge.readModuleRecord(opened.success, 1);
+      if (Result.isFailure(read)) throw read.failure;
+      if (read.success.status === "complete") break;
+      if (read.success.status === "item") records.push(read.success.record);
+    }
+    const functionRecord = records.find(record => record.kind === "function_v1");
+    expect(functionRecord).toMatchObject({
+      kind: "function_v1",
+      moduleOrdinal: 7n,
+      parameterCount: 2n,
+    });
+    if (functionRecord?.kind !== "function_v1") {
+      throw new Error("missing restart function record");
+    }
+    expect(functionRecord.bodySha256).toHaveLength(32);
+    expect(Buffer.from(functionRecord.bodySha256).toString("hex")).toBe(
+      "2470d90e8213df2a96132ad57ecdf319739bd5560033d0ae6bba4f5f3c0f8260",
+    );
+    const trailingFunction = records.find(record =>
+      record.kind === "function_v1" && record.functionName === "trailing"
+    );
+    expect(trailingFunction).toMatchObject({
+      kind: "function_v1",
+      parameterCount: 1n,
+    });
+    if (trailingFunction?.kind !== "function_v1") {
+      throw new Error("missing trailing restart function record");
+    }
+    expect(Buffer.from(trailingFunction.bodySha256).toString("hex")).toBe(
+      "54a3c42d45ac338b1cfd8316bdb7f11735e6055bf4dc7b6d03c1be71c0053961",
+    );
+    expect(createHash("sha256").update(functionRecord.bodySha256).digest("hex"))
+      .toMatch(/^[0-9a-f]{64}$/);
+    expect(bridge.readModuleRecord(opened.success, 1)).toMatchObject({
+      failure: { operation: "access", reason: "closed" },
+    });
+    expect(bridge.readModuleRecord(Object.freeze({
+      _tag: "DeclarativeV2VerifierRestartRecordCursorV1",
+    }), 1)).toMatchObject({
+      failure: { operation: "access", reason: "invalidInput" },
+    });
+    const textOneLess = Result.getOrThrow(bridge.openModuleRecords(
+      module,
+      new Uint8Array(32).fill(9),
+      budget(
+        "command_budget",
+        UTF8_ENCODER.encode(source).byteLength,
+        { stringBytes: 0n },
+      ),
+    ));
+    expect(bridge.readModuleRecord(textOneLess, 1)).toMatchObject({
+      success: { status: "pending" },
+    });
+    expect(bridge.readModuleRecord(textOneLess, 1)).toMatchObject({
+      failure: {
+        operation: "access",
+        reason: "budgetExceeded",
+        dimension: "stringBytes",
+      },
+    });
+    const builder = Result.getOrThrow(bridge.createModuleBuilder(
+      budget("command_budget", UTF8_ENCODER.encode(source).byteLength),
+      budget("attempt_usage", UTF8_ENCODER.encode(source).byteLength),
+    ));
+    for (const record of records) {
+      Result.getOrThrow(bridge.appendModuleRecord(builder, record));
+    }
+    let cold: DeclarativeV2VerifierModuleResultV1 | undefined;
+    for (let iteration = 0; iteration < 100_000; iteration += 1) {
+      const built = Result.getOrThrow(bridge.finishModuleBuilder(builder, 1));
+      if (built.status === "complete") {
+        cold = built.result;
+        break;
+      }
+    }
+    if (cold === undefined) throw new Error("cold module builder did not finish");
+    expect(cold.evidenceSha256).toBe(module.evidenceSha256);
+    expect(
+      makeDeclarativeV2VerifierExecutableRestartBridgeV1().openModuleRecords(
+        cold,
+        new Uint8Array(32).fill(9),
+        restartBudget,
+      ),
+    ).toMatchObject({
+      failure: { operation: "access", reason: "invalidInput" },
+    });
+    expect(
+      bridge.openModuleRecords(
+        cold,
+        new Uint8Array(32).fill(9),
+        restartBudget,
+      ),
+    ).toMatchObject({
+      success: { _tag: "DeclarativeV2VerifierRestartRecordCursorV1" },
+    });
+    Result.getOrThrow(bridge.revoke(cold));
+    expect(
+      bridge.openModuleRecords(
+        cold,
+        new Uint8Array(32).fill(9),
+        restartBudget,
+      ),
+    ).toMatchObject({
+      failure: { operation: "access", reason: "closed" },
     });
   });
 });
@@ -3161,6 +3289,9 @@ describe("Declarative V2 streaming engine", () => {
       "@flarex/analysis/internal/declarative-v2-verifier-v1"
     );
     expect(internal.createDeclarativeV2VerifierEngineV1).toBeTypeOf("function");
+    expect(
+      "makeDeclarativeV2VerifierExecutableRestartBridgeV1" in internal,
+    ).toBe(false);
     const loaded = loadGeneratedDeclarativeV2VerifierExecutableAssetV1(
       GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1.assetByteLength,
     );

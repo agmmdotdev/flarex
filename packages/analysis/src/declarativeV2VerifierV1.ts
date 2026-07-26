@@ -560,8 +560,50 @@ export function planDeclarativeV2VerifierArenaV1(
 
 export * from "./declarativeV2SemanticRecordsV1";
 export * from "./declarativeV2VerificationEvidenceV2";
-export * from "./declarativeV2VerifierExecutableV1";
+export {
+  appendDeclarativeV2VerifierLinkerModuleV1,
+  createDeclarativeV2VerifierEngineV1,
+  createDeclarativeV2VerifierLinkerV1,
+  DECLARATIVE_V2_VERIFIER_EXECUTABLE_V1_TEST_ONLY,
+  DeclarativeV2VerifierExecutableV1Error,
+  finishDeclarativeV2VerifierLinkerV1,
+  GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1,
+  loadDeclarativeV2VerifierExecutableAssetV1,
+  loadGeneratedDeclarativeV2VerifierExecutableAssetV1,
+  makeDeclarativeV2VerifierResultAccessFactoryV1,
+  stepDeclarativeV2VerifierLinkerV1,
+} from "./declarativeV2VerifierExecutableV1";
+export type {
+  DeclarativeV2VerifierAccessPendingV1,
+  DeclarativeV2VerifierEvidenceCompleteV1,
+  DeclarativeV2VerifierEvidenceItemV1,
+  DeclarativeV2VerifierEvidenceReadV1,
+  DeclarativeV2VerifierEngineCreateV1,
+  DeclarativeV2VerifierEngineFinishPendingV1,
+  DeclarativeV2VerifierEngineFinishResultV1,
+  DeclarativeV2VerifierEngineStepReceiptV1,
+  DeclarativeV2VerifierEngineV1,
+  DeclarativeV2VerifierExecutableAssetV1,
+  DeclarativeV2VerifierExecutableSectionV1,
+  DeclarativeV2VerifierExecutableV1ErrorReason,
+  DeclarativeV2VerifierExportSummaryV1,
+  DeclarativeV2VerifierFunctionSummaryV1,
+  DeclarativeV2VerifierHandlerLookupCompleteV1,
+  DeclarativeV2VerifierHandlerLookupStepV1,
+  DeclarativeV2VerifierHandlerLookupV1,
+  DeclarativeV2VerifierImportSummaryV1,
+  DeclarativeV2VerifierLinkEvidenceCursorV1,
+  DeclarativeV2VerifierLinkPendingV1,
+  DeclarativeV2VerifierLinkResultV1,
+  DeclarativeV2VerifierLinkStepV1,
+  DeclarativeV2VerifierLinkerV1,
+  DeclarativeV2VerifierModuleEvidenceCursorV1,
+  DeclarativeV2VerifierModulePresentationV1,
+  DeclarativeV2VerifierModuleResultV1,
+  DeclarativeV2VerifierResultAccessFactoryV1,
+} from "./declarativeV2VerifierExecutableV1";
 export * from "./declarativeV2VerifierRestartEvidenceV1";
+export * from "./declarativeV2VerifierRestartRuntimeV1";
 export {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
   DeclarativeV2ArtifactModulePathV1Error,
