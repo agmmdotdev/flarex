@@ -787,9 +787,21 @@ activation remain blocked until their production host composition is proven.
    before registering fresh process-local module or link authority; partial or
    cancelled recovery yields no handle and never reconstructs or recharges
    durable attempt usage. This gate remains pure, private, inert, and
-   production-unreachable. Additive target persistence and repository
-   operations, durable lease/fence ownership, and executor host composition
-   remain separate later A1b2 gates.
+   production-unreachable.
+
+   The A1b2b0 storage foundation is additive and V2-only. Dedicated attempt,
+   command, and ordered evidence-page tables retain the accepted canonical
+   reservation/output/receipt/progress frames, immutable settled
+   26-dimension usage, page-manifest metadata, and separately admitted restart
+   payload bytes. Composite primary and foreign keys preserve exact
+   attempt/sequence/reservation lineage with `ON DELETE RESTRICT`; existing V1
+   tables and codec meanings are unchanged. A persistence-private pure stored
+   row decoder validates hostile metadata without invoking accessors, admits
+   lengths before byte copies, and reuses the protocol codec for canonical
+   frame truth. These rows and normalized columns remain inert evidence and
+   grant no proof, lease, work token, replay, settlement, or verifier authority.
+   Transactional repository operations, durable lease/fence ownership, and
+   executor host composition remain separate later A1b2 gates.
 
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact

@@ -75,6 +75,9 @@ describe("createPGlitePersistence", () => {
       "fx_system_declarative_v2_registration",
       "fx_system_declarative_v2_verdict",
       "fx_system_declarative_v2_verifier_attempt",
+      "fx_system_declarative_v2_verifier_attempt_v2",
+      "fx_system_declarative_v2_verifier_command_v2",
+      "fx_system_declarative_v2_verifier_evidence_page_v2",
       "fx_system_idempotency",
       "fx_system_index_build_state",
       "fx_system_outbox",
@@ -1155,7 +1158,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "36" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "37" }]);
     } finally {
       try {
         await db.close();
@@ -1349,7 +1352,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "36" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "37" }]);
     } finally {
       try {
         await db.close();
@@ -1386,7 +1389,7 @@ describe("createPGlitePersistence", () => {
       }
       const previousJournal = {
         ...parsedJournal,
-        entries: parsedJournal.entries.slice(0, -2),
+        entries: parsedJournal.entries.slice(0, -3),
       };
       await writeFile(
         copiedJournalPath,
@@ -1456,7 +1459,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "36" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "37" }]);
     } finally {
       try {
         await db.close();
@@ -1493,7 +1496,7 @@ describe("createPGlitePersistence", () => {
         copiedJournalPath,
         `${JSON.stringify({
           ...parsedJournal,
-          entries: parsedJournal.entries.slice(0, -1),
+          entries: parsedJournal.entries.slice(0, -2),
         }, null, 2)}\n`,
         "utf8",
       );
@@ -1507,6 +1510,7 @@ describe("createPGlitePersistence", () => {
         from information_schema.tables
         where table_schema = current_schema()
           and table_name like 'fx_system_declarative_v2_%'
+          and table_name not like '%\\_v2' escape '\\'
       `);
       expect(before.rows).toEqual([{ count: "0" }]);
 
@@ -1522,6 +1526,7 @@ describe("createPGlitePersistence", () => {
         from information_schema.tables
         where table_schema = current_schema()
           and table_name like 'fx_system_declarative_v2_%'
+          and table_name not like '%\\_v2' escape '\\'
       `);
       expect(after.rows).toEqual([{ count: "13" }]);
       const constraints = await current.query<{
@@ -1533,6 +1538,7 @@ describe("createPGlitePersistence", () => {
           count(*) filter (where contype = 'f')::text as foreign_key_count
         from pg_constraint
         where conname like 'fx_dv2_%'
+          and conname not like '%\\_v2\\_%' escape '\\'
       `);
       expect(constraints.rows).toEqual([{
         check_count: "43",
@@ -1543,6 +1549,396 @@ describe("createPGlitePersistence", () => {
         from fx_system_declarative_v2_activation_head
       `);
       expect(heads.rows).toEqual([{ count: "0" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds isolated V2 verifier progress storage without reinterpreting populated V1 rows", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-dv2-b2-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournalPath = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const currentJournalText = await readFile(currentJournalPath, "utf8");
+      const parsedJournal: unknown = JSON.parse(currentJournalText);
+      if (
+        !isNonArrayRecord(parsedJournal) ||
+        !Array.isArray(parsedJournal.entries) ||
+        parsedJournal.entries.length < 1
+      ) {
+        throw new Error("Expected a nonempty Drizzle migration journal.");
+      }
+      await writeFile(
+        copiedJournalPath,
+        `${JSON.stringify({
+          ...parsedJournal,
+          entries: parsedJournal.entries.slice(0, -1),
+        }, null, 2)}\n`,
+        "utf8",
+      );
+      const previous = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await previous.migrate();
+      await previous.query(`
+        insert into fx_system_scope_clock
+          (scope_id, storage_generation, epoch)
+        values
+          ('scope_dv2_v1_preserved', 'flarexdb_v1', 'epoch-dv2-v1')
+      `);
+      await previous.query(`
+        insert into fx_system_declarative_v2_candidate (
+          scope_id,
+          candidate_sha256,
+          storage_generation,
+          storage_generation_fence,
+          epoch,
+          frame_codec_version,
+          frame_byte_length,
+          frame_sha256,
+          frame_bytes
+        ) values (
+          'scope_dv2_v1_preserved',
+          decode(repeat('11', 32), 'hex'),
+          'flarexdb_v1',
+          1,
+          'epoch-dv2-v1',
+          1,
+          1,
+          decode(repeat('11', 32), 'hex'),
+          decode('00', 'hex')
+        )
+      `);
+      await previous.query(`
+        insert into fx_system_declarative_v2_verifier_attempt (
+          scope_id,
+          attempt_sha256,
+          candidate_sha256,
+          lifecycle,
+          identity_codec_version,
+          identity_byte_length,
+          identity_sha256,
+          identity_bytes,
+          ceilings_codec_version,
+          ceilings_byte_length,
+          ceilings_sha256,
+          ceilings_bytes,
+          usage_codec_version,
+          usage_byte_length,
+          usage_sha256,
+          usage_bytes,
+          progress_codec_version,
+          progress_byte_length,
+          progress_sha256,
+          progress_bytes
+        ) values (
+          'scope_dv2_v1_preserved',
+          decode(repeat('22', 32), 'hex'),
+          decode(repeat('11', 32), 'hex'),
+          'open',
+          1,
+          1,
+          decode(repeat('22', 32), 'hex'),
+          decode('00', 'hex'),
+          1,
+          1,
+          decode(repeat('33', 32), 'hex'),
+          decode('00', 'hex'),
+          1,
+          1,
+          decode(repeat('44', 32), 'hex'),
+          decode('00', 'hex'),
+          1,
+          1,
+          decode(repeat('55', 32), 'hex'),
+          decode('00', 'hex')
+        )
+      `);
+      await expect(previous.query(
+        `select count(*) from fx_system_declarative_v2_verifier_attempt_v2`,
+      )).rejects.toThrow();
+
+      await writeFile(copiedJournalPath, currentJournalText, "utf8");
+      const current = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await current.migrate();
+      await current.migrate();
+
+      const v2Tables = await current.query<{ table_name: string }>(`
+        select table_name
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name in (
+            'fx_system_declarative_v2_verifier_attempt_v2',
+            'fx_system_declarative_v2_verifier_command_v2',
+            'fx_system_declarative_v2_verifier_evidence_page_v2'
+          )
+        order by table_name
+      `);
+      expect(v2Tables.rows).toEqual([
+        { table_name: "fx_system_declarative_v2_verifier_attempt_v2" },
+        { table_name: "fx_system_declarative_v2_verifier_command_v2" },
+        { table_name: "fx_system_declarative_v2_verifier_evidence_page_v2" },
+      ]);
+      const v2Rows = await current.query<{ count: string }>(`
+        select (
+          (select count(*) from fx_system_declarative_v2_verifier_attempt_v2)
+          + (select count(*) from fx_system_declarative_v2_verifier_command_v2)
+          + (select count(*) from fx_system_declarative_v2_verifier_evidence_page_v2)
+        )::text as count
+      `);
+      expect(v2Rows.rows).toEqual([{ count: "0" }]);
+      const preserved = await current.query<{
+        attempt_count: string;
+        candidate_count: string;
+      }>(`
+        select
+          (
+            select count(*)::text
+            from fx_system_declarative_v2_verifier_attempt
+            where scope_id = 'scope_dv2_v1_preserved'
+          ) as attempt_count,
+          (
+            select count(*)::text
+            from fx_system_declarative_v2_candidate
+            where scope_id = 'scope_dv2_v1_preserved'
+          ) as candidate_count
+      `);
+      expect(preserved.rows).toEqual([{
+        attempt_count: "1",
+        candidate_count: "1",
+      }]);
+      const constraints = await current.query<{
+        check_count: string;
+        foreign_key_count: string;
+        restrict_foreign_key_count: string;
+      }>(`
+        select
+          count(*) filter (where contype = 'c')::text as check_count,
+          count(*) filter (where contype = 'f')::text as foreign_key_count,
+          count(*) filter (
+            where contype = 'f' and confdeltype = 'r'
+          )::text as restrict_foreign_key_count
+        from pg_constraint
+        where conname like 'fx_dv2_%_v2_%'
+      `);
+      expect(constraints.rows).toEqual([{
+        check_count: "24",
+        foreign_key_count: "3",
+        restrict_foreign_key_count: "3",
+      }]);
+      const constraintNames = await current.query<{
+        conname: string;
+      }>(`
+        select conname
+        from pg_constraint
+        where conname like 'fx_dv2_%_v2_%'
+        order by conname
+      `);
+      expect(constraintNames.rows.map((row) => row.conname)).toEqual([
+        "fx_dv2_attempt_v2_candidate_fk",
+        "fx_dv2_attempt_v2_ceilings_frame_check",
+        "fx_dv2_attempt_v2_digest_check",
+        "fx_dv2_attempt_v2_fence_check",
+        "fx_dv2_attempt_v2_identity_frame_check",
+        "fx_dv2_attempt_v2_lease_check",
+        "fx_dv2_attempt_v2_lifecycle_check",
+        "fx_dv2_attempt_v2_pending_check",
+        "fx_dv2_attempt_v2_progress_frame_check",
+        "fx_dv2_attempt_v2_settled_check",
+        "fx_dv2_attempt_v2_timestamps_check",
+        "fx_dv2_attempt_v2_usage_frame_check",
+        "fx_dv2_command_v2_attempt_fk",
+        "fx_dv2_command_v2_budget_frame_check",
+        "fx_dv2_command_v2_identity_check",
+        "fx_dv2_command_v2_page_tail_check",
+        "fx_dv2_command_v2_reservation_check",
+        "fx_dv2_command_v2_reservation_frame_check",
+        "fx_dv2_command_v2_reservation_unique",
+        "fx_dv2_command_v2_settlement_check",
+        "fx_dv2_page_v2_command_fk",
+        "fx_dv2_page_v2_created_check",
+        "fx_dv2_page_v2_identity_check",
+        "fx_dv2_page_v2_manifest_frame_check",
+        "fx_dv2_page_v2_payload_check",
+        "fx_dv2_page_v2_predecessor_check",
+        "fx_dv2_page_v2_range_check",
+        "fx_dv2_page_v2_roots_check",
+      ]);
+      const indexes = await current.query<{
+        indexname: string;
+        indexdef: string;
+      }>(`
+        select indexname, indexdef
+        from pg_indexes
+        where schemaname = current_schema()
+          and tablename in (
+            'fx_system_declarative_v2_verifier_attempt_v2',
+            'fx_system_declarative_v2_verifier_command_v2',
+            'fx_system_declarative_v2_verifier_evidence_page_v2'
+          )
+        order by indexname
+      `);
+      expect(indexes.rows).toHaveLength(4);
+      expect(indexes.rows.map((row) => row.indexdef)).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("(scope_id, attempt_sha256)"),
+          expect.stringContaining("(scope_id, attempt_sha256, sequence)"),
+          expect.stringContaining(
+            "(scope_id, attempt_sha256, sequence, page_ordinal)",
+          ),
+          expect.stringContaining(
+            "(scope_id, attempt_sha256, sequence, reservation_sha256, command_kind)",
+          ),
+        ]),
+      );
+      const attemptValues = `
+        'scope_dv2_v1_preserved',
+        decode(repeat('66', 32), 'hex'),
+        decode(repeat('11', 32), 'hex'),
+        'open',
+        2, 1, decode(repeat('66', 32), 'hex'), decode('00', 'hex'),
+        2, 1, decode(repeat('67', 32), 'hex'), decode('00', 'hex'),
+        2, 1, decode(repeat('68', 32), 'hex'), decode('00', 'hex'),
+        2, 1, decode(repeat('69', 32), 'hex'), decode('00', 'hex')
+      `;
+      const attemptColumns = `
+        scope_id, attempt_sha256, candidate_sha256, lifecycle,
+        identity_codec_version, identity_byte_length, identity_sha256,
+        identity_bytes, ceilings_codec_version, ceilings_byte_length,
+        ceilings_sha256, ceilings_bytes, usage_codec_version,
+        usage_byte_length, usage_sha256, usage_bytes, progress_codec_version,
+        progress_byte_length, progress_sha256, progress_bytes
+      `;
+      await expect(current.query(`
+        insert into fx_system_declarative_v2_verifier_attempt_v2 (
+          ${attemptColumns}, settled_sequence
+        ) values (${attemptValues}, 1)
+      `)).rejects.toThrow();
+      await current.query(`
+        insert into fx_system_declarative_v2_verifier_attempt_v2 (
+          ${attemptColumns}
+        ) values (${attemptValues})
+      `);
+      await expect(current.query(`
+        update fx_system_declarative_v2_verifier_attempt_v2
+        set
+          writer_owner_id = '00000000-0000-0000-0000-000000000001',
+          writer_fence = 2,
+          lease_updated_at = now(),
+          lease_expires_at = now() + interval '1 minute',
+          pending_kind = 'parse_module',
+          pending_sequence = 1,
+          pending_reservation_sha256 = decode(repeat('70', 32), 'hex'),
+          pending_reserved_by_fence = 1,
+          pending_started_at = now()
+        where scope_id = 'scope_dv2_v1_preserved'
+      `)).rejects.toThrow();
+      const commandColumns = `
+        scope_id, attempt_sha256, sequence, command_kind, reservation_sha256,
+        reservation_codec_version, reservation_byte_length,
+        reservation_frame_sha256, reservation_bytes,
+        command_budget_codec_version, command_budget_byte_length,
+        command_budget_sha256, command_budget_bytes, reserved_by_fence,
+        reserved_at
+      `;
+      const commandValues = `
+        'scope_dv2_v1_preserved',
+        decode(repeat('66', 32), 'hex'),
+        1,
+        'parse_module',
+        decode(repeat('70', 32), 'hex'),
+        2, 1, decode(repeat('70', 32), 'hex'), decode('00', 'hex'),
+        2, 1, decode(repeat('71', 32), 'hex'), decode('00', 'hex'),
+        1,
+        now()
+      `;
+      await expect(current.query(`
+        insert into fx_system_declarative_v2_verifier_command_v2 (
+          ${commandColumns}, page_count
+        ) values (${commandValues}, 1)
+      `)).rejects.toThrow();
+      await current.query(`
+        insert into fx_system_declarative_v2_verifier_command_v2 (
+          ${commandColumns}
+        ) values (${commandValues})
+      `);
+      await expect(current.query(`
+        update fx_system_declarative_v2_verifier_command_v2
+        set
+          output_manifest_codec_version = 2,
+          output_manifest_byte_length = 1,
+          output_manifest_sha256 = decode(repeat('75', 32), 'hex'),
+          output_manifest_bytes = decode('00', 'hex'),
+          command_usage_codec_version = 2,
+          command_usage_byte_length = 1,
+          command_usage_sha256 = decode(repeat('76', 32), 'hex'),
+          command_usage_bytes = decode('00', 'hex'),
+          resulting_usage_codec_version = 2,
+          resulting_usage_byte_length = 1,
+          resulting_usage_sha256 = decode(repeat('77', 32), 'hex'),
+          resulting_usage_bytes = decode('00', 'hex'),
+          next_progress_codec_version = 2,
+          next_progress_byte_length = 1,
+          next_progress_sha256 = decode(repeat('78', 32), 'hex'),
+          next_progress_bytes = decode('00', 'hex'),
+          receipt_codec_version = 2,
+          receipt_byte_length = 1,
+          receipt_sha256 = decode(repeat('79', 32), 'hex'),
+          receipt_bytes = decode('00', 'hex'),
+          settled_at = reserved_at
+        where scope_id = 'scope_dv2_v1_preserved'
+      `)).rejects.toThrow();
+      await expect(current.query(`
+        insert into fx_system_declarative_v2_verifier_evidence_page_v2 (
+          scope_id, attempt_sha256, sequence, command_kind,
+          reservation_sha256, page_ordinal, page_sha256,
+          first_evidence_ordinal, evidence_count, first_diagnostic_ordinal,
+          diagnostic_count, predecessor_page_sha256,
+          cumulative_diagnostics_root_sha256, manifest_codec_version,
+          manifest_byte_length, manifest_sha256, manifest_bytes,
+          payload_codec_version, payload_byte_length, payload_sha256,
+          payload_bytes
+        ) values (
+          'scope_dv2_v1_preserved',
+          decode(repeat('66', 32), 'hex'),
+          1,
+          'parse_module',
+          decode(repeat('70', 32), 'hex'),
+          1,
+          decode(repeat('72', 32), 'hex'),
+          1,
+          1,
+          0,
+          0,
+          null,
+          decode(repeat('73', 32), 'hex'),
+          2,
+          1,
+          decode(repeat('72', 32), 'hex'),
+          decode('00', 'hex'),
+          1,
+          1,
+          decode(repeat('74', 32), 'hex'),
+          decode('00', 'hex')
+        )
+      `)).rejects.toThrow();
     } finally {
       try {
         await db.close();

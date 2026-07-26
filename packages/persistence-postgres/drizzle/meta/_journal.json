@@ -253,6 +253,13 @@
       "when": 1784794011477,
       "tag": "0035_declarative_v2_inert_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785029410955,
+      "tag": "0036_gifted_longshot",
+      "breakpoints": true
     }
   ]
 }

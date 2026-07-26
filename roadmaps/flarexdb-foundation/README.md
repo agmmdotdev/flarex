@@ -884,9 +884,17 @@ metadata-first bounded validation and deterministic linker replay before
 registering new process-local module/link handles. Recovery usage is separate
 from immutable settled attempt usage, and incomplete recovery grants no
 authority. This producer/rehydrator remains pure, inert, and
-production-unreachable; additive target persistence and repository behavior,
-durable lease/fence ownership, and executor host composition remain later
-A1b2 gates.
+production-unreachable.
+
+The additive A1b2b0 storage foundation gives V2 its own target-local attempt,
+command, and ordered evidence-page rows. They preserve canonical portable
+frames, immutable settled 26-dimension usage/progress, and metadata-first
+restart payload admission under exact composite keys and restrictive foreign
+keys without changing any V1 row or codec meaning. Persistence-private pure
+decoding owns stored-row shape, defensive copies, and canonical protocol-frame
+checks, but serialized bytes, digests, leases, fences, and normalized columns
+remain inert evidence. Transactional repository behavior, durable lease/fence
+ownership, and executor host composition remain later A1b2 gates.
 
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the
