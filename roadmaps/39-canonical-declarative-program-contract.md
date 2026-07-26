@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-**Status:** Accepted architectural direction; implementation is deferred until
-the preflight in this record is completed, reviewed, and accepted.
+**Status:** Preflight completed and accepted. The first implementation slice is
+approved below, but no production producer or consumer has been migrated.
 
 This record owns the proposed standard contract boundary between:
 
@@ -179,16 +179,13 @@ The canonical program contract must not carry:
 - Cloudflare bindings, Worker Loader handles, or R2 credentials; or
 - caller-authored claims that source or semantic content has been verified.
 
-### Prefer A Dedicated Domain Owner If The Preflight Proves It
+### Use A Dedicated Domain Owner
 
-The leading package candidate is `@flarex/declarative-program`. It would own
-the host-neutral in-memory model, strict decoder, deterministic normalization,
-and fixture construction needed by independent SDK/compiler and analysis/test
-consumers.
-
-The name and package are provisional. The preflight may instead prove that the
-wire portions belong in explicit `flarex-protocol` subpaths while the SDK
-adapter remains in `flarex` and no new runtime package is justified. It must
+The completed preflight selects `@flarex/declarative-program`. It owns the
+host-neutral in-memory model, strict decoder, deterministic normalization, and
+fixture construction needed by independent SDK/compiler and analysis/test
+consumers. Exact wire primitives remain in explicit `flarex-protocol`
+subpaths, and the SDK adapter remains outside the contract package. This does
 not create a vague `core`, `common`, or catch-all package.
 
 ## Proposed Contract Responsibilities
@@ -197,16 +194,19 @@ Subject to preflight, the canonical program input should be able to describe:
 
 - contract/version identity;
 - logical modules and canonical module paths;
-- declared function path, kind, visibility, validators, and supported policy;
-- schema tables, document validators, logical indexes, and accepted placement
-  intent;
-- portable module-source or build-input references needed by the build owner;
-- source-map associations when present; and
+- function export identity, derived path, kind, visibility, and validators;
+- schema tables, document validators, and logical indexes;
 - deterministic ordering and bounded counts.
 
 It should not attempt to encode JavaScript closures or pretend a TypeScript
 type is runtime evidence. Executable functions still become portable ESM.
 Runtime validators and declarations need an explicit encoded form.
+
+The completed preflight narrows this responsibility: module source, source
+maps, and source positions are not members of the canonical program. They are
+build inputs and derived analyzer evidence, joined by canonical module path.
+Likewise, catalog schema versions, table IDs, index IDs, lifecycle state, and
+physical bindings are derived deployment values, not developer intent.
 
 ## Mandatory Preflight Before Implementation
 
@@ -304,6 +304,303 @@ Specify focused tests for:
 - package export and fresh-consumer behavior if anything becomes public; and
 - unchanged activation, OCC, commit, feed, and application-row semantics.
 
+## Completed Preflight
+
+### P1. Producer, Consumer, And Trust Inventory
+
+The current edges are:
+
+| Edge | Current producer | Current consumer | Actual claim |
+| --- | --- | --- | --- |
+| SDK schema object | `flarex` schema builders | `@flarex/analysis` | Mutable process-local developer object; not canonical and not authority |
+| registered function object | `flarex` function builders | loaded-module analysis | Process-local object containing markers, exporters, handler closures, and legacy partition policy |
+| loaded execution modules | `flarex-dev` data-URL or Miniflare module evaluation | `analyzeExecutionModulesEffect` | Executed developer code plus module namespace objects; untrusted runtime values |
+| V1 source package and source maps | `flarex-dev` Vite bundling | local or isolated V1 analyzer | Developer-produced portable source text and optional debugging evidence |
+| V1 deployment analysis/codegen analysis | `@flarex/analysis` | V1 push and code generation | Decoded analysis data; not Declarative V2 verification authority |
+| Source Artifact V2 | Declarative V2 upload/finalization | authenticated read session and verifier | Immutable finalized source bytes and provenance after the owning finalization proof |
+| Semantic Artifact V1 | developer/CI materialization and finalization | semantic stream decoder and verifier | Canonical bounded NDJSON artifact evidence; its decoded records remain inert |
+| authenticated analyzer command | backend command producer | private analyzer/verifier compute | Request-scoped, bounded, inert command; it cannot mint backend or deployment authority |
+| verifier progress/evidence | private verifier plus backend persistence | readiness/projection owners | Evidence requiring backend authentication and stored correlation before it is trusted |
+| active point-mutation metadata | activation/projection owner | point-mutation start | Trusted runtime-selection data containing function validators and schema manifest |
+| exact-runtime request | executor runtime-neutral runner | isolated Dynamic Worker | Strict bounded execution projection; the separate journal object is the only database capability |
+
+This inventory confirms that a normalized developer program belongs before
+artifact creation. It must not be accepted where finalized artifact proof,
+authenticated verifier evidence, active metadata, or an execution capability
+is required.
+
+### P2. Shape And Semantics Matrix
+
+| Concern | Current source | Canonical program decision | Later owner |
+| --- | --- | --- | --- |
+| module identity | source-package path and loaded-module key | one validated logical module path; modules sorted by UTF-16 code-unit order | Source Artifact V2 revalidates its artifact path contract |
+| function identity | module key plus export name; V1 path is derived | store module path and export name once; derive the function path with the current default-versus-named rule | semantic materializer emits function and handler records |
+| kind and visibility | runtime marker properties | explicit closed unions | analyzer and runtime projection retain their narrower admission checks |
+| argument validator | live validator or `exportArgs()` JSON | protocol `ValidatorJsonV1`, restricted to object or `any` for function arguments | semantic validator record and active runtime metadata |
+| return validator | live validator or `exportReturns()` JSON | protocol `ValidatorJsonV1 | null`; omission is invalid after normalization | semantic validator record and active runtime metadata |
+| table declaration | mutable SDK table object | reuse schema-manifest app table declaration input; no catalog table ID | schema-manifest materializer assigns/binds IDs |
+| index declaration | mutable SDK index array | reuse schema-manifest app index declaration input; developer field order is significant | schema materialization owns physical identity and lifecycle |
+| table placement | SDK `partitionBy`, `colocateWith`, or `global`; missing currently means `_id` partitioning | not admitted by the first canonical contract except the target-compatible global/unpartitioned slice | a later FlarexDB placement preflight must decide its target contract |
+| function partition | SDK exporter and analyzer-owned lowering | not admitted in the first slice | a later compatibility or target-routing decision; it is not silently frozen into V1 |
+| source module text | V1 `SourceModule.source` | excluded; a build input keyed by canonical module path | bundler and Source Artifact V2 |
+| source map and position | source-package source map and analyzer regex resolution | excluded; source map is build evidence and position is derived analyzer evidence | analyzer diagnostics/codegen |
+| schema/catalog version | analyzer currently synthesizes version `1`; runtime uses catalog version IDs | excluded | schema catalog and deployment projection |
+| table/index IDs and state | current V1 analysis synthesizes numeric IDs; manifests own stable bindings | excluded | schema catalog, persistence, and activation |
+| handler closure | registered function `_handler` | excluded | portable ESM module export |
+| runtime/database capability | host context, binding, and journal objects | prohibited | function runtime host and one-call journal boundary |
+
+Omission, `undefined`, and `null` are not interchangeable. The unknown-input
+decoder rejects missing required members and explicit `undefined`; only fields
+whose type includes `null` admit explicit absence. Normalized output contains
+no optional representation chosen merely for producer convenience.
+
+### P3. Convex Comparison And Required Divergence
+
+Convex provides a useful ergonomic precedent, not the target internal
+contract. Its SDK schema class exports JSON, registered functions expose
+`exportArgs()` and `exportReturns()`, and server-side analysis evaluates module
+namespaces in an isolate before inspecting those runtime objects. Flarex's
+current V1 path closely follows that shape.
+
+Flarex should retain the developer-facing ergonomics and validator spellings,
+but it must diverge at the downstream boundary:
+
+- developer/CI tooling, not the trusted backend verifier, owns TypeScript,
+  dependency resolution, bundling, and evaluation of SDK exporters;
+- portable ESM and immutable Source Artifact V2 replace Convex's assumption
+  that the server can treat the submitted module graph as its build input;
+- Semantic Artifact V1 provides bounded declaration evidence independently of
+  JavaScript object identity;
+- Postgres schema/catalog authority assigns table and index identities rather
+  than accepting analyzer-synthesized IDs as authority; and
+- Cloudflare Worker isolation and explicit journal capabilities prevent a
+  loaded application module from inheriting backend bindings.
+
+Therefore, directly porting Convex's runtime-object analyzer as the permanent
+inter-domain API would preserve the coupling this roadmap is intended to
+remove.
+
+### P4. Package Decision
+
+The selected owner is a dedicated, initially workspace-internal
+`@flarex/declarative-program` package with an explicit `/v1` export. It owns the
+pure versioned model, strict decoder, deterministic normalizer, budget value,
+typed normalization errors, function-path derivation, and direct fixture
+builder. It does not re-export through the public `flarex` root.
+
+Dependency direction:
+
+```text
+@flarex/declarative-program
+  --imports--> @flarex/utils
+  --imports--> effect                 (Result and Schema only)
+  --imports--> flarex-protocol        (exact validator and schema-declaration contracts)
+
+@flarex/analysis
+  --imports--> @flarex/declarative-program
+
+flarex-dev
+  --imports--> flarex
+  --imports--> @flarex/declarative-program
+  --imports--> @flarex/analysis
+
+flarex
+  --does not import--> @flarex/declarative-program in the first slice
+```
+
+The package is host-neutral: no Node filesystem API, Vite, Miniflare,
+Cloudflare binding, persistence adapter, Context service, Layer, or Effect
+runner. Pure unknown-input recovery returns Effect v4 `Result`; the analyzer
+enters its typed Effect error channel once with `Effect.fromResult`. Calling
+SDK exporters remains an effectful foreign boundary in the `flarex-dev`
+adapter because developer getters/functions and JSON parsing can throw.
+
+The rejected options are:
+
+1. **Protocol subpaths plus existing adapters.** Exact validator and
+   schema-declaration primitives remain in `flarex-protocol`, but the aggregate
+   program is normalized intent rather than a wire, artifact, or authority
+   protocol. Putting the aggregate there would mix lifecycle claims and make
+   the protocol package the owner of compiler composition.
+2. **Only a fixture adapter over current analysis inputs.** This would leave
+   loaded SDK classes and exporter methods as the analyzer's standard API and
+   would make fixtures a second incidental shape. It does not create the
+   independent producer/consumer boundary requested by this roadmap.
+
+The package is justified by two distinct producers—the SDK/compiler adapter
+and direct fixtures—and by two distinct downstream uses—analysis and later
+artifact materialization. Publication outside the workspace remains a
+separate semver and fresh-consumer decision.
+
+### P5. Approved V1 Contract And Canonicalization
+
+The first package must define equivalents of these concrete shapes:
+
+```ts
+interface CanonicalDeclarativeProgramV1 {
+  readonly format: "flarex.declarative-program/v1";
+  readonly version: 1;
+  readonly schema: CanonicalDeclarativeSchemaV1;
+  readonly modules: ReadonlyArray<CanonicalDeclarativeModuleV1>;
+}
+
+interface CanonicalDeclarativeSchemaV1 {
+  readonly tables:
+    ReadonlyArray<SchemaManifestAppTableDeclarationV1>;
+  readonly indexes:
+    ReadonlyArray<SchemaManifestAppIndexDeclarationV1>;
+}
+
+interface CanonicalDeclarativeModuleV1 {
+  readonly modulePath: CanonicalDeclarativeModulePathV1;
+  readonly functions: ReadonlyArray<CanonicalDeclarativeFunctionV1>;
+}
+
+interface CanonicalDeclarativeFunctionV1 {
+  readonly exportName: CanonicalDeclarativeExportNameV1;
+  readonly kind: "query" | "mutation" | "workflowMutation" | "action";
+  readonly visibility: "public" | "internal";
+  readonly argsValidator: ObjectValidatorJsonV1 | AnyValidatorJsonV1;
+  readonly returnsValidator: ValidatorJsonV1 | null;
+}
+```
+
+The function path is derived, not duplicated:
+
+```text
+default export -> modulePath
+named export   -> modulePath + ":" + exportName
+```
+
+The V1 contract deliberately has no generic metadata bag and no placement,
+partition, route, source, source-map, position, table-ID, index-ID, lifecycle,
+verification, or authority field. Adding any of those requires an owner and a
+versioned preflight; unknown fields fail rather than being retained.
+
+The package owns a tagged `CanonicalDeclarativeProgramV1Error` whose operation,
+reason, logical path, and optional observed/maximum facets are stable. Schema
+decoder errors are mapped once into that domain error; callers may translate
+the domain error at their adapter boundary but must not reinterpret defects as
+ordinary invalid input.
+
+#### Canonicalization, Budgets, And Versioning
+
+The decoder and normalizer obey these rules:
+
+1. capture exact own data records and arrays without invoking inherited
+   properties; reject accessors, symbols, sparse arrays, unknown members, and
+   `undefined`;
+2. validate input arrays from left to right, with the first invalid member or
+   second colliding identity winning;
+3. reuse protocol validator and schema-declaration decoders rather than
+   redeclaring their grammars;
+4. establish ownership by copying admitted plain data, including validator
+   trees, before recursively freezing only the supported program domain;
+5. sort modules, functions, tables, and indexes by exact UTF-16 code-unit
+   order after successful validation; preserve declared index-field order;
+6. reject duplicate module paths, derived function paths, table names, and
+   table-name/index-descriptor pairs;
+7. derive function paths once and reject path collisions, including
+   default-versus-named collisions; and
+8. emit no canonical bytes directly. Artifact owners encode the normalized
+   value into their own versioned Source Artifact V2 and Semantic Artifact V1
+   formats.
+
+`CanonicalDeclarativeProgramBudgetV1` is an opaque package-owned value created
+by a validating factory. It has explicit maxima for module count, function
+count, cumulative UTF-8 identifier bytes, validator nodes, and validator
+depth. Schema tables, indexes, indexes per table, declared index fields, and
+schema-validator depth additionally retain the exact hard ceilings already
+owned by `flarex-protocol/schema-manifest`. The normalizer receives a budget;
+there is no unbounded convenience overload and no producer-specific default.
+Artifact upload and verifier budgets remain separate and may be stricter.
+
+Program V1, Source Artifact V2, and Semantic Artifact V1 are independent
+versions. Changing one does not authorize rewriting another. Reproducibility
+means that the same owned normalized program plus the same separately
+canonicalized build inputs produces byte-identical source and semantic
+artifacts under their pinned materializer versions; the program alone cannot
+prove source bytes it does not contain.
+
+### P6. First Implementation Vertical And Compatibility Gate
+
+The approved first vertical is one global table with one ordered index and one
+public, unpartitioned mutation with explicit argument and return validators.
+It includes only:
+
+1. the new package's V1 model, opaque budget, `Result` decoder/normalizer,
+   direct fixture builder, and unit tests;
+2. a `flarex-dev` SDK/compiler adapter that lowers the selected SDK subset into
+   the same unknown-input decoder;
+3. an internal `@flarex/analysis` entrypoint that consumes only the canonical
+   program and produces the existing V1 analysis/codegen result shapes; and
+4. parity tests showing the SDK definition and direct fixture normalize to the
+   same owned program and yield the same analyzer result.
+
+The existing `analyzeLoadedSourcePackageEffect`, V1 push route, Declarative V2
+artifact path, readiness, activation, and runtime remain unchanged. The first
+slice is opt-in and internal. It must not inspect a failed canonical attempt
+and silently fall back to live SDK analysis, persist both representations, or
+publish both as competing authority.
+
+The SDK adapter reports a typed unsupported-policy failure for partitioned or
+colocated tables and partitioned functions in this slice. The current path
+continues to support them until a separate FlarexDB placement/partition
+preflight decides whether each policy is target behavior or legacy
+compatibility. This restriction is a slice boundary, not a claim that the
+current behavior has already been removed.
+
+Rollback before production routing is deletion of the new internal package and
+opt-in entrypoints; no stored state or artifact migration is involved. The
+direct live-object analyzer may be removed only after every supported
+schema/function variant has parity evidence, the selected deployment producer
+uses the canonical input without fallback, and its owning roadmap explicitly
+approves the cutover.
+
+### P7. Validation And Non-Regression Plan
+
+The first slice must run:
+
+- package typecheck, unit tests, and a fresh explicit `/v1` import test;
+- SDK-versus-fixture normalized-program deep equality and runtime ownership
+  tests;
+- analyzer output and diagnostic parity for the approved vertical;
+- repeated normalization and materialization determinism tests;
+- duplicate module/function/table/index, malformed validator, unknown-field,
+  accessor, sparse-array, over-count, over-byte, over-node, and over-depth
+  failures;
+- explicit rejection tests for legacy placement/partition in the first
+  adapter;
+- Source Artifact V2/Semantic Artifact V1 correlation tests before any later
+  materializer consumes the contract; and
+- the existing focused activation, point-mutation start, exact-runtime, OCC,
+  commit, feed, outbox, and application-row tests before any production route
+  is changed.
+
+No benchmark claim follows from the contract. It improves composability and
+test isolation; storage, index, planner, and runtime performance require their
+own measured evidence.
+
+## Preflight Exit Decision
+
+The preflight exit criteria are satisfied for the narrow first vertical:
+
+1. its producers are the `flarex-dev` SDK adapter and direct fixture builder;
+2. its first consumer is the canonical analysis entrypoint, with artifact
+   materialization explicitly deferred;
+3. intent, artifact provenance, analyzer evidence, verified projection, and
+   runtime authority remain separate;
+4. package ownership, dependency direction, versioned shapes, Result/Effect
+   boundary, error owner, ordering, budgets, and duplicates are defined;
+5. the global-table/unpartitioned-mutation slice avoids freezing unresolved
+   legacy placement and partition behavior; and
+6. rollback, removal, parity, negative, and later non-regression gates are
+   explicit.
+
+This approval does not authorize Source Artifact V2 or Semantic Artifact V1
+version changes, a production routing switch, or removal of the current
+loaded-module analyzer.
+
 ## Preflight Exit Criteria
 
 Implementation may begin only after the preflight has:
@@ -318,7 +615,8 @@ Implementation may begin only after the preflight has:
 7. defined parity and negative tests; and
 8. been recorded as an accepted update to this roadmap.
 
-An incomplete answer to any item keeps this decision research-only.
+The completed preflight above satisfies these items only for the approved
+first vertical. A wider migration remains gated.
 
 ## Known Risks
 
@@ -360,6 +658,9 @@ semantics, and no downstream domain accepts an SDK object as authority.
 
 ## Next Correctness Gate
 
-Perform only the mandatory preflight above. Do not create the candidate
-package, move types, change artifact versions, or migrate a consumer until the
-preflight result is reviewed and this record names the approved first vertical.
+Implement only the approved global-table/unpartitioned-mutation vertical:
+create the internal package contract and fixture builder, add the opt-in
+`flarex-dev` adapter and canonical analysis entrypoint, and prove parity. Do
+not route production, change artifact versions, migrate placement or partition
+policy, or touch readiness, activation, OCC, commit, feed, outbox, or
+application-row semantics.
