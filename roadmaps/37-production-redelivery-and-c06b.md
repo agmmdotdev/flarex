@@ -134,6 +134,12 @@ input without:
 12. `C06-B` composes the existing claim, publication, outcome, uncertainty, and
     commit-wake owners. It does not introduce a parallel retry coordinator or
     terminal-state machine.
+13. Production routing requires measured journal reclamation, not only correct
+    deletion SQL. Successful publication must atomically remove the exact
+    journal root and lease; recovery must retain decision-uncertain work until
+    outcome-first resolution; and the scheduler/lifecycle host must
+    idempotently terminalize expired, dirty, failed, and replaced attempts
+    without reopening stale fences.
 
 ## Risks To Pressure-Test
 
@@ -155,6 +161,10 @@ input without:
   execution authority beyond the trusted host.
 - **Export widening:** private runtime or persistence composition can become an
   accidental public package contract.
+- **Journal accumulation:** a missing or unhealthy production lifecycle host
+  can leave nonterminal journal roots and their bounded child evidence behind
+  even though ordinary commit, abort, expiry, and OCC-replacement transactions
+  contain exact deletion mechanics.
 - **Scope drift:** runtime-topology-probe work can be pulled into this slice
   despite being explicitly excluded.
 
@@ -551,6 +561,17 @@ reviewers for every significant code checkpoint, and the real-Postgres suite
 for changed persistence behavior. Update the living roadmaps to match the
 implemented boundary and leave deployment/activation explicitly pending unless
 separately authorized.
+
+The production-routing handoff from this plan must also include a real hosted
+crash/expiry soak. It must force loss before and after seal, finishing,
+publication, response delivery, and terminalization; then demonstrate bounded
+recovery-first discovery, exact fenced replay or closure, journal-root/lease
+removal with no temporary child rows left behind, and stable metrics for live
+journal count, retained bytes, oldest nonterminal age, terminalization backlog,
+and cleanup failures. Passing package tests or observing the deletion query
+once is insufficient. The retained journal envelope must follow bounded live
+attempts rather than cumulative completed sessions before `S02-D2` production
+routing can be considered.
 
 ### Current P02a Boundary
 

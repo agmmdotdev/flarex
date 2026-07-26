@@ -474,7 +474,7 @@ The clean-replacement order is:
 2. prove one exact-snapshot point-read and point-mutation vertical slice;
 3. add derived index, uniqueness, and stable-edge sidecars;
 4. pass target-native readiness, hosted Worker/Hyperdrive, and real-Postgres
-   correctness gates;
+   correctness gates, including crash/expiry journal-reclamation proof;
 5. activate `flarexdb_v1` for clean scopes behind the trusted routing fence;
 6. switch local, test, backend, executor, and sync callers to the target; and
 7. remove prototype storage/OCC/fallbacks after target-only sync, reconnect,
@@ -555,7 +555,14 @@ work forward:
    separately decide whether a narrow validator capability belongs in C03 so
    invalid writes regain Convex syscall-time/catchable behavior.
 6. Complete `H05-B` before `S02-D2` activates the hosted replacement route,
-   then migrate internal callers and remove legacy authority after target-only
+   and complete O08-B2b2b2b1b2b production scheduling/redelivery plus C06-B
+   endpoint/response ownership. The hosted proof must cover atomic journal-root
+   and lease deletion on commit, abort, expiry, and OCC replacement; bounded
+   recovery-first discovery of orphaned or finishing attempts; retry-safe
+   terminalization after lost responses; and a crash/expiry soak proving that
+   retained journal rows and bytes track bounded live work rather than completed
+   session volume. Only then may `S02-D2` activate clean target scopes. Migrate
+   internal callers and remove legacy authority only after target-only
    sync/reconnect proof.
 
 Each gate must update this roadmap only when it changes durable status,

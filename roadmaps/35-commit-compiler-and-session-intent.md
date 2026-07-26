@@ -688,7 +688,15 @@ commit transaction.
     result payloads may expire under separate owners, but the S09-A committed
     request identity, match evidence, and commit token remain non-reusable.
 14. **Journal cleanup is bounded and privacy aware.** Aborted, expired, and
-    committed temporary values have explicit TTL/cleanup behavior.
+    committed temporary values have explicit TTL/cleanup behavior. Successful
+    publication deletes the exact journal root and snapshot lease in the same
+    authoritative transaction that publishes the result, application rows,
+    commit/change evidence, outbox wake, and terminal session lifecycle. Root
+    deletion cascades through its execution claim, replay receipt, point
+    dependencies/overlays, and ordered write events. Abort, expiry, and OCC
+    replacement delete the exact fenced attempt before terminalization or
+    replacement; durable outcome, idempotency, commit/feed, and outbox rows are
+    not temporary journal state.
 15. **Host placement cannot change semantics.** Postgres-backed and optional
     facet-backed session journal stores conform to the same protocol and
     outcome rules.
@@ -697,6 +705,41 @@ commit transaction.
     SQLite directly or treats it as committed state.
 17. **Attempts do not share facets.** Every retry uses a new attempt-fenced
     facet, and terminal Postgres state wins over delayed facet work or cleanup.
+
+### Journal reclamation is a production-routing gate
+
+The row-level deletion mechanics do not by themselves prove bounded production
+storage. A normal successful commit must prove atomic publication plus exact
+journal-root and lease deletion. A process loss before a terminal decision must
+retain the journal for outcome-first recovery; it must never guess that an
+uncertain commit rolled back merely to reclaim storage. Once the authoritative
+outcome is known, committed, aborted, expired, and replaced attempts must be
+idempotently terminalized without reopening an old fence.
+
+Before the replacement route can serve production traffic, the production
+redelivery/lifecycle owner must demonstrate all of the following against real
+Postgres and the real hosted executor boundary:
+
+- bounded, paginated discovery of expired, dirty-open, failed-root, and
+  finishing attempts without an unbounded scope or journal scan;
+- recovery-before-reclamation for finishing or decision-uncertain attempts;
+- exact fenced deletion of the journal root and lease on commit, abort, expiry,
+  and OCC replacement, including cascade removal of every temporary child row;
+- retry-safe cleanup after a lost terminalization response, with terminal
+  Postgres state winning over delayed Worker, scheduler, or facet activity;
+- explicit metrics and alerts for live journal count, retained bytes, oldest
+  nonterminal age, terminalization backlog, recovery failures, and cleanup
+  failures; and
+- a crash/expiry soak showing that journal rows and bytes return to the expected
+  bounded live-attempt envelope rather than growing with completed session
+  count.
+
+This gate does not introduce a second garbage collector for authoritative
+application history. Session terminal markers, committed result/idempotency
+evidence, application revisions, commit/change feed, and outbox state retain
+their existing owners and separate retention rules. It also does not authorize
+changes to OCC, commit compilation/execution, journals outside this replacement
+session domain, feeds, outbox semantics, or application-row authority.
 
 ## Decisions And Rationale
 
