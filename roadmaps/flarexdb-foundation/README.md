@@ -898,8 +898,13 @@ creation/observation, database-time fenced acquire/renew, non-finalizing
 reservation/resume, release, and terminal abandonment. Attempt-before-command
 locking, exact pending replay without durable recharge, and pending-preserving
 expired takeover are repository mechanics only: same-factory process-local run
-capabilities remain the writer boundary. Evidence-page operations,
-settlement/replay closure, and executor host composition remain later A1b2
+capabilities remain the writer boundary. The private A1b2b1b extension now
+appends canonical parse/link restart pages and advances their command tail in
+one fenced READ COMMITTED transaction, while byte-identical retries are
+read-and-compare replays. Its bounded reader admits metadata before exact
+manifest/payload bytes and returns only owned inert page evidence. These
+mechanics do not settle, reset, refund, or recharge durable semantic usage.
+Settlement/replay closure and executor host composition remain later A1b2
 gates.
 
 The private Semantic Artifact V1 foundation now supplies immutable semantic

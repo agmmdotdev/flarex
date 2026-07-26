@@ -6,6 +6,8 @@ import {
   encodeDeclarativeV2VerifierProgressFrameV2,
   type DeclarativeV2VerifierBudgetFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
+  type DeclarativeV2VerifierDurableCommandKindV2,
+  type DeclarativeV2VerifierEvidencePageManifestFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
 import {
   encodeDeclarativeV2PhysicalFrameV1,
@@ -17,6 +19,7 @@ import { makeDeclarativeV2InertRepositoryV1 } from
 import {
   makeDeclarativeV2VerifierProgressRepositoryV2,
   type DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  type DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
 } from "../src/declarativeV2VerifierProgressRepositoryV2";
 import { createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence } from "../src/pglite";
@@ -41,6 +44,12 @@ const operationBudget = Object.freeze({
   maximumHashBytes: 2_000_000,
   maximumElapsedMilliseconds: 60_000,
 }) satisfies DeclarativeV2VerifierProgressRepositoryOperationBudgetV2;
+const pageOperationBudget = Object.freeze({
+  ...operationBudget,
+  maximumRows: 5_000,
+  maximumPages: 1_024,
+  maximumPayloadBytes: 2_000_000,
+}) satisfies DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2;
 
 describe("Declarative V2 progress repository V2 attempt/lease/reservation", () => {
   it("creates and observes an inert attempt, acquires with same-owner replay, renews, and releases", async () => {
@@ -509,6 +518,492 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
     expect(replay.kind).toBe("pendingReplay");
   });
 
+  it("appends, replays, and reads a contiguous metadata-first page chain", async () => {
+    const queries: string[] = [];
+    const current = await pendingParseFixture({
+      observeQuery: query => queries.push(query.name),
+    });
+    const first = await evidencePageInput(
+      current.reserved.reservation,
+      0n,
+      null,
+      0n,
+      2n,
+      0n,
+      1n,
+      new Uint8Array([1, 2, 3]),
+      0x91,
+    );
+    queries.length = 0;
+    const appended = await runEffect(
+      current.repository.appendEvidencePage(
+        current.reserved.work,
+        first,
+        pageOperationBudget,
+      ),
+    );
+    expect(appended).toMatchObject({ kind: "appended", pageOrdinal: 0n });
+    expect(queries).toEqual([
+      "lockAttempt",
+      "pageCommandMetadata",
+      "pageMetadata",
+      "insertEvidencePage",
+      "advanceCommandPageTail",
+    ]);
+
+    queries.length = 0;
+    const replayed = await runEffect(
+      current.repository.appendEvidencePage(
+        current.reserved.work,
+        first,
+        pageOperationBudget,
+      ),
+    );
+    expect(replayed.kind).toBe("replayed");
+    expect(queries).toEqual([
+      "lockAttempt",
+      "pageCommandMetadata",
+      "pageMetadata",
+      "pageBytes",
+    ]);
+
+    const second = await evidencePageInput(
+      current.reserved.reservation,
+      1n,
+      appended.pageSha256,
+      2n,
+      1n,
+      1n,
+      0n,
+      new Uint8Array([4, 5]),
+      0x92,
+    );
+    await runEffect(current.repository.appendEvidencePage(
+      current.reserved.work,
+      second,
+      pageOperationBudget,
+    ));
+
+    queries.length = 0;
+    const firstBatch = await runEffect(
+      current.repository.readEvidencePageBatch(
+        current.reserved.work,
+        {
+          startPageOrdinal: 0n,
+          expectedPredecessorPageSha256: null,
+        },
+        { ...pageOperationBudget, maximumPages: 1 },
+      ),
+    );
+    expect(firstBatch.pages).toHaveLength(1);
+    expect(firstBatch.pages[0]?.payloadBytes).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+    expect(firstBatch.nextPageOrdinal).toBe(1n);
+    expect(queries.indexOf("pageMetadata")).toBeLessThan(
+      queries.indexOf("pageBytes"),
+    );
+
+    const secondBatch = await runEffect(
+      current.repository.readEvidencePageBatch(
+        current.reserved.work,
+        {
+          startPageOrdinal: 1n,
+          expectedPredecessorPageSha256: appended.pageSha256,
+        },
+        { ...pageOperationBudget, maximumPages: 1 },
+      ),
+    );
+    expect(secondBatch.pages).toHaveLength(1);
+    expect(secondBatch.pages[0]?.payloadBytes).toEqual(
+      new Uint8Array([4, 5]),
+    );
+    expect(secondBatch.nextPageOrdinal).toBeNull();
+    expect(Object.isFrozen(secondBatch.pages)).toBe(true);
+  });
+
+  it("rejects page collisions, gaps, and predecessor mismatches without changing the tail", async () => {
+    const current = await pendingParseFixture();
+    const first = await evidencePageInput(
+      current.reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([1]),
+      0xa1,
+    );
+    const appended = await runEffect(current.repository.appendEvidencePage(
+      current.reserved.work,
+      first,
+      pageOperationBudget,
+    ));
+    const collision = await evidencePageInput(
+      current.reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([2]),
+      0xa2,
+    );
+    expect(await runEffectFailure(current.repository.appendEvidencePage(
+      current.reserved.work,
+      collision,
+      pageOperationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryConflictV2Error",
+      reason: "pageCollision",
+    });
+    const gap = await evidencePageInput(
+      current.reserved.reservation,
+      2n,
+      appended.pageSha256,
+      1n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([3]),
+      0xa3,
+    );
+    expect(await runEffectFailure(current.repository.appendEvidencePage(
+      current.reserved.work,
+      gap,
+      pageOperationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryConflictV2Error",
+      reason: "pageGap",
+    });
+    const predecessorMismatch = await evidencePageInput(
+      current.reserved.reservation,
+      1n,
+      digest(0xff),
+      1n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([4]),
+      0xa4,
+    );
+    expect(await runEffectFailure(current.repository.appendEvidencePage(
+      current.reserved.work,
+      predecessorMismatch,
+      pageOperationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryConflictV2Error",
+      reason: "predecessorMismatch",
+    });
+  });
+
+  it("fails closed on a coherently corrupted replay transition or command tail", async () => {
+    const current = await pendingParseFixture();
+    const first = await evidencePageInput(
+      current.reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([1]),
+      0xa5,
+    );
+    const firstResult = await runEffect(
+      current.repository.appendEvidencePage(
+        current.reserved.work,
+        first,
+        pageOperationBudget,
+      ),
+    );
+    const second = await evidencePageInput(
+      current.reserved.reservation,
+      1n,
+      firstResult.pageSha256,
+      1n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([2]),
+      0xa6,
+    );
+    const secondResult = await runEffect(
+      current.repository.appendEvidencePage(
+        current.reserved.work,
+        second,
+        pageOperationBudget,
+      ),
+    );
+    const corruptedSecond = await evidencePageInput(
+      current.reserved.reservation,
+      1n,
+      digest(0xfe),
+      1n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([2]),
+      0xa6,
+    );
+    const corruptedSecondSha256 = await sha256(
+      corruptedSecond.manifestBytes,
+    );
+    await current.persistence.query(
+      `update fx_system_declarative_v2_verifier_evidence_page_v2
+       set page_sha256 = $5,
+           predecessor_page_sha256 = $6,
+           manifest_byte_length = $7,
+           manifest_sha256 = $5,
+           manifest_bytes = $8
+       where scope_id = $1
+         and attempt_sha256 = $2
+         and sequence = $3
+         and page_ordinal = $4`,
+      [
+        scopeId,
+        current.attemptSha256,
+        1n,
+        1n,
+        corruptedSecondSha256,
+        digest(0xfe),
+        BigInt(corruptedSecond.manifestBytes.byteLength),
+        corruptedSecond.manifestBytes,
+      ],
+    );
+    await current.persistence.query(
+      `update fx_system_declarative_v2_verifier_command_v2
+       set last_page_sha256 = $4
+       where scope_id = $1
+         and attempt_sha256 = $2
+         and sequence = $3`,
+      [scopeId, current.attemptSha256, 1n, corruptedSecondSha256],
+    );
+    expect(await runEffectFailure(
+      current.repository.appendEvidencePage(
+        current.reserved.work,
+        corruptedSecond,
+        pageOperationBudget,
+      ),
+    )).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryCorruptionV2Error",
+      operation: "appendEvidencePage",
+      reason: "normalizedMismatch",
+    });
+
+    await current.persistence.query(
+      `update fx_system_declarative_v2_verifier_evidence_page_v2
+       set page_sha256 = $5,
+           predecessor_page_sha256 = $6,
+           manifest_byte_length = $7,
+           manifest_sha256 = $5,
+           manifest_bytes = $8
+       where scope_id = $1
+         and attempt_sha256 = $2
+         and sequence = $3
+         and page_ordinal = $4`,
+      [
+        scopeId,
+        current.attemptSha256,
+        1n,
+        1n,
+        secondResult.pageSha256,
+        firstResult.pageSha256,
+        BigInt(second.manifestBytes.byteLength),
+        second.manifestBytes,
+      ],
+    );
+    await current.persistence.query(
+      `update fx_system_declarative_v2_verifier_command_v2
+       set last_page_sha256 = $4
+       where scope_id = $1
+         and attempt_sha256 = $2
+         and sequence = $3`,
+      [scopeId, current.attemptSha256, 1n, digest(0xfd)],
+    );
+    expect(await runEffectFailure(
+      current.repository.readEvidencePageBatch(
+        current.reserved.work,
+        {
+          startPageOrdinal: 0n,
+          expectedPredecessorPageSha256: null,
+        },
+        pageOperationBudget,
+      ),
+    )).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryCorruptionV2Error",
+      operation: "readEvidencePageBatch",
+      reason: "normalizedMismatch",
+    });
+  });
+
+  it("enforces hostile input and exact page/payload admissions before body reads", async () => {
+    const queries: string[] = [];
+    const current = await pendingParseFixture({
+      observeQuery: query => queries.push(query.name),
+    });
+    const input = await evidencePageInput(
+      current.reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([1, 2, 3]),
+      0xb1,
+    );
+    expect(await runEffectFailure(current.repository.appendEvidencePage(
+      current.reserved.work,
+      input,
+      { ...pageOperationBudget, maximumPayloadBytes: 2 },
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      reason: "budgetExceeded",
+      dimension: "payloadBytes",
+    });
+    const hostile = new Proxy({}, {
+      ownKeys() {
+        throw new Error("hostile");
+      },
+    });
+    expect(await runEffectFailure(current.repository.appendEvidencePage(
+      current.reserved.work,
+      hostile,
+      pageOperationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      reason: "invalidInput",
+    });
+    await runEffect(current.repository.appendEvidencePage(
+      current.reserved.work,
+      input,
+      pageOperationBudget,
+    ));
+    for (const maximumPages of [0, 1_025]) {
+      expect(await runEffectFailure(
+        current.repository.readEvidencePageBatch(
+          current.reserved.work,
+          {
+            startPageOrdinal: 0n,
+            expectedPredecessorPageSha256: null,
+          },
+          { ...pageOperationBudget, maximumPages },
+        ),
+      )).toMatchObject({
+        _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+        reason: "invalidBudget",
+      });
+    }
+    queries.length = 0;
+    expect(await runEffectFailure(
+      current.repository.readEvidencePageBatch(
+        current.reserved.work,
+        {
+          startPageOrdinal: 0n,
+          expectedPredecessorPageSha256: null,
+        },
+        { ...pageOperationBudget, maximumPayloadBytes: 2 },
+      ),
+    )).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      reason: "budgetExceeded",
+      dimension: "payloadBytes",
+    });
+    expect(queries).toContain("pageMetadata");
+    expect(queries).not.toContain("pageBytes");
+    const maximumBatch = await runEffect(
+      current.repository.readEvidencePageBatch(
+        current.reserved.work,
+        {
+          startPageOrdinal: 0n,
+          expectedPredecessorPageSha256: null,
+        },
+        { ...pageOperationBudget, maximumPages: 1_024 },
+      ),
+    );
+    expect(maximumBatch.pages).toHaveLength(1);
+  });
+
+  it("recovers pages under a fresh takeover work capability and rejects missing durable tail rows", async () => {
+    const current = await pendingParseFixture({
+      claimDurationMilliseconds: 100,
+    });
+    const first = await evidencePageInput(
+      current.reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([7]),
+      0xc1,
+    );
+    const appended = await runEffect(current.repository.appendEvidencePage(
+      current.reserved.work,
+      first,
+      pageOperationBudget,
+    ));
+    await new Promise(resolve => setTimeout(resolve, 150));
+    const restarted = makeDeclarativeV2VerifierProgressRepositoryV2(
+      current.target,
+      {
+        claimDurationMilliseconds: 60_000,
+        randomUuid: () => "22222222-2222-4222-8222-222222222222",
+      },
+    );
+    const takeover = await runEffect(restarted.acquire(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    const resumed = await runEffect(restarted.resumePending(
+      takeover.run,
+      current.reservationInput,
+      operationBudget,
+    ));
+    const recovered = await runEffect(restarted.readEvidencePageBatch(
+      resumed.work,
+      {
+        startPageOrdinal: 0n,
+        expectedPredecessorPageSha256: null,
+      },
+      pageOperationBudget,
+    ));
+    expect(recovered.pages[0]?.pageSha256).toEqual(appended.pageSha256);
+    expect(await runEffectFailure(current.repository.readEvidencePageBatch(
+      current.reserved.work,
+      {
+        startPageOrdinal: 0n,
+        expectedPredecessorPageSha256: null,
+      },
+      pageOperationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryStaleV2Error",
+      reason: "ownerChanged",
+    });
+
+    await current.persistence.query(
+      `delete from fx_system_declarative_v2_verifier_evidence_page_v2
+       where scope_id = $1 and attempt_sha256 = $2 and sequence = 1`,
+      [scopeId, current.attemptSha256],
+    );
+    expect(await runEffectFailure(restarted.readEvidencePageBatch(
+      resumed.work,
+      {
+        startPageOrdinal: 0n,
+        expectedPredecessorPageSha256: null,
+      },
+      pageOperationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryCorruptionV2Error",
+      reason: "missingPageWithinTail",
+    });
+  });
+
   it("keeps query observation ordered and does not compile when absent", async () => {
     const queries: Array<Readonly<{ readonly name: string; readonly sql: string }>> =
       [];
@@ -531,6 +1026,126 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
     ).toContain("for share");
   });
 });
+
+async function pendingParseFixture(
+  options: Parameters<typeof fixture>[0] = {},
+) {
+  const current = await fixture(options);
+  await moveAttemptToParse(current.persistence, current.attemptSha256);
+  const acquired = await runEffect(current.repository.acquire(
+    scopeId,
+    current.attemptSha256,
+    operationBudget,
+  ));
+  const input = await reservationInput(
+    acquired.attempt,
+    1n,
+    0x88,
+    1n,
+    "parse_module",
+  );
+  const reserved = await runEffect(current.repository.reserveCommand(
+    acquired.run,
+    input,
+    operationBudget,
+  ));
+  return {
+    ...current,
+    acquired,
+    reservationInput: input,
+    reserved,
+  };
+}
+
+async function moveAttemptToParse(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  attemptSha256: Uint8Array,
+) {
+  const progress = {
+    kind: "progress_cursor" as const,
+    phase: "parse" as const,
+    settledSequence: 0n,
+    moduleOrdinal: 0n,
+    edgeOrdinal: 0n,
+    pageOrdinal: 0n,
+    previousReceiptSha256: null,
+  };
+  const encoded = Result.getOrThrow(
+    encodeDeclarativeV2VerifierProgressFrameV2(progress, {
+      maximumFrameBytes: 1_000_000,
+      maximumCanonicalBytes: 1_000_000,
+    }),
+  );
+  const digest = await sha256(encoded.canonicalBytes);
+  await persistence.query(
+    `update fx_system_declarative_v2_verifier_attempt_v2
+     set lifecycle = 'parsing',
+         progress_byte_length = $3,
+         progress_sha256 = $4,
+         progress_bytes = $5,
+         updated_at = now()
+     where scope_id = $1 and attempt_sha256 = $2`,
+    [
+      scopeId,
+      attemptSha256,
+      BigInt(encoded.canonicalBytes.byteLength),
+      digest,
+      encoded.canonicalBytes,
+    ],
+  );
+}
+
+async function evidencePageInput(
+  reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+  pageOrdinal: bigint,
+  predecessorPageSha256: Uint8Array | null,
+  firstEvidenceOrdinal: bigint,
+  evidenceCount: bigint,
+  firstDiagnosticOrdinal: bigint,
+  diagnosticCount: bigint,
+  payloadBytes: Uint8Array,
+  rootByte: number,
+) {
+  const payloadSha256 = await sha256(payloadBytes);
+  const manifest:
+    DeclarativeV2VerifierEvidencePageManifestFrameV2 = {
+      kind: "evidence_page_manifest",
+      reservationSha256: await frameSha256(reservation),
+      commandKind: reservation.commandKind as "parse_module" | "link_page",
+      sequence: reservation.sequence,
+      pageOrdinal,
+      firstEvidenceOrdinal,
+      evidenceCount,
+      firstDiagnosticOrdinal,
+      diagnosticCount,
+      predecessorPageSha256,
+      payloadByteLength: BigInt(payloadBytes.byteLength),
+      payloadSha256,
+      cumulativeDiagnosticsRootSha256: digest(rootByte),
+    };
+  const encoded = Result.getOrThrow(
+    encodeDeclarativeV2VerifierProgressFrameV2(manifest, {
+      maximumFrameBytes: 1_000_000,
+      maximumCanonicalBytes: 1_000_000,
+    }),
+  );
+  return Object.freeze({
+    manifestBytes: encoded.canonicalBytes,
+    payloadBytes: new Uint8Array(payloadBytes),
+  });
+}
+
+async function frameSha256(
+  frame: DeclarativeV2VerifierCommandReservationFrameV2,
+) {
+  const encoded = Result.getOrThrow(
+    encodeDeclarativeV2VerifierProgressFrameV2(frame, {
+      maximumFrameBytes: 1_000_000,
+      maximumCanonicalBytes: 1_000_000,
+    }),
+  );
+  return sha256(encoded.canonicalBytes);
+}
 
 async function fixture(
   options: Readonly<{
@@ -617,6 +1232,7 @@ async function reservationInput(
   sequence: bigint,
   byte: number,
   commandBudgetValue = 1n,
+  commandKind: DeclarativeV2VerifierDurableCommandKindV2 = "source_page",
 ) {
   const commandBudget = semanticBudget(
     "command_budget",
@@ -633,7 +1249,7 @@ async function reservationInput(
     kind: "command_reservation",
     attemptSha256: attempt.attemptSha256,
     candidateSha256: attempt.candidateSha256,
-    commandKind: "source_page",
+    commandKind,
     sequence,
     currentProgressSha256: attempt.progressSha256,
     predecessorReceiptSha256: attempt.lastReceiptSha256,

@@ -808,8 +808,17 @@ activation remain blocked until their production host composition is proven.
    before its command row. Exact pending replay never recharges durable usage,
    expired takeover preserves the pending command while rebinding its fence,
    and stored rows remain inert rather than minting a writer capability.
-   Evidence-page append/read, settlement/replay closure, and executor host
-   composition remain separate later A1b2 gates.
+   The private A1b2b1b repository now appends and reads only
+   `parse_module`/`link_page` restart-evidence pages under the existing
+   same-factory run/work capability and live database fence. Append fixes the
+   attempt → command → predecessor/replay-page lock order, inserts a new page
+   and advances the command tail in one READ COMMITTED transaction, and treats
+   byte-identical repeats as inert replay rather than a second write. Bounded
+   reads validate metadata and aggregate caller ceilings before fetching exact
+   manifest/payload bytes, returning only owned inert evidence and a next-page
+   ordinal. Neither operation changes or refunds durable 26-dimensional usage.
+   Settlement/replay closure and executor host composition remain separate
+   later A1b2 gates.
 
    These Declarative V2 contracts replace only the deployment-analysis and
    artifact-verification path named by this roadmap. Component suffixes such as

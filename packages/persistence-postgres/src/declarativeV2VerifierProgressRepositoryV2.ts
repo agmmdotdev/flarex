@@ -1,12 +1,16 @@
 import {
   bytesEqualFullScan,
+  isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isLowercaseUuidText } from "@flarex/utils/strings";
 import {
   and,
+  asc,
   eq,
+  gte,
+  isNull,
   sql,
 } from "drizzle-orm";
 import {
@@ -20,12 +24,15 @@ import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2,
   DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2,
+  decodeDeclarativeV2VerifierProgressFrameV2,
   encodeDeclarativeV2VerifierProgressFrameV2,
+  validateDeclarativeV2VerifierEvidencePageTransitionV2,
   type DeclarativeV2VerifierAttemptIdentityFrameV2,
   type DeclarativeV2VerifierBudgetDimensionV2,
   type DeclarativeV2VerifierBudgetFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
   type DeclarativeV2VerifierDurableCommandKindV2,
+  type DeclarativeV2VerifierEvidencePageManifestFrameV2,
   type DeclarativeV2VerifierProgressCursorFrameV2,
   type DeclarativeV2VerifierProgressV2Error,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
@@ -49,17 +56,22 @@ import {
   decodeDeclarativeV2VerifierAttemptStoredStateV2,
   decodeDeclarativeV2VerifierCommandMetadataRowV2,
   decodeDeclarativeV2VerifierCommandStoredStateV2,
+  decodeDeclarativeV2VerifierEvidencePageManifestV2,
+  decodeDeclarativeV2VerifierEvidencePageMetadataRowV2,
+  decodeDeclarativeV2VerifierEvidencePagePayloadV2,
   decodeDeclarativeV2VerifierStoredFrameV2,
   type DeclarativeV2VerifierDecodedAttemptStoredStateV2,
   type DeclarativeV2VerifierDecodedCommandStoredStateV2,
   type DeclarativeV2VerifierProgressV2StoredRowError,
   type DeclarativeV2VerifierStoredAttemptMetadataV2,
   type DeclarativeV2VerifierStoredCommandMetadataV2,
+  type DeclarativeV2VerifierStoredEvidencePageMetadataV2,
 } from "./declarativeV2VerifierProgressV2";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
 import {
   fxSystemDeclarativeV2VerifierAttemptsV2,
   fxSystemDeclarativeV2VerifierCommandsV2,
+  fxSystemDeclarativeV2VerifierEvidencePagesV2,
 } from "./schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
@@ -77,6 +89,8 @@ export type DeclarativeV2VerifierProgressRepositoryOperationV2 =
   | "renew"
   | "reserveCommand"
   | "resumePending"
+  | "appendEvidencePage"
+  | "readEvidencePageBatch"
   | "release"
   | "abandon";
 
@@ -96,6 +110,18 @@ export interface DeclarativeV2VerifierProgressRepositoryOperationUsageV2 {
   readonly canonicalBytes: number;
   readonly hashBytes: number;
   readonly elapsedMilliseconds: number;
+}
+
+export interface DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2
+  extends DeclarativeV2VerifierProgressRepositoryOperationBudgetV2 {
+  readonly maximumPages: number;
+  readonly maximumPayloadBytes: number;
+}
+
+export interface DeclarativeV2VerifierProgressRepositoryPageOperationUsageV2
+  extends DeclarativeV2VerifierProgressRepositoryOperationUsageV2 {
+  readonly pages: number;
+  readonly payloadBytes: number;
 }
 
 export interface DeclarativeV2VerifierProgressRepositoryOptionsV2 {
@@ -122,6 +148,11 @@ export type DeclarativeV2VerifierProgressRepositoryQueryV2 =
   | "commandMetadata"
   | "commandFrames"
   | "reserveAttempt"
+  | "pageCommandMetadata"
+  | "pageMetadata"
+  | "pageBytes"
+  | "insertEvidencePage"
+  | "advanceCommandPageTail"
   | "releaseAttempt"
   | "abandonAttempt";
 
@@ -143,9 +174,11 @@ export class DeclarativeV2VerifierProgressRepositoryInputV2Error
       | "budgetExceeded"
       | "invalidRun"
       | "runClosed"
+      | "invalidWork"
+      | "workClosed"
       | "commandMismatch";
     readonly dimension?:
-      keyof DeclarativeV2VerifierProgressRepositoryOperationUsageV2;
+      keyof DeclarativeV2VerifierProgressRepositoryPageOperationUsageV2;
     readonly observed?: number;
     readonly maximum?: number;
     readonly codecCause?: DeclarativeV2VerifierProgressV2Error;
@@ -192,8 +225,16 @@ export class DeclarativeV2VerifierProgressRepositoryConflictV2Error
       | "createAttempt"
       | "reserveCommand"
       | "resumePending"
+      | "appendEvidencePage"
+      | "readEvidencePageBatch"
       | "release";
-    readonly reason: "attemptChanged" | "commandChanged" | "pendingExists";
+    readonly reason:
+      | "attemptChanged"
+      | "commandChanged"
+      | "pendingExists"
+      | "pageCollision"
+      | "pageGap"
+      | "predecessorMismatch";
   }> {}
 
 export class DeclarativeV2VerifierProgressRepositoryLifecycleV2Error
@@ -220,6 +261,7 @@ export class DeclarativeV2VerifierProgressRepositoryCorruptionV2Error
       | "digestMismatch"
       | "normalizedMismatch"
       | "selectorMismatch"
+      | "missingPageWithinTail"
       | "rowCountMismatch";
     readonly storedCause?: DeclarativeV2VerifierProgressV2StoredRowError;
   }> {}
@@ -228,8 +270,8 @@ export class DeclarativeV2VerifierProgressRepositoryExhaustionV2Error
   extends Data.TaggedError(
     "DeclarativeV2VerifierProgressRepositoryExhaustionV2Error",
   )<{
-    readonly operation: "acquire" | "reserveCommand";
-    readonly dimension: "writerFence" | "sequence" |
+    readonly operation: "acquire" | "reserveCommand" | "appendEvidencePage";
+    readonly dimension: "writerFence" | "sequence" | "pageCount" |
       DeclarativeV2VerifierBudgetDimensionV2;
     readonly observed: bigint;
     readonly maximum: bigint;
@@ -329,6 +371,25 @@ export interface DeclarativeV2VerifierProgressReserveCommandInputV2 {
   };
 }
 
+export interface DeclarativeV2VerifierProgressAppendEvidencePageInputV2 {
+  readonly manifestBytes: Uint8Array;
+  readonly payloadBytes: Uint8Array;
+}
+
+export interface DeclarativeV2VerifierProgressReadEvidencePageBatchInputV2 {
+  readonly startPageOrdinal: bigint;
+  readonly expectedPredecessorPageSha256: Uint8Array | null;
+}
+
+export interface DeclarativeV2VerifierProgressEvidencePageSnapshotV2 {
+  readonly manifest: DeclarativeV2VerifierEvidencePageManifestFrameV2;
+  readonly manifestBytes: Uint8Array;
+  readonly pageSha256: Uint8Array;
+  readonly payloadBytes: Uint8Array;
+  readonly payloadSha256: Uint8Array;
+  readonly createdAt: Date;
+}
+
 export type DeclarativeV2VerifierProgressObserveResultV2 =
   | Readonly<{
     readonly kind: "missing";
@@ -426,6 +487,36 @@ export interface DeclarativeV2VerifierProgressRepositoryV2 {
     DeclarativeV2VerifierProgressRepositoryV2Error,
     never
   >;
+  readonly appendEvidencePage: (
+    work: DeclarativeV2VerifierProgressWorkV2,
+    input: unknown,
+    budget: unknown,
+  ) => Effect.Effect<
+    Readonly<{
+      readonly kind: "appended" | "replayed";
+      readonly pageOrdinal: bigint;
+      readonly pageSha256: Uint8Array;
+      readonly operationUsage:
+        DeclarativeV2VerifierProgressRepositoryPageOperationUsageV2;
+    }>,
+    DeclarativeV2VerifierProgressRepositoryV2Error,
+    never
+  >;
+  readonly readEvidencePageBatch: (
+    work: DeclarativeV2VerifierProgressWorkV2,
+    input: unknown,
+    budget: unknown,
+  ) => Effect.Effect<
+    Readonly<{
+      readonly pages:
+        readonly DeclarativeV2VerifierProgressEvidencePageSnapshotV2[];
+      readonly nextPageOrdinal: bigint | null;
+      readonly operationUsage:
+        DeclarativeV2VerifierProgressRepositoryPageOperationUsageV2;
+    }>,
+    DeclarativeV2VerifierProgressRepositoryV2Error,
+    never
+  >;
   readonly release: (
     run: DeclarativeV2VerifierProgressRunV2,
     budget: unknown,
@@ -459,6 +550,11 @@ interface MutableOperationUsageV2 {
   canonicalBytes: number;
   hashBytes: number;
   elapsedMilliseconds: number;
+}
+
+interface MutablePageOperationUsageV2 extends MutableOperationUsageV2 {
+  pages: number;
+  payloadBytes: number;
 }
 
 interface CapturedFrameV2<
@@ -502,6 +598,20 @@ interface LoadedAttemptV2 {
 
 interface LoadedCommandV2 {
   readonly decoded: DeclarativeV2VerifierDecodedCommandStoredStateV2;
+}
+
+interface CapturedEvidencePageV2 {
+  readonly manifest: DeclarativeV2VerifierEvidencePageManifestFrameV2;
+  readonly manifestBytes: Uint8Array;
+  readonly manifestSha256: Uint8Array;
+  readonly payloadBytes: Uint8Array;
+  readonly payloadSha256: Uint8Array;
+}
+
+interface LoadedEvidencePageBytesV2 {
+  readonly metadata: DeclarativeV2VerifierStoredEvidencePageMetadataV2;
+  readonly manifestBytes: Uint8Array;
+  readonly payloadBytes: Uint8Array;
 }
 
 class RepositoryStatementFailureV2 {
@@ -1381,6 +1491,456 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
       }))
   );
 
+  const appendEvidencePage = Effect.fn(
+    "DeclarativeV2.verifierProgressV2.appendEvidencePage",
+  )((
+    work: DeclarativeV2VerifierProgressWorkV2,
+    rawInput: unknown,
+    rawBudget: unknown,
+  ) =>
+    withWork(
+      runs,
+      works,
+      work,
+      "appendEvidencePage",
+      (state, workState) =>
+        Effect.gen(function* () {
+          const start = monotonicMilliseconds();
+          const budget = yield* Effect.fromResult(
+            decodePageOperationBudget("appendEvidencePage", rawBudget),
+          );
+          const usage = mutablePageUsage();
+          const input = yield* captureEvidencePageInput(
+            rawInput,
+            workState,
+            budget,
+            usage,
+            sha256,
+          );
+          const decision = yield* runTransactionWithConfirmedRollbackRetry(
+            target,
+            "appendEvidencePage",
+            state.scopeId,
+            state.attemptSha256,
+            budget,
+            usage,
+            monotonicMilliseconds,
+            start,
+            async (tx) => {
+              const attempt = await lockAttemptMetadata(
+                tx,
+                "appendEvidencePage",
+                state.scopeId,
+                state.attemptSha256,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              requireLiveOwner("appendEvidencePage", attempt, state);
+              requireRunLineage("appendEvidencePage", attempt, state);
+              requirePendingWork("appendEvidencePage", attempt, state, workState);
+              const command = await lockPageCommandMetadata(
+                tx,
+                "appendEvidencePage",
+                state,
+                workState,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              requirePageCommand(
+                "appendEvidencePage",
+                command,
+                workState,
+              );
+              if (input.manifest.pageOrdinal > command.pageCount) {
+                throw pageConflict("appendEvidencePage", "pageGap");
+              }
+              if (input.manifest.pageOrdinal < command.pageCount) {
+                const existing = await readExactEvidencePageRows(
+                  tx,
+                  "appendEvidencePage",
+                  state,
+                  workState,
+                  input.manifest.pageOrdinal,
+                  budget,
+                  usage,
+                  options.observeQuery,
+                );
+                if (existing === null) {
+                  throw corruption(
+                    "appendEvidencePage",
+                    "missingPageWithinTail",
+                  );
+                }
+                requirePageMetadataMatchesCaptured(existing.metadata, input);
+                if (
+                  !bytesEqualFullScan(
+                    existing.manifestBytes,
+                    input.manifestBytes,
+                  ) ||
+                  !bytesEqualFullScan(existing.payloadBytes, input.payloadBytes)
+                ) {
+                  throw pageConflict("appendEvidencePage", "pageCollision");
+                }
+                const predecessor = input.manifest.pageOrdinal === 0n
+                  ? null
+                  : await readEvidencePageMetadataExact(
+                    tx,
+                    "appendEvidencePage",
+                    state,
+                    workState,
+                    input.manifest.pageOrdinal - 1n,
+                    budget,
+                    usage,
+                    options.observeQuery,
+                    true,
+                  );
+                requireReadBatchContinuity(
+                  "appendEvidencePage",
+                  input.manifest.pageOrdinal,
+                  predecessor,
+                  [existing.metadata],
+                );
+                if (input.manifest.pageOrdinal + 1n === command.pageCount) {
+                  requireCommandPageTail(
+                    "appendEvidencePage",
+                    command,
+                    existing.metadata,
+                  );
+                }
+                return "replayed" as const;
+              }
+              if (command.pageCount >= MAX_SIGNED_INT64) {
+                throw new
+                  DeclarativeV2VerifierProgressRepositoryExhaustionV2Error({
+                    operation: "appendEvidencePage",
+                    dimension: "pageCount",
+                    observed: command.pageCount + 1n,
+                    maximum: MAX_SIGNED_INT64,
+                  });
+              }
+              const unexpectedCurrent =
+                await readEvidencePageMetadataExact(
+                  tx,
+                  "appendEvidencePage",
+                  state,
+                  workState,
+                  input.manifest.pageOrdinal,
+                  budget,
+                  usage,
+                  options.observeQuery,
+                  true,
+                );
+              if (unexpectedCurrent !== null) {
+                throw corruption(
+                  "appendEvidencePage",
+                  "normalizedMismatch",
+                );
+              }
+              const predecessor = command.pageCount === 0n
+                ? null
+                : await readEvidencePageMetadataExact(
+                  tx,
+                  "appendEvidencePage",
+                  state,
+                  workState,
+                  command.pageCount - 1n,
+                  budget,
+                  usage,
+                  options.observeQuery,
+                  true,
+                );
+              requireAppendTransition(
+                input.manifest,
+                command,
+                predecessor,
+              );
+              requireElapsedOrThrow(
+                "appendEvidencePage",
+                budget,
+                usage,
+                start,
+                monotonicMilliseconds,
+              );
+              chargeSqlOrThrow("appendEvidencePage", budget, usage, 1);
+              const insert = tx
+                .insert(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+                .values({
+                  scopeId: state.scopeId,
+                  attemptSha256: state.attemptSha256,
+                  sequence: workState.sequence,
+                  commandKind: input.manifest.commandKind,
+                  reservationSha256: workState.reservationSha256,
+                  pageOrdinal: input.manifest.pageOrdinal,
+                  pageSha256: input.manifestSha256,
+                  firstEvidenceOrdinal: input.manifest.firstEvidenceOrdinal,
+                  evidenceCount: input.manifest.evidenceCount,
+                  firstDiagnosticOrdinal: input.manifest.firstDiagnosticOrdinal,
+                  diagnosticCount: input.manifest.diagnosticCount,
+                  predecessorPageSha256:
+                    input.manifest.predecessorPageSha256,
+                  cumulativeDiagnosticsRootSha256:
+                    input.manifest.cumulativeDiagnosticsRootSha256,
+                  manifestCodecVersion: FRAME_CODEC_VERSION,
+                  manifestByteLength: BigInt(input.manifestBytes.byteLength),
+                  manifestSha256: input.manifestSha256,
+                  manifestBytes: input.manifestBytes,
+                  payloadCodecVersion: 1,
+                  payloadByteLength: BigInt(input.payloadBytes.byteLength),
+                  payloadSha256: input.payloadSha256,
+                  payloadBytes: input.payloadBytes,
+                })
+                .returning({
+                  pageSha256:
+                    fxSystemDeclarativeV2VerifierEvidencePagesV2.pageSha256,
+                });
+              observeDrizzleQuery(
+                "insertEvidencePage",
+                insert,
+                options.observeQuery,
+              );
+              const inserted = await runStatement(() => insert);
+              requireOneRow("appendEvidencePage", inserted.length);
+              chargeSqlOrThrow("appendEvidencePage", budget, usage, 1);
+              const update = tx
+                .update(fxSystemDeclarativeV2VerifierCommandsV2)
+                .set({
+                  pageCount: command.pageCount + 1n,
+                  lastPageSha256: input.manifestSha256,
+                })
+                .where(and(
+                  eq(
+                    fxSystemDeclarativeV2VerifierCommandsV2.scopeId,
+                    state.scopeId,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierCommandsV2.attemptSha256,
+                    state.attemptSha256,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierCommandsV2.sequence,
+                    workState.sequence,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierCommandsV2.reservationSha256,
+                    workState.reservationSha256,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierCommandsV2.pageCount,
+                    command.pageCount,
+                  ),
+                  command.lastPageSha256 === null
+                    ? isNull(
+                      fxSystemDeclarativeV2VerifierCommandsV2.lastPageSha256,
+                    )
+                    : eq(
+                      fxSystemDeclarativeV2VerifierCommandsV2.lastPageSha256,
+                      command.lastPageSha256,
+                    ),
+                  isNull(
+                    fxSystemDeclarativeV2VerifierCommandsV2.settledAt,
+                  ),
+                ))
+                .returning({
+                  sequence: fxSystemDeclarativeV2VerifierCommandsV2.sequence,
+                });
+              observeDrizzleQuery(
+                "advanceCommandPageTail",
+                update,
+                options.observeQuery,
+              );
+              const updated = await runStatement(() => update);
+              requireOneRow("appendEvidencePage", updated.length);
+              return "appended" as const;
+            },
+          ).pipe(closeRunOnFailure(state, activeRuns));
+          yield* Effect.fromResult(setElapsed(
+            "appendEvidencePage",
+            budget,
+            usage,
+            start,
+            monotonicMilliseconds,
+          ));
+          return Object.freeze({
+            kind: decision,
+            pageOrdinal: input.manifest.pageOrdinal,
+            pageSha256: new Uint8Array(input.manifestSha256),
+            operationUsage: freezePageUsage(usage),
+          });
+        }),
+    ));
+
+  const readEvidencePageBatch = Effect.fn(
+    "DeclarativeV2.verifierProgressV2.readEvidencePageBatch",
+  )((
+    work: DeclarativeV2VerifierProgressWorkV2,
+    rawInput: unknown,
+    rawBudget: unknown,
+  ) =>
+    withWork(
+      runs,
+      works,
+      work,
+      "readEvidencePageBatch",
+      (state, workState) =>
+        Effect.gen(function* () {
+          const start = monotonicMilliseconds();
+          const budget = yield* Effect.fromResult(
+            decodePageOperationBudget("readEvidencePageBatch", rawBudget),
+          );
+          const usage = mutablePageUsage();
+          const input = yield* Effect.fromResult(
+            captureReadEvidencePageBatchInput(rawInput),
+          );
+          const loaded = yield* runTransactionWithConfirmedRollbackRetry(
+            target,
+            "readEvidencePageBatch",
+            state.scopeId,
+            state.attemptSha256,
+            budget,
+            usage,
+            monotonicMilliseconds,
+            start,
+            async (tx) => {
+              const attempt = await lockAttemptMetadata(
+                tx,
+                "readEvidencePageBatch",
+                state.scopeId,
+                state.attemptSha256,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              requireLiveOwner("readEvidencePageBatch", attempt, state);
+              requireRunLineage("readEvidencePageBatch", attempt, state);
+              requirePendingWork(
+                "readEvidencePageBatch",
+                attempt,
+                state,
+                workState,
+              );
+              const command = await lockPageCommandMetadata(
+                tx,
+                "readEvidencePageBatch",
+                state,
+                workState,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              requirePageCommand(
+                "readEvidencePageBatch",
+                command,
+                workState,
+              );
+              if (input.startPageOrdinal > command.pageCount) {
+                throw pageConflict("readEvidencePageBatch", "pageGap");
+              }
+              const predecessor = input.startPageOrdinal === 0n
+                ? null
+                : await readEvidencePageMetadataExact(
+                  tx,
+                  "readEvidencePageBatch",
+                  state,
+                  workState,
+                  input.startPageOrdinal - 1n,
+                  budget,
+                  usage,
+                  options.observeQuery,
+                  false,
+                );
+              requireReadPredecessor(input, predecessor);
+              const metadata = await readEvidencePageMetadataBatch(
+                tx,
+                state,
+                workState,
+                input.startPageOrdinal,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              if (
+                metadata.some(page => page.pageOrdinal >= command.pageCount)
+              ) {
+                throw corruption(
+                  "readEvidencePageBatch",
+                  "normalizedMismatch",
+                );
+              }
+              if (
+                input.startPageOrdinal < command.pageCount &&
+                metadata.length === 0
+              ) {
+                throw corruption(
+                  "readEvidencePageBatch",
+                  "missingPageWithinTail",
+                );
+              }
+              requireReadBatchContinuity(
+                "readEvidencePageBatch",
+                input.startPageOrdinal,
+                predecessor,
+                metadata,
+              );
+              const nextOrdinal =
+                input.startPageOrdinal + BigInt(metadata.length);
+              if (nextOrdinal === command.pageCount) {
+                requireCommandPageTail(
+                  "readEvidencePageBatch",
+                  command,
+                  metadata[metadata.length - 1] ?? predecessor,
+                );
+              }
+              if (
+                metadata.length < budget.maximumPages &&
+                nextOrdinal < command.pageCount
+              ) {
+                throw corruption(
+                  "readEvidencePageBatch",
+                  "missingPageWithinTail",
+                );
+              }
+              const rows = await readEvidencePageBytesBatch(
+                tx,
+                state,
+                workState,
+                metadata,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              return Object.freeze({
+                rows,
+                nextPageOrdinal:
+                  nextOrdinal < command.pageCount ? nextOrdinal : null,
+              });
+            },
+          ).pipe(closeRunOnFailure(state, activeRuns));
+          const pages: DeclarativeV2VerifierProgressEvidencePageSnapshotV2[] =
+            [];
+          for (const row of loaded.rows) {
+            pages.push(yield* decodeLoadedEvidencePage(
+              row,
+              budget,
+              sha256,
+            ));
+          }
+          yield* Effect.fromResult(setElapsed(
+            "readEvidencePageBatch",
+            budget,
+            usage,
+            start,
+            monotonicMilliseconds,
+          ));
+          return Object.freeze({
+            pages: Object.freeze(pages),
+            nextPageOrdinal: loaded.nextPageOrdinal,
+            operationUsage: freezePageUsage(usage),
+          });
+        }),
+    ));
+
   const release = Effect.fn("DeclarativeV2.verifierProgressV2.release")(
     (run: DeclarativeV2VerifierProgressRunV2, rawBudget: unknown) =>
       withRun(runs, run, "release", (state) =>
@@ -1527,6 +2087,8 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
     renew,
     reserveCommand,
     resumePending,
+    appendEvidencePage,
+    readEvidencePageBatch,
     release,
     abandon,
   });
@@ -1734,6 +2296,59 @@ function decodeOperationBudget(
   });
 }
 
+function decodePageOperationBudget(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  input: unknown,
+): Result.Result<
+  DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  DeclarativeV2VerifierProgressRepositoryInputV2Error
+> {
+  return Result.gen(function* () {
+    const record = yield* captureExactRecord(operation, input, [
+      "maximumCalls",
+      "maximumRows",
+      "maximumFrameBytes",
+      "maximumCanonicalBytes",
+      "maximumHashBytes",
+      "maximumElapsedMilliseconds",
+      "maximumPages",
+      "maximumPayloadBytes",
+    ]);
+    const maximumCalls = record.maximumCalls;
+    const maximumRows = record.maximumRows;
+    const maximumFrameBytes = record.maximumFrameBytes;
+    const maximumCanonicalBytes = record.maximumCanonicalBytes;
+    const maximumHashBytes = record.maximumHashBytes;
+    const maximumElapsedMilliseconds = record.maximumElapsedMilliseconds;
+    const maximumPages = record.maximumPages;
+    const maximumPayloadBytes = record.maximumPayloadBytes;
+    if (
+      !isNonNegativeSafeInteger(maximumCalls) ||
+      !isNonNegativeSafeInteger(maximumRows) ||
+      !isNonNegativeSafeInteger(maximumFrameBytes) ||
+      !isNonNegativeSafeInteger(maximumCanonicalBytes) ||
+      !isNonNegativeSafeInteger(maximumHashBytes) ||
+      !isNonNegativeSafeInteger(maximumElapsedMilliseconds) ||
+      !isNonNegativeSafeInteger(maximumPages) ||
+      maximumPages < 1 ||
+      maximumPages > 1_024 ||
+      !isNonNegativeSafeInteger(maximumPayloadBytes)
+    ) {
+      return yield* Result.fail(inputError(operation, "invalidBudget"));
+    }
+    return Object.freeze({
+      maximumCalls,
+      maximumRows,
+      maximumFrameBytes,
+      maximumCanonicalBytes,
+      maximumHashBytes,
+      maximumElapsedMilliseconds,
+      maximumPages,
+      maximumPayloadBytes,
+    });
+  });
+}
+
 function mutableUsage(): MutableOperationUsageV2 {
   return {
     calls: 0,
@@ -1745,10 +2360,74 @@ function mutableUsage(): MutableOperationUsageV2 {
   };
 }
 
+function mutablePageUsage(): MutablePageOperationUsageV2 {
+  return {
+    ...mutableUsage(),
+    pages: 0,
+    payloadBytes: 0,
+  };
+}
+
 function freezeUsage(
   usage: MutableOperationUsageV2,
 ): DeclarativeV2VerifierProgressRepositoryOperationUsageV2 {
   return Object.freeze({ ...usage });
+}
+
+function freezePageUsage(
+  usage: MutablePageOperationUsageV2,
+): DeclarativeV2VerifierProgressRepositoryPageOperationUsageV2 {
+  return Object.freeze({ ...usage });
+}
+
+function chargePageDimension(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  usage: MutablePageOperationUsageV2,
+  dimension: "pages" | "payloadBytes",
+  amount: number,
+): Result.Result<void, DeclarativeV2VerifierProgressRepositoryInputV2Error> {
+  const maximum = dimension === "pages"
+    ? budget.maximumPages
+    : budget.maximumPayloadBytes;
+  if (!isNonNegativeSafeInteger(amount)) {
+    return Result.fail(inputError(
+      operation,
+      "budgetExceeded",
+      dimension,
+      Number.MAX_SAFE_INTEGER,
+      maximum,
+    ));
+  }
+  const observed = usage[dimension] > Number.MAX_SAFE_INTEGER - amount
+    ? Number.MAX_SAFE_INTEGER
+    : usage[dimension] + amount;
+  if (observed > maximum) {
+    return Result.fail(
+      inputError(operation, "budgetExceeded", dimension, observed, maximum),
+    );
+  }
+  usage[dimension] = observed;
+  return Result.succeed(undefined);
+}
+
+function chargePageDimensionOrThrow(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  usage: MutablePageOperationUsageV2,
+  dimension: "pages" | "payloadBytes",
+  amount: number,
+): void {
+  const result = chargePageDimension(
+    operation,
+    budget,
+    usage,
+    dimension,
+    amount,
+  );
+  if (Result.isFailure(result)) {
+    throw new RepositoryBudgetFailureV2(result.failure);
+  }
 }
 
 function charge(
@@ -1858,7 +2537,7 @@ function inputError(
   operation: DeclarativeV2VerifierProgressRepositoryOperationV2,
   reason: DeclarativeV2VerifierProgressRepositoryInputV2Error["reason"],
   dimension?:
-    keyof DeclarativeV2VerifierProgressRepositoryOperationUsageV2,
+    keyof DeclarativeV2VerifierProgressRepositoryPageOperationUsageV2,
   observed?: number,
   maximum?: number,
   codecCause?: DeclarativeV2VerifierProgressV2Error,
@@ -2030,6 +2709,171 @@ function captureFrame<
       >,
       bytes: new Uint8Array(encoded.canonicalBytes),
       sha256: new Uint8Array(digest),
+    });
+  });
+}
+
+function captureEvidencePageInput(
+  input: unknown,
+  work: MutableWorkStateV2,
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  usage: MutablePageOperationUsageV2,
+  sha256: DeclarativeV2Sha256V1,
+): Effect.Effect<
+  CapturedEvidencePageV2,
+  | DeclarativeV2VerifierProgressRepositoryInputV2Error
+  | DeclarativeV2Sha256V1Error
+> {
+  return Effect.gen(function* () {
+    const record = yield* Effect.fromResult(
+      captureExactRecord(
+        "appendEvidencePage",
+        input,
+        ["manifestBytes", "payloadBytes"],
+      ),
+    );
+    if (
+      !isUint8Array(record.manifestBytes) ||
+      record.manifestBytes.byteLength === 0 ||
+      !isUint8Array(record.payloadBytes) ||
+      record.payloadBytes.byteLength === 0
+    ) {
+      return yield* inputError("appendEvidencePage", "invalidInput");
+    }
+    const manifestLength = record.manifestBytes.byteLength;
+    const payloadLength = record.payloadBytes.byteLength;
+    yield* Effect.fromResult(chargePageDimension(
+      "appendEvidencePage",
+      budget,
+      usage,
+      "pages",
+      1,
+    ));
+    yield* Effect.fromResult(chargePageDimension(
+      "appendEvidencePage",
+      budget,
+      usage,
+      "payloadBytes",
+      payloadLength,
+    ));
+    const decoded = yield* Effect.fromResult(
+      decodeDeclarativeV2VerifierProgressFrameV2(
+        record.manifestBytes,
+        {
+          maximumFrameBytes:
+            Math.max(0, budget.maximumFrameBytes - usage.frameBytes),
+          maximumCanonicalBytes:
+            Math.max(0, budget.maximumCanonicalBytes - usage.canonicalBytes),
+        },
+      ).pipe(
+        Result.mapError(codecCause =>
+          inputError(
+            "appendEvidencePage",
+            "invalidInput",
+            undefined,
+            undefined,
+            undefined,
+            codecCause,
+          )
+        ),
+      ),
+    );
+    if (decoded.frame.kind !== "evidence_page_manifest") {
+      return yield* inputError("appendEvidencePage", "invalidInput");
+    }
+    yield* Effect.fromResult(charge(
+      "appendEvidencePage",
+      budget,
+      usage,
+      "frameBytes",
+      decoded.usage.frameBytes,
+    ));
+    yield* Effect.fromResult(charge(
+      "appendEvidencePage",
+      budget,
+      usage,
+      "canonicalBytes",
+      decoded.usage.canonicalBytes,
+    ));
+    yield* Effect.fromResult(charge(
+      "appendEvidencePage",
+      budget,
+      usage,
+      "hashBytes",
+      manifestLength,
+    ));
+    yield* Effect.fromResult(charge(
+      "appendEvidencePage",
+      budget,
+      usage,
+      "hashBytes",
+      payloadLength,
+    ));
+    const manifestBytes = new Uint8Array(decoded.canonicalBytes);
+    const payloadBytes = new Uint8Array(record.payloadBytes);
+    const manifestSha256 = yield* sha256(manifestBytes, {
+      maximumInputBytes: manifestLength,
+    });
+    const payloadSha256 = yield* sha256(payloadBytes, {
+      maximumInputBytes: payloadLength,
+    });
+    const manifest = decoded.frame;
+    if (
+      manifest.commandKind !== work.commandKind ||
+      manifest.sequence !== work.sequence ||
+      !bytesEqualFullScan(
+        manifest.reservationSha256,
+        work.reservationSha256,
+      ) ||
+      manifest.payloadByteLength !== BigInt(payloadLength) ||
+      !bytesEqualFullScan(manifest.payloadSha256, payloadSha256)
+    ) {
+      return yield* inputError("appendEvidencePage", "commandMismatch");
+    }
+    return Object.freeze({
+      manifest,
+      manifestBytes,
+      manifestSha256: new Uint8Array(manifestSha256),
+      payloadBytes,
+      payloadSha256: new Uint8Array(payloadSha256),
+    });
+  });
+}
+
+function captureReadEvidencePageBatchInput(
+  input: unknown,
+): Result.Result<
+  DeclarativeV2VerifierProgressReadEvidencePageBatchInputV2,
+  DeclarativeV2VerifierProgressRepositoryInputV2Error
+> {
+  return Result.gen(function* () {
+    const record = yield* captureExactRecord(
+      "readEvidencePageBatch",
+      input,
+      ["startPageOrdinal", "expectedPredecessorPageSha256"],
+    );
+    if (
+      typeof record.startPageOrdinal !== "bigint" ||
+      record.startPageOrdinal < 0n ||
+      record.startPageOrdinal > MAX_SIGNED_INT64 ||
+      (
+        record.expectedPredecessorPageSha256 !== null &&
+        !isUint8ArrayWithByteLength(
+          record.expectedPredecessorPageSha256,
+          32,
+        )
+      )
+    ) {
+      return yield* Result.fail(
+        inputError("readEvidencePageBatch", "invalidInput"),
+      );
+    }
+    return Object.freeze({
+      startPageOrdinal: record.startPageOrdinal,
+      expectedPredecessorPageSha256:
+        record.expectedPredecessorPageSha256 === null
+          ? null
+          : new Uint8Array(record.expectedPredecessorPageSha256),
     });
   });
 }
@@ -2564,6 +3408,684 @@ function commandMetadataSelection() {
   };
 }
 
+async function lockPageCommandMetadata(
+  tx: AppRowTransaction,
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  usage: MutablePageOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Promise<DeclarativeV2VerifierStoredCommandMetadataV2> {
+  chargeSqlOrThrow(operation, budget, usage, 1);
+  const query = tx
+    .select(commandMetadataSelection())
+    .from(fxSystemDeclarativeV2VerifierCommandsV2)
+    .where(and(
+      eq(fxSystemDeclarativeV2VerifierCommandsV2.scopeId, state.scopeId),
+      eq(
+        fxSystemDeclarativeV2VerifierCommandsV2.attemptSha256,
+        state.attemptSha256,
+      ),
+      eq(fxSystemDeclarativeV2VerifierCommandsV2.sequence, work.sequence),
+    ))
+    .for("update");
+  observeDrizzleQuery("pageCommandMetadata", query, observer);
+  const rows = await runStatement(() => query);
+  if (rows.length === 0) {
+    throw corruption(operation, "normalizedMismatch");
+  }
+  if (rows.length !== 1) throw corruption(operation, "selectorMismatch");
+  return resultOrThrow(
+    decodeDeclarativeV2VerifierCommandMetadataRowV2(rows[0]),
+    operation,
+  );
+}
+
+function pageMetadataSelection() {
+  const table = fxSystemDeclarativeV2VerifierEvidencePagesV2;
+  return {
+    scopeId: table.scopeId,
+    attemptSha256: table.attemptSha256,
+    sequence: table.sequence,
+    commandKind: table.commandKind,
+    reservationSha256: table.reservationSha256,
+    pageOrdinal: table.pageOrdinal,
+    pageSha256: table.pageSha256,
+    firstEvidenceOrdinal: table.firstEvidenceOrdinal,
+    evidenceCount: table.evidenceCount,
+    firstDiagnosticOrdinal: table.firstDiagnosticOrdinal,
+    diagnosticCount: table.diagnosticCount,
+    predecessorPageSha256: table.predecessorPageSha256,
+    cumulativeDiagnosticsRootSha256: table.cumulativeDiagnosticsRootSha256,
+    manifestCodecVersion: table.manifestCodecVersion,
+    manifestByteLength: table.manifestByteLength,
+    manifestSha256: table.manifestSha256,
+    payloadCodecVersion: table.payloadCodecVersion,
+    payloadByteLength: table.payloadByteLength,
+    payloadSha256: table.payloadSha256,
+    createdAt: table.createdAt,
+  };
+}
+
+function pageSelector(
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+) {
+  return and(
+    eq(fxSystemDeclarativeV2VerifierEvidencePagesV2.scopeId, state.scopeId),
+    eq(
+      fxSystemDeclarativeV2VerifierEvidencePagesV2.attemptSha256,
+      state.attemptSha256,
+    ),
+    eq(fxSystemDeclarativeV2VerifierEvidencePagesV2.sequence, work.sequence),
+    eq(
+      fxSystemDeclarativeV2VerifierEvidencePagesV2.reservationSha256,
+      work.reservationSha256,
+    ),
+    eq(
+      fxSystemDeclarativeV2VerifierEvidencePagesV2.commandKind,
+      work.commandKind as "parse_module" | "link_page",
+    ),
+  )!;
+}
+
+async function readEvidencePageMetadataExact(
+  tx: AppRowTransaction,
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+  pageOrdinal: bigint,
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  usage: MutablePageOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+  forUpdate: boolean,
+): Promise<DeclarativeV2VerifierStoredEvidencePageMetadataV2 | null> {
+  chargeSqlOrThrow(operation, budget, usage, 1);
+  const base = tx
+    .select(pageMetadataSelection())
+    .from(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+    .where(and(
+      pageSelector(state, work),
+      eq(
+        fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+        pageOrdinal,
+      ),
+    ));
+  const query = forUpdate ? base.for("update") : base.for("share");
+  observeDrizzleQuery("pageMetadata", query, observer);
+  const rows = await runStatement(() => query);
+  if (rows.length === 0) return null;
+  if (rows.length !== 1) throw corruption(operation, "selectorMismatch");
+  return resultOrThrow(
+    decodeDeclarativeV2VerifierEvidencePageMetadataRowV2(rows[0]),
+    operation,
+  );
+}
+
+async function readEvidencePageMetadataBatch(
+  tx: AppRowTransaction,
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+  startPageOrdinal: bigint,
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  usage: MutablePageOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Promise<readonly DeclarativeV2VerifierStoredEvidencePageMetadataV2[]> {
+  chargeSqlOrThrow(
+    "readEvidencePageBatch",
+    budget,
+    usage,
+    budget.maximumPages,
+  );
+  const query = tx
+    .select(pageMetadataSelection())
+    .from(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+    .where(and(
+      pageSelector(state, work),
+      gte(
+        fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+        startPageOrdinal,
+      ),
+    ))
+    .orderBy(asc(fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal))
+    .limit(budget.maximumPages);
+  observeDrizzleQuery("pageMetadata", query, observer);
+  const rows = await runStatement(() => query);
+  const decoded: DeclarativeV2VerifierStoredEvidencePageMetadataV2[] = [];
+  for (const row of rows) {
+    decoded.push(resultOrThrow(
+      decodeDeclarativeV2VerifierEvidencePageMetadataRowV2(row),
+      "readEvidencePageBatch",
+    ));
+  }
+  return Object.freeze(decoded);
+}
+
+async function readExactEvidencePageRows(
+  tx: AppRowTransaction,
+  operation: "appendEvidencePage",
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+  pageOrdinal: bigint,
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  usage: MutablePageOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Promise<LoadedEvidencePageBytesV2 | null> {
+  const metadata = await readEvidencePageMetadataExact(
+    tx,
+    operation,
+    state,
+    work,
+    pageOrdinal,
+    budget,
+    usage,
+    observer,
+    true,
+  );
+  if (metadata === null) return null;
+  admitEvidencePageBytes(operation, metadata, budget, usage);
+  chargeSqlOrThrow(operation, budget, usage, 1);
+  const query = tx
+    .select({
+      manifestBytes:
+        fxSystemDeclarativeV2VerifierEvidencePagesV2.manifestBytes,
+      payloadBytes: fxSystemDeclarativeV2VerifierEvidencePagesV2.payloadBytes,
+    })
+    .from(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+    .where(and(
+      pageSelector(state, work),
+      eq(
+        fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+        pageOrdinal,
+      ),
+    ))
+    .for("share");
+  observeDrizzleQuery("pageBytes", query, observer);
+  const rows = await runStatement(() => query);
+  if (rows.length !== 1) {
+    throw corruption(operation, "missingPageWithinTail");
+  }
+  return Object.freeze({
+    metadata,
+    manifestBytes: copyStoredBytes(
+      operation,
+      rows[0]!.manifestBytes,
+      metadata.manifest.byteLength,
+    ),
+    payloadBytes: copyStoredBytes(
+      operation,
+      rows[0]!.payloadBytes,
+      metadata.payloadByteLength,
+    ),
+  });
+}
+
+async function readEvidencePageBytesBatch(
+  tx: AppRowTransaction,
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+  metadata:
+    readonly DeclarativeV2VerifierStoredEvidencePageMetadataV2[],
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  usage: MutablePageOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Promise<readonly LoadedEvidencePageBytesV2[]> {
+  if (metadata.length === 0) return Object.freeze([]);
+  for (const page of metadata) {
+    admitEvidencePageBytes(
+      "readEvidencePageBatch",
+      page,
+      budget,
+      usage,
+    );
+  }
+  chargePageDimensionOrThrow(
+    "readEvidencePageBatch",
+    budget,
+    usage,
+    "pages",
+    metadata.length,
+  );
+  chargeSqlOrThrow(
+    "readEvidencePageBatch",
+    budget,
+    usage,
+    metadata.length,
+  );
+  const firstOrdinal = metadata[0]!.pageOrdinal;
+  const query = tx
+    .select({
+      pageOrdinal: fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+      manifestBytes:
+        fxSystemDeclarativeV2VerifierEvidencePagesV2.manifestBytes,
+      payloadBytes: fxSystemDeclarativeV2VerifierEvidencePagesV2.payloadBytes,
+    })
+    .from(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+    .where(and(
+      pageSelector(state, work),
+      gte(
+        fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+        firstOrdinal,
+      ),
+    ))
+    .orderBy(asc(fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal))
+    .limit(metadata.length);
+  observeDrizzleQuery("pageBytes", query, observer);
+  const rows = await runStatement(() => query);
+  if (rows.length !== metadata.length) {
+    throw corruption("readEvidencePageBatch", "missingPageWithinTail");
+  }
+  const loaded: LoadedEvidencePageBytesV2[] = [];
+  for (let index = 0; index < metadata.length; index += 1) {
+    const page = metadata[index]!;
+    const row = rows[index]!;
+    if (row.pageOrdinal !== page.pageOrdinal) {
+      throw corruption("readEvidencePageBatch", "missingPageWithinTail");
+    }
+    loaded.push(Object.freeze({
+      metadata: page,
+      manifestBytes: copyStoredBytes(
+        "readEvidencePageBatch",
+        row.manifestBytes,
+        page.manifest.byteLength,
+      ),
+      payloadBytes: copyStoredBytes(
+        "readEvidencePageBatch",
+        row.payloadBytes,
+        page.payloadByteLength,
+      ),
+    }));
+  }
+  return Object.freeze(loaded);
+}
+
+function admitEvidencePageBytes(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  metadata: DeclarativeV2VerifierStoredEvidencePageMetadataV2,
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  usage: MutablePageOperationUsageV2,
+): void {
+  const manifestLength = checkedInt64ByteLength(
+    operation,
+    metadata.manifest.byteLength,
+  );
+  const payloadLength = checkedInt64ByteLength(
+    operation,
+    metadata.payloadByteLength,
+  );
+  chargeOrThrow(operation, budget, usage, "frameBytes", manifestLength);
+  chargeOrThrow(operation, budget, usage, "canonicalBytes", manifestLength);
+  chargeOrThrow(
+    operation,
+    budget,
+    usage,
+    "hashBytes",
+    checkedSafeAdd(manifestLength, payloadLength, operation),
+  );
+  chargePageDimensionOrThrow(
+    operation,
+    budget,
+    usage,
+    "payloadBytes",
+    payloadLength,
+  );
+}
+
+function copyStoredBytes(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  input: unknown,
+  expectedLength: bigint,
+): Uint8Array {
+  const length = checkedInt64ByteLength(operation, expectedLength);
+  if (!isUint8ArrayWithByteLength(input, length)) {
+    throw corruption(operation, "invalidStoredBytes");
+  }
+  return new Uint8Array(input);
+}
+
+function checkedInt64ByteLength(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  value: bigint,
+): number {
+  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw corruption(operation, "invalidMetadata");
+  }
+  return Number(value);
+}
+
+function checkedSafeAdd(
+  left: number,
+  right: number,
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+): number {
+  if (left > Number.MAX_SAFE_INTEGER - right) {
+    throw inputError(
+      operation,
+      "budgetExceeded",
+      "hashBytes",
+      Number.MAX_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER,
+    );
+  }
+  return left + right;
+}
+
+function requirePendingWork(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  attempt: DeclarativeV2VerifierStoredAttemptMetadataV2,
+  run: MutableRunStateV2,
+  work: MutableWorkStateV2,
+): void {
+  if (
+    attempt.pendingKind !== work.commandKind ||
+    attempt.pendingSequence !== work.sequence ||
+    attempt.pendingReservationSha256 === null ||
+    !bytesEqualFullScan(
+      attempt.pendingReservationSha256,
+      work.reservationSha256,
+    ) ||
+    attempt.pendingReservedByFence !== run.writerFence
+  ) {
+    throw stale(operation, "pendingChanged");
+  }
+}
+
+function requirePageMetadataMatchesCaptured(
+  metadata: DeclarativeV2VerifierStoredEvidencePageMetadataV2,
+  captured: CapturedEvidencePageV2,
+): void {
+  const frame = captured.manifest;
+  if (
+    metadata.commandKind !== frame.commandKind ||
+    metadata.sequence !== frame.sequence ||
+    metadata.pageOrdinal !== frame.pageOrdinal ||
+    !bytesEqualFullScan(
+      metadata.reservationSha256,
+      frame.reservationSha256,
+    ) ||
+    !bytesEqualFullScan(metadata.pageSha256, captured.manifestSha256) ||
+    metadata.firstEvidenceOrdinal !== frame.firstEvidenceOrdinal ||
+    metadata.evidenceCount !== frame.evidenceCount ||
+    metadata.firstDiagnosticOrdinal !== frame.firstDiagnosticOrdinal ||
+    metadata.diagnosticCount !== frame.diagnosticCount ||
+    !optionalDigestEqual(
+      metadata.predecessorPageSha256,
+      frame.predecessorPageSha256,
+    ) ||
+    metadata.payloadByteLength !== frame.payloadByteLength ||
+    !bytesEqualFullScan(metadata.payloadSha256, captured.payloadSha256) ||
+    !bytesEqualFullScan(
+      metadata.cumulativeDiagnosticsRootSha256,
+      frame.cumulativeDiagnosticsRootSha256,
+    )
+  ) {
+    throw pageConflict("appendEvidencePage", "pageCollision");
+  }
+}
+
+function requirePageCommand(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  command: DeclarativeV2VerifierStoredCommandMetadataV2,
+  work: MutableWorkStateV2,
+): void {
+  if (
+    (work.commandKind !== "parse_module" &&
+      work.commandKind !== "link_page") ||
+    command.commandKind !== work.commandKind ||
+    command.sequence !== work.sequence ||
+    !bytesEqualFullScan(
+      command.reservationSha256,
+      work.reservationSha256,
+    )
+  ) {
+    throw inputError(operation, "commandMismatch");
+  }
+  if (
+    command.outputManifest !== null ||
+    command.commandUsage !== null ||
+    command.resultingUsage !== null ||
+    command.nextProgress !== null ||
+    command.receipt !== null ||
+    command.settledAt !== null
+  ) {
+    throw stale(operation, "pendingChanged");
+  }
+}
+
+function requireAppendTransition(
+  current: DeclarativeV2VerifierEvidencePageManifestFrameV2,
+  command: DeclarativeV2VerifierStoredCommandMetadataV2,
+  predecessor: DeclarativeV2VerifierStoredEvidencePageMetadataV2 | null,
+): void {
+  if (current.pageOrdinal !== command.pageCount) {
+    throw pageConflict("appendEvidencePage", "pageGap");
+  }
+  if (command.pageCount === 0n) {
+    if (
+      command.lastPageSha256 !== null ||
+      predecessor !== null ||
+      current.predecessorPageSha256 !== null ||
+      current.firstEvidenceOrdinal !== 0n ||
+      current.firstDiagnosticOrdinal !== 0n
+    ) {
+      throw pageConflict("appendEvidencePage", "predecessorMismatch");
+    }
+    return;
+  }
+  if (
+    predecessor === null ||
+    command.lastPageSha256 === null ||
+    predecessor.pageOrdinal !== command.pageCount - 1n ||
+    !bytesEqualFullScan(
+      predecessor.pageSha256,
+      command.lastPageSha256,
+    )
+  ) {
+    throw corruption("appendEvidencePage", "missingPageWithinTail");
+  }
+  const transition =
+    validateDeclarativeV2VerifierEvidencePageTransitionV2(
+      evidencePageManifestFromMetadata(predecessor),
+      predecessor.pageSha256,
+      current,
+    );
+  if (Result.isFailure(transition)) {
+    throw pageConflict("appendEvidencePage", "predecessorMismatch");
+  }
+}
+
+function requireReadPredecessor(
+  input: DeclarativeV2VerifierProgressReadEvidencePageBatchInputV2,
+  predecessor: DeclarativeV2VerifierStoredEvidencePageMetadataV2 | null,
+): void {
+  if (input.startPageOrdinal === 0n) {
+    if (
+      input.expectedPredecessorPageSha256 !== null ||
+      predecessor !== null
+    ) {
+      throw pageConflict("readEvidencePageBatch", "predecessorMismatch");
+    }
+    return;
+  }
+  if (predecessor === null) {
+    throw corruption("readEvidencePageBatch", "missingPageWithinTail");
+  }
+  if (
+    input.expectedPredecessorPageSha256 === null ||
+    !bytesEqualFullScan(
+      predecessor.pageSha256,
+      input.expectedPredecessorPageSha256,
+    )
+  ) {
+    throw pageConflict("readEvidencePageBatch", "predecessorMismatch");
+  }
+}
+
+function requireReadBatchContinuity(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  startPageOrdinal: bigint,
+  predecessor: DeclarativeV2VerifierStoredEvidencePageMetadataV2 | null,
+  metadata:
+    readonly DeclarativeV2VerifierStoredEvidencePageMetadataV2[],
+): void {
+  let previous = predecessor;
+  let expectedOrdinal = startPageOrdinal;
+  for (const page of metadata) {
+    if (page.pageOrdinal !== expectedOrdinal) {
+      throw corruption(operation, "missingPageWithinTail");
+    }
+    if (previous === null) {
+      if (
+        page.predecessorPageSha256 !== null ||
+        page.firstEvidenceOrdinal !== 0n ||
+        page.firstDiagnosticOrdinal !== 0n
+      ) {
+        throw corruption(operation, "normalizedMismatch");
+      }
+    } else {
+      const transition =
+        validateDeclarativeV2VerifierEvidencePageTransitionV2(
+          evidencePageManifestFromMetadata(previous),
+          previous.pageSha256,
+          evidencePageManifestFromMetadata(page),
+        );
+      if (Result.isFailure(transition)) {
+        throw corruption(operation, "normalizedMismatch");
+      }
+    }
+    previous = page;
+    if (expectedOrdinal >= MAX_SIGNED_INT64) {
+      if (page !== metadata[metadata.length - 1]) {
+        throw corruption(operation, "normalizedMismatch");
+      }
+    } else {
+      expectedOrdinal += 1n;
+    }
+  }
+}
+
+function requireCommandPageTail(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  command: DeclarativeV2VerifierStoredCommandMetadataV2,
+  tail: DeclarativeV2VerifierStoredEvidencePageMetadataV2 | null,
+): void {
+  if (command.pageCount === 0n) {
+    if (command.lastPageSha256 !== null || tail !== null) {
+      throw corruption(operation, "normalizedMismatch");
+    }
+    return;
+  }
+  if (
+    tail === null ||
+    tail.pageOrdinal !== command.pageCount - 1n ||
+    command.lastPageSha256 === null ||
+    !bytesEqualFullScan(tail.pageSha256, command.lastPageSha256)
+  ) {
+    throw corruption(operation, "normalizedMismatch");
+  }
+}
+
+function evidencePageManifestFromMetadata(
+  metadata: DeclarativeV2VerifierStoredEvidencePageMetadataV2,
+): DeclarativeV2VerifierEvidencePageManifestFrameV2 {
+  return Object.freeze({
+    kind: "evidence_page_manifest",
+    reservationSha256: new Uint8Array(metadata.reservationSha256),
+    commandKind: metadata.commandKind,
+    sequence: metadata.sequence,
+    pageOrdinal: metadata.pageOrdinal,
+    firstEvidenceOrdinal: metadata.firstEvidenceOrdinal,
+    evidenceCount: metadata.evidenceCount,
+    firstDiagnosticOrdinal: metadata.firstDiagnosticOrdinal,
+    diagnosticCount: metadata.diagnosticCount,
+    predecessorPageSha256: metadata.predecessorPageSha256 === null
+      ? null
+      : new Uint8Array(metadata.predecessorPageSha256),
+    payloadByteLength: metadata.payloadByteLength,
+    payloadSha256: new Uint8Array(metadata.payloadSha256),
+    cumulativeDiagnosticsRootSha256: new Uint8Array(
+      metadata.cumulativeDiagnosticsRootSha256,
+    ),
+  });
+}
+
+function pageConflict(
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  reason:
+    | "pageCollision"
+    | "pageGap"
+    | "predecessorMismatch",
+): DeclarativeV2VerifierProgressRepositoryConflictV2Error {
+  return new DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+    operation,
+    reason,
+  });
+}
+
+function decodeLoadedEvidencePage(
+  row: LoadedEvidencePageBytesV2,
+  budget: DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
+  sha256: DeclarativeV2Sha256V1,
+): Effect.Effect<
+  DeclarativeV2VerifierProgressEvidencePageSnapshotV2,
+  DeclarativeV2VerifierProgressRepositoryV2Error
+> {
+  return Effect.gen(function* () {
+    const manifestSha256 = yield* sha256(row.manifestBytes, {
+      maximumInputBytes: row.manifestBytes.byteLength,
+    });
+    const payloadSha256 = yield* sha256(row.payloadBytes, {
+      maximumInputBytes: row.payloadBytes.byteLength,
+    });
+    const manifest = yield* Effect.fromResult(
+      decodeDeclarativeV2VerifierEvidencePageManifestV2(
+        row.metadata,
+        row.manifestBytes,
+        manifestSha256,
+        {
+          maximumFrameBytes: budget.maximumFrameBytes,
+          maximumCanonicalBytes: budget.maximumCanonicalBytes,
+          maximumPayloadBytes: budget.maximumPayloadBytes,
+        },
+      ).pipe(
+        Result.mapError(cause =>
+          mapStoredError("readEvidencePageBatch", cause)
+        ),
+      ),
+    );
+    const payload = yield* Effect.fromResult(
+      decodeDeclarativeV2VerifierEvidencePagePayloadV2(
+        row.metadata,
+        row.payloadBytes,
+        payloadSha256,
+        {
+          maximumFrameBytes: budget.maximumFrameBytes,
+          maximumCanonicalBytes: budget.maximumCanonicalBytes,
+          maximumPayloadBytes: budget.maximumPayloadBytes,
+        },
+      ).pipe(
+        Result.mapError(cause =>
+          mapStoredError("readEvidencePageBatch", cause)
+        ),
+      ),
+    );
+    return Object.freeze({
+      manifest: manifest.frame,
+      manifestBytes: new Uint8Array(manifest.canonicalBytes),
+      pageSha256: new Uint8Array(manifestSha256),
+      payloadBytes: new Uint8Array(payload),
+      payloadSha256: new Uint8Array(payloadSha256),
+      createdAt: copyDate(row.metadata.createdAt),
+    });
+  });
+}
+
 function decodeCommandRows(
   operation: "reserveCommand" | "resumePending",
   rows: RawCommandRowsV2,
@@ -3083,6 +4605,34 @@ function withRun<Value, Failure, Requirements>(
       ),
     );
   });
+}
+
+function withWork<Value, Failure, Requirements>(
+  runs: WeakMap<object, MutableRunStateV2>,
+  works: WeakMap<object, MutableWorkStateV2>,
+  work: DeclarativeV2VerifierProgressWorkV2,
+  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  use: (
+    runState: MutableRunStateV2,
+    workState: MutableWorkStateV2,
+  ) => Effect.Effect<Value, Failure, Requirements>,
+): Effect.Effect<
+  Value,
+  Failure | DeclarativeV2VerifierProgressRepositoryInputV2Error,
+  Requirements
+> {
+  const workState = typeof work === "object" && work !== null
+    ? works.get(work)
+    : undefined;
+  if (workState === undefined) {
+    return Effect.fail(inputError(operation, "invalidWork"));
+  }
+  if (workState.closed) {
+    return Effect.fail(inputError(operation, "workClosed"));
+  }
+  return withRun(runs, workState.run, operation, runState =>
+    use(runState, workState)
+  );
 }
 
 function lookupRun(
