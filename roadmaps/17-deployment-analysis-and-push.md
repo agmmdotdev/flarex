@@ -800,8 +800,16 @@ activation remain blocked until their production host composition is proven.
    lengths before byte copies, and reuses the protocol codec for canonical
    frame truth. These rows and normalized columns remain inert evidence and
    grant no proof, lease, work token, replay, settlement, or verifier authority.
-   Transactional repository operations, durable lease/fence ownership, and
-   executor host composition remain separate later A1b2 gates.
+   The private A1b2b1a repository now owns only exact attempt creation and
+   observation, database-time fenced acquisition/renewal, non-finalizing
+   command reservation/resume, safe release, and terminal abandonment.
+   Canonical command capture and command-budget admission happen before the
+   short READ COMMITTED decision transaction; the attempt row is always locked
+   before its command row. Exact pending replay never recharges durable usage,
+   expired takeover preserves the pending command while rebinding its fence,
+   and stored rows remain inert rather than minting a writer capability.
+   Evidence-page append/read, settlement/replay closure, and executor host
+   composition remain separate later A1b2 gates.
 
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact

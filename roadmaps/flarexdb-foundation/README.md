@@ -893,8 +893,14 @@ restart payload admission under exact composite keys and restrictive foreign
 keys without changing any V1 row or codec meaning. Persistence-private pure
 decoding owns stored-row shape, defensive copies, and canonical protocol-frame
 checks, but serialized bytes, digests, leases, fences, and normalized columns
-remain inert evidence. Transactional repository behavior, durable lease/fence
-ownership, and executor host composition remain later A1b2 gates.
+remain inert evidence. The private A1b2b1a repository adds exact attempt
+creation/observation, database-time fenced acquire/renew, non-finalizing
+reservation/resume, release, and terminal abandonment. Attempt-before-command
+locking, exact pending replay without durable recharge, and pending-preserving
+expired takeover are repository mechanics only: same-factory process-local run
+capabilities remain the writer boundary. Evidence-page operations,
+settlement/replay closure, and executor host composition remain later A1b2
+gates.
 
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the
