@@ -914,6 +914,15 @@ attempt usage. Capability-free cold readback yields only inert missing,
 pending, terminal-unsettled, or settled evidence and never mints writer or
 verifier authority. Executor host composition remains a later A1b2 gate.
 
+The private A1b2c0a persistence adapter now converts one executor-owned,
+already-connected request `pg.Client` and an exact caller-supplied physical
+scope locator into only the existing V2 progress repository. Persistence still
+owns its short READ COMMITTED decisions, while the request owner retains
+connection lifetime and unusable-client quarantine. The adapter exposes no
+client, Drizzle database, transaction capability, locator, OCC or application
+commit authority, and it does not implement executor composition, routing,
+candidate preparation, the real-system harness, readiness, or activation.
+
 The immediate cross-plan milestone is a private end-to-end correctness and
 stress harness, not a developer API or activation gate. A1b2 first composes
 authenticated analysis with durable verifier progress in `apps/executor`;

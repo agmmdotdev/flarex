@@ -831,6 +831,16 @@ activation remain blocked until their production host composition is proven.
    admission. This is verifier-progress repository mechanics only; executor
    host composition remains a separate later A1b2 gate.
 
+   The private A1b2c0a persistence adapter now accepts one executor-owned,
+   already-connected request `pg.Client` plus the caller-supplied exact
+   physical scope locator and constructs only the existing V2 progress
+   repository. It reuses the persistence-owned short READ COMMITTED runner,
+   leaves connection lifetime and unusable-client quarantine with the request
+   owner, and exposes neither the client, Drizzle database, transaction
+   capability, locator, nor application commit authority. No executor host
+   composer, binding, route, candidate-preparation authority, or real-system
+   harness is implemented by this adapter.
+
    These Declarative V2 contracts replace only the deployment-analysis and
    artifact-verification path named by this roadmap. Component suffixes such as
    `CoreV1`, Semantic Artifact V1, or Progress V2 do not authorize a general

@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import type { Pool, PoolClient } from "pg";
+import type { Client, Pool, PoolClient } from "pg";
 
 import type { AppRowTransaction } from "./appRows";
 import { flarexSchema } from "./schema";
@@ -27,6 +27,14 @@ export interface PostgresLocatedReadCommittedRunnerOptionsV1 {
     client: PoolClient,
     discardError: Error | undefined,
   ) => void;
+}
+
+/**
+ * The request owner retains Client lifecycle. This callback is the only signal
+ * that a transaction outcome left the connected client unsafe for later work.
+ */
+export interface PostgresClientLocatedReadCommittedRunnerOptionsV1 {
+  readonly quarantine: (discardError: Error) => void | Promise<void>;
 }
 
 export type PostgresLocatedReadCommittedTransactionResultV1<Value> =
@@ -133,6 +141,79 @@ export function createPostgresLocatedReadCommittedTransactionRunnerV1(
   };
 }
 
+export function createPostgresClientLocatedReadCommittedTransactionRunnerV1(
+  client: Client,
+  options: PostgresClientLocatedReadCommittedRunnerOptionsV1,
+): RunLocatedReadCommittedTransactionV1 {
+  const database = createConnectedClientDatabase(client);
+  let tail: Promise<void> = Promise.resolve();
+  let unusable:
+    | Readonly<{ readonly cause: unknown }>
+    | undefined;
+
+  return async <Result>(work: (
+    tx: AppRowTransaction,
+  ) => Promise<Result>): Promise<Result> => {
+    const previous = tail;
+    let releaseTurn: (() => void) | undefined;
+    tail = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    await previous;
+    try {
+      if (unusable !== undefined) {
+        throw locatedFailure({
+          kind: "infrastructureFailure",
+          phase: "acquire",
+          cause: unusable.cause,
+        });
+      }
+
+      const state: {
+        phase: PostgresLocatedReadCommittedPhaseV1;
+        callbackCause: unknown;
+      } = { phase: "beforeCallback", callbackCause: undefined };
+      const transaction = await settleOperation(() => database.transaction(
+        async (tx): Promise<Result> => {
+          state.phase = "configuring";
+          await tx.setTransaction({ isolationLevel: "read committed" });
+          state.phase = "runningCallback";
+          try {
+            const result = await work(tx);
+            state.phase = "callbackCompleted";
+            return result;
+          } catch (cause) {
+            state.phase = "callbackRejected";
+            state.callbackCause = cause;
+            throw cause;
+          }
+        },
+      ));
+
+      const requiresQuarantine = transaction.kind === "failed" &&
+        !(
+          state.phase === "callbackRejected" &&
+          transaction.cause === state.callbackCause
+        );
+      if (requiresQuarantine && transaction.kind === "failed") {
+        unusable = Object.freeze({ cause: transaction.cause });
+      }
+      const lifecycle = requiresQuarantine
+        ? await quarantineConnectedClient(transaction.cause, options)
+        : Object.freeze({ kind: "released" as const });
+
+      return classifyPostgresLocatedReadCommittedSettlementV1(
+        state.phase,
+        state.callbackCause,
+        transaction,
+        lifecycle,
+      );
+    } finally {
+      releaseTurn?.();
+    }
+  };
+}
+
 export function classifyPostgresLocatedReadCommittedSettlementV1<Result>(
   phase: PostgresLocatedReadCommittedPhaseV1,
   callbackCause: unknown,
@@ -211,11 +292,25 @@ function createConnectedDatabase(client: PoolClient) {
   return drizzle(client, { schema: flarexSchema });
 }
 
+function createConnectedClientDatabase(client: Client) {
+  return drizzle(client, { schema: flarexSchema });
+}
+
 async function settlePromise<Value>(
   promise: Promise<Value>,
 ): Promise<PostgresLocatedReadCommittedTransactionResultV1<Value>> {
   try {
     return Object.freeze({ kind: "succeeded", value: await promise });
+  } catch (cause) {
+    return Object.freeze({ kind: "failed", cause });
+  }
+}
+
+async function settleOperation<Value>(
+  operation: () => Promise<Value>,
+): Promise<PostgresLocatedReadCommittedTransactionResultV1<Value>> {
+  try {
+    return Object.freeze({ kind: "succeeded", value: await operation() });
   } catch (cause) {
     return Object.freeze({ kind: "failed", cause });
   }
@@ -244,6 +339,23 @@ function releaseClient(
         quarantineCause,
       });
     }
+  }
+}
+
+async function quarantineConnectedClient(
+  cause: unknown,
+  options: PostgresClientLocatedReadCommittedRunnerOptionsV1,
+): Promise<PostgresLocatedReadCommittedReleaseResultV1> {
+  const discard = discardError(cause);
+  try {
+    await options.quarantine(discard);
+    return Object.freeze({ kind: "failed", cause: discard });
+  } catch (quarantineCause) {
+    return Object.freeze({
+      kind: "failed",
+      cause: discard,
+      quarantineCause,
+    });
   }
 }
 
