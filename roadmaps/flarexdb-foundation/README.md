@@ -914,6 +914,28 @@ attempt usage. Capability-free cold readback yields only inert missing,
 pending, terminal-unsettled, or settled evidence and never mints writer or
 verifier authority. Executor host composition remains a later A1b2 gate.
 
+The immediate cross-plan milestone is a private end-to-end correctness and
+stress harness, not a developer API or activation gate. A1b2 first composes
+authenticated analysis with durable verifier progress in `apps/executor`;
+`C07` separately supplies the private point-mutation correctness kernel. Only
+after both are ready does one test-owned flow exercise real user code through
+the authenticated backend/analyzer/runtime, private executor, transaction
+journal, existing FlarexDB OCC and commit compiler/execution, and authoritative
+PostgreSQL rows and outcome. Its internal/test-only capability adapters must be
+thin wrappers over existing owners and may not add an alternate OCC, commit,
+storage, authority, dual-write, fallback, or production route.
+
+Acceptance is ordered: first one real mutation with an authoritative verified
+result; then conflict, cold-restart, takeover, cancellation,
+confirmed-rollback retry, decision-uncertainty, and crash/fault coverage; then
+real-Postgres concurrency, sustained stress, and resource/budget enforcement;
+then observability, reproducibility, and stability; and only afterward
+developer-facing APIs and SDK ergonomics, public routing, readiness,
+activation, and cutover. This harness is not implemented or green. It exercises
+but does not change application OCC, commit compilation/execution, journals,
+idempotency outcomes, feeds, outbox behavior, or authoritative application-row
+semantics.
+
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the
 semantic upload attempt, incarnation/source correlation, fences, cumulative

@@ -844,12 +844,44 @@ activation remain blocked until their production host composition is proven.
    The intended analysis cutover is replacement-only after one real-system
    acceptance proof. That proof must use the actual backend, analyzer,
    artifact-runtime Worker Loader/Dynamic Worker, executor, and Postgres
-   composition with the exact readiness-approved runtime projection. The
-   standalone runtime-topology probe remains historical evidence and must not
-   be copied into production as an alternate runtime. Until the proof and a
-   separate cutover decision are complete, the shipped legacy analyzer contract
-   remains compatibility state; afterward remove its route, root exports, and
-   consumers rather than retaining a dual analysis path or silent fallback.
+   composition with the exact immutable runtime projection selected by the
+   private harness; production readiness remains a later gate. The standalone
+   runtime-topology probe remains historical evidence and must not be copied
+   into production as an alternate runtime. Until the proof and a separate
+   cutover decision are complete, the shipped legacy analyzer contract remains
+   compatibility state; afterward remove its route, root exports, and consumers
+   rather than retaining a dual analysis path or silent fallback.
+
+   The immediate acceptance milestone is a private end-to-end system
+   correctness and stress harness, not developer-facing APIs or production
+   activation. Test-owned user code must traverse the real authenticated
+   backend, analyzer, and artifact-runtime boundaries, the private executor,
+   the transaction journal, the existing FlarexDB OCC and commit
+   compiler/execution owners, and the authoritative PostgreSQL row/outcome
+   path. Minimal harness APIs are internal/test-only, capability-scoped thin
+   adapters over those existing owners. They may not create an alternate OCC,
+   commit, persistence, authority, dual-write, fallback, or production route.
+
+   A1b2 and foundation `C07` remain distinct prerequisites: A1b2 composes
+   authenticated analysis with durable verifier progress in the executor host,
+   while `C07` proves the existing private point-mutation correctness kernel.
+   They converge only in the same later real-system harness. Its ordered
+   acceptance ladder is:
+
+   1. complete one real point mutation and verify its authoritative result;
+   2. prove conflicts, cold restart, takeover, cancellation,
+      confirmed-rollback retry, decision uncertainty, and crash/fault cases;
+   3. prove real-Postgres concurrency, sustained stress, and resource/budget
+      enforcement;
+   4. close observability, reproducibility, and stability gates; and
+   5. only then consider developer-facing APIs and SDK ergonomics, public
+      routing, readiness, activation, and cutover.
+
+   This harness and real-system proof are not implemented or green. Exercising
+   the existing transaction and commit path does not authorize changing
+   application OCC, commit compilation/execution, journals, idempotency
+   outcomes, feeds, outbox behavior, or authoritative application-row
+   semantics.
 
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact
