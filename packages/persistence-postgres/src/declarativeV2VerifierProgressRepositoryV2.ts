@@ -27,13 +27,17 @@ import {
   decodeDeclarativeV2VerifierProgressFrameV2,
   encodeDeclarativeV2VerifierProgressFrameV2,
   validateDeclarativeV2VerifierEvidencePageTransitionV2,
+  validateDeclarativeV2VerifierFinalEvidencePageV2,
   type DeclarativeV2VerifierAttemptIdentityFrameV2,
   type DeclarativeV2VerifierBudgetDimensionV2,
   type DeclarativeV2VerifierBudgetFrameV2,
+  type DeclarativeV2VerifierCommandOutputManifestFrameV2,
+  type DeclarativeV2VerifierCommandReceiptFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
   type DeclarativeV2VerifierDurableCommandKindV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
   type DeclarativeV2VerifierProgressCursorFrameV2,
+  type DeclarativeV2VerifierProgressFrameV2,
   type DeclarativeV2VerifierProgressV2Error,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
 import {
@@ -54,6 +58,7 @@ import {
 import {
   decodeDeclarativeV2VerifierAttemptMetadataRowV2,
   decodeDeclarativeV2VerifierAttemptStoredStateV2,
+  decodeDeclarativeV2VerifierCommittedCommandReadbackV2,
   decodeDeclarativeV2VerifierCommandMetadataRowV2,
   decodeDeclarativeV2VerifierCommandStoredStateV2,
   decodeDeclarativeV2VerifierEvidencePageManifestV2,
@@ -61,6 +66,7 @@ import {
   decodeDeclarativeV2VerifierEvidencePagePayloadV2,
   decodeDeclarativeV2VerifierStoredFrameV2,
   type DeclarativeV2VerifierDecodedAttemptStoredStateV2,
+  type DeclarativeV2VerifierDecodedCommandSettlementV2,
   type DeclarativeV2VerifierDecodedCommandStoredStateV2,
   type DeclarativeV2VerifierProgressV2StoredRowError,
   type DeclarativeV2VerifierStoredAttemptMetadataV2,
@@ -91,6 +97,8 @@ export type DeclarativeV2VerifierProgressRepositoryOperationV2 =
   | "resumePending"
   | "appendEvidencePage"
   | "readEvidencePageBatch"
+  | "settleCommand"
+  | "observeCommandDecision"
   | "release"
   | "abandon";
 
@@ -153,6 +161,17 @@ export type DeclarativeV2VerifierProgressRepositoryQueryV2 =
   | "pageBytes"
   | "insertEvidencePage"
   | "advanceCommandPageTail"
+  | "settlementCommandMetadata"
+  | "settlementCommandFrames"
+  | "settlementFinalPageMetadata"
+  | "settlementFinalPageManifest"
+  | "settleCommand"
+  | "settleAttempt"
+  | "decisionAttemptMetadata"
+  | "decisionCommandMetadata"
+  | "decisionFinalPageMetadata"
+  | "decisionAttemptFrames"
+  | "decisionCommandFrames"
   | "releaseAttempt"
   | "abandonAttempt";
 
@@ -227,6 +246,8 @@ export class DeclarativeV2VerifierProgressRepositoryConflictV2Error
       | "resumePending"
       | "appendEvidencePage"
       | "readEvidencePageBatch"
+      | "settleCommand"
+      | "observeCommandDecision"
       | "release";
     readonly reason:
       | "attemptChanged"
@@ -234,7 +255,8 @@ export class DeclarativeV2VerifierProgressRepositoryConflictV2Error
       | "pendingExists"
       | "pageCollision"
       | "pageGap"
-      | "predecessorMismatch";
+      | "predecessorMismatch"
+      | "settlementChanged";
   }> {}
 
 export class DeclarativeV2VerifierProgressRepositoryLifecycleV2Error
@@ -270,7 +292,11 @@ export class DeclarativeV2VerifierProgressRepositoryExhaustionV2Error
   extends Data.TaggedError(
     "DeclarativeV2VerifierProgressRepositoryExhaustionV2Error",
   )<{
-    readonly operation: "acquire" | "reserveCommand" | "appendEvidencePage";
+    readonly operation:
+      | "acquire"
+      | "reserveCommand"
+      | "appendEvidencePage"
+      | "settleCommand";
     readonly dimension: "writerFence" | "sequence" | "pageCount" |
       DeclarativeV2VerifierBudgetDimensionV2;
     readonly observed: bigint;
@@ -381,6 +407,25 @@ export interface DeclarativeV2VerifierProgressReadEvidencePageBatchInputV2 {
   readonly expectedPredecessorPageSha256: Uint8Array | null;
 }
 
+export interface DeclarativeV2VerifierProgressSettleCommandInputV2 {
+  readonly outputManifest: DeclarativeV2VerifierCommandOutputManifestFrameV2;
+  readonly commandUsage: DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  };
+  readonly resultingUsage: DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "attempt_usage";
+  };
+  readonly nextProgress: DeclarativeV2VerifierProgressCursorFrameV2;
+  readonly receipt: DeclarativeV2VerifierCommandReceiptFrameV2;
+}
+
+export interface DeclarativeV2VerifierProgressObserveCommandDecisionInputV2 {
+  readonly scopeId: string;
+  readonly attemptSha256: Uint8Array;
+  readonly sequence: bigint;
+  readonly reservationSha256: Uint8Array;
+}
+
 export interface DeclarativeV2VerifierProgressEvidencePageSnapshotV2 {
   readonly manifest: DeclarativeV2VerifierEvidencePageManifestFrameV2;
   readonly manifestBytes: Uint8Array;
@@ -389,6 +434,48 @@ export interface DeclarativeV2VerifierProgressEvidencePageSnapshotV2 {
   readonly payloadSha256: Uint8Array;
   readonly createdAt: Date;
 }
+
+export interface DeclarativeV2VerifierProgressSettlementSnapshotV2 {
+  readonly commandKind: DeclarativeV2VerifierDurableCommandKindV2;
+  readonly sequence: bigint;
+  readonly reservationSha256: Uint8Array;
+  readonly outputManifest: DeclarativeV2VerifierCommandOutputManifestFrameV2;
+  readonly outputManifestBytes: Uint8Array;
+  readonly commandUsage: DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  };
+  readonly commandUsageBytes: Uint8Array;
+  readonly resultingUsage: DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "attempt_usage";
+  };
+  readonly resultingUsageBytes: Uint8Array;
+  readonly nextProgress: DeclarativeV2VerifierProgressCursorFrameV2;
+  readonly nextProgressBytes: Uint8Array;
+  readonly receipt: DeclarativeV2VerifierCommandReceiptFrameV2;
+  readonly receiptBytes: Uint8Array;
+  readonly receiptSha256: Uint8Array;
+  readonly settledAt: Date;
+}
+
+export type DeclarativeV2VerifierProgressCommandDecisionV2 =
+  | Readonly<{ readonly kind: "missing" }>
+  | Readonly<{
+    readonly kind: "pending";
+    readonly commandKind: DeclarativeV2VerifierDurableCommandKindV2;
+    readonly sequence: bigint;
+    readonly reservationSha256: Uint8Array;
+  }>
+  | Readonly<{
+    readonly kind: "terminalUnsettled";
+    readonly lifecycle: "abandoned" | "ready" | "rejected";
+    readonly commandKind: DeclarativeV2VerifierDurableCommandKindV2;
+    readonly sequence: bigint;
+    readonly reservationSha256: Uint8Array;
+  }>
+  | Readonly<{
+    readonly kind: "settled";
+    readonly settlement: DeclarativeV2VerifierProgressSettlementSnapshotV2;
+  }>;
 
 export type DeclarativeV2VerifierProgressObserveResultV2 =
   | Readonly<{
@@ -517,6 +604,32 @@ export interface DeclarativeV2VerifierProgressRepositoryV2 {
     DeclarativeV2VerifierProgressRepositoryV2Error,
     never
   >;
+  readonly settleCommand: (
+    work: DeclarativeV2VerifierProgressWorkV2,
+    input: unknown,
+    budget: unknown,
+  ) => Effect.Effect<
+    Readonly<{
+      readonly kind: "settled";
+      readonly settlement: DeclarativeV2VerifierProgressSettlementSnapshotV2;
+      readonly operationUsage:
+        DeclarativeV2VerifierProgressRepositoryOperationUsageV2;
+    }>,
+    DeclarativeV2VerifierProgressRepositoryV2Error,
+    never
+  >;
+  readonly observeCommandDecision: (
+    input: unknown,
+    budget: unknown,
+  ) => Effect.Effect<
+    Readonly<{
+      readonly decision: DeclarativeV2VerifierProgressCommandDecisionV2;
+      readonly operationUsage:
+        DeclarativeV2VerifierProgressRepositoryOperationUsageV2;
+    }>,
+    DeclarativeV2VerifierProgressRepositoryV2Error,
+    never
+  >;
   readonly release: (
     run: DeclarativeV2VerifierProgressRunV2,
     budget: unknown,
@@ -558,11 +671,7 @@ interface MutablePageOperationUsageV2 extends MutableOperationUsageV2 {
 }
 
 interface CapturedFrameV2<
-  Frame extends
-    | DeclarativeV2VerifierAttemptIdentityFrameV2
-    | DeclarativeV2VerifierBudgetFrameV2
-    | DeclarativeV2VerifierProgressCursorFrameV2
-    | DeclarativeV2VerifierCommandReservationFrameV2,
+  Frame extends DeclarativeV2VerifierProgressFrameV2,
 > {
   readonly frame: Frame;
   readonly bytes: Uint8Array;
@@ -577,7 +686,7 @@ interface MutableRunStateV2 {
   readonly identitySha256: Uint8Array;
   readonly ceilingsSha256: Uint8Array;
   usageSha256: Uint8Array;
-  readonly progressSha256: Uint8Array;
+  progressSha256: Uint8Array;
   attempt: DeclarativeV2VerifierProgressAttemptSnapshotV2;
   leaseExpiresAtMilliseconds: number;
   closed: boolean;
@@ -589,6 +698,12 @@ interface MutableWorkStateV2 {
   readonly commandKind: DeclarativeV2VerifierDurableCommandKindV2;
   readonly sequence: bigint;
   readonly reservationSha256: Uint8Array;
+  readonly reservation: DeclarativeV2VerifierCommandReservationFrameV2;
+  readonly reservationBytes: Uint8Array;
+  readonly commandBudget: DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  };
+  readonly commandBudgetBytes: Uint8Array;
   closed: boolean;
 }
 
@@ -612,6 +727,60 @@ interface LoadedEvidencePageBytesV2 {
   readonly metadata: DeclarativeV2VerifierStoredEvidencePageMetadataV2;
   readonly manifestBytes: Uint8Array;
   readonly payloadBytes: Uint8Array;
+}
+
+interface CapturedSettlementV2 {
+  readonly outputManifest: CapturedFrameV2<
+    DeclarativeV2VerifierCommandOutputManifestFrameV2
+  >;
+  readonly commandUsage: CapturedFrameV2<
+    DeclarativeV2VerifierBudgetFrameV2 & { readonly kind: "command_budget" }
+  >;
+  readonly resultingUsage: CapturedFrameV2<
+    DeclarativeV2VerifierBudgetFrameV2 & { readonly kind: "attempt_usage" }
+  >;
+  readonly nextProgress: CapturedFrameV2<
+    DeclarativeV2VerifierProgressCursorFrameV2
+  >;
+  readonly receipt: CapturedFrameV2<
+    DeclarativeV2VerifierCommandReceiptFrameV2
+  >;
+  readonly nextLifecycle:
+    DeclarativeV2VerifierStoredAttemptMetadataV2["lifecycle"];
+}
+
+interface RawSettledCommandRowsV2 {
+  readonly attemptMetadata: unknown;
+  readonly attemptUsageBytes: Uint8Array;
+  readonly attemptProgressBytes: Uint8Array;
+  readonly commandMetadata: unknown;
+  readonly finalPageMetadata:
+    DeclarativeV2VerifierStoredEvidencePageMetadataV2 | null;
+  readonly reservationBytes: Uint8Array;
+  readonly commandBudgetBytes: Uint8Array;
+  readonly outputManifestBytes: Uint8Array;
+  readonly commandUsageBytes: Uint8Array;
+  readonly resultingUsageBytes: Uint8Array;
+  readonly nextProgressBytes: Uint8Array;
+  readonly receiptBytes: Uint8Array;
+}
+
+type LoadedCommandDecisionRowsV2 =
+  | Readonly<{
+    readonly kind: "unsettled";
+    readonly attempt: DeclarativeV2VerifierStoredAttemptMetadataV2;
+    readonly command: DeclarativeV2VerifierStoredCommandMetadataV2;
+  }>
+  | Readonly<{
+    readonly kind: "settled";
+    readonly rows: RawSettledCommandRowsV2;
+  }>;
+
+interface LoadedFinalPageProofV2 {
+  readonly metadata: DeclarativeV2VerifierStoredEvidencePageMetadataV2;
+  readonly manifest: DeclarativeV2VerifierEvidencePageManifestFrameV2;
+  readonly manifestBytes: Uint8Array;
+  readonly pageSha256: Uint8Array;
 }
 
 class RepositoryStatementFailureV2 {
@@ -1380,7 +1549,10 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
         const token = prepareWorkToken(
           run,
           input.reservation.frame,
+          input.reservation.bytes,
           input.reservation.sha256,
+          input.commandBudget.frame,
+          input.commandBudget.bytes,
         );
         works.set(token.work, token.state);
         return Object.freeze({
@@ -1473,7 +1645,10 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
         const token = prepareWorkToken(
           run,
           input.reservation.frame,
+          input.reservation.bytes,
           input.reservation.sha256,
+          input.commandBudget.frame,
+          input.commandBudget.bytes,
         );
         works.set(token.work, token.state);
         yield* Effect.fromResult(setElapsed(
@@ -1941,6 +2116,322 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
         }),
     ));
 
+  const settleCommand = Effect.fn(
+    "DeclarativeV2.verifierProgressV2.settleCommand",
+  )((
+    work: DeclarativeV2VerifierProgressWorkV2,
+    rawInput: unknown,
+    rawBudget: unknown,
+  ) =>
+    withWork(
+      runs,
+      works,
+      work,
+      "settleCommand",
+      (state, workState) =>
+        Effect.gen(function* () {
+          const start = monotonicMilliseconds();
+          const budget = yield* Effect.fromResult(
+            decodeOperationBudget("settleCommand", rawBudget),
+          );
+          const usage = mutableUsage();
+          const input: CapturedSettlementV2 =
+            yield* captureSettlementInput(
+              rawInput,
+              state,
+              workState,
+              budget,
+              usage,
+              sha256,
+            );
+          const finalPage = yield* loadFinalPageProofForSettlement(
+            target,
+            state,
+            workState,
+            input.outputManifest.frame,
+            budget,
+            usage,
+            sha256,
+            options.observeQuery,
+          ).pipe(closeRunOnFailure(state, activeRuns));
+          const settledAt = yield* runTransactionWithConfirmedRollbackRetry(
+            target,
+            "settleCommand",
+            state.scopeId,
+            state.attemptSha256,
+            budget,
+            usage,
+            monotonicMilliseconds,
+            start,
+            async (tx) => {
+              const attempt = await lockAttemptMetadata(
+                tx,
+                "settleCommand",
+                state.scopeId,
+                state.attemptSha256,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              requireLiveOwner("settleCommand", attempt, state);
+              requireRunLineage("settleCommand", attempt, state);
+              requirePendingWork(
+                "settleCommand",
+                attempt,
+                state,
+                workState,
+              );
+              const command = await lockSettlementCommandMetadata(
+                tx,
+                state,
+                workState,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              if (command.decoded.metadata.settledAt !== null) {
+                throw new
+                  DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+                    operation: "settleCommand",
+                    reason: "settlementChanged",
+                  });
+              }
+              await requirePageSettlementProof(
+                tx,
+                state,
+                workState,
+                command.decoded.metadata,
+                finalPage,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              const proposedMetadata = settlementCommandMetadata(
+                command.raw,
+                input,
+                attempt.databaseNow,
+              );
+              const proposed = resultOrThrow(
+                decodeDeclarativeV2VerifierCommandStoredStateV2(
+                  proposedMetadata,
+                  state.attempt.candidateSha256,
+                  state.progressSha256,
+                  state.attempt.lastReceiptSha256,
+                  state.attempt.lifecycle,
+                  state.attempt.progress.phase,
+                  input.nextLifecycle,
+                  workState.reservationBytes,
+                  workState.reservationSha256,
+                  workState.commandBudgetBytes,
+                  command.decoded.commandBudget.sha256,
+                  settlementDecoderInput(input),
+                  storedDecoderBudget(budget),
+                ),
+                "settleCommand",
+              );
+              if (proposed.settlement === null) {
+                throw corruption("settleCommand", "normalizedMismatch");
+              }
+              requireElapsedOrThrow(
+                "settleCommand",
+                budget,
+                usage,
+                start,
+                monotonicMilliseconds,
+              );
+              chargeSqlOrThrow("settleCommand", budget, usage, 1);
+              const commandUpdate = tx
+                .update(fxSystemDeclarativeV2VerifierCommandsV2)
+                .set({
+                  outputManifestCodecVersion: FRAME_CODEC_VERSION,
+                  outputManifestByteLength:
+                    BigInt(input.outputManifest.bytes.byteLength),
+                  outputManifestSha256: input.outputManifest.sha256,
+                  outputManifestBytes: input.outputManifest.bytes,
+                  commandUsageCodecVersion: FRAME_CODEC_VERSION,
+                  commandUsageByteLength:
+                    BigInt(input.commandUsage.bytes.byteLength),
+                  commandUsageSha256: input.commandUsage.sha256,
+                  commandUsageBytes: input.commandUsage.bytes,
+                  resultingUsageCodecVersion: FRAME_CODEC_VERSION,
+                  resultingUsageByteLength:
+                    BigInt(input.resultingUsage.bytes.byteLength),
+                  resultingUsageSha256: input.resultingUsage.sha256,
+                  resultingUsageBytes: input.resultingUsage.bytes,
+                  nextProgressCodecVersion: FRAME_CODEC_VERSION,
+                  nextProgressByteLength:
+                    BigInt(input.nextProgress.bytes.byteLength),
+                  nextProgressSha256: input.nextProgress.sha256,
+                  nextProgressBytes: input.nextProgress.bytes,
+                  receiptCodecVersion: FRAME_CODEC_VERSION,
+                  receiptByteLength: BigInt(input.receipt.bytes.byteLength),
+                  receiptSha256: input.receipt.sha256,
+                  receiptBytes: input.receipt.bytes,
+                  settledAt: attempt.databaseNow,
+                })
+                .where(and(
+                  commandWhere(state, workState),
+                  isNull(
+                    fxSystemDeclarativeV2VerifierCommandsV2.settledAt,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierCommandsV2.pageCount,
+                    command.decoded.metadata.pageCount,
+                  ),
+                  command.decoded.metadata.lastPageSha256 === null
+                    ? isNull(
+                      fxSystemDeclarativeV2VerifierCommandsV2.lastPageSha256,
+                    )
+                    : eq(
+                      fxSystemDeclarativeV2VerifierCommandsV2.lastPageSha256,
+                      command.decoded.metadata.lastPageSha256,
+                    ),
+                ))
+                .returning({
+                  sequence: fxSystemDeclarativeV2VerifierCommandsV2.sequence,
+                });
+              observeDrizzleQuery(
+                "settleCommand",
+                commandUpdate,
+                options.observeQuery,
+              );
+              requireOneRow(
+                "settleCommand",
+                (await runStatement(() => commandUpdate)).length,
+              );
+              chargeSqlOrThrow("settleCommand", budget, usage, 1);
+              const attemptUpdate = tx
+                .update(fxSystemDeclarativeV2VerifierAttemptsV2)
+                .set({
+                  lifecycle: input.nextLifecycle,
+                  settledSequence: workState.sequence,
+                  lastReceiptSha256: input.receipt.sha256,
+                  progressCodecVersion: FRAME_CODEC_VERSION,
+                  progressByteLength:
+                    BigInt(input.nextProgress.bytes.byteLength),
+                  progressSha256: input.nextProgress.sha256,
+                  progressBytes: input.nextProgress.bytes,
+                  pendingKind: null,
+                  pendingSequence: null,
+                  pendingReservationSha256: null,
+                  pendingReservedByFence: null,
+                  pendingStartedAt: null,
+                  updatedAt: attempt.databaseNow,
+                })
+                .where(and(
+                  ownerWhere(state),
+                  eq(
+                    fxSystemDeclarativeV2VerifierAttemptsV2.lifecycle,
+                    state.attempt.lifecycle,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierAttemptsV2.settledSequence,
+                    state.attempt.settledSequence,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierAttemptsV2.usageSha256,
+                    state.usageSha256,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierAttemptsV2.progressSha256,
+                    state.progressSha256,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierAttemptsV2.pendingSequence,
+                    workState.sequence,
+                  ),
+                  eq(
+                    fxSystemDeclarativeV2VerifierAttemptsV2
+                      .pendingReservationSha256,
+                    workState.reservationSha256,
+                  ),
+                ))
+                .returning({
+                  attemptSha256:
+                    fxSystemDeclarativeV2VerifierAttemptsV2.attemptSha256,
+                });
+              observeDrizzleQuery(
+                "settleAttempt",
+                attemptUpdate,
+                options.observeQuery,
+              );
+              requireOneRow(
+                "settleCommand",
+                (await runStatement(() => attemptUpdate)).length,
+              );
+              return copyDate(attempt.databaseNow);
+            },
+          ).pipe(closeRunOnFailure(state, activeRuns));
+          state.progressSha256 = new Uint8Array(input.nextProgress.sha256);
+          state.attempt = projectSettledAttempt(
+            state.attempt,
+            input,
+            workState.sequence,
+          );
+          yield* Effect.fromResult(setElapsed(
+            "settleCommand",
+            budget,
+            usage,
+            start,
+            monotonicMilliseconds,
+          ));
+          return Object.freeze({
+            kind: "settled" as const,
+            settlement: settlementSnapshot(input, workState, settledAt),
+            operationUsage: freezeUsage(usage),
+          });
+        }).pipe(
+          Effect.tapError(() =>
+            Effect.sync(() => closeRun(state, activeRuns))
+          ),
+          Effect.onInterrupt(() =>
+            Effect.sync(() => closeRun(state, activeRuns))
+          ),
+          Effect.ensuring(Effect.sync(() => {
+            workState.closed = true;
+          })),
+        ),
+    ));
+
+  const observeCommandDecision = Effect.fn(
+    "DeclarativeV2.verifierProgressV2.observeCommandDecision",
+  )(function* (rawInput: unknown, rawBudget: unknown) {
+    const start = monotonicMilliseconds();
+    const budget = yield* Effect.fromResult(
+      decodeOperationBudget("observeCommandDecision", rawBudget),
+    );
+    const usage = mutableUsage();
+    const input = yield* Effect.fromResult(
+      captureCommandDecisionSelector(rawInput),
+    );
+    const rows = yield* loadCommandDecisionRows(
+      target,
+      input,
+      budget,
+      usage,
+      options.observeQuery,
+    );
+    const decision = rows === null
+      ? Object.freeze({ kind: "missing" as const })
+      : yield* decodeCommandDecision(
+        rows,
+        input,
+        budget,
+        sha256,
+      );
+    yield* Effect.fromResult(setElapsed(
+      "observeCommandDecision",
+      budget,
+      usage,
+      start,
+      monotonicMilliseconds,
+    ));
+    return Object.freeze({
+      decision,
+      operationUsage: freezeUsage(usage),
+    });
+  });
+
   const release = Effect.fn("DeclarativeV2.verifierProgressV2.release")(
     (run: DeclarativeV2VerifierProgressRunV2, rawBudget: unknown) =>
       withRun(runs, run, "release", (state) =>
@@ -2089,6 +2580,8 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
     resumePending,
     appendEvidencePage,
     readEvidencePageBatch,
+    settleCommand,
+    observeCommandDecision,
     release,
     abandon,
   });
@@ -2178,6 +2671,44 @@ function captureSelector(
     return Object.freeze({
       scopeId,
       attemptSha256: new Uint8Array(rawAttemptSha256),
+    });
+  });
+}
+
+function captureCommandDecisionSelector(
+  input: unknown,
+): Result.Result<
+  DeclarativeV2VerifierProgressObserveCommandDecisionInputV2 & {
+    readonly scopeId: ScopeId;
+  },
+  DeclarativeV2VerifierProgressRepositoryInputV2Error
+> {
+  return Result.gen(function* () {
+    const record = yield* captureExactRecord(
+      "observeCommandDecision",
+      input,
+      ["scopeId", "attemptSha256", "sequence", "reservationSha256"],
+    );
+    const scopeId = yield* decodeScopeId(
+      "observeCommandDecision",
+      record.scopeId,
+    );
+    if (
+      !isUint8ArrayWithByteLength(record.attemptSha256, 32) ||
+      typeof record.sequence !== "bigint" ||
+      record.sequence < 1n ||
+      record.sequence > MAX_SIGNED_INT64 ||
+      !isUint8ArrayWithByteLength(record.reservationSha256, 32)
+    ) {
+      return yield* Result.fail(
+        inputError("observeCommandDecision", "invalidInput"),
+      );
+    }
+    return Object.freeze({
+      scopeId,
+      attemptSha256: new Uint8Array(record.attemptSha256),
+      sequence: record.sequence,
+      reservationSha256: new Uint8Array(record.reservationSha256),
     });
   });
 }
@@ -2631,13 +3162,7 @@ function mergeInertUsage(
 }
 
 function captureFrame<
-  Kind extends
-    | "attempt_identity"
-    | "attempt_ceilings"
-    | "attempt_usage"
-    | "command_budget"
-    | "progress_cursor"
-    | "command_reservation",
+  Kind extends DeclarativeV2VerifierProgressFrameV2["kind"],
 >(
   operation: DeclarativeV2VerifierProgressRepositoryOperationV2,
   input: unknown,
@@ -2646,13 +3171,9 @@ function captureFrame<
   usage: MutableOperationUsageV2,
   sha256: DeclarativeV2Sha256V1,
 ): Effect.Effect<
-  CapturedFrameV2<Extract<
-    | DeclarativeV2VerifierAttemptIdentityFrameV2
-    | DeclarativeV2VerifierBudgetFrameV2
-    | DeclarativeV2VerifierProgressCursorFrameV2
-    | DeclarativeV2VerifierCommandReservationFrameV2,
-    { readonly kind: Kind }
-  >>,
+  CapturedFrameV2<
+    Extract<DeclarativeV2VerifierProgressFrameV2, { readonly kind: Kind }>
+  >,
   | DeclarativeV2VerifierProgressRepositoryInputV2Error
   | DeclarativeV2Sha256V1Error
 > {
@@ -2701,10 +3222,7 @@ function captureFrame<
     });
     return Object.freeze({
       frame: encoded.frame as Extract<
-        | DeclarativeV2VerifierAttemptIdentityFrameV2
-        | DeclarativeV2VerifierBudgetFrameV2
-        | DeclarativeV2VerifierProgressCursorFrameV2
-        | DeclarativeV2VerifierCommandReservationFrameV2,
+        DeclarativeV2VerifierProgressFrameV2,
         { readonly kind: Kind }
       >,
       bytes: new Uint8Array(encoded.canonicalBytes),
@@ -2990,6 +3508,195 @@ function captureReserveInput(
   });
 }
 
+const captureSettlementInput = Effect.fn(
+  "DeclarativeV2.verifierProgressV2.captureSettlementInput",
+)(function* (
+  input: unknown,
+  runState: MutableRunStateV2,
+  workState: MutableWorkStateV2,
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  usage: MutableOperationUsageV2,
+  sha256: DeclarativeV2Sha256V1,
+) {
+  const record = yield* Effect.fromResult(captureExactRecord(
+    "settleCommand",
+    input,
+    [
+      "outputManifest",
+      "commandUsage",
+      "resultingUsage",
+      "nextProgress",
+      "receipt",
+    ],
+  ));
+    const outputManifest = yield* captureFrame(
+      "settleCommand",
+      record.outputManifest,
+      "command_output_manifest",
+      budget,
+      usage,
+      sha256,
+    );
+    const commandUsage = yield* captureFrame(
+      "settleCommand",
+      record.commandUsage,
+      "command_budget",
+      budget,
+      usage,
+      sha256,
+    );
+    const resultingUsage = yield* captureFrame(
+      "settleCommand",
+      record.resultingUsage,
+      "attempt_usage",
+      budget,
+      usage,
+      sha256,
+    );
+    const nextProgress = yield* captureFrame(
+      "settleCommand",
+      record.nextProgress,
+      "progress_cursor",
+      budget,
+      usage,
+      sha256,
+    );
+    const receipt = yield* captureFrame(
+      "settleCommand",
+      record.receipt,
+      "command_receipt",
+      budget,
+      usage,
+      sha256,
+    );
+    if (
+      !bytesEqualFullScan(
+        outputManifest.frame.reservationSha256,
+        workState.reservationSha256,
+      ) ||
+      outputManifest.frame.commandKind !== workState.commandKind ||
+      outputManifest.frame.sequence !== workState.sequence ||
+      !bytesEqualFullScan(
+        outputManifest.frame.nextProgressSha256,
+        nextProgress.sha256,
+      ) ||
+      !bytesEqualFullScan(
+        receipt.frame.reservationSha256,
+        workState.reservationSha256,
+      ) ||
+      !bytesEqualFullScan(
+        receipt.frame.commandUsageSha256,
+        commandUsage.sha256,
+      ) ||
+      !bytesEqualFullScan(
+        receipt.frame.resultingAttemptUsageSha256,
+        resultingUsage.sha256,
+      ) ||
+      !bytesEqualFullScan(
+        receipt.frame.outputManifestSha256,
+        outputManifest.sha256,
+      ) ||
+      !bytesEqualFullScan(
+        receipt.frame.nextProgressSha256,
+        nextProgress.sha256,
+      ) ||
+      nextProgress.frame.settledSequence !== workState.sequence ||
+      !optionalDigestEqual(
+        nextProgress.frame.previousReceiptSha256,
+        workState.reservation.predecessorReceiptSha256,
+      ) ||
+      !budgetFrameWithin(commandUsage.frame, workState.commandBudget) ||
+      !budgetFramesEqual(resultingUsage.frame, runState.attempt.usage) ||
+      !bytesEqualFullScan(resultingUsage.sha256, runState.usageSha256)
+    ) {
+      return yield* inputError("settleCommand", "commandMismatch");
+    }
+    const nextLifecycle = deriveNextLifecycle(
+      runState.attempt.lifecycle,
+      runState.attempt.progress.phase,
+      workState.commandKind,
+      nextProgress.frame.phase,
+    );
+    if (nextLifecycle === undefined) {
+      return yield* inputError("settleCommand", "commandMismatch");
+    }
+  return Object.freeze({
+    outputManifest,
+    commandUsage,
+    resultingUsage,
+    nextProgress,
+    receipt,
+    nextLifecycle,
+  });
+});
+
+function budgetFrameWithin(
+  actual: DeclarativeV2VerifierBudgetFrameV2,
+  reserved: DeclarativeV2VerifierBudgetFrameV2,
+): boolean {
+  for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+    if (actual[dimension] > reserved[dimension]) return false;
+  }
+  return true;
+}
+
+function budgetFramesEqual(
+  left: DeclarativeV2VerifierBudgetFrameV2,
+  right: DeclarativeV2VerifierBudgetFrameV2,
+): boolean {
+  for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+    if (left[dimension] !== right[dimension]) return false;
+  }
+  return true;
+}
+
+function deriveNextLifecycle(
+  currentLifecycle:
+    DeclarativeV2VerifierStoredAttemptMetadataV2["lifecycle"],
+  currentPhase: DeclarativeV2VerifierProgressCursorFrameV2["phase"],
+  commandKind: DeclarativeV2VerifierDurableCommandKindV2,
+  nextPhase: DeclarativeV2VerifierProgressCursorFrameV2["phase"],
+): DeclarativeV2VerifierStoredAttemptMetadataV2["lifecycle"] | undefined {
+  switch (commandKind) {
+    case "source_page":
+      if (currentLifecycle !== "open" || currentPhase !== "source") {
+        return undefined;
+      }
+      return nextPhase === "source"
+        ? "open"
+        : nextPhase === "parse" ? "parsing" : undefined;
+    case "parse_module":
+      if (currentLifecycle !== "parsing" || currentPhase !== "parse") {
+        return undefined;
+      }
+      return nextPhase === "parse"
+        ? "parsing"
+        : nextPhase === "link" ? "parse_complete" : undefined;
+    case "link_page":
+      if (
+        (currentLifecycle !== "parse_complete" &&
+          currentLifecycle !== "linking") ||
+        currentPhase !== "link"
+      ) {
+        return undefined;
+      }
+      return nextPhase === "link"
+        ? "linking"
+        : nextPhase === "registration" ? "link_complete" : undefined;
+    case "registration_page":
+      if (
+        (currentLifecycle !== "link_complete" &&
+          currentLifecycle !== "registering") ||
+        currentPhase !== "registration"
+      ) {
+        return undefined;
+      }
+      return nextPhase === "registration" || nextPhase === "verdict"
+        ? "registering"
+        : undefined;
+  }
+}
+
 function captureResultingUsage(
   state: MutableRunStateV2,
   commandBudget: DeclarativeV2VerifierBudgetFrameV2 & {
@@ -3169,6 +3876,513 @@ function loadAttempt(
     }),
   );
 }
+
+const loadCommandDecisionRows = Effect.fn(
+  "DeclarativeV2.verifierProgressV2.loadCommandDecisionRows",
+)(function (
+  target: LocatedReadCommittedAttemptTargetV1,
+  input: DeclarativeV2VerifierProgressObserveCommandDecisionInputV2 & {
+    readonly scopeId: ScopeId;
+  },
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  usage: MutableOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Effect.Effect<
+  LoadedCommandDecisionRowsV2 | null,
+  DeclarativeV2VerifierProgressRepositoryV2Error
+> {
+  return runTransactionWithConfirmedRollbackRetry(
+    target,
+    "observeCommandDecision",
+    input.scopeId,
+    input.attemptSha256,
+    budget,
+    usage,
+    () => 0,
+    0,
+    async (tx) => {
+      chargeSqlOrThrow("observeCommandDecision", budget, usage, 1);
+      const attemptQuery = tx
+        .select(attemptMetadataSelection(false))
+        .from(fxSystemDeclarativeV2VerifierAttemptsV2)
+        .where(and(
+          eq(fxSystemDeclarativeV2VerifierAttemptsV2.scopeId, input.scopeId),
+          eq(
+            fxSystemDeclarativeV2VerifierAttemptsV2.attemptSha256,
+            input.attemptSha256,
+          ),
+        ))
+        .for("share");
+      observeDrizzleQuery(
+        "decisionAttemptMetadata",
+        attemptQuery,
+        observer,
+      );
+      const attemptRows = await runStatement(() => attemptQuery);
+      if (attemptRows.length === 0) return null;
+      requireOneRow("observeCommandDecision", attemptRows.length);
+      const attempt = resultOrThrow(
+        decodeDeclarativeV2VerifierAttemptMetadataRowV2(attemptRows[0]),
+        "observeCommandDecision",
+      );
+      chargeSqlOrThrow("observeCommandDecision", budget, usage, 1);
+      const commandQuery = tx
+        .select(commandMetadataSelection())
+        .from(fxSystemDeclarativeV2VerifierCommandsV2)
+        .where(and(
+          eq(
+            fxSystemDeclarativeV2VerifierCommandsV2.scopeId,
+            input.scopeId,
+          ),
+          eq(
+            fxSystemDeclarativeV2VerifierCommandsV2.attemptSha256,
+            input.attemptSha256,
+          ),
+          eq(
+            fxSystemDeclarativeV2VerifierCommandsV2.sequence,
+            input.sequence,
+          ),
+        ))
+        .for("share");
+      observeDrizzleQuery(
+        "decisionCommandMetadata",
+        commandQuery,
+        observer,
+      );
+      const commandRows = await runStatement(() => commandQuery);
+      if (commandRows.length === 0) return null;
+      requireOneRow("observeCommandDecision", commandRows.length);
+      const command = resultOrThrow(
+        decodeDeclarativeV2VerifierCommandMetadataRowV2(commandRows[0]),
+        "observeCommandDecision",
+      );
+      if (
+        !bytesEqualFullScan(
+          command.reservationSha256,
+          input.reservationSha256,
+        )
+      ) {
+        throw new DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+          operation: "observeCommandDecision",
+          reason: "commandChanged",
+        });
+      }
+      if (command.settledAt === null) {
+        return Object.freeze({ kind: "unsettled" as const, attempt, command });
+      }
+      let finalPageMetadata:
+        DeclarativeV2VerifierStoredEvidencePageMetadataV2 | null = null;
+      if (
+        command.commandKind === "parse_module" ||
+        command.commandKind === "link_page"
+      ) {
+        if (command.pageCount < 1n || command.lastPageSha256 === null) {
+          throw corruption(
+            "observeCommandDecision",
+            "normalizedMismatch",
+          );
+        }
+        chargeSqlOrThrow("observeCommandDecision", budget, usage, 1);
+        const pageQuery = tx
+          .select(pageMetadataSelection())
+          .from(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+          .where(and(
+            eq(
+              fxSystemDeclarativeV2VerifierEvidencePagesV2.scopeId,
+              input.scopeId,
+            ),
+            eq(
+              fxSystemDeclarativeV2VerifierEvidencePagesV2.attemptSha256,
+              input.attemptSha256,
+            ),
+            eq(
+              fxSystemDeclarativeV2VerifierEvidencePagesV2.sequence,
+              input.sequence,
+            ),
+            eq(
+              fxSystemDeclarativeV2VerifierEvidencePagesV2.commandKind,
+              command.commandKind,
+            ),
+            eq(
+              fxSystemDeclarativeV2VerifierEvidencePagesV2
+                .reservationSha256,
+              input.reservationSha256,
+            ),
+            eq(
+              fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+              command.pageCount - 1n,
+            ),
+          ))
+          .for("share");
+        observeDrizzleQuery(
+          "decisionFinalPageMetadata",
+          pageQuery,
+          observer,
+        );
+        const pageRows = await runStatement(() => pageQuery);
+        requireOneRow("observeCommandDecision", pageRows.length);
+        finalPageMetadata = resultOrThrow(
+          decodeDeclarativeV2VerifierEvidencePageMetadataRowV2(pageRows[0]),
+          "observeCommandDecision",
+        );
+        if (
+          !bytesEqualFullScan(
+            finalPageMetadata.pageSha256,
+            command.lastPageSha256,
+          )
+        ) {
+          throw corruption(
+            "observeCommandDecision",
+            "normalizedMismatch",
+          );
+        }
+      } else if (
+        command.pageCount !== 0n ||
+        command.lastPageSha256 !== null
+      ) {
+        throw corruption("observeCommandDecision", "normalizedMismatch");
+      }
+      const total = checkedFrameMetadataBytes([
+        attempt.usage.byteLength,
+        attempt.progress.byteLength,
+        command.reservation.byteLength,
+        command.commandBudget.byteLength,
+        command.outputManifest!.byteLength,
+        command.commandUsage!.byteLength,
+        command.resultingUsage!.byteLength,
+        command.nextProgress!.byteLength,
+        command.receipt!.byteLength,
+      ], "observeCommandDecision");
+      chargeOrThrow(
+        "observeCommandDecision",
+        budget,
+        usage,
+        "frameBytes",
+        total,
+      );
+      chargeOrThrow(
+        "observeCommandDecision",
+        budget,
+        usage,
+        "canonicalBytes",
+        total,
+      );
+      chargeOrThrow(
+        "observeCommandDecision",
+        budget,
+        usage,
+        "hashBytes",
+        total,
+      );
+      chargeSqlOrThrow("observeCommandDecision", budget, usage, 1);
+      const attemptFramesQuery = tx
+        .select({
+          usageBytes: fxSystemDeclarativeV2VerifierAttemptsV2.usageBytes,
+          progressBytes: fxSystemDeclarativeV2VerifierAttemptsV2.progressBytes,
+        })
+        .from(fxSystemDeclarativeV2VerifierAttemptsV2)
+        .where(and(
+          eq(fxSystemDeclarativeV2VerifierAttemptsV2.scopeId, input.scopeId),
+          eq(
+            fxSystemDeclarativeV2VerifierAttemptsV2.attemptSha256,
+            input.attemptSha256,
+          ),
+        ));
+      observeDrizzleQuery(
+        "decisionAttemptFrames",
+        attemptFramesQuery,
+        observer,
+      );
+      const attemptFrameRows = await runStatement(() => attemptFramesQuery);
+      requireOneRow("observeCommandDecision", attemptFrameRows.length);
+      chargeSqlOrThrow("observeCommandDecision", budget, usage, 1);
+      const commandFramesQuery = tx
+        .select({
+          reservationBytes:
+            fxSystemDeclarativeV2VerifierCommandsV2.reservationBytes,
+          commandBudgetBytes:
+            fxSystemDeclarativeV2VerifierCommandsV2.commandBudgetBytes,
+          outputManifestBytes:
+            fxSystemDeclarativeV2VerifierCommandsV2.outputManifestBytes,
+          commandUsageBytes:
+            fxSystemDeclarativeV2VerifierCommandsV2.commandUsageBytes,
+          resultingUsageBytes:
+            fxSystemDeclarativeV2VerifierCommandsV2.resultingUsageBytes,
+          nextProgressBytes:
+            fxSystemDeclarativeV2VerifierCommandsV2.nextProgressBytes,
+          receiptBytes:
+            fxSystemDeclarativeV2VerifierCommandsV2.receiptBytes,
+        })
+        .from(fxSystemDeclarativeV2VerifierCommandsV2)
+        .where(and(
+          eq(
+            fxSystemDeclarativeV2VerifierCommandsV2.scopeId,
+            input.scopeId,
+          ),
+          eq(
+            fxSystemDeclarativeV2VerifierCommandsV2.attemptSha256,
+            input.attemptSha256,
+          ),
+          eq(
+            fxSystemDeclarativeV2VerifierCommandsV2.sequence,
+            input.sequence,
+          ),
+          eq(
+            fxSystemDeclarativeV2VerifierCommandsV2.reservationSha256,
+            input.reservationSha256,
+          ),
+        ));
+      observeDrizzleQuery(
+        "decisionCommandFrames",
+        commandFramesQuery,
+        observer,
+      );
+      const commandFrameRows = await runStatement(() => commandFramesQuery);
+      requireOneRow("observeCommandDecision", commandFrameRows.length);
+      const attemptFrames = attemptFrameRows[0]!;
+      const commandFrames = commandFrameRows[0]!;
+      return Object.freeze({
+        kind: "settled" as const,
+        rows: Object.freeze({
+          attemptMetadata: attemptRows[0],
+          attemptUsageBytes: copyStoredFrameBytes(
+            "observeCommandDecision",
+            attemptFrames.usageBytes,
+            attempt.usage.byteLength,
+          ),
+          attemptProgressBytes: copyStoredFrameBytes(
+            "observeCommandDecision",
+            attemptFrames.progressBytes,
+            attempt.progress.byteLength,
+          ),
+          commandMetadata: commandRows[0],
+          finalPageMetadata,
+          reservationBytes: copyStoredFrameBytes(
+            "observeCommandDecision",
+            commandFrames.reservationBytes,
+            command.reservation.byteLength,
+          ),
+          commandBudgetBytes: copyStoredFrameBytes(
+            "observeCommandDecision",
+            commandFrames.commandBudgetBytes,
+            command.commandBudget.byteLength,
+          ),
+          outputManifestBytes: copyStoredFrameBytes(
+            "observeCommandDecision",
+            commandFrames.outputManifestBytes,
+            command.outputManifest!.byteLength,
+          ),
+          commandUsageBytes: copyStoredFrameBytes(
+            "observeCommandDecision",
+            commandFrames.commandUsageBytes,
+            command.commandUsage!.byteLength,
+          ),
+          resultingUsageBytes: copyStoredFrameBytes(
+            "observeCommandDecision",
+            commandFrames.resultingUsageBytes,
+            command.resultingUsage!.byteLength,
+          ),
+          nextProgressBytes: copyStoredFrameBytes(
+            "observeCommandDecision",
+            commandFrames.nextProgressBytes,
+            command.nextProgress!.byteLength,
+          ),
+          receiptBytes: copyStoredFrameBytes(
+            "observeCommandDecision",
+            commandFrames.receiptBytes,
+            command.receipt!.byteLength,
+          ),
+        }),
+      });
+    },
+  );
+});
+
+const decodeCommandDecision = Effect.fn(
+  "DeclarativeV2.verifierProgressV2.decodeCommandDecision",
+)(function (
+  loaded: LoadedCommandDecisionRowsV2,
+  input: DeclarativeV2VerifierProgressObserveCommandDecisionInputV2 & {
+    readonly scopeId: ScopeId;
+  },
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  sha256: DeclarativeV2Sha256V1,
+): Effect.Effect<
+  DeclarativeV2VerifierProgressCommandDecisionV2,
+  DeclarativeV2VerifierProgressRepositoryV2Error
+> {
+  if (loaded.kind === "unsettled") {
+    const base = Object.freeze({
+      commandKind: loaded.command.commandKind,
+      sequence: loaded.command.sequence,
+      reservationSha256: new Uint8Array(loaded.command.reservationSha256),
+    });
+    if (
+      loaded.attempt.lifecycle === "abandoned" ||
+      loaded.attempt.lifecycle === "ready" ||
+      loaded.attempt.lifecycle === "rejected"
+    ) {
+      return Effect.succeed(Object.freeze({
+        kind: "terminalUnsettled" as const,
+        lifecycle: loaded.attempt.lifecycle,
+        ...base,
+      }));
+    }
+    if (
+      loaded.attempt.pendingKind !== loaded.command.commandKind ||
+      loaded.attempt.pendingSequence !== loaded.command.sequence ||
+      loaded.attempt.pendingReservationSha256 === null ||
+      !bytesEqualFullScan(
+        loaded.attempt.pendingReservationSha256,
+        loaded.command.reservationSha256,
+      )
+    ) {
+      return Effect.fail(
+        corruption("observeCommandDecision", "normalizedMismatch"),
+      );
+    }
+    return Effect.succeed(Object.freeze({ kind: "pending" as const, ...base }));
+  }
+  return Effect.gen(function* () {
+    const rows = loaded.rows;
+    const attemptMetadata = yield* Effect.fromResult(
+      decodeDeclarativeV2VerifierAttemptMetadataRowV2(
+        rows.attemptMetadata,
+      ).pipe(
+        Result.mapError(cause =>
+          mapStoredError("observeCommandDecision", cause)
+        ),
+      ),
+    );
+    const usageSha256 = yield* sha256(rows.attemptUsageBytes, {
+      maximumInputBytes: rows.attemptUsageBytes.byteLength,
+    });
+    const progressSha256 = yield* sha256(rows.attemptProgressBytes, {
+      maximumInputBytes: rows.attemptProgressBytes.byteLength,
+    });
+    yield* Effect.fromResult(
+      decodeDeclarativeV2VerifierStoredFrameV2(
+        attemptMetadata.usage,
+        rows.attemptUsageBytes,
+        usageSha256,
+        "attempt_usage",
+        storedDecoderBudget(budget),
+      ).pipe(
+        Result.mapError(cause =>
+          mapStoredError("observeCommandDecision", cause)
+        ),
+      ),
+    );
+    const progress = yield* Effect.fromResult(
+      decodeDeclarativeV2VerifierStoredFrameV2(
+        attemptMetadata.progress,
+        rows.attemptProgressBytes,
+        progressSha256,
+        "progress_cursor",
+        storedDecoderBudget(budget),
+      ).pipe(
+        Result.mapError(cause =>
+          mapStoredError("observeCommandDecision", cause)
+        ),
+      ),
+    );
+    const reservationSha256 = yield* sha256(rows.reservationBytes, {
+      maximumInputBytes: rows.reservationBytes.byteLength,
+    });
+    const commandBudgetSha256 = yield* sha256(rows.commandBudgetBytes, {
+      maximumInputBytes: rows.commandBudgetBytes.byteLength,
+    });
+    const outputManifestSha256 = yield* sha256(rows.outputManifestBytes, {
+      maximumInputBytes: rows.outputManifestBytes.byteLength,
+    });
+    const commandUsageSha256 = yield* sha256(rows.commandUsageBytes, {
+      maximumInputBytes: rows.commandUsageBytes.byteLength,
+    });
+    const resultingUsageSha256 = yield* sha256(rows.resultingUsageBytes, {
+      maximumInputBytes: rows.resultingUsageBytes.byteLength,
+    });
+    const nextProgressSha256 = yield* sha256(rows.nextProgressBytes, {
+      maximumInputBytes: rows.nextProgressBytes.byteLength,
+    });
+    const receiptSha256 = yield* sha256(rows.receiptBytes, {
+      maximumInputBytes: rows.receiptBytes.byteLength,
+    });
+    const decoded = yield* Effect.fromResult(
+      decodeDeclarativeV2VerifierCommittedCommandReadbackV2(
+        rows.commandMetadata,
+        {
+          candidateSha256: attemptMetadata.candidateSha256,
+          lifecycle: attemptMetadata.lifecycle,
+          settledSequence: attemptMetadata.settledSequence,
+          lastReceiptSha256: attemptMetadata.lastReceiptSha256,
+          usageSha256,
+          progressSha256,
+          phase: progress.frame.phase,
+        },
+        rows.reservationBytes,
+        reservationSha256,
+        rows.commandBudgetBytes,
+        commandBudgetSha256,
+        {
+          outputManifestBytes: rows.outputManifestBytes,
+          outputManifestObservedSha256: outputManifestSha256,
+          commandUsageBytes: rows.commandUsageBytes,
+          commandUsageObservedSha256: commandUsageSha256,
+          resultingUsageBytes: rows.resultingUsageBytes,
+          resultingUsageObservedSha256: resultingUsageSha256,
+          nextProgressBytes: rows.nextProgressBytes,
+          nextProgressObservedSha256: nextProgressSha256,
+          receiptBytes: rows.receiptBytes,
+          receiptObservedSha256: receiptSha256,
+        },
+        storedDecoderBudget(budget),
+      ).pipe(
+        Result.mapError(cause =>
+          mapStoredError("observeCommandDecision", cause)
+        ),
+      ),
+    );
+    if (
+      !bytesEqualFullScan(
+        decoded.metadata.reservationSha256,
+        input.reservationSha256,
+      )
+    ) {
+      return yield* new
+        DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+          operation: "observeCommandDecision",
+          reason: "commandChanged",
+        });
+    }
+    if (rows.finalPageMetadata !== null) {
+      const finalValidation =
+        validateDeclarativeV2VerifierFinalEvidencePageV2(
+          evidencePageManifestFromMetadata(rows.finalPageMetadata),
+          rows.finalPageMetadata.pageSha256,
+          decoded.settlement.outputManifest.frame,
+        );
+      if (Result.isFailure(finalValidation)) {
+        return yield* corruption(
+          "observeCommandDecision",
+          "normalizedMismatch",
+        );
+      }
+    } else if (
+      decoded.metadata.commandKind === "parse_module" ||
+      decoded.metadata.commandKind === "link_page"
+    ) {
+      return yield* corruption(
+        "observeCommandDecision",
+        "normalizedMismatch",
+      );
+    }
+    return Object.freeze({
+      kind: "settled" as const,
+      settlement: settlementSnapshotFromDecoded(decoded),
+    });
+  });
+});
 
 async function selectAttemptMetadata(
   tx: AppRowTransaction,
@@ -3408,6 +4622,190 @@ function commandMetadataSelection() {
   };
 }
 
+const loadFinalPageProofForSettlement = Effect.fn(
+  "DeclarativeV2.verifierProgressV2.loadFinalPageProofForSettlement",
+)(function (
+  target: LocatedReadCommittedAttemptTargetV1,
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+  outputManifest: DeclarativeV2VerifierCommandOutputManifestFrameV2,
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  usage: MutableOperationUsageV2,
+  sha256: DeclarativeV2Sha256V1,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Effect.Effect<
+  LoadedFinalPageProofV2 | null,
+  DeclarativeV2VerifierProgressRepositoryV2Error
+> {
+  if (
+    work.commandKind !== "parse_module" &&
+    work.commandKind !== "link_page"
+  ) {
+    return Effect.succeed(null);
+  }
+  return runTransactionWithConfirmedRollbackRetry(
+    target,
+    "settleCommand",
+    state.scopeId,
+    state.attemptSha256,
+    budget,
+    usage,
+    () => 0,
+    0,
+    async (tx) => {
+      chargeSqlOrThrow("settleCommand", budget, usage, 1);
+      const commandQuery = tx
+        .select(commandMetadataSelection())
+        .from(fxSystemDeclarativeV2VerifierCommandsV2)
+        .where(commandWhere(state, work))
+        .for("share");
+      observeDrizzleQuery(
+        "settlementCommandMetadata",
+        commandQuery,
+        observer,
+      );
+      const commandRows = await runStatement(() => commandQuery);
+      requireOneRow("settleCommand", commandRows.length);
+      const command = resultOrThrow(
+        decodeDeclarativeV2VerifierCommandMetadataRowV2(commandRows[0]),
+        "settleCommand",
+      );
+      if (command.settledAt !== null) {
+        throw new DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+          operation: "settleCommand",
+          reason: "settlementChanged",
+        });
+      }
+      if (command.pageCount < 1n || command.lastPageSha256 === null) {
+        throw inputError("settleCommand", "commandMismatch");
+      }
+      chargeSqlOrThrow("settleCommand", budget, usage, 1);
+      const metadataQuery = tx
+        .select(pageMetadataSelection())
+        .from(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+        .where(and(
+          pageSelector(state, work),
+          eq(
+            fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+            command.pageCount - 1n,
+          ),
+        ))
+        .for("share");
+      observeDrizzleQuery(
+        "settlementFinalPageMetadata",
+        metadataQuery,
+        observer,
+      );
+      const metadataRows = await runStatement(() => metadataQuery);
+      requireOneRow("settleCommand", metadataRows.length);
+      const metadata = resultOrThrow(
+        decodeDeclarativeV2VerifierEvidencePageMetadataRowV2(metadataRows[0]),
+        "settleCommand",
+      );
+      if (
+        !bytesEqualFullScan(metadata.pageSha256, command.lastPageSha256)
+      ) {
+        throw corruption("settleCommand", "normalizedMismatch");
+      }
+      const manifestLength = checkedFrameMetadataBytes(
+        [metadata.manifest.byteLength],
+        "settleCommand",
+      );
+      chargeOrThrow(
+        "settleCommand",
+        budget,
+        usage,
+        "frameBytes",
+        manifestLength,
+      );
+      chargeOrThrow(
+        "settleCommand",
+        budget,
+        usage,
+        "canonicalBytes",
+        manifestLength,
+      );
+      chargeOrThrow(
+        "settleCommand",
+        budget,
+        usage,
+        "hashBytes",
+        manifestLength,
+      );
+      chargeSqlOrThrow("settleCommand", budget, usage, 1);
+      const manifestQuery = tx
+        .select({
+          manifestBytes:
+            fxSystemDeclarativeV2VerifierEvidencePagesV2.manifestBytes,
+        })
+        .from(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+        .where(and(
+          pageSelector(state, work),
+          eq(
+            fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+            metadata.pageOrdinal,
+          ),
+        ));
+      observeDrizzleQuery(
+        "settlementFinalPageManifest",
+        manifestQuery,
+        observer,
+      );
+      const manifestRows = await runStatement(() => manifestQuery);
+      requireOneRow("settleCommand", manifestRows.length);
+      return Object.freeze({
+        metadata,
+        manifestBytes: copyStoredFrameBytes(
+          "settleCommand",
+          manifestRows[0]!.manifestBytes,
+          metadata.manifest.byteLength,
+        ),
+      });
+    },
+  ).pipe(
+    Effect.flatMap(loaded =>
+      Effect.gen(function* () {
+        const observedSha256 = yield* sha256(loaded.manifestBytes, {
+          maximumInputBytes: loaded.manifestBytes.byteLength,
+        });
+        const decoded = yield* Effect.fromResult(
+          decodeDeclarativeV2VerifierEvidencePageManifestV2(
+            loaded.metadata,
+            loaded.manifestBytes,
+            observedSha256,
+            storedDecoderBudget(budget),
+          ).pipe(
+            Result.mapError(cause => mapStoredError("settleCommand", cause)),
+          ),
+        );
+        const finalValidation =
+          validateDeclarativeV2VerifierFinalEvidencePageV2(
+            decoded.frame,
+            observedSha256,
+            outputManifest,
+          );
+        if (Result.isFailure(finalValidation)) {
+          return yield* inputError(
+            "settleCommand",
+            "commandMismatch",
+            undefined,
+            undefined,
+            undefined,
+            finalValidation.failure,
+          );
+        }
+        return Object.freeze({
+          metadata: loaded.metadata,
+          manifest: decoded.frame,
+          manifestBytes: new Uint8Array(decoded.canonicalBytes),
+          pageSha256: new Uint8Array(observedSha256),
+        });
+      })
+    ),
+  );
+});
+
 async function lockPageCommandMetadata(
   tx: AppRowTransaction,
   operation: "appendEvidencePage" | "readEvidencePageBatch",
@@ -3441,6 +4839,238 @@ async function lockPageCommandMetadata(
     decodeDeclarativeV2VerifierCommandMetadataRowV2(rows[0]),
     operation,
   );
+}
+
+async function lockSettlementCommandMetadata(
+  tx: AppRowTransaction,
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  usage: MutableOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Promise<Readonly<{
+  readonly raw: unknown;
+  readonly decoded: DeclarativeV2VerifierDecodedCommandStoredStateV2;
+}>> {
+  chargeSqlOrThrow("settleCommand", budget, usage, 1);
+  const metadataQuery = tx
+    .select(commandMetadataSelection())
+    .from(fxSystemDeclarativeV2VerifierCommandsV2)
+    .where(commandWhere(state, work))
+    .for("update");
+  observeDrizzleQuery(
+    "settlementCommandMetadata",
+    metadataQuery,
+    observer,
+  );
+  const metadataRows = await runStatement(() => metadataQuery);
+  requireOneRow("settleCommand", metadataRows.length);
+  const metadata = resultOrThrow(
+    decodeDeclarativeV2VerifierCommandMetadataRowV2(metadataRows[0]),
+    "settleCommand",
+  );
+  const total = checkedFrameMetadataBytes([
+    metadata.reservation.byteLength,
+    metadata.commandBudget.byteLength,
+  ], "settleCommand");
+  chargeOrThrow("settleCommand", budget, usage, "frameBytes", total);
+  chargeOrThrow("settleCommand", budget, usage, "canonicalBytes", total);
+  chargeOrThrow("settleCommand", budget, usage, "hashBytes", total);
+  chargeSqlOrThrow("settleCommand", budget, usage, 1);
+  const framesQuery = tx
+    .select({
+      reservationBytes:
+        fxSystemDeclarativeV2VerifierCommandsV2.reservationBytes,
+      commandBudgetBytes:
+        fxSystemDeclarativeV2VerifierCommandsV2.commandBudgetBytes,
+    })
+    .from(fxSystemDeclarativeV2VerifierCommandsV2)
+    .where(commandWhere(state, work));
+  observeDrizzleQuery("settlementCommandFrames", framesQuery, observer);
+  const frameRows = await runStatement(() => framesQuery);
+  requireOneRow("settleCommand", frameRows.length);
+  const reservationBytes = copyStoredFrameBytes(
+    "settleCommand",
+    frameRows[0]!.reservationBytes,
+    metadata.reservation.byteLength,
+  );
+  const commandBudgetBytes = copyStoredFrameBytes(
+    "settleCommand",
+    frameRows[0]!.commandBudgetBytes,
+    metadata.commandBudget.byteLength,
+  );
+  if (
+    !bytesEqualFullScan(reservationBytes, work.reservationBytes) ||
+    !bytesEqualFullScan(commandBudgetBytes, work.commandBudgetBytes)
+  ) {
+    throw new DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+      operation: "settleCommand",
+      reason: "commandChanged",
+    });
+  }
+  const decoded = resultOrThrow(
+    decodeDeclarativeV2VerifierCommandStoredStateV2(
+      metadataRows[0],
+      state.attempt.candidateSha256,
+      state.progressSha256,
+      state.attempt.lastReceiptSha256,
+      state.attempt.lifecycle,
+      state.attempt.progress.phase,
+      state.attempt.lifecycle,
+      reservationBytes,
+      metadata.reservation.sha256,
+      commandBudgetBytes,
+      metadata.commandBudget.sha256,
+      null,
+      storedDecoderBudget(budget),
+    ),
+    "settleCommand",
+  );
+  return Object.freeze({ raw: metadataRows[0], decoded });
+}
+
+async function requirePageSettlementProof(
+  tx: AppRowTransaction,
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+  command: DeclarativeV2VerifierStoredCommandMetadataV2,
+  proof: LoadedFinalPageProofV2 | null,
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  usage: MutableOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Promise<void> {
+  const pageKind =
+    work.commandKind === "parse_module" || work.commandKind === "link_page";
+  if (!pageKind) {
+    if (
+      proof !== null ||
+      command.pageCount !== 0n ||
+      command.lastPageSha256 !== null
+    ) {
+      throw corruption("settleCommand", "normalizedMismatch");
+    }
+    return;
+  }
+  if (
+    proof === null ||
+    command.pageCount < 1n ||
+    command.lastPageSha256 === null ||
+    proof.metadata.pageOrdinal !== command.pageCount - 1n ||
+    !bytesEqualFullScan(proof.pageSha256, command.lastPageSha256)
+  ) {
+    throw corruption("settleCommand", "normalizedMismatch");
+  }
+  chargeSqlOrThrow("settleCommand", budget, usage, 1);
+  const metadataQuery = tx
+    .select(pageMetadataSelection())
+    .from(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+    .where(and(
+      pageSelector(state, work),
+      eq(
+        fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+        proof.metadata.pageOrdinal,
+      ),
+    ))
+    .for("update");
+  observeDrizzleQuery(
+    "settlementFinalPageMetadata",
+    metadataQuery,
+    observer,
+  );
+  const metadataRows = await runStatement(() => metadataQuery);
+  requireOneRow("settleCommand", metadataRows.length);
+  const metadata = resultOrThrow(
+    decodeDeclarativeV2VerifierEvidencePageMetadataRowV2(metadataRows[0]),
+    "settleCommand",
+  );
+  if (
+    !evidencePageMetadataEqual(metadata, proof.metadata) ||
+    !bytesEqualFullScan(metadata.pageSha256, proof.pageSha256)
+  ) {
+    throw stale("settleCommand", "stateChanged");
+  }
+  chargeSqlOrThrow("settleCommand", budget, usage, 1);
+  const manifestQuery = tx
+    .select({
+      manifestBytes:
+        fxSystemDeclarativeV2VerifierEvidencePagesV2.manifestBytes,
+    })
+    .from(fxSystemDeclarativeV2VerifierEvidencePagesV2)
+    .where(and(
+      pageSelector(state, work),
+      eq(
+        fxSystemDeclarativeV2VerifierEvidencePagesV2.pageOrdinal,
+        proof.metadata.pageOrdinal,
+      ),
+    ));
+  observeDrizzleQuery(
+    "settlementFinalPageManifest",
+    manifestQuery,
+    observer,
+  );
+  const manifestRows = await runStatement(() => manifestQuery);
+  requireOneRow("settleCommand", manifestRows.length);
+  const manifestBytes = copyStoredFrameBytes(
+    "settleCommand",
+    manifestRows[0]!.manifestBytes,
+    proof.metadata.manifest.byteLength,
+  );
+  if (!bytesEqualFullScan(manifestBytes, proof.manifestBytes)) {
+    throw stale("settleCommand", "stateChanged");
+  }
+}
+
+function evidencePageMetadataEqual(
+  left: DeclarativeV2VerifierStoredEvidencePageMetadataV2,
+  right: DeclarativeV2VerifierStoredEvidencePageMetadataV2,
+): boolean {
+  return left.scopeId === right.scopeId &&
+    bytesEqualFullScan(left.attemptSha256, right.attemptSha256) &&
+    left.sequence === right.sequence &&
+    left.commandKind === right.commandKind &&
+    bytesEqualFullScan(left.reservationSha256, right.reservationSha256) &&
+    left.pageOrdinal === right.pageOrdinal &&
+    bytesEqualFullScan(left.pageSha256, right.pageSha256) &&
+    left.firstEvidenceOrdinal === right.firstEvidenceOrdinal &&
+    left.evidenceCount === right.evidenceCount &&
+    left.firstDiagnosticOrdinal === right.firstDiagnosticOrdinal &&
+    left.diagnosticCount === right.diagnosticCount &&
+    optionalDigestEqual(
+      left.predecessorPageSha256,
+      right.predecessorPageSha256,
+    ) &&
+    bytesEqualFullScan(
+      left.cumulativeDiagnosticsRootSha256,
+      right.cumulativeDiagnosticsRootSha256,
+    ) &&
+    left.manifest.byteLength === right.manifest.byteLength &&
+    bytesEqualFullScan(left.manifest.sha256, right.manifest.sha256) &&
+    left.payloadByteLength === right.payloadByteLength &&
+    bytesEqualFullScan(left.payloadSha256, right.payloadSha256);
+}
+
+function commandWhere(
+  state: MutableRunStateV2,
+  work: MutableWorkStateV2,
+) {
+  return and(
+    eq(fxSystemDeclarativeV2VerifierCommandsV2.scopeId, state.scopeId),
+    eq(
+      fxSystemDeclarativeV2VerifierCommandsV2.attemptSha256,
+      state.attemptSha256,
+    ),
+    eq(fxSystemDeclarativeV2VerifierCommandsV2.sequence, work.sequence),
+    eq(
+      fxSystemDeclarativeV2VerifierCommandsV2.reservationSha256,
+      work.reservationSha256,
+    ),
+    eq(
+      fxSystemDeclarativeV2VerifierCommandsV2.commandKind,
+      work.commandKind,
+    ),
+  )!;
 }
 
 function pageMetadataSelection() {
@@ -3749,6 +5379,21 @@ function copyStoredBytes(
   return new Uint8Array(input);
 }
 
+function copyStoredFrameBytes(
+  operation: DeclarativeV2VerifierProgressRepositoryOperationV2,
+  input: unknown,
+  expectedLength: bigint,
+): Uint8Array {
+  if (
+    expectedLength < 0n ||
+    expectedLength > BigInt(Number.MAX_SAFE_INTEGER) ||
+    !isUint8ArrayWithByteLength(input, Number(expectedLength))
+  ) {
+    throw corruption(operation, "invalidStoredBytes");
+  }
+  return new Uint8Array(input);
+}
+
 function checkedInt64ByteLength(
   operation: "appendEvidencePage" | "readEvidencePageBatch",
   value: bigint,
@@ -3777,7 +5422,10 @@ function checkedSafeAdd(
 }
 
 function requirePendingWork(
-  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  operation:
+    | "appendEvidencePage"
+    | "readEvidencePageBatch"
+    | "settleCommand",
   attempt: DeclarativeV2VerifierStoredAttemptMetadataV2,
   run: MutableRunStateV2,
   work: MutableWorkStateV2,
@@ -4332,6 +5980,162 @@ function copyReservation(
   });
 }
 
+function settlementCommandMetadata(
+  raw: unknown,
+  input: CapturedSettlementV2,
+  settledAt: Date,
+): unknown {
+  if (typeof raw !== "object" || raw === null) {
+    throw corruption("settleCommand", "invalidMetadata");
+  }
+  return {
+    ...raw,
+    outputManifestCodecVersion: FRAME_CODEC_VERSION,
+    outputManifestByteLength: BigInt(input.outputManifest.bytes.byteLength),
+    outputManifestSha256: input.outputManifest.sha256,
+    commandUsageCodecVersion: FRAME_CODEC_VERSION,
+    commandUsageByteLength: BigInt(input.commandUsage.bytes.byteLength),
+    commandUsageSha256: input.commandUsage.sha256,
+    resultingUsageCodecVersion: FRAME_CODEC_VERSION,
+    resultingUsageByteLength: BigInt(input.resultingUsage.bytes.byteLength),
+    resultingUsageSha256: input.resultingUsage.sha256,
+    nextProgressCodecVersion: FRAME_CODEC_VERSION,
+    nextProgressByteLength: BigInt(input.nextProgress.bytes.byteLength),
+    nextProgressSha256: input.nextProgress.sha256,
+    receiptCodecVersion: FRAME_CODEC_VERSION,
+    receiptByteLength: BigInt(input.receipt.bytes.byteLength),
+    receiptSha256: input.receipt.sha256,
+    settledAt,
+  };
+}
+
+function settlementDecoderInput(input: CapturedSettlementV2) {
+  return Object.freeze({
+    outputManifestBytes: input.outputManifest.bytes,
+    outputManifestObservedSha256: input.outputManifest.sha256,
+    commandUsageBytes: input.commandUsage.bytes,
+    commandUsageObservedSha256: input.commandUsage.sha256,
+    resultingUsageBytes: input.resultingUsage.bytes,
+    resultingUsageObservedSha256: input.resultingUsage.sha256,
+    nextProgressBytes: input.nextProgress.bytes,
+    nextProgressObservedSha256: input.nextProgress.sha256,
+    receiptBytes: input.receipt.bytes,
+    receiptObservedSha256: input.receipt.sha256,
+  });
+}
+
+function storedDecoderBudget(
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+) {
+  return Object.freeze({
+    maximumFrameBytes: budget.maximumFrameBytes,
+    maximumCanonicalBytes: budget.maximumCanonicalBytes,
+    maximumPayloadBytes: Number.MAX_SAFE_INTEGER,
+  });
+}
+
+function projectSettledAttempt(
+  value: DeclarativeV2VerifierProgressAttemptSnapshotV2,
+  input: CapturedSettlementV2,
+  sequence: bigint,
+): DeclarativeV2VerifierProgressAttemptSnapshotV2 {
+  return Object.freeze({
+    ...copyAttemptSnapshot(value),
+    lifecycle: input.nextLifecycle,
+    settledSequence: sequence,
+    lastReceiptSha256: new Uint8Array(input.receipt.sha256),
+    pendingKind: null,
+    pendingSequence: null,
+    pendingReservationSha256: null,
+    pendingReservedByFence: null,
+    progressSha256: new Uint8Array(input.nextProgress.sha256),
+    progress: copyProgress(input.nextProgress.frame),
+  });
+}
+
+function settlementSnapshot(
+  input: CapturedSettlementV2,
+  work: MutableWorkStateV2,
+  settledAt: Date,
+): DeclarativeV2VerifierProgressSettlementSnapshotV2 {
+  return Object.freeze({
+    commandKind: work.commandKind,
+    sequence: work.sequence,
+    reservationSha256: new Uint8Array(work.reservationSha256),
+    outputManifest: copyOutputManifest(input.outputManifest.frame),
+    outputManifestBytes: new Uint8Array(input.outputManifest.bytes),
+    commandUsage: copyBudgetFrame(input.commandUsage.frame),
+    commandUsageBytes: new Uint8Array(input.commandUsage.bytes),
+    resultingUsage: copyBudgetFrame(input.resultingUsage.frame),
+    resultingUsageBytes: new Uint8Array(input.resultingUsage.bytes),
+    nextProgress: copyProgress(input.nextProgress.frame),
+    nextProgressBytes: new Uint8Array(input.nextProgress.bytes),
+    receipt: copyReceipt(input.receipt.frame),
+    receiptBytes: new Uint8Array(input.receipt.bytes),
+    receiptSha256: new Uint8Array(input.receipt.sha256),
+    settledAt: copyDate(settledAt),
+  });
+}
+
+function settlementSnapshotFromDecoded(
+  decoded: DeclarativeV2VerifierDecodedCommandStoredStateV2 & {
+    readonly settlement: DeclarativeV2VerifierDecodedCommandSettlementV2;
+  },
+): DeclarativeV2VerifierProgressSettlementSnapshotV2 {
+  const settlement = decoded.settlement;
+  if (decoded.metadata.settledAt === null) {
+    throw corruption("observeCommandDecision", "normalizedMismatch");
+  }
+  return Object.freeze({
+    commandKind: decoded.metadata.commandKind,
+    sequence: decoded.metadata.sequence,
+    reservationSha256:
+      new Uint8Array(decoded.metadata.reservationSha256),
+    outputManifest: copyOutputManifest(settlement.outputManifest.frame),
+    outputManifestBytes:
+      new Uint8Array(settlement.outputManifest.canonicalBytes),
+    commandUsage: copyBudgetFrame(settlement.commandUsage.frame),
+    commandUsageBytes: new Uint8Array(settlement.commandUsage.canonicalBytes),
+    resultingUsage: copyBudgetFrame(settlement.resultingUsage.frame),
+    resultingUsageBytes:
+      new Uint8Array(settlement.resultingUsage.canonicalBytes),
+    nextProgress: copyProgress(settlement.nextProgress.frame),
+    nextProgressBytes:
+      new Uint8Array(settlement.nextProgress.canonicalBytes),
+    receipt: copyReceipt(settlement.receipt.frame),
+    receiptBytes: new Uint8Array(settlement.receipt.canonicalBytes),
+    receiptSha256: new Uint8Array(settlement.receipt.sha256),
+    settledAt: copyDate(decoded.metadata.settledAt),
+  });
+}
+
+function copyOutputManifest(
+  value: DeclarativeV2VerifierCommandOutputManifestFrameV2,
+): DeclarativeV2VerifierCommandOutputManifestFrameV2 {
+  return Object.freeze({
+    ...value,
+    reservationSha256: new Uint8Array(value.reservationSha256),
+    evidenceRootSha256: new Uint8Array(value.evidenceRootSha256),
+    diagnosticsRootSha256:
+      new Uint8Array(value.diagnosticsRootSha256),
+    nextProgressSha256: new Uint8Array(value.nextProgressSha256),
+  });
+}
+
+function copyReceipt(
+  value: DeclarativeV2VerifierCommandReceiptFrameV2,
+): DeclarativeV2VerifierCommandReceiptFrameV2 {
+  return Object.freeze({
+    ...value,
+    reservationSha256: new Uint8Array(value.reservationSha256),
+    commandUsageSha256: new Uint8Array(value.commandUsageSha256),
+    resultingAttemptUsageSha256:
+      new Uint8Array(value.resultingAttemptUsageSha256),
+    outputManifestSha256: new Uint8Array(value.outputManifestSha256),
+    nextProgressSha256: new Uint8Array(value.nextProgressSha256),
+  });
+}
+
 function projectClaimedAttempt(
   value: DeclarativeV2VerifierProgressAttemptSnapshotV2,
   writerFence: bigint,
@@ -4564,7 +6368,12 @@ function isTerminal(
 function prepareWorkToken(
   run: DeclarativeV2VerifierProgressRunV2,
   reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+  reservationBytes: Uint8Array,
   reservationSha256: Uint8Array,
+  commandBudget: DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  },
+  commandBudgetBytes: Uint8Array,
 ) {
   const work = Object.freeze({
     _tag: "DeclarativeV2VerifierProgressWorkV2" as const,
@@ -4574,6 +6383,10 @@ function prepareWorkToken(
     commandKind: reservation.commandKind,
     sequence: reservation.sequence,
     reservationSha256: new Uint8Array(reservationSha256),
+    reservation: copyReservation(reservation),
+    reservationBytes: new Uint8Array(reservationBytes),
+    commandBudget: copyBudgetFrame(commandBudget),
+    commandBudgetBytes: new Uint8Array(commandBudgetBytes),
     closed: false,
   };
   return Object.freeze({ work, state });
@@ -4611,7 +6424,10 @@ function withWork<Value, Failure, Requirements>(
   runs: WeakMap<object, MutableRunStateV2>,
   works: WeakMap<object, MutableWorkStateV2>,
   work: DeclarativeV2VerifierProgressWorkV2,
-  operation: "appendEvidencePage" | "readEvidencePageBatch",
+  operation:
+    | "appendEvidencePage"
+    | "readEvidencePageBatch"
+    | "settleCommand",
   use: (
     runState: MutableRunStateV2,
     workState: MutableWorkStateV2,

@@ -3,6 +3,7 @@ import { Result } from "effect";
 import {
   decodeDeclarativeV2VerifierAttemptStoredStateV2,
   decodeDeclarativeV2VerifierAttemptMetadataRowV2,
+  decodeDeclarativeV2VerifierCommittedCommandReadbackV2,
   decodeDeclarativeV2VerifierCommandStoredStateV2,
   decodeDeclarativeV2VerifierCommandMetadataRowV2,
   decodeDeclarativeV2VerifierEvidencePageManifestV2,
@@ -15,8 +16,10 @@ import {
   DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2,
   DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2,
   encodeDeclarativeV2VerifierProgressFrameV2,
+  type DeclarativeV2VerifierDurableCommandKindV2,
   type DeclarativeV2VerifierProgressFrameV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
+  type DeclarativeV2VerifierProgressCursorFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
 import { describe, expect, it } from "vitest";
 
@@ -610,6 +613,109 @@ describe("Declarative V2 verifier progress V2 stored rows", () => {
     )).toBe("normalizedMismatch");
   });
 
+  it("rehydrates only the latest coherently committed command decision", () => {
+    const fixture = settledCommandFixture(1n, null, null);
+    const postSettlementAttempt = {
+      candidateSha256: digest(21),
+      lifecycle: "parsing",
+      settledSequence: 1n,
+      lastReceiptSha256: fixture.settlement.receiptObservedSha256,
+      usageSha256: fixture.settlement.resultingUsageObservedSha256,
+      progressSha256: fixture.settlement.nextProgressObservedSha256,
+      phase: "parse",
+    };
+    expect(Result.isSuccess(
+      decodeDeclarativeV2VerifierCommittedCommandReadbackV2(
+        fixture.row,
+        postSettlementAttempt,
+        fixture.reservation.bytes,
+        fixture.reservation.sha256,
+        fixture.commandBudget.bytes,
+        fixture.commandBudget.sha256,
+        fixture.settlement,
+        FRAME_BUDGET,
+      ),
+    )).toBe(true);
+    for (
+      const [commandKind, nextPhase, validLifecycle, invalidLifecycle] of [
+        ["parse_module", "link", "parse_complete", "linking"],
+        ["link_page", "link", "linking", "parse_complete"],
+        [
+          "registration_page",
+          "registration",
+          "registering",
+          "link_complete",
+        ],
+      ] as const
+    ) {
+      const advanced = settledCommandFixture(1n, null, null, {
+        commandKind,
+        nextPhase,
+      });
+      const advancedAttempt = {
+        candidateSha256: digest(21),
+        lifecycle: validLifecycle,
+        settledSequence: 1n,
+        lastReceiptSha256: advanced.settlement.receiptObservedSha256,
+        usageSha256: advanced.settlement.resultingUsageObservedSha256,
+        progressSha256: advanced.settlement.nextProgressObservedSha256,
+        phase: nextPhase,
+      };
+      expect(Result.isSuccess(
+        decodeDeclarativeV2VerifierCommittedCommandReadbackV2(
+          advanced.row,
+          advancedAttempt,
+          advanced.reservation.bytes,
+          advanced.reservation.sha256,
+          advanced.commandBudget.bytes,
+          advanced.commandBudget.sha256,
+          advanced.settlement,
+          FRAME_BUDGET,
+        ),
+      )).toBe(true);
+      expect(failureReason(
+        decodeDeclarativeV2VerifierCommittedCommandReadbackV2(
+          advanced.row,
+          { ...advancedAttempt, lifecycle: invalidLifecycle },
+          advanced.reservation.bytes,
+          advanced.reservation.sha256,
+          advanced.commandBudget.bytes,
+          advanced.commandBudget.sha256,
+          advanced.settlement,
+          FRAME_BUDGET,
+        ),
+      )).toBe("normalizedMismatch");
+    }
+    expect(failureReason(
+      decodeDeclarativeV2VerifierCommittedCommandReadbackV2(
+        fixture.row,
+        { ...postSettlementAttempt, settledSequence: 2n },
+        fixture.reservation.bytes,
+        fixture.reservation.sha256,
+        fixture.commandBudget.bytes,
+        fixture.commandBudget.sha256,
+        fixture.settlement,
+        FRAME_BUDGET,
+      ),
+    )).toBe("normalizedMismatch");
+    expect(failureReason(
+      decodeDeclarativeV2VerifierCommittedCommandReadbackV2(
+        fixture.row,
+        new Proxy({}, {
+          ownKeys() {
+            throw new Error("hostile");
+          },
+        }),
+        fixture.reservation.bytes,
+        fixture.reservation.sha256,
+        fixture.commandBudget.bytes,
+        fixture.commandBudget.sha256,
+        fixture.settlement,
+        FRAME_BUDGET,
+      ),
+    )).toBe("invalidInput");
+  });
+
   it("admits page metadata before separately touching payload bytes", () => {
     const payload = Uint8Array.of(0, 0, 0, 1, 0x7b);
     const payloadSha256 = sha256(payload);
@@ -774,7 +880,15 @@ function settledCommandFixture(
   sequence: bigint,
   predecessorReceiptSha256: Uint8Array | null,
   nextPreviousReceiptSha256: Uint8Array | null,
+  options: Readonly<{
+    readonly commandKind?: DeclarativeV2VerifierDurableCommandKindV2;
+    readonly nextPhase?: DeclarativeV2VerifierProgressCursorFrameV2["phase"];
+  }> = {},
 ) {
+  const commandKind = options.commandKind ?? "parse_module";
+  const nextPhase = options.nextPhase ?? "parse";
+  const hasEvidencePages =
+    commandKind === "parse_module" || commandKind === "link_page";
   const commandBudget = storedFrame({
     kind: "command_budget",
     ...budgetDimensions(10n),
@@ -783,7 +897,7 @@ function settledCommandFixture(
     kind: "command_reservation",
     attemptSha256: digest(20),
     candidateSha256: digest(21),
-    commandKind: "parse_module",
+    commandKind,
     sequence,
     currentProgressSha256: digest(50),
     predecessorReceiptSha256,
@@ -804,7 +918,7 @@ function settledCommandFixture(
   });
   const nextProgress = storedFrame({
     kind: "progress_cursor",
-    phase: "parse",
+    phase: nextPhase,
     settledSequence: sequence,
     moduleOrdinal: sequence,
     edgeOrdinal: 0n,
@@ -815,7 +929,7 @@ function settledCommandFixture(
   const outputManifest = storedFrame({
     kind: "command_output_manifest",
     reservationSha256: reservation.sha256,
-    commandKind: "parse_module",
+    commandKind,
     sequence,
     evidenceRootSha256: pageRoot,
     evidenceCount: 1n,
@@ -837,13 +951,14 @@ function settledCommandFixture(
     row: {
       ...commandMetadataRow(),
       sequence,
+      commandKind,
       reservationSha256: reservation.sha256,
       reservationByteLength: BigInt(reservation.bytes.byteLength),
       reservationFrameSha256: reservation.sha256,
       commandBudgetByteLength: BigInt(commandBudget.bytes.byteLength),
       commandBudgetSha256: commandBudget.sha256,
-      pageCount: 1n,
-      lastPageSha256: pageRoot,
+      pageCount: hasEvidencePages ? 1n : 0n,
+      lastPageSha256: hasEvidencePages ? pageRoot : null,
       outputManifestCodecVersion: 2,
       outputManifestByteLength: BigInt(outputManifest.bytes.byteLength),
       outputManifestSha256: outputManifest.sha256,

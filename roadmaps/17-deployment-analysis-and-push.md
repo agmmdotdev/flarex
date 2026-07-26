@@ -817,8 +817,19 @@ activation remain blocked until their production host composition is proven.
    reads validate metadata and aggregate caller ceilings before fetching exact
    manifest/payload bytes, returning only owned inert evidence and a next-page
    ordinal. Neither operation changes or refunds durable 26-dimensional usage.
-   Settlement/replay closure and executor host composition remain separate
-   later A1b2 gates.
+   The private A1b2b1c repository now closes only verifier-command settlement
+   and committed readback. Under the existing same-factory work capability,
+   live database fence, and attempt-before-command-before-final-page lock
+   order, it validates the five canonical settlement frames and parse/link
+   final-page commitments, settles the command, advances attempt
+   lifecycle/progress/receipt state, and clears the pending group in one
+   located READ COMMITTED transaction. The attempt's conservatively reserved
+   26-dimensional usage remains byte-identical: actual command usage may not
+   exceed its reservation and settlement cannot add, refund, reset, or replay
+   charge. Capability-free cold readback returns only missing, pending,
+   terminal-unsettled, or owned inert settled evidence after metadata-first
+   admission. This is verifier-progress repository mechanics only; executor
+   host composition remains a separate later A1b2 gate.
 
    These Declarative V2 contracts replace only the deployment-analysis and
    artifact-verification path named by this roadmap. Component suffixes such as

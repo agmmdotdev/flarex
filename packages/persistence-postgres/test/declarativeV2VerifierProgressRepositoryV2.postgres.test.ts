@@ -5,8 +5,11 @@ import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   encodeDeclarativeV2VerifierProgressFrameV2,
   type DeclarativeV2VerifierBudgetFrameV2,
+  type DeclarativeV2VerifierCommandOutputManifestFrameV2,
+  type DeclarativeV2VerifierCommandReceiptFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
+  type DeclarativeV2VerifierProgressCursorFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
 import {
   encodeDeclarativeV2PhysicalFrameV1,
@@ -397,6 +400,32 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
         _tag: "DeclarativeV2VerifierProgressRepositoryStaleV2Error",
         reason: "ownerChanged",
       });
+      const settlement = await settlementInput(
+        secondResume.reservation,
+        coldRead.pages[1]!.pageSha256,
+        2n,
+        digest(0xd1),
+      );
+      const settled = await runEffect(secondRestart.settleCommand(
+        secondResume.work,
+        settlement,
+        operationBudget,
+      ));
+      const observed = await runEffect(
+        firstRepository.observeCommandDecision({
+          scopeId,
+          attemptSha256: created.attemptSha256,
+          sequence: 1n,
+          reservationSha256:
+            await frameSha256(secondResume.reservation),
+        }, operationBudget),
+      );
+      expect(observed.decision).toMatchObject({
+        kind: "settled",
+        settlement: {
+          receiptSha256: settled.settlement.receiptSha256,
+        },
+      });
     });
   });
 });
@@ -474,6 +503,66 @@ async function reservationInput(
     },
     commandBudget,
   });
+}
+
+async function settlementInput(
+  reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+  evidenceRootSha256: Uint8Array,
+  evidenceCount: bigint,
+  diagnosticsRootSha256: Uint8Array,
+) {
+  const reservationSha256 = await frameSha256(reservation);
+  const commandUsage = semanticBudget("command_budget", 1n);
+  const resultingUsage = semanticBudget("attempt_usage", 1n);
+  const nextProgress: DeclarativeV2VerifierProgressCursorFrameV2 = {
+    kind: "progress_cursor",
+    phase: "parse",
+    settledSequence: reservation.sequence,
+    moduleOrdinal: 1n,
+    edgeOrdinal: 0n,
+    pageOrdinal: 2n,
+    previousReceiptSha256: reservation.predecessorReceiptSha256,
+  };
+  const nextProgressSha256 = await frameSha256(nextProgress);
+  const outputManifest:
+    DeclarativeV2VerifierCommandOutputManifestFrameV2 = {
+      kind: "command_output_manifest",
+      reservationSha256,
+      commandKind: reservation.commandKind,
+      sequence: reservation.sequence,
+      evidenceRootSha256,
+      evidenceCount,
+      diagnosticsRootSha256,
+      diagnosticCount: 0n,
+      nextProgressSha256,
+    };
+  const receipt: DeclarativeV2VerifierCommandReceiptFrameV2 = {
+    kind: "command_receipt",
+    reservationSha256,
+    commandUsageSha256: await frameSha256(commandUsage),
+    resultingAttemptUsageSha256: await frameSha256(resultingUsage),
+    outputManifestSha256: await frameSha256(outputManifest),
+    nextProgressSha256,
+  };
+  return Object.freeze({
+    outputManifest,
+    commandUsage,
+    resultingUsage,
+    nextProgress,
+    receipt,
+  });
+}
+
+async function frameSha256(
+  frame: Parameters<typeof encodeDeclarativeV2VerifierProgressFrameV2>[0],
+) {
+  const encoded = Result.getOrThrow(
+    encodeDeclarativeV2VerifierProgressFrameV2(frame, {
+      maximumFrameBytes: 1_000_000,
+      maximumCanonicalBytes: 1_000_000,
+    }),
+  );
+  return sha256(encoded.canonicalBytes);
 }
 
 async function moveAttemptToParse(

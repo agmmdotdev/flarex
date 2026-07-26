@@ -904,8 +904,15 @@ one fenced READ COMMITTED transaction, while byte-identical retries are
 read-and-compare replays. Its bounded reader admits metadata before exact
 manifest/payload bytes and returns only owned inert page evidence. These
 mechanics do not settle, reset, refund, or recharge durable semantic usage.
-Settlement/replay closure and executor host composition remain later A1b2
-gates.
+The private A1b2b1c repository now settles only the pending verifier command
+under the existing same-factory work capability, live database fence, and
+attempt-before-command-before-final-page lock order. One located READ COMMITTED
+transaction commits the five canonical settlement frames, validates parse/link
+page completion, advances lifecycle/progress/receipt state, and clears pending
+work without changing the already conservatively reserved 26-dimensional
+attempt usage. Capability-free cold readback yields only inert missing,
+pending, terminal-unsettled, or settled evidence and never mints writer or
+verifier authority. Executor host composition remains a later A1b2 gate.
 
 The private Semantic Artifact V1 foundation now supplies immutable semantic
 byte provenance without changing target authority. DeploymentDO SQLite owns the

@@ -5,9 +5,12 @@ import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   encodeDeclarativeV2VerifierProgressFrameV2,
   type DeclarativeV2VerifierBudgetFrameV2,
+  type DeclarativeV2VerifierCommandOutputManifestFrameV2,
+  type DeclarativeV2VerifierCommandReceiptFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
   type DeclarativeV2VerifierDurableCommandKindV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
+  type DeclarativeV2VerifierProgressCursorFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
 import {
   encodeDeclarativeV2PhysicalFrameV1,
@@ -25,6 +28,8 @@ import { createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence } from "../src/pglite";
 import {
   isLocatedReadCommittedAttemptTargetV1,
+  LocatedReadCommittedTransactionFailureV1,
+  RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "../src/transactionSessionAttemptKernel";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -1004,6 +1009,416 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
     });
   });
 
+  it("settles a page command atomically and observes the committed decision without authority", async () => {
+    const queries: string[] = [];
+    const current = await pendingParseFixture({
+      observeQuery: query => queries.push(query.name),
+    });
+    const page = await evidencePageInput(
+      current.reserved.reservation,
+      0n,
+      null,
+      0n,
+      2n,
+      0n,
+      0n,
+      new Uint8Array([1, 2, 3]),
+      0xd1,
+    );
+    const appended = await runEffect(current.repository.appendEvidencePage(
+      current.reserved.work,
+      page,
+      pageOperationBudget,
+    ));
+    const input = await settlementInput(
+      current.reserved.reservation,
+      appended.pageSha256,
+      2n,
+      digest(0xd1),
+      1n,
+      "parse",
+    );
+    queries.length = 0;
+    const settled = await runEffect(current.repository.settleCommand(
+      current.reserved.work,
+      input,
+      operationBudget,
+    ));
+    expect(settled).toMatchObject({
+      kind: "settled",
+      settlement: {
+        commandKind: "parse_module",
+        sequence: 1n,
+        nextProgress: { phase: "parse", settledSequence: 1n },
+      },
+    });
+    expect(queries).toEqual([
+      "settlementCommandMetadata",
+      "settlementFinalPageMetadata",
+      "settlementFinalPageManifest",
+      "lockAttempt",
+      "settlementCommandMetadata",
+      "settlementCommandFrames",
+      "settlementFinalPageMetadata",
+      "settlementFinalPageManifest",
+      "settleCommand",
+      "settleAttempt",
+    ]);
+    expect(await runEffectFailure(current.repository.appendEvidencePage(
+      current.reserved.work,
+      page,
+      pageOperationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      reason: "workClosed",
+    });
+
+    const reservationSha256 =
+      await frameSha256(current.reserved.reservation);
+    const restarted = makeDeclarativeV2VerifierProgressRepositoryV2(
+      current.target,
+      {
+        claimDurationMilliseconds: 60_000,
+        randomUuid: () => "22222222-2222-4222-8222-222222222222",
+        observeQuery: query => queries.push(query.name),
+      },
+    );
+    queries.length = 0;
+    const observed = await runEffect(restarted.observeCommandDecision({
+      scopeId,
+      attemptSha256: current.attemptSha256,
+      sequence: 1n,
+      reservationSha256,
+    }, operationBudget));
+    expect(observed.decision).toMatchObject({
+      kind: "settled",
+      settlement: {
+        commandKind: "parse_module",
+        sequence: 1n,
+        receiptSha256: settled.settlement.receiptSha256,
+      },
+    });
+    expect(queries).toEqual([
+      "decisionAttemptMetadata",
+      "decisionCommandMetadata",
+      "decisionFinalPageMetadata",
+      "decisionAttemptFrames",
+      "decisionCommandFrames",
+    ]);
+    await current.persistence.query(
+      `update fx_system_declarative_v2_verifier_evidence_page_v2
+       set evidence_count = evidence_count + 1
+       where scope_id = $1 and attempt_sha256 = $2 and sequence = 1`,
+      [scopeId, current.attemptSha256],
+    );
+    expect(await runEffectFailure(restarted.observeCommandDecision({
+      scopeId,
+      attemptSha256: current.attemptSha256,
+      sequence: 1n,
+      reservationSha256,
+    }, operationBudget))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryCorruptionV2Error",
+      operation: "observeCommandDecision",
+      reason: "normalizedMismatch",
+    });
+  });
+
+  it("returns pending and terminal-unsettled decisions without reading frame bytes", async () => {
+    const queries: string[] = [];
+    const current = await pendingParseFixture({
+      observeQuery: query => queries.push(query.name),
+    });
+    const reservationSha256 =
+      await frameSha256(current.reserved.reservation);
+    queries.length = 0;
+    const pending = await runEffect(
+      current.repository.observeCommandDecision({
+        scopeId,
+        attemptSha256: current.attemptSha256,
+        sequence: 1n,
+        reservationSha256,
+      }, operationBudget),
+    );
+    expect(pending.decision.kind).toBe("pending");
+    expect(queries).toEqual([
+      "decisionAttemptMetadata",
+      "decisionCommandMetadata",
+    ]);
+    await runEffect(current.repository.abandon(
+      current.acquired.run,
+      operationBudget,
+    ));
+    queries.length = 0;
+    const terminal = await runEffect(
+      current.repository.observeCommandDecision({
+        scopeId,
+        attemptSha256: current.attemptSha256,
+        sequence: 1n,
+        reservationSha256,
+      }, operationBudget),
+    );
+    expect(terminal.decision).toMatchObject({
+      kind: "terminalUnsettled",
+      lifecycle: "abandoned",
+    });
+    expect(queries).toEqual([
+      "decisionAttemptMetadata",
+      "decisionCommandMetadata",
+    ]);
+  });
+
+  it("settles source work without evidence pages or a terminal lifecycle", async () => {
+    const queries: string[] = [];
+    const current = await fixture({
+      observeQuery: query => queries.push(query.name),
+    });
+    const acquired = await runEffect(current.repository.acquire(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    const reservation = await reservationInput(
+      acquired.attempt,
+      1n,
+      0xe1,
+      1n,
+      "source_page",
+    );
+    const reserved = await runEffect(current.repository.reserveCommand(
+      acquired.run,
+      reservation,
+      operationBudget,
+    ));
+    const input = await settlementInput(
+      reserved.reservation,
+      digest(0xe2),
+      0n,
+      digest(0xe3),
+      1n,
+      "source",
+    );
+    queries.length = 0;
+    const settled = await runEffect(current.repository.settleCommand(
+      reserved.work,
+      input,
+      operationBudget,
+    ));
+    expect(settled.settlement.nextProgress.phase).toBe("source");
+    expect(queries).toEqual([
+      "lockAttempt",
+      "settlementCommandMetadata",
+      "settlementCommandFrames",
+      "settleCommand",
+      "settleAttempt",
+    ]);
+    await runEffect(current.repository.release(
+      acquired.run,
+      operationBudget,
+    ));
+  });
+
+  it("rejects over-budget settlement and mismatched final page roots before writes", async () => {
+    const incomplete = await pendingParseFixture();
+    const premature = await settlementInput(
+      incomplete.reserved.reservation,
+      digest(0xd0),
+      1n,
+      digest(0xd1),
+      1n,
+      "parse",
+    );
+    expect(await runEffectFailure(incomplete.repository.settleCommand(
+      incomplete.reserved.work,
+      premature,
+      operationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      operation: "settleCommand",
+      reason: "commandMismatch",
+    });
+
+    const overBudget = await pendingParseFixture();
+    const page = await evidencePageInput(
+      overBudget.reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([1]),
+      0xd2,
+    );
+    const appended = await runEffect(overBudget.repository.appendEvidencePage(
+      overBudget.reserved.work,
+      page,
+      pageOperationBudget,
+    ));
+    const excessive = await settlementInput(
+      overBudget.reserved.reservation,
+      appended.pageSha256,
+      1n,
+      digest(0xd2),
+      2n,
+      "parse",
+    );
+    expect(await runEffectFailure(overBudget.repository.settleCommand(
+      overBudget.reserved.work,
+      excessive,
+      operationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      operation: "settleCommand",
+      reason: "commandMismatch",
+    });
+
+    const mismatched = await pendingParseFixture();
+    const secondPage = await evidencePageInput(
+      mismatched.reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([2]),
+      0xd3,
+    );
+    await runEffect(mismatched.repository.appendEvidencePage(
+      mismatched.reserved.work,
+      secondPage,
+      pageOperationBudget,
+    ));
+    const wrongRoot = await settlementInput(
+      mismatched.reserved.reservation,
+      digest(0xff),
+      1n,
+      digest(0xd3),
+      1n,
+      "parse",
+    );
+    const wrongRootFailure = await runEffectFailure(
+      mismatched.repository.settleCommand(
+      mismatched.reserved.work,
+      wrongRoot,
+      operationBudget,
+      ),
+    );
+    expect(wrongRootFailure).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      operation: "settleCommand",
+      reason: "commandMismatch",
+    });
+    expect(wrongRootFailure).toHaveProperty("codecCause");
+    const observed = await runEffect(mismatched.repository.observeAttempt(
+      scopeId,
+      mismatched.attemptSha256,
+      operationBudget,
+    ));
+    expect(observed.kind).toBe("present");
+    if (observed.kind !== "present") throw new Error("Expected attempt.");
+    expect(observed.attempt.pendingSequence).toBe(1n);
+  });
+
+  it("returns no receipt authority after an uncertain settlement and recovers by inert readback", async () => {
+    const current = await fixture();
+    await moveAttemptToParse(current.persistence, current.attemptSha256);
+    let transactionsUntilLoss: number | null = null;
+    const faultTarget: LocatedReadCommittedAttemptTargetV1 = {
+      physicalLocator: current.target.physicalLocator,
+      getCurrentClock: scope => current.target.getCurrentClock(scope),
+      [RUN_LOCATED_READ_COMMITTED_V1]: async work => {
+        const result =
+          await current.target[RUN_LOCATED_READ_COMMITTED_V1](work);
+        if (transactionsUntilLoss !== null) {
+          transactionsUntilLoss -= 1;
+          if (transactionsUntilLoss === 0) {
+            transactionsUntilLoss = null;
+            throw new LocatedReadCommittedTransactionFailureV1({
+              kind: "decisionUncertain",
+              settlementCause: new Error("lost settlement response"),
+            });
+          }
+        }
+        return result;
+      },
+    };
+    const repository = makeDeclarativeV2VerifierProgressRepositoryV2(
+      faultTarget,
+      {
+        claimDurationMilliseconds: 60_000,
+        randomUuid: () => "33333333-3333-4333-8333-333333333333",
+      },
+    );
+    const acquired = await runEffect(repository.acquire(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    const reservation = await reservationInput(
+      acquired.attempt,
+      1n,
+      0xe4,
+      1n,
+      "parse_module",
+    );
+    const reserved = await runEffect(repository.reserveCommand(
+      acquired.run,
+      reservation,
+      operationBudget,
+    ));
+    const page = await evidencePageInput(
+      reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([4]),
+      0xe5,
+    );
+    const appended = await runEffect(repository.appendEvidencePage(
+      reserved.work,
+      page,
+      pageOperationBudget,
+    ));
+    const settlement = await settlementInput(
+      reserved.reservation,
+      appended.pageSha256,
+      1n,
+      digest(0xe5),
+      1n,
+      "parse",
+    );
+    transactionsUntilLoss = 2;
+    expect(await runEffectFailure(repository.settleCommand(
+      reserved.work,
+      settlement,
+      operationBudget,
+    ))).toMatchObject({
+      _tag:
+        "DeclarativeV2VerifierProgressRepositoryDecisionUncertainV2Error",
+      operation: "settleCommand",
+    });
+    expect(await runEffectFailure(repository.renew(
+      acquired.run,
+      operationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      reason: "runClosed",
+    });
+    const observed = await runEffect(
+      current.repository.observeCommandDecision({
+        scopeId,
+        attemptSha256: current.attemptSha256,
+        sequence: 1n,
+        reservationSha256: await frameSha256(reserved.reservation),
+      }, operationBudget),
+    );
+    expect(observed.decision.kind).toBe("settled");
+  });
+
   it("keeps query observation ordered and does not compile when absent", async () => {
     const queries: Array<Readonly<{ readonly name: string; readonly sql: string }>> =
       [];
@@ -1261,6 +1676,68 @@ async function reservationInput(
     rangeAndPredecessorTailsSha256: digest(byte + 4),
   };
   return Object.freeze({ reservation, commandBudget });
+}
+
+async function settlementInput(
+  reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+  evidenceRootSha256: Uint8Array,
+  evidenceCount: bigint,
+  diagnosticsRootSha256: Uint8Array,
+  commandUsageValue: bigint,
+  nextPhase: DeclarativeV2VerifierProgressCursorFrameV2["phase"],
+) {
+  const reservationSha256 = await frameSha256(reservation);
+  const commandUsage = semanticBudget("command_budget", commandUsageValue);
+  const resultingUsage = semanticBudget("attempt_usage", 1n);
+  const nextProgress: DeclarativeV2VerifierProgressCursorFrameV2 = {
+    kind: "progress_cursor",
+    phase: nextPhase,
+    settledSequence: reservation.sequence,
+    moduleOrdinal: 1n,
+    edgeOrdinal: 0n,
+    pageOrdinal: 1n,
+    previousReceiptSha256: reservation.predecessorReceiptSha256,
+  };
+  const nextProgressSha256 = await frameSha256Any(nextProgress);
+  const outputManifest:
+    DeclarativeV2VerifierCommandOutputManifestFrameV2 = {
+      kind: "command_output_manifest",
+      reservationSha256,
+      commandKind: reservation.commandKind,
+      sequence: reservation.sequence,
+      evidenceRootSha256,
+      evidenceCount,
+      diagnosticsRootSha256,
+      diagnosticCount: 0n,
+      nextProgressSha256,
+    };
+  const receipt: DeclarativeV2VerifierCommandReceiptFrameV2 = {
+    kind: "command_receipt",
+    reservationSha256,
+    commandUsageSha256: await frameSha256Any(commandUsage),
+    resultingAttemptUsageSha256: await frameSha256Any(resultingUsage),
+    outputManifestSha256: await frameSha256Any(outputManifest),
+    nextProgressSha256,
+  };
+  return Object.freeze({
+    outputManifest,
+    commandUsage,
+    resultingUsage,
+    nextProgress,
+    receipt,
+  });
+}
+
+async function frameSha256Any(
+  frame: Parameters<typeof encodeDeclarativeV2VerifierProgressFrameV2>[0],
+) {
+  const encoded = Result.getOrThrow(
+    encodeDeclarativeV2VerifierProgressFrameV2(frame, {
+      maximumFrameBytes: 1_000_000,
+      maximumCanonicalBytes: 1_000_000,
+    }),
+  );
+  return sha256(encoded.canonicalBytes);
 }
 
 function semanticBudget(

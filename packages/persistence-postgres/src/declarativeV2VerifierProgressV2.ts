@@ -182,6 +182,16 @@ export interface DeclarativeV2VerifierDecodedCommandStoredStateV2 {
   readonly settlement: DeclarativeV2VerifierDecodedCommandSettlementV2 | null;
 }
 
+export interface DeclarativeV2VerifierCommittedCommandAttemptStateV2 {
+  readonly candidateSha256: Uint8Array;
+  readonly lifecycle: DeclarativeV2VerifierStoredAttemptMetadataV2["lifecycle"];
+  readonly settledSequence: bigint;
+  readonly lastReceiptSha256: Uint8Array;
+  readonly usageSha256: Uint8Array;
+  readonly progressSha256: Uint8Array;
+  readonly phase: DeclarativeV2VerifierProgressCursorFrameV2["phase"];
+}
+
 export class DeclarativeV2VerifierProgressV2StoredRowError
   extends Data.TaggedError(
     "DeclarativeV2VerifierProgressV2StoredRowError",
@@ -316,6 +326,16 @@ const COMMAND_SETTLEMENT_INPUT_KEYS = Object.freeze([
   "nextProgressObservedSha256",
   "receiptBytes",
   "receiptObservedSha256",
+] as const);
+
+const COMMITTED_COMMAND_ATTEMPT_STATE_KEYS = Object.freeze([
+  "candidateSha256",
+  "lifecycle",
+  "settledSequence",
+  "lastReceiptSha256",
+  "usageSha256",
+  "progressSha256",
+  "phase",
 ] as const);
 
 export function decodeDeclarativeV2VerifierStoredFrameBudgetV2(
@@ -971,6 +991,173 @@ export function decodeDeclarativeV2VerifierCommandStoredStateV2(
         "lifecycle",
       );
     }
+    const decoded = yield* decodeCommandFramesAndSettlementV2(
+      metadata,
+      reservationBytesInput,
+      reservationObservedSha256Input,
+      commandBudgetBytesInput,
+      commandBudgetObservedSha256Input,
+      settlementInput,
+      rawBudget,
+    );
+    if (
+      !bytesEqualFullScan(
+        decoded.reservation.frame.candidateSha256,
+        expectedCandidateSha256Input,
+      ) ||
+      !bytesEqualFullScan(
+        decoded.reservation.frame.currentProgressSha256,
+        expectedCurrentProgressSha256Input,
+      ) ||
+      !optionalDigestsEqual(
+        decoded.reservation.frame.predecessorReceiptSha256,
+        expectedPredecessorReceiptSha256Input,
+      )
+    ) {
+      return yield* fail(
+        "decodeCommandMetadata",
+        "normalizedMismatch",
+        "reservation",
+      );
+    }
+    if (decoded.settlement === null) {
+      if (expectedNextLifecycleInput !== expectedCurrentLifecycleInput) {
+        return yield* fail(
+          "decodeCommandMetadata",
+          "normalizedMismatch",
+          "settlement",
+        );
+      }
+      return decoded;
+    }
+    if (
+      !isValidSettlementTransition(
+        expectedCurrentLifecycleInput,
+        expectedCurrentPhaseInput,
+        metadata.commandKind,
+        expectedNextLifecycleInput,
+        decoded.settlement.nextProgress.frame.phase,
+      )
+    ) {
+      return yield* fail(
+        "decodeCommandMetadata",
+        "normalizedMismatch",
+        "receipt",
+      );
+    }
+    return decoded;
+  });
+}
+
+/**
+ * Decodes an already-settled command from the post-settlement attempt state.
+ *
+ * The attempt state is an inert durable comparison boundary, not writer
+ * authority. This path deliberately requires the latest settled command so a
+ * cold reader never reconstructs historical predecessor authority from stored
+ * bytes alone.
+ */
+export function decodeDeclarativeV2VerifierCommittedCommandReadbackV2(
+  metadataInput: unknown,
+  postSettlementAttemptStateInput: unknown,
+  reservationBytesInput: unknown,
+  reservationObservedSha256Input: unknown,
+  commandBudgetBytesInput: unknown,
+  commandBudgetObservedSha256Input: unknown,
+  settlementInput: unknown,
+  rawBudget: unknown,
+): Result.Result<
+  DeclarativeV2VerifierDecodedCommandStoredStateV2 & {
+    readonly settlement: DeclarativeV2VerifierDecodedCommandSettlementV2;
+  },
+  DeclarativeV2VerifierProgressV2StoredRowError
+> {
+  return Result.gen(function* () {
+    const metadata = yield* decodeDeclarativeV2VerifierCommandMetadataRowV2(
+      metadataInput,
+    );
+    const postRecord = yield* captureExactOwnDataRecord(
+      postSettlementAttemptStateInput,
+      COMMITTED_COMMAND_ATTEMPT_STATE_KEYS,
+      "decodeCommandMetadata",
+    );
+    if (
+      !isDigest(postRecord.candidateSha256) ||
+      !isLifecycle(postRecord.lifecycle) ||
+      !isPositiveInt64(postRecord.settledSequence) ||
+      !isDigest(postRecord.lastReceiptSha256) ||
+      !isDigest(postRecord.usageSha256) ||
+      !isDigest(postRecord.progressSha256) ||
+      !isPhase(postRecord.phase)
+    ) {
+      return yield* fail(
+        "decodeCommandMetadata",
+        "invalidInput",
+        "postSettlementAttempt",
+      );
+    }
+    const decoded = yield* decodeCommandFramesAndSettlementV2(
+      metadata,
+      reservationBytesInput,
+      reservationObservedSha256Input,
+      commandBudgetBytesInput,
+      commandBudgetObservedSha256Input,
+      settlementInput,
+      rawBudget,
+    );
+    const settlement = decoded.settlement;
+    if (
+      settlement === null ||
+      !bytesEqualFullScan(
+        decoded.reservation.frame.candidateSha256,
+        postRecord.candidateSha256,
+      ) ||
+      postRecord.settledSequence !== metadata.sequence ||
+      !bytesEqualFullScan(
+        postRecord.lastReceiptSha256,
+        settlement.receipt.sha256,
+      ) ||
+      !bytesEqualFullScan(
+        postRecord.usageSha256,
+        settlement.resultingUsage.sha256,
+      ) ||
+      !bytesEqualFullScan(
+        postRecord.progressSha256,
+        settlement.nextProgress.sha256,
+      ) ||
+      postRecord.phase !== settlement.nextProgress.frame.phase ||
+      !isValidCommittedCommandState(
+        metadata.commandKind,
+        postRecord.lifecycle,
+        settlement.nextProgress.frame.phase,
+      )
+    ) {
+      return yield* fail(
+        "decodeCommandMetadata",
+        "normalizedMismatch",
+        "postSettlementAttempt",
+      );
+    }
+    return Object.freeze({
+      ...decoded,
+      settlement,
+    });
+  });
+}
+
+function decodeCommandFramesAndSettlementV2(
+  metadata: DeclarativeV2VerifierStoredCommandMetadataV2,
+  reservationBytesInput: unknown,
+  reservationObservedSha256Input: unknown,
+  commandBudgetBytesInput: unknown,
+  commandBudgetObservedSha256Input: unknown,
+  settlementInput: unknown,
+  rawBudget: unknown,
+): Result.Result<
+  DeclarativeV2VerifierDecodedCommandStoredStateV2,
+  DeclarativeV2VerifierProgressV2StoredRowError
+> {
+  return Result.gen(function* () {
     const reservation = yield* decodeDeclarativeV2VerifierStoredFrameV2(
       metadata.reservation,
       reservationBytesInput,
@@ -990,20 +1177,8 @@ export function decodeDeclarativeV2VerifierCommandStoredStateV2(
         reservation.frame.attemptSha256,
         metadata.attemptSha256,
       ) ||
-      !bytesEqualFullScan(
-        reservation.frame.candidateSha256,
-        expectedCandidateSha256Input,
-      ) ||
       reservation.frame.commandKind !== metadata.commandKind ||
       reservation.frame.sequence !== metadata.sequence ||
-      !bytesEqualFullScan(
-        reservation.frame.currentProgressSha256,
-        expectedCurrentProgressSha256Input,
-      ) ||
-      !optionalDigestsEqual(
-        reservation.frame.predecessorReceiptSha256,
-        expectedPredecessorReceiptSha256Input,
-      ) ||
       !bytesEqualFullScan(
         reservation.frame.commandBudgetSha256,
         metadata.commandBudget.sha256,
@@ -1016,10 +1191,7 @@ export function decodeDeclarativeV2VerifierCommandStoredStateV2(
       );
     }
     if (metadata.settledAt === null) {
-      if (
-        settlementInput !== null ||
-        expectedNextLifecycleInput !== expectedCurrentLifecycleInput
-      ) {
+      if (settlementInput !== null) {
         return yield* fail(
           "decodeCommandMetadata",
           "normalizedMismatch",
@@ -1155,13 +1327,6 @@ export function decodeDeclarativeV2VerifierCommandStoredStateV2(
       !optionalDigestsEqual(
         nextProgress.frame.previousReceiptSha256,
         reservation.frame.predecessorReceiptSha256,
-      ) ||
-      !isValidSettlementTransition(
-        expectedCurrentLifecycleInput,
-        expectedCurrentPhaseInput,
-        metadata.commandKind,
-        expectedNextLifecycleInput,
-        nextProgress.frame.phase,
       )
     ) {
       return yield* fail(
@@ -1658,6 +1823,49 @@ function isValidSettlementTransition(
         currentPhase === "registration" &&
         nextLifecycle === "registering" &&
         (nextPhase === "registration" || nextPhase === "verdict");
+  }
+}
+
+function isValidCommittedCommandState(
+  commandKind: DeclarativeV2VerifierDurableCommandKindV2,
+  lifecycle: DeclarativeV2VerifierStoredAttemptMetadataV2["lifecycle"],
+  phase: DeclarativeV2VerifierProgressCursorFrameV2["phase"],
+): boolean {
+  if (lifecycle === "abandoned") {
+    return isValidCommittedCommandPhase(commandKind, phase);
+  }
+  if (lifecycle === "ready" || lifecycle === "rejected") {
+    return commandKind === "registration_page" && phase === "verdict";
+  }
+  switch (commandKind) {
+    case "source_page":
+      return lifecycle === "open" && phase === "source" ||
+        lifecycle === "parsing" && phase === "parse";
+    case "parse_module":
+      return lifecycle === "parsing" && phase === "parse" ||
+        lifecycle === "parse_complete" && phase === "link";
+    case "link_page":
+      return lifecycle === "linking" && phase === "link" ||
+        lifecycle === "link_complete" && phase === "registration";
+    case "registration_page":
+      return lifecycle === "registering" &&
+        (phase === "registration" || phase === "verdict");
+  }
+}
+
+function isValidCommittedCommandPhase(
+  commandKind: DeclarativeV2VerifierDurableCommandKindV2,
+  phase: DeclarativeV2VerifierProgressCursorFrameV2["phase"],
+): boolean {
+  switch (commandKind) {
+    case "source_page":
+      return phase === "source" || phase === "parse";
+    case "parse_module":
+      return phase === "parse" || phase === "link";
+    case "link_page":
+      return phase === "link" || phase === "registration";
+    case "registration_page":
+      return phase === "registration" || phase === "verdict";
   }
 }
 
