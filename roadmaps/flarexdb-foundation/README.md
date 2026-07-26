@@ -931,6 +931,18 @@ frames. Its decoded values are inert: no fresh backend producer, analyzer
 command host, executor composition, candidate authority, binding, route,
 real-system harness, readiness, or activation exists at this boundary.
 
+The private A1b2c0b1 backend producer now consumes fresh request-bound
+finalized-source proof and A1b1 read-session authority before hashing or
+encoding, then binds the authenticated source/semantic lineage, ordered module
+metadata, installed analyzer/verifier identities, exact reservation lineage,
+and all 26 command-budget dimensions into A1b2c0b0 bytes. Full-module source
+and canonical semantic payloads are admitted as one bounded command or refused;
+there is no hidden pagination, rescan, truncation, or fallback. Its
+same-factory request-local result/cursor is private and revocable, and its bytes
+and receipts stay inert. It is not candidate authority, an analyzer command
+host, executor composition, persistence or transaction authority, routing, the
+real-system harness, readiness, or activation.
+
 The immediate cross-plan milestone is a private end-to-end correctness and
 stress harness, not a developer API or activation gate. A1b2 first composes
 authenticated analysis with durable verifier progress in `apps/executor`;

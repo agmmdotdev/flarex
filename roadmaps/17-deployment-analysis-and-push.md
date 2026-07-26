@@ -851,6 +851,22 @@ activation remain blocked until their production host composition is proven.
    binding, route, real-system harness, readiness, or activation is implemented
    by this contract.
 
+   The private A1b2c0b1 backend producer now issues a fresh request-bound
+   finalized-source proof and opens the A1b1 authenticated read session before
+   deriving any command commitment or encoding transport bytes. It binds the
+   authenticated source/semantic roots, selectors, generations, mutation
+   fences, semantic attempt, ordered module metadata, installed analyzer and
+   verifier identities, exact reservation lineage, and all 26 command-budget
+   dimensions into the A1b2c0b0 envelope. Full-module parse source and the
+   canonical semantic stream are copied only after bounded admission; an input
+   that cannot fit one command fails closed rather than inventing pagination,
+   rescanning, truncation, or fallback. Its request-local result and output
+   cursor are private, same-factory, single-use capabilities, while every
+   emitted byte and receipt remains inert. This producer does not create
+   candidate authority, an analyzer command host, executor composition,
+   persistence or transaction authority, a route, the real-system harness,
+   readiness, or activation.
+
    These Declarative V2 contracts replace only the deployment-analysis and
    artifact-verification path named by this roadmap. Component suffixes such as
    `CoreV1`, Semantic Artifact V1, or Progress V2 do not authorize a general
