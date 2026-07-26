@@ -811,6 +811,26 @@ activation remain blocked until their production host composition is proven.
    Evidence-page append/read, settlement/replay closure, and executor host
    composition remain separate later A1b2 gates.
 
+   These Declarative V2 contracts replace only the deployment-analysis and
+   artifact-verification path named by this roadmap. Component suffixes such as
+   `CoreV1`, Semantic Artifact V1, or Progress V2 do not authorize a general
+   legacy-to-V2 rewrite. In particular, Declarative V2 must not fork or change
+   FlarexDB OCC, commit compilation/execution, transaction journals,
+   idempotency outcomes, commit/change feeds, outbox behavior, or authoritative
+   application-row semantics. The executor may supply a narrowly located
+   READ COMMITTED verifier repository, but verifier work never runs inside or
+   becomes a second application commit path.
+
+   The intended analysis cutover is replacement-only after one real-system
+   acceptance proof. That proof must use the actual backend, analyzer,
+   artifact-runtime Worker Loader/Dynamic Worker, executor, and Postgres
+   composition with the exact readiness-approved runtime projection. The
+   standalone runtime-topology probe remains historical evidence and must not
+   be copied into production as an alternate runtime. Until the proof and a
+   separate cutover decision are complete, the shipped legacy analyzer contract
+   remains compatibility state; afterward remove its route, root exports, and
+   consumers rather than retaining a dual analysis path or silent fallback.
+
 4. **S03-D4 readiness.** Under the common scope-clock lock, revalidate scope
    generation/fence/epoch plus real target index/build evidence and the exact
    candidate, artifact, schema, validator, registration, and verifier pins.

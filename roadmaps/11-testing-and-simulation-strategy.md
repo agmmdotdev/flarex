@@ -231,6 +231,13 @@ and H04/H05 compose real runtime code. Thin fixtures may provision state or
 inject deterministic clocks/IDs, but they cannot own alternate transaction,
 analysis, artifact, or sync semantics.
 
+`runtime-topology-probe` is retained only as experimental evidence and an
+assertion source. Replacement acceptance must run the real backend, analyzer,
+artifact-runtime, generated Dynamic Worker, executor, and Postgres owners; it
+must not promote probe-specific routing, commit, storage, or authority code.
+Declarative V2 may select verified runtime projections, but the test must use
+the existing OCC/commit implementation unchanged.
+
 ### Keep External Proof Explicit
 
 Real databases and Cloudflare staging mutate external resources and can be

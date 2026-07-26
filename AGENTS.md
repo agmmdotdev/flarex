@@ -8,6 +8,23 @@ Keep this file durable. Do not copy milestone status, exact actor names,
 temporary test receipts, or unresolved DDL sketches here; link to the owning
 design note or roadmap and verify its current status instead.
 
+Version suffixes are local contract versions, not automatic migration
+authority. A request to implement or improve a V2 domain does not authorize
+rewriting adjacent legacy/V1 domains, and the Effect guidance below does not
+turn touched-flow cleanup into a product-version migration. Preserve a shipped
+legacy path until its owning roadmap approves an exact replacement and removal
+gate; do not add dual writes, silent fallbacks, or comparison paths merely to
+ease a cutover.
+
+Declarative V2 analysis, artifact, progress, projection, readiness, and
+activation work must not create a parallel OCC or commit system. Reuse the
+existing transaction and executor capabilities through their narrow owned
+interfaces without changing commit compilation, commit execution, transaction
+journals, idempotency outcomes, commit/change feeds, outbox behavior, or
+authoritative application-row semantics. Any proposed change to those owners
+requires a separate explicit preflight and approval; it is never an incidental
+Declarative V2 implementation step.
+
 Before committing a significant code change, spawn both project custom reviewer
 subagents: `typescript-diff-reviewer` and `code-quality-diff-reviewer`.
 Significant code changes include behavior changes, public contract/type changes,
