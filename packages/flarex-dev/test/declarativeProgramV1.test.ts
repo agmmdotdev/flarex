@@ -1,0 +1,279 @@
+import { analyzeCanonicalDeclarativeProgramV1 } from "@flarex/analysis/internal/canonical-declarative-program-v1";
+import {
+  CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
+  decodeCanonicalDeclarativeProgramV1,
+  makeCanonicalDeclarativeProgramBudgetV1,
+} from "@flarex/declarative-program/v1";
+import { Effect, Result } from "effect";
+import {
+  defineGlobalTable,
+  definePartitionTable,
+  defineProjection,
+  defineSchema,
+  mutation,
+} from "flarex/server";
+import { v } from "flarex/values";
+import { describe, expect, it } from "vitest";
+import { canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect } from "../src/declarativeProgramV1.ts";
+
+const BUDGET = Result.getOrThrow(makeCanonicalDeclarativeProgramBudgetV1({
+  maximumModules: 4,
+  maximumFunctions: 8,
+  maximumIdentifierUtf8Bytes: 4_096,
+  maximumValidatorNodes: 128,
+  maximumValidatorDepth: 16,
+  maximumValidatorStringUtf8Bytes: 4_096,
+}));
+
+const placeOrder = mutation({
+  args: { status: v.string() },
+  returns: v.null(),
+  handler: async () => null,
+});
+
+const sdkSchema = defineSchema({
+  orders: defineGlobalTable({
+    status: v.string(),
+  }).index("by_status", ["status"]),
+});
+
+function directProgramInput() {
+  return {
+    format: CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
+    version: 1 as const,
+    schema: {
+      tables: [{
+        logicalName: "orders",
+        definition: {
+          kind: "appDocument" as const,
+          definitionVersion: 1 as const,
+          documentType: {
+            type: "object",
+            value: {
+              status: {
+                fieldType: { type: "string" },
+                optional: false,
+              },
+            },
+          },
+        },
+      }],
+      indexes: [{
+        tableLogicalName: "orders",
+        descriptor: "by_status",
+        fields: ["status"],
+      }],
+    },
+    modules: [{
+      modulePath: "orders",
+      functions: [{
+        exportName: "place",
+        kind: "mutation" as const,
+        visibility: "public" as const,
+        argsValidator: {
+          type: "object",
+          value: {
+            status: {
+              fieldType: { type: "string" },
+              optional: false,
+            },
+          },
+        },
+        returnsValidator: { type: "null" },
+      }],
+    }],
+  };
+}
+
+describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
+  it("matches the direct fixture and canonical analyzer result", async () => {
+    const fromSdk = await Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: sdkSchema,
+        executionModules: {
+          orders: { place: placeOrder },
+        },
+      }, BUDGET),
+    );
+    const fromFixture = Result.getOrThrow(
+      decodeCanonicalDeclarativeProgramV1(directProgramInput(), BUDGET),
+    );
+
+    expect(fromSdk).toEqual(fromFixture);
+    expect(analyzeCanonicalDeclarativeProgramV1(fromSdk)).toEqual(
+      analyzeCanonicalDeclarativeProgramV1(fromFixture),
+    );
+  });
+
+  it("rejects partitioned SDK tables in the opt-in slice", async () => {
+    const schemaDefinition = defineSchema({
+      orders: definePartitionTable({ status: v.string() }),
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition,
+        executionModules: {},
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1SdkAdapterError",
+      reason: "unsupportedTablePlacement",
+      path: "schema.tables.orders.placement",
+    });
+  });
+
+  it("rejects table policy before invoking function exporters", async () => {
+    let exporterInvoked = false;
+    const functionWithThrowingExporter = Object.assign(mutation({
+      args: { status: v.string() },
+      handler: async () => null,
+    }), {
+      exportArgs: () => {
+        exporterInvoked = true;
+        throw new Error("must not run");
+      },
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: defineSchema({
+          orders: definePartitionTable({ status: v.string() }),
+        }),
+        executionModules: {
+          orders: { place: functionWithThrowingExporter },
+        },
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1SdkAdapterError",
+      reason: "unsupportedTablePlacement",
+    });
+    expect(exporterInvoked).toBe(false);
+  });
+
+  it("rejects partitioned SDK functions in the opt-in slice", async () => {
+    const partitioned = Object.assign(mutation({
+      args: { status: v.string() },
+      handler: async () => null,
+    }), {
+      exportPartition: () => JSON.stringify({
+        type: "partitionRoot",
+        table: "orders",
+        partitionField: "_id",
+      }),
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: sdkSchema,
+        executionModules: {
+          orders: { place: partitioned },
+        },
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1SdkAdapterError",
+      reason: "unsupportedFunctionPartition",
+      path: "modules.orders.functions.place.partition",
+    });
+  });
+
+  it("rejects unsupported schema members", async () => {
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: defineSchema({
+          combined: defineProjection({ sources: ["orders"] }),
+        }),
+        executionModules: {},
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1SdkAdapterError",
+      reason: "unsupportedSchemaMember",
+      path: "schema.tables.combined",
+    });
+  });
+
+  it("maps SDK schema inspection exceptions at the adapter boundary", async () => {
+    const nativeFailure = new Error("schema getter failed");
+    const schemaDefinition = Object.defineProperty({}, "tables", {
+      enumerable: true,
+      get() {
+        throw nativeFailure;
+      },
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition,
+        executionModules: {},
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1SdkAdapterError",
+      reason: "sdkInspectionFailed",
+      path: "schema.tables",
+      cause: nativeFailure,
+    });
+  });
+
+  it("maps nested SDK schema accessors at the adapter boundary", async () => {
+    const member = Object.defineProperty({}, "kind", {
+      enumerable: true,
+      get() {
+        throw new Error("member getter failed");
+      },
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: {
+          tables: { orders: member },
+        },
+        executionModules: {},
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1SdkAdapterError",
+      reason: "sdkInspectionFailed",
+      path: "schema.tables",
+    });
+  });
+
+  it("maps a later stateful schema getter failure through the analyzer", async () => {
+    const nativeFailure = new Error("second schema read failed");
+    let reads = 0;
+    const schemaDefinition = Object.defineProperty({}, "tables", {
+      enumerable: true,
+      get() {
+        reads += 1;
+        if (reads === 1) return sdkSchema.tables;
+        throw nativeFailure;
+      },
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition,
+        executionModules: {},
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "AnalyzerSchemaError",
+      cause: nativeFailure,
+    });
+  });
+
+  it("rejects non-finite SDK validator literals", async () => {
+    const nonFiniteReturn = mutation({
+      args: {},
+      returns: v.literal(Number.NaN),
+      handler: async () => Number.NaN,
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: sdkSchema,
+        executionModules: {
+          orders: { nonFiniteReturn },
+        },
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "AnalyzerValidatorError",
+    });
+  });
+});

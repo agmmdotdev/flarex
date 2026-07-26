@@ -12,6 +12,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./cli": "./src/cli.ts",
+    "./internal/declarative-program-v1": "./src/declarativeProgramV1.ts",
     "./vite": "./src/vite.ts"
   },
   "scripts": {
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
+    "@flarex/declarative-program": "workspace:*",
     "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",
     "@flarex/freshness": "workspace:*",

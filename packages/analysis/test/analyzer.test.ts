@@ -130,6 +130,47 @@ describe("shared analyzer semantics", () => {
     });
   });
 
+  it("maps throwing validator exporters into the typed analyzer channel", async () => {
+    const nativeFailure = new Error("exporter failed");
+    const fn = runtimeFunction({
+      kind: "query",
+      args: objectValidator({}),
+    });
+    fn.exportArgs = () => {
+      throw nativeFailure;
+    };
+
+    await expect(Effect.runPromise(analyzeLoadedSourcePackageEffect({
+      schemaDefinition: schemaDefinition(),
+      executionModules: {
+        users: { broken: fn },
+      },
+      sourceMaps: {},
+    }))).rejects.toMatchObject({
+      _tag: "AnalyzerValidatorError",
+      cause: nativeFailure,
+    });
+  });
+
+  it("maps stateful schema getters into the typed analyzer channel", async () => {
+    const nativeFailure = new Error("schema getter failed");
+    const schema = Object.defineProperty({}, "tables", {
+      enumerable: true,
+      get() {
+        throw nativeFailure;
+      },
+    });
+
+    await expect(Effect.runPromise(analyzeLoadedSourcePackageEffect({
+      schemaDefinition: schema,
+      executionModules: {},
+      sourceMaps: {},
+    }))).rejects.toMatchObject({
+      _tag: "AnalyzerSchemaError",
+      cause: nativeFailure,
+    });
+  });
+
   it("rejects ambiguous root model partitions", async () => {
     await expect(Effect.runPromise(analyzeLoadedSourcePackageEffect({
       schemaDefinition: schemaDefinition(),

@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-**Status:** Preflight completed and accepted. The first implementation slice is
-approved below, but no production producer or consumer has been migrated.
+**Status:** Preflight completed and accepted. The first internal opt-in
+implementation slice is complete and validated below, but no production
+producer or consumer has been migrated.
 
 This record owns the proposed standard contract boundary between:
 
@@ -506,14 +507,24 @@ The decoder and normalizer obey these rules:
    value into their own versioned Source Artifact V2 and Semantic Artifact V1
    formats.
 
+Numeric validator literals must be finite and must not be negative zero at the
+protocol codec and SDK-exporter owners because those JavaScript spellings
+cannot survive ordinary JSON artifact encoding without changing validator
+behavior. The first contract rejects them; admitting them requires a separately
+designed extended-float representation.
+
 `CanonicalDeclarativeProgramBudgetV1` is an opaque package-owned value created
 by a validating factory. It has explicit maxima for module count, function
-count, cumulative UTF-8 identifier bytes, validator nodes, and validator
-depth. Schema tables, indexes, indexes per table, declared index fields, and
-schema-validator depth additionally retain the exact hard ceilings already
-owned by `flarex-protocol/schema-manifest`. The normalizer receives a budget;
-there is no unbounded convenience overload and no producer-specific default.
-Artifact upload and verifier budgets remain separate and may be stricter.
+count, cumulative UTF-8 identifier bytes, cumulative UTF-8 validator literal
+string bytes, validator nodes, and validator depth. An accepted depth budget
+may not exceed the protocol's stack-safe nesting ceiling of 128. The separate
+literal-string ceiling closes the boundedness gap that node and identifier
+counts alone leave for `v.literal("...")`. Schema tables, indexes, indexes per
+table, declared index fields, and schema-validator depth additionally retain
+the exact hard ceilings already owned by
+`flarex-protocol/schema-manifest`. The normalizer receives a budget; there is
+no unbounded convenience overload and no producer-specific default. Artifact
+upload and verifier budgets remain separate and may be stricter.
 
 Program V1, Source Artifact V2, and Semantic Artifact V1 are independent
 versions. Changing one does not authorize rewriting another. Reproducibility
@@ -580,6 +591,31 @@ The first slice must run:
 No benchmark claim follows from the contract. It improves composability and
 test isolation; storage, index, planner, and runtime performance require their
 own measured evidence.
+
+## First Implementation Receipt
+
+The approved internal vertical now exists without production routing:
+
+- `@flarex/declarative-program/v1` owns the nominal program and budget types,
+  strict left-to-right `Result` decoder, deterministic normalization, owned
+  recursive snapshots, function-path derivation, and direct fixture builder;
+- `@flarex/analysis/internal/canonical-declarative-program-v1` projects an
+  admitted program into the existing V1 deployment-analysis shape using global
+  placement and no partition policy;
+- `flarex-dev/internal/declarative-program-v1` adapts live SDK definitions,
+  rejects unsupported schema members, legacy table placement, and function
+  partition policy, then enters the canonical decoder once with
+  `Effect.fromResult`; and
+- `flarex-protocol/validator-json` and the SDK exporter now reject non-finite
+  and negative-zero numeric literals at their shared JSON boundary.
+
+Focused validation covers package typechecking, the explicit `/v1` import,
+SDK-versus-fixture equality, analyzer equality, owned recursive freezing,
+unknown/accessor/sparse input, collision precedence, every program budget
+dimension, linear validator depth, numeric-literal rejection, unsupported
+SDK policy, and the directly connected legacy analyzer suites. The later
+Source Artifact V2/Semantic Artifact V1 materializer and correlation gates
+remain open, as do all production routing and removal gates.
 
 ## Preflight Exit Decision
 

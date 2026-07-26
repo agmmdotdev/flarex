@@ -292,14 +292,27 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
   value: unknown,
 ): Effect.fn.Return<AnalyzedSchema, AnalyzerSchemaError | AnalyzerValidatorError> {
   if (value === undefined) return emptySchema();
-  if (!isRecord(value) || !isRecord(value.tables)) {
+  if (!isRecord(value)) {
     return yield* schemaFailure("Schema default export must be a Flarex schema definition.");
   }
-  const entries = Object.entries(value.tables)
-    .filter((entry): entry is [string, Record<string, unknown>] =>
-      isRecord(entry[1]) && entry[1].kind === "table",
-    )
-    .sort(([left], [right]) => compareUtf16Strings(left, right));
+  const rawTables = yield* readSchemaPropertyEffect(
+    value,
+    "tables",
+    "schema.tables",
+  );
+  if (!isRecord(rawTables)) {
+    return yield* schemaFailure("Schema default export must be a Flarex schema definition.");
+  }
+  const entries = yield* Effect.try({
+    try: () =>
+      Object.entries(rawTables)
+        .filter((entry): entry is [string, Record<string, unknown>] =>
+          isRecord(entry[1]) && entry[1].kind === "table"
+        )
+        .sort(([left], [right]) => compareUtf16Strings(left, right)),
+    catch: (cause) =>
+      schemaError("Schema table metadata inspection failed.", cause),
+  });
   const tableIds = new Map(entries.map(([name], index) => [name, index + 1] as const));
   const tables: AnalyzedSchema["tables"][number][] = [];
   const indexes: AnalyzedSchema["indexes"][number][] = [];
@@ -313,10 +326,31 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
     tables.push({
       tableId,
       name,
-      validator: yield* analyzeTableValidatorEffect(table.validator, name),
-      placement: yield* analyzePlacementEffect(table.placement, name),
+      validator: yield* analyzeTableValidatorEffect(
+        yield* readSchemaPropertyEffect(
+          table,
+          "validator",
+          `schema.tables.${name}.validator`,
+        ),
+        name,
+      ),
+      placement: yield* analyzePlacementEffect(
+        yield* readSchemaPropertyEffect(
+          table,
+          "placement",
+          `schema.tables.${name}.placement`,
+        ),
+        name,
+      ),
     });
-    const tableIndexes = yield* analyzeIndexesEffect(table.indexes, name);
+    const tableIndexes = yield* analyzeIndexesEffect(
+      yield* readSchemaPropertyEffect(
+        table,
+        "indexes",
+        `schema.tables.${name}.indexes`,
+      ),
+      name,
+    );
     for (const index of tableIndexes) {
       indexes.push({
         indexId: nextIndexId++,
@@ -340,11 +374,29 @@ export const analyzeExecutionModulesEffect = Effect.fn(
   AnalyzerFunctionMetadataError | AnalyzerValidatorError | AnalyzerPartitionError
 > {
   const modules: AnalyzedModule[] = [];
-  for (const [moduleName, exports] of Object.entries(analyzedExports)
-    .sort(([left], [right]) => compareUtf16Strings(left, right))) {
+  const moduleEntries = yield* Effect.try({
+    try: () =>
+      Object.entries(analyzedExports)
+        .sort(([left], [right]) => compareUtf16Strings(left, right)),
+    catch: (cause) =>
+      functionMetadataError(
+        "Execution-module namespace inspection failed.",
+        cause,
+      ),
+  });
+  for (const [moduleName, exports] of moduleEntries) {
     const functions: AnalyzedFunction[] = [];
-    for (const [exportName, value] of Object.entries(exports)
-      .sort(([left], [right]) => compareUtf16Strings(left, right))) {
+    const exportEntries = yield* Effect.try({
+      try: () =>
+        Object.entries(exports)
+          .sort(([left], [right]) => compareUtf16Strings(left, right)),
+      catch: (cause) =>
+        functionMetadataError(
+          `Execution module "${moduleName}" export inspection failed.`,
+          cause,
+        ),
+    });
+    for (const [exportName, value] of exportEntries) {
       const analyzed = yield* analyzeExportEffect(moduleName, exportName, value, options.positionFor);
       if (analyzed !== null) functions.push(analyzed);
     }
@@ -493,14 +545,45 @@ function emptySchema(): AnalyzedSchema {
   return { version: 1, tables: [], indexes: [] };
 }
 
+function readSchemaPropertyEffect(
+  value: Readonly<Record<string, unknown>>,
+  key: string,
+  path: string,
+): Effect.Effect<unknown, AnalyzerSchemaError> {
+  return Effect.try({
+    try: () => value[key],
+    catch: (cause) =>
+      schemaError(`Schema property "${path}" could not be inspected.`, cause),
+  });
+}
+
 const analyzeTableValidatorEffect = Effect.fn(function* (
   value: unknown,
   tableName: string,
 ): Effect.fn.Return<ValidatorJSON, AnalyzerSchemaError | AnalyzerValidatorError> {
-  if (!isRecord(value) || value.isFlarexValidator !== true || !("json" in value)) {
+  if (!isRecord(value)) {
     return yield* schemaFailure(`Schema table "${tableName}" has an invalid document validator.`);
   }
-  const validator = yield* assertValidatorJsonEffect(value.json, `schema.tables.${tableName}.validator`);
+  const isFlarexValidator = yield* readSchemaPropertyEffect(
+    value,
+    "isFlarexValidator",
+    `schema.tables.${tableName}.validator.isFlarexValidator`,
+  );
+  if (isFlarexValidator !== true) {
+    return yield* schemaFailure(`Schema table "${tableName}" has an invalid document validator.`);
+  }
+  const json = yield* readSchemaPropertyEffect(
+    value,
+    "json",
+    `schema.tables.${tableName}.validator.json`,
+  );
+  if (json === undefined) {
+    return yield* schemaFailure(`Schema table "${tableName}" has an invalid document validator.`);
+  }
+  const validator = yield* assertValidatorJsonEffect(
+    json,
+    `schema.tables.${tableName}.validator`,
+  );
   if (validator === null || validator.type !== "object") {
     return yield* schemaFailure(`Schema table "${tableName}" document validator must be an object validator.`);
   }
@@ -512,19 +595,39 @@ const analyzePlacementEffect = Effect.fn(function* (
   tableName: string,
 ): Effect.fn.Return<AnalyzedSchema["tables"][number]["placement"], AnalyzerSchemaError> {
   if (value === undefined) return { kind: "partitionBy", field: "_id" };
-  if (!isRecord(value) || typeof value.kind !== "string") {
+  if (!isRecord(value)) {
     return yield* schemaFailure(`Schema table "${tableName}" has an invalid placement.`);
   }
-  if (value.kind === "global") return { kind: "global" };
-  if (value.kind === "partitionBy" && typeof value.field === "string") {
-    return { kind: "partitionBy", field: value.field };
+  const kind = yield* readSchemaPropertyEffect(
+    value,
+    "kind",
+    `schema.tables.${tableName}.placement.kind`,
+  );
+  if (kind === "global") return { kind: "global" };
+  if (kind === "partitionBy") {
+    const field = yield* readSchemaPropertyEffect(
+      value,
+      "field",
+      `schema.tables.${tableName}.placement.field`,
+    );
+    if (typeof field === "string") {
+      return { kind: "partitionBy", field };
+    }
   }
-  if (
-    value.kind === "colocateWith" &&
-    typeof value.table === "string" &&
-    typeof value.field === "string"
-  ) {
-    return { kind: "colocateWith", table: value.table, field: value.field };
+  if (kind === "colocateWith") {
+    const table = yield* readSchemaPropertyEffect(
+      value,
+      "table",
+      `schema.tables.${tableName}.placement.table`,
+    );
+    const field = yield* readSchemaPropertyEffect(
+      value,
+      "field",
+      `schema.tables.${tableName}.placement.field`,
+    );
+    if (typeof table === "string" && typeof field === "string") {
+      return { kind: "colocateWith", table, field };
+    }
   }
   return yield* schemaFailure(`Schema table "${tableName}" has an invalid placement.`);
 });
@@ -536,20 +639,84 @@ const analyzeIndexesEffect = Effect.fn(function* (
   ReadonlyArray<{ readonly name: string; readonly fields: readonly string[] }>,
   AnalyzerSchemaError
 > {
-  if (!Array.isArray(value)) {
+  const rawIndexes = yield* Effect.try({
+    try: () => Array.isArray(value) ? value : undefined,
+    catch: (cause) =>
+      schemaError(`Schema table "${tableName}" index inspection failed.`, cause),
+  });
+  if (rawIndexes === undefined) {
     return yield* schemaFailure(`Schema table "${tableName}" has invalid indexes.`);
   }
   const indexes: Array<{ name: string; fields: string[] }> = [];
-  for (const [position, index] of value.entries()) {
-    if (
-      !isRecord(index) ||
-      typeof index.name !== "string" ||
-      !Array.isArray(index.fields) ||
-      !index.fields.every(field => typeof field === "string")
-    ) {
+  const indexCount = yield* Effect.try({
+    try: () => rawIndexes.length,
+    catch: (cause) =>
+      schemaError(`Schema table "${tableName}" index count inspection failed.`, cause),
+  });
+  for (let position = 0; position < indexCount; position += 1) {
+    const index = yield* Effect.try({
+      try: () => rawIndexes[position],
+      catch: (cause) =>
+        schemaError(
+          `Schema table "${tableName}" index at position ${position} could not be inspected.`,
+          cause,
+        ),
+    });
+    if (!isRecord(index)) {
       return yield* schemaFailure(`Schema table "${tableName}" has an invalid index at position ${position}.`);
     }
-    indexes.push({ name: index.name, fields: [...index.fields] });
+    const name = yield* readSchemaPropertyEffect(
+      index,
+      "name",
+      `schema.tables.${tableName}.indexes[${position}].name`,
+    );
+    if (typeof name !== "string") {
+      return yield* schemaFailure(`Schema table "${tableName}" has an invalid index at position ${position}.`);
+    }
+    const rawFields = yield* readSchemaPropertyEffect(
+      index,
+      "fields",
+      `schema.tables.${tableName}.indexes[${position}].fields`,
+    );
+    const fieldArray = yield* Effect.try({
+      try: () => Array.isArray(rawFields) ? rawFields : undefined,
+      catch: (cause) =>
+        schemaError(
+          `Schema table "${tableName}" index fields at position ${position} could not be inspected.`,
+          cause,
+        ),
+    });
+    if (fieldArray === undefined) {
+      return yield* schemaFailure(`Schema table "${tableName}" has an invalid index at position ${position}.`);
+    }
+    const fieldCount = yield* Effect.try({
+      try: () => fieldArray.length,
+      catch: (cause) =>
+        schemaError(
+          `Schema table "${tableName}" index field count at position ${position} could not be inspected.`,
+          cause,
+        ),
+    });
+    const fields: string[] = [];
+    for (
+      let fieldPosition = 0;
+      fieldPosition < fieldCount;
+      fieldPosition += 1
+    ) {
+      const field = yield* Effect.try({
+        try: () => fieldArray[fieldPosition],
+        catch: (cause) =>
+          schemaError(
+            `Schema table "${tableName}" index field ${fieldPosition} at position ${position} could not be inspected.`,
+            cause,
+          ),
+      });
+      if (typeof field !== "string") {
+        return yield* schemaFailure(`Schema table "${tableName}" has an invalid index at position ${position}.`);
+      }
+      fields.push(field);
+    }
+    indexes.push({ name, fields });
   }
   return indexes;
 });
@@ -565,9 +732,20 @@ const analyzeExportEffect = Effect.fn(function* (
 > {
   if (!isRuntimeFunction(value)) return null;
 
-  const kind = functionKind(value);
+  const classification = yield* Effect.try({
+    try: () => ({
+      kind: functionKind(value),
+      visibility: functionVisibility(value),
+    }),
+    catch: (cause) =>
+      functionMetadataError(
+        `${moduleName}:${exportName} marker inspection failed.`,
+        cause,
+      ),
+  });
+  const kind = classification.kind;
   if (kind === null) return null;
-  const visibility = functionVisibility(value);
+  const visibility = classification.visibility;
   if (visibility === null) return null;
 
   const identifier = `${moduleName}:${exportName}`;
@@ -634,7 +812,14 @@ function lowerRootPartitionEffect(
 
 function assertHandlerEffect(value: RuntimeFunction, identifier: string): Effect.Effect<void, AnalyzerFunctionMetadataError> {
   return Effect.gen(function* () {
-    const handler = "_handler" in value ? value._handler : undefined;
+    const handler = yield* Effect.try({
+      try: () => "_handler" in value ? value._handler : undefined,
+      catch: (cause) =>
+        functionMetadataError(
+          `${identifier}.handler inspection failed.`,
+          cause,
+        ),
+    });
     if (handler !== undefined) {
       if (typeof handler !== "function") {
         return yield* functionMetadataFailure(`${identifier}.handler is not a function.`);
@@ -656,13 +841,28 @@ function parseValidatorExportEffect(
 ): Effect.Effect<ValidatorJSON | null, AnalyzerValidatorError> {
   return Effect.gen(function* () {
     const candidate = value as Record<string, unknown>;
-    const exporter = exporterName in candidate ? candidate[exporterName] : undefined;
+    const exporter = yield* Effect.try({
+      try: () =>
+        exporterName in candidate ? candidate[exporterName] : undefined,
+      catch: (cause) =>
+        validatorError(
+          `${identifier}.${exporterName} inspection failed.`,
+          cause,
+        ),
+    });
     if (exporter === undefined) return defaultValue;
     if (typeof exporter !== "function") {
       return yield* validatorFailure(`${identifier}.${exporterName} is not a function or \`undefined\`.`);
     }
 
-    const serialized = exporter.call(value) as unknown;
+    const serialized = yield* Effect.try({
+      try: () => exporter.call(value) as unknown,
+      catch: (cause) =>
+        validatorError(
+          `${identifier}.${exporterName}() failed.`,
+          cause,
+        ),
+    });
     if (typeof serialized !== "string") {
       return yield* validatorFailure(
         `Invalid ${exporterName} return value: ${identifier}.${exporterName}() didn't return a string.`,
@@ -713,13 +913,28 @@ function parsePartitionExportEffect(
 ): Effect.Effect<ParsedFunctionPartitionPolicy | null, AnalyzerValidatorError | AnalyzerPartitionError> {
   return Effect.gen(function* () {
     const candidate = value as Record<string, unknown>;
-    const exporter = "exportPartition" in candidate ? candidate.exportPartition : undefined;
+    const exporter = yield* Effect.try({
+      try: () =>
+        "exportPartition" in candidate ? candidate.exportPartition : undefined,
+      catch: (cause) =>
+        partitionError(
+          `${identifier}.exportPartition inspection failed.`,
+          cause,
+        ),
+    });
     if (exporter === undefined) return null;
     if (typeof exporter !== "function") {
       return yield* partitionFailure(`${identifier}.exportPartition is not a function or \`undefined\`.`);
     }
 
-    const serialized = exporter.call(value) as unknown;
+    const serialized = yield* Effect.try({
+      try: () => exporter.call(value) as unknown,
+      catch: (cause) =>
+        partitionError(
+          `${identifier}.exportPartition() failed.`,
+          cause,
+        ),
+    });
     if (typeof serialized !== "string") {
       return yield* partitionFailure(
         `Invalid exportPartition return value: ${identifier}.exportPartition() didn't return a string.`,
@@ -1110,17 +1325,28 @@ function backendRequiredValidatorJsonWorker(
 }
 
 function schemaFailure(message: string, cause?: unknown): Effect.Effect<never, AnalyzerSchemaError> {
-  return Effect.fail(new AnalyzerSchemaError({
+  return Effect.fail(schemaError(message, cause));
+}
+
+function schemaError(message: string, cause?: unknown): AnalyzerSchemaError {
+  return new AnalyzerSchemaError({
     message,
     ...(cause === undefined ? {} : { cause }),
-  }));
+  });
 }
 
 function functionMetadataFailure(message: string, cause?: unknown): Effect.Effect<never, AnalyzerFunctionMetadataError> {
-  return Effect.fail(new AnalyzerFunctionMetadataError({
+  return Effect.fail(functionMetadataError(message, cause));
+}
+
+function functionMetadataError(
+  message: string,
+  cause?: unknown,
+): AnalyzerFunctionMetadataError {
+  return new AnalyzerFunctionMetadataError({
     message,
     ...(cause === undefined ? {} : { cause }),
-  }));
+  });
 }
 
 function validatorFailure(message: string, cause?: unknown): Effect.Effect<never, AnalyzerValidatorError> {
@@ -1135,10 +1361,17 @@ function validatorError(message: string, cause?: unknown): AnalyzerValidatorErro
 }
 
 function partitionFailure(message: string, cause?: unknown): Effect.Effect<never, AnalyzerPartitionError> {
-  return Effect.fail(new AnalyzerPartitionError({
+  return Effect.fail(partitionError(message, cause));
+}
+
+function partitionError(
+  message: string,
+  cause?: unknown,
+): AnalyzerPartitionError {
+  return new AnalyzerPartitionError({
     message,
     ...(cause === undefined ? {} : { cause }),
-  }));
+  });
 }
 
 function analyzerResponseFailure(

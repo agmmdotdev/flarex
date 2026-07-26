@@ -256,6 +256,26 @@ describe("Convex-style function registration", () => {
     );
   });
 
+  it("rejects numeric validator literals that JSON cannot preserve", () => {
+    for (
+      const value of [
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+        -0,
+      ]
+    ) {
+      const fn = query({
+        args: {},
+        returns: v.literal(value),
+        handler: async () => value,
+      });
+      expect(() => fn.exportReturns()).toThrowError(
+        'Validator numeric literal for field "value" must be finite and must not be negative zero.',
+      );
+    }
+  });
+
   it("narrows mutation writer tables from partition scope metadata", () => {
     const fn = scopedMutation({
       partition: userPartition,

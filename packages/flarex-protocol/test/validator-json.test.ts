@@ -12,4 +12,27 @@ describe("ValidatorJson", () => {
     });
     expect(() => decodeValidatorJson({ type: "id", tableName: "" })).toThrow();
   });
+
+  it("requires numeric literals to be finite", () => {
+    expect(decodeValidatorJson({
+      type: "literal",
+      value: Number.MAX_VALUE,
+    })).toEqual({
+      type: "literal",
+      value: Number.MAX_VALUE,
+    });
+    for (
+      const value of [
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+        -0,
+      ]
+    ) {
+      expect(() => decodeValidatorJson({
+        type: "literal",
+        value,
+      })).toThrow();
+    }
+  });
 });

@@ -6,6 +6,14 @@ const ValidatorIdTableName = Schema.String.check(
     : "tableName must be a Convex-compatible table identifier"),
 );
 
+const ValidatorNumberLiteralV1 = Schema.Finite.check(
+  Schema.makeFilter(value =>
+    Object.is(value, -0)
+      ? "numeric validator literals must not be negative zero"
+      : undefined
+  ),
+);
+
 export type ObjectValidatorJsonV1 = {
   readonly type: "object";
   readonly value: Readonly<
@@ -64,7 +72,11 @@ export const ValidatorJsonV1: Schema.Codec<ValidatorJsonV1> =
       }),
       Schema.Struct({
         type: Schema.Literal("literal"),
-        value: Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
+        value: Schema.Union([
+          Schema.String,
+          ValidatorNumberLiteralV1,
+          Schema.Boolean,
+        ]),
       }),
       Schema.Struct({
         type: Schema.Literal("array"),

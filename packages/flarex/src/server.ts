@@ -231,6 +231,14 @@ function strictReplacer(key: string, value: unknown): unknown {
         "This is often caused by circular imports.",
     );
   }
+  if (
+    typeof value === "number" &&
+    (!Number.isFinite(value) || Object.is(value, -0))
+  ) {
+    throw new Error(
+      `Validator numeric literal for field "${key}" must be finite and must not be negative zero.`,
+    );
+  }
   return value;
 }
 
