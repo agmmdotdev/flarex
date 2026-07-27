@@ -557,6 +557,72 @@ production routing, persistence delivery, replay, OCC, commit compilation or
 execution, transaction grants, idempotency outcomes, feeds, outbox behavior,
 or authoritative application rows.
 
+### Post-Extraction Audit And Next-Consumer Decision
+
+The required post-extraction audit is complete.
+
+Dependency direction remains narrow:
+
+- `@flarex/function-runtime/point-mutation` has no package-root export and its
+  production source uses only type imports from portable protocol owners;
+- the generated-kernel build rejects retained runtime imports and proves two
+  byte-identical outputs;
+- the portable package imports no Cloudflare, Miniflare, backend, executor,
+  persistence, Node, R2, Drizzle, OCC, commit, or Effect runtime owner; and
+- the backend depends inward on the portable package while the package has no
+  dependency back to a host or application.
+
+Failure ownership is also closed. Portable failures are authenticated by a
+module-private `WeakMap` inspection rather than by caller-forgeable names or
+`instanceof` checks. The Cloudflare adapter translates only authenticated
+portable failures into exact-runtime boundary errors, and the artifact host
+maps those names into existing redacted host-response reasons. Developer code
+cannot mint a journal failure merely by importing an exported error class.
+Own error names are installed as data properties so frozen
+`Error.prototype` remains compatible in the real workerd lane.
+
+Generated identity remains complete. Exact-runtime code identity includes the
+main core path and digest plus the portable-kernel support-module path and
+digest. The support module is part of the reserved module graph and is imported
+after intrinsic hardening. Source or digest drift fails the backend build.
+
+Validator admission now has one protocol owner for depth, node, and object-field
+limits. The protocol preflights unknown validator containers before recursive
+Schema decoding. The portable kernel and generated shell type-pin their erased
+local constants to those protocol literals, apply one node budget per validator
+root, and have boundary tests for the maximum-depth and aggregate two-validator
+cases.
+
+The remaining exact-core overlap is deliberate and must not be described as
+two execution kernels:
+
+- the shell still structurally decodes the RPC request and validator JSON
+  because generated Worker source must fail closed on its own unknown-input
+  boundary;
+- the shell still normalizes request/auth values, developer database-operation
+  inputs, and journal documents because those values cross host or journal
+  trust boundaries;
+- the portable kernel owns function lookup/markers, semantic argument and
+  return validation, handler execution, close/drain precedence, and returned
+  value normalization; and
+- no second lookup, handler, settlement, or returned-value path remains in the
+  Cloudflare shell.
+
+The next-consumer preflight considered the public `flarex-test` harness and
+rejects changing it in this slice. Its current contract intentionally starts
+the real local Miniflare runtime and proves source analysis, artifacts,
+backend/executor sessions, persistence, sync, lifecycle, and Cloudflare-shaped
+boundaries. Replacing its public `query()` or `mutation()` path with the
+in-process kernel would silently weaken that evidence and would be incomplete
+because this kernel supports only exact public point mutations.
+
+A separate generic recording database or fixture adapter is also not approved.
+The existing registry and invocation-factory ports already allow explicit
+low-level fixtures. Publishing a mock database now would create a second
+FlarexDB semantic owner rather than a thin adapter. A future private
+test-support subpath requires a concrete repeated consumer and must remain a
+fixture/lifecycle helper over caller-supplied capabilities.
+
 ## Test Evidence Lanes
 
 The target has three complementary lanes:
@@ -738,16 +804,20 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-The approved exact public point-mutation extraction is complete. Before adding
-another runtime consumer, perform a bounded post-extraction audit of dependency
-direction, portable error ownership, generated-module identity, validation
-limits, and remaining exact-core duplication. Then record and approve one
-separate preflight for exactly one next consumer: either an explicitly scoped
-test-support adapter or another function/runtime capability. Do not combine
-those decisions.
+The approved exact public point-mutation extraction and its post-extraction
+audit are complete. The first proposed next consumer—public `flarex-test`
+execution—is explicitly deferred because it would weaken the harness's
+real-runtime contract. No test-support package is justified merely by the two
+current fixture implementations.
 
-No broader function kind, query builder, nested call, database capability,
-production reroute, or public `flarex-test` behavior is approved by this
-receipt. Do not change OCC, commit, feed, outbox, or application-row semantics,
-and do not claim that the in-process adapter proves Worker Loader isolation,
-module freshness, deterministic globals, or Cloudflare resource restrictions.
+Before another function-runtime implementation begins, record a fresh preflight
+for one concrete capability with two proven consumers and an authority-preserving
+adapter plan. Candidate capabilities include a future exact query kernel or a
+private fixture/lifecycle helper after a real repeated consumer exists. Queries,
+query builders, nested calls, general mutations, actions, scheduling, and
+public test-SDK behavior remain separate decisions.
+
+Do not reroute production, change OCC, commit, feed, outbox, or application-row
+semantics, and do not claim that the in-process adapter proves Worker Loader
+isolation, module freshness, deterministic globals, or Cloudflare resource
+restrictions.
