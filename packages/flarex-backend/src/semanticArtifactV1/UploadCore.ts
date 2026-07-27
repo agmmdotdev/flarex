@@ -28,6 +28,10 @@ import {
 } from "./AttemptStore";
 import { semanticArtifactV1IntrinsicByteLength } from "./Bytes";
 import {
+  projectSemanticArtifactV1CheckpointSnapshot,
+  type SemanticArtifactV1CheckpointSnapshot,
+} from "./CheckpointReader";
+import {
   type SemanticArtifactV1ClaimedFinalizedSource,
   type SemanticArtifactV1FinalizedSourceProof,
   type SemanticArtifactV1FinalizedSourceProofClaimError,
@@ -94,6 +98,7 @@ export interface SemanticArtifactV1AppendInput extends SemanticArtifactV1Command
 }
 
 export interface SemanticArtifactV1Receipt {
+  readonly checkpoint: SemanticArtifactV1CheckpointSnapshot;
   readonly semanticUploadId: string;
   readonly generation: number;
   readonly mutationFence: number;
@@ -1756,6 +1761,7 @@ function replayReceipt(
 
 function receipt(attempt: SemanticArtifactV1Attempt): SemanticArtifactV1Receipt {
   return Object.freeze({
+    checkpoint: projectSemanticArtifactV1CheckpointSnapshot(attempt),
     semanticUploadId: attempt.semanticUploadId,
     generation: attempt.generation,
     mutationFence: attempt.mutationFence,

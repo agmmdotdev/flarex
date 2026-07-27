@@ -20,6 +20,10 @@ import {
   makeSemanticArtifactV1AttemptStore,
 } from "../semanticArtifactV1/AttemptStore";
 import {
+  makeSemanticArtifactV1CheckpointReader,
+  type SemanticArtifactV1CheckpointReader,
+} from "../semanticArtifactV1/CheckpointReader";
+import {
   makeSemanticArtifactV1FinalizedSourceProofFactory,
   type SemanticArtifactV1FinalizedSourceProofFactory,
 } from "../semanticArtifactV1/FinalizedSourceProof";
@@ -96,6 +100,7 @@ export type DeclarativeV2ArtifactUploadHostSemanticCoreV1Error =
 export interface DeclarativeV2ArtifactUploadHostV1 {
   readonly source: SourceArtifactV2UploadCore;
   readonly sourceCheckpointReader: SourceArtifactV2CheckpointReader;
+  readonly semanticCheckpointReader: SemanticArtifactV1CheckpointReader;
   readonly finalizedSourceProofs: SemanticArtifactV1FinalizedSourceProofFactory;
   readonly makeSemanticUploadCore: (
     semanticUploadId: unknown,
@@ -163,6 +168,8 @@ export function makeDeclarativeV2ArtifactUploadHostV1(
       options.storage,
       sql,
     );
+    const semanticCheckpointReader =
+      makeSemanticArtifactV1CheckpointReader(semanticAttempts);
     const semanticObjects = makeSemanticArtifactV1R2Store(
       artifacts,
       semanticSha256,
@@ -199,6 +206,7 @@ export function makeDeclarativeV2ArtifactUploadHostV1(
     return Object.freeze({
       source,
       sourceCheckpointReader,
+      semanticCheckpointReader,
       finalizedSourceProofs,
       makeSemanticUploadCore,
     });

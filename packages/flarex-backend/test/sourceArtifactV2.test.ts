@@ -452,6 +452,21 @@ describe("source artifact v2 inert upload core", () => {
     expect(finalized.state).toBe("finalized");
     expect(finalized.completedRootDigest).toMatch(/^[0-9a-f]{64}$/);
     expect(finalized.completedSelectorDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(finalized.checkpoint).toMatchObject({
+      uploadId,
+      state: "finalized",
+      acceptedCommandId: "finalize-1",
+      currentModule: null,
+      usage: expect.any(Object),
+    });
+    expect(finalized.checkpoint.completedRootDigest).toBe(
+      finalized.completedRootDigest,
+    );
+    expect(finalized.checkpoint.completedSelectorDigest).toBe(
+      finalized.completedSelectorDigest,
+    );
+    expect(Object.isFrozen(finalized.checkpoint)).toBe(true);
+    expect(Object.isFrozen(finalized.checkpoint.usage)).toBe(true);
     expect(bucket.writeOrder.at(-1)).toContain("/completed-root/");
     expect(bucket.writeOrder.some(key => key.includes("/upload-selector/"))).toBe(false);
     expect((await Effect.runPromise(attempts.read(uploadId)))?.state).toBe("finalized");

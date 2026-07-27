@@ -21,6 +21,10 @@ import type {
   SourceArtifactV2TreeFrontierEntry,
 } from "./AttemptStore";
 import { sourceArtifactV2CanonicalJsonUtf8ByteLength } from "./CanonicalJson";
+import {
+  projectSourceArtifactV2CheckpointSnapshot,
+  type SourceArtifactV2CheckpointSnapshot,
+} from "./CheckpointReader";
 import { sourceArtifactV2DigestBytesFromLowerHex } from "./Digest";
 import {
   SOURCE_ARTIFACT_V2_ROLE_AUTH,
@@ -62,6 +66,7 @@ const UNPREPARED_COMMAND_DIGEST = "0".repeat(64);
 const ZERO_SHA256 = new Uint8Array(32);
 
 export interface SourceArtifactV2UploadReceipt {
+  readonly checkpoint: SourceArtifactV2CheckpointSnapshot;
   readonly uploadId: string;
   readonly generation: number;
   readonly mutationFence: number;
@@ -1712,6 +1717,7 @@ function applyModuleRoles(
 
 function receipt(attempt: SourceArtifactV2Attempt): SourceArtifactV2UploadReceipt {
   return Object.freeze({
+    checkpoint: projectSourceArtifactV2CheckpointSnapshot(attempt),
     uploadId: attempt.uploadId,
     generation: attempt.generation,
     mutationFence: attempt.mutationFence,

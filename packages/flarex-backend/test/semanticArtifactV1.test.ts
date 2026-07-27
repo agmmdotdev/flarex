@@ -497,6 +497,17 @@ describe("Semantic Artifact V1 private inert core", () => {
     }));
     expect(finalized.state).toBe("finalized");
     expect(finalized.completedRootSha256).toHaveLength(32);
+    expect(finalized.checkpoint).toMatchObject({
+      uploadId: begin.semanticUploadId,
+      state: "finalized",
+      acceptedCommandId: "finalize-1",
+      nextBlockOrdinal: 1,
+      completed: {
+        sourceUploadId: "source-upload",
+      },
+    });
+    expect(Object.isFrozen(finalized.checkpoint)).toBe(true);
+    expect(Object.isFrozen(finalized.checkpoint.completed)).toBe(true);
     expect(fixture.objectWriteOrder.at(-1)).toContain("/root/");
 
     const readRequest = new Request("https://private.test/read");

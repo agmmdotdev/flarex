@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DECLARATIVE_V2_ARTIFACT_UPLOAD_CODEC_VERSION_V1,
+  captureDeclarativeV2ArtifactUploadResponseV1,
   decodeDeclarativeV2ArtifactUploadCommandV1,
   decodeDeclarativeV2ArtifactUploadResponseV1,
   declarativeV2ArtifactUploadCommandMediaTypeV1,
@@ -557,6 +558,31 @@ describe("Declarative V2 private artifact upload protocol V1", () => {
       "3b48f1c6fd6a4aeb88e651413a4332c4bf49824f5c38574fb1902e569fec171b",
       "aac23423b3eed987a6c25ee9ede9ddff1f8e39acd5d5af9beaf193183cf234d8",
     ]);
+  });
+
+  it("captures and owns a validated response without a transport byte ceiling", () => {
+    const input = sourceSuccessResponse();
+    const captured = success(
+      captureDeclarativeV2ArtifactUploadResponseV1(input),
+    );
+
+    expect(captured).toEqual(input);
+    expect(captured).not.toBe(input);
+    expect(captured.kind).toBe("success");
+    if (captured.kind !== "success") return;
+    expect(captured.checkpoint).not.toBe(input.checkpoint);
+    expect(Object.isFrozen(captured)).toBe(true);
+    expect(Object.isFrozen(captured.checkpoint)).toBe(true);
+    expect(Object.isFrozen(captured.checkpoint.usage)).toBe(true);
+
+    expectFailure(
+      captureDeclarativeV2ArtifactUploadResponseV1({
+        ...input,
+        unexpected: true,
+      }),
+      "invalidInput",
+      "response",
+    );
   });
 
   it("binds response operation, command identity, lifecycle, and retry authority", () => {

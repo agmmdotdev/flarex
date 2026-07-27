@@ -681,6 +681,15 @@ export function encodeDeclarativeV2ArtifactUploadResponseV1(
   });
 }
 
+export function captureDeclarativeV2ArtifactUploadResponseV1(
+  input: unknown,
+): Result.Result<
+  DeclarativeV2ArtifactUploadResponseV1,
+  DeclarativeV2ArtifactUploadCodecV1Error
+> {
+  return captureResponse("encodeResponse", input);
+}
+
 export function decodeDeclarativeV2ArtifactUploadResponseV1(
   input: unknown,
   budget: unknown,

@@ -33,6 +33,7 @@ describe("declarative v2 artifact upload host construction", () => {
     expect(Object.isFrozen(result.success)).toBe(true);
     expect(Object.isFrozen(result.success.source)).toBe(true);
     expect(Object.isFrozen(result.success.sourceCheckpointReader)).toBe(true);
+    expect(Object.isFrozen(result.success.semanticCheckpointReader)).toBe(true);
     expect(Object.isFrozen(result.success.finalizedSourceProofs)).toBe(true);
 
     const semantic = result.success.makeSemanticUploadCore(SEMANTIC_UPLOAD_ID);

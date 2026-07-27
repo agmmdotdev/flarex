@@ -1058,6 +1058,36 @@ construction fails closed and no new route is reachable. The next U2 gate is
 route-independent command dispatch and exhaustive internal-to-wire error
 projection; public Worker forwarding remains a separate U3 stage.
 
+The dispatcher preflight found one projection prerequisite that must close
+before that gate. The existing source mutation receipt does not carry
+cumulative usage or the current module's exact next block coordinates, the
+semantic mutation receipt does not carry the complete source-correlation
+projection required by a finalized checkpoint, and the host has no bounded
+semantic observation port. A dispatcher must not fill those fields from the
+command admission, perform an unbudgeted post-mutation reread, or expose an
+attempt row.
+
+The fourth checkpoint therefore closes only the standard checkpoint boundary:
+
+- define one domain-owned Semantic Artifact V1 checkpoint snapshot and bounded
+  reader over the existing attempt-store read budget, parallel to the existing
+  Source Artifact V2 checkpoint reader;
+- include a complete owned domain checkpoint snapshot in each successful
+  source and semantic mutation receipt, projected directly from the settled
+  attempt already returned by the authoritative write path;
+- expose the bounded semantic checkpoint reader from the route-free
+  DeploymentDO-scoped host for `observe`, without exposing its attempt store or
+  SQL authority; and
+- expose one pure protocol response-capture function that validates and brands
+  an already-owned response projection without encoding bytes, allocating a
+  second response buffer, or inventing a transport byte ceiling.
+
+This checkpoint does not dispatch a command, map an internal error, issue a
+semantic proof, add a runtime bridge, or add an HTTP/RPC route. Once its focused
+receipt, observation-budget, ownership, and protocol-normalization proofs pass,
+the next U2 gate remains the private route-independent dispatcher plus
+exhaustive internal-to-wire error projection.
+
 ## Next Correctness Gates
 
 The approved work is one staged atomic vertical for the currently composed
