@@ -1350,18 +1350,22 @@ semantics, and no downstream domain accepts an SDK object as authority.
 
 ## Next Correctness Gate
 
-M8 and the M9 correlation proof are complete. Roadmap 17 now accepts the
-production upload-orchestration preflight and authorizes only its U1 private
-portable protocol slice. U1 defines canonical commands, checkpoints, bounded
-binary framing, safe wire errors, and retry dispositions in `flarex-protocol`;
-it adds no backend route, Durable Object mutation host, `flarex-dev` client,
-production dependency, or candidate handoff.
-
-Do not promote the test fixture, hard-code its one-block policy, add backend
-routes, deploy new bindings, write production state, or cut over a producer in
-U1. The later U2-U5 gates separately own the private deployment host,
-authenticated public dispatch, resumable client, and verifier/candidate
+M8, the M9 correlation proof, and the production-upload U1 portable protocol
+are complete. The private protocol now defines canonical commands,
+checkpoints, bounded binary framing, safe wire errors, retry dispositions, and
+golden vectors in `flarex-protocol`. It adds no backend route, Durable Object
+mutation host, `flarex-dev` client, production dependency, or candidate
 handoff.
+
+The next upload gate is the separately authorized U2 private `DeploymentDO`
+host. Before implementation it must close the five confirmed host blockers in
+roadmap 17: bounded source observation, same-isolate semantic proof
+issue/claim, source retry limitations, neutral source-drift naming, and
+fail-closed R2/configuration composition. Do not promote the test fixture,
+hard-code its one-block policy, add backend routes, deploy new bindings, write
+production state, or cut over a producer as part of that preparation. U3-U5
+separately own authenticated public dispatch, resumable client behavior, and
+verifier/candidate handoff.
 
 The host-neutral function-runtime work in roadmap 40 does not wait for that
 materializer merely to obtain an execution fixture. Its first exact

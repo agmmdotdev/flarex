@@ -24,6 +24,7 @@
     "./internal/declarative-v2-semantic-record-v1": "./src/declarative-v2-semantic-record-v1.ts",
     "./internal/declarative-v2-source-artifact-v2": "./src/declarative-v2-source-artifact-v2.ts",
     "./internal/declarative-v2-semantic-artifact-v1": "./src/declarative-v2-semantic-artifact-v1.ts",
+    "./internal/declarative-v2-artifact-upload-v1": "./src/declarative-v2-artifact-upload-v1.ts",
     "./internal/declarative-v2-static-finalization-v1": "./src/declarative-v2-static-finalization-v1.ts",
     "./internal/declarative-v2-verification-evidence-v1": "./src/declarative-v2-verification-evidence-v1.ts",
     "./internal/declarative-v2-verifier-progress-v2": "./src/declarative-v2-verifier-progress-v2.ts",

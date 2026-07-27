@@ -10,8 +10,9 @@ inert. Authenticated source/semantic readers and the request-scoped private
 analyzer dispatch host are also implemented and inert. Durable verifier-progress
 integration, static/candidate/runtime projection publication, readiness,
 activation, production ingress/binding, and final cutover remain incomplete.
-The production upload-orchestration preflight is accepted below, but none of
-its transport, host, route, or client slices is implemented.
+The production upload-orchestration preflight is accepted below. Its U1
+portable protocol slice is implemented and remains private and inert; the
+host, route, client, and candidate-handoff slices are not implemented.
 
 This roadmap owns:
 
@@ -895,9 +896,10 @@ best-effort candidate publication in this boundary.
    starts authenticated verification and later candidate creation. This stage
    cannot begin merely because upload transport exists.
 
-Only U1 is authorized now. U1 must not add a production dependency from
-`flarex-backend` or `flarex-dev`, change Wrangler bindings, edit attempt
-storage, export an upload route, or implement a client.
+The accepted implementation authorization covered U1 only, and its completion
+does not authorize U2. U1 adds no production dependency from `flarex-backend`
+or `flarex-dev`, Wrangler binding, attempt-storage edit, upload route, or
+client.
 
 ### U1 Exit Criteria
 
@@ -920,6 +922,41 @@ U1 is complete only when:
    redaction; and
 9. current production routes, bindings, stores, active metadata, and M9 tests
    remain unchanged.
+
+### Implemented U1 Contract
+
+U1 is complete. The private
+`flarex-protocol/internal/declarative-v2-artifact-upload-v1` subpath now owns:
+
+- the exact source and semantic command unions, including caller-created
+  lowercase UUID upload selectors and command keys;
+- explicit transport, attempt, command, observation, scope-lookup, and
+  finalized-source-read budgets;
+- canonical `u32 big-endian metadata length + canonical JSON metadata + raw
+  payload` command framing, with payload bytes excluded from JSON;
+- stable bounded source and semantic checkpoint projections;
+- safe exhaustive wire errors whose retry disposition is protocol-owned; and
+- pure Effect `Result` encoders and decoders that return owned byte snapshots.
+
+The codec rejects malformed lengths and UTF-8, noncanonical or duplicate JSON,
+extra or accessor-backed fields, invalid selectors and coordinates, missing or
+trailing payloads, payloads larger than their command admission, invalid
+checkpoint lifecycle/operation combinations, unsafe retry claims, and every
+transport byte ceiling independently. `exactNow` is admitted only for a
+semantic `confirmedRollback`; source cannot claim it because the current source
+store has no confirmed-rollback result.
+
+Contract tests pin two independent encodes and SHA-256 golden digests for all
+twelve commands plus representative success and error responses. They cover
+exact-limit admission, defensive byte ownership, hostile record/typed-array
+rejection, safe error redaction, finalized source-semantic correlation, and
+intentional subpath-only export.
+
+This receipt adds no `flarex-backend` or `flarex-dev` consumer, production
+route, Durable Object host, Wrangler binding, storage mutation, candidate
+handoff, readiness transition, activation, or runtime-routing change. The five
+confirmed U2 host blockers above remain open and must be resolved inside a
+separately authorized private-host slice.
 
 ## Next Correctness Gates
 
