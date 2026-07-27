@@ -19,6 +19,7 @@ import {
   sourceArtifactV2ModuleFrame,
   sourceArtifactV2TreeNodeFrame,
   sourceArtifactV2UploadSelectorFrame,
+  sourceArtifactV2UploadSelectorFrameProjection,
 } from "../src/sourceArtifactV2/Framing";
 import {
   makeSourceArtifactV2R2Store,
@@ -167,13 +168,9 @@ describe("source artifact v2 inert upload core", () => {
     expect(Result.isSuccess(sourceArtifactV2UploadSelectorFrame(selector, FRAME_BUDGET))).toBe(true);
     expect(accessOrder).toEqual([
       "deploymentId",
-      "deploymentId",
-      "uploadId",
       "uploadId",
       "generation",
       "rootDigest",
-      "deploymentId",
-      "uploadId",
     ]);
 
     accessOrder.length = 0;
@@ -187,11 +184,54 @@ describe("source artifact v2 inert upload core", () => {
     expect(Result.isFailure(sourceArtifactV2UploadSelectorFrame(selector, FRAME_BUDGET))).toBe(true);
     expect(accessOrder).toEqual([
       "deploymentId",
-      "deploymentId",
-      "uploadId",
       "uploadId",
       "generation",
     ]);
+
+    for (const project of [
+      sourceArtifactV2UploadSelectorFrame,
+      sourceArtifactV2UploadSelectorFrameProjection,
+    ]) {
+      let deploymentReads = 0;
+      const changingSelector = Object.defineProperties({}, {
+        deploymentId: {
+          enumerable: true,
+          get: () => {
+            deploymentReads += 1;
+            return deploymentReads === 1 ? "deployment-test" : null;
+          },
+        },
+        uploadId: { enumerable: true, value: "upload-test" },
+        generation: { enumerable: true, value: 1n },
+        rootDigest: { enumerable: true, value: DIGEST },
+      });
+      expect(Result.isSuccess(project(changingSelector, FRAME_BUDGET))).toBe(true);
+      expect(deploymentReads).toBe(1);
+
+      let uploadReads = 0;
+      const invalidDeployment = Object.defineProperties({}, {
+        deploymentId: { enumerable: true, value: null },
+        uploadId: {
+          enumerable: true,
+          get: () => {
+            uploadReads += 1;
+            throw new Error("uploadId must remain unread");
+          },
+        },
+        generation: { enumerable: true, value: 1n },
+        rootDigest: { enumerable: true, value: DIGEST },
+      });
+      const failure = project(invalidDeployment, FRAME_BUDGET);
+      expect(Result.isFailure(failure)).toBe(true);
+      if (Result.isFailure(failure)) {
+        expect(failure.failure).toMatchObject({
+          _tag: "SourceArtifactV2FrameInputError",
+          field: "deploymentId",
+          reason: "invalidPath",
+        });
+      }
+      expect(uploadReads).toBe(0);
+    }
   });
 
   it("hashes owned inputs and rejects a +1 operation budget before foreign invocation", async () => {

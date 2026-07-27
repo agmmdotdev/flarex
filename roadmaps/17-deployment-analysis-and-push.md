@@ -821,7 +821,15 @@ explicit U2 blockers:
    proof inside the target deployment host. U2 needs a same-isolate adapter
    that retains the existing authorizer, fresh attempt reread, digest
    validation, request binding, and single-use claim semantics without
-   self-RPC or a serialized proof.
+   self-RPC or a serialized proof. **Resolved in U2 checkpoint 2:** the
+   adapter implements the existing finalized-attempt reader contract as a
+   plain DeploymentDO-scoped instance. It synchronously burns the existing
+   request-bound authorization witness, rereads the attempt through the
+   bounded checkpoint reader under an explicit host-pinned stored-row ceiling,
+   revalidates generation, fence, lifecycle, and selector digest, and returns
+   only owned finalized evidence. The existing semantic proof factory remains
+   the sole issuer and single-use claimant; neither witness nor proof is
+   serialized.
 3. The source attempt store exposes settlement uncertainty but no
    confirmed-rollback result. Therefore source failures cannot produce
    `retryDisposition: "exactNow"` under the current contract. That disposition
@@ -986,11 +994,28 @@ command dispatcher is composed:
 - classify a semantic attempt found under another deployment as a deployment
   mismatch instead of misreporting it as source drift.
 
-The current boundary deliberately does not construct an upload core in
-`DeploymentDO`, read `ARTIFACTS`, decode semantic root configuration, issue a
-same-isolate proof, map wire errors, or add an RPC/HTTP method. The next U2
-gate is the same-isolate finalized-source reader that preserves the existing
-authorizer and proof semantics without self-RPC.
+The second checkpoint closes finalized-source blocker 2 without composing the
+full host:
+
+- add a same-isolate finalized-attempt reader implementing the existing reader
+  interface, with no `DEPLOYMENTS` namespace dependency or private HTTP/RPC
+  hop;
+- claim the existing request- and deployment-bound scope witness before any
+  durable read, so failed, interrupted, or corrupt reads cannot leave reusable
+  authority;
+- use the bounded checkpoint reader for the fresh durable reread, with a
+  construction-time positive safe-integer `maximumStoredBytes` ceiling kept
+  distinct from command response-body accounting;
+- recompute the upload-selector frame and SHA-256 digest locally under the
+  existing command and cumulative call, frame, hash, and elapsed budgets; and
+- retain the existing semantic proof factory for process-local request binding,
+  digest ownership, and single-use claim.
+
+This checkpoint deliberately does not construct an upload core in
+`DeploymentDO`, read `ARTIFACTS`, decode semantic root configuration, map wire
+errors, or add an RPC/HTTP method. After its focused trust and budget proof, the
+next U2 gate is fail-closed host construction for the artifact binding and
+pinned root configuration before any private dispatcher composition.
 
 ## Next Correctness Gates
 

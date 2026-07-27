@@ -1,4 +1,4 @@
-import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import { bytesEqualFullScan, copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { isNonNegativeSafeInteger, isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonEmptyString } from "@flarex/utils/strings";
@@ -11,6 +11,14 @@ import type {
 import { deploymentObjectName } from "../routing";
 import type { Env } from "../types";
 import { readBackendBoundedBody } from "../boundedBody";
+import {
+  sourceArtifactV2CheckpointReadResourceCause,
+  SourceArtifactV2CheckpointReadBudgetError,
+  SourceArtifactV2CheckpointReadCorruptionError,
+  SourceArtifactV2CheckpointReadResourceError,
+  type SourceArtifactV2CheckpointReader,
+} from "./CheckpointReader";
+import { sourceArtifactV2DigestBytesFromLowerHex } from "./Digest";
 import {
   captureSourceArtifactV2FinalizedAttemptReadBudgetV1,
   decodeSourceArtifactV2FinalizedAttemptReadBudgetFailureHeaderV1,
@@ -29,6 +37,15 @@ import {
   type SourceArtifactV2FinalizedAttemptReadResponseV1,
   type SourceArtifactV2FinalizedAttemptReadUsageV1,
 } from "./FinalizedAttemptReadProtocol";
+import {
+  SourceArtifactV2FrameBudgetError,
+  sourceArtifactV2UploadSelectorFrame,
+  sourceArtifactV2UploadSelectorFrameProjection,
+} from "./Framing";
+import {
+  SourceArtifactV2Sha256ResourceError,
+  type SourceArtifactV2Sha256,
+} from "./Sha256";
 
 export interface SourceArtifactV2FinalizedAttemptReadComposerBudgetV1 {
   readonly cumulative: SourceArtifactV2FinalizedAttemptReadBudgetV1;
@@ -103,6 +120,19 @@ export class SourceArtifactV2FinalizedAttemptReadBudgetV1Error extends Data.Tagg
   "SourceArtifactV2FinalizedAttemptReadBudgetV1Error",
 )<{ readonly field: SourceArtifactV2FinalizedAttemptReadBudgetFieldV1 }> {}
 
+export class SourceArtifactV2FinalizedAttemptReadStoredBytesV1Error extends Data.TaggedError(
+  "SourceArtifactV2FinalizedAttemptReadStoredBytesV1Error",
+)<{
+  readonly uploadId: string;
+  readonly observed: number;
+  readonly maximum: number;
+}> {}
+
+export class SourceArtifactV2SameIsolateFinalizedAttemptReadConfigurationV1Error
+  extends Data.TaggedError(
+    "SourceArtifactV2SameIsolateFinalizedAttemptReadConfigurationV1Error",
+  )<{ readonly reason: "invalidMaximumStoredBytes" }> {}
+
 export type SourceArtifactV2FinalizedAttemptReadComposerV1Error =
   | DeploymentProjectScopeWitnessV1Error
   | SourceArtifactV2FinalizedAttemptReadInputV1Error
@@ -111,7 +141,8 @@ export type SourceArtifactV2FinalizedAttemptReadComposerV1Error =
   | SourceArtifactV2FinalizedAttemptReadLifecycleV1Error
   | SourceArtifactV2FinalizedAttemptReadResourceV1Error
   | SourceArtifactV2FinalizedAttemptReadCorruptionV1Error
-  | SourceArtifactV2FinalizedAttemptReadBudgetV1Error;
+  | SourceArtifactV2FinalizedAttemptReadBudgetV1Error
+  | SourceArtifactV2FinalizedAttemptReadStoredBytesV1Error;
 
 export interface SourceArtifactV2FinalizedAttemptReadComposerV1 {
   readonly read: (
@@ -154,32 +185,297 @@ export function makeSourceArtifactV2FinalizedAttemptReadComposerV1(options: {
       SourceArtifactV2FinalizedAttemptReadEvidenceV1,
       SourceArtifactV2FinalizedAttemptReadComposerV1Error,
       never
-    >(() => {
-      const captured = captureInput(input);
-      if (Result.isFailure(captured)) return Effect.fail(captured.failure);
-      const claimed = authorizer.claim(
+    >(() => Effect.gen(function* () {
+      const captured = yield* Effect.fromResult(captureInput(input));
+      const claimed = yield* Effect.fromResult(authorizer.claim(
         witness,
         request,
-        captured.success.deploymentId,
-      );
-      if (Result.isFailure(claimed)) return Effect.fail(claimed.failure);
+        captured.deploymentId,
+      ));
       const requestId = makeRequestId();
       if (!isNonEmptyString(requestId)) {
-        return Effect.die(new Error("Finalized-attempt read request ID factory returned invalid data."));
+        return yield* Effect.die(
+          new Error(
+            "Finalized-attempt read request ID factory returned invalid data.",
+          ),
+        );
       }
       const stub = deployments.getByName(
-        deploymentObjectName(claimed.success.deploymentId),
+        deploymentObjectName(claimed.deploymentId),
       );
-      return executeRead(
+      return yield* executeRead(
         stub,
         requestId,
-        claimed.success,
-        captured.success,
+        claimed,
+        captured,
       );
-    }),
+    })),
   );
   return Object.freeze({ read });
 }
+
+export function makeSourceArtifactV2SameIsolateFinalizedAttemptReadComposerV1(
+  options: {
+    readonly authorizer: DeploymentProjectScopeAuthorizerV1;
+    readonly checkpointReader: SourceArtifactV2CheckpointReader;
+    readonly sha256: SourceArtifactV2Sha256;
+    readonly maximumStoredBytes: number;
+    readonly makeRequestId?: () => string;
+  },
+): Result.Result<
+  SourceArtifactV2FinalizedAttemptReadComposerV1,
+  SourceArtifactV2SameIsolateFinalizedAttemptReadConfigurationV1Error
+> {
+  if (!isPositiveSafeInteger(options.maximumStoredBytes)) {
+    return Result.fail(
+      new SourceArtifactV2SameIsolateFinalizedAttemptReadConfigurationV1Error({
+        reason: "invalidMaximumStoredBytes",
+      }),
+    );
+  }
+  const authorizer = options.authorizer;
+  const checkpointReader = options.checkpointReader;
+  const sha256 = options.sha256;
+  const maximumStoredBytes = options.maximumStoredBytes;
+  const makeRequestId = options.makeRequestId ?? liveRequestId;
+  const read = Effect.fn(
+    "SourceArtifactV2SameIsolateFinalizedAttemptReadComposer.read",
+  )(
+    (
+      request: Request,
+      witness: DeploymentProjectScopeWitnessV1,
+      input: SourceArtifactV2FinalizedAttemptReadComposerInputV1,
+    ): Effect.Effect<
+      SourceArtifactV2FinalizedAttemptReadEvidenceV1,
+      SourceArtifactV2FinalizedAttemptReadComposerV1Error,
+      never
+    > => Effect.suspend<
+      SourceArtifactV2FinalizedAttemptReadEvidenceV1,
+      SourceArtifactV2FinalizedAttemptReadComposerV1Error,
+      never
+    >(() => Effect.gen(function* () {
+      const captured = yield* Effect.fromResult(captureInput(input));
+      const claimed = yield* Effect.fromResult(authorizer.claim(
+        witness,
+        request,
+        captured.deploymentId,
+      ));
+      const requestId = makeRequestId();
+      if (!isNonEmptyString(requestId)) {
+        return yield* Effect.die(
+          new Error(
+            "Same-isolate finalized-attempt read request ID factory returned invalid data.",
+          ),
+        );
+      }
+      return yield* executeSameIsolateRead(
+        checkpointReader,
+        sha256,
+        maximumStoredBytes,
+        requestId,
+        claimed,
+        captured,
+      );
+    })),
+  );
+  return Result.succeed(Object.freeze({ read }));
+}
+
+const executeSameIsolateRead = Effect.fn(
+  "SourceArtifactV2SameIsolateFinalizedAttemptReadComposer.execute",
+)(
+  function* (
+    checkpointReader: SourceArtifactV2CheckpointReader,
+    sha256: SourceArtifactV2Sha256,
+    maximumStoredBytes: number,
+    requestId: string,
+    claimed: Readonly<{
+      readonly deploymentId: string;
+      readonly projectId: string;
+      readonly deploymentCreatedAt: string;
+    }>,
+    input: Readonly<SourceArtifactV2FinalizedAttemptReadComposerInputV1>,
+  ): Effect.fn.Return<
+    SourceArtifactV2FinalizedAttemptReadEvidenceV1,
+    Exclude<
+      SourceArtifactV2FinalizedAttemptReadComposerV1Error,
+      DeploymentProjectScopeWitnessV1Error
+    >
+  > {
+    const startedAt = yield* Clock.currentTimeNanos;
+    yield* remainingElapsed(startedAt, input.budget.command);
+    const checkpoint = yield* checkpointReader.read(input.uploadId, {
+      maximumCalls: input.budget.command.maximumCalls,
+      maximumStoredBytes,
+    }).pipe(
+      Effect.mapError(error => sameIsolateCheckpointError(error)),
+    );
+    yield* remainingElapsed(startedAt, input.budget.command);
+    if (checkpoint === null) {
+      return yield* new SourceArtifactV2FinalizedAttemptReadNotFoundV1Error({
+        uploadId: input.uploadId,
+      });
+    }
+    if (checkpoint.uploadId !== input.uploadId) {
+      return yield* new SourceArtifactV2FinalizedAttemptReadCorruptionV1Error({
+        reason: "identityMismatch",
+      });
+    }
+    if (checkpoint.generation !== input.expectedGeneration) {
+      return yield* new SourceArtifactV2FinalizedAttemptReadStaleV1Error({
+        uploadId: input.uploadId,
+        reason: "generation",
+      });
+    }
+    if (checkpoint.mutationFence !== input.expectedMutationFence) {
+      return yield* new SourceArtifactV2FinalizedAttemptReadStaleV1Error({
+        uploadId: input.uploadId,
+        reason: "mutationFence",
+      });
+    }
+    if (
+      checkpoint.state !== "finalized" ||
+      checkpoint.currentModule !== null
+    ) {
+      return yield* new SourceArtifactV2FinalizedAttemptReadLifecycleV1Error({
+        uploadId: input.uploadId,
+      });
+    }
+    if (
+      checkpoint.completedRootDigest === null ||
+      checkpoint.completedSelectorDigest === null
+    ) {
+      return yield* new SourceArtifactV2FinalizedAttemptReadCorruptionV1Error({
+        reason: "storedEvidence",
+      });
+    }
+    yield* remainingElapsed(startedAt, input.budget.command);
+    const selectorInput = Object.freeze({
+      deploymentId: input.deploymentId,
+      uploadId: checkpoint.uploadId,
+      generation: BigInt(checkpoint.generation),
+      rootDigest: sourceArtifactV2DigestBytesFromLowerHex(
+        checkpoint.completedRootDigest,
+      ),
+    });
+    const frameBudget = {
+      maximumFrameBytesMaterialized:
+        input.budget.command.maximumFrameBytes,
+    };
+    const projectionResult = sourceArtifactV2UploadSelectorFrameProjection(
+      selectorInput,
+      frameBudget,
+    );
+    if (Result.isFailure(projectionResult)) {
+      if (
+        projectionResult.failure instanceof SourceArtifactV2FrameBudgetError
+      ) {
+        return yield* new SourceArtifactV2FinalizedAttemptReadBudgetV1Error({
+          field: "frameBytes",
+        });
+      }
+      return yield* Effect.die(projectionResult.failure);
+    }
+    const projection = projectionResult.success;
+    let usage = addUsage(zeroUsage(), {
+      calls: 3,
+      canonicalBytes: projection.canonicalBytesMaterialized,
+      frameBytes: projection.frameBytesMaterialized,
+      hashBytes: projection.frameBytesMaterialized,
+    });
+    usage = Object.freeze({
+      ...usage,
+      elapsedMilliseconds: elapsed(startedAt, yield* Clock.currentTimeNanos),
+    });
+    if (
+      !usageFits(usage, input.budget.command) ||
+      !usageFits(usage, input.budget.cumulative)
+    ) {
+      const limitingBudget = usageFits(usage, input.budget.command)
+        ? input.budget.cumulative
+        : input.budget.command;
+      return yield* new SourceArtifactV2FinalizedAttemptReadBudgetV1Error({
+        field: firstExceeded(usage, limitingBudget),
+      });
+    }
+    const frameResult = sourceArtifactV2UploadSelectorFrame(
+      selectorInput,
+      frameBudget,
+    );
+    if (Result.isFailure(frameResult)) {
+      return yield* Effect.die(frameResult.failure);
+    }
+    const frame = frameResult.success;
+    if (
+      frame.canonicalBytesMaterialized !==
+        projection.canonicalBytesMaterialized ||
+      frame.frameBytesMaterialized !== projection.frameBytesMaterialized
+    ) {
+      return yield* Effect.die(
+        new Error(
+          "Source-artifact selector projection disagreed with materialization.",
+        ),
+      );
+    }
+    const hashDeadline = yield* remainingElapsed(
+      startedAt,
+      input.budget.command,
+    );
+    const digest = yield* sha256(frame.bytes, {
+      maximumInputBytes: frame.frameBytesMaterialized,
+    }).pipe(
+      Effect.timeout(`${hashDeadline} millis`),
+      Effect.mapError(error => Cause.isTimeoutError(error)
+        ? new SourceArtifactV2FinalizedAttemptReadBudgetV1Error({
+            field: "elapsedMilliseconds",
+          })
+        : error instanceof SourceArtifactV2Sha256ResourceError
+          ? resourceFailure("durableObject", error)
+          : error),
+      Effect.catchTag(
+        "SourceArtifactV2Sha256InputError",
+        error => Effect.die(error),
+      ),
+    );
+    usage = Object.freeze({
+      ...usage,
+      elapsedMilliseconds: elapsed(startedAt, yield* Clock.currentTimeNanos),
+    });
+    if (
+      !usageFits(usage, input.budget.command) ||
+      !usageFits(usage, input.budget.cumulative)
+    ) {
+      const limitingBudget = usageFits(usage, input.budget.command)
+        ? input.budget.cumulative
+        : input.budget.command;
+      return yield* new SourceArtifactV2FinalizedAttemptReadBudgetV1Error({
+        field: firstExceeded(usage, limitingBudget),
+      });
+    }
+    if (!bytesEqualFullScan(
+      digest,
+      sourceArtifactV2DigestBytesFromLowerHex(
+        checkpoint.completedSelectorDigest,
+      ),
+    )) {
+      return yield* new SourceArtifactV2FinalizedAttemptReadCorruptionV1Error({
+        reason: "storedEvidence",
+      });
+    }
+    return Object.freeze({
+      requestId,
+      deploymentId: claimed.deploymentId,
+      projectId: claimed.projectId,
+      deploymentCreatedAt: claimed.deploymentCreatedAt,
+      uploadId: checkpoint.uploadId,
+      generation: checkpoint.generation,
+      mutationFence: checkpoint.mutationFence,
+      completedRootDigest: checkpoint.completedRootDigest,
+      completedSelectorDigest: checkpoint.completedSelectorDigest,
+      usage,
+    });
+  },
+);
 
 const executeRead = Effect.fn("SourceArtifactV2FinalizedAttemptReadComposer.execute")(
   function* (
@@ -592,6 +888,50 @@ function inputFailure(
   field: SourceArtifactV2FinalizedAttemptReadInputV1Error["field"],
 ): SourceArtifactV2FinalizedAttemptReadInputV1Error {
   return new SourceArtifactV2FinalizedAttemptReadInputV1Error({ field });
+}
+
+function sameIsolateCheckpointError(
+  error:
+    | SourceArtifactV2CheckpointReadBudgetError
+    | SourceArtifactV2CheckpointReadCorruptionError
+    | SourceArtifactV2CheckpointReadResourceError,
+):
+  | SourceArtifactV2FinalizedAttemptReadBudgetV1Error
+  | SourceArtifactV2FinalizedAttemptReadStoredBytesV1Error
+  | SourceArtifactV2FinalizedAttemptReadCorruptionV1Error
+  | SourceArtifactV2FinalizedAttemptReadResourceV1Error {
+  if (error instanceof SourceArtifactV2CheckpointReadBudgetError) {
+    return error.dimension === "calls"
+      ? new SourceArtifactV2FinalizedAttemptReadBudgetV1Error({
+          field: "calls",
+        })
+      : new SourceArtifactV2FinalizedAttemptReadStoredBytesV1Error({
+          uploadId: error.uploadId,
+          observed: error.observed,
+          maximum: error.maximum,
+        });
+  }
+  if (error instanceof SourceArtifactV2CheckpointReadCorruptionError) {
+    return new SourceArtifactV2FinalizedAttemptReadCorruptionV1Error({
+      reason: "storedEvidence",
+    });
+  }
+  return resourceFailure(
+    "durableObject",
+    sourceArtifactV2CheckpointReadResourceCause(error),
+  );
+}
+
+function zeroUsage(): SourceArtifactV2FinalizedAttemptReadUsageV1 {
+  return Object.freeze({
+    calls: 0,
+    inputBytes: 0,
+    bodyBytes: 0,
+    canonicalBytes: 0,
+    frameBytes: 0,
+    hashBytes: 0,
+    elapsedMilliseconds: 0,
+  });
 }
 
 function resourceFailure(

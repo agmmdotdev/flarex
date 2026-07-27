@@ -451,6 +451,43 @@ export function sourceArtifactV2UploadSelectorFrame(
   });
 }
 
+export function sourceArtifactV2UploadSelectorFrameProjection(
+  input: unknown,
+  budget: unknown,
+): Result.Result<SourceArtifactV2FrameProjection, SourceArtifactV2FrameError> {
+  const operation = "uploadSelector" as const;
+  return Result.gen(function* () {
+    const maximum = yield* decodeBudget(operation, budget);
+    const decoded = yield* decodeUploadSelectorInput(input);
+    const deploymentBytes = canonicalJsonStringUtf8ByteLength(
+      decoded.deploymentId,
+    );
+    const uploadBytes = canonicalJsonStringUtf8ByteLength(decoded.uploadId);
+    if (deploymentBytes > UINT32_MAX) {
+      return yield* Result.fail(
+        inputError(operation, "deploymentId", "invalidCounter"),
+      );
+    }
+    if (uploadBytes > UINT32_MAX) {
+      return yield* Result.fail(
+        inputError(operation, "uploadId", "invalidCounter"),
+      );
+    }
+    const canonicalBytes = checkedLength(deploymentBytes, uploadBytes);
+    const frameBytes = checkedLength(
+      UPLOAD_SELECTOR_DOMAIN.byteLength + 4 + 4 + 8 + 32,
+      canonicalBytes,
+    );
+    if (frameBytes > maximum) {
+      return yield* Result.fail(budgetError(operation, frameBytes, maximum));
+    }
+    return Object.freeze({
+      canonicalBytesMaterialized: canonicalBytes,
+      frameBytesMaterialized: frameBytes,
+    });
+  });
+}
+
 export function decodeSourceArtifactV2BlockFrame(
   kind: SourceArtifactV2BlockKind,
   value: unknown,
@@ -1124,25 +1161,24 @@ function decodeUploadSelectorInput(
   if (!isNonArrayRecord(value)) {
     return Result.fail(inputError(operation, "input", "invalidBytes"));
   }
-  if (typeof value.deploymentId !== "string" || value.deploymentId.length === 0) {
+  const deploymentId = value.deploymentId;
+  if (typeof deploymentId !== "string" || deploymentId.length === 0) {
     return Result.fail(inputError(operation, "deploymentId", "invalidPath"));
   }
-  if (typeof value.uploadId !== "string" || value.uploadId.length === 0) {
+  const uploadId = value.uploadId;
+  if (typeof uploadId !== "string" || uploadId.length === 0) {
     return Result.fail(inputError(operation, "uploadId", "invalidPath"));
   }
   return Result.gen(function* () {
     const generation = yield* decodePositiveCounter(operation, "generation", value.generation);
     const rootDigest = yield* decodeDigest(operation, "rootDigest", value.rootDigest);
-    return {
+    return Object.freeze({
+      deploymentId,
+      uploadId,
       generation,
       rootDigest,
-    };
-  }).pipe(Result.map(({ generation, rootDigest }) => ({
-    deploymentId: value.deploymentId as string,
-    uploadId: value.uploadId as string,
-    generation,
-    rootDigest,
-  })));
+    });
+  });
 }
 
 function decodeTreeReference(

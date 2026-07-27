@@ -14,8 +14,12 @@ import {
 } from "../src/sourceArtifactV2/FinalizedAttemptReadBoundary";
 import {
   makeSourceArtifactV2FinalizedAttemptReadComposerV1,
+  makeSourceArtifactV2SameIsolateFinalizedAttemptReadComposerV1,
   SourceArtifactV2FinalizedAttemptReadBudgetV1Error,
+  SourceArtifactV2FinalizedAttemptReadCorruptionV1Error,
   SourceArtifactV2FinalizedAttemptReadResourceV1Error,
+  SourceArtifactV2FinalizedAttemptReadStoredBytesV1Error,
+  SourceArtifactV2SameIsolateFinalizedAttemptReadConfigurationV1Error,
 } from "../src/sourceArtifactV2/FinalizedAttemptReadComposer";
 import {
   decodeSourceArtifactV2FinalizedAttemptReadResponseV1,
@@ -29,7 +33,16 @@ import {
 import { sourceArtifactV2UploadSelectorFrame } from "../src/sourceArtifactV2/Framing";
 import { sourceArtifactV2DigestBytesFromLowerHex } from "../src/sourceArtifactV2/Digest";
 import { makeSourceArtifactV2Sha256 } from "../src/sourceArtifactV2/Sha256";
+import {
+  projectSourceArtifactV2CheckpointSnapshot,
+  SourceArtifactV2CheckpointReadBudgetError,
+  SourceArtifactV2CheckpointReadCorruptionError,
+  type SourceArtifactV2CheckpointReader,
+} from "../src/sourceArtifactV2/CheckpointReader";
 import { makeDeploymentProjectScopeAuthorizerV1 } from "../src/deploymentProjectScopeAuthorization";
+import {
+  makeSemanticArtifactV1FinalizedSourceProofFactory,
+} from "../src/semanticArtifactV1/FinalizedSourceProof";
 import type {
   DeploymentProjectScopeLookupClientV1,
   DeploymentProjectScopeLookupInputV1,
@@ -374,6 +387,264 @@ describe("source artifact v2 finalized-attempt private read", () => {
       .toBe("alreadyClaimed");
   });
 
+  it("issues and claims one request-bound semantic proof through the same-isolate reader", async () => {
+    const attempt = await finalizedAttempt();
+    const authorizer = authorizerFor("deployment-a");
+    const request = pushRequest();
+    const read = vi.fn(() => Effect.succeed(
+      projectSourceArtifactV2CheckpointSnapshot(attempt),
+    ));
+    const finalizedSourceReader = success(
+      makeSourceArtifactV2SameIsolateFinalizedAttemptReadComposerV1({
+        authorizer,
+        checkpointReader: Object.freeze({ read }),
+        sha256: liveSha(),
+        maximumStoredBytes: 100_000,
+        makeRequestId: () => "same-isolate-request-a",
+      }),
+    );
+    const proofs = makeSemanticArtifactV1FinalizedSourceProofFactory({
+      authorizer,
+      finalizedSourceReader,
+    });
+    const proof = await Effect.runPromise(proofs.issue(request, {
+      authorization: {
+        deploymentId: "deployment-a",
+        budget: { cumulative: lookupBudget(), command: lookupBudget() },
+      },
+      source: composerInput(attempt),
+    }));
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith(attempt.uploadId, {
+      maximumCalls: budget.maximumCalls,
+      maximumStoredBytes: 100_000,
+    });
+    const claimed = success(proofs.claim(proof, request, "deployment-a"));
+    expect(claimed).toMatchObject({
+      projectId: "configured-project",
+      deploymentId: "deployment-a",
+      sourceUploadId: attempt.uploadId,
+      sourceGeneration: attempt.generation,
+      sourceMutationFence: attempt.mutationFence,
+    });
+    expect(encodeBytesToLowercaseHex(claimed.sourceRootSha256))
+      .toBe(attempt.completedRootDigest);
+    claimed.sourceRootSha256[0] = 0xff;
+    expect(failureReason(proofs.claim(proof, request, "deployment-a")))
+      .toBe("alreadyClaimed");
+  });
+
+  it("claims same-isolate authority before durable work and rejects foreign authority", async () => {
+    const attempt = await finalizedAttempt();
+    const issuer = authorizerFor("deployment-a");
+    const consumer = authorizerFor("deployment-a");
+    const request = pushRequest();
+    const read = vi.fn(() => Effect.never);
+    const composer = success(
+      makeSourceArtifactV2SameIsolateFinalizedAttemptReadComposerV1({
+        authorizer: consumer,
+        checkpointReader: Object.freeze({ read }),
+        sha256: liveSha(),
+        maximumStoredBytes: 100_000,
+      }),
+    );
+    const foreignWitness = await Effect.runPromise(issuer.authorize(request, {
+      deploymentId: "deployment-a",
+      budget: { cumulative: lookupBudget(), command: lookupBudget() },
+    }));
+    expect(failureTag(await Effect.runPromiseExit(composer.read(
+      request,
+      foreignWitness,
+      composerInput(attempt),
+    )))).toBe("DeploymentProjectScopeWitnessV1Error");
+    expect(read).not.toHaveBeenCalled();
+
+    const witness = await Effect.runPromise(consumer.authorize(request, {
+      deploymentId: "deployment-a",
+      budget: { cumulative: lookupBudget(), command: lookupBudget() },
+    }));
+    const fiber = Effect.runFork(composer.read(request, witness, composerInput(attempt)));
+    while (read.mock.calls.length === 0) {
+      await Promise.resolve();
+    }
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    expect(failureReason(consumer.claim(witness, request, "deployment-a")))
+      .toBe("alreadyClaimed");
+  });
+
+  it("maps bounded checkpoint outcomes without weakening lifecycle or selector proof", async () => {
+    const attempt = await finalizedAttempt();
+    const cases = [
+      {
+        value: null,
+        expectedTag: "SourceArtifactV2FinalizedAttemptReadNotFoundV1Error",
+      },
+      {
+        value: projectSourceArtifactV2CheckpointSnapshot({
+          ...attempt,
+          generation: attempt.generation + 1,
+        }),
+        expectedTag: "SourceArtifactV2FinalizedAttemptReadStaleV1Error",
+      },
+      {
+        value: projectSourceArtifactV2CheckpointSnapshot({
+          ...attempt,
+          state: "open",
+          completedRootDigest: null,
+          completedSelectorDigest: null,
+        }),
+        expectedTag: "SourceArtifactV2FinalizedAttemptReadLifecycleV1Error",
+      },
+      {
+        value: {
+          ...projectSourceArtifactV2CheckpointSnapshot(attempt),
+          uploadId: "different-upload",
+        },
+        expectedTag: "SourceArtifactV2FinalizedAttemptReadCorruptionV1Error",
+      },
+      {
+        value: {
+          ...projectSourceArtifactV2CheckpointSnapshot(attempt),
+          completedSelectorDigest: "ff".repeat(32),
+        },
+        expectedTag: "SourceArtifactV2FinalizedAttemptReadCorruptionV1Error",
+      },
+    ] as const;
+    for (const entry of cases) {
+      const { composer, request, witness } = await sameIsolateFixture(
+        attempt,
+        () => Effect.succeed(entry.value),
+      );
+      const failure = failureOf(await Effect.runPromiseExit(
+        composer.read(request, witness, composerInput(attempt)),
+      ));
+      expect(failure).toMatchObject({ _tag: entry.expectedTag });
+    }
+
+    const corruption = await sameIsolateFixture(
+      attempt,
+      () => Effect.fail(new SourceArtifactV2CheckpointReadCorruptionError({
+        uploadId: attempt.uploadId,
+      })),
+    );
+    expect(failureOf(await Effect.runPromiseExit(corruption.composer.read(
+      corruption.request,
+      corruption.witness,
+      composerInput(attempt),
+    )))).toBeInstanceOf(SourceArtifactV2FinalizedAttemptReadCorruptionV1Error);
+  });
+
+  it("keeps stored-row admission distinct and accounts exactly two reads plus one hash", async () => {
+    const attempt = await finalizedAttempt();
+    const storedBudget = await sameIsolateFixture(
+      attempt,
+      () => Effect.fail(new SourceArtifactV2CheckpointReadBudgetError({
+        uploadId: attempt.uploadId,
+        dimension: "storedBytes",
+        observed: 101,
+        maximum: 100,
+      })),
+      100,
+    );
+    expect(failureOf(await Effect.runPromiseExit(storedBudget.composer.read(
+      storedBudget.request,
+      storedBudget.witness,
+      composerInput(attempt),
+    )))).toEqual(new SourceArtifactV2FinalizedAttemptReadStoredBytesV1Error({
+      uploadId: attempt.uploadId,
+      observed: 101,
+      maximum: 100,
+    }));
+
+    for (const [maximumCalls, succeeds] of [[3, true], [2, false]] as const) {
+      const fixture = await sameIsolateFixture(
+        attempt,
+        () => Effect.succeed(projectSourceArtifactV2CheckpointSnapshot(attempt)),
+      );
+      const operationBudget = Object.freeze({ ...budget, maximumCalls });
+      const exit = await Effect.runPromiseExit(fixture.composer.read(
+        fixture.request,
+        fixture.witness,
+        composerInput(attempt, operationBudget),
+      ));
+      if (succeeds) {
+        expect(Exit.isSuccess(exit)).toBe(true);
+        if (Exit.isSuccess(exit)) expect(exit.value.usage.calls).toBe(3);
+      } else {
+        expect(failureOf(exit)).toEqual(
+          new SourceArtifactV2FinalizedAttemptReadBudgetV1Error({
+            field: "calls",
+          }),
+        );
+      }
+    }
+  });
+
+  it("admits selector canonicalization at the exact ceiling and rejects one byte less", async () => {
+    const attempt = await finalizedAttempt();
+    const baseline = await sameIsolateFixture(
+      attempt,
+      () => Effect.succeed(projectSourceArtifactV2CheckpointSnapshot(attempt)),
+    );
+    const baselineExit = await Effect.runPromiseExit(baseline.composer.read(
+      baseline.request,
+      baseline.witness,
+      composerInput(attempt),
+    ));
+    expect(Exit.isSuccess(baselineExit)).toBe(true);
+    if (Exit.isFailure(baselineExit)) return;
+    const exactCanonicalBytes = baselineExit.value.usage.canonicalBytes;
+
+    for (
+      const [maximumCanonicalBytes, succeeds] of [
+        [exactCanonicalBytes, true],
+        [exactCanonicalBytes - 1, false],
+      ] as const
+    ) {
+      const fixture = await sameIsolateFixture(
+        attempt,
+        () => Effect.succeed(projectSourceArtifactV2CheckpointSnapshot(attempt)),
+      );
+      const operationBudget = Object.freeze({
+        ...budget,
+        maximumCanonicalBytes,
+      });
+      const exit = await Effect.runPromiseExit(fixture.composer.read(
+        fixture.request,
+        fixture.witness,
+        composerInput(attempt, operationBudget),
+      ));
+      if (succeeds) {
+        expect(Exit.isSuccess(exit)).toBe(true);
+      } else {
+        expect(failureOf(exit)).toEqual(
+          new SourceArtifactV2FinalizedAttemptReadBudgetV1Error({
+            field: "canonicalBytes",
+          }),
+        );
+      }
+    }
+  });
+
+  it("rejects an invalid same-isolate stored-row ceiling at construction", () => {
+    const result = makeSourceArtifactV2SameIsolateFinalizedAttemptReadComposerV1({
+      authorizer: authorizerFor("deployment-a"),
+      checkpointReader: Object.freeze({
+        read: () => Effect.die("must not read"),
+      }),
+      sha256: liveSha(),
+      maximumStoredBytes: 0,
+    });
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toEqual(
+        new SourceArtifactV2SameIsolateFinalizedAttemptReadConfigurationV1Error({
+          reason: "invalidMaximumStoredBytes",
+        }),
+      );
+    }
+  });
+
   it("classifies gateway responses with bodies as transport resource failures", async () => {
     const attempt = await finalizedAttempt();
     for (const status of [502, 503, 504]) {
@@ -415,6 +686,29 @@ function makeRoute(reader: SourceArtifactV2AttemptReader) {
     reader,
     sha256: liveSha(),
   });
+}
+
+async function sameIsolateFixture(
+  attempt: SourceArtifactV2Attempt,
+  read: SourceArtifactV2CheckpointReader["read"],
+  maximumStoredBytes = 100_000,
+) {
+  const authorizer = authorizerFor("deployment-a");
+  const request = pushRequest();
+  const witness = await Effect.runPromise(authorizer.authorize(request, {
+    deploymentId: "deployment-a",
+    budget: { cumulative: lookupBudget(), command: lookupBudget() },
+  }));
+  const composer = success(
+    makeSourceArtifactV2SameIsolateFinalizedAttemptReadComposerV1({
+      authorizer,
+      checkpointReader: Object.freeze({ read }),
+      sha256: liveSha(),
+      maximumStoredBytes,
+      makeRequestId: () => `same-isolate-${attempt.uploadId}`,
+    }),
+  );
+  return Object.freeze({ composer, request, witness });
 }
 
 function liveSha() {
