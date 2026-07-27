@@ -165,6 +165,73 @@ export interface DeclarativeV2VerifierEncodedFrameV2 {
   readonly usage: DeclarativeV2VerifierFrameUsageV2;
 }
 
+export interface DeclarativeV2VerifierProgressFrameWorkV2 {
+  /**
+   * Protocol-observable backing-byte capacity admitted for a successful
+   * operation. It is charged even when a caller reuses preallocated storage;
+   * it is not a claim about JavaScript heap allocation. Fixed engine object
+   * headers are intentionally excluded.
+   */
+  readonly byteStorageAllocationBytes: number;
+  /** Bytes copied from existing protocol byte storage into a destination. */
+  readonly byteCopyBytes: number;
+  /** Bytes written to a destination. Copy writes are included. */
+  readonly byteWriteBytes: number;
+  /** Bytes compared or otherwise scanned without retaining an owned copy. */
+  readonly byteScanBytes: number;
+  /** Protocol byte transitions required for a successful operation. */
+  readonly primitiveTransitions: number;
+}
+
+export interface DeclarativeV2VerifierProgressFrameEncodingPlanV2 {
+  readonly canonicalByteLength: number;
+  readonly successfulWork: DeclarativeV2VerifierProgressFrameWorkV2;
+}
+
+export interface DeclarativeV2VerifierProgressFrameVerificationPlanV2 {
+  readonly admittedByteLength: number;
+  /**
+   * A successful-scan ceiling derived only from the admitted byte range.
+   * Malformed input can fail before all of this work is performed.
+   */
+  readonly successfulWorkCeiling: DeclarativeV2VerifierProgressFrameWorkV2;
+}
+
+export interface DeclarativeV2VerifierProgressFrameByteRangeV2 {
+  readonly bytes: Uint8Array;
+  /** Offset relative to the visible `bytes` view. */
+  readonly byteOffset: number;
+  readonly byteLength: number;
+}
+
+export interface DeclarativeV2VerifierProgressFrameWrittenV2 {
+  readonly range: DeclarativeV2VerifierProgressFrameByteRangeV2;
+  readonly usage: DeclarativeV2VerifierFrameUsageV2;
+  readonly work: DeclarativeV2VerifierProgressFrameWorkV2;
+}
+
+export interface DeclarativeV2VerifierProgressFrameVerifiedV2 {
+  /**
+   * Digest fields are immutable views into the caller-owned admitted range.
+   * The caller must retain exclusive ownership for the lifetime of this value.
+   */
+  readonly frame: DeclarativeV2VerifierProgressFrameV2;
+  readonly canonicalBytes: Uint8Array;
+  readonly usage: DeclarativeV2VerifierFrameUsageV2;
+  readonly work: DeclarativeV2VerifierProgressFrameWorkV2;
+}
+
+export type DeclarativeV2VerifierProgressFrameEncodeAdmissionV2<E> = (
+  plan: DeclarativeV2VerifierProgressFrameEncodingPlanV2,
+) => Result.Result<
+  DeclarativeV2VerifierProgressFrameByteRangeV2,
+  E
+>;
+
+export type DeclarativeV2VerifierProgressFrameVerifyAdmissionV2<E> = (
+  plan: DeclarativeV2VerifierProgressFrameVerificationPlanV2,
+) => Result.Result<void, E>;
+
 export class DeclarativeV2VerifierProgressV2Error extends Data.TaggedError(
   "DeclarativeV2VerifierProgressV2Error",
 )<{
@@ -196,11 +263,31 @@ type CapturedFrame = Readonly<Record<string, bigint | string | Uint8Array | null
 
 const UTF8_ENCODER = new TextEncoder();
 const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(Uint8Array.prototype);
 const UINT8_ARRAY_BYTE_LENGTH_GETTER =
   Object.getOwnPropertyDescriptor(
-    Object.getPrototypeOf(Uint8Array.prototype),
+    TYPED_ARRAY_PROTOTYPE,
     "byteLength",
   )?.get;
+const UINT8_ARRAY_BYTE_OFFSET_GETTER =
+  Object.getOwnPropertyDescriptor(
+    TYPED_ARRAY_PROTOTYPE,
+    "byteOffset",
+  )?.get;
+const UINT8_ARRAY_BUFFER_GETTER =
+  Object.getOwnPropertyDescriptor(
+    TYPED_ARRAY_PROTOTYPE,
+    "buffer",
+  )?.get;
+const ARRAY_BUFFER_BYTE_LENGTH_GETTER =
+  Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get;
+const SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER =
+  typeof SharedArrayBuffer === "undefined"
+    ? undefined
+    : Object.getOwnPropertyDescriptor(
+      SharedArrayBuffer.prototype,
+      "byteLength",
+    )?.get;
 const U32_MAX = 0xffff_ffff;
 const MAX_CAPTURED_OWN_KEYS =
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.length + 1;
@@ -301,6 +388,43 @@ const FRAME_FIELDS = {
   ],
 } as const satisfies Readonly<Record<FrameKind, readonly string[]>>;
 
+const DOMAIN_BYTES = Object.freeze({
+  attempt_identity: UTF8_ENCODER.encode(
+    "flarex.declarative-v2/attempt_identity/v2\0",
+  ),
+  attempt_ceilings: UTF8_ENCODER.encode(
+    "flarex.declarative-v2/attempt_ceilings/v2\0",
+  ),
+  attempt_usage: UTF8_ENCODER.encode(
+    "flarex.declarative-v2/attempt_usage/v2\0",
+  ),
+  command_budget: UTF8_ENCODER.encode(
+    "flarex.declarative-v2/command_budget/v2\0",
+  ),
+  progress_cursor: UTF8_ENCODER.encode(
+    "flarex.declarative-v2/progress_cursor/v2\0",
+  ),
+  command_reservation: UTF8_ENCODER.encode(
+    "flarex.declarative-v2/command_reservation/v2\0",
+  ),
+  command_output_manifest: UTF8_ENCODER.encode(
+    "flarex.declarative-v2/command_output_manifest/v2\0",
+  ),
+  command_receipt: UTF8_ENCODER.encode(
+    "flarex.declarative-v2/command_receipt/v2\0",
+  ),
+  evidence_page_manifest: UTF8_ENCODER.encode(
+    "flarex.declarative-v2/evidence_page_manifest/v2\0",
+  ),
+} satisfies Readonly<Record<FrameKind, Uint8Array>>);
+const PROGRESS_PROTOCOL_IDENTITY_BYTES = UTF8_ENCODER.encode(
+  DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2,
+);
+const BUDGET_PROTOCOL_IDENTITY_BYTES = UTF8_ENCODER.encode(
+  DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2,
+);
+const ACTIVE_ADMISSION_INPUTS = new WeakSet<object>();
+
 export function encodeDeclarativeV2VerifierProgressFrameV2(
   input: unknown,
   rawBudget: unknown,
@@ -308,28 +432,231 @@ export function encodeDeclarativeV2VerifierProgressFrameV2(
   DeclarativeV2VerifierEncodedFrameV2,
   DeclarativeV2VerifierProgressV2Error
 > {
-  return Result.gen(function* () {
-    const budget = yield* decodeFrameBudget(rawBudget, "encode");
-    const frame = yield* captureFrame(input, "encode");
-    const exactLength = frameByteLength(frame);
-    if (exactLength > budget.maximumFrameBytes) {
-      return yield* Result.fail(limitError(
-        "encode",
-        "frameBytesExceeded",
-        exactLength,
-        budget.maximumFrameBytes,
-      ));
-    }
-    const bytes = encodeCapturedFrame(frame, exactLength);
-    return Object.freeze({
-      frame: frame as DeclarativeV2VerifierProgressFrameV2,
-      canonicalBytes: bytes,
+  const budget = decodeFrameBudget(rawBudget, "encode");
+  if (Result.isFailure(budget)) return Result.fail(budget.failure);
+  const ownedFrame = captureFrame(input, "encode");
+  if (Result.isFailure(ownedFrame)) return Result.fail(ownedFrame.failure);
+  const exactLength = frameByteLength(ownedFrame.success);
+  if (exactLength > budget.success.maximumFrameBytes) {
+    return Result.fail(limitError(
+      "encode",
+      "frameBytesExceeded",
+      exactLength,
+      budget.success.maximumFrameBytes,
+    ));
+  }
+  const canonicalBytes = new Uint8Array(exactLength);
+  const work = encodingWork(ownedFrame.success, exactLength);
+  const actual = writeCapturedFrame(
+    Object.freeze({
+      bytes: canonicalBytes,
+      byteOffset: 0,
+      byteLength: exactLength,
+    }),
+    ownedFrame.success,
+  );
+  assertExactSuccessfulWork(work, actual);
+  return Result.succeed(Object.freeze({
+    frame: ownedFrame.success as DeclarativeV2VerifierProgressFrameV2,
+    canonicalBytes,
+    usage: Object.freeze({
+      frameBytes: exactLength,
+      canonicalBytes: 0,
+    }),
+  }));
+}
+
+/**
+ * Encodes after a trusted synchronous admission hook approves exact observable
+ * byte work and supplies the caller-owned destination range. The callback must
+ * not mutate or re-enter with the inspected input, retain the plan for reuse,
+ * or return storage overlapping a borrowed frame digest. Callback throws are
+ * defects; a typed callback failure is returned unchanged.
+ */
+export function encodeDeclarativeV2VerifierProgressFrameIntoV2<E>(
+  input: unknown,
+  rawBudget: unknown,
+  admit: DeclarativeV2VerifierProgressFrameEncodeAdmissionV2<E>,
+): Result.Result<
+  DeclarativeV2VerifierProgressFrameWrittenV2,
+  DeclarativeV2VerifierProgressV2Error | E
+> {
+  const encoded = encodeFrameIntoAdmittedRange(input, rawBudget, admit);
+  return Result.isFailure(encoded)
+    ? Result.fail(encoded.failure)
+    : Result.succeed(encoded.success.written);
+}
+
+/**
+ * Verifies a caller-owned byte range without a defensive byte copy. Admission
+ * occurs before parsing or canonical comparison. Digest fields in the returned
+ * frame are views into the admitted range and therefore remain inert evidence,
+ * not independently owned capability state.
+ */
+export function verifyOwnedDeclarativeV2VerifierProgressFrameV2<E>(
+  rawRange: unknown,
+  rawBudget: unknown,
+  admit: DeclarativeV2VerifierProgressFrameVerifyAdmissionV2<E>,
+): Result.Result<
+  DeclarativeV2VerifierProgressFrameVerifiedV2,
+  DeclarativeV2VerifierProgressV2Error | E
+> {
+  const budget = decodeFrameBudget(rawBudget, "decode");
+  if (Result.isFailure(budget)) return Result.fail(budget.failure);
+  const capturedRange = captureByteRange(rawRange, "decode");
+  if (Result.isFailure(capturedRange)) {
+    return Result.fail(capturedRange.failure);
+  }
+  const range = capturedRange.success;
+  if (range.byteLength === 0) {
+    return Result.fail(progressError("decode", "invalidInput"));
+  }
+  if (range.byteLength > budget.success.maximumFrameBytes) {
+    return Result.fail(limitError(
+      "decode",
+      "frameBytesExceeded",
+      range.byteLength,
+      budget.success.maximumFrameBytes,
+    ));
+  }
+  const work = verificationWork(range.byteLength);
+  const plan = Object.freeze({
+    admittedByteLength: range.byteLength,
+    successfulWorkCeiling: work,
+  });
+  const admitted = admit(plan);
+  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
+  const visibleLengthAfterAdmission = intrinsicByteLength(range.bytes);
+  if (
+    visibleLengthAfterAdmission === undefined ||
+    range.byteOffset > visibleLengthAfterAdmission ||
+    range.byteLength > visibleLengthAfterAdmission - range.byteOffset
+  ) {
+    return Result.fail(
+      progressError("decode", "invalidInput", "admission.mutatedByteRange"),
+    );
+  }
+  const input = range.byteOffset === 0 &&
+      range.byteLength === visibleLengthAfterAdmission
+    ? range.bytes
+    : range.bytes.subarray(
+      range.byteOffset,
+      range.byteOffset + range.byteLength,
+    );
+  const parsed = parseOwnedFrame(input, false);
+  if (Result.isFailure(parsed)) return Result.fail(parsed.failure);
+  if (frameByteLength(parsed.success) !== input.byteLength) {
+    return Result.fail(progressError("decode", "nonCanonical"));
+  }
+  const comparison = compareCapturedFrame(input, parsed.success);
+  if (!comparison.matches) {
+    return Result.fail(progressError("decode", "nonCanonical"));
+  }
+  if (
+    comparison.work.byteStorageAllocationBytes !== 0 ||
+    comparison.work.byteCopyBytes !== 0 ||
+    comparison.work.byteWriteBytes !== 0 ||
+    comparison.work.byteScanBytes > work.byteScanBytes ||
+    comparison.work.primitiveTransitions > work.primitiveTransitions
+  ) {
+    throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+      reason: "reencodeFailed",
+    });
+  }
+  return Result.succeed(Object.freeze({
+    frame: parsed.success as DeclarativeV2VerifierProgressFrameV2,
+    canonicalBytes: input,
+    usage: Object.freeze({
+      frameBytes: input.byteLength,
+      canonicalBytes: 0,
+    }),
+    work: comparison.work,
+  }));
+}
+
+interface EncodedAdmittedRangeV2 {
+  readonly written: DeclarativeV2VerifierProgressFrameWrittenV2;
+}
+
+function encodeFrameIntoAdmittedRange<E>(
+  input: unknown,
+  rawBudget: unknown,
+  admit: DeclarativeV2VerifierProgressFrameEncodeAdmissionV2<E>,
+): Result.Result<
+  EncodedAdmittedRangeV2,
+  DeclarativeV2VerifierProgressV2Error | E
+> {
+  const budget = decodeFrameBudget(rawBudget, "encode");
+  if (Result.isFailure(budget)) return Result.fail(budget.failure);
+  if (
+    typeof input === "object" &&
+    input !== null &&
+    ACTIVE_ADMISSION_INPUTS.has(input)
+  ) {
+    return Result.fail(
+      progressError("encode", "invalidInput", "admission.reentrantInput"),
+    );
+  }
+  const frame = captureFrame(input, "encode", false);
+  if (Result.isFailure(frame)) return Result.fail(frame.failure);
+  if (hasSharedBorrowedFrameStorage(frame.success)) {
+    return Result.fail(
+      progressError("encode", "invalidInput", "frame.sharedByteStorage"),
+    );
+  }
+  const exactLength = frameByteLength(frame.success);
+  if (exactLength > budget.success.maximumFrameBytes) {
+    return Result.fail(limitError(
+      "encode",
+      "frameBytesExceeded",
+      exactLength,
+      budget.success.maximumFrameBytes,
+    ));
+  }
+  const work = encodingWork(frame.success, exactLength);
+  const plan = Object.freeze({
+    canonicalByteLength: exactLength,
+    successfulWork: work,
+  });
+  const identity = typeof input === "object" && input !== null ? input : null;
+  if (identity !== null) ACTIVE_ADMISSION_INPUTS.add(identity);
+  let admitted: Result.Result<
+    DeclarativeV2VerifierProgressFrameByteRangeV2,
+    E
+  >;
+  try {
+    admitted = admit(plan);
+  } finally {
+    if (identity !== null) ACTIVE_ADMISSION_INPUTS.delete(identity);
+  }
+  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
+  const capturedRange = captureByteRange(admitted.success, "encode");
+  if (Result.isFailure(capturedRange)) {
+    return Result.fail(capturedRange.failure);
+  }
+  const range = capturedRange.success;
+  if (range.byteLength !== exactLength) {
+    return Result.fail(
+      progressError("encode", "invalidInput", "destination.byteLength"),
+    );
+  }
+  if (overlapsBorrowedFrameStorage(frame.success, range)) {
+    return Result.fail(
+      progressError("encode", "invalidInput", "destination.overlap"),
+    );
+  }
+  const actual = writeCapturedFrame(range, frame.success);
+  assertExactSuccessfulWork(work, actual);
+  return Result.succeed(Object.freeze({
+    written: Object.freeze({
+      range,
       usage: Object.freeze({
         frameBytes: exactLength,
         canonicalBytes: 0,
       }),
-    });
-  });
+      work: actual,
+    }),
+  }));
 }
 
 export function decodeDeclarativeV2VerifierProgressFrameV2(
@@ -535,6 +862,7 @@ function decodeFrameBudget(
 function captureFrame(
   input: unknown,
   operation: "encode" | "decode",
+  copyByteFields = true,
 ): Result.Result<CapturedFrame, DeclarativeV2VerifierProgressV2Error> {
   const captured = captureOwnDataRecord(input);
   if (captured === undefined) {
@@ -593,23 +921,23 @@ function captureFrame(
     }
     return Result.succeed(Object.freeze({
       kind,
-      candidateSha256: new Uint8Array(candidateSha256),
+      candidateSha256: retainDigest(candidateSha256, copyByteFields),
       progressProtocolIdentity,
       budgetProtocolIdentity,
-      ceilingsSha256: new Uint8Array(ceilingsSha256),
+      ceilingsSha256: retainDigest(ceilingsSha256, copyByteFields),
     }));
   }
   if (kind === "command_reservation") {
-    return captureCommandReservation(captured, operation);
+    return captureCommandReservation(captured, operation, copyByteFields);
   }
   if (kind === "command_output_manifest") {
-    return captureCommandOutputManifest(captured, operation);
+    return captureCommandOutputManifest(captured, operation, copyByteFields);
   }
   if (kind === "command_receipt") {
-    return captureCommandReceipt(captured, operation);
+    return captureCommandReceipt(captured, operation, copyByteFields);
   }
   if (kind === "evidence_page_manifest") {
-    return captureEvidencePageManifest(captured, operation);
+    return captureEvidencePageManifest(captured, operation, copyByteFields);
   }
   const phase = captured.phase;
   const settledSequence = captured.settledSequence;
@@ -645,13 +973,14 @@ function captureFrame(
     pageOrdinal,
     previousReceiptSha256: previousReceiptSha256 === null
       ? null
-      : new Uint8Array(previousReceiptSha256),
+      : retainDigest(previousReceiptSha256, copyByteFields),
   }));
 }
 
 function captureCommandReservation(
   input: Readonly<Record<string, unknown>>,
   operation: "encode" | "decode",
+  copyByteFields = true,
 ): Result.Result<CapturedFrame, DeclarativeV2VerifierProgressV2Error> {
   const commandKind = input.commandKind;
   const sequence = input.sequence;
@@ -682,23 +1011,34 @@ function captureCommandReservation(
   }
   return Result.succeed(Object.freeze({
     kind: "command_reservation",
-    attemptSha256: copyDigest(input.attemptSha256),
-    candidateSha256: copyDigest(input.candidateSha256),
+    attemptSha256: retainDigest(input.attemptSha256, copyByteFields),
+    candidateSha256: retainDigest(input.candidateSha256, copyByteFields),
     commandKind,
     sequence,
-    currentProgressSha256: copyDigest(input.currentProgressSha256),
+    currentProgressSha256: retainDigest(
+      input.currentProgressSha256,
+      copyByteFields,
+    ),
     predecessorReceiptSha256: predecessorReceiptSha256 === null
       ? null
-      : copyDigest(predecessorReceiptSha256),
-    commandBudgetSha256: copyDigest(input.commandBudgetSha256),
-    commandInputSha256: copyDigest(input.commandInputSha256),
-    freshAuthenticatedInputSha256: copyDigest(
+      : retainDigest(predecessorReceiptSha256, copyByteFields),
+    commandBudgetSha256: retainDigest(input.commandBudgetSha256, copyByteFields),
+    commandInputSha256: retainDigest(input.commandInputSha256, copyByteFields),
+    freshAuthenticatedInputSha256: retainDigest(
       input.freshAuthenticatedInputSha256,
+      copyByteFields,
     ),
-    analyzerIdentitySha256: copyDigest(input.analyzerIdentitySha256),
-    verifierIdentitySha256: copyDigest(input.verifierIdentitySha256),
-    rangeAndPredecessorTailsSha256: copyDigest(
+    analyzerIdentitySha256: retainDigest(
+      input.analyzerIdentitySha256,
+      copyByteFields,
+    ),
+    verifierIdentitySha256: retainDigest(
+      input.verifierIdentitySha256,
+      copyByteFields,
+    ),
+    rangeAndPredecessorTailsSha256: retainDigest(
       input.rangeAndPredecessorTailsSha256,
+      copyByteFields,
     ),
   }));
 }
@@ -706,6 +1046,7 @@ function captureCommandReservation(
 function captureCommandOutputManifest(
   input: Readonly<Record<string, unknown>>,
   operation: "encode" | "decode",
+  copyByteFields = true,
 ): Result.Result<CapturedFrame, DeclarativeV2VerifierProgressV2Error> {
   const commandKind = input.commandKind;
   const sequence = input.sequence;
@@ -730,20 +1071,24 @@ function captureCommandOutputManifest(
   }
   return Result.succeed(Object.freeze({
     kind: "command_output_manifest",
-    reservationSha256: copyDigest(input.reservationSha256),
+    reservationSha256: retainDigest(input.reservationSha256, copyByteFields),
     commandKind,
     sequence,
-    evidenceRootSha256: copyDigest(input.evidenceRootSha256),
+    evidenceRootSha256: retainDigest(input.evidenceRootSha256, copyByteFields),
     evidenceCount,
-    diagnosticsRootSha256: copyDigest(input.diagnosticsRootSha256),
+    diagnosticsRootSha256: retainDigest(
+      input.diagnosticsRootSha256,
+      copyByteFields,
+    ),
     diagnosticCount,
-    nextProgressSha256: copyDigest(input.nextProgressSha256),
+    nextProgressSha256: retainDigest(input.nextProgressSha256, copyByteFields),
   }));
 }
 
 function captureCommandReceipt(
   input: Readonly<Record<string, unknown>>,
   operation: "encode" | "decode",
+  copyByteFields = true,
 ): Result.Result<CapturedFrame, DeclarativeV2VerifierProgressV2Error> {
   const digestFields = [
     "reservationSha256",
@@ -759,19 +1104,24 @@ function captureCommandReceipt(
   }
   return Result.succeed(Object.freeze({
     kind: "command_receipt",
-    reservationSha256: copyDigest(input.reservationSha256),
-    commandUsageSha256: copyDigest(input.commandUsageSha256),
-    resultingAttemptUsageSha256: copyDigest(
+    reservationSha256: retainDigest(input.reservationSha256, copyByteFields),
+    commandUsageSha256: retainDigest(input.commandUsageSha256, copyByteFields),
+    resultingAttemptUsageSha256: retainDigest(
       input.resultingAttemptUsageSha256,
+      copyByteFields,
     ),
-    outputManifestSha256: copyDigest(input.outputManifestSha256),
-    nextProgressSha256: copyDigest(input.nextProgressSha256),
+    outputManifestSha256: retainDigest(
+      input.outputManifestSha256,
+      copyByteFields,
+    ),
+    nextProgressSha256: retainDigest(input.nextProgressSha256, copyByteFields),
   }));
 }
 
 function captureEvidencePageManifest(
   input: Readonly<Record<string, unknown>>,
   operation: "encode" | "decode",
+  copyByteFields = true,
 ): Result.Result<CapturedFrame, DeclarativeV2VerifierProgressV2Error> {
   const commandKind = input.commandKind;
   const sequence = input.sequence;
@@ -813,7 +1163,7 @@ function captureEvidencePageManifest(
   }
   return Result.succeed(Object.freeze({
     kind: "evidence_page_manifest",
-    reservationSha256: copyDigest(input.reservationSha256),
+    reservationSha256: retainDigest(input.reservationSha256, copyByteFields),
     commandKind,
     sequence,
     pageOrdinal,
@@ -823,17 +1173,18 @@ function captureEvidencePageManifest(
     diagnosticCount,
     predecessorPageSha256: predecessorPageSha256 === null
       ? null
-      : copyDigest(predecessorPageSha256),
+      : retainDigest(predecessorPageSha256, copyByteFields),
     payloadByteLength,
-    payloadSha256: copyDigest(input.payloadSha256),
-    cumulativeDiagnosticsRootSha256: copyDigest(
+    payloadSha256: retainDigest(input.payloadSha256, copyByteFields),
+    cumulativeDiagnosticsRootSha256: retainDigest(
       input.cumulativeDiagnosticsRootSha256,
+      copyByteFields,
     ),
   }));
 }
 
 function frameByteLength(frame: CapturedFrame): number {
-  const domainLength = domainBytes(frame.kind).byteLength;
+  const domainLength = DOMAIN_BYTES[frame.kind].byteLength;
   if (
     frame.kind === "attempt_ceilings" ||
     frame.kind === "attempt_usage" ||
@@ -846,20 +1197,14 @@ function frameByteLength(frame: CapturedFrame): number {
     );
   }
   if (frame.kind === "attempt_identity") {
-    const progress = UTF8_ENCODER.encode(
-      DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2,
-    );
-    const budget = UTF8_ENCODER.encode(
-      DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2,
-    );
     return checkedLength(
       domainLength,
       4,
       32,
       4,
-      progress.byteLength,
+      PROGRESS_PROTOCOL_IDENTITY_BYTES.byteLength,
       4,
-      budget.byteLength,
+      BUDGET_PROTOCOL_IDENTITY_BYTES.byteLength,
       32,
     );
   }
@@ -928,13 +1273,133 @@ function frameByteLength(frame: CapturedFrame): number {
   );
 }
 
-function encodeCapturedFrame(
+function encodingWork(
   frame: CapturedFrame,
-  exactLength: number,
-): Uint8Array {
-  const output = new Uint8Array(exactLength);
-  let offset = writeBytes(output, 0, domainBytes(frame.kind));
-  writeU32(output, offset, FRAME_FIELDS[frame.kind].length);
+  canonicalByteLength: number,
+): DeclarativeV2VerifierProgressFrameWorkV2 {
+  return Object.freeze({
+    byteStorageAllocationBytes: canonicalByteLength,
+    byteCopyBytes: frameByteCopyLength(frame),
+    byteWriteBytes: canonicalByteLength,
+    byteScanBytes: 0,
+    primitiveTransitions: canonicalByteLength,
+  });
+}
+
+function verificationWork(
+  canonicalByteLength: number,
+): DeclarativeV2VerifierProgressFrameWorkV2 {
+  const successfulScanCeiling = checkedWorkCount(
+    canonicalByteLength,
+    canonicalByteLength,
+    canonicalByteLength,
+  );
+  return Object.freeze({
+    byteStorageAllocationBytes: 0,
+    byteCopyBytes: 0,
+    byteWriteBytes: 0,
+    byteScanBytes: successfulScanCeiling,
+    primitiveTransitions: successfulScanCeiling,
+  });
+}
+
+function assertExactSuccessfulWork(
+  expected: DeclarativeV2VerifierProgressFrameWorkV2,
+  actual: DeclarativeV2VerifierProgressFrameWorkV2,
+): void {
+  if (
+    actual.byteStorageAllocationBytes !== expected.byteStorageAllocationBytes ||
+    actual.byteCopyBytes !== expected.byteCopyBytes ||
+    actual.byteWriteBytes !== expected.byteWriteBytes ||
+    actual.byteScanBytes !== expected.byteScanBytes ||
+    actual.primitiveTransitions !== expected.primitiveTransitions
+  ) {
+    throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+      reason: "reencodeFailed",
+    });
+  }
+}
+
+function frameByteCopyLength(frame: CapturedFrame): number {
+  let result = DOMAIN_BYTES[frame.kind].byteLength;
+  if (frame.kind === "attempt_identity") {
+    return checkedLength(
+      result,
+      DECLARATIVE_V2_SHA256_BYTES_V1 * 2,
+      PROGRESS_PROTOCOL_IDENTITY_BYTES.byteLength,
+      BUDGET_PROTOCOL_IDENTITY_BYTES.byteLength,
+    );
+  }
+  for (const field of FRAME_FIELDS[frame.kind]) {
+    if (isDigest(frame[field])) {
+      result = checkedLength(result, DECLARATIVE_V2_SHA256_BYTES_V1);
+    }
+  }
+  return result;
+}
+
+function writeCapturedFrame(
+  range: DeclarativeV2VerifierProgressFrameByteRangeV2,
+  frame: CapturedFrame,
+): DeclarativeV2VerifierProgressFrameWorkV2 {
+  let copied = 0;
+  let written = 0;
+  const emitted = emitCapturedFrame(frame, (offset, value, isCopied) => {
+    range.bytes[range.byteOffset + offset] = value;
+    written += 1;
+    if (isCopied) copied += 1;
+  });
+  if (emitted !== range.byteLength) {
+    throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+      reason: "reencodeFailed",
+    });
+  }
+  return Object.freeze({
+    byteStorageAllocationBytes: range.byteLength,
+    byteCopyBytes: copied,
+    byteWriteBytes: written,
+    byteScanBytes: 0,
+    primitiveTransitions: written,
+  });
+}
+
+function compareCapturedFrame(
+  input: Uint8Array,
+  frame: CapturedFrame,
+): Readonly<{
+  readonly matches: boolean;
+  readonly work: DeclarativeV2VerifierProgressFrameWorkV2;
+}> {
+  let matches = true;
+  let scanned = 0;
+  const emitted = emitCapturedFrame(frame, (offset, value) => {
+    if (input[offset] !== value) matches = false;
+    scanned += 1;
+  });
+  if (emitted !== input.byteLength) matches = false;
+  const successfulScanBytes = checkedWorkCount(
+    input.byteLength,
+    scanned,
+    DOMAIN_BYTES[frame.kind].byteLength,
+  );
+  return Object.freeze({
+    matches,
+    work: Object.freeze({
+      byteStorageAllocationBytes: 0,
+      byteCopyBytes: 0,
+      byteWriteBytes: 0,
+      byteScanBytes: successfulScanBytes,
+      primitiveTransitions: successfulScanBytes,
+    }),
+  });
+}
+
+function emitCapturedFrame(
+  frame: CapturedFrame,
+  emitByte: (offset: number, value: number, copied: boolean) => void,
+): number {
+  let offset = emitBytes(emitByte, 0, DOMAIN_BYTES[frame.kind]);
+  emitU32(emitByte, offset, FRAME_FIELDS[frame.kind].length);
   offset += 4;
   if (
     frame.kind === "attempt_ceilings" ||
@@ -942,41 +1407,53 @@ function encodeCapturedFrame(
     frame.kind === "command_budget"
   ) {
     for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
-      writeU64(output, offset, frame[dimension] as bigint);
+      emitU64(emitByte, offset, frame[dimension] as bigint);
       offset += 8;
     }
-    return output;
+    return offset;
   }
   if (frame.kind === "attempt_identity") {
-    offset = writeBytes(
-      output,
+    offset = emitBytes(
+      emitByte,
       offset,
       frame.candidateSha256 as Uint8Array,
     );
-    offset = writeString(
-      output,
+    offset = emitSizedBytes(
+      emitByte,
       offset,
-      frame.progressProtocolIdentity as string,
+      PROGRESS_PROTOCOL_IDENTITY_BYTES,
     );
-    offset = writeString(
-      output,
+    offset = emitSizedBytes(
+      emitByte,
       offset,
-      frame.budgetProtocolIdentity as string,
+      BUDGET_PROTOCOL_IDENTITY_BYTES,
     );
-    writeBytes(output, offset, frame.ceilingsSha256 as Uint8Array);
-    return output;
+    offset = emitBytes(
+      emitByte,
+      offset,
+      frame.ceilingsSha256 as Uint8Array,
+    );
+    return offset;
   }
   if (frame.kind === "command_reservation") {
-    offset = writeBytes(output, offset, frame.attemptSha256 as Uint8Array);
-    offset = writeBytes(output, offset, frame.candidateSha256 as Uint8Array);
-    output[offset] = durableCommandKindTag(
-      frame.commandKind as DeclarativeV2VerifierDurableCommandKindV2,
+    offset = emitBytes(
+      emitByte,
+      offset,
+      frame.attemptSha256 as Uint8Array,
     );
+    offset = emitBytes(
+      emitByte,
+      offset,
+      frame.candidateSha256 as Uint8Array,
+    );
+    emitByte(offset, durableCommandKindTag(
+      frame.commandKind as DeclarativeV2VerifierDurableCommandKindV2,
+    ), false);
     offset += 1;
-    writeU64(output, offset, frame.sequence as bigint);
+    emitU64(emitByte, offset, frame.sequence as bigint);
     offset += 8;
-    offset = writeBytes(
-      output,
+    offset = emitBytes(
+      emitByte,
       offset,
       frame.currentProgressSha256 as Uint8Array,
     );
@@ -984,11 +1461,15 @@ function encodeCapturedFrame(
       | Uint8Array
       | null;
     if (predecessorReceiptSha256 === null) {
-      output[offset] = 0;
+      emitByte(offset, 0, false);
       offset += 1;
     } else {
-      output[offset] = 1;
-      offset = writeBytes(output, offset + 1, predecessorReceiptSha256);
+      emitByte(offset, 1, false);
+      offset = emitBytes(
+        emitByte,
+        offset + 1,
+        predecessorReceiptSha256,
+      );
     }
     for (const field of [
       "commandBudgetSha256",
@@ -998,38 +1479,46 @@ function encodeCapturedFrame(
       "verifierIdentitySha256",
       "rangeAndPredecessorTailsSha256",
     ] as const) {
-      offset = writeBytes(output, offset, frame[field] as Uint8Array);
+      offset = emitBytes(
+        emitByte,
+        offset,
+        frame[field] as Uint8Array,
+      );
     }
-    return output;
+    return offset;
   }
   if (frame.kind === "command_output_manifest") {
-    offset = writeBytes(
-      output,
+    offset = emitBytes(
+      emitByte,
       offset,
       frame.reservationSha256 as Uint8Array,
     );
-    output[offset] = durableCommandKindTag(
+    emitByte(offset, durableCommandKindTag(
       frame.commandKind as DeclarativeV2VerifierDurableCommandKindV2,
-    );
+    ), false);
     offset += 1;
-    writeU64(output, offset, frame.sequence as bigint);
+    emitU64(emitByte, offset, frame.sequence as bigint);
     offset += 8;
-    offset = writeBytes(
-      output,
+    offset = emitBytes(
+      emitByte,
       offset,
       frame.evidenceRootSha256 as Uint8Array,
     );
-    writeU64(output, offset, frame.evidenceCount as bigint);
+    emitU64(emitByte, offset, frame.evidenceCount as bigint);
     offset += 8;
-    offset = writeBytes(
-      output,
+    offset = emitBytes(
+      emitByte,
       offset,
       frame.diagnosticsRootSha256 as Uint8Array,
     );
-    writeU64(output, offset, frame.diagnosticCount as bigint);
+    emitU64(emitByte, offset, frame.diagnosticCount as bigint);
     offset += 8;
-    writeBytes(output, offset, frame.nextProgressSha256 as Uint8Array);
-    return output;
+    offset = emitBytes(
+      emitByte,
+      offset,
+      frame.nextProgressSha256 as Uint8Array,
+    );
+    return offset;
   }
   if (frame.kind === "command_receipt") {
     for (const field of [
@@ -1039,19 +1528,23 @@ function encodeCapturedFrame(
       "outputManifestSha256",
       "nextProgressSha256",
     ] as const) {
-      offset = writeBytes(output, offset, frame[field] as Uint8Array);
+      offset = emitBytes(
+        emitByte,
+        offset,
+        frame[field] as Uint8Array,
+      );
     }
-    return output;
+    return offset;
   }
   if (frame.kind === "evidence_page_manifest") {
-    offset = writeBytes(
-      output,
+    offset = emitBytes(
+      emitByte,
       offset,
       frame.reservationSha256 as Uint8Array,
     );
-    output[offset] = restartCommandKindTag(
+    emitByte(offset, restartCommandKindTag(
       frame.commandKind as DeclarativeV2VerifierRestartCommandKindV2,
-    );
+    ), false);
     offset += 1;
     for (const field of [
       "sequence",
@@ -1061,30 +1554,38 @@ function encodeCapturedFrame(
       "firstDiagnosticOrdinal",
       "diagnosticCount",
     ] as const) {
-      writeU64(output, offset, frame[field] as bigint);
+      emitU64(emitByte, offset, frame[field] as bigint);
       offset += 8;
     }
     const predecessorPageSha256 = frame.predecessorPageSha256 as
       | Uint8Array
       | null;
     if (predecessorPageSha256 === null) {
-      output[offset] = 0;
+      emitByte(offset, 0, false);
       offset += 1;
     } else {
-      output[offset] = 1;
-      offset = writeBytes(output, offset + 1, predecessorPageSha256);
+      emitByte(offset, 1, false);
+      offset = emitBytes(emitByte, offset + 1, predecessorPageSha256);
     }
-    writeU64(output, offset, frame.payloadByteLength as bigint);
+    emitU64(emitByte, offset, frame.payloadByteLength as bigint);
     offset += 8;
-    offset = writeBytes(output, offset, frame.payloadSha256 as Uint8Array);
-    writeBytes(
-      output,
+    offset = emitBytes(
+      emitByte,
+      offset,
+      frame.payloadSha256 as Uint8Array,
+    );
+    offset = emitBytes(
+      emitByte,
       offset,
       frame.cumulativeDiagnosticsRootSha256 as Uint8Array,
     );
-    return output;
+    return offset;
   }
-  output[offset] = phaseTag(frame.phase as DeclarativeV2VerifierPhaseV1);
+  emitByte(
+    offset,
+    phaseTag(frame.phase as DeclarativeV2VerifierPhaseV1),
+    false,
+  );
   offset += 1;
   for (const field of [
     "settledSequence",
@@ -1092,23 +1593,25 @@ function encodeCapturedFrame(
     "edgeOrdinal",
     "pageOrdinal",
   ] as const) {
-    writeU64(output, offset, frame[field] as bigint);
+    emitU64(emitByte, offset, frame[field] as bigint);
     offset += 8;
   }
   const previousReceiptSha256 = frame.previousReceiptSha256 as
     | Uint8Array
     | null;
   if (previousReceiptSha256 === null) {
-    output[offset] = 0;
+    emitByte(offset, 0, false);
+    offset += 1;
   } else {
-    output[offset] = 1;
-    writeBytes(output, offset + 1, previousReceiptSha256);
+    emitByte(offset, 1, false);
+    offset = emitBytes(emitByte, offset + 1, previousReceiptSha256);
   }
-  return output;
+  return offset;
 }
 
 function parseOwnedFrame(
   input: Uint8Array,
+  copyByteFields = true,
 ): Result.Result<CapturedFrame, DeclarativeV2VerifierProgressV2Error> {
   return Result.gen(function* () {
     const parsedDomain = yield* readDomain(input);
@@ -1143,7 +1646,7 @@ function parseOwnedFrame(
       return Object.freeze(values) as CapturedFrame;
     }
     if (kind === "attempt_identity") {
-      const candidateSha256 = readDigest(input, offset);
+      const candidateSha256 = readDigest(input, offset, copyByteFields);
       if (candidateSha256 === undefined) {
         return yield* Result.fail(progressError("decode", "malformed"));
       }
@@ -1152,7 +1655,7 @@ function parseOwnedFrame(
       offset = progress.offset;
       const budget = yield* readString(input, offset);
       offset = budget.offset;
-      const ceilingsSha256 = readDigest(input, offset);
+      const ceilingsSha256 = readDigest(input, offset, copyByteFields);
       if (
         ceilingsSha256 === undefined ||
         offset + 32 !== input.byteLength
@@ -1180,9 +1683,19 @@ function parseOwnedFrame(
       });
     }
     if (kind === "command_reservation") {
-      const attempt = yield* readRequiredDigest(input, offset, kind);
+      const attempt = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = attempt.offset;
-      const candidate = yield* readRequiredDigest(input, offset, kind);
+      const candidate = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = candidate.offset;
       const commandKind = durableCommandKindFromTag(input[offset] ?? 0);
       if (commandKind === undefined) {
@@ -1198,21 +1711,61 @@ function parseOwnedFrame(
         );
       }
       offset += 8;
-      const currentProgress = yield* readRequiredDigest(input, offset, kind);
+      const currentProgress = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = currentProgress.offset;
-      const predecessor = yield* readOptionalDigest(input, offset, kind);
+      const predecessor = yield* readOptionalDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = predecessor.offset;
-      const commandBudget = yield* readRequiredDigest(input, offset, kind);
+      const commandBudget = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = commandBudget.offset;
-      const commandInput = yield* readRequiredDigest(input, offset, kind);
+      const commandInput = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = commandInput.offset;
-      const authenticatedInput = yield* readRequiredDigest(input, offset, kind);
+      const authenticatedInput = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = authenticatedInput.offset;
-      const analyzerIdentity = yield* readRequiredDigest(input, offset, kind);
+      const analyzerIdentity = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = analyzerIdentity.offset;
-      const verifierIdentity = yield* readRequiredDigest(input, offset, kind);
+      const verifierIdentity = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = verifierIdentity.offset;
-      const rangeAndTails = yield* readRequiredDigest(input, offset, kind);
+      const rangeAndTails = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = rangeAndTails.offset;
       if (offset !== input.byteLength) {
         return yield* Result.fail(
@@ -1236,7 +1789,12 @@ function parseOwnedFrame(
       });
     }
     if (kind === "command_output_manifest") {
-      const reservation = yield* readRequiredDigest(input, offset, kind);
+      const reservation = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = reservation.offset;
       const commandKind = durableCommandKindFromTag(input[offset] ?? 0);
       if (commandKind === undefined) {
@@ -1252,7 +1810,12 @@ function parseOwnedFrame(
         );
       }
       offset += 8;
-      const evidenceRoot = yield* readRequiredDigest(input, offset, kind);
+      const evidenceRoot = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = evidenceRoot.offset;
       const evidenceCount = readU64(input, offset);
       if (evidenceCount === undefined) {
@@ -1261,7 +1824,12 @@ function parseOwnedFrame(
         );
       }
       offset += 8;
-      const diagnosticsRoot = yield* readRequiredDigest(input, offset, kind);
+      const diagnosticsRoot = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = diagnosticsRoot.offset;
       const diagnosticCount = readU64(input, offset);
       if (diagnosticCount === undefined) {
@@ -1270,7 +1838,12 @@ function parseOwnedFrame(
         );
       }
       offset += 8;
-      const nextProgress = yield* readRequiredDigest(input, offset, kind);
+      const nextProgress = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = nextProgress.offset;
       if (offset !== input.byteLength) {
         return yield* Result.fail(
@@ -1292,7 +1865,12 @@ function parseOwnedFrame(
     if (kind === "command_receipt") {
       const values: Record<string, Uint8Array | string> = { kind };
       for (const field of FRAME_FIELDS.command_receipt) {
-        const digest = yield* readRequiredDigest(input, offset, kind);
+        const digest = yield* readRequiredDigest(
+          input,
+          offset,
+          kind,
+          copyByteFields,
+        );
         values[field] = digest.value;
         offset = digest.offset;
       }
@@ -1304,7 +1882,12 @@ function parseOwnedFrame(
       return Object.freeze(values) as CapturedFrame;
     }
     if (kind === "evidence_page_manifest") {
-      const reservation = yield* readRequiredDigest(input, offset, kind);
+      const reservation = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = reservation.offset;
       const commandKind = restartCommandKindFromTag(input[offset] ?? 0);
       if (commandKind === undefined) {
@@ -1329,7 +1912,12 @@ function parseOwnedFrame(
           progressError("decode", "malformed", kind),
         );
       }
-      const predecessor = yield* readOptionalDigest(input, offset, kind);
+      const predecessor = yield* readOptionalDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = predecessor.offset;
       const payloadByteLength = readU64(input, offset);
       if (payloadByteLength === undefined || payloadByteLength === 0n) {
@@ -1338,9 +1926,19 @@ function parseOwnedFrame(
         );
       }
       offset += 8;
-      const payload = yield* readRequiredDigest(input, offset, kind);
+      const payload = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = payload.offset;
-      const diagnostics = yield* readRequiredDigest(input, offset, kind);
+      const diagnostics = yield* readRequiredDigest(
+        input,
+        offset,
+        kind,
+        copyByteFields,
+      );
       offset = diagnostics.offset;
       const parsed = yield* captureEvidencePageManifest(
         Object.freeze({
@@ -1359,6 +1957,7 @@ function parseOwnedFrame(
           cumulativeDiagnosticsRootSha256: diagnostics.value,
         }),
         "decode",
+        copyByteFields,
       );
       if (offset !== input.byteLength) {
         return yield* Result.fail(
@@ -1395,7 +1994,11 @@ function parseOwnedFrame(
     if (optionTag === 0) {
       previousReceiptSha256 = null;
     } else if (optionTag === 1) {
-      previousReceiptSha256 = readDigest(input, offset) ?? null;
+      previousReceiptSha256 = readDigest(
+        input,
+        offset,
+        copyByteFields,
+      ) ?? null;
       if (previousReceiptSha256 === null) {
         return yield* Result.fail(progressError("decode", "malformed"));
       }
@@ -1447,10 +2050,6 @@ function readDomain(
     kind: rawKind as FrameKind,
     offset: nul + 1,
   }));
-}
-
-function domainBytes(kind: FrameKind): Uint8Array {
-  return UTF8_ENCODER.encode(`flarex.declarative-v2/${kind}/v2\0`);
 }
 
 function progressError(
@@ -1553,13 +2152,59 @@ function isDigest(value: unknown): value is Uint8Array {
   return isUint8ArrayWithByteLength(value, DECLARATIVE_V2_SHA256_BYTES_V1);
 }
 
-function copyDigest(value: unknown): Uint8Array {
+function retainDigest(value: unknown, copy: boolean): Uint8Array {
   if (!isDigest(value)) {
     throw new DeclarativeV2VerifierProgressV2InvariantDefect({
       reason: "invalidPlatformIntrinsic",
     });
   }
-  return new Uint8Array(value);
+  return copy ? new Uint8Array(value) : value;
+}
+
+function captureByteRange(
+  input: unknown,
+  operation: "encode" | "decode",
+): Result.Result<
+  DeclarativeV2VerifierProgressFrameByteRangeV2,
+  DeclarativeV2VerifierProgressV2Error
+> {
+  const captured = captureOwnDataRecord(input);
+  if (
+    captured === undefined ||
+    !hasExactCapturedKeys(captured, [
+      "bytes",
+      "byteOffset",
+      "byteLength",
+    ])
+  ) {
+    return Result.fail(
+      progressError(operation, "invalidInput", "byteRange"),
+    );
+  }
+  const bytes = captured.bytes;
+  const byteOffset = captured.byteOffset;
+  const byteLength = captured.byteLength;
+  if (
+    !isUint8Array(bytes) ||
+    !isNonNegativeSafeInteger(byteOffset) ||
+    !isNonNegativeSafeInteger(byteLength)
+  ) {
+    return Result.fail(
+      progressError(operation, "invalidInput", "byteRange"),
+    );
+  }
+  const visibleLength = intrinsicByteLength(bytes);
+  if (
+    visibleLength === undefined ||
+    isSharedArrayBufferStorage(bytes) ||
+    byteOffset > visibleLength ||
+    byteLength > visibleLength - byteOffset
+  ) {
+    return Result.fail(
+      progressError(operation, "invalidInput", "byteRange"),
+    );
+  }
+  return Result.succeed(Object.freeze({ bytes, byteOffset, byteLength }));
 }
 
 function intrinsicByteLength(value: Uint8Array): number | undefined {
@@ -1569,6 +2214,99 @@ function intrinsicByteLength(value: Uint8Array): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+function intrinsicByteOffset(value: Uint8Array): number | undefined {
+  if (UINT8_ARRAY_BYTE_OFFSET_GETTER === undefined) return undefined;
+  try {
+    const result = Reflect.apply(UINT8_ARRAY_BYTE_OFFSET_GETTER, value, []);
+    return isNonNegativeSafeInteger(result) ? result : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function intrinsicBuffer(value: Uint8Array): ArrayBufferLike | undefined {
+  if (UINT8_ARRAY_BUFFER_GETTER === undefined) return undefined;
+  try {
+    const result = Reflect.apply(UINT8_ARRAY_BUFFER_GETTER, value, []);
+    return intrinsicBufferKind(result) === undefined ? undefined : result;
+  } catch {
+    return undefined;
+  }
+}
+
+function isSharedArrayBufferStorage(value: Uint8Array): boolean {
+  const buffer = intrinsicBuffer(value);
+  return buffer !== undefined && intrinsicBufferKind(buffer) === "shared";
+}
+
+function intrinsicBufferKind(
+  value: unknown,
+): "array" | "shared" | undefined {
+  if (ARRAY_BUFFER_BYTE_LENGTH_GETTER !== undefined) {
+    try {
+      Reflect.apply(ARRAY_BUFFER_BYTE_LENGTH_GETTER, value, []);
+      return "array";
+    } catch {
+      // Continue to the distinct SharedArrayBuffer intrinsic brand check.
+    }
+  }
+  if (SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER !== undefined) {
+    try {
+      Reflect.apply(SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER, value, []);
+      return "shared";
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function hasSharedBorrowedFrameStorage(frame: CapturedFrame): boolean {
+  for (const field of FRAME_FIELDS[frame.kind]) {
+    const value = frame[field];
+    if (isUint8Array(value) && isSharedArrayBufferStorage(value)) return true;
+  }
+  return false;
+}
+
+function overlapsBorrowedFrameStorage(
+  frame: CapturedFrame,
+  destination: DeclarativeV2VerifierProgressFrameByteRangeV2,
+): boolean {
+  const destinationBuffer = intrinsicBuffer(destination.bytes);
+  const destinationViewOffset = intrinsicByteOffset(destination.bytes);
+  if (
+    destinationBuffer === undefined ||
+    destinationViewOffset === undefined
+  ) {
+    return true;
+  }
+  const destinationStart = destinationViewOffset + destination.byteOffset;
+  const destinationEnd = destinationStart + destination.byteLength;
+  for (const field of FRAME_FIELDS[frame.kind]) {
+    const source = frame[field];
+    if (!isUint8Array(source)) continue;
+    const sourceBuffer = intrinsicBuffer(source);
+    const sourceOffset = intrinsicByteOffset(source);
+    const sourceLength = intrinsicByteLength(source);
+    if (
+      sourceBuffer === undefined ||
+      sourceOffset === undefined ||
+      sourceLength === undefined
+    ) {
+      return true;
+    }
+    if (
+      sourceBuffer === destinationBuffer &&
+      sourceOffset < destinationEnd &&
+      destinationStart < sourceOffset + sourceLength
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function checkedLength(...values: readonly number[]): number {
@@ -1587,35 +2325,60 @@ function checkedLength(...values: readonly number[]): number {
   return result;
 }
 
-function writeBytes(
-  output: Uint8Array,
+function checkedWorkCount(...values: readonly number[]): number {
+  let result = 0;
+  for (const value of values) {
+    if (
+      !isNonNegativeSafeInteger(value) ||
+      result > Number.MAX_SAFE_INTEGER - value
+    ) {
+      throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+        reason: "invalidPlatformIntrinsic",
+      });
+    }
+    result += value;
+  }
+  return result;
+}
+
+function emitBytes(
+  emitByte: (offset: number, value: number, copied: boolean) => void,
   offset: number,
   bytes: Uint8Array,
 ): number {
-  output.set(bytes, offset);
-  return offset + bytes.byteLength;
+  for (let index = 0; index < bytes.byteLength; index += 1) {
+    emitByte(offset + index, bytes[index]!, true);
+  }
+  return checkedLength(offset, bytes.byteLength);
 }
 
-function writeString(
-  output: Uint8Array,
+function emitSizedBytes(
+  emitByte: (offset: number, value: number, copied: boolean) => void,
   offset: number,
-  value: string,
+  bytes: Uint8Array,
 ): number {
-  const bytes = UTF8_ENCODER.encode(value);
-  writeU32(output, offset, bytes.byteLength);
-  return writeBytes(output, offset + 4, bytes);
+  emitU32(emitByte, offset, bytes.byteLength);
+  return emitBytes(emitByte, offset + 4, bytes);
 }
 
-function writeU32(output: Uint8Array, offset: number, value: number): void {
-  output[offset] = (value >>> 24) & 0xff;
-  output[offset + 1] = (value >>> 16) & 0xff;
-  output[offset + 2] = (value >>> 8) & 0xff;
-  output[offset + 3] = value & 0xff;
+function emitU32(
+  emitByte: (offset: number, value: number, copied: boolean) => void,
+  offset: number,
+  value: number,
+): void {
+  emitByte(offset, (value >>> 24) & 0xff, false);
+  emitByte(offset + 1, (value >>> 16) & 0xff, false);
+  emitByte(offset + 2, (value >>> 8) & 0xff, false);
+  emitByte(offset + 3, value & 0xff, false);
 }
 
-function writeU64(output: Uint8Array, offset: number, value: bigint): void {
+function emitU64(
+  emitByte: (offset: number, value: number, copied: boolean) => void,
+  offset: number,
+  value: bigint,
+): void {
   for (let index = 7; index >= 0; index -= 1) {
-    output[offset + index] = Number(value & 0xffn);
+    emitByte(offset + index, Number(value & 0xffn), false);
     value >>= 8n;
   }
 }
@@ -1642,11 +2405,14 @@ function readU64(input: Uint8Array, offset: number): bigint | undefined {
 function readDigest(
   input: Uint8Array,
   offset: number,
+  copyByteFields = true,
 ): Uint8Array | undefined {
   return offset + DECLARATIVE_V2_SHA256_BYTES_V1 <= input.byteLength
-    ? new Uint8Array(
-      input.subarray(offset, offset + DECLARATIVE_V2_SHA256_BYTES_V1),
-    )
+    ? copyByteFields
+      ? new Uint8Array(
+        input.subarray(offset, offset + DECLARATIVE_V2_SHA256_BYTES_V1),
+      )
+      : input.subarray(offset, offset + DECLARATIVE_V2_SHA256_BYTES_V1)
     : undefined;
 }
 
@@ -1654,11 +2420,12 @@ function readRequiredDigest(
   input: Uint8Array,
   offset: number,
   path: string,
+  copyByteFields = true,
 ): Result.Result<
   Readonly<{ readonly value: Uint8Array; readonly offset: number }>,
   DeclarativeV2VerifierProgressV2Error
 > {
-  const value = readDigest(input, offset);
+  const value = readDigest(input, offset, copyByteFields);
   return value === undefined
     ? Result.fail(progressError("decode", "malformed", path))
     : Result.succeed(Object.freeze({
@@ -1671,6 +2438,7 @@ function readOptionalDigest(
   input: Uint8Array,
   offset: number,
   path: string,
+  copyByteFields = true,
 ): Result.Result<
   Readonly<{ readonly value: Uint8Array | null; readonly offset: number }>,
   DeclarativeV2VerifierProgressV2Error
@@ -1685,7 +2453,7 @@ function readOptionalDigest(
   if (optionTag !== 1) {
     return Result.fail(progressError("decode", "malformed", path));
   }
-  const value = readDigest(input, offset + 1);
+  const value = readDigest(input, offset + 1, copyByteFields);
   return value === undefined
     ? Result.fail(progressError("decode", "malformed", path))
     : Result.succeed(Object.freeze({

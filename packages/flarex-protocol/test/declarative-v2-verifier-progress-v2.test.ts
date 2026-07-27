@@ -15,10 +15,12 @@ import {
   type DeclarativeV2VerifierCommandReservationFrameV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
   decodeDeclarativeV2VerifierProgressFrameV2,
+  encodeDeclarativeV2VerifierProgressFrameIntoV2,
   encodeDeclarativeV2VerifierProgressFrameV2,
   requireDeclarativeV2VerifierProtocolIdentitiesV2,
   validateDeclarativeV2VerifierEvidencePageTransitionV2,
   validateDeclarativeV2VerifierFinalEvidencePageV2,
+  verifyOwnedDeclarativeV2VerifierProgressFrameV2,
 } from "../src/declarative-v2-verifier-progress-v2";
 
 const budget = Object.freeze({
@@ -863,6 +865,652 @@ describe("Declarative V2 verifier Budget/Progress V2", () => {
     );
   });
 });
+
+describe("Declarative V2 verifier progress admitted byte work", () => {
+  it("plans and writes all nine frame kinds exactly after one admission", () => {
+    for (const frame of allProgressFrames()) {
+      const legacy = Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+      );
+      let admissionCalls = 0;
+      let admittedPlan:
+        | Parameters<
+          Parameters<
+            typeof encodeDeclarativeV2VerifierProgressFrameIntoV2
+          >[2]
+        >[0]
+        | undefined;
+      const destination = new Uint8Array(legacy.canonicalBytes.byteLength + 11);
+      const written = Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameIntoV2(
+          frame,
+          budget,
+          (plan) => {
+            admissionCalls += 1;
+            admittedPlan = plan;
+            return Result.succeed(Object.freeze({
+              bytes: destination,
+              byteOffset: 7,
+              byteLength: plan.canonicalByteLength,
+            }));
+          },
+        ),
+      );
+      expect(admissionCalls).toBe(1);
+      expect(admittedPlan).toBeDefined();
+      expect(Object.isFrozen(admittedPlan)).toBe(true);
+      expect(Object.isFrozen(admittedPlan?.successfulWork)).toBe(true);
+      expect(written.range.bytes).toBe(destination);
+      expect(
+        destination.subarray(
+          written.range.byteOffset,
+          written.range.byteOffset + written.range.byteLength,
+        ),
+      ).toEqual(legacy.canonicalBytes);
+      expect(written.work).toEqual(admittedPlan?.successfulWork);
+      expect(written.work.byteStorageAllocationBytes).toBe(
+        legacy.canonicalBytes.byteLength,
+      );
+      expect(written.work.byteWriteBytes).toBe(
+        legacy.canonicalBytes.byteLength,
+      );
+      expect(written.work.byteScanBytes).toBe(0);
+      expect(written.work.primitiveTransitions).toBe(
+        legacy.canonicalBytes.byteLength,
+      );
+      expect(written.work.byteCopyBytes).toBeLessThanOrEqual(
+        written.work.byteWriteBytes,
+      );
+    }
+  });
+
+  it("admits verification before syntax work and compares canonically in place", () => {
+    for (const frame of allProgressFrames()) {
+      const encoded = Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+      );
+      const storage = concat(
+        new Uint8Array([91, 92]),
+        encoded.canonicalBytes,
+        new Uint8Array([93]),
+      );
+      let admissionCalls = 0;
+      const verified = Result.getOrThrow(
+        verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+          Object.freeze({
+            bytes: storage,
+            byteOffset: 2,
+            byteLength: encoded.canonicalBytes.byteLength,
+          }),
+          budget,
+          (plan) => {
+            admissionCalls += 1;
+            expect(plan.admittedByteLength).toBe(
+              encoded.canonicalBytes.byteLength,
+            );
+            expect(plan.successfulWorkCeiling).toEqual(Object.freeze({
+              byteStorageAllocationBytes: 0,
+              byteCopyBytes: 0,
+              byteWriteBytes: 0,
+              byteScanBytes: encoded.canonicalBytes.byteLength * 3,
+              primitiveTransitions: encoded.canonicalBytes.byteLength * 3,
+            }));
+            return Result.succeed(undefined);
+          },
+        ),
+      );
+      expect(admissionCalls).toBe(1);
+      expect(verified.frame).toEqual(encoded.frame);
+      expect(verified.canonicalBytes).toEqual(encoded.canonicalBytes);
+      expect(verified.canonicalBytes.buffer).toBe(storage.buffer);
+      const domainByteLength = encoded.canonicalBytes.indexOf(0) + 1;
+      expect(verified.work.byteScanBytes).toBe(
+        encoded.canonicalBytes.byteLength * 2 + domainByteLength,
+      );
+      expect(verified.work.primitiveTransitions).toBe(
+        encoded.canonicalBytes.byteLength * 2 + domainByteLength,
+      );
+    }
+
+    const malformed = new Uint8Array([1, 2, 3]);
+    const denied = Object.freeze({ _tag: "DeniedBeforeSyntax" as const });
+    const deniedResult = verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+      Object.freeze({
+        bytes: malformed,
+        byteOffset: 0,
+        byteLength: malformed.byteLength,
+      }),
+      budget,
+      () => Result.fail(denied),
+    );
+    expect(Result.isFailure(deniedResult)).toBe(true);
+    if (Result.isFailure(deniedResult)) {
+      expect(deniedResult.failure).toBe(denied);
+    }
+  });
+
+  it("rejects one-less byte ceilings before admission", () => {
+    const frame = makeReservation();
+    const encoded = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+    ).canonicalBytes;
+    let encodeAdmissions = 0;
+    const encodeResult = encodeDeclarativeV2VerifierProgressFrameIntoV2(
+      frame,
+      {
+        maximumFrameBytes: encoded.byteLength - 1,
+        maximumCanonicalBytes: 0,
+      },
+      (plan) => {
+        encodeAdmissions += 1;
+        return Result.succeed(Object.freeze({
+          bytes: new Uint8Array(plan.canonicalByteLength),
+          byteOffset: 0,
+          byteLength: plan.canonicalByteLength,
+        }));
+      },
+    );
+    expect(Result.isFailure(encodeResult)).toBe(true);
+    expect(encodeAdmissions).toBe(0);
+
+    let verifyAdmissions = 0;
+    const verifyResult = verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+      Object.freeze({
+        bytes: encoded,
+        byteOffset: 0,
+        byteLength: encoded.byteLength,
+      }),
+      {
+        maximumFrameBytes: encoded.byteLength - 1,
+        maximumCanonicalBytes: 0,
+      },
+      () => {
+        verifyAdmissions += 1;
+        return Result.succeed(undefined);
+      },
+    );
+    expect(Result.isFailure(verifyResult)).toBe(true);
+    expect(verifyAdmissions).toBe(0);
+  });
+
+  it("makes the canonical mismatch path reachable without a production test hook", () => {
+    const bytes = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2({
+        kind: "attempt_identity",
+        candidateSha256: digest(41),
+        progressProtocolIdentity:
+          DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2,
+        budgetProtocolIdentity:
+          DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2,
+        ceilingsSha256: digest(42),
+      }, budget),
+    ).canonicalBytes;
+    const fieldCountLastByte = utf8(
+      "flarex.declarative-v2/attempt_identity/v2\0",
+    ).byteLength + 3;
+    const originalDecode = TextDecoder.prototype.decode;
+    let decodeCalls = 0;
+    const replacement: typeof originalDecode = function (
+      this: TextDecoder,
+      input?: AllowSharedBufferSource,
+      options?: TextDecodeOptions,
+    ): string {
+      const result = originalDecode.call(this, input, options);
+      decodeCalls += 1;
+      if (decodeCalls === 2 && input instanceof Uint8Array) {
+        new Uint8Array(input.buffer)[fieldCountLastByte] = 5;
+      }
+      return result;
+    };
+    Object.defineProperty(TextDecoder.prototype, "decode", {
+      configurable: true,
+      value: replacement,
+      writable: true,
+    });
+    try {
+      const verified = verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+        Object.freeze({
+          bytes,
+          byteOffset: 0,
+          byteLength: bytes.byteLength,
+        }),
+        budget,
+        () => Result.succeed(undefined),
+      );
+      expect(Result.isFailure(verified)).toBe(true);
+      if (Result.isFailure(verified)) {
+        expect(verified.failure).toMatchObject({
+          operation: "decode",
+          reason: "nonCanonical",
+        });
+      }
+    } finally {
+      Object.defineProperty(TextDecoder.prototype, "decode", {
+        configurable: true,
+        value: originalDecode,
+        writable: true,
+      });
+    }
+  });
+
+  it("preserves malformed, trailing, and unsupported-version precedence after admission", () => {
+    const valid = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(makeReservation(), budget),
+    ).canonicalBytes;
+    const unsupported = new Uint8Array(valid);
+    const versionOffset = findBytes(unsupported, utf8("/v2\0"));
+    unsupported[versionOffset + 2] = 0x31;
+    for (const [bytes, reason] of [
+      [valid.subarray(0, valid.byteLength - 1), "malformed"],
+      [concat(valid, new Uint8Array([0])), "malformed"],
+      [unsupported, "unsupportedVersion"],
+    ] as const) {
+      const result = verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+        Object.freeze({
+          bytes,
+          byteOffset: 0,
+          byteLength: bytes.byteLength,
+        }),
+        budget,
+        () => Result.succeed(undefined),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({ operation: "decode", reason });
+      }
+    }
+  });
+
+  it("preserves borrowed verification views while compatibility decoding detaches", () => {
+    const encoded = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(makeReservation(), budget),
+    ).canonicalBytes;
+    const verified = Result.getOrThrow(
+      verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+        Object.freeze({
+          bytes: encoded,
+          byteOffset: 0,
+          byteLength: encoded.byteLength,
+        }),
+        budget,
+        () => Result.succeed(undefined),
+      ),
+    );
+    const compatibility = Result.getOrThrow(
+      decodeDeclarativeV2VerifierProgressFrameV2(encoded, budget),
+    );
+    expect(verified.frame.kind).toBe("command_reservation");
+    expect(compatibility.frame.kind).toBe("command_reservation");
+    if (
+      verified.frame.kind !== "command_reservation" ||
+      compatibility.frame.kind !== "command_reservation"
+    ) {
+      throw new Error("Expected command reservation frames.");
+    }
+    const digestOffset = utf8(
+      "flarex.declarative-v2/command_reservation/v2\0",
+    ).byteLength + 4;
+    encoded[digestOffset] = 77;
+    expect(verified.frame.attemptSha256[0]).toBe(77);
+    expect(compatibility.frame.attemptSha256[0]).toBe(1);
+  });
+
+  it("propagates typed admission failures and callback defects unchanged", () => {
+    const denied = Object.freeze({ _tag: "AdmissionDenied" as const });
+    const typed = encodeDeclarativeV2VerifierProgressFrameIntoV2(
+      makeReservation(),
+      budget,
+      () => Result.fail(denied),
+    );
+    expect(Result.isFailure(typed)).toBe(true);
+    if (Result.isFailure(typed)) expect(typed.failure).toBe(denied);
+
+    const defect = new Error("admission defect");
+    expect(() =>
+      encodeDeclarativeV2VerifierProgressFrameIntoV2(
+        makeReservation(),
+        budget,
+        () => {
+          throw defect;
+        },
+      )
+    ).toThrow(defect);
+    expect(() =>
+      verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+        Object.freeze({
+          bytes: new Uint8Array([1]),
+          byteOffset: 0,
+          byteLength: 1,
+        }),
+        budget,
+        () => {
+          throw defect;
+        },
+      )
+    ).toThrow(defect);
+  });
+
+  it("fails closed when a verification callback detaches its admitted range", () => {
+    const bytes = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(makeReservation(), budget),
+    ).canonicalBytes;
+    const result = verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+      Object.freeze({
+        bytes,
+        byteOffset: 0,
+        byteLength: bytes.byteLength,
+      }),
+      budget,
+      () => {
+        structuredClone(bytes.buffer, { transfer: [bytes.buffer] });
+        return Result.succeed(undefined);
+      },
+    );
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        operation: "decode",
+        reason: "invalidInput",
+        path: "admission.mutatedByteRange",
+      });
+    }
+  });
+
+  it("fails same-input reentrancy and hostile destination ranges closed", () => {
+    const frame = makeReservation();
+    let nestedAdmissionCalls = 0;
+    const outer = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameIntoV2(
+        frame,
+        budget,
+        (plan) => {
+          const nested = encodeDeclarativeV2VerifierProgressFrameIntoV2(
+            frame,
+            budget,
+            () => {
+              nestedAdmissionCalls += 1;
+              return Result.fail("must not run");
+            },
+          );
+          expect(Result.isFailure(nested)).toBe(true);
+          if (
+            Result.isFailure(nested) &&
+            typeof nested.failure === "object" &&
+            nested.failure !== null &&
+            "path" in nested.failure
+          ) {
+            expect(nested.failure.path).toBe("admission.reentrantInput");
+          }
+          return Result.succeed(Object.freeze({
+            bytes: new Uint8Array(plan.canonicalByteLength),
+            byteOffset: 0,
+            byteLength: plan.canonicalByteLength,
+          }));
+        },
+      ),
+    );
+    expect(outer.range.byteLength).toBeGreaterThan(0);
+    expect(nestedAdmissionCalls).toBe(0);
+
+    let getterReads = 0;
+    const hostile = encodeDeclarativeV2VerifierProgressFrameIntoV2(
+      makeReservation(),
+      budget,
+      () =>
+        Result.succeed({
+          get bytes(): Uint8Array {
+            getterReads += 1;
+            throw new Error("must not run");
+          },
+          byteOffset: 0,
+          byteLength: 1,
+        }),
+    );
+    expect(Result.isFailure(hostile)).toBe(true);
+    expect(getterReads).toBe(0);
+  });
+
+  it("rejects detached, undersized, out-of-range, and overlapping sinks", () => {
+    const frame = makeReservation();
+    for (const createRange of [
+      (length: number) => Object.freeze({
+        bytes: new Uint8Array(length - 1),
+        byteOffset: 0,
+        byteLength: length,
+      }),
+      (length: number) => Object.freeze({
+        bytes: new Uint8Array(length),
+        byteOffset: 1,
+        byteLength: length,
+      }),
+      (length: number) => {
+        const bytes = new Uint8Array(length);
+        structuredClone(bytes.buffer, { transfer: [bytes.buffer] });
+        return Object.freeze({ bytes, byteOffset: 0, byteLength: length });
+      },
+    ]) {
+      expect(Result.isFailure(
+        encodeDeclarativeV2VerifierProgressFrameIntoV2(
+          frame,
+          budget,
+          (plan) => Result.succeed(createRange(plan.canonicalByteLength)),
+        ),
+      )).toBe(true);
+    }
+
+    const backing = new ArrayBuffer(1024);
+    const overlappingFrame = makeReservation({
+      attemptSha256: new Uint8Array(backing, 8, 32),
+    });
+    expect(Result.isFailure(
+      encodeDeclarativeV2VerifierProgressFrameIntoV2(
+        overlappingFrame,
+        budget,
+        (plan) =>
+          Result.succeed(Object.freeze({
+            bytes: new Uint8Array(backing),
+            byteOffset: 0,
+            byteLength: plan.canonicalByteLength,
+          })),
+      ),
+    )).toBe(true);
+
+    const disjointFrame = makeReservation({
+      attemptSha256: new Uint8Array(backing, 800, 32),
+    });
+    expect(Result.isSuccess(
+      encodeDeclarativeV2VerifierProgressFrameIntoV2(
+        disjointFrame,
+        budget,
+        (plan) =>
+          Result.succeed(Object.freeze({
+            bytes: new Uint8Array(backing),
+            byteOffset: 0,
+            byteLength: plan.canonicalByteLength,
+          })),
+      ),
+    )).toBe(true);
+
+    if (typeof SharedArrayBuffer !== "undefined") {
+      const shared = new SharedArrayBuffer(1024);
+      const sharedFrame = makeReservation({
+        attemptSha256: new Uint8Array(shared, 16, 32),
+      });
+      expect(Result.isFailure(
+        encodeDeclarativeV2VerifierProgressFrameIntoV2(
+          sharedFrame,
+          budget,
+          (plan) =>
+            Result.succeed(Object.freeze({
+              bytes: new Uint8Array(plan.canonicalByteLength),
+              byteOffset: 0,
+              byteLength: plan.canonicalByteLength,
+            })),
+        ),
+      )).toBe(true);
+
+      expect(Result.isFailure(
+        encodeDeclarativeV2VerifierProgressFrameIntoV2(
+          frame,
+          budget,
+          (plan) =>
+            Result.succeed(Object.freeze({
+              bytes: new Uint8Array(shared, 512, plan.canonicalByteLength),
+              byteOffset: 0,
+              byteLength: plan.canonicalByteLength,
+            })),
+        ),
+      )).toBe(true);
+
+      const canonical = Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+      ).canonicalBytes;
+      const sharedCanonical = new Uint8Array(
+        new SharedArrayBuffer(canonical.byteLength),
+      );
+      sharedCanonical.set(canonical);
+      expect(Result.isFailure(
+        verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+          Object.freeze({
+            bytes: sharedCanonical,
+            byteOffset: 0,
+            byteLength: sharedCanonical.byteLength,
+          }),
+          budget,
+          () => Result.succeed(undefined),
+        ),
+      )).toBe(true);
+
+      const legacySource = new Uint8Array(new SharedArrayBuffer(32));
+      legacySource.fill(61);
+      const legacy = Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2(
+          makeReservation({ attemptSha256: legacySource }),
+          budget,
+        ),
+      );
+      if (legacy.frame.kind !== "command_reservation") {
+        throw new Error("Expected a command reservation.");
+      }
+      legacySource[0] = 62;
+      expect(legacy.frame.attemptSha256[0]).toBe(61);
+      expect(legacy.canonicalBytes).toEqual(
+        Result.getOrThrow(
+          encodeDeclarativeV2VerifierProgressFrameV2(legacy.frame, budget),
+        ).canonicalBytes,
+      );
+    }
+  });
+
+  it("supports exact destination reuse only after a completed call", () => {
+    const frame = makeEvidencePage({
+      predecessorPageSha256: digest(24),
+      pageOrdinal: 1n,
+      firstEvidenceOrdinal: 2n,
+      firstDiagnosticOrdinal: 1n,
+    });
+    const expected = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+    ).canonicalBytes;
+    const destination = new Uint8Array(expected.byteLength);
+    for (let run = 0; run < 2; run += 1) {
+      const result = Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameIntoV2(
+          frame,
+          budget,
+          (plan) =>
+            Result.succeed(Object.freeze({
+              bytes: destination,
+              byteOffset: 0,
+              byteLength: plan.canonicalByteLength,
+            })),
+        ),
+      );
+      expect(result.range.bytes).toBe(destination);
+      expect(destination).toEqual(expected);
+    }
+  });
+
+  it("retains descriptor single-read behavior and all 26 budget dimensions", () => {
+    const values = Object.fromEntries(
+      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(
+        (dimension, index) => [dimension, BigInt(index + 1)],
+      ),
+    );
+    const target = { kind: "command_budget", ...values };
+    let descriptorReads = 0;
+    let valueReads = 0;
+    const proxy = new Proxy(target, {
+      get() {
+        valueReads += 1;
+        throw new Error("must not read properties");
+      },
+      getOwnPropertyDescriptor(inner, property) {
+        descriptorReads += 1;
+        return Reflect.getOwnPropertyDescriptor(inner, property);
+      },
+    });
+    const encoded = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameIntoV2(
+        proxy,
+        budget,
+        (plan) =>
+          Result.succeed(Object.freeze({
+            bytes: new Uint8Array(plan.canonicalByteLength),
+            byteOffset: 0,
+            byteLength: plan.canonicalByteLength,
+          })),
+      ),
+    );
+    expect(valueReads).toBe(0);
+    expect(descriptorReads).toBe(
+      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.length + 1,
+    );
+    const verified = Result.getOrThrow(
+      verifyOwnedDeclarativeV2VerifierProgressFrameV2(
+        encoded.range,
+        budget,
+        () => Result.succeed(undefined),
+      ),
+    );
+    expect(verified.frame).toEqual(target);
+  });
+});
+
+function allProgressFrames(): readonly unknown[] {
+  const dimensions = Object.fromEntries(
+    DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(
+      (dimension, index) => [dimension, BigInt(index + 1)],
+    ),
+  );
+  return [
+    { kind: "attempt_ceilings", ...dimensions },
+    { kind: "attempt_usage", ...dimensions },
+    { kind: "command_budget", ...dimensions },
+    {
+      kind: "attempt_identity",
+      candidateSha256: digest(31),
+      progressProtocolIdentity:
+        DECLARATIVE_V2_VERIFIER_PROGRESS_PROTOCOL_IDENTITY_V2,
+      budgetProtocolIdentity:
+        DECLARATIVE_V2_VERIFIER_BUDGET_PROTOCOL_IDENTITY_V2,
+      ceilingsSha256: digest(32),
+    },
+    {
+      kind: "progress_cursor",
+      phase: "link",
+      settledSequence: 1n,
+      moduleOrdinal: 2n,
+      edgeOrdinal: 3n,
+      pageOrdinal: 4n,
+      previousReceiptSha256: digest(33),
+    },
+    makeReservation(),
+    makeOutputManifest(),
+    makeReceipt(),
+    makeEvidencePage(),
+  ];
+}
 
 function makeReservation(
   overrides: Partial<DeclarativeV2VerifierCommandReservationFrameV2> = {},
