@@ -1000,13 +1000,50 @@ implemented:
   A1b2c0b0 and monolithic bytes. It remains production-unreachable and cannot
   alone prove real cold delivery.
 - `A1b2c0b2c1b` separately adds persistence-owned, capability-free bounded
-  settled-page readback. The pending page reader requires live `Work`,
-  settlement closes that `Work`, and current capability-free observation
-  exposes settlement/final-page evidence rather than the full page sequence.
-  The readback must admit ordered metadata before exact payload bytes under
-  explicit page/byte ceilings and return owned inert batches without minting a
-  `Run`, `Work`, fence, or writer authority. It is required before
-  `A1b2c0b2c2` or `A1b2c0b2c3` may claim settled cold recovery.
+  settled-page readback and is the next unimplemented gate. The pending page
+  reader requires live `Work`, settlement closes that `Work`, and current
+  capability-free observation exposes only the latest settlement/final-page
+  evidence rather than a historical command's full page sequence. The proposed
+  `readSettledEvidencePageBatch` identifies a final historical decision by
+  physical scope, attempt digest, command kind and sequence, reservation
+  digest, output-manifest digest, and receipt digest. A persistence-private
+  historical settled-command decoder must prove canonical settlement lineage,
+  settled finality, page count and final root/tail, and every page's command,
+  predecessor, range, length, and digest membership.
+
+  One located READ COMMITTED transaction captures hostile input and a
+  caller-supplied no-default operation budget before SQL, admits command and
+  predecessor/page metadata first, bounds each batch to 1 through 1,024 pages,
+  precharges the complete page/byte total, and only then reads settlement
+  frames and exact payload bytes. It returns detached frozen inert pages and an
+  inert next ordinal/predecessor or terminal marker, never a database cursor or
+  `Run`, `Work`, fence, lease, candidate, verifier, or writer authority. Typed
+  persistence failures own missing, conflict, pending or terminal-unsettled,
+  corruption, exhaustion, confirmed-rollback, and decision-uncertain outcomes.
+  Pure row/frame validation stays in `Result`; the named Effect repository
+  operation owns I/O, cancellation, interruption, and foreign database
+  failures, while the later request host owns `Scope`, client quarantine, full
+  `Cause` observation, and finalization. Current keys, page foreign keys,
+  all-or-none settlement constraints, immutable settled rows, and final
+  root/tail evidence are sufficient, so no schema, DDL, migration, protocol,
+  package export, or connected-client adapter-source prerequisite is required.
+  It is required before `A1b2c0b2c2` or `A1b2c0b2c3` may claim settled cold
+  recovery.
+
+  Its proposed implementation allowlist is exactly:
+
+    - `packages/persistence-postgres/src/declarativeV2VerifierProgressV2.ts`
+    - `packages/persistence-postgres/test/declarativeV2VerifierProgressV2.test.ts`
+    - `packages/persistence-postgres/src/declarativeV2VerifierProgressRepositoryV2.ts`
+    - `packages/persistence-postgres/test/declarativeV2VerifierProgressRepositoryV2.test.ts`
+    - `packages/persistence-postgres/test/declarativeV2VerifierProgressRepositoryV2.postgres.test.ts`
+    - `packages/persistence-postgres/test/postgresClientDeclarativeV2VerifierProgressV2.test.ts`
+    - `packages/persistence-postgres/test/postgresClientDeclarativeV2VerifierProgressV2.postgres.test.ts`
+    - `roadmaps/17-deployment-analysis-and-push.md`
+    - `roadmaps/flarexdb-foundation/README.md`
+
+  No package manifest, adapter source, schema, migration, or protocol file is
+  part of this gate.
 - `A1b2c0b2c2` consumes the admitted view plus that restart source and produces
   a bounded result cursor, but remains unwired.
 - `A1b2c0b2c3` owns the fresh release handshake, single-use claim, request

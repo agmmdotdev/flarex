@@ -1455,14 +1455,53 @@ activation remain blocked until their production host composition is proven.
         protocol change and preserves A1b2c0b0 and monolithic bytes. It remains
         production-unreachable and cannot by itself prove real cold delivery.
       - `A1b2c0b2c1b` is a separate persistence-owned, capability-free bounded
-        settled-page readback. The existing page reader requires a live pending
-        `Work`, while settlement closes that `Work`; the current capability-free
-        settlement observation exposes only settlement and final-page evidence,
-        not the complete page sequence. This gate must admit ordered page
-        metadata before exact payload bytes under explicit page/byte ceilings
-        and return only owned inert batches, never a `Run`, `Work`, fence, or
-        writer authority. It is required before the later engine or host may
-        claim settled cold recovery.
+        settled-page readback and is the next unimplemented gate. The existing
+        page reader requires a live pending `Work`, while settlement closes that
+        `Work`; the current capability-free settlement observation exposes only
+        the latest settlement and final-page evidence, not a historical
+        command's complete page sequence. The proposed
+        `readSettledEvidencePageBatch` operation therefore identifies one final
+        historical decision by physical scope, attempt digest, command kind and
+        sequence, reservation digest, output-manifest digest, and receipt
+        digest. A persistence-private historical settled-command decoder must
+        prove the canonical reservation/output/receipt lineage, settled
+        finality, page count and final tail/root, and each page's command,
+        predecessor, range, length, and digest membership before returning
+        bytes.
+
+        Readback uses one located READ COMMITTED transaction. It captures
+        hostile input and a caller-supplied no-default operation budget before
+        SQL; locks or snapshots command metadata first, then predecessor and at
+        most 1,024 ordered page-metadata rows; validates and precharges the
+        complete admitted page/byte total; and only then reads the exact
+        settlement frames and page payloads. Returned pages are detached,
+        frozen, inert values with an inert next page ordinal and predecessor
+        digest or a terminal marker, not a database cursor. Missing decisions,
+        lineage conflicts, pending or terminal-unsettled commands, corruption,
+        exhaustion, confirmed rollback, and decision uncertainty remain typed
+        persistence failures; interruption and foreign database `Cause` remain
+        Effect-owned. Pure row/frame validation stays in `Result`; the named
+        repository operation owns database I/O and cancellation, while the
+        later request host owns `Scope`, client quarantine, full `Cause`
+        observation, and finalization. No serialized row or byte mints a
+        `Run`, `Work`, fence, lease, candidate, verifier, or writer authority.
+        Existing command/page keys, settlement constraints, immutable settled
+        rows, page foreign keys, and final-root/tail evidence are sufficient:
+        this gate requires no schema, DDL, migration, protocol, package export,
+        or connected-client adapter-source change. It is required before the
+        later engine or host may claim settled cold recovery.
+
+        The proposed implementation allowlist is exactly:
+
+          - `packages/persistence-postgres/src/declarativeV2VerifierProgressV2.ts`
+          - `packages/persistence-postgres/test/declarativeV2VerifierProgressV2.test.ts`
+          - `packages/persistence-postgres/src/declarativeV2VerifierProgressRepositoryV2.ts`
+          - `packages/persistence-postgres/test/declarativeV2VerifierProgressRepositoryV2.test.ts`
+          - `packages/persistence-postgres/test/declarativeV2VerifierProgressRepositoryV2.postgres.test.ts`
+          - `packages/persistence-postgres/test/postgresClientDeclarativeV2VerifierProgressV2.test.ts`
+          - `packages/persistence-postgres/test/postgresClientDeclarativeV2VerifierProgressV2.postgres.test.ts`
+          - `roadmaps/17-deployment-analysis-and-push.md`
+          - `roadmaps/flarexdb-foundation/README.md`
    3. `A1b2c0b2c2` adds the pure analyzer command engine that consumes the
       admitted view plus the restart source and produces a bounded result
       cursor. It remains unwired.
