@@ -1442,9 +1442,9 @@ activation remain blocked until their production host composition is proven.
       or receipt authority. Resulting attempt usage and the final receipt remain
       executor/repository-owned.
    2. `A1b2c0b2c1` remains split across two prerequisites:
-      - `A1b2c0b2c1a` is the smallest next implementation gate: a private pure
-        executor-HTTP restart-input transport with its own identity, version,
-        and media type. It binds the target request and reservation digests,
+      - `A1b2c0b2c1a` is implemented as a private, pure executor-HTTP
+        restart-input transport with its own identity, version, and media type.
+        It binds the target request and reservation digests,
         command kind and sequence, analyzer and verifier identities, range
         lineage, and the ordered page-manifest predecessor/range/digest chain.
         It admits all page metadata before payload, advances through fixed
@@ -1471,15 +1471,15 @@ activation remain blocked until their production host composition is proven.
       interruption ownership, full foreign `Cause`, and deterministic
       finalization.
 
-   Only the private, inert `A1b2c0b2c0` transport is implemented here. Neither
-   `A1b2c0b2c1a` nor `A1b2c0b2c1b` is implemented or green; restart-input
-   transport, settled-page readback, analyzer command execution, host
-   composition, and a production caller remain absent. Cold `link_page` and
-   link-dependent registration cannot rely on warm WeakMap state. Pure c1a
-   transport mechanics stay in `Result`/plain TypeScript, persistence I/O stays
-   inside its existing Effect repository boundary, and the later host owns
-   request `Scope`, cancellation, interruption, full foreign `Cause`, and
-   resource finalization.
+   The private, inert `A1b2c0b2c0` response transport and `A1b2c0b2c1a`
+   restart-input transport are implemented. `A1b2c0b2c1b` settled-page
+   readback, analyzer command execution, host composition, and a production
+   caller remain absent. The c1a transport alone does not prove real cold
+   delivery: cold `link_page` and link-dependent registration cannot rely on
+   warm WeakMap state. Pure c1a transport mechanics stay in `Result`/plain
+   TypeScript, persistence I/O stays inside its existing Effect repository
+   boundary, and the later host owns request `Scope`, cancellation,
+   interruption, full foreign `Cause`, and resource finalization.
    Candidate preparation, repository `Work`/fence authorization,
    `apps/executor` composition, C07, U2, and the private real-system harness
    remain later distinct gates. The current monolithic analyzer path remains

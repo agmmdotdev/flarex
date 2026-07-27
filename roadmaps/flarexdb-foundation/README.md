@@ -970,8 +970,9 @@ The accepted order is `A1b2c0b2c0` private pure bounded
 analyzer-to-executor command-response transport, split `A1b2c0b2c1a`
 executor-HTTP restart-input transport and `A1b2c0b2c1b` persistence-owned
 settled-page readback, `A1b2c0b2c2` pure analyzer command engine, then
-`A1b2c0b2c3` Effect-owned analyzer host/adapter. Only the private, inert
-`A1b2c0b2c0` transport is implemented here:
+`A1b2c0b2c3` Effect-owned analyzer host/adapter. The private, inert
+`A1b2c0b2c0` response transport and `A1b2c0b2c1a` restart-input transport are
+implemented:
 
 - `A1b2c0b2c0` now owns a distinct identity, version, and media type; binds the
   request and reservation digest, command kind and sequence, analyzer and
@@ -987,9 +988,9 @@ settled-page readback, `A1b2c0b2c2` pure analyzer command engine, then
   allowance. Its bytes are inert: repository owner, fence, candidate, and
   receipt authority are excluded, while resulting attempt usage and the final
   receipt remain executor/repository owned.
-- `A1b2c0b2c1a` is the smallest next implementation gate: a private pure
-  executor-HTTP restart-input transport with its own identity, version, and
-  media type. It binds the target request/reservation digests, command
+- `A1b2c0b2c1a` is a private, pure executor-HTTP restart-input transport with
+  its own identity, version, and media type. It binds the target
+  request/reservation digests, command
   kind/sequence, analyzer/verifier identities, range lineage, and ordered
   page-manifest predecessor/range/digest chain. It admits all metadata before
   payload, uses exact precharged fixed quanta and allowances from zero through
@@ -1012,14 +1013,14 @@ settled-page readback, `A1b2c0b2c2` pure analyzer command engine, then
   `Scope`, cancellation and interruption, full foreign `Cause`, and
   finalization at the Effect host boundary.
 
-Neither `A1b2c0b2c1a` nor `A1b2c0b2c1b` is implemented or green. The restart
-transport, settled-page readback, command engine, Effect host, production
-caller, and composition proof remain absent. Cold `link_page` and
-link-dependent registration cannot rely on warm WeakMap state. Pure c1a
-transport mechanics remain in `Result`/plain TypeScript, persistence I/O
-remains inside its existing Effect repository boundary, and the later host owns
-request `Scope`, cancellation, interruption, full foreign `Cause`, and resource
-finalization.
+`A1b2c0b2c1b` is not implemented or green. Settled-page readback, the command
+engine, Effect host, production caller, and composition proof remain absent.
+The implemented c1a transport alone does not prove real cold delivery: cold
+`link_page` and link-dependent registration cannot rely on warm WeakMap state.
+Pure c1a transport mechanics remain in `Result`/plain TypeScript, persistence
+I/O remains inside its existing Effect repository boundary, and the later host
+owns request `Scope`, cancellation, interruption, full foreign `Cause`, and
+resource finalization.
 Candidate preparation, repository `Work`/fence authorization, `apps/executor`
 composition, C07, U2, and the private real-system harness remain later distinct
 gates. The current monolithic analyzer path remains unchanged. None of these
