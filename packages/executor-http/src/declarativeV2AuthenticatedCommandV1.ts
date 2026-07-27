@@ -57,6 +57,9 @@ const FRAME_LENGTH_PREFIX_BYTES = 4;
 const CANONICAL_FRAME_PLAN_ALLOCATION_BYTES = 128;
 const CANONICAL_FIXED_STATE_ALLOCATION_BYTES =
   COMMAND_BUDGET_FIELD_COUNT * 8;
+const ADMITTED_VIEW_FIXED_STATE_ALLOCATION_BYTES = 256;
+const ADMITTED_VIEW_METADATA_ALLOCATION_BYTES = 128;
+const ADMITTED_VIEW_MAXIMUM_CHUNK_BYTES = 1_024;
 const EMPTY_COMMAND_BYTES = new Uint8Array(0);
 
 const UINT8_ARRAY_BYTE_LENGTH_GETTER =
@@ -166,6 +169,112 @@ export interface DeclarativeV2AuthenticatedCommandDecodedCapabilityV1 {
   readonly _tag: "DeclarativeV2AuthenticatedCommandDecodedCapabilityV1";
 }
 
+export interface DeclarativeV2AuthenticatedCommandAdmittedViewV1 {
+  readonly _tag: "DeclarativeV2AuthenticatedCommandAdmittedViewV1";
+}
+
+export interface DeclarativeV2AuthenticatedCommandAdmittedCursorV1 {
+  readonly _tag: "DeclarativeV2AuthenticatedCommandAdmittedCursorV1";
+}
+
+export interface DeclarativeV2AuthenticatedCommandAdmittedHeaderMetadataV1 {
+  readonly kind: "command_header";
+  readonly frameOrdinal: number;
+  readonly frameByteLength: number;
+  readonly commandKind: DeclarativeV2VerifierDurableCommandKindV2;
+  readonly sequence: bigint;
+  readonly reservationHasPredecessor: boolean;
+  readonly reservationByteLength: number;
+  readonly commandBudgetByteLength: number;
+}
+
+export interface DeclarativeV2AuthenticatedCommandAdmittedModuleMetadataV1 {
+  readonly kind: "module_metadata";
+  readonly frameOrdinal: number;
+  readonly frameByteLength: number;
+  readonly moduleOrdinal: bigint;
+  readonly roles: number;
+  readonly modulePathByteLength: number;
+  readonly sourceByteLength: bigint;
+}
+
+export interface DeclarativeV2AuthenticatedCommandAdmittedSourceMetadataV1 {
+  readonly kind: "source_bytes";
+  readonly frameOrdinal: number;
+  readonly frameByteLength: number;
+  readonly moduleOrdinal: bigint;
+  readonly offset: bigint;
+  readonly payloadByteLength: number;
+}
+
+export interface DeclarativeV2AuthenticatedCommandAdmittedSemanticMetadataV1 {
+  readonly kind: "semantic_bytes";
+  readonly frameOrdinal: number;
+  readonly frameByteLength: number;
+  readonly offset: bigint;
+  readonly payloadByteLength: number;
+}
+
+export interface DeclarativeV2AuthenticatedCommandAdmittedTerminalMetadataV1 {
+  readonly kind: "command_terminal";
+  readonly frameOrdinal: number;
+  readonly frameByteLength: number;
+  readonly firstModuleOrdinal: bigint;
+  readonly moduleCount: bigint;
+  readonly sourceByteLength: bigint;
+  readonly semanticByteLength: bigint;
+  readonly payloadFrameCount: bigint;
+}
+
+export type DeclarativeV2AuthenticatedCommandAdmittedFrameMetadataV1 =
+  | DeclarativeV2AuthenticatedCommandAdmittedHeaderMetadataV1
+  | DeclarativeV2AuthenticatedCommandAdmittedModuleMetadataV1
+  | DeclarativeV2AuthenticatedCommandAdmittedSourceMetadataV1
+  | DeclarativeV2AuthenticatedCommandAdmittedSemanticMetadataV1
+  | DeclarativeV2AuthenticatedCommandAdmittedTerminalMetadataV1;
+
+export type DeclarativeV2AuthenticatedCommandAdmittedByteRoleV1 =
+  | "reservation"
+  | "command_budget"
+  | "module_path"
+  | "frame_sha256"
+  | "source_sha256"
+  | "source_payload"
+  | "semantic_payload";
+
+export type DeclarativeV2AuthenticatedCommandAdmittedViewEventV1 =
+  | Readonly<{
+    readonly kind: "frame";
+    readonly metadata:
+      DeclarativeV2AuthenticatedCommandAdmittedFrameMetadataV1;
+  }>
+  | Readonly<{
+    readonly kind: "bytes";
+    readonly frameOrdinal: number;
+    readonly role:
+      DeclarativeV2AuthenticatedCommandAdmittedByteRoleV1;
+    readonly offset: number;
+    readonly bytes: Uint8Array;
+  }>;
+
+export type DeclarativeV2AuthenticatedCommandAdmittedViewStepV1 =
+  | Readonly<{
+    readonly status: "pending";
+    readonly receipt:
+      DeclarativeV2AuthenticatedCommandIncrementalReceiptV1;
+  }>
+  | Readonly<{
+    readonly status: "event";
+    readonly event: DeclarativeV2AuthenticatedCommandAdmittedViewEventV1;
+    readonly receipt:
+      DeclarativeV2AuthenticatedCommandIncrementalReceiptV1;
+  }>
+  | Readonly<{
+    readonly status: "complete";
+    readonly receipt:
+      DeclarativeV2AuthenticatedCommandIncrementalReceiptV1;
+  }>;
+
 export type DeclarativeV2AuthenticatedCommandIncrementalStepV1 = Readonly<{
   readonly status: "pending" | "ready";
   readonly consumedBytes: number;
@@ -189,7 +298,13 @@ export class DeclarativeV2AuthenticatedCommandIncrementalV1Error
   extends Data.TaggedError(
     "DeclarativeV2AuthenticatedCommandIncrementalV1Error",
   )<{
-    readonly operation: "create" | "step" | "finish" | "close";
+    readonly operation:
+      | "create"
+      | "step"
+      | "finish"
+      | "openView"
+      | "stepView"
+      | "close";
     readonly reason:
       | "invalidInput"
       | "invalidBudget"
@@ -207,6 +322,7 @@ export class DeclarativeV2AuthenticatedCommandIncrementalV1Error
       | "unsupportedVersion"
       | "invalidGrammar"
       | "staleAuthority"
+      | "exhausted"
       | "closed";
     readonly path?: string;
     readonly observed?: number;
@@ -237,6 +353,23 @@ export interface DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1 {
     allowance: unknown,
   ) => Result.Result<
     DeclarativeV2AuthenticatedCommandIncrementalFinishV1,
+    DeclarativeV2AuthenticatedCommandIncrementalV1Error
+  >;
+  readonly openView: (input: unknown) => Result.Result<
+    Readonly<{
+      readonly view: DeclarativeV2AuthenticatedCommandAdmittedViewV1;
+      readonly cursor: DeclarativeV2AuthenticatedCommandAdmittedCursorV1;
+      readonly receipt:
+        DeclarativeV2AuthenticatedCommandIncrementalReceiptV1;
+    }>,
+    DeclarativeV2AuthenticatedCommandIncrementalV1Error
+  >;
+  readonly stepView: (
+    view: unknown,
+    cursor: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2AuthenticatedCommandAdmittedViewStepV1,
     DeclarativeV2AuthenticatedCommandIncrementalV1Error
   >;
   readonly close: (
@@ -309,7 +442,44 @@ interface IncrementalDecoderStateV1 {
 interface IncrementalCapabilityStateV1 {
   readonly decoder: object;
   canonical: Uint8Array;
+  frames: readonly IncrementalCanonicalFramePlanV1[];
   closed: boolean;
+}
+
+type IncrementalAdmittedViewPhaseV1 =
+  | "metadata"
+  | "metadataAdvance"
+  | "segment"
+  | "allocate"
+  | "copy"
+  | "advance";
+
+type IncrementalAdmittedViewTerminalV1 =
+  | "open"
+  | "closed"
+  | "exhausted";
+
+interface IncrementalAdmittedViewStateV1 {
+  readonly budget: DeclarativeV2AuthenticatedCommandIncrementalBudgetV1;
+  readonly usage: IncrementalMutableUsageV1;
+  canonical: Uint8Array;
+  frames: readonly IncrementalCanonicalFramePlanV1[];
+  frameIndex: number;
+  phase: IncrementalAdmittedViewPhaseV1;
+  segmentIndex: number;
+  segmentRole: DeclarativeV2AuthenticatedCommandAdmittedByteRoleV1;
+  segmentStart: number;
+  segmentLength: number;
+  segmentOffset: number;
+  segmentCountsAsPayload: boolean;
+  chunk: Uint8Array;
+  chunkStartOffset: number;
+  chunkOffset: number;
+  terminal: IncrementalAdmittedViewTerminalV1;
+}
+
+interface IncrementalAdmittedCursorStateV1 {
+  readonly view: object;
 }
 
 type IncrementalStructuralModeV1 =
@@ -370,6 +540,9 @@ type IncrementalCanonicalFramePlanV1 =
     readonly payloadFrameCount: bigint;
   });
 
+const EMPTY_CANONICAL_FRAME_PLANS:
+  IncrementalCanonicalFramePlanV1[] = [];
+
 interface IncrementalStructuralStateV1 {
   mode: IncrementalStructuralModeV1;
   accumulator: number;
@@ -406,7 +579,7 @@ interface IncrementalStructuralStateV1 {
   parseSourceLength: bigint | undefined;
   nextSourceOffset: bigint;
   nextSemanticOffset: bigint;
-  readonly canonicalFrames: IncrementalCanonicalFramePlanV1[];
+  canonicalFrames: IncrementalCanonicalFramePlanV1[];
 }
 
 const FRAME_TAGS = Object.freeze({
@@ -577,6 +750,8 @@ export function makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1
   DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1 {
   const decoders = new WeakMap<object, IncrementalDecoderStateV1>();
   const capabilities = new WeakMap<object, IncrementalCapabilityStateV1>();
+  const views = new WeakMap<object, IncrementalAdmittedViewStateV1>();
+  const cursors = new WeakMap<object, IncrementalAdmittedCursorStateV1>();
 
   const create:
     DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1["create"] =
@@ -896,24 +1071,173 @@ export function makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1
         const capability = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandDecodedCapabilityV1",
         }) as DeclarativeV2AuthenticatedCommandDecodedCapabilityV1;
+        const bodyByteLength = state.body.byteLength;
+        const canonicalByteLength = state.canonical.byteLength;
+        const frames = state.structural.canonicalFrames;
         capabilities.set(capability, {
           decoder: rawDecoder as object,
           canonical: state.canonical,
+          frames,
           closed: false,
         });
         state.closed = true;
+        state.body = EMPTY_COMMAND_BYTES;
+        state.canonical = EMPTY_COMMAND_BYTES;
+        state.structural.canonicalFrames = EMPTY_CANONICAL_FRAME_PLANS;
         const transportUsage = Object.freeze({
-          bodyBytes: state.body.byteLength,
-          canonicalBytes: state.canonical.byteLength,
+          bodyBytes: bodyByteLength,
+          canonicalBytes: canonicalByteLength,
           frameBytes: state.usage.frameBytes,
           payloadBytes: state.usage.payloadBytes,
           frames: state.usage.frames,
-          transitions: state.body.byteLength + state.usage.frames,
+          transitions: bodyByteLength + state.usage.frames,
         });
         return Result.succeed(Object.freeze({
           status: "complete",
           capability,
           usage: transportUsage,
+          receipt: incrementalReceipt(before, state.usage, transitions),
+        }));
+      };
+
+  const openView:
+    DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1["openView"] =
+      rawInput => {
+        const captured = captureIncrementalOpenViewInput(rawInput);
+        if (Result.isFailure(captured)) return Result.fail(captured.failure);
+        const capability = capabilities.get(captured.success.capability);
+        if (capability === undefined) {
+          return Result.fail(incrementalError(
+            "openView",
+            "staleAuthority",
+            "capability",
+          ));
+        }
+        if (capability.closed) {
+          return Result.fail(incrementalError(
+            "openView",
+            "closed",
+            "capability",
+          ));
+        }
+        const usage = zeroIncrementalUsage();
+        const before = snapshotIncrementalUsage(usage);
+        const allocated = chargeIncremental(
+          usage,
+          captured.success.budget,
+          "allocationBytes",
+          ADMITTED_VIEW_FIXED_STATE_ALLOCATION_BYTES,
+          "openView",
+        );
+        if (Result.isFailure(allocated)) {
+          closeIncrementalCapability(capability);
+          return Result.fail(allocated.failure);
+        }
+        const transitioned = chargeIncremental(
+          usage,
+          captured.success.budget,
+          "transitions",
+          1,
+          "openView",
+        );
+        if (Result.isFailure(transitioned)) {
+          closeIncrementalCapability(capability);
+          return Result.fail(transitioned.failure);
+        }
+        const view = Object.freeze({
+          _tag: "DeclarativeV2AuthenticatedCommandAdmittedViewV1",
+        }) as DeclarativeV2AuthenticatedCommandAdmittedViewV1;
+        const cursor = Object.freeze({
+          _tag: "DeclarativeV2AuthenticatedCommandAdmittedCursorV1",
+        }) as DeclarativeV2AuthenticatedCommandAdmittedCursorV1;
+        views.set(view, {
+          budget: captured.success.budget,
+          usage,
+          canonical: capability.canonical,
+          frames: capability.frames,
+          frameIndex: 0,
+          phase: "metadata",
+          segmentIndex: 0,
+          segmentRole: "reservation",
+          segmentStart: 0,
+          segmentLength: 0,
+          segmentOffset: 0,
+          segmentCountsAsPayload: false,
+          chunk: EMPTY_COMMAND_BYTES,
+          chunkStartOffset: 0,
+          chunkOffset: 0,
+          terminal: "open",
+        });
+        cursors.set(cursor, { view });
+        closeIncrementalCapability(capability);
+        return Result.succeed(Object.freeze({
+          view,
+          cursor,
+          receipt: incrementalReceipt(before, usage, 1),
+        }));
+      };
+
+  const stepView:
+    DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1["stepView"] =
+      (rawView, rawCursor, rawAllowance) => {
+        const stateResult = incrementalAdmittedViewState(
+          views,
+          cursors,
+          rawView,
+          rawCursor,
+          "stepView",
+        );
+        if (Result.isFailure(stateResult)) {
+          return Result.fail(stateResult.failure);
+        }
+        const state = stateResult.success;
+        const admittedAllowance = incrementalAllowance(
+          rawAllowance,
+          "stepView",
+        );
+        if (Result.isFailure(admittedAllowance)) {
+          closeIncrementalAdmittedView(state, "closed");
+          return Result.fail(admittedAllowance.failure);
+        }
+        const before = snapshotIncrementalUsage(state.usage);
+        if (admittedAllowance.success === 0) {
+          return Result.succeed(Object.freeze({
+            status: "pending",
+            receipt: incrementalReceipt(before, state.usage, 0),
+          }));
+        }
+        let transitions = 0;
+        while (transitions < admittedAllowance.success) {
+          const advanced = advanceIncrementalAdmittedView(state);
+          if (Result.isFailure(advanced)) {
+            closeIncrementalAdmittedView(state, "closed");
+            return Result.fail(advanced.failure);
+          }
+          transitions += 1;
+          if (advanced.success.status === "event") {
+            return Result.succeed(Object.freeze({
+              status: "event",
+              event: advanced.success.event,
+              receipt: incrementalReceipt(
+                before,
+                state.usage,
+                transitions,
+              ),
+            }));
+          }
+          if (advanced.success.status === "complete") {
+            return Result.succeed(Object.freeze({
+              status: "complete",
+              receipt: incrementalReceipt(
+                before,
+                state.usage,
+                transitions,
+              ),
+            }));
+          }
+        }
+        return Result.succeed(Object.freeze({
+          status: "pending",
           receipt: incrementalReceipt(before, state.usage, transitions),
         }));
       };
@@ -936,26 +1260,62 @@ export function makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1
           return Result.succeed(undefined);
         }
         const capability = capabilities.get(rawHandle);
-        if (capability === undefined) {
-          return Result.fail(incrementalError(
-            "close",
-            "staleAuthority",
-          ));
+        if (capability !== undefined) {
+          if (capability.closed) {
+            return Result.fail(incrementalError("close", "closed"));
+          }
+          closeIncrementalCapability(capability);
+          const owner = decoders.get(capability.decoder);
+          if (owner !== undefined) {
+            owner.body = EMPTY_COMMAND_BYTES;
+            owner.canonical = EMPTY_COMMAND_BYTES;
+            owner.structural.canonicalFrames = EMPTY_CANONICAL_FRAME_PLANS;
+          }
+          return Result.succeed(undefined);
         }
-        if (capability.closed) {
-          return Result.fail(incrementalError("close", "closed"));
+        const view = views.get(rawHandle);
+        if (view !== undefined) {
+          if (view.terminal !== "open") {
+            return Result.fail(incrementalError(
+              "close",
+              view.terminal,
+            ));
+          }
+          closeIncrementalAdmittedView(view, "closed");
+          return Result.succeed(undefined);
         }
-        capability.closed = true;
-        capability.canonical = EMPTY_COMMAND_BYTES;
-        const owner = decoders.get(capability.decoder);
-        if (owner !== undefined) {
-          owner.body = EMPTY_COMMAND_BYTES;
-          owner.canonical = EMPTY_COMMAND_BYTES;
+        const cursor = cursors.get(rawHandle);
+        if (cursor !== undefined) {
+          const owner = views.get(cursor.view);
+          if (owner === undefined) {
+            return Result.fail(incrementalError(
+              "close",
+              "staleAuthority",
+            ));
+          }
+          if (owner.terminal !== "open") {
+            return Result.fail(incrementalError(
+              "close",
+              owner.terminal,
+            ));
+          }
+          closeIncrementalAdmittedView(owner, "closed");
+          return Result.succeed(undefined);
         }
-        return Result.succeed(undefined);
+        return Result.fail(incrementalError(
+          "close",
+          "staleAuthority",
+        ));
       };
 
-  return Object.freeze({ create, step, finish, close });
+  return Object.freeze({
+    create,
+    step,
+    finish,
+    openView,
+    stepView,
+    close,
+  });
 }
 
 const INCREMENTAL_BUDGET_KEYS = [
@@ -984,18 +1344,12 @@ function captureIncrementalCreateInput(
   if (Result.isFailure(record)) {
     return Result.fail(incrementalError("create", "invalidInput", "create"));
   }
-  const budgetRecord = captureOwnDataRecord(
+  const capturedBudget = captureIncrementalBudget(
     record.success.budget,
-    INCREMENTAL_BUDGET_KEYS,
-    "decode",
-    "budget",
+    "create",
   );
-  if (Result.isFailure(budgetRecord)) {
-    return Result.fail(incrementalError(
-      "create",
-      "invalidBudget",
-      "budget",
-    ));
+  if (Result.isFailure(capturedBudget)) {
+    return Result.fail(capturedBudget.failure);
   }
   if (!isNonNegativeSafeInteger(record.success.bodyByteLength)) {
     return Result.fail(incrementalError(
@@ -1004,41 +1358,7 @@ function captureIncrementalCreateInput(
       "bodyByteLength",
     ));
   }
-  for (const key of INCREMENTAL_BUDGET_KEYS) {
-    if (!isNonNegativeSafeInteger(budgetRecord.success[key])) {
-      return Result.fail(incrementalError(
-        "create",
-        "invalidBudget",
-        `budget.${key}`,
-      ));
-    }
-  }
-  if (
-    (budgetRecord.success.maximumBodyBytes as number) > U32_MAX ||
-    (budgetRecord.success.maximumCanonicalBytes as number) > U32_MAX ||
-    (budgetRecord.success.maximumFrameBytes as number) > U32_MAX ||
-    (budgetRecord.success.maximumPayloadBytes as number) > U32_MAX ||
-    (budgetRecord.success.maximumFrames as number) >
-      DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1
-  ) {
-    return Result.fail(incrementalError(
-      "create",
-      "invalidBudget",
-      "budget",
-    ));
-  }
-  const budget = Object.freeze({
-    maximumBodyBytes: budgetRecord.success.maximumBodyBytes as number,
-    maximumCanonicalBytes:
-      budgetRecord.success.maximumCanonicalBytes as number,
-    maximumFrameBytes: budgetRecord.success.maximumFrameBytes as number,
-    maximumPayloadBytes: budgetRecord.success.maximumPayloadBytes as number,
-    maximumFrames: budgetRecord.success.maximumFrames as number,
-    maximumTransitions: budgetRecord.success.maximumTransitions as number,
-    maximumAllocationBytes:
-      budgetRecord.success.maximumAllocationBytes as number,
-    maximumCopyBytes: budgetRecord.success.maximumCopyBytes as number,
-  });
+  const budget = capturedBudget.success;
   const bodyByteLength = record.success.bodyByteLength as number;
   if (bodyByteLength > U32_MAX) {
     return Result.fail(incrementalError(
@@ -1068,6 +1388,107 @@ function captureIncrementalCreateInput(
     ));
   }
   return Result.succeed(Object.freeze({ bodyByteLength, budget }));
+}
+
+function captureIncrementalOpenViewInput(
+  input: unknown,
+): Result.Result<
+  Readonly<{
+    readonly capability: object;
+    readonly budget: DeclarativeV2AuthenticatedCommandIncrementalBudgetV1;
+  }>,
+  DeclarativeV2AuthenticatedCommandIncrementalV1Error
+> {
+  const record = captureOwnDataRecord(
+    input,
+    ["capability", "budget"] as const,
+    "decode",
+    "openView",
+  );
+  if (Result.isFailure(record)) {
+    return Result.fail(incrementalError(
+      "openView",
+      "invalidInput",
+      "openView",
+    ));
+  }
+  if (
+    record.success.capability === null ||
+    typeof record.success.capability !== "object"
+  ) {
+    return Result.fail(incrementalError(
+      "openView",
+      "invalidInput",
+      "capability",
+    ));
+  }
+  const budget = captureIncrementalBudget(
+    record.success.budget,
+    "openView",
+  );
+  return Result.isFailure(budget)
+    ? Result.fail(budget.failure)
+    : Result.succeed(Object.freeze({
+      capability: record.success.capability,
+      budget: budget.success,
+    }));
+}
+
+function captureIncrementalBudget(
+  input: unknown,
+  operation: "create" | "openView",
+): Result.Result<
+  DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
+  DeclarativeV2AuthenticatedCommandIncrementalV1Error
+> {
+  const budgetRecord = captureOwnDataRecord(
+    input,
+    INCREMENTAL_BUDGET_KEYS,
+    "decode",
+    "budget",
+  );
+  if (Result.isFailure(budgetRecord)) {
+    return Result.fail(incrementalError(
+      operation,
+      "invalidBudget",
+      "budget",
+    ));
+  }
+  for (const key of INCREMENTAL_BUDGET_KEYS) {
+    if (!isNonNegativeSafeInteger(budgetRecord.success[key])) {
+      return Result.fail(incrementalError(
+        operation,
+        "invalidBudget",
+        `budget.${key}`,
+      ));
+    }
+  }
+  if (
+    (budgetRecord.success.maximumBodyBytes as number) > U32_MAX ||
+    (budgetRecord.success.maximumCanonicalBytes as number) > U32_MAX ||
+    (budgetRecord.success.maximumFrameBytes as number) > U32_MAX ||
+    (budgetRecord.success.maximumPayloadBytes as number) > U32_MAX ||
+    (budgetRecord.success.maximumFrames as number) >
+      DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1
+  ) {
+    return Result.fail(incrementalError(
+      operation,
+      "invalidBudget",
+      "budget",
+    ));
+  }
+  return Result.succeed(Object.freeze({
+    maximumBodyBytes: budgetRecord.success.maximumBodyBytes as number,
+    maximumCanonicalBytes:
+      budgetRecord.success.maximumCanonicalBytes as number,
+    maximumFrameBytes: budgetRecord.success.maximumFrameBytes as number,
+    maximumPayloadBytes: budgetRecord.success.maximumPayloadBytes as number,
+    maximumFrames: budgetRecord.success.maximumFrames as number,
+    maximumTransitions: budgetRecord.success.maximumTransitions as number,
+    maximumAllocationBytes:
+      budgetRecord.success.maximumAllocationBytes as number,
+    maximumCopyBytes: budgetRecord.success.maximumCopyBytes as number,
+  }));
 }
 
 function zeroIncrementalUsage():
@@ -1136,7 +1557,7 @@ function incrementalError(
 
 function incrementalAllowance(
   input: unknown,
-  operation: "step" | "finish",
+  operation: "step" | "finish" | "stepView",
 ): Result.Result<
   number,
   DeclarativeV2AuthenticatedCommandIncrementalV1Error
@@ -1175,6 +1596,437 @@ function failIncremental(state: IncrementalDecoderStateV1): void {
   state.closed = true;
   state.body = EMPTY_COMMAND_BYTES;
   state.canonical = EMPTY_COMMAND_BYTES;
+  state.structural.canonicalFrames = EMPTY_CANONICAL_FRAME_PLANS;
+}
+
+function closeIncrementalCapability(
+  state: IncrementalCapabilityStateV1,
+): void {
+  state.closed = true;
+  state.canonical = EMPTY_COMMAND_BYTES;
+  state.frames = EMPTY_CANONICAL_FRAME_PLANS;
+}
+
+function incrementalAdmittedViewState(
+  views: WeakMap<object, IncrementalAdmittedViewStateV1>,
+  cursors: WeakMap<object, IncrementalAdmittedCursorStateV1>,
+  rawView: unknown,
+  rawCursor: unknown,
+  operation: "stepView",
+): Result.Result<
+  IncrementalAdmittedViewStateV1,
+  DeclarativeV2AuthenticatedCommandIncrementalV1Error
+> {
+  if (
+    rawView === null ||
+    typeof rawView !== "object" ||
+    rawCursor === null ||
+    typeof rawCursor !== "object"
+  ) {
+    return Result.fail(incrementalError(
+      operation,
+      "staleAuthority",
+    ));
+  }
+  const state = views.get(rawView);
+  const cursor = cursors.get(rawCursor);
+  if (state === undefined || cursor === undefined || cursor.view !== rawView) {
+    return Result.fail(incrementalError(
+      operation,
+      "staleAuthority",
+    ));
+  }
+  return state.terminal === "open"
+    ? Result.succeed(state)
+    : Result.fail(incrementalError(operation, state.terminal));
+}
+
+function closeIncrementalAdmittedView(
+  state: IncrementalAdmittedViewStateV1,
+  terminal: Exclude<IncrementalAdmittedViewTerminalV1, "open">,
+): void {
+  state.terminal = terminal;
+  state.canonical = EMPTY_COMMAND_BYTES;
+  state.frames = EMPTY_CANONICAL_FRAME_PLANS;
+  state.chunk = EMPTY_COMMAND_BYTES;
+  state.segmentLength = 0;
+  state.segmentOffset = 0;
+  state.chunkOffset = 0;
+}
+
+type IncrementalAdmittedViewAdvanceV1 =
+  | Readonly<{ readonly status: "pending" }>
+  | Readonly<{
+    readonly status: "event";
+    readonly event: DeclarativeV2AuthenticatedCommandAdmittedViewEventV1;
+  }>
+  | Readonly<{ readonly status: "complete" }>;
+
+function advanceIncrementalAdmittedView(
+  state: IncrementalAdmittedViewStateV1,
+): Result.Result<
+  IncrementalAdmittedViewAdvanceV1,
+  DeclarativeV2AuthenticatedCommandIncrementalV1Error
+> {
+  return Result.gen(function* () {
+    yield* chargeIncremental(
+      state.usage,
+      state.budget,
+      "transitions",
+      1,
+      "stepView",
+    );
+    const plan = state.frames[state.frameIndex];
+    if (plan === undefined) {
+      return admittedViewInvariant(state, "framePlan");
+    }
+    if (state.phase === "metadata") {
+      yield* chargeIncremental(
+        state.usage,
+        state.budget,
+        "frames",
+        1,
+        "stepView",
+      );
+      yield* chargeIncremental(
+        state.usage,
+        state.budget,
+        "frameBytes",
+        FRAME_LENGTH_PREFIX_BYTES + plan.frameLength,
+        "stepView",
+      );
+      yield* chargeIncremental(
+        state.usage,
+        state.budget,
+        "allocationBytes",
+        ADMITTED_VIEW_METADATA_ALLOCATION_BYTES,
+        "stepView",
+      );
+      const metadata = admittedFrameMetadata(state.frameIndex, plan);
+      state.phase = "metadataAdvance";
+      return Object.freeze({
+        status: "event",
+        event: Object.freeze({
+          kind: "frame",
+          metadata,
+        }),
+      });
+    }
+    if (state.phase === "metadataAdvance") {
+      state.frameIndex += 1;
+      if (state.frameIndex === state.frames.length) {
+        state.frameIndex = 0;
+        state.segmentIndex = 0;
+        state.phase = "segment";
+      } else {
+        state.phase = "metadata";
+      }
+      return Object.freeze({ status: "pending" });
+    }
+    if (state.phase === "segment") {
+      const configured = configureIncrementalAdmittedSegment(state, plan);
+      state.phase = configured ? "allocate" : "advance";
+      return Object.freeze({ status: "pending" });
+    }
+    if (state.phase === "allocate") {
+      const remaining = state.segmentLength - state.segmentOffset;
+      if (remaining <= 0) {
+        state.segmentIndex += 1;
+        state.phase = "segment";
+        return Object.freeze({ status: "pending" });
+      }
+      const byteLength = Math.min(
+        remaining,
+        ADMITTED_VIEW_MAXIMUM_CHUNK_BYTES,
+      );
+      yield* chargeIncremental(
+        state.usage,
+        state.budget,
+        "allocationBytes",
+        byteLength,
+        "stepView",
+      );
+      state.chunk = new Uint8Array(byteLength);
+      state.chunkStartOffset = state.segmentOffset;
+      state.chunkOffset = 0;
+      state.phase = "copy";
+      return Object.freeze({ status: "pending" });
+    }
+    if (state.phase === "copy") {
+      yield* chargeIncremental(
+        state.usage,
+        state.budget,
+        "copyBytes",
+        1,
+        "stepView",
+      );
+      yield* chargeIncremental(
+        state.usage,
+        state.budget,
+        "bodyBytes",
+        1,
+        "stepView",
+      );
+      yield* chargeIncremental(
+        state.usage,
+        state.budget,
+        "canonicalBytes",
+        1,
+        "stepView",
+      );
+      if (state.segmentCountsAsPayload) {
+        yield* chargeIncremental(
+          state.usage,
+          state.budget,
+          "payloadBytes",
+          1,
+          "stepView",
+        );
+      }
+      const sourceOffset = state.segmentStart +
+        state.chunkStartOffset +
+        state.chunkOffset;
+      const byte = state.canonical[sourceOffset];
+      if (byte === undefined) {
+        return admittedViewInvariant(
+          state,
+          `frames.${state.frameIndex}.bytes`,
+        );
+      }
+      state.chunk[state.chunkOffset] = byte;
+      state.chunkOffset += 1;
+      if (state.chunkOffset < state.chunk.byteLength) {
+        return Object.freeze({ status: "pending" });
+      }
+      const bytes = state.chunk;
+      const offset = state.chunkStartOffset;
+      state.segmentOffset += bytes.byteLength;
+      state.chunk = EMPTY_COMMAND_BYTES;
+      state.chunkOffset = 0;
+      state.phase = state.segmentOffset === state.segmentLength
+        ? "segment"
+        : "allocate";
+      if (state.segmentOffset === state.segmentLength) {
+        state.segmentIndex += 1;
+      }
+      return Object.freeze({
+        status: "event",
+        event: Object.freeze({
+          kind: "bytes",
+          frameOrdinal: state.frameIndex,
+          role: state.segmentRole,
+          offset,
+          bytes,
+        }),
+      });
+    }
+    if (state.phase === "advance") {
+      state.frameIndex += 1;
+      if (state.frameIndex === state.frames.length) {
+        closeIncrementalAdmittedView(state, "exhausted");
+        return Object.freeze({ status: "complete" });
+      }
+      state.segmentIndex = 0;
+      state.segmentLength = 0;
+      state.segmentOffset = 0;
+      state.phase = "segment";
+      return Object.freeze({ status: "pending" });
+    }
+    return admittedViewInvariant(state, "phase");
+  });
+}
+
+function admittedFrameMetadata(
+  frameOrdinal: number,
+  plan: IncrementalCanonicalFramePlanV1,
+): DeclarativeV2AuthenticatedCommandAdmittedFrameMetadataV1 {
+  if (plan.kind === "command_header") {
+    return Object.freeze({
+      kind: plan.kind,
+      frameOrdinal,
+      frameByteLength: plan.frameLength,
+      commandKind: plan.commandKind,
+      sequence: plan.sequence,
+      reservationHasPredecessor: plan.reservationHasPredecessor,
+      reservationByteLength: plan.reservationHasPredecessor
+        ? COMMAND_RESERVATION_BYTES_WITH_PREDECESSOR
+        : COMMAND_RESERVATION_BYTES_WITHOUT_PREDECESSOR,
+      commandBudgetByteLength: COMMAND_BUDGET_BYTES,
+    });
+  }
+  if (plan.kind === "module_metadata") {
+    return Object.freeze({
+      kind: plan.kind,
+      frameOrdinal,
+      frameByteLength: plan.frameLength,
+      moduleOrdinal: plan.moduleOrdinal,
+      roles: plan.roles,
+      modulePathByteLength: plan.modulePathLength,
+      sourceByteLength: plan.sourceByteLength,
+    });
+  }
+  if (plan.kind === "source_bytes") {
+    return Object.freeze({
+      kind: plan.kind,
+      frameOrdinal,
+      frameByteLength: plan.frameLength,
+      moduleOrdinal: plan.moduleOrdinal,
+      offset: plan.sourceOffset,
+      payloadByteLength: plan.payloadLength,
+    });
+  }
+  if (plan.kind === "semantic_bytes") {
+    return Object.freeze({
+      kind: plan.kind,
+      frameOrdinal,
+      frameByteLength: plan.frameLength,
+      offset: plan.semanticOffset,
+      payloadByteLength: plan.payloadLength,
+    });
+  }
+  return Object.freeze({
+    kind: plan.kind,
+    frameOrdinal,
+    frameByteLength: plan.frameLength,
+    firstModuleOrdinal: plan.firstModuleOrdinal,
+    moduleCount: plan.moduleCount,
+    sourceByteLength: plan.sourceByteLength,
+    semanticByteLength: plan.semanticByteLength,
+    payloadFrameCount: plan.payloadFrameCount,
+  });
+}
+
+function configureIncrementalAdmittedSegment(
+  state: IncrementalAdmittedViewStateV1,
+  plan: IncrementalCanonicalFramePlanV1,
+): boolean {
+  const configured = configureIncrementalAdmittedSegmentUnchecked(
+    state,
+    plan,
+  );
+  if (!configured) return false;
+  if (
+    state.segmentLength <= 0 ||
+    state.segmentStart < 0 ||
+    state.segmentStart + state.segmentLength > state.canonical.byteLength
+  ) {
+    return admittedViewInvariant(
+      state,
+      `frames.${state.frameIndex}.segment`,
+    );
+  }
+  state.segmentOffset = 0;
+  return true;
+}
+
+function admittedViewInvariant(
+  state: IncrementalAdmittedViewStateV1,
+  path: string,
+): never {
+  closeIncrementalAdmittedView(state, "closed");
+  throw new Error(
+    `Declarative V2 authenticated command admitted-view invariant: ${path}`,
+  );
+}
+
+function configureIncrementalAdmittedSegmentUnchecked(
+  state: IncrementalAdmittedViewStateV1,
+  plan: IncrementalCanonicalFramePlanV1,
+): boolean {
+  if (plan.kind === "command_header") {
+    const reservationByteLength = plan.reservationHasPredecessor
+      ? COMMAND_RESERVATION_BYTES_WITH_PREDECESSOR
+      : COMMAND_RESERVATION_BYTES_WITHOUT_PREDECESSOR;
+    if (state.segmentIndex === 0) {
+      setIncrementalAdmittedSegment(
+        state,
+        "reservation",
+        plan.frameStart + 5,
+        reservationByteLength,
+        true,
+      );
+      return true;
+    }
+    if (state.segmentIndex === 1) {
+      setIncrementalAdmittedSegment(
+        state,
+        "command_budget",
+        plan.frameStart + 5 + reservationByteLength + 4,
+        COMMAND_BUDGET_BYTES,
+        true,
+      );
+      return true;
+    }
+    return false;
+  }
+  if (plan.kind === "module_metadata") {
+    const pathStart = plan.frameStart + 17;
+    if (state.segmentIndex === 0) {
+      setIncrementalAdmittedSegment(
+        state,
+        "module_path",
+        pathStart,
+        plan.modulePathLength,
+        true,
+      );
+      return true;
+    }
+    if (state.segmentIndex === 1) {
+      setIncrementalAdmittedSegment(
+        state,
+        "frame_sha256",
+        pathStart + plan.modulePathLength,
+        SHA256_BYTES,
+        false,
+      );
+      return true;
+    }
+    if (state.segmentIndex === 2) {
+      setIncrementalAdmittedSegment(
+        state,
+        "source_sha256",
+        pathStart + plan.modulePathLength + SHA256_BYTES,
+        SHA256_BYTES,
+        false,
+      );
+      return true;
+    }
+    return false;
+  }
+  if (plan.kind === "source_bytes" && state.segmentIndex === 0) {
+    setIncrementalAdmittedSegment(
+      state,
+      "source_payload",
+      plan.frameStart + 21,
+      plan.payloadLength,
+      true,
+    );
+    return true;
+  }
+  if (plan.kind === "semantic_bytes" && state.segmentIndex === 0) {
+    setIncrementalAdmittedSegment(
+      state,
+      "semantic_payload",
+      plan.frameStart + 13,
+      plan.payloadLength,
+      true,
+    );
+    return true;
+  }
+  return false;
+}
+
+function setIncrementalAdmittedSegment(
+  state: IncrementalAdmittedViewStateV1,
+  role: DeclarativeV2AuthenticatedCommandAdmittedByteRoleV1,
+  start: number,
+  byteLength: number,
+  countsAsPayload: boolean,
+): void {
+  state.segmentRole = role;
+  state.segmentStart = start;
+  state.segmentLength = byteLength;
+  state.segmentCountsAsPayload = countsAsPayload;
 }
 
 function incrementalMaximum(

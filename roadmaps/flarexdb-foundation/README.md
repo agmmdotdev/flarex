@@ -950,16 +950,18 @@ metadata-before-payload admission, quanta of at most 1,024 transitions, and an
 independently derived, separately metered byte-wise canonical re-encoding and
 input-equality proof. The whole-call decoder
 remains inert compatibility state and is not an authority-capable source path.
-The decoded capability currently has lifecycle closure but no bounded
-production view or cursor for its admitted header, frame metadata, or owned
-payload. Consequently no production caller composes this admission, the
-verifier restart runtime, the analyzer, and the durable repository in
-`apps/executor`. The smallest next gate is `A1b2c0b2b`: an
-executor-HTTP-owned, same-factory bounded admitted-command view/cursor that
-remains inert and grants no repository `Work`, fence, candidate, analyzer, or
-execution authority. The earlier request-scoped monolithic authenticated
-verifier dispatch consumes its earlier whole-request protocol; it does not
-consume this admitted-command capability or prove A1b2 composition. No response
+The private `A1b2c0b2b` executor-HTTP owner now transfers one admitted
+capability into one same-factory, result-bound bounded view/cursor. It reuses
+retained canonical frame plans to emit ordered immutable header/frame metadata
+before fresh owned reservation, budget, module-identity, and payload byte
+chunks, with exact precharged receipts and quanta no larger than 1,024
+transitions. Exhaustion or close irreversibly releases retained byte authority.
+The view stays inert and grants no repository `Work`, fence, candidate,
+analyzer, verifier, transaction, route, or execution authority. The earlier
+request-scoped monolithic authenticated verifier dispatch consumes its earlier
+whole-request protocol; it does not consume this admitted-command view or prove
+A1b2 composition. No production caller composes the view, verifier restart
+runtime, analyzer, and durable repository in `apps/executor`; no response
 contract, verifier/restart invocation, replacement A1b2 analyzer command host,
 candidate authority, executor composition, route, harness, readiness, or
 activation exists at this boundary.

@@ -1406,13 +1406,17 @@ activation remain blocked until their production host composition is proven.
    and input-equality proof before returning an inert decoded-request
    capability. The existing whole-call decoder remains
    an inert compatibility API and is not an authority-capable source path.
-   That capability currently has lifecycle closure but no bounded production
-   view or cursor for admitted header, frame metadata, or owned payload, so no
-   production caller composes it with the verifier restart runtime, analyzer
-   execution, or the durable repository in `apps/executor`. The smallest next
-   gate is `A1b2c0b2b`: an executor-HTTP-owned, same-factory bounded
-   admitted-command view/cursor. It must remain inert and must not mint
-   repository `Work`, a fence, candidate, analyzer, or execution authority.
+   The private `A1b2c0b2b` executor-HTTP owner now transfers one admitted
+   capability into one same-factory, result-bound view/cursor. It reuses the
+   retained canonical frame plans to emit ordered immutable header and frame
+   metadata followed by fresh owned reservation, budget, module-identity, and
+   payload byte chunks in fixed quanta of at most 1,024 transitions. Every
+   metadata, byte, allocation, and copy action is precharged against a separate
+   exact receipt; exhaustion or close irreversibly releases retained byte
+   authority. The view remains inert and cannot mint repository `Work`, a
+   fence, candidate, analyzer, verifier, transaction, route, or execution
+   authority. No production caller yet composes it with the verifier restart
+   runtime, analyzer execution, or durable repository in `apps/executor`.
    Response transport, verifier/restart invocation, analyzer command execution
    and hosting, fresh analyzer handshake binding, candidate authority, executor
    composition, and the real-system harness remain later gates.

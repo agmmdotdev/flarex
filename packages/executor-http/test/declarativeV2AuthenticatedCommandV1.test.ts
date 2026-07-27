@@ -21,6 +21,8 @@ import {
   decodeDeclarativeV2AuthenticatedCommandRequestV1,
   encodeDeclarativeV2AuthenticatedCommandRequestV1,
   makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
+  type DeclarativeV2AuthenticatedCommandAdmittedByteRoleV1,
+  type DeclarativeV2AuthenticatedCommandAdmittedViewEventV1,
   type DeclarativeV2AuthenticatedCommandFrameV1,
   type DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
   type DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
@@ -837,6 +839,332 @@ describe("Declarative V2 authenticated command V1 transport", () => {
     ));
   });
 
+  it("streams admitted metadata and owned bytes for all grammars and splits", () => {
+    for (const request of [
+      sourcePageRequest(),
+      parseModuleRequest("functions/\u1019\u103C\u1014\u103A\u1019\u102C.js"),
+      linkPageRequest(),
+      registrationPageRequest(),
+    ]) {
+      const encoded = encode(request, generousBudget);
+      const baseline = driveAdmittedViewFromBytes(
+        encoded.canonicalBytes,
+        [encoded.canonicalBytes.byteLength],
+        1_024,
+      );
+      expectAdmittedViewMatchesOracle(
+        baseline.events,
+        request,
+        encoded.canonicalBytes,
+      );
+      expect(baseline.aggregate.payloadBytes).toBe(
+        encoded.usage.payloadBytes,
+      );
+      const cold = driveAdmittedViewFromBytes(
+        encoded.canonicalBytes,
+        [encoded.canonicalBytes.byteLength],
+        1,
+      );
+      expect(cold.events).toEqual(baseline.events);
+      expect(cold.aggregate).toEqual(baseline.aggregate);
+      for (
+        let split = 0;
+        split <= encoded.canonicalBytes.byteLength;
+        split += 1
+      ) {
+        const splitResult = driveAdmittedViewFromBytes(
+          encoded.canonicalBytes,
+          [split, encoded.canonicalBytes.byteLength - split],
+          1_024,
+        );
+        expect(splitResult.events).toEqual(baseline.events);
+        expect(splitResult.aggregate).toEqual(baseline.aggregate);
+      }
+    }
+  }, 30_000);
+
+  it("pins admitted-view allowances, metadata ordering, and terminal reuse", () => {
+    const largeSource = new Uint8Array(2_049);
+    for (let index = 0; index < largeSource.byteLength; index += 1) {
+      largeSource[index] = index % 251;
+    }
+    const encoded = encode(
+      parseModuleRequest("functions/example.js", largeSource),
+      generousBudget,
+    );
+    const factory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    const admitted = driveIncremental(
+      factory,
+      encoded.canonicalBytes,
+      incrementalBudget(encoded.canonicalBytes.byteLength),
+      [encoded.canonicalBytes.byteLength],
+      1_024,
+    );
+    const opened = unwrap(factory.openView({
+      capability: admitted.capability,
+      budget: incrementalBudget(encoded.canonicalBytes.byteLength),
+    }));
+    expect(unwrap(factory.stepView(opened.view, opened.cursor, 0)))
+      .toMatchObject({
+        status: "pending",
+        receipt: { transitionCount: 0 },
+      });
+    const first = unwrap(factory.stepView(opened.view, opened.cursor, 1));
+    expect(first).toMatchObject({
+      status: "event",
+      event: {
+        kind: "frame",
+        metadata: { kind: "command_header", frameOrdinal: 0 },
+      },
+      receipt: { transitionCount: 1 },
+    });
+    const events: DeclarativeV2AuthenticatedCommandAdmittedViewEventV1[] = [];
+    if (first.status === "event") events.push(first.event);
+    let complete = false;
+    while (!complete) {
+      const next = unwrap(factory.stepView(
+        opened.view,
+        opened.cursor,
+        1_024,
+      ));
+      if (next.status === "event") events.push(next.event);
+      complete = next.status === "complete";
+    }
+    let lastMetadataIndex = -1;
+    let firstByteIndex = -1;
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index]!;
+      if (event.kind === "frame") {
+        lastMetadataIndex = index;
+      } else if (firstByteIndex === -1) {
+        firstByteIndex = index;
+      }
+    }
+    expect(firstByteIndex).toBeGreaterThan(lastMetadataIndex);
+    const sourceChunks = events.filter(event =>
+      event.kind === "bytes" && event.role === "source_payload"
+    );
+    expect(sourceChunks.map(event =>
+      event.kind === "bytes" ? event.bytes.byteLength : 0
+    )).toEqual([17, 1_024, 1_008]);
+    expect(admittedRoleBytes(events, 2, "source_payload"))
+      .toEqual(largeSource.subarray(0, 17));
+    expect(admittedRoleBytes(events, 3, "source_payload"))
+      .toEqual(largeSource.subarray(17));
+    expect(incrementalFailureReason(factory.stepView(
+      opened.view,
+      opened.cursor,
+      1,
+    ))).toBe("exhausted");
+    expect(incrementalFailureReason(factory.close(opened.view)))
+      .toBe("exhausted");
+
+    const invalidFactory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    const invalidAdmitted = driveIncremental(
+      invalidFactory,
+      encoded.canonicalBytes,
+      incrementalBudget(encoded.canonicalBytes.byteLength),
+      [encoded.canonicalBytes.byteLength],
+      1_024,
+    );
+    const invalidOpened = unwrap(invalidFactory.openView({
+      capability: invalidAdmitted.capability,
+      budget: incrementalBudget(encoded.canonicalBytes.byteLength),
+    }));
+    expect(incrementalFailureReason(invalidFactory.stepView(
+      invalidOpened.view,
+      invalidOpened.cursor,
+      1_025,
+    ))).toBe("invalidInput");
+    expect(incrementalFailureReason(invalidFactory.stepView(
+      invalidOpened.view,
+      invalidOpened.cursor,
+      1,
+    ))).toBe("closed");
+  });
+
+  it("precharges exact and one-less admitted-view budgets", () => {
+    const encoded = encode(parseModuleRequest(), generousBudget);
+    const baseline = driveAdmittedViewFromBytes(
+      encoded.canonicalBytes,
+      [encoded.canonicalBytes.byteLength],
+      1_024,
+    );
+    expect(baseline.aggregate.payloadBytes).toBe(
+      encoded.usage.payloadBytes,
+    );
+    const exact = Object.freeze({
+      maximumBodyBytes: baseline.aggregate.bodyBytes,
+      maximumCanonicalBytes: baseline.aggregate.canonicalBytes,
+      maximumFrameBytes: baseline.aggregate.frameBytes,
+      maximumPayloadBytes: baseline.aggregate.payloadBytes,
+      maximumFrames: baseline.aggregate.frames,
+      maximumTransitions: baseline.aggregate.transitions,
+      maximumAllocationBytes: baseline.aggregate.allocationBytes,
+      maximumCopyBytes: baseline.aggregate.copyBytes,
+    }) satisfies DeclarativeV2AuthenticatedCommandIncrementalBudgetV1;
+    expect(attemptAdmittedView(encoded.canonicalBytes, exact)).toEqual(
+      Result.succeed(baseline.aggregate),
+    );
+    for (const [field, reason] of [
+      ["maximumBodyBytes", "bodyBytesExceeded"],
+      ["maximumCanonicalBytes", "canonicalBytesExceeded"],
+      ["maximumFrameBytes", "frameBytesExceeded"],
+      ["maximumPayloadBytes", "payloadBytesExceeded"],
+      ["maximumFrames", "framesExceeded"],
+      ["maximumTransitions", "transitionsExceeded"],
+      ["maximumAllocationBytes", "allocationBytesExceeded"],
+      ["maximumCopyBytes", "copyBytesExceeded"],
+    ] as const) {
+      const failed = attemptAdmittedView(encoded.canonicalBytes, {
+        ...exact,
+        [field]: exact[field] - 1,
+      });
+      expect(incrementalFailureReason(failed)).toBe(reason);
+    }
+    const headerOnly = encode(linkPageRequest(), generousBudget);
+    const headerOnlyBaseline = driveAdmittedViewFromBytes(
+      headerOnly.canonicalBytes,
+      [headerOnly.canonicalBytes.byteLength],
+      1_024,
+    );
+    expect(headerOnlyBaseline.aggregate.payloadBytes).toBe(
+      headerOnly.usage.payloadBytes,
+    );
+    expect(incrementalFailureReason(attemptAdmittedView(
+      headerOnly.canonicalBytes,
+      {
+        ...incrementalBudget(headerOnly.canonicalBytes.byteLength),
+        maximumPayloadBytes:
+          headerOnlyBaseline.aggregate.payloadBytes - 1,
+      },
+    ))).toBe("payloadBytesExceeded");
+  });
+
+  it("keeps admitted views result-bound, factory-local, and alias-safe", () => {
+    const encoded = encode(parseModuleRequest(), generousBudget);
+    const budget = incrementalBudget(encoded.canonicalBytes.byteLength);
+    const factory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    const first = driveIncremental(
+      factory,
+      encoded.canonicalBytes,
+      budget,
+      [encoded.canonicalBytes.byteLength],
+      1_024,
+    );
+    const second = driveIncremental(
+      factory,
+      encoded.canonicalBytes,
+      budget,
+      [encoded.canonicalBytes.byteLength],
+      1_024,
+    );
+    const firstOpened = unwrap(factory.openView({
+      capability: first.capability,
+      budget,
+    }));
+    const secondOpened = unwrap(factory.openView({
+      capability: second.capability,
+      budget,
+    }));
+    expect(incrementalFailureReason(factory.openView({
+      capability: first.capability,
+      budget,
+    }))).toBe("closed");
+    expect(incrementalFailureReason(factory.stepView(
+      firstOpened.view,
+      secondOpened.cursor,
+      1,
+    ))).toBe("staleAuthority");
+    const foreign =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    expect(incrementalFailureReason(foreign.stepView(
+      firstOpened.view,
+      firstOpened.cursor,
+      1,
+    ))).toBe("staleAuthority");
+    expect(incrementalFailureReason(factory.stepView(
+      { _tag: "DeclarativeV2AuthenticatedCommandAdmittedViewV1" },
+      firstOpened.cursor,
+      1,
+    ))).toBe("staleAuthority");
+    expect(incrementalFailureReason(factory.openView(new Proxy({}, {
+      ownKeys() {
+        throw new Error("hostile open");
+      },
+    })))).toBe("invalidInput");
+    expect(incrementalFailureReason(factory.openView({
+      capability: {},
+      budget: Object.defineProperty({}, "maximumBodyBytes", {
+        get() {
+          throw new Error("hostile budget");
+        },
+      }),
+    }))).toBe("invalidBudget");
+
+    const firstEvents = finishAdmittedView(
+      factory,
+      firstOpened.view,
+      firstOpened.cursor,
+      1_024,
+    ).events;
+    const firstBytes = firstEvents.find(
+      event => event.kind === "bytes",
+    );
+    if (firstBytes?.kind !== "bytes") {
+      throw new Error("expected admitted bytes");
+    }
+    const original = firstBytes.bytes[0];
+    firstBytes.bytes.fill(0);
+    const secondEvents = finishAdmittedView(
+      factory,
+      secondOpened.view,
+      secondOpened.cursor,
+      1_024,
+    ).events;
+    const secondBytes = secondEvents.find(
+      event => event.kind === "bytes",
+    );
+    if (secondBytes?.kind !== "bytes") {
+      throw new Error("expected second admitted bytes");
+    }
+    expect(secondBytes.bytes[0]).toBe(original);
+
+    const closeFactory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    const closeAdmitted = driveIncremental(
+      closeFactory,
+      encoded.canonicalBytes,
+      budget,
+      [encoded.canonicalBytes.byteLength],
+      1_024,
+    );
+    const closeOpened = unwrap(closeFactory.openView({
+      capability: closeAdmitted.capability,
+      budget,
+    }));
+    expect(unwrap(closeFactory.close(closeOpened.cursor))).toBeUndefined();
+    expect(incrementalFailureReason(closeFactory.stepView(
+      closeOpened.view,
+      closeOpened.cursor,
+      1,
+    ))).toBe("closed");
+    expect(incrementalFailureReason(closeFactory.close(closeOpened.view)))
+      .toBe("closed");
+  });
+
+  it("keeps the compatibility decoder outside the authority-capable suffix", () => {
+    expect(
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1
+        .toString(),
+    ).not.toContain(
+      "decodeDeclarativeV2AuthenticatedCommandRequestV1(",
+    );
+  });
+
   it("exposes only the intentional internal subpath", async () => {
     const root = await import("@flarex/executor-http");
     expect(
@@ -871,9 +1199,11 @@ function sourcePageRequest(): DeclarativeV2AuthenticatedCommandRequestV1 {
 
 function parseModuleRequest(
   path = "functions/example.js",
+  source = new TextEncoder().encode(
+    "export function handler() { return 1n; }",
+  ),
 ): DeclarativeV2AuthenticatedCommandRequestV1 {
-  const source = new TextEncoder().encode("export function handler() { return 1n; }");
-  const split = 17;
+  const split = Math.min(17, source.byteLength);
   return {
     frames: [
       header("parse_module"),
@@ -1098,6 +1428,210 @@ function driveIncremental(
     aggregate: completed.receipt.aggregate,
     capability: completed.capability,
   });
+}
+
+function driveAdmittedViewFromBytes(
+  bytes: Uint8Array,
+  chunks: readonly number[],
+  allowance: number,
+): Readonly<{
+  readonly events:
+    readonly DeclarativeV2AuthenticatedCommandAdmittedViewEventV1[];
+  readonly aggregate:
+    DeclarativeV2AuthenticatedCommandIncrementalUsageV1;
+}> {
+  const factory =
+    makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+  const admitted = driveIncremental(
+    factory,
+    bytes,
+    incrementalBudget(bytes.byteLength),
+    chunks,
+    allowance,
+  );
+  const opened = unwrap(factory.openView({
+    capability: admitted.capability,
+    budget: incrementalBudget(bytes.byteLength),
+  }));
+  return finishAdmittedView(
+    factory,
+    opened.view,
+    opened.cursor,
+    allowance,
+  );
+}
+
+function finishAdmittedView(
+  factory: DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
+  view: unknown,
+  cursor: unknown,
+  allowance: number,
+): Readonly<{
+  readonly events:
+    readonly DeclarativeV2AuthenticatedCommandAdmittedViewEventV1[];
+  readonly aggregate:
+    DeclarativeV2AuthenticatedCommandIncrementalUsageV1;
+}> {
+  const events:
+    DeclarativeV2AuthenticatedCommandAdmittedViewEventV1[] = [];
+  let aggregate: DeclarativeV2AuthenticatedCommandIncrementalUsageV1 | undefined;
+  while (true) {
+    const step = unwrap(factory.stepView(view, cursor, allowance));
+    if (step.receipt.transitionCount === 0) {
+      throw new Error("admitted view made no progress");
+    }
+    aggregate = step.receipt.aggregate;
+    if (step.status === "event") events.push(step.event);
+    if (step.status === "complete") {
+      return Object.freeze({
+        events: Object.freeze(events),
+        aggregate,
+      });
+    }
+  }
+}
+
+function attemptAdmittedView(
+  bytes: Uint8Array,
+  budget: DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
+): Result.Result<
+  DeclarativeV2AuthenticatedCommandIncrementalUsageV1,
+  DeclarativeV2AuthenticatedCommandIncrementalV1Error
+> {
+  const factory =
+    makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+  const admitted = driveIncremental(
+    factory,
+    bytes,
+    incrementalBudget(bytes.byteLength),
+    [bytes.byteLength],
+    1_024,
+  );
+  const opened = factory.openView({
+    capability: admitted.capability,
+    budget,
+  });
+  if (Result.isFailure(opened)) return Result.fail(opened.failure);
+  while (true) {
+    const step = factory.stepView(
+      opened.success.view,
+      opened.success.cursor,
+      1_024,
+    );
+    if (Result.isFailure(step)) return Result.fail(step.failure);
+    if (step.success.status === "complete") {
+      return Result.succeed(step.success.receipt.aggregate);
+    }
+  }
+}
+
+function expectAdmittedViewMatchesOracle(
+  events: readonly DeclarativeV2AuthenticatedCommandAdmittedViewEventV1[],
+  request: DeclarativeV2AuthenticatedCommandRequestV1,
+  canonicalBytes: Uint8Array,
+): void {
+  const metadata = events.flatMap(event =>
+    event.kind === "frame" ? [event.metadata] : []
+  );
+  expect(metadata).toHaveLength(request.frames.length);
+  const ranges = commandFrameRanges(canonicalBytes);
+  for (let frameOrdinal = 0; frameOrdinal < request.frames.length; frameOrdinal += 1) {
+    const expected = request.frames[frameOrdinal]!;
+    const actual = metadata[frameOrdinal]!;
+    const range = ranges[frameOrdinal]!;
+    expect(actual.kind).toBe(expected.kind);
+    expect(actual.frameOrdinal).toBe(frameOrdinal);
+    expect(actual.frameByteLength).toBe(range.length);
+    if (expected.kind === "command_header") {
+      if (actual.kind !== expected.kind) throw new Error("header mismatch");
+      expect(actual.commandKind).toBe(expected.reservation.commandKind);
+      expect(actual.sequence).toBe(expected.reservation.sequence);
+      const reservationLength = readU32(canonicalBytes, range.start + 1);
+      const reservationStart = range.start + 5;
+      const budgetLengthStart = reservationStart + reservationLength;
+      const budgetLength = readU32(canonicalBytes, budgetLengthStart);
+      expect(actual.reservationByteLength).toBe(reservationLength);
+      expect(actual.commandBudgetByteLength).toBe(budgetLength);
+      expect(admittedRoleBytes(
+        events,
+        frameOrdinal,
+        "reservation",
+      )).toEqual(canonicalBytes.slice(
+        reservationStart,
+        reservationStart + reservationLength,
+      ));
+      expect(admittedRoleBytes(
+        events,
+        frameOrdinal,
+        "command_budget",
+      )).toEqual(canonicalBytes.slice(
+        budgetLengthStart + 4,
+        budgetLengthStart + 4 + budgetLength,
+      ));
+    } else if (expected.kind === "module_metadata") {
+      if (actual.kind !== expected.kind) throw new Error("metadata mismatch");
+      expect(actual).toMatchObject({
+        moduleOrdinal: expected.moduleOrdinal,
+        roles: expected.roles,
+        modulePathByteLength: expected.modulePathBytes.byteLength,
+        sourceByteLength: expected.sourceByteLength,
+      });
+      expect(admittedRoleBytes(events, frameOrdinal, "module_path"))
+        .toEqual(expected.modulePathBytes);
+      expect(admittedRoleBytes(events, frameOrdinal, "frame_sha256"))
+        .toEqual(expected.frameSha256);
+      expect(admittedRoleBytes(events, frameOrdinal, "source_sha256"))
+        .toEqual(expected.sourceSha256);
+    } else if (expected.kind === "source_bytes") {
+      if (actual.kind !== expected.kind) throw new Error("source mismatch");
+      expect(actual).toMatchObject({
+        moduleOrdinal: expected.moduleOrdinal,
+        offset: expected.offset,
+        payloadByteLength: expected.bytes.byteLength,
+      });
+      expect(admittedRoleBytes(events, frameOrdinal, "source_payload"))
+        .toEqual(expected.bytes);
+    } else if (expected.kind === "semantic_bytes") {
+      if (actual.kind !== expected.kind) throw new Error("semantic mismatch");
+      expect(actual).toMatchObject({
+        offset: expected.offset,
+        payloadByteLength: expected.bytes.byteLength,
+      });
+      expect(admittedRoleBytes(events, frameOrdinal, "semantic_payload"))
+        .toEqual(expected.bytes);
+    } else {
+      if (actual.kind !== expected.kind) throw new Error("terminal mismatch");
+      expect(actual).toMatchObject({
+        firstModuleOrdinal: expected.firstModuleOrdinal,
+        moduleCount: expected.moduleCount,
+        sourceByteLength: expected.sourceByteLength,
+        semanticByteLength: expected.semanticByteLength,
+        payloadFrameCount: expected.payloadFrameCount,
+      });
+    }
+  }
+}
+
+function admittedRoleBytes(
+  events: readonly DeclarativeV2AuthenticatedCommandAdmittedViewEventV1[],
+  frameOrdinal: number,
+  role: DeclarativeV2AuthenticatedCommandAdmittedByteRoleV1,
+): Uint8Array {
+  const chunks = events.flatMap(event =>
+    event.kind === "bytes" &&
+      event.frameOrdinal === frameOrdinal &&
+      event.role === role
+      ? [event]
+      : []
+  );
+  let byteLength = 0;
+  for (const chunk of chunks) {
+    expect(chunk.offset).toBe(byteLength);
+    byteLength += chunk.bytes.byteLength;
+  }
+  const output = new Uint8Array(byteLength);
+  for (const chunk of chunks) output.set(chunk.bytes, chunk.offset);
+  return output;
 }
 
 function attemptIncremental(
