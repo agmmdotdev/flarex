@@ -494,7 +494,10 @@ readiness, or activation authority; the backend must still derive those claims
 from bytes accepted through the existing artifact owners. The private
 protocol-contract, host-neutral materializer-core, and `flarex-dev` prebuild
 producer-parity checkpoints are complete. Upload correlation and production
-routing remain separately gated.
+routing remain separately gated. Roadmap 39 now accepts only a test-owned M9
+composition of the existing in-memory upload-core ports; it must prove
+backend-derived source/semantic root correlation before this roadmap considers
+a production upload-orchestration preflight.
 
 TypeScript or Vite/Rolldown/esbuild compilation, package installation,
 arbitrary build plugins, network dependency resolution, arbitrary module

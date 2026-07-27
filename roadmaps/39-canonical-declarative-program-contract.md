@@ -1051,6 +1051,169 @@ corrected receipt.
 M8 is now complete. M9 upload-core correlation remains a separate preflight
 and implementation decision, and production routing remains blocked.
 
+## M9 In-Memory Upload-Core Correlation Preflight
+
+**Decision:** the preflight passes for one test-only `flarex-backend`
+integration slice. It does not approve a production upload adapter, route,
+stored-state change, or new package.
+
+### Current Owners And Missing Proof
+
+The existing contracts already have the correct authority split:
+
+| Value or operation | Current owner | Current claim |
+| --- | --- | --- |
+| inert source modules and semantic NDJSON | `@flarex/declarative-materializer/v1` | owned, bounded materializer output; no upload or backend authority |
+| source upload lifecycle | `flarex-backend/src/sourceArtifactV2/UploadCore.ts` | backend-owned commands, budgets, immutable object writes, attempt fencing, content root, and lifecycle selector |
+| finalized-source capability | `flarex-backend/src/semanticArtifactV1/FinalizedSourceProof.ts` | request-bound, issuer-bound, single-use proof over an authorized finalized source read |
+| source re-correlation | `flarex-backend/src/semanticArtifactV1/SourceCorrelationReader.ts` contract | exact finalized generation, fence, source root, and source selector recheck |
+| semantic upload lifecycle | `flarex-backend/src/semanticArtifactV1/UploadCore.ts` | backend-owned semantic content root, lifecycle selector, attempt identity, and source-root binding |
+| in-memory attempt and object ports | currently local helpers in the source and semantic upload-core tests | test infrastructure only; not a production storage API |
+
+The missing proof is composition, not another wire contract: no test currently
+drives one real materializer plan through both existing upload cores and shows
+that their backend-derived evidence remains correlated.
+
+### Package And Dependency Decision
+
+The first implementation belongs under `packages/flarex-backend/test`. The
+upload cores, proof factory, source-correlation check, and lifecycle semantics
+are backend-host concerns. They must not move into the host-neutral
+materializer or into `flarex-dev`.
+
+The integration test may add `@flarex/declarative-materializer` and
+`@flarex/declarative-program` as `flarex-backend` development dependencies so
+it can construct the existing direct fixture. It must not add either as a
+production dependency, import the SDK-prebuild adapter, or export a new backend
+subpath. The existing source and semantic upload-core interfaces are the
+standard internal APIs being tested.
+
+The in-memory attempt stores, immutable-object buckets, authorizer, finalized
+source reader, and source-correlation reader remain test-owned ports. They may
+be factored into one test fixture when exact behavior is shared, but they are
+not promoted to a generic memory database, production fallback, or new package.
+
+### Exact First-Slice Composition
+
+The test-only Effect composition consumes a
+`DeclarativeV2ArtifactIngressPlanV1` produced by the direct M8 fixture and
+performs this exact sequence:
+
+```text
+materializer plan
+  -> source beginUpload
+  -> for each plan module in existing order
+       beginModule(path, roles, environment = isolate)
+       append one nonempty source block
+       append one nonempty source-map block only when present
+       closeModule
+  -> source finalize
+  -> issue a fresh request-bound finalized-source proof from that attempt
+  -> semantic begin
+  -> append the complete nonempty canonical NDJSON stream as one block
+  -> semantic finalize
+  -> issue a second fresh proof
+  -> semantic readFinalized
+```
+
+The first slice deliberately uses one block for each admitted byte array. It
+does not select a production chunking protocol. Every byte array in the narrow
+fixture must fit the explicit command admission, and a later production ingress
+preflight must define chunk size, retry transport, streaming, and resumability.
+
+The composition preserves the materializer's module order. It must not sort,
+repair, deduplicate, infer roles, trust materializer usage receipts as backend
+budget authority, or accept caller-authored roots. The source core revalidates
+path order, roles, required execution membership, nonempty blocks, budgets, and
+lifecycle. The semantic core consumes only a proof issued from the finalized
+source attempt and independently rereads the exact finalized source correlation.
+
+### Root And Identity Claims
+
+The Source Artifact V2 completed root is content-derived and excludes
+deployment and upload lifecycle identity. Its selector includes deployment ID,
+upload ID, generation, and the completed root.
+
+The Semantic Artifact V1 completed root includes the backend-derived source
+root, fixed semantic configuration identities, stream measurements, and the
+semantic content tree. Its attempt identity and selector additionally carry
+lifecycle identity and the source selector.
+
+Therefore the integration must prove:
+
+1. two cold runs with fresh stores and different source and semantic upload IDs
+   produce the same source root and semantic root;
+2. the lifecycle selectors and semantic attempt identity are not treated as
+   cold-run-stable content identities;
+3. finalized semantic evidence repeats the exact backend-derived source root,
+   source selector, generation, and mutation fence;
+4. changing one source byte while retaining the same semantic bytes changes
+   both the source root and semantic root, proving the semantic root is bound to
+   source content rather than to a caller claim; and
+5. the source and semantic receipts agree byte-for-byte with the corresponding
+   fields returned by `readFinalized`.
+
+The test must compare the roots returned by the upload cores and finalized
+evidence. It must not precompute an expected digest and feed it back as
+authority.
+
+### Budgets, Failures, And Evaluation Order
+
+The materializer's opaque budget remains responsible only for constructing the
+inert plan. The upload cores retain their existing resource-budget contracts.
+The test fixture uses explicit immutable source ceilings/admissions and semantic
+ceilings/admissions large enough for the fixed vertical; it does not derive
+those values from caller-controlled usage fields.
+
+The integration must preserve these boundedness rules:
+
+- module, source, source-map, and semantic bytes are already bounded before
+  entering the driver;
+- no combined duplicate of the complete plan is allocated;
+- the one-block rule rejects an input that exceeds the selected block admission
+  instead of silently rechunking it;
+- every command uses the previous receipt's generation and mutation fence; and
+- a fresh proof is issued for each single-use semantic operation that requires
+  one.
+
+The composition does not introduce a broad orchestration error class. Existing
+typed source-upload, proof, source-correlation, semantic-upload, R2, hash, and
+attempt-store errors remain intact in the Effect error channel. Unexpected
+fixture defects remain defects. Negative coverage must include at least one
+under-budget source command, one under-budget semantic command, stale source
+correlation before semantic admission, and proof reuse or wrong-request
+rejection.
+
+### Implementation And Rollback Boundary
+
+The approved implementation may change only:
+
+- a focused `flarex-backend` integration test and test-local fixture;
+- `flarex-backend` development dependencies and the workspace lockfile when
+  required; and
+- this roadmap plus the owning deployment roadmap receipt.
+
+It must not change either upload core, proof semantics, production storage
+adapter, route, Durable Object, R2 binding, deployment state, verifier progress,
+readiness, activation, runtime routing, OCC, commit, feed, outbox, or
+application-row semantics. Any defect found in an existing owner stops this
+slice and requires a separately approved owner-local fix.
+
+Rollback is deletion of the test, its test-local fixture, and development-only
+dependency links. No stored state, migration, deployed route, or compatibility
+path is created.
+
+### M9 Preflight Exit Decision
+
+The preflight is complete because the concrete producer and consumers,
+dependency direction, exact command sequence, proof and re-correlation
+authority, root-versus-selector claims, budgets, error ownership, negative
+proofs, and rollback boundary are explicit.
+
+This approves only the test-only composition above. Production upload
+orchestration remains a later roadmap-17 preflight after this correlation proof
+passes.
+
 ## Preflight Exit Decision
 
 The preflight exit criteria are satisfied for the narrow first vertical:
@@ -1128,14 +1291,14 @@ semantics, and no downstream domain accepts an SDK object as authority.
 
 ## Next Correctness Gate
 
-M8 is complete. The next work is only a new preflight for the in-memory
-upload-core correlation slice described in M9. That preflight must identify the
-existing Source Artifact V2 and Semantic Artifact V1 in-memory owners, exact
-adapter inputs, backend-derived root correlation, budgets, errors, and rollback
-before implementation begins.
+M8 and the M9 correlation preflight are complete. The next authorized
+implementation is only the test-owned in-memory upload-core composition
+specified above. It must prove cold-run content-root stability and semantic
+binding to the backend-derived source root before any production upload
+orchestration preflight begins.
 
-Do not fold upload calls, backend routes, stored state, or a production producer
-cutover into that preflight or infer implementation authority from M8.
+Do not fold backend routes, deployed R2 or Durable Object bindings, stored
+production state, or a production producer cutover into that test slice.
 
 The host-neutral function-runtime work in roadmap 40 does not wait for that
 materializer merely to obtain an execution fixture. Its first exact
