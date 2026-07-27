@@ -782,6 +782,103 @@ narrow trusted scope-commit/change/outbox capability.
 There is no automatic atomic `ctx.db + ctx.commerce` transaction. Commerce
 invariants belong behind Medusa-owned workflows/facades.
 
+### Standardize The Compiler Contract Before Extracting A Package
+
+The commit compiler must have a deliberate internal contract even when its
+implementation remains with the executor. Package extraction is a separate
+decision from contract quality.
+
+The current ownership chain is:
+
+```text
+flarex-protocol/commit-protocol
+  -> canonical SessionJournalV1 and CommitEnvelopeV1
+
+@flarex/executor
+  -> stored-attempt and current-authority authentication
+  -> verified compiler input
+  -> deterministic logical PreparedPointCommitV1
+  -> same-factory capability authenticity
+
+@flarex/persistence-postgres
+  -> detached point-commit transaction command
+  -> locks, OCC, physical lowering, atomic publication, and recovery
+```
+
+That separation is already a standard API chain. A new package is justified
+only if a portable pure compiler abstraction has at least two legitimate
+consumers and neither current owner is the correct dependency home. A test that
+can call a private function is not by itself a second domain owner.
+
+The leading but unapproved extraction candidate is
+`@flarex/commit-compiler`. If proven, it would own only a pure transformation
+from verified logical commit input to an inert logical prepared plan. It would
+not own:
+
+- stored-attempt, grant, or current-authority authentication;
+- same-factory capability minting or unwrapping;
+- session, lease, epoch, generation, or activation authority;
+- SQL, Drizzle, Postgres clients, locks, or transactions;
+- OCC row-head loading or serialization;
+- physical row, index, feed, outcome, or outbox writes;
+- retry, uncertain-outcome recovery, or host lifecycle; or
+- Cloudflare, HTTP, Worker, Durable Object, or service-binding adaptation.
+
+The executor would continue to authenticate input and wrap any inert compiler
+output in the non-forgeable execution capability accepted by persistence. A
+portable compiler result must never become physical-write authority merely
+because it is structurally valid.
+
+#### Mandatory Commit-Compiler Package-Boundary Preflight
+
+No compiler package extraction, public/internal export change, type movement,
+or consumer migration is authorized until a preflight updates this roadmap
+with all of the following evidence.
+
+1. **Producer and consumer inventory.** Locate every producer and consumer of
+   `SessionJournalV1`, `CommitEnvelopeV1`, verified compiler input,
+   `PreparedPointCommitV1`, detached persistence transaction commands, and
+   durable commit results. Classify each value as untrusted wire data,
+   authenticated process-local capability, inert logical plan, persistence
+   command, or authoritative outcome.
+2. **Compiler semantic cut.** Identify the exact deterministic work that can be
+   performed without persistence or host authority: dependency and overlay
+   validation, logical write coalescing or ordering, bounds, schema/catalog
+   projection, result intent, and material change intent. Separate it from
+   authentication, current-state reads, locks, physical lowering, publication,
+   and recovery.
+3. **Consumer proof.** Name at least two genuine owners that require the exact
+   same compiler semantics. Candidate evidence may include the trusted
+   executor plus a deterministic transaction simulator or a separately
+   accepted FlarexDB storage adapter. Payload, Medusa, tests, or a future tool
+   count only if their real contract is identical rather than merely similar.
+4. **Package options.** Compare keeping the compiler private in
+   `@flarex/executor`, adding an explicit executor internal subpath, and
+   creating `@flarex/commit-compiler`. Include the dependency graph, Effect
+   applicability, Worker-bundle impact, public-versus-internal status, and the
+   reason the selected owner is narrower and clearer than the rejected
+   options.
+5. **Contract and failure design.** Propose concrete input, output, and failure
+   types; validation and first-failure order; canonical ordering; runtime
+   ownership/freeze rules; versioning; and the boundary between pure `Result`
+   data and Effect-typed authentication or execution failures. Reuse exact
+   protocol types instead of declaring weaker lookalikes.
+6. **Capability-preservation proof.** Demonstrate how the executor retains
+   same-factory authenticity when compiler output becomes inert and portable.
+   Structural decoding or a package export must not allow a caller to mint a
+   genuine `PreparedPointCommitV1` execution capability.
+7. **Migration and validation plan.** Select one point-mutation vertical,
+   preserve behavior without dual planning or fallback, and define parity for
+   logical plans, failure order, resource limits, persistence commands, OCC
+   inputs, and durable publication. Name the temporary adapter and its deletion
+   gate if one is unavoidable.
+
+The preflight passes only when it proves that extraction improves real
+dependency ownership without widening authority or creating a second compiler.
+If the existing protocol, executor module, and explicit persistence subpath
+already provide the narrowest correct standard APIs, the correct outcome is to
+keep the current packages and document that decision.
+
 ### Optimize the final transaction only after conformance
 
 Use bulk helpers and typed set-based SQL first. A versioned database-side

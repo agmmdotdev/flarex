@@ -864,6 +864,80 @@ Exit gate:
 - real-Postgres conflict serialization remains an O06 exit gate rather than a
   false requirement for this pure kernel.
 
+#### OCC Contract And Package-Boundary Preflight
+
+The completed O05 validator is a standard internal OCC decision API, but its
+being pure and database-free does not automatically justify a new package. It
+currently has one authoritative domain owner: FlarexDB persistence. Its
+dependency and row-head meanings are coupled to the accepted revision-history,
+snapshot, tombstone, and retry classification contracts even though the
+decision itself performs no SQL.
+
+The current boundary remains:
+
+```text
+flarex-protocol
+  -> logical journal read dependencies and snapshot identifiers
+
+@flarex/persistence-postgres package-local OCC model
+  -> authoritative row-head observation
+  -> present/missing/tombstone history interpretation
+  -> valid | conflict | invalidEvidence decision
+
+@flarex/persistence-postgres transaction kernel
+  -> row-head loading, locks, serialization, revalidation, and publication
+```
+
+A possible `@flarex/occ` package is only a candidate. If ever approved, it
+would own the exact pure dependency/head/decision model shared by independent
+consumers. It would not own SQL, current-pointer selection, revision loading,
+scope-clock locks, transaction isolation, session/lease authority, commit
+sequence allocation, retry orchestration, or publication.
+
+No OCC package extraction, root/internal export, type movement, or consumer
+migration is authorized until a preflight updates this plan with all of the
+following evidence.
+
+1. **Semantic inventory.** Trace the exact O04 dependency variants, O05
+   authoritative-head input, decision variants, O06 adaptation, and all retry
+   consumers. Record identity, snapshot, revision, missing, tombstone,
+   delete/reinsert, same-value-newer-revision, and invalid-evidence semantics.
+2. **Authority cut.** Separate the pure decision from history loading,
+   current-pointer equivalence, scope-clock locking, same-scope serialization,
+   session/lease/epoch/generation revalidation, tentative lowering, and atomic
+   publication. The latter concerns remain persistence-owned.
+3. **Consumer proof.** Name at least two genuine owners requiring the exact
+   same decision contract. A deterministic simulator or another accepted
+   FlarexDB storage adapter may qualify. Unit tests, legacy OCC, Payload,
+   Medusa, cache validation, or a structurally similar conflict check do not
+   qualify unless their snapshot, dependency, head, and retry semantics are
+   proven identical.
+4. **Package options.** Compare keeping O05 package-local, adding an explicit
+   persistence internal subpath, placing reusable logical types in an existing
+   protocol subpath, and creating `@flarex/occ`. Include dependency direction,
+   public/internal status, Effect versus pure `Result` representation,
+   runtime-ownership rules, and why the selected owner is the narrowest real
+   authority.
+5. **Contract exactness.** Propose the concrete input and exhaustive decision
+   types, validation and first-failure order, immutability, signed-bigint
+   behavior, versioning, and error/decision ownership. Do not weaken
+   `invalidEvidence` into a retryable conflict or treat developer-visible
+   `null` as sufficient dependency evidence.
+6. **Parity and integration proof.** Run one shared decision corpus through
+   the current O05 implementation and any proposed portable kernel, then retain
+   PGlite and real-Postgres O06 tests for loading, locking, serialization,
+   races, interruption, and rollback. Pure parity cannot replace transaction
+   evidence.
+7. **Migration and removal gate.** Select one exact point-OCC consumer, forbid
+   dual validators and silent fallback, and name the immediate deletion gate
+   for any temporary adapter. Legacy OCC remains a retirement input, not a
+   second consumer that can shape the target contract.
+
+The preflight passes only if package extraction produces one shared semantic
+owner without moving Postgres authority upward or pretending all conflict
+models are interchangeable. If O05 remains the only legitimate consumer, the
+correct result is to preserve the package-local standard API.
+
 ### [x] O06 — Prove The Reusable Private Point-Commit Transaction Kernel
 
 Outcome:
