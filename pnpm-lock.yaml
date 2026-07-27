@@ -463,6 +463,12 @@ importers:
         specifier: workspace:*
         version: link:../flarex-protocol
     devDependencies:
+      '@flarex/declarative-materializer':
+        specifier: workspace:*
+        version: link:../declarative-materializer
+      '@flarex/declarative-program':
+        specifier: workspace:*
+        version: link:../declarative-program
       '@flarex/executor':
         specifier: workspace:*
         version: link:../executor

@@ -7,7 +7,8 @@ implementation slice are complete. The follow-on materialization preflight is
 also complete and accepted for the narrow inert slice defined below.
 M8 is complete: the protocol contracts, host-neutral materializer core, direct
 `orders:place` fixture, analyzer-consumption proof, and private `flarex-dev`
-prebuild adapter are implemented and validated below. No production producer,
+prebuild adapter are implemented and validated below. The test-only M9
+upload-core correlation proof is also complete. No production producer,
 consumer, upload route, stored artifact, or activation path has been migrated.
 
 This record owns the proposed standard contract boundary between:
@@ -1214,6 +1215,64 @@ This approves only the test-only composition above. Production upload
 orchestration remains a later roadmap-17 preflight after this correlation proof
 passes.
 
+## M9 Implementation Receipt
+
+The approved test-owned composition is implemented without changing production
+source:
+
+- `declarativeV2UploadCorrelationFixture.ts` owns fresh in-memory source and
+  semantic attempt stores, immutable-object buckets, the real backend
+  project-scope authorizer, the request-bound finalized-source proof factory,
+  and an exact source-correlation reader over the same finalized source
+  attempt;
+- one named Effect composition preserves the materializer's module order and
+  drives the existing source core through begin, module source/source-map,
+  close, and finalize commands using each preceding receipt's generation and
+  fence;
+- the same composition issues a fresh finalized-source proof, drives the
+  existing semantic core through begin, one canonical NDJSON block, finalize,
+  and a second freshly proved `readFinalized`, without introducing an
+  orchestration error wrapper; and
+- `flarex-backend` references the program and materializer packages only as
+  development dependencies. No backend subpath, production dependency, route,
+  Worker binding, Durable Object, R2 adapter, or stored schema changed.
+
+Five integration tests prove:
+
+1. fresh stores with different source and semantic upload IDs produce identical
+   source and semantic content roots while their selectors and semantic attempt
+   identities differ;
+2. changing one source byte while retaining byte-identical semantic NDJSON
+   changes both the backend-derived source root and semantic root;
+3. finalized semantic evidence repeats the exact source and semantic
+   roots/selectors, generations, fences, and upload identities returned by the
+   two cores;
+4. source and semantic one-block under-budget attempts preserve their existing
+   typed budget errors;
+5. a stale source generation fails semantic admission as `sourceDrift`; and
+6. finalized-source proofs remain request-bound and single-use.
+
+Validation passes:
+
+- `flarex-backend` typecheck;
+- all five new correlation tests and all thirty-two connected correlation,
+  Source Artifact V2, and Semantic Artifact V1 tests;
+- all thirty materializer tests and thirteen canonical-program tests;
+- the workspace Effect runtime-boundary check; and
+- `git diff --check`.
+
+The serial full backend run reports 933 of 935 tests passing across 104 files.
+The two failures are unchanged `sync.test.ts` Miniflare delivery-reconcile
+timeouts accompanied by `ECONNRESET`; both pass when rerun together in their
+focused lane. No sync source or test changed in M9.
+
+Both required standing reviewers reported no remaining actionable findings on
+the final code diff.
+
+M9 correlation is complete. This receipt proves compatibility of the standard
+internal contracts; it does not make the test driver a production API or grant
+production ingress authority.
+
 ## Preflight Exit Decision
 
 The preflight exit criteria are satisfied for the narrow first vertical:
@@ -1291,14 +1350,15 @@ semantics, and no downstream domain accepts an SDK object as authority.
 
 ## Next Correctness Gate
 
-M8 and the M9 correlation preflight are complete. The next authorized
-implementation is only the test-owned in-memory upload-core composition
-specified above. It must prove cold-run content-root stability and semantic
-binding to the backend-derived source root before any production upload
-orchestration preflight begins.
+M8 and the M9 correlation proof are complete. The next upload work is only a
+new roadmap-17 production-orchestration preflight. It must inventory the real
+ingress transport, authentication, command IDs and retry ownership, block
+chunking, resume/reconciliation behavior, deployment scope, budgets, route
+errors, and rollback before any implementation begins.
 
-Do not fold backend routes, deployed R2 or Durable Object bindings, stored
-production state, or a production producer cutover into that test slice.
+Do not promote the test fixture, hard-code its one-block policy, add backend
+routes, deploy R2 or Durable Object bindings, write production state, or cut
+over a producer before that preflight is accepted.
 
 The host-neutral function-runtime work in roadmap 40 does not wait for that
 materializer merely to obtain an execution fixture. Its first exact

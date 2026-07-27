@@ -48,6 +48,8 @@
     }
   },
   "devDependencies": {
+    "@flarex/declarative-materializer": "workspace:*",
+    "@flarex/declarative-program": "workspace:*",
     "@flarex/executor": "workspace:*",
     "miniflare": "catalog:",
     "tsx": "catalog:",
