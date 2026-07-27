@@ -5,14 +5,20 @@
 **Status:** Dynamic V1 has an implemented local/backend compatibility baseline.
 Declarative V2 is the accepted production metadata direction. Its private S0
 physical foundation, S1 durable verifier progress, Semantic Artifact V1
-provenance, and generated bounded-verifier foundation are implemented and
-inert. Authenticated source/semantic readers and the request-scoped private
-analyzer dispatch host are also implemented and inert. Durable verifier-progress
-integration, static/candidate/runtime projection publication, readiness,
-activation, production ingress/binding, and final cutover remain incomplete.
-The production upload-orchestration preflight is accepted below. Its U1
-portable protocol slice is implemented and remains private and inert; the
-host, route, client, and candidate-handoff slices are not implemented.
+provenance, generated bounded-verifier foundation, and durable verifier-progress
+repository mechanics are implemented and inert. Authenticated source/semantic
+readers and the earlier request-scoped monolithic private analyzer dispatch are
+also implemented and inert. That dispatch consumes the earlier whole-request
+analyzer protocol, not A1b2c0b0 admitted-command capabilities, and therefore
+does not prove A1b2 composition. Executor-host composition,
+static/candidate/runtime projection publication, readiness, activation,
+production ingress/binding, and final cutover remain incomplete. The production
+upload-orchestration preflight is accepted below. Its U1 portable protocol and
+the bounded U2 reader,
+same-isolate authority, fail-closed host-construction, and checkpoint-boundary
+prerequisites are implemented and remain private and inert; the
+route-independent dispatcher, route, client, and candidate handoff are not
+implemented.
 
 This roadmap owns:
 
@@ -1086,7 +1092,9 @@ This checkpoint does not dispatch a command, map an internal error, issue a
 semantic proof, add a runtime bridge, or add an HTTP/RPC route. Once its focused
 receipt, observation-budget, ownership, and protocol-normalization proofs pass,
 the next U2 gate remains the private route-independent dispatcher plus
-exhaustive internal-to-wire error projection.
+exhaustive internal-to-wire error projection. The four U2 prerequisites above
+are current implemented private foundations, not evidence that this dispatcher
+or any upload route, client, or candidate handoff exists.
 
 ## Next Correctness Gates
 
@@ -1398,6 +1406,13 @@ activation remain blocked until their production host composition is proven.
    and input-equality proof before returning an inert decoded-request
    capability. The existing whole-call decoder remains
    an inert compatibility API and is not an authority-capable source path.
+   That capability currently has lifecycle closure but no bounded production
+   view or cursor for admitted header, frame metadata, or owned payload, so no
+   production caller composes it with the verifier restart runtime, analyzer
+   execution, or the durable repository in `apps/executor`. The smallest next
+   gate is `A1b2c0b2b`: an executor-HTTP-owned, same-factory bounded
+   admitted-command view/cursor. It must remain inert and must not mint
+   repository `Work`, a fence, candidate, analyzer, or execution authority.
    Response transport, verifier/restart invocation, analyzer command execution
    and hosting, fresh analyzer handshake binding, candidate authority, executor
    composition, and the real-system harness remain later gates.
