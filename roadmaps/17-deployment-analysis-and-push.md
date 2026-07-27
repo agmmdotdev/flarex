@@ -1416,10 +1416,42 @@ activation remain blocked until their production host composition is proven.
    authority. The view remains inert and cannot mint repository `Work`, a
    fence, candidate, analyzer, verifier, transaction, route, or execution
    authority. No production caller yet composes it with the verifier restart
-   runtime, analyzer execution, or durable repository in `apps/executor`.
-   Response transport, verifier/restart invocation, analyzer command execution
-   and hosting, fresh analyzer handshake binding, candidate authority, executor
-   composition, and the real-system harness remain later gates.
+   runtime, analyzer execution, or durable repository in `apps/executor`. The
+   current request-scoped monolithic analyzer path remains unchanged and does
+   not prove this replacement A1b2 command path.
+
+   The accepted next checkpoint order is:
+
+   1. `A1b2c0b2c0` adds a private pure bounded analyzer-to-executor
+      command-response transport with its own identity, version, and media
+      type. It binds the request and reservation digest, command kind and
+      sequence, analyzer and verifier identities, and range lineage. It carries
+      the output manifest, actual command usage, next progress, ordered restart
+      page manifests and payload chunks, and bounded evidence and diagnostics,
+      with metadata before payload and allowances from zero through 1,024.
+      Those bytes remain inert and grant no repository owner, fence, candidate,
+      or receipt authority. Resulting attempt usage and the final receipt remain
+      executor/repository-owned.
+   2. `A1b2c0b2c1` separately adds the private executor-to-analyzer bounded
+      restart-input exchange. It supplies metadata-first parse/link pages to
+      `DeclarativeV2VerifierRestartPageSourceV1` without changing A1b2c0b0
+      request bytes, and proves cold analyzer delivery rather than relying on
+      process-local state.
+   3. `A1b2c0b2c2` adds the pure analyzer command engine that consumes the
+      admitted view plus the restart source and produces a bounded result
+      cursor. It remains unwired.
+   4. `A1b2c0b2c3` adds the Effect-owned analyzer host/adapter with a fresh
+      release handshake, single-use claim, request `Scope`, cancellation and
+      interruption ownership, full foreign `Cause`, and deterministic
+      finalization.
+
+   None of these four checkpoints is implemented or green. Cold `link_page`
+   and link-dependent registration cannot rely on warm WeakMap state.
+   Candidate preparation, repository `Work`, `apps/executor` composition, C07,
+   and the private real-system harness remain later distinct gates. This order
+   creates no alternate OCC, commit compiler or execution path, transaction
+   journal, idempotency outcome, feed, outbox, authoritative application-row
+   semantics, schema, route, readiness, or activation authority.
 
    These Declarative V2 contracts replace only the deployment-analysis and
    artifact-verification path named by this roadmap. Component suffixes such as

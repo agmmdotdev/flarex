@@ -958,13 +958,42 @@ chunks, with exact precharged receipts and quanta no larger than 1,024
 transitions. Exhaustion or close irreversibly releases retained byte authority.
 The view stays inert and grants no repository `Work`, fence, candidate,
 analyzer, verifier, transaction, route, or execution authority. The earlier
-request-scoped monolithic authenticated verifier dispatch consumes its earlier
-whole-request protocol; it does not consume this admitted-command view or prove
-A1b2 composition. No production caller composes the view, verifier restart
-runtime, analyzer, and durable repository in `apps/executor`; no response
-contract, verifier/restart invocation, replacement A1b2 analyzer command host,
-candidate authority, executor composition, route, harness, readiness, or
-activation exists at this boundary.
+request-scoped monolithic authenticated verifier dispatch remains unchanged,
+consumes its earlier whole-request protocol, and neither consumes this
+admitted-command view nor proves A1b2 composition. No production caller
+composes the view, verifier restart runtime, analyzer, and durable repository
+in `apps/executor`.
+
+The accepted next order is `A1b2c0b2c0` private pure bounded
+analyzer-to-executor command-response transport, `A1b2c0b2c1` separate private
+executor-to-analyzer bounded restart-input exchange, `A1b2c0b2c2` pure analyzer
+command engine, then `A1b2c0b2c3` Effect-owned analyzer host/adapter. None is
+implemented or green:
+
+- `A1b2c0b2c0` owns a distinct identity, version, and media type; binds the
+  request and reservation digest, command kind and sequence, analyzer and
+  verifier identities, and range lineage; and carries the output manifest,
+  actual command usage, next progress, ordered restart page manifests and
+  payload chunks, and bounded evidence and diagnostics. It admits metadata
+  before payload in allowances from zero through 1,024. Its bytes are inert:
+  repository owner, fence, candidate, and receipt authority are excluded, while
+  resulting attempt usage and the final receipt remain executor/repository
+  owned.
+- `A1b2c0b2c1` supplies metadata-first parse/link pages to
+  `DeclarativeV2VerifierRestartPageSourceV1` without changing A1b2c0b0 request
+  bytes and proves cold analyzer delivery.
+- `A1b2c0b2c2` consumes the admitted view plus that restart source and produces
+  a bounded result cursor, but remains unwired.
+- `A1b2c0b2c3` owns the fresh release handshake, single-use claim, request
+  `Scope`, cancellation and interruption, full foreign `Cause`, and
+  finalization at the Effect host boundary.
+
+Cold `link_page` and link-dependent registration cannot rely on warm WeakMap
+state. Candidate preparation, repository `Work`, `apps/executor` composition,
+C07, and the private real-system harness remain later distinct gates. None of
+these checkpoints creates OCC, commit compiler or execution, journal,
+idempotency, feed, outbox, authoritative application-row, schema, route,
+readiness, or activation authority.
 
 The immediate cross-plan milestone is a private end-to-end correctness and
 stress harness, not a developer API or activation gate. A1b2 first composes
