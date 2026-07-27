@@ -846,7 +846,17 @@ explicit U2 blockers:
 5. `DeploymentDO` currently constructs neither upload core nor an R2 adapter,
    and `ARTIFACTS` remains optional in `Env`. U2 must fail closed at host
    construction when the binding or pinned root configuration is absent; no
-   in-memory fallback is permitted.
+   in-memory fallback is permitted. **Resolved in U2 checkpoint 3:** a
+   backend-local, route-free host composition factory owns exact construction
+   from one DeploymentDO storage authority, its verified object-name/deployment
+   identity pair, `ARTIFACTS`, and pinned environment configuration. It derives
+   every SQL consumer from that same storage authority and constructs only the
+   existing stores, R2 adapters, hash adapters, upload cores, checkpoint
+   reader, authorizer, and
+   process-local proof capability. Missing or malformed configuration returns
+   a typed construction failure before any command work; it never substitutes
+   memory storage, placeholder identities, or a remote finalized-source
+   reader.
 
 ### Wire Errors
 
@@ -1016,6 +1026,37 @@ This checkpoint deliberately does not construct an upload core in
 errors, or add an RPC/HTTP method. After its focused trust and budget proof, the
 next U2 gate is fail-closed host construction for the artifact binding and
 pinned root configuration before any private dispatcher composition.
+
+The third checkpoint closes host-construction blocker 5 without adding a
+dispatcher:
+
+- add one backend-local composition factory for a deployment-scoped artifact
+  upload host; do not add a package, Context singleton, global Layer, or
+  application-wide dependency container for this DO-scoped value;
+- require the real callable `ARTIFACTS` `get`/`put` capability, canonical
+  `FLAREX_SEMANTIC_ARTIFACT_V1_ROOT_CONFIGURATION`, and exact positive
+  `FLAREX_SOURCE_ARTIFACT_V2_FINALIZED_READ_MAXIMUM_STORED_BYTES` text at
+  construction;
+- verify the caller-supplied Durable Object name is exactly the routing name
+  for the deployment identity, and derive SQLite from that same DO storage
+  authority so mismatched identity or transaction/SQL tuples are
+  unrepresentable;
+- decode the semantic root configuration through one domain-owned exact
+  contract, then reuse that captured owned value in every request-selector
+  semantic-core instance;
+- compose the real Source Artifact V2 and Semantic Artifact V1 SQLite stores,
+  R2 stores, live SHA-256 adapters, bounded checkpoint reader, scope
+  authorizer, same-isolate finalized-source reader, and proof factory; and
+- expose only the source core, bounded observation reader, finalized-source
+  proof capability, and a lowercase-UUID-bound semantic-core factory needed by
+  the later dispatcher.
+
+This checkpoint does not add the two new environment values to production
+Wrangler configuration with invented identities or ceilings. Until an operator
+pins real values and a later checkpoint composes the private dispatcher, host
+construction fails closed and no new route is reachable. The next U2 gate is
+route-independent command dispatch and exhaustive internal-to-wire error
+projection; public Worker forwarding remains a separate U3 stage.
 
 ## Next Correctness Gates
 

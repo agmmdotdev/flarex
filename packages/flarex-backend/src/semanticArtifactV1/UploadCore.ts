@@ -38,6 +38,10 @@ import {
   type SemanticArtifactV1R2Receipt,
   type SemanticArtifactV1R2Store,
 } from "./R2Store";
+import {
+  captureSemanticArtifactV1RootConfiguration,
+  type SemanticArtifactV1RootConfiguration,
+} from "./RootConfiguration";
 import type {
   SemanticArtifactV1Sha256,
   SemanticArtifactV1Sha256Error,
@@ -55,19 +59,7 @@ const SEMANTIC_TREE_FRAME_BYTES_V1 = 204;
 // Pinned by the protocol golden for the versioned zero-child tree preimage.
 const SEMANTIC_EMPTY_TREE_PREIMAGE_BYTES_V1 = 60;
 
-export interface SemanticArtifactV1RootConfiguration {
-  readonly semanticModelIdentity: string;
-  readonly semanticCodecIdentity: string;
-  readonly semanticPolicyIdentity: string;
-  readonly coreLanguageIdentity: string;
-  readonly abiIdentity: string;
-  readonly grammarIdentity: string;
-  readonly unicodeIdentity: string;
-  readonly parserTableIdentity: string;
-  readonly trustedToolingIdentity: string;
-  readonly ingressProtocolIdentity: string;
-  readonly ingressConfigurationIdentity: string;
-}
+export type { SemanticArtifactV1RootConfiguration } from "./RootConfiguration";
 
 export interface SemanticArtifactV1Admission {
   readonly calls: number;
@@ -221,7 +213,14 @@ export function makeSemanticArtifactV1UploadCore(options: {
   readonly rootConfiguration: SemanticArtifactV1RootConfiguration;
   readonly makeUploadId: () => string;
 }): Result.Result<SemanticArtifactV1UploadCore, SemanticArtifactV1InputError> {
-  const config = captureRootConfiguration(options.rootConfiguration);
+  const config = captureSemanticArtifactV1RootConfiguration(
+    options.rootConfiguration,
+  ).pipe(
+    Result.mapError(error => new SemanticArtifactV1InputError({
+      operation: "begin",
+      field: error.field,
+    })),
+  );
   if (Result.isFailure(config)) return Result.fail(config.failure);
 
   const begin = Effect.fn("SemanticArtifactV1Upload.begin")(
@@ -1497,39 +1496,6 @@ function chargeIdentityMutation(
   });
 }
 
-function captureRootConfiguration(
-  input: SemanticArtifactV1RootConfiguration,
-): Result.Result<SemanticArtifactV1RootConfiguration, SemanticArtifactV1InputError> {
-  if (!isNonArrayRecord(input)) {
-    return Result.fail(new SemanticArtifactV1InputError({
-      operation: "begin",
-      field: "rootConfiguration",
-    }));
-  }
-  const captured = {
-    semanticModelIdentity: input.semanticModelIdentity,
-    semanticCodecIdentity: input.semanticCodecIdentity,
-    semanticPolicyIdentity: input.semanticPolicyIdentity,
-    coreLanguageIdentity: input.coreLanguageIdentity,
-    abiIdentity: input.abiIdentity,
-    grammarIdentity: input.grammarIdentity,
-    unicodeIdentity: input.unicodeIdentity,
-    parserTableIdentity: input.parserTableIdentity,
-    trustedToolingIdentity: input.trustedToolingIdentity,
-    ingressProtocolIdentity: input.ingressProtocolIdentity,
-    ingressConfigurationIdentity: input.ingressConfigurationIdentity,
-  };
-  for (const key of rootConfigurationKeys) {
-    if (!isNonEmptyString(captured[key])) {
-      return Result.fail(new SemanticArtifactV1InputError({
-        operation: "begin",
-        field: key,
-      }));
-    }
-  }
-  return Result.succeed(Object.freeze(captured) as SemanticArtifactV1RootConfiguration);
-}
-
 function foldEqualFrontier(
   frontierInput: readonly SemanticArtifactV1FrontierEntry[],
   entryInput: SemanticArtifactV1FrontierEntry,
@@ -1891,18 +1857,4 @@ const budgetKeys = Object.freeze([
   "frameBytes",
   "hashBytes",
   "timeMilliseconds",
-] as const);
-
-const rootConfigurationKeys = Object.freeze([
-  "semanticModelIdentity",
-  "semanticCodecIdentity",
-  "semanticPolicyIdentity",
-  "coreLanguageIdentity",
-  "abiIdentity",
-  "grammarIdentity",
-  "unicodeIdentity",
-  "parserTableIdentity",
-  "trustedToolingIdentity",
-  "ingressProtocolIdentity",
-  "ingressConfigurationIdentity",
 ] as const);
