@@ -10,6 +10,8 @@ inert. Authenticated source/semantic readers and the request-scoped private
 analyzer dispatch host are also implemented and inert. Durable verifier-progress
 integration, static/candidate/runtime projection publication, readiness,
 activation, production ingress/binding, and final cutover remain incomplete.
+The production upload-orchestration preflight is accepted below, but none of
+its transport, host, route, or client slices is implemented.
 
 This roadmap owns:
 
@@ -70,10 +72,15 @@ Current implementation anchors are:
 - [`packages/flarex-backend/src/deployment`](../packages/flarex-backend/src/deployment)
   for validation, candidate state, activation, and public/internal route
   boundaries;
+- [`packages/flarex-backend/src/sourceArtifactV2/UploadCore.ts`](../packages/flarex-backend/src/sourceArtifactV2/UploadCore.ts)
+  and
+  [`packages/flarex-backend/src/semanticArtifactV1/UploadCore.ts`](../packages/flarex-backend/src/semanticArtifactV1/UploadCore.ts)
+  for the existing durable artifact mutation contracts;
 - [`packages/flarex-backend/src/artifactStore.ts`](../packages/flarex-backend/src/artifactStore.ts)
   and [`artifactRuntime.ts`](../packages/flarex-backend/src/artifactRuntime.ts)
   for durable source-package and runtime seams; and
 - [`packages/flarex-backend/test/push.test.ts`](../packages/flarex-backend/test/push.test.ts),
+  [`packages/flarex-backend/test/declarativeV2UploadCorrelation.test.ts`](../packages/flarex-backend/test/declarativeV2UploadCorrelation.test.ts),
   [`packages/analysis/test/analyzer.test.ts`](../packages/analysis/test/analyzer.test.ts),
   and [`packages/flarex-dev/test/artifactLifecycleParity.test.ts`](../packages/flarex-dev/test/artifactLifecycleParity.test.ts)
   for decisive current behavior.
@@ -580,6 +587,339 @@ interruption retain full Cause. Confirmed rollback may authorize only the exact
 operation-specific retry; decision uncertainty mints no root, cursor, receipt,
 readiness, activation, or retry permission until authoritative durable state is
 freshly observed.
+
+## Declarative V2 Production Upload Orchestration Preflight
+
+### Decision
+
+The production upload boundary will be a versioned command protocol connecting
+the `flarex-dev` upload client to a deployment-scoped backend host. It will
+drive the existing Source Artifact V2 and Semantic Artifact V1 cores without
+changing either artifact's roots, selectors, attempt rows, fences, command
+digests, R2 namespaces, or proof rules.
+
+This is not a second materializer, analyzer, push coordinator, or activation
+API. The materializer produces an inert ingress plan. The upload boundary
+accepts its bytes and derives durable artifact evidence. The verifier consumes
+freshly authenticated finalized evidence later. Candidate creation, readiness,
+and activation remain separate owners and later gates.
+
+The preflight approves only the staged slices below. It does not authorize a
+production route in the first slice.
+
+### Current Evidence
+
+The current repository establishes these facts:
+
+- `@flarex/declarative-materializer` emits an ordered Source Artifact V2 plan
+  and canonical Semantic Artifact V1 NDJSON without backend authority;
+- `SourceArtifactV2UploadCore` already owns begin, ordered module/block upload,
+  close, finalize, reopen, abandon, fences, exact replay, budgets, hashes, and
+  R2 reconciliation;
+- `SemanticArtifactV1UploadCore` already owns source-bound begin, arbitrary
+  byte-block append, finalize, reopen, abandon, finalized reread, fences,
+  exact replay, budgets, and R2 reconciliation;
+- `DeploymentDO` SQLite already contains both attempt tables and exposes only
+  the authenticated finalized Source Artifact V2 read path;
+- the backend Worker has the deployment namespace, artifact R2 binding,
+  deployment-push bearer configuration, project configuration, and executor
+  service boundary required by the existing project/deployment authorizer;
+- the process-local finalized-source proof cannot cross a Worker or Durable
+  Object RPC boundary and therefore must be issued and claimed in the same
+  host operation as semantic begin or reopen;
+- no production source/semantic mutation host, upload command codec, public
+  route, `flarex-dev` upload client, resume checkpoint, or candidate handoff
+  currently exists; and
+- M9 proves the core composition only with fresh in-memory ports and a
+  one-block test driver. It is not a transport or deployment receipt.
+
+The production design must therefore compose existing owners. It must not copy
+the M9 fixture into production or make the public Worker a remote
+reimplementation of the attempt stores.
+
+### Package And Host Ownership
+
+| Owner | New responsibility | Explicit non-responsibility |
+| --- | --- | --- |
+| `flarex-protocol` private subpath | Canonical upload command envelope, checkpoint/receipt projection, wire error codes, media types, and bounded codecs | Upload policy, R2, SQLite, authentication, retries, or client journaling |
+| `flarex-dev` private adapter | Split an admitted materializer plan into deterministic commands, persist the local command journal, perform exact retries only when allowed, and resume from checkpoints | Roots, selectors, server fences, semantic proof, candidate state, or activation |
+| backend public Worker | Match the deployment-scoped upload route, authenticate before caller-proportional allocation, preserve the bounded body stream and credential needed by the private host, and map host responses | Core mutation logic, durable replay truth, rechunking, or proof serialization |
+| deployment-scoped `DeploymentDO` host | Decode the bounded command, construct the existing stores/R2/hash/core adapters, execute one command, issue and claim semantic source proofs locally, and project a stable checkpoint | Materialization, analysis, readiness, activation, or a second artifact algorithm |
+| existing upload cores and stores | Remain the sole mutation, framing, hashing, fencing, reservation, replay, and reconciliation authority | HTTP status, client retry loops, or candidate publication |
+
+There is no new package for orchestration in the first vertical. The portable
+wire contract belongs in the existing protocol package; the only current
+client belongs in `flarex-dev`; and the only durable host belongs in
+`flarex-backend`. A separate package becomes justified only after a second
+non-test host or client proves an identical portable service contract.
+
+### Transport Contract
+
+The private protocol subpath will define
+`DeclarativeV2ArtifactUploadCommandV1` as an exact discriminated union. The
+first vertical contains:
+
+- source `begin`, `beginModule`, `appendBlock`, `closeModule`, `finalize`,
+  `observe`, and `abandon`;
+- semantic `begin`, `append`, `finalize`, `observe`, and `abandon`; and
+- no reopen command until the production resume proof demonstrates a real
+  caller and the existing fresh-authorization semantics are preserved.
+
+One public command endpoint is sufficient; the command discriminant selects
+the owned operation. Metadata-only and byte-bearing commands share one bounded
+binary framing:
+
+```text
+u32 big-endian metadata byte length
+canonical UTF-8 JSON command metadata
+zero or more raw payload bytes
+```
+
+The decoder must reject an oversized metadata length, body, or payload before
+caller-proportional allocation; reject trailing payload for metadata-only
+commands; and pass an owned byte snapshot to the core. Source and semantic
+bytes are never base64-encoded inside JSON, copied into a push row, or
+reconstructed as one whole artifact by the public Worker.
+
+The response is a bounded canonical JSON success or error envelope with an
+exact media type. A success contains the command identity and a stable
+checkpoint projection, not the store row or its untyped `lastReceipt`. A
+checkpoint contains only the fields needed to continue safely:
+
+- artifact kind and upload selector;
+- lifecycle, generation, and mutation fence;
+- accepted command key;
+- next module/block coordinate and current source-module coordinate when
+  applicable;
+- cumulative usage;
+- finalized root and selector only after finalization; and
+- source correlation evidence on finalized semantic checkpoints.
+
+The transport contract does not expose process-local witnesses, proofs,
+Durable Object names, R2 keys, pending reservation internals, SQL rows, stack
+traces, or foreign causes.
+
+### Identity, Commands, And Exact Retry
+
+Source and semantic upload selectors and every command key use the exact
+lowercase UUID text contract. They are untrusted selectors, not authority.
+The client creates them before the request so a lost begin response can be
+retried against the same durable key. The deployment ID comes only from the
+authenticated route and must agree with every decoded command.
+
+The backend injects the requested semantic selector through a request-scoped
+`makeUploadId` when constructing the semantic core. This preserves the current
+core contract while making begin replay durable; it does not let the caller
+mint a root, selector digest, project identity, source proof, or fence.
+
+One command key identifies one byte-exact logical command for one upload.
+Changing the operation, metadata, payload, admission, expected generation, or
+expected fence while reusing the key is a conflict. A normal retry resends the
+same frame. The client must retain the last issued frame until it receives a
+settled checkpoint or completes authoritative observation.
+
+Generic HTTP retry policy is forbidden:
+
+- validation, authorization, scope, lifecycle, stale-fence, budget, and
+  conflicting-replay failures are not retried;
+- a direct confirmed-rollback result permits one immediate byte-identical
+  operation-specific retry;
+- a timeout, lost response, resource failure after dispatch, or settlement
+  uncertainty permits no mutation retry until `observe` rereads durable state;
+- observation showing the same pending or settled command permits replay of
+  only that byte-identical command; and
+- observation showing another command or fence requires replanning from the
+  returned checkpoint and never reuses the old command key.
+
+The public response may describe this only through
+`retryDisposition: "never" | "exactAfterObserve" | "exactNow"`. An HTTP status,
+`Retry-After`, library default, or transport exception cannot independently
+grant retry authority.
+
+### Chunking, Order, And Resume
+
+`flarex-dev` chunks the already-admitted materializer plan. The backend does
+not reorder modules, merge blocks, split blocks after admission, or silently
+choose new budgets.
+
+- source modules remain in canonical materializer order;
+- source and optional source-map streams have independent contiguous block
+  indices under the currently open module;
+- semantic NDJSON may split UTF-8 and record boundaries arbitrarily, as the
+  semantic core already specifies;
+- each raw payload is nonempty and no larger than both the command admission
+  and the transport payload ceiling;
+- only one command per upload is in flight from a client; Durable Object
+  serialization is not a replacement for persisted fences and replay checks;
+  and
+- local resume starts from the journaled last frame plus an authenticated
+  `observe`, not from caller-reconstructed roots or store internals.
+
+The first client policy uses fixed, explicitly configured block ceilings and
+one request per core command. Adaptive chunking, parallel block upload,
+multi-command batches, and streaming several commands through one request are
+deferred until measurement proves a need and their failure semantics have a
+separate preflight.
+
+### Budgets
+
+Three budget layers remain distinct:
+
+1. the materializer budget bounds construction of the inert ingress plan;
+2. the transport budget bounds request metadata, raw payload, response bytes,
+   calls, and elapsed time before and around dispatch; and
+3. the existing source/semantic attempt ceilings and per-command admissions
+   bound durable artifact work.
+
+All are explicit inputs with no permissive defaults. Product configuration may
+apply stricter maxima, but cannot silently invent a missing caller budget.
+Transport decoding charges before allocation. Per-command admission is
+included in the command digest. Exact retry never resets cumulative attempt
+usage, and observation has its own read-only command and cumulative budget.
+
+The client may calculate proposed ceilings from the admitted plan, but the
+backend independently validates every bound and derives all actual usage. A
+caller total, digest, module count, record count, or EOF claim is never
+authoritative.
+
+### Authentication And Trust
+
+The existing deployment-push bearer remains the first public gate for this
+vertical. The public Worker validates it and the deployment route before
+forwarding the bounded stream. Semantic begin and any future reopen additionally
+use the existing project/deployment scope authorizer and fresh finalized-source
+read inside the `DeploymentDO` host. The host issues and claims the
+request-bound source proof within that same command execution; the proof is
+never serialized.
+
+Every command is deployment-scoped. A selector found under another deployment,
+a configured project mismatch, a changed deployment incarnation, stale source
+generation/fence, or changed source root/selector fails closed. Possession of a
+selector, checkpoint, command key, content digest, R2 object key, or prior
+receipt grants no authority.
+
+The bearer may be forwarded only across the private Worker-to-DeploymentDO
+binding needed for the same request and must never enter a response, log,
+stored attempt row, command digest, R2 object, or analyzer payload.
+
+### Confirmed Gaps Before U2
+
+U1 may define the portable shapes while the following host issues remain
+explicit U2 blockers:
+
+1. `SourceArtifactV2AttemptStore.read` has no caller-supplied read budget,
+   unlike the semantic attempt store and finalized source reader. A public
+   `observe` implementation must not project an unrestricted stored row. U2
+   must either prove and enforce a fixed admitted row ceiling or add a
+   metadata-first bounded checkpoint reader before exposing observation.
+2. The production finalized-source composer reaches `DeploymentDO` through a
+   namespace RPC, while semantic begin must issue and claim its process-local
+   proof inside the target deployment host. U2 needs a same-isolate adapter
+   that retains the existing authorizer, fresh attempt reread, digest
+   validation, request binding, and single-use claim semantics without
+   self-RPC or a serialized proof.
+3. The source attempt store exposes settlement uncertainty but no
+   confirmed-rollback result. Therefore source failures cannot produce
+   `retryDisposition: "exactNow"` under the current contract. That disposition
+   is emitted only for an actual owning typed confirmed-rollback failure; U1
+   must not infer it from a generic resource exception.
+4. The current semantic `sourceDrift` error uses a field named
+   `semanticUploadId` even when the value is the source upload selector.
+   The wire error must expose a neutral or accurately named selector and must
+   not freeze that touched-flow naming defect. Any internal public-type
+   correction requires its own bounded U2 contract change and direct-caller
+   proof.
+5. `DeploymentDO` currently constructs neither upload core nor an R2 adapter,
+   and `ARTIFACTS` remains optional in `Env`. U2 must fail closed at host
+   construction when the binding or pinned root configuration is absent; no
+   in-memory fallback is permitted.
+
+### Wire Errors
+
+The protocol owns stable error codes and retry disposition; each backend owner
+retains its typed internal error. The initial mapping is:
+
+| HTTP | Wire class | Meaning |
+| --- | --- | --- |
+| 400 | `invalidCommand` | malformed frame, unsupported operation, invalid selector/coordinate, or trailing bytes |
+| 401 | `unauthorized` | missing or mismatched deployment-push credential |
+| 403 | `scopeMismatch` | authenticated caller does not own the configured project/deployment incarnation |
+| 404 | `notFound` | deployment or upload selector is absent |
+| 409 | `stateConflict` | stale generation/fence, invalid lifecycle/order, pending different command, or conflicting replay |
+| 413 | `payloadTooLarge` | transport body or raw block exceeds the admitted transport ceiling |
+| 422 | `budgetExceeded` | another explicit transport/core/store budget is exhausted |
+| 500 | `corruption` | durable or protocol evidence violates an internal invariant |
+| 503/504 | `resourceUncertain` | resource failure, timeout, or uncertain settlement requiring observation |
+
+Error envelopes contain operation, safe selector fields, stable reason, and
+retry disposition only. They do not flatten typed failures into an ordinary
+`Error`, expose internal tags as the wire contract, or convert defects and
+interruption into expected failures.
+
+### Abandonment, Rollback, And Cleanup
+
+Abandon affects only the exact open/closing attempt and preserves its fencing
+and audit evidence. It never rolls back an already finalized source or semantic
+root, changes a push candidate, changes active routing, or deletes
+content-addressed R2 objects. A finalized but unreferenced source artifact and
+a failed/abandoned semantic attempt remain inert; retention and garbage
+collection require a later reference-aware policy.
+
+If semantic upload fails after source finalization, the client may abandon only
+the semantic attempt when its checkpoint permits it. It must not hide the
+original failure behind cleanup failure. Candidate creation receives finalized
+source and semantic evidence only after both succeed; until that later handoff,
+the existing active deployment remains unchanged.
+
+There is no V1 fallback, dual write, shadow upload, auto-activation, or
+best-effort candidate publication in this boundary.
+
+### Approved Stages
+
+1. **U1 portable protocol only.** Add the private
+   `flarex-protocol` command/checkpoint/error codec, golden vectors, strict
+   budget tests, owned-byte tests, and no backend route or package consumer.
+2. **U2 private DeploymentDO host.** Compose real SQLite stores, R2 stores,
+   hashes, upload cores, local semantic proof issue/claim, observation, and
+   route-independent error projection. Exercise it through a private
+   test/workerd harness; add no public Worker path.
+3. **U3 authenticated public dispatch.** Add the deployment-scoped route,
+   pre-body authorization, bounded streaming dispatch, exact response mapping,
+   and negative cross-deployment/project tests. This stage is still
+   non-candidate and non-activating.
+4. **U4 `flarex-dev` client and real resume proof.** Drive a materialized plan
+   with a persisted command journal; prove lost begin/append/finalize responses,
+   pending reconciliation, confirmed rollback, crash resume, budget exhaustion,
+   and cold-run root parity against direct core composition.
+5. **U5 verifier/candidate handoff preflight.** Define how finalized evidence
+   starts authenticated verification and later candidate creation. This stage
+   cannot begin merely because upload transport exists.
+
+Only U1 is authorized now. U1 must not add a production dependency from
+`flarex-backend` or `flarex-dev`, change Wrangler bindings, edit attempt
+storage, export an upload route, or implement a client.
+
+### U1 Exit Criteria
+
+U1 is complete only when:
+
+1. every command union member has exact keys and a bounded canonical encoding;
+2. metadata length, raw payload length, total frame length, response length,
+   and elapsed/call budget semantics are explicit;
+3. byte-bearing decode returns owned bytes and rejects trailing or missing
+   payloads according to the operation;
+4. checkpoint fields are sufficient for the staged resume algorithm without
+   exposing store rows or authority capabilities;
+5. retry dispositions and safe wire errors are exhaustive and independent of
+   HTTP-library defaults;
+6. semantic begin binds caller-selected selector, finalized source selector,
+   generation, fence, and explicit budgets without serializing a proof;
+7. two independent codec runs produce identical bytes and golden digests;
+8. negative tests cover malformed lengths, noncanonical JSON, duplicate/extra
+   fields, invalid UUIDs, oversized budgets/payloads, and error-envelope
+   redaction; and
+9. current production routes, bindings, stores, active metadata, and M9 tests
+   remain unchanged.
 
 ## Next Correctness Gates
 

@@ -1350,15 +1350,18 @@ semantics, and no downstream domain accepts an SDK object as authority.
 
 ## Next Correctness Gate
 
-M8 and the M9 correlation proof are complete. The next upload work is only a
-new roadmap-17 production-orchestration preflight. It must inventory the real
-ingress transport, authentication, command IDs and retry ownership, block
-chunking, resume/reconciliation behavior, deployment scope, budgets, route
-errors, and rollback before any implementation begins.
+M8 and the M9 correlation proof are complete. Roadmap 17 now accepts the
+production upload-orchestration preflight and authorizes only its U1 private
+portable protocol slice. U1 defines canonical commands, checkpoints, bounded
+binary framing, safe wire errors, and retry dispositions in `flarex-protocol`;
+it adds no backend route, Durable Object mutation host, `flarex-dev` client,
+production dependency, or candidate handoff.
 
 Do not promote the test fixture, hard-code its one-block policy, add backend
-routes, deploy R2 or Durable Object bindings, write production state, or cut
-over a producer before that preflight is accepted.
+routes, deploy new bindings, write production state, or cut over a producer in
+U1. The later U2-U5 gates separately own the private deployment host,
+authenticated public dispatch, resumable client, and verifier/candidate
+handoff.
 
 The host-neutral function-runtime work in roadmap 40 does not wait for that
 materializer merely to obtain an execution fixture. Its first exact
