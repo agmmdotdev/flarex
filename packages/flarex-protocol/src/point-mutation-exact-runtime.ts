@@ -27,6 +27,7 @@ import {
   StrictParseOptions,
   StrictStructOptions,
 } from "./strict-schema-options";
+import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
 import {
   TransactionArtifactIdV1Schema,
   TransactionArtifactRuntimeV1Schema,
@@ -38,6 +39,14 @@ import {
   type TransactionFunctionPathV1,
   type TransactionSourcePackageSha256HexV1,
 } from "./transaction-session";
+import {
+  ObjectValidatorJsonV1,
+  ValidatorJsonV1,
+  validatorJsonAdmissionIssueV1,
+  type ObjectValidatorJsonV1 as ObjectValidatorJsonV1Type,
+  type ValidatorJsonAdmissionIssueV1,
+  type ValidatorJsonV1 as ValidatorJsonV1Type,
+} from "./validator-json";
 
 export const POINT_MUTATION_EXACT_RUNTIME_FORMAT_V1 =
   "flarex.point-mutation-exact-runtime";
@@ -99,6 +108,13 @@ const ExactRuntimeFunctionV1Schema = Schema.Struct({
   executionModule: TransactionExecutionModuleV1Schema,
   kind: Schema.Literal("mutation"),
   visibility: Schema.Literal("public"),
+  argsValidator: Schema.Union([
+    ObjectValidatorJsonV1,
+    Schema.Struct({ type: Schema.Literal("any") }).annotate(
+      StrictStructOptions,
+    ),
+  ]),
+  returnsValidator: Schema.Union([ValidatorJsonV1, Schema.Null]),
 }).annotate(StrictStructOptions);
 
 const ExactRuntimeContextV1Schema = Schema.Struct({
@@ -193,6 +209,10 @@ export interface PointMutationExactRuntimeFunctionV1 {
   readonly executionModule: TransactionExecutionModuleV1;
   readonly kind: "mutation";
   readonly visibility: "public";
+  readonly argsValidator:
+    | ObjectValidatorJsonV1Type
+    | Readonly<{ readonly type: "any" }>;
+  readonly returnsValidator: ValidatorJsonV1Type | null;
 }
 
 export interface PointMutationExactRuntimeTableV1 {
@@ -247,6 +267,24 @@ export const decodePointMutationExactRuntimeRequestV1Effect = Effect.fn(
   PointMutationExactRuntimeRequestV1,
   PointMutationExactRuntimeProtocolV1Error
 > {
+  const validatorAdmissionIssue = yield* Effect.try({
+    try: () => exactRuntimeValidatorAdmissionIssueV1(value),
+    catch: (cause) =>
+      new PointMutationExactRuntimeProtocolV1Error({
+        boundary: "request",
+        reason: "invalidShape",
+        cause,
+      }),
+  });
+  if (validatorAdmissionIssue !== undefined) {
+    return yield* Effect.fail(
+      new PointMutationExactRuntimeProtocolV1Error({
+        boundary: "request",
+        reason: "invalidShape",
+        cause: validatorAdmissionIssue,
+      }),
+    );
+  }
   const request = yield* Effect.fromResult(
     decodeExactRuntimeRequestShapeV1Result(value).pipe(
       Result.mapError((cause) =>
@@ -302,7 +340,15 @@ export const decodePointMutationExactRuntimeRequestV1Effect = Effect.fn(
     format: request.format,
     version: request.version,
     artifact: Object.freeze({ ...request.artifact }),
-    function: Object.freeze({ ...request.function }),
+    function: Object.freeze({
+      ...request.function,
+      argsValidator: snapshotDecodedProtocolPlainData(
+        request.function.argsValidator,
+      ),
+      returnsValidator: snapshotDecodedProtocolPlainData(
+        request.function.returnsValidator,
+      ),
+    }),
     auth,
     arguments: normalizedArguments.value,
     argumentArraySemanticBytes,
@@ -315,6 +361,64 @@ export const decodePointMutationExactRuntimeRequestV1Effect = Effect.fn(
     }),
   } satisfies PointMutationExactRuntimeRequestV1);
 });
+
+const MISSING_EXACT_RUNTIME_VALIDATOR_PROPERTY = Symbol(
+  "missingExactRuntimeValidatorProperty",
+);
+
+function exactRuntimeValidatorAdmissionIssueV1(
+  value: unknown,
+): ValidatorJsonAdmissionIssueV1 | undefined {
+  if (!isObjectContainer(value)) return undefined;
+  const fn = ownExactRuntimeValidatorDataProperty(value, "function");
+  if (
+    fn === MISSING_EXACT_RUNTIME_VALIDATOR_PROPERTY ||
+    !isObjectContainer(fn)
+  ) {
+    return undefined;
+  }
+  const argsValidator = ownExactRuntimeValidatorDataProperty(
+    fn,
+    "argsValidator",
+  );
+  if (argsValidator !== MISSING_EXACT_RUNTIME_VALIDATOR_PROPERTY) {
+    const issue = validatorJsonAdmissionIssueV1(argsValidator);
+    if (issue !== undefined) return issue;
+  }
+  const returnsValidator = ownExactRuntimeValidatorDataProperty(
+    fn,
+    "returnsValidator",
+  );
+  return (
+      returnsValidator === MISSING_EXACT_RUNTIME_VALIDATOR_PROPERTY ||
+      returnsValidator === null
+    )
+    ? undefined
+    : validatorJsonAdmissionIssueV1(returnsValidator);
+}
+
+function ownExactRuntimeValidatorDataProperty(
+  value: object,
+  key: PropertyKey,
+): unknown | typeof MISSING_EXACT_RUNTIME_VALIDATOR_PROPERTY {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (descriptor === undefined) {
+    return MISSING_EXACT_RUNTIME_VALIDATOR_PROPERTY;
+  }
+  if (!("value" in descriptor)) {
+    throw new Error(
+      "Exact-runtime validator containers must use data properties.",
+    );
+  }
+  return descriptor.value;
+}
+
+function isObjectContainer(value: unknown): value is object {
+  return (
+    (typeof value === "object" && value !== null) ||
+    typeof value === "function"
+  );
+}
 
 const decodeOwnedUserAuthV1 = Effect.fn(
   "PointMutationExactRuntimeProtocol.decodeUserAuth",

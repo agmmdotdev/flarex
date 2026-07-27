@@ -3,10 +3,10 @@
 ## Status And Scope
 
 **Status:** Preflight and the first-extraction amendment are accepted. The
-prerequisite journal-boundary correction and canonical declarative-program
-first vertical are implemented and validated. The next approved slice is a
-host-neutral exact public point-mutation kernel plus in-process and workerd
-adapters. Production routing and broader runtime capabilities remain deferred.
+prerequisite journal-boundary correction, canonical declarative-program first
+vertical, and host-neutral exact public point-mutation extraction are
+implemented and validated. Production routing and broader runtime capabilities
+remain deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -19,10 +19,11 @@ owned runtime kernel rather than separately implement function lookup,
 validation, `ctx`, database operations, nested calls, deterministic
 environment, and result normalization.
 
-This record does not approve a new package, production reroute, Dynamic Worker
-change, test-SDK behavior change, FlarexDB authority change, or replacement of
-Miniflare/workerd evidence. Those require the completed preflight and a
-separately bounded implementation slice.
+This record now owns the approved `@flarex/function-runtime/point-mutation`
+package boundary and its Cloudflare adapter. It does not approve a production
+reroute, broader Dynamic Worker capability, test-SDK behavior change, FlarexDB
+authority change, or replacement of Miniflare/workerd evidence. Those require
+a separately bounded preflight and implementation slice.
 
 ## Why This Boundary Is Needed
 
@@ -97,7 +98,7 @@ Current behavior must be verified against:
 - [`37-production-redelivery-and-c06b.md`](./37-production-redelivery-and-c06b.md)
   for the private exact-attempt runtime host and current production gates.
 
-## Current Architecture
+## Pre-Extraction Architecture
 
 The trusted executor already accepts a
 `PointMutationOccRuntimeNeutralRunnerV1`. The exact implementation projects
@@ -115,7 +116,7 @@ query-builder, nested-call, validation, and syscall source. Local development
 and the public test harness use Miniflare-managed runtime materialization for
 real user-code execution.
 
-Therefore the repository already has:
+Before the extraction, the repository already had:
 
 - an executor-to-runtime runner interface;
 - a structural Cloudflare host-binding port;
@@ -123,8 +124,8 @@ Therefore the repository already has:
 - authored TypeScript for the exact runtime core; and
 - workerd boundary coverage.
 
-It does not yet have one portable kernel that both a Cloudflare host and an
-ordinary in-process host can invoke to execute the same user function.
+It did not yet have one portable kernel that both a Cloudflare host and an
+ordinary in-process host could invoke to execute the same user function.
 
 ## Accepted Preflight Result
 
@@ -199,11 +200,11 @@ feeds, outbox behavior, or authoritative application rows.
 
 ### Validator And Runtime-Projection Gate
 
-Arguments are validated before exact execution, but the current exact request
-projection does not carry the pinned argument and return validator semantics
-needed by a portable kernel. The exact core normalizes a returned value but
-does not enforce the analyzed return validator. The ordinary generated runtime
-does enforce analyzed validators.
+At preflight time, arguments were validated before exact execution, but the
+exact request projection did not carry the pinned argument and return validator
+semantics needed by a portable kernel. The exact core normalized a returned
+value but did not enforce the analyzed return validator. The ordinary generated
+runtime already enforced analyzed validators.
 
 The shared function runtime must consume a verified execution projection that
 contains the required validator and function-registry semantics. It will not
@@ -511,6 +512,51 @@ This vertical does not add query builders, nested calls, general mutations,
 actions, scheduling, public `flarex-test` behavior, production routing, or a
 new deployment artifact version.
 
+### First Extraction Implementation Receipt
+
+The approved exact public point-mutation extraction is now implemented:
+
+- `@flarex/function-runtime/point-mutation` owns the portable Promise-based
+  kernel, verified invocation shape, registry/context/journal ports, validator
+  execution, handler settlement, result normalization, and host-neutral typed
+  failures;
+- the protocol-owned exact request carries the trusted executor's pinned
+  argument and return validators, applies protocol-owned depth, node, and
+  object-field admission limits before recursive decoding, and the executor
+  projects those validators only after its existing stored-attempt
+  verification;
+- a deterministic build emits the kernel as a reserved runtime support module,
+  proves two byte-identical clean outputs, and includes the module path and
+  digest in exact-runtime code identity;
+- the Cloudflare shell imports that support module only after global hardening,
+  retains one-shot admission, deterministic globals, module materialization,
+  journal RPC construction, and disposal, and translates authenticated
+  portable failure inspections into the existing redacted host-response
+  reasons;
+- direct in-process execution uses the same kernel with an explicit registry
+  and invocation factory and receives no Worker Loader, Cloudflare binding,
+  persistence, OCC, or commit authority; and
+- the duplicated exact lookup, marker, argument validation, handler settlement,
+  result normalization, and return-validation path was removed from the
+  Cloudflare core.
+
+The shared parity fixture now proves the same pinned function, validators,
+arguments, user identity, table projection, logical insert, result, and
+close/drain lifecycle through generated and in-process adapters. It also proves
+the same journal-over-handler first-failure rule while retaining each host's
+owned error name. Separate workerd evidence proves the real support-module
+graph, frozen-intrinsic error construction, and contract-failure translation
+for missing functions, malformed metadata, and invalid arguments. Fixed time,
+seeded randomness, hardened globals, fresh module state, and isolation remain
+Cloudflare-platform claims because the in-process adapter deliberately does not
+patch process globals.
+
+Focused validation covers package, protocol, executor, backend, generated
+source, workerd, and artifact-runtime paths. The extraction does not change
+production routing, persistence delivery, replay, OCC, commit compilation or
+execution, transaction grants, idempotency outcomes, feeds, outbox behavior,
+or authoritative application rows.
+
 ## Test Evidence Lanes
 
 The target has three complementary lanes:
@@ -692,12 +738,16 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-Implement only the approved exact public point-mutation extraction above.
-Begin with the package contract and shared in-process fixture, then connect the
-same kernel to the generated Cloudflare support-module graph and prove workerd
-parity before removing the duplicated core logic.
+The approved exact public point-mutation extraction is complete. Before adding
+another runtime consumer, perform a bounded post-extraction audit of dependency
+direction, portable error ownership, generated-module identity, validation
+limits, and remaining exact-core duplication. Then record and approve one
+separate preflight for exactly one next consumer: either an explicitly scoped
+test-support adapter or another function/runtime capability. Do not combine
+those decisions.
 
-Do not add broader function kinds or database capabilities, reroute production,
-alter `flarex-test`, change OCC/commit/feed/outbox/application-row semantics, or
-claim that the in-process adapter proves Worker Loader isolation and
-deterministic globals.
+No broader function kind, query builder, nested call, database capability,
+production reroute, or public `flarex-test` behavior is approved by this
+receipt. Do not change OCC, commit, feed, outbox, or application-row semantics,
+and do not claim that the in-process adapter proves Worker Loader isolation,
+module freshness, deterministic globals, or Cloudflare resource restrictions.

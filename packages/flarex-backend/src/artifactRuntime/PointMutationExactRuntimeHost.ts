@@ -28,6 +28,10 @@ import {
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
 } from "./PointMutationExactRuntimeWorkerCore.generated.ts";
+import {
+  POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1,
+  POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1,
+} from "./PointMutationRuntimeKernel.generated.ts";
 
 export const POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1 =
   "flarex-point-mutation-exact-runtime-v1.js";
@@ -35,6 +39,8 @@ export const POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1 =
   "pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-config-v1.js";
 export const POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1 =
   "pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-execution-v1.js";
+export const POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1 =
+  "pointMutationExactRuntimeWorker/flarex-point-mutation-runtime-kernel-v1.js";
 
 export type PointMutationExactRuntimeWorkerEnvV1 = Readonly<
   Record<PropertyKey, never>
@@ -93,6 +99,10 @@ export function pointMutationExactRuntimeWorkerCodeIdentityV1(
     [
       POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
       POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
+    ],
+    [
+      POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
+      POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1,
     ],
     POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
     ...runtimeSupportModules.map((module) => [module.path, module.source]),
@@ -157,6 +167,10 @@ function pointMutationExactRuntimeSupportModulesV1(
       source: pointMutationExactRuntimeWorkerExecutionBridgeSource(
         options.executionModule,
       ),
+    }),
+    Object.freeze({
+      path: POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
+      source: POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1,
     }),
   ]);
 }

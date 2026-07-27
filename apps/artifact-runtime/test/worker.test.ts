@@ -192,6 +192,14 @@ describe("artifact runtime exact point-mutation RPC host", () => {
         "PointMutationExactRuntimeJournalBoundaryV1Error",
         "journalBoundaryFailed",
       ],
+      [
+        "PointMutationExactRuntimeInvalidRequestV1Error",
+        "invalidRequest",
+      ],
+      [
+        "PointMutationExactRuntimeWorkerDefinitionV1Error",
+        "workerDefinitionFailed",
+      ],
     ] as const) {
       const error = new Error("redacted Dynamic Worker failure");
       error.name = name;
@@ -1357,6 +1365,16 @@ async function exactRuntimeRequest(
         executionModule: artifact.executionModule,
         kind: "mutation",
         visibility: "public",
+        argsValidator: {
+          type: "object",
+          value: {
+            text: {
+              fieldType: { type: "string" },
+              optional: false,
+            },
+          },
+        },
+        returnsValidator: null,
       },
       auth: { kind: "anonymous" },
       arguments: argumentsValue,

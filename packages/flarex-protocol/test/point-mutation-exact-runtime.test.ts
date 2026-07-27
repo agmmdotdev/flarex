@@ -12,6 +12,11 @@ import {
   requirePointMutationArgumentSemanticSizeV1,
 } from "../src/point-mutation-start";
 import { normalizeFlarexValueV1 } from "../src/value";
+import {
+  MAX_VALIDATOR_JSON_DEPTH_V1,
+  MAX_VALIDATOR_JSON_NODES_V1,
+  MAX_VALIDATOR_JSON_OBJECT_FIELDS_V1,
+} from "../src/validator-json";
 
 describe("point mutation exact-runtime protocol", () => {
   it("decodes and owns a strict runtime-value request", async () => {
@@ -161,6 +166,58 @@ describe("point mutation exact-runtime protocol", () => {
     });
   });
 
+  it("applies bounded validator admission before recursive schema decoding", async () => {
+    await expect(Effect.runPromise(
+      decodePointMutationExactRuntimeRequestV1Effect({
+        ...testRequest(),
+        function: {
+          ...testRequest().function,
+          returnsValidator: nestedArrayValidator(
+            MAX_VALIDATOR_JSON_DEPTH_V1,
+          ),
+        },
+      }),
+    )).resolves.toMatchObject({
+      function: {
+        returnsValidator: { type: "array" },
+      },
+    });
+
+    for (const returnsValidator of [
+      nestedArrayValidator(MAX_VALIDATOR_JSON_DEPTH_V1 + 1),
+      {
+        type: "union",
+        value: Array.from(
+          { length: MAX_VALIDATOR_JSON_NODES_V1 },
+          () => ({ type: "null" }),
+        ),
+      },
+      {
+        type: "object",
+        value: Object.fromEntries(Array.from(
+          { length: MAX_VALIDATOR_JSON_OBJECT_FIELDS_V1 + 1 },
+          (_, index) => [
+            `field${index}`,
+            { fieldType: { type: "null" }, optional: false },
+          ],
+        )),
+      },
+    ]) {
+      await expect(Effect.runPromise(
+        decodePointMutationExactRuntimeRequestV1Effect({
+          ...testRequest(),
+          function: {
+            ...testRequest().function,
+            returnsValidator,
+          },
+        }),
+      )).rejects.toMatchObject({
+        boundary: "request",
+        reason: "invalidShape",
+      });
+    }
+  });
+
   it("decodes, copies, and bounds strict result envelopes", async () => {
     const bytes = new Uint8Array([4, 5, 6]).buffer;
     const decoded = await Effect.runPromise(
@@ -248,6 +305,11 @@ function testRequest(overrides: {
       executionModule: "_flarex/execution.js",
       kind: "mutation",
       visibility: "public",
+      argsValidator: {
+        type: "object",
+        value: {},
+      },
+      returnsValidator: null,
     },
     auth: {
       kind: "user",
@@ -273,4 +335,12 @@ function testRequest(overrides: {
       initialCreationTimeCursor: 100,
     },
   } as const;
+}
+
+function nestedArrayValidator(depth: number): unknown {
+  let validator: unknown = { type: "null" };
+  for (let currentDepth = 1; currentDepth < depth; currentDepth += 1) {
+    validator = { type: "array", value: validator };
+  }
+  return validator;
 }

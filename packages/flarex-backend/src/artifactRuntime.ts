@@ -27,6 +27,7 @@ export {
   POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
   POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
   POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+  POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
   PointMutationExactRuntimeHostV1Error,
   pointMutationExactRuntimeWorkerCodeIdentityV1,
   type LoadPointMutationExactRuntimeWorkerDefinitionV1Input,

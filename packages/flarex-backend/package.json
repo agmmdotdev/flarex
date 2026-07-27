@@ -18,15 +18,18 @@
     "./test/sync-protocol": "./src/syncProtocol.ts"
   },
   "scripts": {
-    "build": "pnpm check:exact-runtime-core && tsc -p tsconfig.json",
+    "build": "pnpm check:exact-runtime-core && pnpm check:point-mutation-runtime-kernel && tsc -p tsconfig.json",
     "check:exact-runtime-core": "tsx scripts/buildPointMutationExactRuntimeCore.ts check",
+    "check:point-mutation-runtime-kernel": "tsx scripts/buildPointMutationRuntimeKernel.ts check",
     "exact-runtime-core:update": "tsx scripts/buildPointMutationExactRuntimeCore.ts update",
+    "point-mutation-runtime-kernel:update": "tsx scripts/buildPointMutationRuntimeKernel.ts update",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
     "@flarex/executor-http": "workspace:*",
+    "@flarex/function-runtime": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex": "workspace:*",

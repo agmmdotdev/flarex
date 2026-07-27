@@ -195,6 +195,10 @@ function dynamicWorkerFailureReason(
       return "userCodeFailed";
     case "PointMutationExactRuntimeJournalBoundaryV1Error":
       return "journalBoundaryFailed";
+    case "PointMutationExactRuntimeInvalidRequestV1Error":
+      return "invalidRequest";
+    case "PointMutationExactRuntimeWorkerDefinitionV1Error":
+      return "workerDefinitionFailed";
     default:
       return undefined;
   }

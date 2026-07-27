@@ -422,6 +422,9 @@ importers:
       '@flarex/executor-http':
         specifier: workspace:*
         version: link:../executor-http
+      '@flarex/function-runtime':
+        specifier: workspace:*
+        version: link:../function-runtime
       '@flarex/utils':
         specifier: workspace:*
         version: link:../utils
@@ -556,6 +559,19 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.1.5(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@24.13.2)(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/function-runtime:
+    dependencies:
+      flarex-protocol:
+        specifier: workspace:*
+        version: link:../flarex-protocol
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@24.13.2)(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))

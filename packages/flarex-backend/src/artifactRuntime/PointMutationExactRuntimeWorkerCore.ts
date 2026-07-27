@@ -7,9 +7,19 @@ import type {
   PointMutationExactRuntimeResultV1,
 } from "flarex-protocol/point-mutation-exact-runtime";
 import type {
+  inspectPointMutationRuntimeFailureV1,
+  PointMutationRuntimeInvocationFactoryV1,
+  PointMutationRuntimeInputV1,
+  executePointMutationV1,
+} from "@flarex/function-runtime/point-mutation";
+import type {
   CanonicalFlarexRuntimeObjectV1,
   CanonicalFlarexRuntimeValueV1,
 } from "flarex-protocol/value";
+import type {
+  ObjectValidatorJsonV1,
+  ValidatorJsonV1,
+} from "flarex-protocol/validator-json";
 
 import {
   exactRuntimeConfigurationV1,
@@ -38,6 +48,15 @@ const MAX_ARRAY_ITEMS = 8192;
 const MAX_OBJECT_FIELDS = 1024;
 const MAX_OBJECT_FIELD_BYTES = 1024;
 const MAX_CATALOG_TABLE_ID = 2147483647;
+const MAX_VALIDATOR_NODES:
+  typeof import("flarex-protocol/validator-json")
+    .MAX_VALIDATOR_JSON_NODES_V1 = 65_536;
+const MAX_VALIDATOR_DEPTH:
+  typeof import("flarex-protocol/validator-json")
+    .MAX_VALIDATOR_JSON_DEPTH_V1 = 128;
+const MAX_VALIDATOR_OBJECT_FIELDS:
+  typeof import("flarex-protocol/validator-json")
+    .MAX_VALIDATOR_JSON_OBJECT_FIELDS_V1 = 1_024;
 const MIN_INT64 = -(1n << 63n);
 const MAX_INT64 = (1n << 63n) - 1n;
 const textEncoder = new TextEncoder();
@@ -93,6 +112,10 @@ interface DecodedExactRuntimeRequest {
     readonly executionModule: string;
     readonly kind: "mutation";
     readonly visibility: "public";
+    readonly argsValidator:
+      | ObjectValidatorJsonV1
+      | Readonly<{ readonly type: "any" }>;
+    readonly returnsValidator: ValidatorJsonV1 | null;
   }>;
   readonly auth: DecodedExactRuntimeAuth;
   readonly arguments: CanonicalFlarexRuntimeObjectV1;
@@ -190,11 +213,6 @@ interface ExactRuntimeJournal {
   readonly drain: () => Promise<void>;
   readonly dispose: () => void;
 }
-
-type MutationHandler = (
-  context: ReturnType<typeof executionContext>,
-  argumentsValue: CanonicalFlarexRuntimeObjectV1,
-) => unknown | PromiseLike<unknown>;
 
 function ExactRuntimeDate(...args: ReadonlyArray<unknown>): string | Date {
   if (new.target === undefined) {
@@ -528,6 +546,11 @@ function ExactRuntimeDateTimeFormat(
 const executionModulePromise = import(
   "./pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-execution-v1.js"
 );
+const runtimeKernelModulePath =
+  "./pointMutationExactRuntimeWorker/flarex-point-mutation-runtime-kernel-v1.js";
+const runtimeKernelPromise = (
+  import(runtimeKernelModulePath) as Promise<unknown>
+).then(decodeRuntimeKernelModule);
 
 export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
   async run(
@@ -545,49 +568,57 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
       }
       runAdmitted = true;
       const request = decodeRequest(input);
-      capability = decodeJournalCapability(journal);
-      const fn = await resolveFunction(request.function.path);
-      requireExactMutation(fn);
-      const handler = handlerFor(fn);
+      const admittedCapability = decodeJournalCapability(journal);
+      capability = admittedCapability;
       deterministicTime = request.context.executionTime;
       deterministicRandom = randomFromSeed(request.context.randomSeed);
-      journalRuntime = databaseForJournal(request.tables, capability);
-      let handlerResult: unknown;
-      let handlerFailure: Readonly<{ readonly cause: unknown }> | undefined;
+      const kernel = await runtimeKernelPromise;
+      const runtimeInput: PointMutationRuntimeInputV1 = Object.freeze({
+        function: request.function,
+        arguments: request.arguments,
+        tables: request.tables,
+      });
+      const invocations: PointMutationRuntimeInvocationFactoryV1 =
+        Object.freeze({
+          open: () => {
+            journalRuntime = databaseForJournal(
+              request.tables,
+              admittedCapability,
+            );
+            return Object.freeze({
+              context: executionContext(request, journalRuntime.database),
+              journal: journalRuntime,
+            });
+          },
+        });
+      let result: CanonicalFlarexRuntimeValueV1;
       try {
-        handlerResult = await handler(
-          executionContext(request, journalRuntime.database),
-          request.arguments,
+        result = await kernel.executePointMutationV1(
+          runtimeInput,
+          Object.freeze({ resolve: resolveFunction }),
+          invocations,
         );
       } catch (cause) {
-        handlerFailure = { cause };
-      }
-      journalRuntime.close();
-      try {
-        await journalRuntime.drain();
-      } catch (cause) {
-        throw journalBoundaryError(cause);
-      }
-      if (handlerFailure !== undefined) {
-        if (handlerFailure.cause instanceof ExactRuntimeJournalBoundaryError) {
-          throw handlerFailure.cause;
+        const runtimeFailure =
+          kernel.inspectPointMutationRuntimeFailureV1(cause);
+        if (runtimeFailure?.kind === "userCode") {
+          throw new ExactRuntimeUserCodeError(runtimeFailure.cause);
         }
-        throw new ExactRuntimeUserCodeError(handlerFailure.cause);
+        if (runtimeFailure?.kind === "journalBoundary") {
+          throw journalBoundaryError(runtimeFailure.cause);
+        }
+        if (runtimeFailure?.kind === "contract") {
+          throw runtimeFailure.reason === "argumentsInvalid"
+            ? new ExactRuntimeInvalidRequestError(cause)
+            : new ExactRuntimeWorkerDefinitionError(cause);
+        }
+        throw cause;
       }
-      try {
-        return Object.freeze({
-          format: RESULT_FORMAT,
-          version: RESULT_VERSION,
-          value: normalizeValue(
-            handlerResult === undefined ? null : handlerResult,
-            "$",
-            0,
-            new WeakSet(),
-          ).value,
-        });
-      } catch (cause) {
-        throw new ExactRuntimeUserCodeError(cause);
-      }
+      return Object.freeze({
+        format: RESULT_FORMAT,
+        version: RESULT_VERSION,
+        value: result,
+      });
     } catch (cause) {
       settledFailure = { cause };
       throw cause;
@@ -710,26 +741,287 @@ function randomFromSeed(seed: Uint8Array): () => number {
   };
 }
 
-class ExactRuntimeUserCodeError extends Error {
+class ExactRuntimeJournalBoundaryError extends Error {
   constructor(cause: unknown) {
-    super("Exact point-mutation user code failed.");
-    this.name = "PointMutationExactRuntimeUserCodeV1Error";
+    super("Exact point-mutation journal boundary failed.");
+    defineErrorName(
+      this,
+      "PointMutationExactRuntimeJournalBoundaryV1Error",
+    );
     this.cause = cause;
   }
 }
 
-class ExactRuntimeJournalBoundaryError extends Error {
+class ExactRuntimeUserCodeError extends Error {
   constructor(cause: unknown) {
-    super("Exact point-mutation journal boundary failed.");
-    this.name = "PointMutationExactRuntimeJournalBoundaryV1Error";
+    super("Exact point-mutation user code failed.");
+    defineErrorName(this, "PointMutationExactRuntimeUserCodeV1Error");
     this.cause = cause;
   }
+}
+
+class ExactRuntimeInvalidRequestError extends Error {
+  constructor(cause: unknown) {
+    super("Exact point-mutation request violates its runtime contract.");
+    defineErrorName(
+      this,
+      "PointMutationExactRuntimeInvalidRequestV1Error",
+    );
+    this.cause = cause;
+  }
+}
+
+class ExactRuntimeWorkerDefinitionError extends Error {
+  constructor(cause: unknown) {
+    super("Exact point-mutation Worker definition is inconsistent.");
+    defineErrorName(
+      this,
+      "PointMutationExactRuntimeWorkerDefinitionV1Error",
+    );
+    this.cause = cause;
+  }
+}
+
+function defineErrorName(error: Error, name: string): void {
+  defineProperty(error, "name", {
+    value: name,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
 }
 
 function journalBoundaryError(cause: unknown): ExactRuntimeJournalBoundaryError {
   return cause instanceof ExactRuntimeJournalBoundaryError
     ? cause
     : new ExactRuntimeJournalBoundaryError(cause);
+}
+
+interface RuntimeKernelModule {
+  readonly executePointMutationV1: typeof executePointMutationV1;
+  readonly inspectPointMutationRuntimeFailureV1:
+    typeof inspectPointMutationRuntimeFailureV1;
+}
+
+function decodeRuntimeKernelModule(value: unknown): RuntimeKernelModule {
+  if (value === null || typeof value !== "object") {
+    throw new Error("Point-mutation runtime kernel module is unavailable.");
+  }
+  const descriptor = getOwnPropertyDescriptor(
+    value,
+    "executePointMutationV1",
+  );
+  const failureInspectorDescriptor = getOwnPropertyDescriptor(
+    value,
+    "inspectPointMutationRuntimeFailureV1",
+  );
+  if (
+    descriptor === undefined ||
+    !("value" in descriptor) ||
+    typeof descriptor.value !== "function" ||
+    failureInspectorDescriptor === undefined ||
+    !("value" in failureInspectorDescriptor) ||
+    typeof failureInspectorDescriptor.value !== "function"
+  ) {
+    throw new Error("Point-mutation runtime kernel export is unavailable.");
+  }
+  return freeze({
+    executePointMutationV1:
+      descriptor.value as typeof executePointMutationV1,
+    inspectPointMutationRuntimeFailureV1:
+      failureInspectorDescriptor.value as
+        typeof inspectPointMutationRuntimeFailureV1,
+  });
+}
+
+interface ValidatorDecodeBudget {
+  nodes: number;
+}
+
+function decodeArgsValidator(
+  value: unknown,
+  path: string,
+  depth: number,
+  budget: ValidatorDecodeBudget,
+): DecodedExactRuntimeRequest["function"]["argsValidator"] {
+  const validator = decodeValidator(value, path, depth, budget);
+  if (validator.type === "object") return validator;
+  if (validator.type === "any") return freeze({ type: "any" });
+  throw new Error("Exact-runtime argument validator must be object or any.");
+}
+
+function decodeValidator(
+  value: unknown,
+  path: string,
+  depth: number,
+  budget: ValidatorDecodeBudget,
+): ValidatorJsonV1 {
+  if (depth > MAX_VALIDATOR_DEPTH) {
+    throw new Error("Exact-runtime validator nesting exceeds its limit.");
+  }
+  budget.nodes += 1;
+  if (budget.nodes > MAX_VALIDATOR_NODES) {
+    throw new Error("Exact-runtime validator node count exceeds its limit.");
+  }
+  if (!isPlainRecord(value) || typeof value.type !== "string") {
+    throw new Error(`Invalid exact-runtime validator at ${path}.`);
+  }
+  switch (value.type) {
+    case "null":
+    case "number":
+    case "bigint":
+    case "boolean":
+    case "string":
+    case "bytes":
+    case "any": {
+      exactKeys(value, ["type"], "exact-runtime validator");
+      return freeze({ type: value.type });
+    }
+    case "id": {
+      exactKeys(value, ["type", "tableName"], "exact-runtime ID validator");
+      if (
+        typeof value.tableName !== "string" ||
+        value.tableName.length === 0
+      ) {
+        throw new Error(`Invalid exact-runtime ID validator at ${path}.`);
+      }
+      return freeze({ type: "id", tableName: value.tableName });
+    }
+    case "literal": {
+      exactKeys(
+        value,
+        ["type", "value"],
+        "exact-runtime literal validator",
+      );
+      if (
+        !(
+          typeof value.value === "string" ||
+          typeof value.value === "boolean" ||
+          (typeof value.value === "number" &&
+            Number.isFinite(value.value) &&
+            !Object.is(value.value, -0))
+        )
+      ) {
+        throw new Error(`Invalid exact-runtime literal validator at ${path}.`);
+      }
+      return freeze({ type: "literal", value: value.value });
+    }
+    case "array": {
+      exactKeys(
+        value,
+        ["type", "value"],
+        "exact-runtime array validator",
+      );
+      return freeze({
+        type: "array",
+        value: decodeValidator(
+          value.value,
+          `${path}.value`,
+          depth + 1,
+          budget,
+        ),
+      });
+    }
+    case "object": {
+      exactKeys(
+        value,
+        ["type", "value"],
+        "exact-runtime object validator",
+      );
+      if (!isPlainRecord(value.value)) {
+        throw new Error(`Invalid exact-runtime object validator at ${path}.`);
+      }
+      const entries = ownEnumerableDataEntries(
+        value.value,
+        "exact-runtime object validator fields",
+      );
+      if (entries.length > MAX_VALIDATOR_OBJECT_FIELDS) {
+        throw new Error("Exact-runtime object validator has too many fields.");
+      }
+      const fields: Record<
+        string,
+        Readonly<{ readonly fieldType: ValidatorJsonV1; readonly optional: boolean }>
+      > = {};
+      for (const [fieldName, fieldValue] of entries) {
+        const field = exactRecord(
+          fieldValue,
+          ["fieldType", "optional"],
+          "exact-runtime object validator field",
+        );
+        if (typeof field.optional !== "boolean") {
+          throw new Error(
+            `Invalid exact-runtime object validator field at ${path}.`,
+          );
+        }
+        defineProperty(fields, fieldName, {
+          value: freeze({
+            fieldType: decodeValidator(
+              field.fieldType,
+              `${path}.value.${fieldName}.fieldType`,
+              depth + 1,
+              budget,
+            ),
+            optional: field.optional,
+          }),
+          enumerable: true,
+          configurable: false,
+          writable: false,
+        });
+      }
+      return freeze({ type: "object", value: freeze(fields) });
+    }
+    case "record": {
+      exactKeys(
+        value,
+        ["type", "keys", "values"],
+        "exact-runtime record validator",
+      );
+      return freeze({
+        type: "record",
+        keys: decodeValidator(
+          value.keys,
+          `${path}.keys`,
+          depth + 1,
+          budget,
+        ),
+        values: decodeValidator(
+          value.values,
+          `${path}.values`,
+          depth + 1,
+          budget,
+        ),
+      });
+    }
+    case "union": {
+      exactKeys(
+        value,
+        ["type", "value"],
+        "exact-runtime union validator",
+      );
+      if (!Array.isArray(value.value)) {
+        throw new Error(`Invalid exact-runtime union validator at ${path}.`);
+      }
+      validateArrayShape(value.value, "exact-runtime union validator");
+      if (value.value.length > MAX_VALIDATOR_NODES - budget.nodes) {
+        throw new Error(
+          "Exact-runtime union validator exceeds its remaining node budget.",
+        );
+      }
+      return freeze({
+        type: "union",
+        value: freeze(value.value.map((member, index) =>
+          decodeValidator(
+            member,
+            `${path}.value[${index}]`,
+            depth + 1,
+            budget,
+          )
+        )),
+      });
+    }
+    default:
+      throw new Error(`Unknown exact-runtime validator type at ${path}.`);
+  }
 }
 
 function decodeRequest(value: unknown): DecodedExactRuntimeRequest {
@@ -767,7 +1059,14 @@ function decodeRequest(value: unknown): DecodedExactRuntimeRequest {
   }
   const fn = exactRecord(
     request.function,
-    ["path", "executionModule", "kind", "visibility"],
+    [
+      "path",
+      "executionModule",
+      "kind",
+      "visibility",
+      "argsValidator",
+      "returnsValidator",
+    ],
     "exact-runtime function",
   );
   if (
@@ -779,6 +1078,20 @@ function decodeRequest(value: unknown): DecodedExactRuntimeRequest {
   ) {
     throw new Error("Invalid exact-runtime function pin.");
   }
+  const argsValidator = decodeArgsValidator(
+    fn.argsValidator,
+    "$.function.argsValidator",
+    1,
+    { nodes: 0 },
+  );
+  const returnsValidator = fn.returnsValidator === null
+    ? null
+    : decodeValidator(
+        fn.returnsValidator,
+        "$.function.returnsValidator",
+        1,
+        { nodes: 0 },
+      );
   const auth = decodeAuth(request.auth);
   const context = decodeContext(request.context);
   const tables = decodeTables(request.tables);
@@ -814,6 +1127,8 @@ function decodeRequest(value: unknown): DecodedExactRuntimeRequest {
       executionModule: fn.executionModule,
       kind: fn.kind,
       visibility: fn.visibility,
+      argsValidator,
+      returnsValidator,
     }),
     auth,
     arguments: normalizedArguments.value,
@@ -962,11 +1277,7 @@ function executionContext(
     auth: Object.freeze({
       getUserIdentity: async () => request.auth.kind === "anonymous"
         ? null
-        : reflectApply(
-            nativeStructuredClone,
-            globalThis,
-            [request.auth.user],
-          ),
+        : nativeStructuredClone(request.auth.user),
     }),
     db: database,
     runQuery: unsupported("ctx.runQuery"),
@@ -1365,46 +1676,10 @@ async function resolveFunction(path: string): Promise<unknown> {
   const separator = path.indexOf(":");
   const moduleName = separator === -1 ? path : path.slice(0, separator);
   const exportName = separator === -1 ? "default" : path.slice(separator + 1);
-  let executionModule: Awaited<typeof executionModulePromise>;
-  try {
-    executionModule = await executionModulePromise;
-  } catch (cause) {
-    throw new ExactRuntimeUserCodeError(cause);
-  }
+  const executionModule = await executionModulePromise;
   const module = executionModule.default?.[moduleName];
   const fn = module?.[exportName];
-  if (fn === undefined) throw new Error(`Unknown Flarex function: ${path}`);
   return fn;
-}
-
-function requireExactMutation(value: unknown): void {
-  if (!isPlainRecord(value)) {
-    throw new Error("Exact-runtime function metadata is unavailable.");
-  }
-  const kinds = ["isQuery", "isMutation", "isWorkflowMutation", "isAction"]
-    .filter((marker) => marker in value);
-  const visibilities = ["isPublic", "isInternal"]
-    .filter((marker) => marker in value);
-  if (
-    kinds.length !== 1 ||
-    kinds[0] !== "isMutation" ||
-    visibilities.length !== 1 ||
-    visibilities[0] !== "isPublic"
-  ) {
-    throw new Error("Exact-runtime target must be exactly one public mutation.");
-  }
-}
-
-function handlerFor(value: unknown): MutationHandler {
-  if (isPlainRecord(value) && Object.hasOwn(value, "_handler")) {
-    const handler = value._handler;
-    if (isMutationHandler(handler)) return handler;
-  }
-  throw new Error("Exact-runtime mutation handler is not executable.");
-}
-
-function isMutationHandler(value: unknown): value is MutationHandler {
-  return typeof value === "function";
 }
 
 function normalizeValue(

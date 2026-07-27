@@ -119,6 +119,8 @@ const projectExactRuntimeRequestV1 = Effect.fn(
       executionModule: input.functionMetadata.executionModule,
       kind: input.functionMetadata.kind,
       visibility: input.functionMetadata.visibility,
+      argsValidator: input.functionMetadata.argsValidator,
+      returnsValidator: input.functionMetadata.returnsValidator,
     },
     auth: projectExactRuntimeAuthV1(payload.auth),
     arguments: input.argumentsJson,

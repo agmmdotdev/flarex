@@ -3,6 +3,10 @@ import { execFileSync } from "node:child_process";
 import type {
   PointMutationJournalLogicalOutcomeV1,
 } from "@flarex/executor/point-mutation-journal";
+import {
+  executePointMutationV1,
+  type PointMutationRuntimeInvocationFactoryV1,
+} from "@flarex/function-runtime/point-mutation";
 import { Effect } from "effect";
 import {
   executionArtifactSourcePackageKey,
@@ -36,6 +40,7 @@ import {
   POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
   POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
   POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+  POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
   PointMutationExactRuntimeHostV1Error,
   pointMutationExactRuntimeWorkerCodeIdentityV1,
   pointMutationExactRuntimeWorkerSource,
@@ -44,6 +49,10 @@ import {
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
 } from "../src/artifactRuntime/PointMutationExactRuntimeWorkerCore.generated";
+import {
+  POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1,
+  POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1,
+} from "../src/artifactRuntime/PointMutationRuntimeKernel.generated";
 import type { PushSourcePackage } from "../src/types";
 import { sourceModuleSha256ForTest } from "./sourcePackageHashFixture";
 
@@ -202,6 +211,344 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     ]);
   });
 
+  it("keeps one validated fixture equivalent through in-process and generated adapters", async () => {
+    const source = testExactRuntimeWorkerSource();
+    const functionValue = Object.freeze({
+      isMutation: true,
+      isPublic: true,
+      _handler: async (
+        context: ExactTestContext,
+        args: Readonly<Record<string, unknown>>,
+      ) => {
+        const identity = await context.auth.getUserIdentity();
+        return context.db.insert("orders", {
+          status: args.status,
+          subject: identity?.subject,
+        });
+      },
+    });
+    const Runtime = generatedRuntimeClass(source, functionValue);
+    const baseRequest = await exactRequest(testArtifact());
+    const request = {
+      ...baseRequest,
+      function: {
+        ...baseRequest.function,
+        argsValidator: {
+          type: "object",
+          value: {
+            status: {
+              fieldType: { type: "string" },
+              optional: false,
+            },
+          },
+        },
+        returnsValidator: {
+          type: "id",
+          tableName: "orders",
+        },
+      },
+      arguments: { status: "open" },
+      argumentArraySemanticBytes:
+        normalizeFlarexValueV1({ status: "open" }).semanticSizeBytes + 2,
+    } as const;
+
+    const generatedOperations: unknown[] = [];
+    const generated = await new Runtime().run(request, {
+      resolvePointTable: async () => ({
+        runPointOperation: async (operation: unknown) => {
+          generatedOperations.push(operation);
+          return {
+            kind: "inserted",
+            documentId: testInsertedOrderId,
+            document: {
+              _id: testInsertedOrderId,
+              _creationTime: 100,
+              status: "open",
+            },
+          };
+        },
+      }),
+    });
+
+    const inProcessOperations: unknown[] = [];
+    const inProcessLifecycle: string[] = [];
+    if (request.auth.kind !== "user") {
+      throw new Error("Expected the parity fixture to carry user identity.");
+    }
+    const expectedIdentity = request.auth.user;
+    const invocations: PointMutationRuntimeInvocationFactoryV1 = {
+      open: () => ({
+        context: {
+          auth: {
+            getUserIdentity: async () => structuredClone(expectedIdentity),
+          },
+          db: {
+            get: async () => null,
+            insert: async (tableName, fields) => {
+              inProcessOperations.push({
+                kind: "insert",
+                tableName,
+                fields,
+              });
+              return testInsertedOrderId;
+            },
+            patch: async () => undefined,
+            replace: async () => undefined,
+            delete: async () => undefined,
+            query: () => {
+              throw new Error("query unavailable");
+            },
+            normalizeId: () => {
+              throw new Error("normalizeId unavailable");
+            },
+            system: Object.freeze({}),
+          },
+        },
+        journal: {
+          close: () => inProcessLifecycle.push("close"),
+          drain: async () => {
+            inProcessLifecycle.push("drain");
+          },
+        },
+      }),
+    };
+    const inProcess = await executePointMutationV1(
+      {
+        function: request.function,
+        arguments: Object.freeze({ ...request.arguments }),
+        tables: request.tables,
+      },
+      { resolve: () => functionValue },
+      invocations,
+    );
+
+    expect(generated).toMatchObject({ value: inProcess });
+    expect(generatedOperations).toMatchObject([
+      {
+        kind: "insert",
+        fields: { status: "open", subject: "user-1" },
+      },
+    ]);
+    expect(inProcessOperations).toEqual([
+      {
+        kind: "insert",
+        tableName: "orders",
+        fields: { status: "open", subject: "user-1" },
+      },
+    ]);
+    expect(inProcessLifecycle).toEqual(["close", "drain"]);
+
+    const handlerFailure = new Error("handler failed");
+    const journalFailure = new Error("journal failed");
+    const failureFunctionValue = Object.freeze({
+      isMutation: true,
+      isPublic: true,
+      _handler: async (context: ExactTestContext) => {
+        await context.auth.getUserIdentity();
+        void context.db.delete(testOrderId).catch(() => undefined);
+        throw handlerFailure;
+      },
+    });
+    const FailureRuntime = generatedRuntimeClass(
+      source,
+      failureFunctionValue,
+    );
+    await expect(new FailureRuntime().run(request, {
+      resolvePointTable: async () => ({
+        runPointOperation: async () => {
+          throw journalFailure;
+        },
+      }),
+    })).rejects.toMatchObject({
+      name: "PointMutationExactRuntimeJournalBoundaryV1Error",
+      cause: journalFailure,
+    });
+
+    const failureLifecycle: string[] = [];
+    const inProcessFailureInvocations:
+      PointMutationRuntimeInvocationFactoryV1 = {
+        open: () => ({
+          context: {
+            auth: {
+              getUserIdentity: async () =>
+                structuredClone(expectedIdentity),
+            },
+            db: {
+              get: async () => null,
+              insert: async () => testInsertedOrderId,
+              patch: async () => undefined,
+              replace: async () => undefined,
+              delete: async () => {
+                throw journalFailure;
+              },
+              query: () => {
+                throw new Error("query unavailable");
+              },
+              normalizeId: () => {
+                throw new Error("normalizeId unavailable");
+              },
+              system: Object.freeze({}),
+            },
+          },
+          journal: {
+            close: () => failureLifecycle.push("close"),
+            drain: async () => {
+              failureLifecycle.push("drain");
+              throw journalFailure;
+            },
+          },
+        }),
+      };
+    await expect(executePointMutationV1(
+      {
+        function: request.function,
+        arguments: request.arguments,
+        tables: request.tables,
+      },
+      { resolve: () => failureFunctionValue },
+      inProcessFailureInvocations,
+    )).rejects.toMatchObject({
+      name: "PointMutationRuntimeJournalBoundaryV1Error",
+      cause: journalFailure,
+    });
+    expect(failureLifecycle).toEqual(["close", "drain"]);
+  });
+
+  it("keeps missing and hostile function metadata in owned failure classes", async () => {
+    const request = await exactRequest(testArtifact());
+    const MissingRuntime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({
+        isMutation: true,
+        isPublic: true,
+        _handler: () => null,
+      }),
+    );
+    await expect(new MissingRuntime().run({
+      ...request,
+      function: {
+        ...request.function,
+        path: "orders:missing",
+      },
+    }, {
+      resolvePointTable: () => {
+        throw new Error("journal must not open");
+      },
+    })).rejects.toMatchObject({
+      name: "PointMutationExactRuntimeWorkerDefinitionV1Error",
+      cause: expect.objectContaining({
+        name: "PointMutationRuntimeContractV1Error",
+        reason: "functionMissing",
+      }),
+    });
+
+    const handlerGetter = vi.fn(() => {
+      throw new Error("metadata accessor must not run");
+    });
+    const AccessorRuntime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze(Object.defineProperty({
+        isMutation: true,
+        isPublic: true,
+      }, "_handler", {
+        get: handlerGetter,
+        enumerable: true,
+      })),
+    );
+    await expect(new AccessorRuntime().run(request, {
+      resolvePointTable: () => {
+        throw new Error("journal must not open");
+      },
+    })).rejects.toMatchObject({
+      name: "PointMutationExactRuntimeWorkerDefinitionV1Error",
+      cause: expect.objectContaining({
+        name: "PointMutationRuntimeContractV1Error",
+        reason: "functionMetadataInvalid",
+      }),
+    });
+    expect(handlerGetter).not.toHaveBeenCalled();
+
+    const trapFailure = new Error("metadata trap failed");
+    const HostileRuntime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      new Proxy({}, {
+        getPrototypeOf: () => {
+          throw trapFailure;
+        },
+      }),
+    );
+    await expect(new HostileRuntime().run(request, {
+      resolvePointTable: () => {
+        throw new Error("journal must not open");
+      },
+    })).rejects.toMatchObject({
+      name: "PointMutationExactRuntimeUserCodeV1Error",
+      cause: trapFailure,
+    });
+
+    const InvalidArgumentsRuntime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({
+        isMutation: true,
+        isPublic: true,
+        _handler: () => null,
+      }),
+    );
+    const invalidArguments = { orderId: 42 };
+    await expect(new InvalidArgumentsRuntime().run({
+      ...request,
+      arguments: invalidArguments,
+      argumentArraySemanticBytes:
+        normalizeFlarexValueV1(invalidArguments).semanticSizeBytes + 2,
+    }, {
+      resolvePointTable: () => {
+        throw new Error("journal must not open");
+      },
+    })).rejects.toMatchObject({
+      name: "PointMutationExactRuntimeInvalidRequestV1Error",
+      cause: expect.objectContaining({
+        name: "PointMutationRuntimeContractV1Error",
+        reason: "argumentsInvalid",
+      }),
+    });
+  });
+
+  it("applies the validator node budget independently to each pin", async () => {
+    const baseRequest = await exactRequest(testArtifact());
+    const returnsValidator = Object.freeze({
+      type: "union" as const,
+      value: Object.freeze(Array.from(
+        { length: 65_535 },
+        () => Object.freeze({ type: "null" as const }),
+      )),
+    });
+    const Runtime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({
+        isMutation: true,
+        isPublic: true,
+        _handler: () => null,
+      }),
+    );
+
+    await expect(new Runtime().run({
+      ...baseRequest,
+      function: {
+        ...baseRequest.function,
+        argsValidator: { type: "any" },
+        returnsValidator,
+      },
+      arguments: {},
+      argumentArraySemanticBytes: 4,
+    }, {
+      resolvePointTable: () => {
+        throw new Error("journal must not open");
+      },
+    })).resolves.toMatchObject({
+      value: null,
+    });
+  });
+
   it("disposes every received journal stub after the exact call settles", async () => {
     const request = await exactRequest(testArtifact());
     const invalidRequestDispose = vi.fn(() => {
@@ -271,9 +618,9 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
         throw new Error("journal must not run");
       },
       [Symbol.dispose]: failingParentDispose,
-    })).rejects.toThrow(
-      "Exact-runtime target must be exactly one public mutation.",
-    );
+    })).rejects.toMatchObject({
+      name: "PointMutationExactRuntimeWorkerDefinitionV1Error",
+    });
     expect(failingParentDispose).toHaveBeenCalledOnce();
 
     const cleanupFailure = new Error("table disposal failed");
@@ -629,6 +976,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
       POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
       POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
       POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+      POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
       "orders.js",
     ].sort());
     expect(Object.isFrozen(definition)).toBe(true);
@@ -658,6 +1006,9 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     expect(identity).toContain("point-mutation-exact-runtime-v1");
     expect(identity).toContain(
       POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
+    );
+    expect(identity).toContain(
+      POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1,
     );
     expect(identity).toContain(ref.artifactId);
     expect(identity).toContain(ref.sourcePackageHash);
@@ -883,13 +1234,32 @@ function executableGeneratedSource(
     /const executionModulePromise = import\([^;]+;/,
     'const executionModulePromise = Promise.resolve({ default: { orders: { complete: functionValue } } });',
   );
-  const withoutExport = withTestModule.replace(
+  const withTestKernel = replaceRuntimeKernelImportForTest(withTestModule);
+  const withoutExport = withTestKernel.replace(
     `export class ${POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1}`,
     `class ${POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1}`,
   );
   return returnRuntime
     ? `${withoutExport}\nreturn ${POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1};`
     : withoutExport;
+}
+
+function replaceRuntimeKernelImportForTest(source: string): string {
+  const kernelSource = POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1.replace(
+    /^export /gm,
+    "",
+  );
+  return source.replace(
+    `const runtimeKernelModulePath = "./pointMutationExactRuntimeWorker/flarex-point-mutation-runtime-kernel-v1.js";
+const runtimeKernelPromise = import(runtimeKernelModulePath).then(decodeRuntimeKernelModule);`,
+    `const runtimeKernelPromise = Promise.resolve((() => {
+${kernelSource}
+return {
+  executePointMutationV1,
+  inspectPointMutationRuntimeFailureV1,
+};
+})());`,
+  );
 }
 
 function testExactRuntimeWorkerSource(): string {
@@ -910,7 +1280,9 @@ function runGeneratedRuntimeInFreshProcess(seedByte: number): Readonly<{
   readonly sequences: readonly string[];
   readonly capturedInsertStatus: string;
 }> {
-  const source = testExactRuntimeWorkerSource()
+  const source = replaceRuntimeKernelImportForTest(
+    testExactRuntimeWorkerSource(),
+  )
     .replace(
       'import { WorkerEntrypoint } from "cloudflare:workers";',
       `const nativeGlobalPrototype = Object.getPrototypeOf(globalThis);
@@ -1083,6 +1455,8 @@ class WorkerEntrypoint {}`,
       executionModule: "_flarex/execution.js",
       kind: "mutation",
       visibility: "public",
+      argsValidator: { type: "object", value: {} },
+      returnsValidator: null,
     },
     auth: { kind: "anonymous" },
     arguments: {},
@@ -1168,6 +1542,16 @@ async function exactRequest(
         executionModule: artifact.executionModule,
         kind: "mutation",
         visibility: "public",
+        argsValidator: {
+          type: "object",
+          value: {
+            orderId: {
+              fieldType: { type: "id", tableName: "orders" },
+              optional: false,
+            },
+          },
+        },
+        returnsValidator: null,
       },
       auth: {
         kind: "user",
