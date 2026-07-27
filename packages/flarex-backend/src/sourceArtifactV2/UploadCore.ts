@@ -28,6 +28,7 @@ import {
   SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
   SOURCE_ARTIFACT_V2_ROLE_MASK,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
+  isSourceArtifactV2ModuleRolesV1,
   sourceArtifactV2BlockFrame,
   sourceArtifactV2BlockFrameProjection,
   sourceArtifactV2CompletedRootFrame,
@@ -326,10 +327,9 @@ export function makeSourceArtifactV2UploadCore(
       if (input.environment !== "isolate") {
         return yield* Effect.fail(inputFailure(operation, "environment", "invalidEnvironment"));
       }
-      if (
-        typeof input.roles !== "number" || !Number.isSafeInteger(input.roles) ||
-        input.roles <= 0 || (input.roles & ~SOURCE_ARTIFACT_V2_ROLE_MASK) !== 0
-      ) return yield* Effect.fail(inputFailure(operation, "roles", "invalidRoles"));
+      if (!isSourceArtifactV2ModuleRolesV1(input.roles)) {
+        return yield* Effect.fail(inputFailure(operation, "roles", "invalidRoles"));
+      }
       const current = yield* requireAttempt(options.attempts, command, operation);
       const commandEvidence: Json = {
         uploadId: current.uploadId,

@@ -1,8 +1,8 @@
 import { Result } from "effect";
 import {
-  encodeCanonicalJson,
-  type Json,
-} from "flarex-protocol/json";
+  encodeDeclarativeV2SemanticRecordPayloadV1,
+  encodeDeclarativeV2SemanticRecordV1,
+} from "flarex-protocol/internal/declarative-v2-semantic-record-v1";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -64,64 +64,23 @@ const records: ReadonlyArray<DeclarativeV2SemanticRecordV1> = [
   },
 ];
 
-function recordJson(value: DeclarativeV2SemanticRecordV1): Json {
-  switch (value.kind) {
-    case "header":
-      return { kind: value.kind, version: value.version };
-    case "module":
-      return { kind: value.kind, modulePath: value.modulePath };
-    case "function":
-      return {
-        argsValidatorId: value.argsValidatorId,
-        exportName: value.exportName,
-        functionKind: value.functionKind,
-        kind: value.kind,
-        modulePath: value.modulePath,
-        partition: value.partition,
-        path: value.path,
-        returnsValidatorId: value.returnsValidatorId,
-        visibility: value.visibility,
-      };
-    case "schema":
-      return { kind: value.kind, schemaVersion: value.schemaVersion };
-    case "table":
-      return {
-        documentValidatorId: value.documentValidatorId,
-        kind: value.kind,
-        name: value.name,
-      };
-    case "index":
-      return {
-        fields: value.fields,
-        kind: value.kind,
-        name: value.name,
-        tableName: value.tableName,
-      };
-    case "validator":
-      return { id: value.id, kind: value.kind, value: value.value };
-    case "handler":
-      return {
-        exportName: value.exportName,
-        functionPath: value.functionPath,
-        kind: value.kind,
-        modulePath: value.modulePath,
-      };
-  }
-}
-
 function encodeRecord(value: DeclarativeV2SemanticRecordV1): Uint8Array {
-  return UTF8.encode(encodeCanonicalJson(recordJson(value), () => {
-    throw new Error("semantic oracle received non-JSON");
-  }));
+  return encodeDeclarativeV2SemanticRecordPayloadV1(value);
 }
 
 function streamBytes(
   subset: ReadonlyArray<DeclarativeV2SemanticRecordV1> = records,
 ): Uint8Array {
-  const lines = subset.map((record) =>
-    new TextDecoder().decode(encodeRecord(record))
+  const lines = subset.map(encodeDeclarativeV2SemanticRecordV1);
+  const stream = new Uint8Array(
+    lines.reduce((total, line) => total + line.byteLength, 0),
   );
-  return UTF8.encode(`${lines.join("\n")}\n`);
+  let offset = 0;
+  for (const line of lines) {
+    stream.set(line, offset);
+    offset += line.byteLength;
+  }
+  return stream;
 }
 
 function budget(

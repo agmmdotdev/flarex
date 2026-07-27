@@ -484,6 +484,18 @@ convenience, but it remains isolated and non-authoritative. Its ESM, NDJSON,
 chunks, source maps, totals, and digests cross the same untrusted upload
 boundary as local output.
 
+Roadmap 39 now accepts a private host-neutral materialization boundary for the
+first global-table/unpartitioned-mutation vertical. It combines an admitted
+Canonical Declarative Program V1 with separately normalized prebuilt modules
+and explicit logical-to-artifact path bindings, then emits an inert Source
+Artifact V2 ingress plan plus canonical Semantic Artifact V1 NDJSON. The
+materializer cannot mint roots, selectors, finalization, verifier evidence,
+readiness, or activation authority; the backend must still derive those claims
+from bytes accepted through the existing artifact owners. The private
+protocol-contract and host-neutral materializer-core checkpoints are complete.
+The `flarex-dev` prebuild producer, upload correlation, and production routing
+remain separately gated.
+
 TypeScript or Vite/Rolldown/esbuild compilation, package installation,
 arbitrary build plugins, network dependency resolution, arbitrary module
 evaluation, whole-AST/whole-JSON materialization, and runtime metadata discovery

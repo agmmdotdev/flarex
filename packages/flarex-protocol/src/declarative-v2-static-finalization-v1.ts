@@ -31,6 +31,7 @@ import {
   encodeCanonicalJson,
   isJson,
   jsonEqual,
+  measureCanonicalJsonUtf8Bytes,
   type Json,
 } from "./json";
 import { freezeOwnedProtocolProjection } from "./owned-protocol-projection";
@@ -1376,22 +1377,13 @@ function defaultCompare<Key extends number | string>(
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-type CanonicalMeasurement =
-  | Readonly<{ readonly kind: "success"; readonly bytes: number }>
-  | Readonly<{ readonly kind: "exceeded"; readonly observed: number }>
-  | Readonly<{ readonly kind: "invalid" }>;
-
 function measureProjectionCanonicalBytes(
   input: unknown,
   remainingMaximum: number,
   budget: DeclarativeV2StaticFrameBudgetV1,
   previousBytes: number,
 ): Result.Result<number, DeclarativeV2StaticFinalizationV1Error> {
-  const measured = measureCanonicalJsonValue(
-    input,
-    new WeakSet<object>(),
-    remainingMaximum,
-  );
+  const measured = measureCanonicalJsonUtf8Bytes(input, remainingMaximum);
   if (measured.kind === "invalid") {
     return Result.fail(
       staticError("encodeProjections", "invalidInput"),
@@ -1414,239 +1406,6 @@ function measureProjectionCanonicalBytes(
       ));
   }
   return Result.succeed(measured.bytes);
-}
-
-function measureCanonicalJsonValue(
-  input: unknown,
-  ancestors: WeakSet<object>,
-  maximumBytes: number,
-): CanonicalMeasurement {
-  if (input === null) return measuredPrimitive(4, maximumBytes);
-  if (typeof input === "boolean") {
-    return measuredPrimitive(input ? 4 : 5, maximumBytes);
-  }
-  if (typeof input === "string") {
-    return measureCanonicalJsonString(input, maximumBytes);
-  }
-  if (typeof input === "number") {
-    if (!Number.isFinite(input)) return { kind: "invalid" };
-    const spelling = JSON.stringify(input);
-    return measuredPrimitive(spelling.length, maximumBytes);
-  }
-  if (typeof input !== "object" || ancestors.has(input)) {
-    return { kind: "invalid" };
-  }
-  let prototype: object | null;
-  let isArray: boolean;
-  try {
-    prototype = Object.getPrototypeOf(input);
-    isArray = Array.isArray(input);
-  } catch {
-    return { kind: "invalid" };
-  }
-  if (
-    !isArray &&
-    prototype !== Object.prototype &&
-    prototype !== null
-  ) {
-    return { kind: "invalid" };
-  }
-  ancestors.add(input);
-  try {
-    return isArray
-      ? measureCanonicalJsonArray(input, ancestors, maximumBytes)
-      : measureCanonicalJsonObject(input, ancestors, maximumBytes);
-  } catch {
-    return { kind: "invalid" };
-  } finally {
-    ancestors.delete(input);
-  }
-}
-
-function measureCanonicalJsonArray(
-  input: object,
-  ancestors: WeakSet<object>,
-  maximumBytes: number,
-): CanonicalMeasurement {
-  const lengthDescriptor = Object.getOwnPropertyDescriptor(input, "length");
-  if (
-    lengthDescriptor === undefined ||
-    !("value" in lengthDescriptor) ||
-    !isNonNegativeSafeInteger(lengthDescriptor.value)
-  ) {
-    return { kind: "invalid" };
-  }
-  let total = 2;
-  if (total > maximumBytes) return { kind: "exceeded", observed: total };
-  for (let index = 0; index < lengthDescriptor.value; index += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(input, String(index));
-    if (
-      descriptor === undefined ||
-      !descriptor.enumerable ||
-      !("value" in descriptor)
-    ) {
-      return { kind: "invalid" };
-    }
-    if (index > 0) {
-      total = checkedMeasuredAdd(total, 1);
-      if (total > maximumBytes) {
-        return { kind: "exceeded", observed: total };
-      }
-    }
-    const child = measureCanonicalJsonValue(
-      descriptor.value,
-      ancestors,
-      maximumBytes - total,
-    );
-    if (child.kind === "invalid") return child;
-    total = checkedMeasuredAdd(
-      total,
-      child.kind === "success" ? child.bytes : child.observed,
-    );
-    if (child.kind === "exceeded" || total > maximumBytes) {
-      return { kind: "exceeded", observed: total };
-    }
-  }
-  const ownKeys = Reflect.ownKeys(input);
-  if (ownKeys.length !== lengthDescriptor.value + 1) {
-    return { kind: "invalid" };
-  }
-  return { kind: "success", bytes: total };
-}
-
-function measureCanonicalJsonObject(
-  input: object,
-  ancestors: WeakSet<object>,
-  maximumBytes: number,
-): CanonicalMeasurement {
-  let total = 2;
-  let fieldCount = 0;
-  if (total > maximumBytes) return { kind: "exceeded", observed: total };
-  for (const key in input) {
-    if (!Object.hasOwn(input, key)) continue;
-    const descriptor = Object.getOwnPropertyDescriptor(input, key);
-    if (
-      descriptor === undefined ||
-      !descriptor.enumerable ||
-      !("value" in descriptor)
-    ) {
-      return { kind: "invalid" };
-    }
-    const keyLength = measureCanonicalJsonString(
-      key,
-      maximumBytes - total,
-    );
-    if (keyLength.kind === "invalid") return keyLength;
-    total = checkedMeasuredAdd(
-      total,
-      fieldCount === 0 ? 1 : 2,
-      keyLength.kind === "success"
-        ? keyLength.bytes
-        : keyLength.observed,
-    );
-    if (keyLength.kind === "exceeded" || total > maximumBytes) {
-      return { kind: "exceeded", observed: total };
-    }
-    const child = measureCanonicalJsonValue(
-      descriptor.value,
-      ancestors,
-      maximumBytes - total,
-    );
-    if (child.kind === "invalid") return child;
-    total = checkedMeasuredAdd(
-      total,
-      child.kind === "success" ? child.bytes : child.observed,
-    );
-    if (child.kind === "exceeded" || total > maximumBytes) {
-      return { kind: "exceeded", observed: total };
-    }
-    fieldCount += 1;
-  }
-  const ownKeys = Reflect.ownKeys(input);
-  if (
-    ownKeys.length !== fieldCount ||
-    ownKeys.some((key) => {
-      if (typeof key !== "string") return true;
-      const descriptor = Object.getOwnPropertyDescriptor(input, key);
-      return descriptor === undefined ||
-        !descriptor.enumerable ||
-        !("value" in descriptor);
-    })
-  ) {
-    return { kind: "invalid" };
-  }
-  return { kind: "success", bytes: total };
-}
-
-function measureCanonicalJsonString(
-  value: string,
-  maximumBytes: number,
-): CanonicalMeasurement {
-  let bytes = 2;
-  if (bytes > maximumBytes) return { kind: "exceeded", observed: bytes };
-  for (let index = 0; index < value.length; index += 1) {
-    const codeUnit = value.charCodeAt(index);
-    let next: number;
-    if (
-      codeUnit === 0x22 ||
-      codeUnit === 0x5c ||
-      codeUnit === 0x08 ||
-      codeUnit === 0x09 ||
-      codeUnit === 0x0a ||
-      codeUnit === 0x0c ||
-      codeUnit === 0x0d
-    ) {
-      next = 2;
-    } else if (codeUnit <= 0x1f) {
-      next = 6;
-    } else if (codeUnit <= 0x7f) {
-      next = 1;
-    } else if (codeUnit <= 0x7ff) {
-      next = 2;
-    } else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-      const low = value.charCodeAt(index + 1);
-      if (low >= 0xdc00 && low <= 0xdfff) {
-        next = 4;
-        index += 1;
-      } else {
-        next = 6;
-      }
-    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
-      next = 6;
-    } else {
-      next = 3;
-    }
-    bytes = checkedMeasuredAdd(bytes, next);
-    if (bytes > maximumBytes) {
-      return { kind: "exceeded", observed: bytes };
-    }
-  }
-  return { kind: "success", bytes };
-}
-
-function measuredPrimitive(
-  bytes: number,
-  maximumBytes: number,
-): CanonicalMeasurement {
-  return bytes > maximumBytes
-    ? { kind: "exceeded", observed: bytes }
-    : { kind: "success", bytes };
-}
-
-function checkedMeasuredAdd(...values: readonly number[]): number {
-  let result = 0;
-  for (const value of values) {
-    if (
-      !isNonNegativeSafeInteger(value) ||
-      result > Number.MAX_SAFE_INTEGER - value
-    ) {
-      throw new DeclarativeV2StaticFinalizationV1InvariantDefect({
-        reason: "canonicalEncodingFailed",
-      });
-    }
-    result += value;
-  }
-  return result;
 }
 
 function captureOwnedJson(input: unknown): Json | undefined {

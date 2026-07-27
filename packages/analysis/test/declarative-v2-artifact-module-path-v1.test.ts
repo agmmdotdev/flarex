@@ -2,6 +2,9 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { Result } from "effect";
+import {
+  decodeDeclarativeV2ArtifactModulePathV1,
+} from "flarex-protocol/internal/declarative-v2-artifact-module-path-v1";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -101,6 +104,45 @@ describe("Declarative V2 artifact module path V1", () => {
       expect(result.failure.reason).toBe("invalidPath");
     }
   });
+
+  test.each([
+    "a.js",
+    "functions/example.js",
+    "functions/မြန်မာ.js",
+    "é/λ",
+    "",
+    "/a.js",
+    "a.js/",
+    "a//b.js",
+    "./a.js",
+    "../a.js",
+    "a/./b.js",
+    "a/../b.js",
+    ".",
+    "..",
+    String.raw`a\b.js`,
+  ])("matches the protocol string verdict for %j", (spelling) => {
+    const incremental = createPath(spelling);
+    const protocol = decodeDeclarativeV2ArtifactModulePathV1(spelling);
+    expect(Result.isSuccess(incremental)).toBe(Result.isSuccess(protocol));
+    if (Result.isSuccess(incremental) && Result.isSuccess(protocol)) {
+      expect(new TextDecoder("utf-8", { fatal: true }).decode(
+        ownedBytes(incremental.success),
+      )).toBe(protocol.success);
+    }
+  });
+
+  test.each(["a/\ud800", "\ud800"])(
+    "rejects the ill-formed source spelling %j before UTF-8 normalization",
+    (spelling) => {
+      expect(Result.isFailure(
+        decodeDeclarativeV2ArtifactModulePathV1(spelling),
+      )).toBe(true);
+      expect(new TextDecoder().decode(UTF8_ENCODER.encode(spelling))).not.toBe(
+        spelling,
+      );
+    },
+  );
 
   test.each([
     new Uint8Array([0x80]),

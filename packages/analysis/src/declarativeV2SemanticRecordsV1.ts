@@ -4,7 +4,37 @@ import {
   isNonEmptyString,
 } from "@flarex/utils/strings";
 import { Data, Result } from "effect";
+import {
+  DECLARATIVE_V2_SEMANTIC_RECORD_KEYS_V1 as RECORD_KEYS,
+  DECLARATIVE_V2_SEMANTIC_RECORD_KIND_ORDER_V1 as KIND_ORDER,
+  type DeclarativeV2SemanticFunctionRecordV1,
+  type DeclarativeV2SemanticHandlerRecordV1,
+  type DeclarativeV2SemanticIndexRecordV1,
+  type DeclarativeV2SemanticModuleRecordV1,
+  type DeclarativeV2SemanticRecordV1,
+  type DeclarativeV2SemanticTableRecordV1,
+  type DeclarativeV2SemanticValidatorRecordV1,
+} from "flarex-protocol/internal/declarative-v2-semantic-record-v1";
 import type { Json } from "flarex-protocol/json";
+
+export {
+  DECLARATIVE_V2_SEMANTIC_RECORD_CODEC_IDENTITY_V1,
+  DECLARATIVE_V2_SEMANTIC_RECORD_KEYS_V1,
+  DECLARATIVE_V2_SEMANTIC_RECORD_KIND_ORDER_V1,
+} from "flarex-protocol/internal/declarative-v2-semantic-record-v1";
+export type {
+  DeclarativeV2SemanticFunctionKindV1,
+  DeclarativeV2SemanticFunctionRecordV1,
+  DeclarativeV2SemanticHandlerRecordV1,
+  DeclarativeV2SemanticHeaderRecordV1,
+  DeclarativeV2SemanticIndexRecordV1,
+  DeclarativeV2SemanticModuleRecordV1,
+  DeclarativeV2SemanticRecordV1,
+  DeclarativeV2SemanticSchemaRecordV1,
+  DeclarativeV2SemanticTableRecordV1,
+  DeclarativeV2SemanticValidatorRecordV1,
+  DeclarativeV2SemanticVisibilityV1,
+} from "flarex-protocol/internal/declarative-v2-semantic-record-v1";
 
 import {
   createIncrementalCanonicalJsonDecoderV1,
@@ -28,79 +58,6 @@ const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
 )?.get;
 const UINT8_ARRAY_SUBARRAY = Uint8Array.prototype.subarray;
 const RECORD_CHUNK_BYTES = 4_096;
-
-export const DECLARATIVE_V2_SEMANTIC_RECORD_CODEC_IDENTITY_V1 =
-  "flarex.declarative-v2/semantic-record-ndjson/v1" as const;
-
-export type DeclarativeV2SemanticFunctionKindV1 =
-  | "query"
-  | "mutation"
-  | "workflowMutation"
-  | "action";
-export type DeclarativeV2SemanticVisibilityV1 = "public" | "internal";
-
-export interface DeclarativeV2SemanticHeaderRecordV1 {
-  readonly kind: "header";
-  readonly version: 1;
-}
-
-export interface DeclarativeV2SemanticModuleRecordV1 {
-  readonly kind: "module";
-  readonly modulePath: string;
-}
-
-export interface DeclarativeV2SemanticFunctionRecordV1 {
-  readonly kind: "function";
-  readonly path: string;
-  readonly modulePath: string;
-  readonly exportName: string;
-  readonly functionKind: DeclarativeV2SemanticFunctionKindV1;
-  readonly visibility: DeclarativeV2SemanticVisibilityV1;
-  readonly argsValidatorId: string;
-  readonly returnsValidatorId: string | null;
-  readonly partition: string | null;
-}
-
-export interface DeclarativeV2SemanticSchemaRecordV1 {
-  readonly kind: "schema";
-  readonly schemaVersion: string;
-}
-
-export interface DeclarativeV2SemanticTableRecordV1 {
-  readonly kind: "table";
-  readonly name: string;
-  readonly documentValidatorId: string;
-}
-
-export interface DeclarativeV2SemanticIndexRecordV1 {
-  readonly kind: "index";
-  readonly tableName: string;
-  readonly name: string;
-  readonly fields: ReadonlyArray<string>;
-}
-
-export interface DeclarativeV2SemanticValidatorRecordV1 {
-  readonly kind: "validator";
-  readonly id: string;
-  readonly value: Json;
-}
-
-export interface DeclarativeV2SemanticHandlerRecordV1 {
-  readonly kind: "handler";
-  readonly functionPath: string;
-  readonly modulePath: string;
-  readonly exportName: string;
-}
-
-export type DeclarativeV2SemanticRecordV1 =
-  | DeclarativeV2SemanticHeaderRecordV1
-  | DeclarativeV2SemanticModuleRecordV1
-  | DeclarativeV2SemanticFunctionRecordV1
-  | DeclarativeV2SemanticSchemaRecordV1
-  | DeclarativeV2SemanticTableRecordV1
-  | DeclarativeV2SemanticIndexRecordV1
-  | DeclarativeV2SemanticValidatorRecordV1
-  | DeclarativeV2SemanticHandlerRecordV1;
 
 export type DeclarativeV2SemanticRecordV1ErrorReason =
   | "invalidInput"
@@ -167,39 +124,6 @@ export interface DeclarativeV2SemanticStreamDecoderV1 {
     DeclarativeV2SemanticRecordV1Error
   >;
 }
-
-const RECORD_KEYS = Object.freeze({
-  header: Object.freeze(["kind", "version"]),
-  module: Object.freeze(["kind", "modulePath"]),
-  function: Object.freeze([
-    "kind",
-    "path",
-    "modulePath",
-    "exportName",
-    "functionKind",
-    "visibility",
-    "argsValidatorId",
-    "returnsValidatorId",
-    "partition",
-  ]),
-  schema: Object.freeze(["kind", "schemaVersion"]),
-  table: Object.freeze(["kind", "name", "documentValidatorId"]),
-  index: Object.freeze(["kind", "tableName", "name", "fields"]),
-  validator: Object.freeze(["kind", "id", "value"]),
-  handler: Object.freeze(["kind", "functionPath", "modulePath", "exportName"]),
-} as const);
-
-const KIND_ORDER: Readonly<Record<DeclarativeV2SemanticRecordV1["kind"], number>> =
-  Object.freeze({
-    header: 0,
-    module: 1,
-    function: 2,
-    schema: 3,
-    table: 4,
-    index: 5,
-    validator: 6,
-    handler: 7,
-  });
 
 function semanticError(
   operation: DeclarativeV2SemanticRecordV1Error["operation"],

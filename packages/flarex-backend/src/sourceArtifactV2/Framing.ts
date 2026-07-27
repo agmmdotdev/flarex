@@ -6,7 +6,26 @@ import {
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Result } from "effect";
+import {
+  isSourceArtifactV2ModuleRolesV1,
+  SOURCE_ARTIFACT_V2_CODEC_VERSION,
+  SOURCE_ARTIFACT_V2_ROLE_AUTH,
+  SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+  SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+  SOURCE_ARTIFACT_V2_ROLE_MASK,
+  SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
+} from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import { encodeCanonicalJson } from "flarex-protocol/json";
+
+export {
+  isSourceArtifactV2ModuleRolesV1,
+  SOURCE_ARTIFACT_V2_CODEC_VERSION,
+  SOURCE_ARTIFACT_V2_ROLE_AUTH,
+  SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+  SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+  SOURCE_ARTIFACT_V2_ROLE_MASK,
+  SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
+} from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 
 const UTF8_ENCODER = new TextEncoder();
 const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -41,13 +60,7 @@ const UPLOAD_SELECTOR_DOMAIN = ascii(
   "flarex.source-artifact-v2.upload-selector.v1\0",
 );
 
-export const SOURCE_ARTIFACT_V2_CODEC_VERSION = 1;
 export const SOURCE_ARTIFACT_V2_SHA256_BYTES = 32;
-export const SOURCE_ARTIFACT_V2_ROLE_FUNCTION = 1;
-export const SOURCE_ARTIFACT_V2_ROLE_SCHEMA = 2;
-export const SOURCE_ARTIFACT_V2_ROLE_AUTH = 4;
-export const SOURCE_ARTIFACT_V2_ROLE_EXECUTION = 8;
-export const SOURCE_ARTIFACT_V2_ROLE_MASK = 15;
 
 const TREE_KIND_SOURCE = 1;
 const TREE_KIND_SOURCE_MAP = 2;
@@ -582,7 +595,7 @@ export function decodeSourceArtifactV2ModuleFrame(
   if (environment !== ENVIRONMENT_ISOLATE) {
     return Result.fail(decodeError(operation, "environment", "invalidEnvironment"));
   }
-  if (roles <= 0 || (roles & ~SOURCE_ARTIFACT_V2_ROLE_MASK) !== 0) {
+  if (!isSourceArtifactV2ModuleRolesV1(roles)) {
     return Result.fail(decodeError(operation, "roles", "invalidRoles"));
   }
   const sourceByteLength = cursor.readCounter();
@@ -1029,10 +1042,7 @@ function decodeModuleInput(
   if (typeof value.path !== "string" || value.path.length === 0) {
     return Result.fail(inputError(operation, "path", "invalidPath"));
   }
-  if (
-    typeof value.roles !== "number" || !Number.isSafeInteger(value.roles) ||
-    value.roles <= 0 || (value.roles & ~SOURCE_ARTIFACT_V2_ROLE_MASK) !== 0
-  ) {
+  if (!isSourceArtifactV2ModuleRolesV1(value.roles)) {
     return Result.fail(inputError(operation, "roles", "invalidRoles"));
   }
   const sourceByteLength = decodePositiveCounter(operation, "sourceByteLength", value.sourceByteLength);

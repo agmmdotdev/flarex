@@ -12,6 +12,7 @@ import {
   jsonEqual,
   Json as JsonSchema,
   JsonValue,
+  measureCanonicalJsonUtf8Bytes,
   type CanonicalJsonEncodingInvariantIssue,
   type Json,
   type JsonObject,
@@ -200,6 +201,30 @@ describe("protocol JSON", () => {
     expect(encodeCanonicalJson(value, failCanonicalJsonEncoding)).toBe(
       '{"a":[true,null,"\\n"],"z":0}',
     );
+  });
+
+  it("measures canonical UTF-8 bytes without allocating the encoding", () => {
+    const values: ReadonlyArray<Json> = [
+      null,
+      true,
+      -0,
+      "quote:\" slash:\\ controls:\u0000\n",
+      "unicode:é😀 lone:\ud800",
+      { z: ["က", false], a: { nested: 123.5 } },
+    ];
+    const encoder = new TextEncoder();
+    for (const value of values) {
+      const bytes = encoder.encode(
+        encodeCanonicalJson(value, failCanonicalJsonEncoding),
+      ).byteLength;
+      expect(measureCanonicalJsonUtf8Bytes(value, bytes)).toEqual({
+        kind: "success",
+        bytes,
+      });
+      expect(measureCanonicalJsonUtf8Bytes(value, bytes - 1)).toMatchObject({
+        kind: "exceeded",
+      });
+    }
   });
 
   it("compares validated JSON structurally with JSON number semantics", () => {

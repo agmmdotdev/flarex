@@ -30,6 +30,7 @@
     "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
+    "@flarex/declarative-materializer": "workspace:*",
     "@types/node": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
