@@ -1358,8 +1358,10 @@ activation remain blocked until their production host composition is proven.
    exceed its reservation and settlement cannot add, refund, reset, or replay
    charge. Capability-free cold readback returns only missing, pending,
    terminal-unsettled, or owned inert settled evidence after metadata-first
-   admission. This is verifier-progress repository mechanics only; executor
-   host composition remains a separate later A1b2 gate.
+   admission. That observation includes settlement and final-page commitments,
+   not the complete ordered restart-page manifest/payload sequence. This is
+   verifier-progress repository mechanics only; executor host composition
+   remains a separate later A1b2 gate.
 
    The private A1b2c0a persistence adapter now accepts one executor-owned,
    already-connected request `pg.Client` plus the caller-supplied exact
@@ -1439,11 +1441,28 @@ activation remain blocked until their production host composition is proven.
       Those bytes remain inert and grant no repository owner, fence, candidate,
       or receipt authority. Resulting attempt usage and the final receipt remain
       executor/repository-owned.
-   2. `A1b2c0b2c1` separately adds the private executor-to-analyzer bounded
-      restart-input exchange. It supplies metadata-first parse/link pages to
-      `DeclarativeV2VerifierRestartPageSourceV1` without changing A1b2c0b0
-      request bytes, and proves cold analyzer delivery rather than relying on
-      process-local state.
+   2. `A1b2c0b2c1` remains split across two prerequisites:
+      - `A1b2c0b2c1a` is the smallest next implementation gate: a private pure
+        executor-HTTP restart-input transport with its own identity, version,
+        and media type. It binds the target request and reservation digests,
+        command kind and sequence, analyzer and verifier identities, range
+        lineage, and the ordered page-manifest predecessor/range/digest chain.
+        It admits all page metadata before payload, advances through fixed
+        quanta with allowances from zero through 1,024 and exact precharge, and
+        returns only owned inert bytes through factory-local, result-bound,
+        revocable capabilities. It reuses the existing protocol-owned frames,
+        admission-before-write encoder, and owned-range verifier, so it needs no
+        protocol change and preserves A1b2c0b0 and monolithic bytes. It remains
+        production-unreachable and cannot by itself prove real cold delivery.
+      - `A1b2c0b2c1b` is a separate persistence-owned, capability-free bounded
+        settled-page readback. The existing page reader requires a live pending
+        `Work`, while settlement closes that `Work`; the current capability-free
+        settlement observation exposes only settlement and final-page evidence,
+        not the complete page sequence. This gate must admit ordered page
+        metadata before exact payload bytes under explicit page/byte ceilings
+        and return only owned inert batches, never a `Run`, `Work`, fence, or
+        writer authority. It is required before the later engine or host may
+        claim settled cold recovery.
    3. `A1b2c0b2c2` adds the pure analyzer command engine that consumes the
       admitted view plus the restart source and produces a bounded result
       cursor. It remains unwired.
@@ -1452,15 +1471,22 @@ activation remain blocked until their production host composition is proven.
       interruption ownership, full foreign `Cause`, and deterministic
       finalization.
 
-   Only the private, inert `A1b2c0b2c0` transport is implemented here;
-   restart-input exchange, analyzer command execution, host composition, and a
-   production caller remain absent. Cold `link_page` and link-dependent
-   registration cannot rely on warm WeakMap state.
-   Candidate preparation, repository `Work`, `apps/executor` composition, C07,
-   and the private real-system harness remain later distinct gates. This order
-   creates no alternate OCC, commit compiler or execution path, transaction
-   journal, idempotency outcome, feed, outbox, authoritative application-row
-   semantics, schema, route, readiness, or activation authority.
+   Only the private, inert `A1b2c0b2c0` transport is implemented here. Neither
+   `A1b2c0b2c1a` nor `A1b2c0b2c1b` is implemented or green; restart-input
+   transport, settled-page readback, analyzer command execution, host
+   composition, and a production caller remain absent. Cold `link_page` and
+   link-dependent registration cannot rely on warm WeakMap state. Pure c1a
+   transport mechanics stay in `Result`/plain TypeScript, persistence I/O stays
+   inside its existing Effect repository boundary, and the later host owns
+   request `Scope`, cancellation, interruption, full foreign `Cause`, and
+   resource finalization.
+   Candidate preparation, repository `Work`/fence authorization,
+   `apps/executor` composition, C07, U2, and the private real-system harness
+   remain later distinct gates. The current monolithic analyzer path remains
+   unchanged. This order creates no alternate OCC, commit compiler or execution
+   path, transaction journal, idempotency outcome, feed, outbox, authoritative
+   application-row semantics, schema, route, readiness, or activation
+   authority.
 
    These Declarative V2 contracts replace only the deployment-analysis and
    artifact-verification path named by this roadmap. Component suffixes such as
