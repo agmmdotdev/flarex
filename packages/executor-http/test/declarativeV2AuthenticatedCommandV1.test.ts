@@ -20,7 +20,13 @@ import {
   decodeDeclarativeV2AuthenticatedCommandRequestChunksV1,
   decodeDeclarativeV2AuthenticatedCommandRequestV1,
   encodeDeclarativeV2AuthenticatedCommandRequestV1,
+  makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
   type DeclarativeV2AuthenticatedCommandFrameV1,
+  type DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
+  type DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
+  type DeclarativeV2AuthenticatedCommandIncrementalFinishV1,
+  type DeclarativeV2AuthenticatedCommandIncrementalUsageV1,
+  type DeclarativeV2AuthenticatedCommandIncrementalV1Error,
   type DeclarativeV2AuthenticatedCommandModuleMetadataFrameV1,
   type DeclarativeV2AuthenticatedCommandRequestV1,
   type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
@@ -450,6 +456,387 @@ describe("Declarative V2 authenticated command V1 transport", () => {
     );
   });
 
+  it("incrementally admits every split with two-cold byte and usage equality", () => {
+    for (const request of [
+      sourcePageRequest(),
+      parseModuleRequest("functions/\u1019\u103C\u1014\u103A\u1019\u102C.js"),
+      linkPageRequest(),
+      registrationPageRequest(),
+    ]) {
+      const encoded = encode(request, generousBudget);
+      const budget = incrementalBudget(encoded.canonicalBytes.byteLength);
+      const first = driveIncremental(
+        makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1(),
+        encoded.canonicalBytes,
+        budget,
+        [encoded.canonicalBytes.byteLength],
+        1_024,
+      );
+      const second = driveIncremental(
+        makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1(),
+        encoded.canonicalBytes,
+        budget,
+        [encoded.canonicalBytes.byteLength],
+        1,
+      );
+      expect(first.usage).toEqual(encoded.usage);
+      expect(second.usage).toEqual(encoded.usage);
+      expect(second.aggregate).toEqual(first.aggregate);
+      for (let split = 0; split <= encoded.canonicalBytes.byteLength; split += 1) {
+        const splitResult = driveIncremental(
+          makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1(),
+          encoded.canonicalBytes,
+          budget,
+          [split, encoded.canonicalBytes.byteLength - split],
+          1_024,
+        );
+        expect(splitResult.usage).toEqual(encoded.usage);
+        expect(splitResult.aggregate).toEqual(first.aggregate);
+      }
+    }
+  }, 30_000);
+
+  it("independently re-encodes canonical structure before capability creation", () => {
+    const encoded = encode(parseModuleRequest(), generousBudget);
+    const frames = commandFrameRanges(encoded.canonicalBytes);
+    const header = frames[0]!;
+    const reservationLength = readU32(
+      encoded.canonicalBytes,
+      header.start + 1,
+    );
+    const budgetStart = header.start + 1 + 4 + reservationLength + 4;
+    const budgetDomainLength = new TextEncoder().encode(
+      "flarex.declarative-v2/command_budget/v2\0",
+    ).byteLength;
+    const nonCanonical = new Uint8Array(encoded.canonicalBytes);
+    nonCanonical[budgetStart + budgetDomainLength + 3] ^= 1;
+
+    expect(incrementalFailureReason(attemptIncremental(
+      nonCanonical,
+      incrementalBudget(nonCanonical.byteLength),
+    ))).toBe("nonCanonical");
+    expect(failureReason(
+      decodeDeclarativeV2AuthenticatedCommandRequestV1(
+        nonCanonical,
+        generousBudget,
+      ),
+    )).toBe("malformed");
+  });
+
+  it("rejects a duplicate complete header through the typed terminal boundary", () => {
+    const encoded = encode(parseModuleRequest(), generousBudget);
+    const duplicateHeader = insertDuplicateFirstFrame(encoded.canonicalBytes);
+    const factory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    const created = unwrap(factory.create({
+      bodyByteLength: duplicateHeader.byteLength,
+      budget: incrementalBudget(duplicateHeader.byteLength),
+    }));
+    let inputOffset = 0;
+    while (inputOffset < duplicateHeader.byteLength) {
+      const stepped = unwrap(factory.step(
+        created.decoder,
+        duplicateHeader.subarray(inputOffset),
+        1_024,
+      ));
+      expect(stepped.consumedBytes).toBeGreaterThan(0);
+      inputOffset += stepped.consumedBytes;
+    }
+    let failure: DeclarativeV2AuthenticatedCommandIncrementalV1Error | undefined;
+    while (failure === undefined) {
+      const finished = factory.finish(created.decoder, 1_024);
+      if (Result.isFailure(finished)) {
+        failure = finished.failure;
+      }
+    }
+    expect(failure.reason).toBe("invalidGrammar");
+    expect(incrementalFailureReason(factory.finish(created.decoder, 1)))
+      .toBe("closed");
+  });
+
+  it("pins allowance zero, one, 1,024, and 1,025 terminal behavior", () => {
+    const encoded = encode(parseModuleRequest(), generousBudget);
+    const factory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    const created = unwrap(factory.create({
+      bodyByteLength: encoded.canonicalBytes.byteLength,
+      budget: incrementalBudget(encoded.canonicalBytes.byteLength),
+    }));
+    const zero = unwrap(factory.step(
+      created.decoder,
+      new Proxy(encoded.canonicalBytes, {
+        get() {
+          throw new Error("zero allowance must not inspect input");
+        },
+      }),
+      0,
+    ));
+    expect(zero).toMatchObject({
+      status: "pending",
+      consumedBytes: 0,
+      receipt: { transitionCount: 0 },
+    });
+    expect(unwrap(factory.finish(created.decoder, 0))).toMatchObject({
+      status: "pending",
+      receipt: { transitionCount: 0 },
+    });
+    expect(unwrap(factory.step(
+      created.decoder,
+      encoded.canonicalBytes,
+      1,
+    )).consumedBytes).toBe(1);
+    expect(incrementalFailureReason(factory.step(
+      created.decoder,
+      encoded.canonicalBytes.subarray(1),
+      1_025,
+    ))).toBe("invalidInput");
+    expect(incrementalFailureReason(factory.step(
+      created.decoder,
+      encoded.canonicalBytes.subarray(1),
+      1,
+    ))).toBe("closed");
+
+    const maximum = driveIncremental(
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1(),
+      encoded.canonicalBytes,
+      incrementalBudget(encoded.canonicalBytes.byteLength),
+      [encoded.canonicalBytes.byteLength],
+      1_024,
+    );
+    expect(maximum.usage).toEqual(encoded.usage);
+
+    const finishFactory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    const finishCreated = unwrap(finishFactory.create({
+      bodyByteLength: encoded.canonicalBytes.byteLength,
+      budget: incrementalBudget(encoded.canonicalBytes.byteLength),
+    }));
+    unwrap(finishFactory.step(
+      finishCreated.decoder,
+      encoded.canonicalBytes,
+      1_024,
+    ));
+    expect(incrementalFailureReason(
+      finishFactory.finish(finishCreated.decoder, 1_025),
+    )).toBe("invalidInput");
+    expect(incrementalFailureReason(
+      finishFactory.finish(finishCreated.decoder, 1),
+    )).toBe("closed");
+  });
+
+  it("precharges exact and one-less incremental allocation, copy, and transition ceilings", () => {
+    const encoded = encode(parseModuleRequest(), generousBudget);
+    const bodyLength = encoded.canonicalBytes.byteLength;
+    const baseline = driveIncremental(
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1(),
+      encoded.canonicalBytes,
+      incrementalBudget(bodyLength),
+      [bodyLength],
+      1_024,
+    );
+    const exact = Object.freeze({
+      ...incrementalBudget(bodyLength),
+      maximumBodyBytes: encoded.usage.bodyBytes,
+      maximumCanonicalBytes: encoded.usage.canonicalBytes,
+      maximumFrameBytes: encoded.usage.frameBytes,
+      maximumPayloadBytes: encoded.usage.payloadBytes,
+      maximumFrames: encoded.usage.frames,
+      maximumAllocationBytes: baseline.aggregate.allocationBytes,
+      maximumCopyBytes: baseline.aggregate.copyBytes,
+      maximumTransitions: baseline.aggregate.transitions,
+    });
+    const completed = driveIncremental(
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1(),
+      encoded.canonicalBytes,
+      exact,
+      [bodyLength],
+      1_024,
+    );
+    expect(completed.aggregate).toMatchObject({
+      bodyBytes: bodyLength,
+      canonicalBytes: bodyLength,
+      frameBytes: encoded.usage.frameBytes,
+      payloadBytes: encoded.usage.payloadBytes,
+      frames: encoded.usage.frames,
+      transitions: baseline.aggregate.transitions,
+      allocationBytes: baseline.aggregate.allocationBytes,
+      copyBytes: baseline.aggregate.copyBytes,
+    });
+    for (const [field, reason] of [
+      ["maximumBodyBytes", "bodyBytesExceeded"],
+      ["maximumCanonicalBytes", "canonicalBytesExceeded"],
+      ["maximumFrameBytes", "frameBytesExceeded"],
+      ["maximumPayloadBytes", "payloadBytesExceeded"],
+      ["maximumFrames", "framesExceeded"],
+      ["maximumAllocationBytes", "allocationBytesExceeded"],
+      ["maximumCopyBytes", "copyBytesExceeded"],
+      ["maximumTransitions", "transitionsExceeded"],
+    ] as const) {
+      const result = attemptIncremental(
+        encoded.canonicalBytes,
+        { ...exact, [field]: exact[field] - 1 },
+      );
+      expect(incrementalFailureReason(result)).toBe(reason);
+    }
+  });
+
+  it("owns input bytes and rejects hostile, detached, foreign, closed, and reused handles", () => {
+    const encoded = encode(parseModuleRequest(), generousBudget);
+    const budget = incrementalBudget(encoded.canonicalBytes.byteLength);
+    const factory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    expect(incrementalFailureReason(factory.create(new Proxy({}, {
+      ownKeys() {
+        throw new Error("hostile create");
+      },
+    })))).toBe("invalidInput");
+    expect(incrementalFailureReason(factory.create({
+      bodyByteLength: encoded.canonicalBytes.byteLength,
+      budget: Object.defineProperty({}, "maximumBodyBytes", {
+        get() {
+          throw new Error("hostile budget");
+        },
+      }),
+    }))).toBe("invalidBudget");
+    expect(incrementalFailureReason(factory.create({
+      bodyByteLength: encoded.canonicalBytes.byteLength,
+      budget: {
+        ...budget,
+        maximumFrames: 1_025,
+      },
+    }))).toBe("invalidBudget");
+    expect(incrementalFailureReason(factory.create({
+      bodyByteLength: 0x1_0000_0000,
+      budget: {
+        ...budget,
+        maximumBodyBytes: 0xffff_ffff,
+        maximumCanonicalBytes: 0xffff_ffff,
+        maximumAllocationBytes: Number.MAX_SAFE_INTEGER,
+        maximumCopyBytes: Number.MAX_SAFE_INTEGER,
+      },
+    }))).toBe("invalidInput");
+
+    const created = unwrap(factory.create({
+      bodyByteLength: encoded.canonicalBytes.byteLength,
+      budget,
+    }));
+    const aliased = new Uint8Array(encoded.canonicalBytes);
+    const stepped = unwrap(factory.step(
+      created.decoder,
+      aliased,
+      aliased.byteLength,
+    ));
+    expect(stepped.status).toBe("ready");
+    aliased.fill(0);
+    const completed = finishIncremental(factory, created.decoder, 1_024);
+    expect(completed.usage).toEqual(encoded.usage);
+    expect(incrementalFailureReason(factory.finish(
+      created.decoder,
+      1,
+    ))).toBe("closed");
+    expect(unwrap(factory.close(completed.capability))).toBeUndefined();
+    expect(incrementalFailureReason(factory.close(completed.capability)))
+      .toBe("closed");
+
+    const foreign =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    expect(incrementalFailureReason(foreign.close(completed.capability)))
+      .toBe("staleAuthority");
+    expect(incrementalFailureReason(factory.close({
+      _tag: "DeclarativeV2AuthenticatedCommandDecodedCapabilityV1",
+    }))).toBe("staleAuthority");
+
+    const trailingFactory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    const trailingCreated = unwrap(trailingFactory.create({
+      bodyByteLength: encoded.canonicalBytes.byteLength,
+      budget,
+    }));
+    const withTrailing = new Uint8Array(encoded.canonicalBytes.byteLength + 1);
+    withTrailing.set(encoded.canonicalBytes);
+    expect(incrementalFailureReason(trailingFactory.step(
+      trailingCreated.decoder,
+      withTrailing,
+      1_024,
+    ))).toBe("malformed");
+    expect(incrementalFailureReason(trailingFactory.finish(
+      trailingCreated.decoder,
+      1,
+    ))).toBe("closed");
+
+    const detached = new Uint8Array(encoded.canonicalBytes);
+    structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    const detachedCreated = unwrap(factory.create({
+      bodyByteLength: encoded.canonicalBytes.byteLength,
+      budget,
+    }));
+    expect(incrementalFailureReason(factory.step(
+      detachedCreated.decoder,
+      detached,
+      1,
+    ))).toBe("invalidInput");
+  });
+
+  it("matches compatibility decoder failures", () => {
+    const encoded = encode(parseModuleRequest(), generousBudget);
+    const frames = commandFrameRanges(encoded.canonicalBytes);
+    const header = frames[0]!;
+    const reservationLength = readU32(
+      encoded.canonicalBytes,
+      header.start + 1,
+    );
+    const budgetStart = header.start + 1 + 4 + reservationLength + 4;
+    const module = frames[1]!;
+    const mutations = [
+      (bytes: Uint8Array) => {
+        bytes[0] ^= 0xff;
+      },
+      (bytes: Uint8Array) => {
+        bytes[header.start + 5] ^= 0xff;
+      },
+      (bytes: Uint8Array) => {
+        const budgetDomainLength = new TextEncoder().encode(
+          "flarex.declarative-v2/command_budget/v2\0",
+        ).byteLength;
+        bytes[budgetStart + budgetDomainLength + 4] = 0x80;
+      },
+      (bytes: Uint8Array) => {
+        bytes[module.start + 17] = 0xff;
+      },
+      (bytes: Uint8Array) => {
+        bytes[module.start + 17] = 0;
+      },
+      (bytes: Uint8Array) => {
+        writeU32(bytes, header.start - 4, 0xffff_ffff);
+      },
+    ] as const;
+    for (const mutate of mutations) {
+      const malformed = new Uint8Array(encoded.canonicalBytes);
+      mutate(malformed);
+      const compatibility = decodeDeclarativeV2AuthenticatedCommandRequestV1(
+        malformed,
+        generousBudget,
+      );
+      const incremental = attemptIncremental(
+        malformed,
+        incrementalBudget(malformed.byteLength),
+      );
+      expect(incrementalFailureReason(incremental)).toBe(
+        failureReason(compatibility),
+      );
+    }
+    const truncated = encoded.canonicalBytes.slice(0, -1);
+    expect(incrementalFailureReason(attemptIncremental(
+      truncated,
+      incrementalBudget(truncated.byteLength),
+    ))).toBe(failureReason(
+      decodeDeclarativeV2AuthenticatedCommandRequestV1(
+        truncated,
+        generousBudget,
+      ),
+    ));
+  });
+
   it("exposes only the intentional internal subpath", async () => {
     const root = await import("@flarex/executor-http");
     expect(
@@ -460,6 +847,10 @@ describe("Declarative V2 authenticated command V1 transport", () => {
     );
     expect(internal.DECLARATIVE_V2_AUTHENTICATED_COMMAND_PROTOCOL_VERSION_V1)
       .toBe(1);
+    expect(
+      "makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1" in
+        internal,
+    ).toBe(true);
   });
 });
 
@@ -641,6 +1032,117 @@ function unwrap<A, E>(result: Result.Result<A, E>): A {
   return result.success;
 }
 
+type IncrementalComplete = Extract<
+  DeclarativeV2AuthenticatedCommandIncrementalFinishV1,
+  { readonly status: "complete" }
+>;
+
+function incrementalBudget(
+  bodyByteLength: number,
+): DeclarativeV2AuthenticatedCommandIncrementalBudgetV1 {
+  return Object.freeze({
+    ...generousBudget,
+    maximumTransitions: bodyByteLength * 4 + 32,
+    maximumAllocationBytes: bodyByteLength * 4 + 2_048,
+    maximumCopyBytes: bodyByteLength * 4 + 2_048,
+  });
+}
+
+function finishIncremental(
+  factory: DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
+  decoder: unknown,
+  allowance: number,
+): IncrementalComplete {
+  while (true) {
+    const result = unwrap(factory.finish(decoder, allowance));
+    if (result.status === "complete") return result;
+  }
+}
+
+function driveIncremental(
+  factory: DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
+  bytes: Uint8Array,
+  budget: DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
+  chunks: readonly number[],
+  allowance: number,
+): Readonly<{
+  readonly usage: IncrementalComplete["usage"];
+  readonly aggregate: DeclarativeV2AuthenticatedCommandIncrementalUsageV1;
+  readonly capability: IncrementalComplete["capability"];
+}> {
+  const created = unwrap(factory.create({
+    bodyByteLength: bytes.byteLength,
+    budget,
+  }));
+  let sourceOffset = 0;
+  for (const chunkLength of chunks) {
+    const chunkEnd = sourceOffset + chunkLength;
+    while (sourceOffset < chunkEnd) {
+      const stepped = unwrap(factory.step(
+        created.decoder,
+        bytes.subarray(sourceOffset, chunkEnd),
+        allowance,
+      ));
+      if (stepped.consumedBytes === 0) {
+        throw new Error("incremental decoder made no input progress");
+      }
+      sourceOffset += stepped.consumedBytes;
+    }
+  }
+  if (sourceOffset !== bytes.byteLength) {
+    throw new Error("incremental test chunks did not cover the body");
+  }
+  const completed = finishIncremental(factory, created.decoder, allowance);
+  return Object.freeze({
+    usage: completed.usage,
+    aggregate: completed.receipt.aggregate,
+    capability: completed.capability,
+  });
+}
+
+function attemptIncremental(
+  bytes: Uint8Array,
+  budget: DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
+): Result.Result<
+  IncrementalComplete,
+  DeclarativeV2AuthenticatedCommandIncrementalV1Error
+> {
+  const factory =
+    makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+  const created = factory.create({
+    bodyByteLength: bytes.byteLength,
+    budget,
+  });
+  if (Result.isFailure(created)) return Result.fail(created.failure);
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const stepped = factory.step(
+      created.success.decoder,
+      bytes.subarray(offset),
+      1_024,
+    );
+    if (Result.isFailure(stepped)) return Result.fail(stepped.failure);
+    if (stepped.success.consumedBytes === 0) {
+      throw new Error("incremental decoder made no input progress");
+    }
+    offset += stepped.success.consumedBytes;
+  }
+  while (true) {
+    const finished = factory.finish(created.success.decoder, 1_024);
+    if (Result.isFailure(finished)) return Result.fail(finished.failure);
+    if (finished.success.status === "complete") {
+      return Result.succeed(finished.success);
+    }
+  }
+}
+
+function incrementalFailureReason(
+  result: Result.Result<unknown, { readonly reason: string }>,
+): string {
+  if (Result.isSuccess(result)) throw new Error("expected incremental failure");
+  return result.failure.reason;
+}
+
 function hex(bytes: Uint8Array): string {
   let output = "";
   for (let index = 0; index < bytes.byteLength; index += 1) {
@@ -656,4 +1158,46 @@ function readU32(bytes: Uint8Array, offset: number): number {
     (bytes[offset + 2]! << 8) |
     bytes[offset + 3]!
   ) >>> 0;
+}
+
+function writeU32(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = (value >>> 24) & 0xff;
+  bytes[offset + 1] = (value >>> 16) & 0xff;
+  bytes[offset + 2] = (value >>> 8) & 0xff;
+  bytes[offset + 3] = value & 0xff;
+}
+
+function insertDuplicateFirstFrame(bytes: Uint8Array): Uint8Array {
+  const domainLength = readU32(bytes, 0);
+  const frameCountOffset = 4 + domainLength + 4;
+  const frameCount = readU32(bytes, frameCountOffset);
+  const [first] = commandFrameRanges(bytes);
+  if (first === undefined) throw new Error("missing first frame");
+  const framePrefixStart = first.start - 4;
+  const frameEnd = first.start + first.length;
+  const frameBytes = bytes.subarray(framePrefixStart, frameEnd);
+  const duplicate = new Uint8Array(bytes.byteLength + frameBytes.byteLength);
+  duplicate.set(bytes.subarray(0, frameEnd), 0);
+  duplicate.set(frameBytes, frameEnd);
+  duplicate.set(bytes.subarray(frameEnd), frameEnd + frameBytes.byteLength);
+  writeU32(duplicate, frameCountOffset, frameCount + 1);
+  return duplicate;
+}
+
+function commandFrameRanges(
+  bytes: Uint8Array,
+): readonly Readonly<{ readonly start: number; readonly length: number }>[] {
+  const domainLength = readU32(bytes, 0);
+  let offset = 4 + domainLength + 4;
+  const frameCount = readU32(bytes, offset);
+  offset += 4;
+  const frames: Readonly<{ readonly start: number; readonly length: number }>[] =
+    [];
+  for (let index = 0; index < frameCount; index += 1) {
+    const length = readU32(bytes, offset);
+    offset += 4;
+    frames.push(Object.freeze({ start: offset, length }));
+    offset += length;
+  }
+  return Object.freeze(frames);
 }

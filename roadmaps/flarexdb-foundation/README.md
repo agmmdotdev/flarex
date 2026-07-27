@@ -943,6 +943,17 @@ and receipts stay inert. It is not candidate authority, an analyzer command
 host, executor composition, persistence or transaction authority, routing, the
 real-system harness, readiness, or activation.
 
+The private A1b2c0b2a executor-HTTP admission owner now incrementally validates
+those exact A1b2c0b0 request bytes through opaque factory-local
+`create`/`step`/`finish`/`close` handles, preallocated owned storage,
+metadata-before-payload admission, quanta of at most 1,024 transitions, and an
+independently derived, separately metered byte-wise canonical re-encoding and
+input-equality proof. The whole-call decoder
+remains inert compatibility state and is not an authority-capable source path.
+No response contract, verifier/restart invocation, analyzer command host,
+candidate authority, executor composition, route, harness, readiness, or
+activation exists at this boundary.
+
 The immediate cross-plan milestone is a private end-to-end correctness and
 stress harness, not a developer API or activation gate. A1b2 first composes
 authenticated analysis with durable verifier progress in `apps/executor`;

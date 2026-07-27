@@ -867,6 +867,19 @@ activation remain blocked until their production host composition is proven.
    persistence or transaction authority, a route, the real-system harness,
    readiness, or activation.
 
+   The private A1b2c0b2a executor-HTTP admission owner now adds an opaque,
+   factory-local `create`/`step`/`finish`/`close` decoder for those exact
+   A1b2c0b0 request bytes. It copies into preallocated owned storage, admits
+   metadata before payload, validates structure and canonical embedded
+   commitments in fixed quanta of at most 1,024 transitions, and completes an
+   independently derived, separately metered byte-wise canonical re-encoding
+   and input-equality proof before returning an inert decoded-request
+   capability. The existing whole-call decoder remains
+   an inert compatibility API and is not an authority-capable source path.
+   Response transport, verifier/restart invocation, analyzer command execution
+   and hosting, fresh analyzer handshake binding, candidate authority, executor
+   composition, and the real-system harness remain later gates.
+
    These Declarative V2 contracts replace only the deployment-analysis and
    artifact-verification path named by this roadmap. Component suffixes such as
    `CoreV1`, Semantic Artifact V1, or Progress V2 do not authorize a general
