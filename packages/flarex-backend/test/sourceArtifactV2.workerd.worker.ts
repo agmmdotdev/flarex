@@ -5,6 +5,9 @@ import {
   makeSourceArtifactV2AttemptStore,
 } from "../src/sourceArtifactV2/AttemptStore";
 import {
+  makeSourceArtifactV2CheckpointReader,
+} from "../src/sourceArtifactV2/CheckpointReader";
+import {
   isSourceArtifactV2FinalizedAttemptReadRequestV1,
   makeSourceArtifactV2FinalizedAttemptReadRouteV1,
 } from "../src/sourceArtifactV2/FinalizedAttemptReadBoundary";
@@ -35,6 +38,8 @@ export class SourceArtifactUploadTestDO extends DurableObject<TestEnv> {
     reader: makeSourceArtifactV2AttemptReader(this.ctx.storage.sql),
     sha256: this.sha,
   });
+  private readonly checkpointReader =
+    makeSourceArtifactV2CheckpointReader(this.ctx.storage.sql);
 
   constructor(ctx: DurableObjectState, env: TestEnv) {
     super(ctx, env);
@@ -51,6 +56,25 @@ export class SourceArtifactUploadTestDO extends DurableObject<TestEnv> {
     }
     const requestedOperation = Reflect.get(body, "operation");
     const input = Reflect.get(body, "input");
+    if (requestedOperation === "observeCheckpoint") {
+      const uploadId = field(input, "uploadId");
+      const maximumCalls = field(input, "maximumCalls");
+      const maximumStoredBytes = field(input, "maximumStoredBytes");
+      if (
+        typeof uploadId !== "string" ||
+        typeof maximumCalls !== "number" ||
+        typeof maximumStoredBytes !== "number"
+      ) {
+        return Response.json({ error: "invalid checkpoint input" }, { status: 400 });
+      }
+      const exit = await Effect.runPromiseExit(this.checkpointReader.read(uploadId, {
+        maximumCalls,
+        maximumStoredBytes,
+      }));
+      return Exit.isSuccess(exit)
+        ? Response.json({ success: exit.value })
+        : Response.json({ failure: String(exit.cause) }, { status: 409 });
+    }
     if (requestedOperation === "corruptModuleFrontier") {
       const uploadId = field(input, "uploadId");
       if (typeof uploadId !== "string") {

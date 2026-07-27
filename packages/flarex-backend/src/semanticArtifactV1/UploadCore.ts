@@ -155,12 +155,16 @@ export class SemanticArtifactV1StateError extends Data.TaggedError(
     | "notFound"
     | "staleGeneration"
     | "staleFence"
+    | "deploymentMismatch"
     | "invalidLifecycle"
-    | "sourceDrift"
     | "invalidOrdinal"
     | "missingFinalLf"
     | "conflictingReplay";
 }> {}
+
+export class SemanticArtifactV1SourceDriftError extends Data.TaggedError(
+  "SemanticArtifactV1SourceDriftError",
+)<{ readonly sourceUploadId: string }> {}
 
 export class SemanticArtifactV1CorruptionError extends Data.TaggedError(
   "SemanticArtifactV1CorruptionError",
@@ -173,6 +177,7 @@ export type SemanticArtifactV1UploadError =
   | SemanticArtifactV1InputError
   | SemanticArtifactV1BudgetError
   | SemanticArtifactV1StateError
+  | SemanticArtifactV1SourceDriftError
   | SemanticArtifactV1CorruptionError
   | SemanticArtifactV1FinalizedSourceProofClaimError
   | SemanticArtifactV1AttemptStoreError
@@ -296,7 +301,7 @@ function executeBegin(
       sourceAttempt.completedSelectorDigest !==
         encodeBytesToLowercaseHex(source.sourceSelectorSha256)
     ) {
-      return yield* stateFailure(source.sourceUploadId, "sourceDrift");
+      return yield* sourceDriftFailure(source.sourceUploadId);
     }
     const semanticUploadId = options.makeUploadId();
     if (!isNonEmptyString(semanticUploadId)) {
@@ -1273,7 +1278,7 @@ function readAttemptRow(
     );
     if (attempt === null) return yield* stateFailure(input.semanticUploadId, "notFound");
     if (attempt.deploymentId !== input.deploymentId) {
-      return yield* stateFailure(input.semanticUploadId, "sourceDrift");
+      return yield* stateFailure(input.semanticUploadId, "deploymentMismatch");
     }
     if (attempt.generation !== input.expectedGeneration) {
       return yield* stateFailure(input.semanticUploadId, "staleGeneration");
@@ -1763,7 +1768,7 @@ function rootDigestFromFrontier(
 function compareSource(
   attempt: SemanticArtifactV1Attempt,
   source: SemanticArtifactV1ClaimedFinalizedSource,
-): Effect.Effect<void, SemanticArtifactV1StateError> {
+): Effect.Effect<void, SemanticArtifactV1SourceDriftError> {
   return attempt.projectId === source.projectId &&
       attempt.deploymentId === source.deploymentId &&
       attempt.deploymentCreatedAt === source.deploymentCreatedAt &&
@@ -1773,7 +1778,7 @@ function compareSource(
       attempt.sourceRootSha256 === encodeBytesToLowercaseHex(source.sourceRootSha256) &&
       attempt.sourceSelectorSha256 === encodeBytesToLowercaseHex(source.sourceSelectorSha256)
     ? Effect.void
-    : stateFailure(attempt.semanticUploadId, "sourceDrift");
+    : sourceDriftFailure(attempt.sourceUploadId);
 }
 
 function replayReceipt(
@@ -1834,6 +1839,12 @@ function stateFailure(
   reason: SemanticArtifactV1StateError["reason"],
 ): Effect.Effect<never, SemanticArtifactV1StateError> {
   return Effect.fail(new SemanticArtifactV1StateError({ semanticUploadId, reason }));
+}
+
+function sourceDriftFailure(
+  sourceUploadId: string,
+): Effect.Effect<never, SemanticArtifactV1SourceDriftError> {
+  return Effect.fail(new SemanticArtifactV1SourceDriftError({ sourceUploadId }));
 }
 
 function countLineFeeds(bytes: Uint8Array): bigint {

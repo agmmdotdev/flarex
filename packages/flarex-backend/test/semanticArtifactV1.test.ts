@@ -649,7 +649,7 @@ describe("Semantic Artifact V1 private inert core", () => {
       bytes: new TextEncoder().encode("{}\n"),
     }));
     expect(gap._tag).toBe("Failure");
-    const wrongDeployment = await Effect.runPromiseExit(fixture.core.append({
+    const wrongDeployment = await Effect.runPromise(fixture.core.append({
       semanticUploadId: begin.semanticUploadId,
       deploymentId: "other-deployment",
       expectedGeneration: 1,
@@ -658,8 +658,12 @@ describe("Semantic Artifact V1 private inert core", () => {
       admission: budgets,
       blockOrdinal: 0,
       bytes: new TextEncoder().encode("{}\n"),
-    }));
-    expect(wrongDeployment._tag).toBe("Failure");
+    }).pipe(Effect.flip));
+    expect(wrongDeployment).toMatchObject({
+      _tag: "SemanticArtifactV1StateError",
+      semanticUploadId: begin.semanticUploadId,
+      reason: "deploymentMismatch",
+    });
     const wrongFinalizeDeployment = await Effect.runPromiseExit(fixture.core.finalize({
       semanticUploadId: begin.semanticUploadId,
       deploymentId: "other-deployment",

@@ -138,8 +138,8 @@ describe("Declarative V2 in-memory upload-core correlation", () => {
       },
     )));
     expect(failure).toMatchObject({
-      _tag: "SemanticArtifactV1StateError",
-      reason: "sourceDrift",
+      _tag: "SemanticArtifactV1SourceDriftError",
+      sourceUploadId: SOURCE_UPLOAD_A,
     });
   });
 

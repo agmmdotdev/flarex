@@ -803,7 +803,7 @@ The bearer may be forwarded only across the private Worker-to-DeploymentDO
 binding needed for the same request and must never enter a response, log,
 stored attempt row, command digest, R2 object, or analyzer payload.
 
-### Confirmed Gaps Before U2
+### U2 Preflight Blockers And Current Status
 
 U1 may define the portable shapes while the following host issues remain
 explicit U2 blockers:
@@ -813,6 +813,9 @@ explicit U2 blockers:
    `observe` implementation must not project an unrestricted stored row. U2
    must either prove and enforce a fixed admitted row ceiling or add a
    metadata-first bounded checkpoint reader before exposing observation.
+   **Resolved in U2 checkpoint 1:** the checkpoint reader measures the full
+   variable-width stored row before calling the existing decoder and returns
+   only the resume projection.
 2. The production finalized-source composer reaches `DeploymentDO` through a
    namespace RPC, while semantic begin must issue and claim its process-local
    proof inside the target deployment host. U2 needs a same-isolate adapter
@@ -829,7 +832,9 @@ explicit U2 blockers:
    The wire error must expose a neutral or accurately named selector and must
    not freeze that touched-flow naming defect. Any internal public-type
    correction requires its own bounded U2 contract change and direct-caller
-   proof.
+   proof. **Resolved in U2 checkpoint 1:** source drift now has its own typed
+   error carrying `sourceUploadId`, while deployment mismatch remains a
+   semantic-attempt state failure.
 5. `DeploymentDO` currently constructs neither upload core nor an R2 adapter,
    and `ARTIFACTS` remains optional in `Env`. U2 must fail closed at host
    construction when the binding or pinned root configuration is absent; no
@@ -896,10 +901,11 @@ best-effort candidate publication in this boundary.
    starts authenticated verification and later candidate creation. This stage
    cannot begin merely because upload transport exists.
 
-The accepted implementation authorization covered U1 only, and its completion
-does not authorize U2. U1 adds no production dependency from `flarex-backend`
-or `flarex-dev`, Wrangler binding, attempt-storage edit, upload route, or
-client.
+U1 was authorized and completed independently. U2 is now separately
+authorized, but remains split into bounded private-host checkpoints. That
+authorization still adds no public Worker route, `flarex-dev` client, Wrangler
+binding, candidate handoff, readiness transition, activation, or runtime
+routing change.
 
 ### U1 Exit Criteria
 
@@ -955,8 +961,36 @@ intentional subpath-only export.
 This receipt adds no `flarex-backend` or `flarex-dev` consumer, production
 route, Durable Object host, Wrangler binding, storage mutation, candidate
 handoff, readiness transition, activation, or runtime-routing change. The five
-confirmed U2 host blockers above remain open and must be resolved inside a
-separately authorized private-host slice.
+confirmed U2 host blockers above were carried into the authorized private-host
+stage and are tracked individually above.
+
+### Accepted U2 Boundary And Current Gate
+
+U2 is accepted as a sequence of private, non-routed checkpoints rather than
+one broad host commit. The first checkpoint closes blockers 1 and 4 before any
+command dispatcher is composed:
+
+- add a source-attempt checkpoint reader that first measures the complete
+  persisted text/blob row under caller-supplied `maximumCalls` and
+  `maximumStoredBytes`, then decodes through the existing source-attempt row
+  authority and returns only the resume-safe projection;
+- require two admitted SQLite calls for an existing source attempt, fail
+  before the full-row read when either the call or stored-byte budget is
+  insufficient, and retain store corruption/resource failures without
+  projecting the stored row;
+- keep accepted-command identity explicit: a pending reservation reports its
+  unsuffixed pending command key, while a settled attempt reports its last
+  command key;
+- separate source-correlation drift from semantic-attempt lifecycle failures
+  so the typed error carries `sourceUploadId`; and
+- classify a semantic attempt found under another deployment as a deployment
+  mismatch instead of misreporting it as source drift.
+
+The current boundary deliberately does not construct an upload core in
+`DeploymentDO`, read `ARTIFACTS`, decode semantic root configuration, issue a
+same-isolate proof, map wire errors, or add an RPC/HTTP method. The next U2
+gate is the same-isolate finalized-source reader that preserves the existing
+authorizer and proof semantics without self-RPC.
 
 ## Next Correctness Gates
 

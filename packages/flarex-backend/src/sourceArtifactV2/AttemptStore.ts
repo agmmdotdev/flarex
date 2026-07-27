@@ -1,5 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Data, Effect } from "effect";
+import { Data, Effect, Result } from "effect";
 import type {
   DeploymentSqlStorage,
 } from "../deployment/Store";
@@ -131,6 +131,24 @@ export type SourceArtifactV2AttemptReaderError =
   | SourceArtifactV2AttemptStoreCorruptionError
   | SourceArtifactV2AttemptStoreResourceError;
 
+export interface SourceArtifactV2AttemptReadBudget {
+  readonly maximumCalls: number;
+  readonly maximumStoredBytes: number;
+}
+
+export class SourceArtifactV2AttemptStoreBudgetError extends Data.TaggedError(
+  "SourceArtifactV2AttemptStoreBudgetError",
+)<{
+  readonly uploadId: string;
+  readonly dimension: "calls" | "storedBytes";
+  readonly observed: number;
+  readonly maximum: number;
+}> {}
+
+export type SourceArtifactV2BoundedAttemptReaderError =
+  | SourceArtifactV2AttemptStoreBudgetError
+  | SourceArtifactV2AttemptReaderError;
+
 export type SourceArtifactV2AttemptMutation = Readonly<{
   readonly uploadId: string;
   readonly commandId: string;
@@ -154,6 +172,16 @@ export interface SourceArtifactV2AttemptReader {
   ) => Effect.Effect<SourceArtifactV2Attempt | null, SourceArtifactV2AttemptReaderError>;
 }
 
+export interface SourceArtifactV2BoundedAttemptReader {
+  readonly read: (
+    uploadId: string,
+    budget: SourceArtifactV2AttemptReadBudget,
+  ) => Effect.Effect<
+    SourceArtifactV2Attempt | null,
+    SourceArtifactV2BoundedAttemptReaderError
+  >;
+}
+
 export type SourceArtifactV2AttemptReadSql = Pick<DeploymentSqlStorage, "exec">;
 
 type SourceArtifactV2AttemptRow = {
@@ -174,6 +202,10 @@ type SourceArtifactV2AttemptRow = {
   readonly last_receipt_json: string;
   readonly completed_root_digest: string | null;
   readonly completed_selector_digest: string | null;
+};
+
+type SourceArtifactV2AttemptMetadataRow = {
+  readonly stored_byte_length: number;
 };
 
 class SourceArtifactV2AttemptStoreRollback extends Error {
@@ -235,6 +267,30 @@ export function makeSourceArtifactV2AttemptReader(
       });
       return row === undefined ? null : yield* decodeRow(row);
     },
+  );
+  return Object.freeze({ read });
+}
+
+export function makeSourceArtifactV2BoundedAttemptReader(
+  sql: SourceArtifactV2AttemptReadSql,
+): SourceArtifactV2BoundedAttemptReader {
+  const read = Effect.fn("SourceArtifactV2AttemptStore.readBounded")(
+    (
+      uploadId: string,
+      budget: SourceArtifactV2AttemptReadBudget,
+    ): Effect.Effect<
+      SourceArtifactV2Attempt | null,
+      SourceArtifactV2BoundedAttemptReaderError
+    > => Effect.try({
+      try: () => readBoundedRowResult(sql, uploadId, budget),
+      catch: cause =>
+        resourceFailure("read", uploadId, cause),
+    }).pipe(
+      Effect.flatMap(Effect.fromResult),
+      Effect.flatMap(row => row === null
+        ? Effect.succeed(null)
+        : decodeRow(row)),
+    ),
   );
   return Object.freeze({ read });
 }
@@ -378,6 +434,103 @@ function reconcileWrite(
       return Effect.fail(uncertain);
     }),
   );
+}
+
+function readBoundedRowResult(
+  sql: SourceArtifactV2AttemptReadSql,
+  uploadId: string,
+  budget: SourceArtifactV2AttemptReadBudget,
+): Result.Result<
+  SourceArtifactV2AttemptRow | null,
+  SourceArtifactV2AttemptStoreBudgetError |
+    SourceArtifactV2AttemptStoreCorruptionError
+> {
+  return Result.gen(function* () {
+    yield* admitReadBudget(uploadId, budget, 1);
+    const metadata = readMetadataRow(sql, uploadId);
+    if (metadata === undefined) return null;
+
+    yield* admitReadBudget(uploadId, budget, 2);
+    if (!nonNegativeSafe(metadata.stored_byte_length)) {
+      return yield* Result.fail(
+        corrupt(uploadId, "stored byte length metadata is invalid"),
+      );
+    }
+    if (metadata.stored_byte_length > budget.maximumStoredBytes) {
+      return yield* Result.fail(new SourceArtifactV2AttemptStoreBudgetError({
+        uploadId,
+        dimension: "storedBytes",
+        observed: metadata.stored_byte_length,
+        maximum: budget.maximumStoredBytes,
+      }));
+    }
+
+    const row = readRow(sql, uploadId);
+    return row === undefined
+      ? yield* Result.fail(
+          corrupt(uploadId, "stored attempt disappeared during bounded read"),
+        )
+      : row;
+  });
+}
+
+function admitReadBudget(
+  uploadId: string,
+  budget: SourceArtifactV2AttemptReadBudget,
+  observedCalls: number,
+): Result.Result<void, SourceArtifactV2AttemptStoreBudgetError> {
+  const maximumCalls = typeof budget === "object" &&
+      budget !== null &&
+      nonNegativeSafe(budget.maximumCalls)
+    ? budget.maximumCalls
+    : 0;
+  if (maximumCalls < observedCalls) {
+    return Result.fail(new SourceArtifactV2AttemptStoreBudgetError({
+      uploadId,
+      dimension: "calls",
+      observed: observedCalls,
+      maximum: maximumCalls,
+    }));
+  }
+  if (
+    typeof budget !== "object" ||
+    budget === null ||
+    !nonNegativeSafe(budget.maximumStoredBytes)
+  ) {
+    return Result.fail(new SourceArtifactV2AttemptStoreBudgetError({
+      uploadId,
+      dimension: "storedBytes",
+      observed: 0,
+      maximum: 0,
+    }));
+  }
+  return Result.succeed(undefined);
+}
+
+function readMetadataRow(
+  sql: SourceArtifactV2AttemptReadSql,
+  uploadId: string,
+): SourceArtifactV2AttemptMetadataRow | undefined {
+  return sql.exec<SourceArtifactV2AttemptMetadataRow>(`
+    SELECT
+      length(CAST(upload_id AS BLOB)) +
+      length(CAST(state AS BLOB)) +
+      COALESCE(length(CAST(last_module_path AS BLOB)), 0) +
+      COALESCE(length(CAST(current_module_json AS BLOB)), 0) +
+      length(CAST(module_frontier_json AS BLOB)) +
+      length(CAST(counters_json AS BLOB)) +
+      length(CAST(ceilings_json AS BLOB)) +
+      length(CAST(usage_json AS BLOB)) +
+      COALESCE(length(CAST(pending_command_json AS BLOB)), 0) +
+      length(CAST(last_command_id AS BLOB)) +
+      length(CAST(last_command_digest AS BLOB)) +
+      length(CAST(last_receipt_json AS BLOB)) +
+      COALESCE(length(CAST(completed_root_digest AS BLOB)), 0) +
+      COALESCE(length(CAST(completed_selector_digest AS BLOB)), 0)
+        AS stored_byte_length
+    FROM source_artifact_upload_attempts_v2
+    WHERE upload_id = ?
+  `, uploadId).toArray()[0];
 }
 
 function readRow(

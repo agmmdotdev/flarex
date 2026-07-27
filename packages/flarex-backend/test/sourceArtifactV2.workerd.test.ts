@@ -61,6 +61,45 @@ describe("source artifact v2 DeploymentDO and R2 integration", () => {
     expect(keys.some(key => key.includes("/upload-selector/"))).toBe(false);
   });
 
+  it("reads the SQLite attempt through the bounded checkpoint projection", async () => {
+    const uploadId = "818f22e2-58cc-7b2a-91d8-f3f3401a0874";
+    const commandId = "checkpoint-begin";
+    const begun = await invoke("beginUpload", {
+      uploadId,
+      commandId,
+      ceilings: CEILINGS,
+      admission: ADMISSION,
+    });
+
+    const checkpoint = await invoke("observeCheckpoint", {
+      uploadId,
+      maximumCalls: 2,
+      maximumStoredBytes: 100_000,
+    });
+    expect(checkpoint).toMatchObject({
+      uploadId,
+      generation: begun.generation,
+      mutationFence: begun.mutationFence,
+      state: "open",
+      acceptedCommandId: commandId,
+      nextModuleOrdinal: 0,
+      currentModule: null,
+      completedRootDigest: null,
+      completedSelectorDigest: null,
+    });
+
+    expect((await rawInvoke("observeCheckpoint", {
+      uploadId,
+      maximumCalls: 1,
+      maximumStoredBytes: 100_000,
+    })).status).toBe(409);
+    expect((await rawInvoke("observeCheckpoint", {
+      uploadId,
+      maximumCalls: 2,
+      maximumStoredBytes: 0,
+    })).status).toBe(409);
+  });
+
   it("reopens the authoritative finalized row through the bounded private reader", async () => {
     const uploadId = "518f22e2-58cc-7b2a-91d8-f3f3401a0874";
     const finalized = await completeUpload(uploadId, "private-read");
