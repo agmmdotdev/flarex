@@ -1420,15 +1420,22 @@ activation remain blocked until their production host composition is proven.
    current request-scoped monolithic analyzer path remains unchanged and does
    not prove this replacement A1b2 command path.
 
-   The accepted next checkpoint order is:
+   The accepted checkpoint order is:
 
-   1. `A1b2c0b2c0` adds a private pure bounded analyzer-to-executor
+   1. `A1b2c0b2c0` now provides a private pure bounded analyzer-to-executor
       command-response transport with its own identity, version, and media
       type. It binds the request and reservation digest, command kind and
       sequence, analyzer and verifier identities, and range lineage. It carries
       the output manifest, actual command usage, next progress, ordered restart
       page manifests and payload chunks, and bounded evidence and diagnostics,
       with metadata before payload and allowances from zero through 1,024.
+      Embedded durable frames use the protocol owner's admission-before-write
+      encoder and owned-range canonical verifier, so exact protocol allocation,
+      copy, write, scan, and transition work is admitted before execution and
+      successful response receipts settle the exact actual work. Encoding,
+      verification, payload hashing, and multi-page terminal validation advance
+      through separate resumable quanta so no successful call exceeds its
+      allowance.
       Those bytes remain inert and grant no repository owner, fence, candidate,
       or receipt authority. Resulting attempt usage and the final receipt remain
       executor/repository-owned.
@@ -1445,8 +1452,10 @@ activation remain blocked until their production host composition is proven.
       interruption ownership, full foreign `Cause`, and deterministic
       finalization.
 
-   None of these four checkpoints is implemented or green. Cold `link_page`
-   and link-dependent registration cannot rely on warm WeakMap state.
+   Only the private, inert `A1b2c0b2c0` transport is implemented here;
+   restart-input exchange, analyzer command execution, host composition, and a
+   production caller remain absent. Cold `link_page` and link-dependent
+   registration cannot rely on warm WeakMap state.
    Candidate preparation, repository `Work`, `apps/executor` composition, C07,
    and the private real-system harness remain later distinct gates. This order
    creates no alternate OCC, commit compiler or execution path, transaction
