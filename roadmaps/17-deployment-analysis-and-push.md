@@ -492,9 +492,9 @@ Artifact V2 ingress plan plus canonical Semantic Artifact V1 NDJSON. The
 materializer cannot mint roots, selectors, finalization, verifier evidence,
 readiness, or activation authority; the backend must still derive those claims
 from bytes accepted through the existing artifact owners. The private
-protocol-contract and host-neutral materializer-core checkpoints are complete.
-The `flarex-dev` prebuild producer, upload correlation, and production routing
-remain separately gated.
+protocol-contract, host-neutral materializer-core, and `flarex-dev` prebuild
+producer-parity checkpoints are complete. Upload correlation and production
+routing remain separately gated.
 
 TypeScript or Vite/Rolldown/esbuild compilation, package installation,
 arbitrary build plugins, network dependency resolution, arbitrary module

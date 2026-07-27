@@ -1091,6 +1091,25 @@ export function makeDeclarativeV2MaterializationBudgetV1(
   return Result.succeed(budget);
 }
 
+/**
+ * Authenticates an opaque materialization budget without reading any of its
+ * caller-visible properties. Adapters that must allocate materializer input
+ * use the returned package-owned handle for their own preflight.
+ */
+export function admitDeclarativeV2MaterializationBudgetV1(
+  rawBudget: DeclarativeV2MaterializationBudgetV1,
+): Result.Result<
+  DeclarativeV2MaterializationBudgetV1,
+  DeclarativeV2MaterializationV1Error
+> {
+  const budget = rawBudget !== null && typeof rawBudget === "object"
+    ? OWNED_BUDGETS.get(rawBudget)
+    : undefined;
+  return budget === undefined
+    ? Result.fail(materializationError("materialize", "invalidBudget"))
+    : Result.succeed(budget);
+}
+
 export function materializeDeclarativeV2ArtifactsV1(
   program: CanonicalDeclarativeProgramV1,
   graphInput: unknown,
@@ -1100,15 +1119,8 @@ export function materializeDeclarativeV2ArtifactsV1(
   DeclarativeV2MaterializationV1Error
 > {
   return Result.gen(function* () {
-    const budget = rawBudget !== null && typeof rawBudget === "object"
-      ? OWNED_BUDGETS.get(rawBudget)
-      : undefined;
-    if (budget === undefined) {
-      return yield* Result.fail(materializationError(
-        "materialize",
-        "invalidBudget",
-      ));
-    }
+    const budget =
+      yield* admitDeclarativeV2MaterializationBudgetV1(rawBudget);
     const usage: MutableUsage = {
       modules: 0,
       entryBindings: 0,

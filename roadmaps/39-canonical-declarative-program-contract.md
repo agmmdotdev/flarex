@@ -5,11 +5,10 @@
 **Status:** The canonical-program preflight and first internal opt-in
 implementation slice are complete. The follow-on materialization preflight is
 also complete and accepted for the narrow inert slice defined below.
-Implementation has started: the M8 protocol-contract checkpoint and the
-host-neutral materializer-core checkpoint are complete and validated below.
-The direct `orders:place` fixture and analyzer-consumption proof exist only in
-tests; the private `flarex-dev` prebuild adapter has not started. No production
-producer, consumer, upload route, or activation path has been migrated.
+M8 is complete: the protocol contracts, host-neutral materializer core, direct
+`orders:place` fixture, analyzer-consumption proof, and private `flarex-dev`
+prebuild adapter are implemented and validated below. No production producer,
+consumer, upload route, stored artifact, or activation path has been migrated.
 
 This record owns the proposed standard contract boundary between:
 
@@ -995,9 +994,62 @@ Both required standing reviewers reported no remaining actionable findings on
 the final code diff.
 
 This checkpoint still has only one private producer: the direct test fixture.
-The remaining M8 producer work is a private `flarex-dev` prebuild adapter plus
-byte-for-byte parity against that fixture. Upload-core correlation remains a
-later M9 integration slice and production routing remains blocked.
+The second private producer and its parity receipt are recorded below.
+Upload-core correlation remains a later M9 integration slice and production
+routing remains blocked.
+
+## Materialization Implementation Receipt 3
+
+The final M8 checkpoint adds the private developer-tooling producer without
+changing V1 bundling, push, upload, backend, verifier, readiness, activation,
+or runtime routing:
+
+- `flarex-dev/internal/declarative-materializer-v1` combines the existing
+  loaded-SDK canonical-program adapter with an already-built `SourcePackage`
+  and the host-neutral materializer through one named Effect operation;
+- the `.js` logical-to-artifact binding convention remains owned by
+  `flarex-dev`. The adapter selects only declared function modules and the
+  execution module, while schema intent comes from the canonical program and
+  auth-bearing prebuilds fail closed until an auth-role slice is approved;
+- caller-supplied SourcePackage digests are not projected as authority. The
+  adapter supplies source text and source maps only; the materializer owns
+  byte snapshots and later backend owners must still derive authenticated
+  roots from accepted bytes;
+- a two-phase pure preflight bounds raw prebuilt module count, selected module
+  and binding counts, UTF-8 source and source-map bytes, and adapter
+  materialization bytes before allocating encoded arrays. A materializer-owned
+  admission operation authenticates the opaque budget before the adapter reads
+  any budget field. The adapter captures each admitted string once, preserves
+  left-to-right first failure, rejects sparse or accessor-backed producer
+  members, and rejects duplicate function or selected-module paths rather than
+  deduplicating them; and
+- a Vite-free SDK-prebuild fixture produces byte-identical source ingress,
+  semantic NDJSON, and usage receipts to the direct fixture. A separate
+  integration test proves that the existing Vite build owner's normalized
+  `SourcePackage` enters the same adapter without moving Vite into the
+  materializer.
+
+Focused validation passes:
+
+- `flarex-dev` and `@flarex/declarative-materializer` typechecks;
+- eleven adapter tests, fifteen connected canonical-program/source-package
+  tests, and all thirty materializer tests;
+- the workspace Effect runtime-boundary check; and
+- `git diff --check`.
+
+The broader serial `flarex-dev` run currently reports 201 of 205 tests passing
+across twenty files. The four failures are unchanged
+`executionArtifact.test.ts` import-policy cases that independently reproduce
+`window is not defined` instead of their expected sandbox messages; this
+adapter does not import or change that flow.
+
+Both required standing reviewers reported no remaining actionable
+implementation findings on the final code diff. The TypeScript reviewer found
+the earlier aggregate test count stale; the serial rerun above supplies the
+corrected receipt.
+
+M8 is now complete. M9 upload-core correlation remains a separate preflight
+and implementation decision, and production routing remains blocked.
 
 ## Preflight Exit Decision
 
@@ -1076,15 +1128,14 @@ semantics, and no downstream domain accepts an SDK object as authority.
 
 ## Next Correctness Gate
 
-Finish M8 with only the private `flarex-dev` prebuild adapter for the approved
-`orders:place` vertical. Prove that it and the existing direct fixture produce
-byte-identical source ingress data, semantic NDJSON, and usage receipts. Stop
-before any upload call, backend route, stored state, or production producer
-cutover.
+M8 is complete. The next work is only a new preflight for the in-memory
+upload-core correlation slice described in M9. That preflight must identify the
+existing Source Artifact V2 and Semantic Artifact V1 in-memory owners, exact
+adapter inputs, backend-derived root correlation, budgets, errors, and rollback
+before implementation begins.
 
-Only after that producer-parity checkpoint is reviewed and validated may the
-next separate preflight start for the in-memory upload-core correlation slice
-described in M9. It must not be folded into the materializer implementation.
+Do not fold upload calls, backend routes, stored state, or a production producer
+cutover into that preflight or infer implementation authority from M8.
 
 The host-neutral function-runtime work in roadmap 40 does not wait for that
 materializer merely to obtain an execution fixture. Its first exact

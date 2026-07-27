@@ -490,6 +490,9 @@ importers:
       '@flarex/analysis':
         specifier: workspace:*
         version: link:../analysis
+      '@flarex/declarative-materializer':
+        specifier: workspace:*
+        version: link:../declarative-materializer
       '@flarex/declarative-program':
         specifier: workspace:*
         version: link:../declarative-program
