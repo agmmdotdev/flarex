@@ -119,6 +119,15 @@ Effect requirement graph, owns lifecycle or configuration, needs live and test
 implementations, or benefits from construction-order checking in `R`. Keep a
 plain parameter when it remains local, lifecycle-free, and clearer.
 
+Treat an exported factory that closes over injected capabilities and returns an
+object of reusable Effect operations as service-shaped by default. The factory
+function may remain as the private `make` body of a Layer; the architectural
+problem is exporting the closure as a parallel manual dependency graph that
+hides requirements from `R`. Keep a public plain or scoped factory when the
+instances are deliberately local, request- or transaction-owned, or several
+instances must coexist. Record that lifetime or cardinality reason at the
+factory boundary instead of relying on neighboring precedent.
+
 ## Service Contract Rules
 
 - Define the service around a capability, not a file or table.

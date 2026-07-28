@@ -119,6 +119,12 @@ Effect-specific checks when Effect is used or should be used:
 - Verify exact `A`, `E`, and `R`, return-type stabilization where needed,
   service/Layer requirement closure, and static/runtime/encoded contract
   agreement.
+- For every added or materially expanded factory that closes over injected
+  capabilities and returns reusable Effect operations, report `Service/Layer
+  applicability:`. Require a `Context.Service` and Layer when it is shared,
+  lifecycle- or configuration-owned, or needs live/test implementations.
+  Accept a plain or scoped factory only with a concrete locality, lifetime, or
+  multi-instance cardinality reason.
 - Review `Effect.fn` / `fnUntraced` / `gen` / pipeline choice; Option, v4
   Result, Exit, Match, and conditional flow; at-source errors and safe retry;
   Effect HTTP composition; observability and redaction; Scope and fiber
@@ -127,12 +133,11 @@ Effect-specific checks when Effect is used or should be used:
 - Verify that `Option`, v4 `Result`, and `Exit` are used only for their intended
   semantics and that public `null`, omitted-field, `{ ok }`, wire, and
   persistence shapes remain owned by their protocols.
-- Treat `Result.isFailure(value)` followed later by `value.success`, or
-  `Result.isSuccess(value)` followed later by `value.failure`, as manual
-  unwrapping that requires inspection. A single genuinely local branch may
-  remain a direct guard, but repeated or dependent decoder guards must be
-  assessed as one composition and normally use `Result.map`, `flatMap`, or
-  `gen` while preserving validation order and first-failure behavior.
+- Flag `Result.isFailure` / `isSuccess` used to manually propagate, translate,
+  or rebox channels. Require `map`, `mapError`, `flatMap`, `filterOrFail`, or
+  `gen` while preserving order and first-failure behavior. Direct
+  `Result.fail` remains correct when originating a new failure from a raw
+  condition.
 - Verify exhaustive tagged and outcome handling where future variants matter;
   simple predicates may remain ordinary guards.
 - Verify tagged errors are mapped once at source, Schema-backed errors are used

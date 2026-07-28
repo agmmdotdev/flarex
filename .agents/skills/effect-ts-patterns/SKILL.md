@@ -45,6 +45,13 @@ different form:
 | Several dependent binds, loops, or branches | `Effect.gen` inside the operation boundary |
 | Foreign callback or application entrypoint | One lifecycle-owned runtime bridge |
 
+Before exporting or materially expanding a factory that closes over injected
+capabilities and returns reusable Effect operations, classify its ownership.
+Use a `Context.Service` and Layer when the capability is shared, lifecycle- or
+configuration-owned, or needs live and test implementations. Keep an explicit
+plain or scoped instance only when it is local, lifecycle-free, request- or
+transaction-owned, or intentionally supports several simultaneous instances.
+
 Choose `pipe`, generator composition, and collection combinators from their
 evaluation semantics, not spelling preference:
 
@@ -71,6 +78,11 @@ Refactor the whole composition shape, not each propagation guard mechanically.
 One transformation or dependent step usually reads as a short `map` / `flatMap`
 pipeline; several named or dependent successes usually read as `gen`. Preserve
 the original validation, effect-execution, and first-failure order either way.
+
+Do not sequence a `Result` by inspecting its tag and manually propagating,
+translating, or reboxing its channels. Use `map`, `mapError`, `flatMap`,
+`filterOrFail`, or `gen`. Call `Result.fail` directly only to originate a new
+recoverable failure from a raw condition.
 
 Do not write a plain reusable function whose body only returns
 `Effect.gen(...)` when the installed version provides the appropriate

@@ -53,6 +53,34 @@ const decoded = Result.gen(function*() {
 })
 ```
 
+Do not manually translate one channel and then unwrap the other:
+
+```ts
+// Avoid
+const arena = planArena(input)
+if (Result.isFailure(arena)) {
+  return Result.fail(toPlanError(arena.failure))
+}
+return validateUsage(arena.success.usage)
+
+// Prefer
+return planArena(input).pipe(
+  Result.mapError(toPlanError),
+  Result.flatMap(arena => validateUsage(arena.usage)),
+)
+```
+
+Inside a larger `Result.gen`, translate before yielding:
+
+```ts
+const arena = yield* planArena(input).pipe(Result.mapError(toPlanError))
+const required = arena.usage
+```
+
+Use `Result.fail` to originate a new failure from a raw failed condition. Use
+`filterOrFail` when that condition validates an existing successful Result;
+do not inspect and rebox the Result by hand.
+
 Do not replace that flow with `Result.all({ limit: decodeLimit(), cursor:
 decodeCursor() })` unless both calls are intentionally independent: JavaScript
 invokes both decoders before `Result.all` receives the record. The same eager
@@ -210,6 +238,11 @@ default.
 ## Gen, pipe, service, Layer, and HTTP together
 
 T3 Code's APNs client demonstrates the intended separation:
+
+An exported factory that closes over injected capabilities and returns reusable
+Effect methods is service-shaped by default. Keep its `make` function as Layer
+construction and leave dependencies visible in `R`; retain a plain or scoped
+factory only when locality, lifetime, or multi-instance cardinality requires it.
 
 ```ts
 const make = Effect.gen(function*() {
