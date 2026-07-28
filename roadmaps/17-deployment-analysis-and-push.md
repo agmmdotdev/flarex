@@ -1521,36 +1521,92 @@ activation remain blocked until their production host composition is proven.
         settled-readback, progress, and monolithic bytes and identities remain
         unchanged. The capability remains unwired, production-unreachable, and
         insufficient to prove real cold recovery.
-      - `A1b2c0b2c2b` remains blocked behind the research-only
-        `A1b2c0b2c2b0-P` authenticated verifier command-plan authority
-        preflight. The admitted request carries the `command_budget` ceiling
-        and only the irreversible current-progress digest, while the verifier
-        arena separately requires an exact `attempt_usage` requirement plan
-        and the response and settlement require canonical command-specific
-        next-progress bytes. The missing plan must therefore bind the complete
-        canonical current progress, deterministic next progress, and exact
-        verifier requirement frame to the reservation, authenticated input,
-        candidate, and command range. A ceiling is not the required arena
-        shape, a digest cannot reconstruct its frame, the current candidate
-        frame stores neither progress cursor nor verifier requirement plan,
-        and arbitrary analyzer bytes remain inert rather than becoming
-        authority. The preflight must choose between a separately authenticated
-        companion representation and a deliberate revision of the request
-        contract; neither representation is approved or green.
+      - `A1b2c0b2c2b` remains blocked behind the unimplemented authenticated
+        verifier command-plan sequence `A1b2c0b2c2b0a` through
+        `A1b2c0b2c2b0c`. The accepted representation is a separately
+        versioned private authenticated command-plan companion; the accepted
+        A1b2c0b0 request identity, grammar, bytes, admitted view, and existing
+        producer operation remain unchanged. The reservation's existing
+        `commandInputSha256` remains the opaque canonical command-input
+        commitment. A new domain-separated preimage extends, rather than
+        replaces, the authenticated selection, module, and fresh-input facts
+        with candidate, command-kind/sequence, command-budget,
+        range-and-predecessor, analyzer-identity, and verifier-identity lineage
+        plus digests of the canonical current `progress_cursor`, exact
+        verifier arena-requirement `attempt_usage`, and deterministic
+        command-specific next `progress_cursor`.
 
-        The bounded read-only evidence scope for `A1b2c0b2c2b0-P` is:
-        `packages/analysis/src/declarativeV2VerifierExecutableV1.ts`,
-        `packages/analysis/src/declarativeV2VerifierV1.ts`,
-        `packages/flarex-backend/src/declarativeV2/AuthenticatedCommandProducer.ts`,
-        `packages/executor-http/src/declarativeV2AuthenticatedCommandV1.ts`,
-        `packages/executor-http/src/declarativeV2AuthenticatedCommandResponseV1.ts`,
-        `packages/executor-http/src/declarativeV2AuthenticatedCommandRestartInputV1.ts`,
-        `packages/persistence-postgres/src/declarativeV2VerifierProgressRepositoryV2.ts`,
-        `packages/flarex-protocol/src/declarative-v2-physical-v1.ts`,
-        `packages/flarex-protocol/src/declarative-v2-verifier-progress-v2.ts`,
-        `apps/analyzer/src/Verification.ts`, `apps/executor/src/worker.ts`, and
-        these two living roadmaps. The blocked candidate c2b implementation
-        allowlist is exactly
+        The commitment is deliberately two-stage. The pre-reservation preimage
+        excludes the not-yet-completed reservation and request digests, and its
+        hash remains the reservation's existing `commandInputSha256`. After
+        the reservation and unchanged request bytes exist, the final inert
+        companion additionally binds their exact digests without creating a
+        recursive reservation hash. Persistence continues to interpret
+        `commandInputSha256` only as immutable lineage: it proves authoritative
+        attempt, candidate, current-progress, sequence, predecessor, budget,
+        and fence state but does not interpret the new preimage. Backend fresh
+        authentication and the later analyzer independently recompute the
+        plan. Companion bytes alone mint no authority.
+
+        Persistence owns canonical current progress. Pure
+        `@flarex/analysis` policy owns deterministic next progress and the
+        exact arena requirement. `flarex-backend` owns fresh-input
+        authentication and commitment recomputation, while
+        `@flarex/executor-http` owns only bounded companion encoding,
+        admission, and result-bound capability lifecycle. Source pages advance
+        a contiguous authenticated module range from the current source
+        ordinal and either remain in `source` or enter `parse`; parse commands
+        consume exactly the current module ordinal and either remain in
+        `parse` or enter `link`; the current body-free `link_page` grammar
+        completes one bounded link command and enters `registration`; and the
+        complete authenticated `registration_page` enters `verdict`.
+        `finalize` remains forbidden. `settledSequence` becomes the command
+        sequence, predecessor semantics remain exactly those required by the
+        repository, and every ordinal inactive in the resulting phase is
+        canonically zero. All ordinal, count, range, and arena-size arithmetic
+        is checked against signed-int64 and verifier addressability bounds.
+
+        `A1b2c0b2c2b0a` is the smallest next candidate gate. Its exact
+        five-path allowlist is
+        `packages/analysis/src/declarativeV2VerifierCommandPlanV1.ts`,
+        `packages/analysis/test/declarative-v2-verifier-command-plan-v1.test.ts`,
+        `packages/analysis/package.json`, and these two living roadmaps. This
+        private pure analysis subpath must derive all 26 arena-requirement
+        dimensions from authenticated immutable facts and fixed verifier
+        identities, use the command budget only as a ceiling, reject any
+        dimension it cannot prove, and never default, reset, refund, or copy
+        the ceiling wholesale into the requirement.
+
+        `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the
+        separately versioned private companion codec with hostile-safe
+        canonical admission, metadata-before-payload ordering, allowances from
+        zero through 1,024, exact precharge/accounting, owned bytes, and
+        factory-local result-bound single-terminal handles. It changes no
+        protocol frame, package root, request, response, or restart identity.
+        `A1b2c0b2c2b0c` later belongs to the backend producer: it recomputes
+        the plan after fresh proof/session authentication, checks the existing
+        reservation commitments, and emits the unchanged request plus final
+        inert companion. Uncertain reservation outcomes revoke process-local
+        handles; cold retry first observes durable state and then performs a
+        fresh deterministic authentication and reconstruction. No handle or
+        plan capability is serialized or persisted.
+
+        Pure command-plan, transition, canonical, and companion mechanics stay
+        in Effect v4 `Result`/plain TypeScript. Backend authentication and
+        hashing, repository confirmed-rollback retry and decision uncertainty,
+        and the later c3 request `Scope`, cancellation, interruption, full
+        foreign `Cause`, acquisition, release, and finalization remain
+        Effect-owned by their existing boundaries. Required b0a validation
+        covers all four legal command grammars, forbidden `finalize`, every
+        legal and illegal transition, all 26 dimensions with exact, one-less,
+        and ceiling-plus-one cases, checked int64/addressability limits,
+        hostile accessor order, deterministic two-cold equality, exact
+        arena/executable acceptance, focused/full analysis and compatibility
+        suites, typecheck/build, generators/identities, frozen install,
+        Effect/docs/diff checks, and both exact-final project reviewers. None
+        of b0a, b0b, or b0c is implementation-authorized or green.
+
+        The blocked candidate c2b implementation allowlist remains exactly
         `packages/analysis/src/declarativeV2VerifierCommandEngineV1.ts`,
         `packages/analysis/test/declarative-v2-verifier-command-engine-v1.test.ts`,
         `packages/analysis/src/declarativeV2VerifierV1.ts`,
@@ -1579,7 +1635,7 @@ activation remain blocked until their production host composition is proven.
    `A1b2c0b2c1a` restart-input transport, and `A1b2c0b2c1b`
    capability-free historical settled-page readback are implemented.
    The c2a claimed-source prerequisite is also implemented but inert. The
-   c2b0-P authority preflight, c2b analyzer command engine, Effect host
+   b0a/b0b/b0c command-plan sequence, c2b analyzer command engine, Effect host
    composition, and a production caller remain absent. These transport,
    readback, and claim owners establish bounded inert bytes and process-local
    capabilities but do not prove real cold delivery: cold `link_page` and
