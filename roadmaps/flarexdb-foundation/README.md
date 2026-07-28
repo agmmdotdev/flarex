@@ -1161,17 +1161,20 @@ implemented:
   formulas; parse-module formulas must not be generalized to them.
 
   `A1b2c0b2c2b0a0b0a — protocol-owned resumable verifier-progress encode-into
-  cursor` is the next unimplemented prerequisite before
-  `A1b2c0b2c2b0a0b0`. Its exact future owner set is only
+  cursor` is implemented and committed in the existing internal
+  progress-codec owner. Its exact owner set is only
   `packages/flarex-protocol/src/declarative-v2-verifier-progress-v2.ts` and
   `packages/flarex-protocol/test/declarative-v2-verifier-progress-v2.test.ts`.
-  It adds a factory-local opaque `create`/admit/`step`/`close` cursor beside
+  It adds a factory-local opaque `create`/`admit`/`step`/`close` cursor beside
   the existing codec through the intentional
   `flarex-protocol/internal/declarative-v2-verifier-progress-v2` subpath.
   There is no new module, manifest entry, wire identity, frame kind, decoder,
-  public root contract, or executor-HTTP change. The atomic encoder remains
-  the compatibility wrapper and current transports remain byte-for-byte
-  unchanged.
+  public root contract, or executor-HTTP change. The atomic encoder is now the
+  compatibility wrapper over that owner, preserving canonical bytes,
+  identities, grammar, decoder, callers, root closure, and current transport
+  behavior. No external analysis or executor consumer invokes the resumable
+  symbols yet; existing callers reach the owner only through the compatible
+  atomic wrapper.
 
   Creation preserves hostile-safe capture and first-failure order, computes
   checked exact frame length/work, admits the destination once before a
@@ -1191,23 +1194,26 @@ implemented:
   defects. The later Effect host owns request `Scope`, cancellation,
   interruption, full foreign `Cause`, resources, and finalization. Cold
   reconstruction restarts at offset zero with identical bytes/receipts; no
-  serialized mid-frame recovery is added. Required b0a validation covers all
+  serialized mid-frame recovery is added. Validation covers all
   nine frame kinds and 26 budget fields, predecessor layouts,
   atomic-versus-cursor goldens/two-cold equality, every split, allowances
   `0/1/1024` and rejected `1025`, exact delta/aggregate work,
   admission-before-write, hostile capture/destination/reentrancy/lifecycle,
   ownership/failure precedence, destination reuse, root closure, focused/full
   protocol and direct analysis/executor-HTTP compatibility, typecheck/build,
-  frozen-install, Effect/diff checks, and both exact-final reviewers. b0a is
-  private, production-unreachable, unimplemented, unaccepted, and not green.
+  frozen-install, and Effect/diff checks; those lanes are green and both
+  exact-final reviewers are clean. The additive cursor contract remains
+  private, inert, and unwired outside its compatibility wrapper; it creates no
+  analyzer, executor, repository, route, readiness, or activation authority.
 
   `A1b2c0b2c2b0a0b0 — private source-page metadata accumulator, sizing, and
   deterministic terminal driver` has a provisional two-file implementation,
   but it remains unaccepted, uncommitted, unwired, production-unreachable, and
   uncommittable. Its credit banking consumes allowance without protocol work
-  and later invokes the whole atomic encoder. After b0a closes, b0 must consume
-  the cursor and correct sizing/sealing accounting, retained caller
-  references, hostile-array access, and canonical validation-versus-budget
+  and later invokes the whole atomic encoder. Before b0 can be accepted, it
+  must consume the committed cursor and correct sizing/sealing accounting,
+  retained caller references, hostile-array access, and canonical
+  validation-versus-budget
   failure ordering before another acceptance review.
 
   The accepted call graph still stops before a durable source-page executor:
@@ -1333,12 +1339,13 @@ The private c1b historical settled-page readback is implemented beside the
 private c1a restart-input transport, and the private c2a claimed-source
 prerequisite is implemented but inert. The private a0a parse-module sizing
 policy is implemented and committed, while the four provisional b0a
-command-plan files remain unaccepted and uncommitted. Source-page sizing is
-blocked first on the unimplemented private b0a0b0a protocol cursor above. The
-provisional b0a0b0 source-page implementation is also unaccepted and
-uncommittable until it consumes that cursor and closes its documented
-accounting, ownership, hostile-input, and failure-order findings; link and
-registration sizing remain separately unresolved.
+command-plan files remain unaccepted and uncommitted. The private b0a0b0a
+protocol cursor is implemented and committed, but no external analysis or
+executor consumer invokes its resumable symbols. The provisional b0a0b0
+source-page implementation remains unaccepted and uncommittable until it
+consumes that cursor and closes its documented accounting, ownership,
+hostile-input, and failure-order findings; link and registration sizing remain
+separately unresolved.
 b0b/b0c, the c2b command engine, Effect
 host, production caller, and composition proof remain absent. These inert
 owners do not prove real cold delivery: cold

@@ -1638,19 +1638,22 @@ activation remain blocked until their production host composition is proven.
         generalized to them.
 
         `A1b2c0b2c2b0a0b0a — protocol-owned resumable verifier-progress
-        encode-into cursor` is the next unimplemented prerequisite before
-        `A1b2c0b2c2b0a0b0`. Its exact future owner set is only
+        encode-into cursor` is implemented and committed in the existing
+        internal progress-codec owner. Its exact owner set is only
         `packages/flarex-protocol/src/declarative-v2-verifier-progress-v2.ts`
         and
         `packages/flarex-protocol/test/declarative-v2-verifier-progress-v2.test.ts`.
-        It adds a factory-local opaque `create`/admit/`step`/`close` cursor
+        It adds a factory-local opaque `create`/`admit`/`step`/`close` cursor
         beside the existing codec through the intentional
         `flarex-protocol/internal/declarative-v2-verifier-progress-v2`
         subpath. It adds no module, package-manifest entry, wire identity,
         frame kind, public package-root contract, decoder, or executor-HTTP
-        change. The existing atomic encoder remains the compatibility wrapper,
-        and current request, response, and restart transports keep their
-        present whole-frame behavior.
+        change. The existing atomic encoder is now the compatibility wrapper
+        over that owner, so canonical bytes, identities, grammar, decoder,
+        callers, package-root closure, and current request, response, and
+        restart transport behavior are preserved. No external analysis or
+        executor consumer invokes the resumable symbols yet; only existing
+        atomic callers reach the owner through the compatible wrapper.
 
         Creation preserves hostile-safe capture and first-failure order,
         computes checked exact frame length/work, invokes trusted destination
@@ -1673,7 +1676,7 @@ activation remain blocked until their production host composition is proven.
         `Scope`, cancellation, interruption, full foreign `Cause`, resources,
         and finalization. Cold reconstruction starts from offset zero with
         identical bytes and receipts; no serialized mid-frame recovery is
-        added. Required b0a validation covers all nine frame kinds and all 26
+        added. Validation covers all nine frame kinds and all 26
         budget fields, predecessor layouts, atomic-versus-cursor golden and
         two-cold equality, every split, allowances `0/1/1024` and rejected
         `1025`, exact delta/aggregate work, admission-before-write, hostile
@@ -1681,18 +1684,20 @@ activation remain blocked until their production host composition is proven.
         encoder/decoder ownership and failure precedence, destination reuse,
         package-root closure, focused/full protocol and direct
         analysis/executor-HTTP compatibility, typecheck/build, frozen-install,
-        Effect/diff checks, and both exact-final reviewers. b0a remains
-        private, production-unreachable, unimplemented, unaccepted, and not
-        green.
+        and Effect/diff checks; those lanes are green and both exact-final
+        reviewers are clean. The additive cursor contract remains private,
+        inert, and unwired outside its compatibility wrapper; it creates no
+        analyzer, executor, repository, route, readiness, or activation
+        authority.
 
         `A1b2c0b2c2b0a0b0 — private source-page metadata accumulator, sizing,
         and deterministic terminal driver` has a provisional two-file
         implementation, but it remains unaccepted, uncommitted, unwired,
         production-unreachable, and uncommittable. Its current credit banking
         consumes allowance without performing protocol work and later invokes
-        the whole atomic encoder. After b0a closes, b0 must consume the
-        protocol cursor and correct sizing/sealing accounting, retained caller
-        references, hostile-array access, and canonical
+        the whole atomic encoder. Before b0 can be accepted, it must consume the
+        committed protocol cursor and correct sizing/sealing accounting,
+        retained caller references, hostile-array access, and canonical
         validation-versus-budget failure ordering before another acceptance
         review.
 
