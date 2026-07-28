@@ -969,8 +969,9 @@ in `apps/executor`.
 The accepted order is `A1b2c0b2c0` private pure bounded
 analyzer-to-executor command-response transport, split `A1b2c0b2c1a`
 executor-HTTP restart-input transport and `A1b2c0b2c1b` persistence-owned
-settled-page readback, `A1b2c0b2c2` pure analyzer command engine, then
-`A1b2c0b2c3` Effect-owned analyzer host/adapter. The private, inert
+settled-page readback, split `A1b2c0b2c2a` claimed restart-source prerequisite
+and `A1b2c0b2c2b` pure analyzer command engine, then `A1b2c0b2c3`
+Effect-owned analyzer host/adapter. The private, inert
 `A1b2c0b2c0` response transport and `A1b2c0b2c1a` restart-input transport are
 implemented:
 
@@ -1029,20 +1030,60 @@ implemented:
   package export, or connected-client adapter-source change was needed. It
   supplies inert historical bytes for `A1b2c0b2c2` and `A1b2c0b2c3`, but does
   not itself prove settled cold delivery through an analyzer rehydration host.
-- `A1b2c0b2c2` consumes the admitted view plus that restart source and produces
-  a bounded result cursor, but remains unwired.
+- `A1b2c0b2c2a` is the next unimplemented prerequisite. The executor-HTTP
+  restart-input decoder already validates the authenticated restart header and
+  terminal, but its current page source retains only page state and exposes no
+  identity claim. The existing internal subpath must add a same-factory opaque
+  claimed restart-source capability. One hostile-safe claim compares the
+  retained `targetRequestSha256`, `targetReservationSha256`,
+  `targetCommandKind`, `targetSequence`, `analyzerReleaseSha256`,
+  `analyzerIdentitySha256`, `verifierIdentitySha256`,
+  `rangeAndPredecessorTailsSha256`, `sourceReservationSha256`,
+  `sourceCommandKind`, `sourceSequence`, `sourceAuthenticatedInputSha256`,
+  `sourceOutputManifestSha256`, and `sourceSettledReceiptSha256`, plus the
+  already verified terminal `pageCount`, `finalPageSha256` final page
+  digest/tail, `manifestSequenceSha256`, `payloadByteLength`, and
+  `payloadSha256`. Only after that complete retained tuple matches may metadata
+  or body authority become usable. Success consumes and revokes the raw source
+  and returns a result-bound claimed source. Mismatch, forged, cross-factory,
+  cross-result, reuse, stale, exhausted, or closed use fails closed and
+  terminalizes. Metadata-before-payload ordering, sequential page/body
+  transfer, allowances from zero through 1,024, exact precharge/accounting,
+  ownership release, and inert authority exclusions remain unchanged.
+
+  The exact proposed implementation allowlist is:
+
+  1. `packages/executor-http/src/declarativeV2AuthenticatedCommandRestartInputV1.ts`
+  2. `packages/executor-http/test/declarativeV2AuthenticatedCommandRestartInputV1.test.ts`
+  3. `roadmaps/17-deployment-analysis-and-push.md`
+  4. `roadmaps/flarexdb-foundation/README.md`
+
+  Existing request, response, restart-input, settled-readback, progress, and
+  monolithic bytes and identities remain unchanged. This checkpoint is not
+  implemented or green.
+- `A1b2c0b2c2b` later adds the pure analyzer command engine.
+  `@flarex/analysis` remains the semantic engine owner, while a private pure
+  `apps/analyzer` adapter connects executor-HTTP opaque ports without making
+  analysis depend on executor-http. It consumes the already admitted,
+  same-factory result-bound admitted-command view plus the newly claimed
+  restart source and produces a bounded result cursor. Only the restart source
+  gains this c2a claim. The engine remains unimplemented, unwired, and
+  production-unreachable.
 - `A1b2c0b2c3` owns the fresh release handshake, single-use claim, request
   `Scope`, cancellation and interruption, full foreign `Cause`, and
-  finalization at the Effect host boundary.
+  resource acquisition, release, and finalization at the Effect host boundary.
+  Pure synchronous claim and engine mechanics remain in `Result` and plain
+  TypeScript.
 
 The private c1b historical settled-page readback is implemented beside the
-private c1a restart-input transport. The command engine, Effect host,
-production caller, and composition proof remain absent. These inert owners do
-not prove real cold delivery: cold `link_page` and link-dependent registration
-cannot rely on warm WeakMap state. Pure transport mechanics remain in
-`Result`/plain TypeScript, persistence I/O remains inside its existing Effect
-repository boundary, and the later host owns request `Scope`, cancellation,
-interruption, full foreign `Cause`, and resource finalization.
+private c1a restart-input transport. The c2a claimed-source prerequisite, c2b
+command engine, Effect host, production caller, and composition proof remain
+absent. These inert owners do not prove real cold delivery: cold `link_page`
+and link-dependent registration cannot rely on warm WeakMap state. Pure claim,
+transport, and engine mechanics remain in `Result`/plain TypeScript,
+persistence I/O remains inside its existing Effect repository boundary, and
+the later host owns request `Scope`, cancellation, interruption, full foreign
+`Cause`, and resource finalization.
 Candidate preparation, repository `Work`/fence authorization, `apps/executor`
 composition, C07, U2, and the private real-system harness remain later distinct
 gates. The current monolithic analyzer path remains unchanged. None of these
