@@ -19,6 +19,8 @@ import {
   DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESTART_INPUT_PROTOCOL_VERSION_V1,
   makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1,
   type DeclarativeV2AuthenticatedCommandRestartInputBudgetV1,
+  type DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1,
+  type DeclarativeV2AuthenticatedCommandRestartInputClaimV1,
   type DeclarativeV2AuthenticatedCommandRestartInputEncoderV1,
   type DeclarativeV2AuthenticatedCommandRestartInputFactoryV1,
   type DeclarativeV2AuthenticatedCommandRestartInputFrameV1,
@@ -97,6 +99,7 @@ describe("Declarative V2 authenticated command restart input V1", () => {
         const decoded = decodeToPages(
           [bytes.subarray(0, split), bytes.subarray(split)],
           bytes.byteLength,
+          restartClaim(frames),
         );
         expect(decoded).toEqual([
           Uint8Array.of(1, 2, 3),
@@ -108,21 +111,31 @@ describe("Declarative V2 authenticated command restart input V1", () => {
   );
 
   it("keeps registration parse and link recovery as separate exchanges", async () => {
-    const parse = encode(await restartFrames(
+    const parseFrames = await restartFrames(
       "registration_page",
       "parse_module",
       [Uint8Array.of(1, 2)],
-    ));
-    const link = encode(await restartFrames(
+    );
+    const linkFrames = await restartFrames(
       "registration_page",
       "link_page",
       [Uint8Array.of(3, 4)],
-    ));
+    );
+    const parse = encode(parseFrames);
+    const link = encode(linkFrames);
     expect(parse).not.toEqual(link);
-    expect(decodeToPages([parse], parse.byteLength)).toEqual([
+    expect(decodeToPages(
+      [parse],
+      parse.byteLength,
+      restartClaim(parseFrames),
+    )).toEqual([
       Uint8Array.of(1, 2),
     ]);
-    expect(decodeToPages([link], link.byteLength)).toEqual([
+    expect(decodeToPages(
+      [link],
+      link.byteLength,
+      restartClaim(linkFrames),
+    )).toEqual([
       Uint8Array.of(3, 4),
     ]);
   });
@@ -278,13 +291,19 @@ describe("Declarative V2 authenticated command restart input V1", () => {
 
   it("admits every manifest before payload allocation and transfers metadata then body once", async () => {
     const pages = [Uint8Array.of(1, 2, 3), Uint8Array.of(4, 5, 6)];
-    const bytes = encode(await restartFrames(
+    const frames = await restartFrames(
       "registration_page",
       "link_page",
       pages,
-    ));
+    );
+    const bytes = encode(frames);
     const factory = makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
-    const source = decode(factory, [bytes], bytes.byteLength);
+    const source = decode(
+      factory,
+      [bytes],
+      bytes.byteLength,
+      restartClaim(frames),
+    );
     const zero = unwrap(factory.metadata(source, 0n, 0));
     expect(zero.status).toBe("pending");
     expect(zero.receipt.delta.transitions).toBe(0);
@@ -298,7 +317,12 @@ describe("Declarative V2 authenticated command restart input V1", () => {
 
     const secondFactory =
       makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
-    const secondSource = decode(secondFactory, [bytes], bytes.byteLength);
+    const secondSource = decode(
+      secondFactory,
+      [bytes],
+      bytes.byteLength,
+      restartClaim(frames),
+    );
     const firstMetadata = unwrap(secondFactory.metadata(secondSource, 0n, 1));
     if (firstMetadata.status !== "metadata") throw new Error("metadata");
     const bodyZero = unwrap(secondFactory.body(
@@ -323,6 +347,415 @@ describe("Declarative V2 authenticated command restart input V1", () => {
       BigInt(pages[0]!.byteLength),
       1,
     ))).toBe("staleAuthority");
+  });
+
+  it("requires one exact claim before metadata or body authority is usable", async () => {
+    const frames = await restartFrames(
+      "registration_page",
+      "link_page",
+      [Uint8Array.of(1, 2, 3)],
+    );
+    const bytes = encode(frames);
+    const expected = restartClaim(frames);
+
+    const metadataFactory =
+      makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+    const rawMetadata = decodeWithHandle(
+      metadataFactory,
+      [bytes],
+      bytes.byteLength,
+    ).source;
+    expect(failureReason(metadataFactory.metadata(
+      rawMetadata as unknown as
+        DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1,
+      0n,
+      1,
+    ))).toBe("staleAuthority");
+    expect(failureReason(
+      metadataFactory.claimSource(rawMetadata, expected, 1_024),
+    )).toBe("closed");
+
+    const bodyFactory =
+      makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+    const rawBody = decodeWithHandle(
+      bodyFactory,
+      [bytes],
+      bytes.byteLength,
+    ).source;
+    expect(failureReason(bodyFactory.body(
+      rawBody as unknown as
+        DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1,
+      0n,
+      3n,
+      1,
+    ))).toBe("staleAuthority");
+    expect(failureReason(
+      bodyFactory.claimSource(rawBody, expected, 1_024),
+    )).toBe("closed");
+  });
+
+  it("binds every retained target, source, and terminal claim field", async () => {
+    const frames = await restartFrames(
+      "registration_page",
+      "link_page",
+      [Uint8Array.of(1, 2), Uint8Array.of(3)],
+    );
+    const bytes = encode(frames);
+    const expected = restartClaim(frames);
+    const mutations: readonly (
+      readonly [
+        string,
+        (claim: DeclarativeV2AuthenticatedCommandRestartInputClaimV1) =>
+          DeclarativeV2AuthenticatedCommandRestartInputClaimV1,
+      ]
+    )[] = [
+      ["targetRequestSha256", claim => ({
+        ...claim,
+        targetRequestSha256: digest(101),
+      })],
+      ["targetReservationSha256", claim => ({
+        ...claim,
+        targetReservationSha256: digest(102),
+      })],
+      ["targetCommandKind", claim => ({
+        ...claim,
+        targetCommandKind: "source_page",
+      })],
+      ["targetSequence", claim => ({ ...claim, targetSequence: 10n })],
+      ["analyzerReleaseSha256", claim => ({
+        ...claim,
+        analyzerReleaseSha256: digest(103),
+      })],
+      ["analyzerIdentitySha256", claim => ({
+        ...claim,
+        analyzerIdentitySha256: digest(104),
+      })],
+      ["verifierIdentitySha256", claim => ({
+        ...claim,
+        verifierIdentitySha256: digest(105),
+      })],
+      ["rangeAndPredecessorTailsSha256", claim => ({
+        ...claim,
+        rangeAndPredecessorTailsSha256: digest(106),
+      })],
+      ["sourceReservationSha256", claim => ({
+        ...claim,
+        sourceReservationSha256: digest(107),
+      })],
+      ["sourceCommandKind", claim => ({
+        ...claim,
+        sourceCommandKind: "parse_module",
+      })],
+      ["sourceSequence", claim => ({ ...claim, sourceSequence: 8n })],
+      ["sourceAuthenticatedInputSha256", claim => ({
+        ...claim,
+        sourceAuthenticatedInputSha256: digest(108),
+      })],
+      ["sourceOutputManifestSha256", claim => ({
+        ...claim,
+        sourceOutputManifestSha256: digest(109),
+      })],
+      ["sourceSettledReceiptSha256", claim => ({
+        ...claim,
+        sourceSettledReceiptSha256: digest(110),
+      })],
+      ["pageCount", claim => ({ ...claim, pageCount: 3n })],
+      ["payloadByteLength", claim => ({
+        ...claim,
+        payloadByteLength: 4n,
+      })],
+      ["finalPageSha256", claim => ({
+        ...claim,
+        finalPageSha256: digest(111),
+      })],
+      ["manifestSequenceSha256", claim => ({
+        ...claim,
+        manifestSequenceSha256: digest(112),
+      })],
+      ["payloadSha256", claim => ({
+        ...claim,
+        payloadSha256: digest(113),
+      })],
+    ];
+    for (const [field, mutate] of mutations) {
+      const factory =
+        makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+      const raw = decodeWithHandle(
+        factory,
+        [bytes],
+        bytes.byteLength,
+      ).source;
+      const mismatch = factory.claimSource(raw, mutate(expected), 1_024);
+      expect(Result.isFailure(mismatch), field).toBe(true);
+      expect(
+        ["identityMismatch", "lineageMismatch", "digestMismatch"],
+        field,
+      ).toContain(
+        Result.isFailure(mismatch) ? mismatch.failure.reason : undefined,
+      );
+      expect(failureReason(factory.claimSource(raw, expected, 1_024)), field)
+        .toBe("closed");
+    }
+  }, 30_000);
+
+  it("meters claim work exactly and fails closed on hostile, insufficient-budget, and invalid allowance input", async () => {
+    const frames = await restartFrames(
+      "link_page",
+      "parse_module",
+      [Uint8Array.of(1, 2, 3)],
+    );
+    const bytes = encode(frames);
+    const expected = restartClaim(frames);
+    const probeFactory =
+      makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+    const probe = decodeWithHandle(
+      probeFactory,
+      [bytes],
+      bytes.byteLength,
+    );
+    const zero = unwrap(probeFactory.claimSource(probe.source, expected, 0));
+    expect(zero.status).toBe("pending");
+    expect(zero.receipt.delta).toEqual(zeroUsage());
+    const one = unwrap(probeFactory.claimSource(probe.source, expected, 1));
+    expect(one.status).toBe("pending");
+    expect(one.receipt.delta).toEqual(zeroUsage());
+    const complete = unwrap(
+      probeFactory.claimSource(probe.source, expected, 1_024),
+    );
+    expect(complete.status).toBe("complete");
+    expect(complete.receipt.delta).toMatchObject({
+      allocationBytes: 256,
+      copyBytes: 0,
+      scanBytes: 832,
+      transitions: 872,
+    });
+    expect(failureReason(
+      probeFactory.claimSource(probe.source, expected, 1_024),
+    )).toBe("closed");
+
+    for (const dimension of [
+      "allocationBytes",
+      "scanBytes",
+      "transitions",
+    ] as const) {
+      const budgetKey =
+        `maximum${dimension[0]!.toUpperCase()}${dimension.slice(1)}` as
+          keyof DeclarativeV2AuthenticatedCommandRestartInputBudgetV1;
+      const addition = complete.receipt.delta[dimension];
+      const exactBudget = {
+        ...budget,
+        [budgetKey]: probe.usage[dimension] + addition,
+      };
+      const exactFactory =
+        makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+      const exactRaw = decodeWithHandle(
+        exactFactory,
+        [bytes],
+        bytes.byteLength,
+        exactBudget,
+      ).source;
+      expect(
+        unwrap(exactFactory.claimSource(exactRaw, expected, 1_024)).status,
+        dimension,
+      ).toBe("complete");
+
+      const oneLessFactory =
+        makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+      const oneLessRaw = decodeWithHandle(
+        oneLessFactory,
+        [bytes],
+        bytes.byteLength,
+        {
+          ...exactBudget,
+          [budgetKey]: exactBudget[budgetKey] - 1,
+        },
+      ).source;
+      expect(
+        failureReason(
+          oneLessFactory.claimSource(oneLessRaw, expected, 1_024),
+        ),
+        dimension,
+      ).toBe(`${dimension}Exceeded`);
+      expect(failureReason(
+        oneLessFactory.claimSource(oneLessRaw, expected, 1_024),
+      )).toBe("closed");
+    }
+
+    let getterCalls = 0;
+    const accessorClaim = { ...expected };
+    Object.defineProperty(accessorClaim, "targetRequestSha256", {
+      enumerable: true,
+      get: () => {
+        getterCalls += 1;
+        return expected.targetRequestSha256;
+      },
+    });
+    const hostileFactory =
+      makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+    const hostileRaw = decodeWithHandle(
+      hostileFactory,
+      [bytes],
+      bytes.byteLength,
+    ).source;
+    expect(
+      unwrap(hostileFactory.claimSource(hostileRaw, accessorClaim, 1)).status,
+    ).toBe("pending");
+    expect(getterCalls).toBe(0);
+    expect(failureReason(
+      hostileFactory.claimSource(hostileRaw, accessorClaim, 1_024),
+    )).toBe("invalidInput");
+    expect(getterCalls).toBe(0);
+    expect(failureReason(
+      hostileFactory.claimSource(hostileRaw, expected, 1_024),
+    )).toBe("closed");
+
+    const proxyFactory =
+      makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+    const proxyRaw = decodeWithHandle(
+      proxyFactory,
+      [bytes],
+      bytes.byteLength,
+    ).source;
+    expect(failureReason(proxyFactory.claimSource(
+      proxyRaw,
+      new Proxy({}, {
+        ownKeys: () => {
+          throw new Error("hostile");
+        },
+      }),
+      1_024,
+    ))).toBe("invalidInput");
+    expect(failureReason(
+      proxyFactory.claimSource(proxyRaw, expected, 1_024),
+    )).toBe("closed");
+
+    const detached = new Uint8Array(expected.targetRequestSha256);
+    structuredClone(detached, { transfer: [detached.buffer] });
+    const detachedFactory =
+      makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+    const detachedRaw = decodeWithHandle(
+      detachedFactory,
+      [bytes],
+      bytes.byteLength,
+    ).source;
+    expect(failureReason(detachedFactory.claimSource(
+      detachedRaw,
+      { ...expected, targetRequestSha256: detached },
+      1_024,
+    ))).toBe("invalidInput");
+
+    const allowanceFactory =
+      makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+    const allowanceRaw = decodeWithHandle(
+      allowanceFactory,
+      [bytes],
+      bytes.byteLength,
+    ).source;
+    expect(failureReason(
+      allowanceFactory.claimSource(allowanceRaw, expected, 1_025),
+    )).toBe("invalidInput");
+    expect(failureReason(
+      allowanceFactory.claimSource(allowanceRaw, expected, 1_024),
+    )).toBe("closed");
+  }, 30_000);
+
+  it("keeps claimed sources same-factory, result-bound, revocable, and single-terminal", async () => {
+    const frames = await restartFrames(
+      "link_page",
+      "parse_module",
+      [Uint8Array.of(7)],
+    );
+    const bytes = encode(frames);
+    const expected = restartClaim(frames);
+    const first = makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+    const second = makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
+    const raw = decodeWithHandle(first, [bytes], bytes.byteLength).source;
+    const claimed = claim(first, raw, expected);
+    expect(failureReason(second.metadata(claimed, 0n, 1))).toBe(
+      "staleAuthority",
+    );
+    expect(failureReason(first.metadata(
+      {
+        _tag:
+          "DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1",
+      },
+      0n,
+      1,
+    ))).toBe("staleAuthority");
+    const copied = { ...claimed };
+    expect(failureReason(first.metadata(copied, 0n, 1))).toBe(
+      "staleAuthority",
+    );
+    expect(failureReason(first.claimSource(raw, expected, 1_024))).toBe(
+      "closed",
+    );
+
+    const otherFrames = await restartFrames(
+      "source_page",
+      "link_page",
+      [Uint8Array.of(8)],
+    );
+    const otherBytes = encode(otherFrames);
+    const otherRaw = decodeWithHandle(
+      first,
+      [otherBytes],
+      otherBytes.byteLength,
+    ).source;
+    expect(failureReason(
+      first.claimSource(otherRaw, expected, 1_024),
+    )).toBe("identityMismatch");
+    expect(failureReason(
+      first.claimSource(otherRaw, restartClaim(otherFrames), 1_024),
+    )).toBe("closed");
+
+    const rawToClose = decodeWithHandle(
+      first,
+      [bytes],
+      bytes.byteLength,
+    ).source;
+    unwrap(first.close(rawToClose));
+    expect(failureReason(
+      first.claimSource(rawToClose, expected, 1_024),
+    )).toBe("closed");
+
+    unwrap(first.close(claimed));
+    expect(failureReason(first.metadata(claimed, 0n, 1))).toBe("closed");
+    expect(failureReason(first.close(claimed))).toBe("closed");
+
+    const exhaustedRaw = decodeWithHandle(
+      first,
+      [bytes],
+      bytes.byteLength,
+    ).source;
+    const exhausted = claim(first, exhaustedRaw, expected);
+    const metadata = unwrap(first.metadata(exhausted, 0n, 1));
+    if (metadata.status !== "metadata") throw new Error("metadata");
+    const manifest = unwrap(encodeOrDecodeManifest(metadata.manifestBytes));
+    expect(unwrap(first.body(
+      exhausted,
+      0n,
+      manifest.payloadByteLength,
+      1,
+    )).status).toBe("body");
+    expect(unwrap(first.metadata(exhausted, 1n, 1)).status).toBe("complete");
+    expect(failureReason(first.metadata(exhausted, 1n, 1))).toBe("closed");
+
+    const aliasedBytes = new Uint8Array(64);
+    aliasedBytes.set(expected.targetRequestSha256, 16);
+    const aliasedClaim = {
+      ...expected,
+      targetRequestSha256: aliasedBytes.subarray(16, 48),
+    };
+    const aliasedRaw = decodeWithHandle(
+      first,
+      [bytes],
+      bytes.byteLength,
+    ).source;
+    const aliasedSource = claim(first, aliasedRaw, aliasedClaim);
+    aliasedBytes.fill(0);
+    expect(unwrap(first.metadata(aliasedSource, 0n, 1)).status).toBe(
+      "metadata",
+    );
   });
 
   it("rejects gaps, duplicates, predecessor, output, terminal, and payload mismatches", async () => {
@@ -422,7 +855,11 @@ describe("Declarative V2 authenticated command restart input V1", () => {
     );
     const ownedBytes = encode(ownedFrames);
     mutable.fill(0);
-    expect(decodeToPages([ownedBytes], ownedBytes.byteLength)[0]).toEqual(
+    expect(decodeToPages(
+      [ownedBytes],
+      ownedBytes.byteLength,
+      restartClaim(ownedFrames),
+    )[0]).toEqual(
       Uint8Array.of(7, 8, 9),
     );
   });
@@ -469,7 +906,8 @@ describe("Declarative V2 authenticated command restart input V1", () => {
       [Uint8Array.of(1, 2), Uint8Array.of(3, 4)],
     );
     const bytes = encode(frames);
-    const probe = decodeWithReceipt(bytes, budget);
+    const claim = restartClaim(frames);
+    const probe = decodeWithReceipt(bytes, budget, claim);
     for (const dimension of [
       "bodyBytes",
       "canonicalBytes",
@@ -490,11 +928,11 @@ describe("Declarative V2 authenticated command restart input V1", () => {
         ...budget,
         [budgetKey]: probe.usage[dimension],
       };
-      expect(() => decodeWithReceipt(bytes, exactBudget)).not.toThrow();
+      expect(() => decodeWithReceipt(bytes, exactBudget, claim)).not.toThrow();
       expect(() => decodeWithReceipt(bytes, {
         ...exactBudget,
         [budgetKey]: probe.usage[dimension] - 1,
-      })).toThrow(new RegExp(`${dimension}Exceeded`));
+      }, claim)).toThrow(new RegExp(`${dimension}Exceeded`));
     }
   });
 
@@ -538,12 +976,17 @@ describe("Declarative V2 authenticated command restart input V1", () => {
       encoded.byteLength,
     );
     unwrap(decodedFactory.close(decoded.decoder));
-    const metadata = unwrap(decodedFactory.metadata(decoded.source, 0n, 1));
+    const claimed = claim(
+      decodedFactory,
+      decoded.source,
+      restartClaim(frames),
+    );
+    const metadata = unwrap(decodedFactory.metadata(claimed, 0n, 1));
     expect(metadata.status).toBe("metadata");
     if (metadata.status !== "metadata") throw new Error("metadata");
     const manifest = unwrap(encodeOrDecodeManifest(metadata.manifestBytes));
     const body = unwrap(decodedFactory.body(
-      decoded.source,
+      claimed,
       0n,
       manifest.payloadByteLength,
       1,
@@ -656,14 +1099,16 @@ function decode(
   factory: DeclarativeV2AuthenticatedCommandRestartInputFactoryV1,
   chunks: readonly Uint8Array[],
   bodyByteLength: number,
+  selectedClaim: DeclarativeV2AuthenticatedCommandRestartInputClaimV1,
   selectedBudget = budget,
-): DeclarativeV2AuthenticatedCommandRestartInputSourceV1 {
-  return decodeWithHandle(
+): DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1 {
+  const raw = decodeWithHandle(
     factory,
     chunks,
     bodyByteLength,
     selectedBudget,
   ).source;
+  return claim(factory, raw, selectedClaim);
 }
 
 function decodeWithHandle(
@@ -676,6 +1121,7 @@ function decodeWithHandle(
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["stepDecoder"]
   >[0];
   readonly source: DeclarativeV2AuthenticatedCommandRestartInputSourceV1;
+  readonly usage: DeclarativeV2AuthenticatedCommandRestartInputUsageV1;
 }> {
   const created = unwrap(factory.createDecoder({
     bodyByteLength,
@@ -702,17 +1148,30 @@ function decodeWithHandle(
       return Object.freeze({
         decoder: created.decoder,
         source: finished.source,
+        usage: finished.receipt.aggregate,
       });
     }
+  }
+}
+
+function claim(
+  factory: DeclarativeV2AuthenticatedCommandRestartInputFactoryV1,
+  source: DeclarativeV2AuthenticatedCommandRestartInputSourceV1,
+  selectedClaim: DeclarativeV2AuthenticatedCommandRestartInputClaimV1,
+): DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1 {
+  for (;;) {
+    const result = unwrap(factory.claimSource(source, selectedClaim, 1_024));
+    if (result.status === "complete") return result.source;
   }
 }
 
 function decodeToPages(
   chunks: readonly Uint8Array[],
   bodyByteLength: number,
+  selectedClaim: DeclarativeV2AuthenticatedCommandRestartInputClaimV1,
 ): readonly Uint8Array[] {
   const factory = makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
-  const source = decode(factory, chunks, bodyByteLength);
+  const source = decode(factory, chunks, bodyByteLength, selectedClaim);
   const pages: Uint8Array[] = [];
   let ordinal = 0n;
   for (;;) {
@@ -736,11 +1195,18 @@ function decodeToPages(
 function decodeWithReceipt(
   bytes: Uint8Array,
   selectedBudget: DeclarativeV2AuthenticatedCommandRestartInputBudgetV1,
+  selectedClaim: DeclarativeV2AuthenticatedCommandRestartInputClaimV1,
 ): Readonly<{
   readonly usage: DeclarativeV2AuthenticatedCommandRestartInputUsageV1;
 }> {
   const factory = makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1();
-  const source = decode(factory, [bytes], bytes.byteLength, selectedBudget);
+  const source = decode(
+    factory,
+    [bytes],
+    bytes.byteLength,
+    selectedClaim,
+    selectedBudget,
+  );
   let ordinal = 0n;
   for (;;) {
     const metadata = unwrap(factory.metadata(source, ordinal, 1));
@@ -909,6 +1375,41 @@ async function restartFrames(
     }
   });
   return frames;
+}
+
+function restartClaim(
+  frames: readonly DeclarativeV2AuthenticatedCommandRestartInputFrameV1[],
+): DeclarativeV2AuthenticatedCommandRestartInputClaimV1 {
+  const header = frames[0];
+  const terminal = frames.find(frame => frame.kind === "restart_terminal");
+  if (
+    header?.kind !== "restart_header" ||
+    terminal?.kind !== "restart_terminal"
+  ) {
+    throw new Error("Restart claim fixtures require a header and terminal.");
+  }
+  return Object.freeze({
+    targetRequestSha256: header.targetRequestSha256,
+    targetReservationSha256: header.targetReservationSha256,
+    targetCommandKind: header.targetCommandKind,
+    targetSequence: header.targetSequence,
+    analyzerReleaseSha256: header.analyzerReleaseSha256,
+    analyzerIdentitySha256: header.analyzerIdentitySha256,
+    verifierIdentitySha256: header.verifierIdentitySha256,
+    rangeAndPredecessorTailsSha256:
+      header.rangeAndPredecessorTailsSha256,
+    sourceReservationSha256: header.sourceReservationSha256,
+    sourceCommandKind: header.sourceCommandKind,
+    sourceSequence: header.sourceSequence,
+    sourceAuthenticatedInputSha256: header.sourceAuthenticatedInputSha256,
+    sourceOutputManifestSha256: header.sourceOutputManifestSha256,
+    sourceSettledReceiptSha256: header.sourceSettledReceiptSha256,
+    pageCount: terminal.pageCount,
+    payloadByteLength: terminal.payloadByteLength,
+    finalPageSha256: terminal.finalPageSha256,
+    manifestSequenceSha256: terminal.manifestSequenceSha256,
+    payloadSha256: terminal.payloadSha256,
+  });
 }
 
 function progressBytes(

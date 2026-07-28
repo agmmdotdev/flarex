@@ -1492,14 +1492,12 @@ activation remain blocked until their production host composition is proven.
         historical bytes required by the later engine and host, but does not
         itself prove that an analyzer receives and rehydrates them after a cold
         restart.
-   3. `A1b2c0b2c2` remains split across two unimplemented checkpoints:
-      - `A1b2c0b2c2a` is the next prerequisite. The existing private
-        executor-HTTP restart-input decoder validates the authenticated
-        restart header and terminal, but its current page source retains only
-        ordered page state and exposes no identity claim. The executor-HTTP
-        owner must therefore add one same-factory opaque claimed
-        restart-source capability through the existing internal subpath. A
-        hostile-safe single claim must compare the retained
+   3. `A1b2c0b2c2` remains split across two checkpoints:
+      - `A1b2c0b2c2a` is implemented as a private, inert executor-HTTP
+        prerequisite. The restart-input decoder retains the already validated
+        authenticated restart header and terminal with its ordered page state,
+        but the raw decoded source exposes no metadata or body authority. One
+        same-factory hostile-safe claim compares the retained
         `targetRequestSha256`, `targetReservationSha256`,
         `targetCommandKind`, `targetSequence`, `analyzerReleaseSha256`,
         `analyzerIdentitySha256`, `verifierIdentitySha256`,
@@ -1511,24 +1509,18 @@ activation remain blocked until their production host composition is proven.
         `manifestSequenceSha256`, `payloadByteLength`, and `payloadSha256`.
         Only after that complete retained tuple matches may metadata or body
         authority become usable. Success consumes and revokes the raw source
-        and returns only a result-bound claimed source. Mismatch, forged,
-        cross-factory, cross-result, reused, stale, exhausted, or closed
-        authority fails closed and terminalizes the source.
+        and returns only a result-bound claimed source. A resolved same-factory
+        claim mismatch, cross-result misuse, reuse, stale state, exhaustion, or
+        close fails closed and terminalizes that source. Forged and
+        foreign-factory handles are rejected as stale without authority to
+        revoke capability state owned by another factory.
         Metadata-before-payload ordering, sequential page/body transfer,
         allowances from zero through 1,024, exact precharge and accounting,
         irreversible ownership release, and inert authority exclusions remain
-        unchanged.
-
-        The exact proposed implementation allowlist is:
-
-        1. `packages/executor-http/src/declarativeV2AuthenticatedCommandRestartInputV1.ts`
-        2. `packages/executor-http/test/declarativeV2AuthenticatedCommandRestartInputV1.test.ts`
-        3. `roadmaps/17-deployment-analysis-and-push.md`
-        4. `roadmaps/flarexdb-foundation/README.md`
-
-        Existing request, response, restart-input, settled-readback, progress,
-        and monolithic bytes and identities remain unchanged. This checkpoint
-        is not implemented or green.
+        unchanged. Existing request, response, restart-input,
+        settled-readback, progress, and monolithic bytes and identities remain
+        unchanged. The capability remains unwired, production-unreachable, and
+        insufficient to prove real cold recovery.
       - `A1b2c0b2c2b` later adds the pure analyzer command engine.
         `@flarex/analysis` remains the semantic engine owner. A private pure
         adapter in `apps/analyzer` is the dependency-inversion boundary that
@@ -1548,9 +1540,10 @@ activation remain blocked until their production host composition is proven.
    The private, inert `A1b2c0b2c0` response transport,
    `A1b2c0b2c1a` restart-input transport, and `A1b2c0b2c1b`
    capability-free historical settled-page readback are implemented.
-   The c2a claimed-source prerequisite, c2b analyzer command engine, Effect host
-   composition, and a production caller remain absent. These transport and
-   readback owners establish bounded inert bytes but do not prove real cold
+   The c2a claimed-source prerequisite is also implemented but inert. The c2b
+   analyzer command engine, Effect host composition, and a production caller
+   remain absent. These transport, readback, and claim owners establish bounded
+   inert bytes and process-local capabilities but do not prove real cold
    delivery: cold `link_page` and link-dependent registration cannot rely on
    warm WeakMap state. Pure claim, transport, and engine mechanics stay in
    `Result`/plain TypeScript, persistence I/O stays inside its existing Effect

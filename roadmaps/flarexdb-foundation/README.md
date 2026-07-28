@@ -1030,11 +1030,11 @@ implemented:
   package export, or connected-client adapter-source change was needed. It
   supplies inert historical bytes for `A1b2c0b2c2` and `A1b2c0b2c3`, but does
   not itself prove settled cold delivery through an analyzer rehydration host.
-- `A1b2c0b2c2a` is the next unimplemented prerequisite. The executor-HTTP
-  restart-input decoder already validates the authenticated restart header and
-  terminal, but its current page source retains only page state and exposes no
-  identity claim. The existing internal subpath must add a same-factory opaque
-  claimed restart-source capability. One hostile-safe claim compares the
+- `A1b2c0b2c2a` is implemented as a private, inert executor-HTTP prerequisite.
+  The restart-input decoder retains the already validated authenticated
+  restart header and terminal with its ordered page state, while the raw
+  decoded source exposes no metadata or body authority. One same-factory
+  hostile-safe claim compares the
   retained `targetRequestSha256`, `targetReservationSha256`,
   `targetCommandKind`, `targetSequence`, `analyzerReleaseSha256`,
   `analyzerIdentitySha256`, `verifierIdentitySha256`,
@@ -1045,22 +1045,17 @@ implemented:
   digest/tail, `manifestSequenceSha256`, `payloadByteLength`, and
   `payloadSha256`. Only after that complete retained tuple matches may metadata
   or body authority become usable. Success consumes and revokes the raw source
-  and returns a result-bound claimed source. Mismatch, forged, cross-factory,
-  cross-result, reuse, stale, exhausted, or closed use fails closed and
-  terminalizes. Metadata-before-payload ordering, sequential page/body
+  and returns a result-bound claimed source. A resolved same-factory mismatch,
+  cross-result misuse, reuse, stale state, exhaustion, or close fails closed
+  and terminalizes that source. Forged and foreign-factory handles are rejected
+  as stale without authority to revoke capability state owned by another
+  factory. Metadata-before-payload ordering, sequential page/body
   transfer, allowances from zero through 1,024, exact precharge/accounting,
   ownership release, and inert authority exclusions remain unchanged.
-
-  The exact proposed implementation allowlist is:
-
-  1. `packages/executor-http/src/declarativeV2AuthenticatedCommandRestartInputV1.ts`
-  2. `packages/executor-http/test/declarativeV2AuthenticatedCommandRestartInputV1.test.ts`
-  3. `roadmaps/17-deployment-analysis-and-push.md`
-  4. `roadmaps/flarexdb-foundation/README.md`
-
   Existing request, response, restart-input, settled-readback, progress, and
-  monolithic bytes and identities remain unchanged. This checkpoint is not
-  implemented or green.
+  monolithic bytes and identities remain unchanged. The capability remains
+  unwired, production-unreachable, and insufficient to prove real cold
+  recovery.
 - `A1b2c0b2c2b` later adds the pure analyzer command engine.
   `@flarex/analysis` remains the semantic engine owner, while a private pure
   `apps/analyzer` adapter connects executor-HTTP opaque ports without making
@@ -1076,11 +1071,12 @@ implemented:
   TypeScript.
 
 The private c1b historical settled-page readback is implemented beside the
-private c1a restart-input transport. The c2a claimed-source prerequisite, c2b
-command engine, Effect host, production caller, and composition proof remain
-absent. These inert owners do not prove real cold delivery: cold `link_page`
-and link-dependent registration cannot rely on warm WeakMap state. Pure claim,
-transport, and engine mechanics remain in `Result`/plain TypeScript,
+private c1a restart-input transport, and the private c2a claimed-source
+prerequisite is implemented but inert. The c2b command engine, Effect host,
+production caller, and composition proof remain absent. These inert owners do
+not prove real cold delivery: cold `link_page` and link-dependent registration
+cannot rely on warm WeakMap state. Pure claim, transport, and engine mechanics
+remain in `Result`/plain TypeScript,
 persistence I/O remains inside its existing Effect repository boundary, and
 the later host owns request `Scope`, cancellation, interruption, full foreign
 `Cause`, and resource finalization.

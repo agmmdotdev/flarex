@@ -44,6 +44,12 @@ const PAYLOAD_HEADER_BYTES = 21;
 const HEADER_FRAME_BYTES = 339;
 const TERMINAL_FRAME_BYTES = 113;
 const MAX_PROTOCOL_FRAME_BYTES = 1_019;
+const CLAIMED_SOURCE_FIXED_STATE_ALLOCATION_BYTES = 256;
+const CLAIM_DIGEST_COUNT = 13;
+const CLAIM_SCAN_BYTES = CLAIM_DIGEST_COUNT * SHA256_BYTES * 2;
+const CLAIM_FIELD_COUNT = 19;
+const CLAIM_TRANSITIONS =
+  CLAIM_SCAN_BYTES + 1 + CLAIM_FIELD_COUNT + CLAIM_FIELD_COUNT + 1;
 const UTF8_ENCODER = new TextEncoder();
 const DOMAIN_BYTES = UTF8_ENCODER.encode(
   DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESTART_INPUT_PROTOCOL_IDENTITY_V1,
@@ -163,6 +169,33 @@ export interface DeclarativeV2AuthenticatedCommandRestartInputSourceV1 {
   readonly _tag: "DeclarativeV2AuthenticatedCommandRestartInputSourceV1";
 }
 
+export interface DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1 {
+  readonly _tag:
+    "DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1";
+}
+
+export interface DeclarativeV2AuthenticatedCommandRestartInputClaimV1 {
+  readonly targetRequestSha256: Uint8Array;
+  readonly targetReservationSha256: Uint8Array;
+  readonly targetCommandKind: DeclarativeV2VerifierDurableCommandKindV2;
+  readonly targetSequence: bigint;
+  readonly analyzerReleaseSha256: Uint8Array;
+  readonly analyzerIdentitySha256: Uint8Array;
+  readonly verifierIdentitySha256: Uint8Array;
+  readonly rangeAndPredecessorTailsSha256: Uint8Array;
+  readonly sourceReservationSha256: Uint8Array;
+  readonly sourceCommandKind: DeclarativeV2VerifierRestartCommandKindV2;
+  readonly sourceSequence: bigint;
+  readonly sourceAuthenticatedInputSha256: Uint8Array;
+  readonly sourceOutputManifestSha256: Uint8Array;
+  readonly sourceSettledReceiptSha256: Uint8Array;
+  readonly pageCount: bigint;
+  readonly payloadByteLength: bigint;
+  readonly finalPageSha256: Uint8Array;
+  readonly manifestSequenceSha256: Uint8Array;
+  readonly payloadSha256: Uint8Array;
+}
+
 export type DeclarativeV2AuthenticatedCommandRestartInputStepV1 =
   | Readonly<{
     readonly status: "pending";
@@ -199,6 +232,18 @@ export type DeclarativeV2AuthenticatedCommandRestartInputWireStepV1 =
   }>
   | Readonly<{
     readonly status: "complete";
+    readonly receipt: DeclarativeV2AuthenticatedCommandRestartInputReceiptV1;
+  }>;
+
+export type DeclarativeV2AuthenticatedCommandRestartInputClaimStepV1 =
+  | Readonly<{
+    readonly status: "pending";
+    readonly receipt: DeclarativeV2AuthenticatedCommandRestartInputReceiptV1;
+  }>
+  | Readonly<{
+    readonly status: "complete";
+    readonly source:
+      DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1;
     readonly receipt: DeclarativeV2AuthenticatedCommandRestartInputReceiptV1;
   }>;
 
@@ -240,6 +285,7 @@ export class DeclarativeV2AuthenticatedCommandRestartInputV1Error
       | "createDecoder"
       | "stepDecoder"
       | "finishDecoder"
+      | "claimSource"
       | "stepWire"
       | "metadata"
       | "body"
@@ -328,8 +374,16 @@ export interface DeclarativeV2AuthenticatedCommandRestartInputFactoryV1 {
     DeclarativeV2AuthenticatedCommandRestartInputWireStepV1,
     DeclarativeV2AuthenticatedCommandRestartInputV1Error
   >;
-  readonly metadata: (
+  readonly claimSource: (
     source: unknown,
+    claim: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2AuthenticatedCommandRestartInputClaimStepV1,
+    DeclarativeV2AuthenticatedCommandRestartInputV1Error
+  >;
+  readonly metadata: (
+    source: DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1,
     pageOrdinal: unknown,
     allowance: unknown,
   ) => Result.Result<
@@ -337,7 +391,7 @@ export interface DeclarativeV2AuthenticatedCommandRestartInputFactoryV1 {
     DeclarativeV2AuthenticatedCommandRestartInputV1Error
   >;
   readonly body: (
-    source: unknown,
+    source: DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1,
     pageOrdinal: unknown,
     admittedByteLength: unknown,
     allowance: unknown,
@@ -447,8 +501,20 @@ interface WireSourceState {
   closed: boolean;
 }
 
-interface PageSourceState {
-  readonly mode: "pages";
+interface RawPageSourceState {
+  readonly mode: "rawPages";
+  readonly budget: DeclarativeV2AuthenticatedCommandRestartInputBudgetV1;
+  readonly usage: MutableUsage;
+  header: DeclarativeV2AuthenticatedCommandRestartInputHeaderV1 | undefined;
+  terminal:
+    | DeclarativeV2AuthenticatedCommandRestartInputTerminalV1
+    | undefined;
+  pages: PageState[];
+  closed: boolean;
+}
+
+interface ClaimedPageSourceState {
+  readonly mode: "claimedPages";
   readonly budget: DeclarativeV2AuthenticatedCommandRestartInputBudgetV1;
   readonly usage: MutableUsage;
   pages: PageState[];
@@ -457,7 +523,10 @@ interface PageSourceState {
   closed: boolean;
 }
 
-type SourceState = WireSourceState | PageSourceState;
+type SourceState =
+  | WireSourceState
+  | RawPageSourceState
+  | ClaimedPageSourceState;
 
 const BUDGET_KEYS = [
   "maximumBodyBytes",
@@ -489,6 +558,28 @@ const HEADER_KEYS = [
   "sourceAuthenticatedInputSha256",
   "sourceOutputManifestSha256",
   "sourceSettledReceiptSha256",
+] as const;
+
+const CLAIM_KEYS = [
+  "targetRequestSha256",
+  "targetReservationSha256",
+  "targetCommandKind",
+  "targetSequence",
+  "analyzerReleaseSha256",
+  "analyzerIdentitySha256",
+  "verifierIdentitySha256",
+  "rangeAndPredecessorTailsSha256",
+  "sourceReservationSha256",
+  "sourceCommandKind",
+  "sourceSequence",
+  "sourceAuthenticatedInputSha256",
+  "sourceOutputManifestSha256",
+  "sourceSettledReceiptSha256",
+  "pageCount",
+  "payloadByteLength",
+  "finalPageSha256",
+  "manifestSequenceSha256",
+  "payloadSha256",
 ] as const;
 
 export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
@@ -888,15 +979,17 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
         const source = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandRestartInputSourceV1",
         }) as DeclarativeV2AuthenticatedCommandRestartInputSourceV1;
+        const header = state.grammar.header!;
+        const terminal = state.grammar.terminal!;
         const transferredPages = state.grammar.pages;
         state.grammar.pages = [];
         sources.set(source, {
-          mode: "pages",
+          mode: "rawPages",
           budget: state.budget,
           usage: { ...state.usage },
+          header,
+          terminal,
           pages: transferredPages,
-          nextPageOrdinal: 0n,
-          phase: "metadata",
           closed: false,
         });
         state.terminal = "complete";
@@ -913,6 +1006,70 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
           source,
           receipt: receipt(before, state.usage, 0),
         }));
+      };
+
+  const claimSource:
+    DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["claimSource"] =
+      (rawSource, rawClaim, rawAllowance) => {
+        const stateResult = sourceState(
+          sources,
+          rawSource,
+          "claimSource",
+          "rawPages",
+        );
+        if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
+        const state = stateResult.success;
+        const claimed = Result.gen(function* () {
+          const allowance = yield* captureAllowance(
+            rawAllowance,
+            "claimSource",
+          );
+          const before = snapshotUsage(state.usage);
+          if (allowance < CLAIM_TRANSITIONS) {
+            return Object.freeze({
+              status: "pending",
+              receipt: receipt(before, state.usage, 0),
+            }) satisfies DeclarativeV2AuthenticatedCommandRestartInputClaimStepV1;
+          }
+          yield* chargeMany(
+            state.usage,
+            state.budget,
+            [
+              ["allocationBytes", CLAIMED_SOURCE_FIXED_STATE_ALLOCATION_BYTES],
+              ["scanBytes", CLAIM_SCAN_BYTES],
+              ["transitions", CLAIM_TRANSITIONS],
+            ],
+            "claimSource",
+            "claim",
+          );
+          const claim = yield* captureClaim(rawClaim);
+          yield* compareClaim(state, claim);
+          const claimedSource = Object.freeze({
+            _tag:
+              "DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1",
+          }) as DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1;
+          const pages = state.pages;
+          state.pages = [];
+          state.header = undefined;
+          state.terminal = undefined;
+          state.closed = true;
+          sources.set(claimedSource, {
+            mode: "claimedPages",
+            budget: state.budget,
+            usage: state.usage,
+            pages,
+            nextPageOrdinal: 0n,
+            phase: "metadata",
+            closed: false,
+          });
+          return Object.freeze({
+            status: "complete",
+            source: claimedSource,
+            receipt: receipt(before, state.usage, CLAIM_TRANSITIONS),
+          }) satisfies DeclarativeV2AuthenticatedCommandRestartInputClaimStepV1;
+        });
+        if (Result.isFailure(claimed)) closeSource(state);
+        return claimed;
       };
 
   const stepWire:
@@ -978,7 +1135,7 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
           sources,
           rawSource,
           "metadata",
-          "pages",
+          "claimedPages",
         );
         if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
         const state = stateResult.success;
@@ -1051,7 +1208,7 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
           sources,
           rawSource,
           "body",
-          "pages",
+          "claimedPages",
         );
         if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
         const state = stateResult.success;
@@ -1147,6 +1304,7 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
     createDecoder,
     stepDecoder,
     finishDecoder,
+    claimSource,
     stepWire,
     metadata,
     body,
@@ -2831,6 +2989,213 @@ function ownDataRecordLoose(
   }
 }
 
+function captureClaim(
+  input: unknown,
+): Result.Result<
+  DeclarativeV2AuthenticatedCommandRestartInputClaimV1,
+  DeclarativeV2AuthenticatedCommandRestartInputV1Error
+> {
+  const record = ownDataRecord(input, CLAIM_KEYS, "claimSource");
+  if (Result.isFailure(record)) return Result.fail(record.failure);
+  const targetCommandKind = captureCommandKind(record.success.targetCommandKind);
+  const targetSequence = captureU64(record.success.targetSequence, true);
+  const sourceCommandKind = captureRestartKind(record.success.sourceCommandKind);
+  const sourceSequence = captureU64(record.success.sourceSequence, true);
+  const pageCount = captureU64(record.success.pageCount, true);
+  const payloadByteLength = captureU64(
+    record.success.payloadByteLength,
+    true,
+  );
+  if (
+    targetCommandKind === undefined ||
+    targetSequence === undefined ||
+    sourceCommandKind === undefined ||
+    sourceSequence === undefined ||
+    pageCount === undefined ||
+    payloadByteLength === undefined
+  ) {
+    return Result.fail(
+      transportError("claimSource", "invalidInput", "claim"),
+    );
+  }
+  const targetRequestSha256 = captureSha256(
+    record.success.targetRequestSha256,
+  );
+  const targetReservationSha256 = captureSha256(
+    record.success.targetReservationSha256,
+  );
+  const analyzerReleaseSha256 = captureSha256(
+    record.success.analyzerReleaseSha256,
+  );
+  const analyzerIdentitySha256 = captureSha256(
+    record.success.analyzerIdentitySha256,
+  );
+  const verifierIdentitySha256 = captureSha256(
+    record.success.verifierIdentitySha256,
+  );
+  const rangeAndPredecessorTailsSha256 = captureSha256(
+    record.success.rangeAndPredecessorTailsSha256,
+  );
+  const sourceReservationSha256 = captureSha256(
+    record.success.sourceReservationSha256,
+  );
+  const sourceAuthenticatedInputSha256 = captureSha256(
+    record.success.sourceAuthenticatedInputSha256,
+  );
+  const sourceOutputManifestSha256 = captureSha256(
+    record.success.sourceOutputManifestSha256,
+  );
+  const sourceSettledReceiptSha256 = captureSha256(
+    record.success.sourceSettledReceiptSha256,
+  );
+  const finalPageSha256 = captureSha256(record.success.finalPageSha256);
+  const manifestSequenceSha256 = captureSha256(
+    record.success.manifestSequenceSha256,
+  );
+  const payloadSha256 = captureSha256(record.success.payloadSha256);
+  if (
+    targetRequestSha256 === undefined ||
+    targetReservationSha256 === undefined ||
+    analyzerReleaseSha256 === undefined ||
+    analyzerIdentitySha256 === undefined ||
+    verifierIdentitySha256 === undefined ||
+    rangeAndPredecessorTailsSha256 === undefined ||
+    sourceReservationSha256 === undefined ||
+    sourceAuthenticatedInputSha256 === undefined ||
+    sourceOutputManifestSha256 === undefined ||
+    sourceSettledReceiptSha256 === undefined ||
+    finalPageSha256 === undefined ||
+    manifestSequenceSha256 === undefined ||
+    payloadSha256 === undefined
+  ) {
+    return Result.fail(
+      transportError("claimSource", "invalidInput", "claim"),
+    );
+  }
+  return Result.succeed(Object.freeze({
+    targetRequestSha256,
+    targetReservationSha256,
+    targetCommandKind,
+    targetSequence,
+    analyzerReleaseSha256,
+    analyzerIdentitySha256,
+    verifierIdentitySha256,
+    rangeAndPredecessorTailsSha256,
+    sourceReservationSha256,
+    sourceCommandKind,
+    sourceSequence,
+    sourceAuthenticatedInputSha256,
+    sourceOutputManifestSha256,
+    sourceSettledReceiptSha256,
+    pageCount,
+    payloadByteLength,
+    finalPageSha256,
+    manifestSequenceSha256,
+    payloadSha256,
+  }));
+}
+
+function captureSha256(input: unknown): Uint8Array | undefined {
+  return isUint8ArrayWithByteLength(input, SHA256_BYTES) ? input : undefined;
+}
+
+function compareClaim(
+  state: RawPageSourceState,
+  claim: DeclarativeV2AuthenticatedCommandRestartInputClaimV1,
+): Result.Result<void, DeclarativeV2AuthenticatedCommandRestartInputV1Error> {
+  const header = state.header;
+  const terminal = state.terminal;
+  if (header === undefined || terminal === undefined) {
+    throw new Error("Decoded restart source lost its authenticated claim tuple.");
+  }
+  const targetRequestMatches = bytesEqualFullScan(
+    header.targetRequestSha256,
+    claim.targetRequestSha256,
+  );
+  const targetReservationMatches = bytesEqualFullScan(
+    header.targetReservationSha256,
+    claim.targetReservationSha256,
+  );
+  const analyzerReleaseMatches = bytesEqualFullScan(
+    header.analyzerReleaseSha256,
+    claim.analyzerReleaseSha256,
+  );
+  const analyzerIdentityMatches = bytesEqualFullScan(
+    header.analyzerIdentitySha256,
+    claim.analyzerIdentitySha256,
+  );
+  const verifierIdentityMatches = bytesEqualFullScan(
+    header.verifierIdentitySha256,
+    claim.verifierIdentitySha256,
+  );
+  const rangeMatches = bytesEqualFullScan(
+    header.rangeAndPredecessorTailsSha256,
+    claim.rangeAndPredecessorTailsSha256,
+  );
+  const sourceReservationMatches = bytesEqualFullScan(
+    header.sourceReservationSha256,
+    claim.sourceReservationSha256,
+  );
+  const sourceAuthenticatedInputMatches = bytesEqualFullScan(
+    header.sourceAuthenticatedInputSha256,
+    claim.sourceAuthenticatedInputSha256,
+  );
+  const sourceOutputManifestMatches = bytesEqualFullScan(
+    header.sourceOutputManifestSha256,
+    claim.sourceOutputManifestSha256,
+  );
+  const sourceSettledReceiptMatches = bytesEqualFullScan(
+    header.sourceSettledReceiptSha256,
+    claim.sourceSettledReceiptSha256,
+  );
+  const finalPageMatches = bytesEqualFullScan(
+    terminal.finalPageSha256,
+    claim.finalPageSha256,
+  );
+  const manifestSequenceMatches = bytesEqualFullScan(
+    terminal.manifestSequenceSha256,
+    claim.manifestSequenceSha256,
+  );
+  const payloadMatches = bytesEqualFullScan(
+    terminal.payloadSha256,
+    claim.payloadSha256,
+  );
+  if (
+    !targetRequestMatches ||
+    !targetReservationMatches ||
+    !analyzerReleaseMatches ||
+    !analyzerIdentityMatches ||
+    !verifierIdentityMatches ||
+    !sourceReservationMatches ||
+    !sourceAuthenticatedInputMatches ||
+    !sourceOutputManifestMatches ||
+    !sourceSettledReceiptMatches
+  ) {
+    return Result.fail(
+      transportError("claimSource", "identityMismatch", "claim"),
+    );
+  }
+  if (
+    header.targetCommandKind !== claim.targetCommandKind ||
+    header.targetSequence !== claim.targetSequence ||
+    !rangeMatches ||
+    header.sourceCommandKind !== claim.sourceCommandKind ||
+    header.sourceSequence !== claim.sourceSequence ||
+    terminal.pageCount !== claim.pageCount ||
+    terminal.payloadByteLength !== claim.payloadByteLength
+  ) {
+    return Result.fail(
+      transportError("claimSource", "lineageMismatch", "claim"),
+    );
+  }
+  if (!finalPageMatches || !manifestSequenceMatches || !payloadMatches) {
+    return Result.fail(
+      transportError("claimSource", "digestMismatch", "claim"),
+    );
+  }
+  return Result.succeed(undefined);
+}
+
 function captureAllowance(
   input: unknown,
   operation: DeclarativeV2AuthenticatedCommandRestartInputV1Error["operation"],
@@ -3002,7 +3367,7 @@ function decoderState(
 function sourceState<const Mode extends SourceState["mode"]>(
   states: WeakMap<object, SourceState>,
   input: unknown,
-  operation: "stepWire" | "metadata" | "body",
+  operation: "claimSource" | "stepWire" | "metadata" | "body",
   mode: Mode,
 ): Result.Result<
   Extract<SourceState, { readonly mode: Mode }>,
@@ -3011,10 +3376,19 @@ function sourceState<const Mode extends SourceState["mode"]>(
   const state = typeof input === "object" && input !== null
     ? states.get(input)
     : undefined;
-  if (state === undefined || state.mode !== mode) {
+  if (state === undefined) {
     return Result.fail(transportError(operation, "staleAuthority"));
   }
   if (state.closed) return Result.fail(transportError(operation, "closed"));
+  if (state.mode !== mode) {
+    if (
+      state.mode === "rawPages" &&
+      (operation === "metadata" || operation === "body")
+    ) {
+      closeSource(state);
+    }
+    return Result.fail(transportError(operation, "staleAuthority"));
+  }
   return Result.succeed(
     state as Extract<SourceState, { readonly mode: Mode }>,
   );
@@ -3046,6 +3420,10 @@ function closeSource(state: SourceState): void {
   if (state.mode === "wire") {
     state.chunks = [];
     return;
+  }
+  if (state.mode === "rawPages") {
+    state.header = undefined;
+    state.terminal = undefined;
   }
   for (const page of state.pages) {
     page.manifestBytes = EMPTY_BYTES;
