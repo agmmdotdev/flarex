@@ -62,6 +62,13 @@ import {
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_ASSET_BASE64_V1,
 } from "../src/declarativeV2VerifierExecutableV1.generated";
 import {
+  driveDeclarativeV2VerifierParseModuleTerminalV1,
+  planDeclarativeV2VerifierParseModuleV1,
+  planDeclarativeV2VerifierSha256WorkV1,
+  type DeclarativeV2VerifierParseFactsV1,
+  type DeclarativeV2VerifierParseSizingBindingsV1,
+} from "../src/declarativeV2VerifierSizingV1";
+import {
   createDeclarativeV2VerificationEvidenceEncoderV2,
   makeDeclarativeV2VerificationEvidenceBudgetV2,
   makeDeclarativeV2VerificationEvidenceFrameV2,
@@ -525,6 +532,294 @@ function runModuleResult(
   if (Result.isFailure(finished)) throw finished.failure;
   return finished.success;
 }
+
+interface ParseExecutionTrace {
+  readonly driverCalls: bigint;
+  readonly result: DeclarativeV2VerifierModuleResultV1;
+  readonly presentation: DeclarativeV2VerifierModulePresentationV1;
+}
+
+function parseSizingBindings(
+  seed = 31,
+): DeclarativeV2VerifierParseSizingBindingsV1 {
+  return Object.freeze({
+    candidateSha256: new Uint8Array(32).fill(seed),
+    authenticatedInputSha256: new Uint8Array(32).fill(seed + 1),
+    rangeAndPredecessorTailsSha256: new Uint8Array(32).fill(seed + 2),
+    analyzerIdentitySha256: new Uint8Array(32).fill(seed + 3),
+    verifierIdentitySha256: new Uint8Array(32).fill(seed + 4),
+  });
+}
+
+function runParseExecutionTrace(
+  source: Uint8Array,
+  modulePath: string,
+  allowance: number,
+  required = budget("attempt_usage", source.byteLength),
+): ParseExecutionTrace {
+  const created = createDeclarativeV2VerifierEngineV1({
+    modulePath: artifactModulePath(modulePath),
+    moduleOrdinal: 0n,
+    sourceSha256: new Uint8Array(32).fill(23),
+    maximums: budget("command_budget", source.byteLength),
+    required,
+  });
+  if (Result.isFailure(created)) throw created.failure;
+  let driverCalls = 1n;
+  let offset = 0;
+  for (let guard = 0; offset < source.byteLength; guard += 1) {
+    if (guard > 1_000_000) {
+      throw new Error("parse sizing oracle exceeded its source-call bound");
+    }
+    const stepped = created.success.step(source.subarray(offset), allowance);
+    driverCalls += 1n;
+    if (Result.isFailure(stepped)) throw stepped.failure;
+    offset += stepped.success.consumedBytes;
+  }
+  let result: DeclarativeV2VerifierModuleResultV1 | undefined;
+  for (let guard = 0; result === undefined; guard += 1) {
+    if (guard > 1_000_000) {
+      throw new Error("parse sizing oracle exceeded its finish-call bound");
+    }
+    const finished = created.success.finish(allowance);
+    driverCalls += 1n;
+    if (Result.isFailure(finished)) throw finished.failure;
+    if (!("status" in finished.success)) result = finished.success;
+  }
+  const presentation = materializeModuleResult(result);
+  return Object.freeze({ driverCalls, result, presentation });
+}
+
+function parseFactsFromTrace(
+  trace: ParseExecutionTrace,
+  modulePath: string,
+): DeclarativeV2VerifierParseFactsV1 {
+  const evidence = [
+    trace.presentation.moduleSummary,
+    ...trace.presentation.importCalls,
+    ...trace.presentation.valueFlows,
+    ...trace.presentation.diagnostics,
+  ].map(encodeEvidenceOracle);
+  const evidenceCanonicalByteLength = evidence.reduce(
+    (total, bytes) => total + BigInt(bytes.byteLength),
+    0n,
+  );
+  const maximumEvidenceFrameByteLength = evidence.reduce(
+    (maximum, bytes) =>
+      BigInt(bytes.byteLength) > maximum
+        ? BigInt(bytes.byteLength)
+        : maximum,
+    0n,
+  );
+  const pathBytes = BigInt(UTF8_ENCODER.encode(modulePath).byteLength);
+  const usage = trace.result.usage;
+  const sha256 = planDeclarativeV2VerifierSha256WorkV1(
+    evidenceCanonicalByteLength,
+  );
+  if (Result.isFailure(sha256)) throw sha256.failure;
+  expect(usage.calls).toBe(trace.driverCalls + sha256.success.calls);
+  expect(usage.canonicalBytes).toBe(evidenceCanonicalByteLength);
+  expect(usage.frameBytes).toBe(evidenceCanonicalByteLength);
+  expect(usage.hashBytes).toBe(evidenceCanonicalByteLength);
+  return Object.freeze({
+    driverCalls: trace.driverCalls,
+    modulePathByteLength: pathBytes,
+    tokenCount: usage.tokens,
+    tokenByteLength: usage.tokenBytes,
+    peakParserStates: usage.parserStates,
+    peakNestingDepth: usage.nestingDepth,
+    retainedStringByteLength: usage.stringBytes,
+    importDeclarationCount: trace.result.importCount,
+    callCount: trace.result.callCount,
+    exportCount: trace.result.exportCount,
+    functionCount: trace.result.functionCount,
+    valueFlowCount: trace.result.valueFlowCount,
+    diagnosticCount: trace.result.diagnosticCount,
+    diagnosticTextByteLength: usage.diagnosticBytes,
+    semanticOutputByteLength: usage.outputBytes - pathBytes,
+    evidenceCanonicalByteLength,
+    maximumEvidenceFrameByteLength,
+  });
+}
+
+function runExactlySizedParse(
+  source: Uint8Array,
+  modulePath: string,
+  allowance: number,
+): Readonly<{
+  readonly oracle: ParseExecutionTrace;
+  readonly exact: DeclarativeV2VerifierModuleResultV1;
+  readonly required: DeclarativeV2VerifierBudgetFrameV2;
+}> {
+  const oracle = runParseExecutionTrace(source, modulePath, allowance);
+  const bound = parseSizingBindings();
+  const planned = planDeclarativeV2VerifierParseModuleV1({
+    bindings: bound,
+    commandKind: "parse_module",
+    sequence: 1n,
+    moduleOrdinal: 0n,
+    sourceByteLength: BigInt(source.byteLength),
+    facts: parseFactsFromTrace(oracle, modulePath),
+    commandBudget: budget("command_budget", source.byteLength),
+  }, bound);
+  if (Result.isFailure(planned)) throw planned.failure;
+  const driven = driveDeclarativeV2VerifierParseModuleTerminalV1(
+    () =>
+      createDeclarativeV2VerifierEngineV1({
+        modulePath: artifactModulePath(modulePath),
+        moduleOrdinal: 0n,
+        sourceSha256: new Uint8Array(32).fill(23),
+        maximums: budget("command_budget", source.byteLength),
+        required: planned.success.required,
+      }),
+    source,
+    oracle.driverCalls,
+    allowance,
+  );
+  if (Result.isFailure(driven)) throw driven.failure;
+  expect(driven.success.driverCalls).toBe(oracle.driverCalls);
+  expect(driven.success.result.usage).toEqual(oracle.result.usage);
+  return Object.freeze({
+    oracle,
+    exact: driven.success.result,
+    required: planned.success.required,
+  });
+}
+
+describe("private parse sizing and deterministic terminal driver", () => {
+  test("admits exact owner facts across lexical, parser, semantic, and diagnostic vectors", () => {
+    const vectors = [
+      UTF8_ENCODER.encode(""),
+      Uint8Array.of(0x00),
+      Uint8Array.of(0x01),
+      UTF8_ENCODER.encode("\t\r\nexport function whitespace() {}"),
+      UTF8_ENCODER.encode("export const decimal = 1.25e+2;"),
+      UTF8_ENCODER.encode("export const integer = 1n;"),
+      UTF8_ENCODER.encode(
+        "export function identifier_$() { return \"value\\u0021\"; }",
+      ),
+      UTF8_ENCODER.encode(
+        "export function punctuators(a, b) { " +
+          "return (a + b) * (a - b) / 2 % 1 >= 0 && a !== b ? a : b; }",
+      ),
+      UTF8_ENCODER.encode("export function regexp() { return /x+/gi; }"),
+      UTF8_ENCODER.encode(
+        "export function unicode(café) { return café; }",
+      ),
+      UTF8_ENCODER.encode(
+        'import { read as get } from "./dep.js"; ' +
+          "export async function ready(value) { const local = value; " +
+          "get(); return local; }",
+      ),
+      UTF8_ENCODER.encode(
+        "/* comment */ export default function demo() { " +
+          "return `value:${1}` / 2; }",
+      ),
+      UTF8_ENCODER.encode(
+        "export function deep() { return ((([[[1]]]))); }",
+      ),
+      UTF8_ENCODER.encode("export const broken = 'unterminated"),
+      Uint8Array.of(0x65, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x20, 0xff),
+    ] as const;
+    for (let index = 0; index < vectors.length; index += 1) {
+      const run = runExactlySizedParse(
+        vectors[index]!,
+        `functions/sizing-${index}.js`,
+        1_024,
+      );
+      expect(run.exact).toMatchObject({
+        evidenceSha256: run.oracle.result.evidenceSha256,
+        verified: run.oracle.result.verified,
+        importCount: run.oracle.result.importCount,
+        exportCount: run.oracle.result.exportCount,
+        functionCount: run.oracle.result.functionCount,
+        callCount: run.oracle.result.callCount,
+        valueFlowCount: run.oracle.result.valueFlowCount,
+        diagnosticCount: run.oracle.result.diagnosticCount,
+      });
+    }
+  });
+
+  test("produces equal terminal semantics for allowance one and 1,024", () => {
+    const source = UTF8_ENCODER.encode(
+      'import { read } from "./dep.js"; ' +
+        "export function ready() { return read(); }",
+    );
+    const one = runExactlySizedParse(source, "functions/quantum.js", 1);
+    const maximum = runExactlySizedParse(
+      source,
+      "functions/quantum.js",
+      1_024,
+    );
+    expect(one.exact).toMatchObject({
+      verified: maximum.exact.verified,
+      importCount: maximum.exact.importCount,
+      exportCount: maximum.exact.exportCount,
+      functionCount: maximum.exact.functionCount,
+      callCount: maximum.exact.callCount,
+      valueFlowCount: maximum.exact.valueFlowCount,
+      diagnosticCount: maximum.exact.diagnosticCount,
+      evidenceSha256: maximum.exact.evidenceSha256,
+    });
+    for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+      if (dimension === "calls") continue;
+      expect(one.exact.usage[dimension]).toBe(
+        maximum.exact.usage[dimension],
+      );
+      expect(one.required[dimension]).toBe(maximum.required[dimension]);
+    }
+    expect(one.required.calls).not.toBe(maximum.required.calls);
+  });
+
+  test("fails closed when authenticated driver-call facts do not match the terminal schedule", () => {
+    const source = UTF8_ENCODER.encode("export const value = 1;");
+    const oracle = runParseExecutionTrace(
+      source,
+      "functions/schedule.js",
+      1_024,
+    );
+    const tooSmall = driveDeclarativeV2VerifierParseModuleTerminalV1(
+      () =>
+        createDeclarativeV2VerifierEngineV1({
+          modulePath: artifactModulePath("functions/schedule.js"),
+          moduleOrdinal: 0n,
+          sourceSha256: new Uint8Array(32).fill(23),
+          maximums: budget("command_budget", source.byteLength),
+          required: budget("attempt_usage", source.byteLength),
+        }),
+      source,
+      oracle.driverCalls - 1n,
+      1_024,
+    );
+    expect(tooSmall).toMatchObject({
+      failure: {
+        operation: "drive",
+        reason: "scheduleExceeded",
+        path: "driverCalls",
+      },
+    });
+    const tooLarge = driveDeclarativeV2VerifierParseModuleTerminalV1(
+      () =>
+        createDeclarativeV2VerifierEngineV1({
+          modulePath: artifactModulePath("functions/schedule.js"),
+          moduleOrdinal: 0n,
+          sourceSha256: new Uint8Array(32).fill(23),
+          maximums: budget("command_budget", source.byteLength),
+          required: budget("attempt_usage", source.byteLength),
+        }),
+      source,
+      oracle.driverCalls + 1n,
+      1_024,
+    );
+    expect(tooLarge).toMatchObject({
+      failure: {
+        operation: "drive",
+        reason: "scheduleMismatch",
+        path: "driverCalls",
+      },
+    });
+  });
+});
 
 function linkModuleResults(
   modules: ReadonlyArray<DeclarativeV2VerifierModuleResultV1>,
