@@ -1637,15 +1637,73 @@ activation remain blocked until their production host composition is proven.
         owners prove exact formulas; parse-module formulas must not be
         generalized to them.
 
+        `A1b2c0b2c2b0a0b0a — protocol-owned resumable verifier-progress
+        encode-into cursor` is the next unimplemented prerequisite before
+        `A1b2c0b2c2b0a0b0`. Its exact future owner set is only
+        `packages/flarex-protocol/src/declarative-v2-verifier-progress-v2.ts`
+        and
+        `packages/flarex-protocol/test/declarative-v2-verifier-progress-v2.test.ts`.
+        It adds a factory-local opaque `create`/admit/`step`/`close` cursor
+        beside the existing codec through the intentional
+        `flarex-protocol/internal/declarative-v2-verifier-progress-v2`
+        subpath. It adds no module, package-manifest entry, wire identity,
+        frame kind, public package-root contract, decoder, or executor-HTTP
+        change. The existing atomic encoder remains the compatibility wrapper,
+        and current request, response, and restart transports keep their
+        present whole-frame behavior.
+
+        Creation preserves hostile-safe capture and first-failure order,
+        computes checked exact frame length/work, invokes trusted destination
+        admission once before any canonical write, and validates detachment,
+        destination range/addressability, shared storage, and borrowed-input
+        overlap before publishing a cursor. Each `step` performs at most one
+        canonical byte copy or write per actual primitive transition.
+        Allowance is an exact safe integer `0..1024`; zero performs no byte
+        work or state advance. Banked credit, hidden whole-frame work, rescans,
+        and a second canonical buffer are forbidden. Per-call delta and
+        aggregate allocation/copy/write/scan/transition receipts are exact,
+        and the completed aggregate equals the admitted protocol plan.
+        Completion, close, and terminal failure release retained
+        frame/destination/cursor state; forged, cross-factory, stale,
+        exhausted, closed, or reused handles fail closed.
+
+        Recoverable protocol and lifecycle failures remain pure Effect v4
+        `Result` data; trusted callback throws and accepted-state
+        contradictions remain defects. The later Effect host owns request
+        `Scope`, cancellation, interruption, full foreign `Cause`, resources,
+        and finalization. Cold reconstruction starts from offset zero with
+        identical bytes and receipts; no serialized mid-frame recovery is
+        added. Required b0a validation covers all nine frame kinds and all 26
+        budget fields, predecessor layouts, atomic-versus-cursor golden and
+        two-cold equality, every split, allowances `0/1/1024` and rejected
+        `1025`, exact delta/aggregate work, admission-before-write, hostile
+        capture/destination/reentrancy/lifecycle cases, existing
+        encoder/decoder ownership and failure precedence, destination reuse,
+        package-root closure, focused/full protocol and direct
+        analysis/executor-HTTP compatibility, typecheck/build, frozen-install,
+        Effect/diff checks, and both exact-final reviewers. b0a remains
+        private, production-unreachable, unimplemented, unaccepted, and not
+        green.
+
         `A1b2c0b2c2b0a0b0 — private source-page metadata accumulator, sizing,
-        and deterministic terminal driver` is the next unimplemented
-        source-page prerequisite. The current call graph ends before such an
+        and deterministic terminal driver` has a provisional two-file
+        implementation, but it remains unaccepted, uncommitted, unwired,
+        production-unreachable, and uncommittable. Its current credit banking
+        consumes allowance without performing protocol work and later invokes
+        the whole atomic encoder. After b0a closes, b0 must consume the
+        protocol cursor and correct sizing/sealing accounting, retained caller
+        references, hostile-array access, and canonical
+        validation-versus-budget failure ordering before another acceptance
+        review.
+
+        The current accepted call graph still ends before a durable source-page
         owner exists: the backend A1b1 proof/read-session path authenticates and
         reconstructs whole Source Artifact V2 and Semantic Artifact V1 content;
         executor-HTTP then admits the inert command and accounts only for
-        transport work; no `@flarex/analysis` source-page executor produces an
-        actual durable receipt; and the response transport can carry only
-        caller-supplied output, usage, and progress commitments. A1b1 content
+        transport work; no accepted `@flarex/analysis` source-page executor
+        produces an actual durable receipt; and the response transport can
+        carry only caller-supplied output, usage, and progress commitments.
+        A1b1 content
         reads, executor-HTTP byte/frame/copy work, restart recovery, and later
         host clocks/resources are separate ledgers. None may be relabelled as
         durable source-page `attempt_usage`.
@@ -1700,7 +1758,7 @@ activation remain blocked until their production host composition is proven.
         `Scope`, cancellation, interruption, foreign `Cause`, clocks, resources,
         transport uncertainty, release, and finalization.
 
-        Required validation covers every metadata role and path shape,
+        Required b0 validation covers every metadata role and path shape,
         contiguous/gap/overlap/duplicate/predecessor cases, all 26 dimensions
         at exact and one-less ceilings, signed-int64/u32/arena boundaries,
         allowances `0/1/1024` and rejected `1025`, every split, hostile
@@ -1710,7 +1768,7 @@ activation remain blocked until their production host composition is proven.
         typecheck/build, committed parse sizing plus executable/restart
         compatibility, verifier generator/identity, monolithic analyzer,
         package-root, Effect/diff checks, and both exact-final project
-        reviewers. This gate is not implemented or green. `link_page` and
+        reviewers. The provisional gate is not accepted or green. `link_page` and
         `registration_page` sizing/driver ownership remain separate unresolved
         prerequisites.
 
@@ -1771,9 +1829,12 @@ activation remain blocked until their production host composition is proven.
    The c2a claimed-source prerequisite is also implemented but inert. The
    four-file b0a command-plan snapshot is provisional, inert, unaccepted, and
    uncommitted. The private a0a parse-module sizing policy is implemented and
-   committed. Source-page sizing is now blocked on the unimplemented private
-   b0a0b0 metadata-accumulator/terminal-driver owner above; link and registration
-   sizing remain separately unresolved. b0b/b0c, the c2b analyzer command
+   committed. Source-page sizing is now blocked first on the unimplemented
+   private b0a0b0a protocol cursor above. The provisional b0a0b0 source-page
+   implementation is also unaccepted and uncommittable until it consumes that
+   cursor and closes its documented accounting, ownership, hostile-input, and
+   failure-order findings; link and registration sizing remain separately
+   unresolved. b0b/b0c, the c2b analyzer command
    engine, Effect host
    composition, and a production caller remain absent. These transport,
    readback, and claim owners establish bounded inert bytes and process-local

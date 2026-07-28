@@ -1160,12 +1160,60 @@ implemented:
   separate later command-kind gates unless their current owners prove exact
   formulas; parse-module formulas must not be generalized to them.
 
+  `A1b2c0b2c2b0a0b0a — protocol-owned resumable verifier-progress encode-into
+  cursor` is the next unimplemented prerequisite before
+  `A1b2c0b2c2b0a0b0`. Its exact future owner set is only
+  `packages/flarex-protocol/src/declarative-v2-verifier-progress-v2.ts` and
+  `packages/flarex-protocol/test/declarative-v2-verifier-progress-v2.test.ts`.
+  It adds a factory-local opaque `create`/admit/`step`/`close` cursor beside
+  the existing codec through the intentional
+  `flarex-protocol/internal/declarative-v2-verifier-progress-v2` subpath.
+  There is no new module, manifest entry, wire identity, frame kind, decoder,
+  public root contract, or executor-HTTP change. The atomic encoder remains
+  the compatibility wrapper and current transports remain byte-for-byte
+  unchanged.
+
+  Creation preserves hostile-safe capture and first-failure order, computes
+  checked exact frame length/work, admits the destination once before a
+  canonical write, and validates detachment, range/addressability, shared
+  storage, and borrowed-input overlap before publishing a cursor. Each `step`
+  performs at most one canonical byte copy or write per actual primitive
+  transition. Allowance is an exact safe integer `0..1024`; zero does no work
+  or state advance. Banked credit, hidden atomic work, rescans, and a second
+  canonical buffer are forbidden. Per-call delta and aggregate
+  allocation/copy/write/scan/transition receipts are exact and the completed
+  aggregate equals the admitted plan. Completion, close, and terminal failure
+  release retained state; forged, cross-factory, stale, exhausted, closed, or
+  reused handles fail closed.
+
+  Recoverable protocol/lifecycle failures remain pure Effect v4 `Result`
+  values; trusted callback throws and accepted-state contradictions remain
+  defects. The later Effect host owns request `Scope`, cancellation,
+  interruption, full foreign `Cause`, resources, and finalization. Cold
+  reconstruction restarts at offset zero with identical bytes/receipts; no
+  serialized mid-frame recovery is added. Required b0a validation covers all
+  nine frame kinds and 26 budget fields, predecessor layouts,
+  atomic-versus-cursor goldens/two-cold equality, every split, allowances
+  `0/1/1024` and rejected `1025`, exact delta/aggregate work,
+  admission-before-write, hostile capture/destination/reentrancy/lifecycle,
+  ownership/failure precedence, destination reuse, root closure, focused/full
+  protocol and direct analysis/executor-HTTP compatibility, typecheck/build,
+  frozen-install, Effect/diff checks, and both exact-final reviewers. b0a is
+  private, production-unreachable, unimplemented, unaccepted, and not green.
+
   `A1b2c0b2c2b0a0b0 — private source-page metadata accumulator, sizing, and
-  deterministic terminal driver` is the next unimplemented source-page
-  prerequisite. The current call graph stops before a durable source-page
-  executor: the backend A1b1 proof/read session authenticates and reconstructs
+  deterministic terminal driver` has a provisional two-file implementation,
+  but it remains unaccepted, uncommitted, unwired, production-unreachable, and
+  uncommittable. Its credit banking consumes allowance without protocol work
+  and later invokes the whole atomic encoder. After b0a closes, b0 must consume
+  the cursor and correct sizing/sealing accounting, retained caller
+  references, hostile-array access, and canonical validation-versus-budget
+  failure ordering before another acceptance review.
+
+  The accepted call graph still stops before a durable source-page executor:
+  the backend A1b1 proof/read session authenticates and reconstructs
   whole Source Artifact V2 and Semantic Artifact V1 content; executor-HTTP
-  admits the inert command and accounts for transport work; no
+  admits the inert command and accounts for transport work; no accepted
   `@flarex/analysis` source-page owner emits actual durable command usage; and
   the response transport can only carry caller-supplied output, usage, and
   progress commitments. A1b1 reads, executor-HTTP byte/frame/copy accounting,
@@ -1217,7 +1265,7 @@ implemented:
   `Scope`, cancellation, interruption, foreign `Cause`, clocks, resources,
   transport uncertainty, release, and finalization.
 
-  Required validation covers every metadata role/path shape, contiguous ranges,
+  Required b0 validation covers every metadata role/path shape, contiguous ranges,
   gaps, overlaps, duplicates, and predecessor mismatches, all 26 dimensions at
   exact and one-less ceilings, signed-int64/u32/arena boundaries, allowances
   `0/1/1024` and rejected `1025`, every split, hostile accessors and
@@ -1226,7 +1274,7 @@ implemented:
   bytes, focused/partitioned analysis, typecheck/build, committed parse sizing
   and executable/restart compatibility, verifier generator/identity,
   monolithic analyzer, package-root, Effect/diff checks, and both exact-final
-  project reviewers. The gate is not implemented or green. `link_page` and
+  project reviewers. The provisional gate is not accepted or green. `link_page` and
   `registration_page` remain separate unresolved sizing/driver prerequisites.
 
   `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the separately
@@ -1286,8 +1334,11 @@ private c1a restart-input transport, and the private c2a claimed-source
 prerequisite is implemented but inert. The private a0a parse-module sizing
 policy is implemented and committed, while the four provisional b0a
 command-plan files remain unaccepted and uncommitted. Source-page sizing is
-blocked on the unimplemented private b0a0b0 metadata-accumulator/terminal-driver
-owner above; link and registration sizing remain separately unresolved.
+blocked first on the unimplemented private b0a0b0a protocol cursor above. The
+provisional b0a0b0 source-page implementation is also unaccepted and
+uncommittable until it consumes that cursor and closes its documented
+accounting, ownership, hostile-input, and failure-order findings; link and
+registration sizing remain separately unresolved.
 b0b/b0c, the c2b command engine, Effect
 host, production caller, and composition proof remain absent. These inert
 owners do not prove real cold delivery: cold
