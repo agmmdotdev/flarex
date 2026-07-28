@@ -1098,27 +1098,28 @@ implemented:
   verifier-addressability arithmetic.
 
   `A1b2c0b2c2b0a` has a provisional private command-plan implementation on its
-  bounded owner set:
+  bounded four-path owner set:
   `packages/analysis/src/declarativeV2VerifierCommandPlanV1.ts`,
   `packages/analysis/test/declarative-v2-verifier-command-plan-v1.test.ts`,
-  `packages/analysis/package.json`, the analyzer export-identity test, and
-  these two living roadmaps. Those six provisional files are unaccepted and
+  `packages/analysis/package.json`, and the analyzer export-identity test.
+  Those four provisional files are unaccepted and
   uncommitted; they remain unwired, production-unreachable, and
   non-authoritative.
 
-  The accepted `A1b2c0b2c2b0a0-P` sizing trace establishes that all 26
-  `attempt_usage` dimensions have distinct current owners and units. The
-  executable's 1,024-transition allowance is only a per-invocation execution
-  quantum, not a universal sizing proof. Fixed-zero or unsupported dimensions
-  remain explicit zero. Fixed-capacity dimensions describe fixed-width verifier
-  storage derived from authenticated cardinalities. Peak dimensions describe
-  simultaneous parser or nesting state. Cumulative dimensions count actual
-  calls, transitions, records, frames, hashes, diagnostics, and encoded/output
-  bytes. Content-dependent dimensions follow authenticated source, token,
-  import, function, call, value-flow, or diagnostic structure. Presently unused
-  dimensions have no charge site and stay zero rather than receiving an
-  invented allowance. `elapsedMilliseconds` is host-clock-owned and zero in the
-  pure plan; `objectCalls` is zero for current durable parse work.
+  `A1b2c0b2c2b0a0a` is implemented and committed as a private,
+  package-unexported, production-unreachable, inert `@flarex/analysis`
+  parse-module sizing and deterministic terminal-driver policy. It proves
+  parse-module-only owner-derived sizing for all 26 `attempt_usage`
+  dimensions. The executable's 1,024-transition allowance is only a
+  per-invocation execution quantum, not a universal sizing proof. Fixed-zero,
+  unsupported, and presently unused parse dimensions remain exact zero;
+  `elapsedMilliseconds` is host-clock-owned and zero in the pure plan, while
+  `objectCalls` is zero for current durable parse work. Fixed-capacity
+  dimensions use authenticated cardinalities and exact generated-table
+  requirements, peak dimensions describe simultaneous parser or nesting state,
+  and cumulative/content-dependent dimensions follow exact parse calls,
+  transitions, source, token, import, function, call, value-flow, diagnostic,
+  evidence, canonical, frame, hash, and output work.
 
   Durable command usage and restart recovery usage are separate ledgers.
   Recovery `objectCalls`, page/body bytes, hashes, records, and manifests belong
@@ -1134,30 +1135,30 @@ implemented:
   owns request `Scope`, cancellation, interruption, foreign `Cause`, clocks,
   resources, and finalization.
 
-  The smallest next implementation prerequisite is
-  `A1b2c0b2c2b0a0a` — the private `@flarex/analysis` parse-module sizing and
-  deterministic terminal-driver gate. Its exact candidate allowlist is
+  The committed policy's owner set is
   `packages/analysis/src/declarativeV2VerifierSizingV1.ts`,
   `packages/analysis/test/declarative-v2-verifier-sizing-v1.test.ts`, and
   `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`.
-  Required coverage includes lexer/token and malformed-UTF-8 termination,
-  parser/nesting peaks, imports/exports/functions/calls/value
-  flows/diagnostics, evidence/canonical/frame/output work, SHA boundary lengths
+  Its deterministic driver creates the engine, feeds each unconsumed source
+  suffix in fixed allowance quanta without rescanning, seals once, and finishes
+  to terminal before publishing sizing or usage. The sizing operation itself
+  does not parse source bytes or perform a hidden preliminary parse. Accepted
+  coverage includes lexer/token and malformed-UTF-8 termination,
+  parser/nesting peaks, imports/exports/functions/calls/value flows/diagnostics,
+  evidence/canonical/frame/output work, SHA boundary lengths
   `0/1/55/56/63/64/65`, allowances `1` and `1024`, every dimension at exact
   and one-less ceilings, signed-int64/u32/arena boundaries, hostile fact
   ordering, two-cold determinism, absence of a hidden preliminary parse, and
-  executable compatibility. Acceptance requires focused/full analysis,
-  verifier asset/generator/identity checks, typecheck/build, frozen-install
-  evidence, Effect/docs/diff checks, and clean exact-final
-  `typescript-diff-reviewer` and `code-quality-diff-reviewer` reports. It adds
-  no package-root export, generated analyzer identity, protocol/persistence
-  contract, host, route, candidate, repository, OCC, commit, or production
-  authority. The unchanged analyzer release-identity reproduction mismatch
-  remains an unrelated baseline; this gate neither regenerates it nor treats
-  it as evidence. `source_page`, `link_page`, and `registration_page` sizing
-  and driver ownership remain separate later command-kind gates unless their
-  current owners prove exact formulas; parse-module formulas must not be
-  generalized to them.
+  executable compatibility. Focused and partitioned analysis, typecheck/build,
+  verifier generator/identity, frozen-install, Effect/diff, and both exact-final
+  project reviews are green. It adds no package-root export, generated analyzer
+  identity, protocol/persistence contract, host, route, candidate, repository,
+  OCC, commit, or production authority. The unchanged analyzer
+  release-identity reproduction mismatch remains an unrelated baseline; this
+  gate neither regenerates it nor treats it as evidence. `source_page`,
+  `link_page`, and `registration_page` sizing and driver ownership remain
+  separate later command-kind gates unless their current owners prove exact
+  formulas; parse-module formulas must not be generalized to them.
 
   `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the separately
   versioned private companion codec with hostile-safe canonical admission,
@@ -1184,8 +1185,9 @@ implemented:
   typecheck/build, generators/identities, frozen install, Effect/docs/diff
   checks, and both exact-final project reviewers. The provisional b0a bytes
   remain unwired, production-unreachable, non-authoritative, unaccepted, and
-  uncommitted while the owner-derived sizing/driver prerequisites remain
-  unresolved; b0b and b0c remain unimplemented.
+  uncommitted. Parse-module sizing is now satisfied, but `source_page`,
+  `link_page`, and `registration_page` sizing and terminal-driver authority
+  remain unresolved; b0b and b0c remain unimplemented.
 
   The blocked candidate c2b implementation allowlist remains exactly
   `packages/analysis/src/declarativeV2VerifierCommandEngineV1.ts`,
@@ -1212,10 +1214,12 @@ implemented:
 
 The private c1b historical settled-page readback is implemented beside the
 private c1a restart-input transport, and the private c2a claimed-source
-prerequisite is implemented but inert. The provisional b0a command-plan bytes
-remain unaccepted behind their owner-derived sizing/driver prerequisite;
-b0b/b0c, the c2b command engine, Effect host, production caller, and composition
-proof remain absent. These inert owners do not prove real cold delivery: cold
+prerequisite is implemented but inert. The private a0a parse-module sizing
+policy is implemented and committed, while the four provisional b0a
+command-plan files remain unaccepted and uncommitted because source, link, and
+registration sizing is unresolved. b0b/b0c, the c2b command engine, Effect
+host, production caller, and composition proof remain absent. These inert
+owners do not prove real cold delivery: cold
 `link_page`
 and link-dependent registration cannot rely on warm WeakMap state. Pure claim,
 command-plan, transport, and engine mechanics remain in `Result`/plain
