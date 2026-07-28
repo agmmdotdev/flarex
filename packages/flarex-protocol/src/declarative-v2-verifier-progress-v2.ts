@@ -232,6 +232,65 @@ export type DeclarativeV2VerifierProgressFrameVerifyAdmissionV2<E> = (
   plan: DeclarativeV2VerifierProgressFrameVerificationPlanV2,
 ) => Result.Result<void, E>;
 
+declare const DECLARATIVE_V2_VERIFIER_PROGRESS_FRAME_ENCODER_CURSOR_V2:
+  unique symbol;
+
+export interface DeclarativeV2VerifierProgressFrameEncoderCursorV2 {
+  readonly _tag: "DeclarativeV2VerifierProgressFrameEncoderCursorV2";
+  readonly [DECLARATIVE_V2_VERIFIER_PROGRESS_FRAME_ENCODER_CURSOR_V2]: true;
+}
+
+export interface DeclarativeV2VerifierProgressFrameEncoderReceiptV2 {
+  readonly consumedAllowance: number;
+  readonly deltaWork: DeclarativeV2VerifierProgressFrameWorkV2;
+  readonly aggregateWork: DeclarativeV2VerifierProgressFrameWorkV2;
+}
+
+export type DeclarativeV2VerifierProgressFrameEncoderStepV2 =
+  | Readonly<{
+    readonly status: "pending";
+    readonly receipt: DeclarativeV2VerifierProgressFrameEncoderReceiptV2;
+  }>
+  | Readonly<{
+    readonly status: "complete";
+    readonly written: DeclarativeV2VerifierProgressFrameWrittenV2;
+    readonly receipt: DeclarativeV2VerifierProgressFrameEncoderReceiptV2;
+  }>;
+
+export interface DeclarativeV2VerifierProgressFrameEncoderFactoryV2 {
+  readonly create: (
+    input: unknown,
+    rawBudget: unknown,
+  ) => Result.Result<
+    Readonly<{
+      readonly cursor: DeclarativeV2VerifierProgressFrameEncoderCursorV2;
+      readonly plan: DeclarativeV2VerifierProgressFrameEncodingPlanV2;
+      readonly receipt: DeclarativeV2VerifierProgressFrameEncoderReceiptV2;
+    }>,
+    DeclarativeV2VerifierProgressV2Error
+  >;
+  readonly admit: <E>(
+    cursor: unknown,
+    admit: DeclarativeV2VerifierProgressFrameEncodeAdmissionV2<E>,
+  ) => Result.Result<
+    DeclarativeV2VerifierProgressFrameEncoderReceiptV2,
+    DeclarativeV2VerifierProgressV2Error | E
+  >;
+  readonly step: (
+    cursor: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierProgressFrameEncoderStepV2,
+    DeclarativeV2VerifierProgressV2Error
+  >;
+  readonly close: (
+    cursor: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierProgressFrameEncoderReceiptV2,
+    DeclarativeV2VerifierProgressV2Error
+  >;
+}
+
 export class DeclarativeV2VerifierProgressV2Error extends Data.TaggedError(
   "DeclarativeV2VerifierProgressV2Error",
 )<{
@@ -260,6 +319,45 @@ type FrameKind = DeclarativeV2VerifierProgressFrameV2["kind"];
 type CapturedFrame = Readonly<Record<string, bigint | string | Uint8Array | null>> & {
   readonly kind: FrameKind;
 };
+
+type FrameEncodingSegment =
+  | Readonly<{
+    readonly kind: "bytes";
+    readonly bytes: Uint8Array;
+  }>
+  | Readonly<{
+    readonly kind: "byte";
+    readonly value: number;
+  }>
+  | Readonly<{
+    readonly kind: "u32";
+    readonly value: number;
+  }>
+  | Readonly<{
+    readonly kind: "u64";
+    readonly value: bigint;
+  }>;
+
+type MutableProgressFrameWork = {
+  byteStorageAllocationBytes: number;
+  byteCopyBytes: number;
+  byteWriteBytes: number;
+  byteScanBytes: number;
+  primitiveTransitions: number;
+};
+
+interface ProgressFrameEncoderCursorState {
+  readonly frame: CapturedFrame;
+  readonly plan: DeclarativeV2VerifierProgressFrameEncodingPlanV2;
+  readonly segments: readonly FrameEncodingSegment[];
+  readonly aggregateWork: MutableProgressFrameWork;
+  inputIdentity: object | null;
+  range: DeclarativeV2VerifierProgressFrameByteRangeV2 | undefined;
+  phase: "created" | "admitting" | "admitted";
+  segmentIndex: number;
+  segmentOffset: number;
+  outputOffset: number;
+}
 
 const UTF8_ENCODER = new TextEncoder();
 const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -481,10 +579,317 @@ export function encodeDeclarativeV2VerifierProgressFrameIntoV2<E>(
   DeclarativeV2VerifierProgressFrameWrittenV2,
   DeclarativeV2VerifierProgressV2Error | E
 > {
-  const encoded = encodeFrameIntoAdmittedRange(input, rawBudget, admit);
-  return Result.isFailure(encoded)
-    ? Result.fail(encoded.failure)
-    : Result.succeed(encoded.success.written);
+  return Result.map(
+    encodeFrameIntoAdmittedRange(input, rawBudget, admit),
+    ({ written }) => written,
+  );
+}
+
+/**
+ * Creates factory-local resumable encode-into cursors. The input and admitted
+ * destination are borrowed until completion or close and must not be mutated,
+ * detached, or reused by the trusted caller while the cursor is active.
+ * Cursor identity is process-local WeakMap state; the visible tag is inert.
+ */
+export function makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2():
+  DeclarativeV2VerifierProgressFrameEncoderFactoryV2 {
+  const cursors = new WeakMap<object, ProgressFrameEncoderCursorState>();
+
+  const create:
+    DeclarativeV2VerifierProgressFrameEncoderFactoryV2["create"] =
+      (input, rawBudget) => Result.gen(function* () {
+        const budget = yield* decodeFrameBudget(rawBudget, "encode");
+        if (
+          typeof input === "object" &&
+          input !== null &&
+          ACTIVE_ADMISSION_INPUTS.has(input)
+        ) {
+          return yield* Result.fail(
+            progressError("encode", "invalidInput", "admission.reentrantInput"),
+          );
+        }
+        const frame = yield* captureFrame(input, "encode", false);
+        if (hasSharedBorrowedFrameStorage(frame)) {
+          return yield* Result.fail(
+            progressError("encode", "invalidInput", "frame.sharedByteStorage"),
+          );
+        }
+        const exactLength = frameByteLength(frame);
+        if (exactLength > budget.maximumFrameBytes) {
+          return yield* Result.fail(limitError(
+            "encode",
+            "frameBytesExceeded",
+            exactLength,
+            budget.maximumFrameBytes,
+          ));
+        }
+        const work = encodingWork(frame, exactLength);
+        const plan = Object.freeze({
+          canonicalByteLength: exactLength,
+          successfulWork: work,
+        });
+        const segments = frameEncodingSegments(frame);
+        assertExactEncodingSegments(frame, exactLength, segments);
+        const cursor = Object.freeze({
+          _tag: "DeclarativeV2VerifierProgressFrameEncoderCursorV2",
+        }) as DeclarativeV2VerifierProgressFrameEncoderCursorV2;
+        const aggregateWork = mutableZeroProgressFrameWork();
+        cursors.set(cursor, {
+          frame,
+          plan,
+          segments,
+          aggregateWork,
+          inputIdentity: typeof input === "object" && input !== null
+            ? input
+            : null,
+          range: undefined,
+          phase: "created",
+          segmentIndex: 0,
+          segmentOffset: 0,
+          outputOffset: 0,
+        });
+        return Object.freeze({
+          cursor,
+          plan,
+          receipt: progressFrameEncoderReceipt(
+            zeroProgressFrameWork(),
+            aggregateWork,
+            0,
+          ),
+        });
+      });
+
+  const admit:
+    DeclarativeV2VerifierProgressFrameEncoderFactoryV2["admit"] =
+      (rawCursor, admission) => Result.gen(function* () {
+        const state = yield* progressFrameEncoderCursorState(
+          cursors,
+          rawCursor,
+          "admit",
+        );
+        if (state.phase !== "created") {
+          revokeProgressFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            progressError("encode", "invalidInput", "cursor.reused"),
+          );
+        }
+        state.phase = "admitting";
+        const identity = state.inputIdentity;
+        if (identity !== null) ACTIVE_ADMISSION_INPUTS.add(identity);
+        let admitted: ReturnType<typeof admission>;
+        try {
+          admitted = admission(state.plan);
+        } catch (defect) {
+          revokeProgressFrameEncoderCursor(cursors, rawCursor);
+          throw defect;
+        } finally {
+          if (identity !== null) ACTIVE_ADMISSION_INPUTS.delete(identity);
+        }
+        if (
+          cursors.get(rawCursor as object) !== state ||
+          state.phase !== "admitting"
+        ) {
+          revokeProgressFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            progressError("encode", "invalidInput", "cursor.reentrant"),
+          );
+        }
+        const admittedRange = yield* Result.mapError(
+          admitted,
+          failure => {
+            revokeProgressFrameEncoderCursor(cursors, rawCursor);
+            return failure;
+          },
+        );
+        const range = yield* Result.mapError(
+          captureByteRange(admittedRange, "encode"),
+          failure => {
+            revokeProgressFrameEncoderCursor(cursors, rawCursor);
+            return failure;
+          },
+        );
+        if (range.byteLength !== state.plan.canonicalByteLength) {
+          revokeProgressFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            progressError("encode", "invalidInput", "destination.byteLength"),
+          );
+        }
+        if (overlapsBorrowedFrameStorage(state.frame, range)) {
+          revokeProgressFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            progressError("encode", "invalidInput", "destination.overlap"),
+          );
+        }
+        state.inputIdentity = null;
+        state.range = range;
+        state.phase = "admitted";
+        const delta = Object.freeze({
+          byteStorageAllocationBytes: range.byteLength,
+          byteCopyBytes: 0,
+          byteWriteBytes: 0,
+          byteScanBytes: 0,
+          primitiveTransitions: 0,
+        });
+        addProgressFrameWork(state.aggregateWork, delta);
+        return progressFrameEncoderReceipt(
+          delta,
+          state.aggregateWork,
+          0,
+        );
+      });
+
+  const step:
+    DeclarativeV2VerifierProgressFrameEncoderFactoryV2["step"] =
+      (rawCursor, rawAllowance) => Result.gen(function* () {
+        const state = yield* progressFrameEncoderCursorState(
+          cursors,
+          rawCursor,
+          "step",
+        );
+        if (state.phase !== "admitted") {
+          revokeProgressFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            progressError("encode", "invalidInput", "cursor.notAdmitted"),
+          );
+        }
+        if (
+          !isNonNegativeSafeInteger(rawAllowance) ||
+          rawAllowance > 1024
+        ) {
+          revokeProgressFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            progressError("encode", "invalidBudget", "cursor.allowance"),
+          );
+        }
+        const before = snapshotProgressFrameWork(state.aggregateWork);
+        if (rawAllowance === 0) {
+          return Object.freeze({
+            status: "pending",
+            receipt: progressFrameEncoderReceipt(
+              zeroProgressFrameWork(),
+              state.aggregateWork,
+              0,
+            ),
+          });
+        }
+        const range = state.range;
+        if (
+          range === undefined ||
+          !isCurrentProgressFrameDestination(range)
+        ) {
+          revokeProgressFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            progressError("encode", "invalidInput", "cursor.destination"),
+          );
+        }
+        let consumedAllowance = 0;
+        let copied = 0;
+        while (
+          consumedAllowance < rawAllowance &&
+          state.outputOffset < state.plan.canonicalByteLength
+        ) {
+          const segment = state.segments[state.segmentIndex];
+          if (segment === undefined) {
+            revokeProgressFrameEncoderCursor(cursors, rawCursor);
+            throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+              reason: "reencodeFailed",
+            });
+          }
+          const next = frameEncodingSegmentByte(
+            segment,
+            state.segmentOffset,
+          );
+          if (next === undefined) {
+            revokeProgressFrameEncoderCursor(cursors, rawCursor);
+            return yield* Result.fail(
+              progressError(
+                "encode",
+                "invalidInput",
+                "cursor.borrowedByteStorage",
+              ),
+            );
+          }
+          range.bytes[range.byteOffset + state.outputOffset] = next;
+          if (segment.kind === "bytes") copied += 1;
+          state.outputOffset += 1;
+          state.segmentOffset += 1;
+          consumedAllowance += 1;
+          if (
+            state.segmentOffset === frameEncodingSegmentLength(segment)
+          ) {
+            state.segmentIndex += 1;
+            state.segmentOffset = 0;
+          }
+        }
+        const delta = Object.freeze({
+          byteStorageAllocationBytes: 0,
+          byteCopyBytes: copied,
+          byteWriteBytes: consumedAllowance,
+          byteScanBytes: 0,
+          primitiveTransitions: consumedAllowance,
+        });
+        addProgressFrameWork(state.aggregateWork, delta);
+        const receipt = progressFrameEncoderReceipt(
+          subtractProgressFrameWork(
+            snapshotProgressFrameWork(state.aggregateWork),
+            before,
+          ),
+          state.aggregateWork,
+          consumedAllowance,
+        );
+        if (
+          state.outputOffset <
+            state.plan.canonicalByteLength
+        ) {
+          return Object.freeze({
+            status: "pending",
+            receipt,
+          });
+        }
+        const aggregate = snapshotProgressFrameWork(
+          state.aggregateWork,
+        );
+        assertExactSuccessfulWork(
+          state.plan.successfulWork,
+          aggregate,
+        );
+        const written = Object.freeze({
+          range,
+          usage: Object.freeze({
+            frameBytes: range.byteLength,
+            canonicalBytes: 0,
+          }),
+          work: aggregate,
+        });
+        revokeProgressFrameEncoderCursor(cursors, rawCursor);
+        return Object.freeze({
+          status: "complete",
+          written,
+          receipt,
+        });
+      });
+
+  const close:
+    DeclarativeV2VerifierProgressFrameEncoderFactoryV2["close"] =
+      rawCursor =>
+        Result.map(
+          progressFrameEncoderCursorState(
+          cursors,
+          rawCursor,
+          "close",
+          ),
+          state => {
+            const aggregate = snapshotProgressFrameWork(state.aggregateWork);
+            revokeProgressFrameEncoderCursor(cursors, rawCursor);
+            return progressFrameEncoderReceipt(
+              zeroProgressFrameWork(),
+              aggregate,
+              0,
+            );
+          },
+        );
+
+  return Object.freeze({ create, admit, step, close });
 }
 
 /**
@@ -586,77 +991,19 @@ function encodeFrameIntoAdmittedRange<E>(
   EncodedAdmittedRangeV2,
   DeclarativeV2VerifierProgressV2Error | E
 > {
-  const budget = decodeFrameBudget(rawBudget, "encode");
-  if (Result.isFailure(budget)) return Result.fail(budget.failure);
-  if (
-    typeof input === "object" &&
-    input !== null &&
-    ACTIVE_ADMISSION_INPUTS.has(input)
-  ) {
-    return Result.fail(
-      progressError("encode", "invalidInput", "admission.reentrantInput"),
-    );
-  }
-  const frame = captureFrame(input, "encode", false);
-  if (Result.isFailure(frame)) return Result.fail(frame.failure);
-  if (hasSharedBorrowedFrameStorage(frame.success)) {
-    return Result.fail(
-      progressError("encode", "invalidInput", "frame.sharedByteStorage"),
-    );
-  }
-  const exactLength = frameByteLength(frame.success);
-  if (exactLength > budget.success.maximumFrameBytes) {
-    return Result.fail(limitError(
-      "encode",
-      "frameBytesExceeded",
-      exactLength,
-      budget.success.maximumFrameBytes,
-    ));
-  }
-  const work = encodingWork(frame.success, exactLength);
-  const plan = Object.freeze({
-    canonicalByteLength: exactLength,
-    successfulWork: work,
+  const factory = makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+  return Result.gen(function* () {
+    const created = yield* factory.create(input, rawBudget);
+    yield* factory.admit(created.cursor, admit);
+    while (true) {
+      const stepped = yield* factory.step(created.cursor, 1024);
+      if (stepped.status === "complete") {
+        return Object.freeze({
+          written: stepped.written,
+        });
+      }
+    }
   });
-  const identity = typeof input === "object" && input !== null ? input : null;
-  if (identity !== null) ACTIVE_ADMISSION_INPUTS.add(identity);
-  let admitted: Result.Result<
-    DeclarativeV2VerifierProgressFrameByteRangeV2,
-    E
-  >;
-  try {
-    admitted = admit(plan);
-  } finally {
-    if (identity !== null) ACTIVE_ADMISSION_INPUTS.delete(identity);
-  }
-  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
-  const capturedRange = captureByteRange(admitted.success, "encode");
-  if (Result.isFailure(capturedRange)) {
-    return Result.fail(capturedRange.failure);
-  }
-  const range = capturedRange.success;
-  if (range.byteLength !== exactLength) {
-    return Result.fail(
-      progressError("encode", "invalidInput", "destination.byteLength"),
-    );
-  }
-  if (overlapsBorrowedFrameStorage(frame.success, range)) {
-    return Result.fail(
-      progressError("encode", "invalidInput", "destination.overlap"),
-    );
-  }
-  const actual = writeCapturedFrame(range, frame.success);
-  assertExactSuccessfulWork(work, actual);
-  return Result.succeed(Object.freeze({
-    written: Object.freeze({
-      range,
-      usage: Object.freeze({
-        frameBytes: exactLength,
-        canonicalBytes: 0,
-      }),
-      work: actual,
-    }),
-  }));
 }
 
 export function decodeDeclarativeV2VerifierProgressFrameV2(
@@ -1183,6 +1530,338 @@ function captureEvidencePageManifest(
   }));
 }
 
+function frameEncodingSegments(
+  frame: CapturedFrame,
+): readonly FrameEncodingSegment[] {
+  const segments: FrameEncodingSegment[] = [];
+  const bytes = (value: Uint8Array): void => {
+    segments.push(Object.freeze({ kind: "bytes", bytes: value }));
+  };
+  const byte = (value: number): void => {
+    segments.push(Object.freeze({ kind: "byte", value }));
+  };
+  const u32 = (value: number): void => {
+    segments.push(Object.freeze({ kind: "u32", value }));
+  };
+  const u64 = (value: bigint): void => {
+    segments.push(Object.freeze({ kind: "u64", value }));
+  };
+  bytes(DOMAIN_BYTES[frame.kind]);
+  u32(FRAME_FIELDS[frame.kind].length);
+  if (
+    frame.kind === "attempt_ceilings" ||
+    frame.kind === "attempt_usage" ||
+    frame.kind === "command_budget"
+  ) {
+    for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+      u64(frame[dimension] as bigint);
+    }
+    return Object.freeze(segments);
+  }
+  if (frame.kind === "attempt_identity") {
+    bytes(frame.candidateSha256 as Uint8Array);
+    u32(PROGRESS_PROTOCOL_IDENTITY_BYTES.byteLength);
+    bytes(PROGRESS_PROTOCOL_IDENTITY_BYTES);
+    u32(BUDGET_PROTOCOL_IDENTITY_BYTES.byteLength);
+    bytes(BUDGET_PROTOCOL_IDENTITY_BYTES);
+    bytes(frame.ceilingsSha256 as Uint8Array);
+    return Object.freeze(segments);
+  }
+  if (frame.kind === "command_reservation") {
+    bytes(frame.attemptSha256 as Uint8Array);
+    bytes(frame.candidateSha256 as Uint8Array);
+    byte(durableCommandKindTag(
+      frame.commandKind as DeclarativeV2VerifierDurableCommandKindV2,
+    ));
+    u64(frame.sequence as bigint);
+    bytes(frame.currentProgressSha256 as Uint8Array);
+    const predecessorReceiptSha256 = frame.predecessorReceiptSha256 as
+      | Uint8Array
+      | null;
+    byte(predecessorReceiptSha256 === null ? 0 : 1);
+    if (predecessorReceiptSha256 !== null) bytes(predecessorReceiptSha256);
+    for (const field of [
+      "commandBudgetSha256",
+      "commandInputSha256",
+      "freshAuthenticatedInputSha256",
+      "analyzerIdentitySha256",
+      "verifierIdentitySha256",
+      "rangeAndPredecessorTailsSha256",
+    ] as const) {
+      bytes(frame[field] as Uint8Array);
+    }
+    return Object.freeze(segments);
+  }
+  if (frame.kind === "command_output_manifest") {
+    bytes(frame.reservationSha256 as Uint8Array);
+    byte(durableCommandKindTag(
+      frame.commandKind as DeclarativeV2VerifierDurableCommandKindV2,
+    ));
+    u64(frame.sequence as bigint);
+    bytes(frame.evidenceRootSha256 as Uint8Array);
+    u64(frame.evidenceCount as bigint);
+    bytes(frame.diagnosticsRootSha256 as Uint8Array);
+    u64(frame.diagnosticCount as bigint);
+    bytes(frame.nextProgressSha256 as Uint8Array);
+    return Object.freeze(segments);
+  }
+  if (frame.kind === "command_receipt") {
+    for (const field of [
+      "reservationSha256",
+      "commandUsageSha256",
+      "resultingAttemptUsageSha256",
+      "outputManifestSha256",
+      "nextProgressSha256",
+    ] as const) {
+      bytes(frame[field] as Uint8Array);
+    }
+    return Object.freeze(segments);
+  }
+  if (frame.kind === "evidence_page_manifest") {
+    bytes(frame.reservationSha256 as Uint8Array);
+    byte(restartCommandKindTag(
+      frame.commandKind as DeclarativeV2VerifierRestartCommandKindV2,
+    ));
+    for (const field of [
+      "sequence",
+      "pageOrdinal",
+      "firstEvidenceOrdinal",
+      "evidenceCount",
+      "firstDiagnosticOrdinal",
+      "diagnosticCount",
+    ] as const) {
+      u64(frame[field] as bigint);
+    }
+    const predecessorPageSha256 = frame.predecessorPageSha256 as
+      | Uint8Array
+      | null;
+    byte(predecessorPageSha256 === null ? 0 : 1);
+    if (predecessorPageSha256 !== null) bytes(predecessorPageSha256);
+    u64(frame.payloadByteLength as bigint);
+    bytes(frame.payloadSha256 as Uint8Array);
+    bytes(frame.cumulativeDiagnosticsRootSha256 as Uint8Array);
+    return Object.freeze(segments);
+  }
+  byte(phaseTag(frame.phase as DeclarativeV2VerifierPhaseV1));
+  for (const field of [
+    "settledSequence",
+    "moduleOrdinal",
+    "edgeOrdinal",
+    "pageOrdinal",
+  ] as const) {
+    u64(frame[field] as bigint);
+  }
+  const previousReceiptSha256 = frame.previousReceiptSha256 as
+    | Uint8Array
+    | null;
+  byte(previousReceiptSha256 === null ? 0 : 1);
+  if (previousReceiptSha256 !== null) bytes(previousReceiptSha256);
+  return Object.freeze(segments);
+}
+
+function assertExactEncodingSegments(
+  frame: CapturedFrame,
+  canonicalByteLength: number,
+  segments: readonly FrameEncodingSegment[],
+): void {
+  let length = 0;
+  let copied = 0;
+  for (const segment of segments) {
+    const segmentLength = frameEncodingSegmentLength(segment);
+    length = checkedLength(length, segmentLength);
+    if (segment.kind === "bytes") {
+      copied = checkedLength(copied, segmentLength);
+    }
+  }
+  if (
+    length !== canonicalByteLength ||
+    copied !== frameByteCopyLength(frame)
+  ) {
+    throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+      reason: "reencodeFailed",
+    });
+  }
+}
+
+function frameEncodingSegmentLength(segment: FrameEncodingSegment): number {
+  switch (segment.kind) {
+    case "bytes": {
+      const length = intrinsicByteLength(segment.bytes);
+      if (length === undefined) {
+        throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+          reason: "invalidPlatformIntrinsic",
+        });
+      }
+      return length;
+    }
+    case "byte":
+      return 1;
+    case "u32":
+      return 4;
+    case "u64":
+      return 8;
+  }
+}
+
+function frameEncodingSegmentByte(
+  segment: FrameEncodingSegment,
+  offset: number,
+): number | undefined {
+  if (!isNonNegativeSafeInteger(offset)) return undefined;
+  switch (segment.kind) {
+    case "bytes": {
+      const length = intrinsicByteLength(segment.bytes);
+      if (length === undefined || offset >= length) return undefined;
+      return segment.bytes[offset];
+    }
+    case "byte":
+      return offset === 0 ? segment.value : undefined;
+    case "u32":
+      return offset < 4
+        ? Math.floor(segment.value / (2 ** ((3 - offset) * 8))) & 0xff
+        : undefined;
+    case "u64":
+      return offset < 8
+        ? Number((segment.value >> BigInt((7 - offset) * 8)) & 0xffn)
+        : undefined;
+  }
+}
+
+function mutableZeroProgressFrameWork(): MutableProgressFrameWork {
+  return {
+    byteStorageAllocationBytes: 0,
+    byteCopyBytes: 0,
+    byteWriteBytes: 0,
+    byteScanBytes: 0,
+    primitiveTransitions: 0,
+  };
+}
+
+function zeroProgressFrameWork():
+  DeclarativeV2VerifierProgressFrameWorkV2 {
+  return Object.freeze({
+    byteStorageAllocationBytes: 0,
+    byteCopyBytes: 0,
+    byteWriteBytes: 0,
+    byteScanBytes: 0,
+    primitiveTransitions: 0,
+  });
+}
+
+function snapshotProgressFrameWork(
+  work: DeclarativeV2VerifierProgressFrameWorkV2,
+): DeclarativeV2VerifierProgressFrameWorkV2 {
+  return Object.freeze({
+    byteStorageAllocationBytes: work.byteStorageAllocationBytes,
+    byteCopyBytes: work.byteCopyBytes,
+    byteWriteBytes: work.byteWriteBytes,
+    byteScanBytes: work.byteScanBytes,
+    primitiveTransitions: work.primitiveTransitions,
+  });
+}
+
+function addProgressFrameWork(
+  target: MutableProgressFrameWork,
+  delta: DeclarativeV2VerifierProgressFrameWorkV2,
+): void {
+  target.byteStorageAllocationBytes = checkedWorkCount(
+    target.byteStorageAllocationBytes,
+    delta.byteStorageAllocationBytes,
+  );
+  target.byteCopyBytes = checkedWorkCount(
+    target.byteCopyBytes,
+    delta.byteCopyBytes,
+  );
+  target.byteWriteBytes = checkedWorkCount(
+    target.byteWriteBytes,
+    delta.byteWriteBytes,
+  );
+  target.byteScanBytes = checkedWorkCount(
+    target.byteScanBytes,
+    delta.byteScanBytes,
+  );
+  target.primitiveTransitions = checkedWorkCount(
+    target.primitiveTransitions,
+    delta.primitiveTransitions,
+  );
+}
+
+function subtractProgressFrameWork(
+  after: DeclarativeV2VerifierProgressFrameWorkV2,
+  before: DeclarativeV2VerifierProgressFrameWorkV2,
+): DeclarativeV2VerifierProgressFrameWorkV2 {
+  if (
+    after.byteStorageAllocationBytes < before.byteStorageAllocationBytes ||
+    after.byteCopyBytes < before.byteCopyBytes ||
+    after.byteWriteBytes < before.byteWriteBytes ||
+    after.byteScanBytes < before.byteScanBytes ||
+    after.primitiveTransitions < before.primitiveTransitions
+  ) {
+    throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+      reason: "reencodeFailed",
+    });
+  }
+  return Object.freeze({
+    byteStorageAllocationBytes:
+      after.byteStorageAllocationBytes - before.byteStorageAllocationBytes,
+    byteCopyBytes: after.byteCopyBytes - before.byteCopyBytes,
+    byteWriteBytes: after.byteWriteBytes - before.byteWriteBytes,
+    byteScanBytes: after.byteScanBytes - before.byteScanBytes,
+    primitiveTransitions:
+      after.primitiveTransitions - before.primitiveTransitions,
+  });
+}
+
+function progressFrameEncoderReceipt(
+  deltaWork: DeclarativeV2VerifierProgressFrameWorkV2,
+  aggregateWork: DeclarativeV2VerifierProgressFrameWorkV2,
+  consumedAllowance: number,
+): DeclarativeV2VerifierProgressFrameEncoderReceiptV2 {
+  return Object.freeze({
+    consumedAllowance,
+    deltaWork: snapshotProgressFrameWork(deltaWork),
+    aggregateWork: snapshotProgressFrameWork(aggregateWork),
+  });
+}
+
+function progressFrameEncoderCursorState(
+  cursors: WeakMap<object, ProgressFrameEncoderCursorState>,
+  cursor: unknown,
+  operation: "admit" | "step" | "close",
+): Result.Result<
+  ProgressFrameEncoderCursorState,
+  DeclarativeV2VerifierProgressV2Error
+> {
+  if (typeof cursor !== "object" || cursor === null) {
+    return Result.fail(
+      progressError("encode", "invalidInput", `cursor.${operation}`),
+    );
+  }
+  const state = cursors.get(cursor);
+  return state === undefined
+    ? Result.fail(
+      progressError("encode", "invalidInput", `cursor.${operation}`),
+    )
+    : Result.succeed(state);
+}
+
+function revokeProgressFrameEncoderCursor(
+  cursors: WeakMap<object, ProgressFrameEncoderCursorState>,
+  cursor: unknown,
+): void {
+  if (typeof cursor === "object" && cursor !== null) cursors.delete(cursor);
+}
+
+function isCurrentProgressFrameDestination(
+  range: DeclarativeV2VerifierProgressFrameByteRangeV2,
+): boolean {
+  const visibleLength = intrinsicByteLength(range.bytes);
+  return visibleLength !== undefined &&
+    !isSharedArrayBufferStorage(range.bytes) &&
+    range.byteOffset <= visibleLength &&
+    range.byteLength <= visibleLength - range.byteOffset;
+}
+
 function frameByteLength(frame: CapturedFrame): number {
   const domainLength = DOMAIN_BYTES[frame.kind].byteLength;
   if (
@@ -1398,213 +2077,22 @@ function emitCapturedFrame(
   frame: CapturedFrame,
   emitByte: (offset: number, value: number, copied: boolean) => void,
 ): number {
-  let offset = emitBytes(emitByte, 0, DOMAIN_BYTES[frame.kind]);
-  emitU32(emitByte, offset, FRAME_FIELDS[frame.kind].length);
-  offset += 4;
-  if (
-    frame.kind === "attempt_ceilings" ||
-    frame.kind === "attempt_usage" ||
-    frame.kind === "command_budget"
-  ) {
-    for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
-      emitU64(emitByte, offset, frame[dimension] as bigint);
-      offset += 8;
-    }
-    return offset;
-  }
-  if (frame.kind === "attempt_identity") {
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.candidateSha256 as Uint8Array,
-    );
-    offset = emitSizedBytes(
-      emitByte,
-      offset,
-      PROGRESS_PROTOCOL_IDENTITY_BYTES,
-    );
-    offset = emitSizedBytes(
-      emitByte,
-      offset,
-      BUDGET_PROTOCOL_IDENTITY_BYTES,
-    );
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.ceilingsSha256 as Uint8Array,
-    );
-    return offset;
-  }
-  if (frame.kind === "command_reservation") {
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.attemptSha256 as Uint8Array,
-    );
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.candidateSha256 as Uint8Array,
-    );
-    emitByte(offset, durableCommandKindTag(
-      frame.commandKind as DeclarativeV2VerifierDurableCommandKindV2,
-    ), false);
-    offset += 1;
-    emitU64(emitByte, offset, frame.sequence as bigint);
-    offset += 8;
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.currentProgressSha256 as Uint8Array,
-    );
-    const predecessorReceiptSha256 = frame.predecessorReceiptSha256 as
-      | Uint8Array
-      | null;
-    if (predecessorReceiptSha256 === null) {
-      emitByte(offset, 0, false);
+  const segments = frameEncodingSegments(frame);
+  const expectedLength = frameByteLength(frame);
+  assertExactEncodingSegments(frame, expectedLength, segments);
+  let offset = 0;
+  for (const segment of segments) {
+    const length = frameEncodingSegmentLength(segment);
+    for (let segmentOffset = 0; segmentOffset < length; segmentOffset += 1) {
+      const value = frameEncodingSegmentByte(segment, segmentOffset);
+      if (value === undefined) {
+        throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+          reason: "reencodeFailed",
+        });
+      }
+      emitByte(offset, value, segment.kind === "bytes");
       offset += 1;
-    } else {
-      emitByte(offset, 1, false);
-      offset = emitBytes(
-        emitByte,
-        offset + 1,
-        predecessorReceiptSha256,
-      );
     }
-    for (const field of [
-      "commandBudgetSha256",
-      "commandInputSha256",
-      "freshAuthenticatedInputSha256",
-      "analyzerIdentitySha256",
-      "verifierIdentitySha256",
-      "rangeAndPredecessorTailsSha256",
-    ] as const) {
-      offset = emitBytes(
-        emitByte,
-        offset,
-        frame[field] as Uint8Array,
-      );
-    }
-    return offset;
-  }
-  if (frame.kind === "command_output_manifest") {
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.reservationSha256 as Uint8Array,
-    );
-    emitByte(offset, durableCommandKindTag(
-      frame.commandKind as DeclarativeV2VerifierDurableCommandKindV2,
-    ), false);
-    offset += 1;
-    emitU64(emitByte, offset, frame.sequence as bigint);
-    offset += 8;
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.evidenceRootSha256 as Uint8Array,
-    );
-    emitU64(emitByte, offset, frame.evidenceCount as bigint);
-    offset += 8;
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.diagnosticsRootSha256 as Uint8Array,
-    );
-    emitU64(emitByte, offset, frame.diagnosticCount as bigint);
-    offset += 8;
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.nextProgressSha256 as Uint8Array,
-    );
-    return offset;
-  }
-  if (frame.kind === "command_receipt") {
-    for (const field of [
-      "reservationSha256",
-      "commandUsageSha256",
-      "resultingAttemptUsageSha256",
-      "outputManifestSha256",
-      "nextProgressSha256",
-    ] as const) {
-      offset = emitBytes(
-        emitByte,
-        offset,
-        frame[field] as Uint8Array,
-      );
-    }
-    return offset;
-  }
-  if (frame.kind === "evidence_page_manifest") {
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.reservationSha256 as Uint8Array,
-    );
-    emitByte(offset, restartCommandKindTag(
-      frame.commandKind as DeclarativeV2VerifierRestartCommandKindV2,
-    ), false);
-    offset += 1;
-    for (const field of [
-      "sequence",
-      "pageOrdinal",
-      "firstEvidenceOrdinal",
-      "evidenceCount",
-      "firstDiagnosticOrdinal",
-      "diagnosticCount",
-    ] as const) {
-      emitU64(emitByte, offset, frame[field] as bigint);
-      offset += 8;
-    }
-    const predecessorPageSha256 = frame.predecessorPageSha256 as
-      | Uint8Array
-      | null;
-    if (predecessorPageSha256 === null) {
-      emitByte(offset, 0, false);
-      offset += 1;
-    } else {
-      emitByte(offset, 1, false);
-      offset = emitBytes(emitByte, offset + 1, predecessorPageSha256);
-    }
-    emitU64(emitByte, offset, frame.payloadByteLength as bigint);
-    offset += 8;
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.payloadSha256 as Uint8Array,
-    );
-    offset = emitBytes(
-      emitByte,
-      offset,
-      frame.cumulativeDiagnosticsRootSha256 as Uint8Array,
-    );
-    return offset;
-  }
-  emitByte(
-    offset,
-    phaseTag(frame.phase as DeclarativeV2VerifierPhaseV1),
-    false,
-  );
-  offset += 1;
-  for (const field of [
-    "settledSequence",
-    "moduleOrdinal",
-    "edgeOrdinal",
-    "pageOrdinal",
-  ] as const) {
-    emitU64(emitByte, offset, frame[field] as bigint);
-    offset += 8;
-  }
-  const previousReceiptSha256 = frame.previousReceiptSha256 as
-    | Uint8Array
-    | null;
-  if (previousReceiptSha256 === null) {
-    emitByte(offset, 0, false);
-    offset += 1;
-  } else {
-    emitByte(offset, 1, false);
-    offset = emitBytes(emitByte, offset + 1, previousReceiptSha256);
   }
   return offset;
 }
@@ -2339,48 +2827,6 @@ function checkedWorkCount(...values: readonly number[]): number {
     result += value;
   }
   return result;
-}
-
-function emitBytes(
-  emitByte: (offset: number, value: number, copied: boolean) => void,
-  offset: number,
-  bytes: Uint8Array,
-): number {
-  for (let index = 0; index < bytes.byteLength; index += 1) {
-    emitByte(offset + index, bytes[index]!, true);
-  }
-  return checkedLength(offset, bytes.byteLength);
-}
-
-function emitSizedBytes(
-  emitByte: (offset: number, value: number, copied: boolean) => void,
-  offset: number,
-  bytes: Uint8Array,
-): number {
-  emitU32(emitByte, offset, bytes.byteLength);
-  return emitBytes(emitByte, offset + 4, bytes);
-}
-
-function emitU32(
-  emitByte: (offset: number, value: number, copied: boolean) => void,
-  offset: number,
-  value: number,
-): void {
-  emitByte(offset, (value >>> 24) & 0xff, false);
-  emitByte(offset + 1, (value >>> 16) & 0xff, false);
-  emitByte(offset + 2, (value >>> 8) & 0xff, false);
-  emitByte(offset + 3, value & 0xff, false);
-}
-
-function emitU64(
-  emitByte: (offset: number, value: number, copied: boolean) => void,
-  offset: number,
-  value: bigint,
-): void {
-  for (let index = 7; index >= 0; index -= 1) {
-    emitByte(offset + index, Number(value & 0xffn), false);
-    value >>= 8n;
-  }
 }
 
 function readU32(input: Uint8Array, offset: number): number | undefined {

@@ -14,9 +14,12 @@ import {
   type DeclarativeV2VerifierCommandReceiptFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
+  type DeclarativeV2VerifierProgressFrameEncoderStepV2,
+  type DeclarativeV2VerifierProgressFrameWorkV2,
   decodeDeclarativeV2VerifierProgressFrameV2,
   encodeDeclarativeV2VerifierProgressFrameIntoV2,
   encodeDeclarativeV2VerifierProgressFrameV2,
+  makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2,
   requireDeclarativeV2VerifierProtocolIdentitiesV2,
   validateDeclarativeV2VerifierEvidencePageTransitionV2,
   validateDeclarativeV2VerifierFinalEvidencePageV2,
@@ -1476,6 +1479,465 @@ describe("Declarative V2 verifier progress admitted byte work", () => {
     expect(verified.frame).toEqual(target);
   });
 });
+
+describe("Declarative V2 verifier progress resumable encode-into cursor", () => {
+  it("emits all nine frame kinds one canonical byte per consumed unit", () => {
+    for (const frame of allProgressFrames()) {
+      const expected = Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+      ).canonicalBytes;
+      const factory =
+        makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+      const created = Result.getOrThrow(factory.create(frame, budget));
+      const destination = new Uint8Array(expected.byteLength + 8).fill(0xa5);
+      expect(created.plan.canonicalByteLength).toBe(expected.byteLength);
+      expect(created.receipt.consumedAllowance).toBe(0);
+      expect(created.receipt.deltaWork).toEqual(zeroFrameWork());
+      expect(created.receipt.aggregateWork).toEqual(zeroFrameWork());
+      const admitted = Result.getOrThrow(factory.admit(
+        created.cursor,
+        (plan) => Result.succeed(Object.freeze({
+          bytes: destination,
+          byteOffset: 4,
+          byteLength: plan.canonicalByteLength,
+        })),
+      ));
+      expect(admitted.deltaWork).toEqual(Object.freeze({
+        byteStorageAllocationBytes: expected.byteLength,
+        byteCopyBytes: 0,
+        byteWriteBytes: 0,
+        byteScanBytes: 0,
+        primitiveTransitions: 0,
+      }));
+      expect(destination).toEqual(new Uint8Array(destination.length).fill(0xa5));
+      let complete:
+        | Extract<
+          DeclarativeV2VerifierProgressFrameEncoderStepV2,
+          { readonly status: "complete" }
+        >
+        | undefined;
+      for (let offset = 0; offset < expected.byteLength; offset += 1) {
+        const stepped = Result.getOrThrow(factory.step(created.cursor, 1));
+        expect(stepped.receipt.consumedAllowance).toBe(1);
+        expect(stepped.receipt.deltaWork.byteStorageAllocationBytes).toBe(0);
+        expect(stepped.receipt.deltaWork.byteWriteBytes).toBe(1);
+        expect(stepped.receipt.deltaWork.byteScanBytes).toBe(0);
+        expect(stepped.receipt.deltaWork.primitiveTransitions).toBe(1);
+        expect(
+          destination.subarray(4, 4 + offset + 1),
+        ).toEqual(expected.subarray(0, offset + 1));
+        expect(
+          destination.subarray(4 + offset + 1, 4 + expected.byteLength),
+        ).toEqual(new Uint8Array(expected.byteLength - offset - 1).fill(0xa5));
+        if (stepped.status === "complete") complete = stepped;
+      }
+      expect(complete).toBeDefined();
+      expect(complete?.written.work).toEqual(created.plan.successfulWork);
+      expect(complete?.receipt.aggregateWork).toEqual(
+        created.plan.successfulWork,
+      );
+      expect(destination.subarray(4, 4 + expected.byteLength)).toEqual(expected);
+      expect(Result.isFailure(factory.step(created.cursor, 1))).toBe(true);
+      expect(Result.isFailure(factory.close(created.cursor))).toBe(true);
+    }
+  });
+
+  it("is deterministic across every allowance split and two cold factories", () => {
+    for (const frame of cursorProgressFrames()) {
+      const expected = Result.getOrThrow(
+        encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+      ).canonicalBytes;
+      for (let split = 0; split <= expected.byteLength; split += 1) {
+        const first = runResumableProgressFrame(frame, [split, 1024]);
+        const second = runResumableProgressFrame(frame, [split, 1024]);
+        expect(first.bytes).toEqual(expected);
+        expect(second.bytes).toEqual(expected);
+        expect(first.bytes).toEqual(second.bytes);
+        expect(first.work).toEqual(second.work);
+      }
+    }
+  }, 15_000);
+
+  it("keeps zero allowance inert, rejects 1025, and never banks work", () => {
+    const frame = makeReservation();
+    const expected = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+    ).canonicalBytes;
+    const factory = makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const created = Result.getOrThrow(factory.create(frame, budget));
+    const destination = new Uint8Array(expected.byteLength).fill(0x7d);
+    Result.getOrThrow(factory.admit(created.cursor, (plan) =>
+      Result.succeed(Object.freeze({
+        bytes: destination,
+        byteOffset: 0,
+        byteLength: plan.canonicalByteLength,
+      }))));
+    const zero = Result.getOrThrow(factory.step(created.cursor, 0));
+    expect(zero.status).toBe("pending");
+    expect(zero.receipt.consumedAllowance).toBe(0);
+    expect(zero.receipt.deltaWork).toEqual(zeroFrameWork());
+    expect(destination).toEqual(new Uint8Array(expected.byteLength).fill(0x7d));
+    const ten = Result.getOrThrow(factory.step(created.cursor, 10));
+    expect(ten.status).toBe("pending");
+    expect(ten.receipt.consumedAllowance).toBe(10);
+    expect(ten.receipt.deltaWork.byteWriteBytes).toBe(10);
+    expect(ten.receipt.deltaWork.primitiveTransitions).toBe(10);
+    expect(destination.subarray(0, 10)).toEqual(expected.subarray(0, 10));
+    expect(destination.subarray(10)).toEqual(
+      new Uint8Array(expected.byteLength - 10).fill(0x7d),
+    );
+    const rejected = factory.step(created.cursor, 1025);
+    expect(Result.isFailure(rejected)).toBe(true);
+    if (Result.isFailure(rejected)) {
+      expect(rejected.failure).toMatchObject({
+        operation: "encode",
+        reason: "invalidBudget",
+        path: "cursor.allowance",
+      });
+    }
+    expect(Result.isFailure(factory.step(created.cursor, 1))).toBe(true);
+
+    for (const allowance of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const next = makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+      const cursor = Result.getOrThrow(next.create(frame, budget)).cursor;
+      Result.getOrThrow(next.admit(cursor, (plan) =>
+        Result.succeed(Object.freeze({
+          bytes: new Uint8Array(plan.canonicalByteLength),
+          byteOffset: 0,
+          byteLength: plan.canonicalByteLength,
+        }))));
+      expect(Result.isFailure(next.step(cursor, allowance))).toBe(true);
+      expect(Result.isFailure(next.close(cursor))).toBe(true);
+    }
+  });
+
+  it("enforces factory ownership, single admission, close, and reentrancy", () => {
+    const frame = makeReservation();
+    const first = makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const second = makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const created = Result.getOrThrow(first.create(frame, budget));
+    expect(Result.isFailure(second.admit(created.cursor, () =>
+      Result.fail("must not run")))).toBe(true);
+    expect(Result.isFailure(second.step(created.cursor, 1))).toBe(true);
+    expect(Result.isFailure(second.close(created.cursor))).toBe(true);
+    expect(Result.isFailure(first.admit(
+      Object.freeze({
+        _tag: "DeclarativeV2VerifierProgressFrameEncoderCursorV2",
+      }),
+      () => Result.fail("must not run"),
+    ))).toBe(true);
+    const closed = Result.getOrThrow(first.close(created.cursor));
+    expect(closed.deltaWork).toEqual(zeroFrameWork());
+    expect(Result.isFailure(first.close(created.cursor))).toBe(true);
+
+    const reentrant = makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const reentrantCursor = Result.getOrThrow(
+      reentrant.create(frame, budget),
+    ).cursor;
+    let nestedAdmissionCalls = 0;
+    const outer = reentrant.admit(reentrantCursor, (plan) => {
+      const nested = reentrant.admit(reentrantCursor, () => {
+        nestedAdmissionCalls += 1;
+        return Result.fail("must not run");
+      });
+      expect(Result.isFailure(nested)).toBe(true);
+      return Result.succeed(Object.freeze({
+        bytes: new Uint8Array(plan.canonicalByteLength),
+        byteOffset: 0,
+        byteLength: plan.canonicalByteLength,
+      }));
+    });
+    expect(Result.isFailure(outer)).toBe(true);
+    expect(nestedAdmissionCalls).toBe(0);
+    expect(Result.isFailure(reentrant.step(reentrantCursor, 1))).toBe(true);
+  });
+
+  it("propagates admission failures and defects and terminalizes the cursor", () => {
+    const typedFailure = Object.freeze({ _tag: "AdmissionDenied" as const });
+    const typedFactory =
+      makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const typedCursor = Result.getOrThrow(
+      typedFactory.create(makeReservation(), budget),
+    ).cursor;
+    const typed = typedFactory.admit(
+      typedCursor,
+      () => Result.fail(typedFailure),
+    );
+    expect(Result.isFailure(typed)).toBe(true);
+    if (Result.isFailure(typed)) expect(typed.failure).toBe(typedFailure);
+    expect(Result.isFailure(typedFactory.step(typedCursor, 1))).toBe(true);
+
+    const defectFactory =
+      makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const defectCursor = Result.getOrThrow(
+      defectFactory.create(makeReservation(), budget),
+    ).cursor;
+    const defect = new Error("admission defect");
+    expect(() => defectFactory.admit(defectCursor, () => {
+      throw defect;
+    })).toThrow(defect);
+    expect(Result.isFailure(defectFactory.close(defectCursor))).toBe(true);
+  });
+
+  it("fails detached, shared, overlapping, and mutated storage closed", () => {
+    const frame = makeReservation();
+    for (const admit of [
+      (length: number) => {
+        const bytes = new Uint8Array(length);
+        structuredClone(bytes.buffer, { transfer: [bytes.buffer] });
+        return Object.freeze({ bytes, byteOffset: 0, byteLength: length });
+      },
+      (length: number) => Object.freeze({
+        bytes: new Uint8Array(length - 1),
+        byteOffset: 0,
+        byteLength: length,
+      }),
+      (length: number) => Object.freeze({
+        bytes: new Uint8Array(length),
+        byteOffset: 1,
+        byteLength: length,
+      }),
+    ]) {
+      const factory = makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+      const cursor = Result.getOrThrow(factory.create(frame, budget)).cursor;
+      expect(Result.isFailure(factory.admit(
+        cursor,
+        (plan) => Result.succeed(admit(plan.canonicalByteLength)),
+      ))).toBe(true);
+      expect(Result.isFailure(factory.step(cursor, 1))).toBe(true);
+    }
+
+    const backing = new ArrayBuffer(1024);
+    const overlapping = makeReservation({
+      attemptSha256: new Uint8Array(backing, 8, 32),
+    });
+    const overlapFactory =
+      makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const overlapCursor = Result.getOrThrow(
+      overlapFactory.create(overlapping, budget),
+    ).cursor;
+    expect(Result.isFailure(overlapFactory.admit(
+      overlapCursor,
+      (plan) => Result.succeed(Object.freeze({
+        bytes: new Uint8Array(backing),
+        byteOffset: 0,
+        byteLength: plan.canonicalByteLength,
+      })),
+    ))).toBe(true);
+
+    const detachedDestinationFactory =
+      makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const detachedDestinationCreated = Result.getOrThrow(
+      detachedDestinationFactory.create(frame, budget),
+    );
+    const detachedDestinationCursor = detachedDestinationCreated.cursor;
+    const destination = new Uint8Array(
+      detachedDestinationCreated.plan.canonicalByteLength,
+    );
+    Result.getOrThrow(detachedDestinationFactory.admit(
+      detachedDestinationCursor,
+      (plan) => Result.succeed(Object.freeze({
+        bytes: destination,
+        byteOffset: 0,
+        byteLength: plan.canonicalByteLength,
+      })),
+    ));
+    structuredClone(destination.buffer, { transfer: [destination.buffer] });
+    expect(Result.isFailure(
+      detachedDestinationFactory.step(detachedDestinationCursor, 1),
+    )).toBe(true);
+
+    const borrowed = digest(91);
+    const detachedSourceFrame = makeReservation({ attemptSha256: borrowed });
+    const detachedSourceFactory =
+      makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const detachedSourceCreated = Result.getOrThrow(
+      detachedSourceFactory.create(detachedSourceFrame, budget),
+    );
+    Result.getOrThrow(detachedSourceFactory.admit(
+      detachedSourceCreated.cursor,
+      (plan) => Result.succeed(Object.freeze({
+        bytes: new Uint8Array(plan.canonicalByteLength),
+        byteOffset: 0,
+        byteLength: plan.canonicalByteLength,
+      })),
+    ));
+    Result.getOrThrow(detachedSourceFactory.step(
+      detachedSourceCreated.cursor,
+      utf8("flarex.declarative-v2/command_reservation/v2\0").byteLength + 4,
+    ));
+    structuredClone(borrowed.buffer, { transfer: [borrowed.buffer] });
+    expect(Result.isFailure(
+      detachedSourceFactory.step(detachedSourceCreated.cursor, 1),
+    )).toBe(true);
+
+    if (typeof SharedArrayBuffer !== "undefined") {
+      const sharedFactory =
+        makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+      const sharedFrame = makeReservation({
+        attemptSha256: new Uint8Array(new SharedArrayBuffer(32)),
+      });
+      expect(Result.isFailure(sharedFactory.create(sharedFrame, budget))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("preserves descriptor capture order and admits no work before the callback", () => {
+    const values = Object.fromEntries(
+      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(
+        (dimension, index) => [dimension, BigInt(index + 1)],
+      ),
+    );
+    const target = { kind: "command_budget", ...values };
+    let descriptors = 0;
+    let valuesRead = 0;
+    const proxy = new Proxy(target, {
+      get() {
+        valuesRead += 1;
+        throw new Error("must not read values");
+      },
+      getOwnPropertyDescriptor(inner, property) {
+        descriptors += 1;
+        return Reflect.getOwnPropertyDescriptor(inner, property);
+      },
+    });
+    const factory = makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const created = Result.getOrThrow(factory.create(proxy, budget));
+    expect(descriptors).toBe(
+      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.length + 1,
+    );
+    expect(valuesRead).toBe(0);
+    expect(created.receipt.aggregateWork).toEqual(zeroFrameWork());
+    let callbackCalls = 0;
+    const destination = new Uint8Array(created.plan.canonicalByteLength).fill(
+      0xcc,
+    );
+    const admitted = Result.getOrThrow(factory.admit(
+      created.cursor,
+      (plan) => {
+        callbackCalls += 1;
+        expect(destination).toEqual(
+          new Uint8Array(plan.canonicalByteLength).fill(0xcc),
+        );
+        return Result.succeed(Object.freeze({
+          bytes: destination,
+          byteOffset: 0,
+          byteLength: plan.canonicalByteLength,
+        }));
+      },
+    ));
+    expect(callbackCalls).toBe(1);
+    expect(admitted.aggregateWork.byteStorageAllocationBytes).toBe(
+      created.plan.canonicalByteLength,
+    );
+    expect(admitted.aggregateWork.byteCopyBytes).toBe(0);
+    expect(admitted.aggregateWork.byteWriteBytes).toBe(0);
+    expect(admitted.aggregateWork.primitiveTransitions).toBe(0);
+    expect(destination).toEqual(
+      new Uint8Array(created.plan.canonicalByteLength).fill(0xcc),
+    );
+  });
+
+  it("reconstructs cold only from offset zero after an irreversible close", () => {
+    const frame = makeEvidencePage({
+      predecessorPageSha256: digest(24),
+      pageOrdinal: 1n,
+      firstEvidenceOrdinal: 2n,
+      firstDiagnosticOrdinal: 1n,
+    });
+    const firstFactory =
+      makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+    const first = Result.getOrThrow(firstFactory.create(frame, budget));
+    const firstDestination = new Uint8Array(first.plan.canonicalByteLength);
+    Result.getOrThrow(firstFactory.admit(first.cursor, (plan) =>
+      Result.succeed(Object.freeze({
+        bytes: firstDestination,
+        byteOffset: 0,
+        byteLength: plan.canonicalByteLength,
+      }))));
+    Result.getOrThrow(firstFactory.step(first.cursor, 17));
+    const closed = Result.getOrThrow(firstFactory.close(first.cursor));
+    expect(closed.aggregateWork.byteWriteBytes).toBe(17);
+    expect(Result.isFailure(firstFactory.step(first.cursor, 1))).toBe(true);
+
+    const cold = runResumableProgressFrame(frame, [17, 1024]);
+    const expected = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(frame, budget),
+    ).canonicalBytes;
+    expect(cold.bytes).toEqual(expected);
+    expect(cold.work.byteWriteBytes).toBe(expected.byteLength);
+    expect(firstDestination.subarray(0, 17)).toEqual(expected.subarray(0, 17));
+    expect(firstDestination.subarray(17)).toEqual(
+      new Uint8Array(expected.byteLength - 17),
+    );
+  });
+});
+
+function zeroFrameWork(): DeclarativeV2VerifierProgressFrameWorkV2 {
+  return Object.freeze({
+    byteStorageAllocationBytes: 0,
+    byteCopyBytes: 0,
+    byteWriteBytes: 0,
+    byteScanBytes: 0,
+    primitiveTransitions: 0,
+  });
+}
+
+function runResumableProgressFrame(
+  frame: unknown,
+  allowances: readonly number[],
+): Readonly<{
+  readonly bytes: Uint8Array;
+  readonly work: DeclarativeV2VerifierProgressFrameWorkV2;
+}> {
+  const factory = makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2();
+  const created = Result.getOrThrow(factory.create(frame, budget));
+  const bytes = new Uint8Array(created.plan.canonicalByteLength);
+  Result.getOrThrow(factory.admit(created.cursor, (plan) =>
+    Result.succeed(Object.freeze({
+      bytes,
+      byteOffset: 0,
+      byteLength: plan.canonicalByteLength,
+    }))));
+  for (let index = 0; index < allowances.length; index += 1) {
+    const step = Result.getOrThrow(factory.step(
+      created.cursor,
+      allowances[index]!,
+    ));
+    if (step.status === "complete") {
+      return Object.freeze({ bytes, work: step.written.work });
+    }
+  }
+  while (true) {
+    const step = Result.getOrThrow(factory.step(created.cursor, 1024));
+    if (step.status === "complete") {
+      return Object.freeze({ bytes, work: step.written.work });
+    }
+  }
+}
+
+function cursorProgressFrames(): readonly unknown[] {
+  return [
+    ...allProgressFrames(),
+    makeReservation({ predecessorReceiptSha256: null }),
+    makeEvidencePage({
+      pageOrdinal: 1n,
+      firstEvidenceOrdinal: 2n,
+      firstDiagnosticOrdinal: 1n,
+      predecessorPageSha256: digest(24),
+    }),
+    {
+      kind: "progress_cursor",
+      phase: "source",
+      settledSequence: 0n,
+      moduleOrdinal: 0n,
+      edgeOrdinal: 0n,
+      pageOrdinal: 0n,
+      previousReceiptSha256: null,
+    },
+  ];
+}
 
 function allProgressFrames(): readonly unknown[] {
   const dimensions = Object.fromEntries(
