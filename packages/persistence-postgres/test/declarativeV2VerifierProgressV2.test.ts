@@ -9,6 +9,7 @@ import {
   decodeDeclarativeV2VerifierEvidencePageManifestV2,
   decodeDeclarativeV2VerifierEvidencePageMetadataRowV2,
   decodeDeclarativeV2VerifierEvidencePagePayloadV2,
+  decodeDeclarativeV2VerifierHistoricalSettledCommandReadbackV2,
   decodeDeclarativeV2VerifierStoredFrameMetadataV2,
   decodeDeclarativeV2VerifierStoredFrameV2,
 } from "../src/declarativeV2VerifierProgressV2";
@@ -706,6 +707,130 @@ describe("Declarative V2 verifier progress V2 stored rows", () => {
             throw new Error("hostile");
           },
         }),
+        fixture.reservation.bytes,
+        fixture.reservation.sha256,
+        fixture.commandBudget.bytes,
+        fixture.commandBudget.sha256,
+        fixture.settlement,
+        FRAME_BUDGET,
+      ),
+    )).toBe("invalidInput");
+  });
+
+  it("decodes a historical settled parse/link decision without current attempt authority", () => {
+    for (const commandKind of ["parse_module", "link_page"] as const) {
+      const fixture = settledCommandFixture(7n, digest(70), digest(70), {
+        commandKind,
+        nextPhase: commandKind === "parse_module" ? "link" : "registration",
+      });
+      const identity = {
+        scopeId: "scope-v2",
+        attemptSha256: digest(20),
+        commandKind,
+        sequence: 7n,
+        reservationSha256: fixture.reservation.sha256,
+        outputManifestSha256:
+          fixture.settlement.outputManifestObservedSha256,
+        receiptSha256: fixture.settlement.receiptObservedSha256,
+      };
+      const decoded = Result.getOrThrow(
+        decodeDeclarativeV2VerifierHistoricalSettledCommandReadbackV2(
+          fixture.row,
+          identity,
+          fixture.reservation.bytes,
+          fixture.reservation.sha256,
+          fixture.commandBudget.bytes,
+          fixture.commandBudget.sha256,
+          fixture.settlement,
+          FRAME_BUDGET,
+        ),
+      );
+      expect(decoded.metadata.sequence).toBe(7n);
+      expect(decoded.settlement.receipt.sha256).toEqual(
+        identity.receiptSha256,
+      );
+      identity.receiptSha256.fill(0);
+      expect(decoded.settlement.receipt.sha256).not.toEqual(
+        identity.receiptSha256,
+      );
+
+      expect(failureReason(
+        decodeDeclarativeV2VerifierHistoricalSettledCommandReadbackV2(
+          fixture.row,
+          { ...identity, receiptSha256: digest(99) },
+          fixture.reservation.bytes,
+          fixture.reservation.sha256,
+          fixture.commandBudget.bytes,
+          fixture.commandBudget.sha256,
+          fixture.settlement,
+          FRAME_BUDGET,
+        ),
+      )).toBe("normalizedMismatch");
+
+      const incompatibleFixture = settledCommandFixture(
+        8n,
+        digest(71),
+        digest(71),
+        {
+          commandKind,
+          nextPhase:
+            commandKind === "parse_module" ? "registration" : "parse",
+        },
+      );
+      expect(failureReason(
+        decodeDeclarativeV2VerifierHistoricalSettledCommandReadbackV2(
+          incompatibleFixture.row,
+          {
+            scopeId: "scope-v2",
+            attemptSha256: digest(20),
+            commandKind,
+            sequence: 8n,
+            reservationSha256: incompatibleFixture.reservation.sha256,
+            outputManifestSha256:
+              incompatibleFixture.settlement.outputManifestObservedSha256,
+            receiptSha256:
+              incompatibleFixture.settlement.receiptObservedSha256,
+          },
+          incompatibleFixture.reservation.bytes,
+          incompatibleFixture.reservation.sha256,
+          incompatibleFixture.commandBudget.bytes,
+          incompatibleFixture.commandBudget.sha256,
+          incompatibleFixture.settlement,
+          FRAME_BUDGET,
+        ),
+      )).toBe("normalizedMismatch");
+    }
+
+    const fixture = settledCommandFixture(1n, null, null);
+    expect(failureReason(
+      decodeDeclarativeV2VerifierHistoricalSettledCommandReadbackV2(
+        fixture.row,
+        new Proxy({}, {
+          ownKeys() {
+            throw new Error("hostile");
+          },
+        }),
+        fixture.reservation.bytes,
+        fixture.reservation.sha256,
+        fixture.commandBudget.bytes,
+        fixture.commandBudget.sha256,
+        fixture.settlement,
+        FRAME_BUDGET,
+      ),
+    )).toBe("invalidInput");
+    expect(failureReason(
+      decodeDeclarativeV2VerifierHistoricalSettledCommandReadbackV2(
+        fixture.row,
+        {
+          scopeId: "scope-v2",
+          attemptSha256: digest(20),
+          commandKind: "source_page",
+          sequence: 1n,
+          reservationSha256: fixture.reservation.sha256,
+          outputManifestSha256:
+            fixture.settlement.outputManifestObservedSha256,
+          receiptSha256: fixture.settlement.receiptObservedSha256,
+        },
         fixture.reservation.bytes,
         fixture.reservation.sha256,
         fixture.commandBudget.bytes,

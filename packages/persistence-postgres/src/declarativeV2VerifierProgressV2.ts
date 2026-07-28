@@ -192,6 +192,16 @@ export interface DeclarativeV2VerifierCommittedCommandAttemptStateV2 {
   readonly phase: DeclarativeV2VerifierProgressCursorFrameV2["phase"];
 }
 
+export interface DeclarativeV2VerifierHistoricalSettledCommandIdentityV2 {
+  readonly scopeId: string;
+  readonly attemptSha256: Uint8Array;
+  readonly commandKind: DeclarativeV2VerifierRestartCommandKindV2;
+  readonly sequence: bigint;
+  readonly reservationSha256: Uint8Array;
+  readonly outputManifestSha256: Uint8Array;
+  readonly receiptSha256: Uint8Array;
+}
+
 export class DeclarativeV2VerifierProgressV2StoredRowError
   extends Data.TaggedError(
     "DeclarativeV2VerifierProgressV2StoredRowError",
@@ -336,6 +346,16 @@ const COMMITTED_COMMAND_ATTEMPT_STATE_KEYS = Object.freeze([
   "usageSha256",
   "progressSha256",
   "phase",
+] as const);
+
+const HISTORICAL_SETTLED_COMMAND_IDENTITY_KEYS = Object.freeze([
+  "scopeId",
+  "attemptSha256",
+  "commandKind",
+  "sequence",
+  "reservationSha256",
+  "outputManifestSha256",
+  "receiptSha256",
 ] as const);
 
 export function decodeDeclarativeV2VerifierStoredFrameBudgetV2(
@@ -1136,6 +1156,100 @@ export function decodeDeclarativeV2VerifierCommittedCommandReadbackV2(
         "decodeCommandMetadata",
         "normalizedMismatch",
         "postSettlementAttempt",
+      );
+    }
+    return Object.freeze({
+      ...decoded,
+      settlement,
+    });
+  });
+}
+
+/**
+ * Decodes an immutable historical parse/link command without treating the
+ * current attempt row as predecessor or writer authority.
+ *
+ * The caller supplies the exact durable decision identity obtained from a
+ * metadata-only transaction read. Canonical settlement bytes must reproduce
+ * that identity before a repository may associate any evidence page with it.
+ */
+export function decodeDeclarativeV2VerifierHistoricalSettledCommandReadbackV2(
+  metadataInput: unknown,
+  identityInput: unknown,
+  reservationBytesInput: unknown,
+  reservationObservedSha256Input: unknown,
+  commandBudgetBytesInput: unknown,
+  commandBudgetObservedSha256Input: unknown,
+  settlementInput: unknown,
+  rawBudget: unknown,
+): Result.Result<
+  DeclarativeV2VerifierDecodedCommandStoredStateV2 & {
+    readonly settlement: DeclarativeV2VerifierDecodedCommandSettlementV2;
+  },
+  DeclarativeV2VerifierProgressV2StoredRowError
+> {
+  return Result.gen(function* () {
+    const metadata = yield* decodeDeclarativeV2VerifierCommandMetadataRowV2(
+      metadataInput,
+    );
+    const identity = yield* captureExactOwnDataRecord(
+      identityInput,
+      HISTORICAL_SETTLED_COMMAND_IDENTITY_KEYS,
+      "decodeCommandMetadata",
+    );
+    if (
+      !isNonBlankString(identity.scopeId) ||
+      !isDigest(identity.attemptSha256) ||
+      (
+        identity.commandKind !== "parse_module" &&
+        identity.commandKind !== "link_page"
+      ) ||
+      !isPositiveInt64(identity.sequence) ||
+      !isDigest(identity.reservationSha256) ||
+      !isDigest(identity.outputManifestSha256) ||
+      !isDigest(identity.receiptSha256)
+    ) {
+      return yield* fail(
+        "decodeCommandMetadata",
+        "invalidInput",
+        "historicalSettlement",
+      );
+    }
+    const decoded = yield* decodeCommandFramesAndSettlementV2(
+      metadata,
+      reservationBytesInput,
+      reservationObservedSha256Input,
+      commandBudgetBytesInput,
+      commandBudgetObservedSha256Input,
+      settlementInput,
+      rawBudget,
+    );
+    const settlement = decoded.settlement;
+    if (
+      metadata.settledAt === null ||
+      settlement === null ||
+      metadata.scopeId !== identity.scopeId ||
+      !bytesEqualFullScan(metadata.attemptSha256, identity.attemptSha256) ||
+      metadata.commandKind !== identity.commandKind ||
+      metadata.sequence !== identity.sequence ||
+      !bytesEqualFullScan(
+        metadata.reservationSha256,
+        identity.reservationSha256,
+      ) ||
+      !bytesEqualFullScan(
+        settlement.outputManifest.sha256,
+        identity.outputManifestSha256,
+      ) ||
+      !bytesEqualFullScan(settlement.receipt.sha256, identity.receiptSha256) ||
+      !isValidCommittedCommandPhase(
+        metadata.commandKind,
+        settlement.nextProgress.frame.phase,
+      )
+    ) {
+      return yield* fail(
+        "decodeCommandMetadata",
+        "normalizedMismatch",
+        "historicalSettlement",
       );
     }
     return Object.freeze({

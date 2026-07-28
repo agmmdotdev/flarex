@@ -1105,6 +1105,165 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       "decisionAttemptFrames",
       "decisionCommandFrames",
     ]);
+    const historicalIdentity = {
+      scopeId,
+      attemptSha256: current.attemptSha256,
+      commandKind: "parse_module" as const,
+      sequence: 1n,
+      reservationSha256,
+      outputManifestSha256: await frameSha256Any(input.outputManifest),
+      receiptSha256: await frameSha256Any(input.receipt),
+      startPageOrdinal: 0n,
+      expectedPredecessorPageSha256: null,
+    };
+    queries.length = 0;
+    const coldPages = await runEffect(
+      restarted.readSettledEvidencePageBatch(
+        historicalIdentity,
+        pageOperationBudget,
+      ),
+    );
+    expect(coldPages).toMatchObject({
+      settlement: {
+        commandKind: "parse_module",
+        sequence: 1n,
+        receiptSha256: settled.settlement.receiptSha256,
+      },
+      pages: [{
+        manifest: {
+          pageOrdinal: 0n,
+          evidenceCount: 2n,
+        },
+        payloadBytes: new Uint8Array([1, 2, 3]),
+      }],
+      next: null,
+    });
+    expect(Object.isFrozen(coldPages)).toBe(true);
+    expect(Object.isFrozen(coldPages.pages)).toBe(true);
+    expect(queries).toEqual([
+      "settledReadCommandMetadata",
+      "settledReadPageMetadata",
+      "settledReadFinalPageMetadata",
+      "settledReadSettlementFrames",
+      "settledReadPageBytes",
+      "settledReadFinalPageManifest",
+    ]);
+    const hostile = new Proxy({}, {
+      ownKeys() {
+        throw new Error("hostile settled selector");
+      },
+    });
+    queries.length = 0;
+    expect(await runEffectFailure(
+      restarted.readSettledEvidencePageBatch(
+        hostile,
+        pageOperationBudget,
+      ),
+    )).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      operation: "readSettledEvidencePageBatch",
+      reason: "invalidInput",
+    });
+    expect(queries).toEqual([]);
+    for (const maximumPages of [0, 1_025]) {
+      expect(await runEffectFailure(
+        restarted.readSettledEvidencePageBatch(
+          historicalIdentity,
+          { ...pageOperationBudget, maximumPages },
+        ),
+      )).toMatchObject({
+        _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+        operation: "readSettledEvidencePageBatch",
+        reason: "invalidBudget",
+      });
+    }
+    expect(await runEffectFailure(
+      restarted.readSettledEvidencePageBatch({
+        ...historicalIdentity,
+        outputManifestSha256: digest(0xfe),
+      }, pageOperationBudget),
+    )).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryConflictV2Error",
+      operation: "readSettledEvidencePageBatch",
+      reason: "commandChanged",
+    });
+
+    queries.length = 0;
+    expect(await runEffectFailure(
+      restarted.readSettledEvidencePageBatch(
+        historicalIdentity,
+        { ...pageOperationBudget, maximumPayloadBytes: 2 },
+      ),
+    )).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      operation: "readSettledEvidencePageBatch",
+      reason: "budgetExceeded",
+      dimension: "payloadBytes",
+    });
+    expect(queries).toEqual([
+      "settledReadCommandMetadata",
+      "settledReadPageMetadata",
+      "settledReadFinalPageMetadata",
+    ]);
+
+    queries.length = 0;
+    const exhausted = await runEffect(
+      restarted.readSettledEvidencePageBatch({
+        ...historicalIdentity,
+        startPageOrdinal: 1n,
+        expectedPredecessorPageSha256: appended.pageSha256,
+      }, pageOperationBudget),
+    );
+    expect(exhausted.pages).toEqual([]);
+    expect(exhausted.next).toBeNull();
+    expect(queries).toEqual([
+      "settledReadCommandMetadata",
+      "settledReadPredecessorMetadata",
+      "settledReadPageMetadata",
+      "settledReadFinalPageMetadata",
+      "settledReadSettlementFrames",
+      "settledReadPredecessorManifest",
+      "settledReadFinalPageManifest",
+    ]);
+
+    expect(await runEffectFailure(
+      restarted.readSettledEvidencePageBatch({
+        ...historicalIdentity,
+        expectedPredecessorPageSha256: digest(0xff),
+      }, pageOperationBudget),
+    )).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryConflictV2Error",
+      operation: "readSettledEvidencePageBatch",
+      reason: "predecessorMismatch",
+    });
+
+    const uncertainTarget: LocatedReadCommittedAttemptTargetV1 = {
+      physicalLocator: current.target.physicalLocator,
+      getCurrentClock: requestedScope =>
+        current.target.getCurrentClock(requestedScope),
+      [RUN_LOCATED_READ_COMMITTED_V1]: async work => {
+        await current.target[RUN_LOCATED_READ_COMMITTED_V1](work);
+        throw new LocatedReadCommittedTransactionFailureV1({
+          kind: "decisionUncertain",
+          settlementCause: new Error("lost read settlement"),
+        });
+      },
+    };
+    const uncertainRepository =
+      makeDeclarativeV2VerifierProgressRepositoryV2(uncertainTarget, {
+        claimDurationMilliseconds: 60_000,
+      });
+    expect(await runEffectFailure(
+      uncertainRepository.readSettledEvidencePageBatch(
+        historicalIdentity,
+        pageOperationBudget,
+      ),
+    )).toMatchObject({
+      _tag:
+        "DeclarativeV2VerifierProgressRepositoryDecisionUncertainV2Error",
+      operation: "readSettledEvidencePageBatch",
+    });
+
     await current.persistence.query(
       `update fx_system_declarative_v2_verifier_evidence_page_v2
        set evidence_count = evidence_count + 1
@@ -1165,6 +1324,171 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       "decisionAttemptMetadata",
       "decisionCommandMetadata",
     ]);
+  });
+
+  it("paginates detached historical pages under inert lineage without a Work capability", async () => {
+    const current = await pendingParseFixture();
+    const first = await evidencePageInput(
+      current.reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([7]),
+      0xd1,
+    );
+    const firstAppend = await runEffect(
+      current.repository.appendEvidencePage(
+        current.reserved.work,
+        first,
+        pageOperationBudget,
+      ),
+    );
+    const second = await evidencePageInput(
+      current.reserved.reservation,
+      1n,
+      firstAppend.pageSha256,
+      1n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([8, 9]),
+      0xd2,
+    );
+    const secondAppend = await runEffect(
+      current.repository.appendEvidencePage(
+        current.reserved.work,
+        second,
+        pageOperationBudget,
+      ),
+    );
+    const settlement = await settlementInput(
+      current.reserved.reservation,
+      secondAppend.pageSha256,
+      2n,
+      digest(0xd2),
+      1n,
+      "parse",
+    );
+    await runEffect(current.repository.settleCommand(
+      current.reserved.work,
+      settlement,
+      operationBudget,
+    ));
+    const restarted = makeDeclarativeV2VerifierProgressRepositoryV2(
+      current.target,
+      {
+        claimDurationMilliseconds: 60_000,
+        randomUuid: () => "22222222-2222-4222-8222-222222222222",
+      },
+    );
+    const identity = {
+      scopeId,
+      attemptSha256: current.attemptSha256,
+      commandKind: "parse_module" as const,
+      sequence: 1n,
+      reservationSha256:
+        await frameSha256(current.reserved.reservation),
+      outputManifestSha256:
+        await frameSha256Any(settlement.outputManifest),
+      receiptSha256: await frameSha256Any(settlement.receipt),
+    };
+    const firstBatch = await runEffect(
+      restarted.readSettledEvidencePageBatch({
+        ...identity,
+        startPageOrdinal: 0n,
+        expectedPredecessorPageSha256: null,
+      }, { ...pageOperationBudget, maximumPages: 1 }),
+    );
+    expect(firstBatch.pages.map(page => page.payloadBytes))
+      .toEqual([new Uint8Array([7])]);
+    expect(firstBatch.next).toEqual({
+      startPageOrdinal: 1n,
+      expectedPredecessorPageSha256: firstAppend.pageSha256,
+    });
+    const exactBudget = {
+      maximumCalls: firstBatch.operationUsage.calls,
+      maximumRows: firstBatch.operationUsage.rows,
+      maximumFrameBytes: firstBatch.operationUsage.frameBytes,
+      maximumCanonicalBytes: firstBatch.operationUsage.canonicalBytes,
+      maximumHashBytes: firstBatch.operationUsage.hashBytes,
+      maximumElapsedMilliseconds:
+        pageOperationBudget.maximumElapsedMilliseconds,
+      maximumPages: firstBatch.operationUsage.pages,
+      maximumPayloadBytes: firstBatch.operationUsage.payloadBytes,
+    };
+    await runEffect(restarted.readSettledEvidencePageBatch({
+      ...identity,
+      startPageOrdinal: 0n,
+      expectedPredecessorPageSha256: null,
+    }, exactBudget));
+    for (const [maximum, dimension] of [
+      ["maximumCalls", "calls"],
+      ["maximumRows", "rows"],
+      ["maximumFrameBytes", "frameBytes"],
+      ["maximumCanonicalBytes", "canonicalBytes"],
+      ["maximumHashBytes", "hashBytes"],
+      ["maximumPayloadBytes", "payloadBytes"],
+    ] as const) {
+      const currentMaximum = exactBudget[maximum];
+      expect(currentMaximum).toBeGreaterThan(0);
+      expect(await runEffectFailure(
+        restarted.readSettledEvidencePageBatch({
+          ...identity,
+          startPageOrdinal: 0n,
+          expectedPredecessorPageSha256: null,
+        }, {
+          ...exactBudget,
+          [maximum]: currentMaximum - 1,
+        }),
+      )).toMatchObject({
+        _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+        operation: "readSettledEvidencePageBatch",
+        reason: "budgetExceeded",
+        dimension,
+      });
+    }
+    if (firstBatch.next === null) throw new Error("Expected next lineage.");
+    firstBatch.pages[0]!.payloadBytes[0] = 0xff;
+    const secondBatch = await runEffect(
+      restarted.readSettledEvidencePageBatch({
+        ...identity,
+        ...firstBatch.next,
+      }, { ...pageOperationBudget, maximumPages: 1 }),
+    );
+    expect(secondBatch.pages.map(page => page.payloadBytes))
+      .toEqual([new Uint8Array([8, 9])]);
+    expect(secondBatch.next).toBeNull();
+    const reread = await runEffect(
+      restarted.readSettledEvidencePageBatch({
+        ...identity,
+        startPageOrdinal: 0n,
+        expectedPredecessorPageSha256: null,
+      }, { ...pageOperationBudget, maximumPages: 1 }),
+    );
+    expect(reread.pages[0]!.payloadBytes).toEqual(new Uint8Array([7]));
+    await current.persistence.query(
+      `update fx_system_declarative_v2_verifier_evidence_page_v2
+       set evidence_count = evidence_count + 1
+       where scope_id = $1
+         and attempt_sha256 = $2
+         and sequence = 1
+         and page_ordinal = 0`,
+      [scopeId, current.attemptSha256],
+    );
+    expect(await runEffectFailure(
+      restarted.readSettledEvidencePageBatch({
+        ...identity,
+        startPageOrdinal: 1n,
+        expectedPredecessorPageSha256: firstAppend.pageSha256,
+      }, { ...pageOperationBudget, maximumPages: 1 }),
+    )).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryCorruptionV2Error",
+      operation: "readSettledEvidencePageBatch",
+      reason: "normalizedMismatch",
+    });
   });
 
   it("settles source work without evidence pages or a terminal lifecycle", async () => {

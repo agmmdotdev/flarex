@@ -426,6 +426,29 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
           receiptSha256: settled.settlement.receiptSha256,
         },
       });
+      const settledPages = await runEffect(
+        firstRepository.readSettledEvidencePageBatch({
+          scopeId,
+          attemptSha256: created.attemptSha256,
+          commandKind: "parse_module",
+          sequence: 1n,
+          reservationSha256:
+            await frameSha256(secondResume.reservation),
+          outputManifestSha256:
+            await frameSha256(settlement.outputManifest),
+          receiptSha256: await frameSha256(settlement.receipt),
+          startPageOrdinal: 0n,
+          expectedPredecessorPageSha256: null,
+        }, pageOperationBudget),
+      );
+      expect(settledPages.pages.map(page => page.manifest.pageOrdinal))
+        .toEqual([0n, 1n]);
+      expect(settledPages.pages.map(page => page.payloadBytes))
+        .toEqual([
+          new Uint8Array([1, 2, 3]),
+          new Uint8Array([4, 5]),
+        ]);
+      expect(settledPages.next).toBeNull();
     });
   });
 });

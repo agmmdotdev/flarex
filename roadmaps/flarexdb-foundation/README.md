@@ -999,15 +999,15 @@ implemented:
   encode/verify surfaces suffice, so it needs no protocol change and preserves
   A1b2c0b0 and monolithic bytes. It remains production-unreachable and cannot
   alone prove real cold delivery.
-- `A1b2c0b2c1b` separately adds persistence-owned, capability-free bounded
-  settled-page readback and is the next unimplemented gate. The pending page
+- `A1b2c0b2c1b` is implemented as a separate persistence-owned,
+  capability-free bounded settled-page readback. The pending page
   reader requires live `Work`, settlement closes that `Work`, and current
   capability-free observation exposes only the latest settlement/final-page
-  evidence rather than a historical command's full page sequence. The proposed
+  evidence rather than a historical command's full page sequence. The private
   `readSettledEvidencePageBatch` identifies a final historical decision by
   physical scope, attempt digest, command kind and sequence, reservation
   digest, output-manifest digest, and receipt digest. A persistence-private
-  historical settled-command decoder must prove canonical settlement lineage,
+  historical settled-command decoder proves canonical settlement lineage,
   settled finality, page count and final root/tail, and every page's command,
   predecessor, range, length, and digest membership.
 
@@ -1025,39 +1025,24 @@ implemented:
   failures, while the later request host owns `Scope`, client quarantine, full
   `Cause` observation, and finalization. Current keys, page foreign keys,
   all-or-none settlement constraints, immutable settled rows, and final
-  root/tail evidence are sufficient, so no schema, DDL, migration, protocol,
-  package export, or connected-client adapter-source prerequisite is required.
-  It is required before `A1b2c0b2c2` or `A1b2c0b2c3` may claim settled cold
-  recovery.
-
-  Its proposed implementation allowlist is exactly:
-
-    - `packages/persistence-postgres/src/declarativeV2VerifierProgressV2.ts`
-    - `packages/persistence-postgres/test/declarativeV2VerifierProgressV2.test.ts`
-    - `packages/persistence-postgres/src/declarativeV2VerifierProgressRepositoryV2.ts`
-    - `packages/persistence-postgres/test/declarativeV2VerifierProgressRepositoryV2.test.ts`
-    - `packages/persistence-postgres/test/declarativeV2VerifierProgressRepositoryV2.postgres.test.ts`
-    - `packages/persistence-postgres/test/postgresClientDeclarativeV2VerifierProgressV2.test.ts`
-    - `packages/persistence-postgres/test/postgresClientDeclarativeV2VerifierProgressV2.postgres.test.ts`
-    - `roadmaps/17-deployment-analysis-and-push.md`
-    - `roadmaps/flarexdb-foundation/README.md`
-
-  No package manifest, adapter source, schema, migration, or protocol file is
-  part of this gate.
+  root/tail evidence were sufficient, so no schema, DDL, migration, protocol,
+  package export, or connected-client adapter-source change was needed. It
+  supplies inert historical bytes for `A1b2c0b2c2` and `A1b2c0b2c3`, but does
+  not itself prove settled cold delivery through an analyzer rehydration host.
 - `A1b2c0b2c2` consumes the admitted view plus that restart source and produces
   a bounded result cursor, but remains unwired.
 - `A1b2c0b2c3` owns the fresh release handshake, single-use claim, request
   `Scope`, cancellation and interruption, full foreign `Cause`, and
   finalization at the Effect host boundary.
 
-`A1b2c0b2c1b` is not implemented or green. Settled-page readback, the command
-engine, Effect host, production caller, and composition proof remain absent.
-The implemented c1a transport alone does not prove real cold delivery: cold
-`link_page` and link-dependent registration cannot rely on warm WeakMap state.
-Pure c1a transport mechanics remain in `Result`/plain TypeScript, persistence
-I/O remains inside its existing Effect repository boundary, and the later host
-owns request `Scope`, cancellation, interruption, full foreign `Cause`, and
-resource finalization.
+The private c1b historical settled-page readback is implemented beside the
+private c1a restart-input transport. The command engine, Effect host,
+production caller, and composition proof remain absent. These inert owners do
+not prove real cold delivery: cold `link_page` and link-dependent registration
+cannot rely on warm WeakMap state. Pure transport mechanics remain in
+`Result`/plain TypeScript, persistence I/O remains inside its existing Effect
+repository boundary, and the later host owns request `Scope`, cancellation,
+interruption, full foreign `Cause`, and resource finalization.
 Candidate preparation, repository `Work`/fence authorization, `apps/executor`
 composition, C07, U2, and the private real-system harness remain later distinct
 gates. The current monolithic analyzer path remains unchanged. None of these

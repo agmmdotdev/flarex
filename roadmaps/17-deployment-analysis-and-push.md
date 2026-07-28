@@ -1454,17 +1454,17 @@ activation remain blocked until their production host composition is proven.
         admission-before-write encoder, and owned-range verifier, so it needs no
         protocol change and preserves A1b2c0b0 and monolithic bytes. It remains
         production-unreachable and cannot by itself prove real cold delivery.
-      - `A1b2c0b2c1b` is a separate persistence-owned, capability-free bounded
-        settled-page readback and is the next unimplemented gate. The existing
+      - `A1b2c0b2c1b` is implemented as a separate persistence-owned,
+        capability-free bounded settled-page readback. The existing
         page reader requires a live pending `Work`, while settlement closes that
-        `Work`; the current capability-free settlement observation exposes only
+        `Work`; the earlier capability-free settlement observation exposes only
         the latest settlement and final-page evidence, not a historical
-        command's complete page sequence. The proposed
-        `readSettledEvidencePageBatch` operation therefore identifies one final
+        command's complete page sequence. The private
+        `readSettledEvidencePageBatch` operation identifies one final
         historical decision by physical scope, attempt digest, command kind and
         sequence, reservation digest, output-manifest digest, and receipt
-        digest. A persistence-private historical settled-command decoder must
-        prove the canonical reservation/output/receipt lineage, settled
+        digest. Its persistence-private historical settled-command decoder
+        proves the canonical reservation/output/receipt lineage, settled
         finality, page count and final tail/root, and each page's command,
         predecessor, range, length, and digest membership before returning
         bytes.
@@ -1487,21 +1487,11 @@ activation remain blocked until their production host composition is proven.
         `Run`, `Work`, fence, lease, candidate, verifier, or writer authority.
         Existing command/page keys, settlement constraints, immutable settled
         rows, page foreign keys, and final-root/tail evidence are sufficient:
-        this gate requires no schema, DDL, migration, protocol, package export,
-        or connected-client adapter-source change. It is required before the
-        later engine or host may claim settled cold recovery.
-
-        The proposed implementation allowlist is exactly:
-
-          - `packages/persistence-postgres/src/declarativeV2VerifierProgressV2.ts`
-          - `packages/persistence-postgres/test/declarativeV2VerifierProgressV2.test.ts`
-          - `packages/persistence-postgres/src/declarativeV2VerifierProgressRepositoryV2.ts`
-          - `packages/persistence-postgres/test/declarativeV2VerifierProgressRepositoryV2.test.ts`
-          - `packages/persistence-postgres/test/declarativeV2VerifierProgressRepositoryV2.postgres.test.ts`
-          - `packages/persistence-postgres/test/postgresClientDeclarativeV2VerifierProgressV2.test.ts`
-          - `packages/persistence-postgres/test/postgresClientDeclarativeV2VerifierProgressV2.postgres.test.ts`
-          - `roadmaps/17-deployment-analysis-and-push.md`
-          - `roadmaps/flarexdb-foundation/README.md`
+        this gate required no schema, DDL, migration, protocol, package export,
+        or connected-client adapter-source change. It supplies the inert
+        historical bytes required by the later engine and host, but does not
+        itself prove that an analyzer receives and rehydrates them after a cold
+        restart.
    3. `A1b2c0b2c2` adds the pure analyzer command engine that consumes the
       admitted view plus the restart source and produces a bounded result
       cursor. It remains unwired.
@@ -1510,15 +1500,17 @@ activation remain blocked until their production host composition is proven.
       interruption ownership, full foreign `Cause`, and deterministic
       finalization.
 
-   The private, inert `A1b2c0b2c0` response transport and `A1b2c0b2c1a`
-   restart-input transport are implemented. `A1b2c0b2c1b` settled-page
-   readback, analyzer command execution, host composition, and a production
-   caller remain absent. The c1a transport alone does not prove real cold
-   delivery: cold `link_page` and link-dependent registration cannot rely on
-   warm WeakMap state. Pure c1a transport mechanics stay in `Result`/plain
-   TypeScript, persistence I/O stays inside its existing Effect repository
-   boundary, and the later host owns request `Scope`, cancellation,
-   interruption, full foreign `Cause`, and resource finalization.
+   The private, inert `A1b2c0b2c0` response transport,
+   `A1b2c0b2c1a` restart-input transport, and `A1b2c0b2c1b`
+   capability-free historical settled-page readback are implemented.
+   Analyzer command execution, host composition, and a production caller
+   remain absent. These transport and readback owners establish bounded inert
+   bytes but do not prove real cold delivery: cold `link_page` and
+   link-dependent registration cannot rely on warm WeakMap state. Pure
+   transport mechanics stay in `Result`/plain TypeScript, persistence I/O stays
+   inside its existing Effect repository boundary, and the later host owns
+   request `Scope`, cancellation, interruption, full foreign `Cause`, and
+   resource finalization.
    Candidate preparation, repository `Work`/fence authorization,
    `apps/executor` composition, C07, U2, and the private real-system harness
    remain later distinct gates. The current monolithic analyzer path remains

@@ -44,6 +44,7 @@ describe("Postgres Client Declarative V2 verifier progress adapter", () => {
       "observeAttempt",
       "observeCommandDecision",
       "readEvidencePageBatch",
+      "readSettledEvidencePageBatch",
       "release",
       "renew",
       "reserveCommand",

@@ -97,6 +97,8 @@ describePostgres(
                 },
               },
             );
+          expect(typeof repository.readSettledEvidencePageBatch)
+            .toBe("function");
           const created = await runEffect(repository.createAttempt({
             scopeId,
             candidateSha256,
