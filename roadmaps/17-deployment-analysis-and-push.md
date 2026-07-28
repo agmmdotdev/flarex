@@ -1521,16 +1521,54 @@ activation remain blocked until their production host composition is proven.
         settled-readback, progress, and monolithic bytes and identities remain
         unchanged. The capability remains unwired, production-unreachable, and
         insufficient to prove real cold recovery.
-      - `A1b2c0b2c2b` later adds the pure analyzer command engine.
-        `@flarex/analysis` remains the semantic engine owner. A private pure
-        adapter in `apps/analyzer` is the dependency-inversion boundary that
-        connects executor-HTTP opaque ports without making
-        `@flarex/analysis` depend on `@flarex/executor-http`. The engine
-        consumes the already admitted, same-factory result-bound
-        admitted-command view plus the newly claimed restart source and
-        produces a bounded result cursor. Only the restart source gains this
-        c2a claim. The engine remains unimplemented, unwired, and
-        production-unreachable.
+      - `A1b2c0b2c2b` remains blocked behind the research-only
+        `A1b2c0b2c2b0-P` authenticated verifier command-plan authority
+        preflight. The admitted request carries the `command_budget` ceiling
+        and only the irreversible current-progress digest, while the verifier
+        arena separately requires an exact `attempt_usage` requirement plan
+        and the response and settlement require canonical command-specific
+        next-progress bytes. The missing plan must therefore bind the complete
+        canonical current progress, deterministic next progress, and exact
+        verifier requirement frame to the reservation, authenticated input,
+        candidate, and command range. A ceiling is not the required arena
+        shape, a digest cannot reconstruct its frame, the current candidate
+        frame stores neither progress cursor nor verifier requirement plan,
+        and arbitrary analyzer bytes remain inert rather than becoming
+        authority. The preflight must choose between a separately authenticated
+        companion representation and a deliberate revision of the request
+        contract; neither representation is approved or green.
+
+        The bounded read-only evidence scope for `A1b2c0b2c2b0-P` is:
+        `packages/analysis/src/declarativeV2VerifierExecutableV1.ts`,
+        `packages/analysis/src/declarativeV2VerifierV1.ts`,
+        `packages/flarex-backend/src/declarativeV2/AuthenticatedCommandProducer.ts`,
+        `packages/executor-http/src/declarativeV2AuthenticatedCommandV1.ts`,
+        `packages/executor-http/src/declarativeV2AuthenticatedCommandResponseV1.ts`,
+        `packages/executor-http/src/declarativeV2AuthenticatedCommandRestartInputV1.ts`,
+        `packages/persistence-postgres/src/declarativeV2VerifierProgressRepositoryV2.ts`,
+        `packages/flarex-protocol/src/declarative-v2-physical-v1.ts`,
+        `packages/flarex-protocol/src/declarative-v2-verifier-progress-v2.ts`,
+        `apps/analyzer/src/Verification.ts`, `apps/executor/src/worker.ts`, and
+        these two living roadmaps. The blocked candidate c2b implementation
+        allowlist is exactly
+        `packages/analysis/src/declarativeV2VerifierCommandEngineV1.ts`,
+        `packages/analysis/test/declarative-v2-verifier-command-engine-v1.test.ts`,
+        `packages/analysis/src/declarativeV2VerifierV1.ts`,
+        `apps/analyzer/src/DeclarativeV2CommandEngine.ts`,
+        `apps/analyzer/test/declarativeV2CommandEngine.test.ts`,
+        `apps/analyzer/package.json`, and these two living roadmaps. That
+        allowlist is evidence for a later decision, not implementation
+        authority.
+
+        After the prerequisite is resolved, `@flarex/analysis` remains the
+        semantic engine owner. A private pure adapter in `apps/analyzer` remains
+        the dependency-inversion boundary that connects executor-HTTP opaque
+        ports without making `@flarex/analysis` depend on
+        `@flarex/executor-http`. The engine would consume the already admitted,
+        same-factory result-bound admitted-command view plus the newly claimed
+        restart source and produce a bounded result cursor. Only the restart
+        source gains the c2a claim. The prerequisite and engine remain
+        unimplemented, unwired, and production-unreachable.
    4. `A1b2c0b2c3` adds the Effect-owned analyzer host/adapter with a fresh
       release handshake, single-use claim, request `Scope`, cancellation and
       interruption ownership, full foreign `Cause`, and deterministic
@@ -1540,15 +1578,16 @@ activation remain blocked until their production host composition is proven.
    The private, inert `A1b2c0b2c0` response transport,
    `A1b2c0b2c1a` restart-input transport, and `A1b2c0b2c1b`
    capability-free historical settled-page readback are implemented.
-   The c2a claimed-source prerequisite is also implemented but inert. The c2b
-   analyzer command engine, Effect host composition, and a production caller
-   remain absent. These transport, readback, and claim owners establish bounded
-   inert bytes and process-local capabilities but do not prove real cold
-   delivery: cold `link_page` and link-dependent registration cannot rely on
-   warm WeakMap state. Pure claim, transport, and engine mechanics stay in
-   `Result`/plain TypeScript, persistence I/O stays inside its existing Effect
-   repository boundary, and the later host owns request `Scope`, cancellation,
-   interruption, full foreign `Cause`, and resource finalization.
+   The c2a claimed-source prerequisite is also implemented but inert. The
+   c2b0-P authority preflight, c2b analyzer command engine, Effect host
+   composition, and a production caller remain absent. These transport,
+   readback, and claim owners establish bounded inert bytes and process-local
+   capabilities but do not prove real cold delivery: cold `link_page` and
+   link-dependent registration cannot rely on warm WeakMap state. Pure claim,
+   command-plan and engine mechanics stay in `Result`/plain TypeScript,
+   persistence I/O stays inside its existing Effect repository boundary, and
+   the later host owns request `Scope`, cancellation, interruption, full
+   foreign `Cause`, and resource finalization.
    Candidate preparation, repository `Work`/fence authorization,
    `apps/executor` composition, C07, U2, and the private real-system harness
    remain later distinct gates. The current monolithic analyzer path remains
