@@ -1097,16 +1097,67 @@ implemented:
   ordinal, count, range, and arena-size operation uses checked signed-int64 and
   verifier-addressability arithmetic.
 
-  `A1b2c0b2c2b0a` is the smallest next candidate gate. Its exact five-path
-  allowlist is
+  `A1b2c0b2c2b0a` has a provisional private command-plan implementation on its
+  bounded owner set:
   `packages/analysis/src/declarativeV2VerifierCommandPlanV1.ts`,
   `packages/analysis/test/declarative-v2-verifier-command-plan-v1.test.ts`,
-  `packages/analysis/package.json`, and these two living roadmaps. This
-  private pure analysis subpath must derive all 26 arena-requirement dimensions
-  from authenticated immutable facts and fixed verifier identities, use the
-  command budget only as a ceiling, reject any dimension it cannot prove, and
-  never default, reset, refund, or copy the ceiling wholesale into the
-  requirement.
+  `packages/analysis/package.json`, the analyzer export-identity test, and
+  these two living roadmaps. Those six provisional files are unaccepted and
+  uncommitted; they remain unwired, production-unreachable, and
+  non-authoritative.
+
+  The accepted `A1b2c0b2c2b0a0-P` sizing trace establishes that all 26
+  `attempt_usage` dimensions have distinct current owners and units. The
+  executable's 1,024-transition allowance is only a per-invocation execution
+  quantum, not a universal sizing proof. Fixed-zero or unsupported dimensions
+  remain explicit zero. Fixed-capacity dimensions describe fixed-width verifier
+  storage derived from authenticated cardinalities. Peak dimensions describe
+  simultaneous parser or nesting state. Cumulative dimensions count actual
+  calls, transitions, records, frames, hashes, diagnostics, and encoded/output
+  bytes. Content-dependent dimensions follow authenticated source, token,
+  import, function, call, value-flow, or diagnostic structure. Presently unused
+  dimensions have no charge site and stay zero rather than receiving an
+  invented allowance. `elapsedMilliseconds` is host-clock-owned and zero in the
+  pure plan; `objectCalls` is zero for current durable parse work.
+
+  Durable command usage and restart recovery usage are separate ledgers.
+  Recovery `objectCalls`, page/body bytes, hashes, records, and manifests belong
+  only to the bounded recovery receipt and never enter, reset, refund, recharge,
+  or enlarge settled command `attempt_usage`. Every count and total uses checked
+  signed-int64, u32, and verifier-addressability arithmetic. Sizing binds the
+  authenticated candidate, input, command kind/sequence, current progress,
+  predecessor/range lineage, command budget, analyzer identity, and verifier
+  identity before terminal driving. Hostile-shape validation, canonical fact
+  capture, identity/lineage checks, checked arithmetic, derived sizing, and
+  ceiling comparison preserve their first-failure order. Pure deterministic
+  transitions remain Effect v4 `Result`/plain TypeScript; the later Effect host
+  owns request `Scope`, cancellation, interruption, foreign `Cause`, clocks,
+  resources, and finalization.
+
+  The smallest next implementation prerequisite is
+  `A1b2c0b2c2b0a0a` — the private `@flarex/analysis` parse-module sizing and
+  deterministic terminal-driver gate. Its exact candidate allowlist is
+  `packages/analysis/src/declarativeV2VerifierSizingV1.ts`,
+  `packages/analysis/test/declarative-v2-verifier-sizing-v1.test.ts`, and
+  `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`.
+  Required coverage includes lexer/token and malformed-UTF-8 termination,
+  parser/nesting peaks, imports/exports/functions/calls/value
+  flows/diagnostics, evidence/canonical/frame/output work, SHA boundary lengths
+  `0/1/55/56/63/64/65`, allowances `1` and `1024`, every dimension at exact
+  and one-less ceilings, signed-int64/u32/arena boundaries, hostile fact
+  ordering, two-cold determinism, absence of a hidden preliminary parse, and
+  executable compatibility. Acceptance requires focused/full analysis,
+  verifier asset/generator/identity checks, typecheck/build, frozen-install
+  evidence, Effect/docs/diff checks, and clean exact-final
+  `typescript-diff-reviewer` and `code-quality-diff-reviewer` reports. It adds
+  no package-root export, generated analyzer identity, protocol/persistence
+  contract, host, route, candidate, repository, OCC, commit, or production
+  authority. The unchanged analyzer release-identity reproduction mismatch
+  remains an unrelated baseline; this gate neither regenerates it nor treats
+  it as evidence. `source_page`, `link_page`, and `registration_page` sizing
+  and driver ownership remain separate later command-kind gates unless their
+  current owners prove exact formulas; parse-module formulas must not be
+  generalized to them.
 
   `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the separately
   versioned private companion codec with hostile-safe canonical admission,
@@ -1131,8 +1182,10 @@ implemented:
   hostile accessor order, deterministic two-cold identity, exact arena and
   executable acceptance, focused/full analysis plus compatibility suites,
   typecheck/build, generators/identities, frozen install, Effect/docs/diff
-  checks, and both exact-final project reviewers. None of b0a, b0b, or b0c is
-  implementation-authorized or green.
+  checks, and both exact-final project reviewers. The provisional b0a bytes
+  remain unwired, production-unreachable, non-authoritative, unaccepted, and
+  uncommitted while the owner-derived sizing/driver prerequisites remain
+  unresolved; b0b and b0c remain unimplemented.
 
   The blocked candidate c2b implementation allowlist remains exactly
   `packages/analysis/src/declarativeV2VerifierCommandEngineV1.ts`,
@@ -1159,9 +1212,11 @@ implemented:
 
 The private c1b historical settled-page readback is implemented beside the
 private c1a restart-input transport, and the private c2a claimed-source
-prerequisite is implemented but inert. The b0a/b0b/b0c command-plan sequence,
-c2b command engine, Effect host, production caller, and composition proof
-remain absent. These inert owners do not prove real cold delivery: cold `link_page`
+prerequisite is implemented but inert. The provisional b0a command-plan bytes
+remain unaccepted behind their owner-derived sizing/driver prerequisite;
+b0b/b0c, the c2b command engine, Effect host, production caller, and composition
+proof remain absent. These inert owners do not prove real cold delivery: cold
+`link_page`
 and link-dependent registration cannot rely on warm WeakMap state. Pure claim,
 command-plan, transport, and engine mechanics remain in `Result`/plain
 TypeScript,
