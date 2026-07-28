@@ -8,7 +8,7 @@ import {
   type DeclarativeV2AuthenticatedCommandEncodedRequestV1,
   type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
 } from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
-import { Cause, Effect, Exit, Fiber, Result } from "effect";
+import { Cause, Effect, Exit, Fiber, Layer, Result } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   type DeclarativeV2VerifierBudgetFrameV2,
@@ -18,7 +18,12 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
-  makeDeclarativeV2AuthenticatedCommandProducerFactoryV1,
+  DeclarativeV2AuthenticatedCommandProducerV1,
+  DeclarativeV2AuthenticatedCommandProofIssuerV1,
+  DeclarativeV2AuthenticatedCommandReadSessionsV1,
+  DeclarativeV2AuthenticatedCommandSha256V1,
+  makeDeclarativeV2AuthenticatedCommandProducerLayerV1,
+  type DeclarativeV2AuthenticatedCommandProducerApiV1,
   type DeclarativeV2AuthenticatedCommandProducerInputV1,
   type DeclarativeV2AuthenticatedCommandSelectionV1,
 } from "../src/declarativeV2/AuthenticatedCommandProducer";
@@ -168,7 +173,7 @@ describe("authenticated Declarative V2 command producer", () => {
     }
   });
 
-  it("is byte-identical across cold factories and output read sizes", async () => {
+  it("is byte-identical across cold producer Layers and output read sizes", async () => {
     const firstFixture = makeFixture();
     const secondFixture = makeFixture();
     const selection = Object.freeze({
@@ -225,10 +230,13 @@ describe("authenticated Declarative V2 command producer", () => {
       maximumBodyBytes: exact.maximumBodyBytes - 1,
     });
     const exit = await Effect.runPromiseExit(Effect.scoped(
-      makeProducer(oneLessFixture).produce(
-        new Request("https://producer.test/exact-minus-one"),
-        PROOF_INPUT,
-        producerInput(selection, oneLess, 1),
+      withProducer(
+        oneLessFixture,
+        producer => producer.produce(
+          new Request("https://producer.test/exact-minus-one"),
+          PROOF_INPUT,
+          producerInput(selection, oneLess, 1),
+        ),
       ),
     ));
     expect(failure(exit)).toMatchObject({
@@ -239,16 +247,19 @@ describe("authenticated Declarative V2 command producer", () => {
 
     const frameFixture = makeFixture();
     const frameExit = await Effect.runPromiseExit(Effect.scoped(
-      makeProducer(frameFixture).produce(
-        new Request("https://producer.test/frame-exact-minus-one"),
-        PROOF_INPUT,
-        producerInput(
-          selection,
-          Object.freeze({
-            ...exact,
-            maximumFrameBytes: exact.maximumFrameBytes - 1,
-          }),
-          1,
+      withProducer(
+        frameFixture,
+        producer => producer.produce(
+          new Request("https://producer.test/frame-exact-minus-one"),
+          PROOF_INPUT,
+          producerInput(
+            selection,
+            Object.freeze({
+              ...exact,
+              maximumFrameBytes: exact.maximumFrameBytes - 1,
+            }),
+            1,
+          ),
         ),
       ),
     ));
@@ -278,10 +289,13 @@ describe("authenticated Declarative V2 command producer", () => {
       }),
     });
     const exit = await Effect.runPromiseExit(Effect.scoped(
-      makeProducer(fixture).produce(
-        new Request("https://producer.test/divergent-read-budget"),
-        PROOF_INPUT,
-        Object.freeze({ ...input, readSession: divergent }),
+      withProducer(
+        fixture,
+        producer => producer.produce(
+          new Request("https://producer.test/divergent-read-budget"),
+          PROOF_INPUT,
+          Object.freeze({ ...input, readSession: divergent }),
+        ),
       ),
     ));
     expect(failure(exit)).toMatchObject({
@@ -305,14 +319,17 @@ describe("authenticated Declarative V2 command producer", () => {
 
     const overFixture = makeFixture({ moduleCount: 1_023 });
     const exit = await Effect.runPromiseExit(Effect.scoped(
-      makeProducer(overFixture).produce(
-        new Request("https://producer.test/frame-plus-one"),
-        PROOF_INPUT,
-        producerInput(Object.freeze({
-          kind: "source_page",
-          firstModuleOrdinal: 0n,
-          moduleCount: 1_023n,
-        }), transportBudget, 2),
+      withProducer(
+        overFixture,
+        producer => producer.produce(
+          new Request("https://producer.test/frame-plus-one"),
+          PROOF_INPUT,
+          producerInput(Object.freeze({
+            kind: "source_page",
+            firstModuleOrdinal: 0n,
+            moduleCount: 1_023n,
+          }), transportBudget, 2),
+        ),
       ),
     ));
     expect(failure(exit)).toMatchObject({
@@ -332,13 +349,16 @@ describe("authenticated Declarative V2 command producer", () => {
   }) => {
     const fixture = makeFixture();
     const exit = await Effect.runPromiseExit(Effect.scoped(
-      makeProducer(fixture).produce(
-        new Request(`https://producer.test/frame-bound-${maximumFrames}`),
-        PROOF_INPUT,
-        producerInput(
-          Object.freeze({ kind: "link_page" }),
-          Object.freeze({ ...transportBudget, maximumFrames }),
-          2,
+      withProducer(
+        fixture,
+        producer => producer.produce(
+          new Request(`https://producer.test/frame-bound-${maximumFrames}`),
+          PROOF_INPUT,
+          producerInput(
+            Object.freeze({ kind: "link_page" }),
+            Object.freeze({ ...transportBudget, maximumFrames }),
+            2,
+          ),
         ),
       ),
     ));
@@ -393,10 +413,13 @@ describe("authenticated Declarative V2 command producer", () => {
   }) => {
     const fixture = makeFixture(options);
     const exit = await Effect.runPromiseExit(Effect.scoped(
-      makeProducer(fixture).produce(
-        new Request("https://producer.test/oversized"),
-        PROOF_INPUT,
-        producerInput(selection, transportBudget, 3),
+      withProducer(
+        fixture,
+        producer => producer.produce(
+          new Request("https://producer.test/oversized"),
+          PROOF_INPUT,
+          producerInput(selection, transportBudget, 3),
+        ),
       ),
     ));
     expect(failure(exit)).toMatchObject({
@@ -409,17 +432,20 @@ describe("authenticated Declarative V2 command producer", () => {
   it("rejects an oversized module path before copying or hashing", async () => {
     const fixture = makeFixture({ pathText: "a".repeat(65_537) });
     const exit = await Effect.runPromiseExit(Effect.scoped(
-      makeProducer(fixture).produce(
-        new Request("https://producer.test/oversized-path"),
-        PROOF_INPUT,
-        producerInput(
-          Object.freeze({
-            kind: "source_page",
-            firstModuleOrdinal: 0n,
-            moduleCount: 1n,
-          }),
-          transportBudget,
-          3,
+      withProducer(
+        fixture,
+        producer => producer.produce(
+          new Request("https://producer.test/oversized-path"),
+          PROOF_INPUT,
+          producerInput(
+            Object.freeze({
+              kind: "source_page",
+              firstModuleOrdinal: 0n,
+              moduleCount: 1n,
+            }),
+            transportBudget,
+            3,
+          ),
         ),
       ),
     ));
@@ -438,10 +464,13 @@ describe("authenticated Declarative V2 command producer", () => {
     const revoked = Proxy.revocable({}, {});
     revoked.revoke();
     const hostileExit = await Effect.runPromiseExit(Effect.scoped(
-      makeProducer(hostileFixture).produce(
-        new Request("https://producer.test/hostile"),
-        PROOF_INPUT,
-        revoked.proxy,
+      withProducer(
+        hostileFixture,
+        producer => producer.produce(
+          new Request("https://producer.test/hostile"),
+          PROOF_INPUT,
+          revoked.proxy,
+        ),
       ),
     ));
     expect(failure(hostileExit)).toMatchObject({
@@ -461,10 +490,16 @@ describe("authenticated Declarative V2 command producer", () => {
       commandInputSha256: digest(0x11),
     };
     const mismatchExit = await Effect.runPromiseExit(Effect.scoped(
-      makeProducer(mismatchFixture).produce(
-        new Request("https://producer.test/mismatch"),
-        PROOF_INPUT,
-        Object.freeze({ ...mismatch, reservation: Object.freeze(reservation) }),
+      withProducer(
+        mismatchFixture,
+        producer => producer.produce(
+          new Request("https://producer.test/mismatch"),
+          PROOF_INPUT,
+          Object.freeze({
+            ...mismatch,
+            reservation: Object.freeze(reservation),
+          }),
+        ),
       ),
     ));
     expect(failure(mismatchExit)).toMatchObject({
@@ -473,38 +508,55 @@ describe("authenticated Declarative V2 command producer", () => {
     });
   });
 
-  it("keeps result and cursor authority same-factory, exact-request, and terminal", async () => {
+  it("keeps result and cursor authority same-service, exact-request, and terminal", async () => {
     const fixture = makeFixture();
-    const factory = makeProducer(fixture);
-    const other = makeProducer(makeFixture());
+    const otherFixture = makeFixture();
     const request = new Request("https://producer.test/authority");
-    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      const result = yield* factory.produce(
-        request,
-        PROOF_INPUT,
-        producerInput(Object.freeze({ kind: "link_page" }), transportBudget, 5),
-      );
-      expect(other.receipt(request, result)).toMatchObject({
-        failure: { reason: "invalidAuthority" },
-      });
-      expect(factory.receipt(
-        new Request(request.url),
-        result,
-      )).toMatchObject({ failure: { reason: "wrongRequest" } });
-      const cursor = Result.getOrThrow(factory.cursor(request, result));
-      expect(factory.cursor(request, result)).toMatchObject({
-        failure: { reason: "cursorAlreadyIssued" },
-      });
-      const read = Result.getOrThrow(factory.read(request, cursor, 65_536));
-      expect(read.status).toBe("complete");
-      expect(factory.read(request, cursor, 1)).toMatchObject({
-        failure: { reason: "closed" },
-      });
-      Result.getOrThrow(factory.close(request, result));
-      expect(factory.receipt(request, result)).toMatchObject({
-        failure: { reason: "closed" },
-      });
-    })));
+    await Effect.runPromise(Effect.scoped(
+      withProducer(
+        fixture,
+        producer =>
+          withProducer(
+            otherFixture,
+            other =>
+              Effect.gen(function* () {
+                const result = yield* producer.produce(
+                  request,
+                  PROOF_INPUT,
+                  producerInput(
+                    Object.freeze({ kind: "link_page" }),
+                    transportBudget,
+                    5,
+                  ),
+                );
+                expect(other.receipt(request, result)).toMatchObject({
+                  failure: { reason: "invalidAuthority" },
+                });
+                expect(producer.receipt(
+                  new Request(request.url),
+                  result,
+                )).toMatchObject({ failure: { reason: "wrongRequest" } });
+                const cursor = Result.getOrThrow(
+                  producer.cursor(request, result),
+                );
+                expect(producer.cursor(request, result)).toMatchObject({
+                  failure: { reason: "cursorAlreadyIssued" },
+                });
+                const read = Result.getOrThrow(
+                  producer.read(request, cursor, 65_536),
+                );
+                expect(read.status).toBe("complete");
+                expect(producer.read(request, cursor, 1)).toMatchObject({
+                  failure: { reason: "closed" },
+                });
+                Result.getOrThrow(producer.close(request, result));
+                expect(producer.receipt(request, result)).toMatchObject({
+                  failure: { reason: "closed" },
+                });
+              }),
+          ),
+      ),
+    ));
   });
 
   it("closes the authenticated session when interrupted during hashing", async () => {
@@ -513,19 +565,24 @@ describe("authenticated Declarative V2 command producer", () => {
     const entered = new Promise<void>(resolve => {
       enteredHash = resolve;
     });
-    const factory = makeDeclarativeV2AuthenticatedCommandProducerFactoryV1({
-      proofs: fixture.proofs,
-      sessions: fixture.sessions,
-      sha256: () => {
-        enteredHash?.();
-        return Effect.never;
-      },
-    });
-    const fiber = Effect.runFork(Effect.scoped(factory.produce(
-      new Request("https://producer.test/interrupted"),
-      PROOF_INPUT,
-      producerInput(Object.freeze({ kind: "link_page" }), transportBudget, 6),
-    )));
+    const fiber = Effect.runFork(Effect.scoped(
+      withProducer(
+        fixture,
+        producer => producer.produce(
+          new Request("https://producer.test/interrupted"),
+          PROOF_INPUT,
+          producerInput(
+            Object.freeze({ kind: "link_page" }),
+            transportBudget,
+            6,
+          ),
+        ),
+        () => {
+          enteredHash?.();
+          return Effect.never;
+        },
+      ),
+    ));
     await entered;
     await Effect.runPromise(Fiber.interrupt(fiber));
     const exit = await Effect.runPromise(Fiber.await(fiber));
@@ -537,12 +594,32 @@ describe("authenticated Declarative V2 command producer", () => {
   });
 });
 
-function makeProducer(fixture: Fixture) {
-  return makeDeclarativeV2AuthenticatedCommandProducerFactoryV1({
-    proofs: fixture.proofs,
-    sessions: fixture.sessions,
-    sha256: fixture.hash,
-  });
+function withProducer<A, E, R>(
+  fixture: Fixture,
+  use: (
+    producer: DeclarativeV2AuthenticatedCommandProducerApiV1,
+  ) => Effect.Effect<A, E, R>,
+  sha256 = fixture.hash,
+): Effect.Effect<A, E, R> {
+  const layer = makeDeclarativeV2AuthenticatedCommandProducerLayerV1().pipe(
+    Layer.provide(Layer.succeed(
+      DeclarativeV2AuthenticatedCommandProofIssuerV1,
+      DeclarativeV2AuthenticatedCommandProofIssuerV1.of(fixture.proofs),
+    )),
+    Layer.provide(Layer.succeed(
+      DeclarativeV2AuthenticatedCommandReadSessionsV1,
+      DeclarativeV2AuthenticatedCommandReadSessionsV1.of(fixture.sessions),
+    )),
+    Layer.provide(Layer.succeed(
+      DeclarativeV2AuthenticatedCommandSha256V1,
+      DeclarativeV2AuthenticatedCommandSha256V1.of({ sha256 }),
+    )),
+  );
+
+  return DeclarativeV2AuthenticatedCommandProducerV1.pipe(
+    Effect.flatMap(use),
+    Effect.provide(layer),
+  );
 }
 
 async function produceOwned(
@@ -552,26 +629,35 @@ async function produceOwned(
   sequence: number,
   readSize = 65_536,
 ) {
-  const factory = makeProducer(fixture);
   const request = new Request(`https://producer.test/${sequence}`);
-  return Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-    const result = yield* factory.produce(
-      request,
-      PROOF_INPUT,
-      producerInput(selection, budget, sequence),
-    );
-    const receipt = Result.getOrThrow(factory.receipt(request, result));
-    const cursor = Result.getOrThrow(factory.cursor(request, result));
-    const chunks: Uint8Array[] = [];
-    for (let iteration = 0; iteration < 1_024; iteration += 1) {
-      const read = Result.getOrThrow(factory.read(request, cursor, readSize));
-      chunks.push(read.bytes);
-      if (read.status === "complete") {
-        return Object.freeze({ receipt, bytes: join(chunks) });
-      }
-    }
-    throw new Error("test-only output iteration ceiling exceeded");
-  })));
+  return Effect.runPromise(Effect.scoped(
+    withProducer(
+      fixture,
+      producer =>
+        Effect.gen(function* () {
+          const result = yield* producer.produce(
+            request,
+            PROOF_INPUT,
+            producerInput(selection, budget, sequence),
+          );
+          const receipt = Result.getOrThrow(
+            producer.receipt(request, result),
+          );
+          const cursor = Result.getOrThrow(producer.cursor(request, result));
+          const chunks: Uint8Array[] = [];
+          for (let iteration = 0; iteration < 1_024; iteration += 1) {
+            const read = Result.getOrThrow(
+              producer.read(request, cursor, readSize),
+            );
+            chunks.push(read.bytes);
+            if (read.status === "complete") {
+              return Object.freeze({ receipt, bytes: join(chunks) });
+            }
+          }
+          throw new Error("test-only output iteration ceiling exceeded");
+        }),
+    ),
+  ));
 }
 
 function producerInput(

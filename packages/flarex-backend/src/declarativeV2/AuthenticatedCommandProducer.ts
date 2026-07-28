@@ -29,7 +29,7 @@ import {
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
-import { Data, Effect, Result, Scope } from "effect";
+import { Context, Data, Effect, Layer, Result, Scope } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   encodeDeclarativeV2VerifierProgressFrameV2,
@@ -169,7 +169,7 @@ export type DeclarativeV2AuthenticatedCommandProducerOpenErrorV1 =
   | DeclarativeV2VerifierProgressV2Error
   | DeclarativeV2AuthenticatedCommandV1Error;
 
-export interface DeclarativeV2AuthenticatedCommandProducerFactoryV1 {
+export interface DeclarativeV2AuthenticatedCommandProducerApiV1 {
   readonly produce: (
     request: Request,
     proofInput: SemanticArtifactV1FinalizedSourceProofInput,
@@ -208,6 +208,73 @@ export interface DeclarativeV2AuthenticatedCommandProducerFactoryV1 {
     void,
     DeclarativeV2AuthenticatedCommandProducerV1Error
   >;
+}
+
+export class DeclarativeV2AuthenticatedCommandProofIssuerV1
+  extends Context.Service<
+    DeclarativeV2AuthenticatedCommandProofIssuerV1,
+    Pick<SemanticArtifactV1FinalizedSourceProofFactory, "issue">
+  >()(
+    "flarex-backend/declarativeV2/DeclarativeV2AuthenticatedCommandProofIssuerV1",
+  ) {}
+
+export class DeclarativeV2AuthenticatedCommandReadSessionsV1
+  extends Context.Service<
+    DeclarativeV2AuthenticatedCommandReadSessionsV1,
+    DeclarativeV2AuthenticatedReadSessionFactoryV1
+  >()(
+    "flarex-backend/declarativeV2/DeclarativeV2AuthenticatedCommandReadSessionsV1",
+  ) {}
+
+export interface DeclarativeV2AuthenticatedCommandSha256ApiV1 {
+  readonly sha256: (
+    bytes: Uint8Array,
+  ) => Effect.Effect<Uint8Array, never, never>;
+}
+
+export class DeclarativeV2AuthenticatedCommandSha256V1
+  extends Context.Service<
+    DeclarativeV2AuthenticatedCommandSha256V1,
+    DeclarativeV2AuthenticatedCommandSha256ApiV1
+  >()(
+    "flarex-backend/declarativeV2/DeclarativeV2AuthenticatedCommandSha256V1",
+  ) {}
+
+export class DeclarativeV2AuthenticatedCommandProducerV1
+  extends Context.Service<
+    DeclarativeV2AuthenticatedCommandProducerV1,
+    DeclarativeV2AuthenticatedCommandProducerApiV1
+  >()(
+    "flarex-backend/declarativeV2/DeclarativeV2AuthenticatedCommandProducerV1",
+  ) {}
+
+export interface DeclarativeV2AuthenticatedCommandProducerLayerOptionsV1 {
+  readonly expectedAnalyzerRelease?: PrivateAnalyzerReleaseTupleV1;
+}
+
+export function makeDeclarativeV2AuthenticatedCommandProducerLayerV1(
+  options: DeclarativeV2AuthenticatedCommandProducerLayerOptionsV1 = {},
+) {
+  return Layer.effect(
+    DeclarativeV2AuthenticatedCommandProducerV1,
+    Effect.gen(function* () {
+      const proofs = yield* DeclarativeV2AuthenticatedCommandProofIssuerV1;
+      const sessions =
+        yield* DeclarativeV2AuthenticatedCommandReadSessionsV1;
+      const sha256 = yield* DeclarativeV2AuthenticatedCommandSha256V1;
+
+      return DeclarativeV2AuthenticatedCommandProducerV1.of(
+        makeDeclarativeV2AuthenticatedCommandProducerV1({
+          proofs,
+          sessions,
+          sha256: sha256.sha256,
+          ...(options.expectedAnalyzerRelease === undefined
+            ? {}
+            : { expectedAnalyzerRelease: options.expectedAnalyzerRelease }),
+        }),
+      );
+    }),
+  );
 }
 
 interface CapturedInput {
@@ -300,7 +367,7 @@ const producerError = (
       : { maximum: evidence.maximum }),
   });
 
-export function makeDeclarativeV2AuthenticatedCommandProducerFactoryV1(
+function makeDeclarativeV2AuthenticatedCommandProducerV1(
   options: Readonly<{
     readonly proofs: Pick<
       SemanticArtifactV1FinalizedSourceProofFactory,
@@ -312,7 +379,7 @@ export function makeDeclarativeV2AuthenticatedCommandProducerFactoryV1(
     ) => Effect.Effect<Uint8Array, never, never>;
     readonly expectedAnalyzerRelease?: PrivateAnalyzerReleaseTupleV1;
   }>,
-): DeclarativeV2AuthenticatedCommandProducerFactoryV1 {
+): DeclarativeV2AuthenticatedCommandProducerApiV1 {
   const results = new WeakMap<object, ResultState>();
   const cursors = new WeakMap<object, CursorState>();
   const configuredAnalyzerRelease =
@@ -529,14 +596,14 @@ export function makeDeclarativeV2AuthenticatedCommandProducerFactoryV1(
   });
 
   const receipt:
-    DeclarativeV2AuthenticatedCommandProducerFactoryV1["receipt"] =
+    DeclarativeV2AuthenticatedCommandProducerApiV1["receipt"] =
       (request, result) =>
         Result.map(getResult(results, request, result, "receipt"), state =>
           ownReceipt(state.receipt)
         );
 
   const cursor:
-    DeclarativeV2AuthenticatedCommandProducerFactoryV1["cursor"] =
+    DeclarativeV2AuthenticatedCommandProducerApiV1["cursor"] =
       (request, result) =>
         Result.gen(function* () {
           const state = yield* getResult(results, request, result, "cursor");
@@ -557,7 +624,7 @@ export function makeDeclarativeV2AuthenticatedCommandProducerFactoryV1(
         });
 
   const read:
-    DeclarativeV2AuthenticatedCommandProducerFactoryV1["read"] =
+    DeclarativeV2AuthenticatedCommandProducerApiV1["read"] =
       (request, cursorValue, maximumBytes) =>
         Result.gen(function* () {
           if (
@@ -608,7 +675,7 @@ export function makeDeclarativeV2AuthenticatedCommandProducerFactoryV1(
         });
 
   const close:
-    DeclarativeV2AuthenticatedCommandProducerFactoryV1["close"] =
+    DeclarativeV2AuthenticatedCommandProducerApiV1["close"] =
       (request, result) =>
         Result.map(getResult(results, request, result, "close"), state => {
           closeResultState(state, cursors);
