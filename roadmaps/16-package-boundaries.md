@@ -97,7 +97,7 @@ framework-neutral domain cores
 
 portable developer and wire contracts
   -> flarex
-  -> future @flarex/standard-application-definition
+  -> @flarex/standard-application-definition
   -> @flarex/declarative-program
   -> @flarex/declarative-materializer
   -> flarex-protocol
@@ -147,7 +147,7 @@ legacy compatibility remain with their real owners.
 
 ### Accepted Standard Definition Package
 
-Roadmap 42 approves one narrow future package:
+Roadmap 42 owns one narrow internal package:
 `@flarex/standard-application-definition` with only an explicit `./v1`
 export. It composes the existing canonical-program and declarative-materializer
 owners for Developer API and internal Test API producers.
@@ -605,8 +605,8 @@ semantics.
   Manifest review, TypeScript resolution, focused tests, and app bundle scripts
   provide partial enforcement, but a forbidden dependency could otherwise be
   introduced accidentally.
-- The accepted `@flarex/standard-application-definition` package and its
-  boundary checks are not implemented yet; developer and test producers still
+- The internal corpus and developer producer have not migrated onto the
+  implemented `@flarex/standard-application-definition` package yet; they still
   call the two core owners directly.
 - `flarex-backend` still contains legacy Durable Object storage and routing
   code alongside forward platform coordination. Replacement must prevent that
@@ -650,9 +650,9 @@ keeping privileged composition outside Worker bundles.
    directions in this roadmap, allow the deliberate `flarex-dev`/`flarex-test`
    composition exceptions, test the checker, and run it in the normal
    validation path.
-2. **Implement the narrow Standard definition package.** Complete roadmap 42
-   `SAP01-A` without creating a catch-all Standard package or importing host,
-   analyzer, runtime, executor, or persistence owners.
+2. **Migrate the remaining Standard definition producers.** Complete roadmap
+   42 `SAP01-B` and `SAP01-C` without moving corpus policy, SDK inspection, or
+   source-package conventions into the Standard package.
 3. **Compact deployment-analysis ownership.** Make roadmap 17 state exactly
    which package owns local feedback, backend-authoritative analysis, push,
    activation, artifact materialization, and final codegen.

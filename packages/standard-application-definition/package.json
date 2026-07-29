@@ -1,0 +1,25 @@
+{
+  "name": "@flarex/standard-application-definition",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    "./v1": "./src/v1.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@flarex/declarative-materializer": "workspace:*",
+    "@flarex/declarative-program": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

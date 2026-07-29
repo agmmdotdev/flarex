@@ -1,12 +1,9 @@
-import {
-  makeCanonicalDeclarativeProgramBudgetV1,
-  makeCanonicalDeclarativeProgramFixtureV1,
-} from "@flarex/declarative-program/v1";
-import {
-  makeDeclarativeV2MaterializationBudgetV1,
-  materializeDeclarativeV2ArtifactsV1,
-  type DeclarativeV2PrebuiltModuleGraphInputV1,
+import type {
+  DeclarativeV2PrebuiltModuleGraphInputV1,
 } from "@flarex/declarative-materializer/v1";
+import {
+  prepareStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/v1";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -20,25 +17,11 @@ describe("private standard application definition fixture V1", () => {
   it("materializes through the canonical program and materializer owners", () => {
     const fixture =
       makeOrdersPrivateStandardApplicationDefinitionFixtureV1();
-    const programBudget = Result.getOrThrow(
-      makeCanonicalDeclarativeProgramBudgetV1(fixture.programBudgetInput),
+    const prepared = Result.getOrThrow(
+      prepareStandardApplicationDefinitionV1(fixture),
     );
-    const program = Result.getOrThrow(
-      makeCanonicalDeclarativeProgramFixtureV1(
-        fixture.programInput,
-        programBudget,
-      ),
-    );
-    const materializationBudget = Result.getOrThrow(
-      makeDeclarativeV2MaterializationBudgetV1(
-        fixture.materializationBudgetInput,
-      ),
-    );
-    const plan = Result.getOrThrow(materializeDeclarativeV2ArtifactsV1(
-      program,
-      fixture.graphInput,
-      materializationBudget,
-    ));
+    const program = prepared.program;
+    const plan = prepared.artifactIngressPlan;
 
     expect(program.schema.tables.map((table) => table.logicalName))
       .toEqual(["orders"]);

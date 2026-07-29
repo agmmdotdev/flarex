@@ -472,6 +472,9 @@ importers:
       '@flarex/executor':
         specifier: workspace:*
         version: link:../executor
+      '@flarex/standard-application-definition':
+        specifier: workspace:*
+        version: link:../standard-application-definition
       miniflare:
         specifier: 'catalog:'
         version: 4.20260611.0
@@ -649,6 +652,25 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.1.5(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@24.13.2)(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/standard-application-definition:
+    dependencies:
+      '@flarex/declarative-materializer':
+        specifier: workspace:*
+        version: link:../declarative-materializer
+      '@flarex/declarative-program':
+        specifier: workspace:*
+        version: link:../declarative-program
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.90
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@24.13.2)(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))

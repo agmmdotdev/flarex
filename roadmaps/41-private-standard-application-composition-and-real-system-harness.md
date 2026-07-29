@@ -4,12 +4,12 @@
 
 **Status:** `SAC01-P`, `SAC01-A`, and the `SAC01-B1` pure corpus foundation are
 complete. A pure test-local definition fixture, deterministic case catalog,
-and replay selection are implemented under the backend test owner. They call
-the canonical-program and materializer owners directly; they are Test API
-groundwork, not an implemented Standard Application API. A dedicated harness
-package, complete replacement analyzer port, private real-system harness,
-deterministic workload runner, and live composition are not implemented or
-green as one system.
+and replay selection are implemented under the backend test owner. The
+definition-fixture success lane enters the implemented Standard definition
+API; the corpus still calls the canonical-program and materializer owners
+directly until `SAP01-B`. A dedicated harness package, complete replacement
+analyzer port, private real-system harness, deterministic workload runner, and
+live composition are not implemented or green as one system.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,

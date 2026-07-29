@@ -2,12 +2,11 @@
 
 ## Status And Scope
 
-**Status:** Accepted direction. The current repository has the canonical
-declarative-program and artifact-materialization cores, plus direct developer
-and test adapters that call those owners. It does **not** yet have a cohesive
-Standard Application API layer. The first pure definition-and-materialization
-slice, `SAP01-A`, is specified below as the next implementation gate. Preserve
-its change ownership separately from the `SAC01-B1` test-corpus slice.
+**Status:** Active internal contract. `SAP01-A` is implemented: the pure
+`@flarex/standard-application-definition/v1` package composes canonical-program
+normalization and artifact-ingress materialization, and the first backend
+definition-fixture consumer uses it. The internal corpus and developer producer
+have not migrated yet. `SAP01-B` is the next implementation gate.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -242,10 +241,18 @@ Standard API.
 
 ## Implemented Capabilities
 
-The Standard Application API layer itself has no implemented package or
-export yet.
+`SAP01-A` provides:
 
-The reusable lower-level capabilities already exist:
+- the workspace-internal
+  `@flarex/standard-application-definition/v1` export;
+- `prepareStandardApplicationDefinitionV1`, which preserves the documented
+  program-budget, program-decode, materialization-budget, and materialization
+  first-failure order through Effect v4 `Result`;
+- the exact existing canonical program, artifact-ingress plan, and two owner
+  error types without a generic Standard error wrapper; and
+- the first backend definition-fixture success consumer.
+
+The reusable lower-level capabilities remain:
 
 - bounded canonical schema and function normalization in
   `@flarex/declarative-program/v1`;
@@ -256,13 +263,12 @@ The reusable lower-level capabilities already exist:
 - a developer-tooling adapter that currently lowers SDK definitions and source
   packages directly into the two core owners.
 
-These are prerequisites and migration inputs, not evidence that the Standard
-API already exists.
+The lower-level capabilities remain independent owners rather than being
+absorbed into the Standard package.
 
 ## Known Gaps And Limitations
 
-- No `@flarex/standard-application-definition` package or `./v1` export exists.
-- Test fixtures and `flarex-dev` still duplicate the sequence that admits
+- The internal corpus and `flarex-dev` still duplicate the sequence that admits
   budgets, normalizes a program, and materializes an artifact-ingress plan.
 - The developer adapter performs additional SDK inspection and source-package
   lowering that must stay producer-owned; only its final core composition is a
@@ -294,7 +300,7 @@ sharing ergonomics, fault policy, or lifecycle ownership.
 
 ## Next Correctness Gates
 
-### `SAP01-A`: Pure Standard Definition Preparation
+### Implemented `SAP01-A`: Pure Standard Definition Preparation
 
 Create the workspace-internal
 `@flarex/standard-application-definition` package with one explicit `./v1`

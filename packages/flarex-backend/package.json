@@ -51,6 +51,7 @@
     "@flarex/declarative-materializer": "workspace:*",
     "@flarex/declarative-program": "workspace:*",
     "@flarex/executor": "workspace:*",
+    "@flarex/standard-application-definition": "workspace:*",
     "miniflare": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",

@@ -1396,7 +1396,7 @@ composes the existing contracts and remains above their owners rather than
 becoming their new authority.
 
 Roadmap 41's test-local backend fixture descriptor groups exact
-canonical-program and module-graph inputs. Roadmap 42 `SAP01-A` will place the
+canonical-program and module-graph inputs. Roadmap 42 `SAP01-A` places the
 shared pure preparation sequence in its own narrow package. Neither change adds
 a builder, canonical field, or downstream authority to this owner.
 
