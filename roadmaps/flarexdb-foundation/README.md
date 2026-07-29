@@ -1427,60 +1427,148 @@ implemented:
   HEAD-identical persistence `storedAttemptEvidence.test.ts` typecheck failures
   remain separate out-of-scope baselines and are not evidence for this gate.
 
-  The later package-local analysis registration accumulator and deterministic
-  driver remain unimplemented and depend on both d0 and a trusted factory-local
-  claim over the completed link result and module sequence. A live WeakMap
-  result, its narrow presentation, or caller-supplied identity fields do not
-  authenticate candidate, command-input, parse-root, progress, predecessor,
-  range, analyzer/verifier, factory, or result lineage. The later driver must
-  capture that lineage and the semantic payload once, accumulate metadata
-  first from offset zero, seal once, derive checked immutable capacity before
-  final allocation, execute one canonical registration and evidence schedule,
-  prove terminal actual usage against capacity and command budget, publish only
-  after agreement, and irreversibly release link, accumulator, plan, record,
-  and destination authority. Canonical identity, lineage, ordering, and shape
-  failures precede capacity and command-budget admission in the fixed
-  first-failure order. Its allowance remains `0..1024`, zero remains no-work,
-  and it may perform no preliminary registration pass, rescan, hidden read,
-  banked work, or duplicate module representation. Warm and settled-cold
-  reconstruction must be identical from offset zero for identical
-  authenticated facts.
+  The accepted post-d0 owner trace proves that the completed-link claim cannot
+  safely land as a standalone capability. The public
+  `DeclarativeV2VerifierLinkResultV1` retains only module and diagnostic counts
+  plus terminal usage. Authenticated-link completion stores the linker
+  presentation but closes the driver bindings and module-handle sequence. Cold
+  `adoptLinkResult` adds only an owner and `parsePagesRootSha256`; the restart
+  claim does not carry the complete registration tuple or module sequence. The
+  semantic stream receipt likewise exposes coarse input, record, canonical,
+  string, member, depth, and transition facts rather than every
+  registration-owned candidate inspection and string comparison. A live
+  WeakMap result, its narrow presentation, warm possession, cold parse-root
+  provenance, or caller-supplied fields therefore cannot authenticate the
+  required lineage or authorize exact registration usage.
+
+  `A1b2c0b2c2b0a0d1 — private authenticated completed-link claim and
+  registration-page sizing/terminal driver` is the smallest next
+  implementation gate. It remains unimplemented and must land the
+  factory-local completed-link claim atomically with its first and only
+  consumer rather than publishing an independently reusable claim. The claim
+  must bind `attemptSha256`, `reservationSha256`, `candidateSha256`,
+  `authenticatedInputSha256`, authenticated `registration_page` kind and
+  sequence, `parsePagesRootSha256`, `currentProgressSha256`,
+  `predecessorAndTailsSha256`, `rangeSha256`, `analyzerReleaseSha256`,
+  `analyzerIdentitySha256`, and `verifierIdentitySha256`; the exact
+  same-factory and result-bound completed-link result; the canonical
+  module-result sequence, ordinals, and producing parse-result identities; the
+  authenticated semantic input commitment; and the admitted physical/progress/
+  output destination and plan owner/range lineage. No new wire field or caller
+  assertion may substitute for that opaque ownership.
+
+  The deterministic lifecycle is fixed as capture, validate, consume,
+  decode-and-meter, resolve, seal, derive capacity, admit destinations and
+  protocol plans, emit, hash, prove, publish, and release. Hostile claim and
+  semantic inputs are captured once in canonical order. Factory/result
+  identity and the complete authenticated tuple are proved before the raw
+  completed-link claim is consumed. Semantic metadata is accumulated
+  contiguously from offset zero and its existing completeness work gains the
+  detailed inspection and comparison receipts needed by registration;
+  handlers then resolve exactly once against the retained module sequence.
+  Sealing occurs once, checked immutable capacity is derived before final
+  allocation, and the committed resumable physical and progress owners emit
+  registrations in ordinal order, diagnostics, next progress, and the output
+  manifest. Hash/root, plan/actual, and
+  `actual <= capacity <= command budget` proofs all precede publication.
+  Completion, close, and terminal failure irreversibly release the claim,
+  semantic bytes, module sequence, accumulator, plan, emitters, hash state,
+  records, and destination authority.
+
+  Allowance is an exact safe integer `0..1024`; zero performs no work and each
+  consumed unit advances owned state. Caller splits cannot change receipts or
+  bytes, and two cold constructions from identical authenticated facts start
+  at offset zero and are equal. There is no preliminary registration pass,
+  semantic or module rescan, hidden work, banked allowance, duplicate module
+  representation, hidden atomic encode, serialized mid-operation recovery, or
+  warm-WeakMap trust. Canonical first-failure order is factory/result/
+  capability validity, authenticated identity and lineage, semantic
+  shape/grammar/order/completeness, completed-link and module resolution,
+  checked signed-int64/u32/region/arena addressability, capacity, command
+  budget, destination admission, emission/hash proof, and terminal
+  publication.
 
   Registration durable usage retains all 26 canonical dimensions and their
-  distinct owners. `objectCalls`, `objectBodyBytes`, `sourceBytes`,
-  `sourceMapBytes`, `importEdges`, and pure `elapsedMilliseconds` are exact
-  zero.
-  `semanticBytes` is the exact admitted semantic payload length; `modules` is
-  the canonical semantic module-record count; `exports` is cumulative inspected
-  export candidates; `functions` is the canonical semantic function-record
-  count; `tokens` and `tokenBytes` cover the canonical semantic records, header,
-  and separators; `parserStates` counts decoder, ordering, and completeness
-  transitions; `nestingDepth` is the peak accepted depth; `schemaNodes`,
-  `validatorNodes`, and `graphNodes` count their accepted canonical members,
-  validator nodes, and declaration/relation nodes; `frontierEntries` is
-  cumulative completeness and handler discovery while its peak storage is
-  capacity-only; `stringBytes` counts decoded, copied, and compared UTF-8
-  bytes; `tableBytes` is
-  capacity-only and remains zero in terminal actual usage; `canonicalBytes`
-  includes the exact canonical semantic bytes plus the owned emitted
-  registration, diagnostic, progress, and output-manifest bytes; `frameBytes`,
-  `hashBytes`, `diagnosticBytes`, and `outputBytes` count the exact peak-frame,
-  identity/root, emitted diagnostic, and published-output work; and `calls`
-  follows the canonical internal claim/decode/validate/resolve/encode/hash/
-  terminal schedule rather than caller splits. All formulas use checked
-  signed-int64, u32, region, and arena addressability arithmetic. Durable
-  command usage remains separate from A1b1 reads, executor-HTTP transport,
-  restart recovery, and host clock/resource ledgers without reset, refund, or
-  recharge. Capacity facts are not actual work: publication and later
-  settlement must prove
-  `actual <= capacity <= command budget`.
+  distinct owners. `calls` is the exact frozen internal
+  claim/capture/decode/resolve/emit/hash/terminal schedule, including
+  internally owned 1,024-transition quanta rather than caller call splits.
+  `objectCalls`, `objectBodyBytes`, `sourceBytes`, `sourceMapBytes`,
+  `importEdges`, and pure `elapsedMilliseconds` are exact zero.
+  `semanticBytes` is the exact authenticated semantic-stream byte length;
+  `modules` is the exact canonical semantic module count proved against the
+  claimed module sequence; `exports` is cumulative inspected export
+  candidates; `functions` is the exact semantic function count; `tokens` is
+  the exact semantic JSON token count plus canonical record separators;
+  `tokenBytes` is the exact semantic record, header, and separator byte work;
+  `parserStates` is the exact decoder, record-order, and completeness
+  transition count; `nestingDepth` is peak accepted depth; `schemaNodes`,
+  `validatorNodes`, and `graphNodes` count exact canonical member/element
+  admissions, validator-value nodes, and declaration plus completeness/
+  handler-relation nodes. `frontierEntries` is cumulative completeness and
+  handler-discovery candidates while retained peak frontier storage is
+  capacity-only. `stringBytes` counts each UTF-8 byte actually decoded,
+  owned/copied, or compared.
 
-  Registration and diagnostic frame identities,
-  request/response/restart/readback/progress bytes, package root, monolithic
-  analyzer behavior, and production activation state remain unchanged. d0 is
-  implemented but inert and externally unwired; the later trusted
-  completed-link claim and registration analysis accumulator/driver remain
-  unimplemented and have no production consumer.
+  `tableBytes` is capacity-only and remains exact zero in terminal actual
+  usage. `canonicalBytes` is the exact canonical semantic bytes plus the owned
+  registration, diagnostic, progress, and output-manifest bytes; `frameBytes`
+  is the maximum exact encoded owned-frame length; `hashBytes` is the exact
+  byte count admitted to handler-identity, frame, registration/diagnostic-root,
+  progress, and manifest hash states; `diagnosticBytes` is the exact canonical
+  diagnostic-frame length; and `outputBytes` is the exact terminal canonical
+  output published. Checked capacity also retains destination, allocation,
+  peak-frontier, and arena facts without charging them as actual work. Durable
+  command usage remains separate from A1b1 object reads, executor-HTTP
+  transport, restart recovery, host clock/resource, and later settlement
+  ledgers without reset, refund, or recharge.
+
+  Recoverable hostile input, canonical grammar/order/completeness,
+  forged/foreign/stale/reused/closed capability, identity/lineage/ordinal/
+  range/module-sequence, allowance, capacity, budget, overflow,
+  addressability, destination-admission, and recoverable protocol failures
+  remain pure Effect v4 `Result` data. Trusted claim or admission callback
+  throws and contradictions in already accepted opaque module, plan, emitter,
+  hash, receipt, or terminal output state remain defects. The later Effect host
+  retains request `Scope`, cancellation, interruption, full foreign `Cause`,
+  clocks, resources, transport uncertainty, retry, release handshake, and
+  finalization. The separately gated `apps/analyzer` adapter remains
+  responsible for authenticating admitted-command and restart capabilities and
+  supplying trusted warm/cold claims without making `@flarex/analysis` depend
+  on executor-HTTP. d1 alone does not prove real settled-cold delivery.
+
+  The exact future d1 allowlist is:
+  `packages/analysis/src/declarativeV2VerifierExecutableV1.ts`,
+  `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`,
+  `packages/analysis/src/declarativeV2SemanticRecordsV1.ts`,
+  `packages/analysis/test/declarative-v2-semantic-records-v1.test.ts`,
+  new `packages/analysis/src/declarativeV2VerifierRegistrationV1.ts`,
+  new `packages/analysis/test/declarative-v2-verifier-registration-v1.test.ts`,
+  and `packages/analysis/src/declarativeV2VerifierV1.ts`. No manifest,
+  package-root export, restart-runtime, or app-adapter widening is part of d1.
+  Required focused coverage includes every lineage field and one-field
+  mismatch, warm and two independently reconstructed cold claims, module
+  sequence/ordinal/ownership failures, every semantic record and handler
+  resolution, all 26 exact and one-less capacity/budget cases, arithmetic/
+  addressability boundaries, allowances `0/1/1024` and rejected `1025`, every
+  split, hostile and shared/detached inputs, failure precedence,
+  plan/actual/capacity agreement, publication/release, and package-root/
+  no-production-caller proofs. Focused and partitioned full analysis,
+  semantic/executable/parse/source/restart/evidence, physical d0/progress,
+  transport and monolithic compatibility, typecheck/build,
+  generator/identity, frozen-install or exact environment evidence,
+  Effect-boundary, docs, and diff lanes plus refreshed
+  `typescript-diff-reviewer` and `code-quality-diff-reviewer` reports are
+  required on final bytes.
+
+  d0 remains committed, protocol-internal, inert, and externally unwired. d1,
+  its later trusted app producer, registration consumption and settlement,
+  provisional command-plan work, b0b/b0c/c2b/c3, and real cold recovery remain
+  unimplemented and have no production consumer. Registration and diagnostic
+  frame identities, request/response/restart/readback/progress bytes,
+  package-root closure, monolithic analyzer behavior, production activation,
+  candidate/repository authority, OCC/commit/journal/idempotency/feed/outbox/
+  application-row semantics, A1b2/C07 separation, and all governance non-goals
+  remain unchanged.
 
   `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the separately
   versioned private companion codec with hostile-safe canonical admission,
