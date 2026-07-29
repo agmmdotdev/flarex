@@ -1199,21 +1199,41 @@ implemented:
   Durable command usage and restart recovery usage remain separate ledgers.
   Recovery-side `objectCalls`, page/body bytes, hashes, records, and manifests
   belong only to the bounded recovery receipt; they never enter, reset, refund,
-  recharge, or enlarge settled command `attempt_usage`. Current durable `calls`
-  usage counts engine creation, each public step or finish invocation, and
-  evidence-hash work. It therefore varies with the caller's allowance partition
-  even when terminal semantics are identical. Before any parse implementation
-  can proceed, a source-length capacity theorem must prove the remaining bounds
-  and checked signed-int64/u32/region/total-arena addressability before
-  allocation, while a separate owner-controlled internal-call accounting
-  contract must make command usage split-invariant. Both are research/contract
-  prerequisites. No capacity formula, call redesign, schedule, API, trust,
-  allocation, parser, evidence, or runtime design is selected here. Pure
-  deterministic capacity, arithmetic, schedule, and
-  terminal-proof mechanics remain Effect v4 `Result`/plain TypeScript; the
-  later Effect host owns authenticated acquisition, request `Scope`,
-  cancellation, interruption, foreign `Cause`, clocks, resources, uncertainty,
-  release, and finalization.
+  recharge, or enlarge settled command `attempt_usage`. The exact current V1
+  durable `calls` law is one call at engine creation, plus one for every
+  accepted public `step` invocation, plus one for every accepted public
+  `finish` invocation, plus evidence-SHA feed and finalization work. An
+  allowance-zero `step` charges one call while performing no transition. An
+  allowance-zero `finish` also charges one call and seals source input, so a
+  later `step` observes the changed lifecycle. Caller allowance partition,
+  inserted empty calls, and repeated pending `finish` calls therefore leak into
+  observable V1 receipts, budget-failure timing, and the usage reconstructed on
+  warm or settled-cold restart even when terminal semantics are identical.
+
+  `A1b2c0b2c2b0a1d-P` is resolved only as contract-fork evidence. No
+  owner-internal split-invariant law can preserve the current V1 receipts,
+  allowance-zero lifecycle, budget-failure timing, and warm/cold usage. The
+  unresolved fork is either to preserve V1's partition-dependent
+  external-invocation accounting or to define a separately versioned
+  owner-internal work-unit contract. Neither branch is selected. An
+  internal-work branch would require explicit metered ownership for source
+  sealing, semantic work, terminal publication, and evidence hashing; true
+  zero-work semantics; compatibility, receipt, and first-failure-order review;
+  and a deliberate identity/version decision. No internal quantum, phase
+  constant, migration, dual behavior, or compatibility shim is proposed.
+
+  Independently, a source-length capacity theorem must still prove the
+  remaining bounds and checked signed-int64/u32/region/total-arena
+  addressability before allocation. That multiplicity theorem remains separate
+  from the call-accounting fork and still blocks every parse implementation.
+  No executable/API, generated identity, restart, protocol, backend,
+  persistence, analyzer-adapter, host, or activation owner or path is ready. No
+  capacity formula, call redesign, schedule, API, trust, allocation, parser,
+  evidence, or runtime design is selected here. Pure deterministic capacity,
+  arithmetic, schedule, and terminal-proof mechanics remain Effect v4
+  `Result`/plain TypeScript; the later Effect host owns authenticated
+  acquisition, request `Scope`, cancellation, interruption, foreign `Cause`,
+  clocks, resources, uncertainty, release, and finalization.
 
   `A1b2c0b2c2b0a1c-P` is resolved only as blocker evidence: the provisional
   sizing and driver APIs remain test-oracle-only, production-unwired,
@@ -1738,9 +1758,10 @@ internal, root-unexported owners, but remain unwired, inert, and
 production-inactive. Parse/source formulas do not generalize to registration.
 `A1b2c0b2c2b0a1-P` and `A1b2c0b2c2b0a1a-P` are resolved as
 research/design evidence. `A1b2c0b2c2b0a1b-P` is likewise resolved by the
-parse-capacity correction, and `A1b2c0b2c2b0a1c-P` is resolved only as evidence
-that no accepted multiplicity theorem or split-invariant call-accounting
-contract exists. The truthful lifecycle is the existing opaque
+parse-capacity correction. `A1b2c0b2c2b0a1c-P` is resolved only as evidence
+that no accepted multiplicity theorem exists, and `A1b2c0b2c2b0a1d-P` is
+resolved only as contract-fork evidence for call accounting. The truthful
+lifecycle is the existing opaque
 command-input commitment, a later separately versioned post-reservation
 admission envelope, an analysis-owned sealed nonserializable
 requirement/capacity capability, and a later separately versioned terminal
@@ -1751,13 +1772,21 @@ fixed, and source-bounded dimensions are proven, but the remaining
 parser/semantic/diagnostic/evidence multiplicities are not. Repeated
 caller/function text can make per-call evidence demand quadratic; a uniform
 source-length worst case may exceed the u32 arena while rejecting same-length
-low-actual modules. Current `calls` counts creation, public step/finish
-invocations, and evidence-hash work and therefore varies with allowance
-partition. A source-length capacity theorem and a separate owner-controlled
-internal-call accounting contract remain research prerequisites; no formula or
-schedule is selected. Its current sizing and driver APIs are
-test-oracle-supported only, production-unwired, unaccepted, uncommitted, and are
-not implementation authority. The provisional command-plan API and
+low-actual modules. The exact current V1 `calls` law is creation plus every
+accepted public `step`, every accepted public `finish`, and evidence-SHA work.
+Zero-allowance `step` charges without a transition, while zero-allowance
+`finish` charges and seals source input; caller partition, empty calls, and
+repeated pending finishes are therefore observable. The unresolved fork is to
+preserve that V1 partition-dependent accounting or define a separately
+versioned owner-internal work-unit contract. Neither is selected. The latter
+would require explicit seal/publication/semantic/hash metering, true zero-work
+semantics, compatibility/receipt/failure-order review, and an identity/version
+decision. The separate source-length capacity/multiplicity theorem remains
+unresolved and independently blocks implementation. No executable/API,
+generated, restart, protocol, backend, persistence, adapter, host, or
+activation owner or path is ready. The current sizing and driver APIs are
+test-oracle-supported only, production-unwired, unaccepted, uncommitted, and
+are not implementation authority. The provisional command-plan API and
 derivation are unaccepted and not incrementally salvageable, and no
 implementation is owner-ready. Backend
 preparation, both executor-HTTP codecs, the analyzer adapter, persistence
