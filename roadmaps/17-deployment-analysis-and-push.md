@@ -1867,11 +1867,113 @@ activation remain blocked until their production host composition is proven.
         exact-final project reviewers were clean. The capability remains
         package-root-unexported, externally unwired, production-inactive, and
         has no trusted `apps/analyzer` adapter or production consumer. The
-        later trusted app-adapter producer boundary, `link_page` consumption
-        and settlement, and the separate unresearched `registration_page`
-        prerequisite remain unresolved. This gate creates no protocol,
-        transport, persistence, candidate, repository, host, route, OCC,
-        commit, readiness, or activation authority.
+        later trusted app-adapter producer boundary plus `link_page`
+        consumption and settlement remain unresolved. The accepted
+        `registration_page` preflight also found that its sizing and terminal
+        driver cannot yet land as a standalone analysis owner. Registration
+        carries no source or module-result body, but its ordered semantic-byte
+        payload still must become canonical registration, diagnostic, progress,
+        and output-manifest frames.
+        `encodeDeclarativeV2PhysicalFrameV1` in the physical V1 owner captures
+        the complete frame and allocates and writes its complete canonical
+        buffer synchronously. Calling that atomic boundary from a fixed-quantum
+        driver would hide whole-frame work; duplicating it in analysis would
+        fork the protocol owner. This gate creates no protocol, transport,
+        persistence, candidate, repository, host, route, OCC, commit,
+        readiness, or activation authority.
+
+        `A1b2c0b2c2b0a0d0 — protocol-owned resumable physical-frame
+        encode-into cursor` is therefore the smallest unimplemented
+        registration prerequisite. Its exact future implementation allowlist
+        is only:
+
+        - `packages/flarex-protocol/src/declarative-v2-physical-v1.ts`;
+        - `packages/flarex-protocol/test/declarative-v2-physical-v1.test.ts`.
+
+        The physical V1 owner must add only a factory-local opaque
+        `create`/`admit`/`step`/`close` cursor beside its existing atomic
+        encoder. The atomic encoder remains the compatibility wrapper with
+        identical frame identities, canonical bytes, returned ownership,
+        errors, failure order, and callers. Hostile input is captured once in
+        the existing canonical order before trusted destination admission;
+        destination range, detachment, capacity, reentrancy, and overlap checks
+        remain protocol-owned. Allowance is an exact safe integer `0..1024`;
+        zero performs no work and each consumed unit performs exactly one
+        actual canonical-byte transition. Delta and aggregate allocation,
+        copy, write, scan, and transition receipts are exact. There is no
+        banked credit, hidden atomic frame work, rescan, second canonical
+        buffer, caller-forged cursor, or serialized mid-frame recovery.
+        Completion, close, and terminal failure deterministically revoke and
+        release the cursor and destination authority; cold reconstruction
+        restarts from offset zero. Recoverable capture, admission, destination,
+        allowance, and lifecycle failures remain Effect v4 `Result` data;
+        trusted callback throws and contradictions after an accepted plan
+        remain defects. Request `Scope`, cancellation, interruption, full
+        foreign `Cause`, clocks, resources, and finalization remain with the
+        later Effect host.
+
+        The later package-local analysis registration accumulator and
+        deterministic driver remain unimplemented and depend on both d0 and a
+        trusted factory-local claim over the completed link result and module
+        sequence. A live WeakMap result, its narrow presentation, or
+        caller-supplied identity fields do not authenticate candidate,
+        command-input, parse-root, progress, predecessor, range,
+        analyzer/verifier, factory, or result lineage. The later driver must
+        capture that lineage and the semantic payload once, accumulate
+        metadata first from offset zero, seal once, derive checked immutable
+        capacity before final allocation, execute one canonical registration
+        and evidence schedule, prove terminal actual usage against capacity and
+        command budget, publish only after agreement, and irreversibly release
+        link, accumulator, plan, record, and destination authority. Canonical
+        identity, lineage, ordering, and shape failures precede capacity and
+        command-budget admission in the fixed first-failure order. Its
+        allowance remains `0..1024`, zero remains no-work, and it may perform no
+        preliminary registration pass, rescan, hidden read, banked work, or
+        duplicate module representation. Warm and settled-cold reconstruction
+        must be identical from offset zero for identical authenticated facts.
+
+        Registration durable usage retains all 26 canonical dimensions and
+        their distinct owners. `objectCalls`, `objectBodyBytes`, `sourceBytes`,
+        `sourceMapBytes`, `importEdges`, and pure `elapsedMilliseconds` are
+        exact zero.
+        `semanticBytes` is the exact admitted semantic payload length;
+        `modules` is the canonical semantic module-record count;
+        `exports` is cumulative inspected export candidates; `functions` is
+        the canonical semantic function-record count; `tokens` and
+        `tokenBytes` cover the canonical semantic records, header, and
+        separators; `parserStates` counts decoder, ordering, and completeness
+        transitions; `nestingDepth` is the peak accepted depth; `schemaNodes`,
+        `validatorNodes`, and `graphNodes` count their accepted canonical
+        members, validator nodes, and declaration/relation nodes;
+        `frontierEntries` is cumulative completeness and handler discovery
+        while its peak storage is capacity-only;
+        `stringBytes` counts decoded, copied, and compared UTF-8 bytes;
+        `tableBytes` is capacity-only and remains zero in terminal actual
+        usage; `canonicalBytes` includes the exact canonical semantic bytes plus
+        the owned emitted registration, diagnostic, progress, and
+        output-manifest bytes; `frameBytes`, `hashBytes`, `diagnosticBytes`, and
+        `outputBytes` count the exact peak-frame, identity/root, emitted
+        diagnostic, and published-output work; and `calls` follows the
+        canonical internal claim/decode/validate/resolve/encode/hash/terminal
+        schedule rather than caller splits. All formulas use checked
+        signed-int64, u32, region, and arena addressability arithmetic.
+        Durable command usage remains separate from A1b1 reads,
+        executor-HTTP transport, restart recovery, and host clock/resource
+        ledgers without reset, refund, or recharge. Capacity facts are not
+        actual work: publication and later settlement must prove
+        `actual <= capacity <= command budget`.
+
+        The existing physical encoder, registration and diagnostic frame
+        identities, request/response/restart/readback/progress bytes, package
+        root, monolithic analyzer path, and production activation state remain
+        unchanged. d0 and the later registration analysis owner are
+        unimplemented and have no external consumer. Their required validation
+        remains exhaustive per-frame golden and two-cold compatibility,
+        every-split and allowance `0/1/1024/1025`, exact and one-less work
+        ceilings, hostile capture/admission/destination/overlap/lifecycle
+        cases, terminal release, physical and monolithic compatibility,
+        typecheck/build, generator/identity, Effect-boundary and diff checks,
+        and both exact-final project reviewers.
 
         `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the
         separately versioned private companion codec with hostile-safe
@@ -1895,9 +1997,11 @@ activation remain blocked until their production host composition is proven.
         Effect-owned by their existing boundaries. The provisional b0a bytes
         remain unwired, production-unreachable, non-authoritative, unaccepted,
         and uncommitted. Parse-module and source-page sizing/driver ownership
-        are now satisfied, but `link_page` and `registration_page` remain
-        separate unresolved command-kind prerequisites; b0b and b0c remain
-        unimplemented.
+        are now satisfied. The private link-capacity owner is committed but
+        remains externally unwired; link consumption and settlement remain
+        unresolved. Registration remains blocked first on d0 and then on its
+        trusted completed-link claim plus analysis accumulator/driver. b0b and
+        b0c remain unimplemented.
 
         The blocked candidate c2b implementation allowlist remains exactly
         `packages/analysis/src/declarativeV2VerifierCommandEngineV1.ts`,
@@ -1932,10 +2036,13 @@ activation remain blocked until their production host composition is proven.
    uncommitted. The private a0a parse-module policy, b0a0b0a resumable protocol
    cursor, and b0a0b0 source-page sizing/driver are implemented and committed.
    The source-page owner consumes the cursor directly while remaining
-   package-local, unexported, unwired, production-unreachable, and inert. Link
-   and registration sizing/driver authority remain separately unresolved;
-   parse/source formulas do not generalize to them. b0b/b0c, the c2b analyzer command
-   engine, Effect host
+   package-local, unexported, unwired, production-unreachable, and inert. The
+   private link-capacity owner is committed but externally unwired; link
+   consumption and settlement remain unresolved. Registration is not
+   standalone: its protocol-owned resumable physical-frame cursor d0 and later
+   trusted completed-link claim plus analysis accumulator/driver remain
+   unimplemented. Parse/source formulas do not generalize to registration.
+   b0b/b0c, the c2b analyzer command engine, Effect host
    composition, and a production caller remain absent. These transport,
    readback, and claim owners establish bounded inert bytes and process-local
    capabilities but do not prove real cold delivery: cold `link_page` and
