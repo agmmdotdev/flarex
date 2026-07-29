@@ -1742,6 +1742,90 @@ activation remain blocked until their production host composition is proven.
         separate unresolved prerequisites. Source-page and parse-module
         formulas must not be generalized to either command kind.
 
+        The accepted `link_page` preflight found that link sizing and driving
+        cannot yet land as a standalone owner. The current call graph remains
+        `apps/analyzer/src/Verification.ts` or the restart runtime into
+        `createDeclarativeV2VerifierLinkerV1`, opaque module append, bounded
+        linker step/finish, and canonical link-record production. The
+        monolithic caller supplies its own maximum and required frames, while
+        cold rehydration copies the remaining recovery budget into a temporary
+        linker requirement. Neither is durable command-plan authority.
+
+        The authenticated `link_page` request is deliberately body-free and
+        carries no module-result or link facts. The linker requires exact
+        required usage before it accepts opaque WeakMap-owned module results,
+        and the current append check proves only a live same-process module
+        handle. It does not bind that handle to the candidate, authenticated
+        input, parse-pages root, expected module ordinal/range, current
+        progress, predecessor receipt, analyzer identity, or verifier
+        identity. Request ceilings, retained-source length, irreversible
+        digests, prior actual usage, and the recovery-only remaining-budget
+        copy cannot substitute for those facts.
+
+        Current durable link usage has separate owners across the linker and
+        evidence producer. Core link work charges scheduler-dependent calls,
+        modules, imports, exports, graph nodes, cumulative frontier pushes,
+        copied link text, and diagnostic text. Body/object/source/source-map/
+        semantic, parser, schema, validator, token, token-byte, function,
+        string, canonical, frame, hash, and elapsed dimensions are exact zero
+        in the core linker unless the later canonical evidence schedule owns
+        them. Evidence encoding adds calls, resolved-edge import charges,
+        canonical JSON members/depth/strings, frames, canonical bytes, hashes,
+        diagnostic-record bytes, and output/page copies. Exact command formulas
+        therefore remain unresolved for scheduler-dependent calls and complete
+        evidence output. `frontierEntries` currently serves both cumulative
+        pushes and peak capacity, while `tableBytes` is required for arena
+        creation but remains zero in actual linker usage; both meanings require
+        an explicit owner decision. All calculations must retain canonical
+        dimension order and checked signed-int64, u32, region-width, and total
+        arena-addressability arithmetic. Durable command, restart recovery,
+        executor-HTTP transport, A1b1 reads, and host clock/resource usage stay
+        separate ledgers without reset, refund, or recharge.
+
+        `A1b2c0b2c2b0a0c0 — verifier-owned authenticated link-input
+        accumulator and deterministic linker-driver capability` is therefore
+        the smallest unimplemented prerequisite. Its exact candidate allowlist
+        is only
+        `packages/analysis/src/declarativeV2VerifierExecutableV1.ts` and
+        `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`.
+        The existing executable owner must retain an opaque, factory-local,
+        result-bound module sequence, verify the full authenticated lineage,
+        accumulate it once, derive the exact requirement before allocation,
+        and let only that plan drive the existing linker and canonical evidence
+        sequence. A safe-integer allowance remains `0..1024`, zero performs no
+        work, and hidden preliminary linking, rescans, banked work, forged
+        caller plans, or a second module representation are forbidden.
+        Planned requirements, actual usage, output, next progress, and evidence
+        may publish only after terminal agreement; completion, close, or
+        failure irreversibly releases retained module, plan, linker, record,
+        and destination authority.
+
+        Hostile input, identity/lineage, budget, overflow, lifecycle, and
+        transition failures remain pure Effect v4 `Result` data. Contradictions
+        after accepted module/arena/receipt state remain defects. The later
+        Effect host owns request `Scope`, cancellation, interruption, full
+        foreign `Cause`, clocks, resources, transport/database uncertainty,
+        release, and finalization. Required validation covers link paths,
+        imports/exports/function bindings, duplicate paths, missing targets,
+        cycles, disconnected graphs, every diagnostic and evidence order, all
+        26 exact/one-less dimensions, signed-int64/u32/arena boundaries,
+        allowances `0/1/1024` and rejected `1025`, every split, two-cold
+        equality, no hidden pass, authority misuse, warm/settled-cold
+        compatibility, existing monolithic/restart bytes and identities,
+        focused/partitioned analysis, typecheck/build, generators/identities,
+        frozen-install evidence, Effect/diff checks, and both exact-final
+        project reviewers.
+
+        The later fresh-authentication producer trust choice remains explicitly
+        unresolved: it must separately decide between authenticated parse/link
+        summary evidence, executor-owned plan authority with backend
+        verification, or a verifier-proven constant-work bound derived only
+        from existing authenticated range facts. That decision is outside c0
+        and cannot be guessed by this prerequisite. Registration-page remains
+        a separate, unresearched command-kind owner. c0 creates no protocol,
+        transport, persistence, candidate, repository, host, route, OCC,
+        commit, readiness, or activation authority.
+
         `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the
         separately versioned private companion codec with hostile-safe
         canonical admission, metadata-before-payload ordering, allowances from
