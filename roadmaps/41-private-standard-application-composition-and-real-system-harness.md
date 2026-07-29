@@ -2,10 +2,10 @@
 
 ## Status And Scope
 
-**Status:** `SAC01-P` docs-first preflight and `SAC01-A` first slice complete.
-A pure, test-local standard-application definition and corpus seed is
-implemented under the backend test owner. A dedicated harness package, complete
-replacement analyzer port,
+**Status:** `SAC01-P`, `SAC01-A`, and the `SAC01-B1` pure corpus foundation are
+complete. A pure, test-local standard-application definition, deterministic
+case catalog, and replay selection are implemented under the backend test
+owner. A dedicated harness package, complete replacement analyzer port,
 private real-system harness, deterministic workload runner, and live
 composition are not implemented or green as one system. This record does not
 assume that another canonical application or invocation contract is required.
@@ -657,11 +657,63 @@ Validation for `SAC01-A`:
 - both standing custom reviewers before commit because this slice moves and
   materially centralizes test coverage.
 
+### Implemented Pure Corpus Slice: `SAC01-B1`
+
+`SAC01-B1` provides the first deterministic canonical-program and
+materialization corpus without advancing the analyzer or live harness. It
+remains test-local under
+`flarex-backend/test/privateStandardApplication/`.
+
+The corpus is a discriminated test-case catalog, not another application,
+artifact, error, or execution representation:
+
+- a `valid` case produces a fresh
+  `PrivateStandardApplicationDefinitionFixtureV1` and declares inert facts to
+  verify after the existing canonical decoder and materializer succeed;
+- a `canonicalFailure` case produces fresh existing program and budget inputs
+  and declares the complete stable existing canonical error-data projection
+  expected from that owner; and
+- a `materializationFailure` case produces a fresh existing definition fixture
+  plus a deliberately invalid existing graph or budget input and declares the
+  complete stable existing materialization error-data projection.
+
+Case IDs are stable literal test identities. Selection accepts a non-negative
+safe-integer seed and bounded case count, rotates over one fixed case-ID order,
+and returns a fresh replay value containing corpus version, seed, and explicit
+case IDs. The explicit IDs, not recomputation from a seed after a later corpus
+version changes, are the replay authority. Each case factory allocates fresh
+mutable raw inputs and bytes.
+
+Exact path allowlist:
+
+- `packages/flarex-backend/test/privateStandardApplication/corpusV1.ts`
+  (new);
+- `packages/flarex-backend/test/privateStandardApplication/corpusV1.test.ts`
+  (new);
+- `packages/flarex-backend/test/privateStandardApplication/definitionFixtureV1.ts`
+  only when a representative valid definition belongs with the existing
+  definition seed; and
+- this roadmap for durable boundary or status corrections.
+
+The first corpus must include the existing point-mutation seed, one valid
+multi-module/multi-function metadata shape, canonical identity/schema/
+validator/budget failures, and materialization binding/role/budget failures.
+Success cases may exercise query, mutation, workflow-mutation, action, public,
+and internal metadata, but they must not claim executable support for those
+capabilities. Corpus evaluation calls the existing owners directly and retains
+their exact `Result` failures; it must not create a common corpus error or
+success type.
+
+This slice makes no upload-correlation, analyzer, executor, persistence,
+runtime, manifest, export-map, route, binding, configuration, or activation
+change. `SAC01-C` remains the first gate allowed to adapt the corpus to the
+replacement analyzer.
+
 ### Later Gates
 
 | Gate | Scope | Entry condition |
 | --- | --- | --- |
-| `SAC01-B` | Add bounded valid/invalid canonical and materialization corpus members, stable seed selection, expected diagnostics, and replay input | `SAC01-A` is stable; remains pure and test-local unless a second real consumer proves extraction |
+| `SAC01-B2` | Expand corpus membership or workload parameters without adding new domain semantics | A concrete coverage gap is identified; remains pure and test-local unless a second real consumer proves extraction |
 | `SAC01-C` | Add the narrow replacement analyzer port and analyzer corpus lane | A1b2 command plan, link and registration ownership, pure engine, Effect host, and executor composition are accepted and exposed through one supported adapter |
 | `SAC01-D` | Compose verified registration and schema/catalog publication/readiness for one private application revision | Replacement registration owner and an approved schema-lifecycle adapter exist without direct database access |
 | `SAC01-E` | Execute and authoritatively read back one real point mutation | `SAC01-C`, `SAC01-D`, and foundation `C07` are complete with real PGlite/Postgres evidence |
@@ -670,11 +722,11 @@ Validation for `SAC01-A`:
 
 ### Parallel-Work Safety And Stop Conditions
 
-`SAC01-A` and the pure part of `SAC01-B` are safe to run in parallel with the
-current analyzer work because their allowlists exclude `packages/analysis/**`,
-`apps/analyzer/**`, analyzer transports, analyzer roadmaps, and production
-composition. Before implementation and before commit, recheck the working tree
-for overlap.
+Future `SAC01-B2` expansions that remain within the pure B1 corpus boundary are
+safe to run in parallel with analyzer work because the corpus allowlist excludes
+`packages/analysis/**`, `apps/analyzer/**`, analyzer transports, analyzer
+roadmaps, and production composition. Before implementation and before commit,
+recheck the working tree for overlap.
 
 Stop and run a new preflight if the work would:
 
@@ -693,7 +745,9 @@ Stop and run a new preflight if the work would:
   trigger, or scheduling semantics;
 - change bytes, ordering, budgets, diagnostics, roots, digests, ownership, or
   first-failure behavior rather than merely centralizing the exact fixture;
-- encounter concurrent edits inside the `SAC01-A` allowlist; or
+- encounter concurrent edits inside
+  `packages/flarex-backend/test/privateStandardApplication/**` or another
+  active slice allowlist; or
 - need a live integration before A1b2, the registration/schema adapter, or
   `C07` satisfies its stated entry gate.
 
