@@ -398,15 +398,18 @@ function decodeRecordValue(
           value,
           RECORD_KEYS.validator,
           rootObjectMemberCount,
-        ) ||
-        !isCanonicalName(value.id)
+        )
       ) {
+        return undefined;
+      }
+      const validatorValue = value.value;
+      if (!isCanonicalName(value.id) || validatorValue === undefined) {
         return undefined;
       }
       return freezeRecord({
         kind: "validator",
         id: value.id,
-        value: value.value,
+        value: validatorValue,
       });
     }
     case "handler":

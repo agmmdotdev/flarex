@@ -7176,6 +7176,17 @@ export interface DeclarativeV2VerifierAuthenticatedLinkFactoryV1 {
     DeclarativeV2VerifierAuthenticatedLinkDriveResultV1,
     DeclarativeV2VerifierExecutableV1Error
   >;
+  /**
+   * Package-internal settled-cold bridge. The restart runtime has already
+   * authenticated and reconstructed both the module sequence and link result;
+   * this installs the one-shot registration presentation without rerunning the
+   * linker or creating a second module representation.
+   */
+  readonly adoptRestarted: (
+    result: unknown,
+    bindings: unknown,
+    modules: readonly unknown[],
+  ) => Result.Result<void, DeclarativeV2VerifierExecutableV1Error>;
   readonly close: (
     capability: unknown,
   ) => Result.Result<void, DeclarativeV2VerifierExecutableV1Error>;
@@ -9903,6 +9914,64 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
       return Result.succeed(undefined);
     };
 
+  const adoptRestarted:
+    DeclarativeV2VerifierAuthenticatedLinkFactoryV1["adoptRestarted"] =
+      (rawResult, rawBindings, rawModules) => {
+        const presentation =
+          rawResult !== null && typeof rawResult === "object"
+            ? OWNED_LINK_RESULTS.get(rawResult)
+            : undefined;
+        const bindings = captureAuthenticatedLinkBindingsV1(rawBindings);
+        if (
+          presentation === undefined ||
+          presentation.registration !== undefined ||
+          bindings === undefined ||
+          !Array.isArray(rawModules) ||
+          BigInt(rawModules.length) !==
+            (rawResult as DeclarativeV2VerifierLinkResultV1).moduleCount
+        ) {
+          return Result.fail(executableError("link", "invalidInput"));
+        }
+        const modules: DeclarativeV2VerifierOwnedModuleArenaV1[] = [];
+        const claims: DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1[] = [];
+        for (let index = 0; index < rawModules.length; index += 1) {
+          const rawModule = rawModules[index];
+          const module =
+            rawModule !== null && typeof rawModule === "object"
+              ? OWNED_MODULE_RESULTS.get(rawModule)
+              : undefined;
+          const producingParseResultSha256 = module === undefined
+            ? undefined
+            : captureVerifierEvidenceSha256V1(module.evidenceSha256);
+          if (
+            module === undefined ||
+            producingParseResultSha256 === undefined ||
+            module.moduleOrdinal !== BigInt(index) ||
+            AUTHENTICATED_LINK_CLAIMED_MODULES_V1.has(rawModule as object)
+          ) {
+            return Result.fail(executableError("link", "invalidInput"));
+          }
+          modules.push(module);
+          claims.push(Object.freeze({
+            ...bindings,
+            moduleOrdinal: module.moduleOrdinal,
+            producingParseResultSha256,
+          }));
+        }
+        for (const rawModule of rawModules) {
+          AUTHENTICATED_LINK_CLAIMED_MODULES_V1.add(rawModule as object);
+        }
+        presentation.registration = {
+          bindings,
+          rawModules:
+            rawModules.slice() as DeclarativeV2VerifierModuleResultV1[],
+          modules,
+          claims,
+          claimed: false,
+        };
+        return Result.succeed(undefined);
+      };
+
   const completedClaims = new WeakMap<object, CompletedLinkClaimStateV1>();
   const completedLookups = new WeakMap<object, CompletedLinkLookupStateV1>();
 
@@ -10279,7 +10348,14 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
       },
     });
 
-  const factory = Object.freeze({ create, admit, seal, step, close });
+  const factory = Object.freeze({
+    create,
+    admit,
+    seal,
+    step,
+    adoptRestarted,
+    close,
+  });
   COMPLETED_LINK_CLAIM_PORTS_V1.set(factory, completedLinkClaimPort);
   return factory;
 }

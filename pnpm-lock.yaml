@@ -65,6 +65,9 @@ importers:
       '@flarex/analysis':
         specifier: workspace:*
         version: link:../../packages/analysis
+      '@flarex/executor-http':
+        specifier: workspace:*
+        version: link:../../packages/executor-http
       '@flarex/utils':
         specifier: workspace:*
         version: link:../../packages/utils

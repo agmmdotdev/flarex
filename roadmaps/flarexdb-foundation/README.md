@@ -1134,11 +1134,11 @@ implemented:
   formulas. Persistence owns canonical current progress, reservation, command
   budget, repository `Work`/fence authority, settlement, confirmed-rollback
   retry, decision uncertainty, and the later terminal-proof
-  storage-versus-transactional-validation decision. A later `apps/analyzer`
-  adapter may only connect opaque admitted-command and claimed-restart
-  capabilities to analysis-owned ports and project the sealed terminal proof;
-  its later host owns request lifecycle, not command-plan or repository
-  authority.
+  storage-versus-transactional-validation decision. The implemented private
+  `apps/analyzer` adapter connects opaque admitted-command and claimed-restart
+  capabilities to analysis-owned ports and exposes exact terminal `A`, `E`,
+  and `R` channels; it does not mint the separately versioned terminal proof.
+  Its host owns request lifecycle, not command-plan or repository authority.
 
   Caller-authored usage vectors, duplicated formulas or representations,
   WeakMap possession without authenticated lineage, serialized handles, hidden
@@ -1429,12 +1429,12 @@ implemented:
   factory-local opaque authenticated link-input accumulator, warm and
   settled-cold private link summaries, the immutable capacity plan, the
   single-pass linker/evidence schedule, exact terminal actual usage, and
-  irreversible completion/failure/close release. A later separately gated
-  `apps/analyzer` adapter must authenticate the already admitted command and
-  claimed restart capabilities and supply trusted warm/cold claims. WeakMap
-  possession and caller-provided identity fields prove neither command lineage
-  nor cold equivalence. Analysis must not depend on executor-HTTP, and no real
-  external consumer is wired to this path.
+  irreversible completion/failure/close release. The implemented private
+  `apps/analyzer` adapter authenticates the already admitted command and
+  claimed restart capabilities through factory-local trusted claim ports.
+  WeakMap possession and caller-provided identity fields prove neither command
+  lineage nor cold equivalence. Analysis does not depend on executor-HTTP, and
+  no external or production consumer is wired to this path.
 
   The private link summary is accumulated once while constructing or
   cold-reconstructing the existing opaque module representation. It retains
@@ -1672,10 +1672,12 @@ implemented:
   hash, receipt, or terminal output state remain defects. The later Effect host
   retains request `Scope`, cancellation, interruption, full foreign `Cause`,
   clocks, resources, transport uncertainty, retry, release handshake, and
-  finalization. The separately gated `apps/analyzer` adapter remains
-  responsible for authenticating admitted-command and restart capabilities and
-  supplying trusted warm/cold claims without making `@flarex/analysis` depend
-  on executor-HTTP. d1 alone does not prove real settled-cold delivery.
+  finalization. The implemented private `apps/analyzer` adapter authenticates
+  admitted-command and restart capabilities and consumes trusted warm/cold
+  claims without making `@flarex/analysis` depend on executor-HTTP. d1 alone
+  did not prove real settled-cold delivery; capability 2 now proves private
+  claimed-source reconstruction and continuation while leaving every external
+  producer and route absent.
 
   The committed d1 owner set is:
   `packages/analysis/src/declarativeV2VerifierExecutableV1.ts`,
@@ -1705,12 +1707,14 @@ implemented:
   clean.
 
   d0 remains committed, protocol-internal, inert, and externally unwired. d1 is
-  committed, package-internal, root-unexported, externally unwired, inert, and
-  production-inactive. No trusted warm/cold analyzer producer or app adapter
-  consumes admitted-command or claimed restart-source capabilities; no backend
-  companion producer, settlement owner, route/binding, candidate, repository
-  `Work`/fence, OCC/commit authority, activation path, or production caller
-  exists. Capability 1 removed the provisional command-plan
+  committed, package-internal, root-unexported, and is now consumed only by the
+  private accepted analyzer entry. The `apps/analyzer` Effect adapter consumes
+  admitted-command and claimed restart-source capabilities through
+  factory-local trusted session/command/restart claim ports, while the default
+  claim owner fails closed. No backend companion or trusted claim producer,
+  settlement owner, route/binding, candidate, repository `Work`/fence,
+  OCC/commit authority, activation path, or production caller exists.
+  Capability 1 removed the provisional command-plan
   source/test/private export rather than treating its bytes as authority.
   `A1b2c0b2c2b0a1-P` is complete as research/design evidence; b0b/b0c/c2b/c3
   and real cold recovery remain unimplemented. Registration and diagnostic
@@ -1743,18 +1747,47 @@ implemented:
   allowance, and transport compatibility lanes are green. The capability
   remains package-internal, externally unwired, inert, and production-inactive.
 
-  **A1b2 capability 2 — accepted complete analyzer port.** Compose the
-  source/link/registration owners behind one entry, add trusted warm and
-  reconstructed-cold host/session lifecycle over the admitted-command and
-  claimed restart-source capabilities, authenticate the terminal `A`, `E`, and
-  `R` channels, prove deterministic progress,
-  interruption, uncertainty and terminal release, and run focused integration
-  validation. `@flarex/analysis` remains the semantic owner;
-  `apps/analyzer` remains the dependency-inversion and Effect host boundary.
-  Pure plan and capability mechanics remain `Result`/plain TypeScript, while
-  authenticated I/O, request `Scope`, cancellation, full foreign `Cause`,
-  retry, uncertainty, acquisition, release, and finalization remain
-  Effect-owned. Acceptance creates no production route or activation authority.
+  **A1b2 capability 2 — accepted complete analyzer port.** This capability is
+  implemented by the package-internal
+  `makeDeclarativeV2AnalyzerPortFactoryV1` semantic entry and the
+  `apps/analyzer` `makePrivateDeclarativeV2AnalyzerHostV1` dependency-inversion
+  and Effect-host entry. The semantic entry composes source, parse, link, and
+  registration through their real owners, retains module/link authority only
+  in factory-local process state, and accepts settled-cold parse authority
+  through the committed restart runtime before deterministic link
+  continuation. The host consumes the existing same-factory admitted-command
+  and claimed restart-source capabilities. Its trusted session, command, and
+  restart claim ports are single-use/fail-closed boundaries rather than
+  caller-authored lineage records; no concrete backend producer is wired.
+
+  The exact Effect channels are now explicit. `open` returns
+  `Effect.Effect<PrivateDeclarativeV2AnalyzerSessionV1,
+  PrivateDeclarativeV2AnalyzerHostV1Error, Scope.Scope>`. Warm `execute` and
+  settled-cold `rehydrate` return
+  `Effect.Effect<DeclarativeV2AnalyzerCompleteV1,
+  PrivateDeclarativeV2AnalyzerHostV1Error, never>`. Terminal successes retain
+  the analysis-owned capacity/actual/progress/result projection; recoverable
+  admission, transport, and analysis failures stay in `E`; trusted callback
+  defects remain in the full `Cause`; and `R` owns the request-scoped session.
+  Interruption releases the admitted view, analysis driver, claimed restart
+  source, and session in deterministic reverse ownership order. Retry and
+  persistence uncertainty remain with a later bound Effect producer rather
+  than being invented inside the pure analyzer.
+
+  Pure plan and capability mechanics remain `Result`/plain TypeScript in
+  `@flarex/analysis`; analysis does not depend on executor-HTTP. The app host
+  owns Effect acquisition, interruption, full foreign `Cause`, and
+  finalization. Allowance `0` remains true no-work at the pure port, host
+  driving is cooperatively interruptible at owner step boundaries for
+  allowances `1..1024`, and no analysis handle, sealed capacity, or mid-command
+  cursor is serialized. Focused warm source/parse/link/registration, real
+  claimed-source cold-rehydrate-plus-link, allowance partition, typed failure,
+  defect, interruption, release, full analysis, protocol, and executor-HTTP
+  compatibility lanes are green. Existing request/response/restart/readback/
+  progress/physical bytes, identities, package-root closure, and the monolithic
+  host are unchanged. The new entry remains directly unimported by production
+  composition, externally unwired, inert, and production-inactive; acceptance
+  creates no production route or activation authority.
 
   One proportional approval for either capability covers implementation,
   in-scope test fixes, validation, roadmap reconciliation, required reviewers,
@@ -1799,11 +1832,23 @@ Analyzer completion is exactly two medium capabilities: verifier core contract
 completion, then one accepted complete analyzer port. Capability 1 is complete:
 it owns generated bounds, checked capacity/allocation and terminal actual
 across all four commands, removal of the provisional command-plan API, and
-focused monolithic, restart, identity, and compatibility proof. Capability 2 owns
-source/link/registration composition, trusted warm/cold host/session lifecycle,
-authenticated terminal `A`, `E`, and `R` channels, deterministic
-failure/release proof, and focused integration validation and remains
-unimplemented.
+focused monolithic, restart, identity, and compatibility proof. Capability 2 is
+complete through `makeDeclarativeV2AnalyzerPortFactoryV1` and
+`makePrivateDeclarativeV2AnalyzerHostV1`: it owns source/parse/link/registration
+composition, trusted warm/cold host/session claim consumption, exact terminal
+`A`, `E`, and `R` channels, deterministic interruption/failure/release proof,
+and focused integration validation. Its trusted backend claim producer and
+every external consumer remain deliberately absent.
+Settled-cold recovery keeps one package-owned restart runtime per private
+analysis session: parse results reconstructed by that owner form the
+authenticated link module set, and a reconstructed link result installs one
+result-bound registration presentation without rerunning the linker,
+duplicating the module representation, or serializing a handle. The Effect
+host reads the claimed restart source cooperatively, preserves the original
+transport failure channel, retains admitted payload chunks and joins each role
+once, and consumes a complete module path before the committed `128`-byte
+combined source/domain limit is enforced. Progress replay or skipping fails
+before a new owner driver is created.
 
 After capability 2 is accepted, the analyzer remains externally unwired and
 production-inactive until the separate routing and activation boundary is

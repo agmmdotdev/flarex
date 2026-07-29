@@ -652,3 +652,8 @@ export {
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_CONTRACT_V1,
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_TABLE_IDENTITY_V1,
 } from "./declarativeV2VerifierExecutableV1.contract";
+export * from "./declarativeV2AnalyzerPortV1";
+export {
+  driveDeclarativeV2VerifierParseModuleTerminalV1,
+  planDeclarativeV2VerifierParseCapacityV1,
+} from "./declarativeV2VerifierSizingV1";
