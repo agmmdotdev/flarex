@@ -1659,15 +1659,59 @@ activation remain blocked until their production host composition is proven.
         `tableBytes`; `tokenBytes` and `stringBytes` have proven source-length
         bounds. Exact-zero current parse dimensions are `objectCalls`,
         `sourceMapBytes`, `semanticBytes`, `schemaNodes`, `validatorNodes`, and
-        pure `elapsedMilliseconds`. The remaining dimensions still have no
-        accepted parser-, semantic-, diagnostic-, or evidence-multiplicity
-        theorem. In particular, repeated caller or function text in per-call
-        evidence can make canonical, frame, hash, or output demand
-        quadratic in source length. A uniform source-length worst case may
-        therefore exceed the u32-addressable arena while rejecting a
-        same-length module whose terminal actual usage is low. Reserved arena,
-        destination, frame, or other peak storage is capacity, not terminal
-        work merely because it was allocated.
+        pure `elapsedMilliseconds`. Linear source lemmas already follow from
+        the current owners: every non-EOF token consumes source while EOF adds
+        one token; import, call, export, function, value-flow, graph, and
+        frontier records are bounded by token occurrences; nesting frames are
+        bounded by source openers; and the evidence frame count is exactly
+        `1 + callCount + valueFlowCount + diagnosticCount`. Accepted generated
+        proof metadata is still missing for the canonical LR/epsilon and
+        injected-terminal peak stack and for lexical/parser/semantic diagnostic
+        emission multiplicity. Such metadata could close those missing linear
+        constants, but it cannot solve the fixed-arena contradiction below.
+
+        The exact V1 caller-proportional arena is
+        `12_544 + 56*tokens + 24*parserStates + 16*nestingDepth + 64*modules +
+        64*importEdges + 48*exports + 144*functions + 32*schemaNodes +
+        32*validatorNodes + 64*graphNodes + 32*frontierEntries +
+        3*objectBodyBytes + tokenBytes + stringBytes + 2*canonicalBytes +
+        2*frameBytes + 2*diagnosticBytes + 2*outputBytes`. Every region and the
+        cumulative total must fit u32 after checked signed-int64 arithmetic;
+        the fixed generated table remains outside that caller-proportional
+        arena.
+
+        `A1b2c0b2c2b0a1e-P` is resolved as V1
+        multiplicity/addressability contract evidence. For a function-name
+        length `L = 80_394` and `K = 4_452` platform ABI calls, the valid
+        high-work source has exact length
+        `N = 68 + L + 18*K + 16 = 160_614`. Each call repeats the function name
+        in import-call and value-flow evidence and twice in semantic output.
+        Repeated evidence text is therefore `2*L*K = 715_828_176` bytes;
+        canonical plus frame arena factors contribute `2_863_312_704` bytes
+        and output contributes `1_431_656_352`, for a combined repeated-text
+        demand of `12*L*K = 4_294_969_056`, already `1_761` above u32 before
+        any other region. A same-length low-work module is constructible with
+        `160_577` comment-padding characters and small terminal actual usage.
+        Consequently, a source-length-only V1 fixed-arena worst case cannot
+        preserve every same-length actual-fit module. The exact universal
+        maximum remains unproved, while this constructive family proves the
+        hard ceiling `Nmax <= 160_613`.
+
+        The unresolved alternatives are deliberately unselected. Generated
+        linear proof metadata would need a stricter accepted source/domain
+        limit, changing accepted inputs, pre-allocation failure order,
+        generated identity evidence, and later producer alignment. An
+        analysis-owned streaming, interning, or factoring design could separate
+        peak storage capacity from cumulative canonical/hash/output actual
+        while preserving canonical evidence bytes, but would change the
+        arena/module/restart representation and require monolithic and warm/cold
+        compatibility proof. A separately versioned arena representation would
+        deliberately change arena/generated identity and restart representation.
+        A separately versioned evidence representation is an option only if
+        evidence bytes and identity are intentionally changed, with downstream
+        compatibility proved separately. None is selected; reserved storage
+        remains capacity rather than terminal actual, and streaming would not
+        remove canonical/hash/output work from terminal accounting.
 
         Durable command usage and restart recovery usage remain separate
         ledgers. Recovery-side `objectCalls`, page/body bytes, hashes, records,
@@ -1698,15 +1742,16 @@ activation remain blocked until their production host composition is proven.
         No internal quantum, phase constant, migration, dual behavior, or
         compatibility shim is proposed.
 
-        Independently, a source-length capacity theorem must still prove the
-        remaining bounds and checked signed-int64/u32/region/total-arena
-        addressability before allocation. That multiplicity theorem remains
-        separate from the call-accounting fork and still blocks every parse
-        implementation. No executable/API, generated identity, restart,
+        The multiplicity/addressability contradiction remains separate from the
+        call-accounting fork and independently blocks every parse
+        implementation. Command-budget copying, a preliminary parse, rescan,
+        caller-authored facts, hidden work, and duplicated parser semantics
+        remain rejected. No executable/API, generated identity, restart,
         protocol, backend, persistence, analyzer-adapter, host, or activation
-        owner or path is ready. No capacity formula, call redesign, schedule,
-        API, trust, allocation, parser, evidence, or runtime design is selected
-        here. Pure deterministic capacity, arithmetic, schedule, and
+        owner or path is ready. No source limit, capacity formula,
+        representation, arena/evidence version, call branch, migration,
+        compatibility shim, allocation, parser, evidence, or runtime design is
+        selected here. Pure deterministic capacity, arithmetic, schedule, and
         terminal-proof mechanics remain Effect v4 `Result`/plain TypeScript;
         the later Effect host owns authenticated acquisition, request `Scope`,
         cancellation, interruption, foreign `Cause`, clocks, resources,
@@ -2266,9 +2311,10 @@ activation remain blocked until their production host composition is proven.
    `A1b2c0b2c2b0a1-P` and `A1b2c0b2c2b0a1a-P` are resolved as
    research/design evidence. `A1b2c0b2c2b0a1b-P` is likewise resolved by the
    parse-capacity correction. `A1b2c0b2c2b0a1c-P` is resolved only as evidence
-   that no accepted multiplicity theorem exists, and
+   that no accepted multiplicity theorem exists,
    `A1b2c0b2c2b0a1d-P` is resolved only as contract-fork evidence for call
-   accounting. The truthful lifecycle is the existing
+   accounting, and `A1b2c0b2c2b0a1e-P` is resolved as V1
+   multiplicity/addressability contract evidence. The truthful lifecycle is the existing
    opaque command-input commitment, a later separately versioned post-reservation
    admission envelope, an analysis-owned sealed nonserializable
    requirement/capacity capability, and a later separately versioned terminal
@@ -2277,9 +2323,19 @@ activation remain blocked until their production host composition is proven.
    immutable capacity plus verifier-owned terminal actual. Exact-zero,
    exact-input, fixed, and source-bounded dimensions are proven, but the
    remaining parser/semantic/diagnostic/evidence multiplicities are not.
-   Repeated caller/function text can make per-call evidence demand quadratic;
-   a uniform source-length worst case may exceed the u32 arena while rejecting
-   same-length low-actual modules. The exact current V1 `calls` law is creation
+   Repeated caller/function text can make per-call evidence demand quadratic.
+   The exact `L = 80_394`, `K = 4_452`, `N = 160_614` family requires
+   `4_294_969_056` repeated-text arena bytes, `1_761` above u32, while a
+   same-length comment-padded low-work module remains actual-fit. The exact
+   universal maximum is unproved, but `Nmax <= 160_613`. Generated linear proof
+   metadata alone cannot solve that contradiction. Unselected alternatives are
+   generated proof metadata plus a stricter source/domain limit; analysis-owned
+   streaming/interning/factoring that separates peak storage from cumulative
+   actual while preserving evidence bytes; a separately versioned arena
+   representation; or, only when bytes and identity intentionally change, a
+   separately versioned evidence representation. Each requires its own
+   accepted-input, failure-order, arena/module/restart, identity, monolithic,
+   and later producer-alignment decision. The exact current V1 `calls` law is creation
    plus every accepted public `step`, every accepted public `finish`, and
    evidence-SHA work. Zero-allowance `step` charges without a transition, while
    zero-allowance `finish` charges and seals source input; caller partition,
@@ -2288,9 +2344,10 @@ activation remain blocked until their production host composition is proven.
    define a separately versioned owner-internal work-unit contract. Neither is
    selected. The latter would require explicit seal/publication/semantic/hash
    metering, true zero-work semantics, compatibility/receipt/failure-order
-   review, and an identity/version decision. The separate source-length
-   capacity/multiplicity theorem remains unresolved and independently blocks
-   implementation. No executable/API, generated, restart, protocol, backend,
+   review, and an identity/version decision. The separate
+   multiplicity/addressability contradiction independently blocks
+   implementation. No alternative, source limit, formula, representation, or
+   version is selected. No executable/API, generated, restart, protocol, backend,
    persistence, adapter, host, or activation owner or path is ready. The
    current sizing and driver APIs are test-oracle-supported only,
    production-unwired, unaccepted, uncommitted, and are not implementation
