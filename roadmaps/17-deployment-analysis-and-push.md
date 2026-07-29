@@ -1532,9 +1532,17 @@ activation remain blocked until their production host composition is proven.
         replaces, the authenticated selection, module, and fresh-input facts
         with candidate, command-kind/sequence, command-budget,
         range-and-predecessor, analyzer-identity, and verifier-identity lineage
-        plus digests of the canonical current `progress_cursor`, exact
-        verifier arena-requirement `attempt_usage`, and deterministic
-        command-specific next `progress_cursor`.
+        plus authenticated command-plan facts whose exact companion
+        representation remains gated by
+        `A1b2c0b2c2b0a1-P — authenticated command-plan
+        requirement/capacity authority reconciliation`: canonical current
+        `progress_cursor`, deterministic command-specific next
+        `progress_cursor`, exact parse/source requirements, immutable
+        link/registration capacity, and verifier-owned terminal actual usage.
+        Content-sensitive link or registration actual usage must not be
+        predicted as an exact pre-command requirement; publication and later
+        settlement instead prove
+        `actual <= capacity <= command budget`.
 
         The commitment is deliberately two-stage. The pre-reservation preimage
         excludes the not-yet-completed reservation and request digests, and its
@@ -1548,12 +1556,14 @@ activation remain blocked until their production host composition is proven.
         authentication and the later analyzer independently recompute the
         plan. Companion bytes alone mint no authority.
 
-        Persistence owns canonical current progress. Pure
-        `@flarex/analysis` policy owns deterministic next progress and the
-        exact arena requirement. `flarex-backend` owns fresh-input
-        authentication and commitment recomputation, while
-        `@flarex/executor-http` owns only bounded companion encoding,
-        admission, and result-bound capability lifecycle. Source pages advance
+        Persistence owns canonical current progress. The committed
+        `@flarex/analysis` command-kind owners now prove exact parse/source
+        requirements and immutable link/registration capacity plus terminal
+        actual usage. `A1b2c0b2c2b0a1-P` must reconcile those distinct
+        authorities with deterministic next progress and decide the final
+        backend, executor-HTTP, and analyzer-app adapter ownership split. It is
+        research/preflight only and authorizes no companion, producer, adapter,
+        engine, host, or settlement implementation. Source pages advance
         a contiguous authenticated module range from the current source
         ordinal and either remain in `source` or enter `parse`; parse commands
         consume exactly the current module ordinal and either remain in
@@ -1942,11 +1952,13 @@ activation remain blocked until their production host composition is proven.
         lineage or authorize exact registration usage.
 
         `A1b2c0b2c2b0a0d1 — private authenticated completed-link claim and
-        registration-page sizing/terminal driver` is the smallest next
-        implementation gate. It remains unimplemented and must land the
-        factory-local completed-link claim atomically with its first and only
-        consumer rather than publishing an independently reusable claim. The
-        claim must bind `attemptSha256`, `reservationSha256`,
+        registration-page sizing/terminal driver` is implemented and committed
+        through the existing package-internal analysis facade. It is
+        package-root-unexported, externally unwired, inert, and
+        production-inactive. The factory-local completed-link claim landed
+        atomically with its first and only registration consumer rather than
+        as an independently reusable claim. The claim binds `attemptSha256`,
+        `reservationSha256`,
         `candidateSha256`, `authenticatedInputSha256`, authenticated
         `registration_page` kind and sequence, `parsePagesRootSha256`,
         `currentProgressSha256`, `predecessorAndTailsSha256`, `rangeSha256`,
@@ -2041,16 +2053,16 @@ activation remain blocked until their production host composition is proven.
         trusted warm/cold claims without making `@flarex/analysis` depend on
         executor-HTTP. d1 alone does not prove real settled-cold delivery.
 
-        The exact future d1 allowlist is:
+        The committed d1 owner set is:
         `packages/analysis/src/declarativeV2VerifierExecutableV1.ts`,
         `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`,
         `packages/analysis/src/declarativeV2SemanticRecordsV1.ts`,
         `packages/analysis/test/declarative-v2-semantic-records-v1.test.ts`,
-        new `packages/analysis/src/declarativeV2VerifierRegistrationV1.ts`,
-        new `packages/analysis/test/declarative-v2-verifier-registration-v1.test.ts`,
+        `packages/analysis/src/declarativeV2VerifierRegistrationV1.ts`,
+        `packages/analysis/test/declarative-v2-verifier-registration-v1.test.ts`,
         and `packages/analysis/src/declarativeV2VerifierV1.ts`. No manifest,
         package-root export, restart-runtime, or app-adapter widening is part
-        of d1. Required focused coverage includes every lineage field and
+        of d1. Accepted focused coverage includes every lineage field and
         one-field mismatch, warm and two independently reconstructed cold
         claims, module sequence/ordinal/ownership failures, every semantic
         record and handler resolution, all 26 exact and one-less
@@ -2062,15 +2074,24 @@ activation remain blocked until their production host composition is proven.
         parse/source/restart/evidence, physical d0/progress, transport and
         monolithic compatibility, typecheck/build, generator/identity,
         frozen-install or exact environment evidence, Effect-boundary, docs,
-        and diff lanes plus refreshed `typescript-diff-reviewer` and
-        `code-quality-diff-reviewer` reports are required on final bytes.
+        and diff lanes were green on the accepted final bytes. Focused
+        registration/semantic validation passed 42/42, completed-link focused
+        validation passed 4/4, analysis typecheck, both generator identity
+        checks, Effect-boundary checks, and scoped diff checks passed, and both
+        refreshed `typescript-diff-reviewer` and
+        `code-quality-diff-reviewer` reports were clean.
 
         d0 remains committed, protocol-internal, inert, and externally unwired.
-        d1, its later trusted app producer, registration consumption and
-        settlement, provisional command-plan work, b0b/b0c/c2b/c3, and real
-        cold recovery remain unimplemented and have no production consumer.
+        d1 is committed, package-internal, root-unexported, externally unwired,
+        inert, and production-inactive. No trusted warm/cold analyzer producer
+        or app adapter consumes admitted-command or claimed restart-source
+        capabilities; no backend companion producer, settlement owner,
+        route/binding, candidate, repository `Work`/fence, OCC/commit authority,
+        activation path, or production caller exists. Provisional command-plan
+        work, `A1b2c0b2c2b0a1-P`, b0b/b0c/c2b/c3, and real cold recovery
+        remain unimplemented.
         Registration and diagnostic frame identities, request/response/
-        restart/readback/progress bytes, package-root closure, monolithic
+        restart/readback/progress/physical bytes, package-root closure, monolithic
         analyzer behavior, production activation, candidate/repository
         authority, OCC/commit/journal/idempotency/feed/outbox/application-row
         semantics, A1b2/C07 separation, and all governance non-goals remain
@@ -2095,14 +2116,21 @@ activation remain blocked until their production host composition is proven.
         hashing, repository confirmed-rollback retry and decision uncertainty,
         and the later c3 request `Scope`, cancellation, interruption, full
         foreign `Cause`, acquisition, release, and finalization remain
-        Effect-owned by their existing boundaries. The provisional b0a bytes
-        remain unwired, production-unreachable, non-authoritative, unaccepted,
-        and uncommitted. Parse-module and source-page sizing/driver ownership
-        are now satisfied. The private link-capacity owner is committed but
-        remains externally unwired; link consumption and settlement remain
-        unresolved. Registration remains blocked first on d0 and then on its
-        trusted completed-link claim plus analysis accumulator/driver. b0b and
-        b0c remain unimplemented.
+        Effect-owned by their existing boundaries.
+        `A1b2c0b2c2b0a1-P — authenticated command-plan requirement/capacity
+        authority reconciliation` is the single next research-only
+        prerequisite. It must separate exact parse/source requirements,
+        immutable link/registration capacity, verifier-owned terminal actual
+        usage, and `actual <= capacity <= command budget`; determine their
+        binding to current/next progress and authenticated command lineage; and
+        leave backend, executor-HTTP, and analyzer-app adapter ownership
+        unresolved until evidence assigns each boundary. It is not
+        implementation authorization. The provisional b0a bytes remain
+        unwired, production-unreachable, non-authoritative, unaccepted, and
+        uncommitted. Parse-module, source-page, link-capacity, and registration
+        sizing/driver ownership are satisfied, but no trusted warm/cold app
+        producer, command consumer, settlement, or activation path exists.
+        b0b and b0c remain unimplemented.
 
         The blocked candidate c2b implementation allowlist remains exactly
         `packages/analysis/src/declarativeV2VerifierCommandEngineV1.ts`,
@@ -2139,11 +2167,14 @@ activation remain blocked until their production host composition is proven.
    The source-page owner consumes the cursor directly while remaining
    package-local, unexported, unwired, production-unreachable, and inert. The
    private link-capacity owner is committed but externally unwired; link
-   consumption and settlement remain unresolved. Registration is not
-   standalone: its protocol-owned resumable physical-frame cursor d0 is
-   implemented but internal and unwired, while the later trusted completed-link
-   claim plus analysis accumulator/driver remain unimplemented. Parse/source
-   formulas do not generalize to registration.
+   consumption and settlement remain unresolved. Registration's protocol-owned
+   resumable physical-frame cursor d0 and its d1 authenticated completed-link
+   claim plus sizing/terminal driver are implemented and committed through
+   internal, root-unexported owners, but remain unwired, inert, and
+   production-inactive. Parse/source formulas do not generalize to registration.
+   `A1b2c0b2c2b0a1-P` is the next research-only prerequisite; it must reconcile
+   exact parse/source requirements with link/registration capacity and terminal
+   actual usage before provisional command-plan work can continue.
    b0b/b0c, the c2b analyzer command engine, Effect host
    composition, and a production caller remain absent. These transport,
    readback, and claim owners establish bounded inert bytes and process-local
