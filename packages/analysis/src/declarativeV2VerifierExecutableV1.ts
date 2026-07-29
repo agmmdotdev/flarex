@@ -108,6 +108,17 @@ const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
   TYPED_ARRAY_PROTOTYPE,
   "byteLength",
 )?.get;
+const TYPED_ARRAY_BUFFER_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "buffer",
+)?.get;
+const SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER =
+  typeof SharedArrayBuffer === "undefined"
+    ? undefined
+    : Object.getOwnPropertyDescriptor(
+      SharedArrayBuffer.prototype,
+      "byteLength",
+    )?.get;
 const UINT8_ARRAY_SUBARRAY = Uint8Array.prototype.subarray;
 const MAX_SIGNED_INT64 = 9_223_372_036_854_775_807n;
 const MAX_U32 = 0xffff_ffff;
@@ -7049,6 +7060,119 @@ export type DeclarativeV2VerifierLinkStepV1 =
   | DeclarativeV2VerifierLinkPendingV1
   | DeclarativeV2VerifierLinkResultV1;
 
+export interface DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
+  readonly attemptSha256: Uint8Array;
+  readonly reservationSha256: Uint8Array;
+  readonly candidateSha256: Uint8Array;
+  readonly authenticatedInputSha256: Uint8Array;
+  readonly linkSequence: bigint;
+  readonly parsePagesRootSha256: Uint8Array;
+  readonly currentProgressSha256: Uint8Array;
+  readonly predecessorAndTailsSha256: Uint8Array;
+  readonly rangeSha256: Uint8Array;
+  readonly analyzerReleaseSha256: Uint8Array;
+  readonly analyzerIdentitySha256: Uint8Array;
+  readonly verifierIdentitySha256: Uint8Array;
+}
+
+export interface DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1
+  extends DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
+  readonly moduleOrdinal: bigint;
+  readonly producingParseResultSha256: Uint8Array;
+}
+
+export interface DeclarativeV2VerifierAuthenticatedLinkClaimPortV1 {
+  readonly claim: (
+    module: DeclarativeV2VerifierModuleResultV1,
+  ) => Result.Result<
+    DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+}
+
+export type DeclarativeV2VerifierLinkCapacityV1 = Readonly<{
+  readonly _tag: "DeclarativeV2VerifierLinkCapacityV1";
+}> & Readonly<Record<
+  typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2[number],
+  bigint
+>>;
+
+export interface DeclarativeV2VerifierAuthenticatedLinkAccumulatorV1 {
+  readonly _tag: "DeclarativeV2VerifierAuthenticatedLinkAccumulatorV1";
+}
+
+export interface DeclarativeV2VerifierAuthenticatedLinkDriverV1 {
+  readonly _tag: "DeclarativeV2VerifierAuthenticatedLinkDriverV1";
+}
+
+export interface DeclarativeV2VerifierAuthenticatedLinkAdmissionReceiptV1 {
+  readonly status: "pending" | "ready";
+  readonly transitionCount: number;
+  readonly admittedModuleCount: bigint;
+}
+
+export interface DeclarativeV2VerifierAuthenticatedLinkSealPendingV1 {
+  readonly status: "pending";
+  readonly transitionCount: 0;
+}
+
+export interface DeclarativeV2VerifierAuthenticatedLinkSealCompleteV1 {
+  readonly status: "complete";
+  readonly transitionCount: 1;
+  readonly driver: DeclarativeV2VerifierAuthenticatedLinkDriverV1;
+  readonly capacity: DeclarativeV2VerifierLinkCapacityV1;
+}
+
+export type DeclarativeV2VerifierAuthenticatedLinkSealResultV1 =
+  | DeclarativeV2VerifierAuthenticatedLinkSealPendingV1
+  | DeclarativeV2VerifierAuthenticatedLinkSealCompleteV1;
+
+export interface DeclarativeV2VerifierAuthenticatedLinkDrivePendingV1 {
+  readonly status: "pending";
+  readonly transitionCount: number;
+  readonly deltaUsage: DeclarativeV2VerifierBudgetFrameV2;
+  readonly usage: DeclarativeV2VerifierBudgetFrameV2;
+}
+
+export type DeclarativeV2VerifierAuthenticatedLinkDriveResultV1 =
+  | DeclarativeV2VerifierAuthenticatedLinkDrivePendingV1
+  | DeclarativeV2VerifierLinkResultV1;
+
+export interface DeclarativeV2VerifierAuthenticatedLinkFactoryV1 {
+  readonly create: (
+    bindings: unknown,
+    commandBudget: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierAuthenticatedLinkAccumulatorV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly admit: (
+    accumulator: unknown,
+    module: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierAuthenticatedLinkAdmissionReceiptV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly seal: (
+    accumulator: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierAuthenticatedLinkSealResultV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly step: (
+    driver: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierAuthenticatedLinkDriveResultV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly close: (
+    capability: unknown,
+  ) => Result.Result<void, DeclarativeV2VerifierExecutableV1Error>;
+}
+
 interface LinkerStateV1 {
   readonly required: DeclarativeV2VerifierBudgetFrameV2;
   readonly usage: ReturnType<typeof zeroUsage>;
@@ -8341,6 +8465,1214 @@ export function finishDeclarativeV2VerifierLinkerV1(
     if (state.phase === "accepting") state.phase = "indexing";
   }
   return driveLinkerV1(state, rawAllowance);
+}
+
+const AUTHENTICATED_LINK_DIGEST_FIELDS_V1 = [
+  "attemptSha256",
+  "reservationSha256",
+  "candidateSha256",
+  "authenticatedInputSha256",
+  "parsePagesRootSha256",
+  "currentProgressSha256",
+  "predecessorAndTailsSha256",
+  "rangeSha256",
+  "analyzerReleaseSha256",
+  "analyzerIdentitySha256",
+  "verifierIdentitySha256",
+] as const;
+
+interface CapturedAuthenticatedLinkBindingsV1 {
+  readonly attemptSha256: Uint8Array;
+  readonly reservationSha256: Uint8Array;
+  readonly candidateSha256: Uint8Array;
+  readonly authenticatedInputSha256: Uint8Array;
+  readonly linkSequence: bigint;
+  readonly parsePagesRootSha256: Uint8Array;
+  readonly currentProgressSha256: Uint8Array;
+  readonly predecessorAndTailsSha256: Uint8Array;
+  readonly rangeSha256: Uint8Array;
+  readonly analyzerReleaseSha256: Uint8Array;
+  readonly analyzerIdentitySha256: Uint8Array;
+  readonly verifierIdentitySha256: Uint8Array;
+}
+
+interface CapturedAuthenticatedLinkModuleClaimV1
+  extends CapturedAuthenticatedLinkBindingsV1 {
+  readonly moduleOrdinal: bigint;
+  readonly producingParseResultSha256: Uint8Array;
+}
+
+interface LinkModuleCapacitySummaryV1 {
+  readonly pathByteLength: bigint;
+  readonly importCount: bigint;
+  readonly exportCount: bigint;
+  readonly functionCount: bigint;
+  readonly copiedTextByteLength: bigint;
+  readonly maximumImportedNameByteLength: bigint;
+  readonly maximumModuleSpecifierByteLength: bigint;
+  readonly maximumExportNameByteLength: bigint;
+  readonly maximumExportLocalByteLength: bigint;
+  readonly maximumFunctionNameByteLength: bigint;
+  readonly copyTransitionCapacity: bigint;
+}
+
+interface PendingLinkModuleSummaryV1 {
+  readonly rawModule: object;
+  readonly owned: DeclarativeV2VerifierOwnedModuleArenaV1;
+  readonly claim: CapturedAuthenticatedLinkModuleClaimV1;
+  phase: "imports" | "exports" | "functions" | "complete";
+  index: number;
+  copiedTextByteLength: bigint;
+  maximumImportedNameByteLength: bigint;
+  maximumModuleSpecifierByteLength: bigint;
+  maximumExportNameByteLength: bigint;
+  maximumExportLocalByteLength: bigint;
+  maximumFunctionNameByteLength: bigint;
+}
+
+interface AuthenticatedLinkAccumulatorStateV1 {
+  bindings: CapturedAuthenticatedLinkBindingsV1 | undefined;
+  commandBudget: DeclarativeV2VerifierBudgetFrameV2 | undefined;
+  readonly modules: Array<DeclarativeV2VerifierOwnedModuleArenaV1>;
+  readonly summaries: Array<LinkModuleCapacitySummaryV1>;
+  pending: PendingLinkModuleSummaryV1 | undefined;
+  closed: boolean;
+}
+
+interface AuthenticatedLinkDriverStateV1 {
+  capacity: DeclarativeV2VerifierLinkCapacityV1 | undefined;
+  linker: LinkerStateV1 | undefined;
+  readonly modules: Array<DeclarativeV2VerifierOwnedModuleArenaV1>;
+  moduleIndex: number;
+  coreTransitionCount: bigint;
+  closed: boolean;
+}
+
+const AUTHENTICATED_LINK_CLAIMED_MODULES_V1 = new WeakSet<object>();
+
+const captureExactOwnedRecordV1 = (
+  value: unknown,
+  keys: readonly string[],
+): Readonly<Record<string, unknown>> | undefined => {
+  if (value === null || typeof value !== "object") return undefined;
+  let ownKeys: readonly PropertyKey[];
+  try {
+    ownKeys = Reflect.ownKeys(value);
+  } catch {
+    return undefined;
+  }
+  if (
+    ownKeys.length !== keys.length ||
+    ownKeys.some(key => typeof key !== "string" || !keys.includes(key))
+  ) return undefined;
+  const captured: Record<string, unknown> = {};
+  for (const key of keys) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, key);
+    } catch {
+      return undefined;
+    }
+    if (descriptor === undefined || !("value" in descriptor)) return undefined;
+    captured[key] = descriptor.value;
+  }
+  return Object.freeze(captured);
+};
+
+const captureOwnedSha256V1 = (value: unknown): Uint8Array | undefined => {
+  if (
+    !isUint8ArrayWithByteLength(value, 32) ||
+    TYPED_ARRAY_BUFFER_GETTER === undefined
+  ) return undefined;
+  try {
+    const buffer = Reflect.apply(
+      TYPED_ARRAY_BUFFER_GETTER,
+      value,
+      [],
+    ) as ArrayBufferLike;
+    if (SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER !== undefined) {
+      try {
+        Reflect.apply(
+          SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER,
+          buffer,
+          [],
+        );
+        return undefined;
+      } catch {
+        // An intrinsic SharedArrayBuffer brand failure proves ordinary backing.
+      }
+    }
+    return new Uint8Array(value);
+  } catch {
+    return undefined;
+  }
+};
+
+const captureVerifierEvidenceSha256V1 = (
+  value: string,
+): Uint8Array | undefined => {
+  if (!/^[0-9a-f]{64}$/.test(value)) return undefined;
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.byteLength; index += 1) {
+    const parsed = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+    if (!Number.isSafeInteger(parsed)) return undefined;
+    bytes[index] = parsed;
+  }
+  return bytes;
+};
+
+const captureAuthenticatedLinkBindingsV1 = (
+  value: unknown,
+): CapturedAuthenticatedLinkBindingsV1 | undefined => {
+  const keys = [
+    "attemptSha256",
+    "reservationSha256",
+    "candidateSha256",
+    "authenticatedInputSha256",
+    "linkSequence",
+    "parsePagesRootSha256",
+    "currentProgressSha256",
+    "predecessorAndTailsSha256",
+    "rangeSha256",
+    "analyzerReleaseSha256",
+    "analyzerIdentitySha256",
+    "verifierIdentitySha256",
+  ] as const;
+  const captured = captureExactOwnedRecordV1(value, keys);
+  if (
+    captured === undefined ||
+    typeof captured.linkSequence !== "bigint" ||
+    captured.linkSequence < 0n ||
+    captured.linkSequence > MAX_SIGNED_INT64
+  ) return undefined;
+  const digests: Partial<Record<
+    typeof AUTHENTICATED_LINK_DIGEST_FIELDS_V1[number],
+    Uint8Array
+  >> = {};
+  for (const field of AUTHENTICATED_LINK_DIGEST_FIELDS_V1) {
+    const digest = captureOwnedSha256V1(captured[field]);
+    if (digest === undefined) return undefined;
+    digests[field] = digest;
+  }
+  return Object.freeze({
+    attemptSha256: digests.attemptSha256!,
+    reservationSha256: digests.reservationSha256!,
+    candidateSha256: digests.candidateSha256!,
+    authenticatedInputSha256: digests.authenticatedInputSha256!,
+    linkSequence: captured.linkSequence,
+    parsePagesRootSha256: digests.parsePagesRootSha256!,
+    currentProgressSha256: digests.currentProgressSha256!,
+    predecessorAndTailsSha256: digests.predecessorAndTailsSha256!,
+    rangeSha256: digests.rangeSha256!,
+    analyzerReleaseSha256: digests.analyzerReleaseSha256!,
+    analyzerIdentitySha256: digests.analyzerIdentitySha256!,
+    verifierIdentitySha256: digests.verifierIdentitySha256!,
+  });
+};
+
+const captureAuthenticatedLinkModuleClaimV1 = (
+  value: unknown,
+): CapturedAuthenticatedLinkModuleClaimV1 | undefined => {
+  const keys = [
+    "attemptSha256",
+    "reservationSha256",
+    "candidateSha256",
+    "authenticatedInputSha256",
+    "linkSequence",
+    "parsePagesRootSha256",
+    "currentProgressSha256",
+    "predecessorAndTailsSha256",
+    "rangeSha256",
+    "analyzerReleaseSha256",
+    "analyzerIdentitySha256",
+    "verifierIdentitySha256",
+    "moduleOrdinal",
+    "producingParseResultSha256",
+  ] as const;
+  const captured = captureExactOwnedRecordV1(value, keys);
+  if (
+    captured === undefined ||
+    typeof captured.moduleOrdinal !== "bigint" ||
+    captured.moduleOrdinal < 0n ||
+    captured.moduleOrdinal > MAX_SIGNED_INT64
+  ) return undefined;
+  const bindings = captureAuthenticatedLinkBindingsV1(
+    Object.freeze(Object.fromEntries(
+      keys.slice(0, 12).map(key => [key, captured[key]]),
+    )),
+  );
+  const producingParseResultSha256 = captureOwnedSha256V1(
+    captured.producingParseResultSha256,
+  );
+  return bindings === undefined || producingParseResultSha256 === undefined
+    ? undefined
+    : Object.freeze({
+      ...bindings,
+      moduleOrdinal: captured.moduleOrdinal,
+      producingParseResultSha256,
+    });
+};
+
+const authenticatedLinkBindingsEqualV1 = (
+  left: CapturedAuthenticatedLinkBindingsV1,
+  right: CapturedAuthenticatedLinkBindingsV1,
+): boolean =>
+  left.linkSequence === right.linkSequence &&
+  AUTHENTICATED_LINK_DIGEST_FIELDS_V1.every(field =>
+    bytesEqualFullScan(left[field], right[field])
+  );
+
+const checkedLinkCapacityAddV1 = (
+  left: bigint,
+  right: bigint,
+  dimension: string,
+): Result.Result<bigint, DeclarativeV2VerifierExecutableV1Error> => {
+  const value = left + right;
+  return value > MAX_SIGNED_INT64
+    ? Result.fail(executableError("link", "addressabilityExceeded", {
+      dimension,
+      observed: value,
+      maximum: MAX_SIGNED_INT64,
+    }))
+    : Result.succeed(value);
+};
+
+const checkedLinkCapacityMultiplyV1 = (
+  left: bigint,
+  right: bigint,
+  dimension: string,
+): Result.Result<bigint, DeclarativeV2VerifierExecutableV1Error> => {
+  const value = left * right;
+  return value > MAX_SIGNED_INT64
+    ? Result.fail(executableError("link", "addressabilityExceeded", {
+      dimension,
+      observed: value,
+      maximum: MAX_SIGNED_INT64,
+    }))
+    : Result.succeed(value);
+};
+
+const maximumBigIntV1 = (left: bigint, right: bigint): bigint =>
+  left > right ? left : right;
+
+const moduleTokenByteLengthV1 = (
+  owned: DeclarativeV2VerifierOwnedModuleArenaV1,
+  storedToken: number,
+): bigint =>
+  storedToken === 0 ? 0n : BigInt(sourceTokenLength(owned, storedToken - 1));
+
+const finishLinkModuleCapacitySummaryV1 = (
+  pending: PendingLinkModuleSummaryV1,
+): Result.Result<
+  LinkModuleCapacitySummaryV1,
+  DeclarativeV2VerifierExecutableV1Error
+> => Result.gen(function*() {
+  const owned = pending.owned;
+  const pathByteLength = BigInt(owned.moduleView.getUint32(4, false));
+  const importCount = BigInt(owned.importCount);
+  const exportCount = BigInt(owned.exportCount);
+  const functionCount = BigInt(owned.functionCount);
+  let importUnit = yield* checkedLinkCapacityAddV1(
+    importCount,
+    pending.maximumImportedNameByteLength,
+    "calls",
+  );
+  importUnit = yield* checkedLinkCapacityAddV1(
+    importUnit,
+    pending.maximumModuleSpecifierByteLength,
+    "calls",
+  );
+  importUnit = yield* checkedLinkCapacityAddV1(importUnit, 6n, "calls");
+  let importWork = yield* checkedLinkCapacityMultiplyV1(
+    importCount,
+    importUnit,
+    "calls",
+  );
+  importWork = yield* checkedLinkCapacityAddV1(importWork, 1n, "calls");
+  let functionCompareUnit = yield* checkedLinkCapacityAddV1(
+    pending.maximumExportLocalByteLength,
+    pending.maximumFunctionNameByteLength,
+    "calls",
+  );
+  functionCompareUnit = yield* checkedLinkCapacityAddV1(
+    functionCompareUnit,
+    4n,
+    "calls",
+  );
+  const functionCompareWork = yield* checkedLinkCapacityMultiplyV1(
+    functionCount,
+    functionCompareUnit,
+    "calls",
+  );
+  let exportUnit = yield* checkedLinkCapacityAddV1(
+    exportCount,
+    pending.maximumExportNameByteLength,
+    "calls",
+  );
+  exportUnit = yield* checkedLinkCapacityAddV1(
+    exportUnit,
+    functionCompareWork,
+    "calls",
+  );
+  exportUnit = yield* checkedLinkCapacityAddV1(exportUnit, 7n, "calls");
+  let exportWork = yield* checkedLinkCapacityMultiplyV1(
+    exportCount,
+    exportUnit,
+    "calls",
+  );
+  exportWork = yield* checkedLinkCapacityAddV1(exportWork, 2n, "calls");
+  let copyTransitionCapacity = yield* checkedLinkCapacityAddV1(
+    pathByteLength,
+    importWork,
+    "calls",
+  );
+  copyTransitionCapacity = yield* checkedLinkCapacityAddV1(
+    copyTransitionCapacity,
+    exportWork,
+    "calls",
+  );
+  copyTransitionCapacity = yield* checkedLinkCapacityAddV1(
+    copyTransitionCapacity,
+    4n,
+    "calls",
+  );
+  return Object.freeze({
+    pathByteLength,
+    importCount,
+    exportCount,
+    functionCount,
+    copiedTextByteLength: pending.copiedTextByteLength,
+    maximumImportedNameByteLength: pending.maximumImportedNameByteLength,
+    maximumModuleSpecifierByteLength:
+      pending.maximumModuleSpecifierByteLength,
+    maximumExportNameByteLength: pending.maximumExportNameByteLength,
+    maximumExportLocalByteLength: pending.maximumExportLocalByteLength,
+    maximumFunctionNameByteLength: pending.maximumFunctionNameByteLength,
+    copyTransitionCapacity,
+  });
+});
+
+const closeAuthenticatedLinkAccumulatorStateV1 = (
+  state: AuthenticatedLinkAccumulatorStateV1,
+): void => {
+  state.closed = true;
+  state.bindings = undefined;
+  state.commandBudget = undefined;
+  state.pending = undefined;
+  state.modules.splice(0);
+  state.summaries.splice(0);
+};
+
+const closeAuthenticatedLinkDriverStateV1 = (
+  state: AuthenticatedLinkDriverStateV1,
+): void => {
+  state.closed = true;
+  state.capacity = undefined;
+  state.modules.splice(0);
+  const linker = state.linker;
+  state.linker = undefined;
+  if (linker !== undefined) {
+    linker.pendingModule = undefined;
+    if (linker.phase !== "complete") linker.phase = "failed";
+  }
+};
+
+const freezeLinkCapacityV1 = (
+  values: Readonly<Record<
+    typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2[number],
+    bigint
+  >>,
+): DeclarativeV2VerifierLinkCapacityV1 =>
+  Object.freeze({
+    _tag: "DeclarativeV2VerifierLinkCapacityV1",
+    ...values,
+  });
+
+const linkCapacityAsRequiredUsageV1 = (
+  capacity: DeclarativeV2VerifierLinkCapacityV1,
+): DeclarativeV2VerifierBudgetFrameV2 =>
+  Object.freeze({
+    kind: "attempt_usage",
+    ...Object.fromEntries(
+      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(dimension => [
+        dimension,
+        capacity[dimension],
+      ]),
+    ),
+  }) as DeclarativeV2VerifierBudgetFrameV2;
+
+const deriveAuthenticatedLinkCapacityV1 = (
+  summaries: readonly LinkModuleCapacitySummaryV1[],
+  commandBudget: DeclarativeV2VerifierBudgetFrameV2,
+): Result.Result<
+  DeclarativeV2VerifierLinkCapacityV1,
+  DeclarativeV2VerifierExecutableV1Error
+> => Result.gen(function*() {
+  const moduleCount = BigInt(summaries.length);
+  let importCount = 0n;
+  let exportCount = 0n;
+  let functionCount = 0n;
+  let copiedTextByteLength = 0n;
+  let copyTransitionCapacity = 0n;
+  let totalPathByteLength = 0n;
+  let maximumPathByteLength = 0n;
+  let maximumImportedNameByteLength = 0n;
+  let maximumModuleSpecifierByteLength = 0n;
+  let maximumExportNameByteLength = 0n;
+  for (const summary of summaries) {
+    importCount = yield* checkedLinkCapacityAddV1(
+      importCount,
+      summary.importCount,
+      "importEdges",
+    );
+    exportCount = yield* checkedLinkCapacityAddV1(
+      exportCount,
+      summary.exportCount,
+      "exports",
+    );
+    functionCount = yield* checkedLinkCapacityAddV1(
+      functionCount,
+      summary.functionCount,
+      "functions",
+    );
+    copiedTextByteLength = yield* checkedLinkCapacityAddV1(
+      copiedTextByteLength,
+      summary.copiedTextByteLength,
+      "outputBytes",
+    );
+    copyTransitionCapacity = yield* checkedLinkCapacityAddV1(
+      copyTransitionCapacity,
+      summary.copyTransitionCapacity,
+      "calls",
+    );
+    totalPathByteLength = yield* checkedLinkCapacityAddV1(
+      totalPathByteLength,
+      summary.pathByteLength,
+      "outputBytes",
+    );
+    maximumPathByteLength = maximumBigIntV1(
+      maximumPathByteLength,
+      summary.pathByteLength,
+    );
+    maximumImportedNameByteLength = maximumBigIntV1(
+      maximumImportedNameByteLength,
+      summary.maximumImportedNameByteLength,
+    );
+    maximumModuleSpecifierByteLength = maximumBigIntV1(
+      maximumModuleSpecifierByteLength,
+      summary.maximumModuleSpecifierByteLength,
+    );
+    maximumExportNameByteLength = maximumBigIntV1(
+      maximumExportNameByteLength,
+      summary.maximumExportNameByteLength,
+    );
+  }
+  const graphNodes = yield* checkedLinkCapacityAddV1(
+    moduleCount,
+    importCount,
+    "graphNodes",
+  );
+  const indexingTransitions = yield* checkedLinkCapacityAddV1(
+    totalPathByteLength,
+    moduleCount + 1n,
+    "calls",
+  );
+  const orderingPairs = yield* checkedLinkCapacityMultiplyV1(
+    moduleCount,
+    moduleCount > 0n ? moduleCount - 1n : 0n,
+    "calls",
+  );
+  const orderingTransitions = yield* checkedLinkCapacityMultiplyV1(
+    orderingPairs / 2n,
+    maximumPathByteLength + 1n,
+    "calls",
+  );
+  const duplicateTransitions = yield* checkedLinkCapacityMultiplyV1(
+    moduleCount > 0n ? moduleCount - 1n : 0n,
+    maximumPathByteLength + 1n,
+    "calls",
+  );
+  const pathSearchTransitions = yield* checkedLinkCapacityMultiplyV1(
+    yield* checkedLinkCapacityMultiplyV1(importCount, moduleCount, "calls"),
+    maximumPathByteLength + maximumModuleSpecifierByteLength + 1n,
+    "calls",
+  );
+  const exportSearchTransitions = yield* checkedLinkCapacityMultiplyV1(
+    yield* checkedLinkCapacityMultiplyV1(importCount, exportCount, "calls"),
+    maximumImportedNameByteLength + maximumExportNameByteLength + 1n,
+    "calls",
+  );
+  const linkAdministrativeTransitions = yield* checkedLinkCapacityAddV1(
+    moduleCount * 4n,
+    importCount * 5n + 8n,
+    "calls",
+  );
+  const diagnosticOrderingTransitions = yield* checkedLinkCapacityMultiplyV1(
+    yield* checkedLinkCapacityMultiplyV1(importCount, importCount, "calls"),
+    importCount + 1n,
+    "calls",
+  );
+  let coreTransitionCapacity = copyTransitionCapacity;
+  for (const value of [
+    indexingTransitions,
+    orderingTransitions + 1n,
+    duplicateTransitions + 1n,
+    pathSearchTransitions,
+    exportSearchTransitions,
+    linkAdministrativeTransitions,
+    diagnosticOrderingTransitions + 1n,
+  ]) {
+    coreTransitionCapacity = yield* checkedLinkCapacityAddV1(
+      coreTransitionCapacity,
+      value,
+      "calls",
+    );
+  }
+  const transitionCallCapacity =
+    (coreTransitionCapacity + BigInt(DECLARATIVE_V2_VERIFIER_TRANSITION_QUANTUM_V1) -
+      1n) /
+    BigInt(DECLARATIVE_V2_VERIFIER_TRANSITION_QUANTUM_V1);
+  const calls = yield* checkedLinkCapacityAddV1(
+    3n + moduleCount,
+    transitionCallCapacity,
+    "calls",
+  );
+  const diagnosticDefinitionBytes = maximumBigIntV1(
+    BigInt(
+      utf8ByteLength(diagnosticDefinition("CORE_IMPORT_TARGET").code) +
+        utf8ByteLength(diagnosticDefinition("CORE_IMPORT_TARGET").rule),
+    ),
+    BigInt(
+      utf8ByteLength(diagnosticDefinition("CORE_MODULE_CYCLE").code) +
+        utf8ByteLength(diagnosticDefinition("CORE_MODULE_CYCLE").rule),
+    ),
+  );
+  const diagnosticBytes = yield* checkedLinkCapacityMultiplyV1(
+    importCount,
+    diagnosticDefinitionBytes,
+    "diagnosticBytes",
+  );
+  const outputBytes = yield* checkedLinkCapacityAddV1(
+    copiedTextByteLength,
+    diagnosticBytes,
+    "outputBytes",
+  );
+  const capacityValues = zeroUsage();
+  capacityValues.calls = calls;
+  capacityValues.modules = moduleCount;
+  capacityValues.importEdges = importCount;
+  capacityValues.exports = exportCount;
+  capacityValues.graphNodes = graphNodes;
+  capacityValues.frontierEntries = moduleCount;
+  capacityValues.tableBytes = BigInt(
+    GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1.assetByteLength,
+  );
+  capacityValues.diagnosticBytes = diagnosticBytes;
+  capacityValues.outputBytes = outputBytes;
+  for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+    if (capacityValues[dimension] > commandBudget[dimension]) {
+      return yield* Result.fail(executableError(
+        "link",
+        "budgetExceeded",
+        {
+          dimension,
+          observed: capacityValues[dimension],
+          maximum: commandBudget[dimension],
+        },
+      ));
+    }
+  }
+  for (const [dimension, value] of [
+    ["modules", moduleCount],
+    ["importEdges", importCount],
+    ["exports", exportCount],
+    ["graphNodes", graphNodes],
+    ["frontierEntries", moduleCount],
+  ] as const) {
+    if (value > BigInt(MAX_U32)) {
+      return yield* Result.fail(executableError(
+        "link",
+        "addressabilityExceeded",
+        {
+          dimension,
+          observed: value,
+          maximum: BigInt(MAX_U32),
+        },
+      ));
+    }
+  }
+  return freezeLinkCapacityV1(capacityValues);
+});
+
+const actualUsageWithinCapacityV1 = (
+  usage: Readonly<Record<
+    typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2[number],
+    bigint
+  >>,
+  capacity: DeclarativeV2VerifierLinkCapacityV1,
+): Result.Result<void, DeclarativeV2VerifierExecutableV1Error> => {
+  for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+    if (usage[dimension] > capacity[dimension]) {
+      return Result.fail(executableError("link", "invalidState", {
+        dimension,
+        observed: usage[dimension],
+        maximum: capacity[dimension],
+      }));
+    }
+  }
+  return Result.succeed(undefined);
+};
+
+export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
+  claimPort: DeclarativeV2VerifierAuthenticatedLinkClaimPortV1,
+): DeclarativeV2VerifierAuthenticatedLinkFactoryV1 {
+  const accumulators = new WeakMap<
+    object,
+    AuthenticatedLinkAccumulatorStateV1
+  >();
+  const drivers = new WeakMap<object, AuthenticatedLinkDriverStateV1>();
+
+  const accumulatorHandle =
+    (): DeclarativeV2VerifierAuthenticatedLinkAccumulatorV1 =>
+      Object.freeze({
+        _tag: "DeclarativeV2VerifierAuthenticatedLinkAccumulatorV1",
+      });
+  const driverHandle = (): DeclarativeV2VerifierAuthenticatedLinkDriverV1 =>
+    Object.freeze({
+      _tag: "DeclarativeV2VerifierAuthenticatedLinkDriverV1",
+    });
+
+  const failAccumulator = (
+    state: AuthenticatedLinkAccumulatorStateV1,
+    error: DeclarativeV2VerifierExecutableV1Error,
+  ): Result.Result<never, DeclarativeV2VerifierExecutableV1Error> => {
+    closeAuthenticatedLinkAccumulatorStateV1(state);
+    return Result.fail(error);
+  };
+
+  const failDriver = (
+    state: AuthenticatedLinkDriverStateV1,
+    error: DeclarativeV2VerifierExecutableV1Error,
+  ): Result.Result<never, DeclarativeV2VerifierExecutableV1Error> => {
+    closeAuthenticatedLinkDriverStateV1(state);
+    return Result.fail(error);
+  };
+
+  const failAcceptedDriver = (
+    state: AuthenticatedLinkDriverStateV1,
+    error: DeclarativeV2VerifierExecutableV1Error,
+  ): Result.Result<never, DeclarativeV2VerifierExecutableV1Error> => {
+    if (
+      error.reason === "budgetExceeded" ||
+      error.reason === "addressabilityExceeded" ||
+      error.reason === "invalidState"
+    ) {
+      closeAuthenticatedLinkDriverStateV1(state);
+      throw new Error(
+        `Accepted authenticated link plan contradicted ${error.reason}` +
+          (error.dimension === undefined ? "." : ` at ${error.dimension}.`),
+      );
+    }
+    return failDriver(state, error);
+  };
+
+  const create: DeclarativeV2VerifierAuthenticatedLinkFactoryV1["create"] =
+    (rawBindings, rawCommandBudget) => {
+      const bindings = captureAuthenticatedLinkBindingsV1(rawBindings);
+      const commandBudget = captureLocalBudgetFrame(
+        rawCommandBudget,
+        "command_budget",
+      );
+      if (bindings === undefined || commandBudget === undefined) {
+        return Result.fail(executableError("link", "invalidInput"));
+      }
+      const state: AuthenticatedLinkAccumulatorStateV1 = {
+        bindings,
+        commandBudget,
+        modules: [],
+        summaries: [],
+        pending: undefined,
+        closed: false,
+      };
+      const handle = accumulatorHandle();
+      accumulators.set(handle, state);
+      return Result.succeed(handle);
+    };
+
+  const admit: DeclarativeV2VerifierAuthenticatedLinkFactoryV1["admit"] =
+    (rawAccumulator, rawModule, rawAllowance) => {
+      const state = rawAccumulator !== null && typeof rawAccumulator === "object"
+        ? accumulators.get(rawAccumulator)
+        : undefined;
+      if (state === undefined) {
+        return Result.fail(executableError("link", "invalidInput"));
+      }
+      if (state.closed) {
+        return Result.fail(executableError("link", "closed"));
+      }
+      const allowance = captureTransitionAllowance(rawAllowance, "link");
+      if (Result.isFailure(allowance)) {
+        return failAccumulator(state, allowance.failure);
+      }
+      if (allowance.success === 0) {
+        return Result.succeed(Object.freeze({
+          status: state.pending === undefined ? "ready" : "pending",
+          transitionCount: 0,
+          admittedModuleCount: BigInt(state.modules.length),
+        }));
+      }
+      let transitions = 0;
+      if (state.pending === undefined) {
+        if (rawModule === null || typeof rawModule !== "object") {
+          return failAccumulator(
+            state,
+            executableError("link", "invalidInput"),
+          );
+        }
+        const owned = OWNED_MODULE_RESULTS.get(rawModule);
+        if (
+          owned === undefined ||
+          AUTHENTICATED_LINK_CLAIMED_MODULES_V1.has(rawModule)
+        ) {
+          return failAccumulator(
+            state,
+            executableError("link", "invalidInput"),
+          );
+        }
+        const rawClaim = claimPort.claim(
+          rawModule as DeclarativeV2VerifierModuleResultV1,
+        );
+        if (Result.isFailure(rawClaim)) {
+          return failAccumulator(state, rawClaim.failure);
+        }
+        const claim = captureAuthenticatedLinkModuleClaimV1(rawClaim.success);
+        const bindings = state.bindings;
+        const producingParseResultSha256 = captureVerifierEvidenceSha256V1(
+          owned.evidenceSha256,
+        );
+        if (
+          claim === undefined ||
+          bindings === undefined ||
+          producingParseResultSha256 === undefined ||
+          !authenticatedLinkBindingsEqualV1(bindings, claim) ||
+          claim.moduleOrdinal !== BigInt(state.modules.length) ||
+          claim.moduleOrdinal !== owned.moduleOrdinal ||
+          !bytesEqualFullScan(
+            claim.producingParseResultSha256,
+            producingParseResultSha256,
+          )
+        ) {
+          return failAccumulator(
+            state,
+            executableError("link", "invalidInput"),
+          );
+        }
+        AUTHENTICATED_LINK_CLAIMED_MODULES_V1.add(rawModule);
+        const pathByteLength = BigInt(owned.moduleView.getUint32(4, false));
+        state.pending = {
+          rawModule,
+          owned,
+          claim,
+          phase: "imports",
+          index: 0,
+          copiedTextByteLength: pathByteLength,
+          maximumImportedNameByteLength: 0n,
+          maximumModuleSpecifierByteLength: 0n,
+          maximumExportNameByteLength: 0n,
+          maximumExportLocalByteLength: 0n,
+          maximumFunctionNameByteLength: 0n,
+        };
+        transitions += 1;
+      } else if (state.pending.rawModule !== rawModule) {
+        return failAccumulator(
+          state,
+          executableError("link", "invalidInput"),
+        );
+      }
+      while (transitions < allowance.success && state.pending !== undefined) {
+        const pending = state.pending;
+        const owned = pending.owned;
+        if (pending.phase === "imports") {
+          if (pending.index >= owned.importCount) {
+            pending.phase = "exports";
+            pending.index = 0;
+            transitions += 1;
+            continue;
+          }
+          const offset = pending.index * 64;
+          const importedStored = owned.importEdgeView.getUint32(
+            offset + 4,
+            false,
+          );
+          const specifierStored = owned.importEdgeView.getUint32(
+            offset + 12,
+            false,
+          );
+          const importedLength = importedStored === 0
+            ? 7n
+            : moduleTokenByteLengthV1(owned, importedStored);
+          const rawSpecifierLength = moduleTokenByteLengthV1(
+            owned,
+            specifierStored,
+          );
+          if (rawSpecifierLength < 2n) {
+            closeAuthenticatedLinkAccumulatorStateV1(state);
+            throw new Error("Accepted verifier import lost quoted specifier.");
+          }
+          const specifierLength = rawSpecifierLength - 2n;
+          pending.copiedTextByteLength += importedLength + specifierLength;
+          pending.maximumImportedNameByteLength = maximumBigIntV1(
+            pending.maximumImportedNameByteLength,
+            importedLength,
+          );
+          pending.maximumModuleSpecifierByteLength = maximumBigIntV1(
+            pending.maximumModuleSpecifierByteLength,
+            specifierLength,
+          );
+          pending.index += 1;
+          transitions += 1;
+          continue;
+        }
+        if (pending.phase === "exports") {
+          if (pending.index >= owned.exportCount) {
+            pending.phase = "functions";
+            pending.index = 0;
+            transitions += 1;
+            continue;
+          }
+          const offset = pending.index * 48;
+          const isDefault = owned.exportView.getUint32(offset + 8, false) === 1;
+          const exportedStored = owned.exportView.getUint32(offset, false);
+          const localStored = owned.exportView.getUint32(offset + 4, false);
+          const exportedLength = isDefault
+            ? 7n
+            : moduleTokenByteLengthV1(owned, exportedStored);
+          const localLength = moduleTokenByteLengthV1(owned, localStored);
+          if (exportedLength === 0n || localLength === 0n) {
+            closeAuthenticatedLinkAccumulatorStateV1(state);
+            throw new Error("Accepted verifier export lost owned names.");
+          }
+          pending.copiedTextByteLength += exportedLength;
+          pending.maximumExportNameByteLength = maximumBigIntV1(
+            pending.maximumExportNameByteLength,
+            exportedLength,
+          );
+          pending.maximumExportLocalByteLength = maximumBigIntV1(
+            pending.maximumExportLocalByteLength,
+            localLength,
+          );
+          pending.index += 1;
+          transitions += 1;
+          continue;
+        }
+        if (pending.phase === "functions") {
+          if (pending.index >= owned.functionCount) {
+            pending.phase = "complete";
+            transitions += 1;
+            continue;
+          }
+          const stored = owned.functionView.getUint32(
+            pending.index * 144,
+            false,
+          );
+          const length = moduleTokenByteLengthV1(owned, stored);
+          if (length === 0n) {
+            closeAuthenticatedLinkAccumulatorStateV1(state);
+            throw new Error("Accepted verifier function lost owned name.");
+          }
+          pending.maximumFunctionNameByteLength = maximumBigIntV1(
+            pending.maximumFunctionNameByteLength,
+            length,
+          );
+          pending.index += 1;
+          transitions += 1;
+          continue;
+        }
+        const summary = finishLinkModuleCapacitySummaryV1(pending);
+        if (Result.isFailure(summary)) {
+          return failAccumulator(state, summary.failure);
+        }
+        state.modules.push(owned);
+        state.summaries.push(summary.success);
+        state.pending = undefined;
+        transitions += 1;
+      }
+      return Result.succeed(Object.freeze({
+        status: state.pending === undefined ? "ready" : "pending",
+        transitionCount: transitions,
+        admittedModuleCount: BigInt(state.modules.length),
+      }));
+    };
+
+  const seal: DeclarativeV2VerifierAuthenticatedLinkFactoryV1["seal"] =
+    (rawAccumulator, rawAllowance) => {
+      const state = rawAccumulator !== null && typeof rawAccumulator === "object"
+        ? accumulators.get(rawAccumulator)
+        : undefined;
+      if (state === undefined) {
+        return Result.fail(executableError("link", "invalidInput"));
+      }
+      if (state.closed) {
+        return Result.fail(executableError("link", "closed"));
+      }
+      const allowance = captureTransitionAllowance(rawAllowance, "link");
+      if (Result.isFailure(allowance)) {
+        return failAccumulator(state, allowance.failure);
+      }
+      if (allowance.success === 0) {
+        return Result.succeed(Object.freeze({
+          status: "pending",
+          transitionCount: 0,
+        }));
+      }
+      if (
+        state.pending !== undefined ||
+        state.modules.length === 0 ||
+        state.commandBudget === undefined
+      ) {
+        return failAccumulator(
+          state,
+          executableError("link", "invalidState"),
+        );
+      }
+      const capacity = deriveAuthenticatedLinkCapacityV1(
+        state.summaries,
+        state.commandBudget,
+      );
+      if (Result.isFailure(capacity)) {
+        return failAccumulator(state, capacity.failure);
+      }
+      const created = createDeclarativeV2VerifierLinkerV1(
+        state.commandBudget,
+        linkCapacityAsRequiredUsageV1(capacity.success),
+      );
+      if (Result.isFailure(created)) {
+        return failAccumulator(state, created.failure);
+      }
+      const linker = OWNED_LINKERS.get(created.success);
+      if (linker === undefined) {
+        closeAuthenticatedLinkAccumulatorStateV1(state);
+        throw new Error("Accepted authenticated link plan lost its linker.");
+      }
+      const sealCharge = linkUsageCharge(linker, "calls", 1n);
+      if (Result.isFailure(sealCharge)) {
+        return failAccumulator(state, sealCharge.failure);
+      }
+      const driverState: AuthenticatedLinkDriverStateV1 = {
+        capacity: capacity.success,
+        linker,
+        modules: state.modules.splice(0),
+        moduleIndex: 0,
+        coreTransitionCount: 0n,
+        closed: false,
+      };
+      state.summaries.splice(0);
+      state.bindings = undefined;
+      state.commandBudget = undefined;
+      state.closed = true;
+      const handle = driverHandle();
+      drivers.set(handle, driverState);
+      return Result.succeed(Object.freeze({
+        status: "complete",
+        transitionCount: 1,
+        driver: handle,
+        capacity: capacity.success,
+      }));
+    };
+
+  const step: DeclarativeV2VerifierAuthenticatedLinkFactoryV1["step"] =
+    (rawDriver, rawAllowance) => {
+      const state = rawDriver !== null && typeof rawDriver === "object"
+        ? drivers.get(rawDriver)
+        : undefined;
+      if (state === undefined) {
+        return Result.fail(executableError("link", "invalidInput"));
+      }
+      const linker = state.linker;
+      if (state.closed || state.capacity === undefined || linker === undefined) {
+        return Result.fail(executableError("link", "closed"));
+      }
+      const allowance = captureTransitionAllowance(rawAllowance, "link");
+      if (Result.isFailure(allowance)) {
+        return failDriver(state, allowance.failure);
+      }
+      const before = usageSnapshot(linker.usage);
+      if (allowance.success === 0) {
+        return Result.succeed(Object.freeze({
+          status: "pending",
+          transitionCount: 0,
+          deltaUsage: frozenUsageDelta(linker.usage, before),
+          usage: frozenUsage(linker.usage),
+        }));
+      }
+      let transitions = 0;
+      while (transitions < allowance.success) {
+        if (
+          linker.phase === "accepting" &&
+          state.moduleIndex < state.modules.length
+        ) {
+          const module = state.modules[state.moduleIndex]!;
+          const charges = [
+            ["calls", 1n],
+            ["modules", 1n],
+            ["graphNodes", 1n + BigInt(module.importCount)],
+            ["importEdges", BigInt(module.importCount)],
+            ["exports", BigInt(module.exportCount)],
+          ] as const;
+          for (const [dimension, amount] of charges) {
+            const charged = linkUsageCharge(linker, dimension, amount);
+            if (Result.isFailure(charged)) {
+              return failAcceptedDriver(state, charged.failure);
+            }
+          }
+          if (
+            linker.count >=
+              Math.floor(linker.moduleView.byteLength / 64) ||
+            linker.importCount + module.importCount >
+              Math.floor(linker.importEdgeView.byteLength / 64) ||
+            linker.exportCount + module.exportCount >
+              Math.floor(linker.exportView.byteLength / 48)
+          ) {
+            return failAcceptedDriver(
+              state,
+              executableError("link", "addressabilityExceeded"),
+            );
+          }
+          linker.pendingModule = module;
+          linker.phase = "copyingModule";
+          linker.copyPhase = "modulePath";
+          linker.copySourceRecord = 0;
+          linker.copyRecordOrder = 0;
+          linker.copyByteIndex = 0;
+          linker.copyImportStart = linker.importCount;
+          linker.copyExportStart = linker.exportCount;
+          const moduleOffset = linker.count * 64;
+          linker.moduleView.setUint32(
+            moduleOffset,
+            linker.textCursor,
+            false,
+          );
+          linker.moduleView.setUint32(moduleOffset + 4, 0, false);
+          linker.moduleView.setBigUint64(
+            moduleOffset + 8,
+            module.moduleOrdinal,
+            false,
+          );
+          linker.moduleView.setUint32(
+            moduleOffset + 16,
+            linker.importCount,
+            false,
+          );
+          linker.moduleView.setUint32(
+            moduleOffset + 20,
+            module.importCount,
+            false,
+          );
+          linker.moduleView.setUint32(
+            moduleOffset + 24,
+            linker.exportCount,
+            false,
+          );
+          linker.moduleView.setUint32(
+            moduleOffset + 28,
+            module.exportCount,
+            false,
+          );
+          linker.graph.setUint32(
+            linker.count * 64,
+            linker.count,
+            false,
+          );
+          state.moduleIndex += 1;
+          transitions += 1;
+          continue;
+        }
+        if (
+          linker.phase === "accepting" &&
+          state.moduleIndex === state.modules.length
+        ) {
+          linker.sealed = true;
+          linker.phase = "indexing";
+          transitions += 1;
+          continue;
+        }
+        if (linker.phase === "complete") {
+          const terminalCharge = linkUsageCharge(
+            linker,
+            "calls",
+            1n,
+          );
+          if (Result.isFailure(terminalCharge)) {
+            return failAcceptedDriver(state, terminalCharge.failure);
+          }
+          const withinCapacity = actualUsageWithinCapacityV1(
+            linker.usage,
+            state.capacity,
+          );
+          if (Result.isFailure(withinCapacity)) {
+            return failAcceptedDriver(state, withinCapacity.failure);
+          }
+          const result = Object.freeze({
+            _tag: "DeclarativeV2VerifierLinkResultV1",
+            moduleCount: BigInt(linker.count),
+            diagnosticCount: BigInt(linker.diagnosticCount),
+            usage: frozenUsage(linker.usage),
+          } satisfies DeclarativeV2VerifierLinkResultV1);
+          OWNED_LINK_RESULTS.set(result, { state: linker });
+          transitions += 1;
+          closeAuthenticatedLinkDriverStateV1(state);
+          return Result.succeed(result);
+        }
+        if (
+          state.coreTransitionCount %
+              BigInt(DECLARATIVE_V2_VERIFIER_TRANSITION_QUANTUM_V1) ===
+            0n
+        ) {
+          const callCharge = linkUsageCharge(linker, "calls", 1n);
+          if (Result.isFailure(callCharge)) {
+            return failAcceptedDriver(state, callCharge.failure);
+          }
+        }
+        const advanced = advanceLinkerOne(linker);
+        if (Result.isFailure(advanced)) {
+          return failAcceptedDriver(state, advanced.failure);
+        }
+        state.coreTransitionCount += 1n;
+        transitions += 1;
+      }
+      return Result.succeed(Object.freeze({
+        status: "pending",
+        transitionCount: transitions,
+        deltaUsage: frozenUsageDelta(linker.usage, before),
+        usage: frozenUsage(linker.usage),
+      }));
+    };
+
+  const close: DeclarativeV2VerifierAuthenticatedLinkFactoryV1["close"] =
+    rawCapability => {
+      if (rawCapability === null || typeof rawCapability !== "object") {
+        return Result.fail(executableError("link", "invalidInput"));
+      }
+      const accumulator = accumulators.get(rawCapability);
+      if (accumulator !== undefined) {
+        if (accumulator.closed) {
+          return Result.fail(executableError("link", "closed"));
+        }
+        closeAuthenticatedLinkAccumulatorStateV1(accumulator);
+        return Result.succeed(undefined);
+      }
+      const driver = drivers.get(rawCapability);
+      if (driver === undefined) {
+        return Result.fail(executableError("link", "invalidInput"));
+      }
+      if (driver.closed) {
+        return Result.fail(executableError("link", "closed"));
+      }
+      closeAuthenticatedLinkDriverStateV1(driver);
+      return Result.succeed(undefined);
+    };
+
+  return Object.freeze({ create, admit, seal, step, close });
 }
 
 /**

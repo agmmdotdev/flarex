@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { runInNewContext } from "node:vm";
 
+import { isUint8Array } from "@flarex/utils/bytes";
 import { Encoding, Result } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
@@ -45,14 +47,18 @@ import {
   createDeclarativeV2VerifierEngineV1,
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_V1_TEST_ONLY,
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_CONTRACT_V1,
+  DeclarativeV2VerifierExecutableV1Error,
   finishDeclarativeV2VerifierLinkerV1,
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1,
   loadDeclarativeV2VerifierExecutableAssetV1,
   loadGeneratedDeclarativeV2VerifierExecutableAssetV1,
+  makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1,
   makeDeclarativeV2VerifierExecutableRestartBridgeV1,
   makeDeclarativeV2VerifierResultAccessFactoryV1,
   stepDeclarativeV2VerifierLinkerV1,
-  type DeclarativeV2VerifierExecutableV1Error,
+  type DeclarativeV2VerifierAuthenticatedLinkBindingsV1,
+  type DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1,
+  type DeclarativeV2VerifierLinkCapacityV1,
   type DeclarativeV2VerifierEngineV1,
   type DeclarativeV2VerifierLinkResultV1,
   type DeclarativeV2VerifierModuleResultV1,
@@ -533,6 +539,40 @@ function runModuleResult(
   return finished.success;
 }
 
+function reconstructColdModuleResult(
+  warm: DeclarativeV2VerifierModuleResultV1,
+): DeclarativeV2VerifierModuleResultV1 {
+  const sourceByteLength = Number(warm.usage.sourceBytes);
+  const bridge = makeDeclarativeV2VerifierExecutableRestartBridgeV1();
+  const maximum = budget("command_budget", sourceByteLength);
+  const opened = Result.getOrThrow(bridge.openModuleRecords(
+    warm,
+    new Uint8Array(32).fill(149),
+    maximum,
+  ));
+  const records: Array<Parameters<typeof bridge.appendModuleRecord>[1]> = [];
+  for (let guard = 0; guard < 1_000_000; guard += 1) {
+    const read = Result.getOrThrow(bridge.readModuleRecord(opened, 1_024));
+    if (read.status === "complete") break;
+    if (read.status === "item") records.push(read.record);
+  }
+  const builder = Result.getOrThrow(bridge.createModuleBuilder(
+    maximum,
+    budget("attempt_usage", sourceByteLength),
+  ));
+  for (const record of records) {
+    Result.getOrThrow(bridge.appendModuleRecord(builder, record));
+  }
+  for (let guard = 0; guard < 1_000_000; guard += 1) {
+    const finished = Result.getOrThrow(bridge.finishModuleBuilder(
+      builder,
+      1_024,
+    ));
+    if (finished.status === "complete") return finished.result;
+  }
+  throw new Error("cold link module reconstruction exceeded test guard");
+}
+
 interface ParseExecutionTrace {
   readonly driverCalls: bigint;
   readonly result: DeclarativeV2VerifierModuleResultV1;
@@ -864,6 +904,126 @@ function linkModuleResults(
     iterations += 1;
   }
   throw new Error("test-only linker drive exceeded its iteration ceiling");
+}
+
+function authenticatedLinkBindings(
+  seed = 61,
+): DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
+  return Object.freeze({
+    attemptSha256: new Uint8Array(32).fill(seed),
+    reservationSha256: new Uint8Array(32).fill(seed + 1),
+    candidateSha256: new Uint8Array(32).fill(seed + 2),
+    authenticatedInputSha256: new Uint8Array(32).fill(seed + 3),
+    linkSequence: 7n,
+    parsePagesRootSha256: new Uint8Array(32).fill(seed + 4),
+    currentProgressSha256: new Uint8Array(32).fill(seed + 5),
+    predecessorAndTailsSha256: new Uint8Array(32).fill(seed + 6),
+    rangeSha256: new Uint8Array(32).fill(seed + 7),
+    analyzerReleaseSha256: new Uint8Array(32).fill(seed + 8),
+    analyzerIdentitySha256: new Uint8Array(32).fill(seed + 9),
+    verifierIdentitySha256: new Uint8Array(32).fill(seed + 10),
+  });
+}
+
+function crossRealmSharedDigest(): Uint8Array {
+  const value = runInNewContext(
+    "new Uint8Array(new SharedArrayBuffer(32))",
+  );
+  if (!isUint8Array(value)) {
+    throw new Error("Cross-realm fixture did not produce a Uint8Array.");
+  }
+  return value;
+}
+
+function authenticatedLinkClaim(
+  module: DeclarativeV2VerifierModuleResultV1,
+  bindings: DeclarativeV2VerifierAuthenticatedLinkBindingsV1,
+): DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1 {
+  return Object.freeze({
+    ...bindings,
+    moduleOrdinal: module.moduleOrdinal,
+    producingParseResultSha256: new Uint8Array(
+      Buffer.from(module.evidenceSha256, "hex"),
+    ),
+  });
+}
+
+interface AuthenticatedLinkTraceV1 {
+  readonly capacity: DeclarativeV2VerifierLinkCapacityV1;
+  readonly result: DeclarativeV2VerifierLinkResultV1;
+  readonly zeroReceipts: ReadonlyArray<unknown>;
+}
+
+function runAuthenticatedLink(
+  modules: ReadonlyArray<DeclarativeV2VerifierModuleResultV1>,
+  allowance: 1 | 1024,
+  commandBudget = budget("command_budget", 0, {
+    modules: BigInt(modules.length),
+    sourceBytes: 0n,
+    objectBodyBytes: 0n,
+  }),
+  mutateClaim?: (
+    claim: DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1,
+    index: number,
+  ) => DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1,
+): Result.Result<
+  AuthenticatedLinkTraceV1,
+  DeclarativeV2VerifierExecutableV1Error
+> {
+  const bindings = authenticatedLinkBindings();
+  const claims = new Map<
+    DeclarativeV2VerifierModuleResultV1,
+    DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1
+  >();
+  modules.forEach((module, index) => {
+    const claim = authenticatedLinkClaim(module, bindings);
+    claims.set(module, mutateClaim?.(claim, index) ?? claim);
+  });
+  const factory = makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1({
+    claim: module => {
+      const claim = claims.get(module);
+      return claim === undefined
+        ? Result.fail(new DeclarativeV2VerifierExecutableV1Error({
+          operation: "link",
+          reason: "invalidInput",
+        }))
+        : Result.succeed(claim);
+    },
+  });
+  const created = factory.create(bindings, commandBudget);
+  if (Result.isFailure(created)) return Result.fail(created.failure);
+  const zeroReceipts: unknown[] = [
+    Result.getOrThrow(factory.admit(created.success, modules[0], 0)),
+    Result.getOrThrow(factory.seal(created.success, 0)),
+  ];
+  for (const module of modules) {
+    for (let guard = 0; guard < 1_000_000; guard += 1) {
+      const admitted = factory.admit(created.success, module, allowance);
+      if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
+      if (admitted.success.status === "ready") break;
+      if (guard === 999_999) {
+        throw new Error("authenticated link admission exceeded test guard");
+      }
+    }
+  }
+  const sealed = factory.seal(created.success, allowance);
+  if (Result.isFailure(sealed)) return Result.fail(sealed.failure);
+  if (sealed.success.status !== "complete") {
+    throw new Error("positive authenticated link seal did not complete");
+  }
+  zeroReceipts.push(Result.getOrThrow(factory.step(sealed.success.driver, 0)));
+  for (let guard = 0; guard < 1_000_000; guard += 1) {
+    const driven = factory.step(sealed.success.driver, allowance);
+    if (Result.isFailure(driven)) return Result.fail(driven.failure);
+    if (!("status" in driven.success)) {
+      return Result.succeed(Object.freeze({
+        capacity: sealed.success.capacity,
+        result: driven.success,
+        zeroReceipts: Object.freeze(zeroReceipts),
+      }));
+    }
+  }
+  throw new Error("authenticated link driver exceeded test guard");
 }
 
 function materializeLinkResult(
@@ -3577,13 +3737,404 @@ describe("Declarative V2 streaming engine", () => {
     }
   });
 
+  test("derives authenticated capacity and exact split-invariant terminal usage", () => {
+    const makeModules = () => [
+      runModuleResult(
+        "export function a(){ return 1; }",
+        "functions/a.js",
+        0n,
+      ),
+      runModuleResult(
+        'import { a } from "./a.js"; export function b(){ return a(); }',
+        "functions/b.js",
+        1n,
+      ),
+    ];
+    const one = runAuthenticatedLink(makeModules(), 1);
+    const maximum = runAuthenticatedLink(makeModules(), 1_024);
+    if (Result.isFailure(one)) throw one.failure;
+    if (Result.isFailure(maximum)) throw maximum.failure;
+    expect(materializeLinkResult(one.success.result)).toEqual(
+      materializeLinkResult(maximum.success.result),
+    );
+    expect(one.success.result.usage).toEqual(maximum.success.result.usage);
+    expect(one.success.capacity).toEqual(maximum.success.capacity);
+    expect(one.success.zeroReceipts).toMatchObject([
+      { status: "ready", transitionCount: 0, admittedModuleCount: 0n },
+      { status: "pending", transitionCount: 0 },
+      { status: "pending", transitionCount: 0 },
+    ]);
+    const maximumBudget = budget("command_budget", 0, {
+      modules: 2n,
+      sourceBytes: 0n,
+      objectBodyBytes: 0n,
+    });
+    for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+      expect(
+        one.success.result.usage[dimension],
+        `${dimension} actual <= capacity`,
+      ).toBeLessThanOrEqual(one.success.capacity[dimension]);
+      expect(
+        one.success.capacity[dimension],
+        `${dimension} capacity <= command budget`,
+      ).toBeLessThanOrEqual(maximumBudget[dimension]);
+    }
+    expect(one.success.capacity.tableBytes).toBeGreaterThan(0n);
+    expect(one.success.result.usage.tableBytes).toBe(0n);
+    expect(one.success.result.usage.frontierEntries).toBe(2n);
+    expect(one.success.result.usage.objectCalls).toBe(0n);
+    expect(one.success.result.usage.elapsedMilliseconds).toBe(0n);
+    expect(one.success.result.usage.canonicalBytes).toBe(0n);
+    expect(one.success.result.usage.frameBytes).toBe(0n);
+    expect(one.success.result.usage.hashBytes).toBe(0n);
+  });
+
+  test("produces equal warm and reconstructed-cold link evidence for cycles and missing targets", () => {
+    const warm = [
+      runModuleResult(
+        'import { b } from "./b.js"; export function a(){ return b(); }',
+        "functions/a.js",
+        0n,
+      ),
+      runModuleResult(
+        'import { a } from "./a.js"; export function b(){ return a(); }',
+        "functions/b.js",
+        1n,
+      ),
+    ];
+    const cold = warm.map(reconstructColdModuleResult);
+    const warmLinked = runAuthenticatedLink(warm, 1);
+    const coldLinked = runAuthenticatedLink(cold, 1_024);
+    if (Result.isFailure(warmLinked)) throw warmLinked.failure;
+    if (Result.isFailure(coldLinked)) throw coldLinked.failure;
+    expect(materializeLinkResult(warmLinked.success.result)).toEqual(
+      materializeLinkResult(coldLinked.success.result),
+    );
+    expect(
+      materializeLinkResult(warmLinked.success.result).diagnostics.map(
+        ({ code }) => code,
+      ),
+    ).toContain("CORE_MODULE_CYCLE");
+    expect(warmLinked.success.result.usage).toEqual(
+      coldLinked.success.result.usage,
+    );
+    expect(warmLinked.success.capacity).toEqual(coldLinked.success.capacity);
+
+    const missing = runAuthenticatedLink([
+      runModuleResult(
+        "export function present(){ return 1; }",
+        "functions/present.js",
+        0n,
+      ),
+      runModuleResult(
+        'import { absent } from "./present.js"; ' +
+          "export function caller(){ return absent(); }",
+        "functions/caller.js",
+        1n,
+      ),
+    ], 1_024);
+    if (Result.isFailure(missing)) throw missing.failure;
+    expect(
+      materializeLinkResult(missing.success.result).diagnostics.map(
+        ({ code, moduleOrdinal }) => ({ code, moduleOrdinal }),
+      ),
+    ).toContainEqual({
+      code: "CORE_IMPORT_TARGET",
+      moduleOrdinal: 1n,
+    });
+  });
+
+  test("fails closed for every authenticated lineage mismatch and capability misuse", () => {
+    const mismatchFactories: ReadonlyArray<Readonly<{
+      readonly name: string;
+      readonly mutate: (
+        claim: DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1,
+      ) => DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1;
+    }>> = [
+      ...([
+        "attemptSha256",
+        "reservationSha256",
+        "candidateSha256",
+        "authenticatedInputSha256",
+        "parsePagesRootSha256",
+        "currentProgressSha256",
+        "predecessorAndTailsSha256",
+        "rangeSha256",
+        "analyzerReleaseSha256",
+        "analyzerIdentitySha256",
+        "verifierIdentitySha256",
+        "producingParseResultSha256",
+      ] as const).map(field => Object.freeze({
+        name: field,
+        mutate: (
+          claim: DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1,
+        ) => Object.freeze({
+          ...claim,
+          [field]: new Uint8Array(32).fill(255),
+        }),
+      })),
+      Object.freeze({
+        name: "linkSequence",
+        mutate: (
+          claim: DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1,
+        ) => Object.freeze({ ...claim, linkSequence: claim.linkSequence + 1n }),
+      }),
+      Object.freeze({
+        name: "moduleOrdinal",
+        mutate: (
+          claim: DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1,
+        ) => Object.freeze({ ...claim, moduleOrdinal: claim.moduleOrdinal + 1n }),
+      }),
+    ];
+    for (const mismatch of mismatchFactories) {
+      const module = runModuleResult(
+        "export function value(){ return 1; }",
+        "functions/value.js",
+        0n,
+      );
+      const result = runAuthenticatedLink(
+        [module],
+        1_024,
+        budget("command_budget", 0, {
+          modules: 1n,
+          sourceBytes: 0n,
+          objectBodyBytes: 0n,
+        }),
+        claim => mismatch.mutate(claim),
+      );
+      expect(
+        result,
+        `mismatch ${mismatch.name}`,
+      ).toMatchObject({
+        failure: { operation: "link", reason: "invalidInput" },
+      });
+    }
+
+    for (const shared of [
+      new Uint8Array(new SharedArrayBuffer(32)),
+      crossRealmSharedDigest(),
+    ]) {
+      shared.fill(61);
+      const sharedBindings = Object.freeze({
+        ...authenticatedLinkBindings(),
+        attemptSha256: shared,
+      });
+      const factory = makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1({
+        claim: () =>
+          Result.fail(new DeclarativeV2VerifierExecutableV1Error({
+            operation: "link",
+            reason: "invalidInput",
+          })),
+      });
+      expect(factory.create(
+        sharedBindings,
+        budget("command_budget", 0, {
+          modules: 1n,
+          sourceBytes: 0n,
+          objectBodyBytes: 0n,
+        }),
+      )).toMatchObject({
+        failure: { operation: "link", reason: "invalidInput" },
+      });
+
+      const module = runModuleResult(
+        "export function shared(){ return 1; }",
+        "functions/shared.js",
+        0n,
+      );
+      const sharedClaim = runAuthenticatedLink(
+        [module],
+        1_024,
+        budget("command_budget", 0, {
+          modules: 1n,
+          sourceBytes: 0n,
+          objectBodyBytes: 0n,
+        }),
+        claim => Object.freeze({
+          ...claim,
+          producingParseResultSha256: shared,
+        }),
+      );
+      expect(sharedClaim).toMatchObject({
+        failure: { operation: "link", reason: "invalidInput" },
+      });
+    }
+
+    const bindings = authenticatedLinkBindings();
+    const module = runModuleResult(
+      "export function owned(){ return 1; }",
+      "functions/owned.js",
+      0n,
+    );
+    let accessorReads = 0;
+    const hostileClaim = Object.defineProperty(
+      { ...authenticatedLinkClaim(module, bindings) },
+      "attemptSha256",
+      {
+        enumerable: true,
+        get() {
+          accessorReads += 1;
+          return new Uint8Array(32);
+        },
+      },
+    );
+    const first = makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1({
+      claim: () =>
+        Result.succeed(
+          hostileClaim as DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1,
+        ),
+    });
+    const second = makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1({
+      claim: () => Result.succeed(authenticatedLinkClaim(module, bindings)),
+    });
+    const created = Result.getOrThrow(first.create(
+      bindings,
+      budget("command_budget", 0, {
+        modules: 1n,
+        sourceBytes: 0n,
+        objectBodyBytes: 0n,
+      }),
+    ));
+    expect(first.admit(created, module, 1)).toMatchObject({
+      failure: { operation: "link", reason: "invalidInput" },
+    });
+    expect(accessorReads).toBe(0);
+    expect(first.admit(created, module, 1)).toMatchObject({
+      failure: { operation: "link", reason: "closed" },
+    });
+    expect(second.close(created)).toMatchObject({
+      failure: { operation: "link", reason: "invalidInput" },
+    });
+    expect(first.close(Object.freeze({
+      _tag: "DeclarativeV2VerifierAuthenticatedLinkAccumulatorV1",
+    }))).toMatchObject({
+      failure: { operation: "link", reason: "invalidInput" },
+    });
+  });
+
+  test("irreversibly revokes accumulators, drivers, and previously claimed results", () => {
+    const bindings = authenticatedLinkBindings();
+    const makeFactory = (
+      module: DeclarativeV2VerifierModuleResultV1,
+    ) => makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1({
+      claim: candidate =>
+        candidate === module
+          ? Result.succeed(authenticatedLinkClaim(module, bindings))
+          : Result.fail(new DeclarativeV2VerifierExecutableV1Error({
+            operation: "link",
+            reason: "invalidInput",
+          })),
+    });
+    const module = runModuleResult(
+      "export function lifecycle(){ return 1; }",
+      "functions/lifecycle.js",
+      0n,
+    );
+    const maximum = budget("command_budget", 0, {
+      modules: 1n,
+      sourceBytes: 0n,
+      objectBodyBytes: 0n,
+    });
+    const first = makeFactory(module);
+    const accumulator = Result.getOrThrow(first.create(bindings, maximum));
+    expect(first.close(accumulator)).toEqual(Result.succeed(undefined));
+    expect(first.close(accumulator)).toMatchObject({
+      failure: { operation: "link", reason: "closed" },
+    });
+    expect(first.admit(accumulator, module, 1)).toMatchObject({
+      failure: { operation: "link", reason: "closed" },
+    });
+
+    const excessive = Result.getOrThrow(first.create(bindings, maximum));
+    expect(first.admit(excessive, module, 1_025)).toMatchObject({
+      failure: {
+        operation: "link",
+        reason: "invalidInput",
+        dimension: "transitionQuantum",
+        observed: 1_025n,
+        maximum: 1_024n,
+      },
+    });
+    expect(first.admit(excessive, module, 1)).toMatchObject({
+      failure: { operation: "link", reason: "closed" },
+    });
+
+    const active = Result.getOrThrow(first.create(bindings, maximum));
+    while (
+      Result.getOrThrow(first.admit(active, module, 1)).status !== "ready"
+    ) {
+      // one owned transition per call
+    }
+    const sealed = Result.getOrThrow(first.seal(active, 1));
+    if (sealed.status !== "complete") {
+      throw new Error("positive lifecycle seal did not complete");
+    }
+    expect(first.close(sealed.driver)).toEqual(Result.succeed(undefined));
+    expect(first.step(sealed.driver, 1)).toMatchObject({
+      failure: { operation: "link", reason: "closed" },
+    });
+    expect(first.close(sealed.driver)).toMatchObject({
+      failure: { operation: "link", reason: "closed" },
+    });
+
+    const second = makeFactory(module);
+    const reused = Result.getOrThrow(second.create(bindings, maximum));
+    expect(second.admit(reused, module, 1)).toMatchObject({
+      failure: { operation: "link", reason: "invalidInput" },
+    });
+  });
+
+  test("rejects every one-less nonzero link capacity dimension before publication", () => {
+    const makeModules = () => [
+      runModuleResult(
+        "export function a(){ return 1; }",
+        "functions/a.js",
+        0n,
+      ),
+      runModuleResult(
+        'import { missing } from "./a.js"; export function b(){ return missing(); }',
+        "functions/b.js",
+        1n,
+      ),
+    ];
+    const oracle = runAuthenticatedLink(makeModules(), 1_024);
+    if (Result.isFailure(oracle)) throw oracle.failure;
+    for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+      const required = oracle.success.capacity[dimension];
+      if (required === 0n) continue;
+      const result = runAuthenticatedLink(
+        makeModules(),
+        1_024,
+        budget("command_budget", 0, {
+          modules: 2n,
+          sourceBytes: 0n,
+          objectBodyBytes: 0n,
+          [dimension]: required - 1n,
+        }),
+      );
+      expect(result, `${dimension} one less`).toMatchObject({
+        failure: {
+          operation: "link",
+          reason: "budgetExceeded",
+          dimension,
+          observed: required,
+          maximum: required - 1n,
+        },
+      });
+    }
+  });
+
   test("keeps the executable owner on the existing internal subpath", async () => {
     const root = await import("@flarex/analysis");
     expect("createDeclarativeV2VerifierEngineV1" in root).toBe(false);
+    expect("makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1" in root)
+      .toBe(false);
     const internal = await import(
       "@flarex/analysis/internal/declarative-v2-verifier-v1"
     );
     expect(internal.createDeclarativeV2VerifierEngineV1).toBeTypeOf("function");
+    expect(internal.makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1)
+      .toBeTypeOf("function");
     expect(
       "makeDeclarativeV2VerifierExecutableRestartBridgeV1" in internal,
     ).toBe(false);
