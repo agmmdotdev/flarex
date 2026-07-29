@@ -101,6 +101,14 @@ import {
   type DeclarativeV2VerifierRuntimeSha256V1,
 } from "./declarativeV2VerifierRuntimeArenaV1";
 
+export const DECLARATIVE_V2_VERIFIER_PARSE_SEMANTIC_CAPACITY_BOUNDS_V1 =
+  Object.freeze({
+    nonDiagnosticEvidenceFramesPerDomainUnit: 2,
+    semanticOutputRecordsPerDomainUnit: 6,
+    maximumSemanticOutputBytesPerDomainByte: 8,
+    maximumSemanticTransitionsPerDomainUnitSquared: 256,
+  });
+
 const TYPED_ARRAY_PROTOTYPE: object = Object.getPrototypeOf(
   Uint8Array.prototype,
 );

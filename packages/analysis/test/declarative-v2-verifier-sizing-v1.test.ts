@@ -7,22 +7,32 @@ import {
 import { describe, expect, test } from "vitest";
 
 import {
+  generateDeclarativeV2VerifierBoundsV1,
+} from "../scripts/declarativeV2VerifierBoundsV1";
+import {
+  DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
+  type DeclarativeV2ArtifactModulePathHandleV1,
+} from "../src/declarativeV2ArtifactModulePathV1";
+import {
+  GENERATED_DECLARATIVE_V2_VERIFIER_PARSE_BOUNDS_V1,
+} from "../src/declarativeV2VerifierBoundsV1.generated";
+import {
+  DECLARATIVE_V2_VERIFIER_PARSE_ARENA_OPERATIONAL_BYTE_LIMIT_V1,
+  DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1,
   DECLARATIVE_V2_VERIFIER_PARSE_TABLE_BYTES_V1,
-  planDeclarativeV2VerifierParseModuleV1,
+  planDeclarativeV2VerifierParseCapacityV1,
   planDeclarativeV2VerifierSha256WorkV1,
-  type DeclarativeV2VerifierParseFactsV1,
-  type DeclarativeV2VerifierParseSizingBindingsV1,
-  type DeclarativeV2VerifierParseSizingInputV1,
+  type DeclarativeV2VerifierParseCapacityBindingsV1,
+  type DeclarativeV2VerifierParseCapacityInputV1,
 } from "../src/declarativeV2VerifierSizingV1";
 
 const MAX_SIGNED_INT64 = 9_223_372_036_854_775_807n;
-const MAX_U32 = 0xffff_ffffn;
 
 function digest(seed: number): Uint8Array {
   return new Uint8Array(32).fill(seed);
 }
 
-function bindings(seed = 1): DeclarativeV2VerifierParseSizingBindingsV1 {
+function bindings(seed = 1): DeclarativeV2VerifierParseCapacityBindingsV1 {
   return Object.freeze({
     candidateSha256: digest(seed),
     authenticatedInputSha256: digest(seed + 1),
@@ -32,29 +42,32 @@ function bindings(seed = 1): DeclarativeV2VerifierParseSizingBindingsV1 {
   });
 }
 
-function facts(
-  mutate?: Partial<DeclarativeV2VerifierParseFactsV1>,
-): DeclarativeV2VerifierParseFactsV1 {
-  return Object.freeze({
-    driverCalls: 7n,
-    modulePathByteLength: 5n,
-    tokenCount: 3n,
-    tokenByteLength: 8n,
-    peakParserStates: 2n,
-    peakNestingDepth: 1n,
-    retainedStringByteLength: 6n,
-    importDeclarationCount: 1n,
-    callCount: 2n,
-    exportCount: 1n,
-    functionCount: 1n,
-    valueFlowCount: 1n,
-    diagnosticCount: 1n,
-    diagnosticTextByteLength: 20n,
-    semanticOutputByteLength: 10n,
-    evidenceCanonicalByteLength: 55n,
-    maximumEvidenceFrameByteLength: 30n,
-    ...mutate,
-  });
+function modulePathOfLength(
+  byteLength: number,
+): DeclarativeV2ArtifactModulePathHandleV1 {
+  const bytes = new TextEncoder().encode(
+    `${"a".repeat(byteLength - 3)}.js`,
+  );
+  const created = DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1.create(
+    3,
+    bytes.byteLength,
+    bytes.byteLength,
+  );
+  if (Result.isFailure(created)) throw created.failure;
+  const stepped = DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1.step(
+    created.success,
+    bytes,
+    1_024,
+  );
+  if (Result.isFailure(stepped)) throw stepped.failure;
+  const finished = DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1.finish(
+    created.success,
+    1,
+  );
+  if (Result.isFailure(finished) || "status" in finished.success) {
+    throw new Error("test module path did not finish");
+  }
+  return finished.success;
 }
 
 function budget(
@@ -74,127 +87,208 @@ function budget(
 }
 
 function fixture(
-  mutate?: Partial<DeclarativeV2VerifierParseSizingInputV1>,
-): DeclarativeV2VerifierParseSizingInputV1 {
+  mutate?: Partial<DeclarativeV2VerifierParseCapacityInputV1>,
+): DeclarativeV2VerifierParseCapacityInputV1 {
   return Object.freeze({
     bindings: bindings(),
     commandKind: "parse_module",
     sequence: 1n,
     moduleOrdinal: 0n,
-    sourceByteLength: 10n,
-    facts: facts(),
+    modulePath: modulePathOfLength(5),
+    source: new Uint8Array(10),
+    sourceSha256: digest(23),
     commandBudget: budget(),
     ...mutate,
   });
 }
 
-function required(
-  input: DeclarativeV2VerifierParseSizingInputV1 = fixture(),
+function capacity(
+  input: DeclarativeV2VerifierParseCapacityInputV1 = fixture(),
 ): DeclarativeV2VerifierBudgetFrameV2 {
-  const planned = planDeclarativeV2VerifierParseModuleV1(
-    input,
-    bindings(),
-  );
+  const planned = planDeclarativeV2VerifierParseCapacityV1(input, bindings());
   if (Result.isFailure(planned)) throw planned.failure;
-  return planned.success.required;
+  return planned.success.capacity;
 }
 
-describe("private parse-module verifier sizing", () => {
-  test("derives the owner-specific exact 26-dimensional requirement", () => {
-    const planned = planDeclarativeV2VerifierParseModuleV1(
+describe("private parse-module verifier capacity", () => {
+  test("pins generated parser/diagnostic bounds and the selected limit proof", () => {
+    expect(GENERATED_DECLARATIVE_V2_VERIFIER_PARSE_BOUNDS_V1).toMatchObject({
+      maximumProductionRhsLength: 3,
+      epsilonProductionCount: 2,
+      parseDiagnosticPhasesPerDomainUnit: 4,
+      parseDiagnosticDefinitionsPerDomainUnit: 19,
+      parserStackEntriesPerDomainUnit: 6,
+      evidenceFramesPerDomainUnit: 21,
+      maximumSemanticOutputBytesPerDomainByte: 8,
+      arenaOperationalByteLimit: 67_108_864,
+      selectedSourceAndModulePathByteLimit: 128,
+      arenaBytesAtSelectedLimit: 48_273_592,
+      arenaBytesAtNextPowerOfTwo: 156_553_528,
+    });
+    expect(DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1).toBe(128);
+    expect(DECLARATIVE_V2_VERIFIER_PARSE_ARENA_OPERATIONAL_BYTE_LIMIT_V1)
+      .toBe(67_108_864);
+    expect(generateDeclarativeV2VerifierBoundsV1()).toContain(
+      GENERATED_DECLARATIVE_V2_VERIFIER_PARSE_BOUNDS_V1.boundsIdentity,
+    );
+  });
+
+  test("derives immutable capacity only from authenticated lengths", () => {
+    const planned = planDeclarativeV2VerifierParseCapacityV1(
       fixture(),
       bindings(),
     );
     if (Result.isFailure(planned)) throw planned.failure;
-    expect(planned.success.required).toEqual({
+    expect(planned.success).toMatchObject({
+      sequence: 1n,
+      moduleOrdinal: 0n,
+      modulePathByteLength: 5n,
+      sourceByteLength: 10n,
+      domainByteLength: 15n,
+    });
+    expect(planned.success.capacity).toEqual({
       kind: "attempt_usage",
-      calls: 200n,
+      calls: 1_380_654n,
       objectCalls: 0n,
       objectBodyBytes: 10n,
       sourceBytes: 10n,
       sourceMapBytes: 0n,
       semanticBytes: 0n,
       modules: 1n,
-      importEdges: 3n,
-      exports: 1n,
-      functions: 1n,
-      tokens: 3n,
-      tokenBytes: 8n,
-      parserStates: 2n,
-      nestingDepth: 1n,
+      importEdges: 32n,
+      exports: 16n,
+      functions: 16n,
+      tokens: 16n,
+      tokenBytes: 10n,
+      parserStates: 96n,
+      nestingDepth: 16n,
       schemaNodes: 0n,
       validatorNodes: 0n,
-      graphNodes: 2n,
-      frontierEntries: 1n,
-      stringBytes: 6n,
+      graphNodes: 304n,
+      frontierEntries: 16n,
+      stringBytes: 15n,
       tableBytes: DECLARATIVE_V2_VERIFIER_PARSE_TABLE_BYTES_V1,
-      canonicalBytes: 55n,
-      frameBytes: 55n,
-      hashBytes: 55n,
-      diagnosticBytes: 32n,
-      outputBytes: 15n,
+      canonicalBytes: 436_078n,
+      frameBytes: 436_078n,
+      hashBytes: 436_078n,
+      diagnosticBytes: 338_656n,
+      outputBytes: 109_824n,
       elapsedMilliseconds: 0n,
     });
-    expect(planned.success.arenaByteLength).toBeGreaterThan(0);
+    expect(planned.success.arenaByteLength).toBeLessThanOrEqual(
+      DECLARATIVE_V2_VERIFIER_PARSE_ARENA_OPERATIONAL_BYTE_LIMIT_V1,
+    );
   });
 
-  test("uses every command-budget dimension only as an exact ceiling", () => {
-    const exact = required();
-    const exactBudget = budget(Object.fromEntries(
-      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map((dimension) => [
-        dimension,
-        exact[dimension],
-      ]),
-    ));
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      fixture({ commandBudget: exactBudget }),
+  test("pins exact and one-less admission for every dimension", () => {
+    const exact = capacity();
+    const exactPlan = planDeclarativeV2VerifierParseCapacityV1(
+      fixture({ commandBudget: Object.freeze({
+        ...exact,
+        kind: "command_budget",
+      }) as DeclarativeV2VerifierBudgetFrameV2 }),
       bindings(),
-    )).toMatchObject({ success: { required: exact } });
-
+    );
+    expect(Result.isSuccess(exactPlan)).toBe(true);
     for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
-      const amount = exact[dimension];
-      if (amount === 0n) {
-        expect(exactBudget[dimension]).toBe(0n);
-        continue;
-      }
-      const oneLess = budget({
-        ...Object.fromEntries(
-          DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map((candidate) => [
-            candidate,
-            exact[candidate],
-          ]),
-        ),
-        [dimension]: amount - 1n,
-      });
-      expect(planDeclarativeV2VerifierParseModuleV1(
-        fixture({ commandBudget: oneLess }),
+      if (exact[dimension] === 0n) continue;
+      const rejected = planDeclarativeV2VerifierParseCapacityV1(
+        fixture({
+          commandBudget: Object.freeze({
+            ...exact,
+            kind: "command_budget",
+            [dimension]: exact[dimension] - 1n,
+          }) as DeclarativeV2VerifierBudgetFrameV2,
+        }),
         bindings(),
-      )).toMatchObject({
+      );
+      expect(rejected, dimension).toMatchObject({
         failure: {
-          operation: "size",
+          operation: "capacity",
           reason: "budgetExceeded",
           path: dimension,
-          observed: amount,
-          maximum: amount - 1n,
         },
       });
     }
   });
 
-  test("sizes shared graph scratch for the largest ordered record set", () => {
-    const exact = required(fixture({
-      facts: facts({
-        importDeclarationCount: 0n,
-        functionCount: 1n,
-        exportCount: 2n,
-        diagnosticCount: 3n,
+  test("rejects the first byte beyond the combined source/path domain", () => {
+    const exact = planDeclarativeV2VerifierParseCapacityV1(
+      fixture({
+        modulePath: modulePathOfLength(12),
+        source: new Uint8Array(116),
       }),
-    }));
-    expect(exact.graphNodes).toBe(3n);
+      bindings(),
+    );
+    if (Result.isFailure(exact)) throw exact.failure;
+    expect(exact.success.domainByteLength).toBe(128n);
+    expect(exact.success.arenaByteLength).toBeLessThanOrEqual(48_273_592);
+    expect(planDeclarativeV2VerifierParseCapacityV1(
+      fixture({
+        modulePath: modulePathOfLength(12),
+        source: new Uint8Array(117),
+      }),
+      bindings(),
+    )).toMatchObject({
+      failure: {
+        operation: "capacity",
+        reason: "domainLimitExceeded",
+        path: "domainByteLength",
+        observed: 129n,
+        maximum: 128n,
+      },
+    });
   });
 
-  test("derives SHA-256 calls at every final-block boundary", () => {
-    const cases = new Map<bigint, bigint>([
+  test("captures hostile records once and compares every binding", () => {
+    const fields = Object.keys(bindings()) as Array<
+      keyof DeclarativeV2VerifierParseCapacityBindingsV1
+    >;
+    for (const field of fields) {
+      const mismatch = Object.freeze({
+        ...bindings(),
+        [field]: digest(99),
+      });
+      expect(planDeclarativeV2VerifierParseCapacityV1(
+        fixture(),
+        mismatch,
+      )).toMatchObject({
+        failure: { reason: "identityMismatch", path: "bindings" },
+      });
+    }
+    const hostile = new Proxy(fixture(), {
+      ownKeys() {
+        throw new Error("hostile");
+      },
+    });
+    expect(planDeclarativeV2VerifierParseCapacityV1(
+      hostile,
+      bindings(),
+    )).toMatchObject({
+      failure: { reason: "invalidInput", path: "input" },
+    });
+    if (typeof SharedArrayBuffer !== "undefined") {
+      expect(planDeclarativeV2VerifierParseCapacityV1(
+        fixture({
+          sourceSha256: new Uint8Array(new SharedArrayBuffer(32)),
+        }),
+        bindings(),
+      )).toMatchObject({
+        failure: { reason: "invalidInput", path: "sourceSha256" },
+      });
+      expect(planDeclarativeV2VerifierParseCapacityV1(
+        fixture({
+          source: new Uint8Array(new SharedArrayBuffer(10)),
+        }),
+        bindings(),
+      )).toMatchObject({
+        failure: { reason: "invalidInput", path: "source" },
+      });
+    }
+  });
+
+  test("derives SHA-256 work at every final-block boundary", () => {
+    for (const [byteLength, calls] of [
       [0n, 193n],
       [1n, 193n],
       [55n, 193n],
@@ -202,8 +296,7 @@ describe("private parse-module verifier sizing", () => {
       [63n, 386n],
       [64n, 386n],
       [65n, 386n],
-    ]);
-    for (const [byteLength, calls] of cases) {
+    ] as const) {
       expect(planDeclarativeV2VerifierSha256WorkV1(byteLength)).toEqual(
         Result.succeed(Object.freeze({
           calls,
@@ -212,160 +305,5 @@ describe("private parse-module verifier sizing", () => {
         })),
       );
     }
-  });
-
-  test("rejects hostile shapes without invoking accessors and keeps failure order", () => {
-    let getterCalls = 0;
-    const hostileFacts = Object.defineProperty(
-      { ...facts() },
-      "driverCalls",
-      {
-        enumerable: true,
-        get() {
-          getterCalls += 1;
-          return 7n;
-        },
-      },
-    );
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      fixture({ facts: hostileFacts }),
-      bindings(),
-    )).toMatchObject({
-      failure: {
-        operation: "size",
-        reason: "invalidInput",
-        path: "facts.driverCalls",
-      },
-    });
-    expect(getterCalls).toBe(0);
-
-    const revoked = Proxy.revocable(facts(), {});
-    revoked.revoke();
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      fixture({ facts: revoked.proxy }),
-      bindings(),
-    )).toMatchObject({
-      failure: { reason: "invalidInput", path: "facts" },
-    });
-
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      fixture({ commandKind: "link_page" as "parse_module" }),
-      bindings(20),
-    )).toMatchObject({
-      failure: { reason: "identityMismatch", path: "bindings" },
-    });
-
-    const extra = Object.defineProperty(
-      { ...fixture() },
-      "source",
-      {
-        enumerable: true,
-        get() {
-          getterCalls += 1;
-          throw new Error("sizing must not read source bytes");
-        },
-      },
-    );
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      extra,
-      bindings(),
-    )).toMatchObject({
-      failure: { reason: "invalidInput", path: "input" },
-    });
-    expect(getterCalls).toBe(0);
-  });
-
-  test("checks signed-int64, u32, and total arena addressability", () => {
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      fixture({ sourceByteLength: MAX_U32 + 1n }),
-      bindings(),
-    )).toMatchObject({
-      failure: {
-        reason: "addressabilityExceeded",
-        path: "sourceByteLength",
-      },
-    });
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      fixture({ facts: facts({ tokenCount: MAX_U32 + 1n }) }),
-      bindings(),
-    )).toMatchObject({
-      failure: {
-        reason: "addressabilityExceeded",
-        path: "facts.tokenCount",
-      },
-    });
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      fixture({
-        facts: facts({
-          driverCalls: MAX_SIGNED_INT64,
-        }),
-      }),
-      bindings(),
-    )).toMatchObject({
-      failure: { reason: "overflow", path: "calls" },
-    });
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      fixture({
-        sourceByteLength: MAX_U32,
-        facts: facts({
-          tokenByteLength: 0n,
-          retainedStringByteLength: MAX_U32,
-        }),
-      }),
-      bindings(),
-    )).toMatchObject({
-      failure: { reason: "addressabilityExceeded" },
-    });
-  });
-
-  test("binds every identity and owns cold-stable output bytes", () => {
-    const mutableBindings = {
-      candidateSha256: digest(1),
-      authenticatedInputSha256: digest(2),
-      rangeAndPredecessorTailsSha256: digest(3),
-      analyzerIdentitySha256: digest(4),
-      verifierIdentitySha256: digest(5),
-    };
-    const input = fixture({ bindings: mutableBindings });
-    const first = planDeclarativeV2VerifierParseModuleV1(input, bindings());
-    const second = planDeclarativeV2VerifierParseModuleV1(input, bindings());
-    if (Result.isFailure(first) || Result.isFailure(second)) {
-      throw new Error("cold sizing fixture failed");
-    }
-    expect(first.success).toEqual(second.success);
-    mutableBindings.candidateSha256.fill(99);
-    expect(first.success.bindings.candidateSha256).toEqual(digest(1));
-
-    for (const key of [
-      "candidateSha256",
-      "authenticatedInputSha256",
-      "rangeAndPredecessorTailsSha256",
-      "analyzerIdentitySha256",
-      "verifierIdentitySha256",
-    ] as const) {
-      const mismatch = bindings();
-      mismatch[key].fill(77);
-      expect(planDeclarativeV2VerifierParseModuleV1(input, mismatch))
-        .toMatchObject({
-          failure: { reason: "identityMismatch", path: "bindings" },
-        });
-    }
-
-    const detached = digest(1);
-    structuredClone(detached.buffer, { transfer: [detached.buffer] });
-    expect(planDeclarativeV2VerifierParseModuleV1(
-      fixture({
-        bindings: {
-          ...bindings(),
-          candidateSha256: detached,
-        },
-      }),
-      bindings(),
-    )).toMatchObject({
-      failure: {
-        reason: "invalidInput",
-        path: "bindings.candidateSha256",
-      },
-    });
   });
 });

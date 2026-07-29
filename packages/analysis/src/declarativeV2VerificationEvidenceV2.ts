@@ -77,6 +77,11 @@ const FRAME_WIRE_KEYS = Object.freeze({
 
 export const DECLARATIVE_V2_VERIFICATION_EVIDENCE_CODEC_IDENTITY_V2 =
   "flarex.declarative-v2/verification-evidence/v2" as const;
+export const DECLARATIVE_V2_VERIFICATION_EVIDENCE_PARSE_CAPACITY_BOUNDS_V2 =
+  Object.freeze({
+    maximumSourceDerivedTextFieldsPerFrame: 3,
+    maximumFixedCanonicalBytesPerFrame: 1_024,
+  });
 
 export type DeclarativeV2VerificationEvidenceKindV2 =
   | "module_summary_v2"

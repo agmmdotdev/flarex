@@ -69,11 +69,11 @@ import {
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_ASSET_BASE64_V1,
 } from "../src/declarativeV2VerifierExecutableV1.generated";
 import {
+  closeDeclarativeV2VerifierParseCapacityV1,
   driveDeclarativeV2VerifierParseModuleTerminalV1,
-  planDeclarativeV2VerifierParseModuleV1,
+  planDeclarativeV2VerifierParseCapacityV1,
   planDeclarativeV2VerifierSha256WorkV1,
-  type DeclarativeV2VerifierParseFactsV1,
-  type DeclarativeV2VerifierParseSizingBindingsV1,
+  type DeclarativeV2VerifierParseCapacityBindingsV1,
 } from "../src/declarativeV2VerifierSizingV1";
 import {
   createDeclarativeV2VerificationEvidenceEncoderV2,
@@ -574,6 +574,26 @@ function reconstructColdModuleResult(
   throw new Error("cold link module reconstruction exceeded test guard");
 }
 
+interface ParseOracleFacts {
+  readonly driverCalls: bigint;
+  readonly modulePathByteLength: bigint;
+  readonly tokenCount: bigint;
+  readonly tokenByteLength: bigint;
+  readonly peakParserStates: bigint;
+  readonly peakNestingDepth: bigint;
+  readonly retainedStringByteLength: bigint;
+  readonly importDeclarationCount: bigint;
+  readonly callCount: bigint;
+  readonly exportCount: bigint;
+  readonly functionCount: bigint;
+  readonly valueFlowCount: bigint;
+  readonly diagnosticCount: bigint;
+  readonly diagnosticTextByteLength: bigint;
+  readonly semanticOutputByteLength: bigint;
+  readonly evidenceCanonicalByteLength: bigint;
+  readonly maximumEvidenceFrameByteLength: bigint;
+}
+
 interface ParseExecutionTrace {
   readonly driverCalls: bigint;
   readonly result: DeclarativeV2VerifierModuleResultV1;
@@ -582,7 +602,7 @@ interface ParseExecutionTrace {
 
 function parseSizingBindings(
   seed = 31,
-): DeclarativeV2VerifierParseSizingBindingsV1 {
+): DeclarativeV2VerifierParseCapacityBindingsV1 {
   return Object.freeze({
     candidateSha256: new Uint8Array(32).fill(seed),
     authenticatedInputSha256: new Uint8Array(32).fill(seed + 1),
@@ -590,6 +610,24 @@ function parseSizingBindings(
     analyzerIdentitySha256: new Uint8Array(32).fill(seed + 3),
     verifierIdentitySha256: new Uint8Array(32).fill(seed + 4),
   });
+}
+
+function parseCommandBudget(): DeclarativeV2VerifierBudgetFrameV2 {
+  return Object.freeze({
+    kind: "command_budget",
+    ...Object.fromEntries(
+      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map((dimension) => [
+        dimension,
+        dimension === "sourceMapBytes" ||
+            dimension === "semanticBytes" ||
+            dimension === "schemaNodes" ||
+            dimension === "validatorNodes" ||
+            dimension === "elapsedMilliseconds"
+          ? 0n
+          : 9_223_372_036_854_775_807n,
+      ]),
+    ),
+  }) as DeclarativeV2VerifierBudgetFrameV2;
 }
 
 function runParseExecutionTrace(
@@ -634,7 +672,7 @@ function runParseExecutionTrace(
 function parseFactsFromTrace(
   trace: ParseExecutionTrace,
   modulePath: string,
-): DeclarativeV2VerifierParseFactsV1 {
+): ParseOracleFacts {
   const evidence = [
     trace.presentation.moduleSummary,
     ...trace.presentation.importCalls,
@@ -690,44 +728,44 @@ function runExactlySizedParse(
 ): Readonly<{
   readonly oracle: ParseExecutionTrace;
   readonly exact: DeclarativeV2VerifierModuleResultV1;
-  readonly required: DeclarativeV2VerifierBudgetFrameV2;
+  readonly capacity: DeclarativeV2VerifierBudgetFrameV2;
 }> {
   const oracle = runParseExecutionTrace(source, modulePath, allowance);
+  parseFactsFromTrace(oracle, modulePath);
   const bound = parseSizingBindings();
-  const planned = planDeclarativeV2VerifierParseModuleV1({
+  const modulePathHandle = artifactModulePath(modulePath);
+  const sourceSha256 = new Uint8Array(32).fill(23);
+  const planned = planDeclarativeV2VerifierParseCapacityV1({
     bindings: bound,
     commandKind: "parse_module",
     sequence: 1n,
     moduleOrdinal: 0n,
-    sourceByteLength: BigInt(source.byteLength),
-    facts: parseFactsFromTrace(oracle, modulePath),
-    commandBudget: budget("command_budget", source.byteLength),
+    modulePath: modulePathHandle,
+    source,
+    sourceSha256,
+    commandBudget: parseCommandBudget(),
   }, bound);
   if (Result.isFailure(planned)) throw planned.failure;
   const driven = driveDeclarativeV2VerifierParseModuleTerminalV1(
-    () =>
-      createDeclarativeV2VerifierEngineV1({
-        modulePath: artifactModulePath(modulePath),
-        moduleOrdinal: 0n,
-        sourceSha256: new Uint8Array(32).fill(23),
-        maximums: budget("command_budget", source.byteLength),
-        required: planned.success.required,
-      }),
-    source,
-    oracle.driverCalls,
+    planned.success.claim,
     allowance,
   );
   if (Result.isFailure(driven)) throw driven.failure;
   expect(driven.success.driverCalls).toBe(oracle.driverCalls);
   expect(driven.success.result.usage).toEqual(oracle.result.usage);
+  for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+    expect(driven.success.result.usage[dimension]).toBeLessThanOrEqual(
+      planned.success.capacity[dimension],
+    );
+  }
   return Object.freeze({
     oracle,
     exact: driven.success.result,
-    required: planned.success.required,
+    capacity: planned.success.capacity,
   });
 }
 
-describe("private parse sizing and deterministic terminal driver", () => {
+describe("private parse capacity and V1 terminal driver", () => {
   test("admits exact owner facts across lexical, parser, semantic, and diagnostic vectors", () => {
     const vectors = [
       UTF8_ENCODER.encode(""),
@@ -765,7 +803,7 @@ describe("private parse sizing and deterministic terminal driver", () => {
     for (let index = 0; index < vectors.length; index += 1) {
       const run = runExactlySizedParse(
         vectors[index]!,
-        `functions/sizing-${index}.js`,
+        `a${index}.js`,
         1_024,
       );
       expect(run.exact).toMatchObject({
@@ -807,56 +845,143 @@ describe("private parse sizing and deterministic terminal driver", () => {
       expect(one.exact.usage[dimension]).toBe(
         maximum.exact.usage[dimension],
       );
-      expect(one.required[dimension]).toBe(maximum.required[dimension]);
+      expect(one.capacity[dimension]).toBe(maximum.capacity[dimension]);
     }
-    expect(one.required.calls).not.toBe(maximum.required.calls);
+    expect(one.capacity.calls).toBe(maximum.capacity.calls);
+    expect(one.exact.usage.calls).not.toBe(maximum.exact.usage.calls);
   });
 
-  test("fails closed when authenticated driver-call facts do not match the terminal schedule", () => {
+  test("executes the selected domain boundary within every derived capacity", () => {
+    const modulePath = "a.js";
+    const sourceByteLength = 128 - UTF8_ENCODER.encode(modulePath).byteLength;
+    const prefix = "export const value=1;/*";
+    const suffix = "*/";
+    const source = UTF8_ENCODER.encode(
+      `${prefix}${
+        "x".repeat(sourceByteLength - prefix.length - suffix.length)
+      }${suffix}`,
+    );
+    expect(source.byteLength).toBe(sourceByteLength);
+    const boundary = runExactlySizedParse(source, modulePath, 1_024);
+    for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+      expect(boundary.exact.usage[dimension], dimension).toBeLessThanOrEqual(
+        boundary.capacity[dimension],
+      );
+    }
+  });
+
+  test("rejects terminal-driver allowances outside the V1 quantum", () => {
     const source = UTF8_ENCODER.encode("export const value = 1;");
-    const oracle = runParseExecutionTrace(
+    const bound = parseSizingBindings();
+    const planned = planDeclarativeV2VerifierParseCapacityV1({
+      bindings: bound,
+      commandKind: "parse_module",
+      sequence: 1n,
+      moduleOrdinal: 0n,
+      modulePath: artifactModulePath("functions/schedule.js"),
       source,
-      "functions/schedule.js",
-      1_024,
+      sourceSha256: new Uint8Array(32).fill(23),
+      commandBudget: parseCommandBudget(),
+    }, bound);
+    if (Result.isFailure(planned)) throw planned.failure;
+    const invalid = driveDeclarativeV2VerifierParseModuleTerminalV1(
+      planned.success.claim,
+      1_025,
     );
-    const tooSmall = driveDeclarativeV2VerifierParseModuleTerminalV1(
-      () =>
-        createDeclarativeV2VerifierEngineV1({
-          modulePath: artifactModulePath("functions/schedule.js"),
-          moduleOrdinal: 0n,
-          sourceSha256: new Uint8Array(32).fill(23),
-          maximums: budget("command_budget", source.byteLength),
-          required: budget("attempt_usage", source.byteLength),
-        }),
-      source,
-      oracle.driverCalls - 1n,
-      1_024,
-    );
-    expect(tooSmall).toMatchObject({
+    expect(invalid).toMatchObject({
       failure: {
         operation: "drive",
-        reason: "scheduleExceeded",
-        path: "driverCalls",
+        reason: "invalidInput",
+        path: "allowance",
       },
     });
-    const tooLarge = driveDeclarativeV2VerifierParseModuleTerminalV1(
-      () =>
-        createDeclarativeV2VerifierEngineV1({
-          modulePath: artifactModulePath("functions/schedule.js"),
-          moduleOrdinal: 0n,
-          sourceSha256: new Uint8Array(32).fill(23),
-          maximums: budget("command_budget", source.byteLength),
-          required: budget("attempt_usage", source.byteLength),
-        }),
-      source,
-      oracle.driverCalls + 1n,
-      1_024,
-    );
-    expect(tooLarge).toMatchObject({
+    expect(driveDeclarativeV2VerifierParseModuleTerminalV1(
+      planned.success.claim,
+      1,
+    )).toMatchObject({
       failure: {
         operation: "drive",
-        reason: "scheduleMismatch",
-        path: "driverCalls",
+        reason: "invalidInput",
+        path: "claim",
+      },
+    });
+    expect(closeDeclarativeV2VerifierParseCapacityV1(
+      planned.success.claim,
+    )).toMatchObject({
+      failure: {
+        operation: "drive",
+        reason: "invalidInput",
+        path: "claim",
+      },
+    });
+  });
+
+  test("binds one parse claim to owned source bytes and lifecycle", () => {
+    const source = UTF8_ENCODER.encode("export const value = 1;");
+    const expectedEvidenceSha256 = runParseExecutionTrace(
+      source,
+      "a.js",
+      1,
+    ).result.evidenceSha256;
+    const bound = parseSizingBindings();
+    const planned = planDeclarativeV2VerifierParseCapacityV1({
+      bindings: bound,
+      commandKind: "parse_module",
+      sequence: 1n,
+      moduleOrdinal: 0n,
+      modulePath: artifactModulePath("a.js"),
+      source,
+      sourceSha256: new Uint8Array(32).fill(23),
+      commandBudget: parseCommandBudget(),
+    }, bound);
+    if (Result.isFailure(planned)) throw planned.failure;
+    source.fill(0);
+    expect(driveDeclarativeV2VerifierParseModuleTerminalV1(
+      planned.success.claim,
+      1,
+    )).toMatchObject({
+      success: { result: { evidenceSha256: expectedEvidenceSha256 } },
+    });
+    expect(closeDeclarativeV2VerifierParseCapacityV1(
+      planned.success.claim,
+    )).toMatchObject({
+      failure: {
+        operation: "drive",
+        reason: "invalidInput",
+        path: "claim",
+      },
+    });
+
+    const closable = planDeclarativeV2VerifierParseCapacityV1({
+      bindings: bound,
+      commandKind: "parse_module",
+      sequence: 2n,
+      moduleOrdinal: 0n,
+      modulePath: artifactModulePath("b.js"),
+      source: UTF8_ENCODER.encode("export const value = 1;"),
+      sourceSha256: new Uint8Array(32).fill(32),
+      commandBudget: parseCommandBudget(),
+    }, bound);
+    if (Result.isFailure(closable)) throw closable.failure;
+    expect(closeDeclarativeV2VerifierParseCapacityV1(
+      closable.success.claim,
+    )).toEqual(Result.succeed(undefined));
+    expect(closeDeclarativeV2VerifierParseCapacityV1(
+      closable.success.claim,
+    )).toMatchObject({
+      failure: {
+        operation: "drive",
+        reason: "invalidInput",
+        path: "claim",
+      },
+    });
+    expect(closeDeclarativeV2VerifierParseCapacityV1(Object.freeze({
+      _tag: "DeclarativeV2VerifierParseCapacityClaimV1",
+    }))).toMatchObject({
+      failure: {
+        operation: "drive",
+        reason: "invalidInput",
+        path: "claim",
       },
     });
   });

@@ -1156,39 +1156,31 @@ implemented:
   ordinal, count, range, and arena-size operation uses checked signed-int64 and
   verifier-addressability arithmetic.
 
-  `A1b2c0b2c2b0a` has a provisional private command-plan implementation on its
-  bounded four-path owner set:
-  `packages/analysis/src/declarativeV2VerifierCommandPlanV1.ts`,
-  `packages/analysis/test/declarative-v2-verifier-command-plan-v1.test.ts`,
-  `packages/analysis/package.json`, and the analyzer export-identity test.
-  Those four provisional files are unaccepted and uncommitted; they remain
-  unwired, production-unreachable, and non-authoritative. Their filename and
-  private internal location may be reused, but their API and derivation are not
-  incrementally salvageable: the snapshot exposes one `required`
-  `attempt_usage` vector for every command, derives universal work and nonzero
-  `objectCalls` from `1,024 * authenticatedUnits`, accepts canonical
-  current-progress input without proving its reservation-owned digest, lacks
-  the command-specific authenticated facts required by the committed owners,
-  and collapses capacity-only facts into predicted actual usage. The four
-  provisional files must remain byte-for-byte unchanged until a later bounded
-  replacement is explicitly approved.
+  Capability 1 removed the provisional
+  `declarativeV2VerifierCommandPlanV1` source, test, and private package export
+  instead of promoting its universal `required` vector. The analyzer export
+  snapshot now records only intentional package subpaths, including the
+  pre-existing canonical-program subpath. No caller-authored command-plan
+  vector, `1,024 * authenticatedUnits` sizing rule, or command-budget copy is
+  retained as authority.
 
-  `A1b2c0b2c2b0a0a` exists as committed private analysis code on
-  `packages/analysis/src/declarativeV2VerifierSizingV1.ts`,
-  `packages/analysis/test/declarative-v2-verifier-sizing-v1.test.ts`, and
-  `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`, but
-  its parse-fact sizing API is test-oracle-supported only,
-  package-unexported, production-unwired, unaccepted, and not implementation
-  authority. The exact integration performs a complete first parse, extracts
-  terminal usage and evidence sizes, then creates and runs a second engine.
-  The sizing helper itself does not parse, but that does not authenticate its
-  caller-supplied facts or prove them before arena allocation. Allowances 1 and
-  1,024 preserve terminal semantics while producing different `calls`, so the
-  present schedule is not split-invariant command authority. Earlier focused,
-  typecheck, generator/identity, compatibility, and reviewer receipts remain
-  implementation evidence only; they do not establish this rejected authority
-  claim. The unchanged analyzer release-identity reproduction mismatch remains
-  a separate baseline.
+  `A1b2c0b2c2b0a0a` is now the committed package-local parse-capacity owner in
+  `packages/analysis/src/declarativeV2VerifierSizingV1.ts`. It accepts
+  authenticated lineage, the opaque module-path owner, the supplied source
+  digest, and one bounded owned source snapshot. It derives immutable capacity
+  before arena allocation from checked generated bounds and leaves terminal
+  actual usage to the existing V1 verifier. The source snapshot is the only
+  bounded pre-execution copy; there is no preliminary parse, rescan, second
+  source representation, or terminal-fact replay. The later trusted analyzer
+  adapter remains responsible for authenticating the source/digest correlation
+  before invoking this private owner. The terminal driver deliberately
+  preserves V1's observable
+  allowance-partition-dependent `calls`; allowance 1 and 1,024 therefore have
+  identical semantic/evidence results and the same capacity but may have
+  different terminal `calls`. The owner remains package-unexported, externally
+  unwired, production-inactive, and pure `Result`/plain TypeScript. The
+  unchanged analyzer release-identity reproduction mismatch remains a separate
+  baseline.
 
   For the parse-capacity direction, exact authenticated-input or fixed
   dimensions are `objectBodyBytes`, `sourceBytes`, `modules`, and `tableBytes`;
@@ -1200,11 +1192,13 @@ implemented:
   call, export, function, value-flow, graph, and frontier records are bounded
   by token occurrences; nesting frames are bounded by source openers; and the
   evidence frame count is exactly
-  `1 + callCount + valueFlowCount + diagnosticCount`. Accepted generated proof
-  metadata is still missing for the canonical LR/epsilon and injected-terminal
-  peak stack and for lexical/parser/semantic diagnostic emission multiplicity.
-  Such metadata could close those missing linear constants, but it cannot
-  solve the fixed-arena contradiction below.
+  `1 + callCount + valueFlowCount + diagnosticCount`. Capability 1 adds checked
+  generated proof metadata for the canonical parser and diagnostic
+  multiplicities: maximum production RHS length `3`, two epsilon productions,
+  six parser-stack entries per admitted domain unit, four parse diagnostic
+  phases per unit, and the owned evidence/semantic multiplicity and encoding
+  constants used by the capacity proof. The generated bounds identity is
+  `db2dd17538d9c26f8d03b01f244cb8d2bfe845bb8a41e3093261778b25c9b56b`.
 
   The exact V1 caller-proportional arena is
   `12_544 + 56*tokens + 24*parserStates + 16*nestingDepth + 64*modules +
@@ -1230,13 +1224,18 @@ implemented:
   same-length actual-fit module. The exact universal maximum remains unproved,
   while this constructive family proves the hard ceiling `Nmax <= 160_613`.
 
-  The multiplicity evidence supports generated proof metadata plus a stricter
-  accepted source/domain limit as the conservative completion direction.
-  Capability 1 must derive and select the numerical limit from generated
-  parser/diagnostic bounds and checked arena proof rather than guessing it here.
-  That direction changes accepted inputs and pre-allocation failure order and
-  therefore requires focused compatibility, generated-bound, identity, restart,
-  and later producer proof. An analysis-owned streaming, interning, or
+  Capability 1 selects a conservative combined UTF-8 module-path plus
+  source-domain limit of `128` bytes. The generated checked arena proof selects
+  the largest power-of-two domain beneath a `67,108,864`-byte core arena
+  ceiling, leaving half of the Cloudflare Worker `128` MiB isolate limit for
+  non-arena host state: the complete V1 caller-proportional arena is at most
+  `48,273,592` bytes at `128`, while the next power of two (`256`) requires
+  `156,553,528` bytes. Every formula is evaluated with checked
+  signed-int64 arithmetic before existing u32 region/total addressability
+  admission; `129` fails before allocation. This deliberately conservative
+  limit changes accepted inputs and pre-allocation failure order while
+  preserving admitted V1 bytes and identities. An analysis-owned streaming,
+  interning, or
   factoring design could separate peak storage capacity from cumulative
   canonical/hash/output actual while preserving canonical evidence bytes, but
   would change the arena/module/restart representation and require monolithic
@@ -1287,11 +1286,10 @@ implemented:
   authenticated acquisition, request `Scope`, cancellation, interruption,
   foreign `Cause`, clocks, resources, uncertainty, release, and finalization.
 
-  `A1b2c0b2c2b0a1c-P` is resolved as design evidence: the provisional
-  sizing and driver APIs remain test-oracle-only, production-unwired,
-  unaccepted, uncommitted, and are not implementation authority. Their
-  disposition belongs to capability 1 rather than a separate research gate.
-  Any need for a protocol field, backend producer, executor-HTTP codec,
+  `A1b2c0b2c2b0a1c-P` is resolved by capability 1: the terminal-fact sizing
+  API was replaced with authenticated-length capacity planning, the V1 driver
+  retained its existing call law, and the provisional command-plan API was
+  removed. Any need for a protocol field, backend producer, executor-HTTP codec,
   persistence/schema decision, analyzer adapter, generated identity change, or
   different parser allocation owner crosses a material boundary and must stop
   for a new proportional preflight. Existing request, response, restart,
@@ -1712,7 +1710,8 @@ implemented:
   consumes admitted-command or claimed restart-source capabilities; no backend
   companion producer, settlement owner, route/binding, candidate, repository
   `Work`/fence, OCC/commit authority, activation path, or production caller
-  exists. Provisional command-plan work remains unaccepted and uncommitted.
+  exists. Capability 1 removed the provisional command-plan
+  source/test/private export rather than treating its bytes as authority.
   `A1b2c0b2c2b0a1-P` is complete as research/design evidence; b0b/b0c/c2b/c3
   and real cold recovery remain unimplemented. Registration and diagnostic
   frame identities, request/response/restart/readback/progress/physical bytes,
@@ -1725,17 +1724,24 @@ implemented:
   analyzer capabilities. The accepted direction is to preserve V1 call
   accounting and close parse allocation with a proven conservative
   source/domain limit plus generated parser and diagnostic multiplicity bounds.
-  Capability 1 must derive and select the numerical limit during implementation
-  from checked signed-int64/u32 and arena proofs; this roadmap does not guess
-  it. Streaming/factoring, a new arena representation, and a new evidence
+  Capability 1 selected a checked `128`-byte combined module-path/source limit;
+  its maximum arena is `48,273,592` bytes beneath the `67,108,864`-byte core
+  arena ceiling, while the next power of two requires `156,553,528`
+  bytes. Streaming/factoring, a new arena representation, and a new evidence
   representation are deferred.
 
-  **A1b2 capability 1 — verifier core contract completion.** Complete generated
-  bounds, checked capacity/allocation and terminal-actual enforcement across
-  parse/source/link/registration, preserve the observable V1 `calls` law,
-  reconcile or remove the provisional command-plan API, and prove focused
-  monolithic, restart, canonical-byte, generated-bound, identity, and
-  compatibility behavior.
+  **A1b2 capability 1 — verifier core contract completion.** The
+  analysis-owned capability is implemented and committed. It preserves
+  observable V1 `calls`, selects the checked `128`-byte combined
+  module-path/source domain, admits immutable parse capacity before allocation,
+  and retains verifier-owned terminal actual enforcement. The generated proof
+  pins a `48,273,592`-byte maximum arena at the selected limit beneath the
+  `67,108,864`-byte core arena ceiling; the next power-of-two domain requires
+  `156,553,528` bytes. Source, link, and registration retain their existing
+  capacity/actual laws, the provisional command-plan API is removed, and
+  focused monolithic, restart, canonical-byte, generated-bound, identity,
+  allowance, and transport compatibility lanes are green. The capability
+  remains package-internal, externally unwired, inert, and production-inactive.
 
   **A1b2 capability 2 — accepted complete analyzer port.** Compose the
   source/link/registration owners behind one entry, add trusted warm and
@@ -1767,9 +1773,10 @@ implemented:
 
 The private c1b historical settled-page readback is implemented beside the
 private c1a restart-input transport, and the private c2a claimed-source
-prerequisite is implemented but inert. The private a0a parse-module sizing
-policy is implemented and committed, while the four provisional b0a
-command-plan files remain unaccepted and uncommitted. The private b0a0b0a
+prerequisite is implemented but inert. The private a0a parse-module capacity
+policy is implemented and committed, while the former four-file b0a
+command-plan snapshot and private export have been removed rather than adopted
+as authority. The private b0a0b0a
 protocol cursor and b0a0b0 source-page sizing/driver are implemented and
 committed. The source-page owner consumes the cursor directly while remaining
 package-local, unexported, unwired, production-unreachable, and inert. The
@@ -1783,20 +1790,20 @@ The a1 preflights are retained as evidence, not as a queue of prerequisite
 micro-gates. They established the command-input/admission/sealed-capability/
 terminal-proof lifecycle, source-length addressability counterexample, and
 observable V1 call-accounting contract. The selected direction preserves V1
-call accounting and uses generated parser/diagnostic bounds with a conservative
-source/domain limit. Capability 1 must derive and select the numerical limit
-during implementation from checked proof; this roadmap does not guess it.
+call accounting and uses generated parser/diagnostic bounds with a checked
+conservative `128`-byte combined source/domain limit and a `48,273,592`-byte
+maximum arena proof beneath the `67,108,864`-byte core arena ceiling.
 Streaming/factoring, arena-version, and evidence-version redesigns are deferred.
 
 Analyzer completion is exactly two medium capabilities: verifier core contract
-completion, then one accepted complete analyzer port. Capability 1 owns
-generated bounds, checked capacity/allocation and terminal actual across all
-four commands, provisional command-plan disposition, and focused monolithic,
-restart, identity, and compatibility proof. Capability 2 owns
+completion, then one accepted complete analyzer port. Capability 1 is complete:
+it owns generated bounds, checked capacity/allocation and terminal actual
+across all four commands, removal of the provisional command-plan API, and
+focused monolithic, restart, identity, and compatibility proof. Capability 2 owns
 source/link/registration composition, trusted warm/cold host/session lifecycle,
 authenticated terminal `A`, `E`, and `R` channels, deterministic
-failure/release proof, and focused integration validation. Neither capability
-is implemented by this documentation change.
+failure/release proof, and focused integration validation and remains
+unimplemented.
 
 After capability 2 is accepted, the analyzer remains externally unwired and
 production-inactive until the separate routing and activation boundary is

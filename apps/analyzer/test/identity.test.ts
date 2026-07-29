@@ -91,6 +91,8 @@ describe("private analyzer deterministic identity", () => {
     ) as { readonly exports?: unknown };
     expect(analysisPackageJson.exports).toEqual({
       ".": "./src/index.ts",
+      "./internal/canonical-declarative-program-v1":
+        "./src/canonicalDeclarativeProgramV1.ts",
       "./internal/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",
       "./internal/private-analyzer-verification-v1": "./src/privateAnalyzerVerificationV1.ts",
       "./internal/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts",

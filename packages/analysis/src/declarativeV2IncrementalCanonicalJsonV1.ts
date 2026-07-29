@@ -15,6 +15,8 @@ const MAX_RELEVANT_JSON_EXPONENT = 0xffff_ffff + 400;
 const MAX_CANONICAL_NUMBER_BYTES = 32;
 const OUTPUT_CHUNK_BYTES = 4_096;
 const MAXIMUM_TRANSITIONS_PER_CALL = 1_024;
+export const DECLARATIVE_V2_INCREMENTAL_CANONICAL_JSON_MAXIMUM_ESCAPE_BYTES_PER_INPUT_BYTE_V1 =
+  6;
 // This fixed scratch covers every binary64 decimal rounding boundary,
 // including the longest subnormal cases. A sticky digit records a non-zero
 // suffix beyond the retained prefix.
