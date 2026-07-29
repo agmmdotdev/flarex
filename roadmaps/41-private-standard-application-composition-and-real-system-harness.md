@@ -1,14 +1,15 @@
-# Private Standard Application Composition And Real-System Harness
+# Private Application Corpus And Real-System Harness
 
 ## Status And Scope
 
 **Status:** `SAC01-P`, `SAC01-A`, and the `SAC01-B1` pure corpus foundation are
-complete. A pure, test-local standard-application definition, deterministic
-case catalog, and replay selection are implemented under the backend test
-owner. A dedicated harness package, complete replacement analyzer port,
-private real-system harness, deterministic workload runner, and live
-composition are not implemented or green as one system. This record does not
-assume that another canonical application or invocation contract is required.
+complete. A pure test-local definition fixture, deterministic case catalog,
+and replay selection are implemented under the backend test owner. They call
+the canonical-program and materializer owners directly; they are Test API
+groundwork, not an implemented Standard Application API. A dedicated harness
+package, complete replacement analyzer port, private real-system harness,
+deterministic workload runner, and live composition are not implemented or
+green as one system.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,
@@ -16,11 +17,14 @@ mutations, actions, public and internal variants, and scheduled invocations,
 then replay bounded multi-application workloads without first designing or
 publishing the developer-facing SDK.
 
-This record owns only the cross-domain composition goal, the private standard
-application-definition API requirement, the private system-harness and workload
-API requirements, their package-separation rules, the real-system acceptance
-ladder, and checkpoint ordering across existing domain owners. It does not own
-or replace:
+This record owns only the internal test corpus, workload and real-system
+harness requirements, their package-separation rules, the real-system
+acceptance ladder, and checkpoint ordering across existing domain owners. It
+does not own or replace:
+
+- [`42-standard-application-apis.md`](./42-standard-application-apis.md), which
+  owns the shared Standard Application API layer used by developer and test
+  producers;
 
 - [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md),
   which owns the canonical declarative program and materialization contracts;
@@ -40,11 +44,13 @@ or replace:
 
 ## Decision
 
-Compose the existing standard contracts through three private test-owned
-surfaces below future SDK ergonomics and above host-specific execution:
+Compose the existing contracts through separate Standard Application and
+private test-owned surfaces below future SDK ergonomics and above
+host-specific execution:
 
 ```text
-private standard application definitions now / developer SDK and codegen later
+developer SDK producer / internal test definition producer
+  -> Standard Application APIs
   -> existing canonical declarative-program contract
   -> canonical module graph and immutable artifact bundle
   -> content-addressed artifact upload
@@ -62,11 +68,10 @@ deterministic private workload scenarios
   -> reproducible evidence and authoritative readback
 ```
 
-The future developer APIs and the private standard application-definition API
-are separate producers of the existing canonical declarative-program contract.
-SDK objects must not become authority that downstream analysis, execution, or
-persistence trusts. Internal tests must be able to produce the same canonical
-contract directly through bounded test-owned adapters.
+The future developer APIs and the internal Test APIs are separate producers of
+the Standard Application APIs owned by roadmap 42. SDK objects and test
+fixtures must not become authority that downstream analysis, execution, or
+persistence trusts.
 
 Do not implement this as one universal compiler, one universal object, or a
 second representation parallel to the canonical declarative program. Use the
@@ -86,17 +91,15 @@ through the same artifacts, analyzer, runtime, transaction, OCC, commit, and
 authoritative-row paths that production will use. The later SDK should only add
 authoring ergonomics, type generation, codegen, routing, and distribution.
 
-## Private Standard API Layers
+## Private Test API Layers
 
-The word **standard** refers to stable internal contracts between existing
-domain owners. It does not mean public, production-routed, or semver-stable.
-The private milestone requires three deliberately separate API layers:
+The private milestone requires three deliberately separate test layers over
+the shared Standard Application APIs:
 
-1. **Application definition.** A pure, inert, deterministic API constructs the
-   existing canonical declarative program plus the separately owned prebuilt
-   module graph and explicit function-entry bindings. It owns no live
-   capability and performs no upload, analysis, registration, invocation, or
-   database work.
+1. **Application definition fixtures.** Pure, inert, deterministic test data
+   supplies explicit Standard definition inputs, including the canonical
+   program input, prebuilt module graph, function-entry bindings, and budgets.
+   It owns no production API or live capability.
 2. **Real-system harness.** An Effect-owned composition API drives the real
    upload, authenticated analyzer, verifier, private registration, runtime
    host, executor, OCC, commit, and authoritative-readback owners. Its methods
@@ -113,18 +116,19 @@ Do not collapse these layers into a generic `Application` object or an
 untyped `invoke(anything)` operation. Definition data, live orchestration, and
 repeatable workload policy have different authority and lifecycle owners.
 
-## Internal Definition Producer
+## Internal Test Definition Producer
 
-The default decision is to reuse the canonical contract owned by
+The default decision is to enter the Standard definition API owned by roadmap
+42, which in turn reuses the canonical contract owned by
 [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md).
-The private harness needs a standard application-definition API that constructs
-that contract without depending on a public SDK. The future SDK and codegen
-become another producer of the same contract.
+The private harness must not depend on a public SDK. The future SDK/codegen and
+the private fixture/corpus become separate producers of the same Standard API.
 
-`SAC01-P` found that the smallest first definition API is test-owned fixture
-data passed directly to the existing canonical decoder and materializer, not a
-new generic builder or application representation. The current V1 canonical
-program already owns:
+`SAC01-P` found that the smallest Test API groundwork is fixture data passed
+directly to the existing canonical decoder and materializer, not a generic
+builder or application representation. Roadmap 42 now owns migration of that
+fixture sequence onto the shared Standard definition operation. The current V1
+canonical program already owns:
 
 - logical module and exported entry point;
 - function kind: query, mutation, workflow mutation, or action;
@@ -195,10 +199,10 @@ their owning preflights.
 
 ## Compilation, Bundling, Analysis, And R2
 
-The private standard application-definition API and future SDK compiler should
-produce inert input for the existing canonical-program materializer. The
-bundling owner, not the analyzer, owns canonical module packaging and bundle
-bytes.
+The Standard definition API accepts inert inputs from internal tests and the
+future SDK/compiler producer, then composes the existing canonical-program and
+materializer owners. The bundling owner, not the Standard API or analyzer,
+owns canonical module packaging and bundle bytes.
 
 The artifact upload owner stores the immutable, content-addressed bundle in R2
 and returns bounded storage evidence. R2 is artifact storage, not application
@@ -314,10 +318,10 @@ contract.
 The first consumer is an internal correctness and stress harness, not the
 public test SDK. It must be able to:
 
-1. use the private standard application-definition API to define a small test
-   application containing schema declarations, queries, mutations, internal
-   variants, actions, and scheduled trigger descriptors through their existing
-   owners;
+1. use test-owned fixtures and workload policy to enter the Standard
+   Application APIs for a small application containing schema declarations,
+   queries, mutations, internal variants, actions, and separately owned
+   scheduled trigger descriptors;
 2. compile and materialize the canonical program and bundle;
 3. upload the immutable bundle through the real artifact-storage owner;
 4. authenticate and analyze it through the replacement analyzer;
@@ -413,19 +417,20 @@ At the time this direction was recorded:
 - private executor-host composition remains absent; and
 - `C07` remains a separate prerequisite for the real point-mutation proof.
 
-This roadmap does not claim that a private standard application-definition API,
-complete private analyzer port, private real-system harness, deterministic
-workload runner, developer API, or production activation is implemented or
+This roadmap does not claim that the Standard Application API family, complete
+private analyzer port, private real-system harness, deterministic workload
+runner, Developer API migration, or production activation is implemented or
 green. It also does not claim that another canonical application contract is
 needed.
 
 ## Package Separation Direction
 
-Package boundaries follow authority and dependency direction, not the desire
-to place every standard API in one package:
+Package boundaries follow authority and dependency direction. Standard APIs
+must not accumulate in one catch-all package:
 
 | Concern | Default owner |
 | --- | --- |
+| Pure shared definition preparation across the next two owners | future `@flarex/standard-application-definition/v1`, owned by roadmap 42 |
 | Pure canonical application intent and bounded fixture normalization | existing `@flarex/declarative-program/v1` |
 | Pure source/semantic artifact materialization | existing `@flarex/declarative-materializer/v1` |
 | Exact portable wire contracts | intentional `flarex-protocol` subpaths |
@@ -452,23 +457,26 @@ second consumer needs it without the live harness dependencies.
 
 ### Accepted Starting Separation
 
-`SAC01-P` accepts this starting separation:
+The accepted starting separation, updated by roadmap 42, is:
 
-1. keep canonical normalization and any exact pure fixture mechanics in
+1. place only pure cross-owner definition preparation in
+   `@flarex/standard-application-definition/v1`;
+2. keep canonical normalization and any exact pure fixture mechanics in
    `@flarex/declarative-program/v1`;
-2. keep module-graph admission and artifact construction in
+3. keep module-graph admission and artifact construction in
    `@flarex/declarative-materializer/v1`;
-3. keep every new runtime semantic in a capability-specific
+4. keep every new runtime semantic in a capability-specific
    `@flarex/function-runtime` subpath only after its owning preflight;
-4. place the first pure definition and corpus seed test-locally under
+5. keep definition fixtures, corpus membership, replay, expectations, and
+   faults test-locally under
    `flarex-backend/test/privateStandardApplication/`;
-5. make the existing backend upload-correlation fixture the first concrete
-   consumer of that seed;
-6. leave the future live cross-domain harness owner undecided until the
+6. migrate those tests onto the Standard definition operation without moving
+   test policy into its package;
+7. leave the future live cross-domain harness owner undecided until the
    replacement analyzer and `C07` expose the exact adapters it must compose;
    do not force it into `flarex-backend` if that requires backend-to-persistence
    or backend-to-executor-worker ownership reversal; and
-7. extract a dedicated private system-harness package only when the
+8. extract a dedicated private system-harness package only when the
    package-separation gate above is satisfied.
 
 `flarex-backend` already has development-only dependencies on the canonical
@@ -482,7 +490,7 @@ eventual end-to-end test root.
 
 The read-only, docs-first preflight was:
 
-**`SAC01-P — private standard application composition preflight`**
+**`SAC01-P — private application corpus and harness preflight`**
 
 That preflight must:
 
@@ -500,9 +508,9 @@ That preflight must:
    descriptor, then define exact query, mutation, workflow-mutation, action,
    internal-visibility, nested-call, and scheduled-invocation semantics,
    including capability profiles and unsupported cases;
-5. define the smallest private standard application-definition adapter into
-   the existing declarative-program materializer without inventing a second
-   program or artifact representation;
+5. define the smallest test-owned definition input sequence into the existing
+   declarative-program materializer without inventing a second program or
+   artifact representation;
 6. reuse the existing host-neutral function-runtime contract and identify only
    the bounded capability extensions needed for query, mutation,
    internal-function, and cron-trigger execution;
@@ -611,11 +619,11 @@ Promote the harness to named services and Layers only when the accepted live
 composition exposes reusable capabilities and at least two concrete consumers
 need the same lifecycle owner.
 
-### Implemented First Slice: `SAC01-A`
+### Implemented Test-Fixture Slice: `SAC01-A`
 
-`SAC01-A` establishes one private standard-application fixture contract, and
-the backend upload-correlation fixture consumes it. It does not create the live
-harness.
+`SAC01-A` establishes one private test-fixture contract, and the backend
+upload-correlation fixture consumes it. It does not create a Standard API or
+the live harness.
 
 Exact path allowlist:
 
@@ -713,8 +721,8 @@ replacement analyzer.
 
 | Gate | Scope | Entry condition |
 | --- | --- | --- |
-| `SAC01-B2` | Expand corpus membership or workload parameters without adding new domain semantics | A concrete coverage gap is identified; remains pure and test-local unless a second real consumer proves extraction |
-| `SAC01-C` | Add the narrow replacement analyzer port and analyzer corpus lane | A1b2 command plan, link and registration ownership, pure engine, Effect host, and executor composition are accepted and exposed through one supported adapter |
+| `SAC01-B2` | Expand corpus membership or workload parameters without adding new domain semantics | Standard API `SAP01-B` is complete and a concrete coverage gap is identified; remains pure and test-local unless a second real consumer proves extraction |
+| `SAC01-C` | Add the narrow replacement analyzer port and analyzer corpus lane | Standard API `SAP02` and the A1b2 command plan, link and registration ownership, pure engine, Effect host, and executor composition are accepted and exposed through one supported adapter |
 | `SAC01-D` | Compose verified registration and schema/catalog publication/readiness for one private application revision | Replacement registration owner and an approved schema-lifecycle adapter exist without direct database access |
 | `SAC01-E` | Execute and authoritatively read back one real point mutation | `SAC01-C`, `SAC01-D`, and foundation `C07` are complete with real PGlite/Postgres evidence |
 | `SAC01-F` | Add queries, internal calls, workflow mutations, actions, and scheduled invocations one capability at a time | Each capability has its own runtime/host/claim contract and focused preflight |
@@ -777,9 +785,9 @@ This direction does not authorize:
 - treating an inert contract, codec, upload receipt, or unit test as proof that
   the private real system is assembled.
 
-The enduring rule is: produce the existing inert canonical contracts through
-private standard application definitions now and SDK ergonomics later, compose
-schema and runtime authority only through their existing owners, grant
-authority only at owned host boundaries, and exercise both high-volume
-deterministic corpora and the representative real system before designing the
-developer-facing surface.
+The enduring rule is: let explicit Test APIs and later ergonomic Developer APIs
+enter the same Standard Application APIs, keep the corpus and workload policy
+test-owned, compose schema and runtime authority only through their existing
+owners, grant authority only at owned host boundaries, and exercise both
+high-volume deterministic corpora and the representative real system before
+stabilizing the developer-facing surface.

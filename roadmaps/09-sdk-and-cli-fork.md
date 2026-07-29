@@ -19,6 +19,9 @@ This roadmap owns:
 
 It does not own:
 
+- the workspace-internal Standard Application APIs that developer tooling
+  lowers into, covered by
+  [`42-standard-application-apis.md`](./42-standard-application-apis.md);
 - backend analysis and push authority, covered by
   [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md);
 - local dev runtime composition, covered by
@@ -78,6 +81,30 @@ Primary implementation anchors:
 The SDK is derived from and modeled closely on portable Convex npm-package
 patterns. It is a compatibility SDK, not the backend source of truth and not a
 license to reuse Convex cloud-specific behavior unchanged.
+
+### Relationship To Standard Application APIs
+
+The public SDK and `flarex-dev` are Developer API producers. Their ergonomic
+objects are not the stable contract consumed directly by replacement
+analysis, registration, or runtime owners:
+
+```text
+defineSchema / defineTable / query / mutation / action
+  -> flarex-dev SDK inspection, codegen, bundling, and producer policy
+  -> Standard Application definition API
+  -> canonical program and artifact materializer owners
+  -> later Standard analysis, registration, and invocation APIs
+```
+
+Roadmap 42 owns the Standard layer. The SDK retains authoring ergonomics,
+TypeScript inference, runtime markers, codegen, source packaging, and
+developer-facing diagnostics. It lowers those values into explicit Standard
+inputs; it does not make SDK class identity, function closures, generated
+files, or source-package conventions downstream authority.
+
+The first Standard definition package is workspace-internal and is not
+re-exported from `flarex`. Publication and semver compatibility require a
+separate consumer and release preflight.
 
 ## Public SDK Surface
 
@@ -399,6 +426,10 @@ replace a release-level license/NOTICE audit across every published package.
 15. **Compatibility additions remain explicit.** Flarex-specific schema/routing
     concepts are named, documented, and re-evaluated against accepted Postgres
     authority instead of being mislabeled as Convex behavior.
+16. **Developer APIs lower through the Standard layer.** Once the relevant
+    Standard capability is implemented, replacement developer tooling must
+    delegate to it rather than maintain a parallel canonical/materialization,
+    analysis, registration, or invocation sequence.
 
 ## Decisions And Rationale
 
@@ -524,6 +555,7 @@ developer model while exposing only proven Flarex differences:
 ```text
 developer modules + generated types
   -> source-only codegen/deploy CLI
+  -> Standard Application definition preparation
   -> backend-controlled analysis
   -> final codegen and mandatory validation policy
   -> active managed execution artifact
@@ -559,3 +591,7 @@ transaction routing remain platform internals.
 7. **Connect replacement schemas to codegen.** Generate from the exact immutable
    active FlarexDB schema/package artifacts and prove stale generation/fence
    metadata cannot produce runnable client/server output.
+8. **Adopt the Standard definition API.** After roadmap 42 `SAP01-A`, retain
+   SDK inspection and source-package lowering in `flarex-dev`, then delegate
+   its final canonical-program and materializer composition through
+   `SAP01-C` with output and failure-order parity.

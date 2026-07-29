@@ -21,6 +21,11 @@ This roadmap owns:
 
 It does not own:
 
+- the workspace-internal Standard Application APIs, covered by
+  [`42-standard-application-apis.md`](./42-standard-application-apis.md);
+- the internal corpus, workload policy, or private real-system harness,
+  covered by
+  [`41-private-standard-application-composition-and-real-system-harness.md`](./41-private-standard-application-composition-and-real-system-harness.md);
 - local runtime composition or persistence implementation, covered by
   [`14-local-dev-server.md`](./14-local-dev-server.md);
 - repository-wide evidence lanes, covered by
@@ -253,13 +258,16 @@ to `flarex`. This makes the package an ergonomic owner/lifecycle adapter rather
 than a semantic implementation. New helpers should continue to route through
 owned domain interfaces.
 
-### Private Standard Application APIs Come First
+### Standard APIs And The Private Harness Come First
 
-The private standard application-definition, real-system harness, and
-deterministic workload APIs are owned by
+The shared definition, analysis, registration, and invocation stage APIs are
+owned by
+[`42-standard-application-apis.md`](./42-standard-application-apis.md).
+The internal corpus, deterministic workload policy, and private real-system
+harness are separately owned by
 [`41-private-standard-application-composition-and-real-system-harness.md`](./41-private-standard-application-composition-and-real-system-harness.md).
-They exist below this public ergonomic layer and must prove the replacement
-application path before `flarex-test` adopts it.
+Both layers exist below this public ergonomic boundary and must prove the
+replacement application path before `flarex-test` adopts it.
 
 Roadmap 41's completed `SAC01-P` preflight accepts a first pure definition and
 corpus seed local to backend tests only. That test fixture is not a stable
@@ -268,7 +276,8 @@ package API, live harness, or adoption surface for `flarex-test`.
 `flarex-test` must not become the first owner of canonical schema, function,
 trigger, artifact, analyzer, registration, runtime, executor, or workload
 semantics. It may later adapt generated references and developer-friendly
-options into the private standard contracts after those contracts are stable.
+options into stable Standard contracts and private harness capabilities after
+those lower layers exist.
 Unsupported capabilities stay absent from the public type surface; a public
 method must not be added merely because the canonical definition can describe
 that function kind.
@@ -387,7 +396,8 @@ runtime:
 ```text
 generated API reference + test identity/fixture intent
   -> flarex-test ergonomic/lifecycle boundary
-  -> proven private standard application and invocation adapters
+  -> proven Standard Application definition and invocation APIs
+  -> private real-system harness composition
   -> backend-controlled active source package and analysis
   -> managed Miniflare user-code artifact
   -> trusted PGlite executor transaction
@@ -404,9 +414,10 @@ separate evidence lanes, not alternate test SDK semantics.
 
 1. **Keep the replacement dependency direction explicit.** Do not design new
    public schema, query, mutation, action, internal-function, scheduling, seed,
-   or snapshot ergonomics ahead of roadmap 41's corresponding private standard
-   definition, harness, and runtime capability. Existing public compatibility
-   corrections may continue without widening that replacement surface.
+   or snapshot ergonomics ahead of roadmap 42's corresponding Standard
+   capability and roadmap 41's corresponding private harness capability.
+   Existing public compatibility corrections may continue without widening
+   that replacement surface.
 2. **Make the public surface truthful.** Remove or explicitly experimentalize
    `action()` until actions execute end to end; add runtime decoding for success
    envelopes and negative tests for kind/visibility/malformed responses.

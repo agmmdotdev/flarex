@@ -195,12 +195,13 @@ consumers. Exact wire primitives remain in explicit `flarex-protocol`
 subpaths, and the SDK adapter remains outside the contract package. This does
 not create a vague `core`, `common`, or catch-all package.
 
-### Relationship To The Private Standard Application APIs
+### Relationship To Standard Application APIs
 
-[`41-private-standard-application-composition-and-real-system-harness.md`](./41-private-standard-application-composition-and-real-system-harness.md)
-uses this package as the pure application-intent owner for its private standard
-application-definition API. That relationship does not widen this contract
-into a live application, deployment, or test-harness service.
+[`42-standard-application-apis.md`](./42-standard-application-apis.md) uses this
+package as the pure application-intent owner below its Standard definition
+operation. Roadmap 41's test-owned fixtures and corpus enter that operation.
+Neither relationship widens this contract into a live application, deployment,
+or test-harness service.
 
 The canonical program owns function kind and visibility as separate facts.
 `internal` is visibility on a query, mutation, workflow mutation, or action; it
@@ -220,12 +221,14 @@ The following remain outside `CanonicalDeclarativeProgramV1`:
 - runtime capability grants, invocation claims, and execution projections; and
 - workload seeds, steps, faults, replay receipts, and expected observations.
 
-A private standard application-definition API may compose this value with
-separately owned inputs and outputs, but must not publish one aggregate that
-lets those claims masquerade as canonical developer intent. The existing
-`@flarex/declarative-program/v1` package remains the owner of pure bounded
-normalization. Live real-system orchestration and deterministic workload
-execution belong to roadmap 41's test-owned composition root, not this package.
+The Standard definition API owned by
+[`42-standard-application-apis.md`](./42-standard-application-apis.md) may
+compose this value with separately owned materializer inputs and outputs, but
+must not let that grouping masquerade as canonical developer intent or
+downstream authority. The existing `@flarex/declarative-program/v1` package
+remains the owner of pure bounded normalization. Live real-system orchestration
+and deterministic workload execution belong to roadmap 41's test-owned
+composition root, not this package.
 
 ## Proposed Contract Responsibilities
 
@@ -1376,7 +1379,8 @@ verifier tests
 runtime tests
   -> verified projection fixture -> function execution
 
-private standard application tests
+internal application tests
+  -> explicit Standard definition inputs
   -> canonical definition plus separately owned module graph
   -> real upload, analyzer, registration, schema, runtime, and persistence owners
 
@@ -1387,14 +1391,14 @@ bulk workload tests
 
 No downstream domain needs the final ergonomic SDK in order to develop its own
 semantics, and no downstream domain accepts an SDK object as authority. The
-private standard application API does not change this dependency direction: it
-is a producer and composition consumer of the existing contracts, not their new
-authority.
+Standard Application API layer does not change this dependency direction: it
+composes the existing contracts and remains above their owners rather than
+becoming their new authority.
 
-Roadmap 41's completed `SAC01-P` preflight accepts only a test-local backend
-fixture descriptor that groups exact canonical-program and module-graph inputs
-for the existing decoder and materializer. It does not add a builder, canonical
-field, package export, or downstream authority to this owner.
+Roadmap 41's test-local backend fixture descriptor groups exact
+canonical-program and module-graph inputs. Roadmap 42 `SAP01-A` will place the
+shared pure preparation sequence in its own narrow package. Neither change adds
+a builder, canonical field, or downstream authority to this owner.
 
 ## Next Correctness Gate
 

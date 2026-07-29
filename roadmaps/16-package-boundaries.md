@@ -10,6 +10,8 @@ placement, and the checks that make those boundaries credible.
 
 It does not own:
 
+- the semantics and sequencing of Standard Application APIs, which belong to
+  [`42-standard-application-apis.md`](./42-standard-application-apis.md);
 - database authority, schema, OCC, or transaction semantics, which belong to
   [`20-postgres-executor.md`](./20-postgres-executor.md) and the
   [FlarexDB foundation plans](./flarexdb-foundation/README.md);
@@ -95,6 +97,9 @@ framework-neutral domain cores
 
 portable developer and wire contracts
   -> flarex
+  -> future @flarex/standard-application-definition
+  -> @flarex/declarative-program
+  -> @flarex/declarative-materializer
   -> flarex-protocol
 
 generic dependency leaf
@@ -139,6 +144,26 @@ there only after it is proven to be a stable generic primitive with independent
 consumers and no lower-level domain owner. Repeated protocol canonicalization,
 persistence codecs, authority logic, Effect contracts, host behavior, and
 legacy compatibility remain with their real owners.
+
+### Accepted Standard Definition Package
+
+Roadmap 42 approves one narrow future package:
+`@flarex/standard-application-definition` with only an explicit `./v1`
+export. It composes the existing canonical-program and declarative-materializer
+owners for Developer API and internal Test API producers.
+
+```text
+flarex-dev producer --------\
+                             -> @flarex/standard-application-definition
+backend test producer ------/       -> @flarex/declarative-program
+                                      -> @flarex/declarative-materializer
+```
+
+The package is not a generic core, public SDK barrel, live harness, analyzer
+host, registry, runtime, or persistence owner. It may use pure Effect `Result`
+composition, but has no service, Layer, runner, Node, Cloudflare, database, or
+application dependency. Later Standard stages require their own placement
+preflight; they do not automatically accumulate in this package.
 
 ### Hosted Runtime Topology
 
@@ -580,6 +605,9 @@ semantics.
   Manifest review, TypeScript resolution, focused tests, and app bundle scripts
   provide partial enforcement, but a forbidden dependency could otherwise be
   introduced accidentally.
+- The accepted `@flarex/standard-application-definition` package and its
+  boundary checks are not implemented yet; developer and test producers still
+  call the two core owners directly.
 - `flarex-backend` still contains legacy Durable Object storage and routing
   code alongside forward platform coordination. Replacement must prevent that
   ownership from leaking into new Postgres work, port intended semantics, move
@@ -613,8 +641,8 @@ role of legacy Durable Object and initial-Postgres app-data code after target
 parity, internal-caller migration, and hosted correctness gates pass. Backfill,
 comparison, cutover, and runtime rollback are conditional on shipped evidence,
 not package existence. Local development and tests should exercise the same
-accepted core contracts as production while keeping privileged composition
-outside Worker bundles.
+accepted Standard Application APIs and core contracts as production while
+keeping privileged composition outside Worker bundles.
 
 ## Next Correctness Gates
 
@@ -622,18 +650,21 @@ outside Worker bundles.
    directions in this roadmap, allow the deliberate `flarex-dev`/`flarex-test`
    composition exceptions, test the checker, and run it in the normal
    validation path.
-2. **Compact deployment-analysis ownership.** Make roadmap 17 state exactly
+2. **Implement the narrow Standard definition package.** Complete roadmap 42
+   `SAP01-A` without creating a catch-all Standard package or importing host,
+   analyzer, runtime, executor, or persistence owners.
+3. **Compact deployment-analysis ownership.** Make roadmap 17 state exactly
    which package owns local feedback, backend-authoritative analysis, push,
    activation, artifact materialization, and final codegen.
-3. **Keep new FlarexDB work on the trusted core path.** Each foundation slice
+4. **Keep new FlarexDB work on the trusted core path.** Each foundation slice
    must place database mechanics in persistence, trusted orchestration in the
    executor, and runtime lifecycle only in adapters/apps, with PGlite and
    real-Postgres evidence appropriate to the change.
-4. **Prove production graph isolation continuously.** Executor and artifact
+5. **Prove production graph isolation continuously.** Executor and artifact
    runtime bundle gates must fail when local tooling, Node collectors,
    compatibility routers, migration composition, or raw database authority
    enters a narrower Worker graph.
-5. **Retire surfaces according to their real obligation.** Inventory remaining
+6. **Retire surfaces according to their real obligation.** Inventory remaining
    HTTP/Nitro consumers separately from legacy app-data and broad persistence
    callers. Host adapters remain until caller and host-parity evidence permits
    removal. Unshipped app-data prototypes remain only until target package,
