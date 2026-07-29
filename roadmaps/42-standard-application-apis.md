@@ -2,11 +2,13 @@
 
 ## Status And Scope
 
-**Status:** Active internal contract. `SAP01-A` is implemented: the pure
-`@flarex/standard-application-definition/v1` package composes canonical-program
-normalization and artifact-ingress materialization, and the first backend
-definition-fixture consumer uses it. The internal corpus and developer producer
-have not migrated yet. `SAP01-B` is the next implementation gate.
+**Status:** Active internal contract. `SAP01-A` and `SAP01-B` are implemented:
+the pure `@flarex/standard-application-definition/v1` package composes
+canonical-program normalization and artifact-ingress materialization, and the
+backend definition fixture plus the corpus's valid and
+materialization-failure lanes use it. Canonical-failure corpus cases remain
+isolated with their owning decoder. The developer producer has not migrated
+yet; `SAP01-C` is the next implementation gate.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -252,6 +254,10 @@ Standard API.
   error types without a generic Standard error wrapper; and
 - the first backend definition-fixture success consumer.
 
+`SAP01-B` moves valid and materialization-failure corpus evaluation onto that
+operation while retaining canonical-failure isolation, stable case IDs, replay
+policy, expected projections, and test-owned fixture allocation.
+
 The reusable lower-level capabilities remain:
 
 - bounded canonical schema and function normalization in
@@ -268,8 +274,8 @@ absorbed into the Standard package.
 
 ## Known Gaps And Limitations
 
-- The internal corpus and `flarex-dev` still duplicate the sequence that admits
-  budgets, normalizes a program, and materializes an artifact-ingress plan.
+- `flarex-dev` still duplicates the sequence that admits budgets, normalizes a
+  program, and materializes an artifact-ingress plan.
 - The developer adapter performs additional SDK inspection and source-package
   lowering that must stay producer-owned; only its final core composition is a
   candidate for the Standard API.
@@ -367,7 +373,7 @@ Exit criteria:
 - package exports work from a fresh workspace consumer; and
 - both standing reviewers accept the final significant code/test diff.
 
-### `SAP01-B`: Move The Internal Corpus Onto The Standard Definition API
+### Implemented `SAP01-B`: Move The Internal Corpus Onto The Standard Definition API
 
 After `SAP01-A`, valid and materialization-failure corpus evaluation uses the
 Standard operation. Canonical-failure cases may either use the Standard

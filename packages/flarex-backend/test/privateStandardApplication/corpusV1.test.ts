@@ -5,10 +5,9 @@ import {
   type CanonicalDeclarativeProgramV1,
 } from "@flarex/declarative-program/v1";
 import {
-  makeDeclarativeV2MaterializationBudgetV1,
-  materializeDeclarativeV2ArtifactsV1,
-  type DeclarativeV2ArtifactIngressPlanV1,
-} from "@flarex/declarative-materializer/v1";
+  prepareStandardApplicationDefinitionV1,
+  type PreparedStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/v1";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -155,8 +154,8 @@ function expectValidCase(
   repeatedFixture: PrivateStandardApplicationDefinitionFixtureV1,
   expected: PrivateStandardApplicationValidFactsV1,
 ): void {
-  const first = materializeValidFixture(fixture);
-  const second = materializeValidFixture(repeatedFixture);
+  const first = prepareValidFixture(fixture);
+  const second = prepareValidFixture(repeatedFixture);
 
   expect(logicalModulePaths(first.program)).toEqual(
     expected.logicalModulePaths,
@@ -167,13 +166,20 @@ function expectValidCase(
   expect(first.program.schema.indexes.map(
     (index) => `${index.tableLogicalName}:${index.descriptor}`,
   )).toEqual(expected.indexNames);
-  expect(first.plan.source.modules.map((module) => module.path))
+  expect(first.artifactIngressPlan.source.modules.map((module) => module.path))
     .toEqual(expected.artifactModulePaths);
-  expect(second.plan.semantic.bytes).toEqual(first.plan.semantic.bytes);
-  expect(second.plan.source.modules.map((module) => module.sourceBytes))
-    .toEqual(first.plan.source.modules.map((module) => module.sourceBytes));
-  expect(second.plan.source.modules.map((module) => module.sourceMapBytes))
-    .toEqual(first.plan.source.modules.map((module) => module.sourceMapBytes));
+  expect(second.artifactIngressPlan.semantic.bytes)
+    .toEqual(first.artifactIngressPlan.semantic.bytes);
+  expect(second.artifactIngressPlan.source.modules.map(
+    (module) => module.sourceBytes,
+  )).toEqual(first.artifactIngressPlan.source.modules.map(
+    (module) => module.sourceBytes,
+  ));
+  expect(second.artifactIngressPlan.source.modules.map(
+    (module) => module.sourceMapBytes,
+  )).toEqual(first.artifactIngressPlan.source.modules.map(
+    (module) => module.sourceMapBytes,
+  ));
 }
 
 function expectIndependentFixtureAllocation(
@@ -257,56 +263,16 @@ function canonicalFailure(
 function materializationFailure(
   fixture: PrivateStandardApplicationDefinitionFixtureV1,
 ) {
-  const programBudget = Result.getOrThrow(
-    makeCanonicalDeclarativeProgramBudgetV1(fixture.programBudgetInput),
-  );
-  const program = Result.getOrThrow(
-    makeCanonicalDeclarativeProgramFixtureV1(
-      fixture.programInput,
-      programBudget,
-    ),
-  );
-  const materializationBudget = Result.getOrThrow(
-    makeDeclarativeV2MaterializationBudgetV1(
-      fixture.materializationBudgetInput,
-    ),
-  );
   return expectResultFailure(
-    materializeDeclarativeV2ArtifactsV1(
-      program,
-      fixture.graphInput,
-      materializationBudget,
-    ),
+    prepareStandardApplicationDefinitionV1(fixture),
     "Expected materialization corpus case to fail.",
   );
 }
 
-function materializeValidFixture(
+function prepareValidFixture(
   fixture: PrivateStandardApplicationDefinitionFixtureV1,
-): {
-  readonly program: CanonicalDeclarativeProgramV1;
-  readonly plan: DeclarativeV2ArtifactIngressPlanV1;
-} {
-  const programBudget = Result.getOrThrow(
-    makeCanonicalDeclarativeProgramBudgetV1(fixture.programBudgetInput),
-  );
-  const program = Result.getOrThrow(
-    makeCanonicalDeclarativeProgramFixtureV1(
-      fixture.programInput,
-      programBudget,
-    ),
-  );
-  const materializationBudget = Result.getOrThrow(
-    makeDeclarativeV2MaterializationBudgetV1(
-      fixture.materializationBudgetInput,
-    ),
-  );
-  const plan = Result.getOrThrow(materializeDeclarativeV2ArtifactsV1(
-    program,
-    fixture.graphInput,
-    materializationBudget,
-  ));
-  return { program, plan };
+): PreparedStandardApplicationDefinitionV1 {
+  return Result.getOrThrow(prepareStandardApplicationDefinitionV1(fixture));
 }
 
 function logicalModulePaths(

@@ -6,10 +6,11 @@
 complete. A pure test-local definition fixture, deterministic case catalog,
 and replay selection are implemented under the backend test owner. The
 definition-fixture success lane enters the implemented Standard definition
-API; the corpus still calls the canonical-program and materializer owners
-directly until `SAP01-B`. A dedicated harness package, complete replacement
-analyzer port, private real-system harness, deterministic workload runner, and
-live composition are not implemented or green as one system.
+API. The corpus's valid and materialization-failure lanes use the same
+operation, while canonical-failure cases remain isolated with their owning
+decoder. A dedicated harness package, complete replacement analyzer port,
+private real-system harness, deterministic workload runner, and live
+composition are not implemented or green as one system.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,

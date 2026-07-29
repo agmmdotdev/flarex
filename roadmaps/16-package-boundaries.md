@@ -605,9 +605,9 @@ semantics.
   Manifest review, TypeScript resolution, focused tests, and app bundle scripts
   provide partial enforcement, but a forbidden dependency could otherwise be
   introduced accidentally.
-- The internal corpus and developer producer have not migrated onto the
-  implemented `@flarex/standard-application-definition` package yet; they still
-  call the two core owners directly.
+- The developer producer has not migrated onto the implemented
+  `@flarex/standard-application-definition` package yet; its final preparation
+  sequence still calls the two core owners directly.
 - `flarex-backend` still contains legacy Durable Object storage and routing
   code alongside forward platform coordination. Replacement must prevent that
   ownership from leaking into new Postgres work, port intended semantics, move
@@ -650,9 +650,9 @@ keeping privileged composition outside Worker bundles.
    directions in this roadmap, allow the deliberate `flarex-dev`/`flarex-test`
    composition exceptions, test the checker, and run it in the normal
    validation path.
-2. **Migrate the remaining Standard definition producers.** Complete roadmap
-   42 `SAP01-B` and `SAP01-C` without moving corpus policy, SDK inspection, or
-   source-package conventions into the Standard package.
+2. **Migrate the developer Standard definition producer.** Complete roadmap 42
+   `SAP01-C` without moving SDK inspection or source-package conventions into
+   the Standard package.
 3. **Compact deployment-analysis ownership.** Make roadmap 17 state exactly
    which package owns local feedback, backend-authoritative analysis, push,
    activation, artifact materialization, and final codegen.
