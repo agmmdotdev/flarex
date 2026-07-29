@@ -653,10 +653,12 @@ keeping privileged composition outside Worker bundles.
 
 ## Next Correctness Gates
 
-1. **Add a repository package-dependency boundary check.** Encode the forbidden
-   directions in this roadmap, allow the deliberate `flarex-dev`/`flarex-test`
-   composition exceptions, test the checker, and run it in the normal
-   validation path.
+1. **Expand the repository package-dependency boundary check.** Roadmap 42
+   `SAP01-D` now machine-enforces the implemented Standard definition package's
+   direct manifest, export, and production-import boundary. Expand deliberately
+   to the remaining forbidden directions in this roadmap, allow the deliberate
+   `flarex-dev`/`flarex-test` composition exceptions, test the complete graph
+   policy, and run it in the normal validation path.
 2. **Compact deployment-analysis ownership.** Make roadmap 17 state exactly
    which package owns local feedback, backend-authoritative analysis, push,
    activation, artifact materialization, and final codegen.

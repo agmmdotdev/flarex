@@ -8,8 +8,10 @@ exposes canonical-program and artifact-materialization stages plus a combined
 definition-preparation operation. The backend definition fixture, the corpus's
 valid and materialization-failure lanes, and the `flarex-dev` developer
 producer use those Standard contracts. Canonical-failure corpus cases remain
-isolated with their owning decoder. The next capability gate is `SAP02`, which
-remains blocked on one accepted complete replacement-analyzer port.
+isolated with their owning decoder. `SAP01-D` machine-enforces the definition
+package's direct manifest, export, and production-import boundary. The next
+capability gate is `SAP02`, which remains blocked on one accepted complete
+replacement-analyzer port.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -330,7 +332,10 @@ absorbed into the Standard package.
 - The host-neutral runtime currently proves only its admitted point-mutation
   scope; general query, internal call, workflow, action, and scheduling
   operations are not available.
-- No package-DAG check currently enforces every Standard API dependency rule.
+- No general package-DAG check currently enforces every Standard API
+  dependency rule. `SAP01-D` first makes the implemented definition package's
+  direct manifest, export, and production-import boundary executable without
+  claiming repository-wide graph coverage.
 
 ## Target Direction
 
@@ -450,6 +455,45 @@ definition operation composes the same stages for internal test producers that
 already have all inputs. Focused parity and hostile-budget tests preserve the
 developer prebuild output and first-failure order. This gate does not publish
 the Standard package or redesign the public SDK.
+
+### Implemented `SAP01-D`: Enforce The Definition Package Boundary
+
+While `SAP02` waits for the complete replacement-analyzer port, one
+repository check for the already accepted
+`@flarex/standard-application-definition` boundary now fails when:
+
+1. the package exposes a root or any export other than `./v1`;
+2. its runtime dependency surface differs from
+   `@flarex/declarative-program`, `@flarex/declarative-materializer`, and
+   `effect`;
+3. a production source file imports a non-relative module outside the exact
+   two owner subpaths and `effect`, or a relative module outside its own source
+   root; or
+4. optional or peer runtime dependencies silently widen the package graph; or
+5. a symbolic link or unsupported filesystem entry could make production
+   source discovery skip content.
+
+The checker owns only static package/source policy. It does not resolve the
+complete transitive workspace graph, inspect test imports, ban future local
+source modules, or make a later analysis, host, registry, runtime, executor, or
+persistence dependency valid. Its pure fixture API and CLI filesystem adapter
+must remain separate so allowed and rejected manifests, exports, static
+imports, direct CommonJS loads and resolution references, dynamic imports,
+JSDoc and TypeScript type imports, reference directives, path containment, and
+filesystem entry classification are testable without mutating the workspace.
+
+The implementation remains limited to:
+
+- `scripts/check-standard-application-definition-boundaries.mjs` (new);
+- `scripts/check-standard-application-definition-boundaries.test.js` (new);
+- root `package.json` for normal check, test, and script-typecheck wiring;
+- this roadmap and
+  [`16-package-boundaries.md`](./16-package-boundaries.md); and
+- no production package, application, route, binding, deployment, or
+  activation changes.
+
+This is the first bounded checkpoint toward the general package-dependency
+checker in roadmap 16. It must not mark that broader gate complete.
 
 ### Later Capability Gates
 

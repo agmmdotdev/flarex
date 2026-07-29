@@ -5,11 +5,12 @@
   "scripts": {
     "build": "pnpm -r build",
     "check:effect-boundaries": "node scripts/check-effect-boundaries.mjs",
+    "check:standard-application-definition-boundaries": "node scripts/check-standard-application-definition-boundaries.mjs",
     "generate": "pnpm --filter @flarex/example generate",
     "typecheck": "pnpm typecheck:scripts && pnpm -r typecheck",
-    "typecheck:scripts": "tsc --allowJs --checkJs --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck --types node --strict scripts/check-effect-boundaries.mjs scripts/check-effect-boundaries.test.js",
+    "typecheck:scripts": "tsc --allowJs --checkJs --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck --types node --strict scripts/check-effect-boundaries.mjs scripts/check-effect-boundaries.test.js scripts/check-standard-application-definition-boundaries.mjs scripts/check-standard-application-definition-boundaries.test.js",
     "test": "pnpm test:scripts && pnpm -r test",
-    "test:scripts": "vitest run scripts/check-effect-boundaries.test.js --exclude .codex-worktrees/**",
+    "test:scripts": "pnpm check:standard-application-definition-boundaries && vitest run scripts/check-effect-boundaries.test.js scripts/check-standard-application-definition-boundaries.test.js --exclude .codex-worktrees/**",
     "test:integration": "vitest run --config integration/vitest.config.ts"
   },
   "devDependencies": {
