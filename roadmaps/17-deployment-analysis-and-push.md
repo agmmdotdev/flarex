@@ -1651,9 +1651,11 @@ activation remain blocked until their production host composition is proven.
         change. The existing atomic encoder is now the compatibility wrapper
         over that owner, so canonical bytes, identities, grammar, decoder,
         callers, package-root closure, and current request, response, and
-        restart transport behavior are preserved. No external analysis or
-        executor consumer invokes the resumable symbols yet; only existing
-        atomic callers reach the owner through the compatible wrapper.
+        restart transport behavior are preserved. The package-local
+        source-page owner now consumes the resumable symbols directly; no
+        executor host, production caller, route, or binding invokes them.
+        Existing atomic callers continue to reach the owner through the
+        compatible wrapper.
 
         Creation preserves hostile-safe capture and first-failure order,
         computes checked exact frame length/work, invokes trusted destination
@@ -1691,91 +1693,54 @@ activation remain blocked until their production host composition is proven.
         authority.
 
         `A1b2c0b2c2b0a0b0 — private source-page metadata accumulator, sizing,
-        and deterministic terminal driver` has a provisional two-file
-        implementation, but it remains unaccepted, uncommitted, unwired,
-        production-unreachable, and uncommittable. Its current credit banking
-        consumes allowance without performing protocol work and later invokes
-        the whole atomic encoder. Before b0 can be accepted, it must consume the
-        committed protocol cursor and correct sizing/sealing accounting,
-        retained caller references, hostile-array access, and canonical
-        validation-versus-budget failure ordering before another acceptance
-        review.
+        and deterministic terminal driver` is implemented and committed in
+        `packages/analysis/src/declarativeV2VerifierSourcePageV1.ts` with its
+        focused test. It remains package-local, package-unexported, unwired,
+        production-unreachable, inert, and incapable of minting transport,
+        repository, candidate, host, route, readiness, or activation authority.
 
-        The current accepted call graph still ends before a durable source-page
-        owner exists: the backend A1b1 proof/read-session path authenticates and
-        reconstructs whole Source Artifact V2 and Semantic Artifact V1 content;
-        executor-HTTP then admits the inert command and accounts only for
-        transport work; no accepted `@flarex/analysis` source-page executor
-        produces an actual durable receipt; and the response transport can
-        carry only caller-supplied output, usage, and progress commitments.
-        A1b1 content
-        reads, executor-HTTP byte/frame/copy work, restart recovery, and later
-        host clocks/resources are separate ledgers. None may be relabelled as
-        durable source-page `attempt_usage`.
+        The owner directly consumes the committed protocol resumable cursor;
+        it has no allowance-credit bank or deferred atomic-encoder path. It
+        captures hostile descriptors and array data once, rejects shared input
+        storage, binds candidate/input, command kind/sequence,
+        reservation/budget, current progress, predecessor/range lineage,
+        analyzer identity, and verifier identity, and derives the exact plan
+        before mutable work. Its contiguous metadata-first schedule advances
+        only through safe-integer allowances `0..1024`, with zero performing no
+        work, no rescan or hidden read, one seal/finish, and canonical
+        validation before budget failure. Completion, close, and failure
+        release retained caller, frame, destination, and driver authority.
 
-        Request ceilings, irreversible digests, and prior actual usage remain
-        checks or evidence rather than sizing authority. The source-page
-        request carries authenticated ordered module metadata but no source or
-        semantic payload, while selected metadata still declares source
-        lengths. The command's canonical output, evidence, diagnostics, output
-        manifest, and corresponding charge sites therefore remain unresolved;
-        they must be frozen by the source-page owner rather than inferred from
-        those declared lengths or transport fixtures. The exact future owner
-        set is only
-        `packages/analysis/src/declarativeV2VerifierSourcePageV1.ts` and
-        `packages/analysis/test/declarative-v2-verifier-source-page-v1.test.ts`.
-        It remains package-local, package-unexported, inert, unwired, and
-        production-unreachable.
+        The source-page owner derives and actualizes all 26 durable
+        `attempt_usage` dimensions in canonical order, including exact zeros,
+        using checked signed-int64, u32, and arena-addressability arithmetic.
+        Its planned and actual usage must agree exactly before output or next
+        progress is published. A1b1 authenticated reads, executor-HTTP
+        transport work, restart recovery, and host clocks/resources remain
+        separate ledgers and never enter or recharge durable source-page usage.
+        Request ceilings, irreversible digests, prior actuals, and parse-module
+        formulas remain checks or foreign evidence, not source-page authority.
 
-        That owner must classify all 26 dimensions independently and in their
-        canonical order: `calls`, `objectCalls`, `objectBodyBytes`,
-        `sourceBytes`, `sourceMapBytes`, `semanticBytes`, `modules`,
-        `importEdges`, `exports`, `functions`, `tokens`, `tokenBytes`,
-        `parserStates`, `nestingDepth`, `schemaNodes`, `validatorNodes`,
-        `graphNodes`, `frontierEntries`, `stringBytes`, `tableBytes`,
-        `canonicalBytes`, `frameBytes`, `hashBytes`, `diagnosticBytes`,
-        `outputBytes`, and `elapsedMilliseconds`. Each dimension needs its own
-        source-page charge site and proof as exact-zero/unsupported,
-        fixed-capacity, peak, cumulative, or content-dependent. Checked
-        signed-int64, u32, and arena-addressability arithmetic is mandatory;
-        `elapsedMilliseconds` stays zero in the pure policy and host-clock-owned,
-        while recovery object/page/body/hash/record/manifest work remains only
-        in the recovery ledger. No shared multiplier, request-ceiling copy,
-        prior-actual reuse, hidden whole-artifact read, or parse-module formula
-        is authority for any source-page dimension.
+        Recoverable hostile-input, validation, budget, overflow, lifecycle, and
+        transition failures remain pure Effect v4 `Result` data; accepted-state
+        plan/receipt/progress/output contradictions remain defects. The later
+        Effect host still owns request `Scope`, cancellation, interruption,
+        full foreign `Cause`, clocks, resources, transport uncertainty,
+        release, and finalization.
 
-        The deterministic driver must capture hostile descriptors once, bind
-        candidate/input, command kind/sequence, reservation/budget, current
-        progress, predecessor/range lineage, analyzer identity, and verifier
-        identity, then derive and admit the exact fixed-width plan before
-        allocating mutable state. It consumes contiguous authenticated module
-        metadata in one pass, admits metadata before path/digest bytes, advances
-        only through fixed primitive allowances `0..1024` with zero performing
-        no work, never rescans or performs a hidden read, seals once, finishes
-        the canonical output/evidence/diagnostic/manifest sequence, and compares
-        planned with actual usage before publishing any result. Hostile-shape,
-        canonical-fact, identity/lineage, transition/range, checked-arithmetic,
-        sizing, and ceiling checks retain canonical first-failure order.
-        Recoverable validation, budget, overflow, lifecycle, and transition
-        failures remain Effect v4 `Result` data. Accepted-plan/driver receipt
-        disagreement, no-progress accepted states, and impossible terminal
-        states remain defects. A later Effect host continues to own request
-        `Scope`, cancellation, interruption, foreign `Cause`, clocks, resources,
-        transport uncertainty, release, and finalization.
+        Final validation covered the focused source-page suite (16/16),
+        resource-partitioned full analysis (347/347), protocol compatibility
+        (33/33), executor transport compatibility (65/65), persistence
+        progress/readback compatibility (33/33), typecheck/build, generators,
+        frozen install, Effect boundaries, and diff checks. Both refreshed
+        exact-final reviewers were clean. The monolithic analyzer lane passed
+        26 tests with two environment-gated skips; its unchanged generated
+        release-identity reproduction mismatch remains an out-of-scope baseline
+        and was not repaired or absorbed by this gate.
 
-        Required b0 validation covers every metadata role and path shape,
-        contiguous/gap/overlap/duplicate/predecessor cases, all 26 dimensions
-        at exact and one-less ceilings, signed-int64/u32/arena boundaries,
-        allowances `0/1/1024` and rejected `1025`, every split, hostile
-        accessors and first-failure order, two-cold equality, no-rescan and
-        no-hidden-read proofs, plan-versus-actual equality, deterministic output
-        manifest/next-progress bytes, focused and partitioned analysis,
-        typecheck/build, committed parse sizing plus executable/restart
-        compatibility, verifier generator/identity, monolithic analyzer,
-        package-root, Effect/diff checks, and both exact-final project
-        reviewers. The provisional gate is not accepted or green. `link_page` and
-        `registration_page` sizing/driver ownership remain separate unresolved
-        prerequisites.
+        `link_page` and `registration_page` sizing/driver ownership remain
+        separate unresolved prerequisites. Source-page and parse-module
+        formulas must not be generalized to either command kind.
 
         `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the
         separately versioned private companion codec with hostile-safe
@@ -1798,9 +1763,9 @@ activation remain blocked until their production host composition is proven.
         foreign `Cause`, acquisition, release, and finalization remain
         Effect-owned by their existing boundaries. The provisional b0a bytes
         remain unwired, production-unreachable, non-authoritative, unaccepted,
-        and uncommitted. Parse-module sizing is now satisfied, but
-        `source_page`, `link_page`, and `registration_page` sizing and
-        terminal-driver authority remain unresolved; b0b and b0c remain
+        and uncommitted. Parse-module and source-page sizing/driver ownership
+        are now satisfied, but `link_page` and `registration_page` remain
+        separate unresolved command-kind prerequisites; b0b and b0c remain
         unimplemented.
 
         The blocked candidate c2b implementation allowlist remains exactly
@@ -1833,13 +1798,12 @@ activation remain blocked until their production host composition is proven.
    capability-free historical settled-page readback are implemented.
    The c2a claimed-source prerequisite is also implemented but inert. The
    four-file b0a command-plan snapshot is provisional, inert, unaccepted, and
-   uncommitted. The private a0a parse-module sizing policy is implemented and
-   committed. Source-page sizing is now blocked first on the unimplemented
-   private b0a0b0a protocol cursor above. The provisional b0a0b0 source-page
-   implementation is also unaccepted and uncommittable until it consumes that
-   cursor and closes its documented accounting, ownership, hostile-input, and
-   failure-order findings; link and registration sizing remain separately
-   unresolved. b0b/b0c, the c2b analyzer command
+   uncommitted. The private a0a parse-module policy, b0a0b0a resumable protocol
+   cursor, and b0a0b0 source-page sizing/driver are implemented and committed.
+   The source-page owner consumes the cursor directly while remaining
+   package-local, unexported, unwired, production-unreachable, and inert. Link
+   and registration sizing/driver authority remain separately unresolved;
+   parse/source formulas do not generalize to them. b0b/b0c, the c2b analyzer command
    engine, Effect host
    composition, and a production caller remain absent. These transport,
    readback, and claim owners establish bounded inert bytes and process-local
