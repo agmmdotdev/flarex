@@ -45,6 +45,7 @@ import {
   appendDeclarativeV2VerifierLinkerModuleV1,
   createDeclarativeV2VerifierLinkerV1,
   createDeclarativeV2VerifierEngineV1,
+  declarativeV2VerifierCompletedLinkClaimPortV1,
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_V1_TEST_ONLY,
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_CONTRACT_V1,
   DeclarativeV2VerifierExecutableV1Error,
@@ -949,6 +950,10 @@ function authenticatedLinkClaim(
 }
 
 interface AuthenticatedLinkTraceV1 {
+  readonly factory: ReturnType<
+    typeof makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1
+  >;
+  readonly bindings: DeclarativeV2VerifierAuthenticatedLinkBindingsV1;
   readonly capacity: DeclarativeV2VerifierLinkCapacityV1;
   readonly result: DeclarativeV2VerifierLinkResultV1;
   readonly zeroReceipts: ReadonlyArray<unknown>;
@@ -1017,6 +1022,8 @@ function runAuthenticatedLink(
     if (Result.isFailure(driven)) return Result.fail(driven.failure);
     if (!("status" in driven.success)) {
       return Result.succeed(Object.freeze({
+        factory,
+        bindings,
         capacity: sealed.success.capacity,
         result: driven.success,
         zeroReceipts: Object.freeze(zeroReceipts),
@@ -3788,6 +3795,200 @@ describe("Declarative V2 streaming engine", () => {
     expect(one.success.result.usage.frameBytes).toBe(0n);
     expect(one.success.result.usage.hashBytes).toBe(0n);
   });
+
+  test("keeps completed-link claims factory-local, result-bound, and single-use", () => {
+    const linked = runAuthenticatedLink([
+      runModuleResult(
+        "export function ready(){ return 1; }",
+        "functions/ready.js",
+        0n,
+      ),
+    ], 1);
+    if (Result.isFailure(linked)) throw linked.failure;
+    const port = declarativeV2VerifierCompletedLinkClaimPortV1(
+      linked.success.factory,
+    );
+    if (port === undefined) throw new Error("missing completed-link claim port");
+    const claimed = Result.getOrThrow(
+      port.claim(linked.success.result, linked.success.bindings),
+    );
+    const lookup = Result.getOrThrow(port.beginHandlerLookup(
+      claimed,
+      "functions/ready.js",
+      "ready",
+    ));
+    expect(port.stepHandlerLookup(lookup, 0)).toMatchObject({
+      success: {
+        status: "pending",
+        transitionCount: 0,
+      },
+    });
+    let complete:
+      | Readonly<{
+          found: boolean;
+          moduleOrdinal: bigint | null;
+          producingParseResultSha256: Uint8Array | null;
+          usage: Readonly<{
+            calls: bigint;
+            exports: bigint;
+            frontierEntries: bigint;
+            stringBytes: bigint;
+          }>;
+        }>
+      | undefined;
+    for (let guard = 0; guard < 1_000_000; guard += 1) {
+      const stepped = Result.getOrThrow(port.stepHandlerLookup(lookup, 1));
+      if (stepped.status === "complete") {
+        complete = stepped;
+        break;
+      }
+    }
+    expect(complete).toMatchObject({
+      found: true,
+      moduleOrdinal: 0n,
+    });
+    expect(complete?.producingParseResultSha256).toHaveLength(32);
+    expect(complete?.usage).toMatchObject({
+      exports: 1n,
+      frontierEntries: 3n,
+    });
+    expect(port.stepHandlerLookup(lookup, 1)).toMatchObject({
+      failure: { reason: "closed" },
+    });
+    expect(port.claim(
+      linked.success.result,
+      linked.success.bindings,
+    )).toMatchObject({
+      failure: { reason: "invalidInput" },
+    });
+    expect(port.close(claimed)).toEqual(Result.succeed(undefined));
+    expect(port.close(claimed)).toMatchObject({
+      failure: { reason: "closed" },
+    });
+
+    const foreign = makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1({
+      claim: () =>
+        Result.fail(new DeclarativeV2VerifierExecutableV1Error({
+          operation: "link",
+          reason: "invalidInput",
+        })),
+    });
+    const foreignPort = declarativeV2VerifierCompletedLinkClaimPortV1(foreign);
+    expect(foreignPort?.close(claimed)).toMatchObject({
+      failure: { reason: "invalidInput" },
+    });
+    expect(
+      declarativeV2VerifierCompletedLinkClaimPortV1(Object.freeze({})),
+    ).toBeUndefined();
+  });
+
+  test("charges every failed completed-link lookup state transition", () => {
+    const linked = runAuthenticatedLink([
+      runModuleResult(
+        "export function ready(){ return 1; }",
+        "functions/ready.js",
+        0n,
+      ),
+      runModuleResult(
+        "export const value = 1;",
+        "functions/value.js",
+        1n,
+      ),
+    ], 1_024);
+    if (Result.isFailure(linked)) throw linked.failure;
+    const port = declarativeV2VerifierCompletedLinkClaimPortV1(
+      linked.success.factory,
+    );
+    if (port === undefined) throw new Error("missing completed-link claim port");
+    const claim = Result.getOrThrow(
+      port.claim(linked.success.result, linked.success.bindings),
+    );
+    const driveMissing = (modulePath: string, exportName: string): void => {
+      const lookup = Result.getOrThrow(port.beginHandlerLookup(
+        claim,
+        modulePath,
+        exportName,
+      ));
+      for (let guard = 0; guard < 1_000_000; guard += 1) {
+        const stepped = Result.getOrThrow(port.stepHandlerLookup(lookup, 1));
+        expect(stepped.transitionCount).toBe(1);
+        if (stepped.status === "complete") {
+          expect(stepped.found).toBe(false);
+          return;
+        }
+      }
+      throw new Error("missing completed-link lookup did not terminate");
+    };
+    driveMissing("functions/missing.js", "missing");
+    driveMissing("functions/ready.js", "missing");
+    driveMissing("functions/value.js", "value");
+    expect(port.close(claim)).toEqual(Result.succeed(undefined));
+  });
+
+  test.each([
+    ["long ASCII", "handler" + "a".repeat(256)],
+    ["long Unicode", "handler" + "é".repeat(256)],
+  ] as const)(
+    "keeps %s completed-link lookup split-invariant without byte capture",
+    (_label, exportName) => {
+      const run = (allowance: 1 | 1024) => {
+        const linked = runAuthenticatedLink([
+          runModuleResult(
+            `export function ${exportName}(){ return 1; }`,
+            "functions/long-lookup.js",
+            0n,
+          ),
+        ], 1_024);
+        if (Result.isFailure(linked)) throw linked.failure;
+        const port = declarativeV2VerifierCompletedLinkClaimPortV1(
+          linked.success.factory,
+        );
+        if (port === undefined) {
+          throw new Error("missing completed-link claim port");
+        }
+        const claim = Result.getOrThrow(
+          port.claim(linked.success.result, linked.success.bindings),
+        );
+        const drive = (candidate: string) => {
+          const lookup = Result.getOrThrow(port.beginHandlerLookup(
+            claim,
+            "functions/long-lookup.js",
+            candidate,
+          ));
+          for (let guard = 0; guard < 1_000_000; guard += 1) {
+            const stepped = Result.getOrThrow(
+              port.stepHandlerLookup(lookup, allowance),
+            );
+            if (stepped.status === "complete") {
+              expect(port.stepHandlerLookup(lookup, allowance)).toMatchObject({
+                failure: { reason: "closed" },
+              });
+              return stepped;
+            }
+          }
+          throw new Error("long completed-link lookup did not terminate");
+        };
+        expect(drive(exportName.slice(0, -1))).toMatchObject({
+          found: false,
+        });
+        const exact = drive(exportName);
+        expect(port.close(claim)).toEqual(Result.succeed(undefined));
+        return exact;
+      };
+      const one = run(1);
+      const quantum = run(1024);
+      expect(one).toMatchObject({
+        found: true,
+        moduleOrdinal: 0n,
+      });
+      expect(one.found).toBe(quantum.found);
+      expect(one.moduleOrdinal).toBe(quantum.moduleOrdinal);
+      expect(one.producingParseResultSha256).toEqual(
+        quantum.producingParseResultSha256,
+      );
+      expect(one.usage).toEqual(quantum.usage);
+    },
+  );
 
   test("produces equal warm and reconstructed-cold link evidence for cycles and missing targets", () => {
     const warm = [

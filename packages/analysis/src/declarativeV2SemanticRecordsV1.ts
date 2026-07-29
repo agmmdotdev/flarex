@@ -103,12 +103,29 @@ export interface DeclarativeV2SemanticStreamUsageV1 {
   readonly canonicalBytes: number;
 }
 
+export interface DeclarativeV2SemanticStreamDetailedUsageV1 {
+  readonly tokens: bigint;
+  readonly jsonNodes: bigint;
+  readonly validatorNodes: bigint;
+  readonly modules: bigint;
+  readonly functions: bigint;
+  readonly handlers: bigint;
+  readonly frontierEntries: bigint;
+  readonly comparisonStringBytes: bigint;
+}
+
+export interface DeclarativeV2SemanticStreamDetailedReceiptV1 {
+  readonly delta: DeclarativeV2SemanticStreamDetailedUsageV1;
+  readonly aggregate: DeclarativeV2SemanticStreamDetailedUsageV1;
+}
+
 export interface DeclarativeV2SemanticStreamPushV1 {
   readonly status: "pending" | "complete";
   readonly consumedInputBytes: number;
   readonly records: ReadonlyArray<DeclarativeV2SemanticRecordV1>;
   readonly usage: DeclarativeV2SemanticStreamUsageV1;
   readonly mechanical: IncrementalCanonicalJsonReceiptV1;
+  readonly detailed: DeclarativeV2SemanticStreamDetailedReceiptV1;
 }
 
 export interface DeclarativeV2SemanticStreamDecoderV1 {
@@ -151,6 +168,21 @@ function semanticError(
       ? {}
       : { maximum: evidence.maximum }),
   });
+}
+
+function comparedUtf8BytesAt(value: string, index: number): number {
+  const code = value.charCodeAt(index);
+  if (code <= 0x7f) return 1;
+  if (code <= 0x7ff) return 2;
+  if (code >= 0xd800 && code <= 0xdbff) {
+    const low = value.charCodeAt(index + 1);
+    return low >= 0xdc00 && low <= 0xdfff ? 4 : 3;
+  }
+  if (code >= 0xdc00 && code <= 0xdfff) {
+    const high = value.charCodeAt(index - 1);
+    return high >= 0xd800 && high <= 0xdbff ? 0 : 3;
+  }
+  return 3;
 }
 
 export function makeDeclarativeV2SemanticStreamBudgetV1(
@@ -432,25 +464,43 @@ function captureBudget(
 function createSemanticJsonEventSink(): Readonly<{
   readonly sink: IncrementalCanonicalJsonEventSinkV1;
   readonly value: () => Json | undefined;
+  readonly metrics: () => Readonly<{
+    readonly tokens: number;
+    readonly jsonNodes: number;
+    readonly validatorValueNodes: number;
+  }>;
 }> {
   type Frame =
-    | { readonly kind: "array"; readonly value: Json[] }
+    | {
+        readonly kind: "array";
+        readonly value: Json[];
+        readonly rootKey: string | undefined;
+      }
     | {
         readonly kind: "object";
         readonly value: Record<string, Json>;
+        readonly rootKey: string | undefined;
         currentKey: string | undefined;
       };
   const frames: Frame[] = [];
   let root: Json | undefined;
   let stringRole: "key" | "value" | undefined;
   let stringValue = "";
+  let tokens = 0;
+  let jsonNodes = 0;
+  let validatorValueNodes = 0;
 
-  const attach = (value: Json): void => {
+  const attach = (value: Json): string | undefined => {
     const frame = frames[frames.length - 1];
     if (frame === undefined) {
       root = value;
-      return;
+      return undefined;
     }
+    const rootKey = frames.length === 1 && frame.kind === "object"
+      ? frame.currentKey
+      : frame.rootKey;
+    jsonNodes += 1;
+    if (rootKey === "value") validatorValueNodes += 1;
     if (frame.kind === "array") {
       const index = frame.value.length;
       Object.defineProperty(frame.value, String(index), {
@@ -459,7 +509,7 @@ function createSemanticJsonEventSink(): Readonly<{
         value,
         writable: true,
       });
-      return;
+      return rootKey;
     }
     if (frame.currentKey === undefined) {
       throw new Error("semantic JSON sink received a value without a key");
@@ -471,15 +521,18 @@ function createSemanticJsonEventSink(): Readonly<{
       writable: true,
     });
     frame.currentKey = undefined;
+    return rootKey;
   };
 
   const push = (event: IncrementalCanonicalJsonSinkEventV1): void => {
     switch (event.kind) {
       case "null":
+        tokens += 1;
         attach(null);
         return;
       case "boolean":
       case "number":
+        tokens += 1;
         attach(event.value);
         return;
       case "stringStart":
@@ -500,6 +553,7 @@ function createSemanticJsonEventSink(): Readonly<{
           throw new Error("semantic JSON sink received a mismatched string end");
         }
         const value = stringValue;
+        tokens += 1;
         stringRole = undefined;
         stringValue = "";
         if (event.role === "value") {
@@ -515,18 +569,21 @@ function createSemanticJsonEventSink(): Readonly<{
       }
       case "arrayStart": {
         const value: Json[] = [];
-        attach(value);
-        frames.push({ kind: "array", value });
+        tokens += 1;
+        const rootKey = attach(value);
+        frames.push({ kind: "array", value, rootKey });
         return;
       }
       case "objectStart": {
         const value: Record<string, Json> = {};
-        attach(value);
-        frames.push({ kind: "object", value, currentKey: undefined });
+        tokens += 1;
+        const rootKey = attach(value);
+        frames.push({ kind: "object", value, rootKey, currentKey: undefined });
         return;
       }
       case "arrayEnd":
       case "objectEnd": {
+        tokens += 1;
         const frame = frames.pop();
         if (
           frame === undefined ||
@@ -580,6 +637,7 @@ function createSemanticJsonEventSink(): Readonly<{
   return Object.freeze({
     sink: makeIncrementalCanonicalJsonEventSinkV1(push),
     value: () => root,
+    metrics: () => Object.freeze({ tokens, jsonNodes, validatorValueNodes }),
   });
 }
 
@@ -626,6 +684,20 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
     | undefined;
   let completedRecordValue: Json | undefined;
   let currentRecordValue: (() => Json | undefined) | undefined;
+  let completedRecordMetrics:
+    | Readonly<{
+        readonly tokens: number;
+        readonly jsonNodes: number;
+        readonly validatorValueNodes: number;
+      }>
+    | undefined;
+  let currentRecordMetrics:
+    | (() => Readonly<{
+        readonly tokens: number;
+        readonly jsonNodes: number;
+        readonly validatorValueNodes: number;
+      }>)
+    | undefined;
   type PendingRecordPhase =
     | "fields"
     | "membership"
@@ -639,6 +711,11 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
       { readonly status: "complete" }
     >;
     readonly candidate: DecodedSemanticRecordCandidateV1;
+    readonly metrics: Readonly<{
+      readonly tokens: number;
+      readonly jsonNodes: number;
+      readonly validatorValueNodes: number;
+    }>;
     readonly order: number;
     readonly keyParts: ReadonlyArray<string>;
     phase: PendingRecordPhase;
@@ -661,6 +738,25 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
     members: 0,
     depth: 0,
     transitions: 0,
+  };
+  const detailedUsage: {
+    tokens: bigint;
+    jsonNodes: bigint;
+    validatorNodes: bigint;
+    modules: bigint;
+    functions: bigint;
+    handlers: bigint;
+    frontierEntries: bigint;
+    comparisonStringBytes: bigint;
+  } = {
+    tokens: 0n,
+    jsonNodes: 0n,
+    validatorNodes: 0n,
+    modules: 0n,
+    functions: 0n,
+    handlers: 0n,
+    frontierEntries: 0n,
+    comparisonStringBytes: 0n,
   };
   type CompletenessPhase =
     | "start"
@@ -700,6 +796,26 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
         members: mechanicalUsage.members - before.members,
         depth: Math.max(0, mechanicalUsage.depth - before.depth),
         transitions: mechanicalUsage.transitions - before.transitions,
+      }),
+      aggregate,
+    });
+  };
+
+  const detailed = (
+    before: DeclarativeV2SemanticStreamDetailedUsageV1,
+  ): DeclarativeV2SemanticStreamDetailedReceiptV1 => {
+    const aggregate = Object.freeze({ ...detailedUsage });
+    return Object.freeze({
+      delta: Object.freeze({
+        tokens: aggregate.tokens - before.tokens,
+        jsonNodes: aggregate.jsonNodes - before.jsonNodes,
+        validatorNodes: aggregate.validatorNodes - before.validatorNodes,
+        modules: aggregate.modules - before.modules,
+        functions: aggregate.functions - before.functions,
+        handlers: aggregate.handlers - before.handlers,
+        frontierEntries: aggregate.frontierEntries - before.frontierEntries,
+        comparisonStringBytes:
+          aggregate.comparisonStringBytes - before.comparisonStringBytes,
       }),
       aggregate,
     });
@@ -748,8 +864,10 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
   ): DeclarativeV2SemanticRecordV1Error | undefined => {
     const ordinal = totalRecords;
     const parsed = completedRecordValue;
+    const metrics = completedRecordMetrics;
     completedRecordValue = undefined;
-    if (parsed === undefined) {
+    completedRecordMetrics = undefined;
+    if (parsed === undefined || metrics === undefined) {
       return semanticError(operation, "invalidInput", {
         recordOrdinal: ordinal,
         byteOffset: currentRecordByteOffset,
@@ -774,6 +892,7 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
     currentRecordCapture = {
       decoded,
       candidate,
+      metrics,
       order: KIND_ORDER[candidate.kind],
       keyParts: recordKeyParts(candidate),
       phase: candidate.kind === "index" ? "fields" : "membership",
@@ -810,9 +929,11 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
         break;
       case "module":
         modules.push(record);
+        detailedUsage.modules += 1n;
         break;
       case "function":
         functions.push(record);
+        detailedUsage.functions += 1n;
         break;
       case "schema":
         schemaCount += 1;
@@ -825,11 +946,17 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
         break;
       case "validator":
         validators.push(record);
+        detailedUsage.validatorNodes += BigInt(
+          capture.metrics.validatorValueNodes,
+        );
         break;
       case "handler":
         handlers.push(record);
+        detailedUsage.handlers += 1n;
         break;
     }
+    detailedUsage.tokens += BigInt(capture.metrics.tokens + 1);
+    detailedUsage.jsonNodes += BigInt(capture.metrics.jsonNodes);
     lastKindOrder = capture.order;
     lastKeyParts = capture.keyParts;
     totalRecords += 1;
@@ -924,6 +1051,10 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
         }
         const previous = previousPart.charCodeAt(capture.compareIndex);
         const current = currentPart.charCodeAt(capture.compareIndex);
+        detailedUsage.comparisonStringBytes += BigInt(
+          comparedUtf8BytesAt(previousPart, capture.compareIndex) +
+            comparedUtf8BytesAt(currentPart, capture.compareIndex),
+        );
         if (previous > current) {
           return failCurrentRecord("recordOrder", operation);
         }
@@ -973,6 +1104,7 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
     ).pipe(Result.mapError((failure) => mapJsonIssue(failure)));
     currentDecoder = created;
     currentRecordValue = materializer.value;
+    currentRecordMetrics = materializer.metrics;
     currentDecoderOffset = 0;
   });
 
@@ -1026,7 +1158,9 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
     if (result.success.status === "pending") return { usedTransitions };
     completedRecordDecode = result.success;
     completedRecordValue = currentRecordValue?.();
+    completedRecordMetrics = currentRecordMetrics?.();
     currentRecordValue = undefined;
+    currentRecordMetrics = undefined;
     currentDecoder = undefined;
     currentDecoderOffset = 0;
     recordLength = 0;
@@ -1041,6 +1175,9 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
   ): "pending" | "found" | "missing" => {
     if (completenessSearch >= values.length) return "missing";
     const candidate = key(values[completenessSearch]!);
+    if (completenessCompareIndex === 0) {
+      detailedUsage.frontierEntries += 1n;
+    }
     if (
       completenessCompareIndex >= candidate.length ||
       completenessCompareIndex >= target.length
@@ -1062,6 +1199,10 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
     }
     const candidateCode = candidate.charCodeAt(completenessCompareIndex);
     const targetCode = target.charCodeAt(completenessCompareIndex);
+    detailedUsage.comparisonStringBytes += BigInt(
+      comparedUtf8BytesAt(candidate, completenessCompareIndex) +
+        comparedUtf8BytesAt(target, completenessCompareIndex),
+    );
     if (candidateCode === targetCode) {
       completenessCompareIndex += 1;
       return "pending";
@@ -1096,9 +1237,17 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
       left.charCodeAt(completenessDirectCompareIndex) !==
         right.charCodeAt(completenessDirectCompareIndex)
     ) {
+      detailedUsage.comparisonStringBytes += BigInt(
+        comparedUtf8BytesAt(left, completenessDirectCompareIndex) +
+          comparedUtf8BytesAt(right, completenessDirectCompareIndex),
+      );
       completenessDirectCompareIndex = 0;
       return "different";
     }
+    detailedUsage.comparisonStringBytes += BigInt(
+      comparedUtf8BytesAt(left, completenessDirectCompareIndex) +
+        comparedUtf8BytesAt(right, completenessDirectCompareIndex),
+    );
     completenessDirectCompareIndex += 1;
     return "pending";
   };
@@ -1266,6 +1415,7 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
       return failTerminal(semanticError("push", "invalidInput"));
     }
     const before = Object.freeze({ ...mechanicalUsage });
+    const detailedBefore = Object.freeze({ ...detailedUsage });
     const emitted: DeclarativeV2SemanticRecordV1[] = [];
     let index = 0;
     let remaining = rawMaximumTransitions;
@@ -1363,6 +1513,7 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
       records: Object.freeze(emitted),
       usage: usage(),
       mechanical: mechanical(before),
+      detailed: detailed(detailedBefore),
     }));
   };
 
@@ -1380,6 +1531,7 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
     }
     finishRequested = true;
     const before = Object.freeze({ ...mechanicalUsage });
+    const detailedBefore = Object.freeze({ ...detailedUsage });
     if (currentDecoder === undefined && recordLength !== 0) {
       closed = true;
       return Result.fail(semanticError("finish", "trailingBytes", {
@@ -1436,6 +1588,7 @@ export function createDeclarativeV2SemanticStreamDecoderV1(
       records: Object.freeze(emitted),
       usage: usage(),
       mechanical: mechanical(before),
+      detailed: detailed(detailedBefore),
     }));
   };
 

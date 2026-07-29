@@ -7173,6 +7173,74 @@ export interface DeclarativeV2VerifierAuthenticatedLinkFactoryV1 {
   ) => Result.Result<void, DeclarativeV2VerifierExecutableV1Error>;
 }
 
+declare const DECLARATIVE_V2_VERIFIER_COMPLETED_LINK_CLAIM_V1: unique symbol;
+declare const DECLARATIVE_V2_VERIFIER_COMPLETED_LINK_LOOKUP_V1: unique symbol;
+
+/**
+ * Package-local, process-local authority retained by an authenticated link
+ * result for the registration driver. It is intentionally absent from the
+ * package facade and public result shape.
+ */
+export interface DeclarativeV2VerifierCompletedLinkClaimV1 {
+  readonly _tag: "DeclarativeV2VerifierCompletedLinkClaimV1";
+  readonly [DECLARATIVE_V2_VERIFIER_COMPLETED_LINK_CLAIM_V1]: true;
+}
+
+export interface DeclarativeV2VerifierCompletedLinkLookupV1 {
+  readonly _tag: "DeclarativeV2VerifierCompletedLinkLookupV1";
+  readonly [DECLARATIVE_V2_VERIFIER_COMPLETED_LINK_LOOKUP_V1]: true;
+}
+
+export interface DeclarativeV2VerifierCompletedLinkLookupUsageV1 {
+  readonly calls: bigint;
+  readonly exports: bigint;
+  readonly frontierEntries: bigint;
+  readonly stringBytes: bigint;
+}
+
+export type DeclarativeV2VerifierCompletedLinkLookupStepV1 =
+  | Readonly<{
+      readonly status: "pending";
+      readonly transitionCount: number;
+      readonly usage: DeclarativeV2VerifierCompletedLinkLookupUsageV1;
+    }>
+  | Readonly<{
+      readonly status: "complete";
+      readonly transitionCount: number;
+      readonly found: boolean;
+      readonly moduleOrdinal: bigint | null;
+      readonly producingParseResultSha256: Uint8Array | null;
+      readonly usage: DeclarativeV2VerifierCompletedLinkLookupUsageV1;
+    }>;
+
+export interface DeclarativeV2VerifierCompletedLinkClaimPortV1 {
+  readonly claim: (
+    result: unknown,
+    expectedBindings: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierCompletedLinkClaimV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly beginHandlerLookup: (
+    claim: unknown,
+    modulePath: unknown,
+    exportName: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierCompletedLinkLookupV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly stepHandlerLookup: (
+    lookup: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierCompletedLinkLookupStepV1,
+    DeclarativeV2VerifierExecutableV1Error
+  >;
+  readonly close: (
+    handle: unknown,
+  ) => Result.Result<void, DeclarativeV2VerifierExecutableV1Error>;
+}
+
 interface LinkerStateV1 {
   readonly required: DeclarativeV2VerifierBudgetFrameV2;
   readonly usage: ReturnType<typeof zeroUsage>;
@@ -7251,12 +7319,25 @@ interface LinkerStateV1 {
   compareRightPendingLow: number;
 }
 
+interface AuthenticatedRegistrationPresentationV1 {
+  bindings: CapturedAuthenticatedLinkBindingsV1 | undefined;
+  readonly rawModules: Array<DeclarativeV2VerifierModuleResultV1>;
+  readonly modules: Array<DeclarativeV2VerifierOwnedModuleArenaV1>;
+  readonly claims: Array<CapturedAuthenticatedLinkModuleClaimV1>;
+  claimed: boolean;
+}
+
 interface LinkResultPresentationV1 {
   readonly state: LinkerStateV1;
+  registration: AuthenticatedRegistrationPresentationV1 | undefined;
 }
 
 const OWNED_LINKERS = new WeakMap<object, LinkerStateV1>();
 const OWNED_LINK_RESULTS = new WeakMap<object, LinkResultPresentationV1>();
+const COMPLETED_LINK_CLAIM_PORTS_V1 = new WeakMap<
+  object,
+  DeclarativeV2VerifierCompletedLinkClaimPortV1
+>();
 
 const linkerHandle = (): DeclarativeV2VerifierLinkerV1 =>
   Object.freeze({
@@ -8428,7 +8509,7 @@ const driveLinkerV1 = (
     diagnosticCount: BigInt(state.diagnosticCount),
     usage: frozenUsage(state.usage),
   } satisfies DeclarativeV2VerifierLinkResultV1);
-  OWNED_LINK_RESULTS.set(result, { state });
+  OWNED_LINK_RESULTS.set(result, { state, registration: undefined });
   return Result.succeed(result);
 };
 
@@ -8533,19 +8614,69 @@ interface PendingLinkModuleSummaryV1 {
 interface AuthenticatedLinkAccumulatorStateV1 {
   bindings: CapturedAuthenticatedLinkBindingsV1 | undefined;
   commandBudget: DeclarativeV2VerifierBudgetFrameV2 | undefined;
+  readonly rawModules: Array<DeclarativeV2VerifierModuleResultV1>;
   readonly modules: Array<DeclarativeV2VerifierOwnedModuleArenaV1>;
+  readonly claims: Array<CapturedAuthenticatedLinkModuleClaimV1>;
   readonly summaries: Array<LinkModuleCapacitySummaryV1>;
   pending: PendingLinkModuleSummaryV1 | undefined;
   closed: boolean;
 }
 
 interface AuthenticatedLinkDriverStateV1 {
+  bindings: CapturedAuthenticatedLinkBindingsV1 | undefined;
   capacity: DeclarativeV2VerifierLinkCapacityV1 | undefined;
   linker: LinkerStateV1 | undefined;
+  readonly rawModules: Array<DeclarativeV2VerifierModuleResultV1>;
   readonly modules: Array<DeclarativeV2VerifierOwnedModuleArenaV1>;
+  readonly claims: Array<CapturedAuthenticatedLinkModuleClaimV1>;
   moduleIndex: number;
   coreTransitionCount: bigint;
   closed: boolean;
+}
+
+interface CompletedLinkClaimStateV1 {
+  bindings: CapturedAuthenticatedLinkBindingsV1 | undefined;
+  readonly rawModules: Array<DeclarativeV2VerifierModuleResultV1>;
+  readonly modules: Array<DeclarativeV2VerifierOwnedModuleArenaV1>;
+  readonly claims: Array<CapturedAuthenticatedLinkModuleClaimV1>;
+  activeLookup: object | undefined;
+  closed: boolean;
+}
+
+interface CompletedLinkLookupStateV1 {
+  claim: CompletedLinkClaimStateV1 | undefined;
+  modulePath: string | undefined;
+  exportName: string | undefined;
+  readonly expectedUtf8: IncrementalUtf8StringCursorV1;
+  phase:
+    | "findModule"
+    | "compareModule"
+    | "findExport"
+    | "compareExport"
+    | "findFunction"
+    | "compareFunction"
+    | "complete";
+  moduleIndex: number;
+  exportIndex: number;
+  functionIndex: number;
+  localToken: number;
+  byteIndex: number;
+  transitionCount: bigint;
+  terminalCharged: boolean;
+  found: boolean;
+  calls: bigint;
+  exports: bigint;
+  frontierEntries: bigint;
+  stringBytes: bigint;
+  closed: boolean;
+}
+
+interface IncrementalUtf8StringCursorV1 {
+  source: string | undefined;
+  sourceIndex: number;
+  scalar: number;
+  scalarByteIndex: number;
+  scalarByteLength: number;
 }
 
 const AUTHENTICATED_LINK_CLAIMED_MODULES_V1 = new WeakSet<object>();
@@ -8606,6 +8737,76 @@ const captureOwnedSha256V1 = (value: unknown): Uint8Array | undefined => {
   } catch {
     return undefined;
   }
+};
+
+const resetIncrementalUtf8StringCursorV1 = (
+  cursor: IncrementalUtf8StringCursorV1,
+  source: string,
+): void => {
+  cursor.source = source;
+  cursor.sourceIndex = 0;
+  cursor.scalar = 0;
+  cursor.scalarByteIndex = 0;
+  cursor.scalarByteLength = 0;
+};
+
+const nextIncrementalUtf8ByteV1 = (
+  cursor: IncrementalUtf8StringCursorV1,
+): number | undefined => {
+  if (cursor.scalarByteIndex >= cursor.scalarByteLength) {
+    const source = cursor.source;
+    if (source === undefined || cursor.sourceIndex >= source.length) {
+      return undefined;
+    }
+    const first = source.charCodeAt(cursor.sourceIndex);
+    let scalar = first;
+    let width = 1;
+    if (
+      first >= 0xd800 &&
+      first <= 0xdbff &&
+      cursor.sourceIndex + 1 < source.length
+    ) {
+      const second = source.charCodeAt(cursor.sourceIndex + 1);
+      if (second >= 0xdc00 && second <= 0xdfff) {
+        scalar =
+          0x10000 + ((first - 0xd800) << 10) + (second - 0xdc00);
+        width = 2;
+      } else {
+        scalar = 0xfffd;
+      }
+    } else if (first >= 0xd800 && first <= 0xdfff) {
+      scalar = 0xfffd;
+    }
+    cursor.sourceIndex += width;
+    cursor.scalar = scalar;
+    cursor.scalarByteIndex = 0;
+    cursor.scalarByteLength = scalar <= 0x7f
+      ? 1
+      : scalar <= 0x7ff
+      ? 2
+      : scalar <= 0xffff
+      ? 3
+      : 4;
+  }
+  const scalar = cursor.scalar;
+  const index = cursor.scalarByteIndex;
+  const length = cursor.scalarByteLength;
+  cursor.scalarByteIndex += 1;
+  if (length === 1) return scalar;
+  if (length === 2) {
+    return index === 0
+      ? 0xc0 | (scalar >>> 6)
+      : 0x80 | (scalar & 0x3f);
+  }
+  if (length === 3) {
+    if (index === 0) return 0xe0 | (scalar >>> 12);
+    if (index === 1) return 0x80 | ((scalar >>> 6) & 0x3f);
+    return 0x80 | (scalar & 0x3f);
+  }
+  if (index === 0) return 0xf0 | (scalar >>> 18);
+  if (index === 1) return 0x80 | ((scalar >>> 12) & 0x3f);
+  if (index === 2) return 0x80 | ((scalar >>> 6) & 0x3f);
+  return 0x80 | (scalar & 0x3f);
 };
 
 const captureVerifierEvidenceSha256V1 = (
@@ -8859,7 +9060,9 @@ const closeAuthenticatedLinkAccumulatorStateV1 = (
   state.bindings = undefined;
   state.commandBudget = undefined;
   state.pending = undefined;
+  state.rawModules.splice(0);
   state.modules.splice(0);
+  state.claims.splice(0);
   state.summaries.splice(0);
 };
 
@@ -8867,8 +9070,11 @@ const closeAuthenticatedLinkDriverStateV1 = (
   state: AuthenticatedLinkDriverStateV1,
 ): void => {
   state.closed = true;
+  state.bindings = undefined;
   state.capacity = undefined;
+  state.rawModules.splice(0);
   state.modules.splice(0);
+  state.claims.splice(0);
   const linker = state.linker;
   state.linker = undefined;
   if (linker !== undefined) {
@@ -9189,7 +9395,9 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
       const state: AuthenticatedLinkAccumulatorStateV1 = {
         bindings,
         commandBudget,
+        rawModules: [],
         modules: [],
+        claims: [],
         summaries: [],
         pending: undefined,
         closed: false,
@@ -9392,7 +9600,11 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
         if (Result.isFailure(summary)) {
           return failAccumulator(state, summary.failure);
         }
+        state.rawModules.push(
+          pending.rawModule as DeclarativeV2VerifierModuleResultV1,
+        );
         state.modules.push(owned);
+        state.claims.push(pending.claim);
         state.summaries.push(summary.success);
         state.pending = undefined;
         transitions += 1;
@@ -9459,9 +9671,12 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
         return failAccumulator(state, sealCharge.failure);
       }
       const driverState: AuthenticatedLinkDriverStateV1 = {
+        bindings: state.bindings,
         capacity: capacity.success,
         linker,
+        rawModules: state.rawModules.splice(0),
         modules: state.modules.splice(0),
+        claims: state.claims.splice(0),
         moduleIndex: 0,
         coreTransitionCount: 0n,
         closed: false,
@@ -9618,7 +9833,15 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
             diagnosticCount: BigInt(linker.diagnosticCount),
             usage: frozenUsage(linker.usage),
           } satisfies DeclarativeV2VerifierLinkResultV1);
-          OWNED_LINK_RESULTS.set(result, { state: linker });
+          const registration: AuthenticatedRegistrationPresentationV1 = {
+            bindings: state.bindings,
+            rawModules: state.rawModules.splice(0),
+            modules: state.modules.splice(0),
+            claims: state.claims.splice(0),
+            claimed: false,
+          };
+          state.bindings = undefined;
+          OWNED_LINK_RESULTS.set(result, { state: linker, registration });
           transitions += 1;
           closeAuthenticatedLinkDriverStateV1(state);
           return Result.succeed(result);
@@ -9672,7 +9895,393 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
       return Result.succeed(undefined);
     };
 
-  return Object.freeze({ create, admit, seal, step, close });
+  const completedClaims = new WeakMap<object, CompletedLinkClaimStateV1>();
+  const completedLookups = new WeakMap<object, CompletedLinkLookupStateV1>();
+
+  const completedClaimHandle = (): DeclarativeV2VerifierCompletedLinkClaimV1 =>
+    Object.freeze({
+      _tag: "DeclarativeV2VerifierCompletedLinkClaimV1",
+    }) as DeclarativeV2VerifierCompletedLinkClaimV1;
+  const completedLookupHandle = (): DeclarativeV2VerifierCompletedLinkLookupV1 =>
+    Object.freeze({
+      _tag: "DeclarativeV2VerifierCompletedLinkLookupV1",
+    }) as DeclarativeV2VerifierCompletedLinkLookupV1;
+  const lookupUsage = (
+    state: CompletedLinkLookupStateV1,
+  ): DeclarativeV2VerifierCompletedLinkLookupUsageV1 =>
+    Object.freeze({
+      calls: state.calls,
+      exports: state.exports,
+      frontierEntries: state.frontierEntries,
+      stringBytes: state.stringBytes,
+    });
+  const releaseCompletedLookup = (state: CompletedLinkLookupStateV1): void => {
+    state.closed = true;
+    state.modulePath = undefined;
+    state.exportName = undefined;
+    state.expectedUtf8.source = undefined;
+    const claim = state.claim;
+    state.claim = undefined;
+    if (claim?.activeLookup !== undefined) claim.activeLookup = undefined;
+  };
+  const releaseCompletedClaim = (state: CompletedLinkClaimStateV1): void => {
+    state.closed = true;
+    state.bindings = undefined;
+    state.rawModules.splice(0);
+    state.modules.splice(0);
+    state.claims.splice(0);
+    state.activeLookup = undefined;
+  };
+  const invalidateRegistrationPresentation = (
+    presentation: AuthenticatedRegistrationPresentationV1,
+  ): void => {
+    presentation.claimed = true;
+    presentation.bindings = undefined;
+    presentation.rawModules.splice(0);
+    presentation.modules.splice(0);
+    presentation.claims.splice(0);
+  };
+  const lookupComplete = (
+    state: CompletedLinkLookupStateV1,
+    transitions: number,
+  ): DeclarativeV2VerifierCompletedLinkLookupStepV1 => {
+    if (!state.terminalCharged) {
+      state.calls += 1n;
+      state.terminalCharged = true;
+    }
+    const claim = state.claim;
+    const moduleClaim = state.found
+      ? claim?.claims[state.moduleIndex]
+      : undefined;
+    const result = Object.freeze({
+      status: "complete",
+      transitionCount: transitions,
+      found: state.found,
+      moduleOrdinal: moduleClaim?.moduleOrdinal ?? null,
+      producingParseResultSha256:
+        moduleClaim === undefined
+          ? null
+          : new Uint8Array(moduleClaim.producingParseResultSha256),
+      usage: lookupUsage(state),
+    }) satisfies DeclarativeV2VerifierCompletedLinkLookupStepV1;
+    releaseCompletedLookup(state);
+    return result;
+  };
+
+  const completedLinkClaimPort: DeclarativeV2VerifierCompletedLinkClaimPortV1 =
+    Object.freeze({
+      claim: (rawResult: unknown, rawExpectedBindings: unknown) => {
+        const presentation =
+          rawResult !== null && typeof rawResult === "object"
+            ? OWNED_LINK_RESULTS.get(rawResult)
+            : undefined;
+        const registration = presentation?.registration;
+        const expected = captureAuthenticatedLinkBindingsV1(
+          rawExpectedBindings,
+        );
+        if (
+          presentation === undefined ||
+          registration === undefined ||
+          registration.claimed ||
+          registration.bindings === undefined ||
+          expected === undefined ||
+          registration.rawModules.length !== registration.modules.length ||
+          registration.modules.length !== registration.claims.length ||
+          registration.modules.length !== Number(
+            (rawResult as DeclarativeV2VerifierLinkResultV1).moduleCount,
+          ) ||
+          !authenticatedLinkBindingsEqualV1(registration.bindings, expected)
+        ) {
+          if (registration !== undefined && !registration.claimed) {
+            invalidateRegistrationPresentation(registration);
+          }
+          return Result.fail(executableError("link", "invalidInput"));
+        }
+        registration.claimed = true;
+        const state: CompletedLinkClaimStateV1 = {
+          bindings: registration.bindings,
+          rawModules: registration.rawModules.splice(0),
+          modules: registration.modules.splice(0),
+          claims: registration.claims.splice(0),
+          activeLookup: undefined,
+          closed: false,
+        };
+        registration.bindings = undefined;
+        presentation.registration = undefined;
+        const handle = completedClaimHandle();
+        completedClaims.set(handle, state);
+        return Result.succeed(handle);
+      },
+      beginHandlerLookup: (
+        rawClaim: unknown,
+        rawModulePath: unknown,
+        rawExportName: unknown,
+      ) => {
+        const state =
+          rawClaim !== null && typeof rawClaim === "object"
+            ? completedClaims.get(rawClaim)
+            : undefined;
+        if (state === undefined || state.closed) {
+          return Result.fail(executableError("access", "closed"));
+        }
+        if (
+          typeof rawModulePath !== "string" ||
+          rawModulePath.length === 0 ||
+          typeof rawExportName !== "string" ||
+          rawExportName.length === 0 ||
+          state.activeLookup !== undefined
+        ) {
+          releaseCompletedClaim(state);
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        const lookupState: CompletedLinkLookupStateV1 = {
+          claim: state,
+          modulePath: rawModulePath,
+          exportName: rawExportName,
+          expectedUtf8: {
+            source: undefined,
+            sourceIndex: 0,
+            scalar: 0,
+            scalarByteIndex: 0,
+            scalarByteLength: 0,
+          },
+          phase: "findModule",
+          moduleIndex: 0,
+          exportIndex: 0,
+          functionIndex: 0,
+          localToken: -1,
+          byteIndex: 0,
+          transitionCount: 0n,
+          terminalCharged: false,
+          found: false,
+          calls: 1n,
+          exports: 0n,
+          frontierEntries: 0n,
+          stringBytes: 0n,
+          closed: false,
+        };
+        const handle = completedLookupHandle();
+        lookupState.claim!.activeLookup = handle;
+        completedLookups.set(handle, lookupState);
+        return Result.succeed(handle);
+      },
+      stepHandlerLookup: (rawLookup: unknown, rawAllowance: unknown) => {
+        const state =
+          rawLookup !== null && typeof rawLookup === "object"
+            ? completedLookups.get(rawLookup)
+            : undefined;
+        if (state === undefined || state.closed || state.claim?.closed) {
+          return Result.fail(executableError("access", "closed"));
+        }
+        const allowance = captureTransitionAllowance(rawAllowance, "link");
+        if (Result.isFailure(allowance)) {
+          const claim = state.claim;
+          releaseCompletedLookup(state);
+          if (claim !== undefined) releaseCompletedClaim(claim);
+          return Result.fail(allowance.failure);
+        }
+        if (allowance.success === 0) {
+          return Result.succeed(Object.freeze({
+            status: "pending",
+            transitionCount: 0,
+            usage: lookupUsage(state),
+          }));
+        }
+        let transitions = 0;
+        const claim = state.claim;
+        if (claim === undefined) {
+          throw new Error("Accepted completed-link lookup lost its claim.");
+        }
+        while (transitions < allowance.success && state.phase !== "complete") {
+          if (
+            state.transitionCount %
+                BigInt(DECLARATIVE_V2_VERIFIER_TRANSITION_QUANTUM_V1) ===
+              0n
+          ) {
+            state.calls += 1n;
+          }
+          const module = claim.modules[state.moduleIndex];
+          if (state.phase === "findModule") {
+            if (module === undefined) {
+              state.phase = "complete";
+            } else {
+              state.frontierEntries += 1n;
+              resetIncrementalUtf8StringCursorV1(
+                state.expectedUtf8,
+                state.modulePath!,
+              );
+              state.phase = "compareModule";
+              state.byteIndex = 0;
+            }
+          } else if (state.phase === "compareModule") {
+            const length = module!.moduleView.getUint32(4, false);
+            const expected = nextIncrementalUtf8ByteV1(state.expectedUtf8);
+            if (expected === undefined && state.byteIndex >= length) {
+              state.phase = "findExport";
+              state.exportIndex = 0;
+              state.byteIndex = 0;
+            } else if (expected === undefined || state.byteIndex >= length) {
+              state.moduleIndex += 1;
+              state.phase = "findModule";
+              state.byteIndex = 0;
+            } else {
+              state.stringBytes += 1n;
+              const offset = module!.moduleView.getUint32(0, false);
+              if (
+                module!.outputBytes[offset + state.byteIndex] !==
+                  expected
+              ) {
+                state.moduleIndex += 1;
+                state.phase = "findModule";
+                state.byteIndex = 0;
+              } else {
+                state.byteIndex += 1;
+              }
+            }
+          } else if (state.phase === "findExport") {
+            if (state.exportIndex >= module!.exportCount) {
+              state.moduleIndex += 1;
+              state.phase = "findModule";
+              state.byteIndex = 0;
+            } else {
+              state.exports += 1n;
+              state.frontierEntries += 1n;
+              resetIncrementalUtf8StringCursorV1(
+                state.expectedUtf8,
+                state.exportName!,
+              );
+              state.phase = "compareExport";
+              state.byteIndex = 0;
+            }
+          } else if (state.phase === "compareExport") {
+            const offset = state.exportIndex * 48;
+            const isDefault = module!.exportView.getUint32(offset + 8, false) === 1;
+            const stored = module!.exportView.getUint32(offset, false);
+            const token = stored - 1;
+            const length = isDefault ? 7 : sourceTokenLength(module!, token);
+            const expected = nextIncrementalUtf8ByteV1(state.expectedUtf8);
+            if (expected === undefined && state.byteIndex >= length) {
+              state.localToken =
+                module!.exportView.getUint32(offset + 4, false) - 1;
+              state.functionIndex = 0;
+              state.byteIndex = 0;
+              state.phase = "findFunction";
+            } else if (expected === undefined || state.byteIndex >= length) {
+              state.exportIndex += 1;
+              state.phase = "findExport";
+              state.byteIndex = 0;
+            } else {
+              state.stringBytes += 1n;
+              const actual = isDefault
+                ? "default".charCodeAt(state.byteIndex)
+                : module!.stringBytes[
+                    tokenOffsetV1(module!, token) + state.byteIndex
+                  ];
+              if (actual !== expected) {
+                state.exportIndex += 1;
+                state.phase = "findExport";
+                state.byteIndex = 0;
+              } else {
+                state.byteIndex += 1;
+              }
+            }
+          } else if (state.phase === "findFunction") {
+            if (state.functionIndex >= module!.functionCount) {
+              state.exportIndex += 1;
+              state.phase = "findExport";
+              state.byteIndex = 0;
+            } else {
+              state.frontierEntries += 1n;
+              const functionToken =
+                module!.functionView.getUint32(
+                  state.functionIndex * 144,
+                  false,
+                ) - 1;
+              if (
+                tokenLengthV1(module!, functionToken) !==
+                  tokenLengthV1(module!, state.localToken)
+              ) {
+                state.functionIndex += 1;
+              } else {
+                state.phase = "compareFunction";
+                state.byteIndex = 0;
+              }
+            }
+          } else {
+            const functionToken =
+              module!.functionView.getUint32(state.functionIndex * 144, false) - 1;
+            const length = tokenLengthV1(module!, functionToken);
+            if (state.byteIndex >= length) {
+              state.found = true;
+              state.phase = "complete";
+            } else {
+              state.stringBytes += 1n;
+              if (
+                module!.stringBytes[
+                  tokenOffsetV1(module!, functionToken) + state.byteIndex
+                ] !==
+                  module!.stringBytes[
+                    tokenOffsetV1(module!, state.localToken) + state.byteIndex
+                  ]
+              ) {
+                state.functionIndex += 1;
+                state.phase = "findFunction";
+                state.byteIndex = 0;
+              } else {
+                state.byteIndex += 1;
+              }
+            }
+          }
+          transitions += 1;
+          state.transitionCount += 1n;
+        }
+        return Result.succeed(
+          state.phase === "complete"
+            ? lookupComplete(state, transitions)
+            : Object.freeze({
+                status: "pending",
+                transitionCount: transitions,
+                usage: lookupUsage(state),
+              }),
+        );
+      },
+      close: (rawHandle: unknown) => {
+        if (rawHandle === null || typeof rawHandle !== "object") {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        const lookup = completedLookups.get(rawHandle);
+        if (lookup !== undefined) {
+          if (lookup.closed) {
+            return Result.fail(executableError("access", "closed"));
+          }
+          releaseCompletedLookup(lookup);
+          return Result.succeed(undefined);
+        }
+        const claim = completedClaims.get(rawHandle);
+        if (claim === undefined) {
+          return Result.fail(executableError("access", "invalidInput"));
+        }
+        if (claim.closed) return Result.fail(executableError("access", "closed"));
+        if (claim.activeLookup !== undefined) {
+          const active = completedLookups.get(claim.activeLookup);
+          if (active !== undefined) releaseCompletedLookup(active);
+        }
+        releaseCompletedClaim(claim);
+        return Result.succeed(undefined);
+      },
+    });
+
+  const factory = Object.freeze({ create, admit, seal, step, close });
+  COMPLETED_LINK_CLAIM_PORTS_V1.set(factory, completedLinkClaimPort);
+  return factory;
+}
+
+export function declarativeV2VerifierCompletedLinkClaimPortV1(
+  factory: unknown,
+): DeclarativeV2VerifierCompletedLinkClaimPortV1 | undefined {
+  return factory !== null && typeof factory === "object"
+    ? COMPLETED_LINK_CLAIM_PORTS_V1.get(factory)
+    : undefined;
 }
 
 /**

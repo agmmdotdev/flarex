@@ -131,6 +131,16 @@ function drive(
     readonly depth: number;
     readonly transitions: number;
   }>;
+  readonly detailed: Readonly<{
+    readonly tokens: bigint;
+    readonly jsonNodes: bigint;
+    readonly validatorNodes: bigint;
+    readonly modules: bigint;
+    readonly functions: bigint;
+    readonly handlers: bigint;
+    readonly frontierEntries: bigint;
+    readonly comparisonStringBytes: bigint;
+  }>;
 }> {
   const created = createDeclarativeV2SemanticStreamDecoderV1(
     ownedBudget(streamBudget),
@@ -150,6 +160,16 @@ function drive(
     depth: 0,
     transitions: 0,
   };
+  let lastDetailed = {
+    tokens: 0n,
+    jsonNodes: 0n,
+    validatorNodes: 0n,
+    modules: 0n,
+    functions: 0n,
+    handlers: 0n,
+    frontierEntries: 0n,
+    comparisonStringBytes: 0n,
+  };
   let iterations = 0;
   for (const chunk of chunks) {
     let offset = 0;
@@ -166,6 +186,7 @@ function drive(
       output.push(...result.success.records);
       lastUsage = result.success.usage;
       lastMechanical = result.success.mechanical.aggregate;
+      lastDetailed = result.success.detailed.aggregate;
       if (
         offset >= chunk.byteLength &&
         result.success.mechanical.delta.transitions === 0
@@ -185,6 +206,7 @@ function drive(
         output.push(...drained.success.records);
         lastUsage = drained.success.usage;
         lastMechanical = drained.success.mechanical.aggregate;
+        lastDetailed = drained.success.detailed.aggregate;
         if (drained.success.mechanical.delta.transitions === 0) break;
       }
       if (offset < chunk.byteLength) continue;
@@ -193,6 +215,7 @@ function drive(
       output.push(...drained.success.records);
       lastUsage = drained.success.usage;
       lastMechanical = drained.success.mechanical.aggregate;
+      lastDetailed = drained.success.detailed.aggregate;
       if (drained.success.mechanical.delta.transitions === 0) break;
     }
   }
@@ -204,11 +227,13 @@ function drive(
     output.push(...finished.success.records);
     lastUsage = finished.success.usage;
     lastMechanical = finished.success.mechanical.aggregate;
+    lastDetailed = finished.success.detailed.aggregate;
     if (finished.success.status === "complete") {
       return Object.freeze({
         records: Object.freeze(output),
         usage: Object.freeze(lastUsage),
         mechanical: Object.freeze(lastMechanical),
+        detailed: Object.freeze(lastDetailed),
       });
     }
   }
@@ -278,10 +303,31 @@ describe("Declarative V2 Semantic Artifact V1 records", () => {
       ], limits, 3);
       expect(decoded.records, `split ${split}`).toEqual(baseline.records);
       expect(decoded.usage, `split ${split}`).toEqual(baseline.usage);
+      expect(decoded.detailed, `split ${split}`).toEqual(baseline.detailed);
       expect(decoded.mechanical, `split ${split}`).toEqual(
         baseline.mechanical,
       );
     }
+  });
+
+  test("reports exact split-invariant registration inspection facts", () => {
+    const bytes = streamBytes();
+    const limits = budget(bytes);
+    const one = drive([bytes], limits, 1);
+    const quantum = drive([bytes], limits, 1_024);
+    expect(one.detailed).toEqual(quantum.detailed);
+    expect(one.detailed).toMatchObject({
+      modules: 1n,
+      functions: 1n,
+      handlers: 1n,
+    });
+    expect(one.detailed.tokens).toBeGreaterThan(BigInt(records.length));
+    expect(one.detailed.jsonNodes).toBeGreaterThan(
+      one.detailed.validatorNodes,
+    );
+    expect(one.detailed.validatorNodes).toBeGreaterThan(0n);
+    expect(one.detailed.frontierEntries).toBeGreaterThan(0n);
+    expect(one.detailed.comparisonStringBytes).toBeGreaterThan(0n);
   });
 
   test("finish drains pending record work and owns deferred failures", () => {

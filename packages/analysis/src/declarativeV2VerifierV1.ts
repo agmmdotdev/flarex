@@ -574,6 +574,23 @@ export {
   makeDeclarativeV2VerifierResultAccessFactoryV1,
   stepDeclarativeV2VerifierLinkerV1,
 } from "./declarativeV2VerifierExecutableV1";
+
+export {
+  makeDeclarativeV2VerifierRegistrationFactoryV1,
+  DeclarativeV2VerifierRegistrationV1Error,
+} from "./declarativeV2VerifierRegistrationV1";
+export type {
+  DeclarativeV2VerifierRegistrationBindingsV1,
+  DeclarativeV2VerifierRegistrationCapacityV1,
+  DeclarativeV2VerifierRegistrationCompleteV1,
+  DeclarativeV2VerifierRegistrationDriverV1,
+  DeclarativeV2VerifierRegistrationFactoryV1,
+  DeclarativeV2VerifierRegistrationInputV1,
+  DeclarativeV2VerifierRegistrationPendingV1,
+  DeclarativeV2VerifierRegistrationReceiptV1,
+  DeclarativeV2VerifierRegistrationStepV1,
+  DeclarativeV2VerifierRegistrationV1ErrorReason,
+} from "./declarativeV2VerifierRegistrationV1";
 export type {
   DeclarativeV2VerifierAccessPendingV1,
   DeclarativeV2VerifierAuthenticatedLinkAccumulatorV1,
