@@ -326,30 +326,36 @@ Fixed cross-adapter rules:
 ## Master Execution Order
 
 This order is the current dependency hypothesis, not an instruction to execute
-the next identifier blindly. Before each meaningful behavior-changing gate,
-follow the implementation-step preflight in
+the next identifier blindly. Before each medium-sized behavior-changing
+capability, follow the proportional implementation-capability preflight in
 [`../../AGENTS.md`](../../AGENTS.md): verify the repository and primary
-references, explain what/why/where and the proof boundary to the user, and
-challenge the order and scope. Do not start implementation until the user
-explicitly approves that discussed step. A generic `go`, `continue`, or prior
-approval does not authorize the next roadmap gate. If a gate is no longer the
-smallest correctness-preserving route to the nearest end-to-end milestone,
-recommend the correction and update the owning plan after agreement before
-implementing it. Discussion-only, research-only, docs-only, and mechanical work
-does not require a ceremonial preflight unless it proposes a subsequent
-implementation gate.
+references, explain what/why/where and the proof boundary, challenge the order
+and scope, and recommend a direction. Do not start until the user approves that
+capability. The approval then persists through implementation, in-scope test
+fixes, validation, durable roadmap reconciliation, required reviewer reruns,
+and its coherent commit.
 
-Create a new subgate only when a distinct trust, transaction, recovery,
-migration, compatibility, or evidence boundary requires an independently
-reviewable result. Every new subgate must name the existing outcome it refines
-and whether it changes milestone order. Implementation detail, file count, or
-commit size alone does not justify extending the plan. Work that does not block
-the nearest vertical proof should be deferred to its real consumer.
+Request a new preflight only when evidence introduces a materially new trust or
+authority boundary, schema or migration, transaction contract, public contract,
+identity or version, compatibility obligation, routing or activation decision,
+owner, or other scope boundary. `Bounded` means those authority and resource
+limits are explicit; it does not mean artificially tiny work. Implementation
+detail, file count, a caused test failure, or commit size alone does not justify
+another gate.
 
-One approved focused-plan item is the default implementation scope. Complete
-it only after proportional tests, required reviewer passes, and its automatic
-commit. Update living roadmaps only when durable status, architecture, gaps,
-direction, or correctness criteria change.
+Create a new subgate only when one of those material boundaries requires an
+independently reviewable result. Every new subgate must name the existing
+outcome it refines and whether it changes milestone order. Do not fork a
+coherent capability into micro research or documentation gates while refusing
+to select a supported direction. Work that does not block the nearest vertical
+proof should be deferred to its real consumer.
+
+One approved medium coherent capability is the default implementation scope.
+Complete it only after proportional tests, required reviewer passes, and its
+commit. Update living roadmaps in that same capability when durable status,
+architecture, gaps, direction, or correctness criteria change. Standalone
+prerequisite-doc commits are exceptional and should represent a genuine durable
+decision or a material blocker, not ordinary implementation sequencing.
 
 ### Wave 0 — Prototype Isolation And Immutable Foundations
 
@@ -966,12 +972,13 @@ admitted-command view nor proves A1b2 composition. No production caller
 composes the view, verifier restart runtime, analyzer, and durable repository
 in `apps/executor`.
 
-The accepted order is `A1b2c0b2c0` private pure bounded
+The historical component order produced `A1b2c0b2c0` private pure bounded
 analyzer-to-executor command-response transport, split `A1b2c0b2c1a`
 executor-HTTP restart-input transport and `A1b2c0b2c1b` persistence-owned
-settled-page readback, split `A1b2c0b2c2a` claimed restart-source prerequisite
-and `A1b2c0b2c2b` pure analyzer command engine, then `A1b2c0b2c3`
-Effect-owned analyzer host/adapter. The private, inert
+settled-page readback, and the split `A1b2c0b2c2a` claimed restart-source
+prerequisite. The remaining command-engine and Effect host work no longer
+proceeds as standalone `A1b2c0b2c2b`/`A1b2c0b2c3` micro-gates; it is grouped
+into analyzer capabilities 1 and 2 below. The private, inert
 `A1b2c0b2c0` response transport and `A1b2c0b2c1a` restart-input transport are
 implemented:
 
@@ -1056,8 +1063,9 @@ implemented:
   monolithic bytes and identities remain unchanged. The capability remains
   unwired, production-unreachable, and insufficient to prove real cold
   recovery.
-- `A1b2c0b2c2b` remains blocked behind an authenticated command-plan authority
-  sequence, but research-only
+- The earlier `A1b2c0b2c2b` blocker analysis established the authenticated
+  command-plan authority sequence. Its remaining core and composition work now
+  belongs to capabilities 1 and 2 rather than a chain of research-only gates.
   `A1b2c0b2c2b0a1a-P — authenticated companion producer/consumer
   fact-availability preflight` rejects the earlier single
   pre-execution-companion and two-stage-plan formulation. The accepted
@@ -1222,10 +1230,13 @@ implemented:
   same-length actual-fit module. The exact universal maximum remains unproved,
   while this constructive family proves the hard ceiling `Nmax <= 160_613`.
 
-  The unresolved alternatives are deliberately unselected. Generated linear
-  proof metadata would need a stricter accepted source/domain limit, changing
-  accepted inputs, pre-allocation failure order, generated identity evidence,
-  and later producer alignment. An analysis-owned streaming, interning, or
+  The multiplicity evidence supports generated proof metadata plus a stricter
+  accepted source/domain limit as the conservative completion direction.
+  Capability 1 must derive and select the numerical limit from generated
+  parser/diagnostic bounds and checked arena proof rather than guessing it here.
+  That direction changes accepted inputs and pre-allocation failure order and
+  therefore requires focused compatibility, generated-bound, identity, restart,
+  and later producer proof. An analysis-owned streaming, interning, or
   factoring design could separate peak storage capacity from cumulative
   canonical/hash/output actual while preserving canonical evidence bytes, but
   would change the arena/module/restart representation and require monolithic
@@ -1233,9 +1244,10 @@ implemented:
   representation would deliberately change arena/generated identity and
   restart representation. A separately versioned evidence representation is
   an option only if evidence bytes and identity are intentionally changed,
-  with downstream compatibility proved separately. None is selected; reserved
-  storage remains capacity rather than terminal actual, and streaming would
-  not remove canonical/hash/output work from terminal accounting.
+  with downstream compatibility proved separately. Those three representation
+  directions are deferred. Reserved storage remains capacity rather than
+  terminal actual, and streaming would not remove canonical/hash/output work
+  from terminal accounting.
 
   Durable command usage and restart recovery usage remain separate ledgers.
   Recovery-side `objectCalls`, page/body bytes, hashes, records, and manifests
@@ -1251,39 +1263,38 @@ implemented:
   observable V1 receipts, budget-failure timing, and the usage reconstructed on
   warm or settled-cold restart even when terminal semantics are identical.
 
-  `A1b2c0b2c2b0a1d-P` is resolved only as contract-fork evidence. No
+  `A1b2c0b2c2b0a1d-P` is resolved as contract-fork evidence. No
   owner-internal split-invariant law can preserve the current V1 receipts,
   allowance-zero lifecycle, budget-failure timing, and warm/cold usage. The
-  unresolved fork is either to preserve V1's partition-dependent
-  external-invocation accounting or to define a separately versioned
-  owner-internal work-unit contract. Neither branch is selected. An
-  internal-work branch would require explicit metered ownership for source
-  sealing, semantic work, terminal publication, and evidence hashing; true
-  zero-work semantics; compatibility, receipt, and first-failure-order review;
-  and a deliberate identity/version decision. No internal quantum, phase
-  constant, migration, dual behavior, or compatibility shim is proposed.
+  selected completion branch preserves V1's partition-dependent
+  external-invocation accounting. A separately versioned owner-internal
+  work-unit contract is deferred because it would require explicit metered
+  ownership for source sealing, semantic work, terminal publication, and
+  evidence hashing; true zero-work semantics; compatibility, receipt, and
+  first-failure-order review; and a deliberate identity/version decision. No
+  internal quantum, phase constant, migration, dual behavior, or compatibility
+  shim is introduced.
 
   The multiplicity/addressability contradiction remains separate from the
-  call-accounting fork and independently blocks every parse implementation.
-  Command-budget copying, a preliminary parse, rescan, caller-authored facts,
-  hidden work, and duplicated parser semantics remain rejected. No
-  executable/API, generated identity, restart, protocol, backend, persistence,
-  analyzer-adapter, host, or activation owner or path is ready. No source
-  limit, capacity formula, representation, arena/evidence version, call branch,
-  migration, compatibility shim, allocation, parser, evidence, or runtime
-  design is selected here. Pure deterministic capacity, arithmetic, schedule,
-  and terminal-proof mechanics remain Effect v4 `Result`/plain TypeScript; the
-  later Effect host owns authenticated acquisition, request `Scope`,
-  cancellation, interruption, foreign `Cause`, clocks, resources, uncertainty,
-  release, and finalization.
+  preserved V1 call-accounting branch. It blocks an unrestricted
+  source-length-only V1 fixed arena, not the selected conservative-limit
+  direction. Command-budget copying, a preliminary parse, rescan,
+  caller-authored facts, hidden work, and duplicated parser semantics remain
+  rejected. Capability 1 owns the generated bounds, numerical limit proof,
+  capacity/allocation implementation, and focused compatibility evidence. Pure
+  deterministic capacity, arithmetic, schedule, and terminal-proof mechanics
+  remain Effect v4 `Result`/plain TypeScript; the later Effect host owns
+  authenticated acquisition, request `Scope`, cancellation, interruption,
+  foreign `Cause`, clocks, resources, uncertainty, release, and finalization.
 
-  `A1b2c0b2c2b0a1c-P` is resolved only as blocker evidence: the provisional
+  `A1b2c0b2c2b0a1c-P` is resolved as design evidence: the provisional
   sizing and driver APIs remain test-oracle-only, production-unwired,
-  unaccepted, uncommitted, and are not implementation authority. No
-  implementation owner or path is ready. Any need for a protocol field,
-  backend producer, executor-HTTP codec, persistence/schema decision, analyzer
-  adapter, generated identity change, or different parser allocation owner
-  must stop as its own prerequisite. Existing request, response, restart,
+  unaccepted, uncommitted, and are not implementation authority. Their
+  disposition belongs to capability 1 rather than a separate research gate.
+  Any need for a protocol field, backend producer, executor-HTTP codec,
+  persistence/schema decision, analyzer adapter, generated identity change, or
+  different parser allocation owner crosses a material boundary and must stop
+  for a new proportional preflight. Existing request, response, restart,
   progress, and
   physical identities and bytes, package-root closure, monolithic behavior, and
   the committed source/link/registration owners remain unchanged; no parse
@@ -1381,10 +1392,12 @@ implemented:
   reproduction mismatch remains an out-of-scope baseline and was not repaired
   or absorbed by this gate.
 
-  The trusted `apps/analyzer` adapter plus later `link_page` consumption and
-  settlement remain unresolved. `registration_page` sizing/driver ownership is
-  still a separate unresearched prerequisite. Source-page and parse-module
-  formulas must not be generalized to either command kind.
+  At that checkpoint, the trusted `apps/analyzer` adapter, `link_page`
+  consumption and settlement, and `registration_page` sizing/driver ownership
+  were unresolved. The later committed link and registration owners described
+  below close the package-local ownership questions; trusted composition,
+  consumption, and settlement now belong to capabilities 1 and 2. Source-page
+  and parse-module formulas still do not generalize to either command kind.
 
   The accepted `link_page` preflight found that link sizing and driving cannot
   yet land as a standalone owner. The current call graph remains
@@ -1708,76 +1721,44 @@ implemented:
   application-row semantics, A1b2/C07 separation, and all governance non-goals
   remain unchanged.
 
-  The earlier b0b/b0c ordering around one companion codec and one backend plan
-  producer is not owner-ready and must not proceed as written. Separate later
-  research gates must decide: safe authenticated `parse_module` capacity
-  formulas, pre-allocation arena bounds, and split-invariant schedule authority;
-  backend pre-reservation commitment preparation plus post-reservation
-  admission-envelope production; executor-HTTP admission-envelope and
-  terminal-proof codec ownership; the `apps/analyzer` warm/cold
-  opaque-capability adapter; and persistence terminal-proof settlement,
-  including durable storage versus transaction-only validation. Each gate must
-  preserve current request/response/restart/progress identities, package-root
-  closure, and the rule that no analysis handle or sealed capability is
-  serialized.
+  The earlier b0b/b0c micro-gate sequence is superseded by two medium coherent
+  analyzer capabilities. The accepted direction is to preserve V1 call
+  accounting and close parse allocation with a proven conservative
+  source/domain limit plus generated parser and diagnostic multiplicity bounds.
+  Capability 1 must derive and select the numerical limit during implementation
+  from checked signed-int64/u32 and arena proofs; this roadmap does not guess
+  it. Streaming/factoring, a new arena representation, and a new evidence
+  representation are deferred.
 
-  Pure plan, transition, canonical, and companion mechanics remain Effect v4
-  `Result`/plain TypeScript. Backend authentication and hashing, repository
-  confirmed-rollback retry and decision uncertainty, and the later c3 request
-  `Scope`, cancellation, interruption, full foreign `Cause`, acquisition,
-  release, and finalization remain Effect-owned by their existing boundaries.
-  Required b0a validation covers all four legal command grammars, forbidden
-  `finalize`, every legal/illegal transition, all 26 dimensions with exact,
-  one-less and ceiling-plus-one cases, checked int64/addressability limits,
-  hostile accessor order, deterministic two-cold identity, exact arena and
-  executable acceptance, focused/full analysis plus compatibility suites,
-  typecheck/build, generators/identities, frozen install, Effect/docs/diff
-  checks, and both exact-final project reviewers.
-  `A1b2c0b2c2b0a1-P` and
-  `A1b2c0b2c2b0a1a-P — authenticated companion producer/consumer
-  fact-availability preflight` are resolved as research/design evidence by the
-  authority-kind, temporal fact graph, lifecycle, ownership, and rejection
-  rules above. They authorize no admission envelope, terminal proof, producer,
-  codec, adapter, engine, host, persistence decision, or settlement
-  implementation. The provisional b0a bytes remain unwired,
-  production-unreachable, non-authoritative, unaccepted, and uncommitted.
-  Source-page requirement and link/registration capacity owners exist, but no
-  trusted warm/cold app producer, command consumer, authenticated
-  requirement/capacity-aware settlement, or activation path exists. The current
-  parse-fact API is test-oracle-supported only and supplies no accepted
-  production authority.
-  `A1b2c0b2c2b0a1b-P — authenticated parse-fact authority preflight` is
-  likewise resolved as research/design evidence by the parse-capacity
-  correction above and authorizes no implementation.
-  `A1b2c0b2c2b0a1c-P — parse capacity formula and split-invariant schedule
-  feasibility preflight` is resolved only as blocker evidence: no accepted
-  remaining-dimension multiplicity theorem or owner-controlled internal-call
-  accounting contract exists.
+  **A1b2 capability 1 — verifier core contract completion.** Complete generated
+  bounds, checked capacity/allocation and terminal-actual enforcement across
+  parse/source/link/registration, preserve the observable V1 `calls` law,
+  reconcile or remove the provisional command-plan API, and prove focused
+  monolithic, restart, canonical-byte, generated-bound, identity, and
+  compatibility behavior.
 
-  No implementation gate is owner-ready. Any continuation requires a
-  separately approved research gate for exactly one of the missing owners
-  listed above; it must stop rather than choose a terminal-proof schema/storage
-  representation, duplicate an analysis formula, perform preliminary
-  execution, rescan authenticated content, serialize a capability, or widen
-  into production composition.
+  **A1b2 capability 2 — accepted complete analyzer port.** Compose the
+  source/link/registration owners behind one entry, add trusted warm and
+  reconstructed-cold host/session lifecycle over the admitted-command and
+  claimed restart-source capabilities, authenticate the terminal `A`, `E`, and
+  `R` channels, prove deterministic progress,
+  interruption, uncertainty and terminal release, and run focused integration
+  validation. `@flarex/analysis` remains the semantic owner;
+  `apps/analyzer` remains the dependency-inversion and Effect host boundary.
+  Pure plan and capability mechanics remain `Result`/plain TypeScript, while
+  authenticated I/O, request `Scope`, cancellation, full foreign `Cause`,
+  retry, uncertainty, acquisition, release, and finalization remain
+  Effect-owned. Acceptance creates no production route or activation authority.
 
-  The blocked candidate c2b implementation allowlist remains exactly
-  `packages/analysis/src/declarativeV2VerifierCommandEngineV1.ts`,
-  `packages/analysis/test/declarative-v2-verifier-command-engine-v1.test.ts`,
-  `packages/analysis/src/declarativeV2VerifierV1.ts`,
-  `apps/analyzer/src/DeclarativeV2CommandEngine.ts`,
-  `apps/analyzer/test/declarativeV2CommandEngine.test.ts`,
-  `apps/analyzer/package.json`, and these two living roadmaps. That allowlist is
-  evidence for a later decision, not implementation authority.
-
-  After that prerequisite is resolved, `@flarex/analysis` remains the semantic
-  engine owner, while a private pure `apps/analyzer` adapter remains the
-  dependency-inversion boundary connecting executor-HTTP opaque ports without
-  making analysis depend on executor-http. It would consume the already
-  admitted, same-factory result-bound admitted-command view plus the newly
-  claimed restart source and produce a bounded result cursor. Only the restart
-  source gains this c2a claim. The prerequisite and engine remain
-  unimplemented, unwired, and production-unreachable.
+  One proportional approval for either capability covers implementation,
+  in-scope test fixes, validation, roadmap reconciliation, required reviewers,
+  and commit. A new preflight is required only for a materially new
+  trust/authority, schema/migration, transaction, public-contract,
+  identity/version, compatibility, routing/activation, or owner boundary.
+  Current request/response/restart/readback/progress/physical bytes,
+  package-root closure, and the rule that no analysis handle or sealed
+  capability is serialized remain unchanged unless that separate boundary is
+  approved.
 - `A1b2c0b2c3` owns the fresh release handshake, single-use claim, request
   `Scope`, cancellation and interruption, full foreign `Cause`, and
   resource acquisition, release, and finalization at the Effect host boundary.
@@ -1798,62 +1779,36 @@ resumable physical-frame cursor d0 and its d1 authenticated completed-link
 claim plus sizing/terminal driver are implemented and committed through
 internal, root-unexported owners, but remain unwired, inert, and
 production-inactive. Parse/source formulas do not generalize to registration.
-`A1b2c0b2c2b0a1-P` and `A1b2c0b2c2b0a1a-P` are resolved as
-research/design evidence. `A1b2c0b2c2b0a1b-P` is likewise resolved by the
-parse-capacity correction. `A1b2c0b2c2b0a1c-P` is resolved only as evidence
-that no accepted multiplicity theorem exists, `A1b2c0b2c2b0a1d-P` is resolved
-only as contract-fork evidence for call accounting, and
-`A1b2c0b2c2b0a1e-P` is resolved as V1 multiplicity/addressability contract
-evidence. The truthful lifecycle is the existing opaque
-command-input commitment, a later separately versioned post-reservation
-admission envelope, an analysis-owned sealed nonserializable
-requirement/capacity capability, and a later separately versioned terminal
-authority proof. Source requirements and link/registration capacities arise
-only at owner-local seal points. Parse now has only the design direction of
-immutable capacity plus verifier-owned terminal actual. Exact-zero, exact-input,
-fixed, and source-bounded dimensions are proven, but the remaining
-parser/semantic/diagnostic/evidence multiplicities are not. Repeated
-caller/function text can make per-call evidence demand quadratic. The exact
-`L = 80_394`, `K = 4_452`, `N = 160_614` family requires
-`4_294_969_056` repeated-text arena bytes, `1_761` above u32, while a
-same-length comment-padded low-work module remains actual-fit. The exact
-universal maximum is unproved, but `Nmax <= 160_613`. Generated linear proof
-metadata alone cannot solve that contradiction. Unselected alternatives are
-generated proof metadata plus a stricter source/domain limit; analysis-owned
-streaming/interning/factoring that separates peak storage from cumulative
-actual while preserving evidence bytes; a separately versioned arena
-representation; or, only when bytes and identity intentionally change, a
-separately versioned evidence representation. Each requires its own
-accepted-input, failure-order, arena/module/restart, identity, monolithic, and
-later producer-alignment decision. The exact current V1 `calls` law is creation plus every
-accepted public `step`, every accepted public `finish`, and evidence-SHA work.
-Zero-allowance `step` charges without a transition, while zero-allowance
-`finish` charges and seals source input; caller partition, empty calls, and
-repeated pending finishes are therefore observable. The unresolved fork is to
-preserve that V1 partition-dependent accounting or define a separately
-versioned owner-internal work-unit contract. Neither is selected. The latter
-would require explicit seal/publication/semantic/hash metering, true zero-work
-semantics, compatibility/receipt/failure-order review, and an identity/version
-decision. The separate multiplicity/addressability contradiction independently
-blocks implementation. No alternative, source limit, formula, representation,
-or version is selected. No executable/API, generated, restart, protocol,
-backend, persistence, adapter, host, or
-activation owner or path is ready. The current sizing and driver APIs are
-test-oracle-supported only, production-unwired, unaccepted, uncommitted, and
-are not implementation authority. The provisional command-plan API and
-derivation are unaccepted and not incrementally salvageable, and no
-implementation is owner-ready. Backend
-preparation, both executor-HTTP codecs, the analyzer adapter, persistence
-settlement/storage policy, b0b/b0c, the c2b command engine, Effect
-host, production caller, and composition proof remain absent. These inert
-owners do not prove real cold delivery: cold
-`link_page`
-and link-dependent registration cannot rely on warm WeakMap state. Pure claim,
-command-plan, transport, and engine mechanics remain in `Result`/plain
-TypeScript,
-persistence I/O remains inside its existing Effect repository boundary, and
-the later host owns request `Scope`, cancellation, interruption, full foreign
-`Cause`, and resource finalization.
+The a1 preflights are retained as evidence, not as a queue of prerequisite
+micro-gates. They established the command-input/admission/sealed-capability/
+terminal-proof lifecycle, source-length addressability counterexample, and
+observable V1 call-accounting contract. The selected direction preserves V1
+call accounting and uses generated parser/diagnostic bounds with a conservative
+source/domain limit. Capability 1 must derive and select the numerical limit
+during implementation from checked proof; this roadmap does not guess it.
+Streaming/factoring, arena-version, and evidence-version redesigns are deferred.
+
+Analyzer completion is exactly two medium capabilities: verifier core contract
+completion, then one accepted complete analyzer port. Capability 1 owns
+generated bounds, checked capacity/allocation and terminal actual across all
+four commands, provisional command-plan disposition, and focused monolithic,
+restart, identity, and compatibility proof. Capability 2 owns
+source/link/registration composition, trusted warm/cold host/session lifecycle,
+authenticated terminal `A`, `E`, and `R` channels, deterministic
+failure/release proof, and focused integration validation. Neither capability
+is implemented by this documentation change.
+
+After capability 2 is accepted, the analyzer remains externally unwired and
+production-inactive until the separate routing and activation boundary is
+approved. Backend production routes, candidate preparation,
+repository `Work`/fence authorization, persistence settlement/storage policy,
+`apps/executor` composition, C07, U2, readiness, activation, and a production
+caller remain absent. Existing request/response/restart/readback/progress/
+physical bytes, package-root closure, the monolithic analyzer, and
+OCC/commit/journal/idempotency/feed/outbox/application-row authority remain
+unchanged. A materially new trust/authority, schema/migration, transaction,
+public contract, identity/version, compatibility, routing/activation, or owner
+boundary requires a new proportional preflight.
 Candidate preparation, repository `Work`/fence authorization, `apps/executor`
 composition, C07, U2, and the private real-system harness remain later distinct
 gates. The current monolithic analyzer path remains unchanged. None of these

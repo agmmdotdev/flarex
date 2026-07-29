@@ -548,49 +548,66 @@ not manufacture objections or block mechanical work with a ritual critique. If
 the proposal survives review, say why. Once a decision is accepted, record it
 durably and proceed until new evidence invalidates it.
 
-## Implementation Step Preflight
+## Implementation Capability Preflight
 
-Before starting any roadmap implementation gate or other meaningful
-behavior-changing slice, stop and discuss that step with the user. A roadmap
-number is a current planning hypothesis, not sufficient authorization or proof
-that the step is still correctly ordered.
+Use a medium-sized coherent capability as the default implementation work unit.
+Before starting one, discuss it with the user through a proportional preflight,
+normally in one discussion. A roadmap number is a planning hypothesis, not
+automatic authorization, but preflight must recommend a direction when the
+available evidence supports one. Do not turn implementation planning into a
+chain of micro research or documentation gates that repeatedly forbids making
+the decision the evidence already supports.
 
-Research the step before presenting it. Read the accepted design, the relevant
-domain roadmap and focused plan, current definitions/schema/code/tests, related
-completed and deferred gates, and the checked-in Convex source or other primary
-reference that governs the behavior. Consider the whole repository and the
-nearest end-to-end milestone, not only the file named by the next checkbox.
+Research the capability before presenting it. Read the accepted design, the
+relevant domain roadmap and focused plan, current definitions/schema/code/tests,
+related completed and deferred work, and the checked-in Convex source or other
+primary reference that governs the behavior. Consider the whole repository and
+the nearest end-to-end milestone, not only the file named by the next checkbox.
 
-The preflight must explain in plain language:
+The proportional preflight must explain in plain language:
 
-1. **What** the step will deliver, its affected boundaries, and explicit
-   non-goals.
+1. **What** coherent outcome the capability will deliver, its affected
+   boundaries, and explicit non-goals.
 2. **Why** it should happen now, which dependencies it closes, and how it moves
    the system toward the nearest end-to-end proof.
 3. **Where** the decision and execution order are owned in markdown, and which
-   current code, definitions, tests, and Convex references provide evidence.
+   current code, definitions, tests, and primary references provide evidence.
 4. **What was challenged:** contradictions, stale assumptions, missing
-   failure/recovery behavior, ordering problems, alternatives, and any smaller
-   correctness-preserving slice. If legacy code is touched, classify each
-   affected path as `keep`, `port`, `rewrite`, `delete`, or `temporary bridge`,
-   and identify the evidence for any compatibility obligation.
+   failure/recovery behavior, ordering problems, alternatives, and the
+   recommended correctness-preserving direction. If legacy code is touched,
+   classify each affected path as `keep`, `port`, `rewrite`, `delete`, or
+   `temporary bridge`, and identify the evidence for any compatibility
+   obligation.
 5. **How completion will be proven:** focused tests, required real-Postgres or
-   Cloudflare lanes, compatibility checks, and the exact exit criteria.
+   Cloudflare lanes, compatibility checks, required reviewers, roadmap
+   reconciliation, and exact exit criteria.
 
-Do not begin implementation until the user explicitly approves the step after
-this preflight. A generic `go`, `continue`, or prior approval authorizes only
-the already-discussed step; it does not automatically authorize the next
-roadmap gate. If research shows that the planned step is premature, duplicated,
-over-broad, or ordered incorrectly, recommend the correction and update the
-owning plan after agreement before implementing it.
+Do not begin implementation until the user explicitly approves the capability.
+That approval persists through its implementation, in-scope test fixes,
+validation, durable roadmap reconciliation, required reviewer reruns, and one
+coherent commit. A generic `go` or `continue` may resume that approved
+capability, but it does not authorize a different capability.
 
-This preflight is required once per meaningful implementation gate, not before
-every shell command, formatting action, validation rerun, or small test-fix
-loop inside an approved unchanged slice. Pause for a new preflight if evidence
-materially changes the approved scope, architecture, trust boundary, or
-execution order. Discussion-only, research-only, docs-only, and mechanical
-turns do not need a ceremonial self-preflight unless they propose a subsequent
-implementation gate.
+Pause for a new proportional preflight and approval only when evidence requires
+a materially new trust or authority boundary, schema or migration, transaction
+contract, public contract, identity or version, compatibility obligation,
+routing or activation decision, owner, or other scope boundary. Discovery of
+ordinary implementation detail, another in-scope file, a test failure caused
+by the approved change, or the need to refresh validation is not by itself a
+new gate. If evidence invalidates the chosen direction or crosses one of those
+boundaries, stop, explain the conflict, and recommend the corrected capability.
+
+`Bounded` means that authority, ownership, resource, compatibility, and
+activation limits are explicit. It does not require artificially tiny file,
+turn, or commit scopes. Documentation should normally land with the
+implementation whose durable truth it changes. Standalone prerequisite-doc
+commits are exceptional: use one only when the documentation decision is itself
+the durable deliverable or when implementation is genuinely blocked on a
+material boundary decision.
+
+Discussion-only, research-only, docs-only, and mechanical turns do not need a
+ceremonial self-preflight unless they propose a subsequent implementation
+capability.
 
 ### Standing Approval For Utility Consolidation
 

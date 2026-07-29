@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-**Status:** Active focused execution plan. `FSV00` is the documentation
-preflight. Implementation has not started under this plan.
+**Status:** Active capability-sized execution plan. `FSV00` accepted the
+documentation boundary. Implementation has not started under this plan.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -70,7 +70,7 @@ factories.
 | --- | --- | --- |
 | A1b2 has no accepted complete replacement analyzer port | `FSV01` / SAP02 | Finish and accept the real analyzer entry, lifecycle, authenticated output, and focused proof |
 | SAP02 has no implemented authenticated verified-analysis result | `FSV02` registration input | Implement and validate `analyzeStandardApplicationV1` before designing the registration input |
-| Relevant system-package validation is not wholly green; the persistence typecheck currently has a stored-attempt test-contract mismatch | First System API implementation checkpoint | Restore a green baseline in a separate bounded fix; do not absorb it silently into analyzer or API behavior |
+| Relevant system-package validation is not wholly green; the persistence typecheck currently has a stored-attempt test-contract mismatch | First System API implementation checkpoint | Prove it unchanged and outside the capability or repair it under its real owner; do not absorb it silently into analyzer or API behavior |
 | App-schema publication is package-owned but not composed with complete revision evidence | `registerApplicationRevisionV1` | Preflight and implement one inactive, durable, idempotent registration operation over existing owners |
 | Readiness and replacement activation do not exist | Active-revision consumption | Complete `S03-D4`, then `S04` and its coherent reader after the private system proof |
 | Point-mutation components are private and C07 is not assembled | System Application Data API and SAP04 | Complete the private A1b2 plus C07 real-system harness before active-revision invocation |
@@ -81,11 +81,11 @@ There are therefore two start decisions:
 
 1. **Start `FSV01` after analyzer acceptance.** This is Standard analysis API
    work, not yet a FlarexDB database-operation API.
-2. **Start the first true System API at `FSV02`.** Its preflight must use the
-   actual SAP02 success and error types and must identify the existing
-   registration, schema-publication, persistence, and host owners.
+2. **Start the first true System API at `FSV02`.** Its proportional capability
+   preflight must use the actual SAP02 success and error types and identify the
+   existing registration, schema-publication, persistence, and host owners.
 
-Every API slice must deliver together:
+Every medium coherent API capability must deliver together:
 
 - one verb-named exported function;
 - exact `Effect.Effect<A, E, R>` channels;
@@ -212,8 +212,10 @@ remain the only correctness implementations below both layers.
 9. **No silent fallback or dual write.** A missing replacement prerequisite
    fails closed. The vertical does not compare against or write through
    `legacy_v1` to ease cutover.
-10. **One slice, one complete capability.** Each gate has a concrete consumer,
-    typed failures, and proportional validation before the next gate begins.
+10. **One approval, one complete capability.** Each gate has a concrete
+    consumer, typed failures, and proportional validation. Its approval
+    persists through in-scope fixes, roadmap reconciliation, required
+    reviewers, and commit.
 11. **No premature route switch.** Private end-to-end success is evidence for a
     later routing decision, not permission to activate production.
 
@@ -240,6 +242,13 @@ Entry gate:
   cancellation/lifecycle behavior; and
 - the analysis, Standard-definition, backend, and direct host packages in the
   slice have a green typecheck and focused test baseline.
+
+The accepted analyzer handoff is the start authority for this capability.
+After verifying the named entry point, channels, ownership, and validation
+receipts, begin `FSV01`/SAP02 without another broad or ceremonial preflight.
+Stop only if the handoff is missing, stale, or crosses a materially new
+trust/authority, schema/migration, transaction, public-contract,
+identity/version, compatibility, routing/activation, or owner boundary.
 
 Implement the narrow Standard analysis operation:
 
@@ -504,17 +513,19 @@ evidence.
 
 After receiving the handoff, the System API session must inspect the named
 implementation and rerun the relevant baselines. If they agree with the owning
-analyzer roadmap, that session may begin the `FSV01` implementation without a
-new broad architecture discussion. It must stop if the accepted analyzer
-boundary, ownership, lifecycle, or validation evidence is absent or differs
-from the handoff.
+analyzer roadmap, the accepted handoff authorizes the medium `FSV01`/SAP02
+capability without another broad or ceremonial preflight. In-scope test fixes,
+validation, roadmap reconciliation, required reviewers, and commit remain
+inside that approval. Stop if the analyzer boundary, ownership, lifecycle, or
+validation evidence differs from the handoff or a materially new scope boundary
+appears.
 
-Before starting `FSV01`, close any failing baseline in a separate bounded
-change or explicitly prove that it is outside the slice. Before starting
-`FSV02`, the relevant executor, persistence, backend, and Standard baselines
-must all be green.
+Before starting `FSV01`, explicitly prove any failing baseline outside the
+capability or repair it under its real owner. Before starting `FSV02`, the
+relevant executor, persistence, backend, and Standard baselines must all be
+green.
 
-The `FSV01` preflight should identify:
+The handoff record and `FSV01` implementation plan must identify:
 
 1. the exact replacement analyzer entry function and its `A`, `E`, and `R`;
 2. the authenticated analysis success projection SAP02 may expose;
@@ -524,8 +535,9 @@ The `FSV01` preflight should identify:
    acyclic; and
 6. the focused tests and current commands that prove the boundary.
 
-After `FSV01` is complete, preflight `FSV02` from the actual SAP02 output.
-Never design the registration input from a speculative analyzer shape.
+After `FSV01` is complete, run one proportional `FSV02` capability preflight
+from the actual SAP02 output. Never design the registration input from a
+speculative analyzer shape.
 
 ## Overall Completion Criteria
 
