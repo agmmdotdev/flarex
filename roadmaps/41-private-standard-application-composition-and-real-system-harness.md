@@ -2,9 +2,10 @@
 
 ## Status And Scope
 
-**Status:** `SAC01-P` docs-first preflight complete. A first pure, test-local
-standard-application definition and corpus seed is accepted under the backend
-test owner. A dedicated harness package, complete replacement analyzer port,
+**Status:** `SAC01-P` docs-first preflight and `SAC01-A` first slice complete.
+A pure, test-local standard-application definition and corpus seed is
+implemented under the backend test owner. A dedicated harness package, complete
+replacement analyzer port,
 private real-system harness, deterministic workload runner, and live
 composition are not implemented or green as one system. This record does not
 assume that another canonical application or invocation contract is required.
@@ -610,11 +611,11 @@ Promote the harness to named services and Layers only when the accepted live
 composition exposes reusable capabilities and at least two concrete consumers
 need the same lifecycle owner.
 
-### Accepted First Implementation Slice: `SAC01-A`
+### Implemented First Slice: `SAC01-A`
 
-`SAC01-A` establishes one private standard-application fixture contract and
-migrates the backend upload-correlation fixture to consume it. It does not
-create the live harness.
+`SAC01-A` establishes one private standard-application fixture contract, and
+the backend upload-correlation fixture consumes it. It does not create the live
+harness.
 
 Exact path allowlist:
 

@@ -1,6 +1,4 @@
 import {
-  CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
-  CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
   makeCanonicalDeclarativeProgramBudgetV1,
   makeCanonicalDeclarativeProgramFixtureV1,
 } from "@flarex/declarative-program/v1";
@@ -81,6 +79,9 @@ import {
   type SemanticArtifactV1UploadCore,
 } from "../src/semanticArtifactV1/UploadCore";
 import type { Env } from "../src/types";
+import {
+  makeOrdersPrivateStandardApplicationDefinitionFixtureV1,
+} from "./privateStandardApplication/definitionFixtureV1";
 
 const UTF8_ENCODER = new TextEncoder();
 export const DEPLOYMENT_ID = "deployment-correlation";
@@ -710,90 +711,27 @@ function storedObject(
 export function materializedPlan(
   ordersSource = "export const place = 1;\n",
 ): DeclarativeV2ArtifactIngressPlanV1 {
+  const fixture =
+    makeOrdersPrivateStandardApplicationDefinitionFixtureV1(ordersSource);
   const programBudget = Result.getOrThrow(
-    makeCanonicalDeclarativeProgramBudgetV1({
-      maximumModules: 2,
-      maximumFunctions: 2,
-      maximumIdentifierUtf8Bytes: 4_096,
-      maximumValidatorNodes: 256,
-      maximumValidatorDepth: 32,
-      maximumValidatorStringUtf8Bytes: 4_096,
-    }),
+    makeCanonicalDeclarativeProgramBudgetV1(fixture.programBudgetInput),
   );
   const program = Result.getOrThrow(
-    makeCanonicalDeclarativeProgramFixtureV1({
-      format: CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
-      version: CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
-      schema: {
-        tables: [{
-          logicalName: "orders",
-          definition: {
-            kind: "appDocument",
-            definitionVersion: 1,
-            documentType: {
-              type: "object",
-              value: {
-                status: {
-                  fieldType: { type: "string" },
-                  optional: false,
-                },
-              },
-            },
-          },
-        }],
-        indexes: [{
-          tableLogicalName: "orders",
-          descriptor: "by_status",
-          fields: ["status"],
-        }],
-      },
-      modules: [{
-        modulePath: "orders",
-        functions: [{
-          exportName: "place",
-          kind: "mutation",
-          visibility: "public",
-          argsValidator: { type: "any" },
-          returnsValidator: null,
-        }],
-      }],
-    }, programBudget),
+    makeCanonicalDeclarativeProgramFixtureV1(
+      fixture.programInput,
+      programBudget,
+    ),
   );
   const materializationBudget = Result.getOrThrow(
-    makeDeclarativeV2MaterializationBudgetV1({
-      maximumModules: 2,
-      maximumEntryBindings: 1,
-      maximumSourceBytes: 2_048,
-      maximumSourceMapBytes: 1_024,
-      maximumBytesMaterialized: 32_000,
-      maximumSemanticRecords: 32,
-      maximumSemanticRecordBytes: 8_000,
-      maximumSemanticStreamBytes: 16_000,
-    }),
+    makeDeclarativeV2MaterializationBudgetV1(
+      fixture.materializationBudgetInput,
+    ),
   );
-  return Result.getOrThrow(materializeDeclarativeV2ArtifactsV1(program, {
-    modules: [
-      {
-        path: "orders.js",
-        roles: ["function"],
-        sourceBytes: UTF8_ENCODER.encode(ordersSource),
-        sourceMapBytes: UTF8_ENCODER.encode("{\"version\":3}\n"),
-      },
-      {
-        path: "_flarex/execution.js",
-        roles: ["execution"],
-        sourceBytes: UTF8_ENCODER.encode("export const run = 1;\n"),
-        sourceMapBytes: null,
-      },
-    ],
-    functionEntries: [{
-      logicalModulePath: "orders",
-      artifactModulePath: "orders.js",
-    }],
-    executionPath: "_flarex/execution.js",
-    schemaPath: null,
-    authPath: null,
-  }, materializationBudget));
+  return Result.getOrThrow(materializeDeclarativeV2ArtifactsV1(
+    program,
+    fixture.graphInput,
+    materializationBudget,
+  ));
 }
 
 export function finalizedSourceProofInput(
