@@ -637,6 +637,29 @@ The public `flarex-test` harness may later use the faster host for explicitly
 scoped tests, but its real-runtime contract must not silently change. That
 decision belongs to a later test-SDK preflight after runtime parity exists.
 
+## Relationship To The Private Standard Application Harness
+
+[`41-private-standard-application-composition-and-real-system-harness.md`](./41-private-standard-application-composition-and-real-system-harness.md)
+is the first planned cross-domain consumer of the capability-specific runtime
+subpaths owned here. It does not authorize a universal application runtime or a
+generic invocation package.
+
+The private harness must expose only runtime capabilities implemented end to
+end. Its first executable operation may target
+`@flarex/function-runtime/point-mutation`; query, nested-call, general-mutation,
+action, and scheduled-invocation methods remain absent until their separately
+approved kernels and host adapters pass semantic, parity, and platform gates.
+Canonical declarations may describe a function before its runtime capability
+exists, but the harness must distinguish analyzable definition support from
+executable runtime support.
+
+New portable semantics stay in deliberate capability subpaths under
+`@flarex/function-runtime`. Do not create
+`@flarex/function-runtime/application`, move schema or registration authority
+into this package, or make the private system harness a runtime dependency. The
+harness is a top-level test composition consumer; production and portable
+runtime packages never depend back on it.
+
 ## Mandatory Preflight Before Implementation
 
 The preflight is a research deliverable. It must inspect current code, generated
@@ -811,11 +834,16 @@ real-runtime contract. No test-support package is justified merely by the two
 current fixture implementations.
 
 Before another function-runtime implementation begins, record a fresh preflight
-for one concrete capability with two proven consumers and an authority-preserving
-adapter plan. Candidate capabilities include a future exact query kernel or a
-private fixture/lifecycle helper after a real repeated consumer exists. Queries,
-query builders, nested calls, general mutations, actions, scheduling, and
-public test-SDK behavior remain separate decisions.
+for one concrete capability with two proven consumers and an
+authority-preserving adapter plan. Roadmap 41's completed `SAC01-P` preflight
+accepts only pure test fixture data; it does not yet establish even one new
+runtime consumer and does not authorize package extraction. A later private
+live harness may establish one concrete consumer, but it still does not by
+itself prove the second. Candidate capabilities include a future exact query
+kernel shared by approved in-process and workerd hosts, or a private
+fixture/lifecycle helper after a real repeated consumer exists. Queries, query
+builders, nested calls, general mutations, actions, scheduling, and public
+test-SDK behavior remain separate decisions.
 
 Do not reroute production, change OCC, commit, feed, outbox, or application-row
 semantics, and do not claim that the in-process adapter proves Worker Loader

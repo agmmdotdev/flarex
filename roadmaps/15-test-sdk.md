@@ -253,6 +253,32 @@ to `flarex`. This makes the package an ergonomic owner/lifecycle adapter rather
 than a semantic implementation. New helpers should continue to route through
 owned domain interfaces.
 
+### Private Standard Application APIs Come First
+
+The private standard application-definition, real-system harness, and
+deterministic workload APIs are owned by
+[`41-private-standard-application-composition-and-real-system-harness.md`](./41-private-standard-application-composition-and-real-system-harness.md).
+They exist below this public ergonomic layer and must prove the replacement
+application path before `flarex-test` adopts it.
+
+Roadmap 41's completed `SAC01-P` preflight accepts a first pure definition and
+corpus seed local to backend tests only. That test fixture is not a stable
+package API, live harness, or adoption surface for `flarex-test`.
+
+`flarex-test` must not become the first owner of canonical schema, function,
+trigger, artifact, analyzer, registration, runtime, executor, or workload
+semantics. It may later adapt generated references and developer-friendly
+options into the private standard contracts after those contracts are stable.
+Unsupported capabilities stay absent from the public type surface; a public
+method must not be added merely because the canonical definition can describe
+that function kind.
+
+The private real-system harness is also not a reusable implementation hidden
+inside `flarex-test`. Package dependency points from `flarex-test` toward
+approved stable private or production-domain APIs only after a separate
+adoption preflight. Production packages and the private composition root never
+depend on `flarex-test`.
+
 ### Prefer Fresh Runtime Isolation Before Snapshot Tricks
 
 Disposing and recreating the local runtime is slower than clearing a mock map,
@@ -361,6 +387,7 @@ runtime:
 ```text
 generated API reference + test identity/fixture intent
   -> flarex-test ergonomic/lifecycle boundary
+  -> proven private standard application and invocation adapters
   -> backend-controlled active source package and analysis
   -> managed Miniflare user-code artifact
   -> trusted PGlite executor transaction
@@ -375,30 +402,35 @@ separate evidence lanes, not alternate test SDK semantics.
 
 ## Next Correctness Gates
 
-1. **Make the public surface truthful.** Remove or explicitly experimentalize
+1. **Keep the replacement dependency direction explicit.** Do not design new
+   public schema, query, mutation, action, internal-function, scheduling, seed,
+   or snapshot ergonomics ahead of roadmap 41's corresponding private standard
+   definition, harness, and runtime capability. Existing public compatibility
+   corrections may continue without widening that replacement surface.
+2. **Make the public surface truthful.** Remove or explicitly experimentalize
    `action()` until actions execute end to end; add runtime decoding for success
    envelopes and negative tests for kind/visibility/malformed responses.
-2. **Default to the accepted runtime and remove the prototype selector.** Make
+3. **Default to the accepted runtime and remove the prototype selector.** Make
    the FlarexDB PGlite/Postgres composition the ordinary harness path after
    target-only local gates pass, port intended generated-reference semantics,
    and delete legacy mode rather than retaining an explicit opt-in.
-3. **Create package-local contract tests.** Cover option forwarding, query/
+4. **Create package-local contract tests.** Cover option forwarding, query/
    mutation/raw errors, lifecycle ordering, reset failure, disposal, safe paths,
    client ownership, and unsupported operations directly in `flarex-test`.
-4. **Own client resources.** Track clients/sockets created by the harness or
+5. **Own client resources.** Track clients/sockets created by the harness or
    return an explicit child-resource scope; close them deterministically before
    reset and disposal and prove no stale client can target a replaced runtime.
-5. **Add identity ergonomics through a trusted seam.** Implement Convex-shaped
+6. **Add identity ergonomics through a trusted seam.** Implement Convex-shaped
    identity variants only through the backend's explicit dev/test identity
    resolver and test anonymous, valid, malformed, expired, and unauthorized
    cases without weakening hosted auth.
-6. **Design controlled setup/inspection.** Add a trusted executor-owned test
+7. **Design controlled setup/inspection.** Add a trusted executor-owned test
    transaction/fixture API before any `run(fn)`, seed, or snapshot helper. It
    must pin scope/generation, preserve validators and commit invariants, and
    expose no physical database handle.
-7. **Add scheduling only after runtime semantics exist.** Then port controlled
+8. **Add scheduling only after runtime semantics exist.** Then port controlled
    time, in-progress/all scheduled function helpers, retry/failure inspection,
    and recursive scheduling tests against the real scheduler boundary.
-8. **Expand consumer evidence deliberately.** Add compiled/registry package,
+9. **Expand consumer evidence deliberately.** Add compiled/registry package,
    version skew, browser WebSocket/reconnect, and real-Postgres harness lanes as
    those product boundaries become supported.

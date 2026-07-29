@@ -195,6 +195,38 @@ consumers. Exact wire primitives remain in explicit `flarex-protocol`
 subpaths, and the SDK adapter remains outside the contract package. This does
 not create a vague `core`, `common`, or catch-all package.
 
+### Relationship To The Private Standard Application APIs
+
+[`41-private-standard-application-composition-and-real-system-harness.md`](./41-private-standard-application-composition-and-real-system-harness.md)
+uses this package as the pure application-intent owner for its private standard
+application-definition API. That relationship does not widen this contract
+into a live application, deployment, or test-harness service.
+
+The canonical program owns function kind and visibility as separate facts.
+`internal` is visibility on a query, mutation, workflow mutation, or action; it
+is not another function kind. Scheduled execution is likewise not a canonical
+function kind. A scheduler-owned trigger descriptor points at a separately
+admitted registered function.
+
+The following remain outside `CanonicalDeclarativeProgramV1`:
+
+- application and revision identity;
+- prebuilt module bytes and explicit artifact bindings;
+- analysis and execution budgets supplied at their owning operation;
+- trigger schedules and scheduler state;
+- artifact upload and immutable object references;
+- authenticated analyzer, verifier, or registration evidence;
+- schema catalog versions, table and index bindings, readiness, or DDL state;
+- runtime capability grants, invocation claims, and execution projections; and
+- workload seeds, steps, faults, replay receipts, and expected observations.
+
+A private standard application-definition API may compose this value with
+separately owned inputs and outputs, but must not publish one aggregate that
+lets those claims masquerade as canonical developer intent. The existing
+`@flarex/declarative-program/v1` package remains the owner of pure bounded
+normalization. Live real-system orchestration and deterministic workload
+execution belong to roadmap 41's test-owned composition root, not this package.
+
 ## Proposed Contract Responsibilities
 
 Subject to preflight, the canonical program input should be able to describe:
@@ -1343,10 +1375,26 @@ verifier tests
 
 runtime tests
   -> verified projection fixture -> function execution
+
+private standard application tests
+  -> canonical definition plus separately owned module graph
+  -> real upload, analyzer, registration, schema, runtime, and persistence owners
+
+bulk workload tests
+  -> deterministic definitions and scenarios
+  -> capability-gated fast lanes plus representative real-system execution
 ```
 
 No downstream domain needs the final ergonomic SDK in order to develop its own
-semantics, and no downstream domain accepts an SDK object as authority.
+semantics, and no downstream domain accepts an SDK object as authority. The
+private standard application API does not change this dependency direction: it
+is a producer and composition consumer of the existing contracts, not their new
+authority.
+
+Roadmap 41's completed `SAC01-P` preflight accepts only a test-local backend
+fixture descriptor that groups exact canonical-program and module-graph inputs
+for the existing decoder and materializer. It does not add a builder, canonical
+field, package export, or downstream authority to this owner.
 
 ## Next Correctness Gate
 

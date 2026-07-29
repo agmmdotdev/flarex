@@ -2,21 +2,24 @@
 
 ## Status And Scope
 
-**Status:** Accepted composition direction recorded for a future docs-first
-preflight. The complete replacement analyzer port, private real-system harness,
-and their composition are not implemented or green as one system. This record
-does not assume that another canonical application or invocation contract is
-required.
+**Status:** `SAC01-P` docs-first preflight complete. A first pure, test-local
+standard-application definition and corpus seed is accepted under the backend
+test owner. A dedicated harness package, complete replacement analyzer port,
+private real-system harness, deterministic workload runner, and live
+composition are not implemented or green as one system. This record does not
+assume that another canonical application or invocation contract is required.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,
-mutations, internal functions, and scheduled functions without first designing
-or publishing the developer-facing SDK.
+mutations, actions, public and internal variants, and scheduled invocations,
+then replay bounded multi-application workloads without first designing or
+publishing the developer-facing SDK.
 
-This record owns only the cross-domain composition goal, the internal
-direct-fixture producer requirement, the private real-system acceptance ladder,
-and checkpoint ordering across existing domain owners. It does not own or
-replace:
+This record owns only the cross-domain composition goal, the private standard
+application-definition API requirement, the private system-harness and workload
+API requirements, their package-separation rules, the real-system acceptance
+ladder, and checkpoint ordering across existing domain owners. It does not own
+or replace:
 
 - [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md),
   which owns the canonical declarative program and materialization contracts;
@@ -36,27 +39,33 @@ replace:
 
 ## Decision
 
-Compose the existing standard contracts into one internal path below future SDK
-ergonomics and above host-specific execution:
+Compose the existing standard contracts through three private test-owned
+surfaces below future SDK ergonomics and above host-specific execution:
 
 ```text
-internal direct fixtures now / developer SDK and codegen later
+private standard application definitions now / developer SDK and codegen later
   -> existing canonical declarative-program contract
   -> canonical module graph and immutable artifact bundle
   -> content-addressed artifact upload
   -> authenticated analyzer and verifier
   -> verified registration and execution projection
   -> standard internal invocation contract
+  -> private real-system harness composition root
   -> Dynamic Worker, in-process test host, cron host, or another approved host
   -> request-scoped runtime capabilities
   -> real journal, FlarexDB OCC, commit compiler/execution, and PostgreSQL
+
+deterministic private workload scenarios
+  -> repeat the same definition and harness APIs
+  -> bounded multi-application, revision, concurrency, and fault workloads
+  -> reproducible evidence and authoritative readback
 ```
 
-The future developer APIs and the private direct-fixture adapter are separate
-producers of the existing canonical declarative-program contract. SDK objects
-must not become authority that downstream analysis, execution, or persistence
-trusts. Internal tests must be able to produce the same canonical contract
-directly through bounded test-owned adapters.
+The future developer APIs and the private standard application-definition API
+are separate producers of the existing canonical declarative-program contract.
+SDK objects must not become authority that downstream analysis, execution, or
+persistence trusts. Internal tests must be able to produce the same canonical
+contract directly through bounded test-owned adapters.
 
 Do not implement this as one universal compiler, one universal object, or a
 second representation parallel to the canonical declarative program. Use the
@@ -76,30 +85,67 @@ through the same artifacts, analyzer, runtime, transaction, OCC, commit, and
 authoritative-row paths that production will use. The later SDK should only add
 authoring ergonomics, type generation, codegen, routing, and distribution.
 
+## Private Standard API Layers
+
+The word **standard** refers to stable internal contracts between existing
+domain owners. It does not mean public, production-routed, or semver-stable.
+The private milestone requires three deliberately separate API layers:
+
+1. **Application definition.** A pure, inert, deterministic API constructs the
+   existing canonical declarative program plus the separately owned prebuilt
+   module graph and explicit function-entry bindings. It owns no live
+   capability and performs no upload, analysis, registration, invocation, or
+   database work.
+2. **Real-system harness.** An Effect-owned composition API drives the real
+   upload, authenticated analyzer, verifier, private registration, runtime
+   host, executor, OCC, commit, and authoritative-readback owners. Its methods
+   expose only capabilities that are implemented end to end. Unsupported
+   query, mutation, internal-call, action, or scheduling operations are absent
+   rather than simulated.
+3. **Workload and corpus.** A deterministic test API describes bounded valid
+   and invalid application corpora, application revisions, invocation steps,
+   concurrency, faults, seeds, and replay receipts. It calls the definition and
+   harness APIs; it is not another compiler, runtime, scheduler, or persistence
+   owner.
+
+Do not collapse these layers into a generic `Application` object or an
+untyped `invoke(anything)` operation. Definition data, live orchestration, and
+repeatable workload policy have different authority and lifecycle owners.
+
 ## Internal Definition Producer
 
 The default decision is to reuse the canonical contract owned by
 [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md).
-The private harness needs a direct-fixture producer that constructs that
-contract without depending on a public SDK. The future SDK and codegen become
-another producer of the same contract.
+The private harness needs a standard application-definition API that constructs
+that contract without depending on a public SDK. The future SDK and codegen
+become another producer of the same contract.
 
-The exact fixture API requires a dedicated preflight. It must first prove that
-the existing canonical program can express the required application and
-function facts. Conceptually, the produced canonical input must describe:
+`SAC01-P` found that the smallest first definition API is test-owned fixture
+data passed directly to the existing canonical decoder and materializer, not a
+new generic builder or application representation. The current V1 canonical
+program already owns:
 
-- stable application and function identity;
-- function kind: query, mutation, internal function, or scheduled function;
 - logical module and exported entry point;
+- function kind: query, mutation, workflow mutation, or action;
+- function visibility: public or internal;
 - canonical argument and result contracts;
-- visibility and invocation policy;
-- declared runtime capability requirements;
-- deterministic execution and analysis budgets;
-- trigger descriptors such as cron schedules;
-- canonical contract and compatibility versions; and
-- immutable references to the materialized program and artifact bundle.
+- schema table, document-validator, and logical-index declarations;
+- deterministic ordering and bounded construction; and
+- canonical contract and local version identity.
 
-The fixture producer and its canonical output must not contain:
+Do not misclassify an internal function as a function kind. `internal` is
+visibility applied to a query, mutation, workflow mutation, or action. A cron
+schedule is a separately owned trigger descriptor that points at an admitted
+registered function; it is not another function kind or compiler.
+
+Application identity and revision, declared runtime capability grants, trigger
+descriptors, immutable artifact references, verified registration, execution
+projection, and invocation claims remain separate owned contracts. The
+definition API may compose those owners through explicit inputs and outputs,
+but must not add them to `CanonicalDeclarativeProgramV1` merely to create one
+convenient aggregate.
+
+The definition producer and its canonical output must not contain:
 
 - live backend, analyzer, executor, database, transaction, journal, fence, OCC,
   commit, R2, route, or activation capabilities;
@@ -109,8 +155,9 @@ The fixture producer and its canonical output must not contain:
 - a generic metadata bag that bypasses versioned contracts; or
 - SDK-specific objects that downstream systems must trust.
 
-Queries, mutations, functions, and cron jobs may share canonical definition and
-invocation mechanics, but they do not share all capabilities:
+Queries, mutations, actions, internal variants, and scheduled invocations may
+share canonical definition and invocation mechanics, but they do not share all
+capabilities:
 
 - a query receives an approved read capability and cannot publish writes;
 - a mutation produces logical journal operations and commits only through the
@@ -123,11 +170,34 @@ invocation mechanics, but they do not share all capabilities:
 - nested function calls must use an owned invocation boundary rather than
   passing ambient database or host authority.
 
+## Schema Lifecycle Composition
+
+Bulk testing across different applications is not real if every fixture reuses
+one preinstalled schema or writes rows around the schema owner. The private
+harness must compose, without replacing, the existing schema lifecycle:
+
+```text
+canonical schema declarations
+  -> existing schema-manifest and catalog materialization
+  -> stable table and index bindings
+  -> required index readiness
+  -> registered application revision and verified execution projection
+  -> request-scoped logical database capability
+```
+
+This roadmap does not authorize new DDL, catalog, placement, partition,
+migration, or index-readiness semantics. It requires the harness to invoke the
+existing owners and to stop when a requested application shape is unsupported.
+The first slice remains limited to the currently accepted global-table and
+unpartitioned-function contract. Broader placement and partition behavior need
+their owning preflights.
+
 ## Compilation, Bundling, Analysis, And R2
 
-The private fixture producer and future SDK compiler should produce inert input
-for the existing canonical-program materializer. The bundling owner, not the
-analyzer, owns canonical module packaging and bundle bytes.
+The private standard application-definition API and future SDK compiler should
+produce inert input for the existing canonical-program materializer. The
+bundling owner, not the analyzer, owns canonical module packaging and bundle
+bytes.
 
 The artifact upload owner stores the immutable, content-addressed bundle in R2
 and returns bounded storage evidence. R2 is artifact storage, not application
@@ -169,9 +239,17 @@ the complete command plan and companion, the pure command engine, the Effect
 host, and executor composition remain incomplete until their owning roadmaps
 say otherwise.
 
-Do not make the direct-fixture producer or later SDK depend directly on the
-current collection of low-level cursors and codecs. The composition should
-depend on one narrow analyzer port whose adapter owns those details.
+Do not make the private application-definition API or later SDK depend directly
+on the current collection of low-level cursors and codecs. The composition
+should depend on one narrow analyzer port whose adapter owns those details.
+
+The analyzer port and real-system harness orchestration are reusable,
+observable Effect operations with typed failures, requirements, interruption,
+and resource ownership. The analyzer host owns the fresh request `Scope` and
+full foreign `Cause`; the application-definition and artifact-materialization
+operations remain pure `Result` transformations. Long-lived host Layers may
+own stable configuration and clients, but must never capture request,
+transaction, Durable Object, or invocation capabilities.
 
 ## Invocation And Existing Runtime Boundary
 
@@ -235,9 +313,10 @@ contract.
 The first consumer is an internal correctness and stress harness, not the
 public test SDK. It must be able to:
 
-1. use a bounded direct-fixture producer to define a small test application
-   containing queries, mutations, internal functions, and scheduled functions
-   in the existing canonical declarative-program contract;
+1. use the private standard application-definition API to define a small test
+   application containing schema declarations, queries, mutations, internal
+   variants, actions, and scheduled trigger descriptors through their existing
+   owners;
 2. compile and materialize the canonical program and bundle;
 3. upload the immutable bundle through the real artifact-storage owner;
 4. authenticate and analyze it through the replacement analyzer;
@@ -253,6 +332,20 @@ they must remain thin capability-scoped adapters over existing owners. They may
 not create alternate analysis, artifact, database, OCC, commit, storage,
 authority, dual-write, fallback, or production-route behavior.
 
+The same definition must support complementary evidence lanes:
+
+| Lane | Purpose |
+| --- | --- |
+| Pure contract and analyzer corpus | High-volume deterministic valid and invalid definitions, artifacts, analyzer inputs, evidence, and diagnostics |
+| In-process runtime semantics | Fast capability-specific function lookup, validation, context, nested-call, result, and logical-journal behavior |
+| Adapter parity | Equivalent supported fixtures through the in-process and workerd/Dynamic Worker hosts |
+| Real system | R2/artifact storage, authenticated analysis, private registration, runtime loading, executor, OCC, commit, and PostgreSQL authority |
+
+The fast lanes do not prove platform or persistence behavior. The real-system
+lane does not need to run every generated corpus member at maximum scale; use a
+bounded representative selection with explicit coverage and environment
+receipts.
+
 ## Acceptance Ladder
 
 Acceptance is ordered:
@@ -260,19 +353,28 @@ Acceptance is ordered:
 1. **One real mutation:** a test-owned mutation definition compiles, uploads,
    analyzes, registers privately, executes, commits, and has its authoritative
    PostgreSQL result verified.
-2. **Queries and function composition:** test-owned queries and internal
-   functions use the same registered application and scoped runtime
-   capabilities without bypassing the executor.
-3. **Fault correctness:** conflicts, cold restart, takeover, cancellation,
+2. **Representative application shape:** one registered revision contains
+   multiple modules, functions, global tables, and indexes within current
+   limits, and its schema/catalog bindings are established only by the existing
+   owners.
+3. **Queries and internal composition:** test-owned queries and internal
+   variants use the same registered application and scoped runtime
+   capabilities without bypassing the executor or passing ambient authority.
+4. **Scheduled invocation:** a trigger descriptor targets an already registered
+   function and each firing obtains a fresh authenticated invocation claim.
+5. **Deterministic multi-application corpus:** bounded valid and invalid
+   applications, revisions, analyzers, and invocation scenarios reproduce from
+   stable seeds and replay receipts.
+6. **Fault correctness:** conflicts, cold restart, takeover, cancellation,
    confirmed-rollback retry, decision uncertainty, crash, and redelivery cases
    preserve exact ownership and outcome rules.
-4. **Real-Postgres concurrency and stress:** sustained concurrent execution,
+7. **Real-Postgres concurrency and stress:** sustained concurrent execution,
    contention, resource ceilings, fixed budgets, and leak-free lifecycle
    behavior pass against real PostgreSQL.
-5. **Observability and reproducibility:** failures have bounded evidence,
+8. **Observability and reproducibility:** failures have bounded evidence,
    deterministic reproduction inputs, stable identities, useful metrics, and
    explicit environment receipts.
-6. **Developer-facing APIs and activation:** only after the private system is
+9. **Developer-facing APIs and activation:** only after the private system is
    usable and stable should SDK ergonomics, generated APIs, public routes,
    readiness, activation, publication, and cutover proceed.
 
@@ -284,8 +386,18 @@ At the time this direction was recorded:
 
 - the canonical declarative-program and first materialization contracts exist
   under their owning roadmap;
+- the canonical program can represent schema tables, indexes, query, mutation,
+  workflow-mutation, and action metadata with public or internal visibility,
+  but the accepted first fixture and parity proof cover only one global table,
+  one ordered index, and one public unpartitioned mutation;
+- the current direct fixture entrypoint is a bounded canonical decoder, not a
+  complete standard application authoring, revision, workload, or lifecycle
+  API;
+- the materializer admits function and execution module roles while schema and
+  auth source-module roles remain separately deferred;
 - a host-neutral exact point-mutation runtime vertical exists under its owning
-  roadmap;
+  roadmap, but query builders, nested calls, general mutations, actions, and
+  scheduling are not implemented by that kernel;
 - local and hosted artifact-runtime/R2 machinery exists, but that does not
   prove the replacement standard application pipeline;
 - the public `flarex-test` harness exists, but its current behavior and legacy
@@ -295,17 +407,79 @@ At the time this direction was recorded:
 - the complete replacement analyzer engine, Effect host, and production caller
   are absent;
 - link-page and registration-page analyzer planning remain incomplete;
+- schema/catalog lifecycle composition for arbitrary private application
+  revisions and a scheduled-trigger contract remain absent;
 - private executor-host composition remains absent; and
 - `C07` remains a separate prerequisite for the real point-mutation proof.
 
-This roadmap does not claim that a direct-fixture producer, complete private
-analyzer port, private real-system harness, developer API, or production
-activation is implemented or green. It also does not claim that another
-canonical application contract is needed.
+This roadmap does not claim that a private standard application-definition API,
+complete private analyzer port, private real-system harness, deterministic
+workload runner, developer API, or production activation is implemented or
+green. It also does not claim that another canonical application contract is
+needed.
 
-## Required Preflight Before Implementation
+## Package Separation Direction
 
-The next session should begin with a read-only, docs-first preflight named:
+Package boundaries follow authority and dependency direction, not the desire
+to place every standard API in one package:
+
+| Concern | Default owner |
+| --- | --- |
+| Pure canonical application intent and bounded fixture normalization | existing `@flarex/declarative-program/v1` |
+| Pure source/semantic artifact materialization | existing `@flarex/declarative-materializer/v1` |
+| Exact portable wire contracts | intentional `flarex-protocol` subpaths |
+| Capability-specific user-function semantics | existing `@flarex/function-runtime` subpaths |
+| Upload, analyzer host, verification, registration, and runtime selection | their existing backend domains |
+| Schema catalog, bindings, readiness, OCC, commit, and rows | their existing FlarexDB, executor, and persistence domains |
+| Cross-domain real-system orchestration and deterministic workloads | initially one private test-owned composition root; extract only under the gate below |
+| Public ergonomics and generated references | later `flarex`, `flarex-dev`, and `flarex-test` adapters |
+
+Do not create `@flarex/core`, `@flarex/standard`, a generic application service,
+or a package that owns copied schema, analyzer, runtime, and executor
+lookalikes. The first composition vertical should remain test-local to the
+selected host owner when it has one concrete consumer. A dedicated internal
+system-harness package becomes justified only when the preflight identifies at
+least two concrete consumers, an acyclic dependency graph, an explicit
+lifecycle owner, a private export policy, and deletion of the corresponding
+test-local duplication in the same extraction slice.
+
+If extraction is justified, the system-harness package is a top-level
+development/test dependency leaf: it may depend on the private domain APIs it
+composes, but no production domain package may depend on it. Pure corpus
+generation may later become a separate dependency-light subpath only after a
+second consumer needs it without the live harness dependencies.
+
+### Accepted Starting Separation
+
+`SAC01-P` accepts this starting separation:
+
+1. keep canonical normalization and any exact pure fixture mechanics in
+   `@flarex/declarative-program/v1`;
+2. keep module-graph admission and artifact construction in
+   `@flarex/declarative-materializer/v1`;
+3. keep every new runtime semantic in a capability-specific
+   `@flarex/function-runtime` subpath only after its owning preflight;
+4. place the first pure definition and corpus seed test-locally under
+   `flarex-backend/test/privateStandardApplication/`;
+5. make the existing backend upload-correlation fixture the first concrete
+   consumer of that seed;
+6. leave the future live cross-domain harness owner undecided until the
+   replacement analyzer and `C07` expose the exact adapters it must compose;
+   do not force it into `flarex-backend` if that requires backend-to-persistence
+   or backend-to-executor-worker ownership reversal; and
+7. extract a dedicated private system-harness package only when the
+   package-separation gate above is satisfied.
+
+`flarex-backend` already has development-only dependencies on the canonical
+program and materializer, so it can own a pure application seed and its
+upload-lane use without a manifest change. The executor application is the
+accepted production composition owner for A1b2 and already owns executor and
+persistence dependencies. Neither fact alone proves the correct home for the
+eventual end-to-end test root.
+
+## SAC01-P Preflight Checklist
+
+The read-only, docs-first preflight was:
 
 **`SAC01-P — private standard application composition preflight`**
 
@@ -317,14 +491,17 @@ That preflight must:
 2. distinguish current public SDK/test APIs, private internal contracts,
    legacy/monolithic paths, and replacement production callers;
 3. prove whether the existing canonical declarative-program contract is
-   sufficient for direct query, mutation, internal-function, and cron fixtures;
-   a new representation is rejected by default and requires an exact,
-   owner-backed semantic gap;
-4. define exact query, mutation, internal-function, and cron semantics,
+   sufficient for query, mutation, workflow-mutation, and action metadata with
+   public or internal visibility, and identify the separate owner for scheduled
+   trigger fixtures; a new representation is rejected by default and requires
+   an exact, owner-backed semantic gap;
+4. correct the taxonomy to function kind plus visibility and a separate trigger
+   descriptor, then define exact query, mutation, workflow-mutation, action,
+   internal-visibility, nested-call, and scheduled-invocation semantics,
    including capability profiles and unsupported cases;
-5. define the smallest direct-fixture adapter into the existing
-   declarative-program materializer without inventing a second program or
-   artifact representation;
+5. define the smallest private standard application-definition adapter into
+   the existing declarative-program materializer without inventing a second
+   program or artifact representation;
 6. reuse the existing host-neutral function-runtime contract and identify only
    the bounded capability extensions needed for query, mutation,
    internal-function, and cron-trigger execution;
@@ -332,17 +509,192 @@ That preflight must:
    including their identity, authentication, budget, ownership, lifecycle,
    error, and version contracts;
 8. trace R2 upload, verified registration, private resolution, runtime loading,
-   and authoritative PostgreSQL outcome/readback;
+   schema/catalog binding and readiness, and authoritative PostgreSQL
+   outcome/readback;
 9. prove dependency direction and prevent alternate OCC, commit, journal,
    persistence, route, activation, or application-row authority;
-10. propose exact implementation gates, path allowlists, validation lanes, both
-   required code reviewers, and stop conditions; and
-11. identify which work must wait for A1b2, `C07`, or another current owner
+10. define deterministic corpus, workload, seed, replay, fault, evidence, and
+    real-system sampling contracts without creating a second runtime;
+11. decide whether the first composition remains test-local or satisfies the
+    dedicated internal system-harness package extraction gate, and record exact
+    package dependencies and forbidden reverse dependencies;
+12. propose exact implementation gates, path allowlists, validation lanes, both
+    required code reviewers, and stop conditions; and
+13. identify which work must wait for A1b2, `C07`, schema lifecycle, a query
+    runtime, scheduling, or another current owner
     instead of widening the standard layer.
 
-No implementation should begin from this record alone. The preflight must
-verify current code and living roadmap status because the analyzer, upload,
-runtime, and foundation streams are active.
+`SAC01-P` completed this checklist against current code and living roadmap
+status on 2026-07-29. Its accepted implementation scope, gates, and stop
+conditions follow.
+
+### Owner And Capability Inventory
+
+| Concern | Current usable owner | Preflight result |
+| --- | --- | --- |
+| Canonical application intent | `@flarex/declarative-program/v1` | Reuse directly. Its fixture entry point is the canonical decoder, not a separate authoring system. |
+| Module graph and artifact plan | `@flarex/declarative-materializer/v1` | Reuse directly for function and execution modules. Schema and auth source-module roles remain unsupported. |
+| Deterministic semantic records | materializer output plus analysis semantic decoder | Usable for pure corpus and compatibility-consumption tests; not proof of the replacement analyzer. |
+| Content-addressed source and semantic upload | backend Declarative V2 artifact-upload host and cores | Implemented for private tests and real R2 adapters, but upload receipts alone are not verified registration. |
+| Authenticated verifier reads | backend request-bound verifier read-session owner | Implemented as a prerequisite. It does not supply the missing command engine or host. |
+| Replacement analyzer | A1b2 command producer, command plan, executor-HTTP transports, persistence readback, and future Effect host | Incomplete. Link and registration planning, the complete engine, host composition, and production caller remain active or absent. |
+| Verified application/function registration | no completed replacement composition owner | Blocked. The current backend registry creates and lists deployments; the V1 deployment service and monolithic analyzer path are not substitutes. |
+| Schema/catalog lifecycle | persistence schema publication, manifest, binding, and index owners | Domain capabilities exist, but no accepted replacement application-revision composition adapter currently connects them to this harness. |
+| Portable function execution | `@flarex/function-runtime/point-mutation` | Exact public point mutation only. Query builders, nested calls, general mutation capabilities, actions, and scheduling are not present. |
+| Trusted mutation/OCC/commit path | executor and FlarexDB foundation owners | The pieces remain owned there; `C07` is still the required assembled PGlite and real-Postgres point-mutation proof. |
+| Current public test API | `flarex-test` over `flarex-dev` | Compatibility and developer convenience only; it cannot prove this replacement pipeline. |
+
+The existing `orders:place` fixtures in the declarative-program,
+materializer, analysis, backend, and function-runtime tests resemble each other
+but do not have one interchangeable authority. The program fixture owns
+canonical normalization, the materializer fixture owns graph admission, the
+analysis fixture owns semantic-stream consumption, the backend fixture owns
+upload correlation, and the runtime fixture owns verified invocation
+projection. The first slice may centralize only the exact program/graph test
+data consumed by the backend upload lane. It must not move runtime projections
+or analysis-owned expectations into a generic fixture.
+
+### Contract Sufficiency And Unsupported Semantics
+
+No new application representation is justified. The canonical program already
+represents schema tables and indexes plus these function facts:
+
+| Fact | Canonical definition | Executable replacement path today |
+| --- | --- | --- |
+| Public or internal query | Yes | No query runtime/database capability |
+| Public or internal mutation | Yes | Public exact point-mutation kernel only; real assembled proof waits for `C07` |
+| Public or internal workflow mutation | Yes | No assembled workflow-mutation runtime |
+| Public or internal action | Yes | No assembled action host/capability profile |
+| Nested function call | Function targets can be described separately | No owned nested-invocation capability |
+| Scheduled invocation | No; schedule is not a function kind | No accepted trigger descriptor and scheduler-to-invocation claim composition |
+
+Therefore the pure corpus may exercise all canonical kinds and visibility
+values as metadata, but every scenario must declare its evidence lane. It must
+not label metadata acceptance as executable query, action, internal-call,
+workflow, or schedule support.
+
+The smallest definition adapter is no adapter: test fixtures provide owned
+inputs for the existing canonical decoder and materializer. A test-owned
+fixture descriptor may group the exact canonical-program input, program budget,
+module-graph input, materialization budget, and expected facts for corpus
+selection. It is not accepted by analyzer, registry, runtime, or persistence
+code and must never become an authoritative application representation.
+
+### Dependency And Lifecycle Decision
+
+The first slice needs only dependencies already present in
+`flarex-backend`'s development graph:
+
+```text
+flarex-backend test fixture
+  -> @flarex/declarative-program/v1
+  -> @flarex/declarative-materializer/v1
+  -> existing backend upload-correlation test
+```
+
+There is no permitted reverse dependency from a production package to this
+test fixture. The first slice must not import `apps/executor`, persistence
+package internals, analyzer package internals, the legacy deployment service,
+the monolithic verifier dispatch, `flarex-dev`, or `flarex-test`.
+
+The eventual live harness operation is an Effect-owned, scoped composition
+operation with typed failures. Stable host configuration and clients may later
+be Layer-owned. Request, verifier session, Durable Object, transaction,
+journal, and invocation capabilities remain operation-scoped and must never be
+captured in a singleton Layer. The test boundary performs the one runtime
+bridge. Pure definition, canonical decoding, graph construction, corpus
+selection, and materialization remain plain data or `Result` operations.
+
+One test-local consumer does not justify a new Context service or package.
+Promote the harness to named services and Layers only when the accepted live
+composition exposes reusable capabilities and at least two concrete consumers
+need the same lifecycle owner.
+
+### Accepted First Implementation Slice: `SAC01-A`
+
+`SAC01-A` establishes one private standard-application fixture contract and
+migrates the backend upload-correlation fixture to consume it. It does not
+create the live harness.
+
+Exact path allowlist:
+
+- `packages/flarex-backend/test/privateStandardApplication/definitionFixtureV1.ts`
+  (new);
+- `packages/flarex-backend/test/privateStandardApplication/definitionFixtureV1.test.ts`
+  (new);
+- `packages/flarex-backend/test/declarativeV2UploadCorrelationFixture.ts`;
+- `packages/flarex-backend/test/declarativeV2UploadCorrelation.test.ts` only
+  when an assertion must follow the moved fixture data; and
+- this roadmap for receipts or corrections.
+
+`SAC01-A` must:
+
+1. retain the existing global `orders` table, `by_status` index, public
+   unpartitioned `orders:place` mutation, function module, execution module,
+   source map, and explicit budgets as its first seed;
+2. group only exact test input contracts and expected inert facts;
+3. call the canonical decoder and materializer rather than reimplementing
+   validation, normalization, ordering, hashing, or semantic emission;
+4. preserve the current upload-correlation assertions and root/digest behavior;
+5. return owned/frozen fixture data or freshly allocate mutable raw inputs as
+   required by the owning decoder contract; and
+6. make no manifest, export-map, production-source, analyzer-source, executor,
+   persistence, runtime, route, binding, or configuration change.
+
+The initial API should favor explicit fixture data and owner calls over a
+generic builder. A fluent schema/query/mutation API, arbitrary metadata bag,
+untyped function registry, generic `invoke`, or wrapper that erases the
+canonical/materializer error unions is outside this slice.
+
+Validation for `SAC01-A`:
+
+- focused new fixture tests;
+- the existing backend upload-correlation test;
+- `flarex-backend` typecheck;
+- focused declarative-program and materializer tests when their public inputs
+  or assumptions are exercised by the new fixture; and
+- both standing custom reviewers before commit because this slice moves and
+  materially centralizes test coverage.
+
+### Later Gates
+
+| Gate | Scope | Entry condition |
+| --- | --- | --- |
+| `SAC01-B` | Add bounded valid/invalid canonical and materialization corpus members, stable seed selection, expected diagnostics, and replay input | `SAC01-A` is stable; remains pure and test-local unless a second real consumer proves extraction |
+| `SAC01-C` | Add the narrow replacement analyzer port and analyzer corpus lane | A1b2 command plan, link and registration ownership, pure engine, Effect host, and executor composition are accepted and exposed through one supported adapter |
+| `SAC01-D` | Compose verified registration and schema/catalog publication/readiness for one private application revision | Replacement registration owner and an approved schema-lifecycle adapter exist without direct database access |
+| `SAC01-E` | Execute and authoritatively read back one real point mutation | `SAC01-C`, `SAC01-D`, and foundation `C07` are complete with real PGlite/Postgres evidence |
+| `SAC01-F` | Add queries, internal calls, workflow mutations, actions, and scheduled invocations one capability at a time | Each capability has its own runtime/host/claim contract and focused preflight |
+| `SAC01-G` | Extract a dedicated private corpus or system-harness package | At least two concrete consumers, an acyclic graph, explicit lifecycle owner, private exports, and same-slice deletion of test-local duplication |
+
+### Parallel-Work Safety And Stop Conditions
+
+`SAC01-A` and the pure part of `SAC01-B` are safe to run in parallel with the
+current analyzer work because their allowlists exclude `packages/analysis/**`,
+`apps/analyzer/**`, analyzer transports, analyzer roadmaps, and production
+composition. Before implementation and before commit, recheck the working tree
+for overlap.
+
+Stop and run a new preflight if the work would:
+
+- edit or depend on the active analyzer implementation or its provisional
+  command-plan shape;
+- use the monolithic verifier dispatch or V1 deployment service as the
+  replacement analyzer or registration port;
+- add a production dependency, package, export, route, binding, or activation;
+- require backend production code to import executor-worker or persistence
+  internals;
+- introduce a second canonical application, artifact, schema, invocation,
+  journal, OCC, commit, or successful-outcome representation;
+- directly write application rows, synthesize verified registration, or fake a
+  successful runtime/commit result;
+- require new schema/DDL/index-readiness, query, nested-call, action, workflow,
+  trigger, or scheduling semantics;
+- change bytes, ordering, budgets, diagnostics, roots, digests, ownership, or
+  first-failure behavior rather than merely centralizing the exact fixture;
+- encounter concurrent edits inside the `SAC01-A` allowlist; or
+- need a live integration before A1b2, the registration/schema adapter, or
+  `C07` satisfies its stated entry gate.
 
 ## Non-Goals And Governance
 
@@ -351,8 +703,12 @@ This direction does not authorize:
 - a public query/mutation/function/cron API or SDK design;
 - a second canonical program, application-definition, or invocation
   representation without an accepted owner-backed preflight;
-- a new package, public export, route, binding, configuration, or activation;
-- schema, DDL, migration, V1 replacement, or production cutover;
+- a new production package, public export, route, binding, configuration, or
+  activation; one private test-only composition package remains gated by the
+  package-separation proof above;
+- new schema, DDL, catalog, placement, partition, migration, or index-readiness
+  semantics, V1 replacement, or production cutover; the harness must call the
+  existing owners for supported schema lifecycle behavior;
 - direct database access from canonical definitions or artifact bytes;
 - alternate OCC, commit compilation/execution, journals, idempotency outcomes,
   feeds, outbox behavior, or authoritative application-row semantics;
@@ -361,10 +717,14 @@ This direction does not authorize:
 - test-only successful outcomes, direct row writes, authority reconstruction,
   dual writes, fallback execution, or comparison execution;
 - collapsing A1b2 and `C07`; or
+- treating a fast pure or in-process lane as proof of R2, workerd, executor,
+  OCC, commit, or PostgreSQL behavior; or
 - treating an inert contract, codec, upload receipt, or unit test as proof that
   the private real system is assembled.
 
-The enduring rule is: produce the existing inert canonical contracts from
-direct fixtures now and SDK ergonomics later, grant authority only at owned host
-boundaries, and exercise the real system before designing the developer-facing
-surface.
+The enduring rule is: produce the existing inert canonical contracts through
+private standard application definitions now and SDK ergonomics later, compose
+schema and runtime authority only through their existing owners, grant
+authority only at owned host boundaries, and exercise both high-volume
+deterministic corpora and the representative real system before designing the
+developer-facing surface.
