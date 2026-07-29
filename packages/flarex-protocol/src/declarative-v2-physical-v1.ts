@@ -16,6 +16,32 @@ const FATAL_UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const DOMAIN_PREFIX = "flarex.declarative-v2/";
 const DOMAIN_SUFFIX = "/v1\0";
 const U32_MAX = 0xffff_ffff;
+const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(Uint8Array.prototype);
+const UINT8_ARRAY_BYTE_LENGTH_GETTER =
+  Object.getOwnPropertyDescriptor(
+    TYPED_ARRAY_PROTOTYPE,
+    "byteLength",
+  )?.get;
+const UINT8_ARRAY_BYTE_OFFSET_GETTER =
+  Object.getOwnPropertyDescriptor(
+    TYPED_ARRAY_PROTOTYPE,
+    "byteOffset",
+  )?.get;
+const UINT8_ARRAY_BUFFER_GETTER =
+  Object.getOwnPropertyDescriptor(
+    TYPED_ARRAY_PROTOTYPE,
+    "buffer",
+  )?.get;
+const ARRAY_BUFFER_BYTE_LENGTH_GETTER =
+  Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get;
+const SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER =
+  typeof SharedArrayBuffer === "undefined"
+    ? undefined
+    : Object.getOwnPropertyDescriptor(
+      SharedArrayBuffer.prototype,
+      "byteLength",
+    )?.get;
+const ACTIVE_PHYSICAL_FRAME_ADMISSION_INPUTS = new WeakSet<object>();
 
 export type DeclarativeV2AttemptLifecycleV1 =
   | "open"
@@ -316,6 +342,96 @@ export interface DeclarativeV2EncodedFrameV1 {
   readonly usage: DeclarativeV2FrameUsageV1;
 }
 
+export interface DeclarativeV2PhysicalFrameWorkV1 {
+  readonly byteStorageAllocationBytes: number;
+  readonly byteCopyBytes: number;
+  readonly byteWriteBytes: number;
+  readonly byteScanBytes: number;
+  readonly primitiveTransitions: number;
+}
+
+export interface DeclarativeV2PhysicalFrameEncodingPlanV1 {
+  readonly frameByteLength: number;
+  readonly canonicalByteLength: number;
+  readonly successfulWork: DeclarativeV2PhysicalFrameWorkV1;
+}
+
+export interface DeclarativeV2PhysicalFrameByteRangeV1 {
+  readonly bytes: Uint8Array;
+  /** Offset relative to the visible `bytes` view. */
+  readonly byteOffset: number;
+  readonly byteLength: number;
+}
+
+export interface DeclarativeV2PhysicalFrameWrittenV1 {
+  readonly frame: DeclarativeV2PhysicalFrameV1;
+  readonly range: DeclarativeV2PhysicalFrameByteRangeV1;
+  readonly usage: DeclarativeV2FrameUsageV1;
+  readonly work: DeclarativeV2PhysicalFrameWorkV1;
+}
+
+export type DeclarativeV2PhysicalFrameEncodeAdmissionV1<E> = (
+  plan: DeclarativeV2PhysicalFrameEncodingPlanV1,
+) => Result.Result<DeclarativeV2PhysicalFrameByteRangeV1, E>;
+
+declare const DECLARATIVE_V2_PHYSICAL_FRAME_ENCODER_CURSOR_V1: unique symbol;
+
+export interface DeclarativeV2PhysicalFrameEncoderCursorV1 {
+  readonly _tag: "DeclarativeV2PhysicalFrameEncoderCursorV1";
+  readonly [DECLARATIVE_V2_PHYSICAL_FRAME_ENCODER_CURSOR_V1]: true;
+}
+
+export interface DeclarativeV2PhysicalFrameEncoderReceiptV1 {
+  readonly consumedAllowance: number;
+  readonly deltaWork: DeclarativeV2PhysicalFrameWorkV1;
+  readonly aggregateWork: DeclarativeV2PhysicalFrameWorkV1;
+}
+
+export type DeclarativeV2PhysicalFrameEncoderStepV1 =
+  | Readonly<{
+    readonly status: "pending";
+    readonly receipt: DeclarativeV2PhysicalFrameEncoderReceiptV1;
+  }>
+  | Readonly<{
+    readonly status: "complete";
+    readonly written: DeclarativeV2PhysicalFrameWrittenV1;
+    readonly receipt: DeclarativeV2PhysicalFrameEncoderReceiptV1;
+  }>;
+
+export interface DeclarativeV2PhysicalFrameEncoderFactoryV1 {
+  readonly create: (
+    input: unknown,
+    budget: unknown,
+  ) => Result.Result<
+    Readonly<{
+      readonly cursor: DeclarativeV2PhysicalFrameEncoderCursorV1;
+      readonly plan: DeclarativeV2PhysicalFrameEncodingPlanV1;
+      readonly receipt: DeclarativeV2PhysicalFrameEncoderReceiptV1;
+    }>,
+    DeclarativeV2PhysicalFrameV1Error
+  >;
+  readonly admit: <E>(
+    cursor: unknown,
+    admission: DeclarativeV2PhysicalFrameEncodeAdmissionV1<E>,
+  ) => Result.Result<
+    DeclarativeV2PhysicalFrameEncoderReceiptV1,
+    DeclarativeV2PhysicalFrameV1Error | E
+  >;
+  readonly step: (
+    cursor: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2PhysicalFrameEncoderStepV1,
+    DeclarativeV2PhysicalFrameV1Error
+  >;
+  readonly close: (
+    cursor: unknown,
+  ) => Result.Result<
+    DeclarativeV2PhysicalFrameEncoderReceiptV1,
+    DeclarativeV2PhysicalFrameV1Error
+  >;
+}
+
 type ScalarKind =
   | Readonly<{ readonly type: "string" }>
   | Readonly<{ readonly type: "nullableString" }>
@@ -573,6 +689,77 @@ type CapturedFrame = Readonly<Record<string, CapturedScalar>> & {
   readonly kind: FrameKind;
 };
 
+type PhysicalFrameEncodingSegment =
+  | Readonly<{
+    readonly kind: "bytes";
+    readonly bytes: Uint8Array;
+    readonly byteLength: number;
+  }>
+  | Readonly<{
+    readonly kind: "string";
+    readonly value: string;
+    readonly byteLength: number;
+  }>
+  | Readonly<{
+    readonly kind: "byte";
+    readonly value: number;
+  }>
+  | Readonly<{
+    readonly kind: "u32";
+    readonly value: number;
+  }>
+  | Readonly<{
+    readonly kind: "u64";
+    readonly value: bigint;
+  }>;
+
+type MutablePhysicalFrameWork = {
+  byteStorageAllocationBytes: number;
+  byteCopyBytes: number;
+  byteWriteBytes: number;
+  byteScanBytes: number;
+  primitiveTransitions: number;
+};
+
+interface CapturedPhysicalFrameEncodingInput {
+  readonly frame: CapturedFrame;
+  readonly borrowedFrame: CapturedFrame;
+  readonly usage: DeclarativeV2FrameUsageV1;
+  readonly capturedByteStorageLength: number;
+  readonly stringByteLengths: Readonly<Record<string, number>>;
+}
+
+interface PhysicalFrameEncoderCursorState {
+  readonly frame: CapturedFrame;
+  readonly plan: DeclarativeV2PhysicalFrameEncodingPlanV1;
+  readonly usage: DeclarativeV2FrameUsageV1;
+  readonly segments: readonly PhysicalFrameEncodingSegment[];
+  readonly aggregateWork: MutablePhysicalFrameWork;
+  inputIdentity: object | null;
+  borrowedFrame: CapturedFrame | null;
+  range: DeclarativeV2PhysicalFrameByteRangeV1 | undefined;
+  phase: "created" | "admitting" | "admitted";
+  segmentIndex: number;
+  segmentOffset: number;
+  outputOffset: number;
+  stringCodePoint: number;
+  stringCodeUnitWidth: number;
+  stringByteIndex: number;
+  stringByteLength: number;
+}
+
+const PHYSICAL_DOMAIN_BYTES = Object.freeze(
+  Object.fromEntries(
+    (Object.keys(FRAME_SCHEMAS) as readonly FrameKind[]).map(kind => [
+      kind,
+      UTF8_ENCODER.encode(`${DOMAIN_PREFIX}${kind}${DOMAIN_SUFFIX}`),
+    ]),
+  ),
+) as Readonly<Record<FrameKind, Uint8Array>>;
+
+const ACTIVE_PHYSICAL_FRAME_DESTINATIONS =
+  new Set<DeclarativeV2PhysicalFrameByteRangeV1>();
+
 export function encodeDeclarativeV2PhysicalFrameV1(
   input: unknown,
   budget: unknown,
@@ -580,19 +767,370 @@ export function encodeDeclarativeV2PhysicalFrameV1(
   DeclarativeV2EncodedFrameV1,
   DeclarativeV2PhysicalFrameV1Error
 > {
+  const factory = makeDeclarativeV2PhysicalFrameEncoderFactoryV1();
   return Result.gen(function* () {
-    const limits = yield* decodeBudget(budget, "encode");
-    const captured = yield* captureFrame(input, limits, "encode");
-    const bytes = encodeCapturedFrame(captured);
-    return Object.freeze({
-      frame: captured as DeclarativeV2PhysicalFrameV1,
-      canonicalBytes: bytes,
-      usage: Object.freeze({
-        frameBytes: bytes.byteLength,
-        canonicalBytes: canonicalByteLength(captured),
-      }),
+    const created = yield* factory.create(input, budget);
+    let destination: Uint8Array | undefined;
+    yield* factory.admit(created.cursor, plan => {
+      destination = new Uint8Array(plan.frameByteLength);
+      return Result.succeed(Object.freeze({
+        bytes: destination,
+        byteOffset: 0,
+        byteLength: plan.frameByteLength,
+      }));
     });
+    while (true) {
+      const stepped = yield* factory.step(created.cursor, 1024);
+      if (stepped.status === "complete") {
+        if (destination === undefined) {
+          throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+            reason: "reencodeFailed",
+          });
+        }
+        return Object.freeze({
+          frame: stepped.written.frame,
+          canonicalBytes: destination,
+          usage: stepped.written.usage,
+        });
+      }
+    }
   });
+}
+
+/**
+ * Creates factory-local resumable physical-frame encode-into cursors. Input
+ * byte fields are captured into owned storage once before destination
+ * admission; the original byte ranges are retained only long enough to reject
+ * overlapping destinations. Cursor identity is process-local WeakMap state.
+ */
+export function makeDeclarativeV2PhysicalFrameEncoderFactoryV1():
+  DeclarativeV2PhysicalFrameEncoderFactoryV1 {
+  const cursors = new WeakMap<object, PhysicalFrameEncoderCursorState>();
+
+  const create:
+    DeclarativeV2PhysicalFrameEncoderFactoryV1["create"] =
+      (input, rawBudget) => Result.gen(function* () {
+        const limits = yield* decodeBudget(rawBudget, "encode");
+        if (
+          typeof input === "object" &&
+          input !== null &&
+          ACTIVE_PHYSICAL_FRAME_ADMISSION_INPUTS.has(input)
+        ) {
+          return yield* Result.fail(
+            frameError("encode", "invalidInput", "admission.reentrantInput"),
+          );
+        }
+        const captured = yield* captureFrameEncodingInput(
+          input,
+          limits,
+          "encode",
+        );
+        const segments = physicalFrameEncodingSegments(
+          captured.frame,
+          captured.stringByteLengths,
+        );
+        assertExactPhysicalFrameEncodingSegments(
+          captured.usage.frameBytes,
+          physicalFrameByteCopyLength(captured.frame),
+          segments,
+        );
+        const captureWork = Object.freeze({
+          byteStorageAllocationBytes: captured.capturedByteStorageLength,
+          byteCopyBytes: captured.capturedByteStorageLength,
+          byteWriteBytes: 0,
+          byteScanBytes: 0,
+          primitiveTransitions: 0,
+        });
+        const plan = Object.freeze({
+          frameByteLength: captured.usage.frameBytes,
+          canonicalByteLength: captured.usage.canonicalBytes,
+          successfulWork: physicalFrameEncodingWork(
+            captured.frame,
+            captured.usage.frameBytes,
+            captured.capturedByteStorageLength,
+          ),
+        });
+        const cursor = Object.freeze({
+          _tag: "DeclarativeV2PhysicalFrameEncoderCursorV1",
+        }) as DeclarativeV2PhysicalFrameEncoderCursorV1;
+        const aggregateWork = mutableZeroPhysicalFrameWork();
+        addPhysicalFrameWork(aggregateWork, captureWork);
+        cursors.set(cursor, {
+          frame: captured.frame,
+          plan,
+          usage: captured.usage,
+          segments,
+          aggregateWork,
+          inputIdentity: typeof input === "object" && input !== null
+            ? input
+            : null,
+          borrowedFrame: captured.borrowedFrame,
+          range: undefined,
+          phase: "created",
+          segmentIndex: 0,
+          segmentOffset: 0,
+          outputOffset: 0,
+          stringCodePoint: 0,
+          stringCodeUnitWidth: 0,
+          stringByteIndex: 0,
+          stringByteLength: 0,
+        });
+        return Object.freeze({
+          cursor,
+          plan,
+          receipt: physicalFrameEncoderReceipt(
+            captureWork,
+            aggregateWork,
+            0,
+          ),
+        });
+      });
+
+  const admit:
+    DeclarativeV2PhysicalFrameEncoderFactoryV1["admit"] =
+      (rawCursor, admission) => Result.gen(function* () {
+        const state = yield* physicalFrameEncoderCursorState(
+          cursors,
+          rawCursor,
+          "admit",
+        );
+        if (state.phase !== "created" || typeof admission !== "function") {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            frameError("encode", "invalidInput", "cursor.reused"),
+          );
+        }
+        const identity = state.inputIdentity;
+        if (
+          identity !== null &&
+          ACTIVE_PHYSICAL_FRAME_ADMISSION_INPUTS.has(identity)
+        ) {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            frameError("encode", "invalidInput", "admission.reentrantInput"),
+          );
+        }
+        state.phase = "admitting";
+        if (identity !== null) {
+          ACTIVE_PHYSICAL_FRAME_ADMISSION_INPUTS.add(identity);
+        }
+        let admitted: ReturnType<typeof admission>;
+        try {
+          admitted = admission(state.plan);
+        } catch (defect) {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          throw defect;
+        } finally {
+          if (identity !== null) {
+            ACTIVE_PHYSICAL_FRAME_ADMISSION_INPUTS.delete(identity);
+          }
+        }
+        if (
+          cursors.get(rawCursor as object) !== state ||
+          state.phase !== "admitting"
+        ) {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            frameError("encode", "invalidInput", "cursor.reentrant"),
+          );
+        }
+        const admittedRange = yield* Result.mapError(
+          admitted,
+          failure => {
+            revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+            return failure;
+          },
+        );
+        const range = yield* Result.mapError(
+          capturePhysicalFrameByteRange(admittedRange),
+          failure => {
+            revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+            return failure;
+          },
+        );
+        if (range.byteLength !== state.plan.frameByteLength) {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            frameError("encode", "invalidInput", "destination.byteLength"),
+          );
+        }
+        if (
+          state.borrowedFrame === null ||
+          overlapsPhysicalFrameStorage(state.borrowedFrame, range) ||
+          overlapsActivePhysicalFrameDestination(range)
+        ) {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            frameError("encode", "invalidInput", "destination.overlap"),
+          );
+        }
+        state.inputIdentity = null;
+        state.borrowedFrame = null;
+        state.range = range;
+        state.phase = "admitted";
+        ACTIVE_PHYSICAL_FRAME_DESTINATIONS.add(range);
+        const delta = Object.freeze({
+          byteStorageAllocationBytes: range.byteLength,
+          byteCopyBytes: 0,
+          byteWriteBytes: 0,
+          byteScanBytes: 0,
+          primitiveTransitions: 0,
+        });
+        addPhysicalFrameWork(state.aggregateWork, delta);
+        return physicalFrameEncoderReceipt(
+          delta,
+          state.aggregateWork,
+          0,
+        );
+      });
+
+  const step:
+    DeclarativeV2PhysicalFrameEncoderFactoryV1["step"] =
+      (rawCursor, rawAllowance) => Result.gen(function* () {
+        const state = yield* physicalFrameEncoderCursorState(
+          cursors,
+          rawCursor,
+          "step",
+        );
+        if (state.phase !== "admitted") {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            frameError("encode", "invalidInput", "cursor.notAdmitted"),
+          );
+        }
+        if (
+          !isNonNegativeSafeInteger(rawAllowance) ||
+          rawAllowance > 1024
+        ) {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            frameError("encode", "invalidBudget", "cursor.allowance"),
+          );
+        }
+        if (rawAllowance === 0) {
+          return Object.freeze({
+            status: "pending",
+            receipt: physicalFrameEncoderReceipt(
+              zeroPhysicalFrameWork(),
+              state.aggregateWork,
+              0,
+            ),
+          });
+        }
+        const range = state.range;
+        if (
+          range === undefined ||
+          !ACTIVE_PHYSICAL_FRAME_DESTINATIONS.has(range) ||
+          !isCurrentPhysicalFrameDestination(range)
+        ) {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          return yield* Result.fail(
+            frameError("encode", "invalidInput", "cursor.destination"),
+          );
+        }
+        const before = snapshotPhysicalFrameWork(state.aggregateWork);
+        let consumedAllowance = 0;
+        let copied = 0;
+        while (
+          consumedAllowance < rawAllowance &&
+          state.outputOffset < state.plan.frameByteLength
+        ) {
+          const segment = state.segments[state.segmentIndex];
+          if (segment === undefined) {
+            revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+            throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+              reason: "reencodeFailed",
+            });
+          }
+          const next = consumePhysicalFrameEncodingByte(state, segment);
+          if (next === undefined) {
+            revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+            throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+              reason: "reencodeFailed",
+            });
+          }
+          range.bytes[range.byteOffset + state.outputOffset] = next;
+          if (segment.kind === "bytes") copied += 1;
+          state.outputOffset += 1;
+          consumedAllowance += 1;
+          if (isPhysicalFrameEncodingSegmentComplete(state, segment)) {
+            state.segmentIndex += 1;
+            resetPhysicalFrameSegmentState(state);
+          }
+        }
+        const delta = Object.freeze({
+          byteStorageAllocationBytes: 0,
+          byteCopyBytes: copied,
+          byteWriteBytes: consumedAllowance,
+          byteScanBytes: 0,
+          primitiveTransitions: consumedAllowance,
+        });
+        addPhysicalFrameWork(state.aggregateWork, delta);
+        const receipt = physicalFrameEncoderReceipt(
+          subtractPhysicalFrameWork(
+            snapshotPhysicalFrameWork(state.aggregateWork),
+            before,
+          ),
+          state.aggregateWork,
+          consumedAllowance,
+        );
+        if (state.outputOffset < state.plan.frameByteLength) {
+          return Object.freeze({
+            status: "pending",
+            receipt,
+          });
+        }
+        if (
+          state.segmentIndex !== state.segments.length ||
+          state.segmentOffset !== 0 ||
+          state.stringByteLength !== 0
+        ) {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+            reason: "reencodeFailed",
+          });
+        }
+        const aggregate = snapshotPhysicalFrameWork(state.aggregateWork);
+        try {
+          assertExactPhysicalFrameSuccessfulWork(
+            state.plan.successfulWork,
+            aggregate,
+          );
+        } catch (defect) {
+          revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+          throw defect;
+        }
+        const written = Object.freeze({
+          frame: state.frame as DeclarativeV2PhysicalFrameV1,
+          range,
+          usage: state.usage,
+          work: aggregate,
+        });
+        revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+        return Object.freeze({
+          status: "complete",
+          written,
+          receipt,
+        });
+      });
+
+  const close:
+    DeclarativeV2PhysicalFrameEncoderFactoryV1["close"] =
+      rawCursor =>
+        Result.map(
+          physicalFrameEncoderCursorState(cursors, rawCursor, "close"),
+          state => {
+            const aggregate = snapshotPhysicalFrameWork(state.aggregateWork);
+            revokePhysicalFrameEncoderCursor(cursors, rawCursor);
+            return physicalFrameEncoderReceipt(
+              zeroPhysicalFrameWork(),
+              aggregate,
+              0,
+            );
+          },
+        );
+
+  return Object.freeze({ create, admit, step, close });
 }
 
 export function decodeDeclarativeV2PhysicalFrameV1(
@@ -653,11 +1191,12 @@ function decodeBudget(
   Readonly<DeclarativeV2FrameBudgetV1>,
   DeclarativeV2PhysicalFrameV1Error
 > {
-  if (!isNonArrayRecord(input)) {
+  if (!isNonArrayRecordSafe(input)) {
     return Result.fail(frameError(operation, "invalidBudget"));
   }
-  const keys = Object.keys(input);
+  const keys = ownEnumerableStringKeys(input);
   if (
+    keys === undefined ||
     keys.length !== 2 ||
     !keys.includes("maximumFrameBytes") ||
     !keys.includes("maximumCanonicalBytes")
@@ -678,13 +1217,16 @@ function decodeBudget(
   }));
 }
 
-function captureFrame(
+function captureFrameEncodingInput(
   input: unknown,
   budget: DeclarativeV2FrameBudgetV1,
   operation: "encode" | "decode",
-): Result.Result<CapturedFrame, DeclarativeV2PhysicalFrameV1Error> {
+): Result.Result<
+  CapturedPhysicalFrameEncodingInput,
+  DeclarativeV2PhysicalFrameV1Error
+> {
   return Result.gen(function* () {
-    if (!isNonArrayRecord(input)) {
+    if (!isNonArrayRecordSafe(input)) {
       return yield* Result.fail(frameError(operation, "invalidInput"));
     }
     const kindValue = ownDataValue(input, "kind");
@@ -696,17 +1238,18 @@ function captureFrame(
     }
     const kind = kindValue as FrameKind;
     const schema = FRAME_SCHEMAS[kind];
-    const keys = Object.keys(input);
+    const keys = ownEnumerableStringKeys(input);
     if (
+      keys === undefined ||
       keys.length !== schema.length + 1 ||
       keys.some((key) =>
         key !== "kind" && !schema.some(([field]) => field === key)
-      ) ||
-      Object.getOwnPropertySymbols(input).length !== 0
+      )
     ) {
       return yield* Result.fail(frameError(operation, "invalidInput", kind));
     }
     const borrowed: Record<string, CapturedScalar> = { kind };
+    const stringByteLengths: Record<string, number> = {};
     let frameBytes = domainByteLength(kind) + 4;
     let canonicalBytes = 0;
     for (const [field, scalar] of schema) {
@@ -730,6 +1273,17 @@ function captureFrame(
         operation,
         `${kind}.${field}`,
       );
+      if (
+        scalar.type === "string" ||
+        scalar.type === "enum"
+      ) {
+        stringByteLengths[field] = measured.frameBytes - 4;
+      } else if (
+        scalar.type === "nullableString" &&
+        capturedValue !== null
+      ) {
+        stringByteLengths[field] = measured.frameBytes - 5;
+      }
       borrowed[field] = capturedValue;
     }
     if (frameBytes > budget.maximumFrameBytes) {
@@ -754,7 +1308,17 @@ function captureFrame(
     for (const [field] of schema) {
       owned[field] = captureOwnedScalar(borrowedFrame[field] ?? null);
     }
-    return Object.freeze(owned) as CapturedFrame;
+    return Object.freeze({
+      frame: Object.freeze(owned) as CapturedFrame,
+      borrowedFrame,
+      usage: Object.freeze({
+        frameBytes,
+        canonicalBytes,
+      }),
+      capturedByteStorageLength:
+        physicalFrameCapturedByteStorageLength(borrowedFrame),
+      stringByteLengths: Object.freeze(stringByteLengths),
+    });
   });
 }
 
@@ -965,73 +1529,192 @@ function measureScalar(
   }
 }
 
-function encodeCapturedFrame(frame: CapturedFrame): Uint8Array {
+function physicalFrameEncodingSegments(
+  frame: CapturedFrame,
+  stringByteLengths: Readonly<Record<string, number>>,
+): readonly PhysicalFrameEncodingSegment[] {
   const schema = FRAME_SCHEMAS[frame.kind];
-  const total = domainByteLength(frame.kind) + 4 +
-    schema.reduce(
-      (sum, [field, kind]) =>
-        sum + measureScalar(frame[field] ?? null, kind).frameBytes,
-      0,
-    );
-  const output = new Uint8Array(total);
-  let offset = 0;
-  const domain = domainBytes(frame.kind);
-  output.set(domain, offset);
-  offset += domain.byteLength;
-  writeU32(output, offset, schema.length);
-  offset += 4;
-  for (const [field, kind] of schema) {
-    offset = writeScalar(output, offset, frame[field] ?? null, kind);
-  }
-  return output;
-}
-
-function writeScalar(
-  output: Uint8Array,
-  offset: number,
-  value: CapturedScalar,
-  schema: ScalarKind,
-): number {
-  switch (schema.type) {
-    case "string":
-    case "enum":
-      return writeString(output, offset, value as string);
-    case "nullableString":
-      if (value === null) {
-        output[offset] = 0;
-        return offset + 1;
+  const segments: PhysicalFrameEncodingSegment[] = [];
+  const bytes = (value: Uint8Array): void => {
+    const byteLength = intrinsicUint8ArrayByteLength(value);
+    if (byteLength === undefined) {
+      throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+        reason: "invalidPlatformIntrinsic",
+      });
+    }
+    segments.push(Object.freeze({ kind: "bytes", bytes: value, byteLength }));
+  };
+  const string = (field: string, value: string): void => {
+    const byteLength = stringByteLengths[field];
+    if (!isNonNegativeSafeInteger(byteLength)) {
+      throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+        reason: "reencodeFailed",
+      });
+    }
+    segments.push(Object.freeze({
+      kind: "u32",
+      value: byteLength,
+    }));
+    segments.push(Object.freeze({
+      kind: "string",
+      value,
+      byteLength,
+    }));
+  };
+  const byte = (value: number): void => {
+    segments.push(Object.freeze({ kind: "byte", value }));
+  };
+  const u64 = (value: bigint): void => {
+    segments.push(Object.freeze({ kind: "u64", value }));
+  };
+  bytes(PHYSICAL_DOMAIN_BYTES[frame.kind]);
+  segments.push(Object.freeze({ kind: "u32", value: schema.length }));
+  for (const [field, scalar] of schema) {
+    const value = frame[field] ?? null;
+    switch (scalar.type) {
+      case "string":
+      case "enum":
+        string(field, value as string);
+        break;
+      case "nullableString":
+        byte(value === null ? 0 : 1);
+        if (typeof value === "string") string(field, value);
+        break;
+      case "u64":
+        u64(value as bigint);
+        break;
+      case "nullableU64":
+        byte(value === null ? 0 : 1);
+        if (typeof value === "bigint") u64(value);
+        break;
+      case "digest":
+        bytes(value as Uint8Array);
+        break;
+      case "nullableDigest":
+        byte(value === null ? 0 : 1);
+        if (isUint8Array(value)) bytes(value);
+        break;
+      case "bytes": {
+        const valueBytes = value as Uint8Array;
+        const length = intrinsicUint8ArrayByteLength(valueBytes);
+        if (length === undefined) {
+          throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+            reason: "invalidPlatformIntrinsic",
+          });
+        }
+        segments.push(Object.freeze({ kind: "u32", value: length }));
+        bytes(valueBytes);
+        break;
       }
-      output[offset] = 1;
-      return writeString(output, offset + 1, value as string);
-    case "u64":
-      writeU64(output, offset, value as bigint);
-      return offset + 8;
-    case "nullableU64":
-      if (value === null) {
-        output[offset] = 0;
-        return offset + 1;
-      }
-      output[offset] = 1;
-      writeU64(output, offset + 1, value as bigint);
-      return offset + 9;
-    case "digest":
-      output.set(value as Uint8Array, offset);
-      return offset + DECLARATIVE_V2_SHA256_BYTES_V1;
-    case "nullableDigest":
-      if (value === null) {
-        output[offset] = 0;
-        return offset + 1;
-      }
-      output[offset] = 1;
-      output.set(value as Uint8Array, offset + 1);
-      return offset + 1 + DECLARATIVE_V2_SHA256_BYTES_V1;
-    case "bytes": {
-      const bytes = value as Uint8Array;
-      writeU32(output, offset, bytes.byteLength);
-      output.set(bytes, offset + 4);
-      return offset + 4 + bytes.byteLength;
     }
   }
+  return Object.freeze(segments);
+}
+
+function consumePhysicalFrameEncodingByte(
+  state: PhysicalFrameEncoderCursorState,
+  segment: PhysicalFrameEncodingSegment,
+): number | undefined {
+  if (segment.kind === "string") {
+    if (state.stringByteLength === 0) {
+      if (state.segmentOffset >= segment.value.length) return undefined;
+      const codePoint = segment.value.codePointAt(state.segmentOffset);
+      if (codePoint === undefined) return undefined;
+      state.stringCodePoint = codePoint;
+      state.stringCodeUnitWidth = codePoint > 0xffff ? 2 : 1;
+      state.stringByteIndex = 0;
+      state.stringByteLength = utf8CodePointByteLength(codePoint);
+    }
+    const value = utf8CodePointByte(
+      state.stringCodePoint,
+      state.stringByteLength,
+      state.stringByteIndex,
+    );
+    if (value === undefined) return undefined;
+    state.stringByteIndex += 1;
+    if (state.stringByteIndex === state.stringByteLength) {
+      state.segmentOffset += state.stringCodeUnitWidth;
+      state.stringCodePoint = 0;
+      state.stringCodeUnitWidth = 0;
+      state.stringByteIndex = 0;
+      state.stringByteLength = 0;
+    }
+    return value;
+  }
+
+  const length = physicalFrameEncodingSegmentLength(segment);
+  if (state.segmentOffset >= length) return undefined;
+  let value: number | undefined;
+  switch (segment.kind) {
+    case "bytes":
+      value = segment.bytes[state.segmentOffset];
+      break;
+    case "byte":
+      value = state.segmentOffset === 0 ? segment.value : undefined;
+      break;
+    case "u32":
+      value = Math.floor(
+        segment.value / (2 ** ((3 - state.segmentOffset) * 8)),
+      ) & 0xff;
+      break;
+    case "u64":
+      value = Number(
+        (segment.value >> BigInt((7 - state.segmentOffset) * 8)) & 0xffn,
+      );
+      break;
+  }
+  if (value === undefined) return undefined;
+  state.segmentOffset += 1;
+  return value;
+}
+
+function isPhysicalFrameEncodingSegmentComplete(
+  state: PhysicalFrameEncoderCursorState,
+  segment: PhysicalFrameEncodingSegment,
+): boolean {
+  return segment.kind === "string"
+    ? state.segmentOffset === segment.value.length &&
+      state.stringByteLength === 0
+    : state.segmentOffset === physicalFrameEncodingSegmentLength(segment);
+}
+
+function resetPhysicalFrameSegmentState(
+  state: PhysicalFrameEncoderCursorState,
+): void {
+  state.segmentOffset = 0;
+  state.stringCodePoint = 0;
+  state.stringCodeUnitWidth = 0;
+  state.stringByteIndex = 0;
+  state.stringByteLength = 0;
+}
+
+function utf8CodePointByteLength(codePoint: number): number {
+  if (codePoint <= 0x7f) return 1;
+  if (codePoint <= 0x7ff) return 2;
+  if (codePoint <= 0xffff) return 3;
+  return 4;
+}
+
+function utf8CodePointByte(
+  codePoint: number,
+  byteLength: number,
+  byteIndex: number,
+): number | undefined {
+  if (
+    !isNonNegativeSafeInteger(codePoint) ||
+    !isNonNegativeSafeInteger(byteIndex) ||
+    byteIndex >= byteLength
+  ) return undefined;
+  if (byteLength === 1) return byteIndex === 0 ? codePoint : undefined;
+  if (byteIndex === 0) {
+    return byteLength === 2
+      ? 0xc0 | (codePoint >> 6)
+      : byteLength === 3
+      ? 0xe0 | (codePoint >> 12)
+      : 0xf0 | (codePoint >> 18);
+  }
+  const shift = (byteLength - 1 - byteIndex) * 6;
+  return 0x80 | ((codePoint >> shift) & 0x3f);
 }
 
 function parseOwnedFrame(
@@ -1259,18 +1942,476 @@ function ownDataValue(
   input: Readonly<Record<string, unknown>>,
   key: string,
 ): unknown {
-  const descriptor = Object.getOwnPropertyDescriptor(input, key);
-  return descriptor !== undefined && descriptor.enumerable && "value" in descriptor
-    ? descriptor.value
-    : undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    return descriptor !== undefined &&
+        descriptor.enumerable &&
+        "value" in descriptor
+      ? descriptor.value
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-function domainBytes(kind: FrameKind): Uint8Array {
-  return UTF8_ENCODER.encode(`${DOMAIN_PREFIX}${kind}${DOMAIN_SUFFIX}`);
+function physicalFrameCapturedByteStorageLength(
+  frame: CapturedFrame,
+): number {
+  let result = 0;
+  for (const [field] of FRAME_SCHEMAS[frame.kind]) {
+    const value = frame[field];
+    if (!isUint8Array(value)) continue;
+    const length = intrinsicUint8ArrayByteLength(value);
+    if (length === undefined) {
+      throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+        reason: "invalidPlatformIntrinsic",
+      });
+    }
+    result = checkedPhysicalFrameWorkCount(result, length);
+  }
+  return result;
+}
+
+function physicalFrameByteCopyLength(frame: CapturedFrame): number {
+  return checkedPhysicalFrameWorkCount(
+    PHYSICAL_DOMAIN_BYTES[frame.kind].byteLength,
+    physicalFrameCapturedByteStorageLength(frame),
+  );
+}
+
+function physicalFrameEncodingSegmentLength(
+  segment: PhysicalFrameEncodingSegment,
+): number {
+  switch (segment.kind) {
+    case "bytes":
+      return segment.byteLength;
+    case "string":
+      return segment.byteLength;
+    case "byte":
+      return 1;
+    case "u32":
+      return 4;
+    case "u64":
+      return 8;
+  }
+}
+
+function assertExactPhysicalFrameEncodingSegments(
+  frameByteLength: number,
+  byteCopyLength: number,
+  segments: readonly PhysicalFrameEncodingSegment[],
+): void {
+  let measuredLength = 0;
+  let measuredCopies = 0;
+  for (const segment of segments) {
+    const length = physicalFrameEncodingSegmentLength(segment);
+    measuredLength = checkedPhysicalFrameWorkCount(measuredLength, length);
+    if (segment.kind === "bytes") {
+      measuredCopies = checkedPhysicalFrameWorkCount(measuredCopies, length);
+    }
+  }
+  if (
+    measuredLength !== frameByteLength ||
+    measuredCopies !== byteCopyLength
+  ) {
+    throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+      reason: "reencodeFailed",
+    });
+  }
+}
+
+function physicalFrameEncodingWork(
+  frame: CapturedFrame,
+  frameByteLength: number,
+  capturedByteStorageLength: number,
+): DeclarativeV2PhysicalFrameWorkV1 {
+  return Object.freeze({
+    byteStorageAllocationBytes: checkedPhysicalFrameWorkCount(
+      capturedByteStorageLength,
+      frameByteLength,
+    ),
+    byteCopyBytes: checkedPhysicalFrameWorkCount(
+      capturedByteStorageLength,
+      physicalFrameByteCopyLength(frame),
+    ),
+    byteWriteBytes: frameByteLength,
+    byteScanBytes: 0,
+    primitiveTransitions: frameByteLength,
+  });
+}
+
+function mutableZeroPhysicalFrameWork(): MutablePhysicalFrameWork {
+  return {
+    byteStorageAllocationBytes: 0,
+    byteCopyBytes: 0,
+    byteWriteBytes: 0,
+    byteScanBytes: 0,
+    primitiveTransitions: 0,
+  };
+}
+
+function zeroPhysicalFrameWork(): DeclarativeV2PhysicalFrameWorkV1 {
+  return Object.freeze({
+    byteStorageAllocationBytes: 0,
+    byteCopyBytes: 0,
+    byteWriteBytes: 0,
+    byteScanBytes: 0,
+    primitiveTransitions: 0,
+  });
+}
+
+function snapshotPhysicalFrameWork(
+  work: DeclarativeV2PhysicalFrameWorkV1,
+): DeclarativeV2PhysicalFrameWorkV1 {
+  return Object.freeze({
+    byteStorageAllocationBytes: work.byteStorageAllocationBytes,
+    byteCopyBytes: work.byteCopyBytes,
+    byteWriteBytes: work.byteWriteBytes,
+    byteScanBytes: work.byteScanBytes,
+    primitiveTransitions: work.primitiveTransitions,
+  });
+}
+
+function addPhysicalFrameWork(
+  target: MutablePhysicalFrameWork,
+  delta: DeclarativeV2PhysicalFrameWorkV1,
+): void {
+  target.byteStorageAllocationBytes = checkedPhysicalFrameWorkCount(
+    target.byteStorageAllocationBytes,
+    delta.byteStorageAllocationBytes,
+  );
+  target.byteCopyBytes = checkedPhysicalFrameWorkCount(
+    target.byteCopyBytes,
+    delta.byteCopyBytes,
+  );
+  target.byteWriteBytes = checkedPhysicalFrameWorkCount(
+    target.byteWriteBytes,
+    delta.byteWriteBytes,
+  );
+  target.byteScanBytes = checkedPhysicalFrameWorkCount(
+    target.byteScanBytes,
+    delta.byteScanBytes,
+  );
+  target.primitiveTransitions = checkedPhysicalFrameWorkCount(
+    target.primitiveTransitions,
+    delta.primitiveTransitions,
+  );
+}
+
+function subtractPhysicalFrameWork(
+  after: DeclarativeV2PhysicalFrameWorkV1,
+  before: DeclarativeV2PhysicalFrameWorkV1,
+): DeclarativeV2PhysicalFrameWorkV1 {
+  if (
+    after.byteStorageAllocationBytes < before.byteStorageAllocationBytes ||
+    after.byteCopyBytes < before.byteCopyBytes ||
+    after.byteWriteBytes < before.byteWriteBytes ||
+    after.byteScanBytes < before.byteScanBytes ||
+    after.primitiveTransitions < before.primitiveTransitions
+  ) {
+    throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+      reason: "reencodeFailed",
+    });
+  }
+  return Object.freeze({
+    byteStorageAllocationBytes:
+      after.byteStorageAllocationBytes - before.byteStorageAllocationBytes,
+    byteCopyBytes: after.byteCopyBytes - before.byteCopyBytes,
+    byteWriteBytes: after.byteWriteBytes - before.byteWriteBytes,
+    byteScanBytes: after.byteScanBytes - before.byteScanBytes,
+    primitiveTransitions:
+      after.primitiveTransitions - before.primitiveTransitions,
+  });
+}
+
+function assertExactPhysicalFrameSuccessfulWork(
+  expected: DeclarativeV2PhysicalFrameWorkV1,
+  actual: DeclarativeV2PhysicalFrameWorkV1,
+): void {
+  if (
+    actual.byteStorageAllocationBytes !== expected.byteStorageAllocationBytes ||
+    actual.byteCopyBytes !== expected.byteCopyBytes ||
+    actual.byteWriteBytes !== expected.byteWriteBytes ||
+    actual.byteScanBytes !== expected.byteScanBytes ||
+    actual.primitiveTransitions !== expected.primitiveTransitions
+  ) {
+    throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+      reason: "reencodeFailed",
+    });
+  }
+}
+
+function physicalFrameEncoderReceipt(
+  deltaWork: DeclarativeV2PhysicalFrameWorkV1,
+  aggregateWork: DeclarativeV2PhysicalFrameWorkV1,
+  consumedAllowance: number,
+): DeclarativeV2PhysicalFrameEncoderReceiptV1 {
+  return Object.freeze({
+    consumedAllowance,
+    deltaWork: snapshotPhysicalFrameWork(deltaWork),
+    aggregateWork: snapshotPhysicalFrameWork(aggregateWork),
+  });
+}
+
+function physicalFrameEncoderCursorState(
+  cursors: WeakMap<object, PhysicalFrameEncoderCursorState>,
+  cursor: unknown,
+  operation: "admit" | "step" | "close",
+): Result.Result<
+  PhysicalFrameEncoderCursorState,
+  DeclarativeV2PhysicalFrameV1Error
+> {
+  if (typeof cursor !== "object" || cursor === null) {
+    return Result.fail(
+      frameError("encode", "invalidInput", `cursor.${operation}`),
+    );
+  }
+  const state = cursors.get(cursor);
+  return state === undefined
+    ? Result.fail(
+      frameError("encode", "invalidInput", `cursor.${operation}`),
+    )
+    : Result.succeed(state);
+}
+
+function revokePhysicalFrameEncoderCursor(
+  cursors: WeakMap<object, PhysicalFrameEncoderCursorState>,
+  cursor: unknown,
+): void {
+  if (typeof cursor !== "object" || cursor === null) return;
+  const state = cursors.get(cursor);
+  if (state?.range !== undefined) {
+    ACTIVE_PHYSICAL_FRAME_DESTINATIONS.delete(state.range);
+  }
+  cursors.delete(cursor);
+}
+
+function capturePhysicalFrameByteRange(
+  input: unknown,
+): Result.Result<
+  DeclarativeV2PhysicalFrameByteRangeV1,
+  DeclarativeV2PhysicalFrameV1Error
+> {
+  if (!isNonArrayRecordSafe(input)) {
+    return Result.fail(
+      frameError("encode", "invalidInput", "byteRange"),
+    );
+  }
+  const keys = ownEnumerableStringKeys(input);
+  if (
+    keys === undefined ||
+    keys.length !== 3 ||
+    !keys.includes("bytes") ||
+    !keys.includes("byteOffset") ||
+    !keys.includes("byteLength")
+  ) {
+    return Result.fail(
+      frameError("encode", "invalidInput", "byteRange"),
+    );
+  }
+  const bytes = ownDataValue(input, "bytes");
+  const byteOffset = ownDataValue(input, "byteOffset");
+  const byteLength = ownDataValue(input, "byteLength");
+  if (
+    !isUint8Array(bytes) ||
+    !isNonNegativeSafeInteger(byteOffset) ||
+    !isNonNegativeSafeInteger(byteLength)
+  ) {
+    return Result.fail(
+      frameError("encode", "invalidInput", "byteRange"),
+    );
+  }
+  const visibleLength = intrinsicUint8ArrayByteLength(bytes);
+  if (
+    visibleLength === undefined ||
+    isSharedArrayBufferStorage(bytes) ||
+    byteOffset > visibleLength ||
+    byteLength > visibleLength - byteOffset
+  ) {
+    return Result.fail(
+      frameError("encode", "invalidInput", "byteRange"),
+    );
+  }
+  return Result.succeed(Object.freeze({ bytes, byteOffset, byteLength }));
+}
+
+function isCurrentPhysicalFrameDestination(
+  range: DeclarativeV2PhysicalFrameByteRangeV1,
+): boolean {
+  const visibleLength = intrinsicUint8ArrayByteLength(range.bytes);
+  return visibleLength !== undefined &&
+    !isSharedArrayBufferStorage(range.bytes) &&
+    range.byteOffset <= visibleLength &&
+    range.byteLength <= visibleLength - range.byteOffset;
+}
+
+function overlapsPhysicalFrameStorage(
+  frame: CapturedFrame,
+  destination: DeclarativeV2PhysicalFrameByteRangeV1,
+): boolean {
+  for (const [field] of FRAME_SCHEMAS[frame.kind]) {
+    const source = frame[field];
+    if (isUint8Array(source) && physicalFrameRangesOverlap(
+      source,
+      0,
+      intrinsicUint8ArrayByteLength(source) ?? 0,
+      destination.bytes,
+      destination.byteOffset,
+      destination.byteLength,
+    )) return true;
+  }
+  return false;
+}
+
+function overlapsActivePhysicalFrameDestination(
+  destination: DeclarativeV2PhysicalFrameByteRangeV1,
+): boolean {
+  for (const active of ACTIVE_PHYSICAL_FRAME_DESTINATIONS) {
+    if (physicalFrameRangesOverlap(
+      active.bytes,
+      active.byteOffset,
+      active.byteLength,
+      destination.bytes,
+      destination.byteOffset,
+      destination.byteLength,
+    )) return true;
+  }
+  return false;
+}
+
+function physicalFrameRangesOverlap(
+  left: Uint8Array,
+  leftOffset: number,
+  leftLength: number,
+  right: Uint8Array,
+  rightOffset: number,
+  rightLength: number,
+): boolean {
+  const leftBuffer = intrinsicUint8ArrayBuffer(left);
+  const rightBuffer = intrinsicUint8ArrayBuffer(right);
+  const leftViewOffset = intrinsicUint8ArrayByteOffset(left);
+  const rightViewOffset = intrinsicUint8ArrayByteOffset(right);
+  if (
+    leftBuffer === undefined ||
+    rightBuffer === undefined ||
+    leftViewOffset === undefined ||
+    rightViewOffset === undefined
+  ) return true;
+  if (leftBuffer !== rightBuffer) return false;
+  const leftStart = checkedPhysicalFrameRangeEnd(leftViewOffset, leftOffset);
+  const rightStart = checkedPhysicalFrameRangeEnd(rightViewOffset, rightOffset);
+  const leftEnd = checkedPhysicalFrameRangeEnd(leftStart, leftLength);
+  const rightEnd = checkedPhysicalFrameRangeEnd(rightStart, rightLength);
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+function checkedPhysicalFrameRangeEnd(left: number, right: number): number {
+  if (
+    !isNonNegativeSafeInteger(left) ||
+    !isNonNegativeSafeInteger(right) ||
+    left > Number.MAX_SAFE_INTEGER - right
+  ) {
+    throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+      reason: "reencodeFailed",
+    });
+  }
+  return left + right;
+}
+
+function intrinsicUint8ArrayByteOffset(
+  value: Uint8Array,
+): number | undefined {
+  if (UINT8_ARRAY_BYTE_OFFSET_GETTER === undefined) return undefined;
+  try {
+    const result = Reflect.apply(UINT8_ARRAY_BYTE_OFFSET_GETTER, value, []);
+    return isNonNegativeSafeInteger(result) ? result : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function intrinsicUint8ArrayBuffer(
+  value: Uint8Array,
+): ArrayBufferLike | undefined {
+  if (UINT8_ARRAY_BUFFER_GETTER === undefined) return undefined;
+  try {
+    const result = Reflect.apply(UINT8_ARRAY_BUFFER_GETTER, value, []);
+    return intrinsicBufferKind(result) === undefined ? undefined : result;
+  } catch {
+    return undefined;
+  }
+}
+
+function isSharedArrayBufferStorage(value: Uint8Array): boolean {
+  const buffer = intrinsicUint8ArrayBuffer(value);
+  return buffer !== undefined && intrinsicBufferKind(buffer) === "shared";
+}
+
+function intrinsicBufferKind(
+  value: unknown,
+): "array" | "shared" | undefined {
+  if (ARRAY_BUFFER_BYTE_LENGTH_GETTER !== undefined) {
+    try {
+      Reflect.apply(ARRAY_BUFFER_BYTE_LENGTH_GETTER, value, []);
+      return "array";
+    } catch {
+      // Continue to the distinct SharedArrayBuffer intrinsic check.
+    }
+  }
+  if (SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER !== undefined) {
+    try {
+      Reflect.apply(SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER, value, []);
+      return "shared";
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function checkedPhysicalFrameWorkCount(
+  ...values: readonly number[]
+): number {
+  let result = 0;
+  for (const value of values) {
+    if (
+      !isNonNegativeSafeInteger(value) ||
+      result > Number.MAX_SAFE_INTEGER - value
+    ) {
+      throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+        reason: "reencodeFailed",
+      });
+    }
+    result += value;
+  }
+  return result;
+}
+
+function isNonArrayRecordSafe(
+  input: unknown,
+): input is Readonly<Record<string, unknown>> {
+  try {
+    return isNonArrayRecord(input);
+  } catch {
+    return false;
+  }
+}
+
+function ownEnumerableStringKeys(
+  input: Readonly<Record<string, unknown>>,
+): readonly string[] | undefined {
+  try {
+    const keys = Object.keys(input);
+    return Object.getOwnPropertySymbols(input).length === 0
+      ? keys
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function domainByteLength(kind: FrameKind): number {
-  return utf8ByteLength(`${DOMAIN_PREFIX}${kind}${DOMAIN_SUFFIX}`);
+  return PHYSICAL_DOMAIN_BYTES[kind].byteLength;
 }
 
 function frameKindFromDomain(domain: string): FrameKind | null {
@@ -1281,24 +2422,6 @@ function frameKindFromDomain(domain: string): FrameKind | null {
   return Object.hasOwn(FRAME_SCHEMAS, kind) ? kind as FrameKind : null;
 }
 
-function writeString(
-  output: Uint8Array,
-  offset: number,
-  value: string,
-): number {
-  const bytes = UTF8_ENCODER.encode(value);
-  writeU32(output, offset, bytes.byteLength);
-  output.set(bytes, offset + 4);
-  return offset + 4 + bytes.byteLength;
-}
-
-function writeU32(output: Uint8Array, offset: number, value: number): void {
-  output[offset] = (value >>> 24) & 0xff;
-  output[offset + 1] = (value >>> 16) & 0xff;
-  output[offset + 2] = (value >>> 8) & 0xff;
-  output[offset + 3] = value & 0xff;
-}
-
 function readU32(input: Uint8Array, offset: number): number {
   return (
     ((input[offset] ?? 0) * 0x1000000) +
@@ -1306,13 +2429,6 @@ function readU32(input: Uint8Array, offset: number): number {
     ((input[offset + 2] ?? 0) << 8) +
     (input[offset + 3] ?? 0)
   );
-}
-
-function writeU64(output: Uint8Array, offset: number, value: bigint): void {
-  for (let index = 7; index >= 0; index -= 1) {
-    output[offset + index] = Number(value & 0xffn);
-    value >>= 8n;
-  }
 }
 
 function readU64(input: Uint8Array, offset: number): bigint | null {
@@ -1327,12 +2443,11 @@ function readU64(input: Uint8Array, offset: number): bigint | null {
 function intrinsicUint8ArrayByteLength(
   value: unknown,
 ): number | undefined {
+  if (UINT8_ARRAY_BYTE_LENGTH_GETTER === undefined) return undefined;
   try {
     if (!isUint8Array(value)) return undefined;
-    return Reflect.getOwnPropertyDescriptor(
-      Object.getPrototypeOf(Uint8Array.prototype),
-      "byteLength",
-    )?.get?.call(value) as number | undefined;
+    const result = Reflect.apply(UINT8_ARRAY_BYTE_LENGTH_GETTER, value, []);
+    return isNonNegativeSafeInteger(result) ? result : undefined;
   } catch {
     return undefined;
   }
