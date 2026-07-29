@@ -1555,28 +1555,34 @@ activation remain blocked until their production host composition is proven.
         immutable capacity only after authenticated module summaries are
         accumulated and sealed; and `registration_page` derives immutable
         capacity only after semantic decode, handler lookup, physical-frame,
-        progress, and terminal planning. `parse_module` remains blocked because
-        its committed sizing policy consumes detailed token, parser, semantic,
-        evidence, and output facts for which no authenticated warm or
-        settled-cold producer currently exists. No caller-authored vector,
-        preliminary parse, duplicate representation, or rescan may fill that
-        gap.
+        progress, and terminal planning. The former `parse_module`
+        `exact_requirement` claim is rejected. Its committed sizing policy
+        consumes detailed token, parser, semantic, evidence, and output facts
+        for which no authenticated warm or settled-cold producer exists; the
+        only exact-fact integration is a test oracle that parses once, derives
+        terminal facts, then allocates and parses again. The real engine plans
+        and allocates its arena before source parsing and enforces only
+        `actual <= required`. The currently supportable design direction is
+        therefore an immutable parse capacity followed by verifier-owned
+        terminal actual usage, not an exact pre-command requirement. No
+        caller-authored vector, preliminary parse, duplicate representation,
+        rescan, or copied command ceiling may fill the authority gap.
 
         Fourth, a separately versioned private terminal authority proof must
         bind the analysis-owned authority kind and requirement/capacity vector,
         verifier-owned terminal actual usage, canonical next-progress bytes and
         digest, output-manifest digest, reservation/request digests, and the
-        same full lineage. Parse/source must prove
-        `actual = requirement <= command budget`; link/registration must prove
-        `actual <= capacity <= command budget`. Capacity-only destination,
-        table, arena, and peak-storage facts never become terminal actual
-        usage, and 1,024 remains an execution quantum rather than a sizing
-        formula. Existing response and command-receipt identities do not bind
-        that authority vector and remain unchanged. A later persistence-owner
-        preflight must decide whether the terminal proof is durably stored or
-        only transactionally validated before the existing settlement is
-        accepted; this roadmap does not select a schema or storage
-        representation.
+        same full lineage. Source must prove
+        `actual = requirement <= command budget`; parse, link, and registration
+        must prove `actual <= capacity <= command budget`. Capacity-only
+        destination, table, arena, and peak-storage facts never become terminal
+        actual usage, and 1,024 remains an execution quantum rather than a
+        sizing formula. Existing response and command-receipt identities do not
+        bind that authority vector and remain unchanged. A later
+        persistence-owner preflight must decide whether the terminal proof is
+        durably stored or only transactionally validated before the existing
+        settlement is accepted; this roadmap does not select a schema or
+        storage representation.
 
         Each authority has exactly one owner. `@flarex/analysis` derives
         command semantics, any proved exact requirement or immutable capacity,
@@ -1630,67 +1636,59 @@ activation remain blocked until their production host composition is proven.
         provisional files must remain byte-for-byte unchanged until a later
         bounded replacement is explicitly approved.
 
-        `A1b2c0b2c2b0a0a` is implemented and committed as a private,
-        package-unexported, production-unreachable, inert
-        `@flarex/analysis` parse-module sizing and deterministic
-        terminal-driver policy. It proves parse-module-only owner-derived
-        sizing for all 26 `attempt_usage` dimensions. The executable's
-        1,024-transition allowance is only a per-invocation execution quantum,
-        not a universal sizing formula. Fixed-zero, unsupported, and presently
-        unused parse dimensions remain exact zero; in particular,
-        `elapsedMilliseconds` is host-clock-owned and zero in the pure plan,
-        while `objectCalls` is zero for current durable parse work.
-        Fixed-capacity dimensions use authenticated cardinalities and exact
-        generated-table requirements, peak dimensions describe simultaneous
-        parser or nesting state, and cumulative/content-dependent dimensions
-        follow the exact parse calls, transitions, source, token, import,
-        function, call, value-flow, diagnostic, evidence, canonical, frame,
-        hash, and output work owned by the verifier.
-
-        Durable command usage and restart recovery usage are separate ledgers.
-        Recovery-side `objectCalls`, page/body bytes, hashes, records, and
-        manifests belong only to the bounded recovery receipt; they never enter,
-        reset, refund, recharge, or enlarge the settled command's
-        `attempt_usage`. Every count and total uses checked signed-int64, u32,
-        and verifier-addressability arithmetic. Sizing binds the
-        authenticated candidate, input, command kind/sequence, current progress,
-        predecessor/range lineage, command budget, analyzer identity, and
-        verifier identity before terminal driving. Hostile-shape validation,
-        canonical fact capture, identity/lineage checks, checked arithmetic,
-        derived sizing, and ceiling comparison retain their specified
-        first-failure order. These deterministic synchronous transitions remain
-        Effect v4 `Result`/plain TypeScript; the later Effect host owns request
-        `Scope`, cancellation, interruption, foreign `Cause`, clocks, resources,
-        and finalization.
-
-        The committed policy's owner set is
+        `A1b2c0b2c2b0a0a` exists as committed private analysis code on
         `packages/analysis/src/declarativeV2VerifierSizingV1.ts`,
         `packages/analysis/test/declarative-v2-verifier-sizing-v1.test.ts`, and
-        `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`.
-        Its deterministic driver creates the engine, feeds each unconsumed
-        source suffix in fixed allowance quanta without rescanning, seals once,
-        and finishes to terminal before publishing sizing or usage. The sizing
-        operation itself does not parse source bytes or perform a hidden
-        preliminary parse. Accepted validation covers lexer/token and
-        malformed-UTF-8 termination, parser and nesting peaks,
-        imports/exports/functions/calls/value flows/diagnostics,
-        evidence/canonical/frame/output work, SHA boundary lengths
-        `0/1/55/56/63/64/65`, allowances `1` and `1024`, every dimension at
-        exact and one-less ceilings, signed-int64/u32/arena boundaries, hostile
-        fact ordering, two-cold determinism, absence of a hidden preliminary
-        parse, and executable compatibility. Focused and partitioned analysis,
-        typecheck/build, verifier generator/identity, frozen-install,
-        Effect/diff, and both exact-final project reviews are green. The policy
-        adds no package-root export, generated analyzer identity, protocol or
-        persistence contract, host, route, candidate, repository, OCC, commit,
-        or production authority.
-        The unchanged analyzer release-identity reproduction mismatch remains
-        an unrelated baseline; this gate neither regenerates it nor treats it
-        as evidence.
-        `source_page`, `link_page`, and `registration_page` sizing and driver
-        ownership remain separate later command-kind gates unless their current
-        owners prove exact formulas; parse-module formulas must not be
-        generalized to them.
+        `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`,
+        but its parse-fact sizing API is test-oracle-supported only,
+        package-unexported, production-unwired, unaccepted, and not
+        implementation authority. The exact integration performs a complete
+        first parse, extracts terminal usage and evidence sizes, then creates
+        and runs a second engine. The sizing helper itself does not parse, but
+        that does not authenticate its caller-supplied facts or prove them
+        before arena allocation. Allowances 1 and 1,024 preserve terminal
+        semantics while producing different `calls`, so the present schedule
+        is not split-invariant command authority. Earlier focused, typecheck,
+        generator/identity, compatibility, and reviewer receipts remain
+        implementation evidence only; they do not establish this rejected
+        authority claim. The unchanged analyzer release-identity reproduction
+        mismatch remains a separate baseline.
+
+        For the parse-capacity direction, exact authenticated-input or fixed
+        dimensions are `objectBodyBytes`, `sourceBytes`, `modules`, and
+        `tableBytes`. Exact-zero current parse dimensions are `objectCalls`,
+        `sourceMapBytes`, `semanticBytes`, `schemaNodes`, `validatorNodes`, and
+        pure `elapsedMilliseconds`. `calls`, `importEdges`, `exports`,
+        `functions`, `tokens`, `tokenBytes`, `parserStates`, `nestingDepth`,
+        `graphNodes`, `frontierEntries`, `stringBytes`, `canonicalBytes`,
+        `frameBytes`, `hashBytes`, `diagnosticBytes`, and `outputBytes` require
+        an immutable bound before allocation and verifier-owned terminal actual
+        usage afterward. Reserved arena, destination, frame, or other peak
+        storage is capacity, not terminal work merely because it was allocated.
+
+        Durable command usage and restart recovery usage remain separate
+        ledgers. Recovery-side `objectCalls`, page/body bytes, hashes, records,
+        and manifests belong only to the bounded recovery receipt; they never
+        enter, reset, refund, recharge, or enlarge settled command
+        `attempt_usage`. Before any parse implementation can proceed, analysis
+        must prove safe source-derived capacity formulas, their checked
+        signed-int64/u32/region/total-arena addressability before allocation,
+        canonical validation and first-failure order, and an owner-controlled
+        split-invariant internal call schedule. No formula or parser-allocation
+        design is selected here. Pure deterministic capacity, arithmetic,
+        schedule, and terminal-proof mechanics remain Effect v4
+        `Result`/plain TypeScript; the later Effect host owns authenticated
+        acquisition, request `Scope`, cancellation, interruption, foreign
+        `Cause`, clocks, resources, uncertainty, release, and finalization.
+
+        No parse code slice is owner-ready. Any need for a protocol field,
+        backend producer, executor-HTTP codec, persistence/schema decision,
+        analyzer adapter, generated identity change, or different parser
+        allocation owner must stop as its own prerequisite. Existing request,
+        response, restart, progress, and physical identities and bytes,
+        package-root closure, monolithic behavior, and the committed
+        source/link/registration owners remain unchanged; no parse formula may
+        be generalized to another command kind or borrowed from one.
 
         `A1b2c0b2c2b0a0b0a — protocol-owned resumable verifier-progress
         encode-into cursor` is implemented and committed in the existing
@@ -2145,8 +2143,9 @@ activation remain blocked until their production host composition is proven.
 
         The earlier b0b/b0c ordering around one companion codec and one backend
         plan producer is not owner-ready and must not proceed as written.
-        Separate later research gates must decide: the authenticated
-        `parse_module` fact authority; backend pre-reservation commitment
+        Separate later research gates must decide: safe authenticated
+        `parse_module` capacity formulas, pre-allocation arena bounds, and
+        split-invariant schedule authority; backend pre-reservation commitment
         preparation plus post-reservation admission-envelope production;
         executor-HTTP admission-envelope and terminal-proof codec ownership;
         the `apps/analyzer` warm/cold opaque-capability adapter; and persistence
@@ -2170,9 +2169,13 @@ activation remain blocked until their production host composition is proven.
         settlement implementation. The provisional b0a bytes remain unwired,
         production-unreachable, non-authoritative, unaccepted, and
         uncommitted. Source-page requirement and link/registration capacity
-        owners exist, but parse-fact authority is missing, and no trusted
-        warm/cold app producer, command consumer, authenticated
-        requirement/capacity-aware settlement, or activation path exists.
+        owners exist, but no trusted warm/cold app producer, command consumer,
+        authenticated requirement/capacity-aware settlement, or activation
+        path exists. The current parse-fact API is test-oracle-supported only
+        and supplies no accepted production authority.
+        `A1b2c0b2c2b0a1b-P — authenticated parse-fact authority preflight` is
+        likewise resolved as research/design evidence by the parse-capacity
+        correction above and authorizes no implementation.
 
         No implementation gate is owner-ready. Any continuation requires a
         separately approved research gate for exactly one of the missing
@@ -2222,14 +2225,19 @@ activation remain blocked until their production host composition is proven.
    internal, root-unexported owners, but remain unwired, inert, and
    production-inactive. Parse/source formulas do not generalize to registration.
    `A1b2c0b2c2b0a1-P` and `A1b2c0b2c2b0a1a-P` are resolved as
-   research/design evidence. The truthful lifecycle is the existing opaque
-   command-input commitment, a later separately versioned post-reservation
+   research/design evidence. `A1b2c0b2c2b0a1b-P` is likewise resolved by the
+   parse-capacity correction below. The truthful lifecycle is the existing
+   opaque command-input commitment, a later separately versioned post-reservation
    admission envelope, an analysis-owned sealed nonserializable
    requirement/capacity capability, and a later separately versioned terminal
    authority proof. Source requirements and link/registration capacities arise
-   only at owner-local seal points; authenticated parse-fact authority remains
-   missing. The provisional command-plan API and derivation are unaccepted and
-   not incrementally salvageable, and no implementation is owner-ready.
+   only at owner-local seal points. Parse now has only the design direction of
+   immutable capacity plus verifier-owned terminal actual; safe source-derived
+   formulas, checked pre-allocation arena bounds, and a split-invariant internal
+   schedule remain research blockers. Its current fact API is
+   test-oracle-supported only and is not production authority. The provisional
+   command-plan API and derivation are unaccepted and not incrementally
+   salvageable, and no implementation is owner-ready.
    Backend preparation, both executor-HTTP codecs, the analyzer adapter,
    persistence settlement/storage policy, b0b/b0c, the c2b analyzer command
    engine, Effect host
