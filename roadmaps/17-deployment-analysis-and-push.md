@@ -1873,44 +1873,58 @@ activation remain blocked until their production host composition is proven.
         driver cannot yet land as a standalone analysis owner. Registration
         carries no source or module-result body, but its ordered semantic-byte
         payload still must become canonical registration, diagnostic, progress,
-        and output-manifest frames.
-        `encodeDeclarativeV2PhysicalFrameV1` in the physical V1 owner captures
-        the complete frame and allocates and writes its complete canonical
-        buffer synchronously. Calling that atomic boundary from a fixed-quantum
-        driver would hide whole-frame work; duplicating it in analysis would
-        fork the protocol owner. This gate creates no protocol, transport,
+        and output-manifest frames. This gate creates no transport,
         persistence, candidate, repository, host, route, OCC, commit,
         readiness, or activation authority.
 
         `A1b2c0b2c2b0a0d0 — protocol-owned resumable physical-frame
-        encode-into cursor` is therefore the smallest unimplemented
-        registration prerequisite. Its exact future implementation allowlist
-        is only:
+        encode-into cursor` is implemented and committed beside the physical
+        V1 codec on exactly
+        `packages/flarex-protocol/src/declarative-v2-physical-v1.ts` and its
+        focused test. The additive symbols remain available only through the
+        existing `flarex-protocol/internal/declarative-v2-physical-v1`
+        subpath. They are package-root-unexported, externally unwired,
+        production-unreachable, inert, and have no registration-driver or
+        other authority-bearing consumer.
 
-        - `packages/flarex-protocol/src/declarative-v2-physical-v1.ts`;
-        - `packages/flarex-protocol/test/declarative-v2-physical-v1.test.ts`.
+        The physical owner exposes a factory-local opaque
+        `create`/`admit`/`step`/`close` cursor. Creation captures hostile input
+        once in the existing canonical order and owns admitted byte facts
+        before trusted destination admission. Destination offset, capacity,
+        detachment, shared backing, sibling reentrancy, active-range overlap,
+        and addressability remain protocol-owned checks with checked
+        arithmetic. Allowance is an exact safe integer `0..1024`; zero performs
+        no work and every consumed unit performs one actual canonical-byte
+        transition. Delta and aggregate allocation, copy, write, scan, and
+        transition receipts are exact, and terminal work must equal the
+        admitted plan. There is no banked credit, hidden whole-frame write,
+        preliminary encode, rescan, second canonical buffer, per-byte
+        caller-proportional allocation, caller-forged cursor, or serialized
+        mid-frame recovery. Completion, close, and terminal failure
+        deterministically revoke and release cursor and destination authority;
+        cold reconstruction restarts from offset zero.
 
-        The physical V1 owner must add only a factory-local opaque
-        `create`/`admit`/`step`/`close` cursor beside its existing atomic
-        encoder. The atomic encoder remains the compatibility wrapper with
-        identical frame identities, canonical bytes, returned ownership,
-        errors, failure order, and callers. Hostile input is captured once in
-        the existing canonical order before trusted destination admission;
-        destination range, detachment, capacity, reentrancy, and overlap checks
-        remain protocol-owned. Allowance is an exact safe integer `0..1024`;
-        zero performs no work and each consumed unit performs exactly one
-        actual canonical-byte transition. Delta and aggregate allocation,
-        copy, write, scan, and transition receipts are exact. There is no
-        banked credit, hidden atomic frame work, rescan, second canonical
-        buffer, caller-forged cursor, or serialized mid-frame recovery.
-        Completion, close, and terminal failure deterministically revoke and
-        release the cursor and destination authority; cold reconstruction
-        restarts from offset zero. Recoverable capture, admission, destination,
-        allowance, and lifecycle failures remain Effect v4 `Result` data;
-        trusted callback throws and contradictions after an accepted plan
-        remain defects. Request `Scope`, cancellation, interruption, full
-        foreign `Cause`, clocks, resources, and finalization remain with the
-        later Effect host.
+        `encodeDeclarativeV2PhysicalFrameV1` is now the compatibility wrapper
+        over that owner. Physical frame identities, grammar, canonical bytes,
+        decoder precedence, returned ownership, error spelling, existing
+        callers, internal subpath, and package-root closure remain unchanged.
+        Recoverable capture, admission, destination, allowance, and lifecycle
+        failures remain Effect v4 `Result` data. Trusted callback throws,
+        allocation/platform failures after validated input, and contradictions
+        after an accepted plan remain defects. Request `Scope`, cancellation,
+        interruption, full foreign `Cause`, clocks, async resources, release,
+        and finalization remain with the later Effect host.
+
+        Focused physical validation passed 15 tests; full protocol validation
+        passed 45 files and 426 tests; protocol typecheck/build,
+        analysis/verifier/restart, monolithic analyzer, persistence-progress,
+        frozen-install, Effect-boundary, and diff compatibility checks were
+        green. Both refreshed exact-final project reviewers were clean after
+        allocation-failure classification, sibling-reentrancy, and per-byte
+        allocation findings were closed. The unchanged analyzer
+        release-identity reproduction mismatch and the HEAD-identical
+        persistence `storedAttemptEvidence.test.ts` typecheck failures remain
+        separate out-of-scope baselines and are not evidence for this gate.
 
         The later package-local analysis registration accumulator and
         deterministic driver remain unimplemented and depend on both d0 and a
@@ -1963,17 +1977,13 @@ activation remain blocked until their production host composition is proven.
         actual work: publication and later settlement must prove
         `actual <= capacity <= command budget`.
 
-        The existing physical encoder, registration and diagnostic frame
-        identities, request/response/restart/readback/progress bytes, package
-        root, monolithic analyzer path, and production activation state remain
-        unchanged. d0 and the later registration analysis owner are
-        unimplemented and have no external consumer. Their required validation
-        remains exhaustive per-frame golden and two-cold compatibility,
-        every-split and allowance `0/1/1024/1025`, exact and one-less work
-        ceilings, hostile capture/admission/destination/overlap/lifecycle
-        cases, terminal release, physical and monolithic compatibility,
-        typecheck/build, generator/identity, Effect-boundary and diff checks,
-        and both exact-final project reviewers.
+        Registration and diagnostic frame identities,
+        request/response/restart/readback/progress bytes, package root,
+        monolithic analyzer behavior, and production activation state remain
+        unchanged. d0 is implemented but inert and externally unwired; the
+        later trusted completed-link claim and registration analysis
+        accumulator/driver remain unimplemented and have no production
+        consumer.
 
         `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the
         separately versioned private companion codec with hostile-safe
@@ -2039,9 +2049,10 @@ activation remain blocked until their production host composition is proven.
    package-local, unexported, unwired, production-unreachable, and inert. The
    private link-capacity owner is committed but externally unwired; link
    consumption and settlement remain unresolved. Registration is not
-   standalone: its protocol-owned resumable physical-frame cursor d0 and later
-   trusted completed-link claim plus analysis accumulator/driver remain
-   unimplemented. Parse/source formulas do not generalize to registration.
+   standalone: its protocol-owned resumable physical-frame cursor d0 is
+   implemented but internal and unwired, while the later trusted completed-link
+   claim plus analysis accumulator/driver remain unimplemented. Parse/source
+   formulas do not generalize to registration.
    b0b/b0c, the c2b analyzer command engine, Effect host
    composition, and a production caller remain absent. These transport,
    readback, and claim owners establish bounded inert bytes and process-local
