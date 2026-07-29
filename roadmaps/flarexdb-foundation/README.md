@@ -1275,63 +1275,100 @@ implemented:
   irreversible digests, prior actual usage, and the recovery-only
   remaining-budget copy cannot substitute for those facts.
 
-  Current durable link usage has separate owners across the linker and evidence
-  producer. Core link work charges scheduler-dependent calls, modules, imports,
-  exports, graph nodes, cumulative frontier pushes, copied link text, and
-  diagnostic text. Body/object/source/source-map/semantic, parser, schema,
-  validator, token, token-byte, function, string, canonical, frame, hash, and
-  elapsed dimensions are exact zero in the core linker unless the later
-  canonical evidence schedule owns them. Evidence encoding adds calls,
-  resolved-edge import charges, canonical JSON members/depth/strings, frames,
-  canonical bytes, hashes, diagnostic-record bytes, and output/page copies.
-  Exact command formulas therefore remain unresolved for scheduler-dependent
-  calls and complete evidence output. `frontierEntries` currently serves both
-  cumulative pushes and peak capacity, while `tableBytes` is required for
-  arena creation but remains zero in actual linker usage; both meanings require
-  an explicit owner decision. All calculations must retain canonical dimension
-  order and checked signed-int64, u32, region-width, and total arena
-  addressability arithmetic. Durable command, restart recovery, executor-HTTP
-  transport, A1b1 reads, and host clock/resource usage stay separate ledgers
-  without reset, refund, or recharge.
+  The accepted c0a-P authority decision separates immutable pre-allocation
+  capacity from verifier-owned terminal actual usage. `link_page`
+  authenticates a separately named capacity plan; it never predicts exact
+  `attempt_usage`. The single-pass driver publishes only after proving
+  `actual <= capacity <= command budget`, and later executor/repository
+  settlement must verify the same relationship before accepting the result.
+  Capacity bytes, arena widths, and peak-storage facts bound allocation but are
+  not charged as actual work merely because they were reserved.
 
-  `A1b2c0b2c2b0a0c0 — verifier-owned authenticated link-input accumulator and
-  deterministic linker-driver capability` is rejected and remains
-  unimplemented at the proposed two-executable-file boundary. Exact
-  pre-allocation planned-versus-actual equality cannot coexist with the current
-  content-sensitive path ordering, import/export resolution, cycle detection,
-  diagnostic production, and canonical evidence work while preliminary
-  linking, rescans, and a duplicate representation remain forbidden. The same
-  boundary also cannot prove authenticated command lineage for live module
-  results: current WeakMap-owned results contain module-local arenas and facts
-  but not the candidate, authenticated input, parse-pages root, current
-  progress, predecessor, range, analyzer identity, verifier identity, or
-  originating command factory.
+  This contract has two owners. Package-local `@flarex/analysis` owns a
+  factory-local opaque authenticated link-input accumulator, warm and
+  settled-cold private link summaries, the immutable capacity plan, the
+  single-pass linker/evidence schedule, exact terminal actual usage, and
+  irreversible completion/failure/close release. A later separately gated
+  `apps/analyzer` adapter must authenticate the already admitted command and
+  claimed restart capabilities and supply trusted warm/cold claims. WeakMap
+  possession and caller-provided identity fields prove neither command lineage
+  nor cold equivalence. Analysis must not depend on executor-HTTP, and no real
+  external consumer is wired to this path.
 
-  Choosing capacity-only `actual <= required`, a preliminary planning pass,
-  authenticated producer-owned parse/link summaries, engine-bound module-result
-  provenance, or a deliberately constant-work linker would change the accepted
-  authority or sizing contract. That choice remains unresolved and must not be
-  guessed by c0. The previously proposed executable source/test allowlist is
-  therefore not an implementable gate and carries no implementation approval.
+  The private link summary is accumulated once while constructing or
+  cold-reconstructing the existing opaque module representation. It retains
+  only checked lineage, counts, canonical ordinals, relevant byte lengths, and
+  bounded diagnostic/traversal facts; it is neither a second module
+  representation nor a preliminary link pass. Exact pre-allocation equality is
+  rejected because ordering, resolution, cycle detection, diagnostics, and
+  evidence are content-sensitive. A preliminary link violates the
+  no-hidden-link/no-rescan rule; a backend producer summary moves analyzer
+  authority across the trust boundary; provenance alone does not size
+  allocation; a constant-work linker changes budget/performance semantics; and
+  current caller requirements, ceilings, digests, prior actual usage, and
+  recovery budgets are not durable command authority.
 
-  The one smallest next gate is research/design-only
-  `A1b2c0b2c2b0a0c0a-P — authenticated link-plan provenance and exact-sizing
-  authority split preflight`. It must decide the minimum legitimate owner split
-  and future implementation allowlist for engine-bound module-result lineage;
-  exact content-sensitive link and evidence sizing before allocation;
-  split-invariant `calls`, `frontierEntries`, and `tableBytes` semantics; and
-  cold producer trust. It must preserve the existing linker APIs and bytes,
-  committed parse-module/source-page/progress-cursor owners, monolithic and
-  restart behavior, production inactivity, separate durable/recovery/transport/
-  read/host ledgers, pure Effect v4 `Result` failures, accepted-state defects,
-  and the later Effect host's `Scope`, cancellation, interruption, full foreign
+  All 26 dimensions retain canonical order and checked signed-int64, u32,
+  region-width, and total arena-addressability arithmetic. The new driver must
+  make `calls` split-invariant by counting canonical internal create/admit/
+  1,024-transition quanta rather than caller step splits. For `N` authenticated
+  modules and `I` imports, terminal core actuals are `modules = N`,
+  `importEdges = I`, `exports` equal to the authenticated export total, and
+  `graphNodes = N + I`; their capacity facts use the same checked
+  cardinalities. `frontierEntries` records cumulative actual discovery while a
+  separately named peak fact bounds allocation. `diagnosticBytes` and
+  `outputBytes` use checked content-dependent terminal totals, with capacity
+  derived from the retained byte-length and maximum-diagnostic summary.
+  `tableBytes` is a fixed generated-asset capacity fact and remains zero in
+  core link actual usage. `objectCalls`, `objectBodyBytes`, `sourceBytes`,
+  `sourceMapBytes`, `semanticBytes`, `functions`, `tokens`, `tokenBytes`,
+  `parserStates`, `nestingDepth`, `schemaNodes`, `validatorNodes`,
+  `stringBytes`, and `elapsedMilliseconds` are exact zero in core link actual
+  usage. `canonicalBytes`, `frameBytes`, and `hashBytes` are also zero in the
+  core ledger and belong, with their own calls and output/page work, to the
+  later canonical evidence/response component. Durable command, restart
+  recovery, executor-HTTP transport, A1b1 read, and host clock/resource ledgers
+  remain separate without reset, refund, or recharge.
+
+  Allowance is a safe integer `0..1024`; zero performs no work, every successful
+  unit advances owned state, and caller splitting cannot change usage or
+  output. There is no banked work, rescan, preliminary link, or serialized
+  mid-link authority. Warm and settled-cold reconstruction start from offset
+  zero and must produce identical capacity, actual usage, evidence, and output
+  for identical authenticated facts. Nothing publishes before terminal
+  capacity/actual agreement, and completion, close, or terminal failure
+  irreversibly releases accumulator, module, plan, linker, record, and
+  destination authority.
+
+  Pure hostile-input, capability, lineage, ordinal, transition, budget, and
+  checked-arithmetic failures remain Effect v4 `Result` data. Contradictions
+  after accepted opaque module/arena/plan/receipt state are defects. The later
+  Effect host retains request `Scope`, cancellation, interruption, full foreign
   `Cause`, clocks, resources, uncertainty, release, and finalization.
-  Registration-page remains a separate, unresearched command-kind owner.
 
-  c0a-P is unimplemented, is not green, and is not authorized by this
-  documentation checkpoint. It creates no protocol, transport, persistence,
-  candidate, repository, host, route, OCC, commit, readiness, or activation
-  authority.
+  The smallest future implementation prerequisite is
+  `A1b2c0b2c2b0a0c0a0 — private authenticated link-capacity and deterministic
+  actual-usage capability`, on exactly:
+
+  - `packages/analysis/src/declarativeV2VerifierExecutableV1.ts`;
+  - `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`;
+  - `packages/analysis/src/declarativeV2VerifierV1.ts`.
+
+  It is unimplemented, inert, and has no implementation approval from this
+  documentation checkpoint. It adds only private symbols through the existing
+  internal analysis facade: no package manifest, root export, public product
+  contract, wire identity, app adapter, or production caller changes. Required
+  validation covers every lineage field and mismatch, warm/cold claims, module
+  ordering and lifecycle, missing/duplicate/cyclic link cases, Unicode and byte
+  boundaries, all-26 capacity/actual and exact/one-less budget cases,
+  allowance/split invariance, checked arithmetic, hostile access order, no
+  preliminary link/rescan/duplicate representation, terminal release, two-cold
+  equality, full analysis plus parse/source/restart/evidence/monolithic and
+  transport compatibility, typecheck/build, generators/identities,
+  frozen-install evidence, Effect/diff checks, and both exact-final project
+  reviewers. Registration-page remains a separate, unresearched command-kind
+  owner. This gate creates no protocol, transport, persistence, candidate,
+  repository, host, route, OCC, commit, readiness, or activation authority.
 
   `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the separately
   versioned private companion codec with hostile-safe canonical admission,
