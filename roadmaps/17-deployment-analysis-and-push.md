@@ -1532,17 +1532,29 @@ activation remain blocked until their production host composition is proven.
         replaces, the authenticated selection, module, and fresh-input facts
         with candidate, command-kind/sequence, command-budget,
         range-and-predecessor, analyzer-identity, and verifier-identity lineage
-        plus authenticated command-plan facts whose exact companion
-        representation remains gated by
+        plus authenticated command-plan facts. The accepted
         `A1b2c0b2c2b0a1-P — authenticated command-plan
-        requirement/capacity authority reconciliation`: canonical current
-        `progress_cursor`, deterministic command-specific next
-        `progress_cursor`, exact parse/source requirements, immutable
-        link/registration capacity, and verifier-owned terminal actual usage.
-        Content-sensitive link or registration actual usage must not be
-        predicted as an exact pre-command requirement; publication and later
-        settlement instead prove
-        `actual <= capacity <= command budget`.
+        requirement/capacity authority reconciliation` fixes the companion
+        model: `parse_module` and `source_page` carry an explicit
+        `exact_requirement` authority kind, while `link_page` and
+        `registration_page` carry an explicit `immutable_capacity` authority
+        kind followed by verifier-owned terminal actual usage. Parse/source
+        prove `actual = requirement <= command budget`; link/registration
+        prove `actual <= capacity <= command budget`. Capacity-only
+        destination, table, arena, and peak-storage facts never become
+        terminal actual usage, and 1,024 remains an execution quantum rather
+        than a sizing formula.
+
+        Before execution, the companion must bind canonical current-progress
+        bytes plus the persistence-owned digest, deterministic
+        command-specific next-progress bytes plus digest, command budget, and
+        the full attempt, candidate, reservation, command-kind/sequence,
+        authenticated-input, range, predecessor, analyzer-release,
+        analyzer-identity, and verifier-identity lineage. The current
+        authenticated request still carries the reservation/current-progress
+        digest and command budget but no companion or canonical
+        current-progress preimage. Terminal actual usage and output/progress
+        proofs remain analysis-owned rather than companion-authored.
 
         The commitment is deliberately two-stage. The pre-reservation preimage
         excludes the not-yet-completed reservation and request digests, and its
@@ -1556,14 +1568,25 @@ activation remain blocked until their production host composition is proven.
         authentication and the later analyzer independently recompute the
         plan. Companion bytes alone mint no authority.
 
-        Persistence owns canonical current progress. The committed
-        `@flarex/analysis` command-kind owners now prove exact parse/source
-        requirements and immutable link/registration capacity plus terminal
-        actual usage. `A1b2c0b2c2b0a1-P` must reconcile those distinct
-        authorities with deterministic next progress and decide the final
-        backend, executor-HTTP, and analyzer-app adapter ownership split. It is
-        research/preflight only and authorizes no companion, producer, adapter,
-        engine, host, or settlement implementation. Source pages advance
+        Each authority has exactly one owner. `@flarex/analysis` derives
+        command semantics, exact parse/source requirements, immutable
+        link/registration capacity, verifier-owned terminal actual usage, and
+        current-to-next progress policy. Executor-HTTP may only canonically
+        transport and admit an inert private companion. The backend owns
+        Effect-based proof/session reads and hashing and later produces that
+        companion without owning or duplicating sizing formulas. Persistence
+        owns canonical current progress, reservation, command budget,
+        repository `Work`/fence authority, settlement, confirmed-rollback
+        retry, and decision uncertainty. A later `apps/analyzer` adapter may
+        only connect opaque admitted-command and claimed-restart capabilities
+        to analysis-owned ports; its later host owns request lifecycle, not
+        command-plan or repository authority.
+
+        Caller-authored usage vectors, duplicated formulas or representations,
+        WeakMap possession without authenticated lineage, serialized handles,
+        hidden preliminary work, rescans, banked allowance, copied command
+        ceilings or prior actual usage, and settlement without authenticated
+        requirement/capacity authority are forbidden. Source pages advance
         a contiguous authenticated module range from the current source
         ordinal and either remain in `source` or enter `parse`; parse commands
         consume exactly the current module ordinal and either remain in
@@ -1581,9 +1604,18 @@ activation remain blocked until their production host composition is proven.
         `packages/analysis/src/declarativeV2VerifierCommandPlanV1.ts`,
         `packages/analysis/test/declarative-v2-verifier-command-plan-v1.test.ts`,
         `packages/analysis/package.json`, and the analyzer export-identity
-        test. Those four provisional files are
-        unaccepted and uncommitted; they remain unwired,
-        production-unreachable, and non-authoritative.
+        test. Those four provisional files are unaccepted and uncommitted; they
+        remain unwired, production-unreachable, and non-authoritative. Their
+        filename and private internal location may be reused, but their API and
+        derivation are not incrementally salvageable: the snapshot exposes one
+        `required` `attempt_usage` vector for every command, derives universal
+        work and nonzero `objectCalls` from
+        `1,024 * authenticatedUnits`, accepts canonical current-progress input
+        without proving its reservation-owned digest, lacks the
+        command-specific authenticated facts required by the committed owners,
+        and collapses capacity-only facts into predicted actual usage. The four
+        provisional files must remain byte-for-byte unchanged until a later
+        bounded replacement is explicitly approved.
 
         `A1b2c0b2c2b0a0a` is implemented and committed as a private,
         package-unexported, production-unreachable, inert
@@ -2088,8 +2120,9 @@ activation remain blocked until their production host composition is proven.
         capabilities; no backend companion producer, settlement owner,
         route/binding, candidate, repository `Work`/fence, OCC/commit authority,
         activation path, or production caller exists. Provisional command-plan
-        work, `A1b2c0b2c2b0a1-P`, b0b/b0c/c2b/c3, and real cold recovery
-        remain unimplemented.
+        work remains unaccepted and uncommitted. `A1b2c0b2c2b0a1-P` is
+        complete as research/design evidence; b0b/b0c/c2b/c3 and real cold
+        recovery remain unimplemented.
         Registration and diagnostic frame identities, request/response/
         restart/readback/progress/physical bytes, package-root closure, monolithic
         analyzer behavior, production activation, candidate/repository
@@ -2117,20 +2150,28 @@ activation remain blocked until their production host composition is proven.
         and the later c3 request `Scope`, cancellation, interruption, full
         foreign `Cause`, acquisition, release, and finalization remain
         Effect-owned by their existing boundaries.
-        `A1b2c0b2c2b0a1-P — authenticated command-plan requirement/capacity
-        authority reconciliation` is the single next research-only
-        prerequisite. It must separate exact parse/source requirements,
-        immutable link/registration capacity, verifier-owned terminal actual
-        usage, and `actual <= capacity <= command budget`; determine their
-        binding to current/next progress and authenticated command lineage; and
-        leave backend, executor-HTTP, and analyzer-app adapter ownership
-        unresolved until evidence assigns each boundary. It is not
-        implementation authorization. The provisional b0a bytes remain
-        unwired, production-unreachable, non-authoritative, unaccepted, and
-        uncommitted. Parse-module, source-page, link-capacity, and registration
-        sizing/driver ownership are satisfied, but no trusted warm/cold app
-        producer, command consumer, settlement, or activation path exists.
-        b0b and b0c remain unimplemented.
+        `A1b2c0b2c2b0a1-P` is resolved by the authority-kind, binding,
+        ownership, and rejection rules above. It authorizes no companion,
+        producer, adapter, engine, host, or settlement implementation. The
+        provisional b0a bytes remain unwired, production-unreachable,
+        non-authoritative, unaccepted, and uncommitted. Parse-module,
+        source-page, link-capacity, and registration sizing/driver ownership
+        are satisfied, but no trusted warm/cold app producer, command
+        consumer, authenticated capacity-aware settlement, or activation path
+        exists. b0b and b0c remain unimplemented.
+
+        No implementation gate is owner-ready. The single next gate is
+        research-only
+        `A1b2c0b2c2b0a1a-P — authenticated companion producer/consumer
+        fact-availability preflight`. It must prove how backend fresh
+        authentication and settled-cold reconstruction obtain the exact
+        parse/source facts and owner-derived link/registration capacity without
+        caller-authored vectors, duplicated formulas, preliminary execution,
+        rescans, or serialized capabilities; then it must identify the
+        smallest separately gated executor-HTTP codec, backend producer,
+        `apps/analyzer` adapter, and persistence settlement order. Until that
+        evidence exists, the provisional four-file command-plan implementation
+        may not continue.
 
         The blocked candidate c2b implementation allowlist remains exactly
         `packages/analysis/src/declarativeV2VerifierCommandEngineV1.ts`,
@@ -2172,9 +2213,13 @@ activation remain blocked until their production host composition is proven.
    claim plus sizing/terminal driver are implemented and committed through
    internal, root-unexported owners, but remain unwired, inert, and
    production-inactive. Parse/source formulas do not generalize to registration.
-   `A1b2c0b2c2b0a1-P` is the next research-only prerequisite; it must reconcile
-   exact parse/source requirements with link/registration capacity and terminal
-   actual usage before provisional command-plan work can continue.
+   `A1b2c0b2c2b0a1-P` is resolved as research/design evidence: parse/source use
+   explicit exact-requirement authority, link/registration use explicit
+   immutable-capacity authority, and terminal actual usage remains
+   verifier-owned. The provisional command-plan API and derivation are
+   unaccepted and not incrementally salvageable. The single next gate is the
+   research-only `A1b2c0b2c2b0a1a-P` companion producer/consumer
+   fact-availability preflight; no implementation is owner-ready.
    b0b/b0c, the c2b analyzer command engine, Effect host
    composition, and a production caller remain absent. These transport,
    readback, and claim owners establish bounded inert bytes and process-local
