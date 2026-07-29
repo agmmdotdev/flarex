@@ -1738,9 +1738,11 @@ activation remain blocked until their production host composition is proven.
         release-identity reproduction mismatch remains an out-of-scope baseline
         and was not repaired or absorbed by this gate.
 
-        `link_page` and `registration_page` sizing/driver ownership remain
-        separate unresolved prerequisites. Source-page and parse-module
-        formulas must not be generalized to either command kind.
+        The trusted `apps/analyzer` adapter plus later `link_page` consumption
+        and settlement remain unresolved. `registration_page` sizing/driver
+        ownership is still a separate unresearched prerequisite. Source-page
+        and parse-module formulas must not be generalized to either command
+        kind.
 
         The accepted `link_page` preflight found that link sizing and driving
         cannot yet land as a standalone owner. The current call graph remains
@@ -1798,14 +1800,15 @@ activation remain blocked until their production host composition is proven.
         durable command authority.
 
         All 26 dimensions retain canonical order and checked signed-int64,
-        u32, region-width, and total arena-addressability arithmetic. The new
-        driver must make `calls` split-invariant by counting canonical internal
-        create/admit/1,024-transition quanta rather than caller step splits. For
-        `N` authenticated modules and `I` imports, terminal core actuals are
-        `modules = N`, `importEdges = I`, `exports` equal to the authenticated
-        export total, and `graphNodes = N + I`; their capacity facts use the
-        same checked cardinalities. `frontierEntries` records cumulative actual
-        discovery while a separately named peak fact bounds allocation.
+        u32, region-width, and total arena-addressability arithmetic. The
+        implemented driver makes `calls` split-invariant by counting canonical
+        internal create/admit/1,024-transition quanta rather than caller step
+        splits. For `N` authenticated modules and `I` imports, terminal core
+        actuals are `modules = N`, `importEdges = I`, `exports` equal to the
+        authenticated export total, and `graphNodes = N + I`; their capacity
+        facts use the same checked cardinalities. `frontierEntries` records
+        cumulative actual discovery while a separately named peak fact bounds
+        allocation.
         `diagnosticBytes` and `outputBytes` use checked content-dependent
         terminal totals, with capacity derived from the retained byte-length
         and maximum-diagnostic summary. `tableBytes` is a fixed generated-asset
@@ -1837,29 +1840,36 @@ activation remain blocked until their production host composition is proven.
         interruption, full foreign `Cause`, clocks, resources, uncertainty,
         release, and finalization.
 
-        The smallest future implementation prerequisite is
         `A1b2c0b2c2b0a0c0a0 — private authenticated link-capacity and
-        deterministic actual-usage capability`, on exactly:
+        deterministic actual-usage capability` is implemented and committed
+        through the existing package-internal analysis facade, on exactly:
 
         - `packages/analysis/src/declarativeV2VerifierExecutableV1.ts`;
         - `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`;
         - `packages/analysis/src/declarativeV2VerifierV1.ts`.
 
-        It is unimplemented, inert, and has no implementation approval from
-        this documentation checkpoint. It adds only private symbols through
-        the existing internal analysis facade: no package manifest, root
-        export, public product contract, wire identity, app adapter, or
-        production caller changes. Required validation covers every lineage
-        field and mismatch, warm/cold claims, module ordering and lifecycle,
-        missing/duplicate/cyclic link cases, Unicode and byte boundaries,
-        all-26 capacity/actual and exact/one-less budget cases,
-        allowance/split invariance, checked arithmetic, hostile access order,
-        no preliminary link/rescan/duplicate representation, terminal release,
-        two-cold equality, full analysis plus parse/source/restart/evidence/
-        monolithic and transport compatibility, typecheck/build, generators/
-        identities, frozen-install evidence, Effect/diff checks, and both
-        exact-final project reviewers. Registration-page remains a separate,
-        unresearched command-kind owner. This gate creates no protocol,
+        The factory-local capability binds authenticated lineage at its trusted
+        claim boundary, rejects shared-backed digest storage, owns one immutable
+        pre-allocation capacity plan distinct from verifier-owned terminal
+        actual usage, and proves `actual <= capacity <= command budget` across
+        all 26 canonical dimensions with their exact zeros/formulas, checked
+        arithmetic, and separate durable/recovery/transport/read/host ledgers.
+        Its split-invariant allowance schedule is `0..1024`; warm and
+        reconstructed-cold runs are deterministic from offset zero; recoverable
+        failures remain `Result` data, accepted-state contradictions remain
+        defects, and the later Effect host retains `Scope`, full `Cause`,
+        resources, uncertainty, and finalization. Completion, close, and
+        terminal failure irreversibly release retained capability authority.
+
+        Focused and full analysis, parse/source/restart/evidence/monolithic and
+        transport compatibility, typecheck/build, generator/identity,
+        Effect-boundary, and diff validation were green. Both refreshed
+        exact-final project reviewers were clean. The capability remains
+        package-root-unexported, externally unwired, production-inactive, and
+        has no trusted `apps/analyzer` adapter or production consumer. The
+        later trusted app-adapter producer boundary, `link_page` consumption
+        and settlement, and the separate unresearched `registration_page`
+        prerequisite remain unresolved. This gate creates no protocol,
         transport, persistence, candidate, repository, host, route, OCC,
         commit, readiness, or activation authority.
 
