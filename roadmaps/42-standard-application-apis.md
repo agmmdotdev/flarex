@@ -45,6 +45,10 @@ Read these authorities together:
 - [`41-private-standard-application-composition-and-real-system-harness.md`](./41-private-standard-application-composition-and-real-system-harness.md)
   owns the internal test corpus, workload model, and private real-system
   harness;
+- [`43-first-flarexdb-system-api-vertical.md`](./43-first-flarexdb-system-api-vertical.md)
+  owns the ordered function-first composition from the completed replacement
+  analyzer port through SAP02, SAP03, readiness, activation, SAP04, and one
+  authoritative point mutation;
 - [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md) owns public developer
   ergonomics, generated APIs, CLI/codegen, and distribution;
 - [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md)
@@ -499,9 +503,9 @@ checker in roadmap 16. It must not mark that broader gate complete.
 
 | Gate | Outcome | Entry condition |
 | --- | --- | --- |
-| `SAP02` | Narrow Standard analysis operation over the supported replacement analyzer port | A1b2 exposes one accepted complete analyzer port |
-| `SAP03` | Narrow Standard verified-registration operation for one application revision | schema/catalog publication, readiness, and registration composition are approved |
-| `SAP04` | Narrow Standard point-mutation invocation operation | host-neutral runtime and foundation `C07` are assembled through the real owner path |
+| `SAP02` | Narrow Standard analysis operation over the supported replacement analyzer port; first slice `FSV01` | A1b2 exposes one accepted complete analyzer port |
+| `SAP03` | Narrow Standard verified-registration operation over the implementation-bearing System Schema function; slice `FSV02` | SAP02 is complete and the exact registration composition is approved |
+| `SAP04` | Narrow Standard point-mutation invocation over the implementation-bearing System Application Data function; slice `FSV06` | the private A1b2 plus `C07` real-system proof, readiness, and activation are complete, and the host-neutral runtime is assembled through the real owner path |
 | `SAP05+` | Add query, internal call, workflow mutation, action, and schedule operations individually | each capability has an implemented owner contract and focused preflight |
 
 Stop and amend this roadmap before implementation if a slice would create a

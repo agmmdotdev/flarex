@@ -54,6 +54,9 @@ Flarex Schema API
 Flarex Application Data API
   typed query, mutation, transaction, and live-result semantics
 
+Flarex Trusted Relational Adapter API
+  scope-pinned query, DML, transaction, introspection, and migration capabilities
+
 Flarex Framework Adapter APIs
   Payload lifecycle storage and Medusa commerce persistence
 
@@ -65,8 +68,72 @@ Private FlarexDB Kernel APIs
 ```
 
 These API families converge on the same authoritative Postgres data plane,
-scope clock, commit feed, and outbox. They do not collapse into one universal
-transaction API.
+scope clock, commit feed, and outbox. One database authority does not imply one
+universal interface. In particular, Dynamic Worker logical transactions,
+Payload request transactions, and Medusa relational transactions retain
+different contracts.
+
+## Delivery Model: Definition Helpers And Executable Functions
+
+The preferred consumer experience is function-first and implementation-bearing,
+similar to the useful distinction in Vite between inert definition helpers and
+operations that actually run the system:
+
+```text
+defineSomething(...)
+  -> constructs and validates inert input
+  -> performs no analysis, registration, migration, activation, or execution
+
+analyzeSomething(...)
+registerSomething(...)
+activateSomething(...)
+invokeSomething(...)
+  -> executes one real capability through its owning implementation
+```
+
+FlarexDB should not publish a contract-only System API surface and defer its
+implementation to a later phase. Each accepted executable operation should
+ship one bounded vertical slice containing:
+
+1. its input, output, exact typed failures, and trust boundary;
+2. one exported verb-named function that consumers call directly;
+3. the domain service contract and live Layer when shared capabilities,
+   configuration, resources, or test substitution require them;
+4. request-, operation-, or transaction-scoped capabilities at their real
+   lifetime rather than in a global Layer;
+5. one test Layer or bounded test adapter;
+6. focused PGlite, real-Postgres, and host validation required by the
+   operation; and
+7. its first real Standard, host, or private-system consumer.
+
+The consumer-facing function may return an `Effect` whose requirements are
+provided by the application, Worker, Durable Object, request, or test
+composition root. Ordinary consumers should not construct dependency bags,
+select Postgres repositories, or manually finalize transactions.
+
+Illustrative usage is:
+
+```ts
+const analysis = yield* analyzeStandardApplicationV1(input);
+const revision = yield* registerApplicationRevisionV1({ analysis });
+yield* activateApplicationRevisionV1({ revisionId: revision.revisionId });
+return yield* invokeApplicationPointMutationV1({
+  functionName: "orders:create",
+  args,
+});
+```
+
+These names are directional, not accepted contracts. The important shape is
+that the caller consumes concrete functions. `Context.Service` and `Layer`
+remain implementation and composition tools below those functions; they are
+not a second consumer API and do not authorize one repository-global service
+locator.
+
+This model also rules out a universal `defineFlarexDatabase(...)` object whose
+methods mix control, schema, application data, relational adapters, operations,
+and private commit authority. A later host facade may group already-implemented
+functions for ergonomics, but it must preserve their separate types, trust
+boundaries, lifetimes, and owners.
 
 ## Relationship To Standard Application APIs
 
@@ -86,6 +153,7 @@ Developer API producer             Internal Test API producer
                 schema lifecycle
                 application data
                 framework adapters
+                trusted relational adapter SPI
                 private commit authority
 ```
 
@@ -98,6 +166,125 @@ stages. A later Standard registration operation may call a trusted schema
 lifecycle port. A later Standard invocation operation may enter a trusted
 application-data session. That dependency does not expose database internals to
 the Standard input producer.
+
+## Immediate Execution Boundary
+
+The first focused implementation is deliberately smaller than this long-term
+taxonomy. It is owned by
+[`../roadmaps/43-first-flarexdb-system-api-vertical.md`](../roadmaps/43-first-flarexdb-system-api-vertical.md)
+and connects only:
+
+```text
+accepted complete replacement analyzer
+  -> Standard analysis
+  -> inactive application-revision registration
+  -> evidence-backed readiness
+  -> explicit activation
+  -> one Standard point mutation
+  -> authoritative FlarexDB/Postgres outcome
+```
+
+That roadmap does not start the Control API, general schema migration API,
+query API, trusted relational adapter SPI, Payload adapter, Medusa adapter,
+Operator API, backup/restore, or broad public SDK. Those remain useful design
+context, but they are farther from the current analyzer and Standard
+Application API work.
+
+The focused vertical must reuse the current analyzer, deployment, schema
+publication, readiness, activation, host-neutral runtime, executor, OCC,
+commit, feed, outbox, and persistence owners. It must not create parallel
+implementations in a new "System API" package merely to make the composition
+look complete.
+
+## Current Readiness And Limitations
+
+FlarexDB is implementation-rich below the proposed API boundary, but it is not
+yet a consumer-ready System API.
+
+The useful existing foundation includes:
+
+- Standard application definition preparation;
+- private replacement-analyzer contracts, authenticated evidence, and
+  incremental verifier work;
+- bounded transactional app-schema publication;
+- scope, epoch, session, journal, execution-claim, OCC, commit, committed
+  outcome, feed, outbox, and redelivery components;
+- a host-neutral exact point-mutation runtime; and
+- PGlite, real-Postgres, Worker, and focused test infrastructure.
+
+The remaining limitations are architectural, not merely naming or packaging:
+
+1. **No accepted complete analyzer entry.** Replacement analyzer work remains
+   private and incomplete until A1b2 exposes one accepted end-to-end port.
+2. **No Standard analysis operation.** SAP02 does not yet turn a prepared
+   definition into the exact authenticated verified-analysis value that later
+   registration may consume.
+3. **No application-revision registration function.** Schema publication
+   exists, but no single trusted operation binds candidate, source, semantic,
+   schema, function, validator, artifact, and analyzer evidence into one
+   inactive durable revision.
+4. **No target-native readiness operation.** S03-D4 has not yet settled
+   readiness from the real located target and all required evidence.
+5. **No replacement activation operation or coherent active reader.** Current
+   legacy deployment activation is not the target FlarexDB revision CAS and
+   must not be wrapped as though it were.
+6. **No assembled private C07 system proof.** Point-mutation kernel components
+   exist, but the required analyzer/artifact-runtime/executor/Postgres harness
+   is not complete and green.
+7. **The main executor facade remains legacy-routed.** Private
+   `flarexdb_v1` modules do not make the root executor a replacement
+   application-data API.
+8. **Persistence interfaces are too broad for consumers.** Raw SQL clients,
+   transaction repositories, physical records, and package-internal factories
+   are implementation capabilities, not an acceptable System API.
+9. **The service graph is incomplete.** Some backend domains use
+   `Context.Service` and Layers, while executor and persistence composition
+   still contains manual factories, dependency bags, and Promise boundaries.
+   Each API slice must close only the service and lifecycle seams it actually
+   consumes.
+10. **No stable framework-adapter SPI exists.** Payload, Medusa, and general
+    relational compatibility remain deferred and must not shape the first
+    application-revision vertical.
+
+These limitations mean FlarexDB does not need a new database kernel before API
+work can begin. It needs the existing kernel owners assembled and proved one
+capability at a time.
+
+## Minimum Gate To Start API Development
+
+API development starts in two deliberately separate steps:
+
+```text
+FSV01
+  -> Standard API development
+  -> analyzeStandardApplicationV1
+  -> begins only after the complete analyzer port is accepted
+
+FSV02
+  -> first FlarexDB System API development
+  -> registerApplicationRevisionV1
+  -> begins only from the actual accepted SAP02 output
+```
+
+Before either slice is accepted for implementation:
+
+1. all packages in that slice have a green typecheck and focused test baseline;
+2. the exact existing owner functions and missing composition seam are named;
+3. input authority and scope derivation are explicit;
+4. the operation's success, typed failures, and Effect requirements are exact;
+5. request, analyzer-session, Worker, Durable Object, and transaction
+   lifetimes are assigned to their real owner;
+6. package or subpath placement has an acyclic dependency preflight;
+7. the exported function, live implementation, test Layer or adapter, and
+   first real consumer are delivered together;
+8. PGlite, real-Postgres, Worker, or hosted validation is included where the
+   capability crosses that boundary; and
+9. routes, bindings, activation, dual writes, fallbacks, and legacy removal
+   remain unchanged unless the slice explicitly owns and proves them.
+
+Do not create `@flarex/system`, `@flarex/database`, or empty contract packages
+as preparatory work. Start from the first real consumer and place the narrow
+operation beside its current owner until extraction is justified.
 
 ## Core Principles
 
@@ -113,21 +300,29 @@ the Standard input producer.
 4. **Physical placement is policy.** Shared database, schema-per-scope, and
    database-per-scope are internal placement choices, not application data
    semantics.
-5. **Framework behavior retains its owner.** Payload owns Payload lifecycle
+5. **One authority does not mean one universal API.** Shared scope, commit,
+   feed, and outbox authority sits below purpose-specific public, framework,
+   operator, and private contracts.
+6. **Framework behavior retains its owner.** Payload owns Payload lifecycle
    semantics. Medusa owns commerce repositories, workflows, locks, links,
    migrations, and transaction behavior.
-6. **No universal application-and-commerce transaction.** Generic
+7. **No universal application-and-commerce transaction.** Generic
    `ctx.db.transact` does not automatically include Medusa commerce state.
-7. **Untrusted code receives capabilities, not infrastructure.** Dynamic
+8. **Untrusted code receives capabilities, not infrastructure.** Dynamic
    Workers never receive Postgres, Hyperdrive, Drizzle, raw SQL, physical
    locators, migration authority, or an internal committer.
-8. **Long operations are asynchronous and idempotent.** Provisioning,
+9. **Trusted framework adapters receive bounded relational capabilities.**
+   Payload and Medusa adapters may require lower-level query, transaction,
+   introspection, locking, or migration behavior. Those capabilities remain
+   scope-pinned, least-privileged, adapter-only, and separate from public
+   application APIs.
+10. **Long operations are asynchronous and idempotent.** Provisioning,
    migrations, backup, restore, and repair return durable operation identities
    rather than holding one HTTP request open.
-9. **Control-plane state cannot override data-plane truth.** Routing may locate
+11. **Control-plane state cannot override data-plane truth.** Routing may locate
    a scope, but the active generation, epoch, schema, and commit authority must
    be revalidated in the located data plane.
-10. **Version every trust boundary deliberately.** A V1 suffix versions a
+12. **Version every trust boundary deliberately.** A V1 suffix versions a
     contract. It does not grant migration, compatibility, or public-release
     authority.
 
@@ -341,9 +536,17 @@ or Node tooling. They do not run inside:
 - a request-scoped Hyperdrive transaction; or
 - a framework hook that can hold platform locks during arbitrary user code.
 
-Raw SQL may exist behind an operator-owned implementation boundary. It is not a
-normal Control, Standard Application, Dynamic Worker, Payload application, or
-Medusa application API.
+Raw SQL may exist behind two trusted boundaries:
+
+- an adapter-owned runtime statement capability when unchanged relational
+  framework behavior genuinely requires SQL; and
+- an operator-controlled framework migration runner with a separate privileged
+  database role.
+
+Neither capability is a normal Control, Standard Application, Dynamic Worker,
+Payload application, or Medusa application API. Runtime relational authority
+must not imply DDL authority, and migration authority must not be derivable
+from a normal request transaction.
 
 ## API Family 3: Flarex Application Data API
 
@@ -426,7 +629,110 @@ the application-function boundary.
 Whether a future trusted server SDK receives a narrower direct data API is an
 open question and must not be inferred from `ctx.db`.
 
-## API Family 4: Framework Adapter APIs
+## API Family 4: Flarex Trusted Relational Adapter API
+
+### Responsibility
+
+The Trusted Relational Adapter API is a private system SPI for framework
+database adapters. It exists because Payload and Medusa require lower-level
+database behavior that is deliberately absent from `ctx.db`.
+
+Its bounded capability set may include:
+
+- scope-pinned relational reads and writes;
+- query parameters, result rows, batching, and affected-row evidence;
+- real database transactions with explicit isolation and timeout policy;
+- savepoints, nested-transaction behavior, row locks, or advisory locks only
+  where framework conformance proves them necessary;
+- schema and migration-history inspection;
+- trusted framework migration execution;
+- adapter-owned mutation evidence; and
+- a Flarex-owned finalizer that joins accepted framework changes to the scope
+  commit, change feed, and outbox.
+
+The exact common surface must be proven from consumers. Payload may use
+Flarex logical app/Payload storage primitives while Medusa uses ORM-generated
+relational SQL over reserved tables. Those two adapters do not need to consume
+one universal query representation merely because they share transaction-host
+or publication mechanics.
+
+An illustrative in-process semantic shape is:
+
+```ts
+interface FlarexRelationalTransactionHostV1 {
+  readonly withTransaction: <A, E>(
+    input: RelationalTransactionInputV1,
+    use: (
+      transaction: TrustedRelationalTransactionV1,
+    ) => Effect<A, E>,
+  ) => Effect<A, E | RelationalTransactionErrorV1>;
+}
+
+interface TrustedRelationalTransactionV1 {
+  readonly query: (
+    input: TrustedRelationalQueryV1,
+  ) => Effect<ReadonlyArray<Readonly<Record<string, unknown>>>, RelationalQueryErrorV1>;
+
+  readonly mutate: (
+    input: TrustedRelationalMutationV1,
+  ) => Effect<RelationalMutationResultV1, RelationalMutationErrorV1>;
+}
+```
+
+Names and exact query representations are not accepted here. A callback shape
+describes in-process ownership; it is not automatically a serializable Worker
+RPC contract.
+
+### Runtime And Migration Authority
+
+Runtime and migration capabilities must use distinct authority:
+
+```text
+framework runtime role
+  -> scope-pinned SELECT and DML
+  -> no database creation, role changes, arbitrary schema selection, or DDL
+
+framework migration role
+  -> immutable migration identity and checksum
+  -> approved target scope and generation
+  -> migration lock and bounded execution
+  -> durable receipt and authoritative post-verification
+```
+
+SQL text inspection is not a sufficient security boundary. Database roles,
+physical namespace restrictions, authenticated capability construction, and
+transaction-owned finalization enforce the separation.
+
+### Transaction Finalization
+
+A trusted framework transaction follows this authority direction:
+
+```text
+resolve authenticated scope
+  -> open one scope-pinned Postgres transaction
+  -> revalidate epoch, generation, and framework schema
+  -> execute adapter-owned relational work
+  -> Flarex-owned finalizer publishes commit/feed/outbox evidence
+  -> atomically commit
+```
+
+The adapter may author accepted framework rows. It may not mint commit
+sequences, edit the scope clock, construct arbitrary outbox rows, impersonate
+app-row OCC evidence, or finalize a transaction for a different scope.
+
+### Runtime Placement
+
+An interactive SQL transaction must not be stretched across unrelated
+stateless Worker requests. The framework adapter and transaction owner must
+either:
+
+- execute together for the complete bounded transaction; or
+- submit one complete bounded framework operation to a private Flarex service.
+
+A remote transaction token alone does not prove connection affinity,
+transaction liveness, interruption safety, or current scope authority.
+
+## API Family 5: Framework Adapter APIs
 
 Payload, Medusa, and Dynamic Workers share the same FlarexDB authority but do
 not use one identical API.
@@ -454,6 +760,13 @@ PayloadStoragePortV1
 ```
 
 Neither port is a raw Postgres adapter exposed to Payload application code.
+The Flarex adapter should implement Payload's database-adapter contract
+directly. The fact that Payload's Postgres adapter currently uses Drizzle and
+`pg` does not require Flarex to publish a general `pg.Client` clone.
+Compatibility with existing Postgres-adapter-specific migration files,
+Drizzle extensions, or custom SQL is a separate explicit conformance target,
+not an automatic consequence of implementing Payload's database-adapter
+contract.
 
 ### Medusa Adapter
 
@@ -478,6 +791,15 @@ MedusaScopePublicationPortV1
   narrowly joins trusted commerce changes to Flarex scope commit/feed/outbox
 ```
 
+The persistence port may consume the Trusted Relational Adapter API for
+ORM-generated queries, real transaction behavior, locks, and framework
+migration compatibility. Medusa application and module code does not receive
+the underlying Flarex transaction host or physical Postgres capability.
+The adapter should implement Medusa's accepted module-persistence, repository,
+and transaction-manager contracts. Compatibility with existing MikroORM
+migration SQL or custom repository behavior must be proved explicitly against
+unchanged module integration suites.
+
 The publication port must not let callers author arbitrary commit facts,
 outbox rows, scope clocks, or application-row changes. Its authority is derived
 from a genuine Medusa-owned transaction and accepted adapter policy.
@@ -498,7 +820,7 @@ facade or workflow owns that operation. Ordinary app/display state follows
 commerce changes idempotently through stable IDs and transactional outbox
 events.
 
-## API Family 5: Flarex Operator API
+## API Family 6: Flarex Operator API
 
 ### Responsibility
 
@@ -550,7 +872,7 @@ executeArbitrarySql(scopeId, sql)
 An internal emergency SQL procedure may still exist, but it is not the normal
 FlarexDB Operator API contract.
 
-## API Family 6: Private FlarexDB Kernel APIs
+## API Family 7: Private FlarexDB Kernel APIs
 
 ### Responsibility
 
@@ -631,6 +953,7 @@ executable commit capability.
 | Control API | Scoped | Yes | No | No | No | Yes |
 | Schema API | Through deployment policy | Yes | No | Trusted adapter lane | Trusted adapter lane | Yes |
 | Application Data API | Through functions/client | Yes in local/test tooling | Invocation-scoped `ctx.db` | Storage subset | No generic app-row access for commerce | Diagnostic read only where approved |
+| Trusted Relational Adapter API | No | Migration tooling only | No | Scope-pinned adapter capability | Scope-pinned adapter capability | Migration/diagnostic capability only |
 | Payload Adapter API | No | Composition only | Through `ctx.cms` facade | Yes | No | Bounded administration |
 | Medusa Adapter API | No | Composition only | Through `ctx.commerce` facade | No | Yes | Bounded administration |
 | Operator API | No | Selected safe commands | No | No | No | Yes |
@@ -693,6 +1016,7 @@ authenticated CMS request
   -> Payload lifecycle pipeline
   -> Payload access, hooks, validation, and version policy
   -> trusted Payload storage adapter
+  -> scope-pinned Flarex logical/relational capabilities
   -> FlarexDB app/Payload storage and commit authority
   -> committed change/outbox publication
 ```
@@ -706,8 +1030,9 @@ write policy.
 commerce request or workflow step
   -> Medusa service/facade
   -> Medusa repository and transaction manager
+  -> trusted scope-pinned relational transaction
   -> reserved relational commerce writes
-  -> narrow trusted scope commit/change/outbox participation
+  -> Flarex-owned scope commit/change/outbox finalization
   -> atomic commerce commit
   -> post-commit event and workflow continuation
 ```
@@ -732,8 +1057,12 @@ Any future accepted API from this proposal should define:
 12. audit and observability contract;
 13. redaction and data-retention policy;
 14. compatibility and versioning policy;
-15. PGlite, real-Postgres, Worker, and hosted validation lanes; and
-16. package, transport, and deployment-boundary impact.
+15. PGlite, real-Postgres, Worker, and hosted validation lanes;
+16. package, transport, and deployment-boundary impact;
+17. permitted statement classes, database role, physical namespace, and schema
+    authority for any relational adapter capability; and
+18. transaction connection affinity, runtime placement, timeout, interruption,
+    and finalization behavior.
 
 ## Possible Package And Transport Shapes
 
@@ -741,13 +1070,20 @@ This proposal does not authorize packages or endpoints. Possible shapes to
 compare later include:
 
 ```text
-@flarex/control-contracts
+@flarex/control
 @flarex/schema-lifecycle
 @flarex/application-data
+@flarex/relational-adapter
 @flarex/payload-adapter
 @flarex/medusa-adapter
-@flarex/operator-contracts
+@flarex/operator
 ```
+
+These are implementation-bearing domain candidates, not a request to create
+empty `*-contracts` packages. A separate contract package is justified only
+when dependency direction, authority ownership, and concrete consumers require
+it. The first vertical should prefer a narrow subpath beside its current owner
+until extraction has an approved package-boundary preflight.
 
 The private commit compiler, executor, and persistence contracts may remain
 inside their current owners. Repetition alone is not a reason to create a
@@ -762,8 +1098,13 @@ Possible transports include:
 - queue-driven asynchronous operations; and
 - test-only direct adapters.
 
-The contract should be selected before the transport. A transport replacement
-must not create a second correctness implementation.
+The semantic operation and trust boundary should be selected before the
+transport, but the operation should be delivered with its first concrete
+implementation and consumer. A transport replacement must not create a second
+correctness implementation. A callback-scoped relational transaction is
+naturally in-process. A remote transport must not pretend that a transaction
+identifier preserves a live Postgres connection or transaction across
+stateless Worker requests.
 
 ## Non-Goals
 
@@ -771,7 +1112,10 @@ This proposal does not:
 
 - define final HTTP routes;
 - define an npm-public package;
+- authorize contract-only System API exports without an implementation and
+  consumer;
 - authorize a generic `@flarex/database` catch-all;
+- authorize a customer-facing `pg` clone or unrestricted SQL endpoint;
 - authorize package extraction for the commit compiler;
 - change current executor routing;
 - change OCC or commit semantics;
@@ -785,7 +1129,7 @@ This proposal does not:
 - define the complete backup/restore implementation; or
 - make any future API production-routed.
 
-## Questions To Resolve Before A Roadmap
+## Questions To Resolve Before Wider API-Family Roadmaps
 
 ### Product And Tenancy
 
@@ -829,45 +1173,65 @@ This proposal does not:
 
 ### Payload And Medusa
 
-17. Which Payload conformance slice is first: scalar CRUD, request
+17. Which exact relational primitives are genuinely shared by the Payload and
+    Medusa adapters rather than merely similar?
+18. Does the trusted runtime SPI use a typed relational plan, adapter-owned
+    prepared statements, ORM-generated SQL, or more than one narrow form?
+19. Where do Payload and Medusa transaction owners execute so one interactive
+    transaction is not stretched across stateless Worker requests?
+20. Which database roles and physical namespace restrictions separate runtime
+    DML, schema introspection, framework migration, and operator authority?
+21. Which Payload conformance slice is first: scalar CRUD, request
     transactions, versions/drafts, relationships, auth, uploads, or hooks?
-18. Which Medusa modules and unchanged integration suites define the minimum
+22. Which Medusa modules and unchanged integration suites define the minimum
     viable adapter?
-19. What exact narrow capability lets a Medusa transaction publish Flarex
+23. Must existing Payload Postgres/Drizzle migration files run unchanged, or
+    may a Flarex adapter define its own migration format and cutover tooling?
+24. Which existing Medusa MikroORM migrations, raw SQL, custom repositories,
+    isolation levels, savepoints, and lock behaviors are compatibility
+    requirements?
+25. What exact narrow capability lets a Medusa transaction publish Flarex
     commit/change/outbox evidence without authoring arbitrary system state?
-20. Which cross-domain operations require a Medusa-owned facade rather than
+26. Which cross-domain operations require a Medusa-owned facade rather than
     eventual outbox coordination?
 
 ### Operations
 
-21. What are the backup consistency and restore-fencing contracts?
-22. Which repair and redrive actions are safe to automate?
-23. Which actions require explicit operator approval or break-glass authority?
-24. How are audit logs, support references, privacy, and tenant-scoped
+27. What are the backup consistency and restore-fencing contracts?
+28. Which repair and redrive actions are safe to automate?
+29. Which actions require explicit operator approval or break-glass authority?
+30. How are audit logs, support references, privacy, and tenant-scoped
     observability exposed?
 
 ### Ownership
 
-25. Which API contracts have two real consumers and justify extraction?
-26. Which contracts should remain package-private inside executor or
+31. Which API contracts have two real consumers and justify extraction?
+32. Which contracts should remain package-private inside executor or
     persistence?
-27. Which operations require Effect services and scoped Layers, and which are
+33. Which operations require Effect services and scoped Layers, and which are
     pure inert planning operations?
-28. Which API family should be discussed first without blocking the current
+34. Which API family should be discussed first without blocking the current
     analyzer, Standard Application API, or FlarexDB foundation work?
 
 ## Suggested Future Discussion Order
 
-If this proposal is accepted for further design work, discuss it in this order:
+The first focused vertical is already narrowed by
+[`../roadmaps/43-first-flarexdb-system-api-vertical.md`](../roadmaps/43-first-flarexdb-system-api-vertical.md).
+It is not blocked on resolving every long-term question below.
 
-1. tenancy vocabulary and project/environment/scope ownership;
-2. control-plane provisioning and data-plane authority handshake;
-3. schema and migration API lanes;
-4. Dynamic Worker application-data API;
-5. Payload adapter contract;
-6. Medusa adapter and scope-publication contract;
-7. operator, backup, restore, and repair APIs; and
-8. only then package placement, transports, and implementation roadmaps.
+After that vertical supplies an end-to-end working system, discuss the wider
+families in this order:
 
-This ordering keeps product identity, trust, and authority decisions ahead of
-package extraction or endpoint design.
+1. the next bounded application-data operation;
+2. schema and migration API lanes beyond one application revision;
+3. tenancy vocabulary and project/environment/scope ownership;
+4. control-plane provisioning and data-plane authority handshake;
+5. trusted relational adapter authority, transaction ownership, and placement;
+6. Payload adapter contract;
+7. Medusa adapter and scope-publication contract;
+8. operator, backup, restore, and repair APIs; and
+9. only then package placement, transports, and implementation roadmaps.
+
+This ordering keeps the current analyzer-to-database composition ahead of
+distant framework compatibility work while still placing trust and authority
+decisions before package extraction or endpoint design.
