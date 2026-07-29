@@ -4,13 +4,15 @@ import {
 } from "@flarex/declarative-program/v1";
 import {
   admitDeclarativeV2MaterializationBudgetV1,
-  materializeDeclarativeV2ArtifactsV1,
   type DeclarativeV2ArtifactIngressPlanV1,
   type DeclarativeV2MaterializationBudgetV1,
   type DeclarativeV2MaterializationV1Error,
   type DeclarativeV2PrebuiltModuleGraphInputV1,
   type DeclarativeV2PrebuiltModuleInputV1,
 } from "@flarex/declarative-materializer/v1";
+import {
+  materializeStandardApplicationArtifactsV1,
+} from "@flarex/standard-application-definition/v1";
 import { Buffer } from "node:buffer";
 import { Data, Effect, Result } from "effect";
 
@@ -294,7 +296,7 @@ export const materializeDeclarativeV2ArtifactsFromLoadedSdkPrebuildEffect: (
       authenticatedMaterializationBudget,
     ),
   );
-  return yield* Effect.fromResult(materializeDeclarativeV2ArtifactsV1(
+  return yield* Effect.fromResult(materializeStandardApplicationArtifactsV1(
     program,
     graph,
     authenticatedMaterializationBudget,

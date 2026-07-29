@@ -9,13 +9,16 @@ import {
 } from "@flarex/analysis";
 import {
   CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
-  decodeCanonicalDeclarativeProgramV1,
+  CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
   type CanonicalDeclarativeProgramBudgetV1,
   type CanonicalDeclarativeFunctionInputV1,
   type CanonicalDeclarativeProgramV1,
   type CanonicalDeclarativeProgramV1Error,
   type CanonicalDeclarativeModuleInputV1,
 } from "@flarex/declarative-program/v1";
+import {
+  prepareStandardApplicationProgramV1,
+} from "@flarex/standard-application-definition/v1";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
 
@@ -138,7 +141,7 @@ export const canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect: (
 
     const candidate = {
       format: CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
-      version: 1,
+      version: CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
       schema: {
         tables: analyzedSchema.tables.map((table) => ({
           logicalName: table.name,
@@ -154,7 +157,7 @@ export const canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect: (
     };
 
     return yield* Effect.fromResult(
-      decodeCanonicalDeclarativeProgramV1(candidate, budget),
+      prepareStandardApplicationProgramV1(candidate, budget),
     );
   });
 

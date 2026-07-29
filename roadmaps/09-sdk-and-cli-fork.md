@@ -502,6 +502,9 @@ Named Flarex divergences:
 - `codegen` and `deploy` CLI commands with structured deploy JSON output and
   candidate abandon behavior.
 - Vite integration and a test SDK backed by the real local runtime.
+- `flarex-dev` definition prebuilds enter the workspace-internal Standard
+  canonical-program and artifact-materialization stages while retaining SDK
+  inspection, source-package lowering, and developer-specific failures.
 - Tarballs for the internal package graph with export/bin/migration/license
   contents and rewritten dependency protocols.
 - Fresh packed-consumer installation, codegen, TypeScript, runtime import,
@@ -591,7 +594,3 @@ transaction routing remain platform internals.
 7. **Connect replacement schemas to codegen.** Generate from the exact immutable
    active FlarexDB schema/package artifacts and prove stale generation/fence
    metadata cannot produce runnable client/server output.
-8. **Adopt the Standard definition API.** After roadmap 42 `SAP01-A`, retain
-   SDK inspection and source-package lowering in `flarex-dev`, then delegate
-   its final canonical-program and materializer composition through
-   `SAP01-C` with output and failure-order parity.

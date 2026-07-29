@@ -2,6 +2,7 @@ import {
   CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
   decodeCanonicalDeclarativeProgramV1,
   makeCanonicalDeclarativeProgramBudgetV1,
+  type CanonicalDeclarativeProgramBudgetInputV1,
   type CanonicalDeclarativeProgramInputV1,
 } from "@flarex/declarative-program/v1";
 import {
@@ -34,15 +35,17 @@ const FUNCTION_SOURCE_MAP = "{\"version\":3}\n";
 const EXECUTION_SOURCE = "export default { orders: {} };\n";
 const SCHEMA_SOURCE = "export default { tables: {} };\n";
 
+const PROGRAM_BUDGET_INPUT = {
+  maximumModules: 4,
+  maximumFunctions: 4,
+  maximumIdentifierUtf8Bytes: 4_096,
+  maximumValidatorNodes: 256,
+  maximumValidatorDepth: 32,
+  maximumValidatorStringUtf8Bytes: 4_096,
+} satisfies CanonicalDeclarativeProgramBudgetInputV1;
+
 const PROGRAM_BUDGET = Result.getOrThrow(
-  makeCanonicalDeclarativeProgramBudgetV1({
-    maximumModules: 4,
-    maximumFunctions: 4,
-    maximumIdentifierUtf8Bytes: 4_096,
-    maximumValidatorNodes: 256,
-    maximumValidatorDepth: 32,
-    maximumValidatorStringUtf8Bytes: 4_096,
-  }),
+  makeCanonicalDeclarativeProgramBudgetV1(PROGRAM_BUDGET_INPUT),
 );
 
 const MATERIALIZATION_BUDGET_INPUT = {
@@ -217,7 +220,8 @@ describe("Declarative V2 flarex-dev prebuild adapter", () => {
     expect(sourceRead).toBe(false);
   });
 
-  it("authenticates the opaque budget before reading budget or source fields", async () => {
+  it("authenticates the opaque budget before reading SDK, budget, or source fields", async () => {
+    let sdkRead = false;
     let budgetRead = false;
     let sourceRead = false;
     const fixture = prebuiltSourcePackage();
@@ -246,7 +250,13 @@ describe("Declarative V2 flarex-dev prebuild adapter", () => {
     await expect(Effect.runPromise(
       materializeDeclarativeV2ArtifactsFromLoadedSdkPrebuildEffect({
         sdkDefinition: {
-          schemaDefinition: sdkSchema,
+          schemaDefinition: Object.defineProperty({}, "tables", {
+            enumerable: true,
+            get() {
+              sdkRead = true;
+              throw new Error("must not read SDK schema");
+            },
+          }),
           executionModules: {
             orders: { place: placeOrder },
           },
@@ -261,8 +271,35 @@ describe("Declarative V2 flarex-dev prebuild adapter", () => {
       operation: "materialize",
       reason: "invalidBudget",
     });
+    expect(sdkRead).toBe(false);
     expect(budgetRead).toBe(false);
     expect(sourceRead).toBe(false);
+  });
+
+  it("preserves canonical failure precedence over unsupported auth source fields", async () => {
+    const sourcePackage = {
+      ...prebuiltSourcePackage(),
+      authConfigModule: "_flarex/auth.config.js",
+    } satisfies SourcePackage;
+
+    await expect(Effect.runPromise(
+      materializeDeclarativeV2ArtifactsFromLoadedSdkPrebuildEffect({
+        sdkDefinition: {
+          schemaDefinition: sdkSchema,
+          executionModules: {
+            orders: { place: placeOrder },
+          },
+        },
+        sourcePackage,
+      }, programBudget({ maximumFunctions: 0 }), MATERIALIZATION_BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1Error",
+      operation: "decodeProgram",
+      reason: "budgetExceeded",
+      dimension: "functions",
+      observed: 1,
+      maximum: 0,
+    });
   });
 
   it.each([
@@ -476,6 +513,15 @@ function prebuiltSourcePackage(): SourcePackage {
     schema: "_flarex/schema.js",
     execution: "_flarex/execution.js",
   };
+}
+
+function programBudget(
+  overrides: Partial<CanonicalDeclarativeProgramBudgetInputV1>,
+) {
+  return Result.getOrThrow(makeCanonicalDeclarativeProgramBudgetV1({
+    ...PROGRAM_BUDGET_INPUT,
+    ...overrides,
+  }));
 }
 
 function directGraphInput(): DeclarativeV2PrebuiltModuleGraphInputV1 {

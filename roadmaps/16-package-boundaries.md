@@ -165,6 +165,16 @@ composition, but has no service, Layer, runner, Node, Cloudflare, database, or
 application dependency. Later Standard stages require their own placement
 preflight; they do not automatically accumulate in this package.
 
+The package exposes canonical-program and artifact-materialization stages plus
+a combined definition-preparation operation built from those stages. The
+backend test producer uses the combined operation. `flarex-dev` uses the two
+stages because its graph lowering depends on the normalized program and its
+opaque materialization-budget authentication intentionally precedes SDK and
+source inspection. SDK inspection, legacy-policy rejection, source-package
+rules, and graph construction remain in `flarex-dev`; the Standard package
+must not acquire hidden cross-stage policy that only the combined operation
+enforces.
+
 ### Hosted Runtime Topology
 
 The production execution path is deliberately split:
@@ -605,9 +615,6 @@ semantics.
   Manifest review, TypeScript resolution, focused tests, and app bundle scripts
   provide partial enforcement, but a forbidden dependency could otherwise be
   introduced accidentally.
-- The developer producer has not migrated onto the implemented
-  `@flarex/standard-application-definition` package yet; its final preparation
-  sequence still calls the two core owners directly.
 - `flarex-backend` still contains legacy Durable Object storage and routing
   code alongside forward platform coordination. Replacement must prevent that
   ownership from leaking into new Postgres work, port intended semantics, move
@@ -650,21 +657,18 @@ keeping privileged composition outside Worker bundles.
    directions in this roadmap, allow the deliberate `flarex-dev`/`flarex-test`
    composition exceptions, test the checker, and run it in the normal
    validation path.
-2. **Migrate the developer Standard definition producer.** Complete roadmap 42
-   `SAP01-C` without moving SDK inspection or source-package conventions into
-   the Standard package.
-3. **Compact deployment-analysis ownership.** Make roadmap 17 state exactly
+2. **Compact deployment-analysis ownership.** Make roadmap 17 state exactly
    which package owns local feedback, backend-authoritative analysis, push,
    activation, artifact materialization, and final codegen.
-4. **Keep new FlarexDB work on the trusted core path.** Each foundation slice
+3. **Keep new FlarexDB work on the trusted core path.** Each foundation slice
    must place database mechanics in persistence, trusted orchestration in the
    executor, and runtime lifecycle only in adapters/apps, with PGlite and
    real-Postgres evidence appropriate to the change.
-5. **Prove production graph isolation continuously.** Executor and artifact
+4. **Prove production graph isolation continuously.** Executor and artifact
    runtime bundle gates must fail when local tooling, Node collectors,
    compatibility routers, migration composition, or raw database authority
    enters a narrower Worker graph.
-6. **Retire surfaces according to their real obligation.** Inventory remaining
+5. **Retire surfaces according to their real obligation.** Inventory remaining
    HTTP/Nitro consumers separately from legacy app-data and broad persistence
    callers. Host adapters remain until caller and host-parity evidence permits
    removal. Unshipped app-data prototypes remain only until target package,

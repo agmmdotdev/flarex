@@ -2,13 +2,14 @@
 
 ## Status And Scope
 
-**Status:** Active internal contract. `SAP01-A` and `SAP01-B` are implemented:
-the pure `@flarex/standard-application-definition/v1` package composes
-canonical-program normalization and artifact-ingress materialization, and the
-backend definition fixture plus the corpus's valid and
-materialization-failure lanes use it. Canonical-failure corpus cases remain
-isolated with their owning decoder. The developer producer has not migrated
-yet; `SAP01-C` is the next implementation gate.
+**Status:** Active internal contract. `SAP01-A`, `SAP01-B`, and `SAP01-C` are
+implemented. The pure `@flarex/standard-application-definition/v1` package
+exposes canonical-program and artifact-materialization stages plus a combined
+definition-preparation operation. The backend definition fixture, the corpus's
+valid and materialization-failure lanes, and the `flarex-dev` developer
+producer use those Standard contracts. Canonical-failure corpus cases remain
+isolated with their owning decoder. The next capability gate is `SAP02`, which
+remains blocked on one accepted complete replacement-analyzer port.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -58,24 +59,26 @@ placement, dependency direction, composition rules, and ordered gates.
 
 ## Current Architecture
 
-The existing call paths bypass a Standard API:
+Both current producers enter the Standard definition layer:
 
 ```text
 current developer path
   flarex SDK objects
-    -> flarex-dev SDK inspection and source-package adapters
-    -> @flarex/declarative-program/v1
-    -> @flarex/declarative-materializer/v1
+    -> flarex-dev materialization-budget admission and SDK inspection
+    -> Standard canonical-program stage
+    -> flarex-dev legacy-policy rejection and source-package lowering
+    -> Standard artifact-materialization stage
 
 current internal test path
   backend-owned explicit fixture and corpus
-    -> @flarex/declarative-program/v1
-    -> @flarex/declarative-materializer/v1
+    -> combined Standard definition-preparation operation
 ```
 
-The lower-level contracts are real and implemented, but their existence does
-not make them the Standard Application API. They are the core owners that a
-Standard API must compose without duplicating.
+The Standard stages delegate to the existing canonical-program and
+declarative-materializer owners without duplicating their semantics. The
+combined operation composes those same stages for producers that already hold
+all four raw inputs. It does not own additional cross-stage validation or
+policy that staged producers could bypass.
 
 The accepted target is:
 
@@ -156,6 +159,37 @@ Later stages do not automatically belong in that package. Their preflights
 must first decide whether a narrow export beside an existing owner or another
 small composition package produces the cleanest acyclic graph.
 
+Definition preparation itself exposes two narrow Standard stages:
+
+```ts
+prepareStandardApplicationProgramV1(programInput, programBudget)
+materializeStandardApplicationArtifactsV1(
+  program,
+  graphInput,
+  materializationBudget,
+)
+```
+
+`prepareStandardApplicationDefinitionV1` is the convenience composition for a
+producer that already has both raw budgets, the program input, and the graph
+input. Its ordering remains program-budget admission, program normalization,
+materialization-budget admission, then artifact materialization.
+
+The stages are necessary for the developer producer rather than optional
+aliases. Its source-package graph is derived against the normalized canonical
+program, so the graph input does not exist before program normalization. It
+also authenticates the opaque materialization budget before SDK or source
+inspection to preserve its established failure precedence and to obtain the
+trusted bounds used by source-package lowering. The Standard program and
+artifact stages let that producer interleave only those producer-owned steps
+while sharing the same downstream contracts as the combined operation.
+
+The combined operation must remain a composition of the exported stages. It
+must not gain hidden cross-stage validation, authority, or failure policy that
+a staged producer would bypass. A future invariant that genuinely spans the
+two stages requires an explicit roadmap amendment and migration of every
+producer; it may not be added only to the convenience operation.
+
 ### Keep Explicit Standard Data Below Developer Ergonomics
 
 The Standard definition input is explicit data:
@@ -199,6 +233,14 @@ Its failure type is the exact union of
 The named Standard result groups two inert stage outputs for its callers. It
 does not become a serializable application record or downstream source of
 authority.
+
+The combined operation retains the typed
+`CanonicalDeclarativeProgramInputV1` field. The importable program stage accepts
+`unknown` because it is the runtime normalization boundary used by the
+developer SDK analyzer, whose structural validator representation is broader
+at compile time than the canonical input contract. Only the canonical owner
+decoder establishes `CanonicalDeclarativeProgramV1`; the stage does not cast or
+weaken that decoder.
 
 ### First Package Dependency Direction
 
@@ -258,6 +300,14 @@ Standard API.
 operation while retaining canonical-failure isolation, stable case IDs, replay
 policy, expected projections, and test-owned fixture allocation.
 
+`SAP01-C` provides the two producer-stage operations used by the combined
+operation and migrates `flarex-dev` to them. SDK analysis, unsupported legacy
+auth-field rejection, opaque materialization-budget precedence,
+source-package validation, `.js` binding policy, and graph construction remain
+developer-producer responsibilities. Canonical program normalization and final
+artifact materialization now enter the same Standard contracts used by the
+internal test producer.
+
 The reusable lower-level capabilities remain:
 
 - bounded canonical schema and function normalization in
@@ -266,19 +316,14 @@ The reusable lower-level capabilities remain:
   materialization in `@flarex/declarative-materializer/v1`;
 - a test-local direct definition seed and deterministic valid/invalid corpus;
   and
-- a developer-tooling adapter that currently lowers SDK definitions and source
-  packages directly into the two core owners.
+- a developer-tooling adapter that lowers SDK definitions and source packages
+  around the two pure Standard stages.
 
 The lower-level capabilities remain independent owners rather than being
 absorbed into the Standard package.
 
 ## Known Gaps And Limitations
 
-- `flarex-dev` still duplicates the sequence that admits budgets, normalizes a
-  program, and materializes an artifact-ingress plan.
-- The developer adapter performs additional SDK inspection and source-package
-  lowering that must stay producer-owned; only its final core composition is a
-  candidate for the Standard API.
 - No supported replacement analyzer port is ready for a Standard analysis API.
 - No approved application-revision/schema-lifecycle adapter is ready for a
   Standard registration API.
@@ -384,17 +429,27 @@ stable IDs, replay policy, expected projections, and fresh allocation.
 This gate must delete the duplicated composition sequence in the migrated
 tests. It must not move corpus policy into the Standard package.
 
-### `SAP01-C`: Move The Developer Producer Onto The Same API
+### Implemented `SAP01-C`: Move The Developer Producer Onto The Same API
 
 The `flarex-dev` adapter retains SDK inspection, legacy-policy rejection,
 source-package validation, `.js` binding convention, UTF-8 encoding, and
-producer-specific typed failures. After it has produced the four explicit
-inputs, its final program/materializer composition delegates to the Standard
-operation.
+producer-specific typed failures. Its established dependency and failure order
+is:
 
-This gate must prove parity with the current developer prebuild output and
-failure order. It does not publish the Standard package or redesign the public
-SDK.
+1. authenticate the opaque materialization budget before SDK or source reads;
+2. inspect the SDK definition and construct the candidate program input;
+3. normalize that candidate through
+   `prepareStandardApplicationProgramV1`;
+4. reject unsupported legacy auth source fields;
+5. lower the source package into a graph against the canonical program; and
+6. materialize through `materializeStandardApplicationArtifactsV1`.
+
+The two Standard stages preserve the core-owner outputs and typed failures.
+They do not move SDK/source policy into the Standard package. The combined
+definition operation composes the same stages for internal test producers that
+already have all inputs. Focused parity and hostile-budget tests preserve the
+developer prebuild output and first-failure order. This gate does not publish
+the Standard package or redesign the public SDK.
 
 ### Later Capability Gates
 

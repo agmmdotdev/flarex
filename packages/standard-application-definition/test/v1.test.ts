@@ -1,18 +1,23 @@
 import {
   CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
   CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
+  makeCanonicalDeclarativeProgramBudgetV1,
   type CanonicalDeclarativeProgramBudgetInputV1,
   type CanonicalDeclarativeProgramInputV1,
 } from "@flarex/declarative-program/v1";
-import type {
-  DeclarativeV2MaterializationBudgetInputV1,
-  DeclarativeV2PrebuiltModuleGraphInputV1,
+import {
+  makeDeclarativeV2MaterializationBudgetV1,
+  type DeclarativeV2MaterializationBudgetInputV1,
+  type DeclarativeV2MaterializationBudgetV1,
+  type DeclarativeV2PrebuiltModuleGraphInputV1,
 } from "@flarex/declarative-materializer/v1";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  materializeStandardApplicationArtifactsV1,
   prepareStandardApplicationDefinitionV1,
+  prepareStandardApplicationProgramV1,
   type StandardApplicationDefinitionInputV1,
 } from "../src/v1";
 
@@ -149,6 +154,75 @@ describe("Standard Application definition V1", () => {
     )).toEqual(first.artifactIngressPlan.source.modules.map(
       (module) => module.sourceBytes,
     ));
+  });
+
+  it("exposes the same owner results through the two producer stages", () => {
+    const input = makeOrdersDefinition();
+    const programBudget = Result.getOrThrow(
+      makeCanonicalDeclarativeProgramBudgetV1(input.programBudgetInput),
+    );
+    const program = Result.getOrThrow(prepareStandardApplicationProgramV1(
+      input.programInput,
+      programBudget,
+    ));
+    const materializationBudget = Result.getOrThrow(
+      makeDeclarativeV2MaterializationBudgetV1(
+        input.materializationBudgetInput,
+      ),
+    );
+    const artifactIngressPlan = Result.getOrThrow(
+      materializeStandardApplicationArtifactsV1(
+        program,
+        input.graphInput,
+        materializationBudget,
+      ),
+    );
+    const combined = Result.getOrThrow(
+      prepareStandardApplicationDefinitionV1(makeOrdersDefinition()),
+    );
+
+    expect(program).toEqual(combined.program);
+    expect(artifactIngressPlan).toEqual(combined.artifactIngressPlan);
+  });
+
+  it("preserves opaque materialization-budget authentication in the stage API", () => {
+    const input = makeOrdersDefinition();
+    const programBudget = Result.getOrThrow(
+      makeCanonicalDeclarativeProgramBudgetV1(input.programBudgetInput),
+    );
+    const program = Result.getOrThrow(prepareStandardApplicationProgramV1(
+      input.programInput,
+      programBudget,
+    ));
+    const materializationBudget = Result.getOrThrow(
+      makeDeclarativeV2MaterializationBudgetV1(
+        input.materializationBudgetInput,
+      ),
+    );
+    let budgetRead = false;
+    const forgedBudget: DeclarativeV2MaterializationBudgetV1 = Object.create(
+      materializationBudget,
+      {
+        maximumModules: {
+          enumerable: true,
+          get() {
+            budgetRead = true;
+            throw new Error("must not read forged budget");
+          },
+        },
+      },
+    );
+
+    expect(resultFailure(materializeStandardApplicationArtifactsV1(
+      program,
+      input.graphInput,
+      forgedBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2MaterializationV1Error",
+      operation: "materialize",
+      reason: "invalidBudget",
+    });
+    expect(budgetRead).toBe(false);
   });
 });
 

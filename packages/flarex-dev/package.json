@@ -30,6 +30,7 @@
     "@flarex/executor-http": "workspace:*",
     "@flarex/freshness": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
+    "@flarex/standard-application-definition": "workspace:*",
     "@flarex/utils": "workspace:*",
     "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
