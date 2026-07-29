@@ -2238,6 +2238,18 @@ activation remain blocked until their production host composition is proven.
    5. only then consider developer-facing APIs and SDK ergonomics, public
       routing, readiness, activation, and cutover.
 
+   **Cross-session handoff:** when the complete A1b2 replacement analyzer port
+   is accepted, the analyzer-owning session must send an explicit handoff
+   message to the existing FlarexDB System API session rather than beginning
+   System API implementation itself. The message must identify the accepted
+   analyzer entry point, its exact success/error/requirement channels, the
+   acceptance commit or commits, and the validation commands and results. If
+   direct session-to-session messaging is unavailable, ask the user to relay
+   that same handoff. The receiving System API session must reverify the current
+   tree and baselines, then may begin only roadmap 43 `FSV01`. This notification
+   does not unblock `FSV02`, `C07`, readiness, activation, active invocation,
+   routing, or cutover.
+
    This harness and real-system proof are not implemented or green. Exercising
    the existing transaction and commit path does not authorize changing
    application OCC, commit compilation/execution, journals, idempotency

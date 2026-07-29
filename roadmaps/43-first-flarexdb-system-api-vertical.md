@@ -494,6 +494,21 @@ When the accepted complete analyzer port lands, start only `FSV01`. Do not
 parallelize registration, readiness, activation, or point-mutation API work
 against guessed analyzer output.
 
+The analyzer-owning session must explicitly message the existing FlarexDB
+System API session when that acceptance gate closes. Its handoff must name the
+accepted analyzer entry point, exact `A`, `E`, and `R`, acceptance commit or
+commits, and validation receipts. If direct session-to-session messaging is
+unavailable, it must ask the user to relay the same information. This roadmap
+text is a durable reminder, not an automatic notification and not acceptance
+evidence.
+
+After receiving the handoff, the System API session must inspect the named
+implementation and rerun the relevant baselines. If they agree with the owning
+analyzer roadmap, that session may begin the `FSV01` implementation without a
+new broad architecture discussion. It must stop if the accepted analyzer
+boundary, ownership, lifecycle, or validation evidence is absent or differs
+from the handoff.
+
 Before starting `FSV01`, close any failing baseline in a separate bounded
 change or explicitly prove that it is outside the slice. Before starting
 `FSV02`, the relevant executor, persistence, backend, and Standard baselines
