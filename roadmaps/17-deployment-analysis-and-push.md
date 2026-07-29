@@ -1783,48 +1783,47 @@ activation remain blocked until their production host composition is proven.
         separate ledgers without reset, refund, or recharge.
 
         `A1b2c0b2c2b0a0c0 — verifier-owned authenticated link-input
-        accumulator and deterministic linker-driver capability` is therefore
-        the smallest unimplemented prerequisite. Its exact candidate allowlist
-        is only
-        `packages/analysis/src/declarativeV2VerifierExecutableV1.ts` and
-        `packages/analysis/test/declarative-v2-verifier-executable-v1.test.ts`.
-        The existing executable owner must retain an opaque, factory-local,
-        result-bound module sequence, verify the full authenticated lineage,
-        accumulate it once, derive the exact requirement before allocation,
-        and let only that plan drive the existing linker and canonical evidence
-        sequence. A safe-integer allowance remains `0..1024`, zero performs no
-        work, and hidden preliminary linking, rescans, banked work, forged
-        caller plans, or a second module representation are forbidden.
-        Planned requirements, actual usage, output, next progress, and evidence
-        may publish only after terminal agreement; completion, close, or
-        failure irreversibly releases retained module, plan, linker, record,
-        and destination authority.
+        accumulator and deterministic linker-driver capability` is rejected
+        and remains unimplemented at the proposed two-executable-file
+        boundary. Exact pre-allocation planned-versus-actual equality cannot
+        coexist with the current content-sensitive path ordering, import/export
+        resolution, cycle detection, diagnostic production, and canonical
+        evidence work while preliminary linking, rescans, and a duplicate
+        representation remain forbidden. The same boundary also cannot prove
+        authenticated command lineage for live module results: current
+        WeakMap-owned results contain module-local arenas and facts but not the
+        candidate, authenticated input, parse-pages root, current progress,
+        predecessor, range, analyzer identity, verifier identity, or originating
+        command factory.
 
-        Hostile input, identity/lineage, budget, overflow, lifecycle, and
-        transition failures remain pure Effect v4 `Result` data. Contradictions
-        after accepted module/arena/receipt state remain defects. The later
-        Effect host owns request `Scope`, cancellation, interruption, full
-        foreign `Cause`, clocks, resources, transport/database uncertainty,
-        release, and finalization. Required validation covers link paths,
-        imports/exports/function bindings, duplicate paths, missing targets,
-        cycles, disconnected graphs, every diagnostic and evidence order, all
-        26 exact/one-less dimensions, signed-int64/u32/arena boundaries,
-        allowances `0/1/1024` and rejected `1025`, every split, two-cold
-        equality, no hidden pass, authority misuse, warm/settled-cold
-        compatibility, existing monolithic/restart bytes and identities,
-        focused/partitioned analysis, typecheck/build, generators/identities,
-        frozen-install evidence, Effect/diff checks, and both exact-final
-        project reviewers.
+        Choosing capacity-only `actual <= required`, a preliminary planning
+        pass, authenticated producer-owned parse/link summaries, engine-bound
+        module-result provenance, or a deliberately constant-work linker would
+        change the accepted authority or sizing contract. That choice remains
+        unresolved and must not be guessed by c0. The previously proposed
+        executable source/test allowlist is therefore not an implementable gate
+        and carries no implementation approval.
 
-        The later fresh-authentication producer trust choice remains explicitly
-        unresolved: it must separately decide between authenticated parse/link
-        summary evidence, executor-owned plan authority with backend
-        verification, or a verifier-proven constant-work bound derived only
-        from existing authenticated range facts. That decision is outside c0
-        and cannot be guessed by this prerequisite. Registration-page remains
-        a separate, unresearched command-kind owner. c0 creates no protocol,
-        transport, persistence, candidate, repository, host, route, OCC,
-        commit, readiness, or activation authority.
+        The one smallest next gate is research/design-only
+        `A1b2c0b2c2b0a0c0a-P — authenticated link-plan provenance and
+        exact-sizing authority split preflight`. It must decide the minimum
+        legitimate owner split and future implementation allowlist for:
+        engine-bound module-result lineage; exact content-sensitive link and
+        evidence sizing before allocation; split-invariant `calls`,
+        `frontierEntries`, and `tableBytes` semantics; and cold producer trust.
+        It must preserve the existing linker APIs and bytes, committed
+        parse-module/source-page/progress-cursor owners, monolithic and restart
+        behavior, production inactivity, separate durable/recovery/transport/
+        read/host ledgers, pure Effect v4 `Result` failures, accepted-state
+        defects, and the later Effect host's `Scope`, cancellation,
+        interruption, full foreign `Cause`, clocks, resources, uncertainty,
+        release, and finalization. Registration-page remains a separate,
+        unresearched command-kind owner.
+
+        c0a-P is unimplemented, is not green, and is not authorized by this
+        documentation checkpoint. It creates no protocol, transport,
+        persistence, candidate, repository, host, route, OCC, commit,
+        readiness, or activation authority.
 
         `A1b2c0b2c2b0b` later belongs to executor-HTTP and adds only the
         separately versioned private companion codec with hostile-safe
