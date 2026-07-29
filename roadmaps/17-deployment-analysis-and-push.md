@@ -1656,35 +1656,47 @@ activation remain blocked until their production host composition is proven.
 
         For the parse-capacity direction, exact authenticated-input or fixed
         dimensions are `objectBodyBytes`, `sourceBytes`, `modules`, and
-        `tableBytes`. Exact-zero current parse dimensions are `objectCalls`,
+        `tableBytes`; `tokenBytes` and `stringBytes` have proven source-length
+        bounds. Exact-zero current parse dimensions are `objectCalls`,
         `sourceMapBytes`, `semanticBytes`, `schemaNodes`, `validatorNodes`, and
-        pure `elapsedMilliseconds`. `calls`, `importEdges`, `exports`,
-        `functions`, `tokens`, `tokenBytes`, `parserStates`, `nestingDepth`,
-        `graphNodes`, `frontierEntries`, `stringBytes`, `canonicalBytes`,
-        `frameBytes`, `hashBytes`, `diagnosticBytes`, and `outputBytes` require
-        an immutable bound before allocation and verifier-owned terminal actual
-        usage afterward. Reserved arena, destination, frame, or other peak
-        storage is capacity, not terminal work merely because it was allocated.
+        pure `elapsedMilliseconds`. The remaining dimensions still have no
+        accepted parser-, semantic-, diagnostic-, or evidence-multiplicity
+        theorem. In particular, repeated caller or function text in per-call
+        evidence can make canonical, frame, hash, or output demand
+        quadratic in source length. A uniform source-length worst case may
+        therefore exceed the u32-addressable arena while rejecting a
+        same-length module whose terminal actual usage is low. Reserved arena,
+        destination, frame, or other peak storage is capacity, not terminal
+        work merely because it was allocated.
 
         Durable command usage and restart recovery usage remain separate
         ledgers. Recovery-side `objectCalls`, page/body bytes, hashes, records,
         and manifests belong only to the bounded recovery receipt; they never
         enter, reset, refund, recharge, or enlarge settled command
-        `attempt_usage`. Before any parse implementation can proceed, analysis
-        must prove safe source-derived capacity formulas, their checked
-        signed-int64/u32/region/total-arena addressability before allocation,
-        canonical validation and first-failure order, and an owner-controlled
-        split-invariant internal call schedule. No formula or parser-allocation
-        design is selected here. Pure deterministic capacity, arithmetic,
-        schedule, and terminal-proof mechanics remain Effect v4
+        `attempt_usage`. Current durable `calls` usage counts engine creation,
+        each public step or finish invocation, and evidence-hash work. It
+        therefore varies with the caller's allowance partition even when
+        terminal semantics are identical. Before any parse implementation can
+        proceed, a source-length capacity theorem must prove the remaining
+        bounds and checked signed-int64/u32/region/total-arena addressability
+        before allocation, while a separate owner-controlled internal-call
+        accounting contract must make command usage split-invariant. Both are
+        research/contract prerequisites. No capacity formula, call redesign,
+        schedule, API, trust, allocation, parser, evidence, or runtime design is
+        selected here. Pure deterministic capacity, arithmetic, schedule, and
+        terminal-proof mechanics remain Effect v4
         `Result`/plain TypeScript; the later Effect host owns authenticated
         acquisition, request `Scope`, cancellation, interruption, foreign
         `Cause`, clocks, resources, uncertainty, release, and finalization.
 
-        No parse code slice is owner-ready. Any need for a protocol field,
-        backend producer, executor-HTTP codec, persistence/schema decision,
-        analyzer adapter, generated identity change, or different parser
-        allocation owner must stop as its own prerequisite. Existing request,
+        `A1b2c0b2c2b0a1c-P` is resolved only as blocker evidence: the
+        provisional sizing and driver APIs remain test-oracle-only,
+        production-unwired, unaccepted, uncommitted, and are not implementation
+        authority. No implementation owner or path is ready. Any need for a
+        protocol field, backend producer, executor-HTTP codec,
+        persistence/schema decision, analyzer adapter, generated identity
+        change, or different parser allocation owner must stop as its own
+        prerequisite. Existing request,
         response, restart, progress, and physical identities and bytes,
         package-root closure, monolithic behavior, and the committed
         source/link/registration owners remain unchanged; no parse formula may
@@ -2176,6 +2188,10 @@ activation remain blocked until their production host composition is proven.
         `A1b2c0b2c2b0a1b-P — authenticated parse-fact authority preflight` is
         likewise resolved as research/design evidence by the parse-capacity
         correction above and authorizes no implementation.
+        `A1b2c0b2c2b0a1c-P — parse capacity formula and split-invariant
+        schedule feasibility preflight` is resolved only as blocker evidence:
+        no accepted remaining-dimension multiplicity theorem or
+        owner-controlled internal-call accounting contract exists.
 
         No implementation gate is owner-ready. Any continuation requires a
         separately approved research gate for exactly one of the missing
@@ -2226,16 +2242,26 @@ activation remain blocked until their production host composition is proven.
    production-inactive. Parse/source formulas do not generalize to registration.
    `A1b2c0b2c2b0a1-P` and `A1b2c0b2c2b0a1a-P` are resolved as
    research/design evidence. `A1b2c0b2c2b0a1b-P` is likewise resolved by the
-   parse-capacity correction below. The truthful lifecycle is the existing
+   parse-capacity correction, and `A1b2c0b2c2b0a1c-P` is resolved only as
+   evidence that no accepted multiplicity theorem or split-invariant
+   call-accounting contract exists. The truthful lifecycle is the existing
    opaque command-input commitment, a later separately versioned post-reservation
    admission envelope, an analysis-owned sealed nonserializable
    requirement/capacity capability, and a later separately versioned terminal
    authority proof. Source requirements and link/registration capacities arise
    only at owner-local seal points. Parse now has only the design direction of
-   immutable capacity plus verifier-owned terminal actual; safe source-derived
-   formulas, checked pre-allocation arena bounds, and a split-invariant internal
-   schedule remain research blockers. Its current fact API is
-   test-oracle-supported only and is not production authority. The provisional
+   immutable capacity plus verifier-owned terminal actual. Exact-zero,
+   exact-input, fixed, and source-bounded dimensions are proven, but the
+   remaining parser/semantic/diagnostic/evidence multiplicities are not.
+   Repeated caller/function text can make per-call evidence demand quadratic;
+   a uniform source-length worst case may exceed the u32 arena while rejecting
+   same-length low-actual modules. Current `calls` counts creation, public
+   step/finish invocations, and evidence-hash work and therefore varies with
+   allowance partition. A source-length capacity theorem and a separate
+   owner-controlled internal-call accounting contract remain research
+   prerequisites; no formula or schedule is selected. Its current sizing and
+   driver APIs are test-oracle-supported only, production-unwired, unaccepted,
+   uncommitted, and are not implementation authority. The provisional
    command-plan API and derivation are unaccepted and not incrementally
    salvageable, and no implementation is owner-ready.
    Backend preparation, both executor-HTTP codecs, the analyzer adapter,
