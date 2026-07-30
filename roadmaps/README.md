@@ -98,7 +98,7 @@ with domain rationale in
 | [`20-postgres-executor.md`](./20-postgres-executor.md) | Trusted Postgres executor, hosted Worker, storage generations, and replacement data authority. |
 | [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) | Postgres-authoritative sync, per-scope coordination, recovery, delivery boundaries, and deferred caches. |
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
-| [`42-standard-application-apis.md`](./42-standard-application-apis.md) | Stable workspace-internal application definition, analysis, registration, and invocation stage APIs shared by developer and test producers without duplicating core owners. |
+| [`42-standard-application-apis.md`](./42-standard-application-apis.md) | Stable workspace-internal application stage APIs; definition preparation and request-scoped authenticated analysis are implemented, with registration and invocation still gated. |
 
 ## Cross-Cutting Engineering Guidance
 
@@ -128,7 +128,7 @@ consumers.
 | [`flarexdb-foundation/03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md) | Active focused execution plan | Retired standalone `C01`, completed inert `C02` protocol, active `C03`–`C09` compiler gates, and conditional `C07A`. |
 | [`37-production-redelivery-and-c06b.md`](./37-production-redelivery-and-c06b.md) | Active focused execution plan | Production exact-attempt runtime hosting, one bounded scheduled-event composition, trigger activation, and stable C06-B finish/lost-outcome dispatch. |
 | [`41-private-standard-application-composition-and-real-system-harness.md`](./41-private-standard-application-composition-and-real-system-harness.md) | Active focused execution plan | Internal deterministic application corpus, workload policy, and private real-system harness over the Standard Application APIs and existing production-domain owners. |
-| [`43-first-flarexdb-system-api-vertical.md`](./43-first-flarexdb-system-api-vertical.md) | Active focused execution plan | Function-first composition from the accepted replacement analyzer through Standard registration, readiness, activation, and one authoritative point mutation, while deferring wider database and framework APIs. |
+| [`43-first-flarexdb-system-api-vertical.md`](./43-first-flarexdb-system-api-vertical.md) | Active; `FSV01` complete | Function-first composition from the accepted replacement analyzer through Standard registration, readiness, activation, and one authoritative point mutation; the next gate is the proportional `FSV02` registration preflight. |
 | [`flarexdb-foundation/04-payload-relational-contract.md`](./flarexdb-foundation/04-payload-relational-contract.md) | Accepted deferred contract | Relation semantics and stable occurrence identity required before `R01`/`R02`/`S12`/`C09`. |
 | [`flarexdb-foundation/05-managed-schema-deployment.md`](./flarexdb-foundation/05-managed-schema-deployment.md) | Accepted deferred contract | Migrationless developer experience and managed schema safety classes; implementation remains deferred. |
 

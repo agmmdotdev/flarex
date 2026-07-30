@@ -2,16 +2,19 @@
 
 ## Status And Scope
 
-**Status:** Active internal contract. `SAP01-A`, `SAP01-B`, and `SAP01-C` are
-implemented. The pure `@flarex/standard-application-definition/v1` package
+**Status:** Active internal contract. `SAP01-A` through `SAP01-D` and `SAP02`
+are implemented. The pure `@flarex/standard-application-definition/v1` package
 exposes canonical-program and artifact-materialization stages plus a combined
 definition-preparation operation. The backend definition fixture, the corpus's
 valid and materialization-failure lanes, and the `flarex-dev` developer
 producer use those Standard contracts. Canonical-failure corpus cases remain
 isolated with their owning decoder. `SAP01-D` machine-enforces the definition
-package's direct manifest, export, and production-import boundary. The next
-capability gate is `SAP02`, which remains blocked on one accepted complete
-replacement-analyzer port.
+package's direct manifest, export, and production-import boundary.
+`@flarex/standard-application-analysis/v1` now exposes the function-first
+analysis operation over a request-scoped context, and the analyzer app provides
+the first private implementation over the accepted replacement host. The next
+capability is the proportional `SAP03`/`FSV02` registration preflight from the
+actual analysis result.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -86,7 +89,7 @@ combined operation composes those same stages for producers that already hold
 all four raw inputs. It does not own additional cross-stage validation or
 policy that staged producers could bypass.
 
-The accepted target is:
+The accepted composition is:
 
 ```text
 developer API producer                 internal test API producer
@@ -95,7 +98,7 @@ developer API producer                 internal test API producer
                      v                 v
              Standard Application APIs
                definition preparation
-               later analysis port
+               authenticated analysis
                later registration port
                later invocation port
                          |
@@ -328,9 +331,24 @@ The reusable lower-level capabilities remain:
 The lower-level capabilities remain independent owners rather than being
 absorbed into the Standard package.
 
+`SAP02` provides:
+
+- the narrow `@flarex/standard-application-analysis/v1` export and
+  `analyzeStandardApplicationV1(preparedDefinition, analysisContext)`;
+- the exact accepted analyzer registration-complete success value without a
+  parallel Standard analysis representation;
+- exact propagation of the context's typed failure and requirement channels;
+- request/analyzer-session Scope ownership rather than a global analyzer
+  singleton;
+- the first private live adapter in `apps/analyzer`, which sequences only the
+  accepted host's authenticated execute and rehydrate inputs and rejects empty
+  or non-registration terminal plans; and
+- developer and private-test convergence on the same Standard operation
+  without giving developer tooling analyzer authority or enabling production
+  routing.
+
 ## Known Gaps And Limitations
 
-- No supported replacement analyzer port is ready for a Standard analysis API.
 - No approved application-revision/schema-lifecycle adapter is ready for a
   Standard registration API.
 - The host-neutral runtime currently proves only its admitted point-mutation
@@ -462,8 +480,7 @@ the Standard package or redesign the public SDK.
 
 ### Implemented `SAP01-D`: Enforce The Definition Package Boundary
 
-While `SAP02` waits for the complete replacement-analyzer port, one
-repository check for the already accepted
+One repository check for the accepted
 `@flarex/standard-application-definition` boundary now fails when:
 
 1. the package exposes a root or any export other than `./v1`;
@@ -503,7 +520,6 @@ checker in roadmap 16. It must not mark that broader gate complete.
 
 | Gate | Outcome | Entry condition |
 | --- | --- | --- |
-| `SAP02` | Narrow Standard analysis operation over the supported replacement analyzer port; first slice `FSV01` | A1b2 exposes one accepted complete analyzer port |
 | `SAP03` | Narrow Standard verified-registration operation over the implementation-bearing System Schema function; slice `FSV02` | SAP02 is complete and the exact registration composition is approved |
 | `SAP04` | Narrow Standard point-mutation invocation over the implementation-bearing System Application Data function; slice `FSV06` | the private A1b2 plus `C07` real-system proof, readiness, and activation are complete, and the host-neutral runtime is assembled through the real owner path |
 | `SAP05+` | Add query, internal call, workflow mutation, action, and schedule operations individually | each capability has an implemented owner contract and focused preflight |

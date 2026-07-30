@@ -82,6 +82,8 @@ describe("private analyzer deterministic identity", () => {
     expect(packageJson.dependencies).toEqual({
       "@flarex/analysis": "workspace:*",
       "@flarex/executor-http": "workspace:*",
+      "@flarex/standard-application-analysis": "workspace:*",
+      "@flarex/standard-application-definition": "workspace:*",
       "@flarex/utils": "workspace:*",
       effect: "catalog:",
       "flarex-protocol": "workspace:*",

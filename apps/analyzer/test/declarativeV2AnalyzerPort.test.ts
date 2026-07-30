@@ -15,6 +15,14 @@ import {
   planDeclarativeV2VerifierParseCapacityV1,
 } from "@flarex/analysis/internal/declarative-v2-verifier-v1";
 import {
+  CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
+  CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
+  type CanonicalDeclarativeProgramInputV1,
+} from "@flarex/declarative-program/v1";
+import type {
+  DeclarativeV2PrebuiltModuleGraphInputV1,
+} from "@flarex/declarative-materializer/v1";
+import {
   encodeDeclarativeV2AuthenticatedCommandRequestV1,
   makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
   type DeclarativeV2AuthenticatedCommandFrameV1,
@@ -33,6 +41,14 @@ import {
   type DeclarativeV2AuthenticatedCommandRestartInputFrameV1,
   type DeclarativeV2AuthenticatedCommandRestartInputSourceV1,
 } from "@flarex/executor-http/internal-declarative-v2-authenticated-command-restart-input-v1";
+import {
+  analyzeStandardApplicationV1,
+} from "@flarex/standard-application-analysis/v1";
+import {
+  prepareStandardApplicationDefinitionV1,
+  type PreparedStandardApplicationDefinitionV1,
+  type StandardApplicationDefinitionInputV1,
+} from "@flarex/standard-application-definition/v1";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import {
   encodeDeclarativeV2SemanticRecordPayloadV1,
@@ -57,6 +73,9 @@ import {
   type PrivateDeclarativeV2AnalyzerAdmissionV1,
   type PrivateDeclarativeV2AnalyzerRestartAdmissionV1,
 } from "../src/DeclarativeV2AnalyzerPort";
+import {
+  makePrivateStandardApplicationAnalysisContextV1,
+} from "../src/StandardApplicationAnalysis";
 
 const UTF8 = new TextEncoder();
 const SOURCE = "export function getThing() { return \"ok\"; }";
@@ -99,117 +118,314 @@ describe("private Declarative V2 analyzer Effect port", () => {
     const sessionBindings = bindings();
     const trusted = trustedHost(sessionBindings);
     const host = trusted.host;
-    const result = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      const session = yield* host.open(trusted.sessionAuthority);
-      const parseProgress = progress("parse", 0n);
-      const parse = admitted(parseRequest(
-        reservation("parse_module", 1n, parseProgress, sessionBindings),
-      ));
-      trusted.admitCommand(parse.capability, {
-        currentProgress: parseProgress,
-        totalModuleCount: 1n,
-        parsePagesRootSha256: digest(20),
-        analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
-      });
-      const parsed = yield* host.execute({
-        session,
-        commandFactory: parse.factory,
-        capability: parse.capability,
-        transportBudget: parse.budget,
-        allowance: 1_024,
-      });
-      expect(parsed).toMatchObject({
-        kind: "parse_module",
-        nextProgress: { phase: "link", settledSequence: 1n },
-      });
-      if (parsed.kind !== "parse_module") {
-        return yield* Effect.die("parse command did not complete");
-      }
+    const prepared = preparedDefinition();
+    const context = makePrivateStandardApplicationAnalysisContextV1({
+      host,
+      plan: Effect.fn("TestPrivateStandardApplicationAnalysis.plan")(
+        function* (input: PreparedStandardApplicationDefinitionV1) {
+          expect(input).toBe(prepared);
+          const parseProgress = progress("parse", 0n);
+          const sourceModule = prepared.artifactIngressPlan.source.modules.find(
+            module => module.path === MODULE_PATH,
+          );
+          if (sourceModule === undefined) {
+            throw new Error("Prepared definition lost the analyzed module.");
+          }
+          const parse = admitted(parseRequest(
+            reservation("parse_module", 1n, parseProgress, sessionBindings),
+            MODULE_PATH,
+            sourceModule.sourceBytes,
+          ));
+          trusted.admitCommand(parse.capability, {
+            currentProgress: parseProgress,
+            totalModuleCount: 1n,
+            parsePagesRootSha256: digest(20),
+            analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+          });
 
-      const registrationProgress = progress("registration", 2n);
-      const registrationReservation = reservation(
-        "registration_page",
-        3n,
-        registrationProgress,
-        sessionBindings,
-      );
-      const linkReservation = reservation(
-        "link_page",
-        2n,
-        parsed.nextProgress,
-        sessionBindings,
-      );
-      expect(frameSha256(linkReservation)).not.toEqual(
-        frameSha256(registrationReservation),
-      );
-      const link = admitted(linkRequest(
-        linkReservation,
-      ));
-      trusted.admitCommand(link.capability, {
-        currentProgress: parsed.nextProgress,
-        nextProgress: registrationProgress,
-        registrationReservationSha256:
-          frameSha256(registrationReservation),
-        totalModuleCount: 1n,
-        parsePagesRootSha256: digest(20),
-        analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
-      });
-      const linked = yield* host.execute({
-        session,
-        commandFactory: link.factory,
-        capability: link.capability,
-        transportBudget: link.budget,
-        allowance: 1,
-      });
-      expect(linked).toMatchObject({
-        kind: "link_page",
-        nextProgress: { phase: "registration", settledSequence: 2n },
-      });
-      if (linked.kind !== "link_page") {
-        return yield* Effect.die("link command did not complete");
-      }
+          const linkProgress = progress("link", 1n);
+          const registrationProgress = progress("registration", 2n);
+          const registrationReservation = reservation(
+            "registration_page",
+            3n,
+            registrationProgress,
+            sessionBindings,
+          );
+          const linkReservation = reservation(
+            "link_page",
+            2n,
+            linkProgress,
+            sessionBindings,
+          );
+          expect(frameSha256(linkReservation)).not.toEqual(
+            frameSha256(registrationReservation),
+          );
+          const link = admitted(linkRequest(linkReservation));
+          trusted.admitCommand(link.capability, {
+            currentProgress: linkProgress,
+            nextProgress: registrationProgress,
+            registrationReservationSha256:
+              frameSha256(registrationReservation),
+            totalModuleCount: 1n,
+            parsePagesRootSha256: digest(20),
+            analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+          });
 
-      const semantic = semanticBytes();
-      const registration = admitted(registrationRequest(
-        registrationReservation,
-        semantic,
-      ));
-      trusted.admitCommand(registration.capability, {
-        currentProgress: linked.nextProgress,
-        totalModuleCount: 1n,
-        parsePagesRootSha256: digest(20),
-        analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
-        semanticBudget: Result.getOrThrow(
-          makeDeclarativeV2SemanticStreamBudgetV1(
-            semantic.byteLength,
-            Math.max(
-              ...SEMANTIC_RECORDS.map(record =>
-                encodeDeclarativeV2SemanticRecordPayloadV1(record).byteLength
+          const semantic = prepared.artifactIngressPlan.semantic;
+          const registration = admitted(registrationRequest(
+            registrationReservation,
+            semantic.bytes,
+          ));
+          trusted.admitCommand(registration.capability, {
+            currentProgress: registrationProgress,
+            totalModuleCount: 1n,
+            parsePagesRootSha256: digest(20),
+            analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+            semanticBudget: Result.getOrThrow(
+              makeDeclarativeV2SemanticStreamBudgetV1(
+                semantic.bytes.byteLength,
+                semantic.maximumRecordBytes,
+                semantic.recordCount,
+                semantic.bytes.byteLength,
               ),
             ),
-            SEMANTIC_RECORDS.length,
-            SEMANTIC_RECORDS.reduce(
-              (total, record) =>
-                total +
-                encodeDeclarativeV2SemanticRecordPayloadV1(record).byteLength,
-              0,
-            ),
-          ),
-        ),
-      });
-      const registered = yield* host.execute({
-        session,
-        commandFactory: registration.factory,
-        capability: registration.capability,
-        transportBudget: registration.budget,
-        allowance: 1_024,
-      });
-      return registered;
+          });
+
+          return Object.freeze({
+            sessionAuthority: trusted.sessionAuthority,
+            steps: Object.freeze([
+              Object.freeze({
+                kind: "execute" as const,
+                commandFactory: parse.factory,
+                capability: parse.capability,
+                transportBudget: parse.budget,
+                allowance: 1_024,
+              }),
+              Object.freeze({
+                kind: "execute" as const,
+                commandFactory: link.factory,
+                capability: link.capability,
+                transportBudget: link.budget,
+                allowance: 1,
+              }),
+              Object.freeze({
+                kind: "execute" as const,
+                commandFactory: registration.factory,
+                capability: registration.capability,
+                transportBudget: registration.budget,
+                allowance: 1_024,
+              }),
+            ]),
+          });
+        },
+      ),
+    });
+    const result = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      return yield* analyzeStandardApplicationV1(prepared, context);
     })));
     expect(result).toMatchObject({
       kind: "registration_page",
       result: {
         nextProgress: { phase: "verdict", settledSequence: 3n },
+      },
+    });
+  });
+
+  it("rejects an empty Standard analysis plan before opening a host session", async () => {
+    const context = makePrivateStandardApplicationAnalysisContextV1({
+      host: makePrivateDeclarativeV2AnalyzerHostV1(),
+      plan() {
+        return Effect.succeed(Object.freeze({
+          sessionAuthority: Object.freeze({}),
+          steps: Object.freeze([]),
+        }));
+      },
+    });
+
+    const exit = await Effect.runPromiseExit(Effect.scoped(
+      analyzeStandardApplicationV1(preparedDefinition(), context),
+    ));
+
+    if (!Exit.isFailure(exit)) {
+      throw new Error("Expected the empty Standard analysis plan to fail.");
+    }
+    expect(Cause.findErrorOption(exit.cause)).toMatchObject({
+      _tag: "Some",
+      value: {
+        _tag: "PrivateStandardApplicationAnalysisV1Error",
+        reason: "emptyPlan",
+        path: "steps",
+      },
+    });
+  });
+
+  it("closes current and unconsumed plan capabilities on early failure", async () => {
+    const sessionBindings = bindings();
+    const trusted = trustedHost(sessionBindings);
+    const currentProgress = progress("parse", 0n);
+    const first = admitted(parseRequest(
+      reservation("parse_module", 1n, currentProgress, sessionBindings),
+    ));
+    const second = admitted(parseRequest(
+      reservation("parse_module", 2n, currentProgress, sessionBindings),
+    ));
+    const context = makePrivateStandardApplicationAnalysisContextV1({
+      host: trusted.host,
+      plan() {
+        return Effect.succeed(Object.freeze({
+          sessionAuthority: trusted.sessionAuthority,
+          steps: Object.freeze([
+            Object.freeze({
+              kind: "execute" as const,
+              commandFactory: first.factory,
+              capability: first.capability,
+              transportBudget: first.budget,
+              allowance: 0,
+            }),
+            Object.freeze({
+              kind: "execute" as const,
+              commandFactory: second.factory,
+              capability: second.capability,
+              transportBudget: second.budget,
+              allowance: 1_024,
+            }),
+          ]),
+        }));
+      },
+    });
+
+    const exit = await Effect.runPromiseExit(Effect.scoped(
+      analyzeStandardApplicationV1(preparedDefinition(), context),
+    ));
+
+    if (!Exit.isFailure(exit)) {
+      throw new Error("Expected the invalid allowance to fail.");
+    }
+    expect(Cause.findErrorOption(exit.cause)).toMatchObject({
+      _tag: "Some",
+      value: {
+        _tag: "PrivateDeclarativeV2AnalyzerHostV1Error",
+        operation: "execute",
+        reason: "invalidInput",
+        path: "allowance",
+      },
+    });
+    expect(Result.isFailure(first.factory.openView({
+      capability: first.capability,
+      budget: first.budget,
+    }))).toBe(true);
+    expect(Result.isFailure(second.factory.openView({
+      capability: second.capability,
+      budget: second.budget,
+    }))).toBe(true);
+  });
+
+  it("continues plan cleanup after an unexpected close failure", async () => {
+    const sessionBindings = bindings();
+    const trusted = trustedHost(sessionBindings);
+    const currentProgress = progress("parse", 0n);
+    const first = admitted(parseRequest(
+      reservation("parse_module", 1n, currentProgress, sessionBindings),
+    ));
+    const foreign = admitted(parseRequest(
+      reservation("parse_module", 2n, currentProgress, sessionBindings),
+    ));
+    const later = admitted(parseRequest(
+      reservation("parse_module", 3n, currentProgress, sessionBindings),
+    ));
+    trusted.admitCommand(first.capability, {
+      currentProgress,
+      totalModuleCount: 1n,
+      parsePagesRootSha256: digest(20),
+      analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+    });
+    const context = makePrivateStandardApplicationAnalysisContextV1({
+      host: trusted.host,
+      plan() {
+        return Effect.succeed(Object.freeze({
+          sessionAuthority: trusted.sessionAuthority,
+          steps: Object.freeze([
+            Object.freeze({
+              kind: "execute" as const,
+              commandFactory: foreign.factory,
+              capability: first.capability,
+              transportBudget: first.budget,
+              allowance: 1_024,
+            }),
+            Object.freeze({
+              kind: "execute" as const,
+              commandFactory: later.factory,
+              capability: later.capability,
+              transportBudget: later.budget,
+              allowance: 1_024,
+            }),
+          ]),
+        }));
+      },
+    });
+
+    const exit = await Effect.runPromiseExit(Effect.scoped(
+      analyzeStandardApplicationV1(preparedDefinition(), context),
+    ));
+
+    if (!Exit.isFailure(exit)) {
+      throw new Error("Expected the mismatched factory to fail.");
+    }
+    const cleanupDefect = Result.getOrThrow(Cause.findDefect(exit.cause));
+    expect(cleanupDefect).toBeInstanceOf(AggregateError);
+    expect((cleanupDefect as AggregateError).errors).toEqual([
+      expect.objectContaining({ reason: "staleAuthority" }),
+    ]);
+    expect(Result.isFailure(later.factory.openView({
+      capability: later.capability,
+      budget: later.budget,
+    }))).toBe(true);
+    foreign.factory.close(foreign.capability);
+  });
+
+  it("rejects a non-registration terminal result from a hostile plan", async () => {
+    const sessionBindings = bindings();
+    const trusted = trustedHost(sessionBindings);
+    const currentProgress = progress("parse", 0n);
+    const parse = admitted(parseRequest(
+      reservation("parse_module", 1n, currentProgress, sessionBindings),
+    ));
+    trusted.admitCommand(parse.capability, {
+      currentProgress,
+      totalModuleCount: 1n,
+      parsePagesRootSha256: digest(20),
+      analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+    });
+    const context = makePrivateStandardApplicationAnalysisContextV1({
+      host: trusted.host,
+      plan() {
+        return Effect.succeed(Object.freeze({
+          sessionAuthority: trusted.sessionAuthority,
+          steps: Object.freeze([Object.freeze({
+            kind: "execute" as const,
+            commandFactory: parse.factory,
+            capability: parse.capability,
+            transportBudget: parse.budget,
+            allowance: 1_024,
+          })]),
+        }));
+      },
+    });
+
+    const exit = await Effect.runPromiseExit(Effect.scoped(
+      analyzeStandardApplicationV1(preparedDefinition(), context),
+    ));
+
+    if (!Exit.isFailure(exit)) {
+      throw new Error("Expected a non-registration terminal result to fail.");
+    }
+    expect(Cause.findErrorOption(exit.cause)).toMatchObject({
+      _tag: "Some",
+      value: {
+        _tag: "PrivateStandardApplicationAnalysisV1Error",
+        reason: "unexpectedTerminalResult",
+        path: "terminal.kind",
+        observedKind: "parse_module",
       },
     });
   });
@@ -601,26 +817,38 @@ describe("private Declarative V2 analyzer Effect port", () => {
     };
     const sessionBindings = bindings();
     const trusted = trustedHost(sessionBindings, analysis);
-    const host = trusted.host;
+    const prepared = preparedDefinition();
+    const context = makePrivateStandardApplicationAnalysisContextV1({
+      host: trusted.host,
+      plan: Effect.fn("TestPrivateStandardApplicationAnalysis.interruptPlan")(
+        function* (_input: PreparedStandardApplicationDefinitionV1) {
+          const current = progress("parse", 0n);
+          const decoded = admitted(parseRequest(
+            reservation("parse_module", 1n, current, sessionBindings),
+          ));
+          trusted.admitCommand(decoded.capability, {
+            currentProgress: current,
+            totalModuleCount: 1n,
+            parsePagesRootSha256: digest(20),
+            analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+          });
+          return Object.freeze({
+            sessionAuthority: trusted.sessionAuthority,
+            steps: Object.freeze([Object.freeze({
+              kind: "execute" as const,
+              commandFactory: decoded.factory,
+              capability: decoded.capability,
+              transportBudget: decoded.budget,
+              allowance: 1,
+            })]),
+          });
+        },
+      ),
+    });
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-      const session = yield* host.open(trusted.sessionAuthority);
-      const current = progress("parse", 0n);
-      const decoded = admitted(parseRequest(
-        reservation("parse_module", 1n, current, sessionBindings),
-      ));
-      trusted.admitCommand(decoded.capability, {
-        currentProgress: current,
-        totalModuleCount: 1n,
-        parsePagesRootSha256: digest(20),
-        analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
-      });
-      const fiber = yield* Effect.forkChild(host.execute({
-        session,
-        commandFactory: decoded.factory,
-        capability: decoded.capability,
-        transportBudget: decoded.budget,
-        allowance: 1,
-      }));
+      const fiber = yield* Effect.forkChild(
+        analyzeStandardApplicationV1(prepared, context),
+      );
       for (let guard = 0; guard < 10_000 && !started; guard += 1) {
         yield* Effect.yieldNow;
       }
@@ -695,6 +923,66 @@ function trustedHost(
       restartAdmissions.set(source, admission);
     },
   });
+}
+
+function preparedDefinition(): PreparedStandardApplicationDefinitionV1 {
+  const input = {
+    programBudgetInput: {
+      maximumModules: 1,
+      maximumFunctions: 1,
+      maximumIdentifierUtf8Bytes: 256,
+      maximumValidatorNodes: 64,
+      maximumValidatorDepth: 16,
+      maximumValidatorStringUtf8Bytes: 256,
+    },
+    programInput: {
+      format: CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
+      version: CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
+      schema: { tables: [], indexes: [] },
+      modules: [{
+        modulePath: "example",
+        functions: [{
+          exportName: "getThing",
+          kind: "query",
+          visibility: "public",
+          argsValidator: {
+            type: "object",
+            value: {},
+          },
+          returnsValidator: { type: "string" },
+        }],
+      }],
+    } satisfies CanonicalDeclarativeProgramInputV1,
+    materializationBudgetInput: {
+      maximumModules: 2,
+      maximumEntryBindings: 1,
+      maximumSourceBytes: 4_096,
+      maximumSourceMapBytes: 1_024,
+      maximumBytesMaterialized: 32_768,
+      maximumSemanticRecords: 32,
+      maximumSemanticRecordBytes: 8_192,
+      maximumSemanticStreamBytes: 32_768,
+    },
+    graphInput: {
+      modules: [
+        {
+          path: MODULE_PATH,
+          roles: ["function", "execution"],
+          sourceBytes: UTF8.encode(SOURCE),
+          sourceMapBytes: null,
+        },
+      ],
+      functionEntries: [{
+        logicalModulePath: "example",
+        artifactModulePath: MODULE_PATH,
+      }],
+      executionPath: MODULE_PATH,
+      schemaPath: null,
+      authPath: null,
+    } satisfies DeclarativeV2PrebuiltModuleGraphInputV1,
+  } satisfies StandardApplicationDefinitionInputV1;
+
+  return Result.getOrThrow(prepareStandardApplicationDefinitionV1(input));
 }
 
 function admitted(request: DeclarativeV2AuthenticatedCommandRequestV1) {
@@ -1029,8 +1317,8 @@ function artifactModulePath(
 function parseRequest(
   reservationFrame: DeclarativeV2VerifierCommandReservationFrameV2,
   modulePath = MODULE_PATH,
+  source: Uint8Array = UTF8.encode(SOURCE),
 ): DeclarativeV2AuthenticatedCommandRequestV1 {
-  const source = UTF8.encode(SOURCE);
   const split = Math.min(17, source.byteLength);
   return {
     frames: [

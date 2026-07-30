@@ -3,7 +3,9 @@
 ## Status And Scope
 
 **Status:** Active capability-sized execution plan. `FSV00` accepted the
-documentation boundary. Implementation has not started under this plan.
+documentation boundary and `FSV01` completed `SAP02` through the accepted
+replacement-analyzer port. The next gate is one proportional `FSV02`
+registration preflight from the actual Standard analysis result.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -43,12 +45,18 @@ The first vertical is not:
 
 ## Current Truth
 
-At this plan's creation:
+Current implementation truth:
 
 - `SAP01-A` through `SAP01-D` provide and enforce Standard definition
   preparation;
-- `SAP02` remains blocked until A1b2 exposes one accepted complete replacement
-  analyzer port;
+- A1b2 exposes the accepted replacement-analyzer semantic factory and private
+  Effect host;
+- `SAP02` exposes `analyzeStandardApplicationV1` through the narrow
+  `@flarex/standard-application-analysis/v1` package and preserves the exact
+  accepted registration-complete result;
+- the analyzer app supplies the first private request-scoped context over the
+  accepted host, while the developer producer remains fail-closed without
+  trusted analyzer authority;
 - `publishAppSchemaV1` provides bounded atomic schema/catalog publication, but
   does not settle readiness or activate a revision;
 - `S03-D4` target-native readiness and `S04` activation remain pending;
@@ -68,8 +76,7 @@ factories.
 
 | Current limitation | What it blocks | Required resolution |
 | --- | --- | --- |
-| A1b2 has no accepted complete replacement analyzer port | `FSV01` / SAP02 | Finish and accept the real analyzer entry, lifecycle, authenticated output, and focused proof |
-| SAP02 has no implemented authenticated verified-analysis result | `FSV02` registration input | Implement and validate `analyzeStandardApplicationV1` before designing the registration input |
+| `FSV01` is complete, but no registration preflight has selected the exact analysis projection and existing registration owners | `FSV02` registration implementation | Run one proportional preflight from the actual `AuthenticatedVerifiedStandardApplicationAnalysisV1` and preserve the existing owner boundaries |
 | Relevant system-package validation is not wholly green; the persistence typecheck currently has a stored-attempt test-contract mismatch | First System API implementation checkpoint | Prove it unchanged and outside the capability or repair it under its real owner; do not absorb it silently into analyzer or API behavior |
 | App-schema publication is package-owned but not composed with complete revision evidence | `registerApplicationRevisionV1` | Preflight and implement one inactive, durable, idempotent registration operation over existing owners |
 | Readiness and replacement activation do not exist | Active-revision consumption | Complete `S03-D4`, then `S04` and its coherent reader after the private system proof |
@@ -79,8 +86,8 @@ factories.
 
 There are therefore two start decisions:
 
-1. **Start `FSV01` after analyzer acceptance.** This is Standard analysis API
-   work, not yet a FlarexDB database-operation API.
+1. **`FSV01` completed after analyzer acceptance.** It is Standard analysis
+   API work, not yet a FlarexDB database-operation API.
 2. **Start the first true System API at `FSV02`.** Its proportional capability
    preflight must use the actual SAP02 success and error types and identify the
    existing registration, schema-publication, persistence, and host owners.
@@ -233,7 +240,7 @@ Record:
 This gate changes documentation only. It authorizes no package, route, binding,
 schema, migration, or activation change.
 
-### `[ ] FSV01`: Complete SAP02 Through The Accepted Analyzer Port
+### `[x] FSV01`: Complete SAP02 Through The Accepted Analyzer Port
 
 Entry gate:
 
@@ -277,6 +284,26 @@ Exit evidence:
 - Effect boundary checks pass; and
 - no candidate, schema, activation, invocation, route, or persistence write is
   introduced.
+
+Implemented boundary:
+
+- `@flarex/standard-application-analysis/v1` owns the function-first Standard
+  operation and aliases the accepted analyzer registration-complete success
+  type rather than introducing another result representation;
+- the operation accepts a request- or analyzer-session-owned context and
+  preserves its exact `Effect.Effect<A, E, R>` channels;
+- `apps/analyzer` owns the private process-local adapter that sequences
+  authenticated execute or rehydrate steps through
+  `makePrivateDeclarativeV2AnalyzerHostV1`;
+- opaque host capabilities stay process-local and are neither serialized nor
+  elevated from the prepared definition;
+- the real private analyzer test producer reaches registration through the
+  Standard function, while the `flarex-dev` producer reaches the same function
+  only with a fail-closed test context because developer tooling does not own
+  trusted analyzer admission; and
+- cancellation remains Scope-owned and no production route, candidate,
+  registration, schema, activation, invocation, or persistence write was
+  added.
 
 ### `[ ] FSV02`: Register One Inactive Application Revision
 
@@ -497,47 +524,30 @@ Any route or binding activation requires a separate preflight that names:
 
 Do not infer this authorization from `FSV06`.
 
-## First Implementation Handoff
+## Completed FSV01 Handoff And Next Gate
 
-When the accepted complete analyzer port lands, start only `FSV01`. Do not
-parallelize registration, readiness, activation, or point-mutation API work
-against guessed analyzer output.
+The analyzer handoff was received and reverified before `FSV01` implementation.
+The accepted owners remain:
 
-The analyzer-owning session must explicitly message the existing FlarexDB
-System API session when that acceptance gate closes. Its handoff must name the
-accepted analyzer entry point, exact `A`, `E`, and `R`, acceptance commit or
-commits, and validation receipts. If direct session-to-session messaging is
-unavailable, it must ask the user to relay the same information. This roadmap
-text is a durable reminder, not an automatic notification and not acceptance
-evidence.
+- `makeDeclarativeV2AnalyzerPortFactoryV1` for semantic analysis;
+- `makePrivateDeclarativeV2AnalyzerHostV1` for dependency-inverted Effect host
+  composition;
+- `open` with a scoped session requirement; and
+- warm `execute` and settled-cold `rehydrate` with the exact analyzer complete
+  success and typed host error channels.
 
-After receiving the handoff, the System API session must inspect the named
-implementation and rerun the relevant baselines. If they agree with the owning
-analyzer roadmap, the accepted handoff authorizes the medium `FSV01`/SAP02
-capability without another broad or ceremonial preflight. In-scope test fixes,
-validation, roadmap reconciliation, required reviewers, and commit remain
-inside that approval. Stop if the analyzer boundary, ownership, lifecycle, or
-validation evidence differs from the handoff or a materially new scope boundary
-appears.
+`FSV01` consumes those owners through the Standard operation and private app
+adapter described above. It does not authorize registration, readiness,
+activation, point mutation, public routing, or production wiring.
 
-Before starting `FSV01`, explicitly prove any failing baseline outside the
-capability or repair it under its real owner. Before starting `FSV02`, the
-relevant executor, persistence, backend, and Standard baselines must all be
-green.
-
-The handoff record and `FSV01` implementation plan must identify:
-
-1. the exact replacement analyzer entry function and its `A`, `E`, and `R`;
-2. the authenticated analysis success projection SAP02 may expose;
-3. the developer and private-test producer call sites to migrate;
-4. analyzer-session and host runtime ownership;
-5. the smallest package/subpath placement that keeps the dependency graph
-   acyclic; and
-6. the focused tests and current commands that prove the boundary.
-
-After `FSV01` is complete, run one proportional `FSV02` capability preflight
-from the actual SAP02 output. Never design the registration input from a
-speculative analyzer shape.
+The next work is one proportional `FSV02` capability preflight from the actual
+`AuthenticatedVerifiedStandardApplicationAnalysisV1` output. Before
+implementation, reverify the relevant executor, persistence, backend, and
+Standard baselines; name the existing candidate, schema-publication,
+persistence, and host owners; and settle exact input authority, transaction
+lifetime, replay, rollback, and package placement. Never design the
+registration input from a speculative analyzer shape or widen the preflight
+into later readiness, activation, invocation, or framework-adapter work.
 
 ## Overall Completion Criteria
 

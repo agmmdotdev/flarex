@@ -723,7 +723,7 @@ replacement analyzer.
 | Gate | Scope | Entry condition |
 | --- | --- | --- |
 | `SAC01-B2` | Expand corpus membership or workload parameters without adding new domain semantics | Standard API `SAP01-B` is complete and a concrete coverage gap is identified; remains pure and test-local unless a second real consumer proves extraction |
-| `SAC01-C` | Add the narrow replacement analyzer port and analyzer corpus lane | Standard API `SAP02` and the A1b2 command plan, link and registration ownership, pure engine, Effect host, and executor composition are accepted and exposed through one supported adapter |
+| `SAC01-C` | Move the owned analyzer corpus lane through the implemented Standard analysis operation | `SAP02` and the A1b2 command plan, link and registration ownership, pure engine, Effect host, and private adapter are implemented; the slice must retain corpus ownership and must not invent registration or runtime authority |
 | `SAC01-D` | Compose verified registration and schema/catalog publication/readiness for one private application revision | Replacement registration owner and an approved schema-lifecycle adapter exist without direct database access |
 | `SAC01-E` | Execute and authoritatively read back one real point mutation | `SAC01-C`, `SAC01-D`, and foundation `C07` are complete with real PGlite/Postgres evidence |
 | `SAC01-F` | Add queries, internal calls, workflow mutations, actions, and scheduled invocations one capability at a time | Each capability has its own runtime/host/claim contract and focused preflight |

@@ -204,8 +204,8 @@ yet a consumer-ready System API.
 The useful existing foundation includes:
 
 - Standard application definition preparation;
-- private replacement-analyzer contracts, authenticated evidence, and
-  incremental verifier work;
+- the accepted private replacement-analyzer port and the function-first
+  Standard authenticated-analysis operation over its request-scoped host;
 - bounded transactional app-schema publication;
 - scope, epoch, session, journal, execution-claim, OCC, commit, committed
   outcome, feed, outbox, and redelivery components;
@@ -214,35 +214,34 @@ The useful existing foundation includes:
 
 The remaining limitations are architectural, not merely naming or packaging:
 
-1. **No accepted complete analyzer entry.** Replacement analyzer work remains
-   private and incomplete until A1b2 exposes one accepted end-to-end port.
-2. **No Standard analysis operation.** SAP02 does not yet turn a prepared
-   definition into the exact authenticated verified-analysis value that later
-   registration may consume.
-3. **No application-revision registration function.** Schema publication
+1. **Analysis is private and production-inactive.** The accepted analyzer and
+   Standard analysis operation exist, but no production route or developer
+   process may mint trusted analyzer admission. Host composition remains
+   request-scoped and fail-closed.
+2. **No application-revision registration function.** Schema publication
    exists, but no single trusted operation binds candidate, source, semantic,
    schema, function, validator, artifact, and analyzer evidence into one
    inactive durable revision.
-4. **No target-native readiness operation.** S03-D4 has not yet settled
+3. **No target-native readiness operation.** S03-D4 has not yet settled
    readiness from the real located target and all required evidence.
-5. **No replacement activation operation or coherent active reader.** Current
+4. **No replacement activation operation or coherent active reader.** Current
    legacy deployment activation is not the target FlarexDB revision CAS and
    must not be wrapped as though it were.
-6. **No assembled private C07 system proof.** Point-mutation kernel components
+5. **No assembled private C07 system proof.** Point-mutation kernel components
    exist, but the required analyzer/artifact-runtime/executor/Postgres harness
    is not complete and green.
-7. **The main executor facade remains legacy-routed.** Private
+6. **The main executor facade remains legacy-routed.** Private
    `flarexdb_v1` modules do not make the root executor a replacement
    application-data API.
-8. **Persistence interfaces are too broad for consumers.** Raw SQL clients,
+7. **Persistence interfaces are too broad for consumers.** Raw SQL clients,
    transaction repositories, physical records, and package-internal factories
    are implementation capabilities, not an acceptable System API.
-9. **The service graph is incomplete.** Some backend domains use
+8. **The service graph is incomplete.** Some backend domains use
    `Context.Service` and Layers, while executor and persistence composition
    still contains manual factories, dependency bags, and Promise boundaries.
    Each API slice must close only the service and lifecycle seams it actually
    consumes.
-10. **No stable framework-adapter SPI exists.** Payload, Medusa, and general
+9. **No stable framework-adapter SPI exists.** Payload, Medusa, and general
     relational compatibility remain deferred and must not shape the first
     application-revision vertical.
 
@@ -258,15 +257,15 @@ API development starts in two deliberately separate steps:
 FSV01
   -> Standard API development
   -> analyzeStandardApplicationV1
-  -> begins only after the complete analyzer port is accepted
+  -> complete over the accepted analyzer port
 
 FSV02
   -> first FlarexDB System API development
   -> registerApplicationRevisionV1
-  -> begins only from the actual accepted SAP02 output
+  -> next proportional preflight begins from the actual SAP02 output
 ```
 
-Before either slice is accepted for implementation:
+Before each remaining slice is accepted for implementation:
 
 1. all packages in that slice have a green typecheck and focused test baseline;
 2. the exact existing owner functions and missing composition seam are named;

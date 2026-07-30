@@ -40,6 +40,7 @@
     "tsx": "catalog:"
   },
   "devDependencies": {
+    "@flarex/standard-application-analysis": "workspace:*",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

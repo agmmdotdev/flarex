@@ -12,10 +12,17 @@ import {
   type DeclarativeV2MaterializationBudgetV1,
   type DeclarativeV2PrebuiltModuleGraphInputV1,
 } from "@flarex/declarative-materializer/v1";
+import {
+  analyzeStandardApplicationV1,
+  type StandardApplicationAnalysisContextV1,
+} from "@flarex/standard-application-analysis/v1";
+import type {
+  PreparedStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/v1";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Effect, Result } from "effect";
+import { Cause, Data, Effect, Exit, Result } from "effect";
 import { SOURCE_MODULE_DIGEST_FORMAT_V1 } from "flarex/artifacts";
 import {
   defineGlobalTable,
@@ -86,6 +93,12 @@ const sdkSchema = defineSchema({
   }).index("by_status", ["status"]),
 });
 
+class TestDeveloperAnalysisAdmissionError extends Data.TaggedError(
+  "TestDeveloperAnalysisAdmissionError",
+)<{
+  readonly reason: "trustedContextUnavailable";
+}> {}
+
 describe("Declarative V2 flarex-dev prebuild adapter", () => {
   it("matches the direct fixture byte-for-byte without invoking Vite", async () => {
     const sourcePackage = prebuiltSourcePackage();
@@ -121,6 +134,38 @@ describe("Declarative V2 flarex-dev prebuild adapter", () => {
     ]);
     expect(fromSdkPrebuild.source.schemaPath).toBeNull();
     expect(fromSdkPrebuild.source.authPath).toBeNull();
+
+    const prepared = Object.freeze({
+      program: directProgram,
+      artifactIngressPlan: fromSdkPrebuild,
+    }) satisfies PreparedStandardApplicationDefinitionV1;
+    let observed:
+      | PreparedStandardApplicationDefinitionV1
+      | undefined;
+    const unavailableContext = Object.freeze({
+      analyze(input: PreparedStandardApplicationDefinitionV1) {
+        observed = input;
+        return Effect.fail(new TestDeveloperAnalysisAdmissionError({
+          reason: "trustedContextUnavailable",
+        }));
+      },
+    }) satisfies StandardApplicationAnalysisContextV1<
+      TestDeveloperAnalysisAdmissionError
+    >;
+    const analysisExit = await Effect.runPromiseExit(
+      analyzeStandardApplicationV1(prepared, unavailableContext),
+    );
+    expect(observed).toBe(prepared);
+    if (!Exit.isFailure(analysisExit)) {
+      throw new Error("Expected the developer-only context to fail closed.");
+    }
+    expect(Cause.findErrorOption(analysisExit.cause)).toMatchObject({
+      _tag: "Some",
+      value: {
+        _tag: "TestDeveloperAnalysisAdmissionError",
+        reason: "trustedContextUnavailable",
+      },
+    });
 
     const repeated = await Effect.runPromise(
       materializeDeclarativeV2ArtifactsFromLoadedSdkPrebuildEffect({
