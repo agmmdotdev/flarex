@@ -7070,7 +7070,7 @@ export type DeclarativeV2VerifierLinkStepV1 =
 
 export interface DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
   readonly attemptSha256: Uint8Array;
-  readonly reservationSha256: Uint8Array;
+  readonly futureRegistrationIntentSha256: Uint8Array;
   readonly candidateSha256: Uint8Array;
   readonly authenticatedInputSha256: Uint8Array;
   readonly linkSequence: bigint;
@@ -8569,7 +8569,7 @@ export function finishDeclarativeV2VerifierLinkerV1(
 
 const AUTHENTICATED_LINK_DIGEST_FIELDS_V1 = [
   "attemptSha256",
-  "reservationSha256",
+  "futureRegistrationIntentSha256",
   "candidateSha256",
   "authenticatedInputSha256",
   "parsePagesRootSha256",
@@ -8583,7 +8583,7 @@ const AUTHENTICATED_LINK_DIGEST_FIELDS_V1 = [
 
 interface CapturedAuthenticatedLinkBindingsV1 {
   readonly attemptSha256: Uint8Array;
-  readonly reservationSha256: Uint8Array;
+  readonly futureRegistrationIntentSha256: Uint8Array;
   readonly candidateSha256: Uint8Array;
   readonly authenticatedInputSha256: Uint8Array;
   readonly linkSequence: bigint;
@@ -8846,7 +8846,7 @@ const captureAuthenticatedLinkBindingsV1 = (
 ): CapturedAuthenticatedLinkBindingsV1 | undefined => {
   const keys = [
     "attemptSha256",
-    "reservationSha256",
+    "futureRegistrationIntentSha256",
     "candidateSha256",
     "authenticatedInputSha256",
     "linkSequence",
@@ -8876,7 +8876,8 @@ const captureAuthenticatedLinkBindingsV1 = (
   }
   return Object.freeze({
     attemptSha256: digests.attemptSha256!,
-    reservationSha256: digests.reservationSha256!,
+    futureRegistrationIntentSha256:
+      digests.futureRegistrationIntentSha256!,
     candidateSha256: digests.candidateSha256!,
     authenticatedInputSha256: digests.authenticatedInputSha256!,
     linkSequence: captured.linkSequence,
@@ -8895,7 +8896,7 @@ const captureAuthenticatedLinkModuleClaimV1 = (
 ): CapturedAuthenticatedLinkModuleClaimV1 | undefined => {
   const keys = [
     "attemptSha256",
-    "reservationSha256",
+    "futureRegistrationIntentSha256",
     "candidateSha256",
     "authenticatedInputSha256",
     "linkSequence",

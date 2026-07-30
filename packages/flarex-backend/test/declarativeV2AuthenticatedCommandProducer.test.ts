@@ -508,6 +508,81 @@ describe("authenticated Declarative V2 command producer", () => {
     });
   });
 
+  it("prepares authenticated commitments once and retries exact reservation bytes", async () => {
+    const fixture = makeFixture();
+    const request = new Request("https://producer.test/prepared");
+    const selection = Object.freeze({
+      kind: "parse_module",
+      moduleOrdinal: 0n,
+    }) satisfies DeclarativeV2AuthenticatedCommandSelectionV1;
+    const fullInput = producerInput(selection, transportBudget, 4);
+    await Effect.runPromise(Effect.scoped(
+      withProducer(
+        fixture,
+        producer =>
+          Effect.gen(function* () {
+            const preparation = yield* producer.prepare(
+              request,
+              PROOF_INPUT,
+              {
+                readSession: fullInput.readSession,
+                commandBudget: fullInput.commandBudget,
+                transportBudget: fullInput.transportBudget,
+                selection: fullInput.selection,
+              },
+            );
+            expect(fixture.reads).toEqual([]);
+            expect(Result.getOrThrow(
+              producer.commitments(request, preparation),
+            )).toEqual({
+              commandBudgetSha256: HASH,
+              commandInputSha256: HASH,
+              freshAuthenticatedInputSha256: HASH,
+              analyzerIdentitySha256: HASH,
+              verifierIdentitySha256: HASH,
+            });
+            expect(producer.commitments(
+              new Request(request.url),
+              preparation,
+            )).toMatchObject({
+              failure: { reason: "wrongRequest" },
+            });
+            const [first, replay] = yield* Effect.all([
+              producer.producePrepared(
+                request,
+                preparation,
+                fullInput.reservation,
+              ),
+              producer.producePrepared(
+                request,
+                preparation,
+                fullInput.reservation,
+              ),
+            ], { concurrency: "unbounded" });
+            expect(replay).toBe(first);
+            expect(fixture.reads).toEqual(["source:0"]);
+            const contradictory = yield* Effect.exit(
+              producer.producePrepared(
+                request,
+                preparation,
+                {
+                  ...(fullInput.reservation as
+                    DeclarativeV2VerifierCommandReservationFrameV2),
+                  sequence: 5n,
+                },
+              ),
+            );
+            expect(failure(contradictory)).toMatchObject({
+              reason: "commitmentMismatch",
+              path: "reservation",
+            });
+          }),
+      ),
+    ));
+    expect(fixture.order.filter(entry => entry === "open")).toHaveLength(1);
+    expect(fixture.order.filter(entry => entry === "close")).toHaveLength(1);
+  });
+
   it("keeps result and cursor authority same-service, exact-request, and terminal", async () => {
     const fixture = makeFixture();
     const otherFixture = makeFixture();

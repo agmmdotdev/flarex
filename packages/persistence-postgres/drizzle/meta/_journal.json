@@ -267,6 +267,13 @@
       "when": 1785401215096,
       "tag": "0037_dark_titania",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785426653956,
+      "tag": "0038_hot_sheva_callister",
+      "breakpoints": true
     }
   ]
 }

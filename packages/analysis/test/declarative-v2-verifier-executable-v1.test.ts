@@ -1037,7 +1037,8 @@ function authenticatedLinkBindings(
 ): DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
   return Object.freeze({
     attemptSha256: new Uint8Array(32).fill(seed),
-    reservationSha256: new Uint8Array(32).fill(seed + 1),
+    futureRegistrationIntentSha256:
+      new Uint8Array(32).fill(seed + 1),
     candidateSha256: new Uint8Array(32).fill(seed + 2),
     authenticatedInputSha256: new Uint8Array(32).fill(seed + 3),
     linkSequence: 7n,

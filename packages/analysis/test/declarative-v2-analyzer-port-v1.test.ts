@@ -129,7 +129,7 @@ describe("private Declarative V2 analyzer port", () => {
       const registrationProgress = progress("registration", 2n);
       const linkBindings = Object.freeze({
         attemptSha256: sessionBindings.attemptSha256,
-        reservationSha256: digest(22),
+        futureRegistrationIntentSha256: digest(22),
         candidateSha256: sessionBindings.candidateSha256,
         authenticatedInputSha256: sessionBindings.authenticatedInputSha256,
         linkSequence: 2n,
@@ -169,6 +169,7 @@ describe("private Declarative V2 analyzer port", () => {
         input: {
           bindings: {
             ...linkBindings,
+            registrationReservationSha256: digest(24),
             semanticSha256: sha256(semantic),
           },
           commandKind: "registration_page",
@@ -452,7 +453,7 @@ describe("private Declarative V2 analyzer port", () => {
     const registrationProgress = progress("registration", 2n);
     const linkBindings = Object.freeze({
       attemptSha256: digest(1),
-      reservationSha256: digest(40),
+      futureRegistrationIntentSha256: digest(40),
       candidateSha256: digest(2),
       authenticatedInputSha256: digest(3),
       linkSequence: 2n,
@@ -526,7 +527,7 @@ describe("private Declarative V2 analyzer port", () => {
       parseModuleResults: null,
     } satisfies DeclarativeV2VerifierRestartClaimV1);
     expect(linkClaim.reservationSha256).not.toEqual(
-      linkBindings.reservationSha256,
+      linkBindings.futureRegistrationIntentSha256,
     );
     const linkProducerAuthority = Object.freeze({});
     coldClaims.set(linkProducerAuthority, {
@@ -593,6 +594,7 @@ describe("private Declarative V2 analyzer port", () => {
       input: {
         bindings: {
           ...linkBindings,
+          registrationReservationSha256: digest(65),
           semanticSha256: sha256(semantic),
         },
         commandKind: "registration_page",

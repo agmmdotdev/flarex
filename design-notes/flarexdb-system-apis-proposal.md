@@ -234,9 +234,12 @@ The remaining limitations are architectural, not merely naming or packaging:
    legacy deployment activation is not the target FlarexDB revision CAS and
    must not be wrapped as though it were.
 5. **The private analyzer-to-Postgres system harness is not yet assembled.**
-   C07 now proves the private test-owned point-mutation composition in both
-   PGlite and genuine PostgreSQL, but it does not itself connect FSV01/FSV02 to
-   the selected private host lane or complete FSV03.
+   C07 proves the private test-owned point-mutation composition in PGlite and
+   genuine PostgreSQL. A1b2-S1 now also supplies the private scoped command
+   preparation, durable future-registration continuity intent, analyzer-owned
+   terminal proof, opaque persistence Work facade, and real link-receipt to
+   registration-reservation lineage. Those prerequisites do not themselves
+   connect FSV01/FSV02 through artifact runtime and C07 or complete FSV03.
 6. **The main executor facade remains legacy-routed.** Private
    `flarexdb_v1` modules do not make the root executor a replacement
    application-data API.

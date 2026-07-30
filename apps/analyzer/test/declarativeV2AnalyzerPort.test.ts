@@ -61,10 +61,14 @@ import {
   type DeclarativeV2VerifierBudgetFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
   type DeclarativeV2VerifierCommandOutputManifestFrameV2,
+  type DeclarativeV2VerifierCommandReceiptFrameV2,
   type DeclarativeV2VerifierDurableCommandKindV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
   type DeclarativeV2VerifierProgressCursorFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
+import {
+  decodeDeclarativeV2TerminalAuthorityProofV1,
+} from "flarex-protocol/internal/declarative-v2-terminal-authority-proof-v1";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -161,11 +165,11 @@ describe("private Declarative V2 analyzer Effect port", () => {
             frameSha256(registrationReservation),
           );
           const link = admitted(linkRequest(linkReservation));
+          const futureRegistrationIntentSha256 = digest(99);
           trusted.admitCommand(link.capability, {
             currentProgress: linkProgress,
             nextProgress: registrationProgress,
-            registrationReservationSha256:
-              frameSha256(registrationReservation),
+            futureRegistrationIntentSha256,
             totalModuleCount: 1n,
             parsePagesRootSha256: digest(20),
             analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
@@ -178,6 +182,7 @@ describe("private Declarative V2 analyzer Effect port", () => {
           ));
           trusted.admitCommand(registration.capability, {
             currentProgress: registrationProgress,
+            futureRegistrationIntentSha256,
             totalModuleCount: 1n,
             parsePagesRootSha256: digest(20),
             analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
@@ -462,7 +467,7 @@ describe("private Declarative V2 analyzer Effect port", () => {
       trusted.admitCommand(link.capability, {
         currentProgress: linkProgress,
         nextProgress: registrationProgress,
-        registrationReservationSha256:
+        futureRegistrationIntentSha256:
           frameSha256(registrationReservation),
         totalModuleCount: 1n,
         parsePagesRootSha256: digest(20),
@@ -623,6 +628,140 @@ describe("private Declarative V2 analyzer Effect port", () => {
       kind: "source_page",
       result: {
         nextProgress: { phase: "parse", settledSequence: 1n },
+      },
+    });
+  });
+
+  it("claims one exact analyzer terminal result once and rejects replay", async () => {
+    const sessionBindings = bindings();
+    const trusted = trustedHost(sessionBindings);
+    const current = progress("source", 0n);
+    const reserved = reservation(
+      "source_page",
+      1n,
+      current,
+      sessionBindings,
+    );
+    const decoded = admitted(sourceRequest(reserved));
+    trusted.admitCommand(decoded.capability, {
+      currentProgress: current,
+      totalModuleCount: 1n,
+      parsePagesRootSha256: digest(20),
+      analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+    });
+    const result = await Effect.runPromise(Effect.scoped(Effect.gen(
+      function* () {
+        const session = yield* trusted.host.open(trusted.sessionAuthority);
+        const complete = yield* trusted.host.execute({
+          session,
+          commandFactory: decoded.factory,
+          capability: decoded.capability,
+          transportBudget: decoded.budget,
+          allowance: 1,
+        });
+        if (complete.kind !== "source_page") {
+          return yield* Effect.die("expected source terminal result");
+        }
+        const commandUsage = Object.freeze({
+          ...complete.result.actual,
+          kind: "command_budget" as const,
+        });
+        const resultingUsage = Object.freeze({
+          ...complete.result.actual,
+          kind: "attempt_usage" as const,
+        });
+        const receipt = Object.freeze({
+          kind: "command_receipt" as const,
+          reservationSha256: frameSha256(reserved),
+          commandUsageSha256: frameSha256(commandUsage),
+          resultingAttemptUsageSha256: frameSha256(resultingUsage),
+          outputManifestSha256:
+            frameSha256(complete.result.outputManifest),
+          nextProgressSha256: frameSha256(complete.result.nextProgress),
+        }) satisfies DeclarativeV2VerifierCommandReceiptFrameV2;
+        const input = Object.freeze({
+          result: complete,
+          requestSha256: decoded.requestSha256,
+          outputManifest: complete.result.outputManifest,
+          commandUsage,
+          resultingUsage,
+          nextProgress: complete.result.nextProgress,
+          receipt,
+        });
+        const changedNextProgress = Object.freeze({
+          ...complete.result.nextProgress,
+          settledSequence: complete.result.nextProgress.settledSequence + 1n,
+        });
+        const changedNextProgressSha256 = frameSha256(changedNextProgress);
+        const changedNextManifest = Object.freeze({
+          ...complete.result.outputManifest,
+          nextProgressSha256: changedNextProgressSha256,
+        });
+        const changedNextReceipt = Object.freeze({
+          ...receipt,
+          nextProgressSha256: changedNextProgressSha256,
+          outputManifestSha256: frameSha256(changedNextManifest),
+        });
+        const changedOutputManifest = Object.freeze({
+          ...complete.result.outputManifest,
+          evidenceRootSha256: digest(0xee),
+        });
+        const changedOutputReceipt = Object.freeze({
+          ...receipt,
+          outputManifestSha256: frameSha256(changedOutputManifest),
+        });
+        const invalidClaims = yield* Effect.all([
+          trusted.host.claimTerminal({
+            ...input,
+            requestSha256: digest(0xef),
+          }).pipe(Effect.exit),
+          trusted.host.claimTerminal({
+            ...input,
+            nextProgress: changedNextProgress,
+            outputManifest: changedNextManifest,
+            receipt: changedNextReceipt,
+          }).pipe(Effect.exit),
+          trusted.host.claimTerminal({
+            ...input,
+            outputManifest: changedOutputManifest,
+            receipt: changedOutputReceipt,
+          }).pipe(Effect.exit),
+          trusted.host.claimTerminal({
+            ...input,
+            receipt: Object.freeze({
+              ...receipt,
+              resultingAttemptUsageSha256: digest(0xed),
+            }),
+          }).pipe(Effect.exit),
+        ]);
+        const proof = yield* trusted.host.claimTerminal(input);
+        const replay = yield* Effect.exit(trusted.host.claimTerminal(input));
+        return { invalidClaims, proof, replay };
+      },
+    )));
+    expect(Result.getOrThrow(
+      decodeDeclarativeV2TerminalAuthorityProofV1(
+        result.proof.canonicalBytes,
+      ),
+    ).proof).toMatchObject({
+      authorityKind: "exact_requirement",
+      commandKind: "source_page",
+      sequence: 1n,
+      requestSha256: decoded.requestSha256,
+    });
+    expect(result.invalidClaims).toHaveLength(4);
+    for (const invalid of result.invalidClaims) {
+      expect(Exit.isFailure(invalid)).toBe(true);
+    }
+    if (!Exit.isFailure(result.replay)) {
+      throw new Error("expected terminal-claim replay failure");
+    }
+    expect(Cause.findErrorOption(result.replay.cause)).toMatchObject({
+      _tag: "Some",
+      value: {
+        operation: "claimTerminal",
+        reason: "invalidInput",
+        path: "result",
       },
     });
   });
@@ -1027,6 +1166,7 @@ function admitted(request: DeclarativeV2AuthenticatedCommandRequestV1) {
         factory,
         capability: finished.capability,
         budget,
+        requestSha256: sha256(encoded.canonicalBytes),
       });
     }
   }
@@ -1525,6 +1665,7 @@ function bindings(): DeclarativeV2AnalyzerSessionBindingsV1 {
 
 function frameSha256(
   frame:
+    | DeclarativeV2VerifierBudgetFrameV2
     | DeclarativeV2VerifierProgressCursorFrameV2
     | DeclarativeV2VerifierCommandReservationFrameV2
     | DeclarativeV2VerifierCommandOutputManifestFrameV2,

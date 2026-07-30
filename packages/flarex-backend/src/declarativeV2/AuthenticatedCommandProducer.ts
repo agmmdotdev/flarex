@@ -29,7 +29,15 @@ import {
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
-import { Context, Data, Effect, Layer, Result, Scope } from "effect";
+import {
+  Context,
+  Data,
+  Effect,
+  Layer,
+  Result,
+  Scope,
+  Semaphore,
+} from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   encodeDeclarativeV2VerifierProgressFrameV2,
@@ -53,6 +61,8 @@ import type {
 } from "../semanticArtifactV1/FinalizedSourceProof";
 
 const RESULT_MARKER = Symbol("DeclarativeV2AuthenticatedCommandResultV1");
+const PREPARATION_MARKER =
+  Symbol("DeclarativeV2AuthenticatedCommandPreparationV1");
 const CURSOR_MARKER = Symbol("DeclarativeV2AuthenticatedCommandCursorV1");
 const SHA256_BYTES = 32;
 const U32_MAX = 0xffff_ffff;
@@ -82,7 +92,14 @@ const ANALYZER_IDENTITY_DOMAIN =
 const VERIFIER_IDENTITY_DOMAIN =
   "flarex.backend/declarative-v2-authenticated-command/verifier-identity/v1";
 
-type Operation = "produce" | "receipt" | "cursor" | "read" | "close";
+type Operation =
+  | "prepare"
+  | "commitments"
+  | "produce"
+  | "receipt"
+  | "cursor"
+  | "read"
+  | "close";
 type Commitment =
   | "commandBudgetSha256"
   | "commandInputSha256"
@@ -93,6 +110,25 @@ type Commitment =
 
 export interface DeclarativeV2AuthenticatedCommandResultV1 {
   readonly [RESULT_MARKER]: true;
+}
+
+export interface DeclarativeV2AuthenticatedCommandPreparationV1 {
+  readonly [PREPARATION_MARKER]: true;
+}
+
+export interface DeclarativeV2AuthenticatedCommandPreparationInputV1 {
+  readonly readSession: unknown;
+  readonly commandBudget: unknown;
+  readonly transportBudget: unknown;
+  readonly selection: unknown;
+}
+
+export interface DeclarativeV2AuthenticatedCommandStableCommitmentsV1 {
+  readonly commandBudgetSha256: Uint8Array;
+  readonly commandInputSha256: Uint8Array;
+  readonly freshAuthenticatedInputSha256: Uint8Array;
+  readonly analyzerIdentitySha256: Uint8Array;
+  readonly verifierIdentitySha256: Uint8Array;
 }
 
 export interface DeclarativeV2AuthenticatedCommandCursorV1 {
@@ -170,6 +206,31 @@ export type DeclarativeV2AuthenticatedCommandProducerOpenErrorV1 =
   | DeclarativeV2AuthenticatedCommandV1Error;
 
 export interface DeclarativeV2AuthenticatedCommandProducerApiV1 {
+  readonly prepare: (
+    request: Request,
+    proofInput: SemanticArtifactV1FinalizedSourceProofInput,
+    input: unknown,
+  ) => Effect.Effect<
+    DeclarativeV2AuthenticatedCommandPreparationV1,
+    DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+    Scope.Scope
+  >;
+  readonly commitments: (
+    request: Request,
+    preparation: unknown,
+  ) => Result.Result<
+    DeclarativeV2AuthenticatedCommandStableCommitmentsV1,
+    DeclarativeV2AuthenticatedCommandProducerV1Error
+  >;
+  readonly producePrepared: (
+    request: Request,
+    preparation: unknown,
+    reservation: unknown,
+  ) => Effect.Effect<
+    DeclarativeV2AuthenticatedCommandResultV1,
+    DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+    never
+  >;
   readonly produce: (
     request: Request,
     proofInput: SemanticArtifactV1FinalizedSourceProofInput,
@@ -313,6 +374,24 @@ interface ResultState {
   closed: boolean;
 }
 
+interface PreparationState {
+  readonly request: Request;
+  readonly session: unknown;
+  readonly receipt: DeclarativeV2AuthenticatedReadSessionReceiptV1;
+  readonly modules: readonly OwnedModuleMetadata[];
+  readonly commandBudget: CommandBudgetFrame;
+  readonly commandBudgetBytes: Uint8Array;
+  readonly transportBudget:
+    Readonly<DeclarativeV2AuthenticatedCommandTransportBudgetV1>;
+  readonly selection: DeclarativeV2AuthenticatedCommandSelectionV1;
+  readonly stable:
+    DeclarativeV2AuthenticatedCommandStableCommitmentsV1;
+  readonly productionGate: ReturnType<typeof Semaphore.makeUnsafe>;
+  result: DeclarativeV2AuthenticatedCommandResultV1 | undefined;
+  reservationBytes: Uint8Array | undefined;
+  closed: boolean;
+}
+
 interface CursorState {
   readonly request: Request;
   readonly result: object;
@@ -382,6 +461,7 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
 ): DeclarativeV2AuthenticatedCommandProducerApiV1 {
   const results = new WeakMap<object, ResultState>();
   const cursors = new WeakMap<object, CursorState>();
+  const preparations = new WeakMap<object, PreparationState>();
   const configuredAnalyzerRelease =
     options.expectedAnalyzerRelease ?? installedPrivateAnalyzerReleaseTupleV1();
   const capturedAnalyzerRelease = capturePrivateAnalyzerReleaseTupleV1(
@@ -407,6 +487,288 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
     },
   );
 
+  const prepare: DeclarativeV2AuthenticatedCommandProducerApiV1["prepare"] =
+    Effect.fn(
+      "DeclarativeV2AuthenticatedCommandProducer.prepare",
+    )(function* (
+      request,
+      proofInput,
+      rawInput,
+    ) {
+      const input = yield* Effect.fromResult(
+        capturePreparationInput(rawInput),
+      );
+      const proof = yield* options.proofs.issue(request, proofInput);
+      const session = yield* Effect.acquireRelease(
+        options.sessions.open(request, proof, input.readSession),
+        opened =>
+          Effect.fromResult(options.sessions.close(request, opened)).pipe(
+            Effect.orDie,
+          ),
+        { interruptible: true },
+      );
+      const receipt = yield* Effect.fromResult(
+        options.sessions.receipt(request, session),
+      );
+      const modules = yield* Effect.fromResult(
+        captureModuleMetadata(options.sessions, request, session),
+      );
+      const ownedModules = yield* Effect.fromResult(
+        ownModuleMetadata(
+          modules,
+          input.transportBudget.maximumCanonicalBytes,
+        ),
+      );
+      const encodedBudget = yield* Effect.fromResult(
+        encodeDeclarativeV2VerifierProgressFrameV2(
+          input.commandBudget,
+          PROGRESS_FRAME_BUDGET,
+        ),
+      );
+      const freshAuthenticatedInputSha256 = yield* hash(
+        canonicalPreimage(
+          FRESH_INPUT_DOMAIN,
+          freshInputJson(receipt, ownedModules),
+        ),
+      );
+      const commandBudgetSha256 = yield* hash(encodedBudget.canonicalBytes);
+      const commandInputSha256 = yield* hash(
+        canonicalPreimage(
+          COMMAND_INPUT_DOMAIN,
+          commandInputJson(
+            input.selection,
+            receipt,
+            ownedModules,
+            freshAuthenticatedInputSha256,
+          ),
+        ),
+      );
+      const analyzerIdentitySha256 = yield* hash(
+        canonicalPreimage(
+          ANALYZER_IDENTITY_DOMAIN,
+          analyzerIdentityJson(expectedAnalyzerRelease),
+        ),
+      );
+      const verifierIdentitySha256 = yield* hash(
+        canonicalPreimage(
+          VERIFIER_IDENTITY_DOMAIN,
+          verifierIdentityJson(verifierIdentities),
+        ),
+      );
+      const preparation = Object.freeze({
+        [PREPARATION_MARKER]: true as const,
+      }) satisfies DeclarativeV2AuthenticatedCommandPreparationV1;
+      const state: PreparationState = {
+        request,
+        session,
+        receipt,
+        modules: ownedModules,
+        commandBudget: input.commandBudget,
+        commandBudgetBytes: copyBytes(encodedBudget.canonicalBytes),
+        transportBudget: input.transportBudget,
+        selection: input.selection,
+        stable: ownStableCommitments({
+          commandBudgetSha256,
+          commandInputSha256,
+          freshAuthenticatedInputSha256,
+          analyzerIdentitySha256,
+          verifierIdentitySha256,
+        }),
+        productionGate: Semaphore.makeUnsafe(1),
+        result: undefined,
+        reservationBytes: undefined,
+        closed: false,
+      };
+      preparations.set(preparation, state);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          if (state.result !== undefined) {
+            const resultState = results.get(state.result);
+            if (resultState !== undefined) {
+              closeResultState(resultState, cursors);
+            }
+          }
+          state.closed = true;
+          preparations.delete(preparation);
+        }),
+      );
+      return preparation;
+    });
+
+  const commitments:
+    DeclarativeV2AuthenticatedCommandProducerApiV1["commitments"] =
+      (request, preparation) =>
+        Result.map(
+          getPreparation(preparations, request, preparation, "commitments"),
+          state => ownStableCommitments(state.stable),
+        );
+
+  const producePrepared:
+    DeclarativeV2AuthenticatedCommandProducerApiV1["producePrepared"] =
+      Effect.fn(
+        "DeclarativeV2AuthenticatedCommandProducer.producePrepared",
+      )(function* (request, preparation, rawReservation) {
+        const state = yield* Effect.fromResult(
+          getPreparation(
+            preparations,
+            request,
+            preparation,
+            "produce",
+          ),
+        );
+        return yield* state.productionGate.withPermit(Effect.gen(function* () {
+          yield* Effect.fromResult(
+            getPreparation(
+              preparations,
+              request,
+              preparation,
+              "produce",
+            ),
+          );
+        const reservationSnapshot = yield* Effect.fromResult(
+          captureReservationSnapshot(rawReservation),
+        );
+        const progress = yield* Effect.fromResult(
+          captureProgressFrames(
+            reservationSnapshot,
+            state.commandBudget,
+          ),
+        );
+        if (state.result !== undefined) {
+          if (
+            state.reservationBytes === undefined ||
+            !bytesEqualFullScan(
+              state.reservationBytes,
+              progress.reservationBytes,
+            )
+          ) {
+            return yield* producerError("produce", "commitmentMismatch", {
+              path: "reservation",
+            });
+          }
+          return state.result;
+        }
+        yield* Effect.fromResult(validateSelection(
+          state.selection,
+          progress.reservation,
+          state.modules,
+          state.receipt.semanticByteLength,
+        ));
+        const preflightInput: CapturedInput = Object.freeze({
+          readSession: null,
+          reservation: reservationSnapshot,
+          commandBudget: state.commandBudget,
+          transportBudget: state.transportBudget,
+          selection: state.selection,
+        });
+        const planned = yield* Effect.fromResult(preflightTransport(
+          preflightInput,
+          progress,
+          state.modules,
+          state.receipt.semanticByteLength,
+        ));
+        const rangeAndPredecessorTailsSha256 = yield* hash(
+          canonicalPreimage(
+            RANGE_DOMAIN,
+            rangeJson(state.selection, progress.reservation),
+          ),
+        );
+        const comparisons = [
+          [
+            progress.reservation.commandBudgetSha256,
+            state.stable.commandBudgetSha256,
+            "commandBudgetSha256",
+          ],
+          [
+            progress.reservation.freshAuthenticatedInputSha256,
+            state.stable.freshAuthenticatedInputSha256,
+            "freshAuthenticatedInputSha256",
+          ],
+          [
+            progress.reservation.commandInputSha256,
+            state.stable.commandInputSha256,
+            "commandInputSha256",
+          ],
+          [
+            progress.reservation.rangeAndPredecessorTailsSha256,
+            rangeAndPredecessorTailsSha256,
+            "rangeAndPredecessorTailsSha256",
+          ],
+          [
+            progress.reservation.analyzerIdentitySha256,
+            state.stable.analyzerIdentitySha256,
+            "analyzerIdentitySha256",
+          ],
+          [
+            progress.reservation.verifierIdentitySha256,
+            state.stable.verifierIdentitySha256,
+            "verifierIdentitySha256",
+          ],
+        ] as const;
+        for (const [expected, actual, commitment] of comparisons) {
+          yield* Effect.fromResult(
+            compareCommitment(expected, actual, commitment),
+          );
+        }
+        const frames = yield* buildFrames(
+          options.sessions,
+          request,
+          state.session,
+          state.selection,
+          progress,
+          state.modules,
+          state.receipt.semanticByteLength,
+        );
+        const finalReceipt = yield* Effect.fromResult(
+          options.sessions.receipt(request, state.session),
+        );
+        yield* Effect.fromResult(
+          requireReceiptIdentityMatches(state.receipt, finalReceipt),
+        );
+        yield* Effect.fromResult(
+          requireContentReadWithinCommandBudget(
+            finalReceipt,
+            progress.commandBudget,
+          ),
+        );
+        yield* Effect.yieldNow;
+        const encoded = yield* Effect.fromResult(
+          encodeDeclarativeV2AuthenticatedCommandRequestV1(
+            Object.freeze({ frames: Object.freeze(frames) }),
+            state.transportBudget,
+          ),
+        );
+        yield* Effect.fromResult(requireUsageMatches(planned, encoded));
+        yield* Effect.yieldNow;
+        const reservationSha256 = yield* hash(progress.reservationBytes);
+        const requestSha256 = yield* hash(encoded.canonicalBytes);
+        const result = makeResultHandle();
+        const resultReceipt = ownReceipt({
+          commandKind: progress.reservation.commandKind,
+          sequence: progress.reservation.sequence,
+          attemptSha256: progress.reservation.attemptSha256,
+          candidateSha256: progress.reservation.candidateSha256,
+          reservationSha256,
+          requestSha256,
+          canonicalByteLength: encoded.canonicalBytes.byteLength,
+          ...state.stable,
+          rangeAndPredecessorTailsSha256,
+          contentRead: finalReceipt.budget,
+          transport: encoded.usage,
+        });
+        results.set(result, {
+          request,
+          canonicalBytes: copyBytes(encoded.canonicalBytes),
+          receipt: resultReceipt,
+          cursor: undefined,
+          closed: false,
+        });
+        state.result = result;
+        state.reservationBytes = copyBytes(progress.reservationBytes);
+        return result;
+        }));
+      });
+
   const produce = Effect.fn(
     "DeclarativeV2AuthenticatedCommandProducer.produce",
   )(function* (
@@ -419,180 +781,13 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
     Scope.Scope
   > {
     const input = yield* Effect.fromResult(captureInput(rawInput));
-
-    // A0a -> R0a -> C2 proof issuance and A1b1 proof consumption happen
-    // before any commitment preimage, hashing, or command encoding.
-    const proof = yield* options.proofs.issue(request, proofInput);
-    const session = yield* Effect.acquireRelease(
-      options.sessions.open(
-        request,
-        proof,
-        input.readSession,
-      ),
-      session =>
-        Effect.fromResult(options.sessions.close(request, session)).pipe(
-          Effect.orDie,
-        ),
-      { interruptible: true },
-    );
-
-    const receipt = yield* Effect.fromResult(
-      options.sessions.receipt(request, session),
-    );
-    const modules = yield* Effect.fromResult(
-      captureModuleMetadata(options.sessions, request, session),
-    );
-    const progress = yield* Effect.fromResult(
-      captureProgressFrames(input.reservation, input.commandBudget),
-    );
-    yield* Effect.fromResult(
-      validateSelection(
-        input.selection,
-        progress.reservation,
-        modules,
-        receipt.semanticByteLength,
-      ),
-    );
-    const planned = yield* Effect.fromResult(
-      preflightTransport(
-        input,
-        progress,
-        modules,
-        receipt.semanticByteLength,
-      ),
-    );
-    const ownedModules = yield* Effect.fromResult(
-      ownModuleMetadata(modules, input.transportBudget.maximumCanonicalBytes),
-    );
-
-    const freshAuthenticatedInputSha256 = yield* hash(
-      canonicalPreimage(FRESH_INPUT_DOMAIN, freshInputJson(receipt, ownedModules)),
-    );
-    const commandBudgetSha256 = yield* hash(progress.commandBudgetBytes);
-    const commandInputSha256 = yield* hash(
-      canonicalPreimage(
-        COMMAND_INPUT_DOMAIN,
-        commandInputJson(
-          input.selection,
-          receipt,
-          ownedModules,
-          freshAuthenticatedInputSha256,
-        ),
-      ),
-    );
-    const rangeAndPredecessorTailsSha256 = yield* hash(
-      canonicalPreimage(
-        RANGE_DOMAIN,
-        rangeJson(input.selection, progress.reservation),
-      ),
-    );
-    const analyzerIdentitySha256 = yield* hash(
-      canonicalPreimage(
-        ANALYZER_IDENTITY_DOMAIN,
-        analyzerIdentityJson(expectedAnalyzerRelease),
-      ),
-    );
-    const verifierIdentitySha256 = yield* hash(
-      canonicalPreimage(
-        VERIFIER_IDENTITY_DOMAIN,
-        verifierIdentityJson(verifierIdentities),
-      ),
-    );
-
-    yield* Effect.fromResult(compareCommitment(
-      progress.reservation.commandBudgetSha256,
-      commandBudgetSha256,
-      "commandBudgetSha256",
-    ));
-    yield* Effect.fromResult(compareCommitment(
-      progress.reservation.freshAuthenticatedInputSha256,
-      freshAuthenticatedInputSha256,
-      "freshAuthenticatedInputSha256",
-    ));
-    yield* Effect.fromResult(compareCommitment(
-      progress.reservation.commandInputSha256,
-      commandInputSha256,
-      "commandInputSha256",
-    ));
-    yield* Effect.fromResult(compareCommitment(
-      progress.reservation.rangeAndPredecessorTailsSha256,
-      rangeAndPredecessorTailsSha256,
-      "rangeAndPredecessorTailsSha256",
-    ));
-    yield* Effect.fromResult(compareCommitment(
-      progress.reservation.analyzerIdentitySha256,
-      analyzerIdentitySha256,
-      "analyzerIdentitySha256",
-    ));
-    yield* Effect.fromResult(compareCommitment(
-      progress.reservation.verifierIdentitySha256,
-      verifierIdentitySha256,
-      "verifierIdentitySha256",
-    ));
-
-    const frames = yield* buildFrames(
-      options.sessions,
-      request,
-      session,
-      input.selection,
-      progress,
-      ownedModules,
-      receipt.semanticByteLength,
-    );
-    const finalReceipt = yield* Effect.fromResult(
-      options.sessions.receipt(request, session),
-    );
-    yield* Effect.fromResult(requireReceiptIdentityMatches(
-      receipt,
-      finalReceipt,
-    ));
-    yield* Effect.fromResult(requireContentReadWithinCommandBudget(
-      finalReceipt,
-      progress.commandBudget,
-    ));
-    yield* Effect.yieldNow;
-    const encoded = yield* Effect.fromResult(
-      encodeDeclarativeV2AuthenticatedCommandRequestV1(
-        Object.freeze({ frames: Object.freeze(frames) }),
-        input.transportBudget,
-      ),
-    );
-    yield* Effect.fromResult(requireUsageMatches(planned, encoded));
-    yield* Effect.yieldNow;
-
-    const reservationSha256 = yield* hash(progress.reservationBytes);
-    const requestSha256 = yield* hash(encoded.canonicalBytes);
-    const result = makeResultHandle();
-    const resultReceipt = ownReceipt({
-      commandKind: progress.reservation.commandKind,
-      sequence: progress.reservation.sequence,
-      attemptSha256: progress.reservation.attemptSha256,
-      candidateSha256: progress.reservation.candidateSha256,
-      reservationSha256,
-      requestSha256,
-      canonicalByteLength: encoded.canonicalBytes.byteLength,
-      freshAuthenticatedInputSha256,
-      commandInputSha256,
-      rangeAndPredecessorTailsSha256,
-      analyzerIdentitySha256,
-      verifierIdentitySha256,
-      contentRead: finalReceipt.budget,
-      transport: encoded.usage,
+    const preparation = yield* prepare(request, proofInput, {
+      readSession: input.readSession,
+      commandBudget: input.commandBudget,
+      transportBudget: input.transportBudget,
+      selection: input.selection,
     });
-    results.set(result, {
-      request,
-      canonicalBytes: copyBytes(encoded.canonicalBytes),
-      receipt: resultReceipt,
-      cursor: undefined,
-      closed: false,
-    });
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        const state = results.get(result);
-        if (state !== undefined) closeResultState(state, cursors);
-      }),
-    );
-    return result;
+    return yield* producePrepared(request, preparation, input.reservation);
   });
 
   const receipt:
@@ -681,7 +876,16 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
           closeResultState(state, cursors);
         });
 
-  return Object.freeze({ produce, receipt, cursor, read, close });
+  return Object.freeze({
+    prepare,
+    commitments,
+    producePrepared,
+    produce,
+    receipt,
+    cursor,
+    read,
+    close,
+  });
 }
 
 function captureInput(
@@ -725,6 +929,93 @@ function captureInput(
       transportBudget,
       selection,
     });
+  });
+}
+
+function capturePreparationInput(
+  input: unknown,
+): Result.Result<
+  Readonly<{
+    readonly readSession: unknown;
+    readonly commandBudget: CommandBudgetFrame;
+    readonly transportBudget:
+      Readonly<DeclarativeV2AuthenticatedCommandTransportBudgetV1>;
+    readonly selection: DeclarativeV2AuthenticatedCommandSelectionV1;
+  }>,
+  DeclarativeV2AuthenticatedCommandProducerV1Error
+> {
+  return Result.gen(function* () {
+    const record = yield* captureOwnDataRecord(input, [
+      "readSession",
+      "commandBudget",
+      "transportBudget",
+      "selection",
+    ] as const, "prepare", "input");
+    const transportBudget = yield*
+      captureDeclarativeV2AuthenticatedCommandTransportBudgetV1(
+        record.transportBudget,
+      ).pipe(
+        Result.mapError(() =>
+          producerError("prepare", "invalidInput", {
+            path: "transportBudget",
+          })
+        ),
+      );
+    const selection = yield* captureSelection(record.selection);
+    const commandBudget = yield* captureCommandBudgetSnapshot(
+      record.commandBudget,
+      "commandBudget",
+    );
+    const readSession = yield* captureReadSessionSnapshot(record.readSession);
+    if (!budgetFramesEqual(readSession.commandBudget, commandBudget)) {
+      return yield* Result.fail(
+        producerError("prepare", "contentMismatch", {
+          path: "readSession.budget.command",
+        }),
+      );
+    }
+    return Object.freeze({
+      readSession: readSession.input,
+      commandBudget,
+      transportBudget,
+      selection,
+    });
+  });
+}
+
+function getPreparation(
+  preparations: WeakMap<object, PreparationState>,
+  request: Request,
+  preparation: unknown,
+  operation: "commitments" | "produce",
+): Result.Result<
+  PreparationState,
+  DeclarativeV2AuthenticatedCommandProducerV1Error
+> {
+  const state = preparation !== null && typeof preparation === "object"
+    ? preparations.get(preparation)
+    : undefined;
+  if (state === undefined) {
+    return Result.fail(producerError(operation, "invalidAuthority"));
+  }
+  if (state.request !== request) {
+    return Result.fail(producerError(operation, "wrongRequest"));
+  }
+  return state.closed
+    ? Result.fail(producerError(operation, "closed"))
+    : Result.succeed(state);
+}
+
+function ownStableCommitments(
+  input: DeclarativeV2AuthenticatedCommandStableCommitmentsV1,
+): DeclarativeV2AuthenticatedCommandStableCommitmentsV1 {
+  return Object.freeze({
+    commandBudgetSha256: copyBytes(input.commandBudgetSha256),
+    commandInputSha256: copyBytes(input.commandInputSha256),
+    freshAuthenticatedInputSha256:
+      copyBytes(input.freshAuthenticatedInputSha256),
+    analyzerIdentitySha256: copyBytes(input.analyzerIdentitySha256),
+    verifierIdentitySha256: copyBytes(input.verifierIdentitySha256),
   });
 }
 

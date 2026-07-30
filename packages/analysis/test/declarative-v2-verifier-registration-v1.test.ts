@@ -183,7 +183,8 @@ function linkBindings(
 ): DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
   return Object.freeze({
     attemptSha256: new Uint8Array(32).fill(seed),
-    reservationSha256: new Uint8Array(32).fill(seed + 1),
+    futureRegistrationIntentSha256:
+      new Uint8Array(32).fill(seed + 1),
     candidateSha256: new Uint8Array(32).fill(seed + 2),
     authenticatedInputSha256: new Uint8Array(32).fill(seed + 3),
     linkSequence: 7n,
@@ -369,6 +370,7 @@ function registrationFixture(
   const semanticBudget = semanticBudgetFor(records, semantic);
   const bindings = Object.freeze({
     ...link.bindings,
+    registrationReservationSha256: new Uint8Array(32).fill(98),
     semanticSha256: new Uint8Array(
       createHash("sha256").update(semantic).digest(),
     ),
@@ -549,6 +551,7 @@ describe("private Declarative V2 registration verifier", () => {
     );
     const bindings = Object.freeze({
       ...link.bindings,
+      registrationReservationSha256: new Uint8Array(32).fill(98),
       semanticSha256: new Uint8Array(
         createHash("sha256").update(semantic).digest(),
       ),
@@ -601,7 +604,7 @@ describe("private Declarative V2 registration verifier", () => {
 
   test.each([
     "attemptSha256",
-    "reservationSha256",
+    "futureRegistrationIntentSha256",
     "candidateSha256",
     "authenticatedInputSha256",
     "parsePagesRootSha256",

@@ -78,6 +78,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_declarative_v2_verdict",
       "fx_system_declarative_v2_verifier_attempt",
       "fx_system_declarative_v2_verifier_attempt_v2",
+      "fx_system_declarative_v2_verifier_command_authority_v1",
       "fx_system_declarative_v2_verifier_command_v2",
       "fx_system_declarative_v2_verifier_evidence_page_v2",
       "fx_system_idempotency",
@@ -1160,7 +1161,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "38" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "39" }]);
     } finally {
       try {
         await db.close();
@@ -1354,7 +1355,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "38" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "39" }]);
     } finally {
       try {
         await db.close();
@@ -1391,7 +1392,7 @@ describe("createPGlitePersistence", () => {
       }
       const previousJournal = {
         ...parsedJournal,
-        entries: parsedJournal.entries.slice(0, -4),
+        entries: parsedJournal.entries.slice(0, -5),
       };
       await writeFile(
         copiedJournalPath,
@@ -1461,7 +1462,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "38" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "39" }]);
     } finally {
       try {
         await db.close();
@@ -1498,7 +1499,7 @@ describe("createPGlitePersistence", () => {
         copiedJournalPath,
         `${JSON.stringify({
           ...parsedJournal,
-          entries: parsedJournal.entries.slice(0, -3),
+          entries: parsedJournal.entries.slice(0, -4),
         }, null, 2)}\n`,
         "utf8",
       );
@@ -1530,7 +1531,7 @@ describe("createPGlitePersistence", () => {
           and table_name like 'fx_system_declarative_v2_%'
           and table_name not like '%\\_v2' escape '\\'
       `);
-      expect(after.rows).toEqual([{ count: "13" }]);
+      expect(after.rows).toEqual([{ count: "14" }]);
       const constraints = await current.query<{
         check_count: string;
         foreign_key_count: string;
@@ -1543,8 +1544,8 @@ describe("createPGlitePersistence", () => {
           and conname not like '%\\_v2\\_%' escape '\\'
       `);
       expect(constraints.rows).toEqual([{
-        check_count: "43",
-        foreign_key_count: "20",
+        check_count: "46",
+        foreign_key_count: "21",
       }]);
       const heads = await current.query<{ count: string }>(`
         select count(*)::text as count
@@ -1587,7 +1588,7 @@ describe("createPGlitePersistence", () => {
         copiedJournalPath,
         `${JSON.stringify({
           ...parsedJournal,
-          entries: parsedJournal.entries.slice(0, -2),
+          entries: parsedJournal.entries.slice(0, -3),
         }, null, 2)}\n`,
         "utf8",
       );
@@ -2026,7 +2027,7 @@ describe("createPGlitePersistence", () => {
       const currentReceipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(currentReceipts.rows).toEqual([{ count: "38" }]);
+      expect(currentReceipts.rows).toEqual([{ count: "39" }]);
     } finally {
       try {
         await db.close();

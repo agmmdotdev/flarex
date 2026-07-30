@@ -1,9 +1,18 @@
 import {
+  decodeDeclarativeV2FutureRegistrationIntentV1,
+  type DeclarativeV2FutureRegistrationIntentV1,
+} from "flarex-protocol/internal/declarative-v2-future-registration-intent-v1";
+import {
+  decodeDeclarativeV2TerminalAuthorityProofV1,
+  type DeclarativeV2TerminalAuthorityProofV1,
+} from "flarex-protocol/internal/declarative-v2-terminal-authority-proof-v1";
+import {
   bytesEqualFullScan,
   isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { isLowercaseUuidText } from "@flarex/utils/strings";
 import {
   and,
@@ -78,6 +87,7 @@ import {
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
 import {
   fxSystemDeclarativeV2VerifierAttemptsV2,
+  fxSystemDeclarativeV2VerifierCommandAuthorityV1,
   fxSystemDeclarativeV2VerifierCommandsV2,
   fxSystemDeclarativeV2VerifierEvidencePagesV2,
 } from "./schema";
@@ -159,8 +169,13 @@ export type DeclarativeV2VerifierProgressRepositoryQueryV2 =
   | "attemptFrames"
   | "lockAttempt"
   | "acquireAttempt"
+  | "takeoverCommandAuthority"
   | "renewAttempt"
   | "insertCommand"
+  | "insertCommandAuthority"
+  | "commandAuthority"
+  | "registrationPredecessorAuthority"
+  | "settleCommandAuthority"
   | "commandMetadata"
   | "commandFrames"
   | "reserveAttempt"
@@ -177,6 +192,7 @@ export type DeclarativeV2VerifierProgressRepositoryQueryV2 =
   | "settleAttempt"
   | "decisionAttemptMetadata"
   | "decisionCommandMetadata"
+  | "decisionCommandAuthority"
   | "decisionFinalPageMetadata"
   | "decisionAttemptFrames"
   | "decisionCommandFrames"
@@ -412,6 +428,14 @@ export interface DeclarativeV2VerifierProgressReserveCommandInputV2 {
   readonly commandBudget: DeclarativeV2VerifierBudgetFrameV2 & {
     readonly kind: "command_budget";
   };
+  /**
+   * Private authenticated bridge input. Link and registration commands require
+   * the same canonical future-registration intent; legacy repository callers
+   * omit the property entirely and retain the existing V2 contract.
+   */
+  readonly authority?: Readonly<{
+    readonly futureRegistrationIntentBytes: Uint8Array | null;
+  }>;
 }
 
 export interface DeclarativeV2VerifierProgressAppendEvidencePageInputV2 {
@@ -446,6 +470,9 @@ export interface DeclarativeV2VerifierProgressSettleCommandInputV2 {
   };
   readonly nextProgress: DeclarativeV2VerifierProgressCursorFrameV2;
   readonly receipt: DeclarativeV2VerifierCommandReceiptFrameV2;
+  readonly authority?: Readonly<{
+    readonly terminalProofBytes: Uint8Array;
+  }>;
 }
 
 export interface DeclarativeV2VerifierProgressObserveCommandDecisionInputV2 {
@@ -453,6 +480,7 @@ export interface DeclarativeV2VerifierProgressObserveCommandDecisionInputV2 {
   readonly attemptSha256: Uint8Array;
   readonly sequence: bigint;
   readonly reservationSha256: Uint8Array;
+  readonly terminalProofBytes?: Uint8Array;
 }
 
 export interface DeclarativeV2VerifierProgressEvidencePageSnapshotV2 {
@@ -585,6 +613,7 @@ export interface DeclarativeV2VerifierProgressRepositoryV2 {
       readonly kind: "reserved" | "pendingReplay";
       readonly work: DeclarativeV2VerifierProgressWorkV2;
       readonly reservation: DeclarativeV2VerifierCommandReservationFrameV2;
+      readonly reservationSha256: Uint8Array;
       readonly operationUsage:
         DeclarativeV2VerifierProgressRepositoryOperationUsageV2;
     }>,
@@ -599,6 +628,7 @@ export interface DeclarativeV2VerifierProgressRepositoryV2 {
     Readonly<{
       readonly work: DeclarativeV2VerifierProgressWorkV2;
       readonly reservation: DeclarativeV2VerifierCommandReservationFrameV2;
+      readonly reservationSha256: Uint8Array;
       readonly operationUsage:
         DeclarativeV2VerifierProgressRepositoryOperationUsageV2;
     }>,
@@ -727,6 +757,22 @@ interface CapturedFrameV2<
   readonly sha256: Uint8Array;
 }
 
+interface CapturedCommandAuthorityV1 {
+  readonly futureRegistrationIntent:
+    | Readonly<{
+      readonly intent: DeclarativeV2FutureRegistrationIntentV1;
+      readonly bytes: Uint8Array;
+      readonly sha256: Uint8Array;
+    }>
+    | null;
+}
+
+interface CapturedTerminalAuthorityV1 {
+  readonly proof: DeclarativeV2TerminalAuthorityProofV1;
+  readonly bytes: Uint8Array;
+  readonly sha256: Uint8Array;
+}
+
 interface MutableRunStateV2 {
   readonly scopeId: ScopeId;
   readonly attemptSha256: Uint8Array;
@@ -753,6 +799,7 @@ interface MutableWorkStateV2 {
     readonly kind: "command_budget";
   };
   readonly commandBudgetBytes: Uint8Array;
+  readonly authenticatedAuthority: CapturedCommandAuthorityV1 | null;
   closed: boolean;
 }
 
@@ -794,6 +841,7 @@ interface CapturedSettlementV2 {
   readonly receipt: CapturedFrameV2<
     DeclarativeV2VerifierCommandReceiptFrameV2
   >;
+  readonly authority: CapturedTerminalAuthorityV1 | null;
   readonly nextLifecycle:
     DeclarativeV2VerifierStoredAttemptMetadataV2["lifecycle"];
 }
@@ -1280,6 +1328,44 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
           observeDrizzleQuery("acquireAttempt", query, options.observeQuery);
           const rows = await runStatement(() => query);
           requireOneRow("acquire", rows.length);
+          if (
+            locked.pendingKind !== null &&
+            locked.pendingSequence !== null &&
+            locked.pendingReservationSha256 !== null &&
+            locked.pendingReservedByFence !== null
+          ) {
+            chargeSqlOrThrow("acquire", budget, usage, 1);
+            const authorityTable =
+              fxSystemDeclarativeV2VerifierCommandAuthorityV1;
+            const authorityUpdate = tx
+              .update(authorityTable)
+              .set({ reservedByFence: writerFence })
+              .where(and(
+                eq(authorityTable.scopeId, selector.scopeId),
+                eq(authorityTable.attemptSha256, selector.attemptSha256),
+                eq(authorityTable.sequence, locked.pendingSequence),
+                eq(
+                  authorityTable.reservationSha256,
+                  locked.pendingReservationSha256,
+                ),
+                eq(
+                  authorityTable.reservedByFence,
+                  locked.pendingReservedByFence,
+                ),
+                isNull(authorityTable.settledAt),
+              ))
+              .returning({ sequence: authorityTable.sequence });
+            observeDrizzleQuery(
+              "takeoverCommandAuthority",
+              authorityUpdate,
+              options.observeQuery,
+            );
+            const authorityRows =
+              await runStatement(() => authorityUpdate);
+            if (authorityRows.length > 1) {
+              throw corruption("acquire", "rowCountMismatch");
+            }
+          }
           return Object.freeze({
             kind: "acquired" as const,
             ownerId: proposedOwner,
@@ -1501,6 +1587,23 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
               if (stored === null) {
                 throw corruption("reserveCommand", "normalizedMismatch");
               }
+              const storedAuthority = await readCommandAuthority(
+                tx,
+                "reserveCommand",
+                state.scopeId,
+                state.attemptSha256,
+                input.reservation.frame.sequence,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              requireCommandAuthorityPresenceAndEquality(
+                "reserveCommand",
+                input.authority,
+                storedAuthority,
+                input.reservation,
+                state.writerFence,
+              );
               return Object.freeze({
                 kind: "pendingReplay" as const,
                 stored,
@@ -1508,6 +1611,22 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
             }
             if (resultingUsage === null) {
               throw stale("reserveCommand", "stateChanged");
+            }
+            if (
+              input.authority !== null &&
+              input.authority.futureRegistrationIntent !== null &&
+              input.reservation.frame.commandKind === "registration_page"
+            ) {
+              await requireRegistrationPredecessorAuthority(
+                tx,
+                state.scopeId,
+                state.attemptSha256,
+                input.authority.futureRegistrationIntent,
+                input.reservation,
+                budget,
+                usage,
+                options.observeQuery,
+              );
             }
             requireElapsedOrThrow(
               "reserveCommand",
@@ -1555,6 +1674,41 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
                 operation: "reserveCommand",
                 reason: "commandChanged",
               });
+            }
+            if (input.authority !== null) {
+              const intent = input.authority.futureRegistrationIntent;
+              chargeSqlOrThrow("reserveCommand", budget, usage, 1);
+              const authorityInsert = tx
+                .insert(fxSystemDeclarativeV2VerifierCommandAuthorityV1)
+                .values({
+                  scopeId: state.scopeId,
+                  attemptSha256: state.attemptSha256,
+                  sequence: input.reservation.frame.sequence,
+                  commandKind: input.reservation.frame.commandKind,
+                  reservationSha256: input.reservation.sha256,
+                  reservedByFence: state.writerFence,
+                  reservedAt: locked.databaseNow,
+                  futureRegistrationIntentCodecVersion:
+                    intent === null ? null : 1,
+                  futureRegistrationIntentByteLength:
+                    intent === null ? null : BigInt(intent.bytes.byteLength),
+                  futureRegistrationIntentSha256:
+                    intent === null ? null : intent.sha256,
+                  futureRegistrationIntentBytes:
+                    intent === null ? null : intent.bytes,
+                })
+                .returning({
+                  sequence:
+                    fxSystemDeclarativeV2VerifierCommandAuthorityV1.sequence,
+                });
+              observeDrizzleQuery(
+                "insertCommandAuthority",
+                authorityInsert,
+                options.observeQuery,
+              );
+              const insertedAuthority =
+                await runStatement(() => authorityInsert);
+              requireOneRow("reserveCommand", insertedAuthority.length);
             }
             chargeSqlOrThrow("reserveCommand", budget, usage, 1);
             const update = tx
@@ -1629,12 +1783,14 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
           input.reservation.sha256,
           input.commandBudget.frame,
           input.commandBudget.bytes,
+          input.authority,
         );
         works.set(token.work, token.state);
         return Object.freeze({
           kind: decision.kind,
           work: token.work,
           reservation: copyReservation(input.reservation.frame),
+          reservationSha256: new Uint8Array(input.reservation.sha256),
           operationUsage: freezeUsage(usage),
         });
       }))
@@ -1705,6 +1861,23 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
             if (command === null) {
               throw corruption("resumePending", "normalizedMismatch");
             }
+            const storedAuthority = await readCommandAuthority(
+              tx,
+              "resumePending",
+              state.scopeId,
+              state.attemptSha256,
+              input.reservation.frame.sequence,
+              budget,
+              usage,
+              options.observeQuery,
+            );
+            requireCommandAuthorityPresenceAndEquality(
+              "resumePending",
+              input.authority,
+              storedAuthority,
+              input.reservation,
+              locked.pendingReservedByFence ?? state.writerFence,
+            );
             return command;
           },
         ).pipe(closeRunOnFailure(state, activeRuns));
@@ -1725,6 +1898,7 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
           input.reservation.sha256,
           input.commandBudget.frame,
           input.commandBudget.bytes,
+          input.authority,
         );
         works.set(token.work, token.state);
         yield* Effect.fromResult(setElapsed(
@@ -1737,6 +1911,7 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
         return Object.freeze({
           work: token.work,
           reservation: copyReservation(input.reservation.frame),
+          reservationSha256: new Uint8Array(input.reservation.sha256),
           operationUsage: freezeUsage(usage),
         });
       }))
@@ -2318,6 +2493,27 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
                     reason: "settlementChanged",
                   });
               }
+              const storedAuthority = await readCommandAuthority(
+                tx,
+                "settleCommand",
+                state.scopeId,
+                state.attemptSha256,
+                workState.sequence,
+                budget,
+                usage,
+                options.observeQuery,
+              );
+              requireCommandAuthorityPresenceAndEquality(
+                "settleCommand",
+                workState.authenticatedAuthority,
+                storedAuthority,
+                {
+                  frame: workState.reservation,
+                  bytes: workState.reservationBytes,
+                  sha256: workState.reservationSha256,
+                },
+                null,
+              );
               await requirePageSettlementProof(
                 tx,
                 state,
@@ -2421,6 +2617,44 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
                 "settleCommand",
                 (await runStatement(() => commandUpdate)).length,
               );
+              if (input.authority !== null) {
+                chargeSqlOrThrow("settleCommand", budget, usage, 1);
+                const authorityTable =
+                  fxSystemDeclarativeV2VerifierCommandAuthorityV1;
+                const authorityUpdate = tx
+                  .update(authorityTable)
+                  .set({
+                    terminalProofCodecVersion: 1,
+                    terminalProofByteLength:
+                      BigInt(input.authority.bytes.byteLength),
+                    terminalProofSha256: input.authority.sha256,
+                    terminalProofBytes: input.authority.bytes,
+                    settledAt: attempt.databaseNow,
+                  })
+                  .where(and(
+                    eq(authorityTable.scopeId, state.scopeId),
+                    eq(
+                      authorityTable.attemptSha256,
+                      state.attemptSha256,
+                    ),
+                    eq(authorityTable.sequence, workState.sequence),
+                    eq(
+                      authorityTable.reservationSha256,
+                      workState.reservationSha256,
+                    ),
+                    isNull(authorityTable.settledAt),
+                  ))
+                  .returning({ sequence: authorityTable.sequence });
+                observeDrizzleQuery(
+                  "settleCommandAuthority",
+                  authorityUpdate,
+                  options.observeQuery,
+                );
+                requireOneRow(
+                  "settleCommand",
+                  (await runStatement(() => authorityUpdate)).length,
+                );
+              }
               chargeSqlOrThrow("settleCommand", budget, usage, 1);
               const attemptUpdate = tx
                 .update(fxSystemDeclarativeV2VerifierAttemptsV2)
@@ -2523,9 +2757,45 @@ export function makeDeclarativeV2VerifierProgressRepositoryV2(
       decodeOperationBudget("observeCommandDecision", rawBudget),
     );
     const usage = mutableUsage();
-    const input = yield* Effect.fromResult(
+    const capturedInput = yield* Effect.fromResult(
       captureCommandDecisionSelector(rawInput),
     );
+    let terminalProofSha256: Uint8Array | undefined;
+    if (capturedInput.terminalProofBytes !== undefined) {
+      const terminalProof = decodeDeclarativeV2TerminalAuthorityProofV1(
+        capturedInput.terminalProofBytes,
+      );
+      if (
+        Result.isFailure(terminalProof) ||
+        terminalProof.success.proof.sequence !== capturedInput.sequence ||
+        !bytesEqualFullScan(
+          terminalProof.success.proof.reservationSha256,
+          capturedInput.reservationSha256,
+        )
+      ) {
+        return yield* inputError("observeCommandDecision", "invalidInput");
+      }
+      for (const dimension of ["frameBytes", "canonicalBytes", "hashBytes"] as const) {
+        chargeOrThrow(
+          "observeCommandDecision",
+          budget,
+          usage,
+          dimension,
+          capturedInput.terminalProofBytes.byteLength,
+        );
+      }
+      terminalProofSha256 = yield* sha256(capturedInput.terminalProofBytes, {
+        maximumInputBytes: capturedInput.terminalProofBytes.byteLength,
+      });
+    }
+    const input: typeof capturedInput & {
+      readonly terminalProofSha256?: Uint8Array;
+    } = terminalProofSha256 === undefined
+      ? capturedInput
+      : Object.freeze({
+        ...capturedInput,
+        terminalProofSha256,
+      });
     const rows = yield* loadCommandDecisionRows(
       target,
       input,
@@ -2807,10 +3077,27 @@ function captureCommandDecisionSelector(
   DeclarativeV2VerifierProgressRepositoryInputV2Error
 > {
   return Result.gen(function* () {
+    let hasTerminalProof = false;
+    try {
+      hasTerminalProof = isNonArrayRecord(input) &&
+        Object.hasOwn(input, "terminalProofBytes");
+    } catch {
+      return yield* Result.fail(
+        inputError("observeCommandDecision", "invalidInput"),
+      );
+    }
     const record = yield* captureExactRecord(
       "observeCommandDecision",
       input,
-      ["scopeId", "attemptSha256", "sequence", "reservationSha256"],
+      hasTerminalProof
+        ? [
+          "scopeId",
+          "attemptSha256",
+          "sequence",
+          "reservationSha256",
+          "terminalProofBytes",
+        ]
+        : ["scopeId", "attemptSha256", "sequence", "reservationSha256"],
     );
     const scopeId = yield* decodeScopeId(
       "observeCommandDecision",
@@ -2822,6 +3109,10 @@ function captureCommandDecisionSelector(
       record.sequence < 1n ||
       record.sequence > MAX_SIGNED_INT64 ||
       !isUint8ArrayWithByteLength(record.reservationSha256, 32)
+      || (
+        hasTerminalProof &&
+        !isUint8Array(record.terminalProofBytes)
+      )
     ) {
       return yield* Result.fail(
         inputError("observeCommandDecision", "invalidInput"),
@@ -2832,6 +3123,11 @@ function captureCommandDecisionSelector(
       attemptSha256: new Uint8Array(record.attemptSha256),
       sequence: record.sequence,
       reservationSha256: new Uint8Array(record.reservationSha256),
+      ...(hasTerminalProof
+        ? { terminalProofBytes: new Uint8Array(
+          record.terminalProofBytes as Uint8Array,
+        ) }
+        : {}),
     });
   });
 }
@@ -3651,13 +3947,18 @@ function captureReserveInput(
   sha256: DeclarativeV2Sha256V1,
 ) {
   return Effect.gen(function* () {
-    const record = yield* Effect.fromResult(
-      captureExactRecord(
+    const authenticatedRecord = captureExactRecord(
+      operation,
+      input,
+      ["reservation", "commandBudget", "authority"],
+    );
+    const record = Result.isSuccess(authenticatedRecord)
+      ? authenticatedRecord.success
+      : yield* Effect.fromResult(captureExactRecord(
         operation,
         input,
         ["reservation", "commandBudget"],
-      ),
-    );
+      ));
     const commandBudget = yield* captureFrame(
       operation,
       record.commandBudget,
@@ -3690,7 +3991,109 @@ function captureReserveInput(
     ) {
       return yield* inputError(operation, "commandMismatch");
     }
-    return Object.freeze({ reservation, commandBudget });
+    const authority = Object.hasOwn(record, "authority")
+      ? yield* captureCommandAuthority(
+        operation,
+        record.authority,
+        reservation,
+        budget,
+        usage,
+        sha256,
+      )
+      : null;
+    return Object.freeze({ reservation, commandBudget, authority });
+  });
+}
+
+function captureCommandAuthority(
+  operation: "reserveCommand" | "resumePending",
+  input: unknown,
+  capturedReservation:
+    CapturedFrameV2<DeclarativeV2VerifierCommandReservationFrameV2>,
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  usage: MutableOperationUsageV2,
+  sha256: DeclarativeV2Sha256V1,
+): Effect.Effect<
+  CapturedCommandAuthorityV1,
+  DeclarativeV2VerifierProgressRepositoryV2Error
+> {
+  return Effect.gen(function* () {
+    const reservation = capturedReservation.frame;
+    const record = yield* Effect.fromResult(captureExactRecord(
+      operation,
+      input,
+      ["futureRegistrationIntentBytes"],
+    ));
+    const rawBytes = record.futureRegistrationIntentBytes;
+    if (rawBytes === null) {
+      if (
+        reservation.commandKind === "link_page" ||
+        reservation.commandKind === "registration_page"
+      ) {
+        return yield* inputError(operation, "commandMismatch");
+      }
+      return Object.freeze({ futureRegistrationIntent: null });
+    }
+    if (!isUint8Array(rawBytes)) {
+      return yield* inputError(operation, "invalidInput");
+    }
+    const decoded = decodeDeclarativeV2FutureRegistrationIntentV1(rawBytes);
+    if (Result.isFailure(decoded)) {
+      return yield* inputError(operation, "commandMismatch");
+    }
+    const bytes = new Uint8Array(decoded.success.canonicalBytes);
+    chargeOrThrow(operation, budget, usage, "frameBytes", bytes.byteLength);
+    chargeOrThrow(operation, budget, usage, "canonicalBytes", bytes.byteLength);
+    chargeOrThrow(operation, budget, usage, "hashBytes", bytes.byteLength);
+    const intentSha256 = yield* sha256(bytes, {
+      maximumInputBytes: bytes.byteLength,
+    });
+    const intent = decoded.success.intent;
+    const commonMatches =
+      bytesEqualFullScan(intent.attemptSha256, reservation.attemptSha256) &&
+      bytesEqualFullScan(intent.candidateSha256, reservation.candidateSha256) &&
+      bytesEqualFullScan(
+        intent.analyzerIdentitySha256,
+        reservation.analyzerIdentitySha256,
+      ) &&
+      bytesEqualFullScan(
+        intent.verifierIdentitySha256,
+        reservation.verifierIdentitySha256,
+      );
+    const commandMatches = reservation.commandKind === "link_page"
+      ? intent.linkSequence === reservation.sequence &&
+        bytesEqualFullScan(
+          intent.linkReservationSha256,
+          capturedReservation.sha256,
+        )
+      : reservation.commandKind === "registration_page" &&
+        intent.registrationSequence === reservation.sequence &&
+        bytesEqualFullScan(
+          intent.registrationCurrentProgressSha256,
+          reservation.currentProgressSha256,
+        ) &&
+        bytesEqualFullScan(
+          intent.registrationCommandBudgetSha256,
+          reservation.commandBudgetSha256,
+        ) &&
+        bytesEqualFullScan(
+          intent.registrationCommandInputSha256,
+          reservation.commandInputSha256,
+        ) &&
+        bytesEqualFullScan(
+          intent.freshAuthenticatedInputSha256,
+          reservation.freshAuthenticatedInputSha256,
+        );
+    if (!commonMatches || !commandMatches) {
+      return yield* inputError(operation, "commandMismatch");
+    }
+    return Object.freeze({
+      futureRegistrationIntent: Object.freeze({
+        intent,
+        bytes,
+        sha256: new Uint8Array(intentSha256),
+      }),
+    });
   });
 }
 
@@ -3704,7 +4107,7 @@ const captureSettlementInput = Effect.fn(
   usage: MutableOperationUsageV2,
   sha256: DeclarativeV2Sha256V1,
 ) {
-  const record = yield* Effect.fromResult(captureExactRecord(
+  const authenticatedRecord = captureExactRecord(
     "settleCommand",
     input,
     [
@@ -3713,8 +4116,22 @@ const captureSettlementInput = Effect.fn(
       "resultingUsage",
       "nextProgress",
       "receipt",
+      "authority",
     ],
-  ));
+  );
+  const record = Result.isSuccess(authenticatedRecord)
+    ? authenticatedRecord.success
+    : yield* Effect.fromResult(captureExactRecord(
+      "settleCommand",
+      input,
+      [
+        "outputManifest",
+        "commandUsage",
+        "resultingUsage",
+        "nextProgress",
+        "receipt",
+      ],
+    ));
     const outputManifest = yield* captureFrame(
       "settleCommand",
       record.outputManifest,
@@ -3797,6 +4214,26 @@ const captureSettlementInput = Effect.fn(
     ) {
       return yield* inputError("settleCommand", "commandMismatch");
     }
+    const authority = Object.hasOwn(record, "authority")
+      ? yield* captureTerminalAuthority(
+        record.authority,
+        runState,
+        workState,
+        outputManifest,
+        commandUsage,
+        nextProgress,
+        receipt,
+        budget,
+        usage,
+        sha256,
+      )
+      : null;
+    if (
+      (workState.authenticatedAuthority === null) !==
+        (authority === null)
+    ) {
+      return yield* inputError("settleCommand", "commandMismatch");
+    }
     const nextLifecycle = deriveNextLifecycle(
       runState.attempt.lifecycle,
       runState.attempt.progress.phase,
@@ -3812,9 +4249,150 @@ const captureSettlementInput = Effect.fn(
     resultingUsage,
     nextProgress,
     receipt,
+    authority,
     nextLifecycle,
   });
 });
+
+function captureTerminalAuthority(
+  input: unknown,
+  runState: MutableRunStateV2,
+  workState: MutableWorkStateV2,
+  outputManifest: CapturedFrameV2<
+    DeclarativeV2VerifierCommandOutputManifestFrameV2
+  >,
+  commandUsage: CapturedFrameV2<
+    DeclarativeV2VerifierBudgetFrameV2 & { readonly kind: "command_budget" }
+  >,
+  nextProgress: CapturedFrameV2<
+    DeclarativeV2VerifierProgressCursorFrameV2
+  >,
+  receipt: CapturedFrameV2<DeclarativeV2VerifierCommandReceiptFrameV2>,
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  usage: MutableOperationUsageV2,
+  sha256: DeclarativeV2Sha256V1,
+): Effect.Effect<
+  CapturedTerminalAuthorityV1,
+  DeclarativeV2VerifierProgressRepositoryV2Error
+> {
+  return Effect.gen(function* () {
+    if (workState.authenticatedAuthority === null) {
+      return yield* inputError("settleCommand", "commandMismatch");
+    }
+    const record = yield* Effect.fromResult(captureExactRecord(
+      "settleCommand",
+      input,
+      ["terminalProofBytes"],
+    ));
+    if (!isUint8Array(record.terminalProofBytes)) {
+      return yield* inputError("settleCommand", "invalidInput");
+    }
+    const decoded = decodeDeclarativeV2TerminalAuthorityProofV1(
+      record.terminalProofBytes,
+    );
+    if (Result.isFailure(decoded)) {
+      return yield* inputError("settleCommand", "commandMismatch");
+    }
+    const bytes = new Uint8Array(decoded.success.canonicalBytes);
+    chargeOrThrow("settleCommand", budget, usage, "frameBytes", bytes.byteLength);
+    chargeOrThrow(
+      "settleCommand",
+      budget,
+      usage,
+      "canonicalBytes",
+      bytes.byteLength,
+    );
+    chargeOrThrow("settleCommand", budget, usage, "hashBytes", bytes.byteLength);
+    const proofSha256 = yield* sha256(bytes, {
+      maximumInputBytes: bytes.byteLength,
+    });
+    const proof = decoded.success.proof;
+    const intent = workState.authenticatedAuthority.futureRegistrationIntent;
+    const expectedIntent = intent === null ? null : intent.sha256;
+    const expectedAuthorityKind = workState.commandKind === "source_page"
+      ? "exact_requirement"
+      : "capacity";
+    const lineageMatches =
+      proof.authorityKind === expectedAuthorityKind &&
+      proof.commandKind === workState.commandKind &&
+      proof.sequence === workState.sequence &&
+      bytesEqualFullScan(proof.attemptSha256, runState.attemptSha256) &&
+      bytesEqualFullScan(
+        proof.candidateSha256,
+        runState.attempt.candidateSha256,
+      ) &&
+      bytesEqualFullScan(
+        proof.reservationSha256,
+        workState.reservationSha256,
+      ) &&
+      optionalDigestEqual(
+        proof.futureRegistrationIntentSha256,
+        expectedIntent,
+      ) &&
+      (
+        intent === null ||
+        bytesEqualFullScan(
+          proof.analyzerReleaseSha256,
+          intent.intent.analyzerReleaseSha256,
+        )
+      ) &&
+      bytesEqualFullScan(
+        proof.commandBudgetSha256,
+        workState.reservation.commandBudgetSha256,
+      ) &&
+      bytesEqualFullScan(
+        proof.commandInputSha256,
+        workState.reservation.commandInputSha256,
+      ) &&
+      bytesEqualFullScan(
+        proof.freshAuthenticatedInputSha256,
+        workState.reservation.freshAuthenticatedInputSha256,
+      ) &&
+      bytesEqualFullScan(
+        proof.rangeAndPredecessorTailsSha256,
+        workState.reservation.rangeAndPredecessorTailsSha256,
+      ) &&
+      bytesEqualFullScan(
+        proof.analyzerIdentitySha256,
+        workState.reservation.analyzerIdentitySha256,
+      ) &&
+      bytesEqualFullScan(
+        proof.verifierIdentitySha256,
+        workState.reservation.verifierIdentitySha256,
+      ) &&
+      bytesEqualFullScan(
+        proof.currentProgressSha256,
+        workState.reservation.currentProgressSha256,
+      ) &&
+      optionalDigestEqual(
+        proof.predecessorReceiptSha256,
+        workState.reservation.predecessorReceiptSha256,
+      ) &&
+      bytesEqualFullScan(
+        proof.nextProgressSha256,
+        nextProgress.sha256,
+      ) &&
+      bytesEqualFullScan(
+        proof.outputManifestSha256,
+        outputManifest.sha256,
+      ) &&
+       bytesEqualFullScan(proof.receiptSha256, receipt.sha256) &&
+       DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.every(dimension =>
+         proof.actual[dimension] === commandUsage.frame[dimension] &&
+         proof.authority[dimension] <= workState.commandBudget[dimension] &&
+         (proof.authorityKind !== "exact_requirement" ||
+           proof.authority[dimension] === proof.actual[dimension])
+       );
+    if (!lineageMatches) {
+      return yield* inputError("settleCommand", "commandMismatch");
+    }
+    return Object.freeze({
+      proof,
+      bytes,
+      sha256: new Uint8Array(proofSha256),
+    });
+  });
+}
 
 function budgetFrameWithin(
   actual: DeclarativeV2VerifierBudgetFrameV2,
@@ -4069,6 +4647,7 @@ const loadCommandDecisionRows = Effect.fn(
   target: LocatedReadCommittedAttemptTargetV1,
   input: DeclarativeV2VerifierProgressObserveCommandDecisionInputV2 & {
     readonly scopeId: ScopeId;
+    readonly terminalProofSha256?: Uint8Array;
   },
   budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
   usage: MutableOperationUsageV2,
@@ -4156,6 +4735,61 @@ const loadCommandDecisionRows = Effect.fn(
       }
       if (command.settledAt === null) {
         return Object.freeze({ kind: "unsettled" as const, attempt, command });
+      }
+      if (
+        input.terminalProofBytes !== undefined &&
+        input.terminalProofSha256 !== undefined
+      ) {
+        chargeSqlOrThrow("observeCommandDecision", budget, usage, 1);
+        const authority = fxSystemDeclarativeV2VerifierCommandAuthorityV1;
+        const authorityQuery = tx
+          .select({
+            commandKind: authority.commandKind,
+            reservationSha256: authority.reservationSha256,
+            terminalProofCodecVersion: authority.terminalProofCodecVersion,
+            terminalProofByteLength: authority.terminalProofByteLength,
+            terminalProofSha256: authority.terminalProofSha256,
+            terminalProofBytes: authority.terminalProofBytes,
+            settledAt: authority.settledAt,
+          })
+          .from(authority)
+          .where(and(
+            eq(authority.scopeId, input.scopeId),
+            eq(authority.attemptSha256, input.attemptSha256),
+            eq(authority.sequence, input.sequence),
+          ))
+          .for("share");
+        observeDrizzleQuery(
+          "decisionCommandAuthority",
+          authorityQuery,
+          observer,
+        );
+        const authorityRows = await runStatement(() => authorityQuery);
+        requireOneRow("observeCommandDecision", authorityRows.length);
+        const storedAuthority = authorityRows[0]!;
+        if (
+          storedAuthority.commandKind !== command.commandKind ||
+          !bytesEqualFullScan(
+            storedAuthority.reservationSha256,
+            input.reservationSha256,
+          ) ||
+          storedAuthority.terminalProofCodecVersion !== 1 ||
+          storedAuthority.terminalProofByteLength !==
+            BigInt(input.terminalProofBytes.byteLength) ||
+          storedAuthority.terminalProofSha256 === null ||
+          storedAuthority.terminalProofBytes === null ||
+          storedAuthority.settledAt === null ||
+          !bytesEqualFullScan(
+            storedAuthority.terminalProofSha256,
+            input.terminalProofSha256,
+          ) ||
+          !bytesEqualFullScan(
+            storedAuthority.terminalProofBytes,
+            input.terminalProofBytes,
+          )
+        ) {
+          throw corruption("observeCommandDecision", "normalizedMismatch");
+        }
       }
       let finalPageMetadata:
         DeclarativeV2VerifierStoredEvidencePageMetadataV2 | null = null;
@@ -4702,6 +5336,266 @@ type RawCommandRowsV2 = Readonly<{
   readonly reservationBytes: Uint8Array;
   readonly commandBudgetBytes: Uint8Array;
 }>;
+
+type RawCommandAuthorityV1 = Readonly<{
+  readonly commandKind: DeclarativeV2VerifierDurableCommandKindV2;
+  readonly reservationSha256: Uint8Array;
+  readonly reservedByFence: bigint;
+  readonly futureRegistrationIntentCodecVersion: number | null;
+  readonly futureRegistrationIntentByteLength: bigint | null;
+  readonly futureRegistrationIntentSha256: Uint8Array | null;
+  readonly futureRegistrationIntentBytes: Uint8Array | null;
+  readonly terminalProofCodecVersion: number | null;
+  readonly terminalProofByteLength: bigint | null;
+  readonly terminalProofSha256: Uint8Array | null;
+  readonly terminalProofBytes: Uint8Array | null;
+  readonly settledAt: Date | null;
+}>;
+
+async function readCommandAuthority(
+  tx: AppRowTransaction,
+  operation: "reserveCommand" | "resumePending" | "settleCommand",
+  scopeId: ScopeId,
+  attemptSha256: Uint8Array,
+  sequence: bigint,
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  usage: MutableOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Promise<RawCommandAuthorityV1 | null> {
+  chargeSqlOrThrow(operation, budget, usage, 1);
+  const table = fxSystemDeclarativeV2VerifierCommandAuthorityV1;
+  const query = tx
+    .select({
+      commandKind: table.commandKind,
+      reservationSha256: table.reservationSha256,
+      reservedByFence: table.reservedByFence,
+      futureRegistrationIntentCodecVersion:
+        table.futureRegistrationIntentCodecVersion,
+      futureRegistrationIntentByteLength:
+        table.futureRegistrationIntentByteLength,
+      futureRegistrationIntentSha256:
+        table.futureRegistrationIntentSha256,
+      futureRegistrationIntentBytes: table.futureRegistrationIntentBytes,
+      terminalProofCodecVersion: table.terminalProofCodecVersion,
+      terminalProofByteLength: table.terminalProofByteLength,
+      terminalProofSha256: table.terminalProofSha256,
+      terminalProofBytes: table.terminalProofBytes,
+      settledAt: table.settledAt,
+    })
+    .from(table)
+    .where(and(
+      eq(table.scopeId, scopeId),
+      eq(table.attemptSha256, attemptSha256),
+      eq(table.sequence, sequence),
+    ))
+    .for("update");
+  observeDrizzleQuery("commandAuthority", query, observer);
+  const rows = await runStatement(() => query);
+  if (rows.length === 0) return null;
+  if (rows.length !== 1) throw corruption(operation, "selectorMismatch");
+  return rows[0]!;
+}
+
+async function requireRegistrationPredecessorAuthority(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  attemptSha256: Uint8Array,
+  intent: NonNullable<
+    CapturedCommandAuthorityV1["futureRegistrationIntent"]
+  >,
+  registrationReservation: CapturedFrameV2<
+    DeclarativeV2VerifierCommandReservationFrameV2
+  >,
+  budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  usage: MutableOperationUsageV2,
+  observer:
+    DeclarativeV2VerifierProgressRepositoryOptionsV2["observeQuery"],
+): Promise<void> {
+  chargeSqlOrThrow("reserveCommand", budget, usage, 1);
+  const authority = fxSystemDeclarativeV2VerifierCommandAuthorityV1;
+  const command = fxSystemDeclarativeV2VerifierCommandsV2;
+  const query = tx
+    .select({
+      authorityKind: authority.commandKind,
+      authorityReservationSha256: authority.reservationSha256,
+      intentCodecVersion: authority.futureRegistrationIntentCodecVersion,
+      intentByteLength: authority.futureRegistrationIntentByteLength,
+      intentSha256: authority.futureRegistrationIntentSha256,
+      intentBytes: authority.futureRegistrationIntentBytes,
+      terminalProofCodecVersion: authority.terminalProofCodecVersion,
+      terminalProofByteLength: authority.terminalProofByteLength,
+      terminalProofSha256: authority.terminalProofSha256,
+      terminalProofBytes: authority.terminalProofBytes,
+      authoritySettledAt: authority.settledAt,
+      commandKind: command.commandKind,
+      commandReservationSha256: command.reservationSha256,
+      receiptSha256: command.receiptSha256,
+      commandSettledAt: command.settledAt,
+    })
+    .from(authority)
+    .innerJoin(command, and(
+      eq(command.scopeId, authority.scopeId),
+      eq(command.attemptSha256, authority.attemptSha256),
+      eq(command.sequence, authority.sequence),
+      eq(command.reservationSha256, authority.reservationSha256),
+      eq(command.commandKind, authority.commandKind),
+    ))
+    .where(and(
+      eq(authority.scopeId, scopeId),
+      eq(authority.attemptSha256, attemptSha256),
+      eq(authority.sequence, intent.intent.linkSequence),
+    ))
+    .for("update");
+  observeDrizzleQuery("registrationPredecessorAuthority", query, observer);
+  const rows = await runStatement(() => query);
+  if (rows.length !== 1) {
+    throw new DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+      operation: "reserveCommand",
+      reason: "commandChanged",
+    });
+  }
+  const stored = rows[0]!;
+  const predecessorReceiptSha256 =
+    registrationReservation.frame.predecessorReceiptSha256;
+  if (
+    stored.authorityKind !== "link_page" ||
+    stored.commandKind !== "link_page" ||
+    !bytesEqualFullScan(
+      stored.authorityReservationSha256,
+      intent.intent.linkReservationSha256,
+    ) ||
+    !bytesEqualFullScan(
+      stored.commandReservationSha256,
+      intent.intent.linkReservationSha256,
+    ) ||
+    stored.intentCodecVersion !== 1 ||
+    stored.intentByteLength !== BigInt(intent.bytes.byteLength) ||
+    stored.intentSha256 === null ||
+    stored.intentBytes === null ||
+    !bytesEqualFullScan(stored.intentSha256, intent.sha256) ||
+    !bytesEqualFullScan(stored.intentBytes, intent.bytes) ||
+    stored.terminalProofCodecVersion !== 1 ||
+    stored.terminalProofByteLength === null ||
+    stored.terminalProofSha256 === null ||
+    stored.terminalProofBytes === null ||
+    stored.authoritySettledAt === null ||
+    stored.receiptSha256 === null ||
+    stored.commandSettledAt === null ||
+    predecessorReceiptSha256 === null ||
+    !bytesEqualFullScan(stored.receiptSha256, predecessorReceiptSha256)
+  ) {
+    throw new DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+      operation: "reserveCommand",
+      reason: "commandChanged",
+    });
+  }
+  const terminalProof = decodeDeclarativeV2TerminalAuthorityProofV1(
+    stored.terminalProofBytes,
+  );
+  if (
+    Result.isFailure(terminalProof) ||
+    terminalProof.success.proof.commandKind !== "link_page" ||
+    terminalProof.success.proof.sequence !== intent.intent.linkSequence ||
+    terminalProof.success.proof.futureRegistrationIntentSha256 === null ||
+    !bytesEqualFullScan(
+      terminalProof.success.proof.futureRegistrationIntentSha256,
+      intent.sha256,
+    ) ||
+    !bytesEqualFullScan(
+      terminalProof.success.proof.reservationSha256,
+      intent.intent.linkReservationSha256,
+    ) ||
+    !bytesEqualFullScan(
+      terminalProof.success.proof.receiptSha256,
+      stored.receiptSha256,
+    )
+  ) {
+    throw corruption("reserveCommand", "invalidStoredBytes");
+  }
+}
+
+function requireCommandAuthorityPresenceAndEquality(
+  operation: "reserveCommand" | "resumePending" | "settleCommand",
+  expected: CapturedCommandAuthorityV1 | null,
+  stored: RawCommandAuthorityV1 | null,
+  reservation: CapturedFrameV2<
+    DeclarativeV2VerifierCommandReservationFrameV2
+  >,
+  writerFence: bigint | null,
+): void {
+  if (expected === null) {
+    if (stored !== null) {
+      throw new DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+        operation,
+        reason: "commandChanged",
+      });
+    }
+    return;
+  }
+  requireCommandAuthorityEquals(
+    operation,
+    expected,
+    stored,
+    reservation,
+    writerFence,
+  );
+}
+
+function requireCommandAuthorityEquals(
+  operation: "reserveCommand" | "resumePending" | "settleCommand",
+  expected: CapturedCommandAuthorityV1,
+  stored: RawCommandAuthorityV1 | null,
+  reservation: CapturedFrameV2<
+    DeclarativeV2VerifierCommandReservationFrameV2
+  >,
+  writerFence: bigint | null,
+): void {
+  const intent = expected.futureRegistrationIntent;
+  if (
+    stored === null ||
+    stored.commandKind !== reservation.frame.commandKind ||
+    (writerFence !== null && stored.reservedByFence !== writerFence) ||
+    !bytesEqualFullScan(
+      stored.reservationSha256,
+      reservation.sha256,
+    ) ||
+    stored.terminalProofCodecVersion !== null ||
+    stored.terminalProofByteLength !== null ||
+    stored.terminalProofSha256 !== null ||
+    stored.terminalProofBytes !== null ||
+    stored.settledAt !== null
+  ) {
+    throw new DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+      operation,
+      reason: "commandChanged",
+    });
+  }
+  const sameIntent = intent === null
+    ? stored.futureRegistrationIntentCodecVersion === null &&
+      stored.futureRegistrationIntentByteLength === null &&
+      stored.futureRegistrationIntentSha256 === null &&
+      stored.futureRegistrationIntentBytes === null
+    : stored.futureRegistrationIntentCodecVersion === 1 &&
+      stored.futureRegistrationIntentByteLength ===
+        BigInt(intent.bytes.byteLength) &&
+      stored.futureRegistrationIntentSha256 !== null &&
+      stored.futureRegistrationIntentBytes !== null &&
+      bytesEqualFullScan(
+        stored.futureRegistrationIntentSha256,
+        intent.sha256,
+      ) &&
+      bytesEqualFullScan(
+        stored.futureRegistrationIntentBytes,
+        intent.bytes,
+      );
+  if (!sameIntent) {
+    throw new DeclarativeV2VerifierProgressRepositoryConflictV2Error({
+      operation,
+      reason: "commandChanged",
+    });
+  }
+}
 
 async function readCommandRows(
   tx: AppRowTransaction,
@@ -7289,6 +8183,7 @@ function prepareWorkToken(
     readonly kind: "command_budget";
   },
   commandBudgetBytes: Uint8Array,
+  authenticatedAuthority: CapturedCommandAuthorityV1 | null,
 ) {
   const work = Object.freeze({
     _tag: "DeclarativeV2VerifierProgressWorkV2" as const,
@@ -7302,6 +8197,7 @@ function prepareWorkToken(
     reservationBytes: new Uint8Array(reservationBytes),
     commandBudget: copyBudgetFrame(commandBudget),
     commandBudgetBytes: new Uint8Array(commandBudgetBytes),
+    authenticatedAuthority,
     closed: false,
   };
   return Object.freeze({ work, state });

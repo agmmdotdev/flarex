@@ -131,6 +131,7 @@ export class DeclarativeV2VerifierRegistrationV1Error extends Data.TaggedError(
 
 export interface DeclarativeV2VerifierRegistrationBindingsV1
   extends DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
+  readonly registrationReservationSha256: Uint8Array;
   readonly semanticSha256: Uint8Array;
 }
 
@@ -214,7 +215,7 @@ export interface DeclarativeV2VerifierRegistrationFactoryV1 {
 
 type CapturedBindings = Readonly<{
   attemptSha256: Uint8Array;
-  reservationSha256: Uint8Array;
+  futureRegistrationIntentSha256: Uint8Array;
   candidateSha256: Uint8Array;
   authenticatedInputSha256: Uint8Array;
   linkSequence: bigint;
@@ -225,6 +226,7 @@ type CapturedBindings = Readonly<{
   analyzerReleaseSha256: Uint8Array;
   analyzerIdentitySha256: Uint8Array;
   verifierIdentitySha256: Uint8Array;
+  registrationReservationSha256: Uint8Array;
   semanticSha256: Uint8Array;
 }>;
 
@@ -619,7 +621,7 @@ function captureBudget(
 
 const BINDING_KEYS = [
   "attemptSha256",
-  "reservationSha256",
+  "futureRegistrationIntentSha256",
   "candidateSha256",
   "authenticatedInputSha256",
   "linkSequence",
@@ -630,6 +632,7 @@ const BINDING_KEYS = [
   "analyzerReleaseSha256",
   "analyzerIdentitySha256",
   "verifierIdentitySha256",
+  "registrationReservationSha256",
   "semanticSha256",
 ] as const;
 
@@ -666,7 +669,8 @@ function linkBindings(
 ): DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
   return Object.freeze({
     attemptSha256: bindings.attemptSha256,
-    reservationSha256: bindings.reservationSha256,
+    futureRegistrationIntentSha256:
+      bindings.futureRegistrationIntentSha256,
     candidateSha256: bindings.candidateSha256,
     authenticatedInputSha256: bindings.authenticatedInputSha256,
     linkSequence: bindings.linkSequence,
@@ -1222,7 +1226,7 @@ function prepareTerminalPlans(state: DriverState): void {
   state.nextProgressPlan = createProgressPlan(state.progressFactory!, nextProgress);
   const dummyManifest = Object.freeze({
     kind: "command_output_manifest",
-    reservationSha256: input.bindings.reservationSha256,
+    reservationSha256: input.bindings.registrationReservationSha256,
     commandKind: "registration_page",
     sequence: input.sequence,
     evidenceRootSha256: new Uint8Array(32),
@@ -2029,7 +2033,8 @@ export function makeDeclarativeV2VerifierRegistrationFactoryV1(
         if (state.outputManifestCursor === undefined) {
           const manifest = Object.freeze({
             kind: "command_output_manifest",
-            reservationSha256: state.input!.bindings.reservationSha256,
+            reservationSha256:
+              state.input!.bindings.registrationReservationSha256,
             commandKind: "registration_page",
             sequence: state.input!.sequence,
             evidenceRootSha256: state.registrationRootSha256!,

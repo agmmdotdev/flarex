@@ -2,6 +2,12 @@ import { webcrypto } from "node:crypto";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  encodeDeclarativeV2FutureRegistrationIntentV1,
+} from "flarex-protocol/internal/declarative-v2-future-registration-intent-v1";
+import {
+  encodeDeclarativeV2TerminalAuthorityProofV1,
+} from "flarex-protocol/internal/declarative-v2-terminal-authority-proof-v1";
+import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   encodeDeclarativeV2VerifierProgressFrameV2,
   type DeclarativeV2VerifierBudgetFrameV2,
@@ -19,6 +25,9 @@ import {
 
 import { makeDeclarativeV2InertRepositoryV1 } from
   "../src/declarativeV2InertRepository";
+import {
+  makeAuthenticatedDeclarativeV2CommandBridgeV1,
+} from "../src/authenticatedDeclarativeV2CommandBridgeV1";
 import {
   makeDeclarativeV2VerifierProgressRepositoryV2,
   type DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
@@ -57,6 +66,747 @@ const pageOperationBudget = Object.freeze({
 }) satisfies DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2;
 
 describe("Declarative V2 progress repository V2 attempt/lease/reservation", () => {
+  it("atomically binds one immutable future-registration intent to pending link work", async () => {
+    const current = await fixture();
+    await moveAttemptToLink(current.persistence, current.attemptSha256);
+    const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
+      current.repository,
+    );
+    const acquired = await runEffect(
+      bridge.acquire(scopeId, current.attemptSha256, operationBudget),
+    );
+    const observed = await runEffect(current.repository.observeAttempt(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    if (observed.kind !== "present") throw new Error("Expected attempt.");
+    const input = await reservationInput(
+      observed.attempt,
+      1n,
+      0xa1,
+      1n,
+      "link_page",
+    );
+    const plannedLinkSettlement = await settlementInput(
+      input.reservation,
+      digest(0xb0),
+      1n,
+      digest(0xb7),
+      1n,
+      "registration",
+    );
+    const registrationCommandBudget = semanticBudget(
+      "command_budget",
+      1n,
+    ) as DeclarativeV2VerifierBudgetFrameV2 & {
+      readonly kind: "command_budget";
+    };
+    const intent = Result.getOrThrow(
+      encodeDeclarativeV2FutureRegistrationIntentV1({
+        attemptSha256: current.attemptSha256,
+        candidateSha256: current.candidateSha256,
+        linkReservationSha256: await frameSha256(input.reservation),
+        linkSequence: 1n,
+        registrationSequence: 2n,
+        registrationCurrentProgressSha256:
+          await frameSha256Any(plannedLinkSettlement.nextProgress),
+        registrationCommandBudgetSha256:
+          await frameSha256Any(registrationCommandBudget),
+        registrationCommandInputSha256: digest(0xb3),
+        freshAuthenticatedInputSha256: digest(0xb4),
+        parsePagesRootSha256: digest(0xb5),
+        analyzerReleaseSha256: digest(0xb6),
+        analyzerIdentitySha256:
+          input.reservation.analyzerIdentitySha256,
+        verifierIdentitySha256:
+          input.reservation.verifierIdentitySha256,
+      }),
+    );
+    const reserved = await runEffect(bridge.reserve(
+      acquired.session,
+      {
+        ...input,
+        futureRegistrationIntentBytes: intent.canonicalBytes,
+      },
+      operationBudget,
+    ));
+    expect(reserved.kind).toBe("reserved");
+    const rows = await current.persistence.query<{
+      future_registration_intent_bytes: Uint8Array;
+      terminal_proof_bytes: Uint8Array | null;
+    }>(
+      `select future_registration_intent_bytes, terminal_proof_bytes
+       from fx_system_declarative_v2_verifier_command_authority_v1
+       where scope_id = $1 and attempt_sha256 = $2 and sequence = 1`,
+      [scopeId, current.attemptSha256],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]!.future_registration_intent_bytes).toEqual(
+      intent.canonicalBytes,
+    );
+    expect(rows.rows[0]!.terminal_proof_bytes).toBeNull();
+
+    const replay = await runEffect(bridge.reserve(
+      acquired.session,
+      {
+        ...input,
+        futureRegistrationIntentBytes: intent.canonicalBytes,
+      },
+      operationBudget,
+    ));
+    expect(replay.kind).toBe("pendingReplay");
+    const contradicted = await runEffectFailure(bridge.reserve(
+      acquired.session,
+      {
+        ...input,
+        futureRegistrationIntentBytes: Result.getOrThrow(
+          encodeDeclarativeV2FutureRegistrationIntentV1({
+            ...intent.intent,
+            parsePagesRootSha256: digest(0xff),
+          }),
+        ).canonicalBytes,
+      },
+      operationBudget,
+    ));
+    expect(contradicted).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryConflictV2Error",
+      operation: "reserveCommand",
+      reason: "commandChanged",
+    });
+
+    const page = await evidencePageInput(
+      reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([7, 8, 9]),
+      0xb7,
+    );
+    const appended = await runEffect(bridge.appendEvidencePage(
+      reserved.work,
+      page,
+      pageOperationBudget,
+    ));
+    const linkSettlement = await settlementInput(
+      reserved.reservation,
+      appended.pageSha256,
+      1n,
+      digest(0xb7),
+      1n,
+      "registration",
+    );
+    const terminalProof = await terminalAuthorityProof(
+      reserved.reservation,
+      linkSettlement,
+      await sha256(intent.canonicalBytes),
+      intent.intent.analyzerReleaseSha256,
+      "capacity",
+    );
+    const settled = await runEffect(bridge.settle(
+      reserved.work,
+      {
+        ...linkSettlement,
+        terminalProofBytes: terminalProof,
+      },
+      operationBudget,
+    ));
+    expect(settled.settlement.nextProgress.phase).toBe("registration");
+
+    const afterLink = await runEffect(current.repository.observeAttempt(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    if (afterLink.kind !== "present") throw new Error("Expected attempt.");
+    const registrationReservation:
+      DeclarativeV2VerifierCommandReservationFrameV2 = {
+        kind: "command_reservation",
+        attemptSha256: current.attemptSha256,
+        candidateSha256: current.candidateSha256,
+        commandKind: "registration_page",
+        sequence: 2n,
+        currentProgressSha256:
+          intent.intent.registrationCurrentProgressSha256,
+        predecessorReceiptSha256: afterLink.attempt.lastReceiptSha256,
+        commandBudgetSha256:
+          intent.intent.registrationCommandBudgetSha256,
+        commandInputSha256:
+          intent.intent.registrationCommandInputSha256,
+        freshAuthenticatedInputSha256:
+          intent.intent.freshAuthenticatedInputSha256,
+        analyzerIdentitySha256: intent.intent.analyzerIdentitySha256,
+        verifierIdentitySha256: intent.intent.verifierIdentitySha256,
+        rangeAndPredecessorTailsSha256: digest(0xb8),
+      };
+    const registration = await runEffect(bridge.reserve(
+      acquired.session,
+      {
+        reservation: registrationReservation,
+        commandBudget: registrationCommandBudget,
+        futureRegistrationIntentBytes: intent.canonicalBytes,
+      },
+      operationBudget,
+    ));
+    expect(registration.kind).toBe("reserved");
+    const authorityRows = await current.persistence.query<{
+      sequence: string;
+      future_registration_intent_sha256: Uint8Array;
+      terminal_proof_bytes: Uint8Array | null;
+    }>(
+      `select sequence::text, future_registration_intent_sha256,
+              terminal_proof_bytes
+       from fx_system_declarative_v2_verifier_command_authority_v1
+       where scope_id = $1 and attempt_sha256 = $2
+       order by sequence`,
+      [scopeId, current.attemptSha256],
+    );
+    expect(authorityRows.rows.map(row => row.sequence)).toEqual(["1", "2"]);
+    expect(authorityRows.rows[0]!.terminal_proof_bytes).toEqual(terminalProof);
+    expect(authorityRows.rows[1]!.terminal_proof_bytes).toBeNull();
+    expect(authorityRows.rows[1]!.future_registration_intent_sha256).toEqual(
+      await sha256(intent.canonicalBytes),
+    );
+  });
+
+  it("rejects authenticated pending work replayed or resumed as legacy work", async () => {
+    for (const operation of ["reserveCommand", "resumePending"] as const) {
+      const current = await fixture();
+      await moveAttemptToLink(current.persistence, current.attemptSha256);
+      const acquired = await runEffect(current.repository.acquire(
+        scopeId,
+        current.attemptSha256,
+        operationBudget,
+      ));
+      const input = await reservationInput(
+        acquired.attempt,
+        1n,
+        0xbc,
+        1n,
+        "link_page",
+      );
+      const intent = Result.getOrThrow(
+        encodeDeclarativeV2FutureRegistrationIntentV1({
+          attemptSha256: current.attemptSha256,
+          candidateSha256: current.candidateSha256,
+          linkReservationSha256: await frameSha256(input.reservation),
+          linkSequence: 1n,
+          registrationSequence: 2n,
+          registrationCurrentProgressSha256: digest(0xbd),
+          registrationCommandBudgetSha256: digest(0xbe),
+          registrationCommandInputSha256: digest(0xbf),
+          freshAuthenticatedInputSha256: digest(0xc0),
+          parsePagesRootSha256: digest(0xc1),
+          analyzerReleaseSha256: digest(0xc2),
+          analyzerIdentitySha256: input.reservation.analyzerIdentitySha256,
+          verifierIdentitySha256: input.reservation.verifierIdentitySha256,
+        }),
+      );
+      await runEffect(current.repository.reserveCommand(
+        acquired.run,
+        {
+          ...input,
+          authority: {
+            futureRegistrationIntentBytes: intent.canonicalBytes,
+          },
+        },
+        operationBudget,
+      ));
+      const downgraded = operation === "reserveCommand"
+        ? current.repository.reserveCommand(
+          acquired.run,
+          input,
+          operationBudget,
+        )
+        : current.repository.resumePending(
+          acquired.run,
+          input,
+          operationBudget,
+        );
+      expect(await runEffectFailure(downgraded)).toMatchObject({
+        _tag: "DeclarativeV2VerifierProgressRepositoryConflictV2Error",
+        operation,
+        reason: "commandChanged",
+      });
+    }
+  });
+
+  it("rejects analyzer capacity above the reserved command budget", async () => {
+    const current = await fixture();
+    await moveAttemptToParse(current.persistence, current.attemptSha256);
+    const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
+      current.repository,
+    );
+    const acquired = await runEffect(
+      bridge.acquire(scopeId, current.attemptSha256, operationBudget),
+    );
+    const observed = await runEffect(current.repository.observeAttempt(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    if (observed.kind !== "present") throw new Error("Expected attempt.");
+    const input = await reservationInput(
+      observed.attempt,
+      1n,
+      0xc3,
+      1n,
+      "parse_module",
+    );
+    const reserved = await runEffect(bridge.reserve(
+      acquired.session,
+      {
+        ...input,
+        futureRegistrationIntentBytes: null,
+      },
+      operationBudget,
+    ));
+    const page = await evidencePageInput(
+      reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([1]),
+      0xc4,
+    );
+    const appended = await runEffect(bridge.appendEvidencePage(
+      reserved.work,
+      page,
+      pageOperationBudget,
+    ));
+    const settlement = await settlementInput(
+      reserved.reservation,
+      appended.pageSha256,
+      1n,
+      digest(0xc4),
+      1n,
+      "parse",
+    );
+    const oversizedProof = await terminalAuthorityProof(
+      reserved.reservation,
+      settlement,
+      null,
+      digest(0xc5),
+      "capacity",
+      1n,
+    );
+    expect(await runEffectFailure(bridge.settle(
+      reserved.work,
+      {
+        ...settlement,
+        terminalProofBytes: oversizedProof,
+      },
+      operationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryInputV2Error",
+      operation: "settleCommand",
+      reason: "commandMismatch",
+    });
+  });
+
+  it("resolves authenticated lost-response settlement through the opaque bridge", async () => {
+    const current = await fixture();
+    await moveAttemptToParse(current.persistence, current.attemptSha256);
+    let transactionsUntilLoss: number | null = null;
+    const faultTarget: LocatedReadCommittedAttemptTargetV1 = {
+      physicalLocator: current.target.physicalLocator,
+      getCurrentClock: requestedScope =>
+        current.target.getCurrentClock(requestedScope),
+      [RUN_LOCATED_READ_COMMITTED_V1]: async work => {
+        const result = await current.target[RUN_LOCATED_READ_COMMITTED_V1](
+          work,
+        );
+        if (transactionsUntilLoss !== null) {
+          transactionsUntilLoss -= 1;
+          if (transactionsUntilLoss === 0) {
+            transactionsUntilLoss = null;
+            throw new LocatedReadCommittedTransactionFailureV1({
+              kind: "decisionUncertain",
+              settlementCause: new Error("lost authenticated settlement"),
+            });
+          }
+        }
+        return result;
+      },
+    };
+    const repository = makeDeclarativeV2VerifierProgressRepositoryV2(
+      faultTarget,
+      {
+        claimDurationMilliseconds: 60_000,
+        randomUuid: () => "44444444-4444-4444-8444-444444444444",
+      },
+    );
+    const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(repository);
+    const acquired = await runEffect(
+      bridge.acquire(scopeId, current.attemptSha256, operationBudget),
+    );
+    const observed = await runEffect(current.repository.observeAttempt(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    if (observed.kind !== "present") throw new Error("Expected attempt.");
+    const input = await reservationInput(
+      observed.attempt,
+      1n,
+      0xc6,
+      1n,
+      "parse_module",
+    );
+    const reserved = await runEffect(bridge.reserve(
+      acquired.session,
+      {
+        ...input,
+        futureRegistrationIntentBytes: null,
+      },
+      operationBudget,
+    ));
+    const page = await evidencePageInput(
+      reserved.reservation,
+      0n,
+      null,
+      0n,
+      1n,
+      0n,
+      0n,
+      new Uint8Array([2]),
+      0xc7,
+    );
+    const appended = await runEffect(bridge.appendEvidencePage(
+      reserved.work,
+      page,
+      pageOperationBudget,
+    ));
+    const settlement = await settlementInput(
+      reserved.reservation,
+      appended.pageSha256,
+      1n,
+      digest(0xc7),
+      1n,
+      "parse",
+    );
+    const terminalProof = await terminalAuthorityProof(
+      reserved.reservation,
+      settlement,
+      null,
+      digest(0xc8),
+      "capacity",
+    );
+    transactionsUntilLoss = 2;
+    expect(await runEffectFailure(bridge.settle(
+      reserved.work,
+      {
+        ...settlement,
+        terminalProofBytes: terminalProof,
+      },
+      operationBudget,
+    ))).toMatchObject({
+      _tag:
+        "DeclarativeV2VerifierProgressRepositoryDecisionUncertainV2Error",
+      operation: "settleCommand",
+    });
+    await current.persistence.query(
+      `update fx_system_declarative_v2_verifier_command_authority_v1
+       set terminal_proof_sha256 = $1
+       where scope_id = $2 and attempt_sha256 = $3 and sequence = 1`,
+      [digest(0xff), scopeId, current.attemptSha256],
+    );
+    expect(await runEffectFailure(bridge.observeDecision(
+      reserved.work,
+      operationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryCorruptionV2Error",
+      operation: "observeCommandDecision",
+      reason: "normalizedMismatch",
+    });
+    await current.persistence.query(
+      `update fx_system_declarative_v2_verifier_command_authority_v1
+       set terminal_proof_sha256 = $1
+       where scope_id = $2 and attempt_sha256 = $3 and sequence = 1`,
+      [await sha256(terminalProof), scopeId, current.attemptSha256],
+    );
+    const decision = await runEffect(bridge.observeDecision(
+      reserved.work,
+      operationBudget,
+    ));
+    expect(decision.decision).toMatchObject({
+      kind: "settled",
+      settlement: {
+        commandKind: "parse_module",
+        sequence: 1n,
+      },
+    });
+  });
+
+  it("cold-resumes the stored link intent after lease-expiry takeover", async () => {
+    const current = await fixture({ claimDurationMilliseconds: 100 });
+    await moveAttemptToLink(current.persistence, current.attemptSha256);
+    const firstBridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
+      current.repository,
+    );
+    const first = await runEffect(
+      firstBridge.acquire(scopeId, current.attemptSha256, operationBudget),
+    );
+    const observed = await runEffect(current.repository.observeAttempt(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    if (observed.kind !== "present") throw new Error("Expected attempt.");
+    const input = await reservationInput(
+      observed.attempt,
+      1n,
+      0xc1,
+      1n,
+      "link_page",
+    );
+    const intent = Result.getOrThrow(
+      encodeDeclarativeV2FutureRegistrationIntentV1({
+        attemptSha256: current.attemptSha256,
+        candidateSha256: current.candidateSha256,
+        linkReservationSha256: await frameSha256(input.reservation),
+        linkSequence: 1n,
+        registrationSequence: 2n,
+        registrationCurrentProgressSha256: digest(0xc6),
+        registrationCommandBudgetSha256: digest(0xc7),
+        registrationCommandInputSha256: digest(0xc8),
+        freshAuthenticatedInputSha256: digest(0xc9),
+        parsePagesRootSha256: digest(0xca),
+        analyzerReleaseSha256: digest(0xcb),
+        analyzerIdentitySha256:
+          input.reservation.analyzerIdentitySha256,
+        verifierIdentitySha256:
+          input.reservation.verifierIdentitySha256,
+      }),
+    );
+    await runEffect(firstBridge.reserve(
+      first.session,
+      {
+        ...input,
+        futureRegistrationIntentBytes: intent.canonicalBytes,
+      },
+      operationBudget,
+    ));
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    const restartedRepository =
+      makeDeclarativeV2VerifierProgressRepositoryV2(current.target, {
+        claimDurationMilliseconds: 60_000,
+        randomUuid: () => "22222222-2222-4222-8222-222222222222",
+      });
+    const restartedBridge =
+      makeAuthenticatedDeclarativeV2CommandBridgeV1(restartedRepository);
+    const takeover = await runEffect(restartedBridge.acquire(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    const resumed = await runEffect(restartedBridge.resume(
+      takeover.session,
+      {
+        ...input,
+        futureRegistrationIntentBytes: intent.canonicalBytes,
+      },
+      operationBudget,
+    ));
+    expect(resumed.reservation.sequence).toBe(1n);
+    const rows = await current.persistence.query<{
+      reserved_by_fence: string;
+      future_registration_intent_bytes: Uint8Array;
+    }>(
+      `select reserved_by_fence::text, future_registration_intent_bytes
+       from fx_system_declarative_v2_verifier_command_authority_v1
+       where scope_id = $1 and attempt_sha256 = $2 and sequence = 1`,
+      [scopeId, current.attemptSha256],
+    );
+    expect(rows.rows).toEqual([{
+      reserved_by_fence: "2",
+      future_registration_intent_bytes: intent.canonicalBytes,
+    }]);
+  });
+
+  it("rolls back authenticated reservation after every publication boundary", async () => {
+    for (
+      const boundary of [
+        "insertCommand",
+        "insertCommandAuthority",
+        "reserveAttempt",
+      ] as const
+    ) {
+      let faultAt: string | null = null;
+      const current = await fixture({
+        observeQuery: query => {
+          if (query.name === faultAt) {
+            faultAt = null;
+            throw new Error(`injected ${query.name} rollback`);
+          }
+        },
+      });
+      await moveAttemptToLink(current.persistence, current.attemptSha256);
+      const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
+        current.repository,
+      );
+      const acquired = await runEffect(
+        bridge.acquire(scopeId, current.attemptSha256, operationBudget),
+      );
+      const observed = await runEffect(current.repository.observeAttempt(
+        scopeId,
+        current.attemptSha256,
+        operationBudget,
+      ));
+      if (observed.kind !== "present") throw new Error("Expected attempt.");
+      const input = await reservationInput(
+        observed.attempt,
+        1n,
+        0xd1,
+        1n,
+        "link_page",
+      );
+      const intent = Result.getOrThrow(
+        encodeDeclarativeV2FutureRegistrationIntentV1({
+          attemptSha256: current.attemptSha256,
+          candidateSha256: current.candidateSha256,
+          linkReservationSha256: await frameSha256(input.reservation),
+          linkSequence: 1n,
+          registrationSequence: 2n,
+          registrationCurrentProgressSha256: digest(0xd6),
+          registrationCommandBudgetSha256: digest(0xd7),
+          registrationCommandInputSha256: digest(0xd8),
+          freshAuthenticatedInputSha256: digest(0xd9),
+          parsePagesRootSha256: digest(0xda),
+          analyzerReleaseSha256: digest(0xdb),
+          analyzerIdentitySha256:
+            input.reservation.analyzerIdentitySha256,
+          verifierIdentitySha256:
+            input.reservation.verifierIdentitySha256,
+        }),
+      );
+      faultAt = boundary;
+      await expect(runEffect(bridge.reserve(
+        acquired.session,
+        {
+          ...input,
+          futureRegistrationIntentBytes: intent.canonicalBytes,
+        },
+        operationBudget,
+      ))).rejects.toThrow(`injected ${boundary} rollback`);
+      const counts = await current.persistence.query<{
+        commands: string;
+        authorities: string;
+        pending: string;
+      }>(
+        `select
+           (select count(*)::text
+              from fx_system_declarative_v2_verifier_command_v2) commands,
+           (select count(*)::text
+              from fx_system_declarative_v2_verifier_command_authority_v1)
+             authorities,
+           (select count(*)::text
+              from fx_system_declarative_v2_verifier_attempt_v2
+             where pending_sequence is not null) pending`,
+      );
+      expect(counts.rows).toEqual([{
+        commands: "0",
+        authorities: "0",
+        pending: "0",
+      }]);
+    }
+  });
+
+  it("rolls back terminal proof with settlement at every publication boundary", async () => {
+    for (
+      const boundary of [
+        "settleCommand",
+        "settleCommandAuthority",
+        "settleAttempt",
+      ] as const
+    ) {
+      let faultAt: string | null = null;
+      const current = await fixture({
+        observeQuery: query => {
+          if (query.name === faultAt) {
+            faultAt = null;
+            throw new Error(`injected ${query.name} rollback`);
+          }
+        },
+      });
+      const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
+        current.repository,
+      );
+      const acquired = await runEffect(
+        bridge.acquire(scopeId, current.attemptSha256, operationBudget),
+      );
+      const observed = await runEffect(current.repository.observeAttempt(
+        scopeId,
+        current.attemptSha256,
+        operationBudget,
+      ));
+      if (observed.kind !== "present") throw new Error("Expected attempt.");
+      const input = await reservationInput(
+        observed.attempt,
+        1n,
+        0xe1,
+        1n,
+        "source_page",
+      );
+      const reserved = await runEffect(bridge.reserve(
+        acquired.session,
+        { ...input, futureRegistrationIntentBytes: null },
+        operationBudget,
+      ));
+      const settlement = await settlementInput(
+        reserved.reservation,
+        digest(0xe6),
+        0n,
+        digest(0xe7),
+        1n,
+        "source",
+      );
+      const proof = await terminalAuthorityProof(
+        reserved.reservation,
+        settlement,
+        null,
+        digest(0xe8),
+        "exact_requirement",
+      );
+      faultAt = boundary;
+      await expect(runEffect(bridge.settle(
+        reserved.work,
+        { ...settlement, terminalProofBytes: proof },
+        operationBudget,
+      ))).rejects.toThrow(`injected ${boundary} rollback`);
+      const rows = await current.persistence.query<{
+        command_settled_at: Date | null;
+        terminal_proof_bytes: Uint8Array | null;
+        authority_settled_at: Date | null;
+        pending_sequence: string | null;
+      }>(
+        `select c.settled_at command_settled_at,
+                a.terminal_proof_bytes,
+                a.settled_at authority_settled_at,
+                v.pending_sequence::text
+           from fx_system_declarative_v2_verifier_command_v2 c
+           join fx_system_declarative_v2_verifier_command_authority_v1 a
+             using (scope_id, attempt_sha256, sequence)
+           join fx_system_declarative_v2_verifier_attempt_v2 v
+             using (scope_id, attempt_sha256)
+          where c.sequence = 1`,
+      );
+      expect(rows.rows).toEqual([{
+        command_settled_at: null,
+        terminal_proof_bytes: null,
+        authority_settled_at: null,
+        pending_sequence: "1",
+      }]);
+    }
+  });
+
   it("creates and observes an inert attempt, acquires with same-owner replay, renews, and releases", async () => {
     const current = await fixture();
     const replayedCreate = await runEffect(current.repository.createAttempt({
@@ -1059,6 +1809,7 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       "lockAttempt",
       "settlementCommandMetadata",
       "settlementCommandFrames",
+      "commandAuthority",
       "settlementFinalPageMetadata",
       "settlementFinalPageManifest",
       "settleCommand",
@@ -1532,6 +2283,7 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       "lockAttempt",
       "settlementCommandMetadata",
       "settlementCommandFrames",
+      "commandAuthority",
       "settleCommand",
       "settleAttempt",
     ]);
@@ -1834,6 +2586,44 @@ async function moveAttemptToParse(
   );
 }
 
+async function moveAttemptToLink(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  attemptSha256: Uint8Array,
+) {
+  const progress = {
+    kind: "progress_cursor" as const,
+    phase: "link" as const,
+    settledSequence: 0n,
+    moduleOrdinal: 0n,
+    edgeOrdinal: 0n,
+    pageOrdinal: 0n,
+    previousReceiptSha256: null,
+  };
+  const encoded = Result.getOrThrow(
+    encodeDeclarativeV2VerifierProgressFrameV2(progress, {
+      maximumFrameBytes: 1_000_000,
+      maximumCanonicalBytes: 1_000_000,
+    }),
+  );
+  const digest = await sha256(encoded.canonicalBytes);
+  await persistence.query(
+    `update fx_system_declarative_v2_verifier_attempt_v2
+     set lifecycle = 'parse_complete',
+         progress_byte_length = $3,
+         progress_sha256 = $4,
+         progress_bytes = $5,
+         updated_at = now()
+     where scope_id = $1 and attempt_sha256 = $2`,
+    [
+      scopeId,
+      attemptSha256,
+      BigInt(encoded.canonicalBytes.byteLength),
+      digest,
+      encoded.canonicalBytes,
+    ],
+  );
+}
+
 async function evidencePageInput(
   reservation: DeclarativeV2VerifierCommandReservationFrameV2,
   pageOrdinal: bigint,
@@ -1976,7 +2766,9 @@ async function reservationInput(
   const commandBudget = semanticBudget(
     "command_budget",
     commandBudgetValue,
-  );
+  ) as DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  };
   const encodedBudget = Result.getOrThrow(
     encodeDeclarativeV2VerifierProgressFrameV2(commandBudget, {
       maximumFrameBytes: 1_000_000,
@@ -2011,8 +2803,18 @@ async function settlementInput(
   nextPhase: DeclarativeV2VerifierProgressCursorFrameV2["phase"],
 ) {
   const reservationSha256 = await frameSha256(reservation);
-  const commandUsage = semanticBudget("command_budget", commandUsageValue);
-  const resultingUsage = semanticBudget("attempt_usage", 1n);
+  const commandUsage = semanticBudget(
+    "command_budget",
+    commandUsageValue,
+  ) as DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  };
+  const resultingUsage = semanticBudget(
+    "attempt_usage",
+    1n,
+  ) as DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "attempt_usage";
+  };
   const nextProgress: DeclarativeV2VerifierProgressCursorFrameV2 = {
     kind: "progress_cursor",
     phase: nextPhase,
@@ -2050,6 +2852,58 @@ async function settlementInput(
     nextProgress,
     receipt,
   });
+}
+
+async function terminalAuthorityProof(
+  reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+  settlement: Awaited<ReturnType<typeof settlementInput>>,
+  futureRegistrationIntentSha256: Uint8Array | null,
+  analyzerReleaseSha256: Uint8Array,
+  authorityKind: "exact_requirement" | "capacity",
+  authorityDelta = 0n,
+): Promise<Uint8Array> {
+  const actual = Object.freeze(Object.fromEntries(
+    DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(dimension => [
+      dimension,
+      settlement.commandUsage[dimension],
+    ]),
+  )) as Readonly<Record<
+    (typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2)[number],
+    bigint
+  >>;
+  const authority = Object.freeze(Object.fromEntries(
+    DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(dimension => [
+      dimension,
+      actual[dimension] + authorityDelta,
+    ]),
+  )) as typeof actual;
+  return Result.getOrThrow(encodeDeclarativeV2TerminalAuthorityProofV1({
+    authorityKind,
+    commandKind: reservation.commandKind,
+    sequence: reservation.sequence,
+    attemptSha256: reservation.attemptSha256,
+    candidateSha256: reservation.candidateSha256,
+    reservationSha256: await frameSha256(reservation),
+    requestSha256: digest(0xea),
+    futureRegistrationIntentSha256,
+    commandBudgetSha256: reservation.commandBudgetSha256,
+    commandInputSha256: reservation.commandInputSha256,
+    freshAuthenticatedInputSha256:
+      reservation.freshAuthenticatedInputSha256,
+    rangeAndPredecessorTailsSha256:
+      reservation.rangeAndPredecessorTailsSha256,
+    analyzerReleaseSha256,
+    analyzerIdentitySha256: reservation.analyzerIdentitySha256,
+    verifierIdentitySha256: reservation.verifierIdentitySha256,
+    currentProgressSha256: reservation.currentProgressSha256,
+    nextProgressSha256: await frameSha256Any(settlement.nextProgress),
+    outputManifestSha256:
+      await frameSha256Any(settlement.outputManifest),
+    receiptSha256: await frameSha256Any(settlement.receipt),
+    predecessorReceiptSha256: reservation.predecessorReceiptSha256,
+    authority,
+    actual,
+  })).canonicalBytes;
 }
 
 async function frameSha256Any(

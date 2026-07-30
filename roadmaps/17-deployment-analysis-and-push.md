@@ -2268,7 +2268,7 @@ activation remain blocked until their production host composition is proven.
         same-factory admitted-command and claimed restart-source capabilities.
         Its trusted session, command, and restart claim ports are
         single-use/fail-closed boundaries rather than caller-authored lineage
-        records; no concrete backend producer is wired.
+        records; no production composition is wired.
 
         The exact Effect channels are now explicit. `open` returns
         `Effect.Effect<PrivateDeclarativeV2AnalyzerSessionV1,
@@ -2301,6 +2301,61 @@ activation remain blocked until their production host composition is proven.
         unimported by production composition, externally unwired, inert, and
         production-inactive; acceptance creates no production route or
         activation authority.
+
+        **A1b2-S1 — authenticated reservation and terminal settlement
+        bridge.** The private prerequisite discovered by FSV03 is implemented.
+        Protocol V1 now owns a canonical 13-field future-registration intent
+        that binds one real link reservation to later registration command
+        inputs without pretending to know the successor reservation before the
+        link receipt exists. Link admission binds that intent digest;
+        registration admission separately binds the later real reservation
+        digest.
+
+        The backend command producer can open one scoped authenticated
+        preparation, capture source/session evidence and module-path bytes
+        once, expose the five stable pre-reservation commitments, and consume
+        one exact reservation with serialized byte-identical replay. The
+        analyzer host reconstructs and hashes the exact admitted canonical
+        request, correlates the exact returned terminal result plus its
+        analyzer-owned progress/output facts, and issues one single-use
+        canonical terminal-authority proof. Recoverable preparation,
+        host, and repository failures remain in their existing typed Effect
+        channels; trusted callback defects remain in full `Cause`; `Scope`
+        owns the authenticated read session and prepared-command lifetime.
+
+        Migration `0038` adds a separate two-phase private command-authority
+        row. The persistence facade returns only opaque session and Work
+        capabilities. Link command reservation, immutable future intent, and
+        pending-attempt state commit atomically; settlement completes the same
+        authority row with terminal proof in the transaction that settles the
+        existing command, receipt, and progress. Lease takeover atomically
+        rebinds the pending authority fence. Registration reservation locks and
+        validates the settled link command, exact stored intent, terminal
+        proof, real receipt, and unchanged V2 predecessor lineage before it
+        creates the successor command and authority row.
+
+        Authenticated authority presence is now invariant across pending replay,
+        resume, and settlement: a raw legacy-form call cannot downgrade a
+        command that already has an authority row. Persistence also requires
+        analyzer capacity to remain within the reserved command budget. If the
+        settlement response is lost after commit, the opaque bridge retains the
+        exact selector and terminal proof long enough to observe the immutable
+        command decision, validate its settled reservation/receipt lineage, and
+        close the consumed session without exposing repository `Run` or `Work`.
+
+        Focused PGlite proof covers duplicate and contradictory reserve,
+        rollback at every reservation and settlement publication boundary,
+        terminal-law validation, legacy-downgrade rejection, uncertain-decision
+        observation, takeover, and cold resume. Genuine PostgreSQL
+        proof covers concurrent duplicate reserve, link settlement, real
+        receipt lineage into registration, pending-registration takeover, and
+        cold resume with zero skipped cases. Existing V2 reservation,
+        predecessor, receipt, progress, OCC, commit, journal, feed, outbox, and
+        application-row identities are unchanged. This bridge remains private,
+        fail-closed, production-inactive, and adds no route, readiness,
+        activation, provisional plan, dual write, or fallback. FSV03 remains a
+        separate unimplemented real-system proof, but this named prerequisite
+        no longer blocks its selected private host-neutral lane.
 
         One proportional approval for either capability covers its
         implementation, in-scope test fixes, validation, roadmap
@@ -2357,8 +2412,9 @@ activation remain blocked until their production host composition is proven.
    source/parse/link/registration composition, trusted warm/cold host/session
    claim consumption, exact terminal `A`, `E`, and `R` channels, deterministic
    interruption/failure/release proof, and focused integration validation. Its
-   trusted backend claim producer and every external consumer remain
-   deliberately absent.
+   authenticated backend preparation and durable settlement bridge now exist
+   as private prerequisites, while every production composition and external
+   consumer remains deliberately absent.
    Settled-cold recovery keeps one package-owned restart runtime per private
    analysis session: parse results reconstructed by that owner form the
    authenticated link module set, and a reconstructed link result installs one
@@ -2370,25 +2426,26 @@ activation remain blocked until their production host composition is proven.
    `128`-byte combined source/domain limit is enforced. Progress replay or
    skipping fails before a new owner driver is created.
 
-   After capability 2 is accepted, the complete analyzer port remains
-   externally unwired and production-inactive until the separate routing and
-   activation boundary is approved. No backend production
-   route, candidate preparation, repository `Work`/fence authorization,
-   persistence settlement/storage policy, `apps/executor` composition, C07, U2,
-   readiness, activation, or production caller is added or authorized here.
+   The complete analyzer port remains externally unwired and
+   production-inactive until the separate routing and activation boundary is
+   approved. FSV02 now owns private candidate/attempt preparation and A1b2-S1
+   now owns private repository `Work`/fence authorization plus terminal-proof
+   settlement storage. They add no backend production route,
+   `apps/executor` production composition, U2, readiness, activation, or
+   production caller. C07 is accepted independently under its own roadmap.
    Current request/response/restart/readback/progress/physical bytes,
    package-root closure, the monolithic analyzer, and OCC/commit/journal/
    idempotency/feed/outbox/application-row authority remain unchanged. A
    materially new trust/authority, schema/migration, transaction, public
    contract, identity/version, compatibility, routing/activation, or owner
    boundary still requires a new proportional preflight.
-   Candidate preparation, repository `Work`/fence authorization,
-   `apps/executor` composition, C07, U2, and the private real-system harness
-   remain later distinct gates. The current monolithic analyzer path remains
-   unchanged. This order creates no alternate OCC, commit compiler or execution
-   path, transaction journal, idempotency outcome, feed, outbox, authoritative
-   application-row semantics, schema, route, readiness, or activation
-   authority.
+   Candidate preparation and private repository `Work`/fence settlement are
+   now closed prerequisites; `apps/executor` production composition, U2, and
+   the private real-system harness remain distinct gates. The current
+   monolithic analyzer path remains unchanged. This order creates no alternate
+   OCC, commit compiler or execution path, transaction journal, idempotency
+   outcome, feed, outbox, authoritative application-row semantics, route,
+   readiness, or activation authority.
 
    These Declarative V2 contracts replace only the deployment-analysis and
    artifact-verification path named by this roadmap. Component suffixes such as

@@ -19,22 +19,32 @@ import {
   type DeclarativeV2VerifierRestartPageSourceV1,
 } from "@flarex/analysis/internal/declarative-v2-verifier-v1";
 import {
+  encodeDeclarativeV2AuthenticatedCommandRequestV1,
   type DeclarativeV2AuthenticatedCommandAdmittedFrameMetadataV1,
   type DeclarativeV2AuthenticatedCommandDecodedCapabilityV1,
+  type DeclarativeV2AuthenticatedCommandFrameV1,
   type DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
   type DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
   type DeclarativeV2AuthenticatedCommandIncrementalV1Error,
+  type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
 } from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
 import {
   type DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1,
   type DeclarativeV2AuthenticatedCommandRestartInputFactoryV1,
   type DeclarativeV2AuthenticatedCommandRestartInputV1Error,
 } from "@flarex/executor-http/internal-declarative-v2-authenticated-command-restart-input-v1";
+import { isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
 import { Data, Effect, Result, Scope } from "effect";
+import {
+  encodeDeclarativeV2TerminalAuthorityProofV1,
+  type DeclarativeV2TerminalAuthorityProofEncodedV1,
+} from "flarex-protocol/internal/declarative-v2-terminal-authority-proof-v1";
 import {
   decodeDeclarativeV2VerifierProgressFrameV2,
   encodeDeclarativeV2VerifierProgressFrameV2,
   type DeclarativeV2VerifierBudgetFrameV2,
+  type DeclarativeV2VerifierCommandOutputManifestFrameV2,
+  type DeclarativeV2VerifierCommandReceiptFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
   type DeclarativeV2VerifierProgressCursorFrameV2,
@@ -50,7 +60,7 @@ const FRAME_BUDGET = Object.freeze({
 export interface PrivateDeclarativeV2AnalyzerAdmissionV1 {
   readonly currentProgress: DeclarativeV2VerifierProgressCursorFrameV2;
   readonly nextProgress?: DeclarativeV2VerifierProgressCursorFrameV2;
-  readonly registrationReservationSha256?: Uint8Array;
+  readonly futureRegistrationIntentSha256?: Uint8Array;
   readonly totalModuleCount: bigint;
   readonly parsePagesRootSha256: Uint8Array;
   readonly analyzerReleaseSha256: Uint8Array;
@@ -94,7 +104,12 @@ export interface PrivateDeclarativeV2AnalyzerSessionV1 {
 export class PrivateDeclarativeV2AnalyzerHostV1Error extends Data.TaggedError(
   "PrivateDeclarativeV2AnalyzerHostV1Error",
 )<{
-  readonly operation: "open" | "execute" | "rehydrate" | "close";
+  readonly operation:
+    | "open"
+    | "execute"
+    | "rehydrate"
+    | "claimTerminal"
+    | "close";
   readonly reason:
     | "invalidInput"
     | "invalidAdmission"
@@ -140,6 +155,24 @@ export interface PrivateDeclarativeV2AnalyzerHostV1 {
     PrivateDeclarativeV2AnalyzerHostV1Error,
     never
   >;
+  readonly claimTerminal: (input: Readonly<{
+    readonly result: DeclarativeV2AnalyzerCompleteV1;
+    readonly requestSha256: Uint8Array;
+    readonly outputManifest:
+      DeclarativeV2VerifierCommandOutputManifestFrameV2;
+    readonly commandUsage: DeclarativeV2VerifierBudgetFrameV2 & {
+      readonly kind: "command_budget";
+    };
+    readonly resultingUsage: DeclarativeV2VerifierBudgetFrameV2 & {
+      readonly kind: "attempt_usage";
+    };
+    readonly nextProgress: DeclarativeV2VerifierProgressCursorFrameV2;
+    readonly receipt: DeclarativeV2VerifierCommandReceiptFrameV2;
+  }>) => Effect.Effect<
+    DeclarativeV2TerminalAuthorityProofEncodedV1,
+    PrivateDeclarativeV2AnalyzerHostV1Error,
+    never
+  >;
   readonly close: (
     session: unknown,
   ) => Result.Result<void, PrivateDeclarativeV2AnalyzerHostV1Error>;
@@ -149,6 +182,22 @@ interface HostSessionState {
   readonly analysisSession: DeclarativeV2AnalyzerSessionV1;
   readonly bindings: DeclarativeV2AnalyzerSessionBindingsV1;
   closed: boolean;
+}
+
+interface TerminalCorrelationState {
+  readonly session: HostSessionState;
+  readonly reservation: DeclarativeV2VerifierCommandReservationFrameV2;
+  readonly requestSha256: Uint8Array;
+  readonly complete: DeclarativeV2AnalyzerCompleteV1;
+  readonly futureRegistrationIntentSha256: Uint8Array | null;
+  claimed: boolean;
+}
+
+interface CollectedCommand {
+  readonly command: DeclarativeV2AnalyzerCommandV1;
+  readonly reservation: DeclarativeV2VerifierCommandReservationFrameV2;
+  readonly requestSha256: Uint8Array;
+  readonly futureRegistrationIntentSha256: Uint8Array | null;
 }
 
 interface CapturedRole {
@@ -205,6 +254,8 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
   const analysis = options.analysis ?? makeDeclarativeV2AnalyzerPortFactoryV1();
   const claims = options.claims ?? failClosedClaims;
   const sessions = new WeakMap<object, HostSessionState>();
+  const terminalCorrelations =
+    new WeakMap<object, TerminalCorrelationState>();
   const claimedSessionAuthorities = new WeakSet<object>();
 
   const close: PrivateDeclarativeV2AnalyzerHostV1["close"] = rawSession => {
@@ -269,7 +320,7 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
       const allowance = yield* Effect.fromResult(
         requireAllowance(input.allowance, "execute"),
       );
-      const command = yield* Effect.acquireUseRelease(
+      const collected = yield* Effect.acquireUseRelease(
         Effect.succeed(input.capability),
         capability =>
           Effect.gen(function* () {
@@ -297,6 +348,7 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
                 opened.cursor,
                 admission,
                 state.bindings,
+                input.transportBudget,
                 allowance,
               ),
               opened => Effect.sync(() => {
@@ -308,9 +360,9 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
           input.commandFactory.close(capability);
         }),
       );
-      return yield* Effect.acquireUseRelease(
+      const complete = yield* Effect.acquireUseRelease(
         Effect.fromResult(
-          analysis.start(state.analysisSession, command),
+          analysis.start(state.analysisSession, collected.command),
         ).pipe(
           Effect.mapError(cause =>
             hostIssue("execute", "analysisFailure", "command", cause)
@@ -321,7 +373,45 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
           analysis.close(driver);
         }),
       );
+      terminalCorrelations.set(complete, {
+        session: state,
+        reservation: collected.reservation,
+        requestSha256: new Uint8Array(collected.requestSha256),
+        complete,
+        futureRegistrationIntentSha256:
+          collected.futureRegistrationIntentSha256,
+        claimed: false,
+      });
+      return complete;
     });
+
+  const claimTerminal: PrivateDeclarativeV2AnalyzerHostV1["claimTerminal"] =
+    Effect.fn("PrivateDeclarativeV2AnalyzerHostV1.claimTerminal")(
+      function* (input) {
+        const correlation =
+          input.result !== null && typeof input.result === "object"
+            ? terminalCorrelations.get(input.result)
+            : undefined;
+        if (
+          correlation === undefined ||
+          correlation.complete !== input.result ||
+          correlation.claimed ||
+          correlation.session.closed
+        ) {
+          return yield* hostIssue(
+            "claimTerminal",
+            "invalidInput",
+            "result",
+          );
+        }
+        const encoded = yield* Effect.fromResult(
+          buildTerminalAuthorityProof(correlation, input),
+        );
+        correlation.claimed = true;
+        terminalCorrelations.delete(input.result);
+        return encoded;
+      },
+    );
 
   const rehydrate: PrivateDeclarativeV2AnalyzerHostV1["rehydrate"] =
     Effect.fn("PrivateDeclarativeV2AnalyzerHostV1.rehydrate")(function* (input) {
@@ -383,7 +473,7 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
       );
     });
 
-  return Object.freeze({ open, execute, rehydrate, close });
+  return Object.freeze({ open, execute, rehydrate, claimTerminal, close });
 }
 
 const collectCommand = Effect.fn(
@@ -394,9 +484,10 @@ const collectCommand = Effect.fn(
   cursor: unknown,
   admission: PrivateDeclarativeV2AnalyzerAdmissionV1,
   expectedSessionBindings: DeclarativeV2AnalyzerSessionBindingsV1,
+  transportBudget: DeclarativeV2AuthenticatedCommandTransportBudgetV1,
   allowance: number,
 ): Effect.fn.Return<
-  DeclarativeV2AnalyzerCommandV1,
+  CollectedCommand,
   PrivateDeclarativeV2AnalyzerHostV1Error
 > {
     const frames = new Map<number, CapturedFrame>();
@@ -439,10 +530,352 @@ const collectCommand = Effect.fn(
       yield* Effect.yieldNow;
     }
     const materialized = yield* Effect.fromResult(materializeFrames(frames));
-    return yield* Effect.fromResult(
+    const requestFrames = yield* Effect.fromResult(
+      materializeAuthenticatedRequest(materialized),
+    );
+    const encodedRequest = yield* Effect.fromResult(
+      encodeDeclarativeV2AuthenticatedCommandRequestV1(
+        Object.freeze({ frames: Object.freeze(requestFrames) }),
+        Object.freeze({
+          maximumBodyBytes: transportBudget.maximumBodyBytes,
+          maximumCanonicalBytes: transportBudget.maximumCanonicalBytes,
+          maximumFrameBytes: transportBudget.maximumFrameBytes,
+          maximumPayloadBytes: transportBudget.maximumPayloadBytes,
+          maximumFrames: transportBudget.maximumFrames,
+          maximumTransitions: transportBudget.maximumTransitions,
+        }),
+      ).pipe(
+        Result.mapError(() =>
+          hostIssue("execute", "transportFailure", "request")
+        ),
+      ),
+    );
+    const requestSha256 = yield* Effect.fromResult(
+      mapDigest(encodedRequest.canonicalBytes, "request"),
+    );
+    const command = yield* Effect.fromResult(
       materializeCommand(materialized, admission, expectedSessionBindings),
     );
+    const header = materialized.get(0)!;
+    const reservation = yield* Effect.fromResult(
+      decodeReservation(header.byteRoles.get("reservation")),
+    );
+    return Object.freeze({
+      command,
+      reservation,
+      requestSha256,
+      futureRegistrationIntentSha256:
+        admission.futureRegistrationIntentSha256 === undefined
+          ? null
+          : new Uint8Array(admission.futureRegistrationIntentSha256),
+    });
 });
+
+function buildTerminalAuthorityProof(
+  correlation: TerminalCorrelationState,
+  input: Parameters<
+    PrivateDeclarativeV2AnalyzerHostV1["claimTerminal"]
+  >[0],
+): Result.Result<
+  DeclarativeV2TerminalAuthorityProofEncodedV1,
+  PrivateDeclarativeV2AnalyzerHostV1Error
+> {
+  return Result.gen(function* () {
+    const reservation = correlation.reservation;
+    if (
+      !isDigest(input.requestSha256) ||
+      !equalDigest(input.requestSha256, correlation.requestSha256) ||
+      input.outputManifest.commandKind !== reservation.commandKind ||
+      input.outputManifest.sequence !== reservation.sequence ||
+      !equalDigest(
+        input.outputManifest.reservationSha256,
+        yield* frameDigest(reservation, "reservation"),
+      ) ||
+      input.receipt.reservationSha256.byteLength !== 32 ||
+      !equalDigest(
+        input.receipt.reservationSha256,
+        input.outputManifest.reservationSha256,
+      )
+    ) {
+      return yield* Result.fail(
+        hostIssue("claimTerminal", "invalidAdmission", "settlement"),
+      );
+    }
+    const nextProgressSha256 = yield*
+      frameDigest(input.nextProgress, "nextProgress");
+    const outputManifestSha256 = yield*
+      frameDigest(input.outputManifest, "outputManifest");
+    const receiptSha256 = yield* frameDigest(input.receipt, "receipt");
+    const commandBudgetSha256 = yield*
+      frameDigest(input.commandUsage, "commandUsage");
+    const resultingUsageSha256 = yield*
+      frameDigest(input.resultingUsage, "resultingUsage");
+    if (
+      !equalDigest(
+        input.outputManifest.nextProgressSha256,
+        nextProgressSha256,
+      ) ||
+      !equalDigest(input.receipt.commandUsageSha256, commandBudgetSha256) ||
+      !equalDigest(
+        input.receipt.resultingAttemptUsageSha256,
+        resultingUsageSha256,
+      ) ||
+      !equalDigest(
+        input.receipt.outputManifestSha256,
+        outputManifestSha256,
+      ) ||
+      !equalDigest(input.receipt.nextProgressSha256, nextProgressSha256)
+    ) {
+      return yield* Result.fail(
+        hostIssue("claimTerminal", "invalidAdmission", "settlement"),
+      );
+    }
+    const terminal = terminalVectors(correlation.complete);
+    const expectedNextProgressSha256 = terminal === undefined
+      ? undefined
+      : yield* frameDigest(terminal.nextProgress, "result.nextProgress");
+    const expectedOutputManifestSha256 =
+      terminal?.outputManifest === undefined
+        ? undefined
+        : yield* frameDigest(
+          terminal.outputManifest,
+          "result.outputManifest",
+        );
+    if (
+      terminal === undefined ||
+      terminal.commandKind !== reservation.commandKind ||
+      !budgetEqual(terminal.actual, input.commandUsage) ||
+      expectedNextProgressSha256 === undefined ||
+      !equalDigest(expectedNextProgressSha256, nextProgressSha256) ||
+      (
+        expectedOutputManifestSha256 !== undefined &&
+        !equalDigest(expectedOutputManifestSha256, outputManifestSha256)
+      )
+    ) {
+      return yield* Result.fail(
+        hostIssue("claimTerminal", "invalidAdmission", "result"),
+      );
+    }
+    const proof = encodeDeclarativeV2TerminalAuthorityProofV1({
+      authorityKind: terminal.authorityKind,
+      commandKind: reservation.commandKind,
+      sequence: reservation.sequence,
+      attemptSha256: reservation.attemptSha256,
+      candidateSha256: reservation.candidateSha256,
+      reservationSha256: input.outputManifest.reservationSha256,
+      requestSha256: input.requestSha256,
+      futureRegistrationIntentSha256:
+        correlation.futureRegistrationIntentSha256,
+      commandBudgetSha256: reservation.commandBudgetSha256,
+      commandInputSha256: reservation.commandInputSha256,
+      freshAuthenticatedInputSha256:
+        reservation.freshAuthenticatedInputSha256,
+      rangeAndPredecessorTailsSha256:
+        reservation.rangeAndPredecessorTailsSha256,
+      analyzerReleaseSha256:
+        correlation.session.bindings.analyzerReleaseSha256,
+      analyzerIdentitySha256: reservation.analyzerIdentitySha256,
+      verifierIdentitySha256: reservation.verifierIdentitySha256,
+      currentProgressSha256: reservation.currentProgressSha256,
+      nextProgressSha256,
+      outputManifestSha256,
+      receiptSha256,
+      predecessorReceiptSha256: reservation.predecessorReceiptSha256,
+      authority: terminal.authority,
+      actual: terminal.actual,
+    });
+    return yield* proof.pipe(
+      Result.mapError(() =>
+        hostIssue("claimTerminal", "analysisFailure", "proof")
+      ),
+    );
+  });
+}
+
+function terminalVectors(
+  complete: DeclarativeV2AnalyzerCompleteV1,
+): Readonly<{
+  readonly commandKind:
+    | "source_page"
+    | "parse_module"
+    | "link_page"
+    | "registration_page";
+  readonly authorityKind: "exact_requirement" | "capacity";
+  readonly authority: Readonly<Record<
+    keyof Omit<DeclarativeV2VerifierBudgetFrameV2, "kind">,
+    bigint
+  >>;
+  readonly actual: Readonly<Record<
+    keyof Omit<DeclarativeV2VerifierBudgetFrameV2, "kind">,
+    bigint
+  >>;
+  readonly nextProgress: DeclarativeV2VerifierProgressCursorFrameV2;
+  readonly outputManifest?:
+    DeclarativeV2VerifierCommandOutputManifestFrameV2;
+}> | undefined {
+  switch (complete.kind) {
+    case "source_page":
+      return {
+        commandKind: "source_page",
+        authorityKind: "exact_requirement",
+        authority: usageVector(complete.result.required),
+        actual: usageVector(complete.result.actual),
+        nextProgress: complete.result.nextProgress,
+        outputManifest: complete.result.outputManifest,
+      };
+    case "parse_module":
+      return {
+        commandKind: "parse_module",
+        authorityKind: "capacity",
+        authority: usageVector(complete.capacity),
+        actual: usageVector(complete.actual),
+        nextProgress: complete.nextProgress,
+      };
+    case "link_page":
+      return {
+        commandKind: "link_page",
+        authorityKind: "capacity",
+        authority: usageVector(complete.capacity),
+        actual: usageVector(complete.actual),
+        nextProgress: complete.nextProgress,
+      };
+    case "registration_page":
+      return {
+        commandKind: "registration_page",
+        authorityKind: "capacity",
+        authority: usageVector(complete.result.capacity),
+        actual: usageVector(complete.result.actual),
+        nextProgress: complete.result.nextProgress,
+        outputManifest: complete.result.outputManifest,
+      };
+    case "rehydrate":
+      return undefined;
+  }
+}
+
+function usageVector(
+  frame: Readonly<Record<string, bigint | string>>,
+): Readonly<Record<string, bigint>> {
+  return Object.freeze(Object.fromEntries(
+    Object.entries(frame).filter(
+      (entry): entry is [string, bigint] => typeof entry[1] === "bigint",
+    ),
+  ));
+}
+
+function budgetEqual(
+  left: Readonly<Record<string, bigint>>,
+  right: DeclarativeV2VerifierBudgetFrameV2,
+): boolean {
+  return Object.entries(left).every(([dimension, amount]) =>
+    right[dimension as keyof DeclarativeV2VerifierBudgetFrameV2] === amount
+  );
+}
+
+function frameDigest(
+  frame:
+    | DeclarativeV2VerifierCommandReservationFrameV2
+    | DeclarativeV2VerifierCommandOutputManifestFrameV2
+    | DeclarativeV2VerifierCommandReceiptFrameV2
+    | DeclarativeV2VerifierBudgetFrameV2
+    | DeclarativeV2VerifierProgressCursorFrameV2,
+  path: string,
+): Result.Result<Uint8Array, PrivateDeclarativeV2AnalyzerHostV1Error> {
+  return encodeDeclarativeV2VerifierProgressFrameV2(frame, FRAME_BUDGET).pipe(
+    Result.map(result => result.canonicalBytes),
+    Result.mapError(() =>
+      hostIssue("claimTerminal", "invalidAdmission", path)
+    ),
+    Result.flatMap(bytes => mapDigest(bytes, path)),
+  );
+}
+
+function isDigest(value: unknown): value is Uint8Array {
+  return isUint8ArrayWithByteLength(value, 32);
+}
+
+function materializeAuthenticatedRequest(
+  frames: Map<number, MaterializedFrame>,
+): Result.Result<
+  readonly DeclarativeV2AuthenticatedCommandFrameV1[],
+  PrivateDeclarativeV2AnalyzerHostV1Error
+> {
+  return Result.gen(function* () {
+    const requestFrames: DeclarativeV2AuthenticatedCommandFrameV1[] = [];
+    const ordered = [...frames.values()].sort(
+      (left, right) =>
+        left.metadata.frameOrdinal - right.metadata.frameOrdinal,
+    );
+    for (const frame of ordered) {
+      switch (frame.metadata.kind) {
+        case "command_header": {
+          const reservation = yield* decodeReservation(
+            frame.byteRoles.get("reservation"),
+          );
+          const commandBudget = yield* decodeBudget(
+            frame.byteRoles.get("command_budget"),
+          );
+          if (commandBudget.kind !== "command_budget") {
+            return yield* Result.fail(
+              hostIssue(
+                "execute",
+                "invalidAdmission",
+                "command_budget.kind",
+              ),
+            );
+          }
+          const authenticatedCommandBudget = Object.freeze({
+            ...commandBudget,
+            kind: "command_budget" as const,
+          });
+          requestFrames.push(Object.freeze({
+            kind: "command_header",
+            reservation,
+            commandBudget: authenticatedCommandBudget,
+          }));
+          break;
+        }
+        case "module_metadata":
+          requestFrames.push(Object.freeze({
+            kind: "module_metadata",
+            moduleOrdinal: frame.metadata.moduleOrdinal,
+            roles: frame.metadata.roles,
+            modulePathBytes: yield* requireBytes(frame, "module_path"),
+            frameSha256: yield* requireBytes(frame, "frame_sha256"),
+            sourceSha256: yield* requireBytes(frame, "source_sha256"),
+            sourceByteLength: frame.metadata.sourceByteLength,
+          }));
+          break;
+        case "source_bytes":
+          requestFrames.push(Object.freeze({
+            kind: "source_bytes",
+            moduleOrdinal: frame.metadata.moduleOrdinal,
+            offset: frame.metadata.offset,
+            bytes: yield* requireBytes(frame, "source_payload"),
+          }));
+          break;
+        case "semantic_bytes":
+          requestFrames.push(Object.freeze({
+            kind: "semantic_bytes",
+            offset: frame.metadata.offset,
+            bytes: yield* requireBytes(frame, "semantic_payload"),
+          }));
+          break;
+        case "command_terminal":
+          requestFrames.push(Object.freeze({
+            kind: "command_terminal",
+            firstModuleOrdinal: frame.metadata.firstModuleOrdinal,
+            moduleCount: frame.metadata.moduleCount,
+            sourceByteLength: frame.metadata.sourceByteLength,
+            semanticByteLength: frame.metadata.semanticByteLength,
+            payloadFrameCount: frame.metadata.payloadFrameCount,
+          }));
+          break;
+      }
+    }
+    return Object.freeze(requestFrames);
+  });
+}
 
 function materializeCommand(
   frames: Map<number, MaterializedFrame>,
@@ -574,7 +1007,7 @@ function materializeCommand(
       case "link_page": {
         if (
           admission.nextProgress === undefined ||
-          admission.registrationReservationSha256 === undefined
+          admission.futureRegistrationIntentSha256 === undefined
         ) {
           return yield* Result.fail(
             hostIssue(
@@ -582,7 +1015,7 @@ function materializeCommand(
               "invalidAdmission",
               admission.nextProgress === undefined
                 ? "nextProgress"
-                : "registrationReservationSha256",
+                : "futureRegistrationIntentSha256",
             ),
           );
         }
@@ -593,8 +1026,8 @@ function materializeCommand(
           kind: "link_page",
           bindings: Object.freeze({
             attemptSha256: reservation.attemptSha256,
-            reservationSha256:
-              new Uint8Array(admission.registrationReservationSha256),
+            futureRegistrationIntentSha256:
+              new Uint8Array(admission.futureRegistrationIntentSha256),
             candidateSha256: reservation.candidateSha256,
             authenticatedInputSha256: reservation.freshAuthenticatedInputSha256,
             linkSequence: reservation.sequence,
@@ -614,9 +1047,18 @@ function materializeCommand(
         });
       }
       case "registration_page": {
-        if (admission.semanticBudget === undefined) {
+        if (
+          admission.semanticBudget === undefined ||
+          admission.futureRegistrationIntentSha256 === undefined
+        ) {
           return yield* Result.fail(
-            hostIssue("execute", "invalidAdmission", "semanticBudget"),
+            hostIssue(
+              "execute",
+              "invalidAdmission",
+              admission.semanticBudget === undefined
+                ? "semanticBudget"
+                : "futureRegistrationIntentSha256",
+            ),
           );
         }
         const semanticBytes = yield*
@@ -627,7 +1069,8 @@ function materializeCommand(
           input: Object.freeze({
             bindings: Object.freeze({
               attemptSha256: reservation.attemptSha256,
-              reservationSha256,
+              futureRegistrationIntentSha256:
+                new Uint8Array(admission.futureRegistrationIntentSha256),
               candidateSha256: reservation.candidateSha256,
               authenticatedInputSha256:
                 reservation.freshAuthenticatedInputSha256,
@@ -640,6 +1083,7 @@ function materializeCommand(
               analyzerReleaseSha256: admission.analyzerReleaseSha256,
               analyzerIdentitySha256: reservation.analyzerIdentitySha256,
               verifierIdentitySha256: reservation.verifierIdentitySha256,
+              registrationReservationSha256: reservationSha256,
               semanticSha256,
             }),
             commandKind: "registration_page",

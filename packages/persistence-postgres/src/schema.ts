@@ -3176,6 +3176,137 @@ export const fxSystemDeclarativeV2VerifierCommandsV2 = pgTable(
   ],
 );
 
+/**
+ * Private authenticated-command continuity. This is deliberately separate
+ * from the stable V2 command row: the V2 reservation/receipt identity stays
+ * unchanged while authenticated hosts can require durable pre-execution
+ * intent and terminal analysis authority.
+ */
+export const fxSystemDeclarativeV2VerifierCommandAuthorityV1 = pgTable(
+  "fx_system_declarative_v2_verifier_command_authority_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    attemptSha256: bytea("attempt_sha256").notNull(),
+    sequence: bigint("sequence", { mode: "bigint" }).notNull(),
+    commandKind: text("command_kind")
+      .$type<DeclarativeV2VerifierDurableCommandKindV2>()
+      .notNull(),
+    reservationSha256: bytea("reservation_sha256").notNull(),
+    reservedByFence: bigint("reserved_by_fence", { mode: "bigint" }).notNull(),
+    reservedAt: timestamp("reserved_at", { withTimezone: true }).notNull(),
+    futureRegistrationIntentCodecVersion: integer(
+      "future_registration_intent_codec_version",
+    ),
+    futureRegistrationIntentByteLength: bigint(
+      "future_registration_intent_byte_length",
+      { mode: "bigint" },
+    ),
+    futureRegistrationIntentSha256: bytea(
+      "future_registration_intent_sha256",
+    ),
+    futureRegistrationIntentBytes: bytea(
+      "future_registration_intent_bytes",
+    ),
+    terminalProofCodecVersion: integer("terminal_proof_codec_version"),
+    terminalProofByteLength: bigint("terminal_proof_byte_length", {
+      mode: "bigint",
+    }),
+    terminalProofSha256: bytea("terminal_proof_sha256"),
+    terminalProofBytes: bytea("terminal_proof_bytes"),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scopeId, table.attemptSha256, table.sequence],
+    }),
+    unique("fx_dv2_command_authority_v1_identity_unique").on(
+      table.scopeId,
+      table.attemptSha256,
+      table.sequence,
+      table.reservationSha256,
+      table.commandKind,
+    ),
+    foreignKey({
+      name: "fx_dv2_command_authority_v1_command_fk",
+      columns: [
+        table.scopeId,
+        table.attemptSha256,
+        table.sequence,
+        table.reservationSha256,
+        table.commandKind,
+      ],
+      foreignColumns: [
+        fxSystemDeclarativeV2VerifierCommandsV2.scopeId,
+        fxSystemDeclarativeV2VerifierCommandsV2.attemptSha256,
+        fxSystemDeclarativeV2VerifierCommandsV2.sequence,
+        fxSystemDeclarativeV2VerifierCommandsV2.reservationSha256,
+        fxSystemDeclarativeV2VerifierCommandsV2.commandKind,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_dv2_command_authority_v1_identity_check",
+      sql`${table.sequence} >= 1
+        and ${table.commandKind} in (
+          'source_page', 'parse_module', 'link_page', 'registration_page'
+        )
+        and octet_length(${table.attemptSha256}) = 32
+        and octet_length(${table.reservationSha256}) = 32
+        and ${table.reservedByFence} >= 1
+        and isfinite(${table.reservedAt})`,
+    ),
+    check(
+      "fx_dv2_command_authority_v1_intent_check",
+      sql`(
+        (
+          ${table.commandKind} in ('source_page', 'parse_module')
+          and ${nullableFrameAbsent(
+            table.futureRegistrationIntentCodecVersion,
+            table.futureRegistrationIntentByteLength,
+            table.futureRegistrationIntentSha256,
+            table.futureRegistrationIntentBytes,
+          )}
+        )
+        or
+        (
+          ${table.commandKind} in ('link_page', 'registration_page')
+          and ${requiredFrameCheck(
+            table.futureRegistrationIntentCodecVersion,
+            table.futureRegistrationIntentByteLength,
+            table.futureRegistrationIntentSha256,
+            table.futureRegistrationIntentBytes,
+          )}
+        )
+      ) is true`,
+    ),
+    check(
+      "fx_dv2_command_authority_v1_terminal_check",
+      sql`(
+        (
+          ${nullableFrameAbsent(
+            table.terminalProofCodecVersion,
+            table.terminalProofByteLength,
+            table.terminalProofSha256,
+            table.terminalProofBytes,
+          )}
+          and ${table.settledAt} is null
+        )
+        or
+        (
+          ${requiredFrameCheck(
+            table.terminalProofCodecVersion,
+            table.terminalProofByteLength,
+            table.terminalProofSha256,
+            table.terminalProofBytes,
+          )}
+          and ${table.settledAt} is not null
+          and isfinite(${table.settledAt})
+          and ${table.settledAt} >= ${table.reservedAt}
+        )
+      ) is true`,
+    ),
+  ],
+);
+
 export const fxSystemDeclarativeV2VerifierEvidencePagesV2 = pgTable(
   "fx_system_declarative_v2_verifier_evidence_page_v2",
   {

@@ -1393,7 +1393,8 @@ function cloneLinkBindings(
 ): DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
   return Object.freeze({
     attemptSha256: new Uint8Array(bindings.attemptSha256),
-    reservationSha256: new Uint8Array(bindings.reservationSha256),
+    futureRegistrationIntentSha256:
+      new Uint8Array(bindings.futureRegistrationIntentSha256),
     candidateSha256: new Uint8Array(bindings.candidateSha256),
     authenticatedInputSha256:
       new Uint8Array(bindings.authenticatedInputSha256),
@@ -1415,7 +1416,10 @@ function linkBindingsEqual(
 ): boolean {
   return left.linkSequence === right.linkSequence &&
     digestEqual(left.attemptSha256, right.attemptSha256) &&
-    digestEqual(left.reservationSha256, right.reservationSha256) &&
+    digestEqual(
+      left.futureRegistrationIntentSha256,
+      right.futureRegistrationIntentSha256,
+    ) &&
     digestEqual(left.candidateSha256, right.candidateSha256) &&
     digestEqual(left.authenticatedInputSha256, right.authenticatedInputSha256) &&
     digestEqual(left.parsePagesRootSha256, right.parsePagesRootSha256) &&
@@ -1437,7 +1441,10 @@ function linkBindingsMatchSession(
   session: CapturedSessionBindings,
 ): boolean {
   return bindings.linkSequence === claim.sequence &&
-    isUint8ArrayWithByteLength(bindings.reservationSha256, SHA256_BYTES) &&
+    isUint8ArrayWithByteLength(
+      bindings.futureRegistrationIntentSha256,
+      SHA256_BYTES,
+    ) &&
     isUint8ArrayWithByteLength(claim.reservationSha256, SHA256_BYTES) &&
     claim.parsePagesRootSha256 !== null &&
     digestEqual(bindings.parsePagesRootSha256, claim.parsePagesRootSha256) &&
