@@ -49,6 +49,11 @@ import {
   type PreparedStandardApplicationDefinitionV1,
   type StandardApplicationDefinitionInputV1,
 } from "@flarex/standard-application-definition/v1";
+import {
+  DeclarativeV2VerifierProgressRepositoryConfirmedRollbackV2Error,
+  type DeclarativeV2VerifierProgressEvidencePageSnapshotV2,
+  type DeclarativeV2VerifierProgressSettlementSnapshotV2,
+} from "@flarex/persistence-postgres/internal/authenticated-declarative-v2-command-bridge-v1";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import {
   encodeDeclarativeV2SemanticRecordPayloadV1,
@@ -64,6 +69,7 @@ import {
   type DeclarativeV2VerifierCommandReceiptFrameV2,
   type DeclarativeV2VerifierDurableCommandKindV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
+  type DeclarativeV2VerifierProgressFrameV2,
   type DeclarativeV2VerifierProgressCursorFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
 import {
@@ -80,6 +86,11 @@ import {
 import {
   makePrivateStandardApplicationAnalysisContextV1,
 } from "../src/StandardApplicationAnalysis";
+import {
+  loadPrivateDeclarativeV2SettledRestartEvidenceV1,
+  persistPrivateDeclarativeV2RestartEvidenceV1,
+  PrivateDeclarativeV2AnalyzerRestartPlanV1Error,
+} from "../src/PrivateDeclarativeV2AnalyzerRestartPlan";
 
 const UTF8 = new TextEncoder();
 const SOURCE = "export function getThing() { return \"ok\"; }";
@@ -632,6 +643,258 @@ describe("private Declarative V2 analyzer Effect port", () => {
     });
   });
 
+  it("scopes restart evidence to the exact admitted analyzer result", async () => {
+    const sessionBindings = bindings();
+    const trusted = trustedHost(sessionBindings);
+    const current = progress("parse", 0n);
+    const reserved = reservation(
+      "parse_module",
+      1n,
+      current,
+      sessionBindings,
+    );
+    const decoded = admitted(parseRequest(reserved));
+    trusted.admitCommand(decoded.capability, {
+      currentProgress: current,
+      totalModuleCount: 1n,
+      parsePagesRootSha256: digest(20),
+      analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+    });
+    const result = await Effect.runPromise(Effect.scoped(Effect.gen(
+      function* () {
+        const session = yield* trusted.host.open(trusted.sessionAuthority);
+        const complete = yield* trusted.host.execute({
+          session,
+          commandFactory: decoded.factory,
+          capability: decoded.capability,
+          transportBudget: decoded.budget,
+          allowance: 1_024,
+        });
+        if (complete.kind !== "parse_module") {
+          return yield* Effect.die("expected parse terminal result");
+        }
+        const claim = Object.freeze({
+          commandKind: "parse_module" as const,
+          sequence: complete.sequence,
+          reservationSha256: frameSha256(reserved),
+          authenticatedInputSha256:
+            sessionBindings.authenticatedInputSha256,
+          sourceCommitmentSha256: digest(51),
+          semanticCommitmentSha256: digest(52),
+          settledCommandUsage: complete.actual,
+          parsePagesRootSha256: null,
+          maximumPagePayloadBytes: 65_536n,
+          outputManifest: null,
+          outputManifestSha256: null,
+          receiptSha256: null,
+        });
+        const forged = yield* Effect.exit(
+          trusted.host.openRestartEvidence({
+            session,
+            result: Object.freeze({ ...complete }),
+            claim,
+            maximum: commandBudget(),
+          }),
+        );
+        const mismatchedUsage = yield* Effect.exit(
+          trusted.host.openRestartEvidence({
+            session,
+            result: complete,
+            claim: Object.freeze({
+              ...claim,
+              settledCommandUsage: Object.freeze({
+                ...claim.settledCommandUsage,
+                calls: claim.settledCommandUsage.calls + 1n,
+              }),
+            }),
+            maximum: commandBudget(),
+          }),
+        );
+        const mismatchedMaximum = yield* Effect.exit(
+          trusted.host.openRestartEvidence({
+            session,
+            result: complete,
+            claim,
+            maximum: restartBudget(complete.actual),
+          }),
+        );
+        const wrongUsageKind = yield* Effect.exit(
+          trusted.host.openRestartEvidence({
+            session,
+            result: complete,
+            claim: Object.freeze({
+              ...claim,
+              settledCommandUsage: Object.freeze({
+                ...claim.settledCommandUsage,
+                kind: "command_budget" as const,
+              }),
+            }),
+            maximum: commandBudget(),
+          }),
+        );
+        const wrongMaximumKind = yield* Effect.exit(
+          trusted.host.openRestartEvidence({
+            session,
+            result: complete,
+            claim,
+            maximum: Object.freeze({
+              ...commandBudget(),
+              kind: "attempt_usage" as const,
+            }),
+          }),
+        );
+        const persistedPages: Uint8Array[] = [];
+        let appendAttempts = 0;
+        const persisted =
+          yield* persistPrivateDeclarativeV2RestartEvidenceV1({
+            host: trusted.host,
+            session,
+            result: complete,
+            claim,
+            maximum: commandBudget(),
+            allowance: 1_024,
+            bridge: {
+              appendEvidencePage(_work, page) {
+                appendAttempts += 1;
+                if (appendAttempts === 1) {
+                  return Effect.fail(
+                    new DeclarativeV2VerifierProgressRepositoryConfirmedRollbackV2Error(
+                      {
+                        operation: "appendEvidencePage",
+                        cause: new Error("injected confirmed rollback"),
+                        retryable: true,
+                      },
+                    ),
+                  );
+                }
+                persistedPages.push(new Uint8Array(page.payloadBytes));
+                return Effect.succeed(Object.freeze({
+                  pageSha256: digest(persistedPages.length),
+                  operationUsage: Object.freeze({
+                    calls: 1,
+                    rows: 1,
+                    frameBytes: page.manifestBytes.byteLength,
+                    canonicalBytes: page.manifestBytes.byteLength,
+                    hashBytes: page.manifestBytes.byteLength,
+                    elapsedMilliseconds: 0,
+                    pages: 1,
+                    payloadBytes: page.payloadBytes.byteLength,
+                  }),
+                }));
+              },
+            },
+            work: Object.freeze({
+              _tag: "AuthenticatedDeclarativeV2CommandWorkV1",
+            }),
+            pageBudget: Object.freeze({
+              maximumCalls: 10_000,
+              maximumRows: 10_000,
+              maximumFrameBytes: 10_000_000,
+              maximumCanonicalBytes: 10_000_000,
+              maximumHashBytes: 10_000_000,
+              maximumElapsedMilliseconds: 60_000,
+              maximumPages: 1_024,
+              maximumPayloadBytes: 10_000_000,
+            }),
+          });
+        const commandUsage = Object.freeze({
+          ...complete.actual,
+          kind: "command_budget" as const,
+        });
+        const resultingUsage = Object.freeze({
+          ...complete.actual,
+          kind: "attempt_usage" as const,
+        });
+        const outputManifest = Object.freeze({
+          kind: "command_output_manifest" as const,
+          reservationSha256: frameSha256(reserved),
+          commandKind: "parse_module" as const,
+          sequence: complete.sequence,
+          evidenceRootSha256: persisted.terminal.finalPageSha256,
+          evidenceCount: persisted.terminal.recordCount,
+          diagnosticsRootSha256:
+            persisted.terminal.diagnosticsRootSha256,
+          diagnosticCount: persisted.terminal.diagnosticCount,
+          nextProgressSha256: frameSha256(complete.nextProgress),
+        }) satisfies DeclarativeV2VerifierCommandOutputManifestFrameV2;
+        const receipt = Object.freeze({
+          kind: "command_receipt" as const,
+          reservationSha256: frameSha256(reserved),
+          commandUsageSha256: frameSha256(commandUsage),
+          resultingAttemptUsageSha256: frameSha256(resultingUsage),
+          outputManifestSha256: frameSha256(outputManifest),
+          nextProgressSha256: frameSha256(complete.nextProgress),
+        }) satisfies DeclarativeV2VerifierCommandReceiptFrameV2;
+        const mismatchedOutputManifest = Object.freeze({
+          ...outputManifest,
+          evidenceRootSha256: digest(0xeb),
+        });
+        const mismatchedReceipt = Object.freeze({
+          ...receipt,
+          outputManifestSha256: frameSha256(mismatchedOutputManifest),
+        });
+        const mismatchedTerminal = yield* Effect.exit(
+          trusted.host.claimTerminal({
+            result: complete,
+            requestSha256: decoded.requestSha256,
+            outputManifest: mismatchedOutputManifest,
+            commandUsage,
+            resultingUsage,
+            nextProgress: complete.nextProgress,
+            receipt: mismatchedReceipt,
+          }),
+        );
+        const proof = yield* trusted.host.claimTerminal({
+          result: complete,
+          requestSha256: decoded.requestSha256,
+          outputManifest,
+          commandUsage,
+          resultingUsage,
+          nextProgress: complete.nextProgress,
+          receipt,
+        });
+        return {
+          appendAttempts,
+          forged,
+          mismatchedMaximum,
+          mismatchedOutputManifest,
+          mismatchedTerminal,
+          mismatchedUsage,
+          persisted,
+          persistedPages,
+          proof,
+          wrongMaximumKind,
+          wrongUsageKind,
+        };
+      },
+    )));
+    expect(Exit.isFailure(result.forged)).toBe(true);
+    expect(Exit.isFailure(result.mismatchedUsage)).toBe(true);
+    expect(Exit.isFailure(result.mismatchedMaximum)).toBe(true);
+    expect(Exit.isFailure(result.mismatchedTerminal)).toBe(true);
+    expect(Exit.isFailure(result.wrongUsageKind)).toBe(true);
+    expect(Exit.isFailure(result.wrongMaximumKind)).toBe(true);
+    expect(result.persisted.pageCount).toBeGreaterThan(0n);
+    expect(result.persisted.terminal.recordCount).toBeGreaterThan(0n);
+    expect(result.persistedPages).toHaveLength(
+      Number(result.persisted.pageCount),
+    );
+    expect(result.appendAttempts).toBe(
+      Number(result.persisted.pageCount) + 1,
+    );
+    expect(Result.getOrThrow(
+      decodeDeclarativeV2TerminalAuthorityProofV1(
+        result.proof.canonicalBytes,
+      ),
+    ).proof).toMatchObject({
+      commandKind: "parse_module",
+      outputManifestSha256: frameSha256({
+        ...result.mismatchedOutputManifest,
+        evidenceRootSha256: result.persisted.terminal.finalPageSha256,
+      }),
+    });
+  });
+
   it("claims one exact analyzer terminal result once and rejects replay", async () => {
     const sessionBindings = bindings();
     const trusted = trustedHost(sessionBindings);
@@ -763,6 +1026,85 @@ describe("private Declarative V2 analyzer Effect port", () => {
         reason: "invalidInput",
         path: "result",
       },
+    });
+  });
+
+  it("bounds settled restart evidence across all database batches", async () => {
+    const sessionBindings = bindings();
+    const current = progress("parse", 0n);
+    const reserved = reservation(
+      "parse_module",
+      1n,
+      current,
+      sessionBindings,
+    );
+    const settlement = settlementSnapshot(reserved);
+    let batchCalls = 0;
+    const exit = await Effect.runPromiseExit(
+      loadPrivateDeclarativeV2SettledRestartEvidenceV1({
+        bridge: {
+          readSettledEvidencePageBatch() {
+            const ordinal = BigInt(batchCalls);
+            batchCalls += 1;
+            return Effect.succeed(Object.freeze({
+              settlement,
+              pages: Object.freeze([
+                evidencePageSnapshot(reserved, ordinal),
+              ]),
+              next: batchCalls === 1
+                ? Object.freeze({
+                  startPageOrdinal: 1n,
+                  expectedPredecessorPageSha256: digest(0xaa),
+                })
+                : null,
+              operationUsage: Object.freeze({
+                calls: 1,
+                rows: 1,
+                frameBytes: 1,
+                canonicalBytes: 1,
+                hashBytes: 1,
+                elapsedMilliseconds: 0,
+                pages: 1,
+                payloadBytes: 1,
+              }),
+            }));
+          },
+        },
+        session: Object.freeze({
+          _tag: "AuthenticatedDeclarativeV2CommandSessionV1",
+        }),
+        commandKind: "parse_module",
+        sequence: 1n,
+        reservationSha256: frameSha256(reserved),
+        outputManifestSha256:
+          frameSha256(settlement.outputManifest),
+        receiptSha256: settlement.receiptSha256,
+        pageBudget: Object.freeze({
+          maximumCalls: 2,
+          maximumRows: 2,
+          maximumFrameBytes: 1_048_576,
+          maximumCanonicalBytes: 1_048_576,
+          maximumHashBytes: 1_048_576,
+          maximumElapsedMilliseconds: 1_000,
+          maximumPages: 2,
+          maximumPayloadBytes: 1,
+        }),
+      }),
+    );
+    expect(batchCalls).toBe(1);
+    if (!Exit.isFailure(exit)) {
+      throw new Error("expected cumulative evidence budget failure");
+    }
+    expect(Cause.findErrorOption(exit.cause)).toMatchObject({
+      _tag: "Some",
+      value: expect.objectContaining({
+        _tag: "PrivateDeclarativeV2AnalyzerRestartPlanV1Error",
+        operation: "loadSettledEvidence",
+        reason: "budgetExceeded",
+        dimension: "payloadBytes",
+        observed: 2n,
+        maximum: 1n,
+      }) satisfies Partial<PrivateDeclarativeV2AnalyzerRestartPlanV1Error>,
     });
   });
 
@@ -1591,7 +1933,7 @@ function reservation(
     sequence,
     currentProgressSha256: frameSha256(currentProgress),
     predecessorReceiptSha256: null,
-    commandBudgetSha256: digest(12),
+    commandBudgetSha256: frameSha256(commandBudget()),
     commandInputSha256: digest(13),
     freshAuthenticatedInputSha256: session.authenticatedInputSha256,
     analyzerIdentitySha256: session.analyzerIdentitySha256,
@@ -1664,20 +2006,100 @@ function bindings(): DeclarativeV2AnalyzerSessionBindingsV1 {
 }
 
 function frameSha256(
-  frame:
-    | DeclarativeV2VerifierBudgetFrameV2
-    | DeclarativeV2VerifierProgressCursorFrameV2
-    | DeclarativeV2VerifierCommandReservationFrameV2
-    | DeclarativeV2VerifierCommandOutputManifestFrameV2,
+  frame: DeclarativeV2VerifierProgressFrameV2,
 ): Uint8Array {
-  const encoded = Result.getOrThrow(encodeDeclarativeV2VerifierProgressFrameV2(
+  return sha256(frameBytes(frame));
+}
+
+function frameBytes(
+  frame: DeclarativeV2VerifierProgressFrameV2,
+): Uint8Array {
+  return Result.getOrThrow(encodeDeclarativeV2VerifierProgressFrameV2(
     frame,
     {
       maximumFrameBytes: 1_048_576,
       maximumCanonicalBytes: 1_048_576,
     },
-  ));
-  return sha256(encoded.canonicalBytes);
+  )).canonicalBytes;
+}
+
+function settlementSnapshot(
+  reserved: DeclarativeV2VerifierCommandReservationFrameV2,
+): DeclarativeV2VerifierProgressSettlementSnapshotV2 {
+  const commandUsage = commandBudget();
+  const resultingUsage = Object.freeze({
+    ...commandUsage,
+    kind: "attempt_usage" as const,
+  });
+  const nextProgress = progress("parse", 1n);
+  const outputManifest = Object.freeze({
+    kind: "command_output_manifest" as const,
+    reservationSha256: frameSha256(reserved),
+    commandKind: "parse_module" as const,
+    sequence: 1n,
+    evidenceRootSha256: digest(0xa0),
+    evidenceCount: 2n,
+    diagnosticsRootSha256: digest(0xa1),
+    diagnosticCount: 0n,
+    nextProgressSha256: frameSha256(nextProgress),
+  }) satisfies DeclarativeV2VerifierCommandOutputManifestFrameV2;
+  const receipt = Object.freeze({
+    kind: "command_receipt" as const,
+    reservationSha256: frameSha256(reserved),
+    commandUsageSha256: frameSha256(commandUsage),
+    resultingAttemptUsageSha256: frameSha256(resultingUsage),
+    outputManifestSha256: frameSha256(outputManifest),
+    nextProgressSha256: frameSha256(nextProgress),
+  }) satisfies DeclarativeV2VerifierCommandReceiptFrameV2;
+  return Object.freeze({
+    commandKind: "parse_module",
+    sequence: 1n,
+    reservationSha256: frameSha256(reserved),
+    reservation: reserved,
+    reservationBytes: frameBytes(reserved),
+    outputManifest,
+    outputManifestBytes: frameBytes(outputManifest),
+    commandUsage,
+    commandUsageBytes: frameBytes(commandUsage),
+    resultingUsage,
+    resultingUsageBytes: frameBytes(resultingUsage),
+    nextProgress,
+    nextProgressBytes: frameBytes(nextProgress),
+    receipt,
+    receiptBytes: frameBytes(receipt),
+    receiptSha256: frameSha256(receipt),
+    settledAt: new Date("2026-07-31T00:00:00.000Z"),
+  });
+}
+
+function evidencePageSnapshot(
+  reserved: DeclarativeV2VerifierCommandReservationFrameV2,
+  pageOrdinal: bigint,
+): DeclarativeV2VerifierProgressEvidencePageSnapshotV2 {
+  const payloadBytes = new Uint8Array([Number(pageOrdinal)]);
+  const manifest = Object.freeze({
+    kind: "evidence_page_manifest" as const,
+    reservationSha256: frameSha256(reserved),
+    commandKind: "parse_module" as const,
+    sequence: 1n,
+    pageOrdinal,
+    firstEvidenceOrdinal: pageOrdinal,
+    evidenceCount: 1n,
+    firstDiagnosticOrdinal: 0n,
+    diagnosticCount: 0n,
+    predecessorPageSha256: pageOrdinal === 0n ? null : digest(0xaa),
+    payloadByteLength: 1n,
+    payloadSha256: sha256(payloadBytes),
+    cumulativeDiagnosticsRootSha256: digest(0xa1),
+  }) satisfies DeclarativeV2VerifierEvidencePageManifestFrameV2;
+  return Object.freeze({
+    manifest,
+    manifestBytes: frameBytes(manifest),
+    pageSha256: digest(Number(pageOrdinal) + 0xaa),
+    payloadBytes,
+    payloadSha256: sha256(payloadBytes),
+    createdAt: new Date("2026-07-31T00:00:00.000Z"),
+  });
 }
 
 function sha256(bytes: Uint8Array): Uint8Array {

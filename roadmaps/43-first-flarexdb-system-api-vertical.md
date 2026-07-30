@@ -6,8 +6,9 @@
 documentation boundary, `FSV01` completed `SAP02` through the accepted
 replacement-analyzer port, and `FSV02` completes the first implementation-
 bearing System operation plus `SAP03`: authenticated, durable, idempotent,
-inactive application-revision registration. A1b2-S1 now closes the private
-authenticated reservation/intent/terminal-settlement prerequisite discovered
+inactive application-revision registration. A1b2-S1 closes durable
+intent/terminal settlement, and A1b2-S2 closes opaque reservation minting plus
+durable analyzer restart evidence, the two private prerequisites discovered
 at the FSV03 entry gate. The next vertical remains the private
 analyzer-to-Postgres system proof; readiness, activation, and routing remain
 later work.
@@ -81,6 +82,15 @@ Current implementation truth:
   migration `0038`; link reservation/intent and terminal proof/settlement are
   atomic, and the later registration reservation follows the real link
   receipt without changing existing V2 predecessor identity;
+- A1b2-S2 adds a persistence-owned opaque reservation proposal,
+  backend-owned single-use six-commitment claim, exact-result-correlated
+  analyzer restart-evidence production, authenticated historical settled-page
+  loading, and private scoped persistence/settlement/rehydrate composition.
+  Restart production is bound to the authenticated command budget and exact
+  analyzer usage; parse/link terminal settlement is bound to the produced
+  evidence roots/counts, and historical loading has cumulative batch limits.
+  It changes no migration, protocol identity, production dependency, route, or
+  activation authority;
 - the private real-system harness is not implemented or green; and
 - routed execution remains `legacy_v1`; private `flarexdb_v1` work is not
   permission to switch production routing.
@@ -98,7 +108,7 @@ factories.
 | `FSV02` registration is complete but deliberately inactive | Active-revision consumption | Complete target-native readiness and replacement activation; do not reinterpret registration as either gate |
 | The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
 | Readiness and replacement activation do not exist | Active-revision consumption | Complete `S03-D4`, then `S04` and its coherent reader after the private system proof |
-| C07 and A1b2-S1 are accepted, but the private analyzer-to-Postgres system harness is not assembled | System Application Data API and SAP04 | Complete FSV03 over the accepted A1b2, A1b2-S1, FSV01, FSV02, and C07 owners before active-revision invocation |
+| C07, A1b2-S1, and A1b2-S2 are implemented, but the private analyzer-to-Postgres system harness is not assembled | System Application Data API and SAP04 | Complete FSV03 over the accepted A1b2, A1b2-S1, A1b2-S2, FSV01, FSV02, and C07 owners before active-revision invocation |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
@@ -406,19 +416,25 @@ Entry gates:
 - foundation `C07` is implemented and green in its PGlite and real-Postgres
   lanes; and
 - A1b2-S1 provides the private authenticated command preparation,
-  reservation/intent authority, and terminal settlement bridge.
+  durable intent authority, and terminal settlement bridge; and
+- A1b2-S2 provides opaque reservation minting, exact-result restart-evidence
+  persistence, authenticated historical loading, and cold rehydrate
+  composition without exposing raw persistence authority.
 
 The selected FSV03 lane is private, host-neutral, and test-owned. Production
 redelivery/dispatch, scheduled triggers, and hosted activation are not entry
 gates for this lane and remain explicitly excluded.
 
-Current gate state: C07 and A1b2-S1 no longer block the selected private
+Current gate state: C07, A1b2-S1, and A1b2-S2 no longer block the selected private
 host-neutral FSV03 lane. C07 retains its accepted PGlite and genuine PostgreSQL
 receipts. A1b2-S1 supplies the previously missing non-circular command
 authority: one durable link intent before execution, analyzer-owned terminal
 proof stored with settlement, real link-receipt lineage, and only then the
-actual registration reservation. FSV03 remains unimplemented. Neither
-prerequisite is readiness, production activation, or routing authority.
+actual registration reservation. A1b2-S2 supplies the missing non-circular
+reservation proposal/claim path and durable analyzer restart evidence without
+changing existing protocol or persistence identities. FSV03 remains
+unimplemented. None of these prerequisites is readiness, production
+activation, or routing authority.
 
 Extend the private harness owned by roadmap 41 so one deterministic application
 uses the Standard definition, analysis, and registration functions, then an

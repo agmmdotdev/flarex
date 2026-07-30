@@ -63,6 +63,8 @@ import type {
 const RESULT_MARKER = Symbol("DeclarativeV2AuthenticatedCommandResultV1");
 const PREPARATION_MARKER =
   Symbol("DeclarativeV2AuthenticatedCommandPreparationV1");
+const PREPARED_RESERVATION_MARKER =
+  Symbol("DeclarativeV2AuthenticatedCommandPreparedReservationV1");
 const CURSOR_MARKER = Symbol("DeclarativeV2AuthenticatedCommandCursorV1");
 const SHA256_BYTES = 32;
 const U32_MAX = 0xffff_ffff;
@@ -95,6 +97,8 @@ const VERIFIER_IDENTITY_DOMAIN =
 type Operation =
   | "prepare"
   | "commitments"
+  | "bindReservation"
+  | "claimReservation"
   | "produce"
   | "receipt"
   | "cursor"
@@ -116,6 +120,10 @@ export interface DeclarativeV2AuthenticatedCommandPreparationV1 {
   readonly [PREPARATION_MARKER]: true;
 }
 
+export interface DeclarativeV2AuthenticatedCommandPreparedReservationV1 {
+  readonly [PREPARED_RESERVATION_MARKER]: true;
+}
+
 export interface DeclarativeV2AuthenticatedCommandPreparationInputV1 {
   readonly readSession: unknown;
   readonly commandBudget: unknown;
@@ -129,6 +137,33 @@ export interface DeclarativeV2AuthenticatedCommandStableCommitmentsV1 {
   readonly freshAuthenticatedInputSha256: Uint8Array;
   readonly analyzerIdentitySha256: Uint8Array;
   readonly verifierIdentitySha256: Uint8Array;
+}
+
+/**
+ * Process-local projection of persistence-owned reservation lineage. This is
+ * not a wire contract and carries no authority by itself; persistence must
+ * revalidate it against the opaque proposal before reserving work.
+ */
+export interface DeclarativeV2AuthenticatedCommandReservationLineageV1 {
+  readonly attemptSha256: Uint8Array;
+  readonly candidateSha256: Uint8Array;
+  readonly commandKind: DeclarativeV2VerifierDurableCommandKindV2;
+  readonly sequence: bigint;
+  readonly currentProgressSha256: Uint8Array;
+  readonly predecessorReceiptSha256: Uint8Array | null;
+}
+
+export interface DeclarativeV2AuthenticatedCommandReservationCommitmentsV1
+  extends DeclarativeV2AuthenticatedCommandStableCommitmentsV1 {
+  readonly rangeAndPredecessorTailsSha256: Uint8Array;
+}
+
+export interface DeclarativeV2AuthenticatedCommandPreparedReservationClaimV1 {
+  readonly commandBudget: DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  };
+  readonly commitments:
+    DeclarativeV2AuthenticatedCommandReservationCommitmentsV1;
 }
 
 export interface DeclarativeV2AuthenticatedCommandCursorV1 {
@@ -220,6 +255,22 @@ export interface DeclarativeV2AuthenticatedCommandProducerApiV1 {
     preparation: unknown,
   ) => Result.Result<
     DeclarativeV2AuthenticatedCommandStableCommitmentsV1,
+    DeclarativeV2AuthenticatedCommandProducerV1Error
+  >;
+  readonly bindReservation: (
+    request: Request,
+    preparation: unknown,
+    lineage: unknown,
+  ) => Effect.Effect<
+    DeclarativeV2AuthenticatedCommandPreparedReservationV1,
+    DeclarativeV2AuthenticatedCommandProducerV1Error,
+    never
+  >;
+  readonly claimPreparedReservation: (
+    authority: unknown,
+    lineage: unknown,
+  ) => Result.Result<
+    DeclarativeV2AuthenticatedCommandPreparedReservationClaimV1,
     DeclarativeV2AuthenticatedCommandProducerV1Error
   >;
   readonly producePrepared: (
@@ -392,6 +443,14 @@ interface PreparationState {
   closed: boolean;
 }
 
+interface PreparedReservationState {
+  readonly preparation: PreparationState;
+  readonly lineage: DeclarativeV2AuthenticatedCommandReservationLineageV1;
+  readonly commitments:
+    DeclarativeV2AuthenticatedCommandReservationCommitmentsV1;
+  claimed: boolean;
+}
+
 interface CursorState {
   readonly request: Request;
   readonly result: object;
@@ -462,6 +521,8 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
   const results = new WeakMap<object, ResultState>();
   const cursors = new WeakMap<object, CursorState>();
   const preparations = new WeakMap<object, PreparationState>();
+  const preparedReservations =
+    new WeakMap<object, PreparedReservationState>();
   const configuredAnalyzerRelease =
     options.expectedAnalyzerRelease ?? installedPrivateAnalyzerReleaseTupleV1();
   const capturedAnalyzerRelease = capturePrivateAnalyzerReleaseTupleV1(
@@ -602,6 +663,85 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
           getPreparation(preparations, request, preparation, "commitments"),
           state => ownStableCommitments(state.stable),
         );
+
+  const bindReservation:
+    DeclarativeV2AuthenticatedCommandProducerApiV1["bindReservation"] =
+      Effect.fn(
+        "DeclarativeV2AuthenticatedCommandProducer.bindReservation",
+      )(function* (request, preparation, rawLineage) {
+        const state = yield* Effect.fromResult(
+          getPreparation(
+            preparations,
+            request,
+            preparation,
+            "bindReservation",
+          ),
+        );
+        const lineage = yield* Effect.fromResult(
+          captureReservationLineage(rawLineage, "bindReservation"),
+        );
+        if (lineage.commandKind !== state.selection.kind) {
+          return yield* producerError("bindReservation", "contentMismatch", {
+            path: "lineage.commandKind",
+          });
+        }
+        const rangeAndPredecessorTailsSha256 = yield* hash(
+          canonicalPreimage(
+            RANGE_DOMAIN,
+            rangeJson(state.selection, lineage),
+          ),
+        );
+        const authority = Object.freeze({
+          [PREPARED_RESERVATION_MARKER]: true as const,
+        }) satisfies DeclarativeV2AuthenticatedCommandPreparedReservationV1;
+        preparedReservations.set(authority, {
+          preparation: state,
+          lineage,
+          commitments: ownReservationCommitments({
+            ...state.stable,
+            rangeAndPredecessorTailsSha256,
+          }),
+          claimed: false,
+        });
+        return authority;
+      });
+
+  const claimPreparedReservation:
+    DeclarativeV2AuthenticatedCommandProducerApiV1["claimPreparedReservation"] =
+      (rawAuthority, rawLineage) =>
+        Result.gen(function* () {
+          const state =
+            rawAuthority !== null && typeof rawAuthority === "object"
+              ? preparedReservations.get(rawAuthority)
+              : undefined;
+          if (
+            state === undefined ||
+            state.claimed ||
+            state.preparation.closed
+          ) {
+            return yield* Result.fail(
+              producerError("claimReservation", "invalidAuthority"),
+            );
+          }
+          const lineage = yield* captureReservationLineage(
+            rawLineage,
+            "claimReservation",
+          );
+          if (!reservationLineageEqual(state.lineage, lineage)) {
+            return yield* Result.fail(
+              producerError("claimReservation", "commitmentMismatch", {
+                path: "lineage",
+              }),
+            );
+          }
+          state.claimed = true;
+          preparedReservations.delete(rawAuthority as object);
+          return Object.freeze({
+            commandBudget: ownBudget(state.preparation.commandBudget) as
+              CommandBudgetFrame,
+            commitments: ownReservationCommitments(state.commitments),
+          });
+        });
 
   const producePrepared:
     DeclarativeV2AuthenticatedCommandProducerApiV1["producePrepared"] =
@@ -879,6 +1019,8 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
   return Object.freeze({
     prepare,
     commitments,
+    bindReservation,
+    claimPreparedReservation,
     producePrepared,
     produce,
     receipt,
@@ -987,7 +1129,7 @@ function getPreparation(
   preparations: WeakMap<object, PreparationState>,
   request: Request,
   preparation: unknown,
-  operation: "commitments" | "produce",
+  operation: "commitments" | "bindReservation" | "produce",
 ): Result.Result<
   PreparationState,
   DeclarativeV2AuthenticatedCommandProducerV1Error
@@ -1004,6 +1146,111 @@ function getPreparation(
   return state.closed
     ? Result.fail(producerError(operation, "closed"))
     : Result.succeed(state);
+}
+
+const RESERVATION_LINEAGE_KEYS = [
+  "attemptSha256",
+  "candidateSha256",
+  "commandKind",
+  "sequence",
+  "currentProgressSha256",
+  "predecessorReceiptSha256",
+] as const;
+
+function captureReservationLineage(
+  input: unknown,
+  operation: "bindReservation" | "claimReservation",
+): Result.Result<
+  DeclarativeV2AuthenticatedCommandReservationLineageV1,
+  DeclarativeV2AuthenticatedCommandProducerV1Error
+> {
+  return Result.gen(function* () {
+    const record = yield* captureOwnDataRecord(
+      input,
+      RESERVATION_LINEAGE_KEYS,
+      operation,
+      "lineage",
+    );
+    const commandKind = record.commandKind;
+    if (
+      commandKind !== "source_page" &&
+      commandKind !== "parse_module" &&
+      commandKind !== "link_page" &&
+      commandKind !== "registration_page"
+    ) {
+      return yield* Result.fail(
+        producerError(operation, "invalidInput", {
+          path: "lineage.commandKind",
+        }),
+      );
+    }
+    if (
+      !isUint8ArrayWithByteLength(record.attemptSha256, SHA256_BYTES) ||
+      !isUint8ArrayWithByteLength(record.candidateSha256, SHA256_BYTES) ||
+      !isUint8ArrayWithByteLength(
+        record.currentProgressSha256,
+        SHA256_BYTES,
+      ) ||
+      (
+        record.predecessorReceiptSha256 !== null &&
+        !isUint8ArrayWithByteLength(
+          record.predecessorReceiptSha256,
+          SHA256_BYTES,
+        )
+      ) ||
+      typeof record.sequence !== "bigint" ||
+      record.sequence <= 0n ||
+      record.sequence > U64_MAX
+    ) {
+      return yield* Result.fail(
+        producerError(operation, "invalidInput", { path: "lineage" }),
+      );
+    }
+    return Object.freeze({
+      attemptSha256: copyBytes(record.attemptSha256),
+      candidateSha256: copyBytes(record.candidateSha256),
+      commandKind,
+      sequence: record.sequence,
+      currentProgressSha256: copyBytes(record.currentProgressSha256),
+      predecessorReceiptSha256:
+        record.predecessorReceiptSha256 === null
+          ? null
+          : copyBytes(record.predecessorReceiptSha256),
+    });
+  });
+}
+
+function reservationLineageEqual(
+  left: DeclarativeV2AuthenticatedCommandReservationLineageV1,
+  right: DeclarativeV2AuthenticatedCommandReservationLineageV1,
+): boolean {
+  return left.commandKind === right.commandKind &&
+    left.sequence === right.sequence &&
+    bytesEqualFullScan(left.attemptSha256, right.attemptSha256) &&
+    bytesEqualFullScan(left.candidateSha256, right.candidateSha256) &&
+    bytesEqualFullScan(
+      left.currentProgressSha256,
+      right.currentProgressSha256,
+    ) &&
+    (
+      left.predecessorReceiptSha256 === null
+        ? right.predecessorReceiptSha256 === null
+        : right.predecessorReceiptSha256 !== null &&
+          bytesEqualFullScan(
+            left.predecessorReceiptSha256,
+            right.predecessorReceiptSha256,
+          )
+    );
+}
+
+function ownReservationCommitments(
+  input: DeclarativeV2AuthenticatedCommandReservationCommitmentsV1,
+): DeclarativeV2AuthenticatedCommandReservationCommitmentsV1 {
+  return Object.freeze({
+    ...ownStableCommitments(input),
+    rangeAndPredecessorTailsSha256:
+      copyBytes(input.rangeAndPredecessorTailsSha256),
+  });
 }
 
 function ownStableCommitments(
@@ -1877,7 +2124,12 @@ function commandInputJson(
 
 function rangeJson(
   selection: DeclarativeV2AuthenticatedCommandSelectionV1,
-  reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+  reservation: Pick<
+    DeclarativeV2VerifierCommandReservationFrameV2,
+    | "sequence"
+    | "currentProgressSha256"
+    | "predecessorReceiptSha256"
+  >,
 ): Json {
   const selected = selection.kind === "source_page"
     ? {

@@ -1,5 +1,5 @@
 import { webcrypto } from "node:crypto";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   encodeDeclarativeV2FutureRegistrationIntentV1,
@@ -510,7 +510,42 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
         ceilings: semanticBudget("attempt_ceilings", 1_000n),
       }, operationBudget));
       await moveAttemptToLink(persistence, created.attemptSha256);
-      const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(repository);
+      let preparedLink:
+        | Awaited<ReturnType<typeof reservationInput>>
+        | undefined;
+      const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
+        repository,
+        {
+          preparedReservations: {
+            claim(_authority, lineage) {
+              if (
+                preparedLink === undefined ||
+                lineage.commandKind !== "link_page"
+              ) {
+                return Effect.die("Missing prepared link reservation.");
+              }
+              return Effect.succeed(Object.freeze({
+                commandBudget: preparedLink.commandBudget,
+                commitments: Object.freeze({
+                  commandBudgetSha256:
+                    preparedLink.reservation.commandBudgetSha256,
+                  commandInputSha256:
+                    preparedLink.reservation.commandInputSha256,
+                  freshAuthenticatedInputSha256:
+                    preparedLink.reservation.freshAuthenticatedInputSha256,
+                  analyzerIdentitySha256:
+                    preparedLink.reservation.analyzerIdentitySha256,
+                  verifierIdentitySha256:
+                    preparedLink.reservation.verifierIdentitySha256,
+                  rangeAndPredecessorTailsSha256:
+                    preparedLink.reservation
+                      .rangeAndPredecessorTailsSha256,
+                }),
+              }));
+            },
+          },
+        },
+      );
       const acquired = await runEffect(
         bridge.acquire(scopeId, created.attemptSha256, operationBudget),
       );
@@ -525,6 +560,25 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
         0x91,
         "link_page",
       );
+      preparedLink = link;
+      const firstProposal = await runEffect(bridge.proposeReservation(
+        acquired.session,
+        "link_page",
+      ));
+      const secondProposal = await runEffect(bridge.proposeReservation(
+        acquired.session,
+        "link_page",
+      ));
+      const firstReady = await runEffect(bridge.prepareReservation(
+        acquired.session,
+        firstProposal.proposal,
+        Object.freeze({}),
+      ));
+      const secondReady = await runEffect(bridge.prepareReservation(
+        acquired.session,
+        secondProposal.proposal,
+        Object.freeze({}),
+      ));
       const planned = await settlementInput(
         link.reservation,
         digest(0x92),
@@ -542,7 +596,7 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
         encodeDeclarativeV2FutureRegistrationIntentV1({
           attemptSha256: created.attemptSha256,
           candidateSha256: inserted.candidateSha256,
-          linkReservationSha256: await frameSha256(link.reservation),
+          linkReservationSha256: firstReady.reservationSha256,
           linkSequence: 1n,
           registrationSequence: 2n,
           registrationCurrentProgressSha256:
@@ -560,20 +614,14 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
         }),
       );
       const concurrent = await Promise.all([
-        runEffect(bridge.reserve(
-          acquired.session,
-          {
-            ...link,
-            futureRegistrationIntentBytes: intent.canonicalBytes,
-          },
+        runEffect(bridge.reservePrepared(
+          firstReady.ready,
+          intent.canonicalBytes,
           operationBudget,
         )),
-        runEffect(bridge.reserve(
-          acquired.session,
-          {
-            ...link,
-            futureRegistrationIntentBytes: intent.canonicalBytes,
-          },
+        runEffect(bridge.reservePrepared(
+          secondReady.ready,
+          intent.canonicalBytes,
           operationBudget,
         )),
       ]);
@@ -608,11 +656,32 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
         await sha256(intent.canonicalBytes),
         intent.intent.analyzerReleaseSha256,
       );
-      await runEffect(bridge.settle(
+      const settledLink = await runEffect(bridge.settle(
         reserved.work,
         { ...settlement, terminalProofBytes: terminalProof },
         operationBudget,
       ));
+      const historical = await runEffect(
+        bridge.readSettledEvidencePageBatch(
+          acquired.session,
+          {
+            commandKind: "link_page",
+            sequence: 1n,
+            reservationSha256:
+              settledLink.settlement.reservationSha256,
+            outputManifestSha256:
+              settledLink.settlement.receipt.outputManifestSha256,
+            receiptSha256: settledLink.settlement.receiptSha256,
+            startPageOrdinal: 0n,
+            expectedPredecessorPageSha256: null,
+          },
+          pageOperationBudget,
+        ),
+      );
+      expect(historical.pages[0]?.payloadBytes).toEqual(
+        new Uint8Array([9, 8, 7]),
+      );
+      expect(historical.next).toBeNull();
       const linked = await runEffect(repository.observeAttempt(
         scopeId,
         created.attemptSha256,

@@ -2357,6 +2357,57 @@ activation remain blocked until their production host composition is proven.
         separate unimplemented real-system proof, but this named prerequisite
         no longer blocks its selected private host-neutral lane.
 
+        **A1b2-S2 — private reservation minting and durable analyzer restart
+        bridge.** The second prerequisite discovered while composing FSV03 is
+        implemented without a migration or protocol-version change.
+        Persistence now issues one process-local opaque proposal from the
+        acquired attempt, fence, candidate, sequence, current progress, and
+        predecessor receipt. The backend binds that exact lineage to one
+        scoped authenticated preparation, derives the existing six reservation
+        commitments once through the existing formulas, and exposes a
+        single-use opaque claim. Persistence validates the claimed command
+        budget, constructs the existing canonical reservation, and lets the
+        existing repository transaction revalidate attempt/fence/progress/
+        predecessor lineage while atomically recording the reservation,
+        future-registration intent, authority row, and pending attempt.
+        Confirmed rollback retains exact ready bytes for retry; durable
+        duplicates, contradictory input, takeover, and decision uncertainty
+        remain owned by the existing repository.
+
+        The accepted analyzer semantic owner now correlates the exact
+        parse/link completion object with its hidden result capability and can
+        open one scoped restart-evidence producer without exposing or allowing
+        callers to fabricate raw result authority. The Effect host retains the
+        exact request/reservation/session correlation. A private analyzer
+        composition sequences evidence-page persistence, analyzer-owned
+        terminal proof, existing atomic settlement, authenticated historical
+        settled-page loading, and the existing claimed-source rehydrate path.
+        Restart production is admitted only when its settled usage matches the
+        exact analyzer completion and its maximum matches the authenticated
+        command budget; terminal settlement for parse/link also matches the
+        produced evidence and diagnostic roots/counts. Retryable confirmed
+        rollbacks reuse the same page or terminal-proof bytes, while
+        decision-uncertain outcomes remain observable rather than retried.
+        Historical loading enforces cumulative call, page, manifest-byte, and
+        payload-byte ceilings across all database batches before retaining
+        another batch in memory.
+        The persistence bridge exposes only the historical settled-evidence
+        batch read keyed by its opaque session; it still exposes no repository
+        `Run`, raw `Work`, transaction, or SQL capability.
+
+        Focused PGlite and genuine PostgreSQL tests cover the opaque
+        proposal/prepared-reservation path, concurrent duplicate reservation,
+        immutable intent, real receipt lineage, settled historical evidence
+        readback, and cold pending registration resume. Analyzer tests cover
+        exact-result forgery rejection, single-use evidence production,
+        scoped release, persisted canonical pages, and unchanged warm/cold
+        compatibility. Existing request, restart-input, progress, intent,
+        terminal-proof, physical, OCC, commit, journal, feed, outbox, and
+        application-row identities remain unchanged. The new surfaces are
+        internal, fail-closed, unimported by production composition, and add no
+        route, trigger, readiness, activation, SAP04, hosted dispatch, dual
+        write, or fallback. FSV03 remains separate work.
+
         One proportional approval for either capability covers its
         implementation, in-scope test fixes, validation, roadmap
         reconciliation, required reviewers, and commit. A new preflight is
@@ -2412,9 +2463,10 @@ activation remain blocked until their production host composition is proven.
    source/parse/link/registration composition, trusted warm/cold host/session
    claim consumption, exact terminal `A`, `E`, and `R` channels, deterministic
    interruption/failure/release proof, and focused integration validation. Its
-   authenticated backend preparation and durable settlement bridge now exist
-   as private prerequisites, while every production composition and external
-   consumer remains deliberately absent.
+   authenticated backend preparation, opaque reservation minting, exact-result
+   restart-evidence production, historical settled-evidence read, and durable
+   settlement bridge now exist as private prerequisites, while every
+   production composition and external consumer remains deliberately absent.
    Settled-cold recovery keeps one package-owned restart runtime per private
    analysis session: parse results reconstructed by that owner form the
    authenticated link module set, and a reconstructed link result installs one
@@ -2428,9 +2480,11 @@ activation remain blocked until their production host composition is proven.
 
    The complete analyzer port remains externally unwired and
    production-inactive until the separate routing and activation boundary is
-   approved. FSV02 now owns private candidate/attempt preparation and A1b2-S1
-   now owns private repository `Work`/fence authorization plus terminal-proof
-   settlement storage. They add no backend production route,
+   approved. FSV02 owns private candidate/attempt preparation, A1b2-S1 owns
+   private repository `Work`/fence authorization plus terminal-proof
+   settlement storage, and A1b2-S2 owns the opaque reservation-proposal and
+   exact-result restart bridge between those accepted owners. They add no
+   backend production route,
    `apps/executor` production composition, U2, readiness, activation, or
    production caller. C07 is accepted independently under its own roadmap.
    Current request/response/restart/readback/progress/physical bytes,

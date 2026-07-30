@@ -28,6 +28,9 @@ import {
   type DeclarativeV2AuthenticatedCommandSelectionV1,
 } from "../src/declarativeV2/AuthenticatedCommandProducer";
 import {
+  makeDeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1,
+} from "../src/declarativeV2/AuthenticatedCommandReservationPreparation";
+import {
   DeclarativeV2AuthenticatedReadSessionInputError,
   type DeclarativeV2AuthenticatedByteCursorV1,
   type DeclarativeV2AuthenticatedModuleV1,
@@ -666,6 +669,94 @@ describe("authenticated Declarative V2 command producer", () => {
     expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
     expect(fixture.order.filter(entry => entry === "close")).toHaveLength(1);
     expect(fixture.order.at(-1)).toBe("close");
+  });
+
+  it("binds all six commitments to exact persistence lineage and consumes the authority once", async () => {
+    const fixture = makeFixture();
+    const request = new Request("https://producer.test/prepared-reservation");
+    const selection = Object.freeze({
+      kind: "link_page",
+    }) satisfies DeclarativeV2AuthenticatedCommandSelectionV1;
+    const fullInput = producerInput(selection, transportBudget, 2);
+    await Effect.runPromise(Effect.scoped(withProducer(
+      fixture,
+      producer =>
+        Effect.gen(function* () {
+          const preparation = yield* producer.prepare(
+            request,
+            PROOF_INPUT,
+            {
+              readSession: fullInput.readSession,
+              commandBudget: fullInput.commandBudget,
+              transportBudget: fullInput.transportBudget,
+              selection,
+            },
+          );
+          const lineage = Object.freeze({
+            attemptSha256: digest(1),
+            candidateSha256: digest(2),
+            commandKind: "link_page" as const,
+            sequence: 2n,
+            currentProgressSha256: digest(3),
+            predecessorReceiptSha256: digest(4),
+          });
+          const prepared = yield* producer.bindReservation(
+            request,
+            preparation,
+            lineage,
+          );
+          expect(
+            producer.claimPreparedReservation(prepared, {
+              ...lineage,
+              sequence: 3n,
+            }),
+          ).toMatchObject({
+            failure: {
+              operation: "claimReservation",
+              reason: "commitmentMismatch",
+              path: "lineage",
+            },
+          });
+          const claim =
+            yield* makeDeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1(
+              producer,
+            ).claim(
+              prepared,
+              lineage,
+            );
+          expect(claim.commitments).toEqual({
+            commandBudgetSha256: HASH,
+            commandInputSha256: HASH,
+            freshAuthenticatedInputSha256: HASH,
+            analyzerIdentitySha256: HASH,
+            verifierIdentitySha256: HASH,
+            rangeAndPredecessorTailsSha256: HASH,
+          });
+          expect(
+            producer.claimPreparedReservation(prepared, lineage),
+          ).toMatchObject({
+            failure: {
+              operation: "claimReservation",
+              reason: "invalidAuthority",
+            },
+          });
+          const reservation = Object.freeze({
+            kind: "command_reservation" as const,
+            ...lineage,
+            ...claim.commitments,
+          });
+          const result = yield* producer.producePrepared(
+            request,
+            preparation,
+            reservation,
+          );
+          expect(Result.getOrThrow(producer.receipt(request, result))).toMatchObject({
+            commandKind: "link_page",
+            sequence: 2n,
+            rangeAndPredecessorTailsSha256: HASH,
+          });
+        }),
+    )));
   });
 });
 

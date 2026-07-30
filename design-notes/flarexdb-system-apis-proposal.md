@@ -235,11 +235,18 @@ The remaining limitations are architectural, not merely naming or packaging:
    must not be wrapped as though it were.
 5. **The private analyzer-to-Postgres system harness is not yet assembled.**
    C07 proves the private test-owned point-mutation composition in PGlite and
-   genuine PostgreSQL. A1b2-S1 now also supplies the private scoped command
+   genuine PostgreSQL. A1b2-S1 supplies the private scoped command
    preparation, durable future-registration continuity intent, analyzer-owned
    terminal proof, opaque persistence Work facade, and real link-receipt to
-   registration-reservation lineage. Those prerequisites do not themselves
-   connect FSV01/FSV02 through artifact runtime and C07 or complete FSV03.
+   registration-reservation lineage. A1b2-S2 adds the persistence-owned opaque
+   reservation proposal, backend-owned single-use six-commitment claim,
+   exact-result-correlated restart-evidence producer, narrow authenticated
+   historical settled-evidence read, and private scoped evidence/settlement/
+   reload/rehydrate composition. Restart production and settlement retain the
+   exact authenticated budget/usage/evidence correlation, and historical
+   loading applies cumulative memory/work ceilings across database batches.
+   These prerequisites do not themselves connect
+   FSV01/FSV02 through artifact runtime and C07 or complete FSV03.
 6. **The main executor facade remains legacy-routed.** Private
    `flarexdb_v1` modules do not make the root executor a replacement
    application-data API.

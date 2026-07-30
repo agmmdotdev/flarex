@@ -10,6 +10,8 @@ import {
   type DeclarativeV2AnalyzerCompleteV1,
   type DeclarativeV2AnalyzerCommandV1,
   type DeclarativeV2AnalyzerPortFactoryV1,
+  type DeclarativeV2AnalyzerRestartEvidenceClaimV1,
+  type DeclarativeV2AnalyzerRestartEvidenceProducerV1,
   type DeclarativeV2AnalyzerSessionBindingsV1,
   type DeclarativeV2AnalyzerSessionV1,
   type DeclarativeV2ArtifactModulePathHandleV1,
@@ -17,6 +19,7 @@ import {
   type DeclarativeV2VerifierAuthenticatedLinkBindingsV1,
   type DeclarativeV2VerifierRestartClaimV1,
   type DeclarativeV2VerifierRestartPageSourceV1,
+  type DeclarativeV2VerifierRestartProducerStepV1,
 } from "@flarex/analysis/internal/declarative-v2-verifier-v1";
 import {
   encodeDeclarativeV2AuthenticatedCommandRequestV1,
@@ -33,7 +36,10 @@ import {
   type DeclarativeV2AuthenticatedCommandRestartInputFactoryV1,
   type DeclarativeV2AuthenticatedCommandRestartInputV1Error,
 } from "@flarex/executor-http/internal-declarative-v2-authenticated-command-restart-input-v1";
-import { isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
 import { Data, Effect, Result, Scope } from "effect";
 import {
   encodeDeclarativeV2TerminalAuthorityProofV1,
@@ -101,6 +107,10 @@ export interface PrivateDeclarativeV2AnalyzerSessionV1 {
   readonly _tag: "PrivateDeclarativeV2AnalyzerSessionV1";
 }
 
+export interface PrivateDeclarativeV2AnalyzerRestartEvidenceProducerV1 {
+  readonly _tag: "PrivateDeclarativeV2AnalyzerRestartEvidenceProducerV1";
+}
+
 export class PrivateDeclarativeV2AnalyzerHostV1Error extends Data.TaggedError(
   "PrivateDeclarativeV2AnalyzerHostV1Error",
 )<{
@@ -108,6 +118,8 @@ export class PrivateDeclarativeV2AnalyzerHostV1Error extends Data.TaggedError(
     | "open"
     | "execute"
     | "rehydrate"
+    | "openRestartEvidence"
+    | "stepRestartEvidence"
     | "claimTerminal"
     | "close";
   readonly reason:
@@ -155,6 +167,24 @@ export interface PrivateDeclarativeV2AnalyzerHostV1 {
     PrivateDeclarativeV2AnalyzerHostV1Error,
     never
   >;
+  readonly openRestartEvidence: (input: Readonly<{
+    readonly session: PrivateDeclarativeV2AnalyzerSessionV1;
+    readonly result: DeclarativeV2AnalyzerCompleteV1;
+    readonly claim: DeclarativeV2AnalyzerRestartEvidenceClaimV1;
+    readonly maximum: DeclarativeV2VerifierBudgetFrameV2;
+  }>) => Effect.Effect<
+    PrivateDeclarativeV2AnalyzerRestartEvidenceProducerV1,
+    PrivateDeclarativeV2AnalyzerHostV1Error,
+    Scope.Scope
+  >;
+  readonly stepRestartEvidence: (
+    producer: PrivateDeclarativeV2AnalyzerRestartEvidenceProducerV1,
+    allowance: number,
+  ) => Effect.Effect<
+    DeclarativeV2VerifierRestartProducerStepV1,
+    PrivateDeclarativeV2AnalyzerHostV1Error,
+    never
+  >;
   readonly claimTerminal: (input: Readonly<{
     readonly result: DeclarativeV2AnalyzerCompleteV1;
     readonly requestSha256: Uint8Array;
@@ -187,15 +217,31 @@ interface HostSessionState {
 interface TerminalCorrelationState {
   readonly session: HostSessionState;
   readonly reservation: DeclarativeV2VerifierCommandReservationFrameV2;
+  readonly commandBudget: DeclarativeV2VerifierBudgetFrameV2;
   readonly requestSha256: Uint8Array;
   readonly complete: DeclarativeV2AnalyzerCompleteV1;
   readonly futureRegistrationIntentSha256: Uint8Array | null;
-  claimed: boolean;
+  restartTerminal:
+    | Extract<
+      DeclarativeV2VerifierRestartProducerStepV1,
+      { readonly status: "complete" }
+    >
+    | undefined;
+  terminalClaimed: boolean;
+  restartClaimed: boolean;
+}
+
+interface RestartEvidenceProducerState {
+  readonly session: HostSessionState;
+  readonly analysisProducer: DeclarativeV2AnalyzerRestartEvidenceProducerV1;
+  readonly correlation: TerminalCorrelationState;
+  closed: boolean;
 }
 
 interface CollectedCommand {
   readonly command: DeclarativeV2AnalyzerCommandV1;
   readonly reservation: DeclarativeV2VerifierCommandReservationFrameV2;
+  readonly commandBudget: DeclarativeV2VerifierBudgetFrameV2;
   readonly requestSha256: Uint8Array;
   readonly futureRegistrationIntentSha256: Uint8Array | null;
 }
@@ -256,6 +302,8 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
   const sessions = new WeakMap<object, HostSessionState>();
   const terminalCorrelations =
     new WeakMap<object, TerminalCorrelationState>();
+  const restartEvidenceProducers =
+    new WeakMap<object, RestartEvidenceProducerState>();
   const claimedSessionAuthorities = new WeakSet<object>();
 
   const close: PrivateDeclarativeV2AnalyzerHostV1["close"] = rawSession => {
@@ -376,11 +424,14 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
       terminalCorrelations.set(complete, {
         session: state,
         reservation: collected.reservation,
+        commandBudget: collected.commandBudget,
         requestSha256: new Uint8Array(collected.requestSha256),
         complete,
         futureRegistrationIntentSha256:
           collected.futureRegistrationIntentSha256,
-        claimed: false,
+        restartTerminal: undefined,
+        terminalClaimed: false,
+        restartClaimed: false,
       });
       return complete;
     });
@@ -395,7 +446,7 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
         if (
           correlation === undefined ||
           correlation.complete !== input.result ||
-          correlation.claimed ||
+          correlation.terminalClaimed ||
           correlation.session.closed
         ) {
           return yield* hostIssue(
@@ -407,11 +458,162 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
         const encoded = yield* Effect.fromResult(
           buildTerminalAuthorityProof(correlation, input),
         );
-        correlation.claimed = true;
-        terminalCorrelations.delete(input.result);
+        correlation.terminalClaimed = true;
         return encoded;
       },
     );
+
+  const openRestartEvidence:
+    PrivateDeclarativeV2AnalyzerHostV1["openRestartEvidence"] =
+      Effect.fn("PrivateDeclarativeV2AnalyzerHostV1.openRestartEvidence")(
+        function* (input) {
+          const state = yield* Effect.fromResult(
+            requireSession(sessions, input.session, "openRestartEvidence"),
+          );
+          const correlation =
+            input.result !== null && typeof input.result === "object"
+              ? terminalCorrelations.get(input.result)
+              : undefined;
+          const reservationSha256 = correlation === undefined
+            ? undefined
+            : yield* Effect.fromResult(
+              frameDigest(
+                correlation.reservation,
+                "restartEvidence.reservation",
+                "openRestartEvidence",
+              ),
+            );
+          if (
+            correlation === undefined ||
+            correlation.session !== state ||
+            correlation.complete !== input.result ||
+            correlation.restartClaimed ||
+            input.claim.sequence !== correlation.reservation.sequence ||
+            input.claim.commandKind !== correlation.reservation.commandKind ||
+            reservationSha256 === undefined ||
+            !isDigest(input.claim.reservationSha256) ||
+            !isDigest(input.claim.authenticatedInputSha256) ||
+            !bytesEqualFullScan(
+              input.claim.reservationSha256,
+              reservationSha256,
+            ) ||
+            !bytesEqualFullScan(
+              input.claim.authenticatedInputSha256,
+              state.bindings.authenticatedInputSha256,
+            ) ||
+            !restartEvidenceClaimMatchesResult(
+              correlation.complete,
+              input.claim,
+            ) ||
+            input.maximum.kind !== "command_budget" ||
+            !budgetFramesEqual(input.maximum, correlation.commandBudget)
+          ) {
+            return yield* Effect.fail(
+              hostIssue(
+                "openRestartEvidence",
+                "invalidAdmission",
+                "result",
+              ),
+            );
+          }
+          const analysisProducer = yield* Effect.fromResult(
+            analysis.openRestartEvidence({
+              session: state.analysisSession,
+              result: input.result,
+              claim: input.claim,
+              maximum: input.maximum,
+            }),
+          ).pipe(
+            Effect.mapError(cause =>
+              hostIssue(
+                "openRestartEvidence",
+                "analysisFailure",
+                "claim",
+                cause,
+              )
+            ),
+          );
+          correlation.restartClaimed = true;
+          return yield* Effect.acquireRelease(
+            Effect.sync(() => {
+              const handle = Object.freeze({
+                _tag: "PrivateDeclarativeV2AnalyzerRestartEvidenceProducerV1",
+              }) satisfies PrivateDeclarativeV2AnalyzerRestartEvidenceProducerV1;
+              restartEvidenceProducers.set(handle, {
+                session: state,
+                analysisProducer,
+                correlation,
+                closed: false,
+              });
+              return handle;
+            }),
+            handle => Effect.sync(() => {
+              const producer = restartEvidenceProducers.get(handle);
+              if (producer !== undefined && !producer.closed) {
+                producer.closed = true;
+                restartEvidenceProducers.delete(handle);
+                if (!producer.session.closed) {
+                  producer.correlation.restartClaimed = false;
+                }
+                analysis.close(producer.analysisProducer);
+              }
+            }),
+          );
+        },
+      );
+
+  const stepRestartEvidence:
+    PrivateDeclarativeV2AnalyzerHostV1["stepRestartEvidence"] =
+      Effect.fn("PrivateDeclarativeV2AnalyzerHostV1.stepRestartEvidence")(
+        function* (producer, rawAllowance) {
+          const allowance = yield* Effect.fromResult(
+            requireAllowance(rawAllowance, "stepRestartEvidence"),
+          );
+          const state = restartEvidenceProducers.get(producer);
+          if (
+            state === undefined ||
+            state.closed ||
+            state.session.closed
+          ) {
+            return yield* Effect.fail(
+              hostIssue(
+                "stepRestartEvidence",
+                "closed",
+                "producer",
+              ),
+            );
+          }
+          const stepped = yield* Effect.fromResult(
+            analysis.stepRestartEvidence(
+              state.analysisProducer,
+              allowance,
+            ),
+          ).pipe(
+            Effect.mapError(cause => {
+              state.closed = true;
+              restartEvidenceProducers.delete(producer);
+              if (!state.session.closed) {
+                state.correlation.restartClaimed = false;
+              }
+              return hostIssue(
+                "stepRestartEvidence",
+                "analysisFailure",
+                "producer",
+                cause,
+              );
+            }),
+          );
+          if (stepped.status === "complete") {
+            state.closed = true;
+            restartEvidenceProducers.delete(producer);
+            state.correlation.restartTerminal = stepped;
+            if (state.correlation.terminalClaimed) {
+              terminalCorrelations.delete(state.correlation.complete);
+            }
+          }
+          return stepped;
+        },
+      );
 
   const rehydrate: PrivateDeclarativeV2AnalyzerHostV1["rehydrate"] =
     Effect.fn("PrivateDeclarativeV2AnalyzerHostV1.rehydrate")(function* (input) {
@@ -473,7 +675,15 @@ export function makePrivateDeclarativeV2AnalyzerHostV1(options: {
       );
     });
 
-  return Object.freeze({ open, execute, rehydrate, claimTerminal, close });
+  return Object.freeze({
+    open,
+    execute,
+    rehydrate,
+    openRestartEvidence,
+    stepRestartEvidence,
+    claimTerminal,
+    close,
+  });
 }
 
 const collectCommand = Effect.fn(
@@ -560,9 +770,28 @@ const collectCommand = Effect.fn(
     const reservation = yield* Effect.fromResult(
       decodeReservation(header.byteRoles.get("reservation")),
     );
+    const commandBudget = yield* Effect.fromResult(
+      decodeBudget(header.byteRoles.get("command_budget")),
+    );
+    const commandBudgetSha256 = yield* Effect.fromResult(
+      frameDigest(commandBudget, "commandBudget", "execute"),
+    );
+    if (
+      !equalDigest(
+        commandBudgetSha256,
+        reservation.commandBudgetSha256,
+      )
+    ) {
+      return yield* hostIssue(
+        "execute",
+        "invalidAdmission",
+        "commandBudgetSha256",
+      );
+    }
     return Object.freeze({
       command,
       reservation,
+      commandBudget,
       requestSha256,
       futureRegistrationIntentSha256:
         admission.futureRegistrationIntentSha256 === undefined
@@ -631,6 +860,7 @@ function buildTerminalAuthorityProof(
       );
     }
     const terminal = terminalVectors(correlation.complete);
+    const restartTerminal = correlation.restartTerminal;
     const expectedNextProgressSha256 = terminal === undefined
       ? undefined
       : yield* frameDigest(terminal.nextProgress, "result.nextProgress");
@@ -645,6 +875,26 @@ function buildTerminalAuthorityProof(
       terminal === undefined ||
       terminal.commandKind !== reservation.commandKind ||
       !budgetEqual(terminal.actual, input.commandUsage) ||
+      (
+        (
+          reservation.commandKind === "parse_module" ||
+          reservation.commandKind === "link_page"
+        ) &&
+        (
+          restartTerminal === undefined ||
+          !equalDigest(
+            restartTerminal.finalPageSha256,
+            input.outputManifest.evidenceRootSha256,
+          ) ||
+          restartTerminal.recordCount !== input.outputManifest.evidenceCount ||
+          !equalDigest(
+            restartTerminal.diagnosticsRootSha256,
+            input.outputManifest.diagnosticsRootSha256,
+          ) ||
+          restartTerminal.diagnosticCount !==
+            input.outputManifest.diagnosticCount
+        )
+      ) ||
       expectedNextProgressSha256 === undefined ||
       !equalDigest(expectedNextProgressSha256, nextProgressSha256) ||
       (
@@ -772,6 +1022,31 @@ function budgetEqual(
   );
 }
 
+function budgetFramesEqual(
+  left: DeclarativeV2VerifierBudgetFrameV2,
+  right: DeclarativeV2VerifierBudgetFrameV2,
+): boolean {
+  return left.kind === right.kind &&
+    budgetEqual(usageVector(left), right);
+}
+
+function restartEvidenceClaimMatchesResult(
+  complete: DeclarativeV2AnalyzerCompleteV1,
+  claim: DeclarativeV2AnalyzerRestartEvidenceClaimV1,
+): boolean {
+  const terminal = terminalVectors(complete);
+  return (
+    terminal !== undefined &&
+    (
+      terminal.commandKind === "parse_module" ||
+      terminal.commandKind === "link_page"
+    ) &&
+    claim.commandKind === terminal.commandKind &&
+    claim.settledCommandUsage.kind === "attempt_usage" &&
+    budgetEqual(terminal.actual, claim.settledCommandUsage)
+  );
+}
+
 function frameDigest(
   frame:
     | DeclarativeV2VerifierCommandReservationFrameV2
@@ -780,13 +1055,23 @@ function frameDigest(
     | DeclarativeV2VerifierBudgetFrameV2
     | DeclarativeV2VerifierProgressCursorFrameV2,
   path: string,
+  operation:
+    | "claimTerminal"
+    | "openRestartEvidence"
+    | "execute" = "claimTerminal",
 ): Result.Result<Uint8Array, PrivateDeclarativeV2AnalyzerHostV1Error> {
   return encodeDeclarativeV2VerifierProgressFrameV2(frame, FRAME_BUDGET).pipe(
     Result.map(result => result.canonicalBytes),
     Result.mapError(() =>
-      hostIssue("claimTerminal", "invalidAdmission", path)
+      hostIssue(operation, "invalidAdmission", path)
     ),
-    Result.flatMap(bytes => mapDigest(bytes, path)),
+    Result.flatMap(bytes =>
+      deriveDeclarativeV2VerifierRestartCanonicalBytesSha256V1(bytes).pipe(
+        Result.mapError(() =>
+          hostIssue(operation, "invalidAdmission", path)
+        ),
+      )
+    ),
   );
 }
 
@@ -1260,7 +1545,7 @@ const decodeRestartManifest = Effect.fn(
 function requireSession(
   sessions: WeakMap<object, HostSessionState>,
   session: unknown,
-  operation: "execute" | "rehydrate",
+  operation: "execute" | "rehydrate" | "openRestartEvidence",
 ): Result.Result<HostSessionState, PrivateDeclarativeV2AnalyzerHostV1Error> {
   const state = session !== null && typeof session === "object"
     ? sessions.get(session)
@@ -1275,7 +1560,7 @@ function requireSession(
 
 function requireAllowance(
   allowance: unknown,
-  operation: "execute" | "rehydrate",
+  operation: "execute" | "rehydrate" | "stepRestartEvidence",
 ): Result.Result<number, PrivateDeclarativeV2AnalyzerHostV1Error> {
   if (
     typeof allowance !== "number" ||

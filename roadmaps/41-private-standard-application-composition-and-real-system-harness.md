@@ -414,14 +414,20 @@ At the time this direction was recorded:
   to one immutable future-registration intent, stores analyzer-owned terminal
   authority with settlement, and derives the real registration reservation
   only after the link receipt; it remains production-inert;
+- A1b2-S2 now supplies the previously missing persistence-owned opaque
+  reservation proposal, backend-owned single-use six-commitment claim,
+  analyzer-owned exact-result restart-evidence producer, narrow authenticated
+  historical settled-evidence read, and private scoped evidence/settlement/
+  reload/rehydrate composition; no raw repository authority is exported;
 - FSV01 and FSV02 now provide authenticated analysis and inactive durable
   registration without readiness, activation, or routing authority;
 - scheduled-trigger and production redelivery/dispatch composition remain
   absent;
 - the private C07 executor composition is accepted after the same bounded proof
   passed in PGlite and genuine PostgreSQL with zero skipped database cases; and
-- C07 and A1b2-S1 therefore no longer block the selected private host-neutral
-  lane, although FSV03 itself remains separate unimplemented work.
+- C07, A1b2-S1, and A1b2-S2 therefore no longer block the selected private
+  host-neutral lane, although FSV03 itself remains separate unimplemented
+  work.
 
 FSV01 and FSV02 now establish the first Standard analysis and inactive
 registration operations. This roadmap still does not claim that the complete
@@ -552,8 +558,8 @@ conditions follow.
 | Module graph and artifact plan | `@flarex/declarative-materializer/v1` | Reuse directly for function and execution modules. Schema and auth source-module roles remain unsupported. |
 | Deterministic semantic records | materializer output plus analysis semantic decoder | Usable for pure corpus and compatibility-consumption tests; not proof of the replacement analyzer. |
 | Content-addressed source and semantic upload | backend Declarative V2 artifact-upload host and cores | Implemented for private tests and real R2 adapters, but upload receipts alone are not verified registration. |
-| Authenticated verifier reads | backend request-bound verifier read-session owner plus A1b2-S1 scoped preparation | Implemented as a private prerequisite. Preparation captures authenticated facts once and remains request-scoped; it is not a production route. |
-| Replacement analyzer | accepted A1b2 command producer, executor-HTTP transports, persistence readback, Effect host, and A1b2-S1 terminal-settlement bridge | Complete as private capabilities and consumed by FSV01; the provisional command plan remains deleted and no production caller or route is implied. |
+| Authenticated verifier reads | backend request-bound verifier read-session owner plus A1b2-S1 scoped preparation and A1b2-S2 opaque reservation binding | Implemented as private prerequisites. Preparation captures authenticated facts once; persistence proposes lineage and claims the backend-derived six commitments without exposing repository authority. |
+| Replacement analyzer | accepted A1b2 command producer, executor-HTTP transports, persistence readback, Effect host, A1b2-S1 terminal settlement, and A1b2-S2 exact-result restart bridge | Complete as private capabilities and consumed by FSV01. Exact parse/link completions can produce scoped restart evidence and cold rehydrate from authenticated settled evidence; the provisional command plan remains deleted and no production caller or route is implied. |
 | Verified application/function registration | FSV02 private System registration context plus SAP03 wrapper | Complete only for durable inactive idempotent revision registration. It is not readiness or activation authority. |
 | Schema/catalog lifecycle | persistence schema publication, manifest, binding, index, and FSV02 registration owners | Inactive publication/registration is composed. Target-native readiness, activation, and the coherent active reader remain separate gates. |
 | Portable function execution | `@flarex/function-runtime/point-mutation` | Exact public point mutation only. Query builders, nested calls, general mutation capabilities, actions, and scheduling are not present. |

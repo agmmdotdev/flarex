@@ -245,6 +245,77 @@ describe("private Declarative V2 analyzer port", () => {
     Result.getOrThrow(port.close(session));
   });
 
+  test("produces restart evidence only from the exact completed result", () => {
+    const port = makeDeclarativeV2AnalyzerPortFactoryV1();
+    const session = Result.getOrThrow(port.createSession(bindings()));
+    const source = UTF8.encode(SOURCE);
+    const completed = drive(
+      port,
+      Result.getOrThrow(port.start(session, {
+        kind: "parse_module",
+        reservationSha256: digest(50),
+        sequence: 1n,
+        moduleOrdinal: 0n,
+        totalModuleCount: 1n,
+        modulePath: artifactModulePath(MODULE_PATH),
+        source,
+        sourceSha256: digest(21),
+        commandBudget: budget("command_budget", source.byteLength),
+        currentProgress: progress("parse", 0n),
+      })),
+      1_024,
+    );
+    if (completed.kind !== "parse_module") {
+      throw new Error("parse command did not complete");
+    }
+    const claim = Object.freeze({
+      commandKind: "parse_module" as const,
+      sequence: completed.sequence,
+      reservationSha256: digest(50),
+      authenticatedInputSha256: digest(3),
+      sourceCommitmentSha256: digest(51),
+      semanticCommitmentSha256: digest(52),
+      settledCommandUsage: completed.actual,
+      parsePagesRootSha256: null,
+      maximumPagePayloadBytes: 65_536n,
+      outputManifest: null,
+      outputManifestSha256: null,
+      receiptSha256: null,
+    });
+    expect(port.openRestartEvidence({
+      session,
+      result: Object.freeze({ ...completed }),
+      claim,
+      maximum: restartBudget(completed.actual),
+    })).toMatchObject({
+      failure: { reason: "staleAuthority", path: "result" },
+    });
+    const producer = Result.getOrThrow(port.openRestartEvidence({
+      session,
+      result: completed,
+      claim,
+      maximum: restartBudget(completed.actual),
+    }));
+    let pageCount = 0;
+    for (;;) {
+      const stepped = Result.getOrThrow(
+        port.stepRestartEvidence(producer, 1_024),
+      );
+      if (stepped.status === "page") pageCount += 1;
+      if (stepped.status === "complete") break;
+    }
+    expect(pageCount).toBeGreaterThan(0);
+    expect(port.openRestartEvidence({
+      session,
+      result: completed,
+      claim,
+      maximum: restartBudget(completed.actual),
+    })).toMatchObject({
+      failure: { reason: "staleAuthority", path: "result" },
+    });
+    Result.getOrThrow(port.close(session));
+  });
+
   test("rehydrates settled parse and link evidence into registration", () => {
     const source = UTF8.encode(SOURCE);
     const warm = runModule(source);

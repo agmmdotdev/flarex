@@ -35,6 +35,8 @@ import {
 import {
   type DeclarativeV2VerifierRestartClaimV1,
   type DeclarativeV2VerifierRestartPageSourceV1,
+  type DeclarativeV2VerifierRestartProducerStepV1,
+  type DeclarativeV2VerifierRestartProducerV1,
   type DeclarativeV2VerifierRestartRehydratorV1,
   type DeclarativeV2VerifierRestartModuleResultSetV1,
   type DeclarativeV2VerifierRestartRuntimeFactoryV1,
@@ -79,6 +81,10 @@ export interface DeclarativeV2AnalyzerSessionV1 {
 
 export interface DeclarativeV2AnalyzerDriverV1 {
   readonly _tag: "DeclarativeV2AnalyzerDriverV1";
+}
+
+export interface DeclarativeV2AnalyzerRestartEvidenceProducerV1 {
+  readonly _tag: "DeclarativeV2AnalyzerRestartEvidenceProducerV1";
 }
 
 export interface DeclarativeV2AnalyzerParseCommandV1 {
@@ -187,6 +193,11 @@ export interface DeclarativeV2AnalyzerRehydrateInputV1 {
   readonly linkBindings?: DeclarativeV2VerifierAuthenticatedLinkBindingsV1;
 }
 
+export type DeclarativeV2AnalyzerRestartEvidenceClaimV1 = Omit<
+  DeclarativeV2VerifierRestartClaimV1,
+  "resultAuthority" | "parseModuleResults"
+>;
+
 export type DeclarativeV2AnalyzerPortV1ErrorCause =
   | DeclarativeV2VerifierExecutableV1Error
   | DeclarativeV2VerifierRegistrationV1Error
@@ -197,7 +208,14 @@ export type DeclarativeV2AnalyzerPortV1ErrorCause =
 export class DeclarativeV2AnalyzerPortV1Error extends Data.TaggedError(
   "DeclarativeV2AnalyzerPortV1Error",
 )<{
-  readonly operation: "createSession" | "start" | "rehydrate" | "step" | "close";
+  readonly operation:
+    | "createSession"
+    | "start"
+    | "rehydrate"
+    | "openRestartEvidence"
+    | "stepRestartEvidence"
+    | "step"
+    | "close";
   readonly reason:
     | "invalidInput"
     | "identityMismatch"
@@ -221,6 +239,22 @@ export interface DeclarativeV2AnalyzerPortFactoryV1 {
     session: unknown,
     input: DeclarativeV2AnalyzerRehydrateInputV1,
   ) => Result.Result<DeclarativeV2AnalyzerDriverV1, DeclarativeV2AnalyzerPortV1Error>;
+  readonly openRestartEvidence: (input: Readonly<{
+    readonly session: DeclarativeV2AnalyzerSessionV1;
+    readonly result: DeclarativeV2AnalyzerCompleteV1;
+    readonly claim: DeclarativeV2AnalyzerRestartEvidenceClaimV1;
+    readonly maximum: DeclarativeV2VerifierBudgetFrameV2;
+  }>) => Result.Result<
+    DeclarativeV2AnalyzerRestartEvidenceProducerV1,
+    DeclarativeV2AnalyzerPortV1Error
+  >;
+  readonly stepRestartEvidence: (
+    producer: unknown,
+    allowance: unknown,
+  ) => Result.Result<
+    DeclarativeV2VerifierRestartProducerStepV1,
+    DeclarativeV2AnalyzerPortV1Error
+  >;
   readonly step: (
     driver: unknown,
     allowance: unknown,
@@ -249,6 +283,9 @@ interface SessionState {
   readonly modules: Map<bigint, OwnedModule>;
   readonly restartClaims: WeakMap<object, DeclarativeV2VerifierRestartClaimV1>;
   readonly restartRuntime: DeclarativeV2VerifierRestartRuntimeFactoryV1;
+  readonly restartEvidenceProducerHandles: Set<
+    DeclarativeV2AnalyzerRestartEvidenceProducerV1
+  >;
   activeDriver: DeclarativeV2AnalyzerDriverV1 | undefined;
   expectedProgress: DeclarativeV2VerifierProgressCursorFrameV2 | undefined;
   lastLinkFactory: DeclarativeV2VerifierAuthenticatedLinkFactoryV1 | undefined;
@@ -322,6 +359,23 @@ type DriverState =
   | RegistrationDriverState
   | RehydrateDriverState;
 
+interface RestartEvidenceResultState {
+  readonly session: SessionState;
+  readonly commandKind: "parse_module" | "link_page";
+  readonly resultAuthority:
+    | DeclarativeV2VerifierModuleResultV1
+    | DeclarativeV2VerifierLinkResultV1;
+  claimed: boolean;
+}
+
+interface RestartEvidenceProducerState {
+  readonly session: SessionState;
+  readonly runtime: DeclarativeV2VerifierRestartRuntimeFactoryV1;
+  readonly producer: DeclarativeV2VerifierRestartProducerV1;
+  readonly correlation: RestartEvidenceResultState;
+  closed: boolean;
+}
+
 const issue = (
   operation: DeclarativeV2AnalyzerPortV1Error["operation"],
   reason: DeclarativeV2AnalyzerPortV1Error["reason"],
@@ -339,11 +393,18 @@ export function makeDeclarativeV2AnalyzerPortFactoryV1():
   DeclarativeV2AnalyzerPortFactoryV1 {
   const sessions = new WeakMap<object, SessionState>();
   const drivers = new WeakMap<object, DriverState>();
+  const restartEvidenceResults =
+    new WeakMap<object, RestartEvidenceResultState>();
+  const restartEvidenceProducers =
+    new WeakMap<object, RestartEvidenceProducerState>();
 
   const sessionHandle = (): DeclarativeV2AnalyzerSessionV1 =>
     Object.freeze({ _tag: "DeclarativeV2AnalyzerSessionV1" });
   const driverHandle = (): DeclarativeV2AnalyzerDriverV1 =>
     Object.freeze({ _tag: "DeclarativeV2AnalyzerDriverV1" });
+  const restartEvidenceProducerHandle =
+    (): DeclarativeV2AnalyzerRestartEvidenceProducerV1 =>
+      Object.freeze({ _tag: "DeclarativeV2AnalyzerRestartEvidenceProducerV1" });
 
   const createSession: DeclarativeV2AnalyzerPortFactoryV1["createSession"] =
     rawBindings => {
@@ -358,7 +419,10 @@ export function makeDeclarativeV2AnalyzerPortFactoryV1():
           const claim = authority !== null && typeof authority === "object"
             ? restartClaims.get(authority)
             : undefined;
-          if (claim === undefined || operation !== "rehydrate") {
+          if (
+            claim === undefined ||
+            (operation !== "produce" && operation !== "rehydrate")
+          ) {
             return Result.fail(new DeclarativeV2VerifierRestartRuntimeV1Error({
               operation: "createRehydrator",
               reason: "staleAuthority",
@@ -374,6 +438,7 @@ export function makeDeclarativeV2AnalyzerPortFactoryV1():
         modules: new Map(),
         restartClaims,
         restartRuntime,
+        restartEvidenceProducerHandles: new Set(),
         activeDriver: undefined,
         expectedProgress: undefined,
         lastLinkFactory: undefined,
@@ -545,6 +610,36 @@ export function makeDeclarativeV2AnalyzerPortFactoryV1():
         return yield* stepped;
       }
       if (stepped.success.status === "complete") {
+        if (stepped.success.kind === "parse_module") {
+          const resultAuthority =
+            state.kind === "parse_module"
+              ? state.session.modules.get(stepped.success.moduleOrdinal)?.result
+              : undefined;
+          if (resultAuthority === undefined) {
+            throw new Error(
+              "Accepted parse completion lost its restart result authority.",
+            );
+          }
+          restartEvidenceResults.set(stepped.success, {
+            session: state.session,
+            commandKind: "parse_module",
+            resultAuthority,
+            claimed: false,
+          });
+        } else if (stepped.success.kind === "link_page") {
+          const resultAuthority = state.session.lastLinkResult;
+          if (state.kind !== "link_page" || resultAuthority === undefined) {
+            throw new Error(
+              "Accepted link completion lost its restart result authority.",
+            );
+          }
+          restartEvidenceResults.set(stepped.success, {
+            session: state.session,
+            commandKind: "link_page",
+            resultAuthority,
+            claimed: false,
+          });
+        }
         state.closed = true;
         finishDriver(state);
         drivers.delete(rawDriver as object);
@@ -552,9 +647,121 @@ export function makeDeclarativeV2AnalyzerPortFactoryV1():
       return stepped.success;
     });
 
+  const openRestartEvidence:
+    DeclarativeV2AnalyzerPortFactoryV1["openRestartEvidence"] = input => {
+      const session = sessions.get(input.session);
+      const correlation =
+        input.result !== null && typeof input.result === "object"
+          ? restartEvidenceResults.get(input.result)
+          : undefined;
+      if (
+        session === undefined ||
+        session.closed ||
+        correlation === undefined ||
+        correlation.session !== session ||
+        correlation.claimed ||
+        input.claim.commandKind !== correlation.commandKind
+      ) {
+        return Result.fail(
+          issue("openRestartEvidence", "staleAuthority", "result"),
+        );
+      }
+      const authority = Object.freeze({});
+      session.restartClaims.set(authority, Object.freeze({
+        ...input.claim,
+        resultAuthority: correlation.resultAuthority,
+        parseModuleResults: null,
+      }));
+      return session.restartRuntime.createProducer({
+        authority,
+        maximum: input.maximum,
+      }).pipe(
+        Result.mapError(cause => {
+          session.restartClaims.delete(authority);
+          return issue(
+            "openRestartEvidence",
+            "invalidInput",
+            "claim",
+            cause,
+          );
+        }),
+        Result.map(producer => {
+          correlation.claimed = true;
+          const handle = restartEvidenceProducerHandle();
+          restartEvidenceProducers.set(handle, {
+            session,
+            runtime: session.restartRuntime,
+            producer,
+            correlation,
+            closed: false,
+          });
+          session.restartEvidenceProducerHandles.add(handle);
+          return handle;
+        }),
+      );
+    };
+
+  const stepRestartEvidence:
+    DeclarativeV2AnalyzerPortFactoryV1["stepRestartEvidence"] =
+      (rawProducer, allowance) => {
+        const state =
+          rawProducer !== null && typeof rawProducer === "object"
+            ? restartEvidenceProducers.get(rawProducer)
+            : undefined;
+        if (state === undefined || state.closed || state.session.closed) {
+          return Result.fail(
+            issue("stepRestartEvidence", "closed", "producer"),
+          );
+        }
+        return state.runtime.stepProducer(state.producer, allowance).pipe(
+          Result.mapError(cause => {
+            state.closed = true;
+            restartEvidenceProducers.delete(rawProducer as object);
+            state.session.restartEvidenceProducerHandles.delete(
+              rawProducer as DeclarativeV2AnalyzerRestartEvidenceProducerV1,
+            );
+            if (!state.session.closed) state.correlation.claimed = false;
+            state.runtime.close(state.producer);
+            return issue(
+              "stepRestartEvidence",
+              "invalidInput",
+              "producer",
+              cause,
+            );
+          }),
+          Result.map(stepped => {
+            if (stepped.status === "complete") {
+              state.closed = true;
+              restartEvidenceProducers.delete(rawProducer as object);
+              state.session.restartEvidenceProducerHandles.delete(
+                rawProducer as DeclarativeV2AnalyzerRestartEvidenceProducerV1,
+              );
+            }
+            return stepped;
+          }),
+        );
+      };
+
   const close: DeclarativeV2AnalyzerPortFactoryV1["close"] = rawHandle => {
     if (rawHandle === null || typeof rawHandle !== "object") {
       return Result.fail(issue("close", "invalidInput", "handle"));
+    }
+    const restartProducer = restartEvidenceProducers.get(rawHandle);
+    if (restartProducer !== undefined) {
+      if (restartProducer.closed) return Result.fail(issue("close", "closed"));
+      restartProducer.closed = true;
+      restartEvidenceProducers.delete(rawHandle);
+      restartProducer.session.restartEvidenceProducerHandles.delete(
+        rawHandle as DeclarativeV2AnalyzerRestartEvidenceProducerV1,
+      );
+      if (!restartProducer.session.closed) {
+        restartProducer.correlation.claimed = false;
+      }
+      return restartProducer.runtime.close(restartProducer.producer).pipe(
+        Result.mapError(cause =>
+          issue("close", "invalidInput", "restartEvidenceProducer", cause)
+        ),
+      );
     }
     const driver = drivers.get(rawHandle);
     if (driver !== undefined) {
@@ -575,6 +782,15 @@ export function makeDeclarativeV2AnalyzerPortFactoryV1():
         drivers.delete(session.activeDriver);
       }
     }
+    for (const producerHandle of session.restartEvidenceProducerHandles) {
+      const producer = restartEvidenceProducers.get(producerHandle);
+      if (producer !== undefined && !producer.closed) {
+        producer.closed = true;
+        producer.runtime.close(producer.producer);
+        restartEvidenceProducers.delete(producerHandle);
+      }
+    }
+    session.restartEvidenceProducerHandles.clear();
     session.closed = true;
     session.modules.clear();
     session.lastLinkFactory = undefined;
@@ -584,7 +800,15 @@ export function makeDeclarativeV2AnalyzerPortFactoryV1():
     return Result.succeed(undefined);
   };
 
-  return Object.freeze({ createSession, start, rehydrate, step, close });
+  return Object.freeze({
+    createSession,
+    start,
+    rehydrate,
+    openRestartEvidence,
+    stepRestartEvidence,
+    step,
+    close,
+  });
 }
 
 function prepareDriver(

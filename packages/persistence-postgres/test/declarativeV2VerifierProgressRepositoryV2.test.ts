@@ -1,5 +1,5 @@
 import { webcrypto } from "node:crypto";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   encodeDeclarativeV2FutureRegistrationIntentV1,
@@ -69,8 +69,42 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
   it("atomically binds one immutable future-registration intent to pending link work", async () => {
     const current = await fixture();
     await moveAttemptToLink(current.persistence, current.attemptSha256);
+    let preparedInput:
+      | Awaited<ReturnType<typeof reservationInput>>
+      | undefined;
+    const preparedAuthority = Object.freeze({});
     const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
       current.repository,
+      {
+        preparedReservations: {
+          claim(authority, lineage) {
+            if (
+              authority !== preparedAuthority ||
+              preparedInput === undefined ||
+              lineage.commandKind !== "link_page"
+            ) {
+              return Effect.die(new Error("unexpected prepared authority"));
+            }
+            return Effect.succeed(Object.freeze({
+              commandBudget: preparedInput.commandBudget,
+              commitments: Object.freeze({
+                commandBudgetSha256:
+                  preparedInput.reservation.commandBudgetSha256,
+                commandInputSha256:
+                  preparedInput.reservation.commandInputSha256,
+                freshAuthenticatedInputSha256:
+                  preparedInput.reservation.freshAuthenticatedInputSha256,
+                analyzerIdentitySha256:
+                  preparedInput.reservation.analyzerIdentitySha256,
+                verifierIdentitySha256:
+                  preparedInput.reservation.verifierIdentitySha256,
+                rangeAndPredecessorTailsSha256:
+                  preparedInput.reservation.rangeAndPredecessorTailsSha256,
+              }),
+            }));
+          },
+        },
+      },
     );
     const acquired = await runEffect(
       bridge.acquire(scopeId, current.attemptSha256, operationBudget),
@@ -88,6 +122,21 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       1n,
       "link_page",
     );
+    preparedInput = input;
+    const proposed = await runEffect(bridge.proposeReservation(
+      acquired.session,
+      "link_page",
+    ));
+    expect(proposed.lineage).toMatchObject({
+      commandKind: "link_page",
+      sequence: 1n,
+      predecessorReceiptSha256: null,
+    });
+    const ready = await runEffect(bridge.prepareReservation(
+      acquired.session,
+      proposed.proposal,
+      preparedAuthority,
+    ));
     const plannedLinkSettlement = await settlementInput(
       input.reservation,
       digest(0xb0),
@@ -106,7 +155,7 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       encodeDeclarativeV2FutureRegistrationIntentV1({
         attemptSha256: current.attemptSha256,
         candidateSha256: current.candidateSha256,
-        linkReservationSha256: await frameSha256(input.reservation),
+        linkReservationSha256: ready.reservationSha256,
         linkSequence: 1n,
         registrationSequence: 2n,
         registrationCurrentProgressSha256:
@@ -123,12 +172,9 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
           input.reservation.verifierIdentitySha256,
       }),
     );
-    const reserved = await runEffect(bridge.reserve(
-      acquired.session,
-      {
-        ...input,
-        futureRegistrationIntentBytes: intent.canonicalBytes,
-      },
+    const reserved = await runEffect(bridge.reservePrepared(
+      ready.ready,
+      intent.canonicalBytes,
       operationBudget,
     ));
     expect(reserved.kind).toBe("reserved");
@@ -215,6 +261,27 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
       operationBudget,
     ));
     expect(settled.settlement.nextProgress.phase).toBe("registration");
+    const historical = await runEffect(
+      bridge.readSettledEvidencePageBatch(
+        acquired.session,
+        {
+          commandKind: "link_page",
+          sequence: 1n,
+          reservationSha256: settled.settlement.reservationSha256,
+          outputManifestSha256:
+            settled.settlement.receipt.outputManifestSha256,
+          receiptSha256: settled.settlement.receiptSha256,
+          startPageOrdinal: 0n,
+          expectedPredecessorPageSha256: null,
+        },
+        pageOperationBudget,
+      ),
+    );
+    expect(historical.pages).toHaveLength(1);
+    expect(historical.pages[0]?.payloadBytes).toEqual(
+      new Uint8Array([7, 8, 9]),
+    );
+    expect(historical.next).toBeNull();
 
     const afterLink = await runEffect(current.repository.observeAttempt(
       scopeId,
