@@ -72,8 +72,8 @@ Current implementation truth:
 - `publishAppSchemaV1` provides bounded atomic schema/catalog publication, but
   does not settle readiness or activate a revision;
 - `S03-D4` target-native readiness and `S04` activation remain pending;
-- `C07`, the first private PGlite plus real-Postgres point-mutation proof,
-  remains pending;
+- the private C07 composition is accepted after its 79-case PGlite gate and all
+  47 genuine PostgreSQL database cases passed with zero skips;
 - the private real-system harness is not implemented or green; and
 - routed execution remains `legacy_v1`; private `flarexdb_v1` work is not
   permission to switch production routing.
@@ -89,9 +89,9 @@ factories.
 | Current limitation | What it blocks | Required resolution |
 | --- | --- | --- |
 | `FSV02` registration is complete but deliberately inactive | Active-revision consumption | Complete target-native readiness and replacement activation; do not reinterpret registration as either gate |
-| The persistence typecheck has an existing stored-attempt test-contract mismatch outside the FSV02 touched flow | A wholly green aggregate persistence typecheck | Repair it under its real owner; FSV02 proves the unchanged baseline separately |
+| The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
 | Readiness and replacement activation do not exist | Active-revision consumption | Complete `S03-D4`, then `S04` and its coherent reader after the private system proof |
-| Point-mutation components are private and C07 is not assembled | System Application Data API and SAP04 | Complete the private A1b2 plus C07 real-system harness before active-revision invocation |
+| C07 is accepted, but the private analyzer-to-Postgres system harness is not assembled | System Application Data API and SAP04 | Complete FSV03 over the accepted A1b2, FSV01, FSV02, and C07 owners before active-revision invocation |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
@@ -400,6 +400,12 @@ Entry gates:
   lanes; and
 - the production redelivery/dispatch prerequisites required by the selected
   private host lane are complete.
+
+Current gate state: C07 no longer blocks FSV03. Its bounded PGlite gate passes
+79 cases, and its genuine PostgreSQL gate passes the explicit environment
+prerequisite plus all 47 database cases with zero skips. FSV03 remains
+unimplemented and must still satisfy the remaining entry gates below; C07
+acceptance is not production activation or routing authority.
 
 Extend the private harness owned by roadmap 41 so one deterministic application
 uses the Standard definition, analysis, and registration functions, then an

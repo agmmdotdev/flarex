@@ -233,9 +233,10 @@ The remaining limitations are architectural, not merely naming or packaging:
 4. **No replacement activation operation or coherent active reader.** Current
    legacy deployment activation is not the target FlarexDB revision CAS and
    must not be wrapped as though it were.
-5. **No assembled private C07 system proof.** Point-mutation kernel components
-   exist, but the required analyzer/artifact-runtime/executor/Postgres harness
-   is not complete and green.
+5. **The private analyzer-to-Postgres system harness is not yet assembled.**
+   C07 now proves the private test-owned point-mutation composition in both
+   PGlite and genuine PostgreSQL, but it does not itself connect FSV01/FSV02 to
+   the selected private host lane or complete FSV03.
 6. **The main executor facade remains legacy-routed.** Private
    `flarexdb_v1` modules do not make the root executor a replacement
    application-data API.

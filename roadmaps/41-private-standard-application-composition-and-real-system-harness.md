@@ -408,21 +408,23 @@ At the time this direction was recorded:
   prove the replacement standard application pipeline;
 - the public `flarex-test` harness exists, but its current behavior and legacy
   compatibility do not prove this private replacement milestone;
-- many private A1b2 request, response, restart, readback, progress, sizing, and
-  verifier components are implemented but intentionally inert or unwired;
-- the complete replacement analyzer engine, Effect host, and production caller
-  are absent;
-- link-page and registration-page analyzer planning remain incomplete;
-- schema/catalog lifecycle composition for arbitrary private application
-  revisions and a scheduled-trigger contract remain absent;
-- private executor-host composition remains absent; and
-- `C07` remains a separate prerequisite for the real point-mutation proof.
+- the private A1b2 analyzer engine and Effect host are accepted, while public
+  and production callers remain deliberately absent;
+- FSV01 and FSV02 now provide authenticated analysis and inactive durable
+  registration without readiness, activation, or routing authority;
+- scheduled-trigger and production redelivery/dispatch composition remain
+  absent;
+- the private C07 executor composition is accepted after the same bounded proof
+  passed in PGlite and genuine PostgreSQL with zero skipped database cases; and
+- C07 therefore no longer blocks the private real-system harness, although
+  FSV03 and its remaining host-lane entry gates are still separate work.
 
-This roadmap does not claim that the Standard Application API family, complete
-private analyzer port, private real-system harness, deterministic workload
-runner, Developer API migration, or production activation is implemented or
-green. It also does not claim that another canonical application contract is
-needed.
+FSV01 and FSV02 now establish the first Standard analysis and inactive
+registration operations. This roadmap still does not claim that the complete
+Standard Application API family, private real-system harness, deterministic
+workload runner, Developer API migration, or production activation is
+implemented or green. It also does not claim that another canonical
+application contract is needed.
 
 ## Package Separation Direction
 
@@ -547,11 +549,11 @@ conditions follow.
 | Deterministic semantic records | materializer output plus analysis semantic decoder | Usable for pure corpus and compatibility-consumption tests; not proof of the replacement analyzer. |
 | Content-addressed source and semantic upload | backend Declarative V2 artifact-upload host and cores | Implemented for private tests and real R2 adapters, but upload receipts alone are not verified registration. |
 | Authenticated verifier reads | backend request-bound verifier read-session owner | Implemented as a prerequisite. It does not supply the missing command engine or host. |
-| Replacement analyzer | A1b2 command producer, command plan, executor-HTTP transports, persistence readback, and future Effect host | Incomplete. Link and registration planning, the complete engine, host composition, and production caller remain active or absent. |
-| Verified application/function registration | no completed replacement composition owner | Blocked. The current backend registry creates and lists deployments; the V1 deployment service and monolithic analyzer path are not substitutes. |
-| Schema/catalog lifecycle | persistence schema publication, manifest, binding, and index owners | Domain capabilities exist, but no accepted replacement application-revision composition adapter currently connects them to this harness. |
+| Replacement analyzer | accepted A1b2 command producer, command plan, executor-HTTP transports, persistence readback, and Effect host | Complete as a private capability and consumed by FSV01; no production caller or route is implied. |
+| Verified application/function registration | FSV02 private System registration context plus SAP03 wrapper | Complete only for durable inactive idempotent revision registration. It is not readiness or activation authority. |
+| Schema/catalog lifecycle | persistence schema publication, manifest, binding, index, and FSV02 registration owners | Inactive publication/registration is composed. Target-native readiness, activation, and the coherent active reader remain separate gates. |
 | Portable function execution | `@flarex/function-runtime/point-mutation` | Exact public point mutation only. Query builders, nested calls, general mutation capabilities, actions, and scheduling are not present. |
-| Trusted mutation/OCC/commit path | executor and FlarexDB foundation owners | The pieces remain owned there; `C07` is still the required assembled PGlite and real-Postgres point-mutation proof. |
+| Trusted mutation/OCC/commit path | executor and FlarexDB foundation owners | The private test-owned C07 composition is accepted after its bounded PGlite and genuine PostgreSQL gates passed with zero skips. This does not implement FSV03 or a production caller. |
 | Current public test API | `flarex-test` over `flarex-dev` | Compatibility and developer convenience only; it cannot prove this replacement pipeline. |
 
 The existing `orders:place` fixtures in the declarative-program,

@@ -687,7 +687,7 @@ Exit gate:
   pass through artifact runtime, the private Worker Fetch adapter, and stable
   `/invoke/*` endpoints. Optional Nitro/Vercel parity is checked separately.
 
-### [ ] C07 — Close The Real-Postgres Correctness Gate
+### [x] C07 — Close The Real-Postgres Correctness Gate
 
 Required cases:
 
@@ -702,6 +702,29 @@ Required cases:
 - OCC reruns user code at a new snapshot;
 - uncertain outcome lookup prevents double application;
 - commit/outbox sequences remain unique and contiguous under retries.
+
+Implementation status:
+
+- one private test-only composition root now joins the accepted preparation,
+  signed-grant verification/admission, activation, exact-runtime, journal,
+  same-document OCC rerun, commit, outcome, feed, and outbox owners without a
+  package-root export or production caller;
+- `pnpm --filter @flarex/persistence-postgres test:c07:pglite` is the bounded
+  PGlite gate and currently passes all 79 cases across the assembled proof and
+  its finishing, replacement, rollback, fencing, retry, and recovery owners;
+- `pnpm --filter @flarex/persistence-postgres test:c07:postgres` is the matching
+  fail-closed real-Postgres gate. It defines 47 database cases, including the
+  assembled proof, genuine `40001`/`40P01`, concurrency, lost-response
+  uncertainty, rollback, fencing, and cold recovery cases, plus one explicit
+  authenticated-URL prerequisite;
+- the real-Postgres run exposed generated default-schema qualification in seven
+  foreign keys across migrations `0036` and `0037`. Removing only that
+  qualification preserves the same tables and constraints while allowing the
+  persistence owner's isolated `search_path`;
+- on 2026-07-30 the exact real-Postgres gate passed against an isolated genuine
+  PostgreSQL 18.3 server: four files and 48 tests passed, comprising the
+  authenticated environment prerequisite plus all 47 database cases, with zero
+  skips.
 
 Exit gate:
 

@@ -2325,21 +2325,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           syscallSequence: "1",
           fields: { name: `initial-${bindingRequests.length}` },
         });
-        if (
-          inserted.kind !== "completed" ||
-          inserted.outcome.kind !== "inserted"
-        ) {
+        if (inserted.kind !== "inserted") {
           throw new Error("Expected the exact-runtime insert to complete.");
         }
         if (bindingRequests.length === 1) {
           if (current === undefined) {
             throw new Error("Missing the initial exact-runtime scenario.");
           }
-          if (!isCanonicalFlarexRuntimeObjectV1(inserted.outcome.document)) {
+          if (!isCanonicalFlarexRuntimeObjectV1(inserted.document)) {
             throw new Error("Expected the inserted document projection.");
           }
           const identity = decodeAppDocumentIdentityV1(
-            inserted.outcome.documentId,
+            inserted.documentId,
           );
           await commitCompetingLiveIntent(
             current.anchor.scopeId,
@@ -2350,9 +2347,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
               tableId: identity.tableId,
               rowId: identity.rowId,
               creationTime: decodeAppCreationTimeV1(
-                inserted.outcome.document._creationTime,
+                inserted.document._creationTime,
               ),
-              value: inserted.outcome.document,
+              value: inserted.document,
             }),
           );
         }
