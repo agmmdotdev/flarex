@@ -2,19 +2,23 @@
 
 ## Status And Scope
 
-**Status:** Active internal contract. `SAP01-A` through `SAP01-D` and `SAP02`
-are implemented. The pure `@flarex/standard-application-definition/v1` package
+**Status:** Active internal contract. `SAP01-A` through `SAP01-D`, `SAP02`, and
+`SAP03` are implemented. The pure
+`@flarex/standard-application-definition/v1` package
 exposes canonical-program and artifact-materialization stages plus a combined
 definition-preparation operation. The backend definition fixture, the corpus's
 valid and materialization-failure lanes, and the `flarex-dev` developer
 producer use those Standard contracts. Canonical-failure corpus cases remain
 isolated with their owning decoder. `SAP01-D` machine-enforces the definition
 package's direct manifest, export, and production-import boundary.
-`@flarex/standard-application-analysis/v1` now exposes the function-first
-analysis operation over a request-scoped context, and the analyzer app provides
-the first private implementation over the accepted replacement host. The next
-capability is the proportional `SAP03`/`FSV02` registration preflight from the
-actual analysis result.
+`@flarex/standard-application-analysis/v1` exposes the function-first analysis
+operation over a request-scoped context, and the analyzer app provides the
+first private implementation over the accepted replacement host.
+`@flarex/standard-application-registration/v1` now exposes the narrow inactive
+registration result over the persistence-owned `FSV02` System operation. The
+next vertical gate remains the private analyzer-to-Postgres system proof; this
+does not authorize readiness, activation, invocation, routing, or production
+wiring.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -347,10 +351,29 @@ absorbed into the Standard package.
   without giving developer tooling analyzer authority or enabling production
   routing.
 
+`SAP03` provides:
+
+- the narrow
+  `registerStandardApplicationRevisionV1(verifiedAnalysis, requestKey,
+  registrationContext)` operation;
+- a stable result containing only registration status, revision identity,
+  schema-version identity, and the database-authoritative registration
+  timestamp;
+- exact propagation of the System registration error and Scope channels rather
+  than a parallel Standard error hierarchy;
+- private paired request-owned analysis and registration contexts in the
+  analyzer app, with opaque context-owned candidate/producer authority and
+  exact-result correlation that cannot be reconstructed or cloned from the
+  public SAP02 projection; and
+- durable inactive registration through `FSV02` without exposing candidate,
+  attempt, artifact, function, validator, handler, or registration-root
+  evidence through the Standard result.
+
 ## Known Gaps And Limitations
 
-- No approved application-revision/schema-lifecycle adapter is ready for a
-  Standard registration API.
+- SAP03 registers only an authenticated inactive revision. Target-native
+  readiness, replacement activation, active-revision reading, and invocation
+  remain separate unimplemented capabilities.
 - The host-neutral runtime currently proves only its admitted point-mutation
   scope; general query, internal call, workflow, action, and scheduling
   operations are not available.
@@ -520,7 +543,7 @@ checker in roadmap 16. It must not mark that broader gate complete.
 
 | Gate | Outcome | Entry condition |
 | --- | --- | --- |
-| `SAP03` | Narrow Standard verified-registration operation over the implementation-bearing System Schema function; slice `FSV02` | SAP02 is complete and the exact registration composition is approved |
+| `SAP03` | **Complete:** narrow Standard inactive-registration operation over the implementation-bearing System Schema function; slice `FSV02` | Implemented with private authenticated correlation and a narrow durable projection |
 | `SAP04` | Narrow Standard point-mutation invocation over the implementation-bearing System Application Data function; slice `FSV06` | the private A1b2 plus `C07` real-system proof, readiness, and activation are complete, and the host-neutral runtime is assembled through the real owner path |
 | `SAP05+` | Add query, internal call, workflow mutation, action, and schedule operations individually | each capability has an implemented owner contract and focused preflight |
 

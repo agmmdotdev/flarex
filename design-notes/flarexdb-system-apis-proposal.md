@@ -206,7 +206,11 @@ The useful existing foundation includes:
 - Standard application definition preparation;
 - the accepted private replacement-analyzer port and the function-first
   Standard authenticated-analysis operation over its request-scoped host;
-- bounded transactional app-schema publication;
+- bounded transactional app-schema publication and the first persistence-owned
+  System operation for authenticated, durable, idempotent, inactive
+  application-revision registration;
+- the narrow SAP03 Standard wrapper and private paired persistence-backed
+  analyzer/registration composition;
 - scope, epoch, session, journal, execution-claim, OCC, commit, committed
   outcome, feed, outbox, and redelivery components;
 - a host-neutral exact point-mutation runtime; and
@@ -218,10 +222,12 @@ The remaining limitations are architectural, not merely naming or packaging:
    Standard analysis operation exist, but no production route or developer
    process may mint trusted analyzer admission. Host composition remains
    request-scoped and fail-closed.
-2. **No application-revision registration function.** Schema publication
-   exists, but no single trusted operation binds candidate, source, semantic,
-   schema, function, validator, artifact, and analyzer evidence into one
-   inactive durable revision.
+2. **Registration is intentionally private and inactive.** The first System
+   operation claims opaque context-owned candidate and producer authority,
+   binds candidate, attempt, source, semantic, schema, function, validator,
+   handler, artifact, analyzer, and durable reservation evidence into one
+   durable revision with request-key replay, but it does not establish
+   readiness, activation, routing, or public API authority.
 3. **No target-native readiness operation.** S03-D4 has not yet settled
    readiness from the real located target and all required evidence.
 4. **No replacement activation operation or coherent active reader.** Current
@@ -262,10 +268,10 @@ FSV01
 FSV02
   -> first FlarexDB System API development
   -> registerApplicationRevisionV1
-  -> next proportional preflight begins from the actual SAP02 output
+  -> complete through private authenticated correlation and inactive SAP03
 ```
 
-Before each remaining slice is accepted for implementation:
+Before each later slice is accepted for implementation:
 
 1. all packages in that slice have a green typecheck and focused test baseline;
 2. the exact existing owner functions and missing composition seam are named;

@@ -3,6 +3,10 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
 
 import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
+import {
+  createLocatedApplicationRevisionRegistrationTargetV1,
+  type LocatedApplicationRevisionRegistrationTargetV1,
+} from "./applicationRevisionRegistrationV1";
 import type {
   FlarexPersistence,
   FlarexSqlClient,
@@ -134,6 +138,16 @@ export function createPGliteLocatedPointMutationSessionActivationTargetV1(
     persistence.drizzle,
     physicalLocator,
     options,
+  );
+}
+
+export function createPGliteLocatedApplicationRevisionRegistrationTargetV1(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedApplicationRevisionRegistrationTargetV1 {
+  return createLocatedApplicationRevisionRegistrationTargetV1(
+    persistence.drizzle,
+    physicalLocator,
   );
 }
 

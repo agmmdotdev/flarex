@@ -3,9 +3,12 @@
 ## Status And Scope
 
 **Status:** Active capability-sized execution plan. `FSV00` accepted the
-documentation boundary and `FSV01` completed `SAP02` through the accepted
-replacement-analyzer port. The next gate is one proportional `FSV02`
-registration preflight from the actual Standard analysis result.
+documentation boundary, `FSV01` completed `SAP02` through the accepted
+replacement-analyzer port, and `FSV02` completes the first implementation-
+bearing System operation plus `SAP03`: authenticated, durable, idempotent,
+inactive application-revision registration. The next vertical gate is the
+private analyzer-to-Postgres system proof, subject to its existing `C07` and
+host prerequisites.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -54,6 +57,15 @@ Current implementation truth:
 - `SAP02` exposes `analyzeStandardApplicationV1` through the narrow
   `@flarex/standard-application-analysis/v1` package and preserves the exact
   accepted registration-complete result;
+- `FSV02` exposes persistence-owned `registerApplicationRevisionV1` and the
+  narrow `@flarex/standard-application-registration/v1` SAP03 wrapper;
+- the persistence-backed analyzer lane privately prepares candidate and V2
+  attempt authority before SAP02, then correlates the exact returned analysis
+  object with authenticated definition, artifact, function, validator,
+  handler, analyzer, and registration evidence before inactive registration;
+- registration is atomic, reloadable, request-key idempotent, database-timed,
+  and remains inactive; ordinary process-local SAP02 consumers remain
+  persistence-independent;
 - the analyzer app supplies the first private request-scoped context over the
   accepted host, while the developer producer remains fail-closed without
   trusted analyzer authority;
@@ -76,21 +88,21 @@ factories.
 
 | Current limitation | What it blocks | Required resolution |
 | --- | --- | --- |
-| `FSV01` is complete, but no registration preflight has selected the exact analysis projection and existing registration owners | `FSV02` registration implementation | Run one proportional preflight from the actual `AuthenticatedVerifiedStandardApplicationAnalysisV1` and preserve the existing owner boundaries |
-| Relevant system-package validation is not wholly green; the persistence typecheck currently has a stored-attempt test-contract mismatch | First System API implementation checkpoint | Prove it unchanged and outside the capability or repair it under its real owner; do not absorb it silently into analyzer or API behavior |
-| App-schema publication is package-owned but not composed with complete revision evidence | `registerApplicationRevisionV1` | Preflight and implement one inactive, durable, idempotent registration operation over existing owners |
+| `FSV02` registration is complete but deliberately inactive | Active-revision consumption | Complete target-native readiness and replacement activation; do not reinterpret registration as either gate |
+| The persistence typecheck has an existing stored-attempt test-contract mismatch outside the FSV02 touched flow | A wholly green aggregate persistence typecheck | Repair it under its real owner; FSV02 proves the unchanged baseline separately |
 | Readiness and replacement activation do not exist | Active-revision consumption | Complete `S03-D4`, then `S04` and its coherent reader after the private system proof |
 | Point-mutation components are private and C07 is not assembled | System Application Data API and SAP04 | Complete the private A1b2 plus C07 real-system harness before active-revision invocation |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
-There are therefore two start decisions:
+The first two start decisions are now complete:
 
 1. **`FSV01` completed after analyzer acceptance.** It is Standard analysis
    API work, not yet a FlarexDB database-operation API.
-2. **Start the first true System API at `FSV02`.** Its proportional capability
-   preflight must use the actual SAP02 success and error types and identify the
-   existing registration, schema-publication, persistence, and host owners.
+2. **`FSV02` completed the first true System API.** It uses private authenticated
+   correlation rather than treating the structurally constructible SAP02 result
+   as registration authority, and reuses the existing candidate, attempt,
+   schema-publication, persistence, and host owners.
 
 Every medium coherent API capability must deliver together:
 
@@ -305,7 +317,7 @@ Implemented boundary:
   registration, schema, activation, invocation, or persistence write was
   added.
 
-### `[ ] FSV02`: Register One Inactive Application Revision
+### `[x] FSV02`: Register One Inactive Application Revision
 
 Entry gates:
 
@@ -348,6 +360,36 @@ Exit evidence:
 - SAP03 is the first real consumer of the implementation-bearing System
   function; and
 - the active revision remains unchanged in every registration test.
+
+Implemented boundary:
+
+- the persistence-backed lane derives versioned source-package, execution-
+  artifact, function-metadata, declared-handler, validator, schema-binding, and
+  registration-claim identities from their canonical owners;
+- candidate insertion/replay and durable V2 attempt creation/replay occur
+  before the accepted analyzer only in that lane;
+- paired request-owned contexts retain candidate and command authority as
+  opaque values claimed only by the context-owned evidence port, then retain
+  preparation and exact SAP02-result correlation through private WeakMaps and
+  Scope cleanup; cloned authorities and concurrent duplicate correlation are
+  rejected, while ordinary SAP02 consumers remain independent of Postgres;
+- the producer receipt is checked against the decoded durable command
+  reservation field by field before its request digest and canonical length
+  enter the registration claim;
+- a short read-committed transaction locks scope authority, publishes the
+  prepared schema, stores canonical function and analyzer evidence, inserts the
+  inactive revision and request receipt, and reloads the complete durable
+  projection;
+- matching replay returns the stored database timestamp, contradictory reuse
+  is rejected, confirmed rollback is boundedly retried, and uncertain commit
+  settlement remains a distinct typed failure; and
+- the PGlite lane covers authority forgery, initial correlation concurrency,
+  registration replay/conflict, and rollback, while the real-Postgres lane
+  races first registration across pool transactions, cold-reloads, replays the
+  database timestamp, and forces schema/revision/receipt rollback; and
+- SAP03 exposes only status, revision identity, schema-version identity, and
+  the database-authoritative timestamp. No readiness, activation, active
+  reader, invocation, route, or production wiring is added.
 
 ### `[ ] FSV03`: Prove The Private Analyzer-To-Postgres System
 
@@ -524,7 +566,7 @@ Any route or binding activation requires a separate preflight that names:
 
 Do not infer this authorization from `FSV06`.
 
-## Completed FSV01 Handoff And Next Gate
+## Completed FSV01 And FSV02 Handoff
 
 The analyzer handoff was received and reverified before `FSV01` implementation.
 The accepted owners remain:
@@ -537,17 +579,15 @@ The accepted owners remain:
   success and typed host error channels.
 
 `FSV01` consumes those owners through the Standard operation and private app
-adapter described above. It does not authorize registration, readiness,
-activation, point mutation, public routing, or production wiring.
+adapter described above. `FSV02` adds the separate persistence-backed lane and
+SAP03 boundary described in its completed slice. Neither capability authorizes
+readiness, activation, point mutation, public routing, framework adapters, or
+production wiring.
 
-The next work is one proportional `FSV02` capability preflight from the actual
-`AuthenticatedVerifiedStandardApplicationAnalysisV1` output. Before
-implementation, reverify the relevant executor, persistence, backend, and
-Standard baselines; name the existing candidate, schema-publication,
-persistence, and host owners; and settle exact input authority, transaction
-lifetime, replay, rollback, and package placement. Never design the
-registration input from a speculative analyzer shape or widen the preflight
-into later readiness, activation, invocation, or framework-adapter work.
+The next vertical work must enter through the existing `FSV03` gates. In
+particular, inactive registration is not evidence that `C07`, target-native
+readiness, replacement activation, the active reader, or hosted redelivery is
+complete.
 
 ## Overall Completion Criteria
 

@@ -21,7 +21,7 @@ describe("private analyzer deterministic identity", () => {
     expect(installed.identity).toEqual({
       protocolIdentity: "flarex.private-source-analyzer-handshake.v1",
       protocolVersion: 1,
-      implementationIdentity: "5345dd7e051f9858b1004798f2ac866d34b01208b4d03f61f18ca13402761818",
+      implementationIdentity: "7e0860cdb058712841da5bfed75ea957477b393128fea43ac7aae5f21e43f622",
       configurationIdentity: "c0ffa918d2cbfe69cc6193807caecdccf6d50c391bc2525db300b5a4cc4ce795",
     });
     expect(canonicalPrivateAnalyzerHostConfigurationV1(installed.configuration)).toBe(
@@ -82,6 +82,7 @@ describe("private analyzer deterministic identity", () => {
     expect(packageJson.dependencies).toEqual({
       "@flarex/analysis": "workspace:*",
       "@flarex/executor-http": "workspace:*",
+      "@flarex/persistence-postgres": "workspace:*",
       "@flarex/standard-application-analysis": "workspace:*",
       "@flarex/standard-application-definition": "workspace:*",
       "@flarex/utils": "workspace:*",

@@ -3,6 +3,10 @@ import { migrate as migrateNodePg } from "drizzle-orm/node-postgres/migrator";
 import { Pool, type PoolConfig } from "pg";
 
 import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
+import {
+  createLocatedApplicationRevisionRegistrationTargetV1,
+  type LocatedApplicationRevisionRegistrationTargetV1,
+} from "./applicationRevisionRegistrationV1";
 import type { FlarexPersistence } from "./index";
 import {
   createSharedScopeAuthorityBootstrapper,
@@ -119,6 +123,17 @@ export function createPostgresLocatedPointMutationSessionActivationTargetV1(
           persistence.pool,
         ),
     },
+  );
+}
+
+export function createPostgresLocatedApplicationRevisionRegistrationTargetV1(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedApplicationRevisionRegistrationTargetV1 {
+  return createLocatedApplicationRevisionRegistrationTargetV1(
+    persistence.drizzle,
+    physicalLocator,
+    createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
   );
 }
 

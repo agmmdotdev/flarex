@@ -1,0 +1,926 @@
+import { webcrypto } from "node:crypto";
+import {
+  prepareStandardApplicationDefinitionV1,
+  type PreparedStandardApplicationDefinitionV1,
+  type StandardApplicationDefinitionInputV1,
+} from "@flarex/standard-application-definition/v1";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { Cause, Effect, Exit, Result } from "effect";
+import {
+  encodeDeclarativeV2PhysicalFrameV1,
+  type DeclarativeV2RegistrationFrameV1,
+} from "flarex-protocol/internal/declarative-v2-physical-v1";
+import {
+  DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
+  encodeDeclarativeV2VerifierProgressFrameV2,
+  type DeclarativeV2VerifierBudgetFrameV2,
+  type DeclarativeV2VerifierCommandOutputManifestFrameV2,
+  type DeclarativeV2VerifierCommandReceiptFrameV2,
+  type DeclarativeV2VerifierCommandReservationFrameV2,
+  type DeclarativeV2VerifierProgressCursorFrameV2,
+} from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { beforeAll, describe, expect, it } from "vitest";
+
+import {
+  type LocatedApplicationRevisionRegistrationTargetV1,
+  makeApplicationRevisionRegistrationContextV1,
+  ApplicationRevisionRegistrationEvidenceV1Error,
+  type ApplicationRevisionCandidateEvidenceProjectionV1,
+  type ApplicationRevisionRegistrationCommandReceiptV1,
+  type ApplicationRevisionRegistrationEvidenceAuthorityV1,
+  type PrivateApplicationRevisionAnalysisPreparationV1,
+} from "../src/applicationRevisionRegistrationV1";
+import {
+  makeDeclarativeV2VerifierProgressRepositoryV2,
+  type DeclarativeV2VerifierProgressRepositoryV2,
+} from "../src/declarativeV2VerifierProgressRepositoryV2";
+import {
+  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
+  createPGlitePersistence,
+  type PGliteFlarexPersistence,
+} from "../src/pglite";
+import type { PostgresFlarexPersistence } from "../src/postgres";
+import { runEffect } from "./effectTestRuntime";
+
+const UTF8 = new TextEncoder();
+const LOCATOR = Object.freeze({
+  kind: "shared_database" as const,
+  databaseKey: "primary",
+  schemaName: "public",
+});
+const DEPLOYMENT_ID = "deployment_registration_v1";
+const PROJECT_ID = "project_registration_v1";
+const SCOPE_ID = ScopeIdSchema.make(
+  "scope_61000000-0000-0000-0000-000000000001",
+);
+const EPOCH = "epoch_61000000-0000-0000-0000-000000000002";
+const OPERATION_BUDGET = Object.freeze({
+  maximumCalls: 64,
+  maximumRows: 64,
+  maximumFrameBytes: 16 * 1_048_576,
+  maximumCanonicalBytes: 16 * 1_048_576,
+  maximumHashBytes: 16 * 1_048_576,
+  maximumElapsedMilliseconds: 60_000,
+});
+const PROGRESS_OPTIONS = Object.freeze({
+  claimDurationMilliseconds: 60_000,
+  randomUuid: () => "11111111-1111-4111-8111-111111111111",
+  monotonicMilliseconds: () => 0,
+});
+
+const registrationFixtureImportState = globalThis as typeof globalThis & {
+  __flarexRegistrationFixtureOnlyV1?: boolean;
+};
+
+if (registrationFixtureImportState.__flarexRegistrationFixtureOnlyV1 !== true) {
+describe("inactive application revision registration V1", () => {
+  beforeAll(() => {
+    if (globalThis.crypto === undefined) {
+      Object.defineProperty(globalThis, "crypto", {
+        configurable: true,
+        value: webcrypto,
+      });
+    }
+  });
+
+  it("registers atomically, replays concurrently, and cold-reloads DB time", async () => {
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fixture = yield* registrationFixture();
+      const first = yield* fixture.context.register(
+        fixture.analysis,
+        "request:orders:v1",
+      );
+      expect(first.kind).toBe("registered");
+      expect(first.status).toBe("inactive");
+      expect(first.revisionId).toBe(
+        `dv2_${encodeBytesToLowercaseHex(fixture.preparation.candidateSha256)}`,
+      );
+      expect(first.registeredAt).toBeInstanceOf(Date);
+
+      const concurrent = yield* Effect.all([
+        fixture.context.register(fixture.analysis, "request:orders:v1"),
+        fixture.context.register(fixture.analysis, "request:orders:v2"),
+      ], { concurrency: 2 });
+      expect(concurrent.map((item) => item.kind))
+        .toEqual(["replayed", "replayed"]);
+      expect(concurrent[0].registeredAt.getTime())
+        .toBe(first.registeredAt.getTime());
+      expect(concurrent[1].registeredAt.getTime())
+        .toBe(first.registeredAt.getTime());
+
+      const cold = makeRegistrationTestContext(
+        fixture.persistence,
+        fixture.target,
+        fixture.evidenceAuthority.authority,
+      );
+      const coldPreparation = yield* cold.prepareAnalysis({
+        preparedDefinition: fixture.preparedDefinition,
+        authenticatedEvidence: fixture.candidateAuthority,
+        attemptCeilings: fixture.attemptCeilings,
+      });
+      expect(coldPreparation.candidateSha256)
+        .toEqual(fixture.preparation.candidateSha256);
+      expect(coldPreparation.attemptSha256)
+        .toEqual(fixture.preparation.attemptSha256);
+      yield* cold.correlateAnalysis(
+        coldPreparation,
+        fixture.analysis,
+        fixture.evidenceAuthority.issueCommand(
+          coldPreparation,
+          fixture.commandReceipt,
+        ),
+      );
+      const reloaded = yield* cold.register(
+        fixture.analysis,
+        "request:orders:v1",
+      );
+      expect(reloaded.kind).toBe("replayed");
+      expect(reloaded.registeredAt.getTime())
+        .toBe(first.registeredAt.getTime());
+      const revisionRows = yield* Effect.promise(() =>
+        fixture.persistence.query<{
+          status: string;
+          registered_at: string;
+        }>(
+          `select status, registered_at
+           from fx_system_application_revision_v1
+           where scope_id = $1`,
+          [SCOPE_ID],
+        )
+      );
+      const requestRows = yield* Effect.promise(() =>
+        fixture.persistence.query<{ request_key: string }>(
+          `select request_key
+           from fx_system_application_revision_request_v1
+           where scope_id = $1
+           order by request_key`,
+          [SCOPE_ID],
+        )
+      );
+      expect(revisionRows.rows).toHaveLength(1);
+      expect(revisionRows.rows[0]?.status).toBe("inactive");
+      expect(requestRows.rows.map((row) => row.request_key)).toEqual([
+        "request:orders:v1",
+        "request:orders:v2",
+      ]);
+    })));
+  });
+
+  it("rejects uncorrelated structural results and contradictory request keys", async () => {
+    const result = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fixture = yield* registrationFixture();
+      const forged = Object.freeze({
+        ...fixture.analysis,
+        result: Object.freeze({ ...fixture.analysis.result }),
+      });
+      const forgedFailure = yield* Effect.flip(
+        fixture.context.register(forged, "request:forged"),
+      );
+      yield* fixture.context.register(
+        fixture.analysis,
+        "request:conflict",
+      );
+      yield* Effect.promise(() =>
+        fixture.persistence.query(
+          `update fx_system_application_revision_request_v1
+           set registration_input_sha256 = $3
+           where scope_id = $1 and request_key = $2`,
+          [SCOPE_ID, "request:conflict", digest(0xfe)],
+        )
+      );
+      const conflict = yield* Effect.flip(fixture.context.register(
+        fixture.analysis,
+        "request:conflict",
+      ));
+      return { forgedFailure, conflict };
+    })));
+    expect(result.forgedFailure).toMatchObject({
+      _tag: "ApplicationRevisionRegistrationContextV1Error",
+      reason: "unrecognizedAnalysis",
+    });
+    expect(result.conflict).toMatchObject({
+      _tag: "ApplicationRevisionRegistrationRequestConflictV1Error",
+      reason: "requestKeyReuse",
+      scopeId: SCOPE_ID,
+    });
+  });
+
+  it("rejects cloned authorities and atomically claims correlation", async () => {
+    const result = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fixture = yield* registrationFixture(false);
+      const candidateCloneFailure = yield* Effect.flip(
+        fixture.context.prepareAnalysis({
+          preparedDefinition: fixture.preparedDefinition,
+          authenticatedEvidence: Object.freeze({
+            ...fixture.candidateAuthority,
+          }),
+          attemptCeilings: fixture.attemptCeilings,
+        }),
+      );
+      const clonedAnalysis = Object.freeze({
+        ...fixture.analysis,
+        result: Object.freeze({ ...fixture.analysis.result }),
+      });
+      const commandAuthority =
+        fixture.evidenceAuthority.issueCommand(
+          fixture.preparation,
+          fixture.commandReceipt,
+        );
+      const commandCloneFailure = yield* Effect.flip(
+        fixture.context.correlateAnalysis(
+          fixture.preparation,
+          fixture.analysis,
+          Object.freeze({ ...commandAuthority }),
+        ),
+      );
+      const reservationForgeryFailure = yield* Effect.flip(
+        fixture.context.correlateAnalysis(
+          fixture.preparation,
+          fixture.analysis,
+          fixture.evidenceAuthority.issueCommand(
+            fixture.preparation,
+            Object.freeze({
+              ...fixture.commandReceipt,
+              freshAuthenticatedInputSha256: digest(0xfd),
+            }),
+          ),
+        ),
+      );
+      const exits = yield* Effect.all([
+        Effect.exit(fixture.context.correlateAnalysis(
+          fixture.preparation,
+          fixture.analysis,
+          fixture.evidenceAuthority.issueCommand(
+            fixture.preparation,
+            fixture.commandReceipt,
+          ),
+        )),
+        Effect.exit(fixture.context.correlateAnalysis(
+          fixture.preparation,
+          clonedAnalysis,
+          fixture.evidenceAuthority.issueCommand(
+            fixture.preparation,
+            fixture.commandReceipt,
+          ),
+        )),
+      ], { concurrency: 2 });
+      return {
+        candidateCloneFailure,
+        commandCloneFailure,
+        reservationForgeryFailure,
+        exits,
+      };
+    })));
+    expect(result.candidateCloneFailure).toMatchObject({
+      _tag: "ApplicationRevisionRegistrationEvidenceV1Error",
+      path: "candidateAuthority",
+    });
+    expect(result.commandCloneFailure).toMatchObject({
+      _tag: "ApplicationRevisionRegistrationEvidenceV1Error",
+      path: "commandAuthority",
+    });
+    expect(result.reservationForgeryFailure).toMatchObject({
+      _tag: "ApplicationRevisionRegistrationEvidenceV1Error",
+      reason: "terminalCommandMismatch",
+    });
+    expect(result.exits.filter(Exit.isSuccess)).toHaveLength(1);
+    const failure = result.exits.find(Exit.isFailure);
+    expect(failure).toBeDefined();
+    if (failure !== undefined && Exit.isFailure(failure)) {
+      expect(Cause.squash(failure.cause)).toMatchObject({
+        _tag: "ApplicationRevisionRegistrationContextV1Error",
+        reason: "alreadyCorrelated",
+      });
+    }
+  });
+
+  it("rolls schema publication and revision evidence back with the receipt", async () => {
+    const result = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fixture = yield* registrationFixture();
+      yield* Effect.promise(() => fixture.persistence.exec(`
+        create function fx_test_reject_revision_request_v1()
+        returns trigger language plpgsql as $$
+        begin
+          raise exception 'forced request receipt failure';
+        end;
+        $$;
+        create trigger fx_test_reject_revision_request_v1
+        before insert on fx_system_application_revision_request_v1
+        for each row execute function fx_test_reject_revision_request_v1();
+      `));
+      const failure = yield* Effect.flip(fixture.context.register(
+        fixture.analysis,
+        "request:rollback",
+      ));
+      const revisions = yield* Effect.promise(() =>
+        fixture.persistence.query<{ count: string }>(
+          `select count(*)::text as count
+           from fx_system_application_revision_v1`,
+        )
+      );
+      const schemas = yield* Effect.promise(() =>
+        fixture.persistence.query<{ count: string }>(
+          `select count(*)::text as count
+           from fx_control_schema_version
+           where deployment_id = $1`,
+          [DEPLOYMENT_ID],
+        )
+      );
+      return {
+        failure,
+        revisionCount: revisions.rows[0]?.count,
+        schemaCount: schemas.rows[0]?.count,
+      };
+    })));
+
+    expect(result.failure).toMatchObject({
+      _tag: "ApplicationRevisionRegistrationConfirmedRollbackV1Error",
+      retryable: false,
+    });
+    expect(result.revisionCount).toBe("0");
+    expect(result.schemaCount).toBe("0");
+  });
+});
+}
+
+function makeTestEvidenceAuthority() {
+  const candidates = new WeakMap<
+    object,
+    Readonly<{
+      readonly definition: PreparedStandardApplicationDefinitionV1;
+      readonly evidence: ApplicationRevisionCandidateEvidenceProjectionV1;
+    }>
+  >();
+  const commands = new WeakMap<
+    object,
+    Readonly<{
+      readonly preparation: PrivateApplicationRevisionAnalysisPreparationV1;
+      readonly receipt: ApplicationRevisionRegistrationCommandReceiptV1;
+    }>
+  >();
+  const invalid = (path: string) =>
+    Result.fail(new ApplicationRevisionRegistrationEvidenceV1Error({
+      reason: "authenticatedCorrelationMismatch",
+      path,
+    }));
+  const authority: ApplicationRevisionRegistrationEvidenceAuthorityV1 =
+    Object.freeze({
+      claimCandidate: (
+        definition: PreparedStandardApplicationDefinitionV1,
+        value: unknown,
+      ) => {
+        if (typeof value !== "object" || value === null) {
+          return invalid("candidateAuthority");
+        }
+        const state = candidates.get(value);
+        return state !== undefined && state.definition === definition
+          ? Result.succeed(state.evidence)
+          : invalid("candidateAuthority");
+      },
+      claimCommand: (
+        preparation: PrivateApplicationRevisionAnalysisPreparationV1,
+        value: unknown,
+      ) => {
+        if (typeof value !== "object" || value === null) {
+          return invalid("commandAuthority");
+        }
+        const state = commands.get(value);
+        return state !== undefined && state.preparation === preparation
+          ? Result.succeed(state.receipt)
+          : invalid("commandAuthority");
+      },
+    });
+  return Object.freeze({
+    authority,
+    issueCandidate: (
+      definition: PreparedStandardApplicationDefinitionV1,
+      evidence: ApplicationRevisionCandidateEvidenceProjectionV1,
+    ) => {
+      const handle = Object.freeze({});
+      candidates.set(handle, Object.freeze({ definition, evidence }));
+      return handle;
+    },
+    issueCommand: (
+      preparation: PrivateApplicationRevisionAnalysisPreparationV1,
+      receipt: ApplicationRevisionRegistrationCommandReceiptV1,
+    ) => {
+      const handle = Object.freeze({});
+      commands.set(handle, Object.freeze({ preparation, receipt }));
+      return handle;
+    },
+  });
+}
+
+function registrationFixture(correlate = true) {
+  return Effect.gen(function* () {
+    const persistence = yield* Effect.promise(() => createPGlitePersistence());
+    yield* Effect.promise(() => persistence.migrate());
+    const target =
+      createPGliteLocatedApplicationRevisionRegistrationTargetV1(
+        persistence,
+        LOCATOR,
+      );
+    return yield* registrationFixtureForPersistence(
+      persistence,
+      target,
+      correlate,
+    );
+  });
+}
+
+export function registrationFixtureForPersistence(
+  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  target: LocatedApplicationRevisionRegistrationTargetV1,
+  correlate = true,
+) {
+  return Effect.gen(function* () {
+  yield* Effect.promise(() => persistence.insertDeploymentMetadata({
+    deploymentId: DEPLOYMENT_ID,
+    projectId: PROJECT_ID,
+  }));
+  yield* Effect.promise(() => persistence.insertScopeMetadata({
+    scopeId: SCOPE_ID,
+    deploymentId: DEPLOYMENT_ID,
+    physicalLocator: LOCATOR,
+  }));
+  yield* Effect.promise(() => persistence.query(
+      `insert into fx_system_scope_clock
+        (scope_id, storage_generation, storage_generation_fence,
+         last_commit_seq, last_outbox_seq, epoch)
+       values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
+      [SCOPE_ID, EPOCH],
+    ));
+  const preparedDefinition = Result.getOrThrow(
+    prepareStandardApplicationDefinitionV1(definitionInput()),
+  );
+  const evidence = yield* Effect.promise(() =>
+    authenticatedEvidence(preparedDefinition)
+  );
+  const evidenceAuthority = makeTestEvidenceAuthority();
+  const candidateAuthority =
+    evidenceAuthority.issueCandidate(preparedDefinition, evidence);
+  const attemptCeilings = budget("attempt_ceilings", 10_000n);
+  const context = makeRegistrationTestContext(
+    persistence,
+    target,
+    evidenceAuthority.authority,
+  );
+
+    const preparation = yield* context.prepareAnalysis({
+      preparedDefinition,
+      authenticatedEvidence: candidateAuthority,
+      attemptCeilings,
+    });
+    const repository = makeDeclarativeV2VerifierProgressRepositoryV2(
+      target,
+      PROGRESS_OPTIONS,
+    );
+    yield* Effect.promise(() => moveAttemptToRegistration(
+      persistence,
+      preparation,
+    ));
+    const terminal = yield* settleRegistration(
+      repository,
+      preparation,
+      preparedDefinition,
+      evidence,
+    );
+    if (correlate) {
+      yield* context.correlateAnalysis(
+        preparation,
+        terminal.analysis,
+        evidenceAuthority.issueCommand(
+          preparation,
+          terminal.commandReceipt,
+        ),
+      );
+    }
+    return {
+      persistence,
+      target,
+      context,
+      preparedDefinition,
+      evidence,
+      evidenceAuthority,
+      candidateAuthority,
+      attemptCeilings,
+      preparation,
+      ...terminal,
+    };
+  });
+}
+
+export function makeRegistrationTestContext(
+  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  target: LocatedApplicationRevisionRegistrationTargetV1,
+  evidenceAuthority: ApplicationRevisionRegistrationEvidenceAuthorityV1,
+) {
+  return makeApplicationRevisionRegistrationContextV1({
+    authority: {
+      scopeMetadata: persistence,
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => {
+          throw new Error("Shared registration must not read split receipts.");
+        },
+      },
+      scopeClockTargets: { resolve: async () => target },
+    },
+    functionMetadataBudget: {
+      maximumFunctionsVisited: 16,
+      maximumValidatorNodesVisited: 256,
+      maximumCanonicalUtf8BytesMaterialized: 64_000,
+    },
+    progressRepository: PROGRESS_OPTIONS,
+    evidenceAuthority,
+  });
+}
+
+async function moveAttemptToRegistration(
+  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  preparation: PrivateApplicationRevisionAnalysisPreparationV1,
+) {
+  const progress = {
+    kind: "progress_cursor" as const,
+    phase: "registration" as const,
+    settledSequence: 0n,
+    moduleOrdinal: 0n,
+    edgeOrdinal: 0n,
+    pageOrdinal: 0n,
+    previousReceiptSha256: null,
+  };
+  const encoded = Result.getOrThrow(
+    encodeDeclarativeV2VerifierProgressFrameV2(progress, {
+      maximumFrameBytes: 1_000_000,
+      maximumCanonicalBytes: 1_000_000,
+    }),
+  );
+  await persistence.query(
+    `update fx_system_declarative_v2_verifier_attempt_v2
+     set lifecycle = 'link_complete',
+         progress_byte_length = $3,
+         progress_sha256 = $4,
+         progress_bytes = $5,
+         updated_at = now()
+     where scope_id = $1 and attempt_sha256 = $2`,
+    [
+      SCOPE_ID,
+      preparation.attemptSha256,
+      BigInt(encoded.canonicalBytes.byteLength),
+      await sha256(encoded.canonicalBytes),
+      encoded.canonicalBytes,
+    ],
+  );
+}
+
+function settleRegistration(
+  repository: DeclarativeV2VerifierProgressRepositoryV2,
+  preparation: PrivateApplicationRevisionAnalysisPreparationV1,
+  prepared: PreparedStandardApplicationDefinitionV1,
+  evidence: ApplicationRevisionCandidateEvidenceProjectionV1,
+) {
+  return Effect.gen(function* () {
+    const acquired = yield* repository.acquire(
+      SCOPE_ID,
+      preparation.attemptSha256,
+      OPERATION_BUDGET,
+    );
+    const commandBudget = budget("command_budget", 1n);
+    const commandBudgetEncoded = Result.getOrThrow(
+      encodeDeclarativeV2VerifierProgressFrameV2(commandBudget, {
+        maximumFrameBytes: 1_000_000,
+        maximumCanonicalBytes: 1_000_000,
+      }),
+    );
+    const reservationInput = {
+      reservation: {
+        kind: "command_reservation" as const,
+        attemptSha256: preparation.attemptSha256,
+        candidateSha256: preparation.candidateSha256,
+        commandKind: "registration_page" as const,
+        sequence: 1n,
+        currentProgressSha256: acquired.attempt.progressSha256,
+        predecessorReceiptSha256: acquired.attempt.lastReceiptSha256,
+        commandBudgetSha256:
+          yield* Effect.promise(() => sha256(
+            commandBudgetEncoded.canonicalBytes,
+          )),
+        commandInputSha256: digest(0x31),
+        freshAuthenticatedInputSha256: digest(0x32),
+        analyzerIdentitySha256: evidence.analyzerIdentitySha256,
+        verifierIdentitySha256: evidence.verifierIdentitySha256,
+        rangeAndPredecessorTailsSha256: digest(0x33),
+      },
+      commandBudget,
+    };
+    const reserved = yield* repository.reserveCommand(
+      acquired.run,
+      reservationInput,
+      OPERATION_BUDGET,
+    );
+    const artifactModulePath =
+      prepared.artifactIngressPlan.source.functionEntries[0]!
+        .artifactModulePath;
+    const moduleOrdinal = prepared.artifactIngressPlan.source.modules
+      .findIndex((module) => module.path === artifactModulePath);
+    if (moduleOrdinal < 0) {
+      throw new Error("Expected materialized function module.");
+    }
+    const registrationFrame: DeclarativeV2RegistrationFrameV1 = {
+      kind: "registration",
+      attemptSha256: preparation.attemptSha256,
+      registrationOrdinal: 0n,
+      handlerIdentitySha256: digest(0x41),
+      moduleOrdinal: BigInt(moduleOrdinal),
+      exportName: "place",
+      functionPath: "orders:place",
+      handlerKind: "mutation",
+      visibility: "public",
+    };
+    const registrationBytes = Result.getOrThrow(
+      encodeDeclarativeV2PhysicalFrameV1(registrationFrame, {
+        maximumFrameBytes: 1_000_000,
+        maximumCanonicalBytes: 1_000_000,
+      }),
+    ).canonicalBytes;
+    const registrationRootSha256 = digest(0x42);
+    const settlementInput = yield* Effect.promise(() =>
+      makeSettlementInput(
+        reserved.reservation,
+        registrationRootSha256,
+      )
+    );
+    const settled = yield* repository.settleCommand(
+      reserved.work,
+      settlementInput,
+      OPERATION_BUDGET,
+    );
+    yield* repository.release(acquired.run, OPERATION_BUDGET);
+
+    const usage = budget("attempt_usage", 1n);
+    const analysis = Object.freeze({
+      status: "complete" as const,
+      kind: "registration_page" as const,
+      result: Object.freeze({
+        status: "complete" as const,
+        capacity: Object.freeze({
+          _tag: "DeclarativeV2VerifierRegistrationCapacityV1" as const,
+          ...budgetFields(100n),
+        }),
+        actual: usage,
+        registrationFrames: Object.freeze([
+          new Uint8Array(registrationBytes),
+        ]),
+        nextProgress: settled.settlement.nextProgress,
+        nextProgressBytes:
+          new Uint8Array(settled.settlement.nextProgressBytes),
+        outputManifest: settled.settlement.outputManifest,
+        outputManifestBytes:
+          new Uint8Array(settled.settlement.outputManifestBytes),
+        registrationRootSha256:
+          new Uint8Array(registrationRootSha256),
+        receipt: Object.freeze({
+          transitionCount: 1,
+          deltaUsage: usage,
+          usage,
+        }),
+      }),
+    });
+    const commandReceipt: ApplicationRevisionRegistrationCommandReceiptV1 =
+      Object.freeze({
+        commandKind: "registration_page",
+        sequence: reserved.reservation.sequence,
+        attemptSha256: preparation.attemptSha256,
+        candidateSha256: preparation.candidateSha256,
+        reservationSha256:
+          new Uint8Array(settled.settlement.reservationSha256),
+        requestSha256: digest(0x51),
+        canonicalByteLength: 512,
+        freshAuthenticatedInputSha256:
+          reserved.reservation.freshAuthenticatedInputSha256,
+        commandInputSha256: reserved.reservation.commandInputSha256,
+        rangeAndPredecessorTailsSha256:
+          reserved.reservation.rangeAndPredecessorTailsSha256,
+        analyzerIdentitySha256:
+          reserved.reservation.analyzerIdentitySha256,
+        verifierIdentitySha256:
+          reserved.reservation.verifierIdentitySha256,
+      });
+    return Object.freeze({ analysis, commandReceipt });
+  });
+}
+
+async function makeSettlementInput(
+  reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+  registrationRootSha256: Uint8Array,
+) {
+  const reservationSha256 = await progressFrameSha256(reservation);
+  const commandUsage = budget("command_budget", 1n);
+  const resultingUsage = budget("attempt_usage", 1n);
+  const nextProgress: DeclarativeV2VerifierProgressCursorFrameV2 = {
+    kind: "progress_cursor",
+    phase: "verdict",
+    settledSequence: reservation.sequence,
+    moduleOrdinal: 1n,
+    edgeOrdinal: 0n,
+    pageOrdinal: 0n,
+    previousReceiptSha256: reservation.predecessorReceiptSha256,
+  };
+  const nextProgressSha256 = await progressFrameSha256(nextProgress);
+  const outputManifest:
+    DeclarativeV2VerifierCommandOutputManifestFrameV2 = {
+      kind: "command_output_manifest",
+      reservationSha256,
+      commandKind: "registration_page",
+      sequence: reservation.sequence,
+      evidenceRootSha256: registrationRootSha256,
+      evidenceCount: 1n,
+      diagnosticsRootSha256: digest(0x43),
+      diagnosticCount: 0n,
+      nextProgressSha256,
+    };
+  const receipt: DeclarativeV2VerifierCommandReceiptFrameV2 = {
+    kind: "command_receipt",
+    reservationSha256,
+    commandUsageSha256: await progressFrameSha256(commandUsage),
+    resultingAttemptUsageSha256: await progressFrameSha256(resultingUsage),
+    outputManifestSha256: await progressFrameSha256(outputManifest),
+    nextProgressSha256,
+  };
+  return {
+    outputManifest,
+    commandUsage,
+    resultingUsage,
+    nextProgress,
+    receipt,
+  };
+}
+
+async function authenticatedEvidence(
+  prepared: PreparedStandardApplicationDefinitionV1,
+): Promise<ApplicationRevisionCandidateEvidenceProjectionV1> {
+  return {
+    projectId: PROJECT_ID,
+    deploymentId: DEPLOYMENT_ID,
+    deploymentCreatedAt: "2026-07-30T00:00:00.000Z",
+    sourceRootSha256: digest(0x11),
+    sourceSelectorSha256: digest(0x12),
+    semanticRootSha256: digest(0x13),
+    semanticSelectorSha256: digest(0x14),
+    semanticAttemptIdentitySha256: digest(0x15),
+    sourceModules: await Promise.all(
+      prepared.artifactIngressPlan.source.modules.map(
+        async (module, ordinal) => Object.freeze({
+          ordinal,
+          artifactModulePath: module.path,
+          roles: module.roles,
+          sourceByteLength: module.sourceBytes.byteLength,
+          sourceSha256: await sha256(module.sourceBytes),
+        }),
+      ),
+    ),
+    semanticByteLength:
+      prepared.artifactIngressPlan.semantic.bytes.byteLength,
+    semanticStreamSha256:
+      await sha256(prepared.artifactIngressPlan.semantic.bytes),
+    semanticModelIdentity: "flarex.declarative-v2",
+    semanticCodecIdentity: "flarex.semantic-artifact-v1/ndjson-v1",
+    semanticPolicyIdentity: "flarex.standard-application/v1",
+    coreLanguageIdentity: "javascript",
+    abiIdentity: "flarex.dynamic-worker/v1",
+    grammarIdentity: "ecmascript",
+    unicodeIdentity: "unicode-15.1",
+    parserTableIdentity: "flarex.parser/v1",
+    analyzerIdentitySha256: digest(0x21),
+    verifierIdentitySha256: digest(0x22),
+    deploymentAnalysisCodecIdentity: "flarex.deployment-analysis/v1",
+    deploymentAnalysisByteLength: 10n,
+    deploymentAnalysisSha256: digest(0x23),
+    deploymentCodegenAnalysisCodecIdentity:
+      "flarex.deployment-codegen-analysis/v1",
+    deploymentCodegenAnalysisByteLength: 11n,
+    deploymentCodegenAnalysisSha256: digest(0x24),
+  };
+}
+
+function definitionInput(): StandardApplicationDefinitionInputV1 {
+  return {
+    programBudgetInput: {
+      maximumModules: 2,
+      maximumFunctions: 2,
+      maximumIdentifierUtf8Bytes: 4_096,
+      maximumValidatorNodes: 256,
+      maximumValidatorDepth: 32,
+      maximumValidatorStringUtf8Bytes: 4_096,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: {
+        tables: [{
+          logicalName: "orders",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                status: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+              },
+            },
+          },
+        }],
+        indexes: [{
+          tableLogicalName: "orders",
+          descriptor: "by_status",
+          fields: ["status"],
+        }],
+      },
+      modules: [{
+        modulePath: "orders",
+        functions: [{
+          exportName: "place",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "any" },
+          returnsValidator: null,
+        }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 2,
+      maximumEntryBindings: 1,
+      maximumSourceBytes: 2_048,
+      maximumSourceMapBytes: 1_024,
+      maximumBytesMaterialized: 32_000,
+      maximumSemanticRecords: 32,
+      maximumSemanticRecordBytes: 8_000,
+      maximumSemanticStreamBytes: 16_000,
+    },
+    graphInput: {
+      modules: [
+        {
+          path: "orders.js",
+          roles: ["function"],
+          sourceBytes: UTF8.encode("export const place = 1;\n"),
+          sourceMapBytes: null,
+        },
+        {
+          path: "_flarex/execution.js",
+          roles: ["execution"],
+          sourceBytes: UTF8.encode("export const run = 1;\n"),
+          sourceMapBytes: null,
+        },
+      ],
+      functionEntries: [{
+        logicalModulePath: "orders",
+        artifactModulePath: "orders.js",
+      }],
+      executionPath: "_flarex/execution.js",
+      schemaPath: null,
+      authPath: null,
+    },
+  };
+}
+
+function budget<Kind extends DeclarativeV2VerifierBudgetFrameV2["kind"]>(
+  kind: Kind,
+  value: bigint,
+): DeclarativeV2VerifierBudgetFrameV2 & { readonly kind: Kind } {
+  return Object.freeze({ kind, ...budgetFields(value) });
+}
+
+function budgetFields(value: bigint) {
+  return Object.fromEntries(
+    DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map((dimension) => [
+      dimension,
+      value,
+    ]),
+  ) as Record<
+    (typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2)[number],
+    bigint
+  >;
+}
+
+async function progressFrameSha256(
+  frame: Parameters<typeof encodeDeclarativeV2VerifierProgressFrameV2>[0],
+) {
+  const encoded = Result.getOrThrow(
+    encodeDeclarativeV2VerifierProgressFrameV2(frame, {
+      maximumFrameBytes: 1_000_000,
+      maximumCanonicalBytes: 1_000_000,
+    }),
+  );
+  return sha256(encoded.canonicalBytes);
+}
+
+async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await webcrypto.subtle.digest("SHA-256", bytes));
+}
+
+function digest(byte: number): Uint8Array {
+  return new Uint8Array(32).fill(byte);
+}

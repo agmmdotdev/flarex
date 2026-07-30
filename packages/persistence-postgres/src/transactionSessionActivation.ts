@@ -2109,7 +2109,11 @@ function mapExecutionClaimAcquisitionTransactionFailure(
   });
 }
 
-function createDefaultLocatedReadCommittedTransactionRunnerV1(
+/**
+ * Package-internal construction seam shared by narrowly located persistence
+ * capabilities. This module is not a package export.
+ */
+export function createDefaultLocatedReadCommittedTransactionRunnerV1(
   db: FlarexMetadataDatabase,
 ): RunLocatedReadCommittedTransactionV1 {
   return async <Result>(work: (

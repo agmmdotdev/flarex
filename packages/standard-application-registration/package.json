@@ -1,0 +1,26 @@
+{
+  "name": "@flarex/standard-application-registration",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    "./v1": "./src/v1.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@flarex/persistence-postgres": "workspace:*",
+    "@flarex/standard-application-analysis": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "flarex-protocol": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

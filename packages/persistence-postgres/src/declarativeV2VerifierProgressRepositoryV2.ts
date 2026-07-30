@@ -468,6 +468,8 @@ export interface DeclarativeV2VerifierProgressSettlementSnapshotV2 {
   readonly commandKind: DeclarativeV2VerifierDurableCommandKindV2;
   readonly sequence: bigint;
   readonly reservationSha256: Uint8Array;
+  readonly reservation: DeclarativeV2VerifierCommandReservationFrameV2;
+  readonly reservationBytes: Uint8Array;
   readonly outputManifest: DeclarativeV2VerifierCommandOutputManifestFrameV2;
   readonly outputManifestBytes: Uint8Array;
   readonly commandUsage: DeclarativeV2VerifierBudgetFrameV2 & {
@@ -6968,6 +6970,8 @@ function settlementSnapshot(
     commandKind: work.commandKind,
     sequence: work.sequence,
     reservationSha256: new Uint8Array(work.reservationSha256),
+    reservation: copyReservation(work.reservation),
+    reservationBytes: new Uint8Array(work.reservationBytes),
     outputManifest: copyOutputManifest(input.outputManifest.frame),
     outputManifestBytes: new Uint8Array(input.outputManifest.bytes),
     commandUsage: copyBudgetFrame(input.commandUsage.frame),
@@ -7000,6 +7004,8 @@ function settlementSnapshotFromDecoded(
     sequence: decoded.metadata.sequence,
     reservationSha256:
       new Uint8Array(decoded.metadata.reservationSha256),
+    reservation: copyReservation(decoded.reservation.frame),
+    reservationBytes: new Uint8Array(decoded.reservation.canonicalBytes),
     outputManifest: copyOutputManifest(settlement.outputManifest.frame),
     outputManifestBytes:
       new Uint8Array(settlement.outputManifest.canonicalBytes),

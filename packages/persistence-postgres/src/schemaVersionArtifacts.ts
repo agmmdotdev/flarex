@@ -327,6 +327,36 @@ export function getPreparedSchemaVersionArtifactCanonicalByteLength(
   return prepared.canonical.canonicalBytes.byteLength;
 }
 
+export interface PreparedSchemaVersionArtifactEvidenceV1 {
+  readonly manifestCodecVersion: SchemaManifestCodecVersion;
+  readonly manifestByteLength: number;
+  readonly manifestSha256: SchemaManifestSha256;
+}
+
+/**
+ * Package-internal immutable evidence for identities prepared before SQL.
+ *
+ * The opaque prepared token remains the authority. This projection exposes
+ * only the canonical codec, length, and digest that later registration claims
+ * must bind to the exact publication envelope.
+ */
+export function getPreparedSchemaVersionArtifactEvidenceResult(
+  artifact: PreparedSchemaVersionArtifact,
+): Result.Result<
+  PreparedSchemaVersionArtifactEvidenceV1,
+  InvalidPreparedSchemaVersionArtifactError
+> {
+  const prepared = preparedSchemaVersionArtifactStates.get(artifact);
+  if (prepared === undefined) {
+    return Result.fail(new InvalidPreparedSchemaVersionArtifactError());
+  }
+  return Result.succeed(Object.freeze({
+    manifestCodecVersion: prepared.canonical.codecVersion,
+    manifestByteLength: prepared.canonical.canonicalBytes.byteLength,
+    manifestSha256: copySchemaManifestSha256(prepared.canonical.sha256),
+  }));
+}
+
 /**
  * Persist or replay one immutable schema-version artifact.
  *
