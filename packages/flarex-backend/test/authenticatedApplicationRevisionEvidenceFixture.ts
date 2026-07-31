@@ -1,0 +1,418 @@
+import { createHash } from "node:crypto";
+import {
+  DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
+  type DeclarativeV2ArtifactModulePathHandleV1,
+} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+import {
+  DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1,
+  type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
+} from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
+import type {
+  PreparedStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/v1";
+import { Effect, Layer, Result } from "effect";
+import type { Scope } from "effect";
+import {
+  DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
+  type DeclarativeV2VerifierBudgetFrameV2,
+  type DeclarativeV2VerifierCommandReservationFrameV2,
+} from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
+
+import {
+  DeclarativeV2AuthenticatedCommandProducerV1,
+  DeclarativeV2AuthenticatedCommandProofIssuerV1,
+  DeclarativeV2AuthenticatedCommandReadSessionsV1,
+  DeclarativeV2AuthenticatedCommandSha256V1,
+  makeDeclarativeV2AuthenticatedCommandProducerLayerV1,
+  type DeclarativeV2AuthenticatedCommandPreparationV1,
+  type DeclarativeV2AuthenticatedCommandPreparedReservationClaimV1,
+  type DeclarativeV2AuthenticatedCommandProducerApiV1,
+  type DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+  type DeclarativeV2AuthenticatedCommandProducerV1Error,
+  type DeclarativeV2AuthenticatedCommandReservationLineageV1,
+  type DeclarativeV2AuthenticatedRegistrationEvidenceV1,
+} from "../src/declarativeV2/AuthenticatedCommandProducer";
+import {
+  makeDeclarativeV2AuthenticatedApplicationRevisionEvidencePortV1,
+  type DeclarativeV2AuthenticatedApplicationRevisionEvidencePortV1,
+} from "../src/declarativeV2/AuthenticatedApplicationRevisionEvidence";
+import {
+  DeclarativeV2AuthenticatedReadSessionInputError,
+  type DeclarativeV2AuthenticatedByteCursorV1,
+  type DeclarativeV2AuthenticatedModuleV1,
+  type DeclarativeV2AuthenticatedReadSessionFactoryV1,
+  type DeclarativeV2AuthenticatedReadSessionReceiptV1,
+  type DeclarativeV2AuthenticatedReadSessionV1,
+} from "../src/declarativeV2/AuthenticatedVerifierReadSession";
+import type {
+  SemanticArtifactV1FinalizedSourceProof,
+  SemanticArtifactV1FinalizedSourceProofFactory,
+  SemanticArtifactV1FinalizedSourceProofInput,
+} from "../src/semanticArtifactV1/FinalizedSourceProof";
+
+export type {
+  DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+} from "../src/declarativeV2/AuthenticatedCommandProducer";
+
+const UTF8 = new TextEncoder();
+const MAXIMUM = 2_000_000;
+const PROOF_INPUT =
+  Object.freeze({}) as SemanticArtifactV1FinalizedSourceProofInput;
+const TRANSPORT_BUDGET = Object.freeze({
+  maximumBodyBytes: MAXIMUM,
+  maximumCanonicalBytes: MAXIMUM,
+  maximumFrameBytes: MAXIMUM,
+  maximumPayloadBytes: MAXIMUM,
+  maximumFrames: DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1,
+  maximumTransitions: MAXIMUM,
+}) satisfies DeclarativeV2AuthenticatedCommandTransportBudgetV1;
+const REGISTRATION_ROOT_CONFIGURATION = Object.freeze({
+  semanticModelIdentity: "flarex.declarative-v2",
+  semanticCodecIdentity: "flarex.semantic-artifact-v1/ndjson-v1",
+  semanticPolicyIdentity: "flarex.standard-application/v1",
+  coreLanguageIdentity: "javascript",
+  abiIdentity: "flarex.dynamic-worker/v1",
+  grammarIdentity: "ecmascript",
+  unicodeIdentity: "unicode-15.1",
+  parserTableIdentity: "flarex.parser/v1",
+  trustedToolingIdentity: "flarex.standard-tooling/v1",
+  ingressProtocolIdentity: "flarex.semantic-ingress/v1",
+  ingressConfigurationIdentity: "flarex.semantic-ingress-config/v1",
+});
+
+export interface AuthenticatedApplicationRevisionEvidenceTestDriverV1 {
+  readonly request: Request;
+  readonly preparation: DeclarativeV2AuthenticatedCommandPreparationV1;
+  readonly port:
+    DeclarativeV2AuthenticatedApplicationRevisionEvidencePortV1;
+  readonly bindReservation: (
+    lineage: DeclarativeV2AuthenticatedCommandReservationLineageV1,
+  ) => Effect.Effect<
+    DeclarativeV2AuthenticatedCommandPreparedReservationClaimV1,
+    DeclarativeV2AuthenticatedCommandProducerV1Error,
+    never
+  >;
+  readonly produce: (
+    reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+  ) => Effect.Effect<
+    unknown,
+    DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+    never
+  >;
+}
+
+export interface AuthenticatedApplicationRevisionEvidenceTestIdentityV1 {
+  readonly projectId: string;
+  readonly deploymentId: string;
+  readonly deploymentCreatedAt: string;
+}
+
+/**
+ * Test-only real backend composition used by FSV02-A1's persistence proofs.
+ * It owns the authenticated Source/Semantic read session and keeps the
+ * producer, proof, and session authority scoped inside the supplied effect.
+ */
+export function withAuthenticatedApplicationRevisionEvidenceTestDriverV1<
+  A,
+  E,
+  R,
+>(
+  definition: PreparedStandardApplicationDefinitionV1,
+  identity: AuthenticatedApplicationRevisionEvidenceTestIdentityV1,
+  use: (
+    driver: AuthenticatedApplicationRevisionEvidenceTestDriverV1,
+  ) => Effect.Effect<A, E, R>,
+): Effect.Effect<
+  A,
+  E | DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+  R | Scope.Scope
+> {
+  const fixture = makeFixture(definition, identity);
+  const layer = makeDeclarativeV2AuthenticatedCommandProducerLayerV1().pipe(
+    Layer.provide(Layer.succeed(
+      DeclarativeV2AuthenticatedCommandProofIssuerV1,
+      DeclarativeV2AuthenticatedCommandProofIssuerV1.of(fixture.proofs),
+    )),
+    Layer.provide(Layer.succeed(
+      DeclarativeV2AuthenticatedCommandReadSessionsV1,
+      DeclarativeV2AuthenticatedCommandReadSessionsV1.of(fixture.sessions),
+    )),
+    Layer.provide(Layer.succeed(
+      DeclarativeV2AuthenticatedCommandSha256V1,
+      DeclarativeV2AuthenticatedCommandSha256V1.of({
+        sha256: bytes => Effect.succeed(sha256(bytes)),
+      }),
+    )),
+  );
+  const request = new Request(
+    "https://backend.test/private-registration-evidence",
+  );
+  const commandBudget = budget("command_budget", 10_000n);
+  const readSession = Object.freeze({
+    command: Object.freeze({
+      semanticUploadId: "semantic-upload",
+      deploymentId: identity.deploymentId,
+      expectedGeneration: 3,
+      expectedMutationFence: 4,
+      commandId: "registration-evidence",
+      admission: Object.freeze({
+        calls: 10_000,
+        blockBytes: 10_000_000,
+        canonicalBytes: 10_000_000,
+        frameBytes: 10_000_000,
+        hashBytes: 10_000_000,
+        timeMilliseconds: 10_000,
+      }),
+    }),
+    budget: Object.freeze({
+      ceilings: budget("attempt_ceilings", 10_000n),
+      usage: budget("attempt_usage", 0n),
+      command: commandBudget,
+    }),
+  });
+
+  return DeclarativeV2AuthenticatedCommandProducerV1.pipe(
+    Effect.flatMap(producer =>
+      Effect.gen(function* () {
+        const preparation = yield* producer.prepare(
+          request,
+          PROOF_INPUT,
+          Object.freeze({
+            readSession,
+            commandBudget,
+            transportBudget: TRANSPORT_BUDGET,
+            selection: Object.freeze({ kind: "registration_page" as const }),
+          }),
+        );
+        const port =
+          makeDeclarativeV2AuthenticatedApplicationRevisionEvidencePortV1(
+            producer,
+          );
+        return yield* use(Object.freeze({
+          request,
+          preparation,
+          port,
+          bindReservation: Effect.fn(
+            "AuthenticatedRegistrationEvidenceTestDriver.bindReservation",
+          )(function* (lineage) {
+            const authority = yield* producer.bindReservation(
+              request,
+              preparation,
+              lineage,
+            );
+            return yield* Effect.fromResult(
+              producer.claimPreparedReservation(authority, lineage),
+            );
+          }),
+          produce: (
+            reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+          ) =>
+            producer.producePrepared(request, preparation, reservation),
+        }));
+      })
+    ),
+    Effect.provide(layer),
+  );
+}
+
+interface Fixture {
+  readonly proofs: Pick<SemanticArtifactV1FinalizedSourceProofFactory, "issue">;
+  readonly sessions: DeclarativeV2AuthenticatedReadSessionFactoryV1;
+}
+
+function makeFixture(
+  definition: PreparedStandardApplicationDefinitionV1,
+  identity: AuthenticatedApplicationRevisionEvidenceTestIdentityV1,
+): Fixture {
+  const modules = definition.artifactIngressPlan.source.modules;
+  const semantic = definition.artifactIngressPlan.semantic.bytes;
+  const proof = Object.freeze({}) as SemanticArtifactV1FinalizedSourceProof;
+  const session = Object.freeze({}) as DeclarativeV2AuthenticatedReadSessionV1;
+  const moduleHandles = modules.map(() =>
+    Object.freeze({}) as DeclarativeV2AuthenticatedModuleV1
+  );
+  const modulesByHandle = new WeakMap<object, number>();
+  moduleHandles.forEach((handle, ordinal) =>
+    modulesByHandle.set(handle, ordinal)
+  );
+  const cursors = new WeakMap<object, {
+    readonly bytes: Uint8Array;
+    offset: number;
+  }>();
+  let readCalls = 0n;
+  let readBytes = 0n;
+  const receipt = (): DeclarativeV2AuthenticatedReadSessionReceiptV1 => {
+    const usage = budget("attempt_usage", 0n, {
+      calls: readCalls,
+      outputBytes: readBytes,
+    });
+    return Object.freeze({
+      projectId: identity.projectId,
+      deploymentId: identity.deploymentId,
+      deploymentCreatedAt: identity.deploymentCreatedAt,
+      sourceUploadId: "source-upload",
+      sourceGeneration: 1,
+      sourceMutationFence: 2,
+      sourceRootSha256: digest(0x11),
+      sourceSelectorSha256: digest(0x12),
+      semanticUploadId: "semantic-upload",
+      semanticGeneration: 3,
+      semanticMutationFence: 4,
+      semanticRootSha256: digest(0x13),
+      semanticSelectorSha256: digest(0x14),
+      semanticAttemptIdentitySha256: digest(0x15),
+      rootConfiguration: REGISTRATION_ROOT_CONFIGURATION,
+      moduleCount: modules.length,
+      semanticByteLength: semantic.byteLength,
+      budget: Object.freeze({ usage, commandUsage: usage }),
+    });
+  };
+  const proofs = Object.freeze({
+    issue: (
+      _request: Request,
+      _input: SemanticArtifactV1FinalizedSourceProofInput,
+    ) => Effect.succeed(proof),
+  });
+  const sessions: DeclarativeV2AuthenticatedReadSessionFactoryV1 =
+    Object.freeze({
+      open: (
+        _request: Request,
+        receivedProof: SemanticArtifactV1FinalizedSourceProof,
+      ) =>
+        receivedProof === proof
+          ? Effect.succeed(session)
+          : Effect.fail(inputError("open", "invalidAuthority")),
+      receipt: () => Result.succeed(receipt()),
+      moduleCount: () => Result.succeed(modules.length),
+      moduleAt: (_request: Request, _session: unknown, ordinal: unknown) =>
+        typeof ordinal === "number" && moduleHandles[ordinal] !== undefined
+          ? Result.succeed(moduleHandles[ordinal])
+          : Result.fail(inputError("module", "invalidInput")),
+      moduleView: (_request: Request, module: unknown) => {
+        const ordinal = module !== null && typeof module === "object"
+          ? modulesByHandle.get(module)
+          : undefined;
+        const value = ordinal === undefined ? undefined : modules[ordinal];
+        if (ordinal === undefined || value === undefined) {
+          return Result.fail(inputError("module", "invalidAuthority"));
+        }
+        return Result.succeed(Object.freeze({
+          ordinal,
+          roles: value.roles,
+          frameSha256: digest(0x20 + ordinal),
+          sourceSha256: sha256(value.sourceBytes),
+          sourceByteLength: value.sourceBytes.byteLength,
+          path: modulePath(value.path),
+        }));
+      },
+      sourceCursor: (_request: Request, module: unknown) => {
+        const ordinal = module !== null && typeof module === "object"
+          ? modulesByHandle.get(module)
+          : undefined;
+        const value = ordinal === undefined ? undefined : modules[ordinal];
+        return value === undefined
+          ? Result.fail(inputError("cursor", "invalidAuthority"))
+          : Result.succeed(cursorFor(cursors, value.sourceBytes));
+      },
+      semanticCursor: () => Result.succeed(cursorFor(cursors, semantic)),
+      readCursor: (
+        _request: Request,
+        cursor: unknown,
+        maximumBytes: unknown,
+      ) => {
+        const state = cursor !== null && typeof cursor === "object"
+          ? cursors.get(cursor)
+          : undefined;
+        if (
+          state === undefined ||
+          typeof maximumBytes !== "number" ||
+          maximumBytes < 1
+        ) {
+          return Result.fail(inputError("read", "invalidInput"));
+        }
+        const bytes = state.bytes.slice(
+          state.offset,
+          state.offset + maximumBytes,
+        );
+        state.offset += bytes.byteLength;
+        readCalls += 1n;
+        readBytes += BigInt(bytes.byteLength);
+        return Result.succeed(Object.freeze({
+          status: state.offset === state.bytes.byteLength
+            ? "complete" as const
+            : "pending" as const,
+          offset: state.offset,
+          bytes,
+        }));
+      },
+      close: () => Result.succeed(undefined),
+    });
+  return Object.freeze({ proofs, sessions });
+}
+
+function cursorFor(
+  cursors: WeakMap<object, { readonly bytes: Uint8Array; offset: number }>,
+  bytes: Uint8Array,
+): DeclarativeV2AuthenticatedByteCursorV1 {
+  const cursor = Object.freeze({}) as DeclarativeV2AuthenticatedByteCursorV1;
+  cursors.set(cursor, { bytes, offset: 0 });
+  return cursor;
+}
+
+function modulePath(text: string): DeclarativeV2ArtifactModulePathHandleV1 {
+  const bytes = UTF8.encode(text);
+  const validator = Result.getOrThrow(
+    DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1.create(
+      bytes.byteLength + 4,
+      bytes.byteLength,
+      bytes.byteLength,
+    ),
+  );
+  Result.getOrThrow(
+    DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1.step(
+      validator,
+      bytes,
+      bytes.byteLength,
+    ),
+  );
+  const result = Result.getOrThrow(
+    DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1.finish(validator, 4),
+  );
+  if ("status" in result) {
+    throw new Error("Test artifact module path did not settle.");
+  }
+  return result;
+}
+
+function inputError(
+  operation: DeclarativeV2AuthenticatedReadSessionInputError["operation"],
+  reason: DeclarativeV2AuthenticatedReadSessionInputError["reason"],
+): DeclarativeV2AuthenticatedReadSessionInputError {
+  return new DeclarativeV2AuthenticatedReadSessionInputError({
+    operation,
+    reason,
+  });
+}
+
+function budget(
+  kind: DeclarativeV2VerifierBudgetFrameV2["kind"],
+  initial: bigint,
+  overrides: Readonly<Partial<Record<
+    (typeof DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2)[number],
+    bigint
+  >>> = {},
+): DeclarativeV2VerifierBudgetFrameV2 {
+  const frame: Record<string, bigint | string> = { kind };
+  for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+    frame[dimension] = overrides[dimension] ?? initial;
+  }
+  return Object.freeze(frame) as unknown as DeclarativeV2VerifierBudgetFrameV2;
+}
+
+function sha256(bytes: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash("sha256").update(bytes).digest());
+}
+
+function digest(byte: number): Uint8Array {
+  return new Uint8Array(32).fill(byte);
+}

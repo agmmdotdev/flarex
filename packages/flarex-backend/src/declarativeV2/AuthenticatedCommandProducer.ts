@@ -38,6 +38,9 @@ import {
   Scope,
   Semaphore,
 } from "effect";
+import type {
+  PreparedStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/v1";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   encodeDeclarativeV2VerifierProgressFrameV2,
@@ -54,6 +57,9 @@ import type {
   DeclarativeV2AuthenticatedReadSessionOpenError,
   DeclarativeV2AuthenticatedReadSessionReceiptV1,
 } from "./AuthenticatedVerifierReadSession";
+import type {
+  SemanticArtifactV1RootConfiguration,
+} from "../semanticArtifactV1/RootConfiguration";
 import type {
   SemanticArtifactV1FinalizedSourceProofFactory,
   SemanticArtifactV1FinalizedSourceProofInput,
@@ -93,6 +99,14 @@ const ANALYZER_IDENTITY_DOMAIN =
   "flarex.backend/declarative-v2-authenticated-command/analyzer-identity/v1";
 const VERIFIER_IDENTITY_DOMAIN =
   "flarex.backend/declarative-v2-authenticated-command/verifier-identity/v1";
+export const DECLARATIVE_V2_DEPLOYMENT_ANALYSIS_CODEC_IDENTITY_V1 =
+  "flarex.backend/standard-application-deployment-analysis/canonical-json-v1";
+export const DECLARATIVE_V2_DEPLOYMENT_CODEGEN_ANALYSIS_CODEC_IDENTITY_V1 =
+  "flarex.backend/standard-application-deployment-codegen-analysis/canonical-json-v1";
+const DEPLOYMENT_ANALYSIS_FORMAT_V1 =
+  "flarex.standard-application-deployment-analysis";
+const DEPLOYMENT_CODEGEN_ANALYSIS_FORMAT_V1 =
+  "flarex.standard-application-deployment-codegen-analysis";
 
 type Operation =
   | "prepare"
@@ -103,7 +117,11 @@ type Operation =
   | "receipt"
   | "cursor"
   | "read"
-  | "close";
+  | "close"
+  | "issueRegistrationEvidence"
+  | "bindRegistrationEvidence"
+  | "claimRegistrationCandidate"
+  | "claimRegistrationCommand";
 type Commitment =
   | "commandBudgetSha256"
   | "commandInputSha256"
@@ -122,6 +140,66 @@ export interface DeclarativeV2AuthenticatedCommandPreparationV1 {
 
 export interface DeclarativeV2AuthenticatedCommandPreparedReservationV1 {
   readonly [PREPARED_RESERVATION_MARKER]: true;
+}
+
+export interface DeclarativeV2AuthenticatedRegistrationEvidenceV1 {
+  readonly _tag: "DeclarativeV2AuthenticatedRegistrationEvidenceV1";
+}
+
+export interface DeclarativeV2AuthenticatedRegistrationSourceModuleV1 {
+  readonly ordinal: number;
+  readonly artifactModulePath: string;
+  readonly roles: number;
+  readonly sourceByteLength: number;
+  readonly sourceSha256: Uint8Array;
+}
+
+export interface DeclarativeV2AuthenticatedRegistrationCandidateV1 {
+  readonly projectId: string;
+  readonly deploymentId: string;
+  readonly deploymentCreatedAt: string;
+  readonly sourceRootSha256: Uint8Array;
+  readonly sourceSelectorSha256: Uint8Array;
+  readonly semanticRootSha256: Uint8Array;
+  readonly semanticSelectorSha256: Uint8Array;
+  readonly semanticAttemptIdentitySha256: Uint8Array;
+  readonly sourceModules:
+    ReadonlyArray<DeclarativeV2AuthenticatedRegistrationSourceModuleV1>;
+  readonly semanticByteLength: number;
+  readonly semanticStreamSha256: Uint8Array;
+  readonly semanticModelIdentity: string;
+  readonly semanticCodecIdentity: string;
+  readonly semanticPolicyIdentity: string;
+  readonly coreLanguageIdentity: string;
+  readonly abiIdentity: string;
+  readonly grammarIdentity: string;
+  readonly unicodeIdentity: string;
+  readonly parserTableIdentity: string;
+  readonly analyzerIdentitySha256: Uint8Array;
+  readonly verifierIdentitySha256: Uint8Array;
+  readonly deploymentAnalysisCodecIdentity:
+    typeof DECLARATIVE_V2_DEPLOYMENT_ANALYSIS_CODEC_IDENTITY_V1;
+  readonly deploymentAnalysisByteLength: bigint;
+  readonly deploymentAnalysisSha256: Uint8Array;
+  readonly deploymentCodegenAnalysisCodecIdentity:
+    typeof DECLARATIVE_V2_DEPLOYMENT_CODEGEN_ANALYSIS_CODEC_IDENTITY_V1;
+  readonly deploymentCodegenAnalysisByteLength: bigint;
+  readonly deploymentCodegenAnalysisSha256: Uint8Array;
+}
+
+export interface DeclarativeV2AuthenticatedRegistrationCommandV1 {
+  readonly commandKind: "registration_page";
+  readonly sequence: bigint;
+  readonly attemptSha256: Uint8Array;
+  readonly candidateSha256: Uint8Array;
+  readonly reservationSha256: Uint8Array;
+  readonly requestSha256: Uint8Array;
+  readonly canonicalByteLength: number;
+  readonly freshAuthenticatedInputSha256: Uint8Array;
+  readonly commandInputSha256: Uint8Array;
+  readonly rangeAndPredecessorTailsSha256: Uint8Array;
+  readonly analyzerIdentitySha256: Uint8Array;
+  readonly verifierIdentitySha256: Uint8Array;
 }
 
 export interface DeclarativeV2AuthenticatedCommandPreparationInputV1 {
@@ -320,6 +398,38 @@ export interface DeclarativeV2AuthenticatedCommandProducerApiV1 {
     void,
     DeclarativeV2AuthenticatedCommandProducerV1Error
   >;
+  readonly issueRegistrationEvidence: (
+    request: Request,
+    preparation: unknown,
+    definition: PreparedStandardApplicationDefinitionV1,
+  ) => Effect.Effect<
+    DeclarativeV2AuthenticatedRegistrationEvidenceV1,
+    DeclarativeV2AuthenticatedCommandProducerV1Error,
+    never
+  >;
+  readonly bindRegistrationEvidence: (
+    evidence: unknown,
+    request: Request,
+    result: unknown,
+    registrationPreparation: object,
+  ) => Result.Result<
+    DeclarativeV2AuthenticatedRegistrationEvidenceV1,
+    DeclarativeV2AuthenticatedCommandProducerV1Error
+  >;
+  readonly claimRegistrationCandidate: (
+    definition: PreparedStandardApplicationDefinitionV1,
+    evidence: unknown,
+  ) => Result.Result<
+    DeclarativeV2AuthenticatedRegistrationCandidateV1,
+    DeclarativeV2AuthenticatedCommandProducerV1Error
+  >;
+  readonly claimRegistrationCommand: (
+    registrationPreparation: object,
+    evidence: unknown,
+  ) => Result.Result<
+    DeclarativeV2AuthenticatedRegistrationCommandV1,
+    DeclarativeV2AuthenticatedCommandProducerV1Error
+  >;
 }
 
 export class DeclarativeV2AuthenticatedCommandProofIssuerV1
@@ -419,6 +529,7 @@ interface OwnedModuleMetadata extends ModuleMetadata {
 
 interface ResultState {
   readonly request: Request;
+  readonly preparation: PreparationState;
   readonly canonicalBytes: Uint8Array;
   readonly receipt: DeclarativeV2AuthenticatedCommandProducerReceiptV1;
   cursor: object | undefined;
@@ -440,7 +551,22 @@ interface PreparationState {
   readonly productionGate: ReturnType<typeof Semaphore.makeUnsafe>;
   result: DeclarativeV2AuthenticatedCommandResultV1 | undefined;
   reservationBytes: Uint8Array | undefined;
+  registrationEvidence:
+    DeclarativeV2AuthenticatedRegistrationEvidenceV1 | undefined;
   closed: boolean;
+}
+
+interface RegistrationEvidenceState {
+  readonly handle: DeclarativeV2AuthenticatedRegistrationEvidenceV1;
+  readonly preparation: PreparationState;
+  readonly definition: PreparedStandardApplicationDefinitionV1;
+  readonly candidate: DeclarativeV2AuthenticatedRegistrationCandidateV1;
+  command:
+    | Readonly<{
+      readonly registrationPreparation: object;
+      readonly receipt: DeclarativeV2AuthenticatedRegistrationCommandV1;
+    }>
+    | undefined;
 }
 
 interface PreparedReservationState {
@@ -523,6 +649,8 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
   const preparations = new WeakMap<object, PreparationState>();
   const preparedReservations =
     new WeakMap<object, PreparedReservationState>();
+  const registrationEvidence =
+    new WeakMap<object, RegistrationEvidenceState>();
   const configuredAnalyzerRelease =
     options.expectedAnalyzerRelease ?? installedPrivateAnalyzerReleaseTupleV1();
   const capturedAnalyzerRelease = capturePrivateAnalyzerReleaseTupleV1(
@@ -638,6 +766,7 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
         productionGate: Semaphore.makeUnsafe(1),
         result: undefined,
         reservationBytes: undefined,
+        registrationEvidence: undefined,
         closed: false,
       };
       preparations.set(preparation, state);
@@ -898,6 +1027,7 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
         });
         results.set(result, {
           request,
+          preparation: state,
           canonicalBytes: copyBytes(encoded.canonicalBytes),
           receipt: resultReceipt,
           cursor: undefined,
@@ -1016,6 +1146,177 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
           closeResultState(state, cursors);
         });
 
+  const issueRegistrationEvidence:
+    DeclarativeV2AuthenticatedCommandProducerApiV1[
+      "issueRegistrationEvidence"
+    ] = Effect.fn(
+      "DeclarativeV2AuthenticatedCommandProducer.issueRegistrationEvidence",
+    )(function* (request, preparation, definition) {
+      const state = yield* Effect.fromResult(
+        getPreparation(
+          preparations,
+          request,
+          preparation,
+          "issueRegistrationEvidence",
+        ),
+      );
+      return yield* state.productionGate.withPermit(Effect.gen(function* () {
+        yield* Effect.fromResult(
+          getPreparation(
+            preparations,
+            request,
+            preparation,
+            "issueRegistrationEvidence",
+          ),
+        );
+      if (state.registrationEvidence !== undefined) {
+        const existing = registrationEvidence.get(state.registrationEvidence);
+        if (existing === undefined) {
+          return yield* Effect.die(
+            new Error(
+              "Authenticated registration evidence state disappeared before scope release.",
+            ),
+          );
+        }
+        if (existing.definition !== definition) {
+          return yield* producerError(
+            "issueRegistrationEvidence",
+            "contentMismatch",
+            { path: "definition" },
+          );
+        }
+        return existing.handle;
+      }
+      const semanticBytes = yield* Effect.fromResult(
+        readAuthenticatedSemanticBytes(
+          options.sessions,
+          request,
+          state.session,
+          state.receipt.semanticByteLength,
+        ),
+      );
+      const candidate = yield* makeAuthenticatedRegistrationCandidateV1(
+        state,
+        definition,
+        semanticBytes,
+        state.receipt.rootConfiguration,
+        hash,
+      );
+      const evidence = Object.freeze({
+        _tag: "DeclarativeV2AuthenticatedRegistrationEvidenceV1" as const,
+      }) satisfies DeclarativeV2AuthenticatedRegistrationEvidenceV1;
+      registrationEvidence.set(evidence, {
+        handle: evidence,
+        preparation: state,
+        definition,
+        candidate,
+        command: undefined,
+      });
+      state.registrationEvidence = evidence;
+      return evidence;
+      }));
+    });
+
+  const bindRegistrationEvidence:
+    DeclarativeV2AuthenticatedCommandProducerApiV1[
+      "bindRegistrationEvidence"
+    ] = (evidence, request, result, registrationPreparation) =>
+      Result.gen(function* () {
+        const evidenceState = yield* getRegistrationEvidence(
+          registrationEvidence,
+          evidence,
+          "bindRegistrationEvidence",
+        );
+        const resultState = yield* getResult(
+          results,
+          request,
+          result,
+          "bindRegistrationEvidence",
+        );
+        const receipt = resultState.receipt;
+        if (resultState.preparation !== evidenceState.preparation) {
+          return yield* Result.fail(producerError(
+            "bindRegistrationEvidence",
+            "contentMismatch",
+            { path: "result.preparation" },
+          ));
+        }
+        if (receipt.commandKind !== "registration_page") {
+          return yield* Result.fail(producerError(
+            "bindRegistrationEvidence",
+            "contentMismatch",
+            { path: "receipt.commandKind" },
+          ));
+        }
+        yield* requireRegistrationReceiptMatchesEvidence(
+          evidenceState,
+          receipt,
+        );
+        const captured = ownRegistrationCommandReceipt(receipt);
+        if (evidenceState.command !== undefined) {
+          return evidenceState.command.registrationPreparation ===
+              registrationPreparation &&
+              registrationCommandReceiptsEqual(
+                evidenceState.command.receipt,
+                captured,
+              )
+            ? evidenceState.handle
+            : yield* Result.fail(producerError(
+              "bindRegistrationEvidence",
+              "contentMismatch",
+              { path: "registrationCommand" },
+            ));
+        }
+        evidenceState.command = Object.freeze({
+          registrationPreparation,
+          receipt: captured,
+        });
+        return evidenceState.handle;
+      });
+
+  const claimRegistrationCandidate:
+    DeclarativeV2AuthenticatedCommandProducerApiV1[
+      "claimRegistrationCandidate"
+    ] = (definition, evidence) =>
+      Result.gen(function* () {
+        const state = yield* getRegistrationEvidence(
+          registrationEvidence,
+          evidence,
+          "claimRegistrationCandidate",
+        );
+        if (state.definition !== definition) {
+          return yield* Result.fail(producerError(
+            "claimRegistrationCandidate",
+            "contentMismatch",
+            { path: "definition" },
+          ));
+        }
+        return ownAuthenticatedRegistrationCandidate(state.candidate);
+      });
+
+  const claimRegistrationCommand:
+    DeclarativeV2AuthenticatedCommandProducerApiV1[
+      "claimRegistrationCommand"
+    ] = (registrationPreparation, evidence) =>
+      Result.gen(function* () {
+        const state = yield* getRegistrationEvidence(
+          registrationEvidence,
+          evidence,
+          "claimRegistrationCommand",
+        );
+        if (
+          state.command === undefined ||
+          state.command.registrationPreparation !== registrationPreparation
+        ) {
+          return yield* Result.fail(producerError(
+            "claimRegistrationCommand",
+            "contentMismatch",
+            { path: "registrationPreparation" },
+          ));
+        }
+        return ownRegistrationCommandReceipt(state.command.receipt);
+      });
+
   return Object.freeze({
     prepare,
     commitments,
@@ -1027,7 +1328,423 @@ function makeDeclarativeV2AuthenticatedCommandProducerV1(
     cursor,
     read,
     close,
+    issueRegistrationEvidence,
+    bindRegistrationEvidence,
+    claimRegistrationCandidate,
+    claimRegistrationCommand,
   });
+}
+
+function readAuthenticatedSemanticBytes(
+  sessions: DeclarativeV2AuthenticatedReadSessionFactoryV1,
+  request: Request,
+  session: unknown,
+  expectedByteLength: number,
+): Result.Result<
+  Uint8Array,
+  DeclarativeV2AuthenticatedCommandProducerV1Error
+> {
+  return Result.gen(function* () {
+    if (!isNonNegativeSafeInteger(expectedByteLength)) {
+      return yield* Result.fail(producerError(
+        "issueRegistrationEvidence",
+        "contentMismatch",
+        { path: "readSession.semanticByteLength" },
+      ));
+    }
+    const cursor = yield* sessions.semanticCursor(request, session).pipe(
+      Result.mapError(() => producerError(
+        "issueRegistrationEvidence",
+        "contentMismatch",
+        { path: "readSession.semanticCursor" },
+      )),
+    );
+    const bytes = new Uint8Array(expectedByteLength);
+    let offset = 0;
+    for (;;) {
+      const maximumBytes = Math.max(
+        1,
+        Math.min(
+          DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_PAYLOAD_QUANTUM_BYTES_V1,
+          expectedByteLength - offset,
+        ),
+      );
+      const read = yield* sessions.readCursor(
+        request,
+        cursor,
+        maximumBytes,
+      ).pipe(
+        Result.mapError(() => producerError(
+          "issueRegistrationEvidence",
+          "contentMismatch",
+          { path: "readSession.semanticBytes" },
+        )),
+      );
+      if (
+        read.offset !== offset + read.bytes.byteLength ||
+        read.offset > expectedByteLength ||
+        read.bytes.byteLength === 0 && read.status !== "complete"
+      ) {
+        return yield* Result.fail(producerError(
+          "issueRegistrationEvidence",
+          "contentMismatch",
+          { path: "readSession.semanticBytes" },
+        ));
+      }
+      bytes.set(read.bytes, offset);
+      offset = read.offset;
+      if (read.status === "complete") {
+        if (offset !== expectedByteLength) {
+          return yield* Result.fail(producerError(
+            "issueRegistrationEvidence",
+            "contentMismatch",
+            { path: "readSession.semanticByteLength" },
+          ));
+        }
+        return bytes;
+      }
+    }
+  });
+}
+
+const makeAuthenticatedRegistrationCandidateV1 = Effect.fn(
+  "DeclarativeV2AuthenticatedCommandProducer.makeRegistrationCandidate",
+)(function* (
+  state: PreparationState,
+  definition: PreparedStandardApplicationDefinitionV1,
+  semanticBytes: Uint8Array,
+  rootConfiguration: SemanticArtifactV1RootConfiguration,
+  hash: (bytes: Uint8Array) => Effect.Effect<Uint8Array, never, never>,
+): Effect.fn.Return<
+  DeclarativeV2AuthenticatedRegistrationCandidateV1,
+  DeclarativeV2AuthenticatedCommandProducerV1Error
+> {
+  const plan = definition.artifactIngressPlan;
+  if (
+    plan.source.modules.length !== state.modules.length ||
+    plan.semantic.bytes.byteLength !== semanticBytes.byteLength ||
+    !bytesEqualFullScan(plan.semantic.bytes, semanticBytes)
+  ) {
+    return yield* producerError(
+      "issueRegistrationEvidence",
+      "contentMismatch",
+      { path: "definition.artifactIngressPlan" },
+    );
+  }
+  const sourceModules:
+    DeclarativeV2AuthenticatedRegistrationSourceModuleV1[] = [];
+  for (let ordinal = 0; ordinal < state.modules.length; ordinal += 1) {
+    const authenticated = state.modules[ordinal];
+    const materialized = plan.source.modules[ordinal];
+    if (authenticated === undefined || materialized === undefined) {
+      return yield* producerError(
+        "issueRegistrationEvidence",
+        "contentMismatch",
+        { path: `definition.artifactIngressPlan.source.modules[${ordinal}]` },
+      );
+    }
+    const pathBytes = UTF8_ENCODER.encode(materialized.path);
+    const sourceSha256 = yield* hash(materialized.sourceBytes);
+    if (
+      authenticated.ordinal !== ordinal ||
+      authenticated.roles !== materialized.roles ||
+      authenticated.sourceByteLength !== materialized.sourceBytes.byteLength ||
+      !bytesEqualFullScan(authenticated.pathBytes, pathBytes) ||
+      !bytesEqualFullScan(authenticated.sourceSha256, sourceSha256)
+    ) {
+      return yield* producerError(
+        "issueRegistrationEvidence",
+        "contentMismatch",
+        { path: `definition.artifactIngressPlan.source.modules[${ordinal}]` },
+      );
+    }
+    sourceModules.push(Object.freeze({
+      ordinal,
+      artifactModulePath: materialized.path,
+      roles: authenticated.roles,
+      sourceByteLength: authenticated.sourceByteLength,
+      sourceSha256: copyBytes(authenticated.sourceSha256),
+    }));
+  }
+  const semanticStreamSha256 = yield* hash(semanticBytes);
+  const authority = registrationAuthorityJson(state);
+  const deploymentAnalysisBytes = canonicalRegistrationIdentityBytes(
+    deploymentAnalysisJson(definition, authority),
+  );
+  const deploymentCodegenAnalysisBytes = canonicalRegistrationIdentityBytes(
+    deploymentCodegenAnalysisJson(definition, sourceModules, authority),
+  );
+  const deploymentAnalysisSha256 = yield* hash(deploymentAnalysisBytes);
+  const deploymentCodegenAnalysisSha256 =
+    yield* hash(deploymentCodegenAnalysisBytes);
+  return ownAuthenticatedRegistrationCandidate(Object.freeze({
+    projectId: state.receipt.projectId,
+    deploymentId: state.receipt.deploymentId,
+    deploymentCreatedAt: state.receipt.deploymentCreatedAt,
+    sourceRootSha256: state.receipt.sourceRootSha256,
+    sourceSelectorSha256: state.receipt.sourceSelectorSha256,
+    semanticRootSha256: state.receipt.semanticRootSha256,
+    semanticSelectorSha256: state.receipt.semanticSelectorSha256,
+    semanticAttemptIdentitySha256:
+      state.receipt.semanticAttemptIdentitySha256,
+    sourceModules,
+    semanticByteLength: semanticBytes.byteLength,
+    semanticStreamSha256,
+    semanticModelIdentity: rootConfiguration.semanticModelIdentity,
+    semanticCodecIdentity: rootConfiguration.semanticCodecIdentity,
+    semanticPolicyIdentity: rootConfiguration.semanticPolicyIdentity,
+    coreLanguageIdentity: rootConfiguration.coreLanguageIdentity,
+    abiIdentity: rootConfiguration.abiIdentity,
+    grammarIdentity: rootConfiguration.grammarIdentity,
+    unicodeIdentity: rootConfiguration.unicodeIdentity,
+    parserTableIdentity: rootConfiguration.parserTableIdentity,
+    analyzerIdentitySha256: state.stable.analyzerIdentitySha256,
+    verifierIdentitySha256: state.stable.verifierIdentitySha256,
+    deploymentAnalysisCodecIdentity:
+      DECLARATIVE_V2_DEPLOYMENT_ANALYSIS_CODEC_IDENTITY_V1,
+    deploymentAnalysisByteLength: BigInt(deploymentAnalysisBytes.byteLength),
+    deploymentAnalysisSha256,
+    deploymentCodegenAnalysisCodecIdentity:
+      DECLARATIVE_V2_DEPLOYMENT_CODEGEN_ANALYSIS_CODEC_IDENTITY_V1,
+    deploymentCodegenAnalysisByteLength:
+      BigInt(deploymentCodegenAnalysisBytes.byteLength),
+    deploymentCodegenAnalysisSha256,
+  }));
+});
+
+function registrationAuthorityJson(state: PreparationState): Json {
+  return Object.freeze({
+    projectId: state.receipt.projectId,
+    deploymentId: state.receipt.deploymentId,
+    deploymentCreatedAt: state.receipt.deploymentCreatedAt,
+    sourceRootSha256: hex(state.receipt.sourceRootSha256),
+    sourceSelectorSha256: hex(state.receipt.sourceSelectorSha256),
+    semanticRootSha256: hex(state.receipt.semanticRootSha256),
+    semanticSelectorSha256: hex(state.receipt.semanticSelectorSha256),
+    semanticAttemptIdentitySha256:
+      hex(state.receipt.semanticAttemptIdentitySha256),
+    analyzerIdentitySha256: hex(state.stable.analyzerIdentitySha256),
+    verifierIdentitySha256: hex(state.stable.verifierIdentitySha256),
+  });
+}
+
+function deploymentAnalysisJson(
+  definition: PreparedStandardApplicationDefinitionV1,
+  authority: Json,
+): Json {
+  return Object.freeze({
+    format: DEPLOYMENT_ANALYSIS_FORMAT_V1,
+    version: 1,
+    authority,
+    programFormat: definition.program.format,
+    programVersion: definition.program.version,
+    schema: Object.freeze({
+      tables: definition.program.schema.tables.map(table => Object.freeze({
+        logicalName: table.logicalName,
+        definition: table.definition,
+      })),
+      indexes: definition.program.schema.indexes.map(index => Object.freeze({
+        tableLogicalName: index.tableLogicalName,
+        descriptor: index.descriptor,
+        fields: Object.freeze([...index.fields]),
+      })),
+    }),
+    functions: definition.program.modules.flatMap(module =>
+      module.functions.map(fn => Object.freeze({
+        path: fn.exportName === "default"
+          ? module.modulePath
+          : `${module.modulePath}:${fn.exportName}`,
+        modulePath: module.modulePath,
+        exportName: fn.exportName,
+        kind: fn.kind,
+        visibility: fn.visibility,
+        argsValidator: fn.argsValidator,
+        returnsValidator: fn.returnsValidator,
+      }))
+    ),
+  });
+}
+
+function deploymentCodegenAnalysisJson(
+  definition: PreparedStandardApplicationDefinitionV1,
+  sourceModules:
+    ReadonlyArray<DeclarativeV2AuthenticatedRegistrationSourceModuleV1>,
+  authority: Json,
+): Json {
+  const artifactModuleByLogicalPath = new Map(
+    definition.artifactIngressPlan.source.functionEntries.map(binding => [
+      binding.logicalModulePath,
+      binding.artifactModulePath,
+    ]),
+  );
+  return Object.freeze({
+    format: DEPLOYMENT_CODEGEN_ANALYSIS_FORMAT_V1,
+    version: 1,
+    authority,
+    executionPath: definition.artifactIngressPlan.source.executionPath,
+    sourceModules: sourceModules.map(module => Object.freeze({
+      ordinal: module.ordinal,
+      artifactModulePath: module.artifactModulePath,
+      roles: module.roles,
+      sourceByteLength: module.sourceByteLength,
+      sourceSha256: hex(module.sourceSha256),
+    })),
+    modules: definition.program.modules.map(module => Object.freeze({
+      modulePath: module.modulePath,
+      artifactModulePath:
+        artifactModuleByLogicalPath.get(module.modulePath) ?? null,
+      functions: module.functions.map(fn => Object.freeze({
+        exportName: fn.exportName,
+        kind: fn.kind,
+        visibility: fn.visibility,
+        argsValidator: fn.argsValidator,
+        returnsValidator: fn.returnsValidator,
+      })),
+    })),
+  });
+}
+
+function canonicalRegistrationIdentityBytes(value: Json): Uint8Array {
+  return UTF8_ENCODER.encode(encodeCanonicalJson(value, issue => {
+    throw new Error(
+      `Authenticated registration identity invariant: ${issue.reason}`,
+    );
+  }));
+}
+
+function getRegistrationEvidence(
+  evidence:
+    WeakMap<object, RegistrationEvidenceState>,
+  value: unknown,
+  operation:
+    | "bindRegistrationEvidence"
+    | "claimRegistrationCandidate"
+    | "claimRegistrationCommand",
+): Result.Result<
+  RegistrationEvidenceState,
+  DeclarativeV2AuthenticatedCommandProducerV1Error
+> {
+  const state = value !== null && typeof value === "object"
+    ? evidence.get(value)
+    : undefined;
+  if (state === undefined) {
+    return Result.fail(producerError(operation, "invalidAuthority"));
+  }
+  return state.preparation.closed
+    ? Result.fail(producerError(operation, "closed"))
+    : Result.succeed(state);
+}
+
+function requireRegistrationReceiptMatchesEvidence(
+  evidence: RegistrationEvidenceState,
+  receipt: DeclarativeV2AuthenticatedCommandProducerReceiptV1,
+): Result.Result<
+  void,
+  DeclarativeV2AuthenticatedCommandProducerV1Error
+> {
+  const comparisons = [
+    ["freshAuthenticatedInputSha256", receipt.freshAuthenticatedInputSha256,
+      evidence.preparation.stable.freshAuthenticatedInputSha256],
+    ["analyzerIdentitySha256", receipt.analyzerIdentitySha256,
+      evidence.candidate.analyzerIdentitySha256],
+    ["verifierIdentitySha256", receipt.verifierIdentitySha256,
+      evidence.candidate.verifierIdentitySha256],
+  ] as const;
+  for (const [path, actual, expected] of comparisons) {
+    if (!bytesEqualFullScan(actual, expected)) {
+      return Result.fail(producerError(
+        "bindRegistrationEvidence",
+        "commitmentMismatch",
+        { path: `receipt.${path}`, commitment: path },
+      ));
+    }
+  }
+  return Result.succeed(undefined);
+}
+
+function ownAuthenticatedRegistrationCandidate(
+  candidate: DeclarativeV2AuthenticatedRegistrationCandidateV1,
+): DeclarativeV2AuthenticatedRegistrationCandidateV1 {
+  return Object.freeze({
+    ...candidate,
+    sourceRootSha256: copyBytes(candidate.sourceRootSha256),
+    sourceSelectorSha256: copyBytes(candidate.sourceSelectorSha256),
+    semanticRootSha256: copyBytes(candidate.semanticRootSha256),
+    semanticSelectorSha256: copyBytes(candidate.semanticSelectorSha256),
+    semanticAttemptIdentitySha256:
+      copyBytes(candidate.semanticAttemptIdentitySha256),
+    sourceModules: Object.freeze(candidate.sourceModules.map(module =>
+      Object.freeze({
+        ...module,
+        sourceSha256: copyBytes(module.sourceSha256),
+      })
+    )),
+    semanticStreamSha256: copyBytes(candidate.semanticStreamSha256),
+    analyzerIdentitySha256: copyBytes(candidate.analyzerIdentitySha256),
+    verifierIdentitySha256: copyBytes(candidate.verifierIdentitySha256),
+    deploymentAnalysisSha256:
+      copyBytes(candidate.deploymentAnalysisSha256),
+    deploymentCodegenAnalysisSha256:
+      copyBytes(candidate.deploymentCodegenAnalysisSha256),
+  });
+}
+
+function ownRegistrationCommandReceipt(
+  receipt:
+    | DeclarativeV2AuthenticatedCommandProducerReceiptV1
+    | DeclarativeV2AuthenticatedRegistrationCommandV1,
+): DeclarativeV2AuthenticatedRegistrationCommandV1 {
+  if (receipt.commandKind !== "registration_page") {
+    throw new Error(
+      "Authenticated registration command receipt must be registration_page.",
+    );
+  }
+  return Object.freeze({
+    commandKind: receipt.commandKind,
+    sequence: receipt.sequence,
+    attemptSha256: copyBytes(receipt.attemptSha256),
+    candidateSha256: copyBytes(receipt.candidateSha256),
+    reservationSha256: copyBytes(receipt.reservationSha256),
+    requestSha256: copyBytes(receipt.requestSha256),
+    canonicalByteLength: receipt.canonicalByteLength,
+    freshAuthenticatedInputSha256:
+      copyBytes(receipt.freshAuthenticatedInputSha256),
+    commandInputSha256: copyBytes(receipt.commandInputSha256),
+    rangeAndPredecessorTailsSha256:
+      copyBytes(receipt.rangeAndPredecessorTailsSha256),
+    analyzerIdentitySha256: copyBytes(receipt.analyzerIdentitySha256),
+    verifierIdentitySha256: copyBytes(receipt.verifierIdentitySha256),
+  });
+}
+
+function registrationCommandReceiptsEqual(
+  left: DeclarativeV2AuthenticatedRegistrationCommandV1,
+  right: DeclarativeV2AuthenticatedRegistrationCommandV1,
+): boolean {
+  return left.commandKind === right.commandKind &&
+    left.sequence === right.sequence &&
+    left.canonicalByteLength === right.canonicalByteLength &&
+    bytesEqualFullScan(left.attemptSha256, right.attemptSha256) &&
+    bytesEqualFullScan(left.candidateSha256, right.candidateSha256) &&
+    bytesEqualFullScan(left.reservationSha256, right.reservationSha256) &&
+    bytesEqualFullScan(left.requestSha256, right.requestSha256) &&
+    bytesEqualFullScan(
+      left.freshAuthenticatedInputSha256,
+      right.freshAuthenticatedInputSha256,
+    ) &&
+    bytesEqualFullScan(left.commandInputSha256, right.commandInputSha256) &&
+    bytesEqualFullScan(
+      left.rangeAndPredecessorTailsSha256,
+      right.rangeAndPredecessorTailsSha256,
+    ) &&
+    bytesEqualFullScan(
+      left.analyzerIdentitySha256,
+      right.analyzerIdentitySha256,
+    ) &&
+    bytesEqualFullScan(
+      left.verifierIdentitySha256,
+      right.verifierIdentitySha256,
+    );
 }
 
 function captureInput(
@@ -1129,7 +1846,11 @@ function getPreparation(
   preparations: WeakMap<object, PreparationState>,
   request: Request,
   preparation: unknown,
-  operation: "commitments" | "bindReservation" | "produce",
+  operation:
+    | "commitments"
+    | "bindReservation"
+    | "produce"
+    | "issueRegistrationEvidence",
 ): Result.Result<
   PreparationState,
   DeclarativeV2AuthenticatedCommandProducerV1Error

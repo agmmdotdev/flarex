@@ -15,6 +15,10 @@ import type {
   SemanticArtifactV1UploadCore,
   SemanticArtifactV1UploadError,
 } from "../semanticArtifactV1/UploadCore";
+import {
+  semanticArtifactV1RootConfigurationsEqual,
+  type SemanticArtifactV1RootConfiguration,
+} from "../semanticArtifactV1/RootConfiguration";
 import type {
   SemanticArtifactV1FinalizedContent,
   SemanticArtifactV1FinalizedContentReader,
@@ -68,6 +72,7 @@ export interface DeclarativeV2AuthenticatedReadSessionReceiptV1 {
   readonly semanticRootSha256: Uint8Array;
   readonly semanticSelectorSha256: Uint8Array;
   readonly semanticAttemptIdentitySha256: Uint8Array;
+  readonly rootConfiguration: SemanticArtifactV1RootConfiguration;
   readonly moduleCount: number;
   readonly semanticByteLength: number;
   readonly budget: DeclarativeV2ContentReadBudgetReceipt;
@@ -107,8 +112,9 @@ export class DeclarativeV2AuthenticatedReadSessionMismatchError extends Data.Tag
 )<{
   readonly reason:
     | "sourceRoot"
-    | "semanticRoot"
-    | "moduleCount"
+      | "semanticRoot"
+      | "semanticRootConfiguration"
+      | "moduleCount"
     | "moduleOrdinal"
     | "modulePath";
   readonly ordinal?: number;
@@ -479,6 +485,16 @@ export function makeDeclarativeV2AuthenticatedReadSessionFactoryV1(options: {
               finalized.sourceRootSha256,
               budget,
             );
+            if (
+              !semanticArtifactV1RootConfigurationsEqual(
+                finalized.rootConfiguration,
+                semantic.root,
+              )
+            ) {
+              return yield* Effect.fail(
+                mismatch("semanticRootConfiguration"),
+              );
+            }
             if (source.modules.length !== semantic.modules.length) {
               return yield* Effect.fail(mismatch("moduleCount"));
             }
@@ -542,6 +558,9 @@ export function makeDeclarativeV2AuthenticatedReadSessionFactoryV1(options: {
         semanticAttemptIdentitySha256: copyBytes(
           value.semanticAttemptIdentitySha256,
         ),
+        rootConfiguration: Object.freeze({
+          ...value.rootConfiguration,
+        }),
         moduleCount: state.source.modules.length,
         semanticByteLength: state.semantic.streamBytes.byteLength,
         budget: state.budget.receipt(),

@@ -25,6 +25,9 @@ import type {
   SemanticArtifactV1FinalizedEvidence,
   SemanticArtifactV1UploadCore,
 } from "../src/semanticArtifactV1/UploadCore";
+import type {
+  SemanticArtifactV1RootConfiguration,
+} from "../src/semanticArtifactV1/RootConfiguration";
 import {
   makeDeclarativeV2ContentReadBudgetTracker,
   type SourceArtifactV2FinalizedContent,
@@ -318,6 +321,30 @@ describe("Declarative V2 authenticated verifier read session", () => {
       .toBe(1);
   });
 
+  it("rejects finalized configuration identity skew against the stored semantic root", async () => {
+    const fixture = makeSessionFixture("functions/main.js", {
+      semanticModelIdentity: "semantic-model-v2",
+    });
+    const exit = await Effect.runPromiseExit(fixture.factory.open(
+      new Request("https://private.test/root-configuration-skew"),
+      fixture.proof,
+      input(),
+    ));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) {
+      throw new Error("Expected semantic root configuration mismatch.");
+    }
+    const error = Cause.findErrorOption(exit.cause);
+    expect(error._tag).toBe("Some");
+    if (error._tag === "Some") {
+      expect(error.value).toMatchObject({
+        _tag: "DeclarativeV2AuthenticatedReadSessionMismatchError",
+        reason: "semanticRootConfiguration",
+      });
+    }
+  });
+
   it("replays cold factories to byte-identical evidence without sharing capabilities", async () => {
     const first = makeSessionFixture();
     const second = makeSessionFixture();
@@ -338,7 +365,11 @@ describe("Declarative V2 authenticated verifier read session", () => {
   });
 });
 
-function makeSessionFixture(semanticPath = "functions/main.js") {
+function makeSessionFixture(
+  semanticPath = "functions/main.js",
+  rootConfigurationOverrides:
+    Readonly<Partial<SemanticArtifactV1RootConfiguration>> = {},
+) {
   const order: string[] = [];
   const sourcePath = makePath("functions/main.js");
   const semanticModulePath = makePath(semanticPath);
@@ -359,6 +390,20 @@ function makeSessionFixture(semanticPath = "functions/main.js") {
     semanticRootSha256,
     semanticSelectorSha256: digest(0x23),
     semanticAttemptIdentitySha256: digest(0x24),
+    rootConfiguration: Object.freeze({
+      semanticModelIdentity: "semantic-model-v1",
+      semanticCodecIdentity: "semantic-codec-v1",
+      semanticPolicyIdentity: "semantic-policy-v1",
+      coreLanguageIdentity: "FlarexDeclarativeExecutableCoreV1",
+      abiIdentity: "abi-v1",
+      grammarIdentity: "grammar-v1",
+      unicodeIdentity: "unicode-14",
+      parserTableIdentity: "parser-table-v1",
+      trustedToolingIdentity: "tooling-v1",
+      ingressProtocolIdentity: "semantic-ingress-v1",
+      ingressConfigurationIdentity: "semantic-ingress-config-v1",
+      ...rootConfigurationOverrides,
+    }),
     usage: Object.freeze({
       calls: 1,
       blockBytes: 1,

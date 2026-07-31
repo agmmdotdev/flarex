@@ -4,6 +4,12 @@ import {
   type PreparedStandardApplicationDefinitionV1,
   type StandardApplicationDefinitionInputV1,
 } from "@flarex/standard-application-definition/v1";
+import {
+  withAuthenticatedApplicationRevisionEvidenceTestDriverV1,
+  type AuthenticatedApplicationRevisionEvidenceTestDriverV1,
+  type DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+} from
+  "../../flarex-backend/test/authenticatedApplicationRevisionEvidenceFixture";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
@@ -42,6 +48,9 @@ import {
 } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
+import {
+  makePrivateApplicationRevisionRegistrationEvidenceBridgeV1,
+} from "../../../apps/analyzer/src/PrivateApplicationRevisionRegistrationEvidence";
 
 const UTF8 = new TextEncoder();
 const LOCATOR = Object.freeze({
@@ -164,6 +173,48 @@ describe("inactive application revision registration V1", () => {
         "request:orders:v1",
         "request:orders:v2",
       ]);
+    })));
+  });
+
+  it("registers through backend-owned opaque evidence and its exact command receipt", async () => {
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const persistence = yield* Effect.promise(() => createPGlitePersistence());
+      yield* Effect.promise(() => persistence.migrate());
+      const target =
+        createPGliteLocatedApplicationRevisionRegistrationTargetV1(
+          persistence,
+          LOCATOR,
+        );
+      const fixture = yield* authenticatedRegistrationFixtureForPersistence(
+        persistence,
+        target,
+      );
+      const first = yield* fixture.context.register(
+        fixture.analysis,
+        "request:authenticated:v1",
+      );
+      const replay = yield* fixture.context.register(
+        fixture.analysis,
+        "request:authenticated:v1",
+      );
+      const clonedCandidate = yield* Effect.flip(
+        fixture.context.prepareAnalysis({
+          preparedDefinition: fixture.preparedDefinition,
+          authenticatedEvidence: Object.freeze({
+            ...fixture.authenticatedEvidence,
+          }),
+          attemptCeilings: fixture.attemptCeilings,
+        }),
+      );
+
+      expect(first.kind).toBe("registered");
+      expect(replay.kind).toBe("replayed");
+      expect(replay.registeredAt.getTime()).toBe(first.registeredAt.getTime());
+      expect(clonedCandidate).toMatchObject({
+        _tag: "ApplicationRevisionRegistrationEvidenceV1Error",
+        reason: "authorityChanged",
+        path: "candidateAuthority",
+      });
     })));
   });
 
@@ -511,6 +562,112 @@ export function registrationFixtureForPersistence(
   });
 }
 
+export function authenticatedRegistrationFixtureForPersistence(
+  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+  target: LocatedApplicationRevisionRegistrationTargetV1,
+) {
+  return Effect.gen(function* () {
+    yield* Effect.promise(() => persistence.insertDeploymentMetadata({
+      deploymentId: DEPLOYMENT_ID,
+      projectId: PROJECT_ID,
+    }));
+    yield* Effect.promise(() => persistence.insertScopeMetadata({
+      scopeId: SCOPE_ID,
+      deploymentId: DEPLOYMENT_ID,
+      physicalLocator: LOCATOR,
+    }));
+    yield* Effect.promise(() => persistence.query(
+      `insert into fx_system_scope_clock
+        (scope_id, storage_generation, storage_generation_fence,
+         last_commit_seq, last_outbox_seq, epoch)
+       values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
+      [SCOPE_ID, EPOCH],
+    ));
+    const preparedDefinition = Result.getOrThrow(
+      prepareStandardApplicationDefinitionV1(definitionInput()),
+    );
+    return yield*
+      withAuthenticatedApplicationRevisionEvidenceTestDriverV1(
+        preparedDefinition,
+        {
+          projectId: PROJECT_ID,
+          deploymentId: DEPLOYMENT_ID,
+          deploymentCreatedAt: "2026-07-30T00:00:00.000Z",
+        },
+        driver =>
+          Effect.gen(function* () {
+            const bridge =
+              makePrivateApplicationRevisionRegistrationEvidenceBridgeV1(
+                driver.port,
+              );
+            const authenticatedEvidence = yield* bridge.issue(
+              driver.request,
+              driver.preparation,
+              preparedDefinition,
+            );
+            const attemptCeilings = budget("attempt_ceilings", 10_000n);
+            const context = makeRegistrationTestContext(
+              persistence,
+              target,
+              bridge.authority,
+            );
+            const preparation = yield* context.prepareAnalysis({
+              preparedDefinition,
+              authenticatedEvidence,
+              attemptCeilings,
+            });
+            const repository =
+              makeDeclarativeV2VerifierProgressRepositoryV2(
+                target,
+                PROGRESS_OPTIONS,
+              );
+            yield* Effect.promise(() => moveAttemptToRegistration(
+              persistence,
+              preparation,
+            ));
+            const terminal = yield* settleAuthenticatedRegistration(
+              repository,
+              preparation,
+              preparedDefinition,
+              {
+                bindReservation: driver.bindReservation,
+                produceAndBind: reservation =>
+                  Effect.gen(function* () {
+                    const producerResult = yield* driver.produce(reservation);
+                    return yield* bridge.bindCommand(
+                      authenticatedEvidence,
+                      driver.request,
+                      producerResult,
+                      preparation,
+                    );
+                  }),
+              },
+            );
+            if (terminal.commandAuthority === undefined) {
+              return yield* Effect.die(
+                new Error("Authenticated settlement omitted command authority."),
+              );
+            }
+            yield* context.correlateAnalysis(
+              preparation,
+              terminal.analysis,
+              terminal.commandAuthority,
+            );
+            return Object.freeze({
+              persistence,
+              target,
+              context,
+              preparedDefinition,
+              authenticatedEvidence,
+              attemptCeilings,
+              preparation,
+              ...terminal,
+            });
+          }),
+      );
+  });
+}
+
 export function makeRegistrationTestContext(
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   target: LocatedApplicationRevisionRegistrationTargetV1,
@@ -710,13 +867,138 @@ function settleRegistration(
   });
 }
 
+function settleAuthenticatedRegistration(
+  repository: DeclarativeV2VerifierProgressRepositoryV2,
+  preparation: PrivateApplicationRevisionAnalysisPreparationV1,
+  prepared: PreparedStandardApplicationDefinitionV1,
+  authenticated: Readonly<{
+    readonly bindReservation:
+      AuthenticatedApplicationRevisionEvidenceTestDriverV1[
+        "bindReservation"
+      ];
+    readonly produceAndBind: (
+      reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+    ) => Effect.Effect<
+      unknown,
+      DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+      never
+    >;
+  }>,
+) {
+  return Effect.gen(function* () {
+    const acquired = yield* repository.acquire(
+      SCOPE_ID,
+      preparation.attemptSha256,
+      OPERATION_BUDGET,
+    );
+    const lineage = Object.freeze({
+      attemptSha256: preparation.attemptSha256,
+      candidateSha256: preparation.candidateSha256,
+      commandKind: "registration_page" as const,
+      sequence: 1n,
+      currentProgressSha256: acquired.attempt.progressSha256,
+      predecessorReceiptSha256: acquired.attempt.lastReceiptSha256,
+    });
+    const claim = yield* authenticated.bindReservation(lineage);
+    const reserved = yield* repository.reserveCommand(
+      acquired.run,
+      {
+        reservation: {
+          kind: "command_reservation" as const,
+          ...lineage,
+          ...claim.commitments,
+        },
+        commandBudget: claim.commandBudget,
+      },
+      OPERATION_BUDGET,
+    );
+    const commandAuthority =
+      yield* authenticated.produceAndBind(reserved.reservation);
+    const resultingUsage = Object.freeze({
+      ...claim.commandBudget,
+      kind: "attempt_usage" as const,
+    });
+    const artifactModulePath =
+      prepared.artifactIngressPlan.source.functionEntries[0]!
+        .artifactModulePath;
+    const moduleOrdinal = prepared.artifactIngressPlan.source.modules
+      .findIndex((module) => module.path === artifactModulePath);
+    if (moduleOrdinal < 0) {
+      throw new Error("Expected materialized function module.");
+    }
+    const registrationFrame: DeclarativeV2RegistrationFrameV1 = {
+      kind: "registration",
+      attemptSha256: preparation.attemptSha256,
+      registrationOrdinal: 0n,
+      handlerIdentitySha256: digest(0x41),
+      moduleOrdinal: BigInt(moduleOrdinal),
+      exportName: "place",
+      functionPath: "orders:place",
+      handlerKind: "mutation",
+      visibility: "public",
+    };
+    const registrationBytes = Result.getOrThrow(
+      encodeDeclarativeV2PhysicalFrameV1(registrationFrame, {
+        maximumFrameBytes: 1_000_000,
+        maximumCanonicalBytes: 1_000_000,
+      }),
+    ).canonicalBytes;
+    const registrationRootSha256 = digest(0x42);
+    const settlementInput = yield* Effect.promise(() =>
+      makeSettlementInput(
+        reserved.reservation,
+        registrationRootSha256,
+        resultingUsage,
+        claim.commandBudget,
+      )
+    );
+    const settled = yield* repository.settleCommand(
+      reserved.work,
+      settlementInput,
+      OPERATION_BUDGET,
+    );
+    yield* repository.release(acquired.run, OPERATION_BUDGET);
+
+    const usage = resultingUsage;
+    const analysis = Object.freeze({
+      status: "complete" as const,
+      kind: "registration_page" as const,
+      result: Object.freeze({
+        status: "complete" as const,
+        capacity: Object.freeze({
+          _tag: "DeclarativeV2VerifierRegistrationCapacityV1" as const,
+          ...budgetFields(100n),
+        }),
+        actual: usage,
+        registrationFrames: Object.freeze([
+          new Uint8Array(registrationBytes),
+        ]),
+        nextProgress: settled.settlement.nextProgress,
+        nextProgressBytes:
+          new Uint8Array(settled.settlement.nextProgressBytes),
+        outputManifest: settled.settlement.outputManifest,
+        outputManifestBytes:
+          new Uint8Array(settled.settlement.outputManifestBytes),
+        registrationRootSha256:
+          new Uint8Array(registrationRootSha256),
+        receipt: Object.freeze({
+          transitionCount: 1,
+          deltaUsage: usage,
+          usage,
+        }),
+      }),
+    });
+    return Object.freeze({ analysis, commandAuthority });
+  });
+}
+
 async function makeSettlementInput(
   reservation: DeclarativeV2VerifierCommandReservationFrameV2,
   registrationRootSha256: Uint8Array,
+  resultingUsage = budget("attempt_usage", 1n),
+  commandUsage = budget("command_budget", 1n),
 ) {
   const reservationSha256 = await progressFrameSha256(reservation);
-  const commandUsage = budget("command_budget", 1n);
-  const resultingUsage = budget("attempt_usage", 1n);
   const nextProgress: DeclarativeV2VerifierProgressCursorFrameV2 = {
     kind: "progress_cursor",
     phase: "verdict",

@@ -8,8 +8,10 @@ replacement-analyzer port, and `FSV02` completes the first implementation-
 bearing System operation plus `SAP03`: authenticated, durable, idempotent,
 inactive application-revision registration. A1b2-S1 closes durable
 intent/terminal settlement, and A1b2-S2 closes opaque reservation minting plus
-durable analyzer restart evidence, the two private prerequisites discovered
-at the FSV03 entry gate. The next vertical remains the private
+  durable analyzer restart evidence. FSV02-A1 closes the remaining private
+  registration-evidence seam discovered while composing FSV03: the backend,
+  rather than a structural caller, now derives and owns the candidate evidence
+  consumed by FSV02. The next vertical remains the private
 analyzer-to-Postgres system proof; readiness, activation, and routing remain
 later work.
 
@@ -91,6 +93,13 @@ Current implementation truth:
   evidence roots/counts, and historical loading has cumulative batch limits.
   It changes no migration, protocol identity, production dependency, route, or
   activation authority;
+- FSV02-A1 adds a backend-owned, definition-correlated opaque registration-
+  evidence capability. It reads authenticated Source/Semantic session evidence,
+  verifies the prepared definition's module and semantic bytes, derives the
+  existing FSV02 candidate projection, and later binds the exact authenticated
+  registration command receipt to the same capability. A private analyzer
+  adapter exposes only the existing FSV02 claim port; raw backend and
+  persistence authority remain inaccessible;
 - the private real-system harness is not implemented or green; and
 - routed execution remains `legacy_v1`; private `flarexdb_v1` work is not
   permission to switch production routing.
@@ -108,7 +117,7 @@ factories.
 | `FSV02` registration is complete but deliberately inactive | Active-revision consumption | Complete target-native readiness and replacement activation; do not reinterpret registration as either gate |
 | The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
 | Readiness and replacement activation do not exist | Active-revision consumption | Complete `S03-D4`, then `S04` and its coherent reader after the private system proof |
-| C07, A1b2-S1, and A1b2-S2 are implemented, but the private analyzer-to-Postgres system harness is not assembled | System Application Data API and SAP04 | Complete FSV03 over the accepted A1b2, A1b2-S1, A1b2-S2, FSV01, FSV02, and C07 owners before active-revision invocation |
+| C07, A1b2-S1, A1b2-S2, and FSV02-A1 are implemented, but the private analyzer-to-Postgres system harness is not assembled | System Application Data API and SAP04 | Complete FSV03 over the accepted A1b2, A1b2-S1, A1b2-S2, FSV01, FSV02/FSV02-A1, and C07 owners before active-revision invocation |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
@@ -408,6 +417,69 @@ Implemented boundary:
   the database-authoritative timestamp. No readiness, activation, active
   reader, invocation, route, or production wiring is added.
 
+#### `[x] FSV02-A1`: Private Authenticated Registration Evidence Bridge
+
+FSV02-A1 removes the last structural-evidence assumption from the private
+persistence-backed registration lane without changing FSV02's public result or
+durable schema:
+
+- one scoped backend producer preparation may issue exactly one opaque
+  registration-evidence capability for one exact prepared definition; exact
+  replay returns the same capability, while cloned handles, a different
+  definition object, a different request, and a closed scope fail typed;
+- candidate claims defensively project authenticated deployment, source root
+  and selector, semantic root/selector/attempt, source-module, semantic-stream,
+  analyzer, verifier, deployment-analysis, and deployment-codegen-analysis
+  facts; callers cannot submit that projection structurally. Semantic codec
+  identities come from the finalized Semantic Artifact root configuration
+  returned by the authenticated read-session owner, which checks all eleven
+  root fields against the loaded Semantic root before issuing its receipt;
+- the backend binds only a real `registration_page` producer result and retains
+  its exact receipt against the same opaque capability and exact producer
+  preparation; another preparation or request cannot lend its terminal result.
+  The analyzer adapter
+  maps that capability into the existing
+  `ApplicationRevisionRegistrationEvidenceAuthorityV1` and does not expose the
+  producer, read session, raw repository, transaction, or claimed evidence;
+- PGlite and genuine PostgreSQL composition use that real capability through
+  candidate insertion, attempt reservation, exact producer receipt
+  correlation, inactive registration, and stored-time replay. The existing
+  FSV02 rollback, request-conflict, and concurrency owners remain unchanged.
+
+The two canonical deployment identities are UTF-8 SHA-256 commitments over the
+existing protocol canonical-JSON encoder. Object-member order is therefore
+owned by that encoder; the following lists pin the versioned value shape and
+array order:
+
+1. `flarex.backend/standard-application-deployment-analysis/canonical-json-v1`
+   encodes `{ format, version, authority, programFormat, programVersion,
+   schema, functions }`. `authority` contains project/deployment identity and
+   database creation time, Source root/selector, Semantic root/selector/attempt,
+   and analyzer/verifier digests. `schema` retains prepared table then index
+   order. `functions` flattens prepared module order and then function order,
+   retaining path, module path, export, kind, visibility, and both validators.
+2. `flarex.backend/standard-application-deployment-codegen-analysis/canonical-json-v1`
+   encodes `{ format, version, authority, executionPath, sourceModules,
+   modules }`. `sourceModules` retains authenticated ordinal order and binds
+   artifact path, role mask, byte length, and source digest. `modules` retains
+   prepared module/function order and binds each logical module to its
+   materialized artifact module plus function kind, visibility, and validators.
+
+The stored candidate continues to carry each literal codec identity, canonical
+byte length, and SHA-256 digest. Fixed digest vectors, cold reconstruction, and
+single-source perturbation tests pin the contract. No protocol/candidate
+version, migration, route, activation, or production dependency changes.
+
+Lifecycle and failure channels remain owner-shaped: producer `prepare` retains
+its existing `Effect<Preparation, ProducerOpenError, Scope>`, evidence `issue`
+is `Effect<OpaqueEvidence, ProducerError, never>` inside that scope, and exact
+terminal binding is exposed by the analyzer adapter as
+`Effect<OpaqueEvidence, ProducerError, never>`. Candidate and command claims
+remain synchronous `Result` operations; the adapter translates only claim
+failures into the existing typed FSV02 evidence error and does not catch
+defects. Scope closes the authenticated read session and invalidates every
+process-local preparation/evidence handle.
+
 ### `[ ] FSV03`: Prove The Private Analyzer-To-Postgres System
 
 Entry gates:
@@ -420,19 +492,23 @@ Entry gates:
 - A1b2-S2 provides opaque reservation minting, exact-result restart-evidence
   persistence, authenticated historical loading, and cold rehydrate
   composition without exposing raw persistence authority.
+- FSV02-A1 provides the backend-owned opaque candidate/terminal-receipt
+  evidence required by the existing FSV02 registration authority.
 
 The selected FSV03 lane is private, host-neutral, and test-owned. Production
 redelivery/dispatch, scheduled triggers, and hosted activation are not entry
 gates for this lane and remain explicitly excluded.
 
-Current gate state: C07, A1b2-S1, and A1b2-S2 no longer block the selected private
+Current gate state: C07, A1b2-S1, A1b2-S2, and FSV02-A1 no longer block the selected private
 host-neutral FSV03 lane. C07 retains its accepted PGlite and genuine PostgreSQL
 receipts. A1b2-S1 supplies the previously missing non-circular command
 authority: one durable link intent before execution, analyzer-owned terminal
 proof stored with settlement, real link-receipt lineage, and only then the
 actual registration reservation. A1b2-S2 supplies the missing non-circular
 reservation proposal/claim path and durable analyzer restart evidence without
-changing existing protocol or persistence identities. FSV03 remains
+    changing existing protocol or persistence identities. FSV02-A1 closes the
+    remaining structural registration-evidence seam through a scoped opaque
+    backend capability and the existing FSV02 evidence port. FSV03 remains
 unimplemented. None of these prerequisites is readiness, production
 activation, or routing authority.
 

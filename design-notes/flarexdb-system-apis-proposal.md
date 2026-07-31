@@ -241,11 +241,21 @@ The remaining limitations are architectural, not merely naming or packaging:
    registration-reservation lineage. A1b2-S2 adds the persistence-owned opaque
    reservation proposal, backend-owned single-use six-commitment claim,
    exact-result-correlated restart-evidence producer, narrow authenticated
-   historical settled-evidence read, and private scoped evidence/settlement/
-   reload/rehydrate composition. Restart production and settlement retain the
-   exact authenticated budget/usage/evidence correlation, and historical
-   loading applies cumulative memory/work ceilings across database batches.
-   These prerequisites do not themselves connect
+    historical settled-evidence read, and private scoped evidence/settlement/
+    reload/rehydrate composition. Restart production and settlement retain the
+    exact authenticated budget/usage/evidence correlation, and historical
+    loading applies cumulative memory/work ceilings across database batches.
+    FSV02-A1 adds the backend-owned opaque registration-evidence capability:
+    authenticated Source/Semantic/module facts and the prepared definition
+    deterministically yield the existing candidate evidence, and the exact
+    registration command producer receipt is later bound to the same handle
+    through the private analyzer adapter. Its deployment-analysis and codegen
+    identities are versioned canonical-JSON SHA-256 contracts. Their semantic
+    codec facts come from the finalized Semantic root configuration verified
+    against the loaded root, and terminal binding requires the same exact
+    producer preparation; it changes no
+    durable schema, candidate/protocol version, public API, or activation
+    authority. These prerequisites do not themselves connect
    FSV01/FSV02 through artifact runtime and C07 or complete FSV03.
 6. **The main executor facade remains legacy-routed.** Private
    `flarexdb_v1` modules do not make the root executor a replacement

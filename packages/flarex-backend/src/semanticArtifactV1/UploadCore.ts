@@ -125,6 +125,7 @@ export interface SemanticArtifactV1FinalizedEvidence {
   readonly semanticRootSha256: Uint8Array;
   readonly semanticSelectorSha256: Uint8Array;
   readonly semanticAttemptIdentitySha256: Uint8Array;
+  readonly rootConfiguration: SemanticArtifactV1RootConfiguration;
   readonly usage: SemanticArtifactV1Budget;
 }
 
@@ -1110,49 +1111,47 @@ function executeReadFinalized(
     const treeRootPreview = hasEmptyTree
       ? new Uint8Array(32)
       : sourceArtifactV2DigestBytesFromLowerHex(current.frontier[0]!.digest);
-    const rootMeasurement =
+    const rootMeasurement = yield* Effect.fromResult(
       measureDeclarativeV2SemanticArtifactRootOrSelectorFrameV1(makeRootFrame(
-      current,
-      config,
-      treeRootPreview,
-    ), {
-      maximumFrameBytes: captured.admission.frameBytes,
-      maximumCanonicalBytes: captured.admission.canonicalBytes,
-    });
-    if (Result.isFailure(rootMeasurement)) {
-      return yield* projectCodecFailure(
-        "readFinalized",
-        "rootFrame",
-        rootMeasurement.failure,
-      );
-    }
-    const selectorMeasurement =
+        current,
+        config,
+        treeRootPreview,
+      ), {
+        maximumFrameBytes: captured.admission.frameBytes,
+        maximumCanonicalBytes: captured.admission.canonicalBytes,
+      }).pipe(
+        Result.mapError(failure =>
+          codecFailureError("readFinalized", "rootFrame", failure)
+        ),
+      ),
+    );
+    const selectorMeasurement = yield* Effect.fromResult(
       measureDeclarativeV2SemanticArtifactRootOrSelectorFrameV1({
-      kind: "semantic_selector",
-      semanticArtifactCodecVersion: DECLARATIVE_V2_SEMANTIC_ARTIFACT_CODEC_VERSION_V1,
-      attemptIdentitySha256: sourceArtifactV2DigestBytesFromLowerHex(current.attemptSha256),
-      semanticRootSha256: rootDigest,
-    }, {
-      maximumFrameBytes: captured.admission.frameBytes,
-      maximumCanonicalBytes: captured.admission.canonicalBytes,
-    });
-    if (Result.isFailure(selectorMeasurement)) {
-      return yield* projectCodecFailure(
-        "readFinalized",
-        "selectorFrame",
-        selectorMeasurement.failure,
-      );
-    }
-    const rootFrameByteLength = rootMeasurement.success.frameBytes;
-    const selectorFrameByteLength = selectorMeasurement.success.frameBytes;
+        kind: "semantic_selector",
+        semanticArtifactCodecVersion:
+          DECLARATIVE_V2_SEMANTIC_ARTIFACT_CODEC_VERSION_V1,
+        attemptIdentitySha256:
+          sourceArtifactV2DigestBytesFromLowerHex(current.attemptSha256),
+        semanticRootSha256: rootDigest,
+      }, {
+        maximumFrameBytes: captured.admission.frameBytes,
+        maximumCanonicalBytes: captured.admission.canonicalBytes,
+      }).pipe(
+        Result.mapError(failure =>
+          codecFailureError("readFinalized", "selectorFrame", failure)
+        ),
+      ),
+    );
+    const rootFrameByteLength = rootMeasurement.frameBytes;
+    const selectorFrameByteLength = selectorMeasurement.frameBytes;
     const emptyTreeByteLength = hasEmptyTree
       ? checkedMultiply(SEMANTIC_EMPTY_TREE_PREIMAGE_BYTES_V1, 3)
       : 0;
     const operationUsage = zeroCharge({
       calls: current.frontier.length === 0 ? 7 : 6,
       canonicalBytes: checkedAdd(
-        checkedMultiply(rootMeasurement.success.canonicalBytes, 2),
-        selectorMeasurement.success.canonicalBytes,
+        checkedMultiply(rootMeasurement.canonicalBytes, 2),
+        selectorMeasurement.canonicalBytes,
       ),
       frameBytes: checkedAdd(
         emptyTreeByteLength,
@@ -1171,60 +1170,71 @@ function executeReadFinalized(
     yield* verifyAttemptDigest(current, captured.admission, options);
     const semanticAttemptIdentitySha256 =
       sourceArtifactV2DigestBytesFromLowerHex(current.attemptSha256);
-    const selector = encodeDeclarativeV2SemanticArtifactFrameV1({
-      kind: "semantic_selector",
-      semanticArtifactCodecVersion: DECLARATIVE_V2_SEMANTIC_ARTIFACT_CODEC_VERSION_V1,
-      attemptIdentitySha256: semanticAttemptIdentitySha256,
-      semanticRootSha256: rootDigest,
-    }, {
-      maximumFrameBytes: selectorFrameByteLength,
-      maximumCanonicalBytes: selectorMeasurement.success.canonicalBytes,
-    });
-    if (Result.isFailure(selector)) {
-      return yield* Effect.die(
-        new Error("Semantic selector measurement changed during encoding."),
-      );
-    }
+    const selector = yield* Effect.fromResult(
+      encodeDeclarativeV2SemanticArtifactFrameV1({
+        kind: "semantic_selector",
+        semanticArtifactCodecVersion:
+          DECLARATIVE_V2_SEMANTIC_ARTIFACT_CODEC_VERSION_V1,
+        attemptIdentitySha256: semanticAttemptIdentitySha256,
+        semanticRootSha256: rootDigest,
+      }, {
+        maximumFrameBytes: selectorFrameByteLength,
+        maximumCanonicalBytes: selectorMeasurement.canonicalBytes,
+      }),
+    ).pipe(
+      Effect.mapError(() =>
+        new Error("Semantic selector measurement changed during encoding.")
+      ),
+      Effect.orDie,
+    );
     const emptyTree = hasEmptyTree
-      ? declarativeV2SemanticArtifactEmptyTreePreimageV1({
-        maximumFrameBytes: SEMANTIC_EMPTY_TREE_PREIMAGE_BYTES_V1,
-        maximumCanonicalBytes: 0,
-      })
+      ? yield* Effect.fromResult(
+        declarativeV2SemanticArtifactEmptyTreePreimageV1({
+          maximumFrameBytes: SEMANTIC_EMPTY_TREE_PREIMAGE_BYTES_V1,
+          maximumCanonicalBytes: 0,
+        }),
+      ).pipe(
+        Effect.mapError(() =>
+          new Error(
+            "Semantic empty-tree measurement changed during encoding.",
+          )
+        ),
+        Effect.orDie,
+      )
       : null;
-    if (emptyTree !== null && Result.isFailure(emptyTree)) {
-      return yield* Effect.die(
-        new Error("Semantic empty-tree measurement changed during encoding."),
-      );
-    }
     const treeRoot = emptyTree === null
       ? treeRootPreview
-      : yield* options.sha256(emptyTree.success.canonicalBytes, {
-        maximumInputBytes: emptyTree.success.canonicalBytes.byteLength,
+      : yield* options.sha256(emptyTree.canonicalBytes, {
+        maximumInputBytes: emptyTree.canonicalBytes.byteLength,
       });
-    const expectedRoot = encodeDeclarativeV2SemanticArtifactFrameV1(
-      makeRootFrame(current, config, treeRoot),
-      {
-        maximumFrameBytes: rootFrameByteLength,
-        maximumCanonicalBytes: rootMeasurement.success.canonicalBytes,
-      },
+    const expectedRoot = yield* Effect.fromResult(
+      encodeDeclarativeV2SemanticArtifactFrameV1(
+        makeRootFrame(current, config, treeRoot),
+        {
+          maximumFrameBytes: rootFrameByteLength,
+          maximumCanonicalBytes: rootMeasurement.canonicalBytes,
+        },
+      ),
+    ).pipe(
+      Effect.mapError(() =>
+        new Error("Semantic root preview changed during encoding.")
+      ),
+      Effect.orDie,
     );
-    if (Result.isFailure(expectedRoot)) {
-      return yield* Effect.die(new Error("Semantic root preview changed during encoding."));
-    }
     const stored = yield* options.r2.readImmutable("root", rootDigest, {
       maximumCalls: 2,
       maximumBodyBytes: checkedMultiply(rootFrameByteLength, 2),
       maximumHashBytes: rootFrameByteLength,
     });
     yield* verifyReadReceipt(stored, rootFrameByteLength);
-    if (!bytesEqualFullScan(stored.bytes, expectedRoot.success.canonicalBytes)) {
+    if (!bytesEqualFullScan(stored.bytes, expectedRoot.canonicalBytes)) {
       return yield* Effect.fail(new SemanticArtifactV1CorruptionError({
         semanticUploadId: current.semanticUploadId,
         reason: "rootMismatch",
       }));
     }
     const selectorDigest = yield* options.sha256(
-      selector.success.canonicalBytes,
+      selector.canonicalBytes,
       { maximumInputBytes: selectorFrameByteLength },
     );
     if (
@@ -1255,6 +1265,7 @@ function executeReadFinalized(
       semanticAttemptIdentitySha256: copyBytes(
         semanticAttemptIdentitySha256,
       ),
+      rootConfiguration: config,
       usage: operationUsage,
     });
   });
@@ -1790,20 +1801,28 @@ function projectCodecFailure(
   field: string,
   failure: DeclarativeV2SemanticArtifactCodecV1Error,
 ): Effect.Effect<never, SemanticArtifactV1InputError | SemanticArtifactV1BudgetError> {
+  return Effect.fail(codecFailureError(operation, field, failure));
+}
+
+function codecFailureError(
+  operation: SemanticArtifactV1InputError["operation"],
+  field: string,
+  failure: DeclarativeV2SemanticArtifactCodecV1Error,
+): SemanticArtifactV1InputError | SemanticArtifactV1BudgetError {
   if (
     failure.reason === "frameBytesExceeded" ||
     failure.reason === "canonicalBytesExceeded"
   ) {
-    return Effect.fail(new SemanticArtifactV1BudgetError({
+    return new SemanticArtifactV1BudgetError({
       operation,
       dimension: failure.reason === "frameBytesExceeded"
         ? "frameBytes"
         : "canonicalBytes",
       observed: failure.observed ?? 0,
       maximum: failure.maximum ?? 0,
-    }));
+    });
   }
-  return inputFailure(operation, field);
+  return new SemanticArtifactV1InputError({ operation, field });
 }
 
 function stateFailure(

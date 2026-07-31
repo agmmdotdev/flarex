@@ -365,6 +365,11 @@ absorbed into the Standard package.
   analyzer app, with opaque context-owned candidate/producer authority and
   exact-result correlation that cannot be reconstructed or cloned from the
   public SAP02 projection; and
+- the private FSV02-A1 adapter over one backend-owned, definition-correlated
+  authenticated registration-evidence capability, so the Standard composition
+  never manufactures the candidate or terminal producer receipt structurally;
+  exact replay retains the same opaque handle and Scope release invalidates it;
+  and
 - durable inactive registration through `FSV02` without exposing candidate,
   attempt, artifact, function, validator, handler, or registration-root
   evidence through the Standard result.
@@ -543,7 +548,7 @@ checker in roadmap 16. It must not mark that broader gate complete.
 
 | Gate | Outcome | Entry condition |
 | --- | --- | --- |
-| `SAP03` | **Complete:** narrow Standard inactive-registration operation over the implementation-bearing System Schema function; slice `FSV02` | Implemented with private authenticated correlation and a narrow durable projection |
+| `SAP03` | **Complete:** narrow Standard inactive-registration operation over the implementation-bearing System Schema function; slices `FSV02` and private evidence prerequisite `FSV02-A1` | Implemented with backend-owned opaque authenticated evidence, private exact-result correlation, and a narrow durable projection |
 | `SAP04` | Narrow Standard point-mutation invocation over the implementation-bearing System Application Data function; slice `FSV06` | the private A1b2 plus `C07` real-system proof, readiness, and activation are complete, and the host-neutral runtime is assembled through the real owner path |
 | `SAP05+` | Add query, internal call, workflow mutation, action, and schedule operations individually | each capability has an implemented owner contract and focused preflight |
 

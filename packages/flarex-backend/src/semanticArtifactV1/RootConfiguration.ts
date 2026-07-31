@@ -24,19 +24,26 @@ export class SemanticArtifactV1RootConfigurationError extends Data.TaggedError(
   "SemanticArtifactV1RootConfigurationError",
 )<{ readonly field: SemanticArtifactV1RootConfigurationField }> {}
 
-const ROOT_CONFIGURATION_KEYS = Object.freeze([
-  "abiIdentity",
-  "coreLanguageIdentity",
-  "grammarIdentity",
-  "ingressConfigurationIdentity",
-  "ingressProtocolIdentity",
-  "parserTableIdentity",
-  "semanticCodecIdentity",
-  "semanticModelIdentity",
-  "semanticPolicyIdentity",
-  "trustedToolingIdentity",
-  "unicodeIdentity",
-] as const satisfies readonly (keyof SemanticArtifactV1RootConfiguration)[]);
+const ROOT_CONFIGURATION_FIELDS = Object.freeze({
+  abiIdentity: true,
+  coreLanguageIdentity: true,
+  grammarIdentity: true,
+  ingressConfigurationIdentity: true,
+  ingressProtocolIdentity: true,
+  parserTableIdentity: true,
+  semanticCodecIdentity: true,
+  semanticModelIdentity: true,
+  semanticPolicyIdentity: true,
+  trustedToolingIdentity: true,
+  unicodeIdentity: true,
+} as const satisfies Readonly<
+  Record<keyof SemanticArtifactV1RootConfiguration, true>
+>);
+
+const ROOT_CONFIGURATION_KEYS = Object.freeze(
+  Object.keys(ROOT_CONFIGURATION_FIELDS) as
+    (keyof SemanticArtifactV1RootConfiguration)[],
+);
 
 export function captureSemanticArtifactV1RootConfiguration(
   input: unknown,
@@ -104,6 +111,15 @@ export function captureSemanticArtifactV1RootConfiguration(
       ingressConfigurationIdentity,
     });
   });
+}
+
+export function semanticArtifactV1RootConfigurationsEqual(
+  left: SemanticArtifactV1RootConfiguration,
+  right: SemanticArtifactV1RootConfiguration,
+): boolean {
+  return ROOT_CONFIGURATION_KEYS.every(
+    key => left[key] === right[key],
+  );
 }
 
 function captureField<K extends keyof SemanticArtifactV1RootConfiguration>(

@@ -18,6 +18,52 @@ const LOCATOR = Object.freeze({
 });
 
 describePostgres("real Postgres inactive application revision registration V1", () => {
+  it("registers through backend-owned opaque evidence with zero structural fallback", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const { authenticatedRegistrationFixtureForPersistence } =
+        await loadRegistrationFixture();
+      const target =
+        createPostgresLocatedApplicationRevisionRegistrationTargetV1(
+          persistence,
+          LOCATOR,
+        );
+      const result = await runEffect(Effect.scoped(Effect.gen(function* () {
+        const fixture =
+          yield* authenticatedRegistrationFixtureForPersistence(
+            persistence,
+            target,
+          );
+        const first = yield* fixture.context.register(
+          fixture.analysis,
+          "postgres:authenticated",
+        );
+        const replay = yield* fixture.context.register(
+          fixture.analysis,
+          "postgres:authenticated",
+        );
+        const cloned = yield* Effect.flip(
+          fixture.context.prepareAnalysis({
+            preparedDefinition: fixture.preparedDefinition,
+            authenticatedEvidence: Object.freeze({
+              ...fixture.authenticatedEvidence,
+            }),
+            attemptCeilings: fixture.attemptCeilings,
+          }),
+        );
+        return { first, replay, cloned };
+      })));
+      expect(result.first.kind).toBe("registered");
+      expect(result.replay.kind).toBe("replayed");
+      expect(result.replay.registeredAt.getTime())
+        .toBe(result.first.registeredAt.getTime());
+      expect(result.cloned).toMatchObject({
+        _tag: "ApplicationRevisionRegistrationEvidenceV1Error",
+        reason: "authorityChanged",
+        path: "candidateAuthority",
+      });
+    });
+  }, 60_000);
+
   it("registers concurrently, cold-reloads, and replays DB time", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const {

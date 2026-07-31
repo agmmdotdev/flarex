@@ -421,11 +421,20 @@ At the time this direction was recorded:
   reload/rehydrate composition; no raw repository authority is exported;
 - FSV01 and FSV02 now provide authenticated analysis and inactive durable
   registration without readiness, activation, or routing authority;
+- FSV02-A1 now makes the backend the owner of the opaque, definition-correlated
+  Source/Semantic/module/analyzer/verifier and deployment-analysis/codegen
+  evidence consumed by FSV02, then binds the exact registration command
+  producer receipt from the same producer preparation to that capability.
+  Semantic codec identities are authenticated by the finalized Semantic root
+  configuration and checked against the loaded root rather than supplied as
+  parallel configuration. PGlite and genuine PostgreSQL
+  exercise the narrow analyzer-to-registration adapter without structural
+  evidence fallback;
 - scheduled-trigger and production redelivery/dispatch composition remain
   absent;
 - the private C07 executor composition is accepted after the same bounded proof
   passed in PGlite and genuine PostgreSQL with zero skipped database cases; and
-- C07, A1b2-S1, and A1b2-S2 therefore no longer block the selected private
+- C07, A1b2-S1, A1b2-S2, and FSV02-A1 therefore no longer block the selected private
   host-neutral lane, although FSV03 itself remains separate unimplemented
   work.
 

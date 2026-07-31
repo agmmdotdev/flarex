@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
   type DeclarativeV2ArtifactModulePathHandleV1,
@@ -8,6 +9,10 @@ import {
   type DeclarativeV2AuthenticatedCommandEncodedRequestV1,
   type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
 } from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
+import {
+  prepareStandardApplicationDefinitionV1,
+  type PreparedStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/v1";
 import { Cause, Effect, Exit, Fiber, Layer, Result } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
@@ -18,6 +23,8 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  DECLARATIVE_V2_DEPLOYMENT_ANALYSIS_CODEC_IDENTITY_V1,
+  DECLARATIVE_V2_DEPLOYMENT_CODEGEN_ANALYSIS_CODEC_IDENTITY_V1,
   DeclarativeV2AuthenticatedCommandProducerV1,
   DeclarativeV2AuthenticatedCommandProofIssuerV1,
   DeclarativeV2AuthenticatedCommandReadSessionsV1,
@@ -758,7 +765,504 @@ describe("authenticated Declarative V2 command producer", () => {
         }),
     )));
   });
+
+  it("issues one definition-correlated registration capability and binds the exact terminal receipt", async () => {
+    const definition = registrationDefinition();
+    const module = definition.artifactIngressPlan.source.modules[0];
+    if (module === undefined) throw new Error("Expected one materialized module.");
+    const fixture = makeFixture({
+      source: module.sourceBytes,
+      semantic: definition.artifactIngressPlan.semantic.bytes,
+      pathText: module.path,
+      roles: module.roles,
+      liveSha256: true,
+    });
+    const request = new Request("https://producer.test/registration-evidence");
+    const selection = Object.freeze({
+      kind: "registration_page",
+    }) satisfies DeclarativeV2AuthenticatedCommandSelectionV1;
+    const fullInput = producerInput(selection, transportBudget, 1);
+    const result = await Effect.runPromise(Effect.scoped(withProducer(
+      fixture,
+      producer =>
+        Effect.gen(function* () {
+          const preparation = yield* producer.prepare(
+            request,
+            PROOF_INPUT,
+            {
+              readSession: fullInput.readSession,
+              commandBudget: fullInput.commandBudget,
+              transportBudget: fullInput.transportBudget,
+              selection,
+            },
+          );
+          const [evidence, concurrentEvidence] = yield* Effect.all([
+            producer.issueRegistrationEvidence(
+              request,
+              preparation,
+              definition,
+            ),
+            producer.issueRegistrationEvidence(
+              request,
+              preparation,
+              definition,
+            ),
+          ], { concurrency: "unbounded" });
+          const evidenceReplay = yield* producer.issueRegistrationEvidence(
+            request,
+            preparation,
+            definition,
+          );
+          const contradictoryIssue = yield* Effect.exit(
+            producer.issueRegistrationEvidence(
+              request,
+              preparation,
+              registrationDefinition(),
+            ),
+          );
+          const candidate = yield* Effect.fromResult(
+            producer.claimRegistrationCandidate(definition, evidence),
+          );
+          const clonedAuthority = producer.claimRegistrationCandidate(
+            definition,
+            Object.freeze({ ...evidence }),
+          );
+          const wrongDefinition = producer.claimRegistrationCandidate(
+            registrationDefinition(),
+            evidence,
+          );
+          candidate.deploymentAnalysisSha256.fill(0);
+          const isolatedCandidate = yield* Effect.fromResult(
+            producer.claimRegistrationCandidate(definition, evidence),
+          );
+          const produceForPreparation = (
+            ownedRequest: Request,
+            ownedPreparation: unknown,
+            candidateByte: number,
+          ) =>
+            Effect.gen(function* () {
+              const ownedLineage = Object.freeze({
+                attemptSha256: digest(candidateByte + 1),
+                candidateSha256: digest(candidateByte),
+                commandKind: "registration_page" as const,
+                sequence: 1n,
+                currentProgressSha256: digest(3),
+                predecessorReceiptSha256: null,
+              });
+              const ownedReservation = yield* producer.bindReservation(
+                ownedRequest,
+                ownedPreparation,
+                ownedLineage,
+              );
+              const ownedClaim = yield* Effect.fromResult(
+                producer.claimPreparedReservation(
+                  ownedReservation,
+                  ownedLineage,
+                ),
+              );
+              return yield* producer.producePrepared(
+                ownedRequest,
+                ownedPreparation,
+                Object.freeze({
+                  kind: "command_reservation" as const,
+                  ...ownedLineage,
+                  ...ownedClaim.commitments,
+                }),
+              );
+            });
+          const foreignPreparation = yield* producer.prepare(
+            request,
+            PROOF_INPUT,
+            {
+              readSession: fullInput.readSession,
+              commandBudget: fullInput.commandBudget,
+              transportBudget: fullInput.transportBudget,
+              selection,
+            },
+          );
+          const foreignResult = yield* produceForPreparation(
+            request,
+            foreignPreparation,
+            0x71,
+          );
+          const otherRequest = new Request(
+            "https://producer.test/registration-evidence-other",
+          );
+          const otherPreparation = yield* producer.prepare(
+            otherRequest,
+            PROOF_INPUT,
+            {
+              readSession: fullInput.readSession,
+              commandBudget: fullInput.commandBudget,
+              transportBudget: fullInput.transportBudget,
+              selection,
+            },
+          );
+          const otherResult = yield* produceForPreparation(
+            otherRequest,
+            otherPreparation,
+            0x73,
+          );
+          const registrationPreparation = Object.freeze({});
+          const crossPreparation = producer.bindRegistrationEvidence(
+            evidence,
+            request,
+            foreignResult,
+            registrationPreparation,
+          );
+          const crossRequest = producer.bindRegistrationEvidence(
+            evidence,
+            otherRequest,
+            otherResult,
+            registrationPreparation,
+          );
+          const lineage = Object.freeze({
+            attemptSha256: digest(1),
+            candidateSha256: digest(2),
+            commandKind: "registration_page" as const,
+            sequence: 1n,
+            currentProgressSha256: digest(3),
+            predecessorReceiptSha256: null,
+          });
+          const prepared = yield* producer.bindReservation(
+            request,
+            preparation,
+            lineage,
+          );
+          const claim = yield* Effect.fromResult(
+            producer.claimPreparedReservation(prepared, lineage),
+          );
+          const commandResult = yield* producer.producePrepared(
+            request,
+            preparation,
+            Object.freeze({
+              kind: "command_reservation" as const,
+              ...lineage,
+              ...claim.commitments,
+            }),
+          );
+          yield* Effect.fromResult(producer.bindRegistrationEvidence(
+            evidence,
+            request,
+            commandResult,
+            registrationPreparation,
+          ));
+          const command = yield* Effect.fromResult(
+            producer.claimRegistrationCommand(
+              registrationPreparation,
+              evidence,
+            ),
+          );
+          command.reservationSha256.fill(0);
+          const isolatedCommand = yield* Effect.fromResult(
+            producer.claimRegistrationCommand(
+              registrationPreparation,
+              evidence,
+            ),
+          );
+          const wrongContext = producer.claimRegistrationCommand(
+            Object.freeze({}),
+            evidence,
+          );
+          const replay = producer.bindRegistrationEvidence(
+            evidence,
+            request,
+            commandResult,
+            registrationPreparation,
+          );
+          const contradiction = producer.bindRegistrationEvidence(
+            evidence,
+            request,
+            commandResult,
+            Object.freeze({}),
+          );
+          return {
+            candidate: isolatedCandidate,
+            clonedAuthority,
+            command: isolatedCommand,
+            contradiction,
+            contradictoryIssue,
+            concurrentEvidenceIsSame: concurrentEvidence === evidence,
+            crossPreparation,
+            crossRequest,
+            evidenceReplayIsSame: evidenceReplay === evidence,
+            replay,
+            wrongContext,
+            wrongDefinition,
+          };
+      }),
+      fixture.hash,
+    )));
+    expect(result.candidate).toMatchObject({
+      deploymentAnalysisCodecIdentity:
+        DECLARATIVE_V2_DEPLOYMENT_ANALYSIS_CODEC_IDENTITY_V1,
+      deploymentCodegenAnalysisCodecIdentity:
+        DECLARATIVE_V2_DEPLOYMENT_CODEGEN_ANALYSIS_CODEC_IDENTITY_V1,
+      semanticByteLength:
+        definition.artifactIngressPlan.semantic.bytes.byteLength,
+      sourceModules: [{
+        ordinal: 0,
+        artifactModulePath: module.path,
+        roles: module.roles,
+        sourceByteLength: module.sourceBytes.byteLength,
+      }],
+    });
+    expect(result.candidate.deploymentAnalysisSha256)
+      .not.toEqual(new Uint8Array(32));
+    expect(result.candidate.deploymentCodegenAnalysisSha256)
+      .not.toEqual(result.candidate.deploymentAnalysisSha256);
+    expect(Buffer.from(result.candidate.deploymentAnalysisSha256)
+      .toString("hex")).toBe(
+        "18f02d9208deccb7a5f9ee2543a078d9e0425920778f21776a21e807ed48c162",
+      );
+    expect(Buffer.from(result.candidate.deploymentCodegenAnalysisSha256)
+      .toString("hex")).toBe(
+        "f12cf8924d4d7e50a2ae6bf7e1bb7a0540f6c74d90c21e53b86050eb9bb25489",
+      );
+    expect(result.command).toMatchObject({
+      commandKind: "registration_page",
+      sequence: 1n,
+    });
+    expect(result.command.reservationSha256).not.toEqual(new Uint8Array(32));
+    expect(result.evidenceReplayIsSame).toBe(true);
+    expect(result.concurrentEvidenceIsSame).toBe(true);
+    expect(result.crossPreparation).toMatchObject({
+      failure: { reason: "contentMismatch", path: "result.preparation" },
+    });
+    expect(result.crossRequest).toMatchObject({
+      failure: { reason: "contentMismatch", path: "result.preparation" },
+    });
+    expect(failure(result.contradictoryIssue)).toMatchObject({
+      reason: "contentMismatch",
+      path: "definition",
+    });
+    expect(result.clonedAuthority).toMatchObject({
+      failure: { reason: "invalidAuthority" },
+    });
+    expect(result.wrongDefinition).toMatchObject({
+      failure: { reason: "contentMismatch", path: "definition" },
+    });
+    expect(result.wrongContext).toMatchObject({
+      failure: {
+        reason: "contentMismatch",
+        path: "registrationPreparation",
+      },
+    });
+    expect(Result.isSuccess(result.replay)).toBe(true);
+    expect(result.contradiction).toMatchObject({
+      failure: { reason: "contentMismatch", path: "registrationCommand" },
+    });
+    expect(fixture.reads).toEqual([
+      "semantic:0",
+      "semantic:0",
+      "semantic:0",
+      "semantic:0",
+    ]);
+  });
+
+  it("pins registration identity vectors across cold reconstruction and source perturbation", async () => {
+    const definition = registrationDefinition();
+    const coldFirst = await issueRegistrationCandidate(definition);
+    const coldSecond = await issueRegistrationCandidate(definition);
+    const changedDefinition = registrationDefinition(
+      "export function ready() { return 2; }\n",
+    );
+    const changed = await issueRegistrationCandidate(
+      changedDefinition,
+      digest(0x6b),
+    );
+
+    expect(coldSecond).toEqual(coldFirst);
+    expect(coldFirst.deploymentAnalysisCodecIdentity).toBe(
+      "flarex.backend/standard-application-deployment-analysis/canonical-json-v1",
+    );
+    expect(coldFirst.deploymentCodegenAnalysisCodecIdentity).toBe(
+      "flarex.backend/standard-application-deployment-codegen-analysis/canonical-json-v1",
+    );
+    expect(changed.deploymentAnalysisSha256)
+      .not.toEqual(coldFirst.deploymentAnalysisSha256);
+    expect(changed.deploymentCodegenAnalysisSha256)
+      .not.toEqual(coldFirst.deploymentCodegenAnalysisSha256);
+    expect(changed.sourceModules[0]?.sourceSha256)
+      .not.toEqual(coldFirst.sourceModules[0]?.sourceSha256);
+  });
+
+  it("interrupts registration evidence derivation and closes its scoped read session", async () => {
+    const definition = registrationDefinition();
+    const module = definition.artifactIngressPlan.source.modules[0];
+    if (module === undefined) throw new Error("Expected one materialized module.");
+    const fixture = makeFixture({
+      source: module.sourceBytes,
+      semantic: definition.artifactIngressPlan.semantic.bytes,
+      pathText: module.path,
+      roles: module.roles,
+      liveSha256: true,
+    });
+    let blockEvidenceHash = false;
+    let enteredHash: (() => void) | undefined;
+    const entered = new Promise<void>(resolve => {
+      enteredHash = resolve;
+    });
+    const request = new Request(
+      "https://producer.test/registration-evidence-interrupted",
+    );
+    const selection = Object.freeze({
+      kind: "registration_page",
+    }) satisfies DeclarativeV2AuthenticatedCommandSelectionV1;
+    const input = producerInput(selection, transportBudget, 1);
+    const fiber = Effect.runFork(Effect.scoped(withProducer(
+      fixture,
+      producer =>
+        Effect.gen(function* () {
+          const preparation = yield* producer.prepare(
+            request,
+            PROOF_INPUT,
+            {
+              readSession: input.readSession,
+              commandBudget: input.commandBudget,
+              transportBudget: input.transportBudget,
+              selection,
+            },
+          );
+          blockEvidenceHash = true;
+          return yield* producer.issueRegistrationEvidence(
+            request,
+            preparation,
+            definition,
+          );
+        }),
+      bytes => {
+        if (!blockEvidenceHash) return Effect.succeed(sha256Bytes(bytes));
+        enteredHash?.();
+        return Effect.never;
+      },
+    )));
+    await entered;
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) throw new Error("expected interruption");
+    expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    expect(fixture.order.filter(entry => entry === "close")).toHaveLength(1);
+  });
 });
+
+const REGISTRATION_ROOT_CONFIGURATION = Object.freeze({
+  semanticModelIdentity: "flarex.declarative-v2",
+  semanticCodecIdentity: "flarex.semantic-artifact-v1/ndjson-v1",
+  semanticPolicyIdentity: "flarex.standard-application/v1",
+  coreLanguageIdentity: "javascript",
+  abiIdentity: "flarex.dynamic-worker/v1",
+  grammarIdentity: "ecmascript",
+  unicodeIdentity: "unicode-15.1",
+  parserTableIdentity: "flarex.parser/v1",
+  trustedToolingIdentity: "flarex.standard-tooling/v1",
+  ingressProtocolIdentity: "flarex.semantic-ingress/v1",
+  ingressConfigurationIdentity: "flarex.semantic-ingress-config/v1",
+});
+
+function registrationDefinition(
+  sourceText = "export function ready() { return 1; }\n",
+): PreparedStandardApplicationDefinitionV1 {
+  const source = encoder.encode(sourceText);
+  return Result.getOrThrow(prepareStandardApplicationDefinitionV1({
+    programBudgetInput: {
+      maximumModules: 1,
+      maximumFunctions: 1,
+      maximumIdentifierUtf8Bytes: 1_024,
+      maximumValidatorNodes: 64,
+      maximumValidatorDepth: 16,
+      maximumValidatorStringUtf8Bytes: 1_024,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: { tables: [], indexes: [] },
+      modules: [{
+        modulePath: "functions/main",
+        functions: [{
+          exportName: "ready",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "any" },
+          returnsValidator: null,
+        }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 1,
+      maximumEntryBindings: 1,
+      maximumSourceBytes: 4_096,
+      maximumSourceMapBytes: 0,
+      maximumBytesMaterialized: 32_768,
+      maximumSemanticRecords: 32,
+      maximumSemanticRecordBytes: 8_192,
+      maximumSemanticStreamBytes: 32_768,
+    },
+    graphInput: {
+      modules: [{
+        path: "functions/main.js",
+        roles: ["function", "execution"],
+        sourceBytes: source,
+        sourceMapBytes: null,
+      }],
+      functionEntries: [{
+        logicalModulePath: "functions/main",
+        artifactModulePath: "functions/main.js",
+      }],
+      executionPath: "functions/main.js",
+      schemaPath: null,
+      authPath: null,
+    },
+  }));
+}
+
+async function issueRegistrationCandidate(
+  definition: PreparedStandardApplicationDefinitionV1,
+  sourceRootSha256 = digest(11),
+) {
+  const module = definition.artifactIngressPlan.source.modules[0];
+  if (module === undefined) throw new Error("Expected one materialized module.");
+  const fixture = makeFixture({
+    source: module.sourceBytes,
+    semantic: definition.artifactIngressPlan.semantic.bytes,
+    pathText: module.path,
+    roles: module.roles,
+    liveSha256: true,
+    sourceRootSha256,
+  });
+  const request = new Request("https://producer.test/registration-cold");
+  const selection = Object.freeze({
+    kind: "registration_page",
+  }) satisfies DeclarativeV2AuthenticatedCommandSelectionV1;
+  const input = producerInput(selection, transportBudget, 1);
+  return Effect.runPromise(Effect.scoped(withProducer(
+    fixture,
+    producer =>
+      Effect.gen(function* () {
+        const preparation = yield* producer.prepare(
+          request,
+          PROOF_INPUT,
+          {
+            readSession: input.readSession,
+            commandBudget: input.commandBudget,
+            transportBudget: input.transportBudget,
+            selection,
+          },
+        );
+        const evidence = yield* producer.issueRegistrationEvidence(
+          request,
+          preparation,
+          definition,
+        );
+        return yield* Effect.fromResult(
+          producer.claimRegistrationCandidate(definition, evidence),
+        );
+      }),
+    fixture.hash,
+  )));
+}
 
 function withProducer<A, E, R>(
   fixture: Fixture,
@@ -925,6 +1429,11 @@ function makeFixture(options: Readonly<{
   readonly moduleCount?: number;
   readonly pathText?: string;
   readonly source?: Uint8Array;
+  readonly semantic?: Uint8Array;
+  readonly roles?: number;
+  readonly liveSha256?: boolean;
+  readonly sourceRootSha256?: Uint8Array;
+  readonly rootConfiguration?: typeof REGISTRATION_ROOT_CONFIGURATION;
   readonly reportedSourceByteLength?: number;
   readonly reportedSemanticByteLength?: number;
 }> = {}): Fixture {
@@ -932,7 +1441,7 @@ function makeFixture(options: Readonly<{
   const reads: string[] = [];
   const source =
     options.source ?? encoder.encode("export function ready() { return 1; }");
-  const semantic = encoder.encode(
+  const semantic = options.semantic ?? encoder.encode(
     '{"kind":"handler","modulePath":"functions/main.js","exportName":"ready"}\n',
   );
   const moduleCount = options.moduleCount ?? 1;
@@ -975,6 +1484,8 @@ function makeFixture(options: Readonly<{
     options.reportedSemanticByteLength ?? semantic.byteLength,
     readCalls,
     readBytes,
+    options.sourceRootSha256,
+    options.rootConfiguration,
   );
   const sessions: DeclarativeV2AuthenticatedReadSessionFactoryV1 =
     Object.freeze({
@@ -1006,9 +1517,11 @@ function makeFixture(options: Readonly<{
         const value = modules[ordinal]!;
         return Result.succeed(Object.freeze({
           ordinal,
-          roles: 1,
+          roles: options.roles ?? 1,
           frameSha256: digest(10 + (ordinal % 20)),
-          sourceSha256: digest(40 + (ordinal % 20)),
+          sourceSha256: options.liveSha256
+            ? sha256Bytes(value.source)
+            : digest(40 + (ordinal % 20)),
           sourceByteLength: value.reportedSourceByteLength,
           path: value.path,
         }));
@@ -1076,11 +1589,17 @@ function makeFixture(options: Readonly<{
     reads,
     proofs,
     sessions,
-    hash: (_bytes: Uint8Array) => {
+    hash: (bytes: Uint8Array) => {
       order.push("hash");
-      return Effect.succeed(digest(HASH_BYTE));
+      return Effect.succeed(
+        options.liveSha256 ? sha256Bytes(bytes) : digest(HASH_BYTE),
+      );
     },
   });
+}
+
+function sha256Bytes(bytes: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash("sha256").update(bytes).digest());
 }
 
 function makeReceipt(
@@ -1088,6 +1607,8 @@ function makeReceipt(
   semanticByteLength: number,
   readCalls: bigint,
   readBytes: bigint,
+  sourceRootSha256 = digest(11),
+  rootConfiguration = REGISTRATION_ROOT_CONFIGURATION,
 ): DeclarativeV2AuthenticatedReadSessionReceiptV1 {
   const usage = budgetFrame("attempt_usage", 0n, {
     calls: readCalls,
@@ -1100,7 +1621,7 @@ function makeReceipt(
     sourceUploadId: "source-upload",
     sourceGeneration: 1,
     sourceMutationFence: 2,
-    sourceRootSha256: digest(11),
+    sourceRootSha256,
     sourceSelectorSha256: digest(12),
     semanticUploadId: "semantic-upload",
     semanticGeneration: 3,
@@ -1108,6 +1629,7 @@ function makeReceipt(
     semanticRootSha256: digest(13),
     semanticSelectorSha256: digest(14),
     semanticAttemptIdentitySha256: digest(15),
+    rootConfiguration,
     moduleCount,
     semanticByteLength,
     budget: Object.freeze({ usage, commandUsage: usage }),
