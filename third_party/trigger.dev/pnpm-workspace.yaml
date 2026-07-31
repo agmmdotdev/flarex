@@ -1,0 +1,65 @@
+packages:
+  - "upstream/internal-packages/run-engine"
+  - "upstream/internal-packages/run-store"
+  - "upstream/internal-packages/run-ops-database"
+  - "upstream/internal-packages/database"
+  - "upstream/internal-packages/redis"
+  - "upstream/internal-packages/cache"
+  - "upstream/internal-packages/metrics-pipeline"
+  - "upstream/internal-packages/tracing"
+  - "upstream/internal-packages/testcontainers"
+  - "upstream/internal-packages/compute"
+  - "upstream/packages/core"
+  - "upstream/packages/redis-worker"
+  - "upstream/apps/supervisor"
+
+catalog:
+  typescript: 6.0.3
+
+linkWorkspacePackages: false
+preferWorkspacePackages: true
+publicHoistPattern:
+  - "*prisma*"
+sideEffectsCache: false
+blockExoticSubdeps: true
+
+patchedDependencies:
+  "@kubernetes/client-node@1.0.0": "upstream/patches/@kubernetes__client-node@1.0.0.patch"
+  "redlock@5.0.0-beta.2": "upstream/patches/redlock@5.0.0-beta.2.patch"
+  "tsup@8.4.0": "upstream/patches/tsup@8.4.0.patch"
+
+overrides:
+  "@kubernetes/client-node": "1.0.0"
+  "@types/node": "24.13.3"
+  "typescript": "6.0.3"
+  "tsup": "8.4.0"
+  "tar": "7.5.19"
+  "form-data@^2": "2.5.4"
+  "form-data@^3": "3.0.5"
+  "form-data@^4": "4.0.6"
+  "ws@>=7 <7.5.11": "7.5.11"
+  "ws@>=8 <8.21.0": "8.21.0"
+  "undici@>=6 <6.27.0": "6.27.0"
+  "undici@>=7 <7.28.0": "7.28.0"
+  "js-yaml@>=3.0.0 <3.14.2": "3.14.2"
+  "js-yaml@>=4.0.0 <4.1.1": "4.1.1"
+  "qs@>=6.0.0 <6.15.2": "^6.15.2"
+  "minimatch@>=3 <3.1.3": "^3.1.3"
+  "fast-xml-parser@>=4 <4.5.5": "^4.5.5"
+  "fast-xml-parser@>=5 <5.7.0": "^5.7.0"
+  "ajv@>=8 <8.18.0": "^8.18.0"
+  "yaml@>=2 <2.8.3": "^2.8.3"
+  "semver@>=5 <5.7.2": "^5.7.2"
+  "tmp@<0.2.7": "0.2.7"
+  "brace-expansion@<1.1.13": "1.1.13"
+  "brace-expansion@>=2 <2.0.3": "2.0.3"
+  "brace-expansion@>=5 <5.0.6": "5.0.6"
+
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - "cpu-features"
+  - "esbuild"
+  - "prisma"
+  - "protobufjs"
+  - "ssh2"

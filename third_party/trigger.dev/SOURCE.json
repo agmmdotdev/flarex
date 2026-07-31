@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/triggerdotdev/trigger.dev",
+  "commit": "f10bc23785e569e5d917318cf2033aabdbe96a0b",
+  "commitTitle": "perf(run-engine,run-store): one execution snapshot per triggered run (#4419)",
+  "importedAt": "2026-08-01",
+  "sourceRoot": "upstream",
+  "sourceManifest": "SOURCE_SHA256SUMS",
+  "derivedArtifacts": {
+    "test-timings.json": "Run-engine entries projected from the pinned commit's root test-timings.json with upstream/ path prefixes"
+  },
+  "executableFiles": [
+    "upstream/internal-packages/database/.infisical.json"
+  ],
+  "symlinks": {
+    "upstream/internal-packages/database/.env": "../../.env",
+    "upstream/internal-packages/run-ops-database/.env": "../../.env"
+  },
+  "policy": "frozen-one-time-source-import"
+}
