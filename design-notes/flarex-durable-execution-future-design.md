@@ -760,6 +760,364 @@ HTTP request
 Logs and traces are observability evidence, not durable run-state or app-data
 authority.
 
+## Shared Domain Execution Substrate
+
+### One Mechanism Layer, Multiple Semantic Owners
+
+The same durable engine can support Flarex application tasks, AI agents,
+Payload jobs, and Medusa asynchronous work. It should standardize execution
+mechanics without pretending that every domain has the same workflow meaning.
+
+~~~text
+Flarex task adapter ---------+
+AI agent adapter ------------+
+Payload jobs adapter --------+--> shared durable engine
+Medusa workflow adapter -----+        -> Supervisor
+                                      -> AgentOS
+~~~
+
+The shared engine may own:
+
+- durable run and attempt identity;
+- queues, scheduling, fairness, and concurrency;
+- retry timing, timeouts, and cancellation transport;
+- heartbeats and lost-attempt handling;
+- durable waits, signals, child runs, and batches;
+- compute placement and workload lifecycle;
+- generic payload, result, and event persistence; and
+- run timelines, logs, traces, and usage measurements.
+
+Domain adapters retain:
+
+| Domain | Semantic owner |
+| --- | --- |
+| Flarex | Generated references, task API, artifacts, transactional dispatch, and FlarexDB calls |
+| AI agents | Agent loop, model/tool policy, memory, approvals, budgets, and step journal |
+| Payload | Payload task/workflow configuration, restoration rules, job access, and compatibility API |
+| Medusa | Commerce workflow graph, step state, compensation, module access, and transaction meaning |
+
+The durable engine executes work reliably. It does not decide what a model tool
+call means, when a Payload task output is restorable, or which Medusa
+compensation must run.
+
+A possible private command family is:
+
+~~~ts
+type DurableRunCommand =
+  | {
+      kind: "flarex-task";
+      functionId: string;
+      artifactId: string;
+      input: Json;
+    }
+  | {
+      kind: "agent-run";
+      agentId: string;
+      artifactId: string;
+      input: Json;
+    }
+  | {
+      kind: "payload-task";
+      taskSlug: string;
+      artifactId: string;
+      input: Json;
+    }
+  | {
+      kind: "medusa-workflow-step";
+      workflowId: string;
+      transactionId: string;
+      stepId: string;
+      direction: "invoke" | "compensate";
+      artifactId: string;
+      input: Json;
+    };
+~~~
+
+This union is illustrative only. Domain-specific identifiers are locators and
+correlation evidence, not authority. Every adapter must validate and project a
+bounded private command through its owning trust boundary.
+
+### AI Agent Runs
+
+The durable engine is a strong substrate for AI agents because agent execution
+naturally needs:
+
+- long-running and multi-step runs;
+- model and tool-call retries;
+- concurrency and rate limits;
+- human approval waitpoints;
+- cancellation and budget enforcement;
+- child agents and parallel tool work;
+- resumability after host failure; and
+- detailed traces, token usage, and cost accounting.
+
+It does not replace an agent framework. A Flarex agent domain must still own:
+
+- agent instructions and model selection;
+- message and conversation state;
+- tool registration and authorization;
+- context and memory construction;
+- structured-output validation;
+- model fallback and loop termination;
+- token, cost, elapsed-time, and tool budgets;
+- human approval policy; and
+- model- and tool-specific failure classification.
+
+Every expensive or externally visible step should have durable identity and
+outcome evidence:
+
+~~~text
+agent run
+  -> model call 1: completed
+  -> tool call 1: completed
+  -> model call 2: completed
+  -> approval wait: suspended
+  -> model call 3: pending
+~~~
+
+Retrying a whole AgentOS attempt must not automatically repeat already accepted
+model calls, charge the same token work again, or invoke completed tools twice.
+The agent layer therefore needs a step journal or child-run mapping above the
+generic run engine.
+
+Model calls are usually safe to repeat only from a business-correctness
+perspective, not from cost or user-experience perspectives. Tool calls may
+produce irreversible external effects. Each step needs an explicit restoration,
+idempotency, or replay policy.
+
+Agent-specific observability should extend the common run timeline with:
+
+- model provider and model identity;
+- request and response identifiers;
+- prompt, completion, cached, and reasoning token counts where available;
+- latency, retries, and provider rate-limit evidence;
+- tool name, call identity, approval state, and result size;
+- per-step and aggregate cost; and
+- redacted prompt, output, and error policy.
+
+Secrets, raw prompts, tool arguments, and model outputs must not be logged by
+default merely because the durable engine supports metadata and traces.
+
+### Payload Jobs Adapter
+
+Payload currently provides its own Jobs Queue with tasks, workflows, jobs,
+named queues, retries, schedules, cancellation, persisted task outputs, and
+workflow restoration. Jobs are stored in the Payload database's payload-jobs
+collection and can be processed by a dedicated process, cron-triggered command,
+HTTP endpoint, or Local API.
+
+Current upstream behavior should be verified against:
+
+- [Payload Jobs Queue](https://payloadcms.com/docs/jobs-queue/overview);
+- [Payload tasks](https://payloadcms.com/docs/jobs-queue/tasks);
+- [Payload workflows](https://payloadcms.com/docs/jobs-queue/workflows);
+- [Payload jobs](https://payloadcms.com/docs/jobs-queue/jobs); and
+- [Payload queues](https://payloadcms.com/docs/jobs-queue/queues).
+
+The target Flarex integration should preserve Payload-facing authoring where
+Payload compatibility is promised:
+
+~~~ts
+await payload.jobs.queue({
+  task: "generateImageVariants",
+  input: { imageId },
+});
+~~~
+
+Internally, the Payload adapter can translate a registered task, workflow,
+queue, schedule, retry policy, and invocation into Flarex artifact metadata and
+one or more private durable commands.
+
+~~~text
+Payload config and handler
+  -> Flarex authoritative analysis
+  -> Payload-compatible function metadata
+  -> Flarex artifact projection
+  -> Payload job adapter
+  -> shared durable engine
+  -> AgentOS
+  -> Payload task context
+~~~
+
+Payload's public config is not downstream runtime authority by itself. The
+backend-controlled analyzer must verify task/workflow identity, handler
+location, schemas, queue policy, and runtime projection before activation.
+
+The difficult compatibility question is job-state authority. Payload expects
+job records to be queryable through payload-jobs, while the proposed shared
+engine has Flarex-owned run and attempt state. The permanent system must choose
+one authority:
+
+1. Flarex run state is authoritative and Payload job APIs are projections over
+   it.
+2. Payload job state is authoritative and the shared engine operates through a
+   strict Payload persistence adapter.
+3. Both are writable authorities synchronized through a bridge.
+
+Option 3 is rejected as the permanent target because state can disagree about
+queue admission, retries, cancellation, step completion, or terminal outcome.
+
+The leading direction is Flarex orchestration as authority with a
+Payload-compatible API and read model. If strict compatibility requires a
+payload-jobs collection, it should be an explicitly owned projection or facade,
+not an independently writable execution state machine. The precise choice
+requires source inspection and compatibility inventory before acceptance.
+
+Payload workflows restore completed task outputs and rerun their handler while
+returning cached results for previously completed tasks. The adapter must
+preserve that observable behavior. It may map workflow tasks to child runs or
+a domain journal, but it must not silently reinterpret restoration as a generic
+whole-run retry.
+
+Payload cancellation currently allows an executing task to finish and prevents
+later tasks from running. A Flarex adapter may eventually provide stronger
+compute cancellation, but it cannot claim compatibility if it changes the
+observable completion and restoration behavior without an explicit divergence.
+
+### Medusa Workflow Adapter
+
+Medusa currently has a built-in workflow system for multi-system commerce
+operations. It tracks workflow and step state, supports retry configuration,
+asynchronous steps, subscriptions, and compensation functions that reverse
+already-completed work after failure.
+
+Current upstream behavior should be verified against:
+
+- [Medusa workflows](https://docs.medusajs.com/learn/fundamentals/workflows);
+- [Medusa long-running workflows](https://docs.medusajs.com/learn/fundamentals/workflows/long-running-workflow);
+- [Medusa Workflow Engine Module](https://docs.medusajs.com/resources/infrastructure-modules/workflow-engine);
+- [Medusa Redis Workflow Engine Module](https://docs.medusajs.com/resources/infrastructure-modules/workflow-engine/redis); and
+- [Medusa scheduled jobs](https://docs.medusajs.com/learn/fundamentals/scheduled-jobs).
+
+Medusa's default Workflow Engine Module is in-memory. Its production
+recommendation is the Redis module, which uses Redis and BullMQ for tracking,
+retries, timeouts, and scheduled workflow work. Medusa also documents the
+Workflow Engine Module as replaceable by a custom mechanism or third-party
+service. That is the likely integration seam.
+
+The target should preserve Medusa authoring and commerce meaning:
+
+~~~text
+Medusa workflow and steps
+  -> Medusa workflow-semantic adapter
+  -> shared durable primitives
+  -> AgentOS step execution
+  -> Medusa module/repository operations
+  -> invoke or compensate decision owned by Medusa semantics
+~~~
+
+The generic run engine may persist and execute steps, but the Medusa adapter
+must own:
+
+- workflow graph and step identity;
+- invoke versus compensate direction;
+- step inputs, outputs, and idempotency keys;
+- compensation registration and reverse ordering;
+- asynchronous-step success and failure signals;
+- Medusa module/container access;
+- commerce transaction boundaries; and
+- workflow subscriptions and compatibility results.
+
+A generic retry is not a Medusa compensation. For example:
+
+~~~text
+reserve inventory
+  -> authorize payment
+  -> create fulfillment
+  -> failure
+  -> compensate payment
+  -> release inventory
+~~~
+
+The durable engine can schedule and observe those operations, but only the
+Medusa workflow layer can decide the correct compensation graph and commerce
+meaning.
+
+The easiest initial Medusa integrations are non-core asynchronous work:
+
+- scheduled jobs;
+- event-subscriber background work;
+- product or inventory imports;
+- ERP, search, and CMS synchronization;
+- email and notification delivery;
+- media processing;
+- analytics and cleanup; and
+- abandoned-cart processing.
+
+Core Medusa workflows require either:
+
+1. a Flarex-backed implementation of the Medusa Workflow Engine Module contract;
+   or
+2. a carefully proven translation from the Medusa step graph and compensation
+   protocol into Flarex durable primitives.
+
+Running an entire Medusa Redis/BullMQ workflow inside one Flarex durable task is
+acceptable only as a temporary compatibility bridge. It creates nested
+authorities for retries, cancellation, timeouts, step completion, stored
+outputs, and observability. The bridge must name its consumer and deletion
+condition.
+
+This proposal also preserves the accepted FlarexDB rule that Medusa commerce
+uses a separate trusted transaction lane. The durable engine does not turn
+Medusa writes into generic ctx.db writes and does not introduce an atomic
+ctx.db plus ctx.commerce promise.
+
+### Avoid Nested Durable Engines
+
+The permanent architecture should not be:
+
+~~~text
+Flarex durable run
+  -> Payload job runner
+      -> Payload workflow retries
+~~~
+
+or:
+
+~~~text
+Flarex durable run
+  -> Medusa Redis workflow
+      -> BullMQ retry and timeout worker
+~~~
+
+Nested engines create competing answers to:
+
+- which attempt is active;
+- which retry count is authoritative;
+- whether cancellation succeeded;
+- whether a step completed;
+- whether an external side effect is ambiguous;
+- which timeout applies;
+- which output should be restored;
+- when compensation should begin; and
+- which dashboard represents the truth.
+
+A temporary bridge may wrap an upstream engine to prove packaging and runtime
+compatibility, but only one engine should own durable execution state in the
+accepted target. Domain adapters own semantics; the shared engine owns
+mechanics.
+
+### Domain Integration Order
+
+The proposed order is:
+
+1. Flarex-native durable tasks establish the generic engine and AgentOS
+   vertical.
+2. AI-agent runs add step journaling, budgets, approvals, and model/tool
+   observability.
+3. Payload single tasks and schedules validate framework task adaptation.
+4. Payload workflows add restoration and compatibility read models.
+5. Medusa scheduled jobs and subscriber work validate commerce-hosted
+   background execution without replacing workflow semantics.
+6. A Medusa Workflow Engine Module adapter proves step state, async signals,
+   retries, compensation, subscriptions, and recovery.
+7. Upstream duplicate runners and stores are removed only after compatibility
+   and fault-injection evidence passes.
+
+The first vertical must not include all four domains. Shared architecture is a
+destination; each adapter requires a separate proportional preflight and proof.
+
+
 ## Proposed Repository Shape
 
 A possible long-term package arrangement is:
@@ -938,6 +1296,24 @@ deployment, execution, observation, cancellation, and testing.
 Exit criterion: performance changes preserve durable state, isolation, fairness,
 and recovery invariants under load and fault testing.
 
+### FDE08 — Domain Adapters
+
+- add AI-agent step journaling, approval waits, cost budgets, and model/tool
+  observability above the generic run engine;
+- adapt Payload single tasks before workflows and choose one authoritative job
+  state;
+- preserve Payload restoration, cancellation, queue, and generated-type
+  behavior through compatibility tests;
+- adapt Medusa scheduled and subscriber work before core workflows;
+- implement or port the Medusa Workflow Engine Module boundary without losing
+  compensation, async-step, subscription, or idempotency semantics; and
+- retire every nested-engine bridge only after restart, retry, cancellation,
+  restoration, compensation, and observability parity is proven.
+
+Exit criterion: each enabled domain has one durable execution authority,
+domain-correct restoration or compensation behavior, one observable run
+identity, and no remaining unowned duplicate job state.
+
 ## Open Decisions
 
 The following remain deliberately unresolved:
@@ -958,6 +1334,12 @@ The following remain deliberately unresolved:
 11. The permanent location and naming of Trigger-derived code.
 12. Which Trigger dashboard components are reusable without carrying its
     backend data model.
+13. Whether Payload compatibility requires a physical payload-jobs projection
+    or only API-level compatibility.
+14. The exact Medusa Workflow Engine Module surface that can be backed by
+    Flarex durable primitives without preserving Redis/BullMQ execution.
+15. Whether AI agent steps are child runs, a domain journal, or a hybrid, and
+    which layer owns model/tool replay and cost restoration.
 
 ## Acceptance Conditions For This Direction
 
@@ -975,7 +1357,11 @@ This direction should be accepted only if a proof shows all of the following:
 - Cloudflare and AgentOS adapters share semantics without claiming identical
   host guarantees; and
 - the first vertical can be implemented and tested without importing the
-  complete Trigger.dev product.
+  complete Trigger.dev product;
+- Payload and Medusa integrations preserve their public domain semantics while
+  using only one durable execution authority; and
+- AI-agent retries cannot silently repeat accepted model costs or externally
+  visible tool effects.
 
 Until these conditions pass an explicit implementation preflight, this note
 remains a future proposal only.
