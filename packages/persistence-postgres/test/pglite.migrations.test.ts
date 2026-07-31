@@ -70,11 +70,15 @@ describe("createPGlitePersistence", () => {
       "fx_system_declarative_v2_candidate_projection",
       "fx_system_declarative_v2_diagnostic",
       "fx_system_declarative_v2_frontier_entry",
+      "fx_system_declarative_v2_function_group_entry",
+      "fx_system_declarative_v2_function_group_manifest",
       "fx_system_declarative_v2_import_edge",
       "fx_system_declarative_v2_link_node",
       "fx_system_declarative_v2_module_summary",
       "fx_system_declarative_v2_page_manifest",
       "fx_system_declarative_v2_registration",
+      "fx_system_declarative_v2_runtime_projection",
+      "fx_system_declarative_v2_runtime_projection_module",
       "fx_system_declarative_v2_verdict",
       "fx_system_declarative_v2_verifier_attempt",
       "fx_system_declarative_v2_verifier_attempt_v2",
@@ -1161,7 +1165,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "39" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "40" }]);
     } finally {
       try {
         await db.close();
@@ -1355,7 +1359,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "39" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "40" }]);
     } finally {
       try {
         await db.close();
@@ -1392,7 +1396,7 @@ describe("createPGlitePersistence", () => {
       }
       const previousJournal = {
         ...parsedJournal,
-        entries: parsedJournal.entries.slice(0, -5),
+        entries: parsedJournal.entries.slice(0, -6),
       };
       await writeFile(
         copiedJournalPath,
@@ -1462,7 +1466,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "39" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "40" }]);
     } finally {
       try {
         await db.close();
@@ -1499,7 +1503,7 @@ describe("createPGlitePersistence", () => {
         copiedJournalPath,
         `${JSON.stringify({
           ...parsedJournal,
-          entries: parsedJournal.entries.slice(0, -4),
+          entries: parsedJournal.entries.slice(0, -5),
         }, null, 2)}\n`,
         "utf8",
       );
@@ -1531,7 +1535,7 @@ describe("createPGlitePersistence", () => {
           and table_name like 'fx_system_declarative_v2_%'
           and table_name not like '%\\_v2' escape '\\'
       `);
-      expect(after.rows).toEqual([{ count: "14" }]);
+      expect(after.rows).toEqual([{ count: "18" }]);
       const constraints = await current.query<{
         check_count: string;
         foreign_key_count: string;
@@ -1544,8 +1548,8 @@ describe("createPGlitePersistence", () => {
           and conname not like '%\\_v2\\_%' escape '\\'
       `);
       expect(constraints.rows).toEqual([{
-        check_count: "46",
-        foreign_key_count: "21",
+        check_count: "58",
+        foreign_key_count: "25",
       }]);
       const heads = await current.query<{ count: string }>(`
         select count(*)::text as count
@@ -1588,7 +1592,7 @@ describe("createPGlitePersistence", () => {
         copiedJournalPath,
         `${JSON.stringify({
           ...parsedJournal,
-          entries: parsedJournal.entries.slice(0, -3),
+          entries: parsedJournal.entries.slice(0, -4),
         }, null, 2)}\n`,
         "utf8",
       );
@@ -2027,7 +2031,7 @@ describe("createPGlitePersistence", () => {
       const currentReceipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(currentReceipts.rows).toEqual([{ count: "39" }]);
+      expect(currentReceipts.rows).toEqual([{ count: "40" }]);
     } finally {
       try {
         await db.close();

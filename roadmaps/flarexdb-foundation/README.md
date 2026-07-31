@@ -798,17 +798,21 @@ Its no-DDL C1 evidence contract derives each page root from ordered non-manifest
 evidence, creates the sole page manifest, derives the caller-comparison-only
 progress transition, and provides bounded fixed-order phase-tail observation.
 Captured source/semantic object references are inert commitments, not proof of
-existence, authentication, finalization, or read authority. Stage 3 later writes
-static-finalization evidence, the two candidate analysis projections, and the
-separately versioned runtime projection artifacts plus function-group manifest;
-S03-D4, under the scope-clock-first order, exclusively writes both terminal
-verdict outcomes and lifecycle before S04 activation CAS. The existing accepted
-C4 contract still owns only static finalization plus the two analysis
-projections. Runtime projection frames, storage, candidate commitments, and
-manifest completeness require their own private no-authority preflight before
-that implementation gate may expand. Static verification, authenticated source
-reading, readiness, activation writes, coherent reads, ingress, dispatch,
-client cutover, and cleanup remain later stages of the same approved vertical.
+existence, authentication, finalization, or read authority. Stage 3 writes
+static-finalization evidence and the two candidate analysis projections.
+PAM-A0b1/A1-RP now separately publishes versioned candidate-bound runtime
+projection artifacts plus the exact function-group manifest to content-
+addressed R2. Four target tables store only immutable R2 references, identities,
+lengths, digests, normalized mappings, and the scope-fenced publication state;
+they never duplicate module source or canonical artifact bodies. A scoped
+host-neutral artifact-runtime probe fetches and verifies each referenced group.
+Its canonical receipt remains evidence
+only. It writes no verifier verdict or lifecycle and creates no ready or active
+authority. S03-D3, S10/S11, and S03-D4 remain open; S03-D4, under the
+scope-clock-first order, exclusively owns terminal readiness outcomes before
+S04 activation CAS. Static verification, physical build reconciliation,
+readiness, activation writes, coherent reads, ingress, dispatch, client cutover,
+and cleanup remain later stages of the same approved vertical.
 
 The first provisional Stage-3 contract foundation is present but remains
 private, production-unreachable, and non-authoritative. Budget/Progress V2 pins
@@ -856,12 +860,12 @@ caller ceiling. There is no backend root route, production binding/composer,
 target-database write, or publication authority. A1b2 owns durable S1 V2
 reserve/resume/settle integration, and terminal inert C4 alone persists C3
 completion and publishes static-finalization evidence plus the two analysis
-projections. The separately preflighted runtime projection artifacts and
-function-group manifest must join that same inert candidate boundary before
-readiness; they cannot be inferred from or stored as either analysis
-projection. No durable verifier-progress composition, C3/C4 publication,
-verdict, readiness, activation, ingress, deployment, cleanup, or production
-authority is shipped by this foundation.
+projections. PAM-A0b1/A1-RP joins separately versioned runtime projection
+artifacts and the function-group manifest to that inert candidate boundary;
+they are never inferred from or stored as either analysis projection. Its
+private cold-materialization receipts do not settle readiness. No verdict,
+readiness, activation, ingress, deployment, cleanup, or production authority
+is shipped by this foundation.
 
 For A1b2, the existing `apps/executor` production root is the sole composition
 owner for the currently wired shared `primary/public` target because it already

@@ -13,7 +13,13 @@ import {
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
+  decodeDeclarativeV2PhysicalFrameV1,
   encodeDeclarativeV2PhysicalFrameV1,
+  type DeclarativeV2FunctionGroupEntryFrameV1,
+  type DeclarativeV2FunctionGroupManifestFrameV1,
+  type DeclarativeV2RuntimeProjectionFrameV1,
+  type DeclarativeV2RuntimeProjectionModuleFrameV1,
+  type DeclarativeV2RuntimeProjectionSetFrameV1,
   type DeclarativeV2RegistrationFrameV1,
 } from "flarex-protocol/internal/declarative-v2-physical-v1";
 import {
@@ -42,12 +48,34 @@ import {
   type DeclarativeV2VerifierProgressRepositoryV2,
 } from "../src/declarativeV2VerifierProgressRepositoryV2";
 import {
+  type CandidateRuntimeArtifactPublisherV1,
+  type CandidateRuntimePublicationV1,
+  type CandidateRuntimePublishedAuthorityV1,
+  type CandidateRuntimeStoredAuthorityV1,
+  publishCandidateRuntimeArtifactsV1,
+} from "../src/candidateRuntimeProjectionV1";
+import {
+  makeCandidateRuntimePublicationRepositoryV1,
+} from "../src/candidateRuntimePublicationRepositoryV1";
+import {
+  resolveLocatedTrustedScopeAuthorityEffect,
+} from "../src/scopeAuthorityResolution";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+  RUN_LOCATED_READ_COMMITTED_V1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../src/transactionSessionAttemptKernel";
+import {
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
   createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
+import {
+  makeRuntimeArtifactPublisherFixtureV1,
+  type RuntimeArtifactPublisherFixtureV1,
+} from "./runtimeArtifactPublisherFixture";
 import {
   makePrivateApplicationRevisionRegistrationEvidenceBridgeV1,
 } from "../../../apps/analyzer/src/PrivateApplicationRevisionRegistrationEvidence";
@@ -132,6 +160,20 @@ describe("inactive application revision registration V1", () => {
         .toEqual(fixture.preparation.candidateSha256);
       expect(coldPreparation.attemptSha256)
         .toEqual(fixture.preparation.attemptSha256);
+      const runtimePublication = yield*
+        makeCandidateRuntimePublicationRepositoryV1(fixture.target).load(
+          SCOPE_ID,
+          coldPreparation.candidateSha256,
+        );
+      expect(runtimePublication.candidate.readinessPolicyIdentity).toBe(
+        "flarex.readiness/runtime-projection-cold-materialization/v1",
+      );
+      expect(runtimePublication.publication.projections).toHaveLength(1);
+      expect(runtimePublication.publication.projections[0]?.frame.group)
+        .toBe("transaction");
+      expect(runtimePublication.publication.functionEntries).toHaveLength(1);
+      expect(runtimePublication.publication.functionEntries[0]?.frame.functionPath)
+        .toBe("orders:place");
       yield* cold.correlateAnalysis(
         coldPreparation,
         fixture.analysis,
@@ -392,7 +434,381 @@ describe("inactive application revision registration V1", () => {
     expect(result.revisionCount).toBe("0");
     expect(result.schemaCount).toBe("0");
   });
+
+  it("fails closed when a reloaded runtime object reference is corrupted", async () => {
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fixture = yield* registrationFixture();
+      yield* Effect.promise(() => fixture.persistence.query(
+        `update fx_system_declarative_v2_runtime_projection_module
+         set object_key = object_key || '-forged'
+         where scope_id = $1`,
+        [SCOPE_ID],
+      ));
+      const result = yield* Effect.result(
+        makeCandidateRuntimePublicationRepositoryV1(fixture.target).load(
+          SCOPE_ID,
+          fixture.preparation.candidateSha256,
+        ),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({
+          _tag: "CandidateRuntimePublicationStorageV1Error",
+          operation: "load",
+          reason: "corruption",
+        });
+      }
+    })));
+  });
+
+  it("stores only candidate-bound R2 references and normalized mappings", async () => {
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fixture = yield* registrationFixture();
+      const loaded = yield*
+        makeCandidateRuntimePublicationRepositoryV1(fixture.target).load(
+          SCOPE_ID,
+          fixture.preparation.candidateSha256,
+        );
+      expect(loaded.publication.projectionSetReference.objectKey)
+        .toContain("declarative-v2-runtime-artifact/v1/runtime-projection-set/");
+      expect(loaded.publication.projections[0]?.modules[0]?.sourceByteLength)
+        .toBeGreaterThan(0n);
+      const bodyColumns = yield* Effect.promise(() =>
+        fixture.persistence.query<{ column_name: string }>(
+          `select column_name
+           from information_schema.columns
+           where table_name in (
+             'fx_system_declarative_v2_runtime_projection',
+             'fx_system_declarative_v2_runtime_projection_module',
+             'fx_system_declarative_v2_function_group_manifest',
+             'fx_system_declarative_v2_function_group_entry'
+           ) and column_name in (
+             'frame_bytes',
+             'projection_set_frame_bytes',
+             'manifest_frame_bytes',
+             'source_bytes'
+           )`,
+        )
+      );
+      expect(bodyColumns.rows).toEqual([]);
+    })));
+  });
+
+  it("rejects an over-budget runtime publication before the first R2 call", async () => {
+    let calls = 0;
+    const entry = Object.freeze({
+      kind: "function_group_entry" as const,
+      functionOrdinal: 0n,
+      functionPath: "orders:place",
+      executionModule: "orders.js",
+      exportName: "place",
+      handlerKind: "mutation" as const,
+      visibility: "public" as const,
+      group: "transaction" as const,
+      projectionSha256: new Uint8Array(32),
+    });
+    const entries = Object.freeze(Array.from({ length: 61 }, (_, index) =>
+      Object.freeze({ ...entry, functionOrdinal: BigInt(index) })
+    ));
+    const failure = await runEffect(Effect.result(
+      publishCandidateRuntimeArtifactsV1(
+        Object.freeze({
+          projections: Object.freeze([]),
+          projectionSetFrame: Object.freeze({
+            kind: "runtime_projection_set" as const,
+            groupCount: 0n,
+            transactionProjectionSha256: null,
+            edgeActionProjectionSha256: null,
+          }),
+          projectionSetFrameBytes: new Uint8Array([1]),
+          runtimeProjectionSetSha256: new Uint8Array(32),
+          functionEntries: entries,
+          functionEntryBytes: Object.freeze(entries.map(() => new Uint8Array([2]))),
+          functionEntrySha256: Object.freeze(entries.map(() => new Uint8Array(32))),
+          manifestFrame: Object.freeze({
+            kind: "function_group_manifest" as const,
+            runtimeProjectionSetSha256: new Uint8Array(32),
+            functionCount: BigInt(entries.length),
+            functionRootSha256: new Uint8Array(32),
+            validatorRootSha256: new Uint8Array(32),
+            declaredHandlerSetSha256: new Uint8Array(32),
+          }),
+          manifestFrameBytes: new Uint8Array([3]),
+          functionGroupManifestSha256: new Uint8Array(32),
+        }),
+        {
+          putImmutable: () => {
+            calls += 1;
+            return Effect.die(new Error("R2 must not be called"));
+          },
+        },
+      ),
+    ));
+    expect(Result.isFailure(failure)).toBe(true);
+    if (Result.isFailure(failure)) {
+      expect(failure.failure).toMatchObject({
+        _tag: "CandidateRuntimeArtifactPublicationV1Error",
+        operation: "preflight",
+        reason: "budgetExceeded",
+        path: "functionEntries",
+      });
+    }
+    expect(calls).toBe(0);
+  });
+
+  it("rolls every SQL publication boundary back while immutable R2 bodies remain replayable", async () => {
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const fixture = yield* registrationFixture();
+      const repository = makeCandidateRuntimePublicationRepositoryV1(
+        fixture.target,
+      );
+      const loaded = yield* repository.load(
+        SCOPE_ID,
+        fixture.preparation.candidateSha256,
+      );
+      const reconstructed = yield* reconstructRuntimePublication(
+        loaded.publication,
+        fixture.runtimeArtifacts,
+      );
+      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+        DEPLOYMENT_ID,
+        {
+          scopeMetadata: fixture.persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => {
+              throw new Error("Shared runtime publication has no split receipt.");
+            },
+          },
+          scopeClockTargets: { resolve: async () => fixture.target },
+        },
+      );
+      const uncertainTarget = {
+        physicalLocator: fixture.target.physicalLocator,
+        getCurrentClock: fixture.target.getCurrentClock,
+        [RUN_LOCATED_READ_COMMITTED_V1]: <A>() => Promise.reject<A>(
+          new LocatedReadCommittedTransactionFailureV1({
+            kind: "decisionUncertain",
+            settlementCause: new Error("lost runtime-publication commit response"),
+          }),
+        ),
+      } satisfies LocatedReadCommittedAttemptTargetV1;
+      const uncertain = yield* Effect.result(
+        makeCandidateRuntimePublicationRepositoryV1(uncertainTarget).publish({
+          authority: located.authority,
+          candidate: loaded.candidate,
+          candidateSha256: loaded.candidateSha256,
+          candidateFrameBytes: loaded.candidateFrameBytes,
+          ...reconstructed,
+        }),
+      );
+      expect(Result.isFailure(uncertain)).toBe(true);
+      if (Result.isFailure(uncertain)) {
+        expect(uncertain.failure).toMatchObject({
+          _tag: "CandidateRuntimePublicationStorageV1Error",
+          reason: "decisionUncertain",
+        });
+      }
+      yield* Effect.promise(() => fixture.persistence.exec(`
+        delete from fx_system_declarative_v2_function_group_entry;
+        delete from fx_system_declarative_v2_function_group_manifest;
+        delete from fx_system_declarative_v2_runtime_projection_module;
+        delete from fx_system_declarative_v2_runtime_projection;
+      `));
+      for (const boundary of [
+        "candidate",
+        "projection",
+        "projectionModule",
+        "manifest",
+        "manifestEntry",
+      ] as const) {
+        const faulting = makeCandidateRuntimePublicationRepositoryV1(
+          fixture.target,
+          {
+            faultAfter: observed => {
+              if (observed === boundary) throw new Error(`fault:${boundary}`);
+            },
+          },
+        );
+        const failure = yield* Effect.result(faulting.publish({
+          authority: located.authority,
+          candidate: loaded.candidate,
+          candidateSha256: loaded.candidateSha256,
+          candidateFrameBytes: loaded.candidateFrameBytes,
+          ...reconstructed,
+        }));
+        expect(Result.isFailure(failure)).toBe(true);
+        const count = yield* runtimePublicationRowCount(fixture.persistence);
+        expect(count).toBe(0);
+      }
+      expect(fixture.runtimeArtifacts.bodies.size).toBeGreaterThan(0);
+      const replay = yield* Effect.all([
+        repository.publish({
+          authority: located.authority,
+          candidate: loaded.candidate,
+          candidateSha256: loaded.candidateSha256,
+          candidateFrameBytes: loaded.candidateFrameBytes,
+          ...reconstructed,
+        }),
+        repository.publish({
+          authority: located.authority,
+          candidate: loaded.candidate,
+          candidateSha256: loaded.candidateSha256,
+          candidateFrameBytes: loaded.candidateFrameBytes,
+          ...reconstructed,
+        }),
+      ], { concurrency: 2 });
+      expect(replay.every(result => result === "replayed")).toBe(true);
+    })));
+  });
 });
+}
+
+function reconstructRuntimePublication(
+  stored: CandidateRuntimeStoredAuthorityV1,
+  artifacts: RuntimeArtifactPublisherFixtureV1,
+) {
+  return Effect.gen(function* () {
+    const projectionSetObject = yield* artifacts.store.readImmutable(
+      stored.projectionSetReference.kind,
+      stored.projectionSetReference.sha256,
+      { maximumBodyBytes: 64 * 1_048_576, maximumHashBytes: 64 * 1_048_576 },
+    );
+    const manifestObject = yield* artifacts.store.readImmutable(
+      stored.manifestReference.kind,
+      stored.manifestReference.sha256,
+      { maximumBodyBytes: 64 * 1_048_576, maximumHashBytes: 64 * 1_048_576 },
+    );
+    const projectionSetFrame = decodeRuntimeFrame(
+      projectionSetObject.bytes,
+      "runtime_projection_set",
+    );
+    const manifestFrame = decodeRuntimeFrame(
+      manifestObject.bytes,
+      "function_group_manifest",
+    );
+    const projections: CandidateRuntimePublicationV1["projections"][number][] = [];
+    const publishedProjections: CandidateRuntimePublishedAuthorityV1["projections"][number][] = [];
+    for (const authority of stored.projections) {
+      const projectionObject = yield* artifacts.store.readImmutable(
+        authority.reference.kind,
+        authority.reference.sha256,
+        { maximumBodyBytes: 64 * 1_048_576, maximumHashBytes: 64 * 1_048_576 },
+      );
+      const projectionFrame = decodeRuntimeFrame(
+        projectionObject.bytes,
+        "runtime_projection",
+      );
+      const moduleFrames: DeclarativeV2RuntimeProjectionModuleFrameV1[] = [];
+      const moduleFrameBytes: Uint8Array[] = [];
+      const moduleFrameSha256: Uint8Array[] = [];
+      const publishedModules: CandidateRuntimePublishedAuthorityV1["projections"][number]["modules"][number][] = [];
+      for (const module of authority.modules) {
+        const object = yield* artifacts.store.readImmutable(
+          module.reference.kind,
+          module.reference.sha256,
+          { maximumBodyBytes: 64 * 1_048_576, maximumHashBytes: 64 * 1_048_576 },
+        );
+        const frame = decodeRuntimeFrame(
+          object.bytes,
+          "runtime_projection_module",
+        );
+        moduleFrames.push(frame);
+        moduleFrameBytes.push(object.bytes);
+        moduleFrameSha256.push(module.reference.sha256);
+        publishedModules.push(Object.freeze({
+          frame,
+          reference: module.reference,
+        }));
+      }
+      projections.push(Object.freeze({
+        group: authority.frame.group,
+        moduleFrames: Object.freeze(moduleFrames),
+        moduleFrameBytes: Object.freeze(moduleFrameBytes),
+        moduleFrameSha256: Object.freeze(moduleFrameSha256),
+        projectionFrame,
+        projectionFrameBytes: projectionObject.bytes,
+        projectionSha256: authority.reference.sha256,
+      }));
+      publishedProjections.push(Object.freeze({
+        group: authority.frame.group,
+        reference: authority.reference,
+        modules: Object.freeze(publishedModules),
+      }));
+    }
+    const functionEntries: DeclarativeV2FunctionGroupEntryFrameV1[] = [];
+    const functionEntryBytes: Uint8Array[] = [];
+    const functionEntrySha256: Uint8Array[] = [];
+    const publishedEntries: CandidateRuntimePublishedAuthorityV1["functionEntries"][number][] = [];
+    for (const authority of stored.functionEntries) {
+      const object = yield* artifacts.store.readImmutable(
+        authority.reference.kind,
+        authority.reference.sha256,
+        { maximumBodyBytes: 64 * 1_048_576, maximumHashBytes: 64 * 1_048_576 },
+      );
+      const frame = decodeRuntimeFrame(object.bytes, "function_group_entry");
+      functionEntries.push(frame);
+      functionEntryBytes.push(object.bytes);
+      functionEntrySha256.push(authority.reference.sha256);
+      publishedEntries.push(Object.freeze({ frame, reference: authority.reference }));
+    }
+    return Object.freeze({
+      publication: Object.freeze({
+        projections: Object.freeze(projections),
+        projectionSetFrame,
+        projectionSetFrameBytes: projectionSetObject.bytes,
+        runtimeProjectionSetSha256: stored.projectionSetReference.sha256,
+        functionEntries: Object.freeze(functionEntries),
+        functionEntryBytes: Object.freeze(functionEntryBytes),
+        functionEntrySha256: Object.freeze(functionEntrySha256),
+        manifestFrame,
+        manifestFrameBytes: manifestObject.bytes,
+        functionGroupManifestSha256: stored.manifestReference.sha256,
+      } satisfies CandidateRuntimePublicationV1),
+      publishedAuthority: Object.freeze({
+        projectionSetReference: stored.projectionSetReference,
+        manifestReference: stored.manifestReference,
+        projections: Object.freeze(publishedProjections),
+        functionEntries: Object.freeze(publishedEntries),
+      } satisfies CandidateRuntimePublishedAuthorityV1),
+    });
+  });
+}
+
+function decodeRuntimeFrame<K extends
+  | "runtime_projection_set"
+  | "function_group_manifest"
+  | "runtime_projection"
+  | "runtime_projection_module"
+  | "function_group_entry"
+>(bytes: Uint8Array, expected: K):
+  K extends "runtime_projection_set" ? DeclarativeV2RuntimeProjectionSetFrameV1
+    : K extends "function_group_manifest" ? DeclarativeV2FunctionGroupManifestFrameV1
+    : K extends "runtime_projection" ? DeclarativeV2RuntimeProjectionFrameV1
+    : K extends "runtime_projection_module" ? DeclarativeV2RuntimeProjectionModuleFrameV1
+    : DeclarativeV2FunctionGroupEntryFrameV1 {
+  const frame = Result.getOrThrow(
+    decodeDeclarativeV2PhysicalFrameV1(bytes, {
+      maximumFrameBytes: 64 * 1_048_576,
+      maximumCanonicalBytes: 64 * 1_048_576,
+    }),
+  ).frame;
+  if (frame.kind !== expected) {
+    throw new Error(`Expected ${expected}, received ${frame.kind}.`);
+  }
+  return frame as never;
+}
+
+function runtimePublicationRowCount(
+  persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
+) {
+  return Effect.promise(() => persistence.query<{ count: string }>(
+    `select (
+      (select count(*) from fx_system_declarative_v2_runtime_projection)
+      + (select count(*) from fx_system_declarative_v2_runtime_projection_module)
+      + (select count(*) from fx_system_declarative_v2_function_group_manifest)
+      + (select count(*) from fx_system_declarative_v2_function_group_entry)
+    )::text as count`,
+  )).pipe(Effect.map(result => Number(result.rows[0]?.count ?? "-1")));
 }
 
 function makeTestEvidenceAuthority() {
@@ -512,10 +928,12 @@ export function registrationFixtureForPersistence(
   const candidateAuthority =
     evidenceAuthority.issueCandidate(preparedDefinition, evidence);
   const attemptCeilings = budget("attempt_ceilings", 10_000n);
+  const runtimeArtifacts = makeRuntimeArtifactPublisherFixtureV1();
   const context = makeRegistrationTestContext(
     persistence,
     target,
     evidenceAuthority.authority,
+    runtimeArtifacts.publisher,
   );
 
     const preparation = yield* context.prepareAnalysis({
@@ -556,6 +974,7 @@ export function registrationFixtureForPersistence(
       evidenceAuthority,
       candidateAuthority,
       attemptCeilings,
+      runtimeArtifacts,
       preparation,
       ...terminal,
     };
@@ -606,10 +1025,12 @@ export function authenticatedRegistrationFixtureForPersistence(
               preparedDefinition,
             );
             const attemptCeilings = budget("attempt_ceilings", 10_000n);
+            const runtimeArtifacts = makeRuntimeArtifactPublisherFixtureV1();
             const context = makeRegistrationTestContext(
               persistence,
               target,
               bridge.authority,
+              runtimeArtifacts.publisher,
             );
             const preparation = yield* context.prepareAnalysis({
               preparedDefinition,
@@ -660,6 +1081,7 @@ export function authenticatedRegistrationFixtureForPersistence(
               preparedDefinition,
               authenticatedEvidence,
               attemptCeilings,
+              runtimeArtifacts,
               preparation,
               ...terminal,
             });
@@ -672,6 +1094,8 @@ export function makeRegistrationTestContext(
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   target: LocatedApplicationRevisionRegistrationTargetV1,
   evidenceAuthority: ApplicationRevisionRegistrationEvidenceAuthorityV1,
+  runtimeArtifactPublisher: CandidateRuntimeArtifactPublisherV1 =
+    makeRuntimeArtifactPublisherFixtureV1().publisher,
 ) {
   return makeApplicationRevisionRegistrationContextV1({
     authority: {
@@ -690,6 +1114,7 @@ export function makeRegistrationTestContext(
     },
     progressRepository: PROGRESS_OPTIONS,
     evidenceAuthority,
+    runtimeArtifactPublisher,
   });
 }
 

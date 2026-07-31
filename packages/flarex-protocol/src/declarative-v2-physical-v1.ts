@@ -135,6 +135,8 @@ export interface DeclarativeV2CandidateFrameV1 {
   readonly deploymentCodegenAnalysisCodecIdentity: string;
   readonly deploymentCodegenAnalysisByteLength: bigint;
   readonly deploymentCodegenAnalysisSha256: Uint8Array;
+  readonly runtimeProjectionSetSha256: Uint8Array;
+  readonly functionGroupManifestSha256: Uint8Array;
   readonly readinessPolicyIdentity: string;
 }
 
@@ -145,6 +147,70 @@ export interface DeclarativeV2ProjectionFrameV1 {
   readonly candidateSha256: Uint8Array;
   readonly codecIdentity: string;
   readonly canonicalBytes: Uint8Array;
+}
+
+export type DeclarativeV2RuntimeExecutionGroupV1 =
+  | "transaction"
+  | "edge_action";
+
+export interface DeclarativeV2RuntimeProjectionModuleFrameV1 {
+  readonly kind: "runtime_projection_module";
+  readonly group: DeclarativeV2RuntimeExecutionGroupV1;
+  readonly moduleOrdinal: bigint;
+  readonly modulePath: string;
+  readonly roles: bigint;
+  readonly sourceSha256: Uint8Array;
+  readonly sourceBytes: Uint8Array;
+}
+
+export interface DeclarativeV2RuntimeProjectionFrameV1 {
+  readonly kind: "runtime_projection";
+  readonly group: DeclarativeV2RuntimeExecutionGroupV1;
+  readonly executionModule: string;
+  readonly moduleCount: bigint;
+  readonly rawByteLength: bigint;
+  readonly moduleRootSha256: Uint8Array;
+}
+
+export interface DeclarativeV2RuntimeProjectionSetFrameV1 {
+  readonly kind: "runtime_projection_set";
+  readonly groupCount: bigint;
+  readonly transactionProjectionSha256: Uint8Array | null;
+  readonly edgeActionProjectionSha256: Uint8Array | null;
+}
+
+export interface DeclarativeV2FunctionGroupEntryFrameV1 {
+  readonly kind: "function_group_entry";
+  readonly functionOrdinal: bigint;
+  readonly functionPath: string;
+  readonly executionModule: string;
+  readonly exportName: string;
+  readonly handlerKind: "query" | "mutation" | "workflowMutation" | "action";
+  readonly visibility: "public" | "internal";
+  readonly group: DeclarativeV2RuntimeExecutionGroupV1;
+  readonly projectionSha256: Uint8Array;
+}
+
+export interface DeclarativeV2FunctionGroupManifestFrameV1 {
+  readonly kind: "function_group_manifest";
+  readonly runtimeProjectionSetSha256: Uint8Array;
+  readonly functionCount: bigint;
+  readonly functionRootSha256: Uint8Array;
+  readonly validatorRootSha256: Uint8Array;
+  readonly declaredHandlerSetSha256: Uint8Array;
+}
+
+export interface DeclarativeV2ColdMaterializationReceiptFrameV1 {
+  readonly kind: "cold_materialization_receipt";
+  readonly candidateSha256: Uint8Array;
+  readonly group: DeclarativeV2RuntimeExecutionGroupV1;
+  readonly projectionSha256: Uint8Array;
+  readonly functionGroupManifestSha256: Uint8Array;
+  readonly materializerIdentity: string;
+  readonly moduleCount: bigint;
+  readonly rawByteLength: bigint;
+  readonly compressedByteLength: bigint;
+  readonly startupMilliseconds: bigint;
 }
 
 export interface DeclarativeV2AttemptIdentityFrameV1 {
@@ -299,6 +365,12 @@ export interface DeclarativeV2ActivationHeadFrameV1 {
 export type DeclarativeV2PhysicalFrameV1 =
   | DeclarativeV2CandidateFrameV1
   | DeclarativeV2ProjectionFrameV1
+  | DeclarativeV2RuntimeProjectionModuleFrameV1
+  | DeclarativeV2RuntimeProjectionFrameV1
+  | DeclarativeV2RuntimeProjectionSetFrameV1
+  | DeclarativeV2FunctionGroupEntryFrameV1
+  | DeclarativeV2FunctionGroupManifestFrameV1
+  | DeclarativeV2ColdMaterializationReceiptFrameV1
   | DeclarativeV2AttemptIdentityFrameV1
   | DeclarativeV2BudgetFrameV1
   | DeclarativeV2ProgressCursorFrameV1
@@ -532,6 +604,8 @@ const FRAME_SCHEMAS = {
     stringField("deploymentCodegenAnalysisCodecIdentity"),
     u64Field("deploymentCodegenAnalysisByteLength"),
     digestField("deploymentCodegenAnalysisSha256"),
+    digestField("runtimeProjectionSetSha256"),
+    digestField("functionGroupManifestSha256"),
     stringField("readinessPolicyIdentity"),
   ],
   deployment_analysis_projection: [
@@ -543,6 +617,59 @@ const FRAME_SCHEMAS = {
     digestField("candidateSha256"),
     stringField("codecIdentity"),
     bytesField("canonicalBytes", true),
+  ],
+  runtime_projection_module: [
+    enumField("group", ["transaction", "edge_action"]),
+    u64Field("moduleOrdinal"),
+    stringField("modulePath"),
+    u64Field("roles", true),
+    digestField("sourceSha256"),
+    bytesField("sourceBytes", true),
+  ],
+  runtime_projection: [
+    enumField("group", ["transaction", "edge_action"]),
+    stringField("executionModule"),
+    u64Field("moduleCount", true),
+    u64Field("rawByteLength", true),
+    digestField("moduleRootSha256"),
+  ],
+  runtime_projection_set: [
+    u64Field("groupCount"),
+    nullableDigestField("transactionProjectionSha256"),
+    nullableDigestField("edgeActionProjectionSha256"),
+  ],
+  function_group_entry: [
+    u64Field("functionOrdinal"),
+    stringField("functionPath"),
+    stringField("executionModule"),
+    stringField("exportName"),
+    enumField("handlerKind", [
+      "query",
+      "mutation",
+      "workflowMutation",
+      "action",
+    ]),
+    enumField("visibility", ["public", "internal"]),
+    enumField("group", ["transaction", "edge_action"]),
+    digestField("projectionSha256"),
+  ],
+  function_group_manifest: [
+    digestField("runtimeProjectionSetSha256"),
+    u64Field("functionCount"),
+    digestField("functionRootSha256"),
+    digestField("validatorRootSha256"),
+    digestField("declaredHandlerSetSha256"),
+  ],
+  cold_materialization_receipt: [
+    digestField("candidateSha256"),
+    enumField("group", ["transaction", "edge_action"]),
+    digestField("projectionSha256"),
+    digestField("functionGroupManifestSha256"),
+    stringField("materializerIdentity"),
+    u64Field("moduleCount", true),
+    u64Field("rawByteLength", true),
+    u64Field("compressedByteLength"),
+    u64Field("startupMilliseconds"),
   ],
   attempt_identity: [
     digestField("candidateSha256"),

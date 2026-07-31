@@ -228,8 +228,14 @@ The remaining limitations are architectural, not merely naming or packaging:
    handler, artifact, analyzer, and durable reservation evidence into one
    durable revision with request-key replay, but it does not establish
    readiness, activation, routing, or public API authority.
-3. **No target-native readiness operation.** S03-D4 has not yet settled
-   readiness from the real located target and all required evidence.
+3. **No target-native readiness operation.** PAM-A0b1/A1-RP now publishes
+   versioned candidate-bound runtime projections and the exact function-group
+   manifest as content-addressed R2 bodies with only scope-fenced references,
+   commitments, and normalized mappings in PostgreSQL. A private artifact-runtime probe
+   emits canonical bounded cold-materialization receipts. Those artifacts are
+   distinct from the two analysis projections and remain non-activating
+   evidence only. S03-D3 physical reconciliation, S10/S11 build evidence, and
+   S03-D4 readiness settlement from the real located target are still open.
 4. **No replacement activation operation or coherent active reader.** Current
    legacy deployment activation is not the target FlarexDB revision CAS and
    must not be wrapped as though it were.

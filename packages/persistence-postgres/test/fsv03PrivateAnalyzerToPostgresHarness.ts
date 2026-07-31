@@ -58,6 +58,7 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
+import { makeRuntimeArtifactPublisherFixtureV1 } from "./runtimeArtifactPublisherFixture";
 
 import {
   makePrivateApplicationRevisionRegistrationEvidenceBridgeV1,
@@ -402,6 +403,7 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
       },
       progressRepository: PROGRESS_OPTIONS,
       evidenceAuthority: evidenceBridge.authority,
+      runtimeArtifactPublisher: makeRuntimeArtifactPublisherFixtureV1().publisher,
     });
     const preparation = yield* registrationContext.prepareAnalysis({
       preparedDefinition: definition,

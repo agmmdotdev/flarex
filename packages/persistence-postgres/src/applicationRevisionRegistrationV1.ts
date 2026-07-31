@@ -20,6 +20,9 @@ import {
   encodeDeclarativeV2PhysicalFrameV1,
   type DeclarativeV2CandidateFrameV1,
 } from "flarex-protocol/internal/declarative-v2-physical-v1";
+import {
+  DECLARATIVE_V2_RUNTIME_READINESS_POLICY_IDENTITY_V1,
+} from "flarex-protocol/internal/declarative-v2-runtime-projection-v1";
 import type {
   DeclarativeV2VerifierBudgetFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
@@ -54,10 +57,17 @@ import {
 } from "./applicationRevisionRegistrationIdentitiesV1";
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
-  makeDeclarativeV2InertRepositoryV1,
-  type DeclarativeV2InertRepositoryInsertV1Error,
-  type DeclarativeV2InertRepositoryReadV1Error,
-} from "./declarativeV2InertRepository";
+  type CandidateRuntimeArtifactPublisherV1,
+  type CandidateRuntimePublicationV1,
+  type PrepareCandidateRuntimePublicationV1Error,
+  type PublishCandidateRuntimeArtifactsV1Error,
+  prepareCandidateRuntimePublicationV1,
+  publishCandidateRuntimeArtifactsV1,
+} from "./candidateRuntimeProjectionV1";
+import {
+  makeCandidateRuntimePublicationRepositoryV1,
+  type CandidateRuntimePublicationRepositoryV1Error,
+} from "./candidateRuntimePublicationRepositoryV1";
 import {
   makeDeclarativeV2VerifierProgressRepositoryV2,
   type DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
@@ -329,7 +339,9 @@ export type PrepareApplicationRevisionAnalysisV1Error =
   | ApplicationRevisionRegistrationIdentityErrorV1
   | ApplicationRevisionRegistrationEvidenceV1Error
   | ApplicationRevisionRegistrationResourceV1Error
-  | DeclarativeV2InertRepositoryInsertV1Error
+  | PrepareCandidateRuntimePublicationV1Error
+  | PublishCandidateRuntimeArtifactsV1Error
+  | CandidateRuntimePublicationRepositoryV1Error
   | DeclarativeV2VerifierProgressRepositoryV2Error;
 
 export type RegisterApplicationRevisionV1Error =
@@ -342,7 +354,6 @@ export type RegisterApplicationRevisionV1Error =
   | ApplicationRevisionRegistrationDecisionUncertainV1Error
   | ApplicationRevisionRegistrationResourceV1Error
   | TrustedScopeAuthorityError
-  | DeclarativeV2InertRepositoryReadV1Error
   | DeclarativeV2VerifierProgressRepositoryV2Error
   | LockScopeClockForUpdateError
   | PublishPreparedAppSchemaV1InTransactionError
@@ -408,6 +419,7 @@ export interface MakeApplicationRevisionRegistrationContextV1Options {
   readonly progressRepository: DeclarativeV2VerifierProgressRepositoryOptionsV2;
   readonly evidenceAuthority:
     ApplicationRevisionRegistrationEvidenceAuthorityV1;
+  readonly runtimeArtifactPublisher: CandidateRuntimeArtifactPublisherV1;
 }
 
 interface PreparedRegistrationStateV1 {
@@ -517,6 +529,14 @@ export function makeApplicationRevisionRegistrationContextV1(
       functionMetadata,
       options.functionMetadataBudget,
     );
+    const runtimePublication = yield* prepareCandidateRuntimePublicationV1(
+      input.preparedDefinition,
+      functionIdentity,
+    );
+    const runtimePublishedAuthority = yield* publishCandidateRuntimeArtifactsV1(
+      runtimePublication,
+      options.runtimeArtifactPublisher,
+    );
     const candidate = makeCandidateFrame(
       located.authority,
       evidence,
@@ -525,6 +545,7 @@ export function makeApplicationRevisionRegistrationContextV1(
       schema.evidence.manifestSha256,
       schemaBindingSha256,
       functionIdentity,
+      runtimePublication,
     );
     const candidateCanonicalBytes = yield* Effect.fromResult(
       encodeDeclarativeV2PhysicalFrameV1(candidate, {
@@ -536,11 +557,23 @@ export function makeApplicationRevisionRegistrationContextV1(
       Effect.map((encoded) => new Uint8Array(encoded.canonicalBytes)),
       Effect.orDie,
     );
-    const inertRepository = makeDeclarativeV2InertRepositoryV1(target);
-    const inserted = yield* inertRepository.insertCandidate(
-      candidate,
-      PREPARATION_HASH_BUDGET,
+    const candidateSha256 = yield* makeLiveDeclarativeV2Sha256V1()(
+      candidateCanonicalBytes,
+      { maximumInputBytes: candidateCanonicalBytes.byteLength },
     );
+    const runtimeRepository =
+      makeCandidateRuntimePublicationRepositoryV1(target);
+    yield* runtimeRepository.publish({
+      authority: located.authority,
+      candidate,
+      candidateSha256,
+      candidateFrameBytes: candidateCanonicalBytes,
+      publication: runtimePublication,
+      publishedAuthority: runtimePublishedAuthority,
+    });
+    const inserted = Object.freeze({
+      candidateSha256: new Uint8Array(candidateSha256),
+    });
     const progress = makeDeclarativeV2VerifierProgressRepositoryV2(
       target,
       options.progressRepository,
@@ -784,6 +817,7 @@ function makeCandidateFrame(
   schemaArtifactSha256: Uint8Array,
   schemaBindingSha256: Uint8Array,
   functionIdentity: SystemFunctionIdentityV1,
+  runtimePublication: CandidateRuntimePublicationV1,
 ): DeclarativeV2CandidateFrameV1 {
   return Object.freeze({
     kind: "candidate",
@@ -831,7 +865,12 @@ function makeCandidateFrame(
       evidence.deploymentCodegenAnalysisByteLength,
     deploymentCodegenAnalysisSha256:
       new Uint8Array(evidence.deploymentCodegenAnalysisSha256),
-    readinessPolicyIdentity: "flarex.readiness/unavailable-v1",
+    runtimeProjectionSetSha256:
+      new Uint8Array(runtimePublication.runtimeProjectionSetSha256),
+    functionGroupManifestSha256:
+      new Uint8Array(runtimePublication.functionGroupManifestSha256),
+    readinessPolicyIdentity:
+      DECLARATIVE_V2_RUNTIME_READINESS_POLICY_IDENTITY_V1,
   });
 }
 

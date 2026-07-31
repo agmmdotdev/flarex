@@ -21,7 +21,7 @@ describe("private analyzer deterministic identity", () => {
     expect(installed.identity).toEqual({
       protocolIdentity: "flarex.private-source-analyzer-handshake.v1",
       protocolVersion: 1,
-      implementationIdentity: "7e0860cdb058712841da5bfed75ea957477b393128fea43ac7aae5f21e43f622",
+      implementationIdentity: "f97cf649746c6ab5b8dcf7be52e42c0e31ecc12ff4b43b7f25e3ace1de3503e6",
       configurationIdentity: "c0ffa918d2cbfe69cc6193807caecdccf6d50c391bc2525db300b5a4cc4ce795",
     });
     expect(canonicalPrivateAnalyzerHostConfigurationV1(installed.configuration)).toBe(

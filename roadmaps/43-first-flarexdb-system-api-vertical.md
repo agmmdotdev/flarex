@@ -611,10 +611,28 @@ Implemented boundary:
 
 ### `[ ] FSV04`: Settle Evidence-Backed Readiness
 
+The separate PAM-A0b1/A1-RP prerequisite is implemented and remains private
+and inert:
+
+- the candidate commits canonical runtime-projection-set and function-group-
+  manifest identities under
+  `flarex.readiness/runtime-projection-cold-materialization/v1`;
+- migration 0039 stores only candidate-bound R2 object references, codec
+  identities, byte lengths, digests, normalized group/module/function mappings,
+  and the target scope fence. R2 remains the sole body store for projection,
+  module-source, manifest, and function-entry frames; and
+- the private artifact-runtime probe fetches, bounds, hashes, decodes, and
+  cold-materializes the exact referenced R2 groups and
+  emits canonical bounded receipts. Those receipts are evidence, not readiness
+  authority.
+
 Entry gates:
 
 - `FSV03` is complete; and
-- foundation `S03-D4` has an accepted implementation preflight.
+- foundation `S03-D3` physical reconciliation and S10/S11 build evidence are
+  complete; and
+- foundation `S03-D4` has an accepted implementation preflight over those real
+  target rows and the PAM-A0b1/A1-RP cold receipts.
 
 Implement the System Schema readiness function by composing the exact `S03-D4`
 owner:

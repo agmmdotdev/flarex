@@ -174,6 +174,39 @@ describePostgres("real Postgres inactive application revision registration V1", 
            from fx_system_application_revision_request_v1) as receipts
       `);
       expect(rows.rows).toEqual([{ revisions: "1", receipts: "2" }]);
+      const runtimeStorage = await persistence.query<{
+        body_columns: string;
+        projections: string;
+        modules: string;
+        manifests: string;
+        entries: string;
+      }>(`
+        select
+          (select count(*)::text
+           from information_schema.columns
+           where table_schema = current_schema()
+             and table_name in (
+               'fx_system_declarative_v2_runtime_projection',
+               'fx_system_declarative_v2_runtime_projection_module',
+               'fx_system_declarative_v2_function_group_manifest',
+               'fx_system_declarative_v2_function_group_entry'
+             )
+             and column_name in (
+               'frame_bytes', 'source_bytes',
+               'projection_set_frame_bytes', 'manifest_frame_bytes'
+             )) as body_columns,
+          (select count(*)::text from fx_system_declarative_v2_runtime_projection) as projections,
+          (select count(*)::text from fx_system_declarative_v2_runtime_projection_module) as modules,
+          (select count(*)::text from fx_system_declarative_v2_function_group_manifest) as manifests,
+          (select count(*)::text from fx_system_declarative_v2_function_group_entry) as entries
+      `);
+      expect(runtimeStorage.rows).toEqual([{
+        body_columns: "0",
+        projections: "1",
+        modules: "2",
+        manifests: "1",
+        entries: "1",
+      }]);
     });
   }, 60_000);
 

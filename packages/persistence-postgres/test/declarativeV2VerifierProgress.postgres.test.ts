@@ -740,7 +740,10 @@ function candidateFixture(): DeclarativeV2CandidateFrameV1 {
     deploymentCodegenAnalysisCodecIdentity: "codegen-v1",
     deploymentCodegenAnalysisByteLength: 21n,
     deploymentCodegenAnalysisSha256: digest(12),
-    readinessPolicyIdentity: "readiness-v1",
+    runtimeProjectionSetSha256: digest(13),
+    functionGroupManifestSha256: digest(14),
+    readinessPolicyIdentity:
+      "flarex.readiness/runtime-projection-cold-materialization/v1",
   };
 }
 

@@ -10,8 +10,11 @@ repository mechanics are implemented and inert. Authenticated source/semantic
 readers and the earlier request-scoped monolithic private analyzer dispatch are
 also implemented and inert. That dispatch consumes the earlier whole-request
 analyzer protocol, not A1b2c0b0 admitted-command capabilities, and therefore
-does not prove A1b2 composition. Executor-host composition,
-static/candidate/runtime projection publication, readiness, activation,
+does not prove A1b2 composition. The later private A1b2/FSV01-FSV03 lane now
+does prove authenticated analyzer-to-Postgres composition. PAM-A0b1/A1-RP
+publishes candidate-bound runtime projections, the exact function-group
+manifest, and private cold-materialization receipts, all inert and
+production-unreachable. Target build reconciliation, readiness, activation,
 production ingress/binding, and final cutover remain incomplete. The production
 upload-orchestration preflight is accepted below. Its U1 portable protocol and
 the bounded U2 reader,
@@ -1206,11 +1209,18 @@ activation remain blocked until their production host composition is proven.
 
    Runtime projections and the function-to-group manifest are not a third
    `DeploymentAnalysis` projection and must not be squeezed into either of the
-   two existing candidate-projection rows. Their versioned frame, object
-   storage, root/manifest binding, and candidate commitments require a private
-   no-authority preflight before Stage 3 implementation. That prerequisite may
-   add immutable object/storage shapes, but it cannot change the already-frozen
-   two analysis projection kinds or bypass later readiness and activation.
+   two existing candidate-projection rows. PAM-A0b1/A1-RP now owns their
+   versioned physical frames and candidate commitments. Content-addressed R2
+   is the sole artifact-body store; PostgreSQL stores only target-native object
+   references, identities, lengths, digests, mappings, and scope-fenced
+   publication state. The prerequisite also owns the
+   exact function-to-execution-group manifest, and private host-neutral cold
+   probe. It publishes every function/execution-role module to R2 for each required group
+   because the current portable ingress contract does not publish a trusted
+   transitive import graph. The cold receipt proves exact candidate, projection,
+   manifest, materializer identity, module count, raw bytes, and bounded startup
+   for one group; it is evidence input only and writes no verdict, readiness,
+   lifecycle, revision head, or activation authority.
 
    The first provisional C3/C4 foundation is implemented but intentionally
    unusable on its own. Private protocol subpaths now pin Budget/Progress V2,

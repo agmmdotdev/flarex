@@ -137,6 +137,32 @@ describe("Declarative V2 physical frames", () => {
     }, budget))).toBe(true);
   });
 
+  it("canonically permits empty runtime projection sets and function manifests", () => {
+    for (const frame of [
+      {
+        kind: "runtime_projection_set" as const,
+        groupCount: 0n,
+        transactionProjectionSha256: null,
+        edgeActionProjectionSha256: null,
+      },
+      {
+        kind: "function_group_manifest" as const,
+        runtimeProjectionSetSha256: digest(1),
+        functionCount: 0n,
+        functionRootSha256: digest(2),
+        validatorRootSha256: digest(3),
+        declaredHandlerSetSha256: digest(4),
+      },
+    ]) {
+      const encoded = Result.getOrThrow(
+        encodeDeclarativeV2PhysicalFrameV1(frame, budget),
+      );
+      expect(Result.getOrThrow(
+        decodeDeclarativeV2PhysicalFrameV1(encoded.canonicalBytes, budget),
+      ).frame).toEqual(frame);
+    }
+  });
+
   it("preserves signed-int64 boundaries and unusual UTF-16 text", () => {
     const frame: DeclarativeV2PhysicalFrameV1 = {
       kind: "activation_head",
@@ -1015,7 +1041,10 @@ function fixtures(): readonly DeclarativeV2PhysicalFrameV1[] {
       deploymentCodegenAnalysisCodecIdentity: "codegen-v1",
       deploymentCodegenAnalysisByteLength: 21n,
       deploymentCodegenAnalysisSha256: digest(12),
-      readinessPolicyIdentity: "readiness-v1",
+      runtimeProjectionSetSha256: digest(13),
+      functionGroupManifestSha256: digest(14),
+      readinessPolicyIdentity:
+        "flarex.readiness/runtime-projection-cold-materialization/v1",
     },
     {
       kind: "deployment_analysis_projection",
@@ -1028,6 +1057,60 @@ function fixtures(): readonly DeclarativeV2PhysicalFrameV1[] {
       candidateSha256: digest(13),
       codecIdentity: "codegen-v1",
       canonicalBytes: new Uint8Array([3, 4]),
+    },
+    {
+      kind: "runtime_projection_module",
+      group: "transaction",
+      moduleOrdinal: 0n,
+      modulePath: "functions.js",
+      roles: 1n,
+      sourceSha256: digest(15),
+      sourceBytes: new Uint8Array([1, 2, 3]),
+    },
+    {
+      kind: "runtime_projection",
+      group: "transaction",
+      executionModule: "execution.js",
+      moduleCount: 1n,
+      rawByteLength: 3n,
+      moduleRootSha256: digest(16),
+    },
+    {
+      kind: "runtime_projection_set",
+      groupCount: 1n,
+      transactionProjectionSha256: digest(17),
+      edgeActionProjectionSha256: null,
+    },
+    {
+      kind: "function_group_entry",
+      functionOrdinal: 0n,
+      functionPath: "places:create",
+      executionModule: "functions.js",
+      exportName: "create",
+      handlerKind: "mutation",
+      visibility: "public",
+      group: "transaction",
+      projectionSha256: digest(17),
+    },
+    {
+      kind: "function_group_manifest",
+      runtimeProjectionSetSha256: digest(18),
+      functionCount: 1n,
+      functionRootSha256: digest(19),
+      validatorRootSha256: digest(9),
+      declaredHandlerSetSha256: digest(10),
+    },
+    {
+      kind: "cold_materialization_receipt",
+      candidateSha256: digest(20),
+      group: "transaction",
+      projectionSha256: digest(17),
+      functionGroupManifestSha256: digest(21),
+      materializerIdentity: "test-loader-v1",
+      moduleCount: 1n,
+      rawByteLength: 3n,
+      compressedByteLength: 2n,
+      startupMilliseconds: 2n,
     },
     {
       kind: "attempt_identity",
