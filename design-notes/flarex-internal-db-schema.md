@@ -877,26 +877,57 @@ Declared unique constraints use a fixed unique-key table:
 
 ```sql
 fx_app_unique_key (
-  scope_id text not null,
-  epoch text not null,
-  constraint_id text not null,
-  encoded_key bytea not null,
-  key_hash bytea not null,
+  scope_uuid uuid not null,
+  constraint_id integer not null,
+  locale_key text not null,
+  canonical_key_sha256 bytea not null,
   key_codec_version integer not null,
-  key_json jsonb not null,
-  table_id text not null,
-  row_id text not null,
-  locale_key text not null default '',
+  encoded_key bytea not null,
+  table_id integer not null,
+  row_id bytea not null,
+  schema_version_id text not null,
+  write_epoch_uuid uuid not null,
   commit_seq bigint not null,
-  primary key (scope_id, constraint_id, locale_key, key_hash)
+  primary key (
+    scope_uuid,
+    constraint_id,
+    locale_key,
+    canonical_key_sha256
+  ),
+  unique (
+    scope_uuid,
+    constraint_id,
+    locale_key,
+    table_id,
+    row_id
+  ),
+  foreign key (scope_uuid)
+    references fx_system_scope_clock(scope_uuid),
+  foreign key (
+    scope_uuid,
+    table_id,
+    row_id,
+    write_epoch_uuid,
+    commit_seq
+  ) references fx_app_row_rev(
+    scope_uuid,
+    table_id,
+    row_id,
+    write_epoch_uuid,
+    commit_seq
+  )
 )
 ```
 
 `locale_key` is empty for non-localized constraints and the normalized locale
-for localized constraints. The same normalized locale is included in the
-canonical key encoding/hash.
+for localized constraints. Ordered Index V1 encodes that locale as the leading
+component, so the stored bytes and SHA-256 bind localization. PostgreSQL stores
+the current target-native ownership claim and exact row-revision provenance;
+it does not store a second JSON representation of the key or resolve semantic
+constraint definitions. C08 supplies that trusted lowering later.
 
-Trusted code compares `encoded_key` whenever a `key_hash` slot already exists.
+Trusted code compares `encoded_key` whenever a `canonical_key_sha256` slot
+already exists.
 Equal bytes enforce ordinary uniqueness. Unequal bytes are a fatal
 `CanonicalKeyHashCollision`; V1 aborts the mutation rather than pretending the
 hash alone proves equality or attempting to store two unequal keys in one hash

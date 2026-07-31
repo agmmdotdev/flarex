@@ -234,8 +234,9 @@ The remaining limitations are architectural, not merely naming or packaging:
    commitments, and normalized mappings in PostgreSQL. A private artifact-runtime probe
    emits canonical bounded cold-materialization receipts. Those artifacts are
    distinct from the two analysis projections and remain non-activating
-   evidence only. S03-D3 physical reconciliation, S10/S11 build evidence, and
-   S03-D4 readiness settlement from the real located target are still open.
+   evidence only. S10 ordered-index storage and S11 unique-key claim storage
+   now exist privately; S03-D3 physical reconciliation and S03-D4 readiness
+   settlement from the real located target are still open.
 4. **No replacement activation operation or coherent active reader.** Current
    legacy deployment activation is not the target FlarexDB revision CAS and
    must not be wrapped as though it were.

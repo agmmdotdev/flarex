@@ -119,6 +119,12 @@ import type {
   FlarexValueCodecVersion,
   FlarexValueSha256V1,
 } from "flarex-protocol/value";
+
+import {
+  MAX_APP_UNIQUE_CONSTRAINT_ID_V1,
+  MAX_APP_UNIQUE_LOCALE_KEY_BYTES_V1,
+  type AppUniqueConstraintIdV1,
+} from "./appUniqueKeyContract";
 import { MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1 } from "flarex-protocol/value";
 
 import type { ScopeIsolationKind } from "./scopeMetadataTypes";
@@ -2520,6 +2526,124 @@ export const fxAppIndexEntryCurrent = pgTable(
     ),
     check(
       "fx_app_index_entry_current_commit_seq_check",
+      sql`${table.commitSeq} >= 1`,
+    ),
+  ],
+);
+
+/**
+ * Current target-native occupancy for one declared unique-key slot.
+ *
+ * The authoritative value remains the exact app-row revision referenced below.
+ * C08 later owns deriving these rows from trusted constraint definitions and
+ * final row bodies inside the existing commit transaction.
+ */
+export const fxAppUniqueKeys = pgTable(
+  "fx_app_unique_key",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    constraintId: integer("constraint_id")
+      .$type<AppUniqueConstraintIdV1>()
+      .notNull(),
+    localeKey: text("locale_key").notNull(),
+    canonicalKeySha256: bytea("canonical_key_sha256").notNull(),
+    keyCodecVersion: integer("key_codec_version")
+      .$type<OrderedIndexKeyCodecVersion>()
+      .notNull(),
+    encodedKey: bytea("encoded_key").notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    rowId: bytea("row_id").notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    writeEpochUuid: uuid("write_epoch_uuid")
+      .$type<ScopeEpochUuidV1>()
+      .notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_app_unique_key_pk",
+      columns: [
+        table.scopeUuid,
+        table.constraintId,
+        table.localeKey,
+        table.canonicalKeySha256,
+      ],
+    }),
+    unique("fx_app_unique_key_owner_unique").on(
+      table.scopeUuid,
+      table.constraintId,
+      table.localeKey,
+      table.tableId,
+      table.rowId,
+    ),
+    foreignKey({
+      name: "fx_app_unique_key_scope_clock_fk",
+      columns: [table.scopeUuid],
+      foreignColumns: [fxSystemScopeClocks.scopeUuid],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_app_unique_key_row_revision_fk",
+      columns: [
+        table.scopeUuid,
+        table.tableId,
+        table.rowId,
+        table.writeEpochUuid,
+        table.commitSeq,
+      ],
+      foreignColumns: [
+        fxAppRowRevisions.scopeUuid,
+        fxAppRowRevisions.tableId,
+        fxAppRowRevisions.rowId,
+        fxAppRowRevisions.writeEpochUuid,
+        fxAppRowRevisions.commitSeq,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    check(
+      "fx_app_unique_key_constraint_id_check",
+      sql`${table.constraintId} between 1 and ${sql.raw(
+        String(MAX_APP_UNIQUE_CONSTRAINT_ID_V1),
+      )}`,
+    ),
+    check(
+      "fx_app_unique_key_locale_key_check",
+      sql`${table.localeKey} = '' or (octet_length(${table.localeKey}) between 1 and ${sql.raw(
+        String(MAX_APP_UNIQUE_LOCALE_KEY_BYTES_V1),
+      )} and ${table.localeKey} ~ '^[a-z0-9]{1,8}(-[a-z0-9]{1,8})*$')`,
+    ),
+    check(
+      "fx_app_unique_key_digest_length_check",
+      sql`octet_length(${table.canonicalKeySha256}) = 32`,
+    ),
+    check(
+      "fx_app_unique_key_codec_version_check",
+      sql`${table.keyCodecVersion} = 1`,
+    ),
+    check(
+      "fx_app_unique_key_encoded_key_length_check",
+      sql`octet_length(${table.encodedKey}) between 1 and ${sql.raw(
+        String(MAX_ORDERED_INDEX_KEY_BYTES_V1),
+      )}`,
+    ),
+    check(
+      "fx_app_unique_key_table_id_check",
+      sql`${table.tableId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_app_unique_key_row_id_length_check",
+      sql`octet_length(${table.rowId}) = 16`,
+    ),
+    check(
+      "fx_app_unique_key_schema_version_id_check",
+      nonBlankText(table.schemaVersionId),
+    ),
+    check(
+      "fx_app_unique_key_commit_seq_check",
       sql`${table.commitSeq} >= 1`,
     ),
   ],
@@ -5138,6 +5262,7 @@ export const flarexSchema = {
   fxAppRowRevisions,
   fxAppIndexEntryCurrent,
   fxAppIndexEntryRevisions,
+  fxAppUniqueKeys,
   fxControlIndexDefinitions,
   freshnessProcessedEvents,
   fxControlIndexes,

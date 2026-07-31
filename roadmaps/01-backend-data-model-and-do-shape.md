@@ -1,5 +1,44 @@
 # Backend Data Model And Durable Object Shape
 
+## Add Private Target-Native Unique-Key Claims
+
+What changed:
+
+- Migration `0041` adds `fx_app_unique_key`, keyed by scope UUID, constraint,
+  canonical locale, and canonical key SHA-256. The row stores Ordered Index V1
+  key bytes/codec, the owning table/row, schema version, write epoch, and commit
+  sequence, with exact scope-clock and app-row-revision foreign keys.
+- A package-private transaction-only mutation is exposed as one named Effect
+  operation. It freezes sparse missing as
+  omission, keeps explicit null distinct, binds canonical locale into the key
+  bytes, verifies equal hashes against equal bytes, and applies claim,
+  provenance advance, release, or reuse without starting a transaction or
+  creating a second commit owner. Exact mutation replay stays with the outer
+  point-commit idempotency/outcome owner; repeated claim and release requests
+  fail closed locally because terminal state cannot prove identical prior
+  authority. App-row parent sequence and previous-claim sequence remain
+  separate authority facts.
+
+Authority boundary:
+
+- This is S11 storage only. C08 still owns trusted constraint lowering from
+  final rows inside the existing commit; O09 still owns concurrent unique
+  contention and multi-row rollback integration; S03-D3 still owns physical
+  build reconciliation.
+- No semantic schema authority, readiness, activation, active reader, route,
+  trigger, public mutation surface, dual write, or fallback is added.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres test:s11:pglite
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:s11:postgres
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add Private Index Revision And Current Sidecars
 
 What changed:
@@ -26,8 +65,9 @@ What changed:
 Authority boundary:
 
 - This is S10 storage only. C08 later derives entries from final row bodies in
-  the existing commit transaction; S03-D3 owns build reconciliation; S11 owns
-  uniqueness; O10 owns range dependencies and phantom validation.
+  the existing commit transaction; S03-D3 owns build reconciliation; S11 now
+  owns private target-native uniqueness; O10 owns range dependencies and
+  phantom validation.
 - No alternate commit/OCC owner, build transition, readiness, activation,
   routing, production trigger, public mutation API, or legacy bridge is added.
 

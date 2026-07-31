@@ -33,9 +33,11 @@ commit, OCC, or activation owners.
 
 Known limitations and follow-up:
 
-- S11 still owns unique claims; S03-D3 owns build reconciliation; C08 owns
-  lowering final row bodies into index revisions inside the existing commit;
-  and O10 owns indexed dependencies and phantom validation.
+- S11 now owns private target-native unique claims; S03-D3 still owns build
+  reconciliation; C08 owns lowering final row bodies into index revisions and
+  unique claims inside the existing commit; O09 owns unique contention and
+  multi-row rollback integration; and O10 owns indexed dependencies and
+  phantom validation.
 - No readiness, active-reader selection, routing, production trigger, legacy
   removal, or package-root mutation API is added.
 
