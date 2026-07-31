@@ -878,7 +878,7 @@ Exit gates:
   with one immutable winner, and the intended scope/definition/key plans; and
 - key hash equality is verified against canonical bytes on every returned row.
 
-### [ ] S11 — Add Unique-Key Storage
+### [x] S11 — Add Unique-Key Storage
 
 Outcome:
 
@@ -886,12 +886,47 @@ Outcome:
   schema/codec version, and provenance.
 - Freeze sparse, null/missing, localized, delete, and reuse behavior.
 
+Implemented boundary:
+
+- Migration `0041` adds `fx_app_unique_key`, a current target-native claim
+  table keyed by scope UUID, constraint ID, canonical locale, and canonical
+  key SHA-256. Each claim retains Ordered Index V1 codec identity and bytes,
+  the owning table/row, schema version, write epoch, and commit sequence, with
+  foreign keys to the scope clock and exact authoritative app-row revision.
+- The package-private transaction-only mutation canonicalizes at most fifteen
+  unique components plus the locale prefix, treats sparse top-level missing as
+  omission while preserving explicit null as a distinct claim, verifies equal
+  digests against equal canonical bytes, and performs claim, provenance
+  advance, release, and reuse inside the caller's existing transaction. Its
+  named Effect operation has `R = never`, preserves domain failures, maps
+  foreign persistence failures once, and separately validates authoritative
+  app-row lineage from prior unique-claim lineage.
+- This slice does not resolve semantic constraint definitions or start a
+  transaction. C08 remains the owner that lowers trusted final rows into these
+  claims; O09 remains the owner of concurrent-contention and multi-row
+  rollback integration. Exact mutation replay remains with the existing outer
+  point-commit idempotency/outcome owner because current terminal state cannot
+  authenticate the same prior-claim facts; repeated claim and release requests
+  therefore fail closed locally.
+
 Exit gates:
 
 - insert/update/delete/reuse is atomic;
 - the same key may exist in another scope;
 - collisions cannot overwrite claims; and
 - O09 separately proves concurrent contention and rollback.
+
+Evidence:
+
+- PGlite proves canonical sparse/null/missing/locale behavior, claim advance,
+  conflict without overwrite, delete/reuse, cross-scope reuse, forced digest
+  collision rejection, caller-owned transaction rollback, fresh migration,
+  `0040` upgrade, injected migration rollback, and fail-closed repeated claim
+  and release;
+- genuine PostgreSQL 18 proves claim, repeated-claim rejection, conflict, and
+  cross-scope behavior with zero skips; and
+- typecheck, build, Drizzle metadata, Effect-boundary, and diff checks remain
+  green without adding a public export or production caller.
 
 ### [ ] R01 — Freeze Relation Semantics And Stable Identity
 
