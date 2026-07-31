@@ -419,6 +419,13 @@ At the time this direction was recorded:
   analyzer-owned exact-result restart-evidence producer, narrow authenticated
   historical settled-evidence read, and private scoped evidence/settlement/
   reload/rehydrate composition; no raw repository authority is exported;
+- A1b2-S3 now directly replaces the former session-owned command-range model.
+  Stable analyzer session authority retains attempt/candidate/authenticated-
+  input/analyzer/verifier identity only; parse, link, and registration use the
+  exact range/lineage digest of their own authenticated reservations.
+  Historical link bindings preserve and validate the settled link range and
+  predecessor facts independently of the later registration range in both
+  warm continuation and cold rehydrate;
 - FSV01 and FSV02 now provide authenticated analysis and inactive durable
   registration without readiness, activation, or routing authority;
 - FSV02-A1 now makes the backend the owner of the opaque, definition-correlated
@@ -434,9 +441,9 @@ At the time this direction was recorded:
   absent;
 - the private C07 executor composition is accepted after the same bounded proof
   passed in PGlite and genuine PostgreSQL with zero skipped database cases; and
-- C07, A1b2-S1, A1b2-S2, and FSV02-A1 therefore no longer block the selected private
-  host-neutral lane, although FSV03 itself remains separate unimplemented
-  work.
+- C07, A1b2-S1, A1b2-S2, A1b2-S3, and FSV02-A1 therefore no longer block the
+  selected private host-neutral lane, although FSV03 itself remains separate
+  unimplemented work.
 
 FSV01 and FSV02 now establish the first Standard analysis and inactive
 registration operations. This roadmap still does not claim that the complete
@@ -567,8 +574,8 @@ conditions follow.
 | Module graph and artifact plan | `@flarex/declarative-materializer/v1` | Reuse directly for function and execution modules. Schema and auth source-module roles remain unsupported. |
 | Deterministic semantic records | materializer output plus analysis semantic decoder | Usable for pure corpus and compatibility-consumption tests; not proof of the replacement analyzer. |
 | Content-addressed source and semantic upload | backend Declarative V2 artifact-upload host and cores | Implemented for private tests and real R2 adapters, but upload receipts alone are not verified registration. |
-| Authenticated verifier reads | backend request-bound verifier read-session owner plus A1b2-S1 scoped preparation and A1b2-S2 opaque reservation binding | Implemented as private prerequisites. Preparation captures authenticated facts once; persistence proposes lineage and claims the backend-derived six commitments without exposing repository authority. |
-| Replacement analyzer | accepted A1b2 command producer, executor-HTTP transports, persistence readback, Effect host, A1b2-S1 terminal settlement, and A1b2-S2 exact-result restart bridge | Complete as private capabilities and consumed by FSV01. Exact parse/link completions can produce scoped restart evidence and cold rehydrate from authenticated settled evidence; the provisional command plan remains deleted and no production caller or route is implied. |
+| Authenticated verifier reads | backend request-bound verifier read-session owner plus A1b2-S1 scoped preparation, A1b2-S2 opaque reservation binding, and A1b2-S3 per-command lineage ownership | Implemented as private prerequisites. Preparation captures authenticated facts once; persistence proposes lineage and claims the backend-derived six commitments without exposing repository authority. Each reservation, rather than the stable analyzer session, owns its exact range/lineage digest. |
+| Replacement analyzer | accepted A1b2 command producer, executor-HTTP transports, persistence readback, Effect host, A1b2-S1 terminal settlement, A1b2-S2 exact-result restart bridge, and A1b2-S3 stable-session refactor | Complete as private capabilities and consumed by FSV01. Exact parse/link completions can produce scoped restart evidence and cold rehydrate from authenticated settled evidence; historical link bindings retain their own link-reservation range independently of registration. The provisional command plan remains deleted and no production caller or route is implied. |
 | Verified application/function registration | FSV02 private System registration context plus SAP03 wrapper | Complete only for durable inactive idempotent revision registration. It is not readiness or activation authority. |
 | Schema/catalog lifecycle | persistence schema publication, manifest, binding, index, and FSV02 registration owners | Inactive publication/registration is composed. Target-native readiness, activation, and the coherent active reader remain separate gates. |
 | Portable function execution | `@flarex/function-runtime/point-mutation` | Exact public point mutation only. Query builders, nested calls, general mutation capabilities, actions, and scheduling are not present. |

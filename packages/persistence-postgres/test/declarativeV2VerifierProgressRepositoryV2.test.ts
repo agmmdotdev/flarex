@@ -1,4 +1,12 @@
 import { webcrypto } from "node:crypto";
+import {
+  prepareStandardApplicationDefinitionV1,
+  type StandardApplicationDefinitionInputV1,
+} from "@flarex/standard-application-definition/v1";
+import {
+  withAuthenticatedApplicationRevisionEvidenceTestDriverV1,
+} from
+  "../../flarex-backend/test/authenticatedApplicationRevisionEvidenceFixture";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -66,6 +74,313 @@ const pageOperationBudget = Object.freeze({
 }) satisfies DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2;
 
 describe("Declarative V2 progress repository V2 attempt/lease/reservation", () => {
+  it("carries real backend per-command lineage through parse, link, and registration", async () => {
+    const current = await fixture({ semanticCeiling: 100_000n });
+    await moveAttemptToParse(current.persistence, current.attemptSha256);
+    const definition = Result.getOrThrow(
+      prepareStandardApplicationDefinitionV1(
+        authenticatedProducerDefinitionInput(),
+      ),
+    );
+
+    await runEffect(Effect.scoped(
+      withAuthenticatedApplicationRevisionEvidenceTestDriverV1(
+        definition,
+        {
+          projectId: "project",
+          deploymentId: "deployment",
+          deploymentCreatedAt: "2026-07-31T00:00:00.000Z",
+        },
+        driver => Effect.gen(function* () {
+          const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
+            current.repository,
+            { preparedReservations: driver.preparedReservations },
+          );
+          const acquired = yield* bridge.acquire(
+            scopeId,
+            current.attemptSha256,
+            operationBudget,
+          );
+          const parseCommand = yield* driver.prepareCommand(Object.freeze({
+            kind: "parse_module" as const,
+            moduleOrdinal: 0n,
+          }));
+          const parseProposal = yield* bridge.proposeReservation(
+            acquired.session,
+            "parse_module",
+          );
+          const parseAuthority = yield* parseCommand.bindReservation(
+            parseProposal.lineage,
+          );
+          const parseReady = yield* bridge.prepareReservation(
+            acquired.session,
+            parseProposal.proposal,
+            parseAuthority,
+          );
+          const parseReserved = yield* bridge.reservePrepared(
+            parseReady.ready,
+            null,
+            operationBudget,
+          );
+          const parseProduced = yield* parseCommand.produce(
+            parseReserved.reservation,
+          );
+          const parsePageInput = yield* Effect.promise(() =>
+            evidencePageInput(
+              parseReserved.reservation,
+              0n,
+              null,
+              0n,
+              1n,
+              0n,
+              0n,
+              new Uint8Array([1]),
+              0x71,
+            )
+          );
+          const parsePage = yield* bridge.appendEvidencePage(
+            parseReserved.work,
+            parsePageInput,
+            pageOperationBudget,
+          );
+          const parseSettlement = yield* Effect.promise(() =>
+            settlementInput(
+              parseReserved.reservation,
+              parsePage.pageSha256,
+              1n,
+              digest(0x71),
+              1n,
+              "link",
+              10_000n,
+            )
+          );
+          const parseProof = yield* Effect.promise(() =>
+            terminalAuthorityProof(
+              parseReserved.reservation,
+              parseSettlement,
+              null,
+              digest(0x72),
+              "capacity",
+              0n,
+              parseProduced.receipt.requestSha256,
+            )
+          );
+          yield* bridge.settle(
+            parseReserved.work,
+            { ...parseSettlement, terminalProofBytes: parseProof },
+            operationBudget,
+          );
+
+          const registrationCommand = yield* driver.prepareCommand(
+            Object.freeze({ kind: "registration_page" as const }),
+          );
+          const linkCommand = yield* driver.prepareCommand(
+            Object.freeze({ kind: "link_page" as const }),
+          );
+          const linkProposal = yield* bridge.proposeReservation(
+            acquired.session,
+            "link_page",
+          );
+          const linkAuthority = yield* linkCommand.bindReservation(
+            linkProposal.lineage,
+          );
+          const linkReady = yield* bridge.prepareReservation(
+            acquired.session,
+            linkProposal.proposal,
+            linkAuthority,
+          );
+          const linkSettlement = yield* Effect.promise(() =>
+            settlementInput(
+              linkReady.reservation,
+              digest(0x74),
+              1n,
+              digest(0x75),
+              1n,
+              "registration",
+              20_000n,
+            )
+          );
+          const intent = Result.getOrThrow(
+            encodeDeclarativeV2FutureRegistrationIntentV1({
+              attemptSha256: current.attemptSha256,
+              candidateSha256: current.candidateSha256,
+              linkReservationSha256: linkReady.reservationSha256,
+              linkSequence: 2n,
+              registrationSequence: 3n,
+              registrationCurrentProgressSha256:
+                yield* Effect.promise(() =>
+                  frameSha256Any(linkSettlement.nextProgress)
+                ),
+              registrationCommandBudgetSha256:
+                registrationCommand.commitments.commandBudgetSha256,
+              registrationCommandInputSha256:
+                registrationCommand.commitments.commandInputSha256,
+              freshAuthenticatedInputSha256:
+                registrationCommand.commitments.freshAuthenticatedInputSha256,
+              parsePagesRootSha256: digest(0x73),
+              analyzerReleaseSha256: digest(0x72),
+              analyzerIdentitySha256:
+                registrationCommand.commitments.analyzerIdentitySha256,
+              verifierIdentitySha256:
+                registrationCommand.commitments.verifierIdentitySha256,
+            }),
+          );
+          const linkReserved = yield* bridge.reservePrepared(
+            linkReady.ready,
+            intent.canonicalBytes,
+            operationBudget,
+          );
+          const linkProduced = yield* linkCommand.produce(
+            linkReserved.reservation,
+          );
+          const linkPageInput = yield* Effect.promise(() =>
+            evidencePageInput(
+              linkReserved.reservation,
+              0n,
+              null,
+              0n,
+              1n,
+              0n,
+              0n,
+              new Uint8Array([2]),
+              0x75,
+            )
+          );
+          const linkPage = yield* bridge.appendEvidencePage(
+            linkReserved.work,
+            linkPageInput,
+            pageOperationBudget,
+          );
+          const settledLinkInput = Object.freeze({
+            ...linkSettlement,
+            outputManifest: Object.freeze({
+              ...linkSettlement.outputManifest,
+              evidenceRootSha256: linkPage.pageSha256,
+            }),
+          });
+          const settledLinkReceipt = Object.freeze({
+            ...settledLinkInput.receipt,
+            outputManifestSha256:
+              yield* Effect.promise(() =>
+                frameSha256Any(settledLinkInput.outputManifest)
+              ),
+          });
+          const intentSha256 = yield* Effect.promise(() =>
+            sha256(intent.canonicalBytes)
+          );
+          const linkProof = yield* Effect.promise(() =>
+            terminalAuthorityProof(
+              linkReserved.reservation,
+              {
+                ...settledLinkInput,
+                receipt: settledLinkReceipt,
+              },
+              intentSha256,
+              intent.intent.analyzerReleaseSha256,
+              "capacity",
+              0n,
+              linkProduced.receipt.requestSha256,
+            )
+          );
+          const linked = yield* bridge.settle(
+            linkReserved.work,
+            {
+              ...settledLinkInput,
+              receipt: settledLinkReceipt,
+              terminalProofBytes: linkProof,
+            },
+            operationBudget,
+          );
+
+          const realRegistrationProposal =
+            yield* bridge.proposeReservation(
+              acquired.session,
+              "registration_page",
+            );
+          expect(realRegistrationProposal.lineage).toEqual({
+            attemptSha256: current.attemptSha256,
+            candidateSha256: current.candidateSha256,
+            commandKind: "registration_page",
+            sequence: 3n,
+            currentProgressSha256:
+              yield* Effect.promise(() =>
+                frameSha256Any(linkSettlement.nextProgress)
+              ),
+            predecessorReceiptSha256: linked.settlement.receiptSha256,
+          });
+          const realRegistrationAuthority =
+            yield* registrationCommand.bindReservation(
+              realRegistrationProposal.lineage,
+            );
+          const registrationReady = yield* bridge.prepareReservation(
+            acquired.session,
+            realRegistrationProposal.proposal,
+            realRegistrationAuthority,
+          );
+          const registrationReserved = yield* bridge.reservePrepared(
+            registrationReady.ready,
+            intent.canonicalBytes,
+            operationBudget,
+          );
+          const registrationProduced = yield* registrationCommand.produce(
+            registrationReserved.reservation,
+          );
+          const registrationSettlement = yield* Effect.promise(() =>
+            settlementInput(
+              registrationReserved.reservation,
+              digest(0x76),
+              0n,
+              digest(0x77),
+              10_000n,
+              "verdict",
+              30_000n,
+            )
+          );
+          const registrationProof = yield* Effect.promise(() =>
+            terminalAuthorityProof(
+              registrationReserved.reservation,
+              registrationSettlement,
+              intentSha256,
+              intent.intent.analyzerReleaseSha256,
+              "capacity",
+              0n,
+              registrationProduced.receipt.requestSha256,
+            )
+          );
+          const registered = yield* bridge.settle(
+            registrationReserved.work,
+            {
+              ...registrationSettlement,
+              terminalProofBytes: registrationProof,
+            },
+            operationBudget,
+          );
+
+          expect(
+            parseReserved.reservation.rangeAndPredecessorTailsSha256,
+          ).not.toEqual(
+            linkReserved.reservation.rangeAndPredecessorTailsSha256,
+          );
+          expect(
+            linkReserved.reservation.rangeAndPredecessorTailsSha256,
+          ).not.toEqual(
+            registrationReserved.reservation
+              .rangeAndPredecessorTailsSha256,
+          );
+          expect(registrationReserved.reservation.predecessorReceiptSha256)
+            .toEqual(linked.settlement.receiptSha256);
+          expect(registrationProduced.receipt.reservationSha256).toEqual(
+            registrationReady.reservationSha256,
+          );
+          expect(registered.settlement.commandKind).toBe(
+            "registration_page",
+          );
+          expect(registered.settlement.nextProgress.phase).toBe("verdict");
+        }),
+      ),
+    ));
+  });
+
   it("atomically binds one immutable future-registration intent to pending link work", async () => {
     const current = await fixture();
     await moveAttemptToLink(current.persistence, current.attemptSha256);
@@ -2868,6 +3183,7 @@ async function settlementInput(
   diagnosticsRootSha256: Uint8Array,
   commandUsageValue: bigint,
   nextPhase: DeclarativeV2VerifierProgressCursorFrameV2["phase"],
+  resultingUsageValue = 1n,
 ) {
   const reservationSha256 = await frameSha256(reservation);
   const commandUsage = semanticBudget(
@@ -2878,7 +3194,7 @@ async function settlementInput(
   };
   const resultingUsage = semanticBudget(
     "attempt_usage",
-    1n,
+    resultingUsageValue,
   ) as DeclarativeV2VerifierBudgetFrameV2 & {
     readonly kind: "attempt_usage";
   };
@@ -2928,6 +3244,7 @@ async function terminalAuthorityProof(
   analyzerReleaseSha256: Uint8Array,
   authorityKind: "exact_requirement" | "capacity",
   authorityDelta = 0n,
+  requestSha256 = digest(0xea),
 ): Promise<Uint8Array> {
   const actual = Object.freeze(Object.fromEntries(
     DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map(dimension => [
@@ -2951,7 +3268,7 @@ async function terminalAuthorityProof(
     attemptSha256: reservation.attemptSha256,
     candidateSha256: reservation.candidateSha256,
     reservationSha256: await frameSha256(reservation),
-    requestSha256: digest(0xea),
+    requestSha256,
     futureRegistrationIntentSha256,
     commandBudgetSha256: reservation.commandBudgetSha256,
     commandInputSha256: reservation.commandInputSha256,
@@ -2998,6 +3315,69 @@ function semanticBudget(
       ]),
     ),
   }) as DeclarativeV2VerifierBudgetFrameV2;
+}
+
+function authenticatedProducerDefinitionInput():
+  StandardApplicationDefinitionInputV1 {
+  return {
+    programBudgetInput: {
+      maximumModules: 1,
+      maximumFunctions: 1,
+      maximumIdentifierUtf8Bytes: 4_096,
+      maximumValidatorNodes: 256,
+      maximumValidatorDepth: 32,
+      maximumValidatorStringUtf8Bytes: 4_096,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: { tables: [], indexes: [] },
+      modules: [{
+        modulePath: "example",
+        functions: [{
+          exportName: "getThing",
+          kind: "query",
+          visibility: "public",
+          argsValidator: { type: "any" },
+          returnsValidator: null,
+        }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 2,
+      maximumEntryBindings: 1,
+      maximumSourceBytes: 2_048,
+      maximumSourceMapBytes: 1_024,
+      maximumBytesMaterialized: 32_000,
+      maximumSemanticRecords: 32,
+      maximumSemanticRecordBytes: 8_000,
+      maximumSemanticStreamBytes: 16_000,
+    },
+    graphInput: {
+      modules: [
+        {
+          path: "example.js",
+          roles: ["function"],
+          sourceBytes:
+            new TextEncoder().encode("export const getThing = 1;\n"),
+          sourceMapBytes: null,
+        },
+        {
+          path: "_flarex/execution.js",
+          roles: ["execution"],
+          sourceBytes: new TextEncoder().encode("export const run = 1;\n"),
+          sourceMapBytes: null,
+        },
+      ],
+      functionEntries: [{
+        logicalModulePath: "example",
+        artifactModulePath: "example.js",
+      }],
+      executionPath: "_flarex/execution.js",
+      schemaPath: null,
+      authPath: null,
+    },
+  };
 }
 
 function candidateFixture(): DeclarativeV2CandidateFrameV1 {

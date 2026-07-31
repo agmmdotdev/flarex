@@ -1602,8 +1602,7 @@ function coldRestartFixture(
       analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
       analyzerIdentitySha256: sessionBindings.analyzerIdentitySha256,
       verifierIdentitySha256: sessionBindings.verifierIdentitySha256,
-      rangeAndPredecessorTailsSha256:
-        sessionBindings.rangeAndPredecessorTailsSha256,
+      rangeAndPredecessorTailsSha256: digest(62),
       sourceReservationSha256: baseClaim.reservationSha256,
       sourceCommandKind: "parse_module",
       sourceSequence: 1n,
@@ -1755,8 +1754,7 @@ function runModule(
   const expectedBindings = Object.freeze({
     candidateSha256: sessionBindings.candidateSha256,
     authenticatedInputSha256: sessionBindings.authenticatedInputSha256,
-    rangeAndPredecessorTailsSha256:
-      sessionBindings.rangeAndPredecessorTailsSha256,
+    rangeAndPredecessorTailsSha256: digest(41),
     analyzerIdentitySha256: sessionBindings.analyzerIdentitySha256,
     verifierIdentitySha256: sessionBindings.verifierIdentitySha256,
   });
@@ -1939,7 +1937,7 @@ function reservation(
     analyzerIdentitySha256: session.analyzerIdentitySha256,
     verifierIdentitySha256: session.verifierIdentitySha256,
     rangeAndPredecessorTailsSha256:
-      session.rangeAndPredecessorTailsSha256,
+      digest(40 + Number(sequence)),
   };
 }
 
@@ -1998,7 +1996,6 @@ function bindings(): DeclarativeV2AnalyzerSessionBindingsV1 {
     attemptSha256: digest(1),
     candidateSha256: digest(2),
     authenticatedInputSha256: digest(3),
-    rangeAndPredecessorTailsSha256: digest(4),
     analyzerReleaseSha256: digest(5),
     analyzerIdentitySha256: digest(6),
     verifierIdentitySha256: digest(7),

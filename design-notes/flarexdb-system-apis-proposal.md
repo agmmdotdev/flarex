@@ -245,6 +245,14 @@ The remaining limitations are architectural, not merely naming or packaging:
     reload/rehydrate composition. Restart production and settlement retain the
     exact authenticated budget/usage/evidence correlation, and historical
     loading applies cumulative memory/work ceilings across database batches.
+    A1b2-S3 directly replaces the former frozen-range analyzer session
+    contract. Stable session authority contains attempt, candidate,
+    authenticated input, analyzer release/identity, and verifier identity;
+    each parse/link/registration reservation owns its exact range/lineage
+    digest. Registration and cold rehydrate retain and validate the historical
+    link reservation's range independently of the later registration range.
+    There is no compatibility session API, fallback lifecycle, schema change,
+    or parallel reservation identity.
     FSV02-A1 adds the backend-owned opaque registration-evidence capability:
     authenticated Source/Semantic/module facts and the prepared definition
     deterministically yield the existing candidate evidence, and the exact

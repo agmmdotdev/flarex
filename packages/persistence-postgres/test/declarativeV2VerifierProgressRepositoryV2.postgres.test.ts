@@ -688,16 +688,25 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
         operationBudget,
       ));
       if (linked.kind !== "present") throw new Error("Expected attempt.");
+      const registrationProposal = await runEffect(
+        bridge.proposeReservation(
+          acquired.session,
+          "registration_page",
+        ),
+      );
+      expect(registrationProposal.lineage).toEqual({
+        attemptSha256: created.attemptSha256,
+        candidateSha256: inserted.candidateSha256,
+        commandKind: "registration_page",
+        sequence: 2n,
+        currentProgressSha256:
+          intent.intent.registrationCurrentProgressSha256,
+        predecessorReceiptSha256: linked.attempt.lastReceiptSha256,
+      });
       const registrationReservation:
         DeclarativeV2VerifierCommandReservationFrameV2 = {
           kind: "command_reservation",
-          attemptSha256: created.attemptSha256,
-          candidateSha256: inserted.candidateSha256,
-          commandKind: "registration_page",
-          sequence: 2n,
-          currentProgressSha256:
-            intent.intent.registrationCurrentProgressSha256,
-          predecessorReceiptSha256: linked.attempt.lastReceiptSha256,
+          ...registrationProposal.lineage,
           commandBudgetSha256:
             intent.intent.registrationCommandBudgetSha256,
           commandInputSha256:
@@ -708,6 +717,9 @@ describePostgres("real Postgres Declarative V2 progress repository V2", () => {
           verifierIdentitySha256: intent.intent.verifierIdentitySha256,
           rangeAndPredecessorTailsSha256: digest(0x98),
         };
+      expect(
+        registrationReservation.rangeAndPredecessorTailsSha256,
+      ).not.toEqual(reserved.reservation.rangeAndPredecessorTailsSha256);
       await runEffect(bridge.reserve(
         acquired.session,
         {

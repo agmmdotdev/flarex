@@ -1009,6 +1009,8 @@ function projectSettledAttemptForBridge(
     lifecycle: lifecycleForPhase(settlement.nextProgress.phase),
     settledSequence: settlement.sequence,
     lastReceiptSha256: new Uint8Array(settlement.receiptSha256),
+    progressSha256:
+      new Uint8Array(settlement.receipt.nextProgressSha256),
     pendingKind: null,
     pendingSequence: null,
     pendingReservationSha256: null,

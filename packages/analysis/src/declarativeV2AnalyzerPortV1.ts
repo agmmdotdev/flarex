@@ -30,6 +30,7 @@ import {
   type DeclarativeV2VerifierRegistrationFactoryV1,
   type DeclarativeV2VerifierRegistrationInputV1,
   type DeclarativeV2VerifierRegistrationV1Error,
+  declarativeV2StableLinkContinuityMatchesRegistrationV1,
   makeDeclarativeV2VerifierRegistrationFactoryV1,
 } from "./declarativeV2VerifierRegistrationV1";
 import {
@@ -69,7 +70,6 @@ export interface DeclarativeV2AnalyzerSessionBindingsV1 {
   readonly attemptSha256: Uint8Array;
   readonly candidateSha256: Uint8Array;
   readonly authenticatedInputSha256: Uint8Array;
-  readonly rangeAndPredecessorTailsSha256: Uint8Array;
   readonly analyzerReleaseSha256: Uint8Array;
   readonly analyzerIdentitySha256: Uint8Array;
   readonly verifierIdentitySha256: Uint8Array;
@@ -90,6 +90,7 @@ export interface DeclarativeV2AnalyzerRestartEvidenceProducerV1 {
 export interface DeclarativeV2AnalyzerParseCommandV1 {
   readonly kind: "parse_module";
   readonly reservationSha256: Uint8Array;
+  readonly rangeAndPredecessorTailsSha256: Uint8Array;
   readonly sequence: bigint;
   readonly moduleOrdinal: bigint;
   readonly totalModuleCount: bigint;
@@ -118,7 +119,7 @@ export interface DeclarativeV2AnalyzerRegistrationCommandV1 {
   readonly kind: "registration_page";
   readonly input: Omit<
     DeclarativeV2VerifierRegistrationInputV1,
-    "completedLinkResult"
+    "completedLinkResult" | "completedLinkBindings"
   >;
 }
 
@@ -268,7 +269,6 @@ type CapturedSessionBindings = Readonly<{
   attemptSha256: Uint8Array;
   candidateSha256: Uint8Array;
   authenticatedInputSha256: Uint8Array;
-  rangeAndPredecessorTailsSha256: Uint8Array;
   analyzerReleaseSha256: Uint8Array;
   analyzerIdentitySha256: Uint8Array;
   verifierIdentitySha256: Uint8Array;
@@ -826,7 +826,10 @@ function prepareDriver(
           source: new Uint8Array(command.source),
           sourceSha256: new Uint8Array(command.sourceSha256),
         }) satisfies DeclarativeV2AnalyzerParseCommandV1;
-        const expectedBindings = parseBindings(session.bindings);
+        const expectedBindings = parseBindings(
+          session.bindings,
+          capturedCommand.rangeAndPredecessorTailsSha256,
+        );
         const planned = yield* planDeclarativeV2VerifierParseCapacityV1({
           bindings: expectedBindings,
           commandKind: "parse_module",
@@ -868,7 +871,10 @@ function prepareDriver(
     }
     case "source_page": {
       const expectedBindings = Object.freeze({
-        ...sourceBindings(session.bindings),
+        ...sourceBindings(
+          session.bindings,
+          command.input.bindings.rangeAndPredecessorTailsSha256,
+        ),
         reservationSha256: command.input.bindings.reservationSha256,
       });
       const factory = makeDeclarativeV2VerifierSourcePageFactoryV1();
@@ -945,7 +951,12 @@ function prepareDriver(
       ) {
         return Result.fail(issue("start", "missingAuthority", "completedLink"));
       }
-      if (!linkBindingsEqual(session.lastLinkBindings, command.input.bindings)) {
+      if (
+        !declarativeV2StableLinkContinuityMatchesRegistrationV1(
+          session.lastLinkBindings,
+          command.input.bindings,
+        )
+      ) {
         return Result.fail(
           issue("start", "identityMismatch", "completedLink.bindings"),
         );
@@ -956,6 +967,7 @@ function prepareDriver(
       const input = Object.freeze({
         ...command.input,
         completedLinkResult: session.lastLinkResult,
+        completedLinkBindings: cloneLinkBindings(session.lastLinkBindings),
       }) satisfies DeclarativeV2VerifierRegistrationInputV1;
       return factory.create(input, input.bindings).pipe(
         Result.mapError(cause =>
@@ -1329,34 +1341,66 @@ function driverState(
 
 function captureSessionBindings(raw: unknown): CapturedSessionBindings | undefined {
   if (raw === null || typeof raw !== "object") return undefined;
-  const input = raw as Record<string, unknown>;
   const keys = [
     "attemptSha256",
     "candidateSha256",
     "authenticatedInputSha256",
-    "rangeAndPredecessorTailsSha256",
     "analyzerReleaseSha256",
     "analyzerIdentitySha256",
     "verifierIdentitySha256",
   ] as const;
-  const digests = keys.map(key => input[key]);
-  if (digests.some(value => !isUint8ArrayWithByteLength(value, SHA256_BYTES))) {
+  let descriptors: PropertyDescriptorMap;
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(raw);
+  } catch {
+    return undefined;
+  }
+  if (
+    Reflect.ownKeys(descriptors).length !== keys.length ||
+    keys.some(key => !Object.prototype.hasOwnProperty.call(descriptors, key))
+  ) {
+    return undefined;
+  }
+  const attemptSha256 = ownDataPropertyValue(descriptors.attemptSha256);
+  const candidateSha256 = ownDataPropertyValue(descriptors.candidateSha256);
+  const authenticatedInputSha256 =
+    ownDataPropertyValue(descriptors.authenticatedInputSha256);
+  const analyzerReleaseSha256 =
+    ownDataPropertyValue(descriptors.analyzerReleaseSha256);
+  const analyzerIdentitySha256 =
+    ownDataPropertyValue(descriptors.analyzerIdentitySha256);
+  const verifierIdentitySha256 =
+    ownDataPropertyValue(descriptors.verifierIdentitySha256);
+  if (
+    !isUint8ArrayWithByteLength(attemptSha256, SHA256_BYTES) ||
+    !isUint8ArrayWithByteLength(candidateSha256, SHA256_BYTES) ||
+    !isUint8ArrayWithByteLength(authenticatedInputSha256, SHA256_BYTES) ||
+    !isUint8ArrayWithByteLength(analyzerReleaseSha256, SHA256_BYTES) ||
+    !isUint8ArrayWithByteLength(analyzerIdentitySha256, SHA256_BYTES) ||
+    !isUint8ArrayWithByteLength(verifierIdentitySha256, SHA256_BYTES)
+  ) {
     return undefined;
   }
   return Object.freeze({
-    attemptSha256: new Uint8Array(input.attemptSha256 as Uint8Array),
-    candidateSha256: new Uint8Array(input.candidateSha256 as Uint8Array),
+    attemptSha256: new Uint8Array(attemptSha256),
+    candidateSha256: new Uint8Array(candidateSha256),
     authenticatedInputSha256:
-      new Uint8Array(input.authenticatedInputSha256 as Uint8Array),
-    rangeAndPredecessorTailsSha256:
-      new Uint8Array(input.rangeAndPredecessorTailsSha256 as Uint8Array),
+      new Uint8Array(authenticatedInputSha256),
     analyzerReleaseSha256:
-      new Uint8Array(input.analyzerReleaseSha256 as Uint8Array),
+      new Uint8Array(analyzerReleaseSha256),
     analyzerIdentitySha256:
-      new Uint8Array(input.analyzerIdentitySha256 as Uint8Array),
+      new Uint8Array(analyzerIdentitySha256),
     verifierIdentitySha256:
-      new Uint8Array(input.verifierIdentitySha256 as Uint8Array),
+      new Uint8Array(verifierIdentitySha256),
   });
+}
+
+function ownDataPropertyValue(
+  descriptor: PropertyDescriptor | undefined,
+): unknown {
+  return descriptor !== undefined && "value" in descriptor
+    ? descriptor.value
+    : undefined;
 }
 
 function commandCurrentProgress(
@@ -1484,26 +1528,30 @@ function captureAllowance(value: unknown): number | undefined {
 
 function parseBindings(
   bindings: CapturedSessionBindings,
+  rangeAndPredecessorTailsSha256: Uint8Array,
 ): DeclarativeV2VerifierParseCapacityBindingsV1 {
   return Object.freeze({
     candidateSha256: new Uint8Array(bindings.candidateSha256),
     authenticatedInputSha256:
       new Uint8Array(bindings.authenticatedInputSha256),
     rangeAndPredecessorTailsSha256:
-      new Uint8Array(bindings.rangeAndPredecessorTailsSha256),
+      new Uint8Array(rangeAndPredecessorTailsSha256),
     analyzerIdentitySha256: new Uint8Array(bindings.analyzerIdentitySha256),
     verifierIdentitySha256: new Uint8Array(bindings.verifierIdentitySha256),
   });
 }
 
-function sourceBindings(bindings: CapturedSessionBindings) {
+function sourceBindings(
+  bindings: CapturedSessionBindings,
+  rangeAndPredecessorTailsSha256: Uint8Array,
+) {
   return Object.freeze({
     attemptSha256: new Uint8Array(bindings.attemptSha256),
     candidateSha256: new Uint8Array(bindings.candidateSha256),
     authenticatedInputSha256:
       new Uint8Array(bindings.authenticatedInputSha256),
     rangeAndPredecessorTailsSha256:
-      new Uint8Array(bindings.rangeAndPredecessorTailsSha256),
+      new Uint8Array(rangeAndPredecessorTailsSha256),
     analyzerIdentitySha256: new Uint8Array(bindings.analyzerIdentitySha256),
     verifierIdentitySha256: new Uint8Array(bindings.verifierIdentitySha256),
   });
@@ -1634,30 +1682,6 @@ function cloneLinkBindings(
   });
 }
 
-function linkBindingsEqual(
-  left: DeclarativeV2VerifierAuthenticatedLinkBindingsV1,
-  right: DeclarativeV2VerifierAuthenticatedLinkBindingsV1,
-): boolean {
-  return left.linkSequence === right.linkSequence &&
-    digestEqual(left.attemptSha256, right.attemptSha256) &&
-    digestEqual(
-      left.futureRegistrationIntentSha256,
-      right.futureRegistrationIntentSha256,
-    ) &&
-    digestEqual(left.candidateSha256, right.candidateSha256) &&
-    digestEqual(left.authenticatedInputSha256, right.authenticatedInputSha256) &&
-    digestEqual(left.parsePagesRootSha256, right.parsePagesRootSha256) &&
-    digestEqual(left.currentProgressSha256, right.currentProgressSha256) &&
-    digestEqual(
-      left.predecessorAndTailsSha256,
-      right.predecessorAndTailsSha256,
-    ) &&
-    digestEqual(left.rangeSha256, right.rangeSha256) &&
-    digestEqual(left.analyzerReleaseSha256, right.analyzerReleaseSha256) &&
-    digestEqual(left.analyzerIdentitySha256, right.analyzerIdentitySha256) &&
-    digestEqual(left.verifierIdentitySha256, right.verifierIdentitySha256);
-}
-
 function linkBindingsMatchSession(
   bindings: DeclarativeV2VerifierAuthenticatedLinkBindingsV1,
   claim: DeclarativeV2VerifierRestartClaimV1,
@@ -1681,11 +1705,7 @@ function linkBindingsMatchSession(
     ) &&
     digestEqual(
       bindings.predecessorAndTailsSha256,
-      session.rangeAndPredecessorTailsSha256,
-    ) &&
-    digestEqual(
       bindings.rangeSha256,
-      session.rangeAndPredecessorTailsSha256,
     ) &&
     digestEqual(bindings.analyzerReleaseSha256, session.analyzerReleaseSha256) &&
     digestEqual(bindings.analyzerIdentitySha256, session.analyzerIdentitySha256) &&

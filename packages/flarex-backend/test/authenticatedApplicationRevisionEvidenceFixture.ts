@@ -25,17 +25,26 @@ import {
   DeclarativeV2AuthenticatedCommandSha256V1,
   makeDeclarativeV2AuthenticatedCommandProducerLayerV1,
   type DeclarativeV2AuthenticatedCommandPreparationV1,
+  type DeclarativeV2AuthenticatedCommandPreparedReservationV1,
   type DeclarativeV2AuthenticatedCommandPreparedReservationClaimV1,
   type DeclarativeV2AuthenticatedCommandProducerApiV1,
+  type DeclarativeV2AuthenticatedCommandProducerReceiptV1,
   type DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
   type DeclarativeV2AuthenticatedCommandProducerV1Error,
   type DeclarativeV2AuthenticatedCommandReservationLineageV1,
+  type DeclarativeV2AuthenticatedCommandSelectionV1,
+  type DeclarativeV2AuthenticatedCommandStableCommitmentsV1,
   type DeclarativeV2AuthenticatedRegistrationEvidenceV1,
 } from "../src/declarativeV2/AuthenticatedCommandProducer";
 import {
   makeDeclarativeV2AuthenticatedApplicationRevisionEvidencePortV1,
   type DeclarativeV2AuthenticatedApplicationRevisionEvidencePortV1,
 } from "../src/declarativeV2/AuthenticatedApplicationRevisionEvidence";
+import {
+  makeDeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1,
+  type DeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1,
+} from
+  "../src/declarativeV2/AuthenticatedCommandReservationPreparation";
 import {
   DeclarativeV2AuthenticatedReadSessionInputError,
   type DeclarativeV2AuthenticatedByteCursorV1,
@@ -96,6 +105,37 @@ export interface AuthenticatedApplicationRevisionEvidenceTestDriverV1 {
     reservation: DeclarativeV2VerifierCommandReservationFrameV2,
   ) => Effect.Effect<
     unknown,
+    DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+    never
+  >;
+  readonly preparedReservations:
+    DeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1;
+  readonly prepareCommand: (
+    selection: DeclarativeV2AuthenticatedCommandSelectionV1,
+  ) => Effect.Effect<
+    AuthenticatedDeclarativeV2PreparedCommandTestDriverV1,
+    DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
+    Scope.Scope
+  >;
+}
+
+export interface AuthenticatedDeclarativeV2PreparedCommandTestDriverV1 {
+  readonly commitments:
+    DeclarativeV2AuthenticatedCommandStableCommitmentsV1;
+  readonly bindReservation: (
+    lineage: DeclarativeV2AuthenticatedCommandReservationLineageV1,
+  ) => Effect.Effect<
+    DeclarativeV2AuthenticatedCommandPreparedReservationV1,
+    DeclarativeV2AuthenticatedCommandProducerV1Error,
+    never
+  >;
+  readonly produce: (
+    reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+  ) => Effect.Effect<
+    Readonly<{
+      readonly result: unknown;
+      readonly receipt: DeclarativeV2AuthenticatedCommandProducerReceiptV1;
+    }>,
     DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
     never
   >;
@@ -174,6 +214,51 @@ export function withAuthenticatedApplicationRevisionEvidenceTestDriverV1<
   return DeclarativeV2AuthenticatedCommandProducerV1.pipe(
     Effect.flatMap(producer =>
       Effect.gen(function* () {
+        const prepareCommand = Effect.fn(
+          "AuthenticatedRegistrationEvidenceTestDriver.prepareCommand",
+        )(function* (
+          selection: DeclarativeV2AuthenticatedCommandSelectionV1,
+        ) {
+          const commandPreparation = yield* producer.prepare(
+            request,
+            PROOF_INPUT,
+            Object.freeze({
+              readSession,
+              commandBudget,
+              transportBudget: TRANSPORT_BUDGET,
+              selection,
+            }),
+          );
+          const commitments = yield* Effect.fromResult(
+            producer.commitments(request, commandPreparation),
+          );
+          return Object.freeze({
+            commitments,
+            bindReservation: (
+              lineage: DeclarativeV2AuthenticatedCommandReservationLineageV1,
+            ) =>
+              producer.bindReservation(
+                request,
+                commandPreparation,
+                lineage,
+              ),
+            produce: Effect.fn(
+              "AuthenticatedRegistrationEvidenceTestDriver.produceCommand",
+            )(function* (
+              reservation: DeclarativeV2VerifierCommandReservationFrameV2,
+            ) {
+              const result = yield* producer.producePrepared(
+                request,
+                commandPreparation,
+                reservation,
+              );
+              const receipt = yield* Effect.fromResult(
+                producer.receipt(request, result),
+              );
+              return Object.freeze({ result, receipt });
+            }),
+          }) satisfies AuthenticatedDeclarativeV2PreparedCommandTestDriverV1;
+        });
         const preparation = yield* producer.prepare(
           request,
           PROOF_INPUT,
@@ -192,6 +277,11 @@ export function withAuthenticatedApplicationRevisionEvidenceTestDriverV1<
           request,
           preparation,
           port,
+          preparedReservations:
+            makeDeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1(
+              producer,
+            ),
+          prepareCommand,
           bindReservation: Effect.fn(
             "AuthenticatedRegistrationEvidenceTestDriver.bindReservation",
           )(function* (lineage) {

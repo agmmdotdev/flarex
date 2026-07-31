@@ -88,6 +88,54 @@ const SEMANTIC_RECORDS = Object.freeze([
 ] satisfies ReadonlyArray<DeclarativeV2SemanticRecordV1>);
 
 describe("private Declarative V2 analyzer port", () => {
+  test("rejects the former session-owned command range", () => {
+    const port = makeDeclarativeV2AnalyzerPortFactoryV1();
+    const formerBindings = Object.freeze({
+      ...bindings(),
+      rangeAndPredecessorTailsSha256: digest(90),
+    });
+    expect(port.createSession(formerBindings)).toMatchObject({
+      failure: {
+        reason: "invalidInput",
+        path: "bindings",
+      },
+    });
+  });
+
+  test("rejects accessor and reflective-proxy session bindings without reading them", () => {
+    const port = makeDeclarativeV2AnalyzerPortFactoryV1();
+    let accessorReads = 0;
+    const accessorBindings: DeclarativeV2AnalyzerSessionBindingsV1 = {
+      ...bindings(),
+    };
+    Object.defineProperty(accessorBindings, "attemptSha256", {
+      enumerable: true,
+      get() {
+        accessorReads += 1;
+        return digest(91);
+      },
+    });
+    expect(port.createSession(accessorBindings)).toMatchObject({
+      failure: {
+        reason: "invalidInput",
+        path: "bindings",
+      },
+    });
+    expect(accessorReads).toBe(0);
+
+    const reflectiveProxy = new Proxy(bindings(), {
+      ownKeys() {
+        throw new Error("reflective trap must stay recoverable");
+      },
+    });
+    expect(port.createSession(reflectiveProxy)).toMatchObject({
+      failure: {
+        reason: "invalidInput",
+        path: "bindings",
+      },
+    });
+  });
+
   test.each([1, 1_024] as const)(
     "composes parse, link, and registration under allowance %i",
     allowance => {
@@ -98,6 +146,7 @@ describe("private Declarative V2 analyzer port", () => {
       const parseCommand = {
         kind: "parse_module",
         reservationSha256: digest(20),
+        rangeAndPredecessorTailsSha256: digest(19),
         sequence: 1n,
         moduleOrdinal: 0n,
         totalModuleCount: 1n,
@@ -135,9 +184,8 @@ describe("private Declarative V2 analyzer port", () => {
         linkSequence: 2n,
         parsePagesRootSha256: digest(23),
         currentProgressSha256: frameSha256(registrationProgress),
-        predecessorAndTailsSha256:
-          sessionBindings.rangeAndPredecessorTailsSha256,
-        rangeSha256: sessionBindings.rangeAndPredecessorTailsSha256,
+        predecessorAndTailsSha256: digest(25),
+        rangeSha256: digest(25),
         analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
         analyzerIdentitySha256: sessionBindings.analyzerIdentitySha256,
         verifierIdentitySha256: sessionBindings.verifierIdentitySha256,
@@ -169,6 +217,8 @@ describe("private Declarative V2 analyzer port", () => {
         input: {
           bindings: {
             ...linkBindings,
+            predecessorAndTailsSha256: digest(26),
+            rangeSha256: digest(26),
             registrationReservationSha256: digest(24),
             semanticSha256: sha256(semantic),
           },
@@ -207,8 +257,7 @@ describe("private Declarative V2 analyzer port", () => {
           candidateSha256: sessionBindings.candidateSha256,
           reservationSha256: digest(31),
           authenticatedInputSha256: sessionBindings.authenticatedInputSha256,
-          rangeAndPredecessorTailsSha256:
-            sessionBindings.rangeAndPredecessorTailsSha256,
+          rangeAndPredecessorTailsSha256: digest(34),
           analyzerIdentitySha256: sessionBindings.analyzerIdentitySha256,
           verifierIdentitySha256: sessionBindings.verifierIdentitySha256,
         },
@@ -254,6 +303,7 @@ describe("private Declarative V2 analyzer port", () => {
       Result.getOrThrow(port.start(session, {
         kind: "parse_module",
         reservationSha256: digest(50),
+        rangeAndPredecessorTailsSha256: digest(49),
         sequence: 1n,
         moduleOrdinal: 0n,
         totalModuleCount: 1n,
@@ -384,6 +434,7 @@ describe("private Declarative V2 analyzer port", () => {
       {
         kind: "parse_module",
         reservationSha256: digest(70),
+        rangeAndPredecessorTailsSha256: digest(69),
         sequence: 1n,
         moduleOrdinal: 0n,
         totalModuleCount: 2n,
@@ -647,6 +698,21 @@ describe("private Declarative V2 analyzer port", () => {
         path: "claim.sequence",
       },
     });
+    expect(port.rehydrate(session, {
+      claim: settledLinkClaim,
+      source: restartPageSource(linkProduced.pages),
+      maximum: restartBudget(linkProduced.complete.actualUsage),
+      nextProgress: registrationProgress,
+      linkBindings: Object.freeze({
+        ...linkBindings,
+        rangeSha256: digest(65),
+      }),
+    })).toMatchObject({
+      failure: {
+        reason: "identityMismatch",
+        path: "linkBindings",
+      },
+    });
     const coldLink = Result.getOrThrow(port.rehydrate(session, {
       claim: settledLinkClaim,
       source: restartPageSource(linkProduced.pages),
@@ -665,6 +731,8 @@ describe("private Declarative V2 analyzer port", () => {
       input: {
         bindings: {
           ...linkBindings,
+          predecessorAndTailsSha256: digest(66),
+          rangeSha256: digest(66),
           registrationReservationSha256: digest(65),
           semanticSha256: sha256(semantic),
         },
@@ -691,6 +759,7 @@ describe("private Declarative V2 analyzer port", () => {
     const driver = Result.getOrThrow(port.start(session, {
       kind: "parse_module",
       reservationSha256: digest(20),
+      rangeAndPredecessorTailsSha256: digest(19),
       sequence: 1n,
       moduleOrdinal: 0n,
       totalModuleCount: 1n,
@@ -727,7 +796,6 @@ function bindings(seed = 1): DeclarativeV2AnalyzerSessionBindingsV1 {
     attemptSha256: digest(seed),
     candidateSha256: digest(seed + 1),
     authenticatedInputSha256: digest(seed + 2),
-    rangeAndPredecessorTailsSha256: digest(seed + 3),
     analyzerReleaseSha256: digest(seed + 4),
     analyzerIdentitySha256: digest(seed + 5),
     verifierIdentitySha256: digest(seed + 6),
@@ -866,8 +934,7 @@ function runModule(source: Uint8Array): DeclarativeV2VerifierModuleResultV1 {
   const expectedBindings = Object.freeze({
     candidateSha256: session.candidateSha256,
     authenticatedInputSha256: session.authenticatedInputSha256,
-    rangeAndPredecessorTailsSha256:
-      session.rangeAndPredecessorTailsSha256,
+    rangeAndPredecessorTailsSha256: digest(4),
     analyzerIdentitySha256: session.analyzerIdentitySha256,
     verifierIdentitySha256: session.verifierIdentitySha256,
   });

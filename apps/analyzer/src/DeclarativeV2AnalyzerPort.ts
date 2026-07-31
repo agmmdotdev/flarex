@@ -1210,8 +1210,6 @@ function materializeCommand(
       attemptSha256: reservation.attemptSha256,
       candidateSha256: reservation.candidateSha256,
       authenticatedInputSha256: reservation.freshAuthenticatedInputSha256,
-      rangeAndPredecessorTailsSha256:
-        reservation.rangeAndPredecessorTailsSha256,
       analyzerReleaseSha256: admission.analyzerReleaseSha256,
       analyzerIdentitySha256: reservation.analyzerIdentitySha256,
       verifierIdentitySha256: reservation.verifierIdentitySha256,
@@ -1245,7 +1243,11 @@ function materializeCommand(
         return Object.freeze({
           kind: "source_page",
           input: Object.freeze({
-            bindings: sourceBindings(sessionBindings, reservationSha256),
+            bindings: sourceBindings(
+              sessionBindings,
+              reservationSha256,
+              reservation.rangeAndPredecessorTailsSha256,
+            ),
             commandKind: "source_page",
             sequence: reservation.sequence,
             currentProgress: admission.currentProgress,
@@ -1279,6 +1281,8 @@ function materializeCommand(
         return Object.freeze({
           kind: "parse_module",
           reservationSha256,
+          rangeAndPredecessorTailsSha256:
+            reservation.rangeAndPredecessorTailsSha256,
           sequence: reservation.sequence,
           moduleOrdinal: module.metadata.moduleOrdinal,
           totalModuleCount: admission.totalModuleCount,
@@ -1823,6 +1827,7 @@ function modulePathHandle(
 function sourceBindings(
   session: DeclarativeV2AnalyzerSessionBindingsV1,
   reservationSha256: Uint8Array,
+  rangeAndPredecessorTailsSha256: Uint8Array,
 ) {
   return Object.freeze({
     attemptSha256: session.attemptSha256,
@@ -1830,7 +1835,7 @@ function sourceBindings(
     reservationSha256,
     authenticatedInputSha256: session.authenticatedInputSha256,
     rangeAndPredecessorTailsSha256:
-      session.rangeAndPredecessorTailsSha256,
+      rangeAndPredecessorTailsSha256,
     analyzerIdentitySha256: session.analyzerIdentitySha256,
     verifierIdentitySha256: session.verifierIdentitySha256,
   });
@@ -1853,8 +1858,6 @@ function cloneSessionBindings(
     candidateSha256: new Uint8Array(bindings.candidateSha256),
     authenticatedInputSha256:
       new Uint8Array(bindings.authenticatedInputSha256),
-    rangeAndPredecessorTailsSha256:
-      new Uint8Array(bindings.rangeAndPredecessorTailsSha256),
     analyzerReleaseSha256: new Uint8Array(bindings.analyzerReleaseSha256),
     analyzerIdentitySha256: new Uint8Array(bindings.analyzerIdentitySha256),
     verifierIdentitySha256: new Uint8Array(bindings.verifierIdentitySha256),
@@ -1870,10 +1873,6 @@ function sessionBindingsEqual(
     equalDigest(
       left.authenticatedInputSha256,
       right.authenticatedInputSha256,
-    ) &&
-    equalDigest(
-      left.rangeAndPredecessorTailsSha256,
-      right.rangeAndPredecessorTailsSha256,
     ) &&
     equalDigest(left.analyzerReleaseSha256, right.analyzerReleaseSha256) &&
     equalDigest(left.analyzerIdentitySha256, right.analyzerIdentitySha256) &&

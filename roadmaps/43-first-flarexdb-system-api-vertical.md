@@ -8,10 +8,14 @@ replacement-analyzer port, and `FSV02` completes the first implementation-
 bearing System operation plus `SAP03`: authenticated, durable, idempotent,
 inactive application-revision registration. A1b2-S1 closes durable
 intent/terminal settlement, and A1b2-S2 closes opaque reservation minting plus
-  durable analyzer restart evidence. FSV02-A1 closes the remaining private
-  registration-evidence seam discovered while composing FSV03: the backend,
-  rather than a structural caller, now derives and owns the candidate evidence
-  consumed by FSV02. The next vertical remains the private
+durable analyzer restart evidence. A1b2-S3 directly replaces the former
+frozen-range analyzer session model: stable session authority now contains
+only attempt, candidate, authenticated input, analyzer release/identity, and
+verifier identity, while every command reservation supplies its own exact
+range/lineage commitment. FSV02-A1 closes the remaining private registration-
+evidence seam discovered while composing FSV03: the backend, rather than a
+structural caller, now derives and owns the candidate evidence consumed by
+FSV02. The next vertical remains the private
 analyzer-to-Postgres system proof; readiness, activation, and routing remain
 later work.
 
@@ -93,6 +97,14 @@ Current implementation truth:
   evidence roots/counts, and historical loading has cumulative batch limits.
   It changes no migration, protocol identity, production dependency, route, or
   activation authority;
+- A1b2-S3 removes the incorrect session-owned command-range commitment from
+  the private analyzer contract. Parse, link, and registration each consume
+  the exact range/lineage digest from their own authenticated reservation.
+  Settled link evidence retains its original link range and predecessor facts
+  through warm continuation and cold rehydrate; later registration continuity
+  validates those historical facts independently of the registration
+  reservation's different range. The direct replacement adds no compatibility
+  API, fallback lifecycle, migration, route, readiness, or activation owner;
 - FSV02-A1 adds a backend-owned, definition-correlated opaque registration-
   evidence capability. It reads authenticated Source/Semantic session evidence,
   verifies the prepared definition's module and semantic bytes, derives the
@@ -117,7 +129,7 @@ factories.
 | `FSV02` registration is complete but deliberately inactive | Active-revision consumption | Complete target-native readiness and replacement activation; do not reinterpret registration as either gate |
 | The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
 | Readiness and replacement activation do not exist | Active-revision consumption | Complete `S03-D4`, then `S04` and its coherent reader after the private system proof |
-| C07, A1b2-S1, A1b2-S2, and FSV02-A1 are implemented, but the private analyzer-to-Postgres system harness is not assembled | System Application Data API and SAP04 | Complete FSV03 over the accepted A1b2, A1b2-S1, A1b2-S2, FSV01, FSV02/FSV02-A1, and C07 owners before active-revision invocation |
+| C07, A1b2-S1, A1b2-S2, A1b2-S3, and FSV02-A1 are implemented, but the private analyzer-to-Postgres system harness is not assembled | System Application Data API and SAP04 | Complete FSV03 over the accepted A1b2, A1b2-S1, A1b2-S2, A1b2-S3, FSV01, FSV02/FSV02-A1, and C07 owners before active-revision invocation |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
@@ -492,6 +504,9 @@ Entry gates:
 - A1b2-S2 provides opaque reservation minting, exact-result restart-evidence
   persistence, authenticated historical loading, and cold rehydrate
   composition without exposing raw persistence authority.
+- A1b2-S3 makes session authority stable across the attempt while parse, link,
+  and registration retain their own authenticated reservation range/lineage
+  facts, including exact historical link evidence on cold rehydrate.
 - FSV02-A1 provides the backend-owned opaque candidate/terminal-receipt
   evidence required by the existing FSV02 registration authority.
 
@@ -499,16 +514,20 @@ The selected FSV03 lane is private, host-neutral, and test-owned. Production
 redelivery/dispatch, scheduled triggers, and hosted activation are not entry
 gates for this lane and remain explicitly excluded.
 
-Current gate state: C07, A1b2-S1, A1b2-S2, and FSV02-A1 no longer block the selected private
-host-neutral FSV03 lane. C07 retains its accepted PGlite and genuine PostgreSQL
+Current gate state: C07, A1b2-S1, A1b2-S2, A1b2-S3, and FSV02-A1 no longer
+block the selected private host-neutral FSV03 lane. C07 retains its accepted
+PGlite and genuine PostgreSQL
 receipts. A1b2-S1 supplies the previously missing non-circular command
 authority: one durable link intent before execution, analyzer-owned terminal
 proof stored with settlement, real link-receipt lineage, and only then the
 actual registration reservation. A1b2-S2 supplies the missing non-circular
 reservation proposal/claim path and durable analyzer restart evidence without
-    changing existing protocol or persistence identities. FSV02-A1 closes the
-    remaining structural registration-evidence seam through a scoped opaque
-    backend capability and the existing FSV02 evidence port. FSV03 remains
+changing existing protocol or persistence identities. A1b2-S3 closes the
+remaining analyzer lifecycle mismatch by separating stable session identity
+from each command's range/lineage authority and by preserving the settled
+link reservation facts independently during registration and cold rehydrate.
+FSV02-A1 closes the remaining structural registration-evidence seam through a
+scoped opaque backend capability and the existing FSV02 evidence port. FSV03 remains
 unimplemented. None of these prerequisites is readiness, production
 activation, or routing authority.
 

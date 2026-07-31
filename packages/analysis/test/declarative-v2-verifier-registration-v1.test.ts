@@ -370,6 +370,8 @@ function registrationFixture(
   const semanticBudget = semanticBudgetFor(records, semantic);
   const bindings = Object.freeze({
     ...link.bindings,
+    predecessorAndTailsSha256: new Uint8Array(32).fill(96),
+    rangeSha256: new Uint8Array(32).fill(96),
     registrationReservationSha256: new Uint8Array(32).fill(98),
     semanticSha256: new Uint8Array(
       createHash("sha256").update(semantic).digest(),
@@ -385,6 +387,7 @@ function registrationFixture(
     semanticBudget,
     semanticBytes: semantic,
     completedLinkResult: link.result,
+    completedLinkBindings: link.bindings,
   })) ?? Object.freeze({
     bindings,
     commandKind: "registration_page",
@@ -395,6 +398,7 @@ function registrationFixture(
     semanticBudget,
     semanticBytes: semantic,
     completedLinkResult: link.result,
+    completedLinkBindings: link.bindings,
   });
   const factory = makeDeclarativeV2VerifierRegistrationFactoryV1(link.factory);
   const created = factory.create(
@@ -576,6 +580,7 @@ describe("private Declarative V2 registration verifier", () => {
       semanticBudget,
       semanticBytes: semantic,
       completedLinkResult: link.result,
+      completedLinkBindings: link.bindings,
     }, bindings));
     expect(factory.step(driver, 1025)).toMatchObject({
       failure: { reason: "invalidInput" },
@@ -609,18 +614,16 @@ describe("private Declarative V2 registration verifier", () => {
     "authenticatedInputSha256",
     "parsePagesRootSha256",
     "currentProgressSha256",
-    "predecessorAndTailsSha256",
-    "rangeSha256",
     "analyzerReleaseSha256",
     "analyzerIdentitySha256",
     "verifierIdentitySha256",
-  ] as const)("rejects completed-link lineage mismatch at %s", field => {
+  ] as const)("rejects cross-context completed-link mismatch at %s", field => {
     const fixture = registrationFixture(
       1024,
       input => Object.freeze({
         ...input,
-        bindings: Object.freeze({
-          ...input.bindings,
+        completedLinkBindings: Object.freeze({
+          ...input.completedLinkBindings,
           [field]: new Uint8Array(32).fill(231),
         }),
       }),
@@ -628,32 +631,57 @@ describe("private Declarative V2 registration verifier", () => {
     );
     expect(fixture.result).toMatchObject({
       failure: {
-        operation: "step",
+        operation: "create",
         reason: "identityMismatch",
-        path: field === "currentProgressSha256"
-          ? "currentProgressSha256"
-          : "completedLinkResult",
+        path: "completedLinkBindings",
       },
     });
   });
+
+  test.each([
+    "predecessorAndTailsSha256",
+    "rangeSha256",
+  ] as const)(
+    "rejects changed historical link reservation fact at %s",
+    field => {
+      const fixture = registrationFixture(
+        1024,
+        input => Object.freeze({
+          ...input,
+          completedLinkBindings: Object.freeze({
+            ...input.completedLinkBindings,
+            [field]: new Uint8Array(32).fill(231),
+          }),
+        }),
+        true,
+      );
+      expect(fixture.result).toMatchObject({
+        failure: {
+          operation: "step",
+          reason: "identityMismatch",
+          path: "completedLinkResult",
+        },
+      });
+    },
+  );
 
   test("rejects completed-link sequence mismatch and semantic digest mismatch", () => {
     const sequence = registrationFixture(
       1024,
       input => Object.freeze({
         ...input,
-        bindings: Object.freeze({
-          ...input.bindings,
-          linkSequence: input.bindings.linkSequence + 1n,
+        completedLinkBindings: Object.freeze({
+          ...input.completedLinkBindings,
+          linkSequence: input.completedLinkBindings.linkSequence + 1n,
         }),
       }),
       true,
     );
     expect(sequence.result).toMatchObject({
       failure: {
-        operation: "step",
+        operation: "create",
         reason: "identityMismatch",
-        path: "completedLinkResult",
+        path: "completedLinkBindings",
       },
     });
 

@@ -129,8 +129,19 @@ export class DeclarativeV2VerifierRegistrationV1Error extends Data.TaggedError(
   readonly maximum?: bigint;
 }> {}
 
-export interface DeclarativeV2VerifierRegistrationBindingsV1
-  extends DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
+export interface DeclarativeV2VerifierRegistrationBindingsV1 {
+  readonly attemptSha256: Uint8Array;
+  readonly futureRegistrationIntentSha256: Uint8Array;
+  readonly candidateSha256: Uint8Array;
+  readonly authenticatedInputSha256: Uint8Array;
+  readonly linkSequence: bigint;
+  readonly parsePagesRootSha256: Uint8Array;
+  readonly currentProgressSha256: Uint8Array;
+  readonly predecessorAndTailsSha256: Uint8Array;
+  readonly rangeSha256: Uint8Array;
+  readonly analyzerReleaseSha256: Uint8Array;
+  readonly analyzerIdentitySha256: Uint8Array;
+  readonly verifierIdentitySha256: Uint8Array;
   readonly registrationReservationSha256: Uint8Array;
   readonly semanticSha256: Uint8Array;
 }
@@ -145,6 +156,8 @@ export interface DeclarativeV2VerifierRegistrationInputV1 {
   readonly semanticBudget: DeclarativeV2SemanticStreamBudgetV1;
   readonly semanticBytes: Uint8Array;
   readonly completedLinkResult: DeclarativeV2VerifierLinkResultV1;
+  readonly completedLinkBindings:
+    DeclarativeV2VerifierAuthenticatedLinkBindingsV1;
 }
 
 export type DeclarativeV2VerifierRegistrationCapacityV1 = Readonly<{
@@ -232,6 +245,7 @@ type CapturedBindings = Readonly<{
 
 type CapturedInput = Readonly<{
   bindings: CapturedBindings;
+  completedLinkBindings: DeclarativeV2VerifierAuthenticatedLinkBindingsV1;
   sequence: bigint;
   currentProgress: DeclarativeV2VerifierProgressCursorFrameV2;
   predecessorReceiptSha256: Uint8Array | null;
@@ -636,6 +650,21 @@ const BINDING_KEYS = [
   "semanticSha256",
 ] as const;
 
+const LINK_BINDING_KEYS = [
+  "attemptSha256",
+  "futureRegistrationIntentSha256",
+  "candidateSha256",
+  "authenticatedInputSha256",
+  "linkSequence",
+  "parsePagesRootSha256",
+  "currentProgressSha256",
+  "predecessorAndTailsSha256",
+  "rangeSha256",
+  "analyzerReleaseSha256",
+  "analyzerIdentitySha256",
+  "verifierIdentitySha256",
+] as const;
+
 function captureBindings(value: unknown): CapturedBindings | undefined {
   const record = exactRecord(value, BINDING_KEYS);
   if (record === undefined) return undefined;
@@ -664,23 +693,90 @@ function sameBindings(left: CapturedBindings, right: CapturedBindings): boolean 
   );
 }
 
-function linkBindings(
-  bindings: CapturedBindings,
-): DeclarativeV2VerifierAuthenticatedLinkBindingsV1 {
+export function declarativeV2StableLinkContinuityMatchesRegistrationV1(
+  link: DeclarativeV2VerifierAuthenticatedLinkBindingsV1,
+  registration: DeclarativeV2VerifierRegistrationBindingsV1,
+): boolean {
+  return link.linkSequence === registration.linkSequence &&
+    bytesEqualFullScan(link.attemptSha256, registration.attemptSha256) &&
+    bytesEqualFullScan(
+      link.futureRegistrationIntentSha256,
+      registration.futureRegistrationIntentSha256,
+    ) &&
+    bytesEqualFullScan(link.candidateSha256, registration.candidateSha256) &&
+    bytesEqualFullScan(
+      link.authenticatedInputSha256,
+      registration.authenticatedInputSha256,
+    ) &&
+    bytesEqualFullScan(
+      link.parsePagesRootSha256,
+      registration.parsePagesRootSha256,
+    ) &&
+    bytesEqualFullScan(
+      link.currentProgressSha256,
+      registration.currentProgressSha256,
+    ) &&
+    bytesEqualFullScan(
+      link.analyzerReleaseSha256,
+      registration.analyzerReleaseSha256,
+    ) &&
+    bytesEqualFullScan(
+      link.analyzerIdentitySha256,
+      registration.analyzerIdentitySha256,
+    ) &&
+    bytesEqualFullScan(
+      link.verifierIdentitySha256,
+      registration.verifierIdentitySha256,
+    );
+}
+
+function captureLinkBindings(
+  value: unknown,
+): DeclarativeV2VerifierAuthenticatedLinkBindingsV1 | undefined {
+  const record = exactRecord(value, LINK_BINDING_KEYS);
+  if (record === undefined) return undefined;
+  const linkSequence = signedInt64(record.linkSequence, true);
+  const attemptSha256 = ownedDigest(record.attemptSha256);
+  const futureRegistrationIntentSha256 =
+    ownedDigest(record.futureRegistrationIntentSha256);
+  const candidateSha256 = ownedDigest(record.candidateSha256);
+  const authenticatedInputSha256 =
+    ownedDigest(record.authenticatedInputSha256);
+  const parsePagesRootSha256 = ownedDigest(record.parsePagesRootSha256);
+  const currentProgressSha256 = ownedDigest(record.currentProgressSha256);
+  const predecessorAndTailsSha256 =
+    ownedDigest(record.predecessorAndTailsSha256);
+  const rangeSha256 = ownedDigest(record.rangeSha256);
+  const analyzerReleaseSha256 = ownedDigest(record.analyzerReleaseSha256);
+  const analyzerIdentitySha256 = ownedDigest(record.analyzerIdentitySha256);
+  const verifierIdentitySha256 = ownedDigest(record.verifierIdentitySha256);
+  if (
+    linkSequence === undefined ||
+    attemptSha256 === undefined ||
+    futureRegistrationIntentSha256 === undefined ||
+    candidateSha256 === undefined ||
+    authenticatedInputSha256 === undefined ||
+    parsePagesRootSha256 === undefined ||
+    currentProgressSha256 === undefined ||
+    predecessorAndTailsSha256 === undefined ||
+    rangeSha256 === undefined ||
+    analyzerReleaseSha256 === undefined ||
+    analyzerIdentitySha256 === undefined ||
+    verifierIdentitySha256 === undefined
+  ) return undefined;
   return Object.freeze({
-    attemptSha256: bindings.attemptSha256,
-    futureRegistrationIntentSha256:
-      bindings.futureRegistrationIntentSha256,
-    candidateSha256: bindings.candidateSha256,
-    authenticatedInputSha256: bindings.authenticatedInputSha256,
-    linkSequence: bindings.linkSequence,
-    parsePagesRootSha256: bindings.parsePagesRootSha256,
-    currentProgressSha256: bindings.currentProgressSha256,
-    predecessorAndTailsSha256: bindings.predecessorAndTailsSha256,
-    rangeSha256: bindings.rangeSha256,
-    analyzerReleaseSha256: bindings.analyzerReleaseSha256,
-    analyzerIdentitySha256: bindings.analyzerIdentitySha256,
-    verifierIdentitySha256: bindings.verifierIdentitySha256,
+    attemptSha256,
+    futureRegistrationIntentSha256,
+    candidateSha256,
+    authenticatedInputSha256,
+    linkSequence,
+    parsePagesRootSha256,
+    currentProgressSha256,
+    predecessorAndTailsSha256,
+    rangeSha256,
+    analyzerReleaseSha256,
+    analyzerIdentitySha256,
+    verifierIdentitySha256,
   });
 }
 
@@ -698,17 +794,40 @@ function captureInput(
     "semanticBudget",
     "semanticBytes",
     "completedLinkResult",
+    "completedLinkBindings",
   ]);
   const bindings = record === undefined
     ? undefined
     : captureBindings(record.bindings);
   const expected = captureBindings(rawExpectedBindings);
-  if (record === undefined || bindings === undefined || expected === undefined) {
+  const completedLinkBindings = record === undefined
+    ? undefined
+    : captureLinkBindings(record.completedLinkBindings);
+  if (
+    record === undefined ||
+    bindings === undefined ||
+    expected === undefined ||
+    completedLinkBindings === undefined
+  ) {
     return Result.fail(registrationError("create", "invalidInput", "input"));
   }
   if (!sameBindings(bindings, expected)) {
     return Result.fail(
       registrationError("create", "identityMismatch", "bindings"),
+    );
+  }
+  if (
+    !declarativeV2StableLinkContinuityMatchesRegistrationV1(
+      completedLinkBindings,
+      bindings,
+    )
+  ) {
+    return Result.fail(
+      registrationError(
+        "create",
+        "identityMismatch",
+        "completedLinkBindings",
+      ),
     );
   }
   const sequence = signedInt64(record.sequence, true);
@@ -753,6 +872,7 @@ function captureInput(
   }
   return Result.succeed(Object.freeze({
     bindings,
+    completedLinkBindings,
     sequence,
     currentProgress,
     predecessorReceiptSha256: capturedPredecessor,
@@ -1504,7 +1624,7 @@ export function makeDeclarativeV2VerifierRegistrationFactoryV1(
         }
         const claimed = state.linkPort!.claim(
           state.input!.completedLinkResult,
-          linkBindings(state.input!.bindings),
+          state.input!.completedLinkBindings,
         );
         if (Result.isFailure(claimed)) {
           return failTerminal(

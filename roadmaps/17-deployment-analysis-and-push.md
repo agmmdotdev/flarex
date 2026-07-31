@@ -2408,7 +2408,47 @@ activation remain blocked until their production host composition is proven.
         route, trigger, readiness, activation, SAP04, hosted dispatch, dual
         write, or fallback. FSV03 remains separate work.
 
-        One proportional approval for either capability covers its
+        **A1b2-S3 — stable analyzer session authority and per-command
+        range/lineage authority.** The private V2 analyzer contract now
+        directly replaces the incorrect frozen-range session model. Session
+        bindings retain only the attempt, candidate, authenticated input,
+        analyzer release/identity, and verifier identity. Parse accepts the
+        exact `rangeAndPredecessorTailsSha256` of its authenticated
+        reservation; link and registration likewise receive the exact range
+        from their own reservations through the existing host correlation.
+        No old/new session pair, compatibility adapter, dual acceptance,
+        fallback, or second lifecycle remains.
+
+        Link completion stores an owned copy of the exact authenticated link
+        bindings. Registration validates stable continuity against the
+        session while separately validating the completed-link claim against
+        those historical link bindings; it does not require the later
+        registration reservation to reuse the link range. Cold rehydrate
+        accepts the same historical link range only when its predecessor/tails
+        digest is exact and all stable session and progress facts agree.
+        Digest perturbation fails closed before a registration driver is
+        created.
+
+        A real backend-producer plus authenticated persistence-bridge proof
+        drives parse, link, and registration with three distinct reservation
+        ranges and real link-receipt predecessor lineage. That proof exposed
+        and repaired one directly connected private bridge projection defect:
+        after settlement the in-memory opaque session now advances its
+        `progressSha256` from the authenticated receipt together with its
+        progress frame. Existing repository settlement and durable identities
+        are unchanged. Focused analyzer warm/cold and registration tests retain
+        exact historical bindings and reject range perturbations.
+
+        The private analyzer identity generator is rerun against two clean,
+        byte-identical builds and its complete generated closure. Existing
+        request, restart, progress, reservation, predecessor, receipt, future-
+        intent, terminal-proof, candidate, persistence, OCC, commit, journal,
+        feed, outbox, and application-row identities and schemas remain
+        unchanged. A1b2-S3 is private, fail-closed, production-inactive, and
+        adds no route, trigger, readiness, activation, SAP04, hosted dispatch,
+        dual write, or fallback. FSV03 remains separate work.
+
+        One proportional approval for any of these capabilities covers its
         implementation, in-scope test fixes, validation, roadmap
         reconciliation, required reviewers, and commit. A new preflight is
         required only if implementation crosses a material trust/authority,
@@ -2483,7 +2523,9 @@ activation remain blocked until their production host composition is proven.
    approved. FSV02 owns private candidate/attempt preparation, A1b2-S1 owns
    private repository `Work`/fence authorization plus terminal-proof
    settlement storage, and A1b2-S2 owns the opaque reservation-proposal and
-   exact-result restart bridge between those accepted owners. They add no
+   exact-result restart bridge between those accepted owners. A1b2-S3 owns the
+   direct analyzer session/per-command lineage split and exact historical link
+   binding validation. They add no
    backend production route,
    `apps/executor` production composition, U2, readiness, activation, or
    production caller. C07 is accepted independently under its own roadmap.
