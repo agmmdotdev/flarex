@@ -1,5 +1,48 @@
 # Backend Data Model And Durable Object Shape
 
+## Add Private Index Revision And Current Sidecars
+
+What changed:
+
+- Migration `0040` adds target-local immutable index-entry history and a
+  pointer-only live-current table. Entry identity is scope UUID, immutable physical
+  definition ID, canonical Ordered Index V1 bytes, and the exact 16-byte row
+  identity.
+- Revisions retain codec, immutable physical-spec and key-digest evidence,
+  table and row provenance, prior
+  pointer commit, write epoch, and an exact foreign key to the authoritative
+  app-row revision. Current pointers retain only the latest revision identity.
+- A package-private transaction primitive consumes only the exact
+  persistence-minted, scope/deployment-bound located-definition receipt,
+  derives definition/table/spec as
+  one authority value, validates canonical keys against the located physical
+  spec, rejects live entries over exact row tombstones, and
+  provides deterministic CAS for live entries and tombstones. Tombstones
+  remove the range-facing pointer. Private Effect readers provide exact bounded
+  snapshot/current scans ordered by `(encoded_key,row_id)` and verify the
+  located physical-spec commitment plus canonical key/digest before returning
+  data.
+
+Authority boundary:
+
+- This is S10 storage only. C08 later derives entries from final row bodies in
+  the existing commit transaction; S03-D3 owns build reconciliation; S11 owns
+  uniqueness; O10 owns range dependencies and phantom validation.
+- No alternate commit/OCC owner, build transition, readiness, activation,
+  routing, production trigger, public mutation API, or legacy bridge is added.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test:pglite:migrations
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexEntries.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexEntries.postgres.test.ts --no-file-parallelism --testTimeout=60000
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Current Replacement Row Identity Contract
 
 Replacement Document ID V1 is a positive compact table ID plus one canonical
@@ -223,9 +266,9 @@ and attempt fencing, while keeping the Durable Object layer non-authoritative.
 
 Known limitations and follow-up:
 
-- D3 owns creation/transitions and two-store reconciliation. S10 owns index
-  entries and atomic cursor checkpoints. The current C4 row cannot be reached by
-  runtime execution.
+- D3 owns creation/transitions, cursor checkpoints, and two-store
+  reconciliation. S10 owns index entries and exact snapshot/current range
+  reads. The current C4 row cannot be reached by runtime execution.
 - No Payload/Medusa, analyzer/compiler, Cloudflare deployment, or legacy data
   model behavior changed.
 

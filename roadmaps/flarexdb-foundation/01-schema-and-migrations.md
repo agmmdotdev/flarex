@@ -842,21 +842,41 @@ Exit gates:
   bound continuations, contradictory-state rejection, scope isolation, and
   index-backed plans without discovery writes or capability minting.
 
-### [ ] S10 — Add Index Revision And Current Sidecars
+### [x] S10 — Add Index Revision And Current Sidecars
 
 Outcome:
 
-- Add revision/current index entries with physical definition, codec version,
-  canonical bytes/hash, row identity, and commit provenance.
-- Keep bounds/frontiers in typed query/dependency APIs rather than duplicating
-  them on entries.
-- Add deterministic insert/move/delete and exact range repositories.
+- Migration `0040` adds package-private `fx_app_index_entry_rev` history and
+  `fx_app_index_entry_current` live pointers. Immutable revisions bind physical
+  definition, table and row identity, Ordered Index V1 codec identity,
+  immutable physical-spec SHA-256, canonical key bytes and SHA-256,
+  previous/current commit provenance, and the exact authoritative
+  app-row revision/epoch. The current row duplicates only live pointer identity;
+  tombstones remove it while history retains chain-head provenance.
+- The transaction-only append/CAS primitive consumes only the exact
+  persistence-minted, scope/deployment-bound located-definition receipt,
+  derives definition/table/spec as
+  one authority value, validates canonical keys against the located physical
+  spec, rejects live entries over exact row tombstones,
+  and supports deterministic insert, move, and tombstone chains without adding
+  a second commit owner. Exact
+  snapshot/current range readers use half-open byte bounds plus the separate
+  physically validated row-identity tie breaker and verify the located
+  physical-spec commitment plus stored canonical key/digest before returning
+  frozen pages.
+- Bounds and continuations remain typed read inputs rather than stored entry
+  state. The module is not a package-root mutation surface and adds no build,
+  readiness, activation, planner, OCC, route, trigger, or legacy bridge.
 
 Exit gates:
 
-- ordering, bounds, pagination, key movement, tombstones, and history pass;
-- hash equality is verified against canonical bytes; and
-- real-Postgres plans use the intended scope/definition/key path.
+- PGlite proves fresh install, 0039 upgrade, replay, injected-failure rollback,
+  ordering, exact bounds, composite pagination, key movement, tombstones,
+  history, live-current churn cleanup, stale-chain cleanup, malformed-key and
+  digest-corruption rejection;
+- isolated real PostgreSQL proves snapshot/current reads, concurrent replay
+  with one immutable winner, and the intended scope/definition/key plans; and
+- key hash equality is verified against canonical bytes on every returned row.
 
 ### [ ] S11 — Add Unique-Key Storage
 

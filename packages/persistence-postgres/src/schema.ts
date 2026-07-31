@@ -65,7 +65,11 @@ import type {
   DeclarativeV2VerifierDurableCommandKindV2,
   DeclarativeV2VerifierRestartCommandKindV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
-import type { AppOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ordered-index";
+import {
+  MAX_ORDERED_INDEX_KEY_BYTES_V1,
+  type OrderedIndexKeyCodecVersion,
+  type AppOrderedIndexPhysicalSpecV1,
+} from "flarex-protocol/ordered-index";
 import type { Json, JsonObject } from "flarex-protocol/json";
 import type {
   CanonicalSchemaManifestBytes,
@@ -2334,6 +2338,188 @@ export const fxAppRowCurrent = pgTable(
     ),
     check(
       "fx_app_row_current_commit_seq_positive_check",
+      sql`${table.commitSeq} >= 1`,
+    ),
+  ],
+);
+
+/**
+ * Immutable target-local history for one physical ordered-index position.
+ *
+ * Each revision is tied to the exact same-commit authoritative app-row
+ * revision. A tombstone removes only this encoded-key/row position; C08 later
+ * owns deriving those revisions from final row bodies inside the existing
+ * commit transaction.
+ */
+export const fxAppIndexEntryRevisions = pgTable(
+  "fx_app_index_entry_rev",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    indexDefinitionId: integer("index_definition_id")
+      .$type<CatalogIndexDefinitionId>()
+      .notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    keyCodecVersion: integer("key_codec_version")
+      .$type<OrderedIndexKeyCodecVersion>()
+      .notNull(),
+    physicalSpecSha256: bytea("physical_spec_sha256").notNull(),
+    encodedKey: bytea("encoded_key").notNull(),
+    keySha256: bytea("key_sha256").notNull(),
+    rowId: bytea("row_id").notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    prevCommitSeq: bigint("prev_commit_seq", { mode: "bigint" }).$type<
+      CommitSeq
+    >(),
+    writeEpochUuid: uuid("write_epoch_uuid")
+      .$type<ScopeEpochUuidV1>()
+      .notNull(),
+    isTombstone: boolean("is_tombstone").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_app_index_entry_rev_pk",
+      columns: [
+        table.scopeUuid,
+        table.indexDefinitionId,
+        table.encodedKey,
+        table.rowId,
+        table.commitSeq,
+      ],
+    }),
+    foreignKey({
+      name: "fx_app_index_entry_rev_row_revision_fk",
+      columns: [
+        table.scopeUuid,
+        table.tableId,
+        table.rowId,
+        table.writeEpochUuid,
+        table.commitSeq,
+      ],
+      foreignColumns: [
+        fxAppRowRevisions.scopeUuid,
+        fxAppRowRevisions.tableId,
+        fxAppRowRevisions.rowId,
+        fxAppRowRevisions.writeEpochUuid,
+        fxAppRowRevisions.commitSeq,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    index("fx_app_index_entry_rev_range_idx").on(
+      table.scopeUuid,
+      table.indexDefinitionId,
+      table.encodedKey,
+      table.rowId,
+      table.commitSeq.desc(),
+    ),
+    check(
+      "fx_app_index_entry_rev_definition_id_check",
+      sql`${table.indexDefinitionId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_app_index_entry_rev_table_id_check",
+      sql`${table.tableId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_app_index_entry_rev_key_codec_check",
+      sql`${table.keyCodecVersion} = 1`,
+    ),
+    check(
+      "fx_app_index_entry_rev_spec_sha256_length_check",
+      sql`octet_length(${table.physicalSpecSha256}) = 32`,
+    ),
+    check(
+      "fx_app_index_entry_rev_encoded_key_length_check",
+      sql`octet_length(${table.encodedKey}) between 1 and ${sql.raw(
+        String(MAX_ORDERED_INDEX_KEY_BYTES_V1),
+      )}`,
+    ),
+    check(
+      "fx_app_index_entry_rev_key_sha256_length_check",
+      sql`octet_length(${table.keySha256}) = 32`,
+    ),
+    check(
+      "fx_app_index_entry_rev_row_id_length_check",
+      sql`octet_length(${table.rowId}) = 16`,
+    ),
+    check(
+      "fx_app_index_entry_rev_commit_seq_check",
+      sql`${table.commitSeq} >= 1`,
+    ),
+    check(
+      "fx_app_index_entry_rev_prev_commit_seq_check",
+      sql`${table.prevCommitSeq} is null or (${table.prevCommitSeq} >= 1 and ${table.prevCommitSeq} < ${table.commitSeq})`,
+    ),
+  ],
+);
+
+/**
+ * Epoch-independent live pointer for one ordered-index position.
+ *
+ * The row contains no duplicated value or lifecycle evidence. Tombstones
+ * remove this range-facing pointer while immutable history retains chain-head
+ * provenance for later key reuse.
+ */
+export const fxAppIndexEntryCurrent = pgTable(
+  "fx_app_index_entry_current",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    indexDefinitionId: integer("index_definition_id")
+      .$type<CatalogIndexDefinitionId>()
+      .notNull(),
+    encodedKey: bytea("encoded_key").notNull(),
+    rowId: bytea("row_id").notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_app_index_entry_current_pk",
+      columns: [
+        table.scopeUuid,
+        table.indexDefinitionId,
+        table.encodedKey,
+        table.rowId,
+      ],
+    }),
+    foreignKey({
+      name: "fx_app_index_entry_current_revision_fk",
+      columns: [
+        table.scopeUuid,
+        table.indexDefinitionId,
+        table.encodedKey,
+        table.rowId,
+        table.commitSeq,
+      ],
+      foreignColumns: [
+        fxAppIndexEntryRevisions.scopeUuid,
+        fxAppIndexEntryRevisions.indexDefinitionId,
+        fxAppIndexEntryRevisions.encodedKey,
+        fxAppIndexEntryRevisions.rowId,
+        fxAppIndexEntryRevisions.commitSeq,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    check(
+      "fx_app_index_entry_current_definition_id_check",
+      sql`${table.indexDefinitionId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_app_index_entry_current_encoded_key_length_check",
+      sql`octet_length(${table.encodedKey}) between 1 and ${sql.raw(
+        String(MAX_ORDERED_INDEX_KEY_BYTES_V1),
+      )}`,
+    ),
+    check(
+      "fx_app_index_entry_current_row_id_length_check",
+      sql`octet_length(${table.rowId}) = 16`,
+    ),
+    check(
+      "fx_app_index_entry_current_commit_seq_check",
       sql`${table.commitSeq} >= 1`,
     ),
   ],
@@ -4950,6 +5136,8 @@ export const flarexSchema = {
   documents,
   fxAppRowCurrent,
   fxAppRowRevisions,
+  fxAppIndexEntryCurrent,
+  fxAppIndexEntryRevisions,
   fxControlIndexDefinitions,
   freshnessProcessedEvents,
   fxControlIndexes,

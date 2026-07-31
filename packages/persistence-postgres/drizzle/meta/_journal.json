@@ -281,6 +281,13 @@
       "when": 1785511039570,
       "tag": "0039_tough_micromacro",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785516109947,
+      "tag": "0040_lush_tenebrous",
+      "breakpoints": true
     }
   ]
 }

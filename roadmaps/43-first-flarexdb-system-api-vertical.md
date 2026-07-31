@@ -629,7 +629,8 @@ and inert:
 Entry gates:
 
 - `FSV03` is complete; and
-- foundation `S03-D3` physical reconciliation and S10/S11 build evidence are
+- foundation S10 target-native index revision/current storage is complete;
+  `S03-D3` physical reconciliation and S11 unique-key evidence must also be
   complete; and
 - foundation `S03-D4` has an accepted implementation preflight over those real
   target rows and the PAM-A0b1/A1-RP cold receipts.

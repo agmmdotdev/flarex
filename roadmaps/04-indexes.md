@@ -1,5 +1,56 @@
 # Indexes
 
+## Persist Target-Native Ordered Index Entry History
+
+What changed:
+
+- Migration `0040` adds private immutable index-entry revisions and exact
+  live-current pointers keyed by scope, physical definition, canonical key bytes,
+  and the separate 16-byte row tie breaker.
+- Each revision records Ordered Index V1 codec identity, the immutable physical
+  spec SHA-256, canonical key bytes and SHA-256, table/row identity,
+  prior-pointer provenance, and the exact
+  app-row commit/epoch foreign key. The current table contains no duplicate
+  digest, lifecycle, bounds, or build evidence.
+- A transaction-only Result mutation accepts only the exact module-minted,
+  scope/deployment-bound receipt identity from the persistence catalog's
+  verified definition lookup, derives the
+  definition/table/spec/digest as one authority value, validates keys against
+  that located physical specification, proves live entries reference a live exact app-row
+  revision, and performs insert/update/tombstone CAS. Tombstones delete the
+  range-facing pointer while immutable history retains chain provenance.
+  Effect-native snapshot/current readers apply exact half-open byte bounds and
+  exclusive physically validated `(key,row)` cursors, return frozen bounded
+  pages, and verify both the located physical-spec commitment and every visible
+  key before projection.
+
+Why it changed:
+
+S03-D4 readiness needs real physical index evidence, but immutable definitions
+and build-state rows did not yet have a target-native entry consumer. S10 adds
+that storage owner without making a build ready or changing the existing row,
+commit, OCC, or activation owners.
+
+Known limitations and follow-up:
+
+- S11 still owns unique claims; S03-D3 owns build reconciliation; C08 owns
+  lowering final row bodies into index revisions inside the existing commit;
+  and O10 owns indexed dependencies and phantom validation.
+- No readiness, active-reader selection, routing, production trigger, legacy
+  removal, or package-root mutation API is added.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test:pglite:migrations
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexEntries.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexEntries.postgres.test.ts --no-file-parallelism --testTimeout=60000
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Current Row Tie-Breaker Identity
 
 S05-A's exact 16-byte row tie-breaker is now the UUID-byte projection frozen by
@@ -237,8 +288,8 @@ How Flarex differs:
 Known limitations and follow-up:
 
 - S03-D still owns control-definition verification, split-store reconciliation,
-  transitions, validation/readiness, and publication. S10 owns entry tables and
-  atomic progress checkpoint behavior.
+  progress checkpoints, transitions, validation/readiness, and publication.
+  S10 owns entry tables and exact snapshot/current range reads only.
 - No builder, backfill, active-schema planner, analyzer/compiler, Payload/Medusa,
   Cloudflare deployment, or legacy rewiring changed.
 
@@ -309,8 +360,9 @@ How Flarex differs:
 Known limitations and follow-up:
 
 - S03-C4 now owns fenced build state. D1 compiles complete requirements, D2
-  owns manifest-to-catalog verification/publication, and S10 owns entry tables
-  and range-query/OCC APIs.
+  owns manifest-to-catalog verification/publication, S10 owns entry history,
+  the live-current sidecar, and exact snapshot/current range reads, and O10
+  owns indexed read dependencies plus OCC/phantom validation.
 - No backfill, enable/retire transition, analyzer, compiler, active-schema
   planner, Payload/Medusa, Cloudflare, or legacy rewiring changed.
 

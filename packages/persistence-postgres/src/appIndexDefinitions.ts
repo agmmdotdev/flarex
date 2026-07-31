@@ -48,6 +48,7 @@ import {
   type SchemaManifestAppIndexDescriptor,
   type SchemaManifestAppTableName,
 } from "flarex-protocol/schema-manifest";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import {
   getPreparedAppSchemaPublicationV1StateResult,
@@ -63,6 +64,7 @@ import {
 import {
   fxControlIndexDefinitions,
   fxControlIndexes,
+  fxControlScopes,
   fxControlSchemaVersionIndexBindings,
   fxControlSchemaVersions,
 } from "./schema";
@@ -144,6 +146,24 @@ export interface AppIndexDefinitionRecord {
   readonly physicalSpecBytesHex: CanonicalAppIndexPhysicalSpecBytesHexV1;
   readonly physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1;
   readonly createdAt: Date;
+}
+
+const locatedAppIndexDefinitionBrand: unique symbol = Symbol(
+  "FlarexDB/LocatedAppIndexDefinitionV1",
+);
+
+export interface LocatedAppIndexDefinitionV1 extends AppIndexDefinitionRecord {
+  readonly scopeId: ScopeId;
+  readonly [locatedAppIndexDefinitionBrand]: true;
+}
+
+const locatedAppIndexDefinitions = new WeakSet<object>();
+
+export function isLocatedAppIndexDefinitionV1(
+  value: unknown,
+): value is LocatedAppIndexDefinitionV1 {
+  return typeof value === "object" && value !== null &&
+    locatedAppIndexDefinitions.has(value);
 }
 
 export type AppIndexDefinitionRecordForAccessKindV1<
@@ -1021,6 +1041,55 @@ export const getAppIndexDefinitionByIdEffect = Effect.fn(
   const row = rows[0];
   return row === undefined ? null : yield* decodeStoredDefinitionEffect(row);
 });
+
+export const locateAppIndexDefinitionByIdEffect = Effect.fn(
+  "AppIndexDefinitions.locateDefinitionById",
+)(function* (
+  db: FlarexMetadataDatabase,
+  scopeId: ScopeId,
+  indexDefinitionId: CatalogIndexDefinitionId,
+): Effect.fn.Return<
+  LocatedAppIndexDefinitionV1 | null,
+  ReadAppIndexDefinitionError
+> {
+  const scopeRows = yield* Effect.tryPromise({
+    try: () => db
+      .select({ deploymentId: fxControlScopes.deploymentId })
+      .from(fxControlScopes)
+      .where(eq(fxControlScopes.scopeId, scopeId))
+      .limit(1),
+    catch: (cause) => new AppIndexDefinitionReadPersistenceError(
+      "readByDefinitionId",
+      cause,
+    ),
+  });
+  const deploymentId = scopeRows[0]?.deploymentId;
+  if (deploymentId === undefined) return null;
+  const definition = yield* getAppIndexDefinitionByIdEffect(
+    db,
+    deploymentId,
+    indexDefinitionId,
+  );
+  return definition === null
+    ? null
+    : markLocatedAppIndexDefinition(scopeId, definition);
+});
+
+function markLocatedAppIndexDefinition(
+  scopeId: ScopeId,
+  definition: AppIndexDefinitionRecord,
+): LocatedAppIndexDefinitionV1 {
+  const located = { ...definition, scopeId } as LocatedAppIndexDefinitionV1;
+  Object.defineProperty(located, locatedAppIndexDefinitionBrand, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  const frozen = Object.freeze(located);
+  locatedAppIndexDefinitions.add(frozen);
+  return frozen;
+}
 
 export const listAppIndexDefinitionsForLogicalIndexEffect = Effect.fn(
   "AppIndexDefinitions.listDefinitionsForLogicalIndex",

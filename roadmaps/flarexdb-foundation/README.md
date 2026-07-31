@@ -808,7 +808,9 @@ they never duplicate module source or canonical artifact bodies. A scoped
 host-neutral artifact-runtime probe fetches and verifies each referenced group.
 Its canonical receipt remains evidence
 only. It writes no verifier verdict or lifecycle and creates no ready or active
-authority. S03-D3, S10/S11, and S03-D4 remain open; S03-D4, under the
+authority. S10 now supplies private target-native index revision/current
+storage and exact ordered range reads. S03-D3, S11, and S03-D4 remain open;
+S03-D4, under the
 scope-clock-first order, exclusively owns terminal readiness outcomes before
 S04 activation CAS. Static verification, physical build reconciliation,
 readiness, activation writes, coherent reads, ingress, dispatch, client cutover,
