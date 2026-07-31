@@ -4,7 +4,7 @@ import {
 } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
@@ -529,7 +529,10 @@ export class AppIndexDefinitionReadPersistenceError extends Error {
   readonly _tag = "AppIndexDefinitionReadPersistenceError" as const;
 
   constructor(
-    readonly operation: "readByDefinitionId" | "listByLogicalIndexId",
+    readonly operation:
+      | "readByDefinitionId"
+      | "listByLogicalIndexId"
+      | "listRequiredSet",
     readonly cause: unknown,
   ) {
     super(
@@ -1132,6 +1135,83 @@ export const listAppIndexDefinitionsForLogicalIndexEffect = Effect.fn(
   const definitions = yield* Effect.all(
     rows.map(decodeStoredDefinitionEffect),
     { concurrency: "unbounded" },
+  );
+  return Object.freeze(definitions);
+});
+
+export interface RequiredAppIndexDefinitionSetV1 {
+  readonly developerDefinitionIds: ReadonlyArray<CatalogIndexDefinitionId>;
+  readonly creationTime: ReadonlyArray<Readonly<{
+    readonly tableId: CatalogTableId;
+    readonly physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1;
+  }>>;
+}
+
+/**
+ * Package-owned bounded immutable-definition read for one authenticated
+ * schema requirement set. It deliberately does not scan a deployment's
+ * historical definitions; the caller still proves the selected rows against
+ * the published manifest and schema-version bindings.
+ */
+export const listRequiredAppIndexDefinitionsEffect = Effect.fn(
+  "AppIndexDefinitions.listRequiredDefinitions",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: unknown,
+  required: RequiredAppIndexDefinitionSetV1,
+): Effect.fn.Return<
+  ReadonlyArray<AppIndexDefinitionRecord>,
+  ReadAppIndexDefinitionError
+> {
+  if (!isNonBlankString(deploymentId)) {
+    return yield* Effect.fail(new InvalidAppIndexDefinitionBindingInputError({
+      reason: "invalidDeploymentId",
+    }));
+  }
+  const predicates = [];
+  if (required.developerDefinitionIds.length > 0) {
+    predicates.push(and(
+      eq(fxControlIndexDefinitions.accessKind, "developer"),
+      inArray(
+        fxControlIndexDefinitions.indexDefinitionId,
+        required.developerDefinitionIds,
+      ),
+    ));
+  }
+  for (const creationTime of required.creationTime) {
+    predicates.push(and(
+      eq(fxControlIndexDefinitions.accessKind, "by_creation_time"),
+      eq(
+        fxControlIndexDefinitions.accessIdentityId,
+        creationTime.tableId,
+      ),
+      eq(fxControlIndexDefinitions.tableId, creationTime.tableId),
+      eq(
+        fxControlIndexDefinitions.physicalSpecSha256,
+        appIndexPhysicalSpecSha256HexV1ToBytes(
+          creationTime.physicalSpecSha256Hex,
+        ),
+      ),
+    ));
+  }
+  if (predicates.length === 0) return Object.freeze([]);
+  const rows = yield* readDefinitionRowsEffect(
+    db
+      .select()
+      .from(fxControlIndexDefinitions)
+      .where(and(
+        eq(fxControlIndexDefinitions.deploymentId, deploymentId),
+        or(...predicates),
+      ))
+      .orderBy(fxControlIndexDefinitions.indexDefinitionId),
+    (cause) => new AppIndexDefinitionReadPersistenceError(
+      "listRequiredSet",
+      cause,
+    ),
+  );
+  const definitions = yield* Effect.all(
+    rows.map(decodeStoredDefinitionEffect),
+    { concurrency: 1 },
   );
   return Object.freeze(definitions);
 });

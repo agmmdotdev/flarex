@@ -203,10 +203,16 @@ database. Flarex needs an explicit control-to-located-data reconciliation
 boundary and a located scope-clock pin because the deployment catalog and
 app-data database may be separate.
 
-Known limitations and follow-up:
+Current boundary and follow-up:
 
-- C4 adds only DDL and a fenced read. S03-D3 must define idempotent cross-store
-  reconciliation before any builder can create or transition rows.
+- C4's DDL/read owner is now consumed by completed S03-D3. The reconciler
+  authenticates the immutable control projection, resolves the target through
+  the persisted locator and split-provisioning receipt, locks the located scope
+  clock, and inserts/replays or stale-fence-redeclares required rows. It does
+  not interpret `databaseKey` as a connection string and does not pretend the
+  control and located commits are one transaction.
+- S03-D3 grants no builder lease and performs no building/backfill/validation/
+  enable transition. S03-D4 remains the separate evidence/readiness owner.
 - Older text-only scope/epoch storage is transitional. S06 owns the additive
   generated native projections used by replacement row keys; later hot
   data-plane families must reuse them rather than define another mapping.
@@ -216,8 +222,8 @@ Verification:
 ```sh
 corepack pnpm --filter @flarex/persistence-postgres db:check
 corepack pnpm --filter @flarex/persistence-postgres typecheck
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.test.ts test/pglite.test.ts --no-file-parallelism
-FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test:s03-d3:pglite
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:s03-d3:postgres
 git diff --check
 ```
 

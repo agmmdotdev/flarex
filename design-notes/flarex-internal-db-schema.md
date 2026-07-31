@@ -486,8 +486,9 @@ fx_control_schema_version_index_binding (
 -- through the shared C3 allocator after exact locked table-parent verification.
 -- It adds no intrinsic schema-binding row. D2c applies and verifies the full
 -- projection in one control transaction; D2d owns bounded retry, the routed
--- facade, quota, and whole-publication concurrency proof. D3 owns
--- idempotent located build reconciliation, and D4 owns evidence-based
+-- facade, quota, and whole-publication concurrency proof. D3 now owns
+-- idempotent located build reconciliation under the current scope clock, and
+-- D4 owns evidence-based
 -- readiness. by_id is direct row-identity access and has no definition/build
 -- row.
 
@@ -523,6 +524,12 @@ fx_system_index_build_state (
 -- Cursor v1 is the exclusive last fully committed 16-byte row identity in an
 -- ascending exact-snapshot scan. A clock-joined read classifies absent,
 -- exact-current, or stale authority without implying enabled/readiness.
+-- S03-D3 authenticates the deployment-owned immutable requirement set before
+-- resolving this target. Its short transaction locks the local scope clock,
+-- inserts missing rows as declared, replays exact-current rows, and resets a
+-- stale row to declared while monotonically increasing attempt_fence. The
+-- control catalog is re-read after commit; there is intentionally no
+-- cross-database foreign key or distributed transaction.
 
 fx_control_constraint (
   id text primary key,

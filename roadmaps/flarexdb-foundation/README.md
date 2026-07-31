@@ -365,7 +365,8 @@ decision or a material blocker, not ordinary implementation sequencing.
    - Deferred/remaining: `H05-B`, `S02-D2`, `S02-E`.
 3. [ ] `S03`: minimal stable catalog.
    - Complete through `S03-D2d`, including interleaved `S05-A`.
-   - Deferred to their consumers: `S03-D3` in Wave 3 and `S03-D4` in Wave 4.
+   - Completed: `S03-D3` in Wave 3.
+   - Deferred to its consumer: `S03-D4` in Wave 4.
 
 `S03-D2c` closes the package-internal atomic apply-and-verify boundary.
 `S03-D2d` closes publication with one input snapshot, typed-stale-only fresh
@@ -710,8 +711,8 @@ Dynamic Worker binding baseline before selecting it.
 1. `S10` (complete): index revision/current and exact ordered bounds.
 2. `S11` (complete): scope-fenced unique-key claims, canonical collision
    verification, and atomic claim/release/reuse storage.
-3. `S03-D3`: reconcile required physical definitions into per-scope build
-   state now that their storage consumer exists.
+3. `S03-D3` (complete): reconcile authenticated required physical definitions
+   into scope-clock-fenced per-scope build state with durable replay.
 4. `R01`: relation identity and semantics.
 5. `R02`: stable relation IDs, immutable semantic definitions, and reusable
    physical edge definitions.
@@ -813,12 +814,13 @@ authority. S10 now supplies private target-native index revision/current
 storage and exact ordered range reads. S11 now supplies private target-native
 unique claims tied to exact app-row revisions, including sparse/null/missing,
 locale, collision, release, and reuse semantics. Exact mutation replay remains
-owned by the existing outer point-commit idempotency/outcome path. S03-D3 and
-S03-D4 remain open;
+owned by the existing outer point-commit idempotency/outcome path. S03-D3 now
+owns only deterministic cross-store declaration/replay and stale-attempt
+re-fencing; S03-D4 remains open.
 S03-D4, under the
 scope-clock-first order, exclusively owns terminal readiness outcomes before
-S04 activation CAS. Static verification, physical build reconciliation,
-readiness, activation writes, coherent reads, ingress, dispatch, client cutover,
+S04 activation CAS. Static verification beyond declaration, readiness,
+activation writes, coherent reads, ingress, dispatch, client cutover,
 and cleanup remain later stages of the same approved vertical.
 
 The first provisional Stage-3 contract foundation is present but remains

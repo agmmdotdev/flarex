@@ -337,7 +337,7 @@ function materializeFencedIndexBuildState(
       });
     }
 
-    const buildState = yield* decodeBuildStateRow(
+    const buildState = yield* decodeIndexBuildStateRowResult(
       row.buildState,
       input.scopeId,
       input.indexDefinitionId,
@@ -367,7 +367,8 @@ function materializeFencedIndexBuildState(
 
 type IndexBuildStateRow = typeof fxSystemIndexBuildStates.$inferSelect;
 
-function decodeBuildStateRow(
+/** Package-internal decoder shared by the C4 read and S03-D3 transaction. */
+export function decodeIndexBuildStateRowResult(
   row: IndexBuildStateRow,
   expectedScopeId: ScopeId,
   expectedIndexDefinitionId: CatalogIndexDefinitionId,

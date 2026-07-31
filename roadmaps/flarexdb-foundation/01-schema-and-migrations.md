@@ -310,8 +310,8 @@ Progress:
 - [x] `S03-D2d`: bounded whole-preparation retry, `publishAppSchemaV1`, fixed
   publication resource limits, and real-Postgres bounded-work/concurrency/
   rollback proof.
-- [ ] `S03-D3`: durable per-scope definition-to-build reconciliation, deferred
-  to Wave 3 after the physical sidecar consumer exists.
+- [x] `S03-D3`: durable per-scope definition-to-build reconciliation over the
+  authenticated immutable publication and located scope clock.
 - [ ] `S03-D4`: scope-clock-fenced validation/readiness derived from real
   target rows, physical builds, immutable Declarative V2 candidate/verifier
   evidence, and adapter evidence. Every readiness-relevant index-state
@@ -389,8 +389,10 @@ quotas; the larger protocol declaration maxima do not promise that the current
 serial publication route will accept that much locked work. The separate
 `ensureAppTableDefinitionsArtifactV1` compatibility operation retains its exact
 table-only behavior. D2d changes neither the semantic manifest nor canonical
-codec version. Build-state mutation, readiness, active-schema activation,
-`S03-D3`, `S03-D4`, `S04`, app rows, production replacement routing, Payload,
+codec version. Build-state mutation was deliberately outside D2d and is now
+owned only by the separate completed S03-D3 reconciliation boundary.
+Readiness, active-schema activation, `S03-D4`, `S04`, app rows, production
+replacement routing, Payload,
 Medusa, and Cloudflare deployment remain outside
 this facade. The standalone `O01` abstraction gate was retired before
 implementation and its necessary scope-authority seam was folded into completed
@@ -400,6 +402,34 @@ host-neutral grant authority `O03-A2b`, and A2c's located current-epoch plus
 two-sided preparation boundaries are complete. This catalog gate does not
 authorize `O03-B`, production metadata binding, checked revocation, or hosted
 adapters.
+
+#### Completed Boundary: S03-D3
+
+S03-D3 reads the immutable schema artifact, recompiles its existing D1
+physical requirements, and verifies the exact C3 definition and schema-version
+binding projection before locating the deployment scope. The locator's
+`databaseKey` and `schemaName` are opaque placement identity; the trusted target
+resolver, not caller configuration, owns the actual database capability.
+
+The located READ COMMITTED transaction locks and revalidates the scope clock,
+then processes at most the existing 256-definition publication ceiling in
+ascending definition-ID order. Missing rows are inserted as `declared` at the
+locked commit frontier with cursor codec 1 and attempt fence 1. Exact-current
+rows, including rows already advanced by a future builder, replay unchanged.
+Rows fenced by an older generation, generation fence, or epoch are reset to
+`declared` at the current frontier and increment their attempt fence so old
+work cannot continue. Partial required sets complete atomically; contradictory
+or corrupt rows fail closed. A commit-response uncertainty is observed through
+the same located target before success can be reported.
+
+Control publication and located build rows remain separately committed
+authorities. S03-D3 re-reads the authenticated immutable definition set after
+the target commit and reports typed change if it moved; it never claims a
+distributed transaction or cross-database foreign key. Focused PGlite and
+PostgreSQL 18 proofs cover replay, partial restart, stale fencing, rollback,
+uncertain completion, concurrency, and shared/schema-per-scope/
+database-per-scope locator behavior. No builder lifecycle beyond declaration,
+readiness verdict, activation, route, or production trigger is introduced.
 
 Exit gates for the complete S03 stream:
 

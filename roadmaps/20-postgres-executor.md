@@ -385,8 +385,11 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   oversized decoded input before cloning or catalog reads, enforces the exact
   16 MiB canonical-manifest ceiling after every fresh preparation, and closes
   the focused real-Postgres bounded-work/race/rollback matrix.
-- Per-scope index-build reconciliation and readiness remain `S03-D3` and
-  `S03-D4`; catalog existence is not activation readiness.
+- Per-scope index-build reconciliation is complete at `S03-D3`: it verifies the
+  immutable control definition set, resolves the persisted physical locator,
+  and atomically declares/replays/re-fences C4 rows under the located scope
+  clock. `S03-D4` readiness remains open; catalog or declared-build existence
+  is not activation readiness.
 - Active-schema pointer authority (`S04`) remains deferred to Wave 4. The
   completed value codec is wired into internal S06 rows but not a route.
 - S07's transaction-session and constrained snapshot-lease tables are complete
@@ -539,8 +542,8 @@ work forward:
    commit feed, and outbox through the real-Postgres `C07` gate.
 3. Immediately after `C07`, apply the predeclared threshold to the conditional
    facet-backed session-journal decision.
-4. Wave 3 adds derived sidecars and only then runs `S03-D3` per-scope physical
-   build reconciliation.
+4. Wave 3 has added S10/S11 derived sidecars and completed `S03-D3` per-scope
+   physical build reconciliation; relation storage and mutation lowering remain.
 5. Wave 4 owns target-native validation, `S03-D4` readiness, `S04`
    active-schema authority, roadmap 17's coherent package/artifact/source/
    function-validator snapshot plus activation fence, the production binding
