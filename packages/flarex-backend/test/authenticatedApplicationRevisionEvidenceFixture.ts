@@ -5,6 +5,10 @@ import {
 } from "@flarex/analysis/internal/declarative-v2-verifier-v1";
 import {
   DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1,
+  makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
+  type DeclarativeV2AuthenticatedCommandDecodedCapabilityV1,
+  type DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
+  type DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
   type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
 } from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
 import type {
@@ -30,7 +34,7 @@ import {
   type DeclarativeV2AuthenticatedCommandProducerApiV1,
   type DeclarativeV2AuthenticatedCommandProducerReceiptV1,
   type DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
-  type DeclarativeV2AuthenticatedCommandProducerV1Error,
+  DeclarativeV2AuthenticatedCommandProducerV1Error,
   type DeclarativeV2AuthenticatedCommandReservationLineageV1,
   type DeclarativeV2AuthenticatedCommandSelectionV1,
   type DeclarativeV2AuthenticatedCommandStableCommitmentsV1,
@@ -75,6 +79,11 @@ const TRANSPORT_BUDGET = Object.freeze({
   maximumFrames: DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1,
   maximumTransitions: MAXIMUM,
 }) satisfies DeclarativeV2AuthenticatedCommandTransportBudgetV1;
+const INCREMENTAL_BUDGET = Object.freeze({
+  ...TRANSPORT_BUDGET,
+  maximumAllocationBytes: MAXIMUM * 4,
+  maximumCopyBytes: MAXIMUM * 4,
+}) satisfies DeclarativeV2AuthenticatedCommandIncrementalBudgetV1;
 const REGISTRATION_ROOT_CONFIGURATION = Object.freeze({
   semanticModelIdentity: "flarex.declarative-v2",
   semanticCodecIdentity: "flarex.semantic-artifact-v1/ndjson-v1",
@@ -110,6 +119,10 @@ export interface AuthenticatedApplicationRevisionEvidenceTestDriverV1 {
   >;
   readonly preparedReservations:
     DeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1;
+  readonly restartCommitments: Readonly<{
+    readonly sourceCommitmentSha256: Uint8Array;
+    readonly semanticCommitmentSha256: Uint8Array;
+  }>;
   readonly prepareCommand: (
     selection: DeclarativeV2AuthenticatedCommandSelectionV1,
   ) => Effect.Effect<
@@ -120,6 +133,9 @@ export interface AuthenticatedApplicationRevisionEvidenceTestDriverV1 {
 }
 
 export interface AuthenticatedDeclarativeV2PreparedCommandTestDriverV1 {
+  readonly commandBudget: DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  };
   readonly commitments:
     DeclarativeV2AuthenticatedCommandStableCommitmentsV1;
   readonly bindReservation: (
@@ -135,9 +151,15 @@ export interface AuthenticatedDeclarativeV2PreparedCommandTestDriverV1 {
     Readonly<{
       readonly result: unknown;
       readonly receipt: DeclarativeV2AuthenticatedCommandProducerReceiptV1;
+      readonly commandFactory:
+        DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1;
+      readonly capability:
+        DeclarativeV2AuthenticatedCommandDecodedCapabilityV1;
+      readonly transportBudget:
+        DeclarativeV2AuthenticatedCommandIncrementalBudgetV1;
     }>,
     DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
-    never
+    Scope.Scope
   >;
 }
 
@@ -145,6 +167,7 @@ export interface AuthenticatedApplicationRevisionEvidenceTestIdentityV1 {
   readonly projectId: string;
   readonly deploymentId: string;
   readonly deploymentCreatedAt: string;
+  readonly commandBudgetMaximum?: bigint;
 }
 
 /**
@@ -187,7 +210,12 @@ export function withAuthenticatedApplicationRevisionEvidenceTestDriverV1<
   const request = new Request(
     "https://backend.test/private-registration-evidence",
   );
-  const commandBudget = budget("command_budget", 10_000n);
+  const commandBudget = budget(
+    "command_budget",
+    identity.commandBudgetMaximum ?? 10_000n,
+  ) as DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  };
   const readSession = Object.freeze({
     command: Object.freeze({
       semanticUploadId: "semantic-upload",
@@ -205,7 +233,10 @@ export function withAuthenticatedApplicationRevisionEvidenceTestDriverV1<
       }),
     }),
     budget: Object.freeze({
-      ceilings: budget("attempt_ceilings", 10_000n),
+      ceilings: budget(
+        "attempt_ceilings",
+        identity.commandBudgetMaximum ?? 10_000n,
+      ),
       usage: budget("attempt_usage", 0n),
       command: commandBudget,
     }),
@@ -214,25 +245,38 @@ export function withAuthenticatedApplicationRevisionEvidenceTestDriverV1<
   return DeclarativeV2AuthenticatedCommandProducerV1.pipe(
     Effect.flatMap(producer =>
       Effect.gen(function* () {
+        const preparation = yield* producer.prepare(
+          request,
+          PROOF_INPUT,
+          Object.freeze({
+            readSession,
+            commandBudget,
+            transportBudget: TRANSPORT_BUDGET,
+            selection: Object.freeze({ kind: "registration_page" as const }),
+          }),
+        );
         const prepareCommand = Effect.fn(
           "AuthenticatedRegistrationEvidenceTestDriver.prepareCommand",
         )(function* (
           selection: DeclarativeV2AuthenticatedCommandSelectionV1,
         ) {
-          const commandPreparation = yield* producer.prepare(
-            request,
-            PROOF_INPUT,
-            Object.freeze({
-              readSession,
-              commandBudget,
-              transportBudget: TRANSPORT_BUDGET,
-              selection,
-            }),
-          );
+          const commandPreparation = selection.kind === "registration_page"
+            ? preparation
+            : yield* producer.prepare(
+              request,
+              PROOF_INPUT,
+              Object.freeze({
+                readSession,
+                commandBudget,
+                transportBudget: TRANSPORT_BUDGET,
+                selection,
+              }),
+            );
           const commitments = yield* Effect.fromResult(
             producer.commitments(request, commandPreparation),
           );
           return Object.freeze({
+            commandBudget,
             commitments,
             bindReservation: (
               lineage: DeclarativeV2AuthenticatedCommandReservationLineageV1,
@@ -255,20 +299,22 @@ export function withAuthenticatedApplicationRevisionEvidenceTestDriverV1<
               const receipt = yield* Effect.fromResult(
                 producer.receipt(request, result),
               );
-              return Object.freeze({ result, receipt });
+              yield* Effect.addFinalizer(() =>
+                Effect.sync(() => {
+                  const closed = producer.close(request, result);
+                  if (Result.isFailure(closed) &&
+                    closed.failure.reason !== "closed") {
+                    throw closed.failure;
+                  }
+                })
+              );
+              const decoded = yield* Effect.fromResult(
+                decodeProducedCommand(producer, request, result, receipt),
+              );
+              return Object.freeze({ result, receipt, ...decoded });
             }),
           }) satisfies AuthenticatedDeclarativeV2PreparedCommandTestDriverV1;
         });
-        const preparation = yield* producer.prepare(
-          request,
-          PROOF_INPUT,
-          Object.freeze({
-            readSession,
-            commandBudget,
-            transportBudget: TRANSPORT_BUDGET,
-            selection: Object.freeze({ kind: "registration_page" as const }),
-          }),
-        );
         const port =
           makeDeclarativeV2AuthenticatedApplicationRevisionEvidencePortV1(
             producer,
@@ -281,6 +327,14 @@ export function withAuthenticatedApplicationRevisionEvidenceTestDriverV1<
             makeDeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1(
               producer,
             ),
+          restartCommitments: Object.freeze({
+            sourceCommitmentSha256: new Uint8Array(
+              fixture.restartCommitments.sourceCommitmentSha256,
+            ),
+            semanticCommitmentSha256: new Uint8Array(
+              fixture.restartCommitments.semanticCommitmentSha256,
+            ),
+          }),
           prepareCommand,
           bindReservation: Effect.fn(
             "AuthenticatedRegistrationEvidenceTestDriver.bindReservation",
@@ -305,9 +359,119 @@ export function withAuthenticatedApplicationRevisionEvidenceTestDriverV1<
   );
 }
 
+function decodeProducedCommand(
+  producer: DeclarativeV2AuthenticatedCommandProducerApiV1,
+  request: Request,
+  result: unknown,
+  receipt: DeclarativeV2AuthenticatedCommandProducerReceiptV1,
+): Result.Result<
+  Readonly<{
+    readonly commandFactory:
+      DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1;
+    readonly capability:
+      DeclarativeV2AuthenticatedCommandDecodedCapabilityV1;
+    readonly transportBudget:
+      DeclarativeV2AuthenticatedCommandIncrementalBudgetV1;
+  }>,
+  DeclarativeV2AuthenticatedCommandProducerV1Error
+> {
+  return Result.gen(function* () {
+    const cursor = yield* producer.cursor(request, result);
+    const canonicalBytes = new Uint8Array(receipt.canonicalByteLength);
+    let offset = 0;
+    for (;;) {
+      const read = yield* producer.read(
+        request,
+        cursor,
+        Math.max(1, receipt.canonicalByteLength - offset),
+      );
+      canonicalBytes.set(read.bytes, offset);
+      offset += read.bytes.byteLength;
+      if (read.status === "complete") break;
+      if (read.bytes.byteLength === 0) {
+        return yield* Result.fail(
+          new DeclarativeV2AuthenticatedCommandProducerV1Error({
+            operation: "read",
+            reason: "contentMismatch",
+            path: "commandBytes",
+          }),
+        );
+      }
+    }
+    if (offset !== canonicalBytes.byteLength) {
+      return yield* Result.fail(
+        new DeclarativeV2AuthenticatedCommandProducerV1Error({
+          operation: "read",
+          reason: "contentMismatch",
+          path: "canonicalByteLength",
+        }),
+      );
+    }
+    const commandFactory =
+      makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1();
+    const created = yield* commandFactory.create({
+      bodyByteLength: canonicalBytes.byteLength,
+      budget: INCREMENTAL_BUDGET,
+    }).pipe(Result.mapError(cause =>
+      new DeclarativeV2AuthenticatedCommandProducerV1Error({
+        operation: "read",
+        reason: "contentMismatch",
+        ...(cause.path === undefined ? {} : { path: cause.path }),
+      })
+    ));
+    let consumed = 0;
+    while (consumed < canonicalBytes.byteLength) {
+      const stepped = yield* commandFactory.step(
+        created.decoder,
+        canonicalBytes.subarray(consumed),
+        1_024,
+      ).pipe(Result.mapError(cause =>
+        new DeclarativeV2AuthenticatedCommandProducerV1Error({
+          operation: "read",
+          reason: "contentMismatch",
+          ...(cause.path === undefined ? {} : { path: cause.path }),
+        })
+      ));
+      if (stepped.consumedBytes === 0) {
+        return yield* Result.fail(
+          new DeclarativeV2AuthenticatedCommandProducerV1Error({
+            operation: "read",
+            reason: "contentMismatch",
+            path: "decoderProgress",
+          }),
+        );
+      }
+      consumed += stepped.consumedBytes;
+    }
+    for (;;) {
+      const finished = yield* commandFactory.finish(
+        created.decoder,
+        1_024,
+      ).pipe(Result.mapError(cause =>
+        new DeclarativeV2AuthenticatedCommandProducerV1Error({
+          operation: "read",
+          reason: "contentMismatch",
+          ...(cause.path === undefined ? {} : { path: cause.path }),
+        })
+      ));
+      if (finished.status === "complete") {
+        return Object.freeze({
+          commandFactory,
+          capability: finished.capability,
+          transportBudget: INCREMENTAL_BUDGET,
+        });
+      }
+    }
+  });
+}
+
 interface Fixture {
   readonly proofs: Pick<SemanticArtifactV1FinalizedSourceProofFactory, "issue">;
   readonly sessions: DeclarativeV2AuthenticatedReadSessionFactoryV1;
+  readonly restartCommitments: Readonly<{
+    readonly sourceCommitmentSha256: Uint8Array;
+    readonly semanticCommitmentSha256: Uint8Array;
+  }>;
 }
 
 function makeFixture(
@@ -437,7 +601,14 @@ function makeFixture(
       },
       close: () => Result.succeed(undefined),
     });
-  return Object.freeze({ proofs, sessions });
+  return Object.freeze({
+    proofs,
+    sessions,
+    restartCommitments: Object.freeze({
+      sourceCommitmentSha256: digest(0x11),
+      semanticCommitmentSha256: digest(0x13),
+    }),
+  });
 }
 
 function cursorFor(

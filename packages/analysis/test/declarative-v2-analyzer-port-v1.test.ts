@@ -143,10 +143,12 @@ describe("private Declarative V2 analyzer port", () => {
       const sessionBindings = bindings();
       const session = Result.getOrThrow(port.createSession(sessionBindings));
       const source = UTF8.encode(SOURCE);
+      const parsePredecessor = digest(18);
       const parseCommand = {
         kind: "parse_module",
         reservationSha256: digest(20),
         rangeAndPredecessorTailsSha256: digest(19),
+        predecessorReceiptSha256: parsePredecessor,
         sequence: 1n,
         moduleOrdinal: 0n,
         totalModuleCount: 1n,
@@ -165,8 +167,15 @@ describe("private Declarative V2 analyzer port", () => {
       expect(parsed).toMatchObject({
         kind: "parse_module",
         actual: { kind: "attempt_usage", modules: 1n },
-        nextProgress: { phase: "link", settledSequence: 1n },
+        nextProgress: {
+          phase: "link",
+          settledSequence: 1n,
+          previousReceiptSha256: parsePredecessor,
+        },
       });
+      if (parsed.kind !== "parse_module") {
+        throw new Error("parse command did not complete");
+      }
       expect(port.start(session, parseCommand)).toMatchObject({
         failure: {
           reason: "invalidTransition",
@@ -174,8 +183,12 @@ describe("private Declarative V2 analyzer port", () => {
         },
       });
 
-      const linkProgress = progress("link", 1n);
-      const registrationProgress = progress("registration", 2n);
+      const linkProgress = parsed.nextProgress;
+      const linkPredecessor = digest(27);
+      const registrationProgress = Object.freeze({
+        ...progress("registration", 2n),
+        previousReceiptSha256: linkPredecessor,
+      });
       const linkBindings = Object.freeze({
         attemptSha256: sessionBindings.attemptSha256,
         futureRegistrationIntentSha256: digest(22),
@@ -196,7 +209,7 @@ describe("private Declarative V2 analyzer port", () => {
         commandBudget: budget("command_budget", 0),
         currentProgress: linkProgress,
         nextProgress: registrationProgress,
-        predecessorReceiptSha256: null,
+        predecessorReceiptSha256: linkPredecessor,
       }));
       const linked = drive(port, link, allowance);
       expect(linked).toMatchObject({
@@ -212,6 +225,7 @@ describe("private Declarative V2 analyzer port", () => {
       }
 
       const semantic = semanticBytes();
+      const registrationPredecessor = digest(28);
       const registration = Result.getOrThrow(port.start(session, {
         kind: "registration_page",
         input: {
@@ -225,7 +239,7 @@ describe("private Declarative V2 analyzer port", () => {
           commandKind: "registration_page",
           sequence: 3n,
           currentProgress: registrationProgress,
-          predecessorReceiptSha256: null,
+          predecessorReceiptSha256: registrationPredecessor,
           commandBudget: budget("command_budget", semantic.byteLength),
           semanticBudget: semanticBudget(semantic),
           semanticBytes: semantic,
@@ -304,6 +318,7 @@ describe("private Declarative V2 analyzer port", () => {
         kind: "parse_module",
         reservationSha256: digest(50),
         rangeAndPredecessorTailsSha256: digest(49),
+        predecessorReceiptSha256: null,
         sequence: 1n,
         moduleOrdinal: 0n,
         totalModuleCount: 1n,
@@ -435,6 +450,7 @@ describe("private Declarative V2 analyzer port", () => {
         kind: "parse_module",
         reservationSha256: digest(70),
         rangeAndPredecessorTailsSha256: digest(69),
+        predecessorReceiptSha256: null,
         sequence: 1n,
         moduleOrdinal: 0n,
         totalModuleCount: 2n,
@@ -760,6 +776,7 @@ describe("private Declarative V2 analyzer port", () => {
       kind: "parse_module",
       reservationSha256: digest(20),
       rangeAndPredecessorTailsSha256: digest(19),
+      predecessorReceiptSha256: null,
       sequence: 1n,
       moduleOrdinal: 0n,
       totalModuleCount: 1n,

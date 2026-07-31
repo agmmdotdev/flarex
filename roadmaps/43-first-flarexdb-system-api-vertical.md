@@ -15,9 +15,9 @@ verifier identity, while every command reservation supplies its own exact
 range/lineage commitment. FSV02-A1 closes the remaining private registration-
 evidence seam discovered while composing FSV03: the backend, rather than a
 structural caller, now derives and owns the candidate evidence consumed by
-FSV02. The next vertical remains the private
-analyzer-to-Postgres system proof; readiness, activation, and routing remain
-later work.
+FSV02. `FSV03` now proves the private analyzer-to-Postgres system through one
+test-owned point mutation in both PGlite and genuine PostgreSQL. Target-native
+readiness is the next unopened gate; activation and routing remain later work.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -112,7 +112,18 @@ Current implementation truth:
   registration command receipt to the same capability. A private analyzer
   adapter exposes only the existing FSV02 claim port; raw backend and
   persistence authority remain inaccessible;
-- the private real-system harness is not implemented or green; and
+- `FSV03` now provides one private, test-owned composition root that carries a
+  deterministic Standard definition through the real backend producer,
+  analyzer host, durable inactive registration, explicit immutable revision
+  selection, exact point-mutation runtime, executor, and C07 owners. It reloads
+  durable parse/link evidence, rejects cloned selection authority, replays the
+  stored registration and cold committed outcome, and verifies application
+  rows, commit/change feeds, idempotency outcomes, and wake outbox facts;
+- the genuine PostgreSQL lane runs eight concurrent selected-revision
+  mutations through the same path and proves 16 contiguous baseline/mutation
+  commits and changes plus eight outcomes and outbox publications with zero
+  skipped cases. The PGlite lane remains the focused deterministic
+  compatibility proof; and
 - routed execution remains `legacy_v1`; private `flarexdb_v1` work is not
   permission to switch production routing.
 
@@ -129,7 +140,7 @@ factories.
 | `FSV02` registration is complete but deliberately inactive | Active-revision consumption | Complete target-native readiness and replacement activation; do not reinterpret registration as either gate |
 | The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
 | Readiness and replacement activation do not exist | Active-revision consumption | Complete `S03-D4`, then `S04` and its coherent reader after the private system proof |
-| C07, A1b2-S1, A1b2-S2, A1b2-S3, and FSV02-A1 are implemented, but the private analyzer-to-Postgres system harness is not assembled | System Application Data API and SAP04 | Complete FSV03 over the accepted A1b2, A1b2-S1, A1b2-S2, A1b2-S3, FSV01, FSV02/FSV02-A1, and C07 owners before active-revision invocation |
+| FSV03 proves one private selected-revision point mutation, but no readiness or active-revision authority exists | System Application Data API and SAP04 | Complete target-native `FSV04` readiness, then the separately gated activation and coherent active reader before designing active-revision invocation |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
@@ -492,7 +503,7 @@ failures into the existing typed FSV02 evidence error and does not catch
 defects. Scope closes the authenticated read session and invalidates every
 process-local preparation/evidence handle.
 
-### `[ ] FSV03`: Prove The Private Analyzer-To-Postgres System
+### `[x] FSV03`: Prove The Private Analyzer-To-Postgres System
 
 Entry gates:
 
@@ -527,9 +538,9 @@ remaining analyzer lifecycle mismatch by separating stable session identity
 from each command's range/lineage authority and by preserving the settled
 link reservation facts independently during registration and cold rehydrate.
 FSV02-A1 closes the remaining structural registration-evidence seam through a
-scoped opaque backend capability and the existing FSV02 evidence port. FSV03 remains
-unimplemented. None of these prerequisites is readiness, production
-activation, or routing authority.
+scoped opaque backend capability and the existing FSV02 evidence port. FSV03
+now composes these prerequisites. None of them, nor the resulting test-owned
+revision selection, is readiness, production activation, or routing authority.
 
 Extend the private harness owned by roadmap 41 so one deterministic application
 uses the Standard definition, analysis, and registration functions, then an
@@ -570,6 +581,33 @@ Exit evidence:
 
 This is the immediate private end-to-end correctness milestone. It deliberately
 precedes readiness and activation.
+
+Implemented boundary:
+
+- one test-local composition enters the real Standard definition, FSV01,
+  FSV02/FSV02-A1, backend producer, analyzer host, authenticated
+  reservation/intent/settlement, function runtime, executor, and C07 owners;
+- parse and link terminal evidence is durably persisted and reloaded through
+  the authenticated bridge. The A1b2-S3 compatibility suite continues to own
+  full cold-rehydrate semantics, while FSV03 proves that the end-to-end lane
+  publishes and can reload those exact historical facts;
+- revision selection is an opaque WeakMap capability over one cold-loaded
+  inactive revision and its stored canonical function/schema evidence. A
+  structural clone is rejected and the capability is never exported or used
+  as active-head authority;
+- PGlite proves the deterministic single-mutation chain. Genuine PostgreSQL
+  18.3 runs eight concurrent mutations over distinct rows, producing 16
+  contiguous baseline/mutation commits and changes plus eight committed
+  outcomes and wake-outbox facts with zero skips;
+- the point-mutation adapter enters the existing preparation, grant,
+  admission, activation, exact runtime, journal, OCC, commit, outcome, feed,
+  and outbox owners without adding another transaction or publication path;
+- connected A1b2-S1/S2/S3, FSV02, and C07 suites retain ownership of
+  takeover, cancellation, confirmed-rollback retry, decision uncertainty,
+  fencing, crash/fault injection, and resource-budget laws; and
+- no package export, migration, public Standard/System API, readiness,
+  activation, active reader, route, trigger, hosted dispatch, dual write, or
+  fallback was added.
 
 ### `[ ] FSV04`: Settle Evidence-Backed Readiness
 

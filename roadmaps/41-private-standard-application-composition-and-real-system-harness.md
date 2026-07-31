@@ -2,15 +2,17 @@
 
 ## Status And Scope
 
-**Status:** `SAC01-P`, `SAC01-A`, and the `SAC01-B1` pure corpus foundation are
-complete. A pure test-local definition fixture, deterministic case catalog,
-and replay selection are implemented under the backend test owner. The
-definition-fixture success lane enters the implemented Standard definition
-API. The corpus's valid and materialization-failure lanes use the same
-operation, while canonical-failure cases remain isolated with their owning
-decoder. A dedicated harness package, complete replacement analyzer port,
-private real-system harness, deterministic workload runner, and live
-composition are not implemented or green as one system.
+**Status:** `SAC01-P`, `SAC01-A`, the `SAC01-B1` pure corpus foundation, and
+the first `FSV03` private real-system mutation proof are complete. A pure
+test-local definition fixture, deterministic case catalog, and replay
+selection are implemented under the backend test owner. The definition-fixture
+success lane enters the implemented Standard definition API. The corpus's
+valid and materialization-failure lanes use the same operation, while
+canonical-failure cases remain isolated with their owning decoder. FSV03 adds
+one test-local definition -> analysis -> inactive registration -> immutable
+revision selection -> point mutation -> durable PostgreSQL proof. A dedicated
+harness package, representative multi-function/application workload runner,
+readiness, activation, and live production composition remain unimplemented.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,
@@ -441,9 +443,15 @@ At the time this direction was recorded:
   absent;
 - the private C07 executor composition is accepted after the same bounded proof
   passed in PGlite and genuine PostgreSQL with zero skipped database cases; and
-- C07, A1b2-S1, A1b2-S2, A1b2-S3, and FSV02-A1 therefore no longer block the
-  selected private host-neutral lane, although FSV03 itself remains separate
-  unimplemented work.
+- FSV03 now composes C07, A1b2-S1, A1b2-S2, A1b2-S3, FSV01, and
+  FSV02/FSV02-A1 in one private host-neutral test lane. It cold-loads the
+  inactive revision and durable analyzer evidence, rejects cloned selection
+  authority, invokes one exact point mutation, and verifies committed row,
+  outcome, feed, and outbox agreement. Its genuine PostgreSQL lane runs eight
+  concurrent mutations with bounded deterministic inputs and zero skips.
+  This closes only acceptance-ladder step 1 plus a bounded concurrency/stress
+  proof; representative applications, queries, actions, scheduling,
+  readiness, activation, and production composition remain open.
 
 FSV01 and FSV02 now establish the first Standard analysis and inactive
 registration operations. This roadmap still does not claim that the complete
@@ -579,7 +587,7 @@ conditions follow.
 | Verified application/function registration | FSV02 private System registration context plus SAP03 wrapper | Complete only for durable inactive idempotent revision registration. It is not readiness or activation authority. |
 | Schema/catalog lifecycle | persistence schema publication, manifest, binding, index, and FSV02 registration owners | Inactive publication/registration is composed. Target-native readiness, activation, and the coherent active reader remain separate gates. |
 | Portable function execution | `@flarex/function-runtime/point-mutation` | Exact public point mutation only. Query builders, nested calls, general mutation capabilities, actions, and scheduling are not present. |
-| Trusted mutation/OCC/commit path | executor and FlarexDB foundation owners | The private test-owned C07 composition is accepted after its bounded PGlite and genuine PostgreSQL gates passed with zero skips. This does not implement FSV03 or a production caller. |
+| Trusted mutation/OCC/commit path | executor and FlarexDB foundation owners | C07 remains the owner. FSV03 now consumes its narrow test-owned composition for one selected inactive revision in PGlite and genuine PostgreSQL; it adds no production caller or alternate commit path. |
 | Current public test API | `flarex-test` over `flarex-dev` | Compatibility and developer convenience only; it cannot prove this replacement pipeline. |
 
 The existing `orders:place` fixtures in the declarative-program,

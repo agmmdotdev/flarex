@@ -91,6 +91,7 @@ export interface DeclarativeV2AnalyzerParseCommandV1 {
   readonly kind: "parse_module";
   readonly reservationSha256: Uint8Array;
   readonly rangeAndPredecessorTailsSha256: Uint8Array;
+  readonly predecessorReceiptSha256: Uint8Array | null;
   readonly sequence: bigint;
   readonly moduleOrdinal: bigint;
   readonly totalModuleCount: bigint;
@@ -1598,9 +1599,9 @@ function parseNextProgress(
     edgeOrdinal: 0n,
     pageOrdinal: 0n,
     previousReceiptSha256:
-      command.currentProgress.previousReceiptSha256 === null
+      command.predecessorReceiptSha256 === null
         ? null
-        : new Uint8Array(command.currentProgress.previousReceiptSha256),
+        : new Uint8Array(command.predecessorReceiptSha256),
   });
 }
 

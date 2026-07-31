@@ -336,6 +336,7 @@ function registrationFixture(
   coldModule = false,
   records: ReadonlyArray<DeclarativeV2SemanticRecordV1> = SEMANTIC_RECORDS,
   modulePath = "functions/example.js",
+  currentProgressPredecessor?: Uint8Array,
 ): {
   readonly factory: ReturnType<
     typeof makeDeclarativeV2VerifierRegistrationFactoryV1
@@ -356,7 +357,7 @@ function registrationFixture(
     moduleOrdinal: 0n,
     edgeOrdinal: 0n,
     pageOrdinal: 0n,
-    previousReceiptSha256: predecessor,
+    previousReceiptSha256: currentProgressPredecessor ?? predecessor,
   }) satisfies DeclarativeV2VerifierProgressCursorFrameV2;
   const progressSha256 = new Uint8Array(
     createHash("sha256").update(currentProgressBytes(currentProgress)).digest(),
@@ -721,6 +722,31 @@ describe("private Declarative V2 registration verifier", () => {
         path: "currentProgressSha256",
       },
     });
+  });
+
+  test("keeps settled link progress distinct from the registration predecessor", () => {
+    const settledLinkPredecessor = new Uint8Array(32).fill(234);
+    const fixture = registrationFixture(
+      1024,
+      undefined,
+      false,
+      false,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      settledLinkPredecessor,
+    );
+    expect(Result.getOrThrow(fixture.result)).toMatchObject({
+      nextProgress: {
+        phase: "verdict",
+        settledSequence: 8n,
+      },
+    });
+    expect(fixture.input.currentProgress.previousReceiptSha256).toEqual(
+      settledLinkPredecessor,
+    );
+    expect(fixture.input.predecessorReceiptSha256).not.toEqual(
+      settledLinkPredecessor,
+    );
   });
 
   test.each([

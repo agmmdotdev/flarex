@@ -11,6 +11,7 @@ import {
 } from "flarex-protocol/grant-retention-policy";
 import {
   decodeActivePointMutationTargetMetadataV1,
+  type ActivePointMutationTargetMetadataV1,
   type PointMutationTargetFunctionMetadataV1,
 } from "flarex-protocol/point-mutation-start";
 import {
@@ -51,6 +52,8 @@ import {
   TransactionAuthorizationRevocationEpochSchema,
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
+  type TransactionFunctionPathV1,
+  type TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
 import {
   Effect,
@@ -186,6 +189,209 @@ export interface C07DurableAgreementV1 {
   readonly outboxCommitSeqs: ReadonlyArray<string>;
   readonly lastCommitSeq: string;
   readonly lastOutboxSeq: string;
+}
+
+export interface C07PrivateRegisteredRevisionMutationInputV1 {
+  readonly lane: C07PrivatePointMutationLaneV1;
+  readonly target: ActivePointMutationTargetMetadataV1;
+  readonly functionPath: TransactionFunctionPathV1;
+  readonly args: unknown;
+  readonly requestKey: TransactionRequestKeyV1;
+  readonly runtimeRunner: PointMutationOccRuntimeNeutralRunnerV1;
+  readonly randomUuid: () => string;
+}
+
+export interface C07PrivateRegisteredRevisionMutationProofV1 {
+  readonly resultKind: "published" | "replayed";
+  readonly commitSeq: string;
+  readonly value: unknown;
+  readonly coldOutcomeKind: "available";
+  readonly coldOutcomeCommitSeq: string;
+  readonly durable: C07DurableAgreementV1;
+}
+
+/**
+ * Test-only adapter for FSV03. It accepts an explicitly selected immutable
+ * revision target and then enters the accepted C07 activation/execution path.
+ * It does not resolve an active revision and is intentionally not exported by
+ * the persistence package.
+ */
+export async function executePrivateRegisteredRevisionPointMutationThroughC07V1(
+  input: C07PrivateRegisteredRevisionMutationInputV1,
+): Promise<C07PrivateRegisteredRevisionMutationProofV1> {
+  const deploymentId = input.target.deploymentId;
+  const scopeId = input.target.scopeId;
+  const revocationEpoch =
+    TransactionAuthorizationRevocationEpochSchema.make(0n);
+  const preparation = createExecutorPointMutationStartPreparationV1({
+    loadActiveTargetMetadata: async () => structuredClone(input.target),
+    loadCurrentScopeAuthority: async () => ({
+      deploymentId,
+      scopeId,
+      authorizationRevocationEpoch: revocationEpoch,
+    }),
+  });
+  const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
+    policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    auth: { kind: "anonymous" },
+    capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+  });
+  const now = Date.now();
+  const issuedAtMilliseconds = now - 1_000;
+  const expiresAtMilliseconds = now + 300_000;
+  const kid = TransactionGrantKeyIdV1Schema.make(
+    `key_fsv03_${input.lane.name}`,
+  );
+  const verifier = createTransactionGrantVerifierV1({
+    clock: { now: () => new Date() },
+    verificationKeyNamespace:
+      createTransactionGrantVerificationKeyNamespaceV1({
+        deploymentId,
+        keys: [{
+          state: "active",
+          kid,
+          purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
+          issuedAtInclusiveEpochMilliseconds: issuedAtMilliseconds - 1_000,
+          verificationEndsAtExclusiveEpochMilliseconds:
+            expiresAtMilliseconds + 1_000,
+          verify: async () => true,
+        }],
+      }),
+    grantRetentionPolicy: Result.getOrThrow(
+      makeGrantRetentionPolicyV1Result({
+        maximumGrantLifetimeMilliseconds: 600_000,
+        maximumFutureIssuedAtSkewMilliseconds: 0,
+        maximumLiveSnapshotRetentionMilliseconds: 600_000,
+      }),
+    ),
+  });
+  const preparedHandle = await preparation.prepare({
+    deploymentId,
+    functionPath: input.functionPath,
+    args: input.args,
+    requestKey: input.requestKey,
+  });
+  const prepared = inspectExecutorPreparedPointMutationStartV1(preparedHandle);
+  const grantPayload = await canonicalizeTransactionGrantPayloadV1({
+    format: "flarex.transaction-grant",
+    version: 1,
+    grantId: `grant_fsv03_${input.lane.name}_${input.requestKey}`,
+    ...prepared.logicalPins,
+    policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    identityAccessPolicySha256: policy.sha256Hex,
+    capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+    auth: { kind: "anonymous" },
+    issuedAt: new Date(issuedAtMilliseconds).toISOString(),
+    expiresAt: new Date(expiresAtMilliseconds).toISOString(),
+    authorizationRevocationEpoch: revocationEpoch.toString(),
+  });
+  const protectedHeader = canonicalizeTransactionGrantProtectedHeaderV1({
+    alg: "Ed25519",
+    kid,
+    typ: "flarex-transaction-grant+jws",
+  });
+  const grant = await deriveInertTransactionGrantEvidenceV1({
+    protected: protectedHeader.base64url,
+    payload: grantPayload.base64url,
+    signature: encodeTransactionGrantEd25519SignatureV1(new Uint8Array(64)),
+  });
+  const verified = await verifier.verify({
+    jws: grant.jws,
+    expectedStart: preparedHandle,
+  });
+  const ports = resolutionPorts(input.lane);
+  const admitted = await runEffect(createPointMutationStartAdmissionV1({
+    resolveCurrent: () => Effect.succeed({
+      deploymentId,
+      scopeId,
+      authorizationRevocationEpoch: revocationEpoch,
+    }),
+  }).admit(verified));
+  const executionClaims = createPointMutationExecutionClaimVaultV1();
+  const activated = await runEffect(
+    createPointMutationSessionActivationV1(
+      createPointMutationSessionActivationPersistenceV1(ports, {
+        leaseDurationMilliseconds: 600_000,
+        randomUuid: input.randomUuid,
+      }),
+      executionClaims.issuer,
+    ).activate(admitted),
+  );
+  if (inspectActivatedPointMutationSessionV1(activated).status !== "created") {
+    throw new Error("FSV03 point mutation was not newly activated.");
+  }
+  const functionMetadata = input.target.functions.find(
+    candidate => candidate.path === input.functionPath,
+  );
+  if (functionMetadata === undefined) {
+    throw new Error("FSV03 selected revision omitted its mutation metadata.");
+  }
+  const store = createSessionJournalStorePersistenceV1(ports, {
+    grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+    randomUuid: input.randomUuid,
+  });
+  const execution = createInitialExecution(
+    ports,
+    executionClaims,
+    createStoredAttemptEvidenceLoaderV1(ports),
+    createPointMutationSessionAttemptLoadingV1(
+      createPointMutationSessionAttemptLoadPersistenceV1(ports),
+    ),
+    store,
+    verifier,
+    Object.freeze({
+      deploymentId,
+      scopeId,
+      packageId: prepared.logicalPins.packageId,
+      artifactRuntime: prepared.logicalPins.artifactRuntime,
+      artifactId: prepared.logicalPins.artifactId,
+      sourcePackageHash: prepared.logicalPins.sourcePackageHash,
+      executionModule: prepared.logicalPins.executionModule,
+      functionPath: prepared.logicalPins.functionPath,
+      functionKind: prepared.logicalPins.functionKind,
+      schemaVersionId: input.target.schemaVersionId,
+      functionMetadata: structuredClone(functionMetadata),
+    }),
+    input.runtimeRunner,
+  );
+  const result = await runEffect(
+    execution.executeInitialPointMutationAttempt(activated),
+  );
+  if (result.kind === "expired") {
+    throw new Error("FSV03 point mutation unexpectedly expired.");
+  }
+  const scopeUuid = projectScopeIdUuidV1(scopeId).scopeUuid;
+  const coldOutcome = await runEffect(
+    createPointCommitPublisherPortV1(resolutionPorts(input.lane))[
+      RESOLVE_POINT_COMMIT_OUTCOME_V1
+    ](deploymentId, {
+      scopeUuid,
+      requestKey: input.requestKey,
+      expectedIdentityAccessPolicySha256:
+        transactionGrantIdentityAccessPolicySha256BytesV1FromHex(
+          policy.sha256Hex,
+        ),
+      expectedFunctionPath: prepared.logicalPins.functionPath,
+      expectedRequestSha256:
+        transactionGrantRequestSha256BytesV1FromHex(
+          prepared.logicalPins.requestSha256,
+        ),
+    }),
+  );
+  if (coldOutcome.kind !== "available") {
+    throw new Error(`FSV03 cold outcome was ${coldOutcome.kind}.`);
+  }
+  return Object.freeze({
+    resultKind: result.kind,
+    commitSeq: result.token.commitSeq.toString(),
+    value: structuredClone(result.successfulResult.valueJson),
+    coldOutcomeKind: coldOutcome.kind,
+    coldOutcomeCommitSeq: coldOutcome.token.commitSeq.toString(),
+    durable: await loadPrivateC07DurableAgreementV1(
+      input.lane.persistence,
+      scopeUuid,
+    ),
+  });
 }
 
 /**
@@ -560,7 +766,10 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
   ) {
     throw new Error("C07 competing publication did not settle.");
   }
-  const durable = await loadDurableAgreement(lane.persistence, scopeUuid);
+  const durable = await loadPrivateC07DurableAgreementV1(
+    lane.persistence,
+    scopeUuid,
+  );
   validateRuntimeRequests(runtimeRequests);
 
   return Object.freeze({
@@ -671,7 +880,7 @@ function resolutionPorts(
   };
 }
 
-async function loadDurableAgreement(
+export async function loadPrivateC07DurableAgreementV1(
   persistence: FlarexPersistence,
   scopeUuid: string,
 ): Promise<C07DurableAgreementV1> {

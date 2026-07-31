@@ -1283,6 +1283,8 @@ function materializeCommand(
           reservationSha256,
           rangeAndPredecessorTailsSha256:
             reservation.rangeAndPredecessorTailsSha256,
+          predecessorReceiptSha256:
+            reservation.predecessorReceiptSha256,
           sequence: reservation.sequence,
           moduleOrdinal: module.metadata.moduleOrdinal,
           totalModuleCount: admission.totalModuleCount,

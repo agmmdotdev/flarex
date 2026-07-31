@@ -233,7 +233,7 @@ The remaining limitations are architectural, not merely naming or packaging:
 4. **No replacement activation operation or coherent active reader.** Current
    legacy deployment activation is not the target FlarexDB revision CAS and
    must not be wrapped as though it were.
-5. **The private analyzer-to-Postgres system harness is not yet assembled.**
+5. **Only the first private analyzer-to-Postgres mutation slice is assembled.**
    C07 proves the private test-owned point-mutation composition in PGlite and
    genuine PostgreSQL. A1b2-S1 supplies the private scoped command
    preparation, durable future-registration continuity intent, analyzer-owned
@@ -263,8 +263,17 @@ The remaining limitations are architectural, not merely naming or packaging:
     against the loaded root, and terminal binding requires the same exact
     producer preparation; it changes no
     durable schema, candidate/protocol version, public API, or activation
-    authority. These prerequisites do not themselves connect
-   FSV01/FSV02 through artifact runtime and C07 or complete FSV03.
+    authority. FSV03 now composes those owners through one private test-local
+    lane: a deterministic Standard definition crosses real analysis, inactive
+    registration/replay, opaque immutable revision selection, exact runtime,
+    executor, and C07 publication. It reloads persisted parse/link evidence,
+    rejects cloned selection authority, cold-loads the committed outcome, and
+    verifies authoritative row, commit/change feed, idempotency, and outbox
+    agreement. The genuine PostgreSQL 18.3 lane runs eight concurrent
+    mutations with zero skipped cases. This proof does not create readiness,
+    activation, an active reader, SAP04, a public API, or production routing;
+    broader application shapes and workload capabilities remain roadmap-41
+    work.
 6. **The main executor facade remains legacy-routed.** Private
    `flarexdb_v1` modules do not make the root executor a replacement
    application-data API.

@@ -857,14 +857,7 @@ function captureInput(
     currentProgress.phase !== "registration" ||
     currentProgress.moduleOrdinal !== 0n ||
     currentProgress.edgeOrdinal !== 0n ||
-    currentProgress.pageOrdinal !== 0n ||
-    (capturedPredecessor === null) !==
-      (currentProgress.previousReceiptSha256 === null) ||
-    (capturedPredecessor !== null &&
-      !bytesEqualFullScan(
-        capturedPredecessor,
-        currentProgress.previousReceiptSha256!,
-      ))
+    currentProgress.pageOrdinal !== 0n
   ) {
     return Result.fail(
       registrationError("create", "invalidTransition", "currentProgress"),
