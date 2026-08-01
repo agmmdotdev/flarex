@@ -266,6 +266,34 @@ export type LockScopeClockForUpdateError =
   | ScopeClockCorruptionError
   | ScopeAuthorizationRevocationEpochPersistenceError;
 
+export type LockScopeClockForShareError = LockScopeClockForUpdateError;
+
+export const lockScopeClockForShareInTransactionEffect = Effect.fn(
+  "ScopeClock.lockForShareInTransaction",
+)(function* (
+  db: ScopeClockTransaction,
+  scopeId: ScopeId,
+): Effect.fn.Return<
+  ScopeClockRecord,
+  LockScopeClockForShareError
+> {
+  const query = db
+    .select()
+    .from(fxSystemScopeClocks)
+    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+    .limit(1)
+    .for("share");
+  const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(
+    "readForShare",
+    query,
+  );
+  const row = rows[0];
+  if (row === undefined) {
+    return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
+  }
+  return yield* Effect.fromResult(decodeScopeClockRecordResult(row));
+});
+
 export const lockScopeClockForUpdateInTransactionEffect = Effect.fn(
   "ScopeClock.lockForUpdateInTransaction",
 )(function* (

@@ -42,6 +42,7 @@ import {
   getScopeClock,
   lockScopeClockForUpdateInTransactionEffect,
   type LockScopeClockForUpdateError,
+  type ScopeClockRecord,
 } from "./scopeClock";
 import {
   fxSystemApplicationRevisionsV1,
@@ -54,6 +55,7 @@ import {
 } from "./schema";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
+  type LocatedTrustedScopeAuthority,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
@@ -110,6 +112,13 @@ export function createLocatedApplicationRevisionReadinessTargetV1(
     [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
     [READINESS_TARGET_DB]: db,
   });
+}
+
+/** Package-private lifecycle composition only; never export from package root. */
+export function getApplicationRevisionReadinessTargetDatabaseV1(
+  target: LocatedApplicationRevisionReadinessTargetV1,
+): FlarexMetadataDatabase {
+  return target[READINESS_TARGET_DB];
 }
 
 export interface ApplicationRevisionReadinessColdMaterializationPortV1<E> {
@@ -222,7 +231,7 @@ export type SettleApplicationRevisionReadinessV1Error<E> =
 
 type RevisionRow = typeof fxSystemApplicationRevisionsV1.$inferSelect;
 
-interface ReadinessPreparationV1 {
+export interface ApplicationRevisionReadinessPreparedEvidenceV1 {
   readonly revision: RevisionRow;
   readonly authority: TrustedScopeAuthority;
   readonly target: LocatedApplicationRevisionReadinessTargetV1;
@@ -308,50 +317,27 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
       detail: "the physical definition set exceeds the readiness bound",
     });
   }
-  const runtimePublicationRootSha256 = yield* hashRoot(
-    "runtime-publication",
-    runtimePublicationRootItems(publication),
-  );
   const existingVerdict = yield* loadExistingVerdict(
     db,
     located.authority.scopeId,
     revision.attemptSha256,
   );
-  let coldReceipts: ReadonlyArray<ApplicationRevisionReadinessColdReceiptV1>;
-  let existingColdMaterializationRootSha256: Uint8Array | null = null;
-  if (existingVerdict === null) {
-    coldReceipts = yield* context.coldMaterialization.probe(publication);
-  } else {
-    const decoded = yield* Effect.fromResult(
-      decodeApplicationRevisionReadinessReceiptV1(existingVerdict.frameBytes),
-    ).pipe(Effect.mapError(cause =>
-      new ApplicationRevisionReadinessCorruptionV1Error({
-        revisionId,
-        detail: "the stored readiness receipt is corrupt",
-        cause,
-      })
-    ));
-    const frame = decoded.frame;
-    if (
-      frame.revisionId !== revisionId ||
-      frame.scopeId !== located.authority.scopeId ||
-      frame.storageGeneration !== located.authority.storageGeneration ||
-      frame.storageGenerationFence !== located.authority.storageGenerationFence ||
-      frame.scopeEpoch !== located.authority.epoch ||
-      !bytesEqualFullScan(frame.candidateSha256, revision.candidateSha256) ||
-      !bytesEqualFullScan(frame.attemptSha256, revision.attemptSha256) ||
-      !bytesEqualFullScan(
-        frame.runtimePublicationRootSha256,
-        runtimePublicationRootSha256,
-      )
-    ) return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
-      revisionId,
-      reason: "evidence",
-    });
-    coldReceipts = frame.coldMaterializationReceipts;
-    existingColdMaterializationRootSha256 =
-      frame.coldMaterializationRootSha256;
+  if (existingVerdict !== null) {
+    const prepared = yield* prepareStoredApplicationRevisionReadinessEvidenceV1(
+      revision,
+      located.authority,
+      located.target,
+      publication,
+      requirements,
+      existingVerdict,
+    );
+    return yield* runReadinessTransaction(prepared, context);
   }
+  const runtimePublicationRootSha256 = yield* hashRoot(
+    "runtime-publication",
+    runtimePublicationRootItems(publication),
+  );
+  const coldReceipts = yield* context.coldMaterialization.probe(publication);
   const normalizedColdReceipts = yield* validateColdReceipts(
     revisionId,
     publication,
@@ -365,16 +351,6 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
       receipt.canonicalBytes,
     ]),
   );
-  if (
-    existingColdMaterializationRootSha256 !== null &&
-    !bytesEqualFullScan(
-      existingColdMaterializationRootSha256,
-      coldMaterializationRootSha256,
-    )
-  ) return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
-    revisionId,
-    reason: "evidence",
-  });
   const prepared = Object.freeze({
     revision,
     authority: located.authority,
@@ -426,10 +402,186 @@ const loadExistingVerdict = Effect.fn(
   return rows[0] ?? null;
 });
 
+/**
+ * Package-private FSV04 evidence projection reused by activation and coherent
+ * active reads. It performs no writes and never probes R2: the durable cold
+ * receipts are decoded from the already-settled readiness receipt, then
+ * rebound to the immutable candidate publication using the exact FSV04 roots.
+ */
+export const prepareStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
+  "ApplicationRevisionReadiness.prepareStoredEvidence",
+)(function* (
+  revision: RevisionRow,
+  authority: TrustedScopeAuthority,
+  target: LocatedApplicationRevisionReadinessTargetV1,
+  publication: LoadedCandidateRuntimePublicationV1,
+  requirements: PublishedPhysicalRequirementSnapshotV1,
+  existingVerdict: typeof fxSystemDeclarativeV2Verdicts.$inferSelect,
+): Effect.fn.Return<
+  ApplicationRevisionReadinessPreparedEvidenceV1,
+  | ApplicationRevisionReadinessStaleAuthorityV1Error
+  | ApplicationRevisionReadinessCorruptionV1Error
+  | DeclarativeV2Sha256V1Error
+> {
+  const revisionId = revision.revisionId;
+  yield* Effect.fromResult(requireCandidateCorrelation(
+    revision,
+    authority,
+    publication,
+  ));
+  if (!bytesEqualFullScan(
+    requirements.manifestSha256,
+    revision.schemaArtifactSha256,
+  )) {
+    return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
+      revisionId,
+      reason: "evidence",
+    });
+  }
+  if (requirements.definitions.length > MAX_REQUIRED_BUILDS) {
+    return yield* new ApplicationRevisionReadinessCorruptionV1Error({
+      revisionId,
+      detail: "the physical definition set exceeds the readiness bound",
+    });
+  }
+  const runtimePublicationRootSha256 = yield* hashRoot(
+    "runtime-publication",
+    runtimePublicationRootItems(publication),
+  );
+  const decoded = yield* Effect.fromResult(
+    decodeApplicationRevisionReadinessReceiptV1(existingVerdict.frameBytes),
+  ).pipe(Effect.mapError(cause =>
+    new ApplicationRevisionReadinessCorruptionV1Error({
+      revisionId,
+      detail: "the stored readiness receipt is corrupt",
+      cause,
+    })
+  ));
+  const frame = decoded.frame;
+  if (
+    frame.revisionId !== revisionId ||
+    frame.scopeId !== authority.scopeId ||
+    frame.storageGeneration !== authority.storageGeneration ||
+    frame.storageGenerationFence !== authority.storageGenerationFence ||
+    frame.scopeEpoch !== authority.epoch ||
+    !bytesEqualFullScan(frame.candidateSha256, revision.candidateSha256) ||
+    !bytesEqualFullScan(frame.attemptSha256, revision.attemptSha256) ||
+    !bytesEqualFullScan(
+      frame.runtimePublicationRootSha256,
+      runtimePublicationRootSha256,
+    )
+  ) return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
+    revisionId,
+    reason: "evidence",
+  });
+  const coldReceipts = yield* validateColdReceipts(
+    revisionId,
+    publication,
+    frame.coldMaterializationReceipts,
+  );
+  const coldMaterializationRootSha256 = yield* hashRoot(
+    "cold-materialization",
+    coldReceipts.flatMap(receipt => [
+      UTF8.encode(receipt.group),
+      receipt.sha256,
+      receipt.canonicalBytes,
+    ]),
+  );
+  if (!bytesEqualFullScan(
+    frame.coldMaterializationRootSha256,
+    coldMaterializationRootSha256,
+  )) return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
+    revisionId,
+    reason: "evidence",
+  });
+  return Object.freeze({
+    revision,
+    authority,
+    target,
+    candidate: publication.candidate,
+    publication,
+    requirements,
+    coldReceipts,
+    runtimePublicationRootSha256,
+    coldMaterializationRootSha256,
+  });
+});
+
+export type LoadStoredApplicationRevisionReadinessEvidenceV1Error =
+  | ApplicationRevisionReadinessRevisionV1Error
+  | ApplicationRevisionReadinessStaleAuthorityV1Error
+  | ApplicationRevisionReadinessCorruptionV1Error
+  | ApplicationRevisionReadinessIntegrationV1Error
+  | CandidateRuntimePublicationRepositoryV1Error
+  | IndexBuildReconciliationCatalogV1Error
+  | ReadSchemaVersionArtifactError
+  | ReadAppIndexDefinitionError
+  | ReadAppSchemaVersionIndexBindingError
+  | DeclarativeV2Sha256V1Error;
+
+export const loadStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
+  "ApplicationRevisionReadiness.loadStoredEvidence",
+)(function* (
+  revisionId: string,
+  deploymentId: string,
+  controlDb: FlarexMetadataDatabase,
+  located: LocatedTrustedScopeAuthority<
+    LocatedApplicationRevisionReadinessTargetV1
+  >,
+): Effect.fn.Return<
+  ApplicationRevisionReadinessPreparedEvidenceV1 | null,
+  LoadStoredApplicationRevisionReadinessEvidenceV1Error
+> {
+  const db = located.target[READINESS_TARGET_DB];
+  const revision = yield* loadRevision(db, revisionId);
+  if (revision === null) {
+    return yield* new ApplicationRevisionReadinessRevisionV1Error({
+      revisionId,
+      reason: "missing",
+    });
+  }
+  if (revision.deploymentId !== deploymentId) {
+    return yield* new ApplicationRevisionReadinessRevisionV1Error({
+      revisionId,
+      reason: "deploymentMismatch",
+    });
+  }
+  const publication = yield* makeCandidateRuntimePublicationRepositoryV1(
+    located.target,
+  ).load(located.authority.scopeId, revision.candidateSha256);
+  const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(
+    controlDb,
+    Object.freeze({
+      deploymentId: revision.deploymentId,
+      schemaVersionId: revision.schemaVersionId,
+    }),
+  );
+  if (requirements === null) {
+    return yield* new ApplicationRevisionReadinessCorruptionV1Error({
+      revisionId,
+      detail: "the registered schema publication is missing",
+    });
+  }
+  const existingVerdict = yield* loadExistingVerdict(
+    db,
+    located.authority.scopeId,
+    revision.attemptSha256,
+  );
+  if (existingVerdict === null) return null;
+  return yield* prepareStoredApplicationRevisionReadinessEvidenceV1(
+    revision,
+    located.authority,
+    located.target,
+    publication,
+    requirements,
+    existingVerdict,
+  );
+});
+
 const runReadinessTransaction = Effect.fn(
   "ApplicationRevisionReadiness.runTransaction",
 )(function* <E>(
-  prepared: ReadinessPreparationV1,
+  prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
   context: ApplicationRevisionReadinessContextV1<E>,
 ): Effect.fn.Return<
   SettleApplicationRevisionReadinessV1Result,
@@ -492,7 +644,7 @@ const settleInTransaction = Effect.fn(
   "ApplicationRevisionReadiness.settleInTransaction",
 )(function* <E>(
   tx: AppRowTransaction,
-  prepared: ReadinessPreparationV1,
+  prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
   context: ApplicationRevisionReadinessContextV1<E>,
 ): Effect.fn.Return<
   SettleApplicationRevisionReadinessV1Result,
@@ -502,11 +654,37 @@ const settleInTransaction = Effect.fn(
   | ApplicationRevisionReadinessIntegrationV1Error
   | DeclarativeV2Sha256V1Error
 > {
-  const revisionId = prepared.revision.revisionId;
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,
     prepared.authority.scopeId,
   );
+  return yield* settleWithLockedClock(
+    tx,
+    prepared,
+    context,
+    clock,
+    "update",
+    false,
+  );
+});
+
+const settleWithLockedClock = Effect.fn(
+  "ApplicationRevisionReadiness.settleWithLockedClock",
+)(function* <E>(
+  tx: AppRowTransaction,
+  prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
+  context: ApplicationRevisionReadinessContextV1<E> | undefined,
+  clock: ScopeClockRecord,
+  evidenceLock: "update" | "share",
+  requireExisting: boolean,
+): Effect.fn.Return<
+  SettleApplicationRevisionReadinessV1Result,
+  | ApplicationRevisionReadinessStaleAuthorityV1Error
+  | ApplicationRevisionReadinessCorruptionV1Error
+  | ApplicationRevisionReadinessIntegrationV1Error
+  | DeclarativeV2Sha256V1Error
+> {
+  const revisionId = prepared.revision.revisionId;
   yield* Effect.fromResult(requireExactClock(
     revisionId,
     prepared.authority,
@@ -519,7 +697,7 @@ const settleInTransaction = Effect.fn(
       eq(fxSystemApplicationRevisionsV1.revisionId, revisionId),
     ))
     .limit(1)
-    .for("update"));
+    .for(evidenceLock));
   const revision = revisionRows[0];
   if (revision === undefined || !revisionRowsEqual(revision, prepared.revision)) {
     return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
@@ -553,7 +731,7 @@ const settleInTransaction = Effect.fn(
       eq(fxSystemDeclarativeV2VerifierAttemptsV2.attemptSha256, revision.attemptSha256),
     ))
     .limit(1)
-    .for("update"));
+    .for(evidenceLock));
   const attempt = attemptRows[0];
   if (attempt === undefined ||
     !bytesEqualFullScan(attempt.candidateSha256, revision.candidateSha256)) {
@@ -653,7 +831,7 @@ const settleInTransaction = Effect.fn(
       inArray(fxSystemIndexBuildStates.indexDefinitionId, definitionIds),
     ))
     .orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId))
-    .for("update"));
+    .for(evidenceLock));
   for (const definitionId of definitionIds) {
     const build = buildRows.find(row => row.indexDefinitionId === definitionId);
     if (build === undefined) {
@@ -706,7 +884,7 @@ const settleInTransaction = Effect.fn(
       eq(fxSystemDeclarativeV2Verdicts.attemptSha256, revision.attemptSha256),
     ))
     .limit(1)
-    .for("update"));
+    .for(evidenceLock));
   const existing = existingRows[0];
   if (existing !== undefined) {
     if (attempt.lifecycle !== "ready") {
@@ -715,12 +893,18 @@ const settleInTransaction = Effect.fn(
         detail: "a readiness receipt exists while its V2 attempt is not ready",
       });
     }
-    return yield* replayExistingReceipt(
+    return yield* validateStoredApplicationRevisionReadinessReceiptV1(
       existing,
       prepared,
       terminal.authority.terminalProofSha256,
       enabledBuildRootSha256,
     );
+  }
+  if (requireExisting) {
+    return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
+      revisionId,
+      reason: "evidence",
+    });
   }
   if (attempt.lifecycle !== "registering") {
     return yield* new ApplicationRevisionReadinessCorruptionV1Error({
@@ -763,7 +947,7 @@ const settleInTransaction = Effect.fn(
     frameBytes: receipt.bytes,
     createdAt: readyAt,
   }).returning({ verdictSha256: fxSystemDeclarativeV2Verdicts.verdictSha256 }));
-  yield* runFault(context, "afterVerdictInsert");
+  if (context !== undefined) yield* runFault(context, "afterVerdictInsert");
   const updated = yield* query(tx.update(fxSystemDeclarativeV2VerifierAttemptsV2)
     .set({ lifecycle: "ready", updatedAt: readyAt })
     .where(and(
@@ -777,9 +961,34 @@ const settleInTransaction = Effect.fn(
       reason: "evidence",
     });
   }
-  yield* runFault(context, "afterAttemptReady");
+  if (context !== undefined) yield* runFault(context, "afterAttemptReady");
   return readyResult("inserted", prepared, receipt.sha256, receipt.bytes, readyAt.toISOString());
 });
+
+export type ValidateStoredApplicationRevisionReadinessEvidenceV1Error =
+  | ApplicationRevisionReadinessStaleAuthorityV1Error
+  | ApplicationRevisionReadinessCorruptionV1Error
+  | ApplicationRevisionReadinessIntegrationV1Error
+  | DeclarativeV2Sha256V1Error;
+
+export const validateStoredApplicationRevisionReadinessEvidenceInTransactionV1 =
+  Effect.fn("ApplicationRevisionReadiness.validateStoredEvidenceInTransaction")(
+    function* (
+      tx: AppRowTransaction,
+      prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
+      lockedClock: ScopeClockRecord,
+      evidenceLock: "update" | "share",
+    ) {
+      return yield* settleWithLockedClock(
+        tx,
+        prepared,
+        undefined,
+        lockedClock,
+        evidenceLock,
+        true,
+      );
+    },
+  );
 
 function requireCandidateCorrelation(
   revision: RevisionRow,
@@ -943,7 +1152,7 @@ function referenceRootItems(reference: {
 const encodeAndHashReceipt = Effect.fn(
   "ApplicationRevisionReadiness.encodeAndHashReceipt",
 )(function* (
-  prepared: ReadinessPreparationV1,
+  prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
   terminalProofSha256: Uint8Array,
   enabledBuildRootSha256: Uint8Array,
   readyAt: string,
@@ -991,11 +1200,11 @@ const encodeAndHashReceipt = Effect.fn(
   return Object.freeze({ bytes, sha256: yield* hashBytes(bytes) });
 });
 
-const replayExistingReceipt = Effect.fn(
-  "ApplicationRevisionReadiness.replayExistingReceipt",
+export const validateStoredApplicationRevisionReadinessReceiptV1 = Effect.fn(
+  "ApplicationRevisionReadiness.validateStoredReceipt",
 )(function* (
   existing: typeof fxSystemDeclarativeV2Verdicts.$inferSelect,
-  prepared: ReadinessPreparationV1,
+  prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
   terminalProofSha256: Uint8Array,
   enabledBuildRootSha256: Uint8Array,
 ) {
@@ -1062,7 +1271,7 @@ const replayExistingReceipt = Effect.fn(
 const observeReadinessReplay = Effect.fn(
   "ApplicationRevisionReadiness.observeReplay",
 )(function* (
-  prepared: ReadinessPreparationV1,
+  prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
   callbackValue: SettleApplicationRevisionReadinessV1Result | undefined,
 ) {
   if (callbackValue?.status !== "ready") return null;
@@ -1158,7 +1367,7 @@ function revisionRowsEqual(left: RevisionRow, right: RevisionRow): boolean {
 
 function readyResult(
   disposition: "inserted" | "replayed",
-  prepared: ReadinessPreparationV1,
+  prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
   digest: Uint8Array,
   bytes: Uint8Array,
   readyAt: string,

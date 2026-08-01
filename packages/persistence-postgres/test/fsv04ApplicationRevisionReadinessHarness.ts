@@ -367,7 +367,7 @@ interface ReadinessContextOptions {
   readonly beforeProbe?: () => Promise<void>;
 }
 
-function readinessContext(
+export function readinessContext(
   deploymentId: string,
   persistence: Persistence,
   target: LocatedApplicationRevisionReadinessTargetV1,
@@ -461,7 +461,7 @@ function makeTwoPartyMaterializationBarrier() {
   });
 }
 
-function authorityPorts(
+export function authorityPorts(
   persistence: Persistence,
   target: LocatedApplicationRevisionReadinessTargetV1,
 ) {

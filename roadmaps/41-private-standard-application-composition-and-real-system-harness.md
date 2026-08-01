@@ -11,9 +11,10 @@ valid and materialization-failure lanes use the same operation, while
 canonical-failure cases remain isolated with their owning decoder. FSV03 adds
 one test-local definition -> analysis -> inactive registration -> immutable
 revision selection -> point mutation -> durable PostgreSQL proof. `FSV04`
-target-native readiness is complete. A dedicated harness package,
-representative multi-function/application workload runner, activation, and
-live production composition remain unimplemented.
+target-native readiness and FSV05 private activation/coherent reads are
+complete. A dedicated harness package, representative multi-function/
+application workload runner, SAP04 invocation, and live production composition
+remain unimplemented.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,
@@ -452,8 +453,8 @@ At the time this direction was recorded:
   concurrent mutations with bounded deterministic inputs and zero skips.
   This closes only acceptance-ladder step 1 plus a bounded concurrency/stress
   proof; representative applications, queries, actions, scheduling,
-  FSV04 readiness is complete; activation and production composition remain
-  open.
+  FSV04 readiness and FSV05 private activation/coherent reads are complete;
+  C03-V, SAP04 invocation, and production composition remain open.
 
 FSV01 and FSV02 now establish the first Standard analysis and inactive
 registration operations. This roadmap still does not claim that the complete
@@ -587,7 +588,7 @@ conditions follow.
 | Authenticated verifier reads | backend request-bound verifier read-session owner plus A1b2-S1 scoped preparation, A1b2-S2 opaque reservation binding, and A1b2-S3 per-command lineage ownership | Implemented as private prerequisites. Preparation captures authenticated facts once; persistence proposes lineage and claims the backend-derived six commitments without exposing repository authority. Each reservation, rather than the stable analyzer session, owns its exact range/lineage digest. |
 | Replacement analyzer | accepted A1b2 command producer, executor-HTTP transports, persistence readback, Effect host, A1b2-S1 terminal settlement, A1b2-S2 exact-result restart bridge, and A1b2-S3 stable-session refactor | Complete as private capabilities and consumed by FSV01. Exact parse/link completions can produce scoped restart evidence and cold rehydrate from authenticated settled evidence; historical link bindings retain their own link-reservation range independently of registration. The provisional command plan remains deleted and no production caller or route is implied. |
 | Verified application/function registration | FSV02 private System registration context plus SAP03 wrapper | Complete only for durable inactive idempotent revision registration. It is not readiness or activation authority. |
-| Schema/catalog lifecycle | persistence schema publication, manifest, binding, index, and FSV02 registration owners | Inactive publication/registration is composed. Target-native readiness, activation, and the coherent active reader remain separate gates. |
+| Schema/catalog lifecycle | persistence schema publication, manifest, binding, index, FSV02 registration, FSV04 readiness, and FSV05 activation owners | Private target-native readiness plus shared-primary activation/coherent reads are composed. C03-V, SAP04 invocation, routing, and unsupported target layouts remain separate gates. |
 | Portable function execution | `@flarex/function-runtime/point-mutation` | Exact public point mutation only. Query builders, nested calls, general mutation capabilities, actions, and scheduling are not present. |
 | Trusted mutation/OCC/commit path | executor and FlarexDB foundation owners | C07 remains the owner. FSV03 now consumes its narrow test-owned composition for one selected inactive revision in PGlite and genuine PostgreSQL; it adds no production caller or alternate commit path. |
 | Current public test API | `flarex-test` over `flarex-dev` | Compatibility and developer convenience only; it cannot prove this replacement pipeline. |

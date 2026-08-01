@@ -247,9 +247,12 @@ The remaining limitations are architectural, not merely naming or packaging:
    revision/V2-attempt/evidence/build/publication/cold-receipt commitment under
    migration `0043`, and returns typed non-persisted not-ready results for
    incomplete physical evidence. It does not activate or route the revision.
-4. **No replacement activation operation or coherent active reader.** Current
-   legacy deployment activation is not the target FlarexDB revision CAS and
-   must not be wrapped as though it were.
+4. **Private replacement activation now exists, but invocation does not.**
+   FSV05 owns the shared-`primary/public`, scope-clock-fenced activation CAS and
+   coherent active-revision reader over the exact FSV04 receipt. Its private
+   WeakMap selection and CAS token are not SAP04, routing, or production
+   prepared-start authority. Legacy deployment activation remains
+   non-authoritative and is never a fallback.
 5. **Only the first private analyzer-to-Postgres mutation slice is assembled.**
    C07 proves the private test-owned point-mutation composition in PGlite and
    genuine PostgreSQL. A1b2-S1 supplies the private scoped command

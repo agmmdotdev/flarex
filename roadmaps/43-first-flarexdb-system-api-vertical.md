@@ -18,8 +18,10 @@ structural caller, now derives and owns the candidate evidence consumed by
 FSV02. `FSV03` now proves the private analyzer-to-Postgres system through one
 test-owned point mutation in both PGlite and genuine PostgreSQL. C08-I1 now
 builds and maintains the intrinsic `by_creation_time` index required by the
-first relation-free application. `FSV04` now settles target-native readiness
-without activation. Replacement activation and routing remain later work.
+first relation-free application. `FSV04` settles target-native readiness, and
+`FSV05` now atomically activates and coherently reads one ready revision on the
+supported shared `primary/public` target. `C03-V`, SAP04/`FSV06`, and production
+routing remain separately gated later work.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -82,8 +84,9 @@ Current implementation truth:
   trusted analyzer authority;
 - `publishAppSchemaV1` provides bounded atomic schema/catalog publication, but
   does not settle readiness or activate a revision;
-- `FSV04`/`S03-D4` now settles the private target-native readiness receipt;
-  `S04` activation remains pending;
+- `FSV04`/`S03-D4` settles the private target-native readiness receipt;
+  `FSV05`/`S04` now owns the private scope-clock-fenced activation CAS and
+  coherent active-revision reader for shared `primary/public` only;
 - `C08-I1` composes the existing S10, C4, and O07-B owners to populate and
   maintain only the relation-free intrinsic creation-time index. Migration
   `0042` adds only its bounded validation access path; it introduces no
@@ -145,10 +148,10 @@ factories.
 
 | Current limitation | What it blocks | Required resolution |
 | --- | --- | --- |
-| `FSV02` registration is complete but deliberately inactive | Active-revision consumption | Complete target-native readiness and replacement activation; do not reinterpret registration as either gate |
+| `FSV02` registration is complete but deliberately inactive | Direct use without the later gates | Consume it only through completed FSV04/FSV05 evidence; registration itself is still neither readiness nor activation |
 | The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
-| Readiness and replacement activation do not exist | Active-revision consumption | Complete `S03-D4`, then `S04` and its coherent reader after the private system proof |
-| FSV03 proves one private selected-revision point mutation, but no readiness or active-revision authority exists | System Application Data API and SAP04 | Complete target-native `FSV04` readiness, then the separately gated activation and coherent active reader before designing active-revision invocation |
+| FSV04/FSV05 readiness and shared-primary activation exist privately | System Application Data API and SAP04 | Complete the separately gated C03-V syscall validator before FSV06 invocation design/implementation |
+| FSV03 proves one private selected-revision point mutation and FSV05 supplies active selection | System Application Data API and SAP04 | Keep the FSV03 test-owned selector separate; FSV06 must consume only FSV05's coherent active selection after C03-V |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
@@ -657,7 +660,7 @@ Implemented truth: the private versioned receipt identity is
 `flarex.system/application-revision-readiness-receipt/v1`. Migration `0043`
 fails closed if dormant V1 verdict rows exist, retargets the verdict FK to the
 V2 attempt plus exact inactive revision, and retains the activation-to-verdict
-digest FK for the later FSV05 owner. The first consumer is the private backend
+digest FK now consumed by FSV05. The first consumer is the private backend
 deployment coordinator; it preserves the settlement owner's exact Effect
 failure and Scope channels and owns no persistence or activation authority.
 
@@ -682,7 +685,7 @@ Exit evidence:
 - cold-materialization proof uses the real artifact/runtime owner; and
 - no active-head row is inserted or changed.
 
-### `[ ] FSV05`: Activate One Ready Revision
+### `[x] FSV05`: Activate One Ready Revision
 
 Entry gates:
 
@@ -713,11 +716,38 @@ Exit evidence:
   reads; and
 - no production route, binding, or caller switch changes.
 
+Implemented truth:
+
+- the private activation request identity is
+  `flarex.system/application-revision-activation-request/v1`; its bounded
+  canonical preimage binds `activate`, scope, application revision, candidate,
+  the FSV04 readiness receipt, and the paired expected-head state;
+- activation holds the located target Scope, rejects every target except
+  shared `primary/public`, locks the scope clock first, revalidates the exact
+  FSV04 evidence, and atomically inserts one existing physical activation
+  revision plus CASes the existing head under READ COMMITTED;
+- exact request replay, already-active, stale-CAS, rollback, and uncertain
+  settlement remain distinct. Only `action=activate` is implemented; the
+  dormant rollback representation has no caller;
+- the coherent reader locks the same clock for share, validates the active
+  head/revision and complete readiness tuple in one transaction, and returns a
+  process-local WeakMap-authenticated selection plus its optimistic CAS token;
+- the private backend deployment coordinator is the first consumer and owns no
+  locator, persistence, readiness, activation, routing, or runtime-selection
+  authority; and
+- PGlite and genuine PostgreSQL 18.3 cover first activation, replacement,
+  concurrent replay/stale behavior, invalidated readiness, rollback,
+  decision uncertainty, cold reload, corruption, mixed evidence, and forged
+  selection rejection without any schema or migration change.
+
 ### `[ ] FSV06`: Invoke One Standard Point Mutation
 
 Entry gates:
 
 - `FSV05` is complete;
+- the separately approved `C03-V` activation-fenced syscall-validator
+  capability is complete; it is a hard gate before FSV06 or any production
+  prepared-start and is not part of FSV05;
 - the private `FSV03` point-mutation and failure proofs remain green; and
 - the host-neutral point-mutation runtime contract is accepted.
 
@@ -789,14 +819,11 @@ SAP03 boundary described in its completed slice. Neither capability authorizes
 readiness, activation, point mutation, public routing, framework adapters, or
 production wiring.
 
-The next relation-free vertical work is the separately gated `FSV05`/`S04`
-replacement activation slice. FSV04 now derives and durably replays readiness
-from the exact registered revision, V2 attempt and terminal proof, schema and
-function evidence, enabled physical-build root, PAM R2 publication, and real
-cold-materialization receipts under the located scope-clock-first lock.
-Migration `0043` directly replaces empty dormant V1 verdict ownership and
-preserves the later activation FK, but FSV04 writes no activation revision or
-head and creates no active-reader, SAP04, route, or hosted-redelivery authority.
+The next relation-free vertical gate is the separately approved `C03-V`
+activation-fenced syscall-validator implementation preflight. FSV05 now
+consumes FSV04's exact readiness receipt and existing activation storage, but
+it creates no SAP04, invocation, route, trigger, or hosted-redelivery
+authority. FSV06 cannot begin until C03-V is accepted and complete.
 
 ## Overall Completion Criteria
 

@@ -92,7 +92,7 @@ Convex-first implementation references include:
 | Table definitions | Strict app-document definitions live only inside the immutable manifest; no second table-definition projection exists. |
 | Logical indexes | Stable deployment-scoped logical index identities and optimistic table/index binding preparation exist. |
 | Physical index definitions | Immutable physical definitions, table-owned creation-time definitions, schema-version bindings, and separate physical IDs exist. |
-| Build state | Fenced per-scope index-build state, reconciliation, the relation-free intrinsic builder, and scope-clock-fenced readiness settlement exist; activation remains separate. |
+| Build state | Fenced per-scope index-build state, reconciliation, the relation-free intrinsic builder, scope-clock-fenced readiness settlement, and shared-primary activation/coherent reads exist; production prepared-start remains separate. |
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
@@ -449,7 +449,7 @@ Exit gates for the complete S03 stream:
   population evidence; and
 - no speculative field/relation/constraint catalog has become authority.
 
-### [ ] S04 — Establish Target-Local Activation Revision And Head Authority
+### [x] S04 — Establish Target-Local Activation Revision And Head Authority
 
 Scheduling: Wave 4 after `S03-D4` has derived evidence-backed readiness. This
 gate does not block the private test-generation point kernel or `C07`, but it
@@ -491,8 +491,9 @@ Exit gates:
 - injected failure, interruption, confirmed rollback, and commit-decision
   uncertainty cannot expose a partial or mixed activation;
 - concurrent activation has one CAS winner and a typed stale loser;
-- exact replay and rollback are deterministic and preserve the previous usable
-  revision;
+- exact activate-request replay is deterministic and every failed or uncertain
+  non-committed attempt preserves the previous usable revision. Dormant
+  `action=rollback` storage remains unimplemented and unreachable;
 - clean scopes resolve exactly one readiness-approved package/artifact/source/
   semantic/function-validator/schema snapshot; and
 - V1 remains compatibility-only and PAM-ineligible with no fallback, shadow,
@@ -505,8 +506,12 @@ head, compose a production reader, mutate S03-D4 state, or authorize S04.
 The private S1 verifier-progress repository consumes those shapes only through
 non-finalizing reserve/work/settle. Its owner/fence, process tokens, progress
 cursor, command root, and receipt are restart and concurrency evidence, not
-readiness or activation authority. S04 therefore continues to require an
-independent S03-D4 readiness receipt under the common scope-clock-first lock.
+readiness or activation authority. FSV05/S04 now consumes the independent
+S03-D4 readiness receipt under the common scope-clock-first lock. It uses the
+existing activation revision/head schema and physical frames without a
+migration, supports only shared `primary/public`, and exposes only a private
+coherent reader and coordinator. It adds no route, SAP04 invocation, or
+production prepared-start authority.
 
 ### [x] S05 — Freeze Value And Ordered-Key Codecs
 

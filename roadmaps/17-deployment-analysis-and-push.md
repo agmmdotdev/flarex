@@ -2636,6 +2636,12 @@ activation remain blocked until their production host composition is proven.
    stale, missing, or ambiguous revision evidence fails closed. Retain all
    incomplete, rejected, superseded, active, and rollback-referenced evidence
    initially.
+   FSV05 now implements this boundary privately for shared `primary/public`
+   only, using the existing activation revision/head frames and no migration.
+   It implements only `action=activate`; routing and production prepared-start
+   remain absent. The separate `C03-V` activation-fenced syscall-validator
+   capability is the hard next gate before FSV06 or any production
+   prepared-start.
 6. **Ingress, dispatch, and client consumption.** Add versioned bounded V2
    upload/finalization, pinned analyzer handshake/dispatch, and flarex-dev
    consumption as the real two-sided caller. Artifact-runtime dispatch carries

@@ -114,6 +114,7 @@ import {
 import {
   getSchemaVersionArtifactByIdEffect,
 } from "../src/schemaVersionArtifacts";
+import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   executePrivateRegisteredRevisionPointMutationThroughC07V1,
   loadPrivateC07DurableAgreementV1,
@@ -215,15 +216,23 @@ export interface Fsv04RegisteredRevisionFixtureInputV1 {
   readonly registrationTarget:
     LocatedApplicationRevisionRegistrationTargetV1;
   readonly runtimeArtifacts: RuntimeArtifactPublisherFixtureV1;
+  readonly physicalLocator?: ScopePhysicalLocator;
+  readonly revisionVariant?: string;
+  readonly provisionScope?: boolean;
 }
 
 /** Test-only reuse of the accepted FSV01/FSV02 half of the FSV03 chain. */
 export async function prepareFsv04RegisteredRevisionFixtureV1(
   input: Fsv04RegisteredRevisionFixtureInputV1,
 ) {
-  await provisionRegistrationScope(input.persistence);
+  const physicalLocator = input.physicalLocator ?? LOCATOR;
+  if (input.provisionScope !== false) {
+    await provisionRegistrationScope(input.persistence, physicalLocator);
+  }
   const definition = Result.getOrThrow(
-    prepareStandardApplicationDefinitionV1(definitionInput()),
+    prepareStandardApplicationDefinitionV1(
+      definitionInput(input.revisionVariant),
+    ),
   );
   const registration = await Effect.runPromise(Effect.scoped(
     withAuthenticatedApplicationRevisionEvidenceTestDriverV1(
@@ -238,13 +247,16 @@ export async function prepareFsv04RegisteredRevisionFixtureV1(
         input,
         definition,
         driver,
+        input.revisionVariant === undefined
+          ? `register:fsv03:${input.name}`
+          : `register:fsv03:${input.name}:${input.revisionVariant}`,
       ),
     ),
   ));
   return Object.freeze({
     deploymentId: DEPLOYMENT_ID,
     scopeId: SCOPE_ID,
-    physicalLocator: LOCATOR,
+    physicalLocator,
     definition,
     ...registration,
   });
@@ -423,6 +435,7 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
   >,
   definition: PreparedStandardApplicationDefinitionV1,
   driver: AuthenticatedApplicationRevisionEvidenceTestDriverV1,
+  registrationRequestKey = `register:fsv03:${lane.name}`,
 ) {
     const evidenceBridge =
       makePrivateApplicationRevisionRegistrationEvidenceBridgeV1(driver.port);
@@ -766,11 +779,11 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
     );
     const registered = yield* registrationContext.register(
       analysis,
-      `register:fsv03:${lane.name}`,
+      registrationRequestKey,
     );
     const replayed = yield* registrationContext.register(
       analysis,
-      `register:fsv03:${lane.name}`,
+      registrationRequestKey,
     );
     return Object.freeze({
       analysis,
@@ -1296,6 +1309,7 @@ async function replaceFunctionMetadataBytesWithoutDigest(
 
 async function provisionRegistrationScope(
   persistence: Persistence,
+  physicalLocator: ScopePhysicalLocator = LOCATOR,
 ): Promise<void> {
   await persistence.insertDeploymentMetadata({
     deploymentId: DEPLOYMENT_ID,
@@ -1304,7 +1318,7 @@ async function provisionRegistrationScope(
   await persistence.insertScopeMetadata({
     scopeId: SCOPE_ID,
     deploymentId: DEPLOYMENT_ID,
-    physicalLocator: LOCATOR,
+    physicalLocator,
   });
   await persistence.query(
     `insert into fx_system_scope_clock
@@ -1315,7 +1329,19 @@ async function provisionRegistrationScope(
   );
 }
 
-function definitionInput(): StandardApplicationDefinitionInputV1 {
+function definitionInput(
+  revisionVariant?: string,
+): StandardApplicationDefinitionInputV1 {
+  const variantSpaces = revisionVariant === "second"
+    ? " "
+    : revisionVariant === "third"
+    ? "  "
+    : revisionVariant === "fourth"
+    ? "   "
+    : "    ";
+  const okLiteral = revisionVariant === undefined
+    ? "true"
+    : `${variantSpaces}false`;
   return {
     programBudgetInput: {
       maximumModules: 1,
@@ -1381,7 +1407,7 @@ function definitionInput(): StandardApplicationDefinitionInputV1 {
         path: "orders.js",
         roles: ["function", "execution"],
         sourceBytes: UTF8.encode(
-          "export function place() { return { ok: true }; }\n" +
+          `export function place() { return { ok: ${okLiteral} }; }\n` +
             "export function run() {}\n",
         ),
         sourceMapBytes: null,

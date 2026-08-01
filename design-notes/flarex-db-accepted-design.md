@@ -1217,10 +1217,13 @@ performs no database, clock, catalog, active-pointer, or metadata lookup and
 cannot promote the adapter into production authority. This private proof
 validates complete final overlay documents and the successful result after
 execution. Convex normally validates write values at syscall time, so catchable
-validator failures are not yet behaviorally equivalent. The later production
-activation preflight must decide whether a narrow validator capability moves
-into C03 to restore syscall-time validation and catchability while keeping the
-coherent activation-fenced schema/function-validator snapshot in Wave 4.
+validator failures are not yet behaviorally equivalent. The FSV05 activation
+preflight decided this boundary explicitly: FSV05 retains C04B2 final
+validation and does not move the proof adapter. A separately approved `C03-V`
+activation-fenced syscall-validator capability must restore syscall-time
+validation and catchability while consuming the coherent activation-fenced
+schema/function-validator snapshot. C03-V is a hard gate before FSV06 or any
+production prepared-start.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A

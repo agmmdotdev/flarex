@@ -16,6 +16,7 @@
     "./internal/declarative-v2-cold-materialization-probe-v1": "./src/artifactRuntime/DeclarativeV2ColdMaterializationProbe.ts",
     "./internal/declarative-v2-runtime-artifact-r2-v1": "./src/artifactRuntime/DeclarativeV2RuntimeArtifactStore.ts",
     "./internal/application-revision-readiness-coordinator-v1": "./src/deployment/PrivateApplicationRevisionReadinessCoordinatorV1.ts",
+    "./internal/application-revision-activation-coordinator-v1": "./src/deployment/PrivateApplicationRevisionActivationCoordinatorV1.ts",
     "./worker": "./src/worker.ts",
     "./types": "./src/types.ts",
     "./test/backendHarness": "./test/backendHarness.ts",

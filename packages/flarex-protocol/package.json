@@ -32,6 +32,7 @@
     "./internal/declarative-v2-runtime-projection-v1": "./src/declarative-v2-runtime-projection-v1.ts",
     "./internal/declarative-v2-terminal-authority-proof-v1": "./src/declarative-v2-terminal-authority-proof-v1.ts",
     "./internal/application-revision-readiness-v1": "./src/application-revision-readiness-v1.ts",
+    "./internal/application-revision-activation-request-v1": "./src/application-revision-activation-request-v1.ts",
     "./invoke": "./src/invoke.ts",
     "./index-definition": "./src/index-definition.ts",
     "./index-build-state": "./src/index-build-state.ts",
