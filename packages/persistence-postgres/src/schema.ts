@@ -59,7 +59,6 @@ import type {
   DeclarativeV2LinkNodeFrameV1,
   DeclarativeV2PageManifestFrameV1,
   DeclarativeV2RuntimeExecutionGroupV1,
-  DeclarativeV2VerdictFrameV1,
 } from "flarex-protocol/internal/declarative-v2-physical-v1";
 import type {
   DeclarativeV2VerifierDurableCommandKindV2,
@@ -4555,8 +4554,9 @@ export const fxSystemDeclarativeV2Verdicts = pgTable(
     scopeId: text("scope_id").$type<ScopeId>().notNull(),
     attemptSha256: bytea("attempt_sha256").notNull(),
     candidateSha256: bytea("candidate_sha256").notNull(),
+    revisionId: text("revision_id").notNull(),
     verdictSha256: bytea("verdict_sha256").notNull(),
-    verdict: text("verdict").$type<DeclarativeV2VerdictFrameV1["verdict"]>().notNull(),
+    verdict: text("verdict").$type<"ready">().notNull(),
     failureCode: text("failure_code"),
     frameCodecVersion: integer("frame_codec_version").notNull(),
     frameByteLength: bigint("frame_byte_length", { mode: "bigint" }).notNull(),
@@ -4576,8 +4576,8 @@ export const fxSystemDeclarativeV2Verdicts = pgTable(
       name: "fx_dv2_verdict_attempt_fk",
       columns: [table.scopeId, table.attemptSha256],
       foreignColumns: [
-        fxSystemDeclarativeV2VerifierAttempts.scopeId,
-        fxSystemDeclarativeV2VerifierAttempts.attemptSha256,
+        fxSystemDeclarativeV2VerifierAttemptsV2.scopeId,
+        fxSystemDeclarativeV2VerifierAttemptsV2.attemptSha256,
       ],
     }).onDelete("restrict"),
     foreignKey({
@@ -4588,24 +4588,25 @@ export const fxSystemDeclarativeV2Verdicts = pgTable(
         fxSystemDeclarativeV2Candidates.candidateSha256,
       ],
     }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_dv2_verdict_revision_fk",
+      columns: [table.scopeId, table.candidateSha256, table.revisionId],
+      foreignColumns: [
+        fxSystemApplicationRevisionsV1.scopeId,
+        fxSystemApplicationRevisionsV1.candidateSha256,
+        fxSystemApplicationRevisionsV1.revisionId,
+      ],
+    }).onDelete("restrict"),
     check(
       "fx_dv2_verdict_state_check",
-      sql`
-        ((
-          ${table.verdict} = 'ready'
-          and ${table.failureCode} is null
-        )
-        or
-        (
-          ${table.verdict} = 'rejected'
-          and ${nonBlankText(table.failureCode)}
-        )) is true
-      `,
+      sql`${table.verdict} = 'ready' and ${table.failureCode} is null`,
     ),
     check(
       "fx_dv2_verdict_frame_check",
       sql`octet_length(${table.verdictSha256}) = 32
         and ${table.verdictSha256} = ${table.frameSha256}
+        and ${nonBlankText(table.revisionId)}
+        and ${table.frameByteLength} <= 16384
         and ${requiredFrameCheck(
           table.frameCodecVersion,
           table.frameByteLength,

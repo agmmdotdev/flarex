@@ -92,7 +92,7 @@ Convex-first implementation references include:
 | Table definitions | Strict app-document definitions live only inside the immutable manifest; no second table-definition projection exists. |
 | Logical indexes | Stable deployment-scoped logical index identities and optimistic table/index binding preparation exist. |
 | Physical index definitions | Immutable physical definitions, table-owned creation-time definitions, schema-version bindings, and separate physical IDs exist. |
-| Build state | Fenced per-scope index-build state DDL and `absent | current | stale` reads exist; reconciliation/readiness mutation does not. |
+| Build state | Fenced per-scope index-build state, reconciliation, the relation-free intrinsic builder, and scope-clock-fenced readiness settlement exist; activation remains separate. |
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
@@ -312,13 +312,21 @@ Progress:
   rollback proof.
 - [x] `S03-D3`: durable per-scope definition-to-build reconciliation over the
   authenticated immutable publication and located scope clock.
-- [ ] `S03-D4`: scope-clock-fenced validation/readiness derived from real
+- [x] `S03-D4`: scope-clock-fenced validation/readiness derived from real
   target rows, physical builds, immutable Declarative V2 candidate/verifier
   evidence, and adapter evidence. Every readiness-relevant index-state
   mutation and readiness transition locks and revalidates the same located
   scope-clock row first. It never mutates activation and never discovers or
   rewrites declarative metadata. Legacy backfill/comparison evidence remains
   conditional on a changed shipped-state declaration.
+
+  The relation-free first lane now settles one private canonical
+  `flarex.system/application-revision-readiness-receipt/v1` receipt. Migration
+  `0043` refuses non-empty dormant V1 verdict storage, retargets verdict
+  ownership to the V2 attempt and exact inactive revision, and preserves the
+  later activation FK without writing activation state. Expected missing or
+  non-enabled builds remain non-persisted typed not-ready results; stale,
+  corrupt, retryable, and uncertain outcomes stay outside that result.
 
 Declarative V2 S1 owns verifier progress before S03-D4. Its private exact-key
 repository uses database-time lease/fence claims and short

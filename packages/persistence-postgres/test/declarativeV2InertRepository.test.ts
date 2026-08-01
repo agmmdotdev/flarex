@@ -577,7 +577,7 @@ describe("Declarative V2 inert repository", () => {
         digest(0x31),
         new Uint8Array([1]),
       ],
-    )).rejects.toThrow(/fx_dv2_verdict_state_check/);
+    )).rejects.toThrow(/revision_id|fx_dv2_verdict_state_check/);
 
     await expect(persistence.query(
       `

@@ -1168,7 +1168,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "43" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "44" }]);
     } finally {
       try {
         await db.close();
@@ -1362,7 +1362,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "43" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "44" }]);
     } finally {
       try {
         await db.close();
@@ -1473,7 +1473,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "43" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "44" }]);
     } finally {
       try {
         await db.close();
@@ -1560,7 +1560,7 @@ describe("createPGlitePersistence", () => {
       `);
       expect(constraints.rows).toEqual([{
         check_count: "58",
-        foreign_key_count: "25",
+        foreign_key_count: "26",
       }]);
       const heads = await current.query<{ count: string }>(`
         select count(*)::text as count
@@ -2046,7 +2046,7 @@ describe("createPGlitePersistence", () => {
       const currentReceipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(currentReceipts.rows).toEqual([{ count: "43" }]);
+      expect(currentReceipts.rows).toEqual([{ count: "44" }]);
     } finally {
       try {
         await db.close();
@@ -2145,7 +2145,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "43" }]);
+      expect(receipts.rows).toEqual([{ count: "44" }]);
     } finally {
       try {
         await db.close();
@@ -2246,7 +2246,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "43" }]);
+      expect(receipts.rows).toEqual([{ count: "44" }]);
     } finally {
       try {
         await db.close();
@@ -2364,7 +2364,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "43" }]);
+      expect(receipts.rows).toEqual([{ count: "44" }]);
     } finally {
       try {
         await db.close();
@@ -2373,4 +2373,172 @@ describe("createPGlitePersistence", () => {
       }
     }
   });
+
+  it("replaces empty dormant V1 verdict ownership atomically and replays 0043", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-fsv04-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournalPath = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const migrationPath = resolve(
+      migrationsFolder,
+      "0043_clever_grim_reaper.sql",
+    );
+    const db = new PGlite();
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const journalText = await readFile(currentJournalPath, "utf8");
+      const parsed: unknown = JSON.parse(journalText);
+      if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+        throw new Error("Expected a Drizzle migration journal.");
+      }
+      await writeFile(copiedJournalPath, `${JSON.stringify({
+        ...parsed,
+        entries: parsed.entries.filter(entry =>
+          isNonArrayRecord(entry) &&
+          typeof entry.idx === "number" && entry.idx < 43
+        ),
+      }, null, 2)}\n`, "utf8");
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      const oldForeignKey = await previous.query<{ target: string }>(`
+        select confrelid::regclass::text as target
+        from pg_constraint
+        where conname = 'fx_dv2_verdict_attempt_fk'
+      `);
+      expect(oldForeignKey.rows[0]?.target).toContain(
+        "fx_system_declarative_v2_verifier_attempt",
+      );
+      await writeFile(copiedJournalPath, journalText, "utf8");
+      const realMigration = await readFile(migrationPath, "utf8");
+      await writeFile(
+        migrationPath,
+        `${realMigration}\n--> statement-breakpoint\nselect * from fx_fsv04_deliberate_missing_table;\n`,
+        "utf8",
+      );
+      const failing = await createPGlitePersistence({ db, migrationsFolder });
+      await expect(failing.migrate()).rejects.toThrow(
+        /fx_fsv04_deliberate_missing_table/,
+      );
+      const afterRollback = await failing.query<{ count: string }>(`
+        select count(*)::text as count
+        from information_schema.columns
+        where table_schema = current_schema()
+          and table_name = 'fx_system_declarative_v2_verdict'
+          and column_name = 'revision_id'
+      `);
+      expect(afterRollback.rows).toEqual([{ count: "0" }]);
+      await writeFile(migrationPath, realMigration, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await current.migrate();
+      await current.migrate();
+      const ownership = await current.query<{
+        revision_column: string;
+        attempt_target: string;
+        revision_target: string;
+        receipts: string;
+      }>(`
+        select
+          (select count(*)::text from information_schema.columns
+            where table_schema = current_schema()
+              and table_name = 'fx_system_declarative_v2_verdict'
+              and column_name = 'revision_id') as revision_column,
+          (select confrelid::regclass::text from pg_constraint
+            where conname = 'fx_dv2_verdict_attempt_fk') as attempt_target,
+          (select confrelid::regclass::text from pg_constraint
+            where conname = 'fx_dv2_verdict_revision_fk') as revision_target,
+          (select count(*)::text from drizzle.__drizzle_migrations) as receipts
+      `);
+      expect(ownership.rows).toEqual([{
+        revision_column: "1",
+        attempt_target: "fx_system_declarative_v2_verifier_attempt_v2",
+        revision_target: "fx_system_application_revision_v1",
+        receipts: "44",
+      }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
+  it("fails 0043 before replacing non-empty dormant V1 verdict ownership", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-fsv04-legacy-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournalPath = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const db = new PGlite();
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const journalText = await readFile(currentJournalPath, "utf8");
+      const parsed: unknown = JSON.parse(journalText);
+      if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+        throw new Error("Expected a Drizzle migration journal.");
+      }
+      await writeFile(copiedJournalPath, `${JSON.stringify({
+        ...parsed,
+        entries: parsed.entries.filter(entry =>
+          isNonArrayRecord(entry) &&
+          typeof entry.idx === "number" && entry.idx < 43
+        ),
+      }, null, 2)}\n`, "utf8");
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      await previous.query(`alter table fx_system_declarative_v2_verdict
+        drop constraint fx_dv2_verdict_attempt_fk`);
+      await previous.query(`alter table fx_system_declarative_v2_verdict
+        drop constraint fx_dv2_verdict_candidate_fk`);
+      await previous.query(`
+        insert into fx_system_declarative_v2_verdict
+          (scope_id, attempt_sha256, candidate_sha256, verdict_sha256,
+           verdict, failure_code, frame_codec_version, frame_byte_length,
+           frame_sha256, frame_bytes)
+        values
+          ('scope_legacy_fsv04', decode(repeat('11', 32), 'hex'),
+           decode(repeat('22', 32), 'hex'), decode(repeat('33', 32), 'hex'),
+           'ready', null, 1, 1, decode(repeat('33', 32), 'hex'),
+           decode('00', 'hex'))
+      `);
+      await writeFile(copiedJournalPath, journalText, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await expect(current.migrate()).rejects.toThrow(
+        /migration 0043 cannot replace legacy declarative V2 verdict rows/,
+      );
+      const unchanged = await current.query<{
+        rows: string;
+        revision_column: string;
+        receipts: string;
+      }>(`
+        select
+          (select count(*)::text from fx_system_declarative_v2_verdict) as rows,
+          (select count(*)::text from information_schema.columns
+            where table_schema = current_schema()
+              and table_name = 'fx_system_declarative_v2_verdict'
+              and column_name = 'revision_id') as revision_column,
+          (select count(*)::text from drizzle.__drizzle_migrations) as receipts
+      `);
+      expect(unchanged.rows).toEqual([{
+        rows: "1",
+        revision_column: "0",
+        receipts: "43",
+      }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
 });

@@ -820,18 +820,19 @@ unique claims tied to exact app-row revisions, including sparse/null/missing,
 locale, collision, release, and reuse semantics. Exact mutation replay remains
 owned by the existing outer point-commit idempotency/outcome path. S03-D3 now
 owns only deterministic cross-store declaration/replay and stale-attempt
-re-fencing; S03-D4 remains open.
+re-fencing; S03-D4 now settles the separate target-native readiness receipt.
 C08-I1 now supplies the relation-free intrinsic `by_creation_time` builder and
 same-commit maintenance evidence without changing S10 logical storage, C4
 lifecycle schema, or O07-B commit authority. Migration `0042` adds only the
 non-unique scope/definition/row supporting index used by bounded resumable
 validation, with populated-data upgrade and genuine-PostgreSQL planner proof.
 General developer-index/unique lowering and relation
-work remain open; the first relation-free vertical may proceed to S03-D4
+work remain open; the first relation-free vertical has completed S03-D4
 without treating those later capabilities as readiness prerequisites.
-S03-D4, under the
-scope-clock-first order, exclusively owns terminal readiness outcomes before
-S04 activation CAS. Static verification beyond declaration, readiness,
+S03-D4, under the scope-clock-first order, now exclusively owns the canonical
+V2-attempt and revision-bound readiness receipt before S04 activation CAS.
+Migration `0043` directly replaces the empty dormant V1 verdict ownership and
+keeps activation rows untouched. Static verification beyond declaration, readiness,
 activation writes, coherent reads, ingress, dispatch, client cutover,
 and cleanup remain later stages of the same approved vertical.
 

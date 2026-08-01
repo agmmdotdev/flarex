@@ -18,8 +18,8 @@ structural caller, now derives and owns the candidate evidence consumed by
 FSV02. `FSV03` now proves the private analyzer-to-Postgres system through one
 test-owned point mutation in both PGlite and genuine PostgreSQL. C08-I1 now
 builds and maintains the intrinsic `by_creation_time` index required by the
-first relation-free application. Target-native readiness is the next unopened
-gate; activation and routing remain later work.
+first relation-free application. `FSV04` now settles target-native readiness
+without activation. Replacement activation and routing remain later work.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -54,7 +54,7 @@ The first vertical is not:
 - a Payload or Medusa database adapter;
 - a broad relational-schema or migration system;
 - a production routing or legacy-retirement authorization; or
-- evidence that the current replacement analyzer, `C07`, readiness, activation,
+- evidence that the current replacement analyzer, `C07`, activation,
   or hosted composition is already complete.
 
 ## Current Truth
@@ -82,7 +82,8 @@ Current implementation truth:
   trusted analyzer authority;
 - `publishAppSchemaV1` provides bounded atomic schema/catalog publication, but
   does not settle readiness or activate a revision;
-- `S03-D4` target-native readiness and `S04` activation remain pending;
+- `FSV04`/`S03-D4` now settles the private target-native readiness receipt;
+  `S04` activation remains pending;
 - `C08-I1` composes the existing S10, C4, and O07-B owners to populate and
   maintain only the relation-free intrinsic creation-time index. Migration
   `0042` adds only its bounded validation access path; it introduces no
@@ -616,7 +617,7 @@ Implemented boundary:
   activation, active reader, route, trigger, hosted dispatch, dual write, or
   fallback was added.
 
-### `[ ] FSV04`: Settle Evidence-Backed Readiness
+### `[x] FSV04`: Settle Evidence-Backed Readiness
 
 The separate PAM-A0b1/A1-RP prerequisite is implemented and remains private
 and inert:
@@ -651,6 +652,14 @@ owner:
 settleApplicationRevisionReadinessV1(revisionId)
   -> ready receipt | typed not-ready result
 ```
+
+Implemented truth: the private versioned receipt identity is
+`flarex.system/application-revision-readiness-receipt/v1`. Migration `0043`
+fails closed if dormant V1 verdict rows exist, retargets the verdict FK to the
+V2 attempt plus exact inactive revision, and retains the activation-to-verdict
+digest FK for the later FSV05 owner. The first consumer is the private backend
+deployment coordinator; it preserves the settlement owner's exact Effect
+failure and Scope channels and owns no persistence or activation authority.
 
 The slice must:
 
@@ -780,11 +789,14 @@ SAP03 boundary described in its completed slice. Neither capability authorizes
 readiness, activation, point mutation, public routing, framework adapters, or
 production wiring.
 
-The next relation-free vertical work is `FSV04` through the still-open
-foundation `S03-D4` readiness owner. FSV03 and the required intrinsic
-creation-time physical build are complete, but neither inactive registration
-nor an enabled physical index is readiness, replacement activation, active-
-reader authority, SAP04, or hosted redelivery evidence.
+The next relation-free vertical work is the separately gated `FSV05`/`S04`
+replacement activation slice. FSV04 now derives and durably replays readiness
+from the exact registered revision, V2 attempt and terminal proof, schema and
+function evidence, enabled physical-build root, PAM R2 publication, and real
+cold-materialization receipts under the located scope-clock-first lock.
+Migration `0043` directly replaces empty dormant V1 verdict ownership and
+preserves the later activation FK, but FSV04 writes no activation revision or
+head and creates no active-reader, SAP04, route, or hosted-redelivery authority.
 
 ## Overall Completion Criteria
 

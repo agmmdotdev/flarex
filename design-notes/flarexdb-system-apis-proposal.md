@@ -228,7 +228,7 @@ The remaining limitations are architectural, not merely naming or packaging:
    handler, artifact, analyzer, and durable reservation evidence into one
    durable revision with request-key replay, but it does not establish
    readiness, activation, routing, or public API authority.
-3. **No target-native readiness operation.** PAM-A0b1/A1-RP now publishes
+3. **Target-native readiness is private and non-activating.** PAM-A0b1/A1-RP publishes
    versioned candidate-bound runtime projections and the exact function-group
    manifest as content-addressed R2 bodies with only scope-fenced references,
    commitments, and normalized mappings in PostgreSQL. A private artifact-runtime probe
@@ -241,8 +241,12 @@ The remaining limitations are architectural, not merely naming or packaging:
    C08-I1 now builds and maintains only the intrinsic `by_creation_time`
    sidecar required by the first relation-free application; migration `0042`
    adds only its scope/definition/row bounded-validation access path. General
-   developer-index/unique lowering remains open, and S03-D4 readiness
-   settlement remains a separate non-activating gate.
+   developer-index/unique lowering remains open. FSV04/S03-D4 now consumes
+   those exact owners through private
+   `settleApplicationRevisionReadinessV1(revisionId)`, persists the canonical
+   revision/V2-attempt/evidence/build/publication/cold-receipt commitment under
+   migration `0043`, and returns typed non-persisted not-ready results for
+   incomplete physical evidence. It does not activate or route the revision.
 4. **No replacement activation operation or coherent active reader.** Current
    legacy deployment activation is not the target FlarexDB revision CAS and
    must not be wrapped as though it were.

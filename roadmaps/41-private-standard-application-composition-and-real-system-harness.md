@@ -10,9 +10,10 @@ success lane enters the implemented Standard definition API. The corpus's
 valid and materialization-failure lanes use the same operation, while
 canonical-failure cases remain isolated with their owning decoder. FSV03 adds
 one test-local definition -> analysis -> inactive registration -> immutable
-revision selection -> point mutation -> durable PostgreSQL proof. A dedicated
-harness package, representative multi-function/application workload runner,
-readiness, activation, and live production composition remain unimplemented.
+revision selection -> point mutation -> durable PostgreSQL proof. `FSV04`
+target-native readiness is complete. A dedicated harness package,
+representative multi-function/application workload runner, activation, and
+live production composition remain unimplemented.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,
@@ -451,7 +452,8 @@ At the time this direction was recorded:
   concurrent mutations with bounded deterministic inputs and zero skips.
   This closes only acceptance-ladder step 1 plus a bounded concurrency/stress
   proof; representative applications, queries, actions, scheduling,
-  readiness, activation, and production composition remain open.
+  FSV04 readiness is complete; activation and production composition remain
+  open.
 
 FSV01 and FSV02 now establish the first Standard analysis and inactive
 registration operations. This roadmap still does not claim that the complete

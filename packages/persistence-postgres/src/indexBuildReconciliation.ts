@@ -237,7 +237,7 @@ interface PhysicalDefinitionRequirementV1 {
   readonly physicalSpecSha256Hex: AppIndexDefinitionRecord["physicalSpecSha256Hex"];
 }
 
-interface PublishedPhysicalRequirementSnapshotV1 {
+export interface PublishedPhysicalRequirementSnapshotV1 {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly manifestSha256: SchemaManifestSha256;
@@ -261,7 +261,7 @@ export const reconcilePublishedIndexBuildsV1Effect = Effect.fn(
   ReconcilePublishedIndexBuildsV1Error
 > {
   const decoded = yield* Effect.fromResult(decodeInputResult(input));
-  const initial = yield* loadPublishedRequirements(
+  const initial = yield* loadPublishedPhysicalRequirementSnapshotV1(
     ports.controlDb,
     decoded,
   );
@@ -302,7 +302,7 @@ export const reconcilePublishedIndexBuildsV1Effect = Effect.fn(
       }),
     });
   }
-  const final = yield* loadPublishedRequirements(
+  const final = yield* loadPublishedPhysicalRequirementSnapshotV1(
     ports.controlDb,
     decoded,
   );
@@ -352,7 +352,7 @@ function decodeInputResult(
   });
 }
 
-const loadPublishedRequirements = Effect.fn(
+export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
   "IndexBuildReconciliation.loadPublishedRequirements",
 )(function* (
   db: FlarexMetadataDatabase,

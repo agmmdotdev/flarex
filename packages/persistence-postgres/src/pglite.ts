@@ -8,6 +8,10 @@ import {
   type LocatedApplicationRevisionRegistrationTargetV1,
 } from "./applicationRevisionRegistrationV1";
 import {
+  createLocatedApplicationRevisionReadinessTargetV1,
+  type LocatedApplicationRevisionReadinessTargetV1,
+} from "./applicationRevisionReadinessV1";
+import {
   createLocatedIndexBuildReconciliationTargetV1,
   type LocatedIndexBuildReconciliationTargetV1,
 } from "./indexBuildReconciliation";
@@ -150,6 +154,16 @@ export function createPGliteLocatedApplicationRevisionRegistrationTargetV1(
   physicalLocator: ScopePhysicalLocator,
 ): LocatedApplicationRevisionRegistrationTargetV1 {
   return createLocatedApplicationRevisionRegistrationTargetV1(
+    persistence.drizzle,
+    physicalLocator,
+  );
+}
+
+export function createPGliteLocatedApplicationRevisionReadinessTargetV1(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedApplicationRevisionReadinessTargetV1 {
+  return createLocatedApplicationRevisionReadinessTargetV1(
     persistence.drizzle,
     physicalLocator,
   );

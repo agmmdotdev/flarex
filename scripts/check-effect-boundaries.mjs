@@ -85,6 +85,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/persistence-postgres/src/appTableDefinitionsArtifacts.ts", "runPreparedAppTableDefinitionsArtifactTransactionEffect"), 1],
   [siteKey("packages/persistence-postgres/src/applicationRevisionRegistrationV1.ts", "runRegistrationTransactionAttempt"), 1],
   [siteKey("packages/persistence-postgres/src/indexBuildReconciliation.ts", "startLocatedEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/applicationRevisionReadinessV1.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/intrinsicCreationTimeIndexBuildV1.ts", "startIntrinsicCreationTimeIndexBuildTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/runtimePersistence.ts", "ensureAppTableDefinitionsArtifactV1"), 1],
   [siteKey("packages/persistence-postgres/src/runtimePersistence.ts", "publishAppSchemaV1"), 1],

@@ -58,7 +58,10 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
-import { makeRuntimeArtifactPublisherFixtureV1 } from "./runtimeArtifactPublisherFixture";
+import {
+  makeRuntimeArtifactPublisherFixtureV1,
+  type RuntimeArtifactPublisherFixtureV1,
+} from "./runtimeArtifactPublisherFixture";
 
 import {
   makePrivateApplicationRevisionRegistrationEvidenceBridgeV1,
@@ -163,6 +166,8 @@ export interface Fsv03PrivateAnalyzerToPostgresLaneV1 {
   readonly selectionFault?: "functionMetadataDigestMismatch";
   readonly registrationTarget:
     LocatedApplicationRevisionRegistrationTargetV1;
+  /** FSV04-only handoff for probing the exact R2 bodies published by FSV02. */
+  readonly runtimeArtifacts?: RuntimeArtifactPublisherFixtureV1;
   readonly c07: C07PrivatePointMutationLaneV1;
 }
 
@@ -202,6 +207,47 @@ interface CommandSettlementState {
     readonly nextProgress: DeclarativeV2VerifierProgressCursorFrameV2;
   }>;
   readonly evidenceRootSha256: Uint8Array;
+}
+
+export interface Fsv04RegisteredRevisionFixtureInputV1 {
+  readonly name: "pglite" | "postgres";
+  readonly persistence: Persistence;
+  readonly registrationTarget:
+    LocatedApplicationRevisionRegistrationTargetV1;
+  readonly runtimeArtifacts: RuntimeArtifactPublisherFixtureV1;
+}
+
+/** Test-only reuse of the accepted FSV01/FSV02 half of the FSV03 chain. */
+export async function prepareFsv04RegisteredRevisionFixtureV1(
+  input: Fsv04RegisteredRevisionFixtureInputV1,
+) {
+  await provisionRegistrationScope(input.persistence);
+  const definition = Result.getOrThrow(
+    prepareStandardApplicationDefinitionV1(definitionInput()),
+  );
+  const registration = await Effect.runPromise(Effect.scoped(
+    withAuthenticatedApplicationRevisionEvidenceTestDriverV1(
+      definition,
+      {
+        projectId: PROJECT_ID,
+        deploymentId: DEPLOYMENT_ID,
+        deploymentCreatedAt: "2026-07-31T00:00:00.000Z",
+        commandBudgetMaximum: MAXIMUM,
+      },
+      driver => runAuthenticatedAnalysisAndRegistration(
+        input,
+        definition,
+        driver,
+      ),
+    ),
+  ));
+  return Object.freeze({
+    deploymentId: DEPLOYMENT_ID,
+    scopeId: SCOPE_ID,
+    physicalLocator: LOCATOR,
+    definition,
+    ...registration,
+  });
 }
 
 export async function proveFsv03PrivateAnalyzerToPostgresSystemV1(
@@ -371,7 +417,10 @@ export async function proveFsv03PrivateAnalyzerToPostgresSystemV1(
 const runAuthenticatedAnalysisAndRegistration = Effect.fn(
   "FSV03.runAuthenticatedAnalysisAndRegistration",
 )(function* (
-  lane: Fsv03PrivateAnalyzerToPostgresLaneV1,
+  lane: Pick<
+    Fsv03PrivateAnalyzerToPostgresLaneV1,
+    "name" | "persistence" | "registrationTarget" | "runtimeArtifacts"
+  >,
   definition: PreparedStandardApplicationDefinitionV1,
   driver: AuthenticatedApplicationRevisionEvidenceTestDriverV1,
 ) {
@@ -403,7 +452,9 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
       },
       progressRepository: PROGRESS_OPTIONS,
       evidenceAuthority: evidenceBridge.authority,
-      runtimeArtifactPublisher: makeRuntimeArtifactPublisherFixtureV1().publisher,
+      runtimeArtifactPublisher:
+        (lane.runtimeArtifacts ?? makeRuntimeArtifactPublisherFixtureV1())
+          .publisher,
     });
     const preparation = yield* registrationContext.prepareAnalysis({
       preparedDefinition: definition,
