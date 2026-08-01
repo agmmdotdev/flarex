@@ -11,7 +11,7 @@ import {
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 
 import {
@@ -40,6 +40,11 @@ import {
   type LogicalReadDependencyV1,
   type SuccessfulResultSha256HexV1,
 } from "flarex-protocol/commit-protocol";
+import {
+  encodeAppOrderedIndexKeyV1,
+  orderedIndexCreationTimeV1,
+  orderedIndexRowIdHexV1FromBytesResult,
+} from "flarex-protocol/ordered-index";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import {
   MAX_PERSISTED_SIGNED_INT64_V1,
@@ -94,6 +99,15 @@ import {
 } from "flarex-protocol/value";
 
 import {
+  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+  isAppendAppIndexEntryRevisionV1Error,
+  type AppendAppIndexEntryRevisionV1Error,
+} from "./appIndexEntries";
+import type {
+  LocatedAppIndexDefinitionV1,
+  ReadAppIndexDefinitionError,
+} from "./appIndexDefinitions";
+import {
   appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
   isAppendAppRowRevisionV1Error,
   type AppendPreparedAppRowRevisionV1Input,
@@ -101,6 +115,13 @@ import {
   type AppRowPointDependencyV1,
   type AppRowTransaction,
 } from "./appRows";
+import type {
+  IntrinsicCreationTimeIndexDefinitionPortV1,
+} from "./intrinsicCreationTimeIndexBuildV1";
+import {
+  decodeIndexBuildStateRowResult,
+  type IndexBuildStateRecord,
+} from "./indexBuildStates";
 import {
   validateAppRowPointOccV1,
   type AppRowPointHeadObservationV1,
@@ -143,9 +164,11 @@ import {
 import {
   fxAppRowCurrent,
   fxAppRowRevisions,
+  fxAppIndexEntryRevisions,
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemIdempotency,
+  fxSystemIndexBuildStates,
   fxSystemOutbox,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
@@ -515,6 +538,8 @@ export type PointCommitCorruptionReasonV1 =
   | "occEvidenceInvalid"
   | "rowTransitionInvalid"
   | "rowWriteInvalid"
+  | "intrinsicIndexBuildInvalid"
+  | "intrinsicIndexTransitionInvalid"
   | "successfulResultInvalid"
   | "committedOutcomeMissing"
   | "publishedOutcomeInvalid"
@@ -543,6 +568,15 @@ export class PointCommitResourceExhaustionV1Error extends Data.TaggedError(
   readonly maximum: bigint;
 }> {}
 
+export class PointCommitIntrinsicIndexDefinitionUnavailableV1Error
+  extends Data.TaggedError(
+    "PointCommitIntrinsicIndexDefinitionUnavailableV1Error",
+  )<{
+    readonly deploymentId: TransactionGrantDeploymentIdV1;
+    readonly scopeId: ReplacementScopeIdV1;
+    readonly tableId: CatalogTableId;
+  }> {}
+
 export type PointCommitSqlOperationV1 =
   | "resolveAuthority"
   | "beginOrRollback"
@@ -555,7 +589,10 @@ export type PointCommitSqlOperationV1 =
   | "enterFinishing"
   | "deleteExecutionClaim"
   | "loadRowHeads"
+  | "lockIntrinsicIndexBuild"
+  | "resetIntrinsicIndexValidation"
   | "writeTentativeRow"
+  | "writeIntrinsicIndexEntry"
   | "recheckOutcome"
   | "writeCommitHeader"
   | "writeCommitChange"
@@ -620,7 +657,10 @@ export type PointCommitRollbackProofV1Error =
   | PointCommitStaleAuthorityV1Error
   | PointCommitCorruptionV1Error
   | PointCommitResourceExhaustionV1Error
-  | PointCommitSqlErrorV1;
+  | PointCommitSqlErrorV1
+  | PointCommitIntrinsicIndexDefinitionUnavailableV1Error
+  | ReadAppIndexDefinitionError
+  | AppendAppIndexEntryRevisionV1Error;
 
 export interface PointCommitRollbackProofPortV1 {
   readonly prove: (
@@ -696,7 +736,9 @@ export type PointCommitTransactionProofStepV1 =
   | "executionClaimDeleted"
   | "sessionEnteredFinishing"
   | "dependenciesValidated"
+  | "intrinsicIndexBuildLocked"
   | "tentativeRowWritten"
+  | "intrinsicIndexEntryWritten"
   | "outcomeRechecked"
   | "commitHeaderWritten"
   | "commitChangeWritten"
@@ -710,6 +752,13 @@ export type PointCommitTransactionProofStepV1 =
   | "beforeRollback";
 
 export interface PointCommitTransactionProofOptionsV1 {
+  /**
+   * Private C08 composition. Absence keeps the lower-level O07/C07 proof lane
+   * independent of a published schema; presence requires the exact intrinsic
+   * definition and fails closed when it cannot be located.
+   */
+  readonly intrinsicCreationTimeIndexes?:
+    IntrinsicCreationTimeIndexDefinitionPortV1;
   readonly afterTransactionStep?: (
     event: Readonly<{
       readonly scopeId: ReplacementScopeIdV1;
@@ -855,6 +904,45 @@ const resolvePointCommitAuthority = Effect.fn(
     provisioningReceipts: ports.provisioningReceipts,
     scopeClockTargets: ports.scopeSessionTargets,
   }).pipe(Effect.catch(routeAuthorityResolutionFailure)));
+
+const prepareIntrinsicIndexDefinition = Effect.fn(
+  "PointCommitTransaction.prepareIntrinsicIndexDefinition",
+)(function* (
+  command: PreparedPointCommitTransactionCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Effect.fn.Return<
+  LocatedAppIndexDefinitionV1 | null,
+  | ReadAppIndexDefinitionError
+  | PointCommitIntrinsicIndexDefinitionUnavailableV1Error
+  | PointCommitCorruptionV1Error
+> {
+  const intent = command.rowIntent;
+  const port = options.intrinsicCreationTimeIndexes;
+  if (intent === null || port === undefined) return null;
+  const definition = yield* port.locate({
+    deploymentId: command.authorityPins.deploymentId,
+    scopeId: command.authorityPins.scopeId,
+    tableId: intent.tableId,
+  });
+  if (definition === null) {
+    return yield* Effect.fail(
+      new PointCommitIntrinsicIndexDefinitionUnavailableV1Error({
+        deploymentId: command.authorityPins.deploymentId,
+        scopeId: command.authorityPins.scopeId,
+        tableId: intent.tableId,
+      }),
+    );
+  }
+  if (
+    definition.scopeId !== command.authorityPins.scopeId ||
+    definition.deploymentId !== command.authorityPins.deploymentId ||
+    definition.access.kind !== "by_creation_time" ||
+    definition.access.tableId !== intent.tableId
+  ) {
+    return yield* Effect.fail(corruption("intrinsicIndexBuildInvalid"));
+  }
+  return definition;
+});
 
 export function createPointCommitFinishingTransitionPortV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
@@ -1013,11 +1101,16 @@ export function createPointCommitRollbackProofPortV1(
         "readCommittedCapabilityMissing",
       ));
     }
+    const intrinsicDefinition = yield* prepareIntrinsicIndexDefinition(
+      command,
+      options,
+    );
     return yield* Effect.uninterruptible(Effect.tryPromise({
       try: () => runRollbackProof(
         target,
         located.authority,
         command,
+        intrinsicDefinition,
         options,
       ),
       catch: mapTransactionFailure,
@@ -1073,11 +1166,17 @@ export function createPointCommitPublisherPortV1(
       return yield* Effect.fail(preliminaryFailure);
     }
 
+    const intrinsicDefinition = yield* prepareIntrinsicIndexDefinition(
+      command,
+      options,
+    );
+
     const runPublication = awaitPointCommitPublicationSettlement(
       runPointCommitPublication(
         target,
         located.authority,
         command,
+        intrinsicDefinition,
         options,
       ),
     );
@@ -2810,6 +2909,7 @@ async function runRollbackProof(
   target: LocatedReadCommittedAttemptTargetV1,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitTransactionCommandV1,
+  intrinsicDefinition: LocatedAppIndexDefinitionV1 | null,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitWouldCommitV1> {
   try {
@@ -2818,6 +2918,7 @@ async function runRollbackProof(
         tx,
         preliminaryAuthority,
         command,
+        intrinsicDefinition,
         options,
         "rollbackProof",
       );
@@ -2842,6 +2943,7 @@ async function runPointCommitPublication(
   target: LocatedPointCommitPublicationTargetV1,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitPublicationCommandV1,
+  intrinsicDefinition: LocatedAppIndexDefinitionV1 | null,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitPublicationDecisionV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
@@ -2849,6 +2951,7 @@ async function runPointCommitPublication(
       tx,
       preliminaryAuthority,
       command,
+      intrinsicDefinition,
       options,
       "publish",
     );
@@ -2884,6 +2987,7 @@ async function runPointCommitTransactionKernel(
   tx: AppRowTransaction,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitTransactionCommandV1,
+  intrinsicDefinition: LocatedAppIndexDefinitionV1 | null,
   options: PointCommitTransactionProofOptionsV1,
   mode: PointCommitTransactionModeV1,
 ): Promise<PointCommitKernelResultV1> {
@@ -2900,6 +3004,15 @@ async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(
     requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
   );
+  const intrinsicBuild = await lockPointCommitIntrinsicIndexBuild(
+    tx,
+    clock,
+    intrinsicDefinition,
+    command,
+  );
+  if (intrinsicBuild !== null) {
+    await emitTransactionStep(options, command, "intrinsicIndexBuildLocked");
+  }
 
   const session = await lockPointCommitSession(
     tx,
@@ -2963,7 +3076,7 @@ async function runPointCommitTransactionKernel(
   );
   const rowIntent = command.rowIntent;
   if (rowIntent !== null) {
-    await lowerTentativePointCommitRow(
+    const rowRevision = await lowerTentativePointCommitRow(
       tx,
       clock.record.epoch,
       allocation.commitSeq,
@@ -2971,6 +3084,25 @@ async function runPointCommitTransactionKernel(
       loadedHeads,
     );
     await emitTransactionStep(options, command, "tentativeRowWritten");
+    if (intrinsicBuild !== null && intrinsicDefinition !== null) {
+      const changed = await lowerTentativePointCommitIntrinsicIndex(
+        tx,
+        intrinsicBuild,
+        intrinsicDefinition,
+        rowRevision,
+      );
+      if (changed) {
+        await emitTransactionStep(
+          options,
+          command,
+          "intrinsicIndexEntryWritten",
+        );
+      }
+      await resetPointCommitIntrinsicIndexValidation(
+        tx,
+        intrinsicBuild,
+      );
+    }
   }
   return Object.freeze({
     kind: "ready",
@@ -4176,13 +4308,171 @@ function adaptPointDependency(
   }
 }
 
+async function lockPointCommitIntrinsicIndexBuild(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  definition: LocatedAppIndexDefinitionV1 | null,
+  command: PreparedPointCommitTransactionCommandV1,
+): Promise<IndexBuildStateRecord | null> {
+  if (definition === null) return null;
+  const rows = await sqlCall("lockIntrinsicIndexBuild", () =>
+    tx.select().from(fxSystemIndexBuildStates).where(and(
+      eq(
+        fxSystemIndexBuildStates.scopeId,
+        command.authorityPins.scopeId,
+      ),
+      eq(
+        fxSystemIndexBuildStates.indexDefinitionId,
+        definition.indexDefinitionId,
+      ),
+    )).limit(1).for("update"));
+  const row = rows[0];
+  if (row === undefined) return null;
+  const state = projectPointCommitTransactionResult(
+    decodeIndexBuildStateRowResult(
+      row,
+      command.authorityPins.scopeId,
+      definition.indexDefinitionId,
+    ).pipe(Result.mapError(() => corruption("intrinsicIndexBuildInvalid"))),
+  );
+  if (
+    state.storageGeneration !== clock.record.storageGeneration ||
+    state.storageGenerationFence !== clock.record.storageGenerationFence ||
+    state.epoch !== clock.record.epoch ||
+    state.startCommitSeq > clock.record.lastCommitSeq ||
+    state.lifecycle === "retiring"
+  ) {
+    throw corruption("intrinsicIndexBuildInvalid");
+  }
+  return state;
+}
+
+async function lowerTentativePointCommitIntrinsicIndex(
+  tx: AppRowTransaction,
+  build: IndexBuildStateRecord,
+  definition: LocatedAppIndexDefinitionV1,
+  rowRevision: AppendPreparedAppRowRevisionV1Input,
+): Promise<boolean> {
+  if (
+    definition.access.kind !== "by_creation_time" ||
+    definition.access.tableId !== rowRevision.tableId ||
+    build.indexDefinitionId !== definition.indexDefinitionId ||
+    build.scopeId !== rowRevision.scopeId
+  ) {
+    throw corruption("intrinsicIndexBuildInvalid");
+  }
+  const encodedKey = encodeAppOrderedIndexKeyV1({
+    spec: definition.physicalSpec,
+    values: [orderedIndexCreationTimeV1(rowRevision.creationTime)],
+  });
+  const rowId = projectPointCommitTransactionResult(
+    orderedIndexRowIdHexV1FromBytesResult(
+      appRowIdHexV1ToBytes(rowRevision.rowId),
+    ).pipe(Result.mapError(() =>
+      corruption("intrinsicIndexTransitionInvalid")
+    )),
+  );
+  const keyBytes = Buffer.from(encodedKey, "hex");
+  const rowIdBytes = appRowIdHexV1ToBytes(rowRevision.rowId);
+  const heads = await sqlCall("writeIntrinsicIndexEntry", () =>
+    tx.select({
+      commitSeq: fxAppIndexEntryRevisions.commitSeq,
+      isTombstone: fxAppIndexEntryRevisions.isTombstone,
+    }).from(fxAppIndexEntryRevisions).where(and(
+      eq(fxAppIndexEntryRevisions.scopeUuid, projectScopeIdUuidV1Result(
+        rowRevision.scopeId,
+      ).pipe(Result.getOrThrow).scopeUuid),
+      eq(
+        fxAppIndexEntryRevisions.indexDefinitionId,
+        definition.indexDefinitionId,
+      ),
+      eq(fxAppIndexEntryRevisions.encodedKey, keyBytes),
+      eq(fxAppIndexEntryRevisions.rowId, rowIdBytes),
+    )).orderBy(desc(fxAppIndexEntryRevisions.commitSeq)).limit(1));
+  const head = heads[0];
+  if (rowRevision.kind === "tombstone") {
+    if (head === undefined) {
+      if (build.lifecycle === "enabled") {
+        throw corruption("intrinsicIndexTransitionInvalid");
+      }
+      return false;
+    }
+    if (
+      head.isTombstone ||
+      rowRevision.prevCommitSeq === null ||
+      head.commitSeq !== rowRevision.prevCommitSeq
+    ) {
+      throw corruption("intrinsicIndexTransitionInvalid");
+    }
+  } else {
+    if (
+      head === undefined &&
+      rowRevision.prevCommitSeq !== null &&
+      build.lifecycle === "enabled"
+    ) {
+      throw corruption("intrinsicIndexTransitionInvalid");
+    }
+    if (
+      head !== undefined &&
+      (head.isTombstone ||
+        rowRevision.prevCommitSeq === null ||
+        head.commitSeq !== rowRevision.prevCommitSeq)
+    ) {
+      throw corruption("intrinsicIndexTransitionInvalid");
+    }
+  }
+  const appended = await sqlCall("writeIntrinsicIndexEntry", () =>
+    appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(tx, {
+      kind: rowRevision.kind,
+      scopeId: rowRevision.scopeId,
+      definition,
+      encodedKey,
+      rowId,
+      writeEpoch: rowRevision.writeEpoch,
+      commitSeq: rowRevision.commitSeq,
+      prevCommitSeq: head?.commitSeq ?? null,
+    }));
+  projectPointCommitTransactionResult(appended);
+  return true;
+}
+
+async function resetPointCommitIntrinsicIndexValidation(
+  tx: AppRowTransaction,
+  build: IndexBuildStateRecord,
+): Promise<void> {
+  if (build.lifecycle !== "validating") return;
+  const updated = await sqlCall("resetIntrinsicIndexValidation", () =>
+    tx.update(fxSystemIndexBuildStates).set({
+      backfillCursorRowId: null,
+      updatedAt: sql`clock_timestamp()`,
+    }).where(and(
+      eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
+      eq(
+        fxSystemIndexBuildStates.indexDefinitionId,
+        build.indexDefinitionId,
+      ),
+      eq(
+        fxSystemIndexBuildStates.storageGenerationFence,
+        build.storageGenerationFence,
+      ),
+      eq(fxSystemIndexBuildStates.epoch, build.epoch),
+      eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
+      eq(fxSystemIndexBuildStates.lifecycle, "validating"),
+    )).returning({
+      indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId,
+    }));
+  if (updated.length !== 1) {
+    throw corruption("intrinsicIndexBuildInvalid");
+  }
+}
+
 async function lowerTentativePointCommitRow(
   tx: AppRowTransaction,
   writeEpoch: ScopeEpoch,
   tentativeCommitSeq: CommitSeq,
   command: PreparedPointCommitTransactionCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
-): Promise<void> {
+): Promise<AppendPreparedAppRowRevisionV1Input> {
   const input = projectPointCommitTransactionResult(
     prepareTentativePointCommitRowResult(
       writeEpoch,
@@ -4194,6 +4484,7 @@ async function lowerTentativePointCommitRow(
   const written = await sqlCall("writeTentativeRow", () =>
     appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(tx, input));
   projectPointCommitTransactionResult(written);
+  return input;
 }
 
 function prepareTentativePointCommitRowResult(
@@ -4392,6 +4683,7 @@ async function sqlCall<Value>(
       cause instanceof PointCommitStaleAuthorityV1Error ||
       cause instanceof PointCommitCorruptionV1Error ||
       cause instanceof PointCommitResourceExhaustionV1Error ||
+      isAppendAppIndexEntryRevisionV1Error(cause) ||
       cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1 ||
       cause instanceof CommittedPointOutcomeCorruptionErrorV1
     ) {
@@ -4681,7 +4973,9 @@ function mapTransactionFailure(
     cause instanceof PointCommitStaleAuthorityV1Error ||
     cause instanceof PointCommitCorruptionV1Error ||
     cause instanceof PointCommitResourceExhaustionV1Error ||
-    cause instanceof PointCommitSqlErrorV1
+    cause instanceof PointCommitSqlErrorV1 ||
+    cause instanceof PointCommitIntrinsicIndexDefinitionUnavailableV1Error ||
+    isAppendAppIndexEntryRevisionV1Error(cause)
   ) {
     return cause;
   }

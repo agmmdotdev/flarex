@@ -1168,7 +1168,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "42" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "43" }]);
     } finally {
       try {
         await db.close();
@@ -1362,7 +1362,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "42" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "43" }]);
     } finally {
       try {
         await db.close();
@@ -1473,7 +1473,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "42" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "43" }]);
     } finally {
       try {
         await db.close();
@@ -2046,7 +2046,7 @@ describe("createPGlitePersistence", () => {
       const currentReceipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(currentReceipts.rows).toEqual([{ count: "42" }]);
+      expect(currentReceipts.rows).toEqual([{ count: "43" }]);
     } finally {
       try {
         await db.close();
@@ -2145,7 +2145,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "42" }]);
+      expect(receipts.rows).toEqual([{ count: "43" }]);
     } finally {
       try {
         await db.close();
@@ -2246,7 +2246,125 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "42" }]);
+      expect(receipts.rows).toEqual([{ count: "43" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds the C08 row-validation index over populated S10 current entries", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-c08-index-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournalPath = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const currentJournalText = await readFile(currentJournalPath, "utf8");
+      const parsedJournal: unknown = JSON.parse(currentJournalText);
+      if (
+        !isNonArrayRecord(parsedJournal) ||
+        !Array.isArray(parsedJournal.entries)
+      ) {
+        throw new Error("Expected a Drizzle migration journal.");
+      }
+      const previousJournal = {
+        ...parsedJournal,
+        entries: parsedJournal.entries.filter((entry) =>
+          isNonArrayRecord(entry) &&
+          typeof entry.idx === "number" &&
+          entry.idx < 42
+        ),
+      };
+      await writeFile(
+        copiedJournalPath,
+        `${JSON.stringify(previousJournal, null, 2)}\n`,
+        "utf8",
+      );
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      await previous.query(`
+        insert into fx_system_scope_clock
+          (scope_id, storage_generation, storage_generation_fence,
+           last_commit_seq, last_outbox_seq, epoch)
+        values
+          ('scope_c0842000-0000-0000-0000-000000000001',
+           'flarexdb_v1', 1, 1, 0,
+           'epoch_c0842000-0000-0000-0000-000000000001');
+      `);
+      await previous.query(`
+        insert into fx_app_row_rev
+          (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
+           write_epoch_uuid, schema_version_id, creation_time,
+           value_codec_version, is_tombstone, value_json, value_bytes,
+           value_sha256)
+        values
+          ('c0842000-0000-0000-0000-000000000001', 1,
+           decode(repeat('11', 16), 'hex'), 1, null,
+           'c0842000-0000-0000-0000-000000000001', 'schema_c08_upgrade',
+           1, 1, false, '{}'::jsonb, decode('00', 'hex'),
+           decode(repeat('aa', 32), 'hex'));
+      `);
+      await previous.query(`
+        insert into fx_app_index_entry_rev
+          (scope_uuid, index_definition_id, table_id, key_codec_version,
+           physical_spec_sha256, encoded_key, key_sha256, row_id,
+           commit_seq, prev_commit_seq, write_epoch_uuid, is_tombstone)
+        values
+          ('c0842000-0000-0000-0000-000000000001', 1, 1, 1,
+           decode(repeat('bb', 32), 'hex'), decode('10', 'hex'),
+           decode(repeat('cc', 32), 'hex'),
+           decode(repeat('11', 16), 'hex'), 1, null,
+           'c0842000-0000-0000-0000-000000000001', false);
+      `);
+      await previous.query(`
+        insert into fx_app_index_entry_current
+          (scope_uuid, index_definition_id, encoded_key, row_id, commit_seq)
+        values
+          ('c0842000-0000-0000-0000-000000000001', 1,
+           decode('10', 'hex'), decode(repeat('11', 16), 'hex'), 1);
+      `);
+      const before = await previous.query<{ count: string }>(`
+        select count(*)::text as count
+        from pg_indexes
+        where schemaname = current_schema()
+          and indexname =
+            'fx_app_index_entry_current_scope_definition_row_idx'
+      `);
+      expect(before.rows).toEqual([{ count: "0" }]);
+
+      await writeFile(copiedJournalPath, currentJournalText, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await current.migrate();
+      await current.migrate();
+      const after = await current.query<{ count: string; indexdef: string }>(`
+        select
+          (select count(*)::text from fx_app_index_entry_current) as count,
+          indexdef
+        from pg_indexes
+        where schemaname = current_schema()
+          and indexname =
+            'fx_app_index_entry_current_scope_definition_row_idx'
+      `);
+      expect(after.rows).toHaveLength(1);
+      expect(after.rows[0]?.count).toBe("1");
+      expect(after.rows[0]?.indexdef).toContain(
+        "(scope_uuid, index_definition_id, row_id)",
+      );
+      const receipts = await current.query<{ count: string }>(
+        `select count(*)::text as count from drizzle.__drizzle_migrations`,
+      );
+      expect(receipts.rows).toEqual([{ count: "43" }]);
     } finally {
       try {
         await db.close();

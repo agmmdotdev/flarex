@@ -801,6 +801,23 @@ Exit gate:
 
 ### [ ] C08 — Lower Index And Unique Sidecars
 
+`C08-I1` is complete for the first relation-free Standard application. The
+existing O07-B transaction now maintains only the required intrinsic
+`by_creation_time` sidecar for every material final-row transition (insert,
+patch, replace, and delete). The same bounded private capability advances the
+existing C4 build row through declared, building, backfilling, validating, and
+enabled with row-ID-ordered snapshot backfill, current-row revalidation, exact
+current-content validation, and no external lease or new schema. Validation is
+page-bounded and every relevant validating-state point commit resets its cursor
+in the same transaction, preventing behind-cursor changes from escaping the
+complete pass required for enablement. Migration `0042` adds only the
+non-unique `(scope_uuid, index_definition_id, row_id)` supporting index needed
+by that bounded validation query; it changes no C4 lifecycle row or S10 entry
+semantics, and populated-data plus genuine-PostgreSQL planner proof pins the
+access path. This does not
+complete general C08: developer-index lowering, unique lowering, key movement,
+and O09 contention remain open.
+
 Outcome:
 
 - From the final row and pinned catalog/codecs, derive declared index inserts,

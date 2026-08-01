@@ -90,6 +90,7 @@ import {
   createTransactionGrantVerifierV1,
 } from "../../executor/src/transactionGrant";
 import type { FlarexPersistence } from "../src";
+import type { FlarexMetadataDatabase } from "../src/deployments";
 import type { LocatedScopeClockReader } from
   "../src/scopeAuthorityResolution";
 import {
@@ -113,6 +114,9 @@ import {
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
+import {
+  createIntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../src/intrinsicCreationTimeIndexBuildV1";
 import {
   RESOLVE_POINT_COMMIT_OUTCOME_V1,
   createPointCommitFinishingTransitionPortV1,
@@ -142,6 +146,7 @@ export interface C07SeedLiveRowV1 {
 export interface C07PrivatePointMutationLaneV1 {
   readonly name: "pglite" | "postgres";
   readonly persistence: FlarexPersistence;
+  readonly controlDb: FlarexMetadataDatabase;
   readonly ensureScope: (
     deploymentId: TransactionGrantDeploymentIdV1,
     projectId: string,
@@ -155,6 +160,12 @@ export interface C07PrivatePointMutationLaneV1 {
    */
   readonly seedBaselineLiveRow: (
     input: C07SeedLiveRowV1,
+  ) => Promise<void>;
+  /** C08-only hook; absent in the accepted lower-level C07 proof. */
+  readonly afterBaselineSeed?: (
+    input: C07SeedLiveRowV1 & {
+      readonly deploymentId: TransactionGrantDeploymentIdV1;
+    },
   ) => Promise<void>;
 }
 
@@ -353,6 +364,9 @@ export async function executePrivateRegisteredRevisionPointMutationThroughC07V1(
       functionMetadata: structuredClone(functionMetadata),
     }),
     input.runtimeRunner,
+    createIntrinsicCreationTimeIndexDefinitionPortV1(
+      input.lane.controlDb,
+    ),
   );
   const result = await runEffect(
     execution.executeInitialPointMutationAttempt(activated),
@@ -429,6 +443,19 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
   const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
   const creationTime = decodeAppCreationTimeV1(1);
   await lane.seedBaselineLiveRow({
+    scopeId,
+    schemaVersionId,
+    tableId,
+    rowId,
+    creationTime,
+    value: Object.freeze({
+      _id: documentId,
+      _creationTime: creationTime,
+      name: `c07-${lane.name}-seed`,
+    }),
+  });
+  await lane.afterBaselineSeed?.({
+    deploymentId,
     scopeId,
     schemaVersionId,
     tableId,
@@ -671,6 +698,9 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
     verifier,
     functionSnapshot(competing.prepared),
     makePointMutationExactRuntimeBindingRunnerV1(competingRuntimeBinding),
+    createIntrinsicCreationTimeIndexDefinitionPortV1(
+      lane.controlDb,
+    ),
   );
   const runtimeBinding = Object.freeze({
     run: async (
@@ -719,6 +749,9 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
     verifier,
     functionSnapshot(prepared),
     runtimeRunner,
+    createIntrinsicCreationTimeIndexDefinitionPortV1(
+      lane.controlDb,
+    ),
   );
 
   const clonedActivationFailure = await runEffectFailure(
@@ -815,6 +848,8 @@ function createInitialExecution(
     readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
   }>,
   runner: PointMutationOccRuntimeNeutralRunnerV1,
+  intrinsicCreationTimeIndexes:
+    ReturnType<typeof createIntrinsicCreationTimeIndexDefinitionPortV1>,
 ) {
   let executionSequence = 0;
   const terminalization = createPointMutationSessionAttemptTerminalizationV1(
@@ -827,7 +862,9 @@ function createInitialExecution(
     functionMetadata: {
       load: () => Effect.succeed(structuredClone(functionSnapshot)),
     },
-    pointCommit: createPointCommitPublisherPortV1(ports),
+    pointCommit: createPointCommitPublisherPortV1(ports, {
+      intrinsicCreationTimeIndexes,
+    }),
     pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
     pointMutationAttemptReplacement:
       createPointMutationAttemptReplacementPortV1(ports, {

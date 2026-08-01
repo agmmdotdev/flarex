@@ -100,6 +100,7 @@ function pgliteLane(
     c07: {
       name: "pglite",
       persistence,
+      controlDb: persistence.drizzle,
       ensureScope: async () => {
         throw new Error("FSV03 reuses the registered scope.");
       },

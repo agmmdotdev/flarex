@@ -270,6 +270,18 @@ export type AppendAppIndexEntryRevisionV1Error =
   | AppIndexEntryHashError
   | AppIndexEntryStorageCorruptionError;
 
+export function isAppendAppIndexEntryRevisionV1Error(
+  value: unknown,
+): value is AppendAppIndexEntryRevisionV1Error {
+  return value instanceof InvalidAppIndexEntryInputError ||
+    value instanceof AppIndexEntryScopeAuthorityUnavailableError ||
+    value instanceof AppIndexEntryRevisionAlreadyExistsError ||
+    value instanceof AppIndexEntryRevisionChainConflictError ||
+    value instanceof AppIndexEntryParentRevisionError ||
+    value instanceof AppIndexEntryHashError ||
+    value instanceof AppIndexEntryStorageCorruptionError;
+}
+
 export type ReadAppIndexRangeV1Error =
   | InvalidAppIndexEntryInputError
   | AppIndexEntryScopeAuthorityUnavailableError
@@ -350,7 +362,46 @@ export async function appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionR
 > {
   const decoded = await decodeAppendInputResult(tx, input);
   if (Result.isFailure(decoded)) return Result.fail(decoded.failure);
-  const revision = decoded.success;
+  return appendDecodedAppIndexEntryRevisionResult(tx, decoded.success);
+}
+
+interface AppendBackfilledAppIndexEntryRevisionV1Input {
+  readonly scopeId: ScopeId;
+  readonly scopeUuid: ScopeUuidV1;
+  readonly definition: LocatedAppIndexDefinitionV1;
+  readonly encodedKey: OrderedIndexKeyHexV1;
+  readonly rowId: OrderedIndexRowIdHexV1;
+  readonly writeEpochUuid: ScopeEpochUuidV1;
+  readonly commitSeq: CommitSeq;
+  readonly prevCommitSeq: CommitSeq | null;
+}
+
+/**
+ * Package-internal C08 backfill primitive. The builder supplies scope and epoch
+ * UUIDs read from the exact authoritative row revision because historical
+ * epoch text is intentionally not duplicated in app-row storage.
+ */
+export const appendBackfilledLiveAppIndexEntryRevisionInTransactionEffect =
+Effect.fn("AppIndexEntries.appendBackfilledLiveInTransaction")(function* (
+  tx: AppIndexEntryTransaction,
+  input: AppendBackfilledAppIndexEntryRevisionV1Input,
+): Effect.fn.Return<
+  AppIndexEntryRevisionV1,
+  AppendAppIndexEntryRevisionV1Error
+> {
+  const revision = yield* decodeBackfilledAppendInputEffect(tx, input);
+  const appended = yield* Effect.promise(() =>
+    appendDecodedAppIndexEntryRevisionResult(tx, revision)
+  );
+  return yield* Effect.fromResult(appended);
+});
+
+async function appendDecodedAppIndexEntryRevisionResult(
+  tx: AppIndexEntryTransaction,
+  revision: DecodedAppendAppIndexEntryRevisionV1,
+): Promise<
+  Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>
+> {
   if (await revisionExists(tx, revision)) {
     return Result.fail(new AppIndexEntryRevisionAlreadyExistsError(
       revision.identity,
@@ -493,6 +544,74 @@ export const scanCurrentAppIndexInTransactionEffect = Effect.fn(
   );
 });
 
+interface ReadCurrentAppIndexEntriesForRowV1Input {
+  readonly scopeId: ScopeId;
+  readonly definition: LocatedAppIndexDefinitionV1;
+  readonly rowId: OrderedIndexRowIdHexV1;
+}
+
+/** Package-internal bounded C08 validation read for one authoritative row. */
+export const readCurrentAppIndexEntriesForRowInTransactionEffect = Effect.fn(
+  "AppIndexEntries.readCurrentForRowInTransaction",
+)(function* (
+  tx: AppIndexEntryTransaction,
+  input: ReadCurrentAppIndexEntriesForRowV1Input,
+): Effect.fn.Return<
+  ReadonlyArray<AppIndexRangeEntryV1>,
+  ReadAppIndexRangeV1Error
+> {
+  const decoded = yield* decodeRangeReadEffect(tx, {
+    scopeId: input.scopeId,
+    definition: input.definition,
+    bounds: {},
+    limit: 2,
+  });
+  const rowId = yield* Effect.fromResult(
+    decodeOrderedRowIdResult(input.rowId),
+  ).pipe(Effect.mapError(() =>
+    new InvalidAppIndexEntryInputError("invalidRowId")
+  ));
+  const rowIdBytes = orderedIndexRowIdHexV1ToBytes(rowId);
+  const statement = sql`
+    select
+      revision.table_id::text as "tableIdText",
+      revision.key_codec_version::text as "keyCodecVersionText",
+      revision.physical_spec_sha256 as "physicalSpecSha256",
+      revision.encoded_key as "encodedKeyBytes",
+      revision.key_sha256 as "keySha256",
+      revision.row_id as "rowIdBytes",
+      revision.commit_seq::text as "commitSeqText",
+      revision.write_epoch_uuid::text as "writeEpochUuid",
+      revision.is_tombstone as "isTombstone"
+    from fx_app_index_entry_current as current_entry
+    join fx_app_index_entry_rev as revision
+      on revision.scope_uuid = current_entry.scope_uuid
+      and revision.index_definition_id = current_entry.index_definition_id
+      and revision.encoded_key = current_entry.encoded_key
+      and revision.row_id = current_entry.row_id
+      and revision.commit_seq = current_entry.commit_seq
+    where current_entry.scope_uuid = ${decoded.scopeUuid}
+      and current_entry.index_definition_id = ${decoded.indexDefinitionId}
+      and current_entry.row_id = ${rowIdBytes}
+    order by current_entry.encoded_key asc
+    limit 3
+  `;
+  const page = yield* executeAndDecodeRangeEffect(
+    tx,
+    decoded,
+    statement,
+    "scanCurrent",
+  );
+  if (!page.isDone) {
+    return yield* Effect.fail(
+      new AppIndexEntryStorageCorruptionError(
+        "one row has more than two current index entries",
+      ),
+    );
+  }
+  return page.entries;
+});
+
 async function decodeAppendInputResult(
   tx: AppIndexEntryTransaction,
   input: AppendAppIndexEntryRevisionV1Input,
@@ -629,6 +748,142 @@ async function decodeAppendInputResult(
     keySha256: keySha256.success,
   }));
 }
+
+const decodeBackfilledAppendInputEffect = Effect.fn(
+  "AppIndexEntries.decodeBackfilledAppendInput",
+)(function* (
+  tx: AppIndexEntryTransaction,
+  input: AppendBackfilledAppIndexEntryRevisionV1Input,
+): Effect.fn.Return<
+  DecodedAppendAppIndexEntryRevisionV1,
+  InvalidAppIndexEntryInputError | AppIndexEntryScopeAuthorityUnavailableError |
+    AppIndexEntryHashError
+> {
+  const captured = Result.gen(function* () {
+    const scopeId = yield* decodeWriteFieldResult(
+      decodeScopeIdResult(input.scopeId),
+      "invalidScopeId",
+    );
+    const scopeUuid = yield* decodeWriteFieldResult(
+      decodeScopeUuidResult(input.scopeUuid),
+      "invalidScopeId",
+    );
+    const expectedScope = yield* projectScopeIdUuidV1Result(scopeId).pipe(
+      Result.mapError((cause) =>
+        new InvalidAppIndexEntryInputError("invalidScopeId", cause)
+      ),
+    );
+    if (scopeUuid !== expectedScope.scopeUuid) {
+      return yield* Result.fail(
+        new InvalidAppIndexEntryInputError("invalidScopeId"),
+      );
+    }
+    if (
+      !isLocatedAppIndexDefinitionV1(input.definition) ||
+      input.definition.scopeId !== scopeId
+    ) {
+      return yield* Result.fail(
+        new InvalidAppIndexEntryInputError("invalidLocatedDefinition"),
+      );
+    }
+    const encodedKey = yield* decodeWriteFieldResult(
+      decodeOrderedKeyResult(input.encodedKey),
+      "invalidEncodedKey",
+    );
+    if (encodedKey.length === 0) {
+      return yield* Result.fail(
+        new InvalidAppIndexEntryInputError("invalidEncodedKey"),
+      );
+    }
+    yield* Result.try({
+      try: () => decodeAppOrderedIndexKeyV1({
+        spec: input.definition.physicalSpec,
+        encodedKey,
+      }),
+      catch: (cause) =>
+        new InvalidAppIndexEntryInputError("invalidEncodedKey", cause),
+    });
+    const rowId = yield* decodeWriteFieldResult(
+      decodeOrderedRowIdResult(input.rowId),
+      "invalidRowId",
+    );
+    const writeEpochUuid = yield* decodeWriteFieldResult(
+      decodeScopeEpochUuidResult(input.writeEpochUuid),
+      "invalidWriteEpoch",
+    );
+    const commitSeq = yield* decodeWriteFieldResult(
+      decodeCommitSeqResult(input.commitSeq),
+      "invalidCommitSeq",
+    );
+    if (commitSeq < 1n) {
+      return yield* Result.fail(
+        new InvalidAppIndexEntryInputError("invalidCommitSeq"),
+      );
+    }
+    const prevCommitSeq = input.prevCommitSeq === null
+      ? null
+      : yield* decodeWriteFieldResult(
+        decodeCommitSeqResult(input.prevCommitSeq),
+        "invalidPreviousCommitSeq",
+      );
+    if (
+      prevCommitSeq !== null &&
+      (prevCommitSeq < 1n || prevCommitSeq >= commitSeq)
+    ) {
+      return yield* Result.fail(
+        new InvalidAppIndexEntryInputError("invalidPreviousCommitSeq"),
+      );
+    }
+    return Object.freeze({
+      identity: Object.freeze({
+        scopeId,
+        indexDefinitionId: input.definition.indexDefinitionId,
+        tableId: input.definition.access.tableId,
+        encodedKey,
+        rowId,
+      }),
+      scopeUuid,
+      writeEpochUuid,
+      commitSeq,
+      prevCommitSeq,
+      physicalSpec: input.definition.physicalSpec,
+      keyBytes: orderedIndexKeyBytesHexV1ToBytes(encodedKey),
+    });
+  });
+  const value = yield* Effect.fromResult(captured);
+  const currentScope = yield* Effect.promise(() =>
+    requireScopeUuidResult(
+      tx,
+      value.identity.scopeId,
+      Object.freeze({ scopeUuid: value.scopeUuid }),
+    )
+  );
+  yield* Effect.fromResult(currentScope);
+  const canonicalPhysicalSpecResult = yield* Effect.promise(() =>
+    canonicalizePhysicalSpecResult(value.physicalSpec)
+  );
+  const canonicalPhysicalSpec = yield* Effect.fromResult(
+    canonicalPhysicalSpecResult,
+  );
+  const keySha256Result = yield* Effect.promise(() =>
+    sha256Result(value.keyBytes, "append")
+  );
+  const keySha256 = yield* Effect.fromResult(keySha256Result);
+  return Object.freeze({
+    kind: "live" as const,
+    identity: value.identity,
+    scopeUuid: value.scopeUuid,
+    writeEpochUuid: value.writeEpochUuid,
+    commitSeq: value.commitSeq,
+    prevCommitSeq: value.prevCommitSeq,
+    physicalSpec: value.physicalSpec,
+    physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+      canonicalPhysicalSpec.sha256Hex,
+    ),
+    keyBytes: value.keyBytes,
+    keySha256,
+  });
+});
 
 const decodeRangeReadEffect = Effect.fn(
   "AppIndexEntries.decodeRangeRead",

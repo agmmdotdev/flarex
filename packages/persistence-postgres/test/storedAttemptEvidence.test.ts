@@ -12,7 +12,10 @@ import {
   decodeAppDocumentIdentityV1,
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
-import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import {
+  decodeCatalogIndexDefinitionId,
+  decodeCatalogTableId,
+} from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
   CommitEnvelopeV1Schema,
@@ -151,11 +154,18 @@ import {
   type AppRowTransaction,
 } from "../src/appRows";
 import {
+  createPGliteLocatedIndexBuildReconciliationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
+import {
+  buildIntrinsicCreationTimeIndexV1Effect,
+  createIntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../src/intrinsicCreationTimeIndexBuildV1";
+import { reconcilePublishedIndexBuildsV1Effect } from
+  "../src/indexBuildReconciliation";
 import { createPointMutationAttemptDiscoveryV1 } from
   "../src/pointMutationAttemptDiscovery";
 import {
@@ -4225,8 +4235,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     const liveBefore = await o06DurableState(live.evidence.scopeUuid);
     const liveSteps: string[] = [];
+    const liveIndexOptions = await enableIntrinsicIndexForO06(live.current);
     const liveResult = await runEffect(
       createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
+        ...liveIndexOptions,
         afterTransactionStep: (event) => {
           liveSteps.push(event.step);
           return Promise.resolve();
@@ -4237,11 +4249,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(Object.isFrozen(liveResult)).toBe(true);
     expect(liveSteps).toEqual([
       "clockLocked",
+      "intrinsicIndexBuildLocked",
       "sessionLocked",
       "leaseLocked",
       "journalRootLocked",
       "dependenciesValidated",
       "tentativeRowWritten",
+      "intrinsicIndexEntryWritten",
       "beforeRollback",
     ]);
     expect(await o06DurableState(live.evidence.scopeUuid)).toEqual(liveBefore);
@@ -4265,8 +4279,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     const deleteBefore = await o06DurableState(deleted.evidence.scopeUuid);
     const deleteSteps: string[] = [];
+    const deleteIndexOptions = await enableIntrinsicIndexForO06(
+      deleted.current,
+    );
     await runEffect(
       createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
+        ...deleteIndexOptions,
         afterTransactionStep: (event) => {
           deleteSteps.push(event.step);
           return Promise.resolve();
@@ -4274,6 +4292,28 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }).prove(deleted.command),
     );
     expect(deleteSteps).toContain("tentativeRowWritten");
+    expect(deleteSteps).toContain("intrinsicIndexEntryWritten");
+    expect(await o06DurableState(deleted.evidence.scopeUuid)).toEqual(
+      deleteBefore,
+    );
+    await persistence.query(
+      "delete from fx_app_index_entry_current where scope_uuid = $1",
+      [deleted.evidence.scopeUuid],
+    );
+    await persistence.query(
+      "delete from fx_app_index_entry_rev where scope_uuid = $1",
+      [deleted.evidence.scopeUuid],
+    );
+    const missingEnabledHead = await runFailure(
+      createPointCommitRollbackProofPortV1(
+        resolutionPorts(persistence),
+        deleteIndexOptions,
+      ).prove(deleted.command),
+    );
+    expect(missingEnabledHead).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(missingEnabledHead).toMatchObject({
+      reason: "intrinsicIndexTransitionInvalid",
+    });
     expect(await o06DurableState(deleted.evidence.scopeUuid)).toEqual(
       deleteBefore,
     );
@@ -5508,6 +5548,51 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         current.authority,
         loaded.evidence,
       ),
+    });
+  }
+
+  async function enableIntrinsicIndexForO06(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+  ): Promise<Pick<
+    PointCommitTransactionProofOptionsV1,
+    "intrinsicCreationTimeIndexes"
+  >> {
+    const target = createPGliteLocatedIndexBuildReconciliationTargetV1(
+      persistence,
+      sharedLocator,
+    );
+    const ports = {
+      controlDb: persistence.drizzle,
+      authority: {
+        scopeMetadata: {
+          getScopeMetadataByDeploymentId: (deploymentId: string) =>
+            persistence.getScopeMetadataByDeploymentId(deploymentId),
+        },
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => null,
+        },
+        scopeClockTargets: { resolve: async () => target },
+      },
+    } as const;
+    await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
+      deploymentId: current.anchor.deploymentId,
+      schemaVersionId: current.schemaVersionId,
+    }));
+    for (let step = 0; step < 8; step += 1) {
+      const advanced = await runEffect(
+        buildIntrinsicCreationTimeIndexV1Effect(ports, {
+          deploymentId: current.anchor.deploymentId,
+          indexDefinitionId: decodeCatalogIndexDefinitionId(1),
+          pageSize: 8,
+        }),
+      );
+      if (advanced.lifecycle === "enabled") break;
+    }
+    return Object.freeze({
+      intrinsicCreationTimeIndexes:
+        createIntrinsicCreationTimeIndexDefinitionPortV1(
+          persistence.drizzle,
+        ),
     });
   }
 

@@ -16,8 +16,10 @@ range/lineage commitment. FSV02-A1 closes the remaining private registration-
 evidence seam discovered while composing FSV03: the backend, rather than a
 structural caller, now derives and owns the candidate evidence consumed by
 FSV02. `FSV03` now proves the private analyzer-to-Postgres system through one
-test-owned point mutation in both PGlite and genuine PostgreSQL. Target-native
-readiness is the next unopened gate; activation and routing remain later work.
+test-owned point mutation in both PGlite and genuine PostgreSQL. C08-I1 now
+builds and maintains the intrinsic `by_creation_time` index required by the
+first relation-free application. Target-native readiness is the next unopened
+gate; activation and routing remain later work.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -81,6 +83,11 @@ Current implementation truth:
 - `publishAppSchemaV1` provides bounded atomic schema/catalog publication, but
   does not settle readiness or activate a revision;
 - `S03-D4` target-native readiness and `S04` activation remain pending;
+- `C08-I1` composes the existing S10, C4, and O07-B owners to populate and
+  maintain only the relation-free intrinsic creation-time index. Migration
+  `0042` adds only its bounded validation access path; it introduces no
+  developer-index, uniqueness, relation, query, readiness, or activation
+  authority;
 - the private C07 composition is accepted after its 79-case PGlite gate and all
   47 genuine PostgreSQL database cases passed with zero skips;
 - A1b2-S1 adds the private scoped backend preparation, canonical future
@@ -632,7 +639,8 @@ Entry gates:
 - foundation S10 target-native index revision/current storage is complete;
   foundation S11 target-native unique-key claim storage is complete;
   completed `S03-D3` physical reconciliation supplies declaration/replay, but
-  the later builder evidence and `S03-D4` readiness must also be complete; and
+  C08-I1 now supplies the required relation-free intrinsic physical builder
+  and online-maintenance evidence; and
 - foundation `S03-D4` has an accepted implementation preflight over those real
   target rows and the PAM-A0b1/A1-RP cold receipts.
 
@@ -772,10 +780,11 @@ SAP03 boundary described in its completed slice. Neither capability authorizes
 readiness, activation, point mutation, public routing, framework adapters, or
 production wiring.
 
-The next vertical work must enter through the existing `FSV03` gates. In
-particular, inactive registration is not evidence that `C07`, target-native
-readiness, replacement activation, the active reader, or hosted redelivery is
-complete.
+The next relation-free vertical work is `FSV04` through the still-open
+foundation `S03-D4` readiness owner. FSV03 and the required intrinsic
+creation-time physical build are complete, but neither inactive registration
+nor an enabled physical index is readiness, replacement activation, active-
+reader authority, SAP04, or hosted redelivery evidence.
 
 ## Overall Completion Criteria
 

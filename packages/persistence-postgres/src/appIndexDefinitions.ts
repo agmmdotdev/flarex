@@ -1078,6 +1078,60 @@ export const locateAppIndexDefinitionByIdEffect = Effect.fn(
     : markLocatedAppIndexDefinition(scopeId, definition);
 });
 
+/**
+ * Package-private C08 owner for the table-owned intrinsic definition.
+ *
+ * The control catalog remains authoritative for the definition body while the
+ * scope binding only proves which deployment may use it. The returned value is
+ * the same opaque located capability accepted by the S10 transaction owner.
+ */
+export const locateAppCreationTimeIndexDefinitionForTableEffect = Effect.fn(
+  "AppIndexDefinitions.locateCreationTimeDefinitionForTable",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  scopeId: ScopeId,
+  tableId: CatalogTableId,
+): Effect.fn.Return<
+  LocatedAppIndexDefinitionV1 | null,
+  ReadAppIndexDefinitionError
+> {
+  const scopeRows = yield* Effect.tryPromise({
+    try: () => db
+      .select({ deploymentId: fxControlScopes.deploymentId })
+      .from(fxControlScopes)
+      .where(eq(fxControlScopes.scopeId, scopeId))
+      .limit(1),
+    catch: (cause) => new AppIndexDefinitionReadPersistenceError(
+      "readByDefinitionId",
+      cause,
+    ),
+  });
+  if (scopeRows[0]?.deploymentId !== deploymentId) return null;
+  const rows = yield* readDefinitionRowsEffect(
+    db
+      .select()
+      .from(fxControlIndexDefinitions)
+      .where(and(
+        eq(fxControlIndexDefinitions.deploymentId, deploymentId),
+        eq(fxControlIndexDefinitions.accessKind, "by_creation_time"),
+        eq(fxControlIndexDefinitions.accessIdentityId, tableId),
+        eq(fxControlIndexDefinitions.tableId, tableId),
+      ))
+      .orderBy(fxControlIndexDefinitions.indexDefinitionId)
+      .limit(2),
+    (cause) => new AppIndexDefinitionReadPersistenceError(
+      "readByDefinitionId",
+      cause,
+    ),
+  );
+  if (rows.length !== 1) return null;
+  const definition = yield* decodeStoredDefinitionEffect(rows[0]!);
+  return definition.access.kind === "by_creation_time"
+    ? markLocatedAppIndexDefinition(scopeId, definition)
+    : null;
+});
+
 function markLocatedAppIndexDefinition(
   scopeId: ScopeId,
   definition: AppIndexDefinitionRecord,

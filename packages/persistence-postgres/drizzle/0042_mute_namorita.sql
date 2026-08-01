@@ -1,0 +1,1 @@
+CREATE INDEX "fx_app_index_entry_current_scope_definition_row_idx" ON "fx_app_index_entry_current" USING btree ("scope_uuid","index_definition_id","row_id");

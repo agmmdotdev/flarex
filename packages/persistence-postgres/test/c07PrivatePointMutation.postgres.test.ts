@@ -6,6 +6,7 @@ import {
 import {
   appRowIdHexV1ToBytes,
 } from "flarex-protocol/app-document-id";
+import { decodeCatalogIndexDefinitionId } from "flarex-protocol/catalog";
 import {
   CommitSeqSchema,
   decodeReplacementScopeIdV1,
@@ -19,7 +20,12 @@ import {
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "../src/appRows";
+import { buildIntrinsicCreationTimeIndexV1Effect } from
+  "../src/intrinsicCreationTimeIndexBuildV1";
+import { reconcilePublishedIndexBuildsV1Effect } from
+  "../src/indexBuildReconciliation";
 import {
+  createPostgresLocatedIndexBuildReconciliationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
@@ -37,6 +43,7 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
+import { runEffect } from "./effectTestRuntime";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const physicalLocator = Object.freeze({
@@ -60,6 +67,7 @@ describePostgres("C07 private point-mutation correctness gate — PostgreSQL", (
       const proof = await proveC07PrivatePointMutationCorrectnessV1({
         name: "postgres",
         persistence,
+        controlDb: persistence.drizzle,
         ensureScope: async (deploymentId, projectId, randomUuid) => {
           const provisioned =
             await createPostgresSharedScopeAuthorityProvisioner(
@@ -79,6 +87,46 @@ describePostgres("C07 private point-mutation correctness gate — PostgreSQL", (
           ),
         seedBaselineLiveRow: (input) =>
           seedBaselineLiveRow(persistence, input),
+        afterBaselineSeed: async input => {
+          const target =
+            createPostgresLocatedIndexBuildReconciliationTargetV1(
+              persistence,
+              physicalLocator,
+            );
+          const ports = {
+            controlDb: persistence.drizzle,
+            authority: {
+              scopeMetadata: {
+                getScopeMetadataByDeploymentId: (deploymentId: string) =>
+                  persistence.getScopeMetadataByDeploymentId(deploymentId),
+              },
+              provisioningReceipts: {
+                getScopeAuthorityProvisioningReceipt: async () => null,
+              },
+              scopeClockTargets: { resolve: async () => target },
+            },
+          } as const;
+          await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
+            deploymentId: input.deploymentId,
+            schemaVersionId: input.schemaVersionId,
+          }));
+          for (let step = 0; step < 8; step += 1) {
+            const result = await runEffect(
+              buildIntrinsicCreationTimeIndexV1Effect(ports, {
+                deploymentId: input.deploymentId,
+                indexDefinitionId: decodeCatalogIndexDefinitionId(1),
+                pageSize: 8,
+              }),
+            );
+            if (result.lifecycle === "validating") break;
+          }
+          await persistence.query(
+            `update fx_system_index_build_state
+             set backfill_cursor_row_id = $1
+             where scope_id = $2 and index_definition_id = 1`,
+            [appRowIdHexV1ToBytes(input.rowId), input.scopeId],
+          );
+        },
       });
 
       expect(proof).toMatchObject({
@@ -112,6 +160,27 @@ describePostgres("C07 private point-mutation correctness gate — PostgreSQL", (
           lastOutboxSeq: "2",
         },
       });
+      const intrinsic = await persistence.query<{
+        revisions: string;
+        current_commit_seq: string;
+        lifecycle: string;
+        cursor_is_null: boolean;
+      }>(
+        `select
+           (select count(*)::text from fx_app_index_entry_rev) as revisions,
+           (select commit_seq::text from fx_app_index_entry_current limit 1)
+             as current_commit_seq,
+           (select lifecycle from fx_system_index_build_state limit 1)
+             as lifecycle,
+           (select backfill_cursor_row_id is null
+              from fx_system_index_build_state limit 1) as cursor_is_null`,
+      );
+      expect(intrinsic.rows).toEqual([{
+        revisions: "3",
+        current_commit_seq: "3",
+        lifecycle: "validating",
+        cursor_is_null: true,
+      }]);
     });
   }, 120_000);
 });

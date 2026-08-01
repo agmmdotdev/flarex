@@ -2491,6 +2491,11 @@ export const fxAppIndexEntryCurrent = pgTable(
         table.rowId,
       ],
     }),
+    index("fx_app_index_entry_current_scope_definition_row_idx").on(
+      table.scopeUuid,
+      table.indexDefinitionId,
+      table.rowId,
+    ),
     foreignKey({
       name: "fx_app_index_entry_current_revision_fk",
       columns: [

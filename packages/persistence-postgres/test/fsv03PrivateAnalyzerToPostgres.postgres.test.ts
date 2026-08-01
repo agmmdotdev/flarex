@@ -71,6 +71,7 @@ describePostgres("FSV03 private analyzer-to-Postgres system - PostgreSQL", () =>
         c07: {
           name: "postgres",
           persistence,
+          controlDb: persistence.drizzle,
           ensureScope: async () => {
             throw new Error("FSV03 reuses the registered scope.");
           },

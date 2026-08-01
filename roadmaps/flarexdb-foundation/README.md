@@ -713,15 +713,19 @@ Dynamic Worker binding baseline before selecting it.
    verification, and atomic claim/release/reuse storage.
 3. `S03-D3` (complete): reconcile authenticated required physical definitions
    into scope-clock-fenced per-scope build state with durable replay.
-4. `R01`: relation identity and semantics.
-5. `R02`: stable relation IDs, immutable semantic definitions, and reusable
+4. `C08-I1` (complete): maintain the intrinsic `by_creation_time` sidecar in
+   O07-B and build it through the existing C4 lifecycle for the first
+   relation-free Standard application. It adds no developer-index or unique
+   lowering and no query authority.
+5. `R01`: relation identity and semantics.
+6. `R02`: stable relation IDs, immutable semantic definitions, and reusable
    physical edge definitions.
-6. `S12`: stable current edge occurrences; edge history remains deferred.
-7. `C08`: lower index and unique sidecars from final rows.
-8. `C09`: lower stable edge occurrences.
-9. `O09`: multi-row atomicity and unique conflicts.
-10. `O10`: one exact indexed dependency and phantom-conflict proof.
-11. `O10-R`: one exact relation adjacency dependency, snapshot-registration
+7. `S12`: stable current edge occurrences; edge history remains deferred.
+8. Remaining `C08`: developer-index and unique sidecar lowering.
+9. `C09`: lower stable edge occurrences.
+10. `O09`: multi-row atomicity and unique conflicts.
+11. `O10`: one exact indexed dependency and phantom-conflict proof.
+12. `O10-R`: one exact relation adjacency dependency, snapshot-registration
     race, read-your-writes, and phantom-conflict proof. SQL/PGQ remains later
     and optional.
 
@@ -817,6 +821,14 @@ locale, collision, release, and reuse semantics. Exact mutation replay remains
 owned by the existing outer point-commit idempotency/outcome path. S03-D3 now
 owns only deterministic cross-store declaration/replay and stale-attempt
 re-fencing; S03-D4 remains open.
+C08-I1 now supplies the relation-free intrinsic `by_creation_time` builder and
+same-commit maintenance evidence without changing S10 logical storage, C4
+lifecycle schema, or O07-B commit authority. Migration `0042` adds only the
+non-unique scope/definition/row supporting index used by bounded resumable
+validation, with populated-data upgrade and genuine-PostgreSQL planner proof.
+General developer-index/unique lowering and relation
+work remain open; the first relation-free vertical may proceed to S03-D4
+without treating those later capabilities as readiness prerequisites.
 S03-D4, under the
 scope-clock-first order, exclusively owns terminal readiness outcomes before
 S04 activation CAS. Static verification beyond declaration, readiness,

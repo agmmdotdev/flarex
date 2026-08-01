@@ -238,7 +238,11 @@ The remaining limitations are architectural, not merely naming or packaging:
    now exist privately. S03-D3 now authenticates the immutable published
    definition set and durably declares/replays/re-fences its C4 build rows at
    the real located scope clock without claiming a cross-store transaction.
-   Builder progress and S03-D4 readiness settlement remain open.
+   C08-I1 now builds and maintains only the intrinsic `by_creation_time`
+   sidecar required by the first relation-free application; migration `0042`
+   adds only its scope/definition/row bounded-validation access path. General
+   developer-index/unique lowering remains open, and S03-D4 readiness
+   settlement remains a separate non-activating gate.
 4. **No replacement activation operation or coherent active reader.** Current
    legacy deployment activation is not the target FlarexDB revision CAS and
    must not be wrapped as though it were.

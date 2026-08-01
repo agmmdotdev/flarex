@@ -1,5 +1,61 @@
 # Indexes
 
+## Build And Maintain Relation-Free Intrinsic Creation-Time Indexes
+
+What changed:
+
+- The private `C08-I1` composition locates the authenticated table-owned
+  `by_creation_time` definition and maintains its S10 revision/current chain in
+  the existing O07-B point-commit transaction for every material final-row
+  transition. Live inserts, patches, and replacements publish the exact
+  same-commit app-row revision; deletes tombstone the prior index head. A
+  missing prior head is valid only for online-build convergence, while an
+  existing head must retain exact prior app-row and index lineage.
+- A bounded private builder uses the existing C4 row and short transactions
+  only. It locks the located scope clock, then the exact build row, scans the
+  immutable app-row history at the accepted start frontier in row-ID order,
+  revalidates current rows before publishing, and advances declared through
+  building, backfilling, validating, and enabled. Validation also runs in
+  bounded row-ID pages with exact S10 current-entry verification. Any relevant
+  point commit during validation resets the stored cursor in its same commit,
+  so an insert or change behind that cursor forces a complete new pass before
+  enabled can be reached.
+- Point commits maintain the intrinsic sidecar from the declared frontier, so
+  a row updated or deleted before its backfill page cannot be resurrected and
+  an online insert behind the cursor remains visible to exact validation. Page
+  writes, cursor/lifecycle settlement, rollback, retry, and replay stay inside
+  the existing target transaction. The page ceiling is 16 rows and the genuine
+  PostgreSQL proof exercises that ceiling. Migration `0042` adds only the
+  non-unique `(scope_uuid, index_definition_id, row_id)` access path required
+  by that resumable validation scan; populated-data upgrade and a
+  larger-cardinality PostgreSQL `EXPLAIN` prove the row survives and the real
+  predicate/order uses the index with the normal planner configuration. No
+  lease, unbounded application materialization, or parallel builder authority
+  was added.
+
+Known limitations and follow-up:
+
+- This capability supports only the intrinsic creation-time definition needed
+  by the first relation-free Standard application. Developer-index lowering,
+  unique lowering/contention, relations, index queries, and phantom OCC remain
+  with the still-open general C08, O09, C09, and O10 owners.
+- Enabled is physical build evidence only. S03-D4 readiness, activation,
+  active-reader authority, SAP04, routing, and production triggers remain
+  separate unopened gates.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres test:c08-i1:pglite
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-i1:postgres
+corepack pnpm --filter @flarex/persistence-postgres test:pglite:migrations
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Persist Target-Native Ordered Index Entry History
 
 What changed:
@@ -34,8 +90,9 @@ commit, OCC, or activation owners.
 Known limitations and follow-up:
 
 - S11 now owns private target-native unique claims; S03-D3 still owns build
-  reconciliation; C08 owns lowering final row bodies into index revisions and
-  unique claims inside the existing commit; O09 owns unique contention and
+  reconciliation; C08-I1 now owns intrinsic creation-time population and
+  maintenance, while general C08 still owns lowering developer-index and unique
+  final-row facts inside the existing commit; O09 owns unique contention and
   multi-row rollback integration; and O10 owns indexed dependencies and
   phantom validation.
 - No readiness, active-reader selection, routing, production trigger, legacy

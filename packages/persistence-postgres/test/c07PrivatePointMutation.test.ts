@@ -6,6 +6,7 @@ import {
 import {
   appRowIdHexV1ToBytes,
 } from "flarex-protocol/app-document-id";
+import { decodeCatalogIndexDefinitionId } from "flarex-protocol/catalog";
 import {
   CommitSeqSchema,
   decodeReplacementScopeIdV1,
@@ -21,6 +22,13 @@ import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "../src/appRows";
 import {
+  buildIntrinsicCreationTimeIndexV1Effect,
+} from "../src/intrinsicCreationTimeIndexBuildV1";
+import {
+  reconcilePublishedIndexBuildsV1Effect,
+} from "../src/indexBuildReconciliation";
+import {
+  createPGliteLocatedIndexBuildReconciliationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
@@ -35,6 +43,7 @@ import {
   type C07SeedLiveRowV1,
 } from "./c07PrivatePointMutationHarness";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
+import { runEffect } from "./effectTestRuntime";
 
 const physicalLocator = Object.freeze({
   kind: "shared_database",
@@ -58,6 +67,7 @@ describe("C07 private point-mutation correctness gate — PGlite", () => {
     const proof = await proveC07PrivatePointMutationCorrectnessV1({
       name: "pglite",
       persistence,
+      controlDb: persistence.drizzle,
       ensureScope: async (deploymentId, projectId, randomUuid) => {
         const provisioned =
           await createPGliteSharedScopeAuthorityProvisioner(
@@ -77,6 +87,45 @@ describe("C07 private point-mutation correctness gate — PGlite", () => {
         ),
       seedBaselineLiveRow: (input) =>
         seedBaselineLiveRow(persistence, input),
+      afterBaselineSeed: async input => {
+        const target = createPGliteLocatedIndexBuildReconciliationTargetV1(
+          persistence,
+          physicalLocator,
+        );
+        const ports = {
+          controlDb: persistence.drizzle,
+          authority: {
+            scopeMetadata: {
+              getScopeMetadataByDeploymentId: (deploymentId: string) =>
+                persistence.getScopeMetadataByDeploymentId(deploymentId),
+            },
+            provisioningReceipts: {
+              getScopeAuthorityProvisioningReceipt: async () => null,
+            },
+            scopeClockTargets: { resolve: async () => target },
+          },
+        } as const;
+        await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
+          deploymentId: input.deploymentId,
+          schemaVersionId: input.schemaVersionId,
+        }));
+        for (let step = 0; step < 8; step += 1) {
+          const result = await runEffect(
+            buildIntrinsicCreationTimeIndexV1Effect(ports, {
+              deploymentId: input.deploymentId,
+              indexDefinitionId: decodeCatalogIndexDefinitionId(1),
+              pageSize: 8,
+            }),
+          );
+          if (result.lifecycle === "validating") break;
+        }
+        await persistence.query(
+          `update fx_system_index_build_state
+           set backfill_cursor_row_id = $1
+           where scope_id = $2 and index_definition_id = 1`,
+          [appRowIdHexV1ToBytes(input.rowId), input.scopeId],
+        );
+      },
     });
 
     expect(proof).toMatchObject({
@@ -110,6 +159,31 @@ describe("C07 private point-mutation correctness gate — PGlite", () => {
         lastOutboxSeq: "2",
       },
     });
+    const intrinsic = await persistence.query<{
+      revisions: string;
+      current_commit_seq: string;
+      tombstones: string;
+      lifecycle: string;
+      cursor_is_null: boolean;
+    }>(
+      `select
+         (select count(*)::text from fx_app_index_entry_rev) as revisions,
+         (select commit_seq::text from fx_app_index_entry_current limit 1)
+           as current_commit_seq,
+         (select count(*)::text from fx_app_index_entry_rev where is_tombstone)
+           as tombstones,
+         (select lifecycle from fx_system_index_build_state limit 1)
+           as lifecycle,
+         (select backfill_cursor_row_id is null
+            from fx_system_index_build_state limit 1) as cursor_is_null`,
+    );
+    expect(intrinsic.rows).toEqual([{
+      revisions: "3",
+      current_commit_seq: "3",
+      tombstones: "0",
+      lifecycle: "validating",
+      cursor_is_null: true,
+    }]);
   }, 120_000);
 });
 
