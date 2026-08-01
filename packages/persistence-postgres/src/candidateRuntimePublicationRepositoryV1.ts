@@ -827,15 +827,16 @@ function referenceFromRow(
     readonly objectSha256: Uint8Array;
   },
 ): Effect.Effect<DeclarativeV2RuntimeArtifactObjectReferenceV1, CandidateRuntimePublicationStorageV1Error> {
-  const reference = makeDeclarativeV2RuntimeArtifactObjectReferenceV1(
+  return Effect.fromResult(makeDeclarativeV2RuntimeArtifactObjectReferenceV1(
     kind,
     row.objectSha256,
     Number(row.objectByteLength),
-  );
-  if (Result.isFailure(reference)) {
-    return storageError("load", scopeId, "corruption", `${kind}:reference`);
-  }
-  return referenceEqual(reference.success, {
+  ).pipe(Result.mapError(() => new CandidateRuntimePublicationStorageV1Error({
+    operation: "load",
+    scopeId,
+    reason: "corruption",
+    path: `${kind}:reference`,
+  })))).pipe(Effect.flatMap(reference => referenceEqual(reference, {
     storeIdentity: row.objectStoreIdentity as DeclarativeV2RuntimeArtifactObjectReferenceV1["storeIdentity"],
     kind,
     codecIdentity: row.objectCodecIdentity as DeclarativeV2RuntimeArtifactObjectReferenceV1["codecIdentity"],
@@ -843,8 +844,8 @@ function referenceFromRow(
     byteLength: row.objectByteLength,
     sha256: row.objectSha256,
   })
-    ? Effect.succeed(reference.success)
-    : storageError("load", scopeId, "corruption", `${kind}:reference`);
+    ? Effect.succeed(reference)
+    : storageError("load", scopeId, "corruption", `${kind}:reference`)));
 }
 
 function referenceFromManifestRow(

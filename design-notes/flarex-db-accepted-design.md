@@ -1225,7 +1225,10 @@ schema/function-validator snapshot, revalidates the active head inside C03's
 existing transaction, and restores catchable insert/patch/replace validation
 before journal acceptance. The proof adapter remains test-only until the
 separate FSV06/production prepared-start gate makes this authority the sole
-journal construction path. FSV06 remains separately unimplemented.
+journal construction path. FSV06-A1 now supplies the separate scoped
+candidate-bound runtime target from the same FSV05 selection and R2
+publication, but it does not construct a journal or invoke a mutation. FSV06
+remains separately unimplemented.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A

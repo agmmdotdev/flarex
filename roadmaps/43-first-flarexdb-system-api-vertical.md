@@ -21,8 +21,9 @@ builds and maintains the intrinsic `by_creation_time` index required by the
 first relation-free application. `FSV04` settles target-native readiness, and
 `FSV05` now atomically activates and coherently reads one ready revision on the
 supported shared `primary/public` target. `C03-V` now supplies the scoped
-activation-fenced syscall validator. SAP04/`FSV06` and production routing
-remain separately gated later work.
+activation-fenced syscall validator. `FSV06-A1` now closes the private,
+candidate-bound R2-to-exact-runtime dispatch seam. SAP04/`FSV06` composition
+and production routing remain separately gated later work.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -94,6 +95,21 @@ Current implementation truth:
   and replace results before any journal/overlay acceptance. The typed document
   failure remains catchable over the private RPC boundary while every stale,
   forged, corrupt, interrupted, or defective authority remains fail-closed;
+- `FSV06-A1` derives one scope-revoked candidate-bound runtime target from the
+  same coherent FSV05 selection. Its canonical
+  `flarex.system/candidate-bound-runtime-target/v1` preimage binds the active
+  revision, readiness and activation evidence, candidate/V2 attempt,
+  function/validator/handler commitments, selected transaction function and
+  projection, compatibility date, exact-runtime profile/version, generated
+  backend Worker-graph basis digest, and exact content-addressed R2 references.
+  That seed-independent graph basis is produced by the existing runtime host
+  owner and covers every module path, entrypoint, core/kernel closure, generated
+  configuration template, and generated function registry. The bridge verifies
+  the projection set, manifest, selected entry, selected projection, and all
+  selected module bodies before building the existing route-independent exact
+  runtime registry. PostgreSQL remains authority/evidence storage and R2
+  remains the sole body store; no schema, migration, legacy source-package
+  materialization, route, or invocation operation is added;
 - `C08-I1` composes the existing S10, C4, and O07-B owners to populate and
   maintain only the relation-free intrinsic creation-time index. Migration
   `0042` adds only its bounded validation access path; it introduces no
@@ -157,8 +173,8 @@ factories.
 | --- | --- | --- |
 | `FSV02` registration is complete but deliberately inactive | Direct use without the later gates | Consume it only through completed FSV04/FSV05 evidence; registration itself is still neither readiness nor activation |
 | The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
-| FSV04/FSV05 readiness and shared-primary activation plus C03-V syscall validation exist privately | System Application Data API and SAP04 | Begin only the separately approved FSV06 implementation preflight |
-| FSV03 proves one private selected-revision point mutation and FSV05 supplies active selection | System Application Data API and SAP04 | Keep the FSV03 test-owned selector separate; FSV06 must consume FSV05's coherent active selection and its scoped C03-V validator |
+| FSV04/FSV05 readiness and shared-primary activation, C03-V syscall validation, and FSV06-A1 exact runtime dispatch exist privately | System Application Data API and SAP04 | Resume only the separately approved FSV06/SAP04 composition |
+| FSV03 proves one private selected-revision point mutation and FSV05 supplies active selection | System Application Data API and SAP04 | Keep the FSV03 test-owned selector separate; FSV06 must consume FSV05's coherent active selection, its scoped C03-V validator, and the FSV06-A1 runtime target |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
@@ -775,6 +791,28 @@ Implemented truth:
 This capability adds no schema, migration, route, binding, trigger, SAP04,
 runtime selection, OCC, commit, feed, or outbox owner.
 
+### `[x] FSV06-A1`: Close Candidate-Bound Exact Runtime Dispatch
+
+The private prerequisite provides one scoped route-independent bridge from the
+FSV05 active-selection authority to the existing exact point-mutation Worker
+definition. It recomputes a versioned runtime-target digest from durable
+candidate/readiness/activation/function/projection evidence after cold reload,
+fetches and verifies the selected executable graph from content-addressed R2,
+and emits the exact registry shape consumed by the accepted runtime kernel.
+Every Worker-graph-changing input is part of that one approved runtime-target
+preimage through the backend-owned graph basis; no second code identity is
+introduced.
+Warm replay and cold reconstruction produce the same target and Worker graph;
+the opaque target and its source selection are revoked with Scope. OCC reruns
+reuse this immutable target while C03-V continues to revalidate the active head
+inside the existing point-operation transaction. The bridge performs no write,
+so rollback and decision-uncertainty ownership remain unchanged with the later
+session/commit owners.
+
+This prerequisite adds no schema, migration, PostgreSQL artifact bodies,
+legacy `PushSourcePackage` materialization, invocation API, route, binding,
+trigger, readiness, activation, journal, OCC, commit, feed, or outbox owner.
+
 ### `[ ] FSV06`: Invoke One Standard Point Mutation
 
 Entry gates:
@@ -783,6 +821,8 @@ Entry gates:
 - the separately approved `C03-V` activation-fenced syscall-validator
   capability is complete; it is a hard gate before FSV06 or any production
   prepared-start and is not part of FSV05;
+- `FSV06-A1` supplies the private candidate-bound route-independent exact
+  runtime target without a legacy source-package fallback;
 - the private `FSV03` point-mutation and failure proofs remain green; and
 - the host-neutral point-mutation runtime contract is accepted.
 
@@ -854,11 +894,12 @@ SAP03 boundary described in its completed slice. Neither capability authorizes
 readiness, activation, point mutation, public routing, framework adapters, or
 production wiring.
 
-The next relation-free vertical gate is the separately approved `FSV06`/SAP04
-implementation preflight. FSV05 consumes FSV04's exact readiness receipt and
-existing activation storage, while C03-V supplies scope-lifetime syscall-time
-validation. Neither creates SAP04, invocation routing, triggers, or hosted-
-redelivery authority.
+The next relation-free vertical gate is the separately approved continuation
+of `FSV06`/SAP04 composition. FSV05 consumes FSV04's exact readiness receipt
+and existing activation storage, C03-V supplies scope-lifetime syscall-time
+validation, and FSV06-A1 supplies the candidate-bound exact runtime target.
+None creates SAP04, invocation routing, triggers, or hosted-redelivery
+authority by itself.
 
 ## Overall Completion Criteria
 

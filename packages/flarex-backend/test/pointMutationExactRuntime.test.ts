@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import type {
   PointMutationJournalLogicalOutcomeV1,
@@ -46,6 +47,9 @@ import {
   pointMutationExactRuntimeWorkerSource,
 } from "../src/artifactRuntime";
 import {
+  pointMutationExactRuntimeWorkerGraphBasisV1,
+} from "../src/artifactRuntime/PointMutationExactRuntimeHost";
+import {
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
 } from "../src/artifactRuntime/PointMutationExactRuntimeWorkerCore.generated";
@@ -66,6 +70,34 @@ const testInsertedOrderId = decodeAppDocumentIdV1(
 describe("point mutation exact-runtime Dynamic Worker host", () => {
   const orderId = testOrderId;
   const insertedOrderId = testInsertedOrderId;
+
+  it("pins the seed-independent candidate runtime Worker graph basis", () => {
+    const input = {
+      compatibilityDate: "2026-07-24",
+      executionModule: "flarexCandidateBoundRuntimeTarget/execution-v1.js",
+      executionBridgeSource: "export default Object.freeze({});\n",
+    } as const;
+    const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
+    expect(createHash("sha256").update(basis).digest("hex")).toBe(
+      "f5365e50c920a52d7b5aed9f3ad327b0d0393cf78c4d03707f787d3affe601d6",
+    );
+    expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
+    expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
+    expect(basis).toContain(
+      POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
+    );
+    expect(basis).toContain(POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1);
+    expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1);
+    for (const changed of [
+      { ...input, compatibilityDate: "2026-07-25" },
+      { ...input, executionModule: "another/execution-v1.js" },
+      { ...input, executionBridgeSource: "export default {};\n" },
+    ]) {
+      expect(pointMutationExactRuntimeWorkerGraphBasisV1(changed)).not.toBe(
+        basis,
+      );
+    }
+  });
 
   it("generates a named RPC-only exact mutation entrypoint", () => {
     const source = testExactRuntimeWorkerSource();

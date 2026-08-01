@@ -352,6 +352,18 @@ export const readActiveApplicationRevisionV1 = Effect.fn(
         metadata,
         prepared.authority,
         prepared.requirements.manifest,
+        Object.freeze({
+          attemptSha256: copyBytes(prepared.revision.attemptSha256),
+          functionMetadataBytes: copyBytes(
+            prepared.revision.functionMetadataBytes,
+          ),
+          candidate: prepared.candidate,
+          candidateSha256: copyBytes(prepared.publication.candidateSha256),
+          candidateFrameBytes: copyBytes(
+            prepared.publication.candidateFrameBytes,
+          ),
+          publication: prepared.publication.publication,
+        }),
       );
     }),
     issued => Effect.sync(() => {

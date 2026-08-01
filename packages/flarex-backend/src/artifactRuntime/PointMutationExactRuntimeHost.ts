@@ -18,6 +18,7 @@ import {
 import type { PushSourcePackage } from "../types.ts";
 import {
   executionArtifactWorkerModules,
+  executionArtifactWorkerModulesFromSources,
   type ExecutionArtifactWorkerDefinition,
 } from "./HostKit.ts";
 import {
@@ -63,6 +64,21 @@ export interface PointMutationExactRuntimeWorkerCodeIdentityV1Input {
 export interface LoadPointMutationExactRuntimeWorkerDefinitionV1Input
   extends PointMutationExactRuntimeWorkerCodeIdentityV1Input {
   readonly store: Pick<BackendExecutionArtifactStore, "get">;
+}
+
+export interface BuildPointMutationExactRuntimeWorkerDefinitionV1Input
+  extends PointMutationExactRuntimeWorkerCodeIdentityV1Input {
+  readonly sourceModules: ReadonlyArray<Readonly<{
+    readonly path: string;
+    readonly source: string;
+  }>>;
+  readonly executionBridgeSource: string;
+}
+
+export interface PointMutationExactRuntimeWorkerGraphBasisV1Input {
+  readonly compatibilityDate: string;
+  readonly executionModule: string;
+  readonly executionBridgeSource: string;
 }
 
 export type PointMutationExactRuntimeHostV1Issue =
@@ -114,21 +130,42 @@ export function pointMutationExactRuntimeWorkerCodeIdentityV1(
   ]);
 }
 
+/**
+ * Seed-independent basis for every backend-owned value that can change the
+ * exact Worker graph. The eventual source-package hash is deliberately
+ * represented by one canonical placeholder: the candidate-bound target digest
+ * supplies that dynamic seed after this basis has been committed.
+ */
+export function pointMutationExactRuntimeWorkerGraphBasisV1(
+  input: PointMutationExactRuntimeWorkerGraphBasisV1Input,
+): string {
+  const moduleTime = compatibilityDateMilliseconds(input.compatibilityDate);
+  const supportModules = pointMutationExactRuntimeSupportModulesV1({
+    executionModule: input.executionModule,
+    executionBridgeSource: input.executionBridgeSource,
+    moduleTime,
+    moduleRandomSeedHex: "0".repeat(64),
+  });
+  return JSON.stringify([
+    POINT_MUTATION_EXACT_RUNTIME_PROFILE_V1,
+    POINT_MUTATION_EXACT_RUNTIME_VERSION_V1,
+    [
+      POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+      POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
+    ],
+    ...supportModules.map(module => [module.path, module.source]),
+    POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
+    input.compatibilityDate,
+    input.executionModule,
+  ]);
+}
+
 function pointMutationExactRuntimeWorkerDefinitionV1(input: {
   readonly sourcePackage: PushSourcePackage;
   readonly artifact: PointMutationExactRuntimeArtifactRefV1;
   readonly compatibilityDate: string;
 }): PointMutationExactRuntimeWorkerDefinitionV1 {
-  const hasDateShape = /^\d{4}-\d{2}-\d{2}$/.test(input.compatibilityDate);
-  const moduleTime = hasDateShape
-    ? Date.parse(`${input.compatibilityDate}T00:00:00.000Z`)
-    : Number.NaN;
-  if (
-    !Number.isFinite(moduleTime) ||
-    new Date(moduleTime).toISOString().slice(0, 10) !== input.compatibilityDate
-  ) {
-    throw new Error("Exact point-mutation runtime compatibility date is invalid.");
-  }
+  const moduleTime = compatibilityDateMilliseconds(input.compatibilityDate);
   return Object.freeze({
     compatibilityDate: input.compatibilityDate,
     mainModule: POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
@@ -150,9 +187,35 @@ function pointMutationExactRuntimeWorkerDefinitionV1(input: {
   });
 }
 
+export function buildPointMutationExactRuntimeWorkerDefinitionV1(
+  input: BuildPointMutationExactRuntimeWorkerDefinitionV1Input,
+): PointMutationExactRuntimeWorkerDefinitionV1 {
+  const moduleTime = compatibilityDateMilliseconds(input.compatibilityDate);
+  return Object.freeze({
+    compatibilityDate: input.compatibilityDate,
+    mainModule: POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+    modules: Object.freeze(executionArtifactWorkerModulesFromSources({
+      sourceModules: input.sourceModules,
+      runtimeModulePath: POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
+      runtimeWorkerSource: POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+      runtimeSupportModules: pointMutationExactRuntimeSupportModulesV1({
+        executionModule: input.artifact.executionModule,
+        executionBridgeSource: input.executionBridgeSource,
+        moduleTime,
+        moduleRandomSeedHex: input.artifact.sourcePackageHash,
+      }),
+      reservedBy: "candidate-bound exact point-mutation runtime",
+    })),
+    env: Object.freeze({}),
+    globalOutbound: null,
+    entrypoint: POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
+  });
+}
+
 function pointMutationExactRuntimeSupportModulesV1(
   options: {
     readonly executionModule: string;
+    readonly executionBridgeSource?: string;
     readonly moduleTime: number;
     readonly moduleRandomSeedHex: string;
   },
@@ -164,15 +227,30 @@ function pointMutationExactRuntimeSupportModulesV1(
     }),
     Object.freeze({
       path: POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
-      source: pointMutationExactRuntimeWorkerExecutionBridgeSource(
-        options.executionModule,
-      ),
+      source: options.executionBridgeSource ??
+        pointMutationExactRuntimeWorkerExecutionBridgeSource(
+          options.executionModule,
+        ),
     }),
     Object.freeze({
       path: POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
       source: POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1,
     }),
   ]);
+}
+
+function compatibilityDateMilliseconds(compatibilityDate: string): number {
+  const hasDateShape = /^\d{4}-\d{2}-\d{2}$/.test(compatibilityDate);
+  const moduleTime = hasDateShape
+    ? Date.parse(`${compatibilityDate}T00:00:00.000Z`)
+    : Number.NaN;
+  if (
+    !Number.isFinite(moduleTime) ||
+    new Date(moduleTime).toISOString().slice(0, 10) !== compatibilityDate
+  ) {
+    throw new Error("Exact point-mutation runtime compatibility date is invalid.");
+  }
+  return moduleTime;
 }
 
 export const loadPointMutationExactRuntimeWorkerDefinitionV1Effect = Effect.fn(

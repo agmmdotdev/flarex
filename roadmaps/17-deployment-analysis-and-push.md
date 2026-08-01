@@ -2640,7 +2640,10 @@ activation remain blocked until their production host composition is proven.
    only, using the existing activation revision/head frames and no migration.
    It implements only `action=activate`; routing and production prepared-start
    remain absent. `C03-V` now supplies the scoped activation-fenced syscall
-   validator; FSV06 and any production prepared-start remain separate gates.
+   validator. FSV06-A1 now derives the scoped candidate-bound runtime target,
+   verifies its exact executable bodies in R2, and builds the existing
+   route-independent runtime registry without a legacy package fallback;
+   FSV06 invocation and any production prepared-start remain separate gates.
 6. **Ingress, dispatch, and client consumption.** Add versioned bounded V2
    upload/finalization, pinned analyzer handshake/dispatch, and flarex-dev
    consumption as the real two-sided caller. Artifact-runtime dispatch carries
@@ -2673,7 +2676,8 @@ defect without exporting a service or authority. The authenticated cursorable
 source/EOF owner, `PAM-A0b1` catalog DDL, `PAM-A1`, `PAM-A2`, and `PAM-B`
 retain their separately recorded status. C03-V is complete and keeps the
 setup-seeded adapter test-only until the FSV06/production prepared-start
-replacement gate.
+replacement gate. FSV06-A1 closes only the candidate-bound R2-to-runtime
+dispatch prerequisite and does not remove that adapter or construct a journal.
 `PAM-A0b0-S1P-J1b0-H0a` is complete: `apps/analyzer` is a deployable but
 inert private Worker shell with no routes or resource bindings. Its sole
 operation is a bounded service-binding compatibility handshake backed by a

@@ -22,6 +22,10 @@ export interface RuntimeArtifactPublisherFixtureV1 {
   readonly publisher: CandidateRuntimeArtifactPublisherV1;
   readonly store: ReturnType<typeof makeDeclarativeV2RuntimeArtifactR2StoreV1>;
   readonly bodies: ReadonlyMap<string, Uint8Array>;
+  readonly replaceBodyForTest: (
+    objectKey: string,
+    body: Uint8Array | undefined,
+  ) => void;
 }
 
 export function makeRuntimeArtifactPublisherFixtureV1():
@@ -52,7 +56,15 @@ export function makeRuntimeArtifactPublisherFixtureV1():
       ),
     ),
   });
-  return Object.freeze({ publisher, store, bodies: bucket.objects });
+  return Object.freeze({
+    publisher,
+    store,
+    bodies: bucket.objects,
+    replaceBodyForTest: (objectKey: string, body: Uint8Array | undefined) => {
+      if (body === undefined) bucket.objects.delete(objectKey);
+      else bucket.objects.set(objectKey, new Uint8Array(body));
+    },
+  });
 }
 
 class MemoryRuntimeArtifactR2BucketV1

@@ -257,6 +257,17 @@ The remaining limitations are architectural, not merely naming or packaging:
    rechecks the scope clock and active head inside C03's existing transaction,
    and returns typed document validation before insert/patch/replace journal
    acceptance. It adds no invocation, route, schema, or commit authority.
+   FSV06-A1 now derives a second scope-lifetime capability from that selection:
+   the versioned candidate-bound runtime target for one selected public
+   transaction mutation. It verifies the candidate's projection set, manifest,
+   function entry, projection, and module bodies from content-addressed R2,
+   binds the compatibility date and a backend-owned seed-independent Worker-
+   graph basis covering module paths, entrypoint, core/kernel closure,
+   generated configuration, and the function registry in the same runtime-
+   target identity, then builds the existing route-independent exact-runtime
+   registry. It adds
+   no SAP04 operation, PostgreSQL artifact body, legacy source-package fallback,
+   route, or transaction owner.
 5. **Only the first private analyzer-to-Postgres mutation slice is assembled.**
    C07 proves the private test-owned point-mutation composition in PGlite and
    genuine PostgreSQL. A1b2-S1 supplies the private scoped command

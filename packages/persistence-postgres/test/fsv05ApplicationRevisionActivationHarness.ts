@@ -119,7 +119,12 @@ export async function proveFsv05ApplicationRevisionActivationV1(
   lane: Fsv05ApplicationRevisionActivationLaneV1,
 ): Promise<Fsv05ApplicationRevisionActivationProofV1> {
   const artifacts = makeRuntimeArtifactPublisherFixtureV1();
-  const first = await prepareReadyRevision(lane, artifacts, undefined, true);
+  const first = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    artifacts,
+    undefined,
+    true,
+  );
   const coordinator = makeCoordinator(first.context);
 
   const emptyRead = await Effect.runPromise(Effect.exit(Effect.scoped(
@@ -258,7 +263,12 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     "InvalidApplicationRevisionActivationInputV1Error",
   );
 
-  const second = await prepareReadyRevision(lane, artifacts, "second", false);
+  const second = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    artifacts,
+    "second",
+    false,
+  );
   await lane.persistence.query(
     "update fx_system_index_build_state set lifecycle = 'validating'",
   );
@@ -298,8 +308,18 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     throw new Error("FSV05 coherent reader did not observe drift activation.");
   }
 
-  const third = await prepareReadyRevision(lane, artifacts, "third", false);
-  const fourth = await prepareReadyRevision(lane, artifacts, "fourth", false);
+  const third = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    artifacts,
+    "third",
+    false,
+  );
+  const fourth = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    artifacts,
+    "fourth",
+    false,
+  );
 
   const replacementRace = await Promise.all([
     Effect.runPromise(Effect.exit(Effect.scoped(coordinator.activate(
@@ -360,7 +380,12 @@ export async function proveFsv05ApplicationRevisionActivationV1(
   const afterObservedUncertainty = await Effect.runPromise(Effect.scoped(
     readActiveApplicationRevisionV1(loser.context),
   ));
-  const fifth = await prepareReadyRevision(lane, artifacts, "fifth", false);
+  const fifth = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    artifacts,
+    "fifth",
+    false,
+  );
   const failedObservationTarget = lane.makeDecisionUncertainTarget();
   const failedObservationContext = Object.freeze({
     ...activationContext(
@@ -648,7 +673,8 @@ export async function proveFsv05ApplicationRevisionActivationV1(
   });
 }
 
-async function prepareReadyRevision(
+/** Test-only setup shared by the separately gated private System slices. */
+export async function prepareFsv05ReadyRevisionFixtureV1(
   lane: Fsv05ApplicationRevisionActivationLaneV1,
   artifacts: ReturnType<typeof makeRuntimeArtifactPublisherFixtureV1>,
   variant: string | undefined,

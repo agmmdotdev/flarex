@@ -13,7 +13,9 @@ one test-local definition -> analysis -> inactive registration -> immutable
 revision selection -> point mutation -> durable PostgreSQL proof. `FSV04`
 target-native readiness and FSV05 private activation/coherent reads are
 complete, and C03-V now supplies the activation-fenced scoped syscall
-validator. A dedicated harness package, representative multi-function/
+validator. FSV06-A1 additionally closes the private candidate-bound
+R2-to-exact-runtime dispatch seam without creating SAP04. A dedicated harness
+package, representative multi-function/
 application workload runner, SAP04 invocation, and live production composition
 remain unimplemented.
 
@@ -455,9 +457,11 @@ At the time this direction was recorded:
   This closes only acceptance-ladder step 1 plus a bounded concurrency/stress
   proof; representative applications, queries, actions, scheduling,
   FSV04 readiness and FSV05 private activation/coherent reads are complete;
-  SAP04 invocation and production composition remain open. C03-V is complete;
-  its setup-seeded proof adapter remains test-only until FSV06/production
-  prepared-start constructs every journal from coherent active authority.
+  SAP04 invocation and production composition remain open. C03-V is complete,
+  and FSV06-A1 now builds the scoped route-independent runtime target from the
+  same coherent active authority and exact R2 publication. Its setup-seeded
+  proof adapter remains test-only until FSV06/production prepared-start
+  constructs every journal from coherent active authority.
 
 FSV01 and FSV02 now establish the first Standard analysis and inactive
 registration operations. This roadmap still does not claim that the complete

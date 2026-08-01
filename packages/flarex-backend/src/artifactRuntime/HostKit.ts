@@ -25,6 +25,16 @@ export type ExecutionArtifactWorkerModulesOptions = {
   readonly reservedBy: string;
 };
 
+export type ExecutionArtifactWorkerModulesFromSourcesOptions = Omit<
+  ExecutionArtifactWorkerModulesOptions,
+  "sourcePackage"
+> & {
+  readonly sourceModules: ReadonlyArray<Readonly<{
+    readonly path: string;
+    readonly source?: string | undefined;
+  }>>;
+};
+
 export type ExecutionArtifactWorkerExecutorTransport = "legacy" | "postgres";
 
 export type ExecutionArtifactWorkerEnvOptions = {
@@ -158,6 +168,20 @@ export function executionArtifactRuntimeWorkerSource(
 export function executionArtifactWorkerModules(
   options: ExecutionArtifactWorkerModulesOptions,
 ): Record<string, string> {
+  return executionArtifactWorkerModulesFromSources({
+    sourceModules: options.sourcePackage.modules,
+    runtimeModulePath: options.runtimeModulePath,
+    runtimeWorkerSource: options.runtimeWorkerSource,
+    ...(options.runtimeSupportModules === undefined
+      ? {}
+      : { runtimeSupportModules: options.runtimeSupportModules }),
+    reservedBy: options.reservedBy,
+  });
+}
+
+export function executionArtifactWorkerModulesFromSources(
+  options: ExecutionArtifactWorkerModulesFromSourcesOptions,
+): Record<string, string> {
   const entries: Array<readonly [string, string]> = [
     [options.runtimeModulePath, options.runtimeWorkerSource],
   ];
@@ -173,7 +197,7 @@ export function executionArtifactWorkerModules(
     reservedPaths.add(collisionKey);
     entries.push([module.path, module.source]);
   }
-  for (const module of options.sourcePackage.modules) {
+  for (const module of options.sourceModules) {
     const collisionKey = workerModuleCollisionKey(module.path);
     if (reservedPaths.has(collisionKey)) {
       throw new ExecutionArtifactWorkerReservedModulePathError(module.path, options.reservedBy);
