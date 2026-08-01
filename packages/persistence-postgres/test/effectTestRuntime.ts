@@ -14,6 +14,8 @@ import type {
   SessionJournalPointOperationV1,
   SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
+import { SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1 } from
+  "./applicationRevisionSyscallValidatorTestSupport";
 
 /** One explicit Promise bridge for Effect-based persistence tests. */
 export function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
@@ -32,7 +34,11 @@ export function runSessionJournalPointOperation(
   table: PinnedPointTableV1,
   operation: SessionJournalPointOperationV1,
 ): Promise<RunSessionJournalPointOperationV1Result> {
-  return runEffect(store.runPointOperationEffect(table, operation));
+  return runEffect(store.runPointOperationEffect(
+    table,
+    operation,
+    SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
+  ));
 }
 
 export function prepareSessionJournalSeal(

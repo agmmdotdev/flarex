@@ -20,8 +20,9 @@ test-owned point mutation in both PGlite and genuine PostgreSQL. C08-I1 now
 builds and maintains the intrinsic `by_creation_time` index required by the
 first relation-free application. `FSV04` settles target-native readiness, and
 `FSV05` now atomically activates and coherently reads one ready revision on the
-supported shared `primary/public` target. `C03-V`, SAP04/`FSV06`, and production
-routing remain separately gated later work.
+supported shared `primary/public` target. `C03-V` now supplies the scoped
+activation-fenced syscall validator. SAP04/`FSV06` and production routing
+remain separately gated later work.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -87,6 +88,12 @@ Current implementation truth:
 - `FSV04`/`S03-D4` settles the private target-native readiness receipt;
   `FSV05`/`S04` now owns the private scope-clock-fenced activation CAS and
   coherent active-revision reader for shared `primary/public` only;
+- `C03-V` derives one opaque, scope-revoked validator capability only from
+  FSV05's coherent selection. C03 revalidates the exact scope clock and active
+  head in its existing point-operation transaction, then checks insert, patch,
+  and replace results before any journal/overlay acceptance. The typed document
+  failure remains catchable over the private RPC boundary while every stale,
+  forged, corrupt, interrupted, or defective authority remains fail-closed;
 - `C08-I1` composes the existing S10, C4, and O07-B owners to populate and
   maintain only the relation-free intrinsic creation-time index. Migration
   `0042` adds only its bounded validation access path; it introduces no
@@ -150,8 +157,8 @@ factories.
 | --- | --- | --- |
 | `FSV02` registration is complete but deliberately inactive | Direct use without the later gates | Consume it only through completed FSV04/FSV05 evidence; registration itself is still neither readiness nor activation |
 | The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
-| FSV04/FSV05 readiness and shared-primary activation exist privately | System Application Data API and SAP04 | Complete the separately gated C03-V syscall validator before FSV06 invocation design/implementation |
-| FSV03 proves one private selected-revision point mutation and FSV05 supplies active selection | System Application Data API and SAP04 | Keep the FSV03 test-owned selector separate; FSV06 must consume only FSV05's coherent active selection after C03-V |
+| FSV04/FSV05 readiness and shared-primary activation plus C03-V syscall validation exist privately | System Application Data API and SAP04 | Begin only the separately approved FSV06 implementation preflight |
+| FSV03 proves one private selected-revision point mutation and FSV05 supplies active selection | System Application Data API and SAP04 | Keep the FSV03 test-owned selector separate; FSV06 must consume FSV05's coherent active selection and its scoped C03-V validator |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
@@ -740,6 +747,34 @@ Implemented truth:
   decision uncertainty, cold reload, corruption, mixed evidence, and forged
   selection rejection without any schema or migration change.
 
+### `[x] C03-V`: Activation-Fenced Syscall Validator Capability
+
+Implemented truth:
+
+- `deriveApplicationRevisionSyscallValidatorV1` accepts only the exact
+  process-local FSV05 active-selection object and returns a second opaque
+  capability revoked by the same Effect Scope;
+- the capability is bound to the located scope generation/fence/epoch, active
+  revision/head/readiness tuple, registered schema, and function-validator
+  commitments retained by the coherent selection;
+- C03 passes the capability into the existing SessionJournalStore point path.
+  The resulting canonical insert, patch, or replace document is validated
+  after planning and existing limit classification but before receipt, point
+  overlay, or write-event persistence in the already-owned exact-attempt
+  transaction;
+- the private RPC returns only the typed document-validator failure to user
+  code without poisoning the journal, so the same syscall sequence can be
+  corrected and retried. Authority, staleness, corruption, infrastructure,
+  defect, and interruption causes keep the former terminal behavior;
+- C04B2 still validates the complete live overlay and result independently at
+  commit-input verification; and
+- the setup-seeded C04B1 adapter remains test-only and package-unexported. Its
+  deletion gate is the future FSV06/production prepared-start composition in
+  which every journal is constructed from FSV05 plus C03-V authority.
+
+This capability adds no schema, migration, route, binding, trigger, SAP04,
+runtime selection, OCC, commit, feed, or outbox owner.
+
 ### `[ ] FSV06`: Invoke One Standard Point Mutation
 
 Entry gates:
@@ -819,11 +854,11 @@ SAP03 boundary described in its completed slice. Neither capability authorizes
 readiness, activation, point mutation, public routing, framework adapters, or
 production wiring.
 
-The next relation-free vertical gate is the separately approved `C03-V`
-activation-fenced syscall-validator implementation preflight. FSV05 now
-consumes FSV04's exact readiness receipt and existing activation storage, but
-it creates no SAP04, invocation, route, trigger, or hosted-redelivery
-authority. FSV06 cannot begin until C03-V is accepted and complete.
+The next relation-free vertical gate is the separately approved `FSV06`/SAP04
+implementation preflight. FSV05 consumes FSV04's exact readiness receipt and
+existing activation storage, while C03-V supplies scope-lifetime syscall-time
+validation. Neither creates SAP04, invocation routing, triggers, or hosted-
+redelivery authority.
 
 ## Overall Completion Criteria
 

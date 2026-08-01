@@ -19,6 +19,14 @@ import {
   SessionJournalStorageCorruptionV1Error,
   SessionJournalTargetUnavailableV1Error,
 } from "@flarex/persistence-postgres/session-journal-store";
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+  ApplicationRevisionSyscallValidatorCorruptionV1Error,
+  ApplicationRevisionSyscallValidatorIntegrationV1Error,
+  ApplicationRevisionSyscallValidatorStaleV1Error,
+  InvalidApplicationRevisionSyscallValidatorV1Error,
+  type ApplicationRevisionSyscallValidatorV1,
+} from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 import { Data, Effect, Schema, Semaphore } from "effect";
 
 import {
@@ -114,7 +122,12 @@ export type PointMutationJournalBoundaryV1Error =
   | SessionJournalLeasePromotionV1Error
   | SessionJournalSealV1Error
   | SessionJournalStorageCorruptionV1Error
-  | SessionJournalTargetUnavailableV1Error;
+  | SessionJournalTargetUnavailableV1Error
+  | InvalidApplicationRevisionSyscallValidatorV1Error
+  | ApplicationRevisionSyscallValidatorStaleV1Error
+  | ApplicationRevisionSyscallValidatorCorruptionV1Error
+  | ApplicationRevisionSyscallValidatorIntegrationV1Error
+  | ApplicationRevisionSyscallDocumentValidationV1Error;
 
 export interface PointMutationJournalV1 {
   readonly openAttempt: (
@@ -172,6 +185,7 @@ const decodeSyscallSequence = Schema.decodeUnknownSync(
 export function createPointMutationJournalV1(
   persistence: SessionJournalStorePersistenceV1,
   executionClaims: PointMutationExecutionClaimAdmissionV1,
+  syscallValidator: ApplicationRevisionSyscallValidatorV1,
 ): PointMutationJournalV1 {
   const attemptStates = new WeakMap<object, JournalAttemptStateV1>();
   const tableStates = new WeakMap<object, JournalTableStateV1>();
@@ -318,6 +332,7 @@ export function createPointMutationJournalV1(
             persistence.runPointOperationEffect(
               captured.state.persistenceTable,
               captured.operation,
+              syscallValidator,
             ).pipe(
               Effect.mapError(mapPersistenceFailure),
             ),
@@ -551,7 +566,12 @@ function mapPersistenceFailure(
     cause instanceof SessionJournalLeasePromotionV1Error ||
     cause instanceof SessionJournalSealV1Error ||
     cause instanceof SessionJournalStorageCorruptionV1Error ||
-    cause instanceof SessionJournalTargetUnavailableV1Error
+    cause instanceof SessionJournalTargetUnavailableV1Error ||
+    cause instanceof InvalidApplicationRevisionSyscallValidatorV1Error ||
+    cause instanceof ApplicationRevisionSyscallValidatorStaleV1Error ||
+    cause instanceof ApplicationRevisionSyscallValidatorCorruptionV1Error ||
+    cause instanceof ApplicationRevisionSyscallValidatorIntegrationV1Error ||
+    cause instanceof ApplicationRevisionSyscallDocumentValidationV1Error
   ) {
     return cause;
   }

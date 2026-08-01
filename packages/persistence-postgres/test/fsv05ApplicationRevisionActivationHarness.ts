@@ -1,5 +1,18 @@
 import { Cause, Effect, Exit, Result } from "effect";
 import {
+  canonicalizeAppDocumentV1,
+  decodeAppCreationTimeV1,
+} from "flarex-protocol/app-document";
+import {
+  appDocumentIdV1FromRowIdentity,
+  decodeAppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
+import { decodeCatalogSchemaVersionId } from
+  "flarex-protocol/schema-manifest";
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import { decodeReplacementScopeIdV1 } from
+  "flarex-protocol/storage-authority";
+import {
   MAX_APPLICATION_REVISION_ACTIVATION_REVISION_V1,
 } from "flarex-protocol/internal/application-revision-activation-request-v1";
 
@@ -14,8 +27,17 @@ import {
   type LocatedApplicationRevisionActivationTargetV1,
 } from "../src/applicationRevisionActivationV1";
 import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+  deriveApplicationRevisionSyscallValidatorV1,
+  inspectApplicationRevisionSyscallValidatorV1,
+  InvalidApplicationRevisionSyscallValidatorV1Error,
+  validateApplicationRevisionSyscallDocumentInTransactionV1,
+} from "../src/applicationRevisionSyscallValidatorV1";
+import {
   settleApplicationRevisionReadinessV1,
 } from "../src/applicationRevisionReadinessV1";
+import { RUN_LOCATED_READ_COMMITTED_V1 } from
+  "../src/transactionSessionAttemptKernel";
 import {
   buildIntrinsicCreationTimeIndexV1Effect,
 } from "../src/intrinsicCreationTimeIndexBuildV1";
@@ -78,6 +100,13 @@ export interface Fsv05ApplicationRevisionActivationProofV1 {
   readonly coldReloadRevision: bigint;
   readonly clonedSelectionRejected: true;
   readonly selectionRevokedAfterScope: true;
+  readonly syscallValidatorAcceptedValidDocument: true;
+  readonly syscallValidatorRejectedInvalidDocument: true;
+  readonly syscallValidatorRejectedClone: true;
+  readonly syscallValidatorRejectedForgery: true;
+  readonly syscallValidatorRejectedMixedContext: true;
+  readonly syscallValidatorRejectedSupersededSelection: true;
+  readonly syscallValidatorRevokedAfterScope: true;
   readonly frameCorruptionRejected: true;
   readonly mixedEvidenceRejected: true;
   readonly activationRevisionCount: number;
@@ -371,16 +400,167 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     throw new Error("FSV05 did not replay after fresh uncertainty observation.");
   }
 
+  const coldTarget = lane.makeActivationTarget();
   const coldContext = activationContext(
     fifth.deploymentId,
     lane.persistence,
-    lane.makeActivationTarget(),
+    coldTarget,
   );
   const cold = await Effect.runPromise(Effect.scoped(
     readActiveApplicationRevisionV1(coldContext),
   ));
   if (cold.metadata.applicationRevisionId !== fifth.revisionId) {
     throw new Error("FSV05 cold reader did not reconstruct the active revision.");
+  }
+
+  let issuedSyscallValidator: unknown = null;
+  const syscallValidatorProof = await Effect.runPromise(Effect.scoped(
+    Effect.gen(function* () {
+      const active = yield* readActiveApplicationRevisionV1(coldContext);
+      const validator = yield*
+        deriveApplicationRevisionSyscallValidatorV1(active.selection);
+      issuedSyscallValidator = validator;
+      const clock = yield* Effect.promise(() =>
+        lane.persistence.getScopeClock(active.metadata.scopeId)
+      );
+      if (clock === null) throw new Error("C03-V scope clock is missing.");
+      const tableRows = yield* Effect.promise(() => lane.persistence.query<{
+        table_id: number;
+      }>(
+        `select table_id
+           from fx_control_table
+          where deployment_id = $1 and logical_name = 'orders'`,
+        [fifth.deploymentId],
+      ));
+      const tableId = tableRows.rows[0]?.table_id;
+      if (tableRows.rows.length !== 1 || tableId === undefined) {
+        throw new Error("C03-V active schema omitted the orders table.");
+      }
+      const activeTableId = decodeCatalogTableId(tableId);
+      const rowId = decodeAppRowIdHexV1("55".repeat(16));
+      const documentId = appDocumentIdV1FromRowIdentity({
+        tableId: activeTableId,
+        rowId,
+      });
+      const creationTime = decodeAppCreationTimeV1(1);
+      const validationContext = Object.freeze({
+        anchor: Object.freeze({ scopeId: active.metadata.scopeId }),
+        executionPin: Object.freeze({
+          schemaVersionId: decodeCatalogSchemaVersionId(
+            active.metadata.schemaVersionId,
+          ),
+        }),
+        scopeClock: clock,
+      });
+      const validate = (
+        candidate: unknown,
+        status: unknown,
+        suppliedContext = validationContext,
+      ) =>
+        Effect.promise(async () => {
+          const document = await canonicalizeAppDocumentV1({
+            tableId: activeTableId,
+            rowId,
+            creationTime,
+            fields: { status },
+          });
+          return coldTarget[RUN_LOCATED_READ_COMMITTED_V1](tx =>
+            Effect.runPromise(Effect.exit(
+              validateApplicationRevisionSyscallDocumentInTransactionV1(
+                candidate as typeof validator,
+                tx,
+                suppliedContext,
+                {
+                  operation: "replace",
+                  tableName: "orders",
+                  tableId: activeTableId,
+                  documentId,
+                  creationTime,
+                  document,
+                },
+              ),
+            ))
+          );
+        });
+      const valid = yield* validate(validator, "complete");
+      if (Exit.isFailure(valid)) {
+        throw new Error("C03-V rejected a valid active document.");
+      }
+      const invalid = yield* validate(validator, 42);
+      requireFailureTag(
+        invalid,
+        "ApplicationRevisionSyscallDocumentValidationV1Error",
+      );
+      const cloned = yield* validate(Object.freeze({ ...validator }), "complete");
+      requireFailureTag(
+        cloned,
+        "InvalidApplicationRevisionSyscallValidatorV1Error",
+      );
+      const forged = yield* validate(Object.freeze({}), "complete");
+      requireFailureTag(
+        forged,
+        "InvalidApplicationRevisionSyscallValidatorV1Error",
+      );
+      const mixedContext = yield* validate(validator, "complete", Object.freeze({
+        ...validationContext,
+        anchor: Object.freeze({
+          scopeId: decodeReplacementScopeIdV1(
+            "scope_00000000-0000-0000-0000-000000000001",
+          ),
+        }),
+      }));
+      requireFailureTag(
+        mixedContext,
+        "ApplicationRevisionSyscallValidatorStaleV1Error",
+      );
+      const replacement = yield* coordinator.activate(
+        first.revisionId,
+        active.expectedActiveRevision,
+        first.context,
+      );
+      if (replacement.disposition !== "inserted") {
+        throw new Error("C03-V superseding activation was not inserted.");
+      }
+      const superseded = yield* validate(validator, "complete");
+      requireFailureTag(
+        superseded,
+        "ApplicationRevisionSyscallValidatorStaleV1Error",
+      );
+      return Object.freeze({
+        valid: true,
+        invalid: Exit.isFailure(invalid) &&
+          Cause.findErrorOption(invalid.cause).pipe(option =>
+            option._tag === "Some" &&
+            option.value instanceof
+              ApplicationRevisionSyscallDocumentValidationV1Error
+          ),
+        cloned: Exit.isFailure(cloned) &&
+          Cause.findErrorOption(cloned.cause).pipe(option =>
+            option._tag === "Some" &&
+            option.value instanceof
+              InvalidApplicationRevisionSyscallValidatorV1Error
+          ),
+        forged: Exit.isFailure(forged) &&
+          Cause.findErrorOption(forged.cause).pipe(option =>
+            option._tag === "Some" &&
+            option.value instanceof
+              InvalidApplicationRevisionSyscallValidatorV1Error
+          ),
+        mixedContext: Exit.isFailure(mixedContext),
+        superseded: Exit.isFailure(superseded),
+      });
+    }),
+  ));
+  const syscallValidatorRevoked = Result.isFailure(
+    inspectApplicationRevisionSyscallValidatorV1(issuedSyscallValidator),
+  );
+  if (
+    !syscallValidatorProof.valid || !syscallValidatorProof.invalid ||
+    !syscallValidatorProof.cloned || !syscallValidatorProof.forged ||
+    !syscallValidatorProof.mixedContext || !syscallValidatorProof.superseded ||
+    !syscallValidatorRevoked
+  ) {
+    throw new Error("C03-V syscall-validator authority proof did not close.");
   }
 
   const storedHead = await lane.persistence.query<{
@@ -410,7 +590,7 @@ export async function proveFsv05ApplicationRevisionActivationV1(
        from fx_system_declarative_v2_verdict
       where revision_id <> $1
       order by revision_id
-      limit 1`, [fifth.revisionId]);
+      limit 1`, [first.revisionId]);
   const otherVerdict = otherEvidence.rows[0]?.verdict_sha256;
   if (currentVerdict === undefined || otherVerdict === undefined) {
     throw new Error("FSV05 mixed-evidence fixture is incomplete.");
@@ -452,6 +632,13 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     coldReloadRevision: cold.metadata.activationRevision,
     clonedSelectionRejected: true,
     selectionRevokedAfterScope: true,
+    syscallValidatorAcceptedValidDocument: true,
+    syscallValidatorRejectedInvalidDocument: true,
+    syscallValidatorRejectedClone: true,
+    syscallValidatorRejectedForgery: true,
+    syscallValidatorRejectedMixedContext: true,
+    syscallValidatorRejectedSupersededSelection: true,
+    syscallValidatorRevokedAfterScope: true,
     frameCorruptionRejected: true,
     mixedEvidenceRejected: true,
     activationRevisionCount: counts.activationRevisionCount,

@@ -32,8 +32,13 @@ import {
   CatalogSchemaVersionSchema,
   decodeSchemaManifestAppTableName,
   type CatalogSchemaVersionId,
+  type SchemaManifestAppSchemaV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+  InvalidApplicationRevisionSyscallValidatorV1Error,
+} from "../src/applicationRevisionSyscallValidatorV1";
 import {
   CommitSeqSchema,
   decodeReplacementScopeIdV1,
@@ -123,6 +128,12 @@ import {
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  issueSetupSeededSyscallValidatorProofV1,
+  revokeSetupSeededSyscallValidatorProofV1,
+  SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
+} from
+  "./applicationRevisionSyscallValidatorTestSupport";
+import {
   TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
   pointMutationSessionActivationFixture,
@@ -160,6 +171,7 @@ interface JournalScenario {
   readonly attempt: SessionJournalAttemptV1;
   readonly table: PinnedPointTableV1;
   readonly seededDocumentId: AppDocumentIdV1 | null;
+  readonly schemaManifest: SchemaManifestAppSchemaV1;
 }
 
 interface JournalCounts extends Record<string, unknown> {
@@ -331,8 +343,152 @@ describe("C03 Postgres SessionJournalStore", () => {
       attempt,
       table,
       seededDocumentId,
+      schemaManifest: publication.manifest,
     });
   }
+
+  it("rejects invalid insert, patch, and replace before journal acceptance", async () => {
+    const cases = ["insert", "patch", "replace"] as const;
+    for (const operation of cases) {
+      const current = await scenario(`c03v_${operation}`, {
+        ...(operation === "insert" ? {} : { seedFields: { name: "before" } }),
+      });
+      const validator = issueSetupSeededSyscallValidatorProofV1({
+        scopeId: current.anchor.scopeId,
+        schemaVersionId: current.schemaVersionId,
+        schemaManifest: current.schemaManifest,
+      });
+      const document = current.seededDocumentId;
+      const invalid = operation === "insert"
+        ? {
+          kind: "insert" as const,
+          syscallSequence: syscallSequence(1n),
+          fields: { name: 42 },
+        }
+        : operation === "patch"
+        ? {
+          kind: "patch" as const,
+          syscallSequence: syscallSequence(1n),
+          documentId: document!,
+          patch: { name: 42 },
+        }
+        : {
+          kind: "replace" as const,
+          syscallSequence: syscallSequence(1n),
+          documentId: document!,
+          fields: { name: 42 },
+        };
+      await expect(runFailure(current.store.runPointOperationEffect(
+        current.table,
+        invalid,
+        validator,
+      ))).resolves.toBeInstanceOf(
+        ApplicationRevisionSyscallDocumentValidationV1Error,
+      );
+      await expect(journalCounts(current.anchor.sessionId)).resolves.toMatchObject({
+        receipts: 0,
+        points: 0,
+        events: 0,
+      });
+
+      const valid = operation === "insert"
+        ? {
+          kind: "insert" as const,
+          syscallSequence: syscallSequence(1n),
+          fields: { name: "after" },
+        }
+        : operation === "patch"
+        ? {
+          kind: "patch" as const,
+          syscallSequence: syscallSequence(1n),
+          documentId: document!,
+          patch: { name: "after" },
+        }
+        : {
+          kind: "replace" as const,
+          syscallSequence: syscallSequence(1n),
+          documentId: document!,
+          fields: { name: "after" },
+        };
+      await expect(runEffect(current.store.runPointOperationEffect(
+        current.table,
+        valid,
+        validator,
+      ))).resolves.toMatchObject({ kind: "completed", delivery: "executed" });
+      await expect(journalCounts(current.anchor.sessionId)).resolves.toMatchObject({
+        receipts: 1,
+        points: 1,
+        events: 1,
+      });
+    }
+  });
+
+  it("validates authority and documents before accepting a sticky limit failure", async () => {
+    const current = await scenario("c03v_limit_priority");
+    const validator = issueSetupSeededSyscallValidatorProofV1({
+      scopeId: current.anchor.scopeId,
+      schemaVersionId: current.schemaVersionId,
+      schemaManifest: current.schemaManifest,
+    });
+    await persistence.query(
+      `update fx_system_tx_journal
+          set write_operations = $2
+        where session_id = $1`,
+      [current.anchor.sessionId, MAX_COMMIT_WRITE_OPERATIONS_V1],
+    );
+
+    await expect(runFailure(current.store.runPointOperationEffect(
+      current.table,
+      {
+        kind: "insert",
+        syscallSequence: syscallSequence(1n),
+        fields: { name: 42 },
+      },
+      validator,
+    ))).resolves.toBeInstanceOf(
+      ApplicationRevisionSyscallDocumentValidationV1Error,
+    );
+    const revoked = issueSetupSeededSyscallValidatorProofV1({
+      scopeId: current.anchor.scopeId,
+      schemaVersionId: current.schemaVersionId,
+      schemaManifest: current.schemaManifest,
+    });
+    revokeSetupSeededSyscallValidatorProofV1(revoked);
+    await expect(runFailure(current.store.runPointOperationEffect(
+      current.table,
+      {
+        kind: "insert",
+        syscallSequence: syscallSequence(1n),
+        fields: { name: "valid" },
+      },
+      revoked,
+    ))).resolves.toBeInstanceOf(
+      InvalidApplicationRevisionSyscallValidatorV1Error,
+    );
+    await expect(journalCounts(current.anchor.sessionId)).resolves.toMatchObject({
+      receipts: 0,
+      points: 0,
+      events: 0,
+    });
+    await expect(journalRoot(current.anchor.sessionId)).resolves.toMatchObject({
+      state: "open",
+      last_syscall_sequence: "0",
+      write_operations: MAX_COMMIT_WRITE_OPERATIONS_V1,
+    });
+
+    await expect(runEffect(current.store.runPointOperationEffect(
+      current.table,
+      {
+        kind: "insert",
+        syscallSequence: syscallSequence(1n),
+        fields: { name: "valid" },
+      },
+      validator,
+    ))).resolves.toMatchObject({
+      kind: "rejected",
+      issue: { reason: "limitExceeded", dimension: "writeOperations" },
+    });
+  });
 
   it("uses the pinned manifest as table authority and stable bindings only as corroboration", async () => {
     type UnsupportedStoreOperation = Extract<
@@ -455,6 +611,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         documentId: documentId(current.tableId, 999),
         patch: { ["r".repeat(1_025)]: undefined },
       },
+      SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
     ))).resolves.toBeInstanceOf(InvalidSessionJournalInputV1Error);
     expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
       state: "open",
@@ -531,7 +688,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         kind: "insert",
         syscallSequence: syscallSequence(1n),
         fields,
-      }),
+      }, SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1),
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
@@ -748,6 +905,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       runEffect(current.store.runPointOperationEffect(
         current.table,
         firstRequest,
+        SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
       )),
     ).resolves.toEqual({
       kind: "completed",
@@ -830,7 +988,11 @@ describe("C03 Postgres SessionJournalStore", () => {
       .mockRejectedValueOnce(defect);
     try {
       const exit = await Effect.runPromiseExit(
-        current.store.runPointOperationEffect(current.table, request),
+        current.store.runPointOperationEffect(
+          current.table,
+          request,
+          SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
+        ),
       );
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
@@ -1231,6 +1393,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         syscallSequence: syscallSequence(1n),
         fields: { name: "invalid" },
       },
+      SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
     ))).resolves.toBeInstanceOf(SessionJournalIdentityGenerationV1Error);
     expect(await journalRoot(invalid.anchor.sessionId)).toMatchObject({
       last_syscall_sequence: "0",
@@ -1256,7 +1419,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         kind: "insert",
         syscallSequence: syscallSequence(1n),
         fields: { name: "must-not-persist" },
-      }),
+      }, SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1),
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
@@ -1304,6 +1467,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         documentId: overlayDocumentId,
         fields: { name: "must-not-persist" },
       },
+      SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
     ))).resolves.toMatchObject({
       reason: "liveOverlaySemanticBytesMismatch",
     } satisfies Partial<SessionJournalStorageCorruptionV1Error>);
@@ -2534,6 +2698,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         syscallSequence: syscallSequence(1n),
         documentId: documentId(terminal.tableId, 201),
       },
+      SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
     ))).resolves.toMatchObject({
       issue: { reason: "attemptNotRunning", lifecycle: "finishing" },
     } satisfies Partial<SessionJournalAttemptUnavailableV1Error>);
@@ -2558,6 +2723,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         syscallSequence: syscallSequence(1n),
         documentId: documentId(expired.tableId, 202),
       },
+      SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
     ))).resolves.toMatchObject({
       issue: { reason: "activeAttemptExpired" },
     } satisfies Partial<SessionJournalAttemptUnavailableV1Error>);
@@ -2590,6 +2756,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         syscallSequence: syscallSequence(1n),
         documentId: documentId(current.tableId, 203),
       },
+      SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
     ));
 
     await entered.promise;

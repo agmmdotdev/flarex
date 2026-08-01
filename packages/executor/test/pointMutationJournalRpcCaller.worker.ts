@@ -35,6 +35,8 @@ export default {
         return Response.json(await resultRejectedScenario(env));
       case "/failure":
         return Response.json(await failureScenario(env));
+      case "/validation-failure":
+        return Response.json(await validationFailureScenario(env));
       case "/late":
         return Response.json(await lateScenario(env));
       case "/drain":
@@ -104,6 +106,23 @@ async function failureScenario(env: Env) {
   table[Symbol.dispose]();
   parent[Symbol.dispose]();
   return { local, localAgain, remote };
+}
+
+async function validationFailureScenario(env: Env) {
+  const parent = await env.JOURNAL.open(
+    "validation-failure",
+    "validationFailure",
+  );
+  const table = await parent.resolvePointTable("orders");
+  const invalid = await rejectionReceipt(
+    table.runPointOperation({ id: "first" }),
+  );
+  const valid = await table.runPointOperation({ id: "second" });
+  const local = await env.JOURNAL.finishClose("validation-failure");
+  const state = await env.JOURNAL.inspect("validation-failure");
+  table[Symbol.dispose]();
+  parent[Symbol.dispose]();
+  return { invalid, valid, local, state };
 }
 
 async function lateScenario(env: Env) {

@@ -124,6 +124,12 @@ import {
   type AppRowTransaction,
 } from "./appRows";
 import {
+  validateApplicationRevisionSyscallDocumentInTransactionV1,
+  type ApplicationRevisionSyscallValidatorV1,
+  type ApplicationRevisionSyscallValidatorV1Error,
+  type ValidateApplicationRevisionSyscallDocumentV1Input,
+} from "./applicationRevisionSyscallValidatorV1";
+import {
   PinnedPointTableCorruptionV1Error,
   PinnedPointTableNotFoundV1Error,
   PinnedPointTablePersistenceV1Error,
@@ -374,6 +380,7 @@ export interface SessionJournalStorePersistenceV1 {
   readonly runPointOperationEffect: (
     table: PinnedPointTableV1,
     operation: SessionJournalPointOperationV1,
+    validator: ApplicationRevisionSyscallValidatorV1,
   ) => Effect.Effect<
     RunSessionJournalPointOperationV1Result,
     SessionJournalRunPointOperationV1Error
@@ -462,7 +469,8 @@ export type SessionJournalRunPointOperationV1Error =
   | SessionJournalIdentityGenerationV1Error
   | SessionJournalPersistenceV1Error
   | SessionJournalStorageCorruptionV1Error
-  | SessionJournalTargetUnavailableV1Error;
+  | SessionJournalTargetUnavailableV1Error
+  | ApplicationRevisionSyscallValidatorV1Error;
 
 export type SessionJournalPrepareSealV1Error =
   | InvalidSessionJournalCapabilityV1Error
@@ -896,6 +904,7 @@ export function createSessionJournalStorePersistenceV1(
   ] = Effect.fn("SessionJournalStore.runPointOperation")(function* (
     table,
     operation,
+    validator,
   ) {
     const tableState = typeof table === "object" && table !== null
       ? tableStates.get(table)
@@ -925,6 +934,7 @@ export function createSessionJournalStorePersistenceV1(
         request,
         requestEvidence,
         randomUuid,
+        validator,
       ),
     ).pipe(
       Effect.mapError((error) =>
@@ -1803,6 +1813,7 @@ interface SessionJournalOperationPlanV1 {
   readonly pointMutation?: JournalPointMutationV1;
   readonly write?: LogicalAppWriteV1;
   readonly nextCreationTime?: AppCreationTimeV1;
+  readonly documentValidation?: ValidateApplicationRevisionSyscallDocumentV1Input;
 }
 
 interface PreparedLogicalWriteEventV1 {
@@ -1840,6 +1851,7 @@ const runPointOperationInTransactionEffect = Effect.fn(
   request: SessionJournalStoredRequestV1,
   requestEvidence: CanonicalFlarexValueV1,
   randomUuid: () => string,
+  validator: ApplicationRevisionSyscallValidatorV1,
 ): Effect.fn.Return<
   AppliedSessionJournalOperationV1,
   SessionJournalRunPointOperationV1Error
@@ -2003,6 +2015,15 @@ const runPointOperationInTransactionEffect = Effect.fn(
       preparedWriteEvent?.evidenceBytes ?? 0,
   } satisfies SessionJournalCounterDeltasV1);
   const limitIssue = firstExceededLimit(counters, counterDeltas);
+  if (plan.documentValidation !== undefined) {
+    yield* validateApplicationRevisionSyscallDocumentInTransactionV1(
+      validator,
+      tx,
+      context,
+      plan.documentValidation,
+    );
+  }
+
   if (limitIssue !== undefined) {
     const outcome = Object.freeze({
       kind: "error",
@@ -2253,6 +2274,14 @@ const planInsertEffect = Effect.fn(
       }),
     }),
     write,
+    documentValidation: Object.freeze({
+      operation: "insert",
+      tableName: table.tableName,
+      tableId: table.tableId,
+      documentId,
+      creationTime,
+      document,
+    }),
     nextCreationTime,
   });
 });
@@ -2318,6 +2347,14 @@ const planPatchEffect = Effect.fn(
     return Object.freeze({
       outcome: Object.freeze({ kind: "unit", operation: "patch" }),
       counters: readCounters,
+      documentValidation: Object.freeze({
+        operation: "patch",
+        tableName: table.tableName,
+        tableId: table.tableId,
+        documentId: request.documentId,
+        creationTime,
+        document: next,
+      }),
       ...(read.pointMutation === undefined
         ? {}
         : { pointMutation: read.pointMutation }),
@@ -2345,6 +2382,14 @@ const planPatchEffect = Effect.fn(
       Object.freeze({ kind: "live", creationTime, document: next }),
     ),
     write,
+    documentValidation: Object.freeze({
+      operation: "patch",
+      tableName: table.tableName,
+      tableId: table.tableId,
+      documentId: request.documentId,
+      creationTime,
+      document: next,
+    }),
   });
 });
 
@@ -2411,6 +2456,14 @@ const planReplaceEffect = Effect.fn(
     return Object.freeze({
       outcome: Object.freeze({ kind: "unit", operation: "replace" }),
       counters: readCounters,
+      documentValidation: Object.freeze({
+        operation: "replace",
+        tableName: table.tableName,
+        tableId: table.tableId,
+        documentId: request.documentId,
+        creationTime,
+        document: next,
+      }),
       ...(read.pointMutation === undefined
         ? {}
         : { pointMutation: read.pointMutation }),
@@ -2438,6 +2491,14 @@ const planReplaceEffect = Effect.fn(
       Object.freeze({ kind: "live", creationTime, document: next }),
     ),
     write,
+    documentValidation: Object.freeze({
+      operation: "replace",
+      tableName: table.tableName,
+      tableId: table.tableId,
+      documentId: request.documentId,
+      creationTime,
+      document: next,
+    }),
   });
 });
 

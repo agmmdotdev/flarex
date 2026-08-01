@@ -145,6 +145,21 @@ describe("point-mutation journal RPC adapter in workerd", () => {
     expect(errorStack(result, "remote")).not.toContain("private journal");
   });
 
+  it("returns document validation to user code without poisoning the journal", async () => {
+    const result = await scenario("/validation-failure");
+
+    expect(result).toMatchObject({
+      invalid: {
+        rejected: true,
+        name: "ApplicationRevisionSyscallDocumentValidationV1Error",
+        message: "The resulting document failed the active schema validator.",
+      },
+      valid: { kind: "missing", document: null },
+      local: { kind: "success" },
+      state: { operationCalls: 2, tableIdentityPreserved: true },
+    });
+  });
+
   it("closes the parent and every existing child without invoking the journal", async () => {
     const result = await scenario("/late");
 

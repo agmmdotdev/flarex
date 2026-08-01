@@ -22,6 +22,7 @@ import {
   CommitSyscallSequenceV1Schema,
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
+  MAX_COMMIT_WRITE_OPERATIONS_V1,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
@@ -33,6 +34,7 @@ import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
   type CatalogSchemaVersionId,
+  type SchemaManifestAppSchemaV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
@@ -40,6 +42,10 @@ import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transactio
 import { Effect, Fiber, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+  InvalidApplicationRevisionSyscallValidatorV1Error,
+} from "../src/applicationRevisionSyscallValidatorV1";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresPersistence,
@@ -81,6 +87,11 @@ import {
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  issueSetupSeededSyscallValidatorProofV1,
+  revokeSetupSeededSyscallValidatorProofV1,
+} from
+  "./applicationRevisionSyscallValidatorTestSupport";
+import {
   TEST_GRANT_RETENTION_POLICY_V1,
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
@@ -108,6 +119,7 @@ interface JournalScenario {
   readonly store: SessionJournalStorePersistenceV1;
   readonly attempt: SessionJournalAttemptV1;
   readonly table: PinnedPointTableV1;
+  readonly schemaManifest: SchemaManifestAppSchemaV1;
 }
 
 interface JournalCounts extends Record<string, unknown> {
@@ -140,6 +152,112 @@ interface AttemptLeaseAndSealState extends Record<string, unknown> {
 
 describePostgres("real Postgres C03 SessionJournalStore", () => {
   const withPostgresPersistence = useFileScopedPostgresPersistence();
+
+  it("rolls back invalid syscall-time validation before journal acceptance", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const current = await scenario(persistence, "c03v_validation");
+      const validator = issueSetupSeededSyscallValidatorProofV1({
+        scopeId: current.anchor.scopeId,
+        schemaVersionId: current.schemaVersionId,
+        schemaManifest: current.schemaManifest,
+      });
+      await expect(runFailure(current.store.runPointOperationEffect(
+        current.table,
+        {
+          kind: "insert",
+          syscallSequence: syscallSequence(1n),
+          fields: { name: 42 },
+        },
+        validator,
+      ))).resolves.toBeInstanceOf(
+        ApplicationRevisionSyscallDocumentValidationV1Error,
+      );
+      await expect(journalCounts(persistence, current.anchor.sessionId))
+        .resolves.toEqual({ roots: 1, receipts: 0, points: 0, events: 0 });
+      await expect(runEffect(current.store.runPointOperationEffect(
+        current.table,
+        {
+          kind: "insert",
+          syscallSequence: syscallSequence(1n),
+          fields: { name: "accepted" },
+        },
+        validator,
+      ))).resolves.toMatchObject({ kind: "completed", delivery: "executed" });
+      await expect(journalCounts(persistence, current.anchor.sessionId))
+        .resolves.toEqual({ roots: 1, receipts: 1, points: 1, events: 1 });
+    });
+  }, 120_000);
+
+  it("validates authority and documents before a PostgreSQL limit receipt", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const current = await scenario(persistence, "c03v_limit_priority");
+      const validator = issueSetupSeededSyscallValidatorProofV1({
+        scopeId: current.anchor.scopeId,
+        schemaVersionId: current.schemaVersionId,
+        schemaManifest: current.schemaManifest,
+      });
+      await persistence.query(
+        `update fx_system_tx_journal
+            set write_operations = $2
+          where session_id = $1`,
+        [current.anchor.sessionId, MAX_COMMIT_WRITE_OPERATIONS_V1],
+      );
+      await expect(runFailure(current.store.runPointOperationEffect(
+        current.table,
+        {
+          kind: "insert",
+          syscallSequence: syscallSequence(1n),
+          fields: { name: 42 },
+        },
+        validator,
+      ))).resolves.toBeInstanceOf(
+        ApplicationRevisionSyscallDocumentValidationV1Error,
+      );
+      const revoked = issueSetupSeededSyscallValidatorProofV1({
+        scopeId: current.anchor.scopeId,
+        schemaVersionId: current.schemaVersionId,
+        schemaManifest: current.schemaManifest,
+      });
+      revokeSetupSeededSyscallValidatorProofV1(revoked);
+      await expect(runFailure(current.store.runPointOperationEffect(
+        current.table,
+        {
+          kind: "insert",
+          syscallSequence: syscallSequence(1n),
+          fields: { name: "valid" },
+        },
+        revoked,
+      ))).resolves.toBeInstanceOf(
+        InvalidApplicationRevisionSyscallValidatorV1Error,
+      );
+      await expect(journalCounts(persistence, current.anchor.sessionId))
+        .resolves.toEqual({ roots: 1, receipts: 0, points: 0, events: 0 });
+      const root = await persistence.query<{
+        state: string;
+        last_syscall_sequence: string;
+        write_operations: number;
+      }>(`select state, last_syscall_sequence, write_operations
+            from fx_system_tx_journal
+           where session_id = $1`, [current.anchor.sessionId]);
+      expect(root.rows[0]).toMatchObject({
+        state: "open",
+        last_syscall_sequence: "0",
+        write_operations: MAX_COMMIT_WRITE_OPERATIONS_V1,
+      });
+      await expect(runEffect(current.store.runPointOperationEffect(
+        current.table,
+        {
+          kind: "insert",
+          syscallSequence: syscallSequence(1n),
+          fields: { name: "valid" },
+        },
+        validator,
+      ))).resolves.toMatchObject({
+        kind: "rejected",
+        issue: { reason: "limitExceeded", dimension: "writeOperations" },
+      });
+    });
+  }, 120_000);
 
   it("rolls back and recovers migration 0028 in a non-public schema", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-c03-postgres-"));
@@ -1212,6 +1330,7 @@ async function scenario(
     store,
     attempt,
     table,
+    schemaManifest: publication.manifest,
   });
 }
 

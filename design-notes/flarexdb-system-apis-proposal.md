@@ -253,6 +253,10 @@ The remaining limitations are architectural, not merely naming or packaging:
    WeakMap selection and CAS token are not SAP04, routing, or production
    prepared-start authority. Legacy deployment activation remains
    non-authoritative and is never a fallback.
+   C03-V now derives one scope-lifetime validator from that exact selection,
+   rechecks the scope clock and active head inside C03's existing transaction,
+   and returns typed document validation before insert/patch/replace journal
+   acceptance. It adds no invocation, route, schema, or commit authority.
 5. **Only the first private analyzer-to-Postgres mutation slice is assembled.**
    C07 proves the private test-owned point-mutation composition in PGlite and
    genuine PostgreSQL. A1b2-S1 supplies the private scoped command

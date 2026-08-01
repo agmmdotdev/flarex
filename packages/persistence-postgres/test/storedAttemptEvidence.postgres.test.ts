@@ -77,6 +77,8 @@ import {
 import { decodePointMutationSessionAttemptSelectorV1 } from
   "../../executor/src/pointMutationSessionAttemptSelector";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
+import { SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1 } from
+  "./applicationRevisionSyscallValidatorTestSupport";
 import {
   createPointMutationExecutionClaimVaultV1,
   type PointMutationExecutionClaimVaultV1,
@@ -3636,6 +3638,7 @@ function createO08B2aAuthentication(
       journal: createPointMutationJournalV1(
         current.store,
         current.executionClaims.admission,
+        SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
       ),
       terminalization: createPointMutationSessionAttemptTerminalizationV1(
         createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
@@ -3697,6 +3700,7 @@ function createB2b2aRedispatchAuthentication(
       journal: createPointMutationJournalV1(
         current.store,
         executionClaims.admission,
+        SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
       ),
       terminalization: createPointMutationSessionAttemptTerminalizationV1(
         terminalizationPersistence,

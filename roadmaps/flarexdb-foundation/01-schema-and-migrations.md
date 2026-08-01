@@ -513,6 +513,16 @@ migration, supports only shared `primary/public`, and exposes only a private
 coherent reader and coordinator. It adds no route, SAP04 invocation, or
 production prepared-start authority.
 
+C03-V now consumes that coherent reader without adding storage. Its scoped
+opaque validator rechecks the exact scope clock and active head inside the
+existing C03 point-operation transaction and validates insert, patch, and
+replace results before journal/overlay persistence. Typed document validation
+is catchable; stale, forged, corrupt, mixed, closed-scope, interrupted, and
+defective authority remains fail-closed. C04B2 retains final live-overlay
+validation as an independent defense. The setup-seeded C04B1 proof adapter is
+still test-only and must be deleted when FSV06/production prepared-start makes
+FSV05 plus C03-V the sole journal construction path.
+
 ### [x] S05 — Freeze Value And Ordered-Key Codecs
 
 Progress:

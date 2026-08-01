@@ -2643,6 +2643,10 @@ async function loadLockedRunningAttempt<Failure extends Error>(
 
   return Object.freeze({
     scopeUuid: clock.scopeUuid,
+    scopeClock: Object.freeze({
+      ...clock.record,
+      updatedAt: new Date(clock.record.updatedAt.getTime()),
+    }),
     anchor: Object.freeze({
       deploymentId: input.deploymentId,
       scopeId: input.scopeId,

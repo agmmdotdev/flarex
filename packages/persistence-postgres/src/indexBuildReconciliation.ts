@@ -19,6 +19,7 @@ import {
   CatalogSchemaVersionIdSchema,
   decodeSchemaManifestAppSchemaV1Result,
   type CatalogSchemaVersionId,
+  type SchemaManifestAppSchemaV1,
   type SchemaManifestSha256,
 } from "flarex-protocol/schema-manifest";
 import type {
@@ -63,6 +64,7 @@ import {
   type ReadSchemaVersionArtifactError,
 } from "./schemaVersionArtifacts";
 import { fxSystemIndexBuildStates } from "./schema";
+import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -241,6 +243,8 @@ export interface PublishedPhysicalRequirementSnapshotV1 {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly manifestSha256: SchemaManifestSha256;
+  /** Exact immutable validator/schema owner retained for scoped consumers. */
+  readonly manifest: SchemaManifestAppSchemaV1;
   readonly definitions: ReadonlyArray<PhysicalDefinitionRequirementV1>;
 }
 
@@ -447,6 +451,7 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
     deploymentId: input.deploymentId,
     schemaVersionId: input.schemaVersionId,
     manifestSha256: artifact.manifestSha256,
+    manifest: snapshotSchemaManifestValue(manifest),
     definitions: projectedDefinitions,
   });
 });

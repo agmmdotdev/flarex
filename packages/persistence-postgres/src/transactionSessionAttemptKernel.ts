@@ -13,6 +13,7 @@ import type {
   LocatedScopeClockReader,
   TrustedScopeAuthority,
 } from "./scopeAuthorityResolution";
+import type { ScopeClockRecord } from "./scopeClock";
 import type { fxSystemTransactionJournals } from "./schema";
 import type {
   PointMutationSessionAnchorV1,
@@ -39,6 +40,7 @@ export interface ExactRunningAttemptKernelInputV1 {
 
 export interface ExactRunningAttemptKernelContextV1 {
   readonly scopeUuid: ScopeUuidV1;
+  readonly scopeClock: ScopeClockRecord;
   readonly anchor: PointMutationSessionAnchorV1;
   readonly executionPin: PointMutationSessionAttemptExecutionPinV1;
   readonly authorizationGrantExpiresAtMilliseconds: number;

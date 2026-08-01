@@ -1219,11 +1219,13 @@ validates complete final overlay documents and the successful result after
 execution. Convex normally validates write values at syscall time, so catchable
 validator failures are not yet behaviorally equivalent. The FSV05 activation
 preflight decided this boundary explicitly: FSV05 retains C04B2 final
-validation and does not move the proof adapter. A separately approved `C03-V`
-activation-fenced syscall-validator capability must restore syscall-time
-validation and catchability while consuming the coherent activation-fenced
-schema/function-validator snapshot. C03-V is a hard gate before FSV06 or any
-production prepared-start.
+validation and does not move the proof adapter. `C03-V` is now complete: it
+derives a scope-revoked validator only from the coherent activation-fenced
+schema/function-validator snapshot, revalidates the active head inside C03's
+existing transaction, and restores catchable insert/patch/replace validation
+before journal acceptance. The proof adapter remains test-only until the
+separate FSV06/production prepared-start gate makes this authority the sole
+journal construction path. FSV06 remains separately unimplemented.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A

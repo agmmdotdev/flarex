@@ -20,11 +20,15 @@ import type {
 import {
   CommitSyscallSequenceV1Schema,
 } from "flarex-protocol/commit-protocol";
+import { decodeAppDocumentIdV1 } from "flarex-protocol/app-document-id";
+import { ApplicationRevisionSyscallDocumentValidationV1Error } from
+  "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 
 type Scenario =
   | "success"
   | "resultRejected"
   | "operationFailure"
+  | "validationFailure"
   | "delayedSuccess"
   | "orderedFailures"
   | "defect"
@@ -103,6 +107,28 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
             return Effect.succeed(rejectedResultForOperation(operation));
           case "operationFailure":
             return Effect.fail(record.firstError);
+          case "validationFailure":
+            return isFirstOperation(operation)
+              ? Effect.fail(
+                new ApplicationRevisionSyscallDocumentValidationV1Error({
+                  operation: "insert",
+                  tableName: "orders",
+                  documentId: decodeAppDocumentIdV1(
+                    "1:00000000-0000-0000-0000-000000000001",
+                  ),
+                  issue: {
+                    reason: "validator",
+                    issue: {
+                      reason: "typeMismatch",
+                      path: "$document.status",
+                      expected: "string",
+                    },
+                  },
+                  message:
+                    "The resulting document failed the active schema validator.",
+                }),
+              )
+              : Effect.succeed(EXECUTED_MISSING);
           case "delayedSuccess":
             return Effect.promise(() => awaitOperationGate(operation)).pipe(
               Effect.as(EXECUTED_MISSING),

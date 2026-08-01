@@ -117,6 +117,8 @@ import {
 import { decodePointMutationSessionAttemptSelectorV1 } from
   "../../executor/src/pointMutationSessionAttemptSelector";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
+import { SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1 } from
+  "./applicationRevisionSyscallValidatorTestSupport";
 import {
   makePointMutationExactRuntimeBindingRunnerV1,
   type PointMutationExactRuntimeArtifactHostBindingV1,
@@ -5746,6 +5748,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         journal: createPointMutationJournalV1(
           current.store,
           current.executionClaims.admission,
+          SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
         ),
         terminalization:
           onAbortStarted === undefined
@@ -5814,6 +5817,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         journal: createPointMutationJournalV1(
           current.store,
           current.executionClaims.admission,
+          SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
         ),
         terminalization,
         contextFactory: {
@@ -5887,6 +5891,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         journal: createPointMutationJournalV1(
           current.store,
           executionClaims.admission,
+          SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1,
         ),
         terminalization,
         contextFactory: options.contextFactory ?? {

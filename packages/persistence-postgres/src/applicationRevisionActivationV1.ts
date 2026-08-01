@@ -57,6 +57,16 @@ import {
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import {
+  inspectActiveApplicationRevisionSelectionStateV1,
+  issueActiveApplicationRevisionSelectionV1,
+  claimActiveApplicationRevisionSyscallValidatorBasisV1,
+  copyActiveApplicationRevisionMetadataV1,
+  InvalidActiveApplicationRevisionSelectionV1Error,
+  revokeActiveApplicationRevisionSelectionV1,
+} from "./applicationRevisionActiveSelectionStateV1";
+export { InvalidActiveApplicationRevisionSelectionV1Error } from
+  "./applicationRevisionActiveSelectionStateV1";
+import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type RunLocatedReadCommittedTransactionV1,
@@ -222,13 +232,6 @@ export class ActiveApplicationRevisionMissingV1Error
     readonly deploymentId: string;
   }> {}
 
-export class InvalidActiveApplicationRevisionSelectionV1Error
-  extends Data.TaggedError(
-    "InvalidActiveApplicationRevisionSelectionV1Error",
-  )<{
-    readonly reason: "notIssued";
-  }> {}
-
 export type ActivateApplicationRevisionV1Error =
   | InvalidApplicationRevisionActivationInputV1Error
   | UnsupportedApplicationRevisionActivationTargetV1Error
@@ -255,30 +258,13 @@ export type ReadActiveApplicationRevisionV1Error =
   | LoadStoredApplicationRevisionReadinessEvidenceV1Error
   | ValidateStoredApplicationRevisionReadinessEvidenceV1Error;
 
-const activeSelectionStates = new WeakMap<
-  AuthenticatedActiveApplicationRevisionSelectionV1,
-  ActiveApplicationRevisionMetadataV1
->();
-
 export function inspectActiveApplicationRevisionSelectionV1(
   selection: unknown,
 ): Result.Result<
   ActiveApplicationRevisionMetadataV1,
   InvalidActiveApplicationRevisionSelectionV1Error
 > {
-  if (typeof selection !== "object" || selection === null) {
-    return Result.fail(new InvalidActiveApplicationRevisionSelectionV1Error({
-      reason: "notIssued",
-    }));
-  }
-  const state = activeSelectionStates.get(
-    selection as AuthenticatedActiveApplicationRevisionSelectionV1,
-  );
-  return state === undefined
-    ? Result.fail(new InvalidActiveApplicationRevisionSelectionV1Error({
-        reason: "notIssued",
-      }))
-    : Result.succeed(copyMetadata(state));
+  return inspectActiveApplicationRevisionSelectionStateV1(selection);
 }
 
 export const activateApplicationRevisionV1 = Effect.fn(
@@ -359,24 +345,106 @@ export const readActiveApplicationRevisionV1 = Effect.fn(
     });
   }
   const state = yield* runActiveReaderTransaction(prepared, context);
-  const metadata = copyMetadata(state.metadata);
+  const metadata = copyActiveApplicationRevisionMetadataV1(state.metadata);
   const selection = yield* Effect.acquireRelease(
     Effect.sync(() => {
-      const issued = Object.freeze({}) as
-        AuthenticatedActiveApplicationRevisionSelectionV1;
-      activeSelectionStates.set(issued, metadata);
-      return issued;
+      return issueActiveApplicationRevisionSelectionV1(
+        metadata,
+        prepared.authority,
+        prepared.requirements.manifest,
+      );
     }),
     issued => Effect.sync(() => {
-      activeSelectionStates.delete(issued);
+      revokeActiveApplicationRevisionSelectionV1(issued);
     }),
   );
   return Object.freeze({
     selection,
     expectedActiveRevision: copyCasToken(state.expectedActiveRevision),
-    metadata: copyMetadata(metadata),
+    metadata: copyActiveApplicationRevisionMetadataV1(metadata),
   });
 });
+
+/**
+ * Package-private C03-V revalidation inside the already-owned point-operation
+ * transaction. The caller has locked the scope clock first; this read locks
+ * only the exact active head and does not expose raw activation storage.
+ */
+export const validateActiveApplicationRevisionSelectionInTransactionV1 =
+  Effect.fn("ApplicationRevisionActivation.validateSelectionInTransaction")(
+    function* (
+      selection: AuthenticatedActiveApplicationRevisionSelectionV1,
+      tx: AppRowTransaction,
+      currentClock: ScopeClockRecord,
+    ): Effect.fn.Return<
+      ActiveApplicationRevisionMetadataV1,
+      | InvalidActiveApplicationRevisionSelectionV1Error
+      | ApplicationRevisionActivationStaleV1Error
+      | ApplicationRevisionActivationCorruptionV1Error
+      | ApplicationRevisionActivationIntegrationV1Error
+    > {
+      const basis = yield* Effect.fromResult(
+        claimActiveApplicationRevisionSyscallValidatorBasisV1(selection),
+      );
+      if (
+        currentClock.scopeId !== basis.authority.scopeId ||
+        currentClock.storageGeneration !== basis.authority.storageGeneration ||
+        currentClock.storageGenerationFence !==
+          basis.authority.storageGenerationFence ||
+        currentClock.epoch !== basis.authority.epoch
+      ) {
+        return yield* new ApplicationRevisionActivationStaleV1Error({
+          revisionId: basis.metadata.applicationRevisionId,
+          reason: "scopeAuthority",
+        });
+      }
+      const rows = yield* query(tx.select()
+        .from(fxSystemDeclarativeV2ActivationHeads)
+        .where(eq(
+          fxSystemDeclarativeV2ActivationHeads.scopeId,
+          basis.authority.scopeId,
+        ))
+        .limit(1)
+        .for("share"));
+      const row = rows[0];
+      if (row === undefined) {
+        return yield* new ApplicationRevisionActivationStaleV1Error({
+          revisionId: basis.metadata.applicationRevisionId,
+          reason: "concurrentHead",
+        });
+      }
+      const head = yield* decodeStoredHead(
+        basis.metadata.applicationRevisionId,
+        row,
+      ).pipe(Effect.mapError(error =>
+        error instanceof ApplicationRevisionActivationCorruptionV1Error
+          ? error
+          : new ApplicationRevisionActivationCorruptionV1Error({
+            revisionId: basis.metadata.applicationRevisionId,
+            detail: "the active head digest could not be verified",
+            cause: error,
+          })
+      ));
+      if (
+        head.currentRevision !== basis.metadata.activationRevision ||
+        !bytesEqualFullScan(
+          head.candidateSha256,
+          basis.metadata.candidateSha256,
+        ) ||
+        !bytesEqualFullScan(
+          head.verdictSha256,
+          basis.metadata.readinessReceiptSha256,
+        ) ||
+        !bytesEqualFullScan(head.sha256, basis.metadata.activationHeadSha256)
+      ) {
+        return yield* new ApplicationRevisionActivationStaleV1Error({
+          revisionId: basis.metadata.applicationRevisionId,
+          reason: "concurrentHead",
+        });
+      }
+      return copyActiveApplicationRevisionMetadataV1(basis.metadata);
+    },
+  );
 
 function captureExpectedActiveRevision(
   input: ApplicationRevisionExpectedActiveV1 | null,
@@ -1270,30 +1338,6 @@ function activeMetadata(
     runtimeProjectionSetSha256: copyBytes(candidate.runtimeProjectionSetSha256),
     functionGroupManifestSha256: copyBytes(
       candidate.functionGroupManifestSha256,
-    ),
-  });
-}
-
-function copyMetadata(
-  metadata: ActiveApplicationRevisionMetadataV1,
-): ActiveApplicationRevisionMetadataV1 {
-  return Object.freeze({
-    ...metadata,
-    candidateSha256: copyBytes(metadata.candidateSha256),
-    readinessReceiptSha256: copyBytes(metadata.readinessReceiptSha256),
-    activationHeadSha256: copyBytes(metadata.activationHeadSha256),
-    packageSha256: copyBytes(metadata.packageSha256),
-    artifactSha256: copyBytes(metadata.artifactSha256),
-    sourceRootSha256: copyBytes(metadata.sourceRootSha256),
-    semanticRootSha256: copyBytes(metadata.semanticRootSha256),
-    schemaArtifactSha256: copyBytes(metadata.schemaArtifactSha256),
-    schemaBindingSha256: copyBytes(metadata.schemaBindingSha256),
-    functionMetadataSha256: copyBytes(metadata.functionMetadataSha256),
-    validatorRootSha256: copyBytes(metadata.validatorRootSha256),
-    declaredHandlerSetSha256: copyBytes(metadata.declaredHandlerSetSha256),
-    runtimeProjectionSetSha256: copyBytes(metadata.runtimeProjectionSetSha256),
-    functionGroupManifestSha256: copyBytes(
-      metadata.functionGroupManifestSha256,
     ),
   });
 }

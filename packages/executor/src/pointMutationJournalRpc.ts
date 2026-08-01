@@ -3,6 +3,9 @@ import type {
 } from "@flarex/persistence-postgres/session-journal-store";
 import { RpcTarget, type RpcStub } from "cloudflare:workers";
 import { Cause, Data, Effect, Exit } from "effect";
+import {
+  ApplicationRevisionSyscallDocumentValidationV1Error,
+} from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 
 import type {
   PointMutationJournalBoundaryV1Error,
@@ -125,7 +128,7 @@ class PointMutationJournalRpcTableTarget
   runPointOperation(
     operation: unknown,
   ): Promise<PointMutationJournalLogicalOutcomeV1> {
-    return this.#state.run(() =>
+    return this.#state.runPointOperation(() =>
       this.#state.journal.runPointOperation(this.#table, operation).pipe(
         Effect.flatMap(projectPointMutationJournalRpcOutcomeV1),
       )
@@ -175,6 +178,27 @@ class PointMutationJournalRpcSessionStateV1 {
       never
     >,
   ): Promise<A> {
+    return this.#run(makeEffect, false);
+  }
+
+  runPointOperation<A>(
+    makeEffect: () => Effect.Effect<
+      A,
+      PointMutationJournalRpcBoundaryV1Error,
+      never
+    >,
+  ): Promise<A> {
+    return this.#run(makeEffect, true);
+  }
+
+  #run<A>(
+    makeEffect: () => Effect.Effect<
+      A,
+      PointMutationJournalRpcBoundaryV1Error,
+      never
+    >,
+    recoverDocumentValidation: boolean,
+  ): Promise<A> {
     if (!this.#accepting) {
       return Promise.reject(makeRemoteStopError());
     }
@@ -186,6 +210,18 @@ class PointMutationJournalRpcSessionStateV1 {
       result = Effect.runPromiseExit(makeEffect()).then(
         exit => {
           if (Exit.isSuccess(exit)) return exit.value;
+          const onlyReason = exit.cause.reasons.length === 1
+            ? exit.cause.reasons[0]
+            : undefined;
+          if (
+            recoverDocumentValidation &&
+            onlyReason !== undefined &&
+            Cause.isFailReason(onlyReason) &&
+            onlyReason.error instanceof
+              ApplicationRevisionSyscallDocumentValidationV1Error
+          ) {
+            throw onlyReason.error;
+          }
           this.#retainCause(admission, exit.cause);
           throw makeRemoteStopError();
         },

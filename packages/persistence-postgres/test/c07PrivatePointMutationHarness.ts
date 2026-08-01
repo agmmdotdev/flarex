@@ -127,6 +127,8 @@ import {
   TEST_GRANT_RETENTION_POLICY_V1,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
+import { issueSetupSeededSyscallValidatorProofV1 } from
+  "./applicationRevisionSyscallValidatorTestSupport";
 import {
   runEffect,
   runEffectFailure,
@@ -876,6 +878,10 @@ function createInitialExecution(
       journal: createPointMutationJournalV1(
         store,
         executionClaims.admission,
+        issueSetupSeededSyscallValidatorProofV1({
+          scopeId: functionSnapshot.scopeId,
+          schemaVersionId: functionSnapshot.schemaVersionId,
+        }),
       ),
       terminalization,
       contextFactory: {

@@ -765,7 +765,13 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
     runPointOperationEffect: (
       table: unknown,
       operation: SessionJournalPointOperationV1,
+      validator: unknown,
     ) => {
+      if (validator !== syscallValidator) {
+        return Effect.die(new Error(
+          "The point journal did not forward its exact syscall validator.",
+        ));
+      }
       if (options.runPointOperationEffect !== undefined) {
         operations.push(operation);
         return options.runPointOperationEffect(table, operation);
@@ -818,10 +824,11 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   // keeps this fake at the runtime adapter edge instead of forging/exporting a
   // production capability solely for executor orchestration tests.
   const executionClaims = createPointMutationExecutionClaimVaultV1();
+  const syscallValidator = Object.freeze({ kind: "test-syscall-validator" });
   const journal: PointMutationJournalV1 = Reflect.apply(
     createPointMutationJournalV1,
     undefined,
-    [persistence, executionClaims.admission],
+    [persistence, executionClaims.admission, syscallValidator],
   );
   const samePersistenceJournal = journal;
   executionClaimsByJournal.set(journal, executionClaims);
