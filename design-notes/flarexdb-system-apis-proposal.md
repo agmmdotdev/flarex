@@ -320,18 +320,31 @@ The remaining limitations are architectural, not merely naming or packaging:
    activation, an active reader, a public API, or production routing;
     broader application shapes and workload capabilities remain roadmap-41
     work.
-6. **The main executor facade remains legacy-routed.** Private
+6. **The second private vertical begins with read authority, not query
+   execution.** Roadmap 44 separates `PQV-A1`, `PQV-A2`, and `SAP05`. Completed PQV-A1
+   derives one Scope-revoked capability from the coherent FSV05 selection,
+   pins the authoritative target-native commit sequence, revalidates the
+   generation/fence/epoch, active head, and inclusive retained-history floor
+   before every bounded point-document read, and delegates to the existing
+   app-row history kernel. It does not borrow the mutation-session snapshot
+   lease: the floor is currently fixed at zero, while a future O11 advancement
+   makes an old capability fail stale unless a separately approved query-lease
+   owner exists. PQV-A2 later owns the candidate-bound exact query runtime and
+   syscall ABI; SAP05 later owns the private System/Standard invocation. No
+   part of this sequence is FSV07, a public SDK, mutation authority, or a
+   production route.
+7. **The main executor facade remains legacy-routed.** Private
    `flarexdb_v1` modules do not make the root executor a replacement
    application-data API.
-7. **Persistence interfaces are too broad for consumers.** Raw SQL clients,
+8. **Persistence interfaces are too broad for consumers.** Raw SQL clients,
    transaction repositories, physical records, and package-internal factories
    are implementation capabilities, not an acceptable System API.
-8. **The service graph is incomplete.** Some backend domains use
+9. **The service graph is incomplete.** Some backend domains use
    `Context.Service` and Layers, while executor and persistence composition
    still contains manual factories, dependency bags, and Promise boundaries.
    Each API slice must close only the service and lifecycle seams it actually
    consumes.
-9. **No stable framework-adapter SPI exists.** Payload, Medusa, and general
+10. **No stable framework-adapter SPI exists.** Payload, Medusa, and general
     relational compatibility remain deferred and must not shape the first
     application-revision vertical.
 
@@ -682,6 +695,14 @@ Dynamic Worker ctx.db
 
 Queries and mutations may share logical read APIs, but only mutations can stage
 writes. Unsupported read-your-writes or query shapes fail closed.
+
+The first private query vertical is deliberately narrower. Completed PQV-A1 binds one
+FSV05 active selection to one target-native snapshot and bounded document point
+reads only. PQV-A2 later binds that read capability to exact query runtime and
+R2 artifact authority. Only after both are accepted may SAP05 expose
+`invokeApplicationPointQueryV1` through a thin Standard consumer. None of these
+operations exposes raw snapshot tokens, read sets, transactions, databases, or
+index scans to application code.
 
 ### Transaction Meaning
 

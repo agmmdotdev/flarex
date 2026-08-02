@@ -1351,6 +1351,12 @@ function definitionInput(
   ) {
     return fsv06DefinitionInput(revisionVariant);
   }
+  if (
+    revisionVariant === "pqv-a1-query" ||
+    revisionVariant === "pqv-a1-query-second"
+  ) {
+    return pqvA1DefinitionInput(revisionVariant === "pqv-a1-query-second");
+  }
   const variantSpaces = revisionVariant === "second"
     ? " "
     : revisionVariant === "third"
@@ -1427,6 +1433,82 @@ function definitionInput(
         roles: ["function", "execution"],
         sourceBytes: UTF8.encode(
           `export function place() { return { ok: ${okLiteral} }; }\n` +
+            "export function run() {}\n",
+        ),
+        sourceMapBytes: null,
+      }],
+      functionEntries: [{
+        logicalModulePath: "orders",
+        artifactModulePath: "orders.js",
+      }],
+      executionPath: "orders.js",
+      schemaPath: null,
+      authPath: null,
+    },
+  };
+}
+
+function pqvA1DefinitionInput(
+  second: boolean,
+): StandardApplicationDefinitionInputV1 {
+  return {
+    programBudgetInput: {
+      maximumModules: 1,
+      maximumFunctions: 1,
+      maximumIdentifierUtf8Bytes: 4_096,
+      maximumValidatorNodes: 512,
+      maximumValidatorDepth: 32,
+      maximumValidatorStringUtf8Bytes: 4_096,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: {
+        tables: [{
+          logicalName: "orders",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                status: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+              },
+            },
+          },
+        }],
+        indexes: [],
+      },
+      modules: [{
+        modulePath: "orders",
+        functions: [{
+          exportName: "get",
+          kind: "query",
+          visibility: "public",
+          argsValidator: { type: "any" },
+          returnsValidator: { type: "any" },
+        }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 1,
+      maximumEntryBindings: 1,
+      maximumSourceBytes: 4_096,
+      maximumSourceMapBytes: 1_024,
+      maximumBytesMaterialized: 32_000,
+      maximumSemanticRecords: 32,
+      maximumSemanticRecordBytes: 8_000,
+      maximumSemanticStreamBytes: 16_000,
+    },
+    graphInput: {
+      modules: [{
+        path: "orders.js",
+        roles: ["function", "execution"],
+        sourceBytes: UTF8.encode(
+          `export function get() { return ${second ? "undefined" : "null"}; }\n` +
             "export function run() {}\n",
         ),
         sourceMapBytes: null,

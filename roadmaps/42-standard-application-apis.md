@@ -14,11 +14,14 @@ package's direct manifest, export, and production-import boundary.
 `@flarex/standard-application-analysis/v1` exposes the function-first analysis
 operation over a request-scoped context, and the analyzer app provides the
 first private implementation over the accepted replacement host.
-`@flarex/standard-application-registration/v1` now exposes the narrow inactive
-registration result over the persistence-owned `FSV02` System operation. The
-next vertical gate remains the private analyzer-to-Postgres system proof; this
-does not authorize readiness, activation, invocation, routing, or production
-wiring.
+`@flarex/standard-application-registration/v1` exposes the narrow inactive
+registration result over the persistence-owned `FSV02` System operation, and
+the private SAP04 consumer now reaches one authoritative point mutation. The
+second vertical is owned by
+[`44-second-flarexdb-system-api-point-query-vertical.md`](./44-second-flarexdb-system-api-point-query-vertical.md):
+PQV-A1 snapshot authority is complete; PQV-A2 query runtime/ABI and SAP05 are
+separate later gates. None of
+those gates authorizes FSV07 routing or public SDK stabilization.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -56,6 +59,9 @@ Read these authorities together:
   owns the ordered function-first composition from the completed replacement
   analyzer port through SAP02, SAP03, readiness, activation, SAP04, and one
   authoritative point mutation;
+- [`44-second-flarexdb-system-api-point-query-vertical.md`](./44-second-flarexdb-system-api-point-query-vertical.md)
+  owns the separately gated private point-query sequence: scoped target-native
+  snapshot authority, candidate-bound exact query runtime/ABI, then SAP05;
 - [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md) owns public developer
   ergonomics, generated APIs, CLI/codegen, and distribution;
 - [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md)
@@ -550,7 +556,8 @@ checker in roadmap 16. It must not mark that broader gate complete.
 | --- | --- | --- |
 | `SAP03` | **Complete:** narrow Standard inactive-registration operation over the implementation-bearing System Schema function; slices `FSV02` and private evidence prerequisite `FSV02-A1` | Implemented with backend-owned opaque authenticated evidence, private exact-result correlation, and a narrow durable projection |
 | `SAP04` | **Complete privately:** narrow Standard point-mutation invocation over the implementation-bearing System Application Data function; slice `FSV06` | Implemented over coherent FSV05 selection, C03-V validation, FSV06-A1 exact runtime dispatch, and the existing C07 owners; no route, production caller, or public SDK stabilization is implied |
-| `SAP05+` | Add query, internal call, workflow mutation, action, and schedule operations individually | each capability has an implemented owner contract and focused preflight |
+| `SAP05` | Add one private Standard point-query consumer over `invokeApplicationPointQueryV1` | PQV-A1 scoped target-native snapshot authority is complete; PQV-A2 candidate-bound exact query runtime/ABI remains separately gated |
+| `SAP06+` | Add internal call, workflow mutation, action, and schedule operations individually | each capability has an implemented owner contract and focused preflight |
 
 Stop and amend this roadmap before implementation if a slice would create a
 second canonical/application/artifact/error representation, add a catch-all
