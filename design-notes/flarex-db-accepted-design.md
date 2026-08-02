@@ -217,6 +217,22 @@ exporter-derived, and evaluation-discovered metadata remains V1-only,
 compatibility-only, and PAM-ineligible. V1 and V2 never share fallback,
 shadowing, dual writes, or dual authority.
 
+The superseded private Declarative V2 verifier-progress V1 persistence island
+had no non-test source consumer or exported compatibility obligation after the
+V2 repository became authoritative for this lane. Append-only migration 0044
+therefore removes exactly its attempt, candidate-projection, module-summary,
+import-edge, page-manifest, link-node, frontier-entry, registration, and
+diagnostic tables. It checks every table for rows first, fails atomically if
+any is populated, drops dependents before their attempt parent, and never uses
+`CASCADE`, FK retargeting, data conversion, fallback, or rewritten migration
+history. It holds access-exclusive locks on all nine tables across the guards
+and drops, so no concurrent insert can cross the checked boundary. The removal
+assumes the owner-declared unshipped state above; a named
+persistent developer environment still must be inventoried before applying the
+migration, and any contrary durable-row or compatibility evidence reopens the
+preservation decision. The V2 progress, registration, readiness, activation,
+runtime, and invocation owners are unchanged.
+
 The V2 trusted input boundary is prebuilt immutable ESM plus canonical bounded
 NDJSON semantic records. TypeScript/Vite compilation, arbitrary module
 evaluation, whole-AST/whole-JSON materialization, and runtime metadata discovery

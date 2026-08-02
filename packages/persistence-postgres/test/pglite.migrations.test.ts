@@ -70,20 +70,11 @@ describe("createPGlitePersistence", () => {
       "fx_system_declarative_v2_activation_head",
       "fx_system_declarative_v2_activation_revision",
       "fx_system_declarative_v2_candidate",
-      "fx_system_declarative_v2_candidate_projection",
-      "fx_system_declarative_v2_diagnostic",
-      "fx_system_declarative_v2_frontier_entry",
       "fx_system_declarative_v2_function_group_entry",
       "fx_system_declarative_v2_function_group_manifest",
-      "fx_system_declarative_v2_import_edge",
-      "fx_system_declarative_v2_link_node",
-      "fx_system_declarative_v2_module_summary",
-      "fx_system_declarative_v2_page_manifest",
-      "fx_system_declarative_v2_registration",
       "fx_system_declarative_v2_runtime_projection",
       "fx_system_declarative_v2_runtime_projection_module",
       "fx_system_declarative_v2_verdict",
-      "fx_system_declarative_v2_verifier_attempt",
       "fx_system_declarative_v2_verifier_attempt_v2",
       "fx_system_declarative_v2_verifier_command_authority_v1",
       "fx_system_declarative_v2_verifier_command_v2",
@@ -1168,7 +1159,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "44" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "45" }]);
     } finally {
       try {
         await db.close();
@@ -1362,7 +1353,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "44" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "45" }]);
     } finally {
       try {
         await db.close();
@@ -1473,7 +1464,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "44" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "45" }]);
     } finally {
       try {
         await db.close();
@@ -1546,7 +1537,7 @@ describe("createPGlitePersistence", () => {
           and table_name like 'fx_system_declarative_v2_%'
           and table_name not like '%\\_v2' escape '\\'
       `);
-      expect(after.rows).toEqual([{ count: "18" }]);
+      expect(after.rows).toEqual([{ count: "9" }]);
       const constraints = await current.query<{
         check_count: string;
         foreign_key_count: string;
@@ -1559,8 +1550,8 @@ describe("createPGlitePersistence", () => {
           and conname not like '%\\_v2\\_%' escape '\\'
       `);
       expect(constraints.rows).toEqual([{
-        check_count: "58",
-        foreign_key_count: "26",
+        check_count: "31",
+        foreign_key_count: "17",
       }]);
       const heads = await current.query<{ count: string }>(`
         select count(*)::text as count
@@ -1576,7 +1567,7 @@ describe("createPGlitePersistence", () => {
     }
   });
 
-  it("adds isolated V2 verifier progress storage without reinterpreting populated V1 rows", async () => {
+  it("adds isolated V2 verifier progress storage without reinterpreting candidate authority", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-dv2-b2-upgrade-"));
     const migrationsFolder = resolve(testRoot, "drizzle");
     const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1645,51 +1636,6 @@ describe("createPGlitePersistence", () => {
           decode('00', 'hex')
         )
       `);
-      await previous.query(`
-        insert into fx_system_declarative_v2_verifier_attempt (
-          scope_id,
-          attempt_sha256,
-          candidate_sha256,
-          lifecycle,
-          identity_codec_version,
-          identity_byte_length,
-          identity_sha256,
-          identity_bytes,
-          ceilings_codec_version,
-          ceilings_byte_length,
-          ceilings_sha256,
-          ceilings_bytes,
-          usage_codec_version,
-          usage_byte_length,
-          usage_sha256,
-          usage_bytes,
-          progress_codec_version,
-          progress_byte_length,
-          progress_sha256,
-          progress_bytes
-        ) values (
-          'scope_dv2_v1_preserved',
-          decode(repeat('22', 32), 'hex'),
-          decode(repeat('11', 32), 'hex'),
-          'open',
-          1,
-          1,
-          decode(repeat('22', 32), 'hex'),
-          decode('00', 'hex'),
-          1,
-          1,
-          decode(repeat('33', 32), 'hex'),
-          decode('00', 'hex'),
-          1,
-          1,
-          decode(repeat('44', 32), 'hex'),
-          decode('00', 'hex'),
-          1,
-          1,
-          decode(repeat('55', 32), 'hex'),
-          decode('00', 'hex')
-        )
-      `);
       await expect(previous.query(
         `select count(*) from fx_system_declarative_v2_verifier_attempt_v2`,
       )).rejects.toThrow();
@@ -1726,16 +1672,8 @@ describe("createPGlitePersistence", () => {
         )::text as count
       `);
       expect(v2Rows.rows).toEqual([{ count: "0" }]);
-      const preserved = await current.query<{
-        attempt_count: string;
-        candidate_count: string;
-      }>(`
+      const preserved = await current.query<{ candidate_count: string }>(`
         select
-          (
-            select count(*)::text
-            from fx_system_declarative_v2_verifier_attempt
-            where scope_id = 'scope_dv2_v1_preserved'
-          ) as attempt_count,
           (
             select count(*)::text
             from fx_system_declarative_v2_candidate
@@ -1743,7 +1681,6 @@ describe("createPGlitePersistence", () => {
           ) as candidate_count
       `);
       expect(preserved.rows).toEqual([{
-        attempt_count: "1",
         candidate_count: "1",
       }]);
       const constraints = await current.query<{
@@ -2046,7 +1983,7 @@ describe("createPGlitePersistence", () => {
       const currentReceipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(currentReceipts.rows).toEqual([{ count: "44" }]);
+      expect(currentReceipts.rows).toEqual([{ count: "45" }]);
     } finally {
       try {
         await db.close();
@@ -2145,7 +2082,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "44" }]);
+      expect(receipts.rows).toEqual([{ count: "45" }]);
     } finally {
       try {
         await db.close();
@@ -2246,7 +2183,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "44" }]);
+      expect(receipts.rows).toEqual([{ count: "45" }]);
     } finally {
       try {
         await db.close();
@@ -2364,7 +2301,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "44" }]);
+      expect(receipts.rows).toEqual([{ count: "45" }]);
     } finally {
       try {
         await db.close();
@@ -2457,7 +2394,7 @@ describe("createPGlitePersistence", () => {
         revision_column: "1",
         attempt_target: "fx_system_declarative_v2_verifier_attempt_v2",
         revision_target: "fx_system_application_revision_v1",
-        receipts: "44",
+        receipts: "45",
       }]);
     } finally {
       try {

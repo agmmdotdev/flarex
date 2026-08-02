@@ -1146,11 +1146,28 @@ activation remain blocked until their production host composition is proven.
    entries remain inert structural commitments only: their page root proves the
    integrity of the captured sequence, not object existence, authentication,
    finalization, read authority, or arbitrary-root authority. The C1 protocol
-   identity is a fail-closed cutline; earlier attempts remain retained but are
-   not reinterpreted, continued, backfilled, or deleted. S1 stops at
+   identity is a fail-closed cutline; active V2 attempts are never
+   reinterpreted across it. S1 stops at
    `registering`/`verdict`: it cannot finalize an attempt or insert verdict,
    candidate-projection, readiness, activation-revision, or activation-head
    evidence.
+
+   Migration 0044 closes the superseded, production-inert V1
+   verifier-progress removal gate. The V2 repository and its
+   `fx_system_declarative_v2_verifier_attempt_v2`, command, authority, and
+   evidence-page tables were the sole non-test persistence consumers before
+   removal. The migration refuses to run if any row exists in the V1 attempt,
+   candidate-projection, module-summary, import-edge, page-manifest, link-node,
+   frontier-entry, registration, or diagnostic table; only after all nine
+   guards pass does it drop the seven children, attempt, and projection without
+   `CASCADE`. No conversion, FK retargeting, fallback, or migration-history
+   rewrite exists. This gate relies on the owner-declared unshipped state and
+   absence of a supported compatibility consumer. A named persistent developer
+   environment must be inventoried before running the destructive migration;
+   any discovered row or preservation duty blocks it rather than weakening the
+   guard. Migration 0044 locks all nine tables in access-exclusive mode before
+   evaluating emptiness, so a concurrent insert cannot cross the guard/drop
+   boundary.
 
    The companion Semantic Artifact V1 byte-provenance foundation is also
    private and inert. A backend-local, request-bound single-use proof composes

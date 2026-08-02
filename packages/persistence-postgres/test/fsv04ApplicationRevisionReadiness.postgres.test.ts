@@ -121,7 +121,7 @@ describePostgres("FSV04 application revision readiness - PostgreSQL", () => {
             revision_column: "1",
             attempt_target: "fx_system_declarative_v2_verifier_attempt_v2",
             revision_target: "fx_system_application_revision_v1",
-            receipts: "44",
+            receipts: "45",
           }]);
         } finally {
           await current.close();

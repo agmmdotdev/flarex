@@ -444,7 +444,7 @@ describe("Declarative V2 inert repository", () => {
     });
   });
 
-  it("enforces local FKs and fail-closed nullable lifecycle groups", async () => {
+  it("enforces current local FKs and fail-closed nullable lifecycle groups", async () => {
     const { persistence, repository } = await fixture();
     const candidate = candidateFixture();
     const candidateEncoded = Result.getOrThrow(
@@ -459,109 +459,6 @@ describe("Declarative V2 inert repository", () => {
         maximumHashBytes: candidateEncoded.usage.frameBytes,
       },
     ));
-    const ceilings = await evidence({
-      kind: "attempt_ceilings",
-      ...zeroBudgets(),
-    });
-    const usage = await evidence({
-      kind: "attempt_usage",
-      ...zeroBudgets(),
-    });
-    const progress = await evidence({
-      kind: "progress_cursor",
-      phase: "source",
-      settledSequence: 0n,
-      moduleOrdinal: 0n,
-      edgeOrdinal: 0n,
-      pageOrdinal: 0n,
-      previousReceiptSha256: null,
-    });
-    const identity = await evidence({
-      kind: "attempt_identity",
-      candidateSha256: inserted.candidateSha256,
-      verifierProgressProtocolIdentity: "progress-v1",
-      ceilingsSha256: ceilings.sha256,
-    });
-    await persistence.query(
-      `
-        insert into fx_system_declarative_v2_verifier_attempt (
-          scope_id, attempt_sha256, candidate_sha256, lifecycle, writer_fence,
-          settled_sequence,
-          identity_codec_version, identity_byte_length, identity_sha256,
-          identity_bytes,
-          ceilings_codec_version, ceilings_byte_length, ceilings_sha256,
-          ceilings_bytes,
-          usage_codec_version, usage_byte_length, usage_sha256, usage_bytes,
-          progress_codec_version, progress_byte_length, progress_sha256,
-          progress_bytes
-        ) values (
-          $1, $2, $3, 'open', 0, 0,
-          1, $4, $2, $5,
-          1, $6, $7, $8,
-          1, $9, $10, $11,
-          1, $12, $13, $14
-        )
-      `,
-      [
-        scopeId,
-        identity.sha256,
-        inserted.candidateSha256,
-        identity.bytes.byteLength,
-        identity.bytes,
-        ceilings.bytes.byteLength,
-        ceilings.sha256,
-        ceilings.bytes,
-        usage.bytes.byteLength,
-        usage.sha256,
-        usage.bytes,
-        progress.bytes.byteLength,
-        progress.sha256,
-        progress.bytes,
-      ],
-    );
-
-    await expect(persistence.query(
-      `
-        update fx_system_declarative_v2_verifier_attempt
-        set pending_kind = 'source_page'
-        where scope_id = $1 and attempt_sha256 = $2
-      `,
-      [scopeId, identity.sha256],
-    )).rejects.toThrow(/fx_dv2_attempt_pending_check/);
-
-    await expect(persistence.query(
-      `
-        insert into fx_system_declarative_v2_page_manifest (
-          scope_id, attempt_sha256, phase, page_ordinal, first_item_ordinal,
-          item_count, previous_page_sha256, frame_codec_version,
-          frame_byte_length, frame_sha256, frame_bytes
-        ) values ($1, $2, 'source', 0, 0, 1, $3, 1, 1, $4, $5)
-      `,
-      [
-        scopeId,
-        identity.sha256,
-        digest(0x41),
-        digest(0x42),
-        new Uint8Array([1]),
-      ],
-    )).rejects.toThrow(/fx_dv2_page_range_check/);
-
-    await expect(persistence.query(
-      `
-        insert into fx_system_declarative_v2_page_manifest (
-          scope_id, attempt_sha256, phase, page_ordinal, first_item_ordinal,
-          item_count, previous_page_sha256, frame_codec_version,
-          frame_byte_length, frame_sha256, frame_bytes
-        ) values ($1, $2, 'source', 1, 1, 1, null, 1, 1, $3, $4)
-      `,
-      [
-        scopeId,
-        identity.sha256,
-        digest(0x43),
-        new Uint8Array([1]),
-      ],
-    )).rejects.toThrow(/fx_dv2_page_range_check/);
-
     await expect(persistence.query(
       `
         insert into fx_system_declarative_v2_verdict (
@@ -572,7 +469,7 @@ describe("Declarative V2 inert repository", () => {
       `,
       [
         scopeId,
-        identity.sha256,
+        digest(0x30),
         inserted.candidateSha256,
         digest(0x31),
         new Uint8Array([1]),
