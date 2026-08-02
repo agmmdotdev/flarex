@@ -16,6 +16,7 @@
     "./internal/declarative-v2-cold-materialization-probe-v1": "./src/artifactRuntime/DeclarativeV2ColdMaterializationProbe.ts",
     "./internal/declarative-v2-runtime-artifact-r2-v1": "./src/artifactRuntime/DeclarativeV2RuntimeArtifactStore.ts",
     "./internal/candidate-bound-point-mutation-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationRuntimeTargetV1.ts",
+    "./internal/candidate-bound-point-query-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointQueryRuntimeTargetV1.ts",
     "./internal/point-mutation-grant-preparation-v1": "./src/pointMutationGrantPreparation.ts",
     "./internal/point-mutation-transaction-grant-issuer-v1": "./src/transactionGrantIssuer.ts",
     "./internal/application-revision-readiness-coordinator-v1": "./src/deployment/PrivateApplicationRevisionReadinessCoordinatorV1.ts",
@@ -27,11 +28,15 @@
     "./test/sync-protocol": "./src/syncProtocol.ts"
   },
   "scripts": {
-    "build": "pnpm check:exact-runtime-core && pnpm check:point-mutation-runtime-kernel && tsc -p tsconfig.json",
+    "build": "pnpm check:exact-runtime-core && pnpm check:point-mutation-runtime-kernel && pnpm check:point-query-runtime-kernel && pnpm check:point-query-exact-runtime-core && tsc -p tsconfig.json",
     "check:exact-runtime-core": "tsx scripts/buildPointMutationExactRuntimeCore.ts check",
     "check:point-mutation-runtime-kernel": "tsx scripts/buildPointMutationRuntimeKernel.ts check",
     "exact-runtime-core:update": "tsx scripts/buildPointMutationExactRuntimeCore.ts update",
     "point-mutation-runtime-kernel:update": "tsx scripts/buildPointMutationRuntimeKernel.ts update",
+    "check:point-query-runtime-kernel": "tsx scripts/buildPointQueryRuntimeKernel.ts check",
+    "point-query-runtime-kernel:update": "tsx scripts/buildPointQueryRuntimeKernel.ts update",
+    "check:point-query-exact-runtime-core": "tsx scripts/buildPointQueryExactRuntimeCore.ts check",
+    "point-query-exact-runtime-core:update": "tsx scripts/buildPointQueryExactRuntimeCore.ts update",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

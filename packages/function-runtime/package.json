@@ -6,7 +6,8 @@
     "src"
   ],
   "exports": {
-    "./point-mutation": "./src/pointMutation.ts"
+    "./point-mutation": "./src/pointMutation.ts",
+    "./point-query": "./src/pointQuery.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-**Status:** active private implementation plan. `PQV-A1` is complete.
-`PQV-A2` and `SAP05` remain separate later gates. Roadmap 43 stays
+**Status:** active private implementation plan. `PQV-A1` and `PQV-A2` are
+complete. `SAP05` is the next separately gated implementation capability.
+Roadmap 43 stays
 closed as the completed first relation-free point-mutation vertical.
 
 This roadmap owns one bounded, route-independent, production-inert point-query
@@ -108,14 +109,61 @@ are not converted into ordinary failures.
 - package typecheck/build, database metadata, Effect-boundary, diff checks, and
   both exact-final project reviewers pass.
 
-## `[ ] PQV-A2`: Candidate-Bound Exact Query Runtime And ABI
+## `[x] PQV-A2`: Candidate-Bound Exact Query Runtime And ABI
 
-PQV-A2 is a separate protocol/runtime capability. It must bind the PQV-A1
-selection and snapshot to the exact candidate, query function, projection,
-function group, R2 references, budgets, cancellation, document-read syscall,
-argument validator, and result validator. R2 remains the sole body store.
-It must not widen the mutation-only FSV06-A1 identity, invent a second snapshot
-engine, or use the legacy query executor as a fallback.
+PQV-A2 is a separate protocol/runtime capability, not a variant or widening of
+the mutation-only FSV06-A1 identity. Its private persistence adapter proves
+that one live PQV-A1 snapshot and one live FSV05 selection bind the same active
+revision, candidate, scope generation/fence/epoch, query function, canonical
+function metadata, transaction projection, and function-group publication.
+The adapter exposes only immutable authority facts; the PQV-A1 capability
+remains the sole database-read authority.
+
+The backend then owns one separately versioned query target/profile/ABI. Its
+canonical target binds those authority facts plus the pinned snapshot commit,
+exact query handler/module/export/group, compatibility date, checked Worker
+graph basis, R2 projection/module/manifest references, and bounded execution
+policy. Cold materialization reads every required body from R2, verifies its
+codec, length, digest, kind, candidate relationship, group, module order, and
+manifest roots, and builds an exact query-only registry and Worker definition.
+PostgreSQL never stores those bodies.
+
+The only syscall is the existing PQV-A1 point-document read. A scoped opaque
+runtime target retains the exact live snapshot capability and delegates every
+read through `readApplicationPointQueryDocumentV1`; it exposes neither that
+capability nor a database or transaction handle. The query runtime admits one
+public query, validates canonical arguments and results against the registered
+validators, preserves typed read and budget failures, leaves interruption in
+full Cause, and revokes its target at Scope close. Writes, index scans,
+pagination, nested calls, actions, mutations, journals, outcomes, feeds,
+outbox publication, and an alternate snapshot/OCC/commit path are unavailable.
+
+Acceptance requires deterministic protocol and Worker-graph vectors; genuine
+query-handler reads of present and missing documents; hostile function,
+validator, authority, R2 reference/body, projection, manifest, group, module,
+budget, cancellation, stale, superseded, and closed-scope cases; warm/cold
+replay; PGlite and genuine PostgreSQL lifecycle/concurrency proof; a real
+Worker-runtime lane; exact no-mutation-publication evidence; proportional
+regressions; and both final project reviewers. PQV-A2 remains private,
+route-independent, production-inert, and unwired. It does not authorize SAP05.
+
+The accepted implementation uses
+`flarex.system/candidate-bound-query-runtime-target/v1`,
+`point-query-exact-runtime-v1`, and
+`flarex.system/point-query-syscall-abi/v1`. The persistence adapter joins the
+live FSV05 selection to the live PQV-A1 capability without exporting either
+raw authority. The backend verifies every selected publication object through
+its content-addressed R2 reference, builds the exact query-only registry and
+Worker graph, and retains the PQV-A1 capability behind a Scope-revoked opaque
+target. The only database syscall delegates to PQV-A1 point-document read.
+Immediately before handler dispatch, the target also invokes PQV-A1's located
+liveness revalidation, so a zero-read handler cannot run after its active
+revision, scope authority, or retained snapshot has become stale.
+Protocol, function-runtime, Workerd, PGlite, and genuine PostgreSQL acceptance
+lanes prove query-only execution, cold replay, hostile authority and artifact
+rejection, bounded cancellation, and no mutation publication. There is no
+schema migration, PostgreSQL body storage, route, trigger, or production
+consumer.
 
 ## `[ ] SAP05`: Invoke One Standard Application Point Query
 

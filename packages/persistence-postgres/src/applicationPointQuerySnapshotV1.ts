@@ -231,6 +231,18 @@ export type ReadApplicationPointQueryDocumentV1Error =
   | LockScopeClockForShareError
   | LocatedReadCommittedTransactionFailureV1;
 
+export type RevalidateApplicationPointQuerySnapshotV1Error =
+  | InvalidApplicationPointQuerySnapshotV1Error
+  | ApplicationPointQuerySnapshotStaleV1Error
+  | ApplicationPointQuerySnapshotCorruptionV1Error
+  | ApplicationPointQuerySnapshotIntegrationV1Error
+  | ApplicationRevisionActivationStaleV1Error
+  | ApplicationRevisionActivationCorruptionV1Error
+  | ApplicationRevisionActivationIntegrationV1Error
+  | InvalidActiveApplicationRevisionSelectionV1Error
+  | LockScopeClockForShareError
+  | LocatedReadCommittedTransactionFailureV1;
+
 interface SnapshotBudgetStateV1 {
   readonly pointReads: number;
   readonly documentBytes: number;
@@ -356,6 +368,22 @@ export const readApplicationPointQueryDocumentV1 = Effect.fn(
     });
   }
   return Object.freeze({ kind: "present", document: result.document.value });
+});
+
+export const revalidateApplicationPointQuerySnapshotV1 = Effect.fn(
+  "ApplicationPointQuerySnapshot.revalidateV1",
+)(function* (
+  capability: AuthenticatedApplicationPointQuerySnapshotV1,
+): Effect.fn.Return<
+  ApplicationPointQuerySnapshotMetadataV1,
+  RevalidateApplicationPointQuerySnapshotV1Error
+> {
+  const state = yield* Effect.fromResult(claimSnapshot(capability));
+  yield* runLocatedReadEffect(
+    state.target,
+    tx => revalidateInTransaction(tx, state),
+  );
+  return copyMetadata(state.metadata);
 });
 
 export function inspectApplicationPointQuerySnapshotV1(
@@ -540,6 +568,30 @@ const readInTransaction = Effect.fn(
   | ReadAppRowError
   | LockScopeClockForShareError
 > {
+  yield* revalidateInTransaction(tx, state);
+  return yield* getAppRowAtSnapshotInTransactionEffect(tx, {
+    snapshotToken: state.metadata.snapshotToken,
+    tableId,
+    rowId,
+  });
+});
+
+const revalidateInTransaction = Effect.fn(
+  "ApplicationPointQuerySnapshot.revalidateInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  state: ApplicationPointQuerySnapshotStateV1,
+): Effect.fn.Return<
+  void,
+  | ApplicationPointQuerySnapshotStaleV1Error
+  | ApplicationPointQuerySnapshotCorruptionV1Error
+  | ApplicationPointQuerySnapshotIntegrationV1Error
+  | ApplicationRevisionActivationStaleV1Error
+  | ApplicationRevisionActivationCorruptionV1Error
+  | ApplicationRevisionActivationIntegrationV1Error
+  | InvalidActiveApplicationRevisionSelectionV1Error
+  | LockScopeClockForShareError
+> {
   const authority = state.metadata.scopeAuthority;
   const clock = yield* lockScopeClockForShareInTransactionEffect(
     tx,
@@ -568,11 +620,6 @@ const readInTransaction = Effect.fn(
       })
       : error
   ));
-  return yield* getAppRowAtSnapshotInTransactionEffect(tx, {
-    snapshotToken: state.metadata.snapshotToken,
-    tableId,
-    rowId,
-  });
 });
 
 const readRetainedFloor = Effect.fn(

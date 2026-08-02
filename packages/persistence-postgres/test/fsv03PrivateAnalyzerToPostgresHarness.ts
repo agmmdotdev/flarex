@@ -235,7 +235,8 @@ export async function prepareFsv04RegisteredRevisionFixtureV1(
       definitionInput(input.revisionVariant),
     ),
   );
-  const commandBudgetMaximum = input.revisionVariant?.startsWith("fsv06-")
+  const commandBudgetMaximum = input.revisionVariant?.startsWith("fsv06-") ||
+      input.revisionVariant?.startsWith("pqv-a2-")
     ? FSV06_COMMAND_MAXIMUM
     : MAXIMUM;
   const registration = await Effect.runPromise(Effect.scoped(
@@ -1353,9 +1354,13 @@ function definitionInput(
   }
   if (
     revisionVariant === "pqv-a1-query" ||
-    revisionVariant === "pqv-a1-query-second"
+    revisionVariant === "pqv-a1-query-second" ||
+    revisionVariant === "pqv-a2-query"
   ) {
-    return pqvA1DefinitionInput(revisionVariant === "pqv-a1-query-second");
+    return pqvA1DefinitionInput(
+      revisionVariant === "pqv-a1-query-second",
+      revisionVariant === "pqv-a2-query",
+    );
   }
   const variantSpaces = revisionVariant === "second"
     ? " "
@@ -1450,6 +1455,7 @@ function definitionInput(
 
 function pqvA1DefinitionInput(
   second: boolean,
+  executePointRead = false,
 ): StandardApplicationDefinitionInputV1 {
   return {
     programBudgetInput: {
@@ -1508,7 +1514,10 @@ function pqvA1DefinitionInput(
         path: "orders.js",
         roles: ["function", "execution"],
         sourceBytes: UTF8.encode(
-          `export function get() { return ${second ? "undefined" : "null"}; }\n` +
+          `export function get(context, args) { ` +
+            `return ${second ? "undefined" : executePointRead
+              ? "context.db.get(args.id)"
+              : "null"}; }\n` +
             "export function run() {}\n",
         ),
         sourceMapBytes: null,

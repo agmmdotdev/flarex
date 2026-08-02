@@ -101,7 +101,7 @@ const QUERY_BUDGET = Object.freeze({
 const ROW_ID = decodeAppRowIdHexV1("71".repeat(16));
 const MISSING_ROW_ID = decodeAppRowIdHexV1("72".repeat(16));
 
-interface AppendDocumentCommitInputV1 {
+export interface AppendPqvA1DocumentCommitInputV1 {
   readonly deploymentId: string;
   readonly tableId: ReturnType<typeof decodeCatalogTableId>;
   readonly rowId: ReturnType<typeof decodeAppRowIdHexV1>;
@@ -134,14 +134,14 @@ export async function provePqvA1ApplicationPointQuerySnapshotV1(
   const initialActive = await Effect.runPromise(Effect.scoped(
     readActiveApplicationRevisionV1(first.context),
   ));
-  const tableId = await tableIdForRevision(lane.persistence, first.revisionId);
+  const tableId = await pqvA1TableIdForRevision(lane.persistence, first.revisionId);
   const schemaVersionId = initialActive.metadata.schemaVersionId;
   const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId: ROW_ID });
   const missingDocumentId = appDocumentIdV1FromRowIdentity({
     tableId,
     rowId: MISSING_ROW_ID,
   });
-  await appendDocumentCommit(lane.persistence, {
+  await appendPqvA1DocumentCommitV1(lane.persistence, {
     deploymentId: first.deploymentId,
     tableId,
     rowId: ROW_ID,
@@ -204,7 +204,7 @@ export async function provePqvA1ApplicationPointQuerySnapshotV1(
     const afterWriter = concurrentReader === null
       ? yield* Effect.tryPromise({
         try: async () => {
-          await appendDocumentCommit(lane.persistence, writerInput);
+          await appendPqvA1DocumentCommitV1(lane.persistence, writerInput);
           return Effect.runPromise(readApplicationPointQueryDocumentV1(
             opened.capability,
             { tableName: "orders", documentId },
@@ -375,7 +375,7 @@ export async function provePqvA1ApplicationPointQuerySnapshotV1(
   });
 }
 
-async function tableIdForRevision(
+export async function pqvA1TableIdForRevision(
   persistence: Persistence,
   revisionId: string,
 ) {
@@ -395,9 +395,9 @@ async function tableIdForRevision(
   return decodeCatalogTableId(row.table_id);
 }
 
-async function appendDocumentCommit(
+export async function appendPqvA1DocumentCommitV1(
   persistence: Persistence,
-  input: AppendDocumentCommitInputV1,
+  input: AppendPqvA1DocumentCommitInputV1,
 ): Promise<void> {
   const scope = await persistence.getScopeMetadataByDeploymentId(
     input.deploymentId,
@@ -501,7 +501,7 @@ function makeConcurrentReadBarrier(
     readThroughWriter: async (
       capability: AuthenticatedApplicationPointQuerySnapshotV1,
       documentId: ReturnType<typeof appDocumentIdV1FromRowIdentity>,
-      writerInput: AppendDocumentCommitInputV1,
+      writerInput: AppendPqvA1DocumentCommitInputV1,
     ) => {
       let announceReached: ((backendPid: number) => void) | undefined;
       const reached = new Promise<number>(resolve => {
@@ -536,7 +536,7 @@ function makeConcurrentReadBarrier(
       const observer = await pool.connect();
       try {
         const readerPid = await reached;
-        writer = appendDocumentCommit(lane.persistence, {
+        writer = appendPqvA1DocumentCommitV1(lane.persistence, {
           ...writerInput,
           beforeClockAdvance: writerPid => announceWriterReached?.(writerPid),
         });
