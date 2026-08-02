@@ -247,7 +247,7 @@ The remaining limitations are architectural, not merely naming or packaging:
    revision/V2-attempt/evidence/build/publication/cold-receipt commitment under
    migration `0043`, and returns typed non-persisted not-ready results for
    incomplete physical evidence. It does not activate or route the revision.
-4. **Private replacement activation now exists, but invocation does not.**
+4. **Private replacement activation and one point mutation now exist.**
    FSV05 owns the shared-`primary/public`, scope-clock-fenced activation CAS and
    coherent active-revision reader over the exact FSV04 receipt. Its private
    WeakMap selection and CAS token are not SAP04, routing, or production
@@ -272,7 +272,13 @@ The remaining limitations are architectural, not merely naming or packaging:
    new ABI identity: mixed operations may be enclosed by user try/catch, but
    only the exact C03-V document-validation failure is application-catchable
    and non-poisoning across the trusted journal RPC/runtime boundary. All other
-   host failures remain terminal. FSV06/SAP04 composition remains separate.
+   host failures remain terminal. FSV06 now composes the private System
+   `invokeApplicationPointMutationV1` operation and thin Standard SAP04
+   consumer over the same scoped selection, C03-V validator, candidate-bound
+   exact runtime target, and existing executor/C07 owners. It reloads and
+   returns only the authoritative committed outcome; PGlite and genuine
+   PostgreSQL proofs verify row, result, feed, and outbox agreement. The
+   operation remains route-independent and production-inert.
 5. **Only the first private analyzer-to-Postgres mutation slice is assembled.**
    C07 proves the private test-owned point-mutation composition in PGlite and
    genuine PostgreSQL. A1b2-S1 supplies the private scoped command
@@ -311,7 +317,7 @@ The remaining limitations are architectural, not merely naming or packaging:
     verifies authoritative row, commit/change feed, idempotency, and outbox
     agreement. The genuine PostgreSQL 18.3 lane runs eight concurrent
     mutations with zero skipped cases. This proof does not create readiness,
-    activation, an active reader, SAP04, a public API, or production routing;
+   activation, an active reader, a public API, or production routing;
     broader application shapes and workload capabilities remain roadmap-41
     work.
 6. **The main executor facade remains legacy-routed.** Private

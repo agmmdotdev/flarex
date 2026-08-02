@@ -1,0 +1,31 @@
+{
+  "name": "@flarex/standard-application-invocation",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    "./internal/system-v1": "./src/systemV1.ts",
+    "./v1": "./src/v1.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@flarex/executor": "workspace:*",
+    "@flarex/persistence-postgres": "workspace:*",
+    "@flarex/utils": "workspace:*",
+    "effect": "catalog:",
+    "flarex-backend": "workspace:*",
+    "flarex-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

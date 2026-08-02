@@ -2650,8 +2650,10 @@ activation remain blocked until their production host composition is proven.
    FSV06-A2 now aligns the analyzer and exact runtime with the existing mixed
    catchability ABI without adding a new ABI identity: mixed calls permit user
    try/catch, the exact C03-V validation failure is non-poisoning, and all other
-   host failures remain terminal. FSV06 invocation and any production
-   prepared-start remain separate gates.
+   host failures remain terminal. FSV06 now privately composes one
+   route-independent Standard point mutation from the coherent selection,
+   validator, exact runtime, executor, and C07 owners. Production prepared-start
+   and routing remain separate gates.
 6. **Ingress, dispatch, and client consumption.** Add versioned bounded V2
    upload/finalization, pinned analyzer handshake/dispatch, and flarex-dev
    consumption as the real two-sided caller. Artifact-runtime dispatch carries
@@ -2683,9 +2685,11 @@ resource failure identity privately, and treats malformed platform output as a
 defect without exporting a service or authority. The authenticated cursorable
 source/EOF owner, `PAM-A0b1` catalog DDL, `PAM-A1`, `PAM-A2`, and `PAM-B`
 retain their separately recorded status. C03-V is complete and keeps the
-setup-seeded adapter test-only until the FSV06/production prepared-start
-replacement gate. FSV06-A1 closes only the candidate-bound R2-to-runtime
-dispatch prerequisite and does not remove that adapter or construct a journal.
+setup-seeded adapter test-only until the production prepared-start replacement
+gate. FSV06-A1 closes the candidate-bound R2-to-runtime prerequisite, and
+FSV06 now constructs journals from FSV05 plus C03-V in its private
+route-independent path. It does not remove the production-unreachable proof
+adapter or authorize a production caller.
 `PAM-A0b0-S1P-J1b0-H0a` is complete: `apps/analyzer` is a deployable but
 inert private Worker shell with no routes or resource bindings. Its sole
 operation is a bounded service-binding compatibility handshake backed by a

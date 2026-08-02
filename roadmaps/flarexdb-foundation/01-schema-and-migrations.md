@@ -520,8 +520,10 @@ replace results before journal/overlay persistence. Typed document validation
 is catchable; stale, forged, corrupt, mixed, closed-scope, interrupted, and
 defective authority remains fail-closed. C04B2 retains final live-overlay
 validation as an independent defense. The setup-seeded C04B1 proof adapter is
-still test-only and must be deleted when FSV06/production prepared-start makes
-FSV05 plus C03-V the sole journal construction path.
+still test-only. FSV06 now makes FSV05 plus C03-V the sole journal-construction
+path for the private SAP04 vertical; adapter deletion remains gated on the
+separate production prepared-start/caller replacement because the adapter is
+still unreachable from production selection.
 
 ### [x] S05 — Freeze Value And Ordered-Key Codecs
 

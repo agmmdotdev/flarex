@@ -135,6 +135,7 @@ const LOCATOR = Object.freeze({
   schemaName: "public",
 });
 const MAXIMUM = 20_000_000n;
+const FSV06_COMMAND_MAXIMUM = 40_000_000n;
 const OPERATION_BUDGET = Object.freeze({
   maximumCalls: 256,
   maximumRows: 256,
@@ -234,6 +235,9 @@ export async function prepareFsv04RegisteredRevisionFixtureV1(
       definitionInput(input.revisionVariant),
     ),
   );
+  const commandBudgetMaximum = input.revisionVariant?.startsWith("fsv06-")
+    ? FSV06_COMMAND_MAXIMUM
+    : MAXIMUM;
   const registration = await Effect.runPromise(Effect.scoped(
     withAuthenticatedApplicationRevisionEvidenceTestDriverV1(
       definition,
@@ -241,7 +245,7 @@ export async function prepareFsv04RegisteredRevisionFixtureV1(
         projectId: PROJECT_ID,
         deploymentId: DEPLOYMENT_ID,
         deploymentCreatedAt: "2026-07-31T00:00:00.000Z",
-        commandBudgetMaximum: MAXIMUM,
+        commandBudgetMaximum,
       },
       driver => runAuthenticatedAnalysisAndRegistration(
         input,
@@ -250,6 +254,7 @@ export async function prepareFsv04RegisteredRevisionFixtureV1(
         input.revisionVariant === undefined
           ? `register:fsv03:${input.name}`
           : `register:fsv03:${input.name}:${input.revisionVariant}`,
+        commandBudgetMaximum,
       ),
     ),
   ));
@@ -436,6 +441,7 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
   definition: PreparedStandardApplicationDefinitionV1,
   driver: AuthenticatedApplicationRevisionEvidenceTestDriverV1,
   registrationRequestKey = `register:fsv03:${lane.name}`,
+  commandBudgetMaximum = MAXIMUM,
 ) {
     const evidenceBridge =
       makePrivateApplicationRevisionRegistrationEvidenceBridgeV1(driver.port);
@@ -472,7 +478,10 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
     const preparation = yield* registrationContext.prepareAnalysis({
       preparedDefinition: definition,
       authenticatedEvidence,
-      attemptCeilings: budget("attempt_ceilings", MAXIMUM * 4n),
+      attemptCeilings: budget(
+        "attempt_ceilings",
+        commandBudgetMaximum * 4n,
+      ),
     });
     const repository = makeDeclarativeV2VerifierProgressRepositoryV2(
       lane.registrationTarget,
@@ -902,6 +911,7 @@ const executeCommand = Effect.fn("FSV03.executeCommand")(function* (
       complete,
       reservation: reserved.reservation,
       work: reserved.work,
+      commandBudget: input.preparedCommand.commandBudget,
     });
     const commandUsage = Object.freeze({
       ...terminal.actual,
@@ -960,6 +970,9 @@ const materializeTerminalEvidence = Effect.fn(
       "restartCommitments"
     ];
   readonly parsePagesRootSha256: Uint8Array;
+  readonly commandBudget: DeclarativeV2VerifierBudgetFrameV2 & {
+    readonly kind: "command_budget";
+  };
   readonly reservation: DeclarativeV2VerifierCommandReservationFrameV2;
   readonly work: Parameters<
     AuthenticatedDeclarativeV2CommandBridgeV1["settle"]
@@ -1017,7 +1030,7 @@ const materializeTerminalEvidence = Effect.fn(
       session: input.analyzerSession,
       result: input.complete,
       claim,
-      maximum: budget("command_budget", MAXIMUM),
+      maximum: input.commandBudget,
       allowance: 1_024,
       bridge: input.persistenceBridge,
       work: input.work,
@@ -1332,6 +1345,12 @@ async function provisionRegistrationScope(
 function definitionInput(
   revisionVariant?: string,
 ): StandardApplicationDefinitionInputV1 {
+  if (
+    revisionVariant === "fsv06-insert" ||
+    revisionVariant === "fsv06-update"
+  ) {
+    return fsv06DefinitionInput(revisionVariant);
+  }
   const variantSpaces = revisionVariant === "second"
     ? " "
     : revisionVariant === "third"
@@ -1417,6 +1436,86 @@ function definitionInput(
         artifactModulePath: "orders.js",
       }],
       executionPath: "orders.js",
+      schemaPath: null,
+      authPath: null,
+    },
+  };
+}
+
+function fsv06DefinitionInput(
+  revisionVariant: "fsv06-insert" | "fsv06-update",
+): StandardApplicationDefinitionInputV1 {
+  const insert = revisionVariant === "fsv06-insert";
+  const exportName = insert ? "c" : "u";
+  const artifactModulePath = insert ? "i" : "u";
+  return {
+    programBudgetInput: {
+      maximumModules: 1,
+      maximumFunctions: 1,
+      maximumIdentifierUtf8Bytes: 4_096,
+      maximumValidatorNodes: 512,
+      maximumValidatorDepth: 32,
+      maximumValidatorStringUtf8Bytes: 4_096,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: {
+        tables: [{
+          logicalName: "o",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                status: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+              },
+            },
+          },
+        }],
+        indexes: [],
+      },
+        modules: [{
+          modulePath: "o",
+        functions: [{
+            exportName,
+            kind: "mutation",
+            visibility: "public",
+            argsValidator: { type: "any" },
+            returnsValidator: { type: "any" },
+          }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 1,
+      maximumEntryBindings: 1,
+      maximumSourceBytes: 8_192,
+      maximumSourceMapBytes: 1_024,
+      maximumBytesMaterialized: 64_000,
+      maximumSemanticRecords: 64,
+      maximumSemanticRecordBytes: 8_000,
+      maximumSemanticStreamBytes: 32_000,
+    },
+    graphInput: {
+      modules: [{
+        path: artifactModulePath,
+        roles: ["function", "execution"],
+        sourceBytes: UTF8.encode(
+          insert
+            ? 'import{databaseInsert}from"flarex:platform";export async function c(_,a){try{return await databaseInsert("o",a)}catch{}}'
+            : 'import{databasePatch}from"flarex:platform";export function u(_,a){return databasePatch(a.id,a.d)}',
+        ),
+        sourceMapBytes: null,
+      }],
+      functionEntries: [{
+        logicalModulePath: "o",
+        artifactModulePath,
+      }],
+      executionPath: artifactModulePath,
       schemaPath: null,
       authPath: null,
     },

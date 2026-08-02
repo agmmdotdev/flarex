@@ -23,8 +23,10 @@ first relation-free application. `FSV04` settles target-native readiness, and
 supported shared `primary/public` target. `C03-V` now supplies the scoped
 activation-fenced syscall validator. `FSV06-A1` now closes the private,
 candidate-bound R2-to-exact-runtime dispatch seam, and `FSV06-A2` aligns the
-analyzer and runtime with the existing mixed catchability ABI. SAP04/`FSV06`
-composition and production routing remain separately gated later work.
+analyzer and runtime with the existing mixed catchability ABI. `FSV06` now
+composes those owners into the first private System Application Data operation
+and the thin SAP04 Standard consumer. Production routing remains the separate
+`FSV07` gate.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -111,6 +113,17 @@ Current implementation truth:
   runtime registry. PostgreSQL remains authority/evidence storage and R2
   remains the sole body store; no schema, migration, legacy source-package
   materialization, route, or invocation operation is added;
+- `FSV06` exposes private
+  `invokeApplicationPointMutationV1(activeRevision, functionRef, args,
+  requestKey)` and the thin
+  `invokeStandardApplicationPointMutationV1(functionRef, args, requestKey)`.
+  The Standard operation reads exactly one coherent FSV05 selection; the
+  System operation derives C03-V and FSV06-A1 authority inside the same Scope,
+  then composes the existing grant, admission, session, journal, exact runtime,
+  OCC, commit, recovery, outcome, feed, and outbox owners. It returns only the
+  reloaded authoritative committed outcome. The implementation and its PGlite
+  and genuine PostgreSQL proof remain private, route-independent, and
+  production-inert;
 - `C08-I1` composes the existing S10, C4, and O07-B owners to populate and
   maintain only the relation-free intrinsic creation-time index. Migration
   `0042` adds only its bounded validation access path; it introduces no
@@ -174,8 +187,8 @@ factories.
 | --- | --- | --- |
 | `FSV02` registration is complete but deliberately inactive | Direct use without the later gates | Consume it only through completed FSV04/FSV05 evidence; registration itself is still neither readiness nor activation |
 | The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
-| FSV04/FSV05 readiness and shared-primary activation, C03-V syscall validation, and FSV06-A1 exact runtime dispatch exist privately | System Application Data API and SAP04 | Resume only the separately approved FSV06/SAP04 composition |
-| FSV03 proves one private selected-revision point mutation and FSV05 supplies active selection | System Application Data API and SAP04 | Keep the FSV03 test-owned selector separate; FSV06 must consume FSV05's coherent active selection, its scoped C03-V validator, and the FSV06-A1 runtime target |
+| FSV04/FSV05 readiness and shared-primary activation, C03-V syscall validation, FSV06-A1 exact runtime dispatch, and FSV06/SAP04 invocation exist privately | Production caller routing | Preserve the private route-independent composition until the separate FSV07 preflight is accepted |
+| FSV03 proves one private selected-revision point mutation and FSV06 consumes FSV05 active selection | Broader invocation families | Keep the FSV03 test-owned selector separate; SAP05+ queries, actions, workflows, schedules, relations, and adapters retain their own gates |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
 
@@ -786,8 +799,9 @@ Implemented truth:
 - C04B2 still validates the complete live overlay and result independently at
   commit-input verification; and
 - the setup-seeded C04B1 adapter remains test-only and package-unexported. Its
-  deletion gate is the future FSV06/production prepared-start composition in
-  which every journal is constructed from FSV05 plus C03-V authority.
+  private FSV06 replacement gate is now met because every FSV06 journal is
+  constructed from FSV05 plus C03-V authority. Global deletion remains gated
+  on the separate production prepared-start/caller replacement.
 
 This capability adds no schema, migration, route, binding, trigger, SAP04,
 runtime selection, OCC, commit, feed, or outbox owner.
@@ -833,7 +847,7 @@ exact-runtime closure are regenerated. No schema, migration, invocation API,
 route, activation/readiness change, transaction, OCC, commit, feed, or outbox
 owner is added.
 
-### `[ ] FSV06`: Invoke One Standard Point Mutation
+### `[x] FSV06`: Invoke One Standard Point Mutation
 
 Entry gates:
 
@@ -848,7 +862,8 @@ Entry gates:
 - the private `FSV03` point-mutation and failure proofs remain green; and
 - the host-neutral point-mutation runtime contract is accepted.
 
-Implement the first System Application Data function and its SAP04 consumer:
+FSV06 implements the first System Application Data function and its SAP04
+consumer:
 
 ```text
 invokeApplicationPointMutationV1(activeRevision, functionRef, args, requestKey)
@@ -870,7 +885,7 @@ The slice must:
 - fail closed when the revision, capability, route-independent dispatcher, or
   execution evidence is missing or stale.
 
-Exit evidence:
+Accepted implementation evidence:
 
 - SAP04 is the first Standard consumer of the implementation-bearing System
   function;
@@ -916,12 +931,13 @@ SAP03 boundary described in its completed slice. Neither capability authorizes
 readiness, activation, point mutation, public routing, framework adapters, or
 production wiring.
 
-The next relation-free vertical gate is the separately approved continuation
-of `FSV06`/SAP04 composition. FSV05 consumes FSV04's exact readiness receipt
-and existing activation storage, C03-V supplies scope-lifetime syscall-time
-validation, FSV06-A1 supplies the candidate-bound exact runtime target, and
-FSV06-A2 supplies the existing mixed-ABI catchability semantics. None creates
-SAP04, invocation routing, triggers, or hosted-redelivery authority by itself.
+The first relation-free private vertical now ends at FSV06/SAP04. FSV05
+consumes FSV04's exact readiness receipt and existing activation storage,
+C03-V supplies scope-lifetime syscall-time validation, FSV06-A1 supplies the
+candidate-bound exact runtime target, FSV06-A2 supplies the existing mixed-ABI
+catchability semantics, and FSV06 composes them without creating a route,
+trigger, hosted-redelivery authority, public SDK, or production caller. The
+next gate is the separate FSV07 production-routing preflight.
 
 ## Overall Completion Criteria
 

@@ -16,9 +16,10 @@ complete, and C03-V now supplies the activation-fenced scoped syscall
 validator. FSV06-A1 additionally closes the private candidate-bound
 R2-to-exact-runtime dispatch seam, and FSV06-A2 enforces the existing mixed ABI
 so only exact C03-V validation is application-catchable and non-poisoning.
-Neither creates SAP04. A dedicated harness package, representative multi-
-function/application workload runner, SAP04 invocation, and live production
-composition remain unimplemented.
+FSV06 now composes the first private route-independent SAP04 point mutation
+through those owners. A dedicated harness package, representative multi-
+function/application workload runner, broader invocation families, and live
+production composition remain unimplemented.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,
@@ -457,14 +458,16 @@ At the time this direction was recorded:
   concurrent mutations with bounded deterministic inputs and zero skips.
   This closes only acceptance-ladder step 1 plus a bounded concurrency/stress
   proof; representative applications, queries, actions, scheduling,
-  FSV04 readiness and FSV05 private activation/coherent reads are complete;
-  SAP04 invocation and production composition remain open. C03-V is complete,
+  FSV04 readiness, FSV05 private activation/coherent reads, and the bounded
+  FSV06/SAP04 relation-free point mutation are complete; production composition
+  remains open. C03-V is complete,
   and FSV06-A1 now builds the scoped route-independent runtime target from the
   same coherent active authority and exact R2 publication. FSV06-A2 directly
   enforces the existing mixed catchability ABI while keeping every non-C03-V
-  host failure terminal. The setup-seeded proof adapter remains test-only until
-  FSV06/production prepared-start constructs every journal from coherent active
-  authority.
+  host failure terminal. FSV06 constructs every journal in its private path
+  from coherent active authority; the setup-seeded proof adapter remains
+  test-only and production-unreachable until the later production caller path
+  is replaced and its deletion gate is separately accepted.
 
 FSV01 and FSV02 now establish the first Standard analysis and inactive
 registration operations. This roadmap still does not claim that the complete
@@ -598,9 +601,9 @@ conditions follow.
 | Authenticated verifier reads | backend request-bound verifier read-session owner plus A1b2-S1 scoped preparation, A1b2-S2 opaque reservation binding, and A1b2-S3 per-command lineage ownership | Implemented as private prerequisites. Preparation captures authenticated facts once; persistence proposes lineage and claims the backend-derived six commitments without exposing repository authority. Each reservation, rather than the stable analyzer session, owns its exact range/lineage digest. |
 | Replacement analyzer | accepted A1b2 command producer, executor-HTTP transports, persistence readback, Effect host, A1b2-S1 terminal settlement, A1b2-S2 exact-result restart bridge, and A1b2-S3 stable-session refactor | Complete as private capabilities and consumed by FSV01. Exact parse/link completions can produce scoped restart evidence and cold rehydrate from authenticated settled evidence; historical link bindings retain their own link-reservation range independently of registration. The provisional command plan remains deleted and no production caller or route is implied. |
 | Verified application/function registration | FSV02 private System registration context plus SAP03 wrapper | Complete only for durable inactive idempotent revision registration. It is not readiness or activation authority. |
-| Schema/catalog lifecycle | persistence schema publication, manifest, binding, index, FSV02 registration, FSV04 readiness, FSV05 activation, and C03-V validator owners | Private target-native readiness, shared-primary activation/coherent reads, and scoped syscall validation are composed. SAP04 invocation, routing, and unsupported target layouts remain separate gates. |
-| Portable function execution | `@flarex/function-runtime/point-mutation` | Exact public point mutation only. Query builders, nested calls, general mutation capabilities, actions, and scheduling are not present. |
-| Trusted mutation/OCC/commit path | executor and FlarexDB foundation owners | C07 remains the owner. FSV03 now consumes its narrow test-owned composition for one selected inactive revision in PGlite and genuine PostgreSQL; it adds no production caller or alternate commit path. |
+| Schema/catalog lifecycle | persistence schema publication, manifest, binding, index, FSV02 registration, FSV04 readiness, FSV05 activation, and C03-V validator owners | Private target-native readiness, shared-primary activation/coherent reads, scoped syscall validation, and the bounded FSV06/SAP04 mutation are composed. Routing and unsupported target layouts remain separate gates. |
+| Portable function execution | `@flarex/function-runtime/point-mutation` plus private FSV06 composition | One exact public Standard point mutation is composed privately. Query builders, nested calls, general mutation capabilities, actions, and scheduling are not present. |
+| Trusted mutation/OCC/commit path | executor and FlarexDB foundation owners | C07 remains the owner. FSV03 proves its selected inactive-revision lane; FSV06 consumes the same owners through coherent FSV05 activation and adds no production caller or alternate commit path. |
 | Current public test API | `flarex-test` over `flarex-dev` | Compatibility and developer convenience only; it cannot prove this replacement pipeline. |
 
 The existing `orders:place` fixtures in the declarative-program,

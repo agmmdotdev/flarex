@@ -56,6 +56,8 @@ import {
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
+import type { SchemaManifestAppSchemaV1 } from
+  "flarex-protocol/schema-manifest";
 import {
   inspectActiveApplicationRevisionSelectionStateV1,
   issueActiveApplicationRevisionSelectionV1,
@@ -265,6 +267,32 @@ export function inspectActiveApplicationRevisionSelectionV1(
   InvalidActiveApplicationRevisionSelectionV1Error
 > {
   return inspectActiveApplicationRevisionSelectionStateV1(selection);
+}
+
+export interface ActiveApplicationRevisionInvocationBasisV1 {
+  readonly deploymentId: string;
+  readonly metadata: ActiveApplicationRevisionMetadataV1;
+  readonly schemaManifest: SchemaManifestAppSchemaV1;
+}
+
+/**
+ * Private FSV06 projection from the same scope-owned selection state used by
+ * C03-V and FSV06-A1. It exposes only the immutable metadata and schema
+ * manifest needed to construct the already-owned point-mutation target.
+ */
+export function claimActiveApplicationRevisionInvocationBasisV1(
+  selection: unknown,
+): Result.Result<
+  ActiveApplicationRevisionInvocationBasisV1,
+  InvalidActiveApplicationRevisionSelectionV1Error
+> {
+  return claimActiveApplicationRevisionSyscallValidatorBasisV1(selection).pipe(
+    Result.map((basis) => Object.freeze({
+      deploymentId: basis.authority.deploymentId,
+      metadata: copyActiveApplicationRevisionMetadataV1(basis.metadata),
+      schemaManifest: basis.schemaManifest,
+    })),
+  );
 }
 
 export const activateApplicationRevisionV1 = Effect.fn(
