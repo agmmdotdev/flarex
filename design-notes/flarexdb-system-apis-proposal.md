@@ -268,6 +268,11 @@ The remaining limitations are architectural, not merely naming or packaging:
    registry. It adds
    no SAP04 operation, PostgreSQL artifact body, legacy source-package fallback,
    route, or transaction owner.
+   FSV06-A2 also closes the existing mixed-ABI catchability mismatch without a
+   new ABI identity: mixed operations may be enclosed by user try/catch, but
+   only the exact C03-V document-validation failure is application-catchable
+   and non-poisoning across the trusted journal RPC/runtime boundary. All other
+   host failures remain terminal. FSV06/SAP04 composition remains separate.
 5. **Only the first private analyzer-to-Postgres mutation slice is assembled.**
    C07 proves the private test-owned point-mutation composition in PGlite and
    genuine PostgreSQL. A1b2-S1 supplies the private scoped command

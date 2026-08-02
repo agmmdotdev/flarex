@@ -9,6 +9,10 @@ import { decodeCatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import {
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+} from "flarex-protocol/internal/application-revision-syscall-validation-v1";
+import {
   validateValidatorValueV1,
   type ValidatorValueIssueV1,
 } from "flarex-protocol/validator-engine";
@@ -59,13 +63,14 @@ export type ApplicationRevisionSyscallDocumentValidationIssueV1 =
 /** The only C03-V failure intentionally returned to user code. */
 export class ApplicationRevisionSyscallDocumentValidationV1Error
   extends Data.TaggedError(
-    "ApplicationRevisionSyscallDocumentValidationV1Error",
+    APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
   )<{
     readonly operation: ApplicationRevisionSyscallValidationOperationV1;
     readonly tableName: string;
     readonly documentId: AppDocumentIdV1;
     readonly issue: ApplicationRevisionSyscallDocumentValidationIssueV1;
-    readonly message: "The resulting document failed the active schema validator.";
+    readonly message:
+      typeof APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1;
   }> {}
 
 export class InvalidApplicationRevisionSyscallValidatorV1Error
@@ -212,7 +217,8 @@ export const validateApplicationRevisionSyscallDocumentInTransactionV1 =
           tableName: input.tableName,
           documentId: input.documentId,
           issue: { reason: "validator", issue: error.issue },
-          message: "The resulting document failed the active schema validator.",
+          message:
+            APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
         })
       ));
     },
@@ -264,7 +270,8 @@ function projectDeveloperFields(
           tableName: input.tableName,
           documentId: input.documentId,
           issue: { reason: "unexpectedSystemField", field },
-          message: "The resulting document failed the active schema validator.",
+          message:
+            APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
         }),
       );
     }

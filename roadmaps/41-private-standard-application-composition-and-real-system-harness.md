@@ -14,10 +14,11 @@ revision selection -> point mutation -> durable PostgreSQL proof. `FSV04`
 target-native readiness and FSV05 private activation/coherent reads are
 complete, and C03-V now supplies the activation-fenced scoped syscall
 validator. FSV06-A1 additionally closes the private candidate-bound
-R2-to-exact-runtime dispatch seam without creating SAP04. A dedicated harness
-package, representative multi-function/
-application workload runner, SAP04 invocation, and live production composition
-remain unimplemented.
+R2-to-exact-runtime dispatch seam, and FSV06-A2 enforces the existing mixed ABI
+so only exact C03-V validation is application-catchable and non-poisoning.
+Neither creates SAP04. A dedicated harness package, representative multi-
+function/application workload runner, SAP04 invocation, and live production
+composition remain unimplemented.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,
@@ -459,9 +460,11 @@ At the time this direction was recorded:
   FSV04 readiness and FSV05 private activation/coherent reads are complete;
   SAP04 invocation and production composition remain open. C03-V is complete,
   and FSV06-A1 now builds the scoped route-independent runtime target from the
-  same coherent active authority and exact R2 publication. Its setup-seeded
-  proof adapter remains test-only until FSV06/production prepared-start
-  constructs every journal from coherent active authority.
+  same coherent active authority and exact R2 publication. FSV06-A2 directly
+  enforces the existing mixed catchability ABI while keeping every non-C03-V
+  host failure terminal. The setup-seeded proof adapter remains test-only until
+  FSV06/production prepared-start constructs every journal from coherent active
+  authority.
 
 FSV01 and FSV02 now establish the first Standard analysis and inactive
 registration operations. This roadmap still does not claim that the complete

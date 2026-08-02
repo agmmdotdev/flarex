@@ -5,6 +5,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, type Plugin } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+} from "flarex-protocol/internal/application-revision-syscall-validation-v1";
 
 describe("point-mutation journal RPC adapter in workerd", () => {
   let runtime: Miniflare;
@@ -151,12 +155,30 @@ describe("point-mutation journal RPC adapter in workerd", () => {
     expect(result).toMatchObject({
       invalid: {
         rejected: true,
-        name: "ApplicationRevisionSyscallDocumentValidationV1Error",
-        message: "The resulting document failed the active schema validator.",
+        name: APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+        message:
+          APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
       },
       valid: { kind: "missing", document: null },
       local: { kind: "success" },
       state: { operationCalls: 2, tableIdentityPreserved: true },
+    });
+  });
+
+  it("keeps a validation-named non-C03-V failure terminal", async () => {
+    const result = await scenario("/validation-lookalike");
+
+    expect(result).toMatchObject({
+      local: {
+        kind: "failure",
+        identity: "unknown",
+        tag: "InvalidPointMutationJournalCapabilityV1Error",
+      },
+      remote: {
+        rejected: true,
+        name: "FlarexJournalRpcStopped",
+        message: "The journal RPC capability is unavailable.",
+      },
     });
   });
 

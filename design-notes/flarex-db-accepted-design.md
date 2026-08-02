@@ -1228,7 +1228,12 @@ separate FSV06/production prepared-start gate makes this authority the sole
 journal construction path. FSV06-A1 now supplies the separate scoped
 candidate-bound runtime target from the same FSV05 selection and R2
 publication, but it does not construct a journal or invoke a mutation. FSV06
-remains separately unimplemented.
+remains separately unimplemented. FSV06-A2 now closes the intervening behavior
+gap under the existing mixed ABI: the analyzer permits try/catch around mixed
+operations, while the trusted journal RPC and exact runtime make only the exact
+C03-V document-validation failure application-catchable and non-poisoning.
+Every other host-owned failure remains terminal with full-Cause ownership.
+This changes no ABI/protocol identity, schema, activation, or commit owner.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A

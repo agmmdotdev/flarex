@@ -22,8 +22,9 @@ first relation-free application. `FSV04` settles target-native readiness, and
 `FSV05` now atomically activates and coherently reads one ready revision on the
 supported shared `primary/public` target. `C03-V` now supplies the scoped
 activation-fenced syscall validator. `FSV06-A1` now closes the private,
-candidate-bound R2-to-exact-runtime dispatch seam. SAP04/`FSV06` composition
-and production routing remain separately gated later work.
+candidate-bound R2-to-exact-runtime dispatch seam, and `FSV06-A2` aligns the
+analyzer and runtime with the existing mixed catchability ABI. SAP04/`FSV06`
+composition and production routing remain separately gated later work.
 
 This roadmap owns the first function-first, implementation-bearing composition
 from the replacement analyzer and Standard Application APIs into the existing
@@ -813,6 +814,25 @@ This prerequisite adds no schema, migration, PostgreSQL artifact bodies,
 legacy `PushSourcePackage` materialization, invocation API, route, binding,
 trigger, readiness, activation, journal, OCC, commit, feed, or outbox owner.
 
+### `[x] FSV06-A2`: Enforce Existing Mixed-ABI Catchability
+
+The private analyzer now permits application try/catch around operations whose
+existing ABI catchability is `mixed`, while continuing to reject observation
+of pure `host` operations. The trusted executor journal RPC admits only the
+exact C03-V `ApplicationRevisionSyscallDocumentValidationV1Error` class as an
+application-catchable failure. Its serialized private Worker projection is
+non-poisoning and consumes no syscall sequence because C03 rejected the write
+before journal acceptance; the next accepted operation reuses that sequence.
+Infrastructure, protocol, resource, timeout, interruption, uncertainty,
+defect, full-Cause, and every other host failure remain terminal and poison the
+runtime even when application code attempts to catch them.
+
+This is a direct correction under the existing mixed ABI, not a new ABI or
+protocol identity. The private analyzer implementation identity and dependent
+exact-runtime closure are regenerated. No schema, migration, invocation API,
+route, activation/readiness change, transaction, OCC, commit, feed, or outbox
+owner is added.
+
 ### `[ ] FSV06`: Invoke One Standard Point Mutation
 
 Entry gates:
@@ -823,6 +843,8 @@ Entry gates:
   prepared-start and is not part of FSV05;
 - `FSV06-A1` supplies the private candidate-bound route-independent exact
   runtime target without a legacy source-package fallback;
+- `FSV06-A2` enforces the existing mixed ABI so only exact C03-V document
+  validation is application-catchable and non-poisoning;
 - the private `FSV03` point-mutation and failure proofs remain green; and
 - the host-neutral point-mutation runtime contract is accepted.
 
@@ -897,9 +919,9 @@ production wiring.
 The next relation-free vertical gate is the separately approved continuation
 of `FSV06`/SAP04 composition. FSV05 consumes FSV04's exact readiness receipt
 and existing activation storage, C03-V supplies scope-lifetime syscall-time
-validation, and FSV06-A1 supplies the candidate-bound exact runtime target.
-None creates SAP04, invocation routing, triggers, or hosted-redelivery
-authority by itself.
+validation, FSV06-A1 supplies the candidate-bound exact runtime target, and
+FSV06-A2 supplies the existing mixed-ABI catchability semantics. None creates
+SAP04, invocation routing, triggers, or hosted-redelivery authority by itself.
 
 ## Overall Completion Criteria
 

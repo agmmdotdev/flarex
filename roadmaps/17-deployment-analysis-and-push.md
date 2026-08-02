@@ -1251,9 +1251,13 @@ activation remain blocked until their production host composition is proven.
    loader and checked-BigInt arena planner admit the asset and all 26
    Budget/Progress V2 dimensions before caller-proportional allocation. Host
    Effect failure, defect, interruption, timeout, uncertainty, and full Cause
-   remain uncatchable. Trusted lowering must reject application catch/finally
-   whose correctness depends on observing, completing around, or suppressing
-   such a host-owned outcome.
+   remain uncatchable. Trusted lowering rejects application catch/finally whose
+   correctness depends on observing, completing around, or suppressing such a
+   host-owned outcome. FSV06-A2 now enforces the existing mixed ABI directly:
+   mixed operations may appear under application try/catch, but only the exact
+   C03-V document-validation failure crosses the trusted journal RPC boundary
+   as non-poisoning and application-catchable. Every other host-owned failure
+   remains terminal with its full Cause.
 
    The private verifier foundation now includes a reproducible executable
    contract, deterministic generator, and generated LR action/goto/production
@@ -2643,7 +2647,11 @@ activation remain blocked until their production host composition is proven.
    validator. FSV06-A1 now derives the scoped candidate-bound runtime target,
    verifies its exact executable bodies in R2, and builds the existing
    route-independent runtime registry without a legacy package fallback;
-   FSV06 invocation and any production prepared-start remain separate gates.
+   FSV06-A2 now aligns the analyzer and exact runtime with the existing mixed
+   catchability ABI without adding a new ABI identity: mixed calls permit user
+   try/catch, the exact C03-V validation failure is non-poisoning, and all other
+   host failures remain terminal. FSV06 invocation and any production
+   prepared-start remain separate gates.
 6. **Ingress, dispatch, and client consumption.** Add versioned bounded V2
    upload/finalization, pinned analyzer handshake/dispatch, and flarex-dev
    consumption as the real two-sided caller. Artifact-runtime dispatch carries

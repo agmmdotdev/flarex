@@ -21,6 +21,10 @@ import {
   CommitSyscallSequenceV1Schema,
 } from "flarex-protocol/commit-protocol";
 import { decodeAppDocumentIdV1 } from "flarex-protocol/app-document-id";
+import {
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+} from "flarex-protocol/internal/application-revision-syscall-validation-v1";
 import { ApplicationRevisionSyscallDocumentValidationV1Error } from
   "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 
@@ -29,6 +33,7 @@ type Scenario =
   | "resultRejected"
   | "operationFailure"
   | "validationFailure"
+  | "validationLookalike"
   | "delayedSuccess"
   | "orderedFailures"
   | "defect"
@@ -125,10 +130,19 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
                     },
                   },
                   message:
-                    "The resulting document failed the active schema validator.",
+                    APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
                 }),
               )
               : Effect.succeed(EXECUTED_MISSING);
+          case "validationLookalike":
+            return Effect.fail(new Proxy(record.firstError, {
+              get: (target, property, receiver) =>
+                property === "name"
+                  ? APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1
+                  : property === "message"
+                  ? APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1
+                  : Reflect.get(target, property, receiver),
+            }));
           case "delayedSuccess":
             return Effect.promise(() => awaitOperationGate(operation)).pipe(
               Effect.as(EXECUTED_MISSING),

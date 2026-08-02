@@ -33,6 +33,7 @@
     "./internal/declarative-v2-terminal-authority-proof-v1": "./src/declarative-v2-terminal-authority-proof-v1.ts",
     "./internal/application-revision-readiness-v1": "./src/application-revision-readiness-v1.ts",
     "./internal/application-revision-activation-request-v1": "./src/application-revision-activation-request-v1.ts",
+    "./internal/application-revision-syscall-validation-v1": "./src/application-revision-syscall-validation-v1.ts",
     "./internal/candidate-bound-runtime-target-v1": "./src/candidate-bound-runtime-target-v1.ts",
     "./invoke": "./src/invoke.ts",
     "./index-definition": "./src/index-definition.ts",

@@ -552,6 +552,17 @@ const runtimeKernelPromise = (
   import(runtimeKernelModulePath) as Promise<unknown>
 ).then(decodeRuntimeKernelModule);
 
+// This generated Worker must remain self-contained. These literal witnesses
+// are type-checked against the package-neutral serialized projection owner.
+const APPLICATION_DOCUMENT_VALIDATION_ERROR_NAME:
+  typeof import("flarex-protocol/internal/application-revision-syscall-validation-v1")
+    .APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1 =
+      "ApplicationRevisionSyscallDocumentValidationV1Error";
+const APPLICATION_DOCUMENT_VALIDATION_ERROR_MESSAGE:
+  typeof import("flarex-protocol/internal/application-revision-syscall-validation-v1")
+    .APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1 =
+      "The resulting document failed the active schema validator.";
+
 export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
   async run(
     input: unknown,
@@ -1465,10 +1476,14 @@ function databaseForJournal(
       }
       try {
         const table = await resolveTableCapability(tableName);
-        syscallSequence += 1n;
+        const operationSequence = syscallSequence + 1n;
         const outcome = await table.runPointOperation(
-          Object.freeze({ ...operation, syscallSequence }),
+          Object.freeze({
+            ...operation,
+            syscallSequence: operationSequence,
+          }),
         );
+        syscallSequence = operationSequence;
         if (operation.kind === "get") {
           return decodeJournalOutcome(
             outcome,
@@ -1489,6 +1504,9 @@ function databaseForJournal(
           idsByName.get(tableName),
         );
       } catch (cause) {
+        if (isApplicationDocumentValidationFailure(cause)) {
+          throw cause;
+        }
         const failure = journalBoundaryError(cause);
         firstOperationFailure ??= { cause: failure };
         throw failure;
@@ -1575,6 +1593,19 @@ function databaseForJournal(
       }
     },
   });
+}
+
+function isApplicationDocumentValidationFailure(cause: unknown): boolean {
+  // The trusted executor RPC owner admits only the exact C03-V error class.
+  // This Worker sees its serialized private projection, so it matches the
+  // pinned name/message and treats every other projection as host-owned.
+  try {
+    return cause instanceof Error &&
+      cause.name === APPLICATION_DOCUMENT_VALIDATION_ERROR_NAME &&
+      cause.message === APPLICATION_DOCUMENT_VALIDATION_ERROR_MESSAGE;
+  } catch {
+    return false;
+  }
 }
 
 function disposeReceivedRpcStub(

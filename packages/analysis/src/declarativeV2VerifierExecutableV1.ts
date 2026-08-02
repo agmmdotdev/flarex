@@ -5634,11 +5634,7 @@ export function createDeclarativeV2VerifierEngineV1(
                 ),
               ]])
             ) continue;
-            if (
-              tryDepth > 0 &&
-              (abi.catchability === "host" ||
-                abi.catchability === "mixed")
-            ) {
+            if (tryDepth > 0 && abi.catchability === "host") {
               containsHostOperationInTry = true;
             }
           }

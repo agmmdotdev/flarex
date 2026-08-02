@@ -2606,6 +2606,41 @@ describe("Declarative V2 streaming engine", () => {
   });
 
   test.each([
+    "databaseGet",
+    "queryCollect",
+    "queryTake",
+    "queryFirst",
+    "queryUnique",
+    "queryPaginate",
+    "databaseInsert",
+    "databasePatch",
+    "databaseReplace",
+    "databaseDelete",
+    "runQuery",
+    "runMutation",
+  ])("permits existing mixed ABI catchability for %s", (operation) => {
+    const source = UTF8_ENCODER.encode(
+      `import { ${operation} } from "flarex:platform"; ` +
+        `export async function f() { try { return await ${operation}(); } catch { return null; } }`,
+    );
+    Result.match(runSource(source, [source]), {
+      onFailure: (failure) => {
+        throw failure;
+      },
+      onSuccess: (success) => {
+        expect(success.verified).toBe(true);
+        expect(success.diagnostics).toEqual([]);
+        expect(success.valueFlows).toEqual([
+          expect.objectContaining({
+            operationName: operation,
+            catchability: "mixed",
+          }),
+        ]);
+      },
+    });
+  });
+
+  test.each([
     ["dynamic import", "export function f() { return import(\"./x.js\"); }", "CORE_DYNAMIC_IMPORT"],
     ["construction", "export function f() { return new Date(); }", "CORE_CONSTRUCTION"],
     ["computed dispatch", "export function f(x) { return x[\"y\"](); }", "CORE_COMPUTED_DISPATCH"],
@@ -2618,7 +2653,7 @@ describe("Declarative V2 streaming engine", () => {
     ["loose equality", "export function f(x) { return x == null; }", "CORE_LOOSE_EQUALITY"],
     [
       "host catch",
-      "import { databaseGet } from \"flarex:platform\"; export async function f(x) { try { return await databaseGet(x); } catch (error) { return null; } }",
+      "import { authGetUserIdentity } from \"flarex:platform\"; export async function f() { try { return await authGetUserIdentity(); } catch { return null; } }",
       "CORE_HOST_FAILURE_OBSERVATION",
     ],
     ["side-effect import", "import \"./x.js\"; export function f() {}", "CORE_SIDE_EFFECT_IMPORT"],

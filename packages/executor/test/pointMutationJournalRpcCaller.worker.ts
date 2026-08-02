@@ -37,6 +37,8 @@ export default {
         return Response.json(await failureScenario(env));
       case "/validation-failure":
         return Response.json(await validationFailureScenario(env));
+      case "/validation-lookalike":
+        return Response.json(await validationLookalikeScenario(env));
       case "/late":
         return Response.json(await lateScenario(env));
       case "/drain":
@@ -123,6 +125,21 @@ async function validationFailureScenario(env: Env) {
   table[Symbol.dispose]();
   parent[Symbol.dispose]();
   return { invalid, valid, local, state };
+}
+
+async function validationLookalikeScenario(env: Env) {
+  const parent = await env.JOURNAL.open(
+    "validation-lookalike",
+    "validationLookalike",
+  );
+  const table = await parent.resolvePointTable("orders");
+  const remote = await rejectionReceipt(
+    table.runPointOperation({ id: "lookalike" }),
+  );
+  const local = await env.JOURNAL.finishClose("validation-lookalike");
+  table[Symbol.dispose]();
+  parent[Symbol.dispose]();
+  return { local, remote };
 }
 
 async function lateScenario(env: Env) {

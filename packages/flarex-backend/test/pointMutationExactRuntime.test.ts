@@ -15,6 +15,10 @@ import {
   type ExecutionArtifactRef,
 } from "flarex/artifacts";
 import {
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+} from "flarex-protocol/internal/application-revision-syscall-validation-v1";
+import {
   decodePointMutationExactRuntimeRequestV1Effect,
   POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
   POINT_MUTATION_EXACT_RUNTIME_FORMAT_V1,
@@ -79,7 +83,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "f5365e50c920a52d7b5aed9f3ad327b0d0393cf78c4d03707f787d3affe601d6",
+      "5247051639a78f83ba5e4444f0f065a51451b48d0d7b460a734cbece7baa4a9c",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
@@ -241,6 +245,101 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
       ["orders", "replace", 4n],
       ["orders", "delete", 5n],
     ]);
+  });
+
+  it("lets user code catch only the authenticated document-validation projection", async () => {
+    const request = await exactRequest(testArtifact());
+    const caught: string[] = [];
+    const handler = vi.fn(async (ctx: ExactTestContext) => {
+      try {
+        await ctx.db.insert("orders", { status: 42 });
+      } catch (cause) {
+        caught.push(cause instanceof Error ? cause.name : typeof cause);
+      }
+      return await ctx.db.insert("orders", { status: "valid" });
+    });
+    const Runtime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({
+        isMutation: true,
+        isPublic: true,
+        _handler: handler,
+      }),
+    );
+    const operations: Array<Readonly<Record<string, unknown>>> = [];
+    const validation = new Error(
+      APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
+    );
+    Object.defineProperty(validation, "name", {
+      value: APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+
+    await expect(new Runtime().run(request, {
+      resolvePointTable: async () => ({
+        runPointOperation: async (
+          operation: Readonly<Record<string, unknown>>,
+        ) => {
+          operations.push(operation);
+          if (operations.length === 1) throw validation;
+          return {
+            kind: "inserted",
+            documentId: insertedOrderId,
+            document: {
+              _id: insertedOrderId,
+              _creationTime: 100,
+              status: "valid",
+            },
+          };
+        },
+      }),
+    })).resolves.toEqual({
+      format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+      version: 1,
+      value: insertedOrderId,
+    });
+    expect(caught).toEqual([
+      APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+    ]);
+    expect(operations.map(operation => operation.syscallSequence)).toEqual([
+      1n,
+      1n,
+    ]);
+  });
+
+  it("keeps caught host journal failures terminal and poisoning", async () => {
+    const request = await exactRequest(testArtifact());
+    const hostFailure = new Error("journal RPC unavailable");
+    const handler = vi.fn(async (ctx: ExactTestContext) => {
+      try {
+        await ctx.db.insert("orders", { status: "invalid" });
+      } catch {
+        return { caught: true };
+      }
+      return { caught: false };
+    });
+    const Runtime = generatedRuntimeClass(
+      testExactRuntimeWorkerSource(),
+      Object.freeze({
+        isMutation: true,
+        isPublic: true,
+        _handler: handler,
+      }),
+    );
+
+    await expect(new Runtime().run(request, {
+      resolvePointTable: async () => ({
+        runPointOperation: async () => {
+          throw hostFailure;
+        },
+      }),
+    })).rejects.toMatchObject({
+      name: "PointMutationExactRuntimeJournalBoundaryV1Error",
+      cause: hostFailure,
+    });
+    expect(handler).toHaveBeenCalledOnce();
   });
 
   it("keeps one validated fixture equivalent through in-process and generated adapters", async () => {
