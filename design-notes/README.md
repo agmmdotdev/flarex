@@ -11,6 +11,13 @@ domain file.
 
 ## Notes
 
+- `trigger-observability-webapp/plan.md`
+  - Approved preservation boundary and proposed extraction plan for the pinned
+    Trigger web application. The original app remains inert third-party source;
+    future Flarex-native observability work ports bounded capabilities behind
+    Flarex-owned identity, data, realtime, authorization, and presentation
+    contracts.
+
 - `flarex-durable-task-engine.md`
   - Accepted direction for extracting Trigger.dev's durable-run semantics into
     a host-neutral Flarex state machine backed by a private FlarexDB Task

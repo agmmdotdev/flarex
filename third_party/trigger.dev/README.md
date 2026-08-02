@@ -1,8 +1,10 @@
 # Trigger.dev Compatibility Island
 
 This directory preserves the Trigger.dev run engine and supervisor boundary as
-an inert, independently installable source island. It is a migration input for
-Flarex durable execution, not an active Flarex runtime or public API.
+an inert, independently installable source island. It also preserves the pinned
+Trigger web application as source-only reference material for future Flarex
+observability work. It is a migration input, not an active Flarex runtime,
+dashboard, or public API.
 
 ## Boundary
 
@@ -14,12 +16,24 @@ Flarex durable execution, not an active Flarex runtime or public API.
   not affect the comparison.
 - This nested pnpm workspace is intentionally excluded from Flarex's root
   `packages/*` and `apps/*` workspace globs.
+- `upstream/apps/webapp` is deliberately not a member of the nested pnpm
+  workspace. Its complete application source is preserved for inspection and
+  bounded porting, but the original Trigger control plane is not installed,
+  built, started, or treated as a Flarex application.
 - No Flarex package imports an upstream package.
 - Trigger's Prisma schemas, Redis queue, Redlock, metrics, Docker, Kubernetes,
   and ECR assumptions remain compatibility dependencies only. They are not
   FlarexDB, routing, deployment, or compute authority.
-- Trigger's web application, dashboard, SDK, CLI, bundler, and user runtime
-  entrypoints are not imported.
+- Trigger's SDK, CLI, bundler, and user runtime entrypoints are not imported.
+  The imported webapp retains Trigger-specific UI, loaders, API routes,
+  presenters, services, engine integration, authentication, tenancy, billing,
+  and deployment code only as frozen evidence. None of those owners are
+  activated or accepted as Flarex architecture.
+
+The observability extraction plan is recorded in
+`design-notes/trigger-observability-webapp/plan.md`. Future Flarex UI code must
+port bounded behavior behind Flarex-owned contracts; it must not import this
+application directly.
 
 Future integration must happen through Flarex-owned adapters. In particular,
 Flarex identity and artifact projections must be verified before the engine can
