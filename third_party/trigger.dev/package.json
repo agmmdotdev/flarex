@@ -1,0 +1,26 @@
+{
+  "name": "@flarex/trigger-compatibility-island",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "build:core": "pnpm --filter @trigger.dev/core run bundle-vendor && pnpm --filter @trigger.dev/core exec tshy && pnpm --filter @trigger.dev/core exec node scripts/bundle-superjson.mjs --copy && pnpm --filter @trigger.dev/core exec node --import tsx ../../scripts/updateVersion.ts",
+    "build:dependencies": "pnpm --filter @trigger.dev/database build && pnpm --filter @internal/run-ops-database build && pnpm run build:core && pnpm --filter @trigger.dev/redis-worker build && pnpm --filter @internal/metrics-pipeline build && pnpm --filter @internal/run-store build && pnpm --filter @internal/compute build",
+    "generate": "pnpm --filter @trigger.dev/database generate && pnpm --filter @internal/run-ops-database generate",
+    "typecheck": "pnpm run build:dependencies && pnpm --filter @internal/run-engine typecheck && pnpm --filter supervisor typecheck",
+    "test": "pnpm --filter @internal/run-engine test -- --run",
+    "test:unit": "pnpm run build:dependencies && pnpm run test:unit:run-engine && pnpm run test:unit:supervisor",
+    "test:unit:run-engine": "pnpm --filter @internal/run-engine exec vitest run src/run-queue/tests/keyProducer.test.ts src/run-queue/tests/workerQueueResolver.test.ts --no-file-parallelism",
+    "test:unit:supervisor": "pnpm --filter supervisor exec vitest run src --exclude src/backpressure/redisBackpressureSignalSource.test.ts --no-file-parallelism",
+    "verify:source": "node scripts/verify-source.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@vitest/coverage-v8": "4.1.7",
+    "pkg-types": "1.1.3",
+    "tsx": "4.17.0",
+    "typescript": "6.0.3",
+    "vite-tsconfig-paths": "^4.0.5",
+    "vitest": "4.1.7"
+  }
+}

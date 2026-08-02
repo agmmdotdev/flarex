@@ -707,8 +707,9 @@ Dynamic Worker binding baseline before selecting it.
 
 ### Wave 3 — Derived App-Data Sidecars
 
-1. `S10`: index revision/current and exact ordered bounds.
-2. `S11`: unique-key storage and collision verification.
+1. `S10` (complete): index revision/current and exact ordered bounds.
+2. `S11` (complete): scope-fenced unique-key claims, canonical collision
+   verification, and atomic claim/release/reuse storage.
 3. `S03-D3`: reconcile required physical definitions into per-scope build
    state now that their storage consumer exists.
 4. `R01`: relation identity and semantics.
@@ -809,7 +810,11 @@ host-neutral artifact-runtime probe fetches and verifies each referenced group.
 Its canonical receipt remains evidence
 only. It writes no verifier verdict or lifecycle and creates no ready or active
 authority. S10 now supplies private target-native index revision/current
-storage and exact ordered range reads. S03-D3, S11, and S03-D4 remain open;
+storage and exact ordered range reads. S11 now supplies private target-native
+unique claims tied to exact app-row revisions, including sparse/null/missing,
+locale, collision, release, and reuse semantics. Exact mutation replay remains
+owned by the existing outer point-commit idempotency/outcome path. S03-D3 and
+S03-D4 remain open;
 S03-D4, under the
 scope-clock-first order, exclusively owns terminal readiness outcomes before
 S04 activation CAS. Static verification, physical build reconciliation,

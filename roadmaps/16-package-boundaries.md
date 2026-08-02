@@ -64,6 +64,8 @@ Decisive current implementation anchors include:
 - [`packages/flarex-dev/src`](../packages/flarex-dev/src) and
   [`packages/flarex-test/src`](../packages/flarex-test/src) for local tooling
   and tests; and
+- [`third_party/trigger.dev`](../third_party/trigger.dev) for the pinned,
+  independently installable Trigger.dev compatibility source island; and
 - [`scripts/check-effect-boundaries.mjs`](../scripts/check-effect-boundaries.mjs)
   plus app-specific Worker bundle checks for executable boundary enforcement.
 
@@ -133,6 +135,7 @@ must not be copied into production Worker cores.
 | `@flarex/executor-worker` (`apps/executor`) | Private Cloudflare executor Worker using service bindings and request-scoped Postgres clients | Owns Worker bindings, authorization-before-allocation, client connect/cleanup, and host wiring; trusted semantics stay in core packages |
 | `@flarex/artifact-runtime` (`apps/artifact-runtime`) | Hosted Dynamic Worker materialization and execution-artifact service | Owns Cloudflare Worker Loader/R2/service-binding adaptation; user code receives restricted syscall transports, never raw platform or database capabilities |
 | `@flarex/example` (`apps/example`) | Consumer fixture and example application | Behaves like a normal user project; it must not become platform infrastructure or own Flarex Wrangler deployment |
+| `third_party/trigger.dev` | Frozen Trigger.dev run-engine and supervisor compatibility source island used as migration input for durable execution | Excluded from the Flarex workspace and runtime graph; it has no Flarex imports, database authority, routing authority, public API, or activation path. Future adoption must use Flarex-owned adapters and preserve the existing Postgres commit authority. |
 
 No `packages/flarex-core` package currently exists. Add another shared package
 only when two legitimate owners duplicate a stable, coherent abstraction and

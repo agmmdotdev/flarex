@@ -288,6 +288,13 @@
       "when": 1785516109947,
       "tag": "0040_lush_tenebrous",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1785522167220,
+      "tag": "0041_hard_spyke",
+      "breakpoints": true
     }
   ]
 }
