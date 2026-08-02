@@ -1,7 +1,9 @@
 # Trigger.dev source notice
 
 The files under `upstream/` are a selective, unmodified source import from
-Trigger.dev commit `f10bc23785e569e5d917318cf2033aabdbe96a0b`.
+Trigger.dev commit `f10bc23785e569e5d917318cf2033aabdbe96a0b`. The selection
+includes the run-engine/supervisor dependency island and the complete pinned
+`apps/webapp` tree as source-only observability and control-plane reference.
 
 Trigger.dev's repository-level source is licensed under Apache License 2.0.
 The complete upstream license is retained at `upstream/LICENSE`. The imported
