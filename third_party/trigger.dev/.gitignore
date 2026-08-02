@@ -1,0 +1,7 @@
+node_modules/
+upstream/**/dist/
+upstream/**/generated/
+upstream/**/.tshy/
+upstream/**/.tshy-build/
+upstream/packages/**/src/**/vendor/
+*.tsbuildinfo
