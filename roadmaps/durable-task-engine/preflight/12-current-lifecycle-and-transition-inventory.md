@@ -4,10 +4,11 @@
 
 **Status:** Complete as the Roadmap 03 inventory checkpoint.
 
-**Decision:** Continue to DTE03-B with one authoritative Flarex run-attempt
-aggregate. Retain the admitted Trigger transition semantics and hostile
-scenarios, but do not copy Trigger's independently mutable run-status and
-execution-snapshot status axes.
+**Decision:** Continue under the DTE03-B model with one authoritative Flarex
+run-attempt aggregate. DTE03-B is now complete in
+[`13-phase-terminal-and-aggregate-model.md`](./13-phase-terminal-and-aggregate-model.md):
+it retains the admitted Trigger transition semantics and hostile scenarios
+without copying Trigger's independently mutable status axes.
 
 This receipt inventories current source behavior and fixes the questions the
 remaining Roadmap 03 checkpoints must answer. It does not define the final
@@ -477,10 +478,10 @@ DTE03-A closes these direction questions:
 
 ## Handoff
 
-Proceed to DTE03-B. Define the smallest complete aggregate that can express
-all admitted command transitions without importing scheduling, persistence,
-host, waitpoint, or product state. Pressure-test every phase against the
-command-to-source table above before fixing its name.
+Proceed to DTE03-C using DTE03-B's five-phase discriminated aggregate. Fix the
+failure taxonomy, attempt ceiling, retry directive precedence, deterministic
+backoff/jitter, OOM policy, and error order without adding scheduling,
+persistence, host, waitpoint, or product state.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete model.
 
@@ -495,6 +496,7 @@ Do not create `packages/durable-task/` until DTE03-G admits the complete model.
 - [`05-final-package-admission.md`](./05-final-package-admission.md)
 - [`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md)
 - [`11-final-identity-admission.md`](./11-final-identity-admission.md)
+- [`13-phase-terminal-and-aggregate-model.md`](./13-phase-terminal-and-aggregate-model.md)
 - [`source-map.run-attempt-v1.json`](./source-map.run-attempt-v1.json)
 - frozen Trigger source and tests at commit
   `f10bc23785e569e5d917318cf2033aabdbe96a0b`

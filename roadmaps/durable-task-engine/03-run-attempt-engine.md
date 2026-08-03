@@ -2,10 +2,11 @@
 
 ## Status
 
-**Status:** Active. DTE03-A, the current Trigger-to-Flarex lifecycle and
-transition inventory, is complete. DTE03-B, the exact phase and aggregate
-model, is next. The Roadmap 03 lifecycle-model gate remains closed, so DTE-IP01
-package creation is not yet authorized.
+**Status:** Active. DTE03-A's current Trigger-to-Flarex lifecycle inventory and
+DTE03-B's exact phase/terminal/aggregate model are complete. DTE03-C, the
+completion, failure, retry, and attempt policy, is next. The Roadmap 03
+lifecycle-model gate remains closed, so DTE-IP01 package creation is not yet
+authorized.
 
 This roadmap owns the host-neutral run-attempt lifecycle contract required by
 the already-admitted private `@flarex/durable-task` package. It refines the
@@ -129,22 +130,25 @@ records:
 
 The receipt is an inventory, not the final Flarex state model.
 
-### DTE03-B: Phase, Terminal Outcome, And Aggregate Model — Next
+### DTE03-B: Phase, Terminal Outcome, And Aggregate Model — Complete
 
-Define and admit:
+[`preflight/13-phase-terminal-and-aggregate-model.md`](./preflight/13-phase-terminal-and-aggregate-model.md)
+admits:
 
-- `RunAttemptPhaseV1`;
-- the terminal success, cancellation, and failure outcome unions;
-- current-attempt, lease, cancellation, retry, and terminal invariants;
-- `TaskRunAttemptAggregateV1` with its ownership and runtime-freeze contract;
-- legal initial aggregate states received by DTE-IP01; and
-- exhaustive valid/invalid combination tables.
+- the exact five-member `RunAttemptPhaseV1`;
+- one discriminated `TaskRunAttemptAggregateV1` rather than Trigger's two
+  mutable status axes;
+- terminal success, cancellation, and failure outcomes;
+- current-attempt, lease, orthogonal cancellation, retry, replay, and cursor
+  topology;
+- the legal Roadmap 04 initial aggregate; and
+- legal-state and operation-applicability matrices.
 
-This checkpoint must explicitly decide whether scheduling facts are aggregate
-phases or inputs owned by the later Task System API. It must not claim support
-for waitpoint or checkpoint phases.
+Immediate retry is `ready`; durable retry is `retry_waiting`. Waitpoint,
+checkpoint, delayed, paused, pending-version, and product scheduling states are
+not admitted phases.
 
-### DTE03-C: Completion, Failure, Retry, And Attempt Policy
+### DTE03-C: Completion, Failure, Retry, And Attempt Policy — Next
 
 Define and admit:
 
@@ -291,6 +295,7 @@ This roadmap is governed by:
 - [`02-task-definition-identity-and-scope.md`](./02-task-definition-identity-and-scope.md)
   and its DTE02-A through DTE02-G receipts;
 - [`preflight/12-current-lifecycle-and-transition-inventory.md`](./preflight/12-current-lifecycle-and-transition-inventory.md);
+- [`preflight/13-phase-terminal-and-aggregate-model.md`](./preflight/13-phase-terminal-and-aggregate-model.md);
 - the frozen Trigger source at the DTE01 pinned commit; and
 - current Flarex code only for implemented authority and package-boundary
   evidence.

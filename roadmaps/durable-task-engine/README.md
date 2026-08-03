@@ -4,10 +4,11 @@
 
 **Status:** Vision authority. DTE01 source reuse/package admission and DTE02
 task identity/scope admission are complete. Roadmap 03 is active: DTE03-A's
-current Trigger-to-Flarex lifecycle/transition inventory is complete and
-DTE03-B's exact phase and aggregate model is next. DTE-IP01 package creation
-remains blocked on the complete Roadmap 03 lifecycle-model gate. No package
-implementation, schema, host integration, or production activation exists yet.
+Trigger-to-Flarex lifecycle inventory and DTE03-B's exact five-phase aggregate
+model are complete; DTE03-C's completion/failure/retry/attempt policy is next.
+DTE-IP01 package creation remains blocked on the complete Roadmap 03
+lifecycle-model gate. No package implementation, schema, host integration, or
+production activation exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -262,9 +263,9 @@ cross-provider placement, and public SDK integration remain later gates.
 
 The first two focused roadmaps are complete. Roadmap 03 is active because
 DTE-IP01 still needs exact lifecycle phase, outcome, failure, retry, evidence,
-and effect unions. Its source-to-Flarex inventory is complete; the exact phase
-and aggregate model is next. The later files remain candidates for their owning
-discussions:
+and effect unions. Its source inventory and exact five-phase aggregate are
+complete; failure/retry/attempt policy is next. The later files remain
+candidates for their owning discussions:
 
 1. [`01-source-reuse-and-package-admission.md`](./01-source-reuse-and-package-admission.md)
    - **complete: admit** the medium run-attempt lifecycle source closure into a
@@ -276,10 +277,10 @@ discussions:
      artifact binding, private domain identities, and DTE-IP01 command/store
      contracts; DTE02-A through DTE02-G are complete;
 3. [`03-run-attempt-engine.md`](./03-run-attempt-engine.md)
-   - **active:** DTE03-A inventory complete; DTE03-B phase/aggregate model next,
-     followed by retry/failure policy, cancellation/lease tables,
-     outcomes/evidence/effects, compatibility vectors, and final lifecycle
-     admission;
+   - **active:** DTE03-A inventory and DTE03-B phase/aggregate model complete;
+     DTE03-C retry/failure/attempt policy next, followed by cancellation/lease
+     tables, outcomes/evidence/effects, compatibility vectors, and final
+     lifecycle admission;
 4. `04-task-system-api-and-postgres.md`
    - private operation contracts, Drizzle schema, transactions, idempotency,
      discovery, ordered events, corruption policy, PGlite, and real Postgres;
