@@ -10,9 +10,9 @@ This receipt consumes the
 binds it to the machine-readable
 [`source-map.run-attempt-v1.json`](./source-map.run-attempt-v1.json).
 
-It authorizes no package creation. DTE01-D through DTE01-G still gate
-provenance mechanics, the compatibility harness, boundary checks, and final
-package admission.
+It authorizes no package creation. DTE01-D/E are now fixed by the
+[`provenance and compatibility harness receipt`](./03-provenance-and-compatibility-harness.md).
+DTE01-F/G still gate executable boundary checks and final package admission.
 
 ## Decision Summary
 
@@ -61,7 +61,12 @@ The planned manifest identity is:
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "files": ["src"],
+  "files": [
+    "src",
+    "THIRD_PARTY_NOTICES.md",
+    "trigger-source-map.json",
+    "licenses"
+  ],
   "exports": {
     "./internal/run-attempt-v1": "./src/runAttempt/v1.ts"
   },
@@ -88,6 +93,11 @@ The first admitted checkpoint should use this proportional domain-first shape:
 packages/durable-task/
   package.json
   tsconfig.json
+  THIRD_PARTY_NOTICES.md
+  trigger-source-map.json
+  licenses/
+    trigger-apache-2.0.txt
+    trigger-core-mit.txt
   src/
     runAttempt/
       Model.ts
