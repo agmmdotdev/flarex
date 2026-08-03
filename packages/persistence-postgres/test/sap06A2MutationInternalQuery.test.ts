@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { Miniflare } from "miniflare";
 
 import {
-  POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_MAIN_MODULE_V1,
-} from "../../flarex-backend/src/artifactRuntime/PointMutationInternalQueryExactRuntimeHost";
+  POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_MAIN_MODULE_V1,
+} from "../../flarex-backend/src/artifactRuntime/PointMutationInternalCallExactRuntimeHost";
 
 import {
   createPGliteLocatedApplicationRevisionActivationTargetV1,
@@ -76,11 +76,11 @@ describe("SAP06-A2 mutation internal query - PGlite", () => {
         },
         {
           type: "ESModule",
-          path: POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_MAIN_MODULE_V1,
-          contents: `export class FlarexPointMutationInternalQueryExactRuntimeV1 {
+          path: POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_MAIN_MODULE_V1,
+          contents: `export class FlarexPointMutationInternalCallExactRuntimeV1 {
   async run() {
     const error = new Error("journal failed");
-    Object.defineProperty(error, "name", { value: "PointMutationInternalQueryExactRuntimeJournalBoundaryV1Error" });
+    Object.defineProperty(error, "name", { value: "PointMutationInternalCallExactRuntimeJournalBoundaryV1Error" });
     throw error;
   }
 }`,
@@ -98,7 +98,7 @@ describe("SAP06-A2 mutation internal query - PGlite", () => {
       await expect(response.json()).resolves.toMatchObject({
         ok: false,
         reason: "journalBoundaryFailed",
-        name: "PointMutationInternalQueryExactRuntimeJournalBoundaryV1Error",
+        name: "PointMutationInternalCallExactRuntimeJournalBoundaryV1Error",
       });
     } finally {
       await runtime.dispose();

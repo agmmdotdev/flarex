@@ -1364,6 +1364,9 @@ function definitionInput(
   if (revisionVariant === "sap06-a2-mutation-internal-query") {
     return sap06A2DefinitionInput();
   }
+  if (revisionVariant === "sap06-a3-mutation-internal-call") {
+    return sap06A3DefinitionInput();
+  }
   if (
     revisionVariant === "fsv06-insert" ||
     revisionVariant === "fsv06-update"
@@ -1721,7 +1724,7 @@ function fsv06DefinitionInput(
 function sap06A2DefinitionInput(): StandardApplicationDefinitionInputV1 {
   return {
     programBudgetInput: {
-      maximumModules: 2,
+      maximumModules: 3,
       maximumFunctions: 2,
       maximumIdentifierUtf8Bytes: 4_096,
       maximumValidatorNodes: 512,
@@ -1807,6 +1810,122 @@ function sap06A2DefinitionInput(): StandardApplicationDefinitionInputV1 {
         artifactModulePath: "q",
       }],
       executionPath: "m",
+      schemaPath: null,
+      authPath: null,
+    },
+  };
+}
+
+function sap06A3DefinitionInput(): StandardApplicationDefinitionInputV1 {
+  return {
+    programBudgetInput: {
+      maximumModules: 3,
+      maximumFunctions: 3,
+      maximumIdentifierUtf8Bytes: 4_096,
+      maximumValidatorNodes: 768,
+      maximumValidatorDepth: 32,
+      maximumValidatorStringUtf8Bytes: 4_096,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: {
+        tables: [{
+          logicalName: "o",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                status: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+              },
+            },
+          },
+        }],
+        indexes: [],
+      },
+      modules: [{
+        modulePath: "o",
+        functions: [{
+          exportName: "u",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "any" },
+          returnsValidator: { type: "any" },
+        }],
+      }, {
+        modulePath: "m",
+        functions: [{
+          exportName: "w",
+          kind: "mutation",
+          visibility: "internal",
+          argsValidator: { type: "any" },
+          returnsValidator: { type: "string" },
+        }],
+      }, {
+        modulePath: "q",
+        functions: [{
+          exportName: "r",
+          kind: "query",
+          visibility: "internal",
+          argsValidator: { type: "any" },
+          returnsValidator: { type: "any" },
+        }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 3,
+      maximumEntryBindings: 3,
+      maximumSourceBytes: 8_192,
+      maximumSourceMapBytes: 1_024,
+      maximumBytesMaterialized: 64_000,
+      maximumSemanticRecords: 96,
+      maximumSemanticRecordBytes: 8_000,
+      maximumSemanticStreamBytes: 32_000,
+    },
+    graphInput: {
+      modules: [{
+        path: "r",
+        roles: ["function", "execution"],
+        sourceBytes: UTF8.encode(
+          'import{runMutation}from"flarex:platform";' +
+          'export async function u(_,a){try{await runMutation({_path:"m:w"},a)}' +
+          'catch{}return null}',
+        ),
+        sourceMapBytes: null,
+      }, {
+        path: "m",
+        roles: ["function"],
+        sourceBytes: UTF8.encode(
+          'import{databaseDelete,runQuery}from"flarex:platform";' +
+          'export async function w(_,{i}){await databaseDelete(i);' +
+          'await runQuery({_path:"q:r"},{i});return 42}',
+        ),
+        sourceMapBytes: null,
+      }, {
+        path: "q",
+        roles: ["function"],
+        sourceBytes: UTF8.encode(
+          'import{databaseGet}from"flarex:platform";' +
+          'export function r(_,{i}){return databaseGet(i)}',
+        ),
+        sourceMapBytes: null,
+      }],
+      functionEntries: [{
+        logicalModulePath: "o",
+        artifactModulePath: "r",
+      }, {
+        logicalModulePath: "m",
+        artifactModulePath: "m",
+      }, {
+        logicalModulePath: "q",
+        artifactModulePath: "q",
+      }],
+      executionPath: "r",
       schemaPath: null,
       authPath: null,
     },

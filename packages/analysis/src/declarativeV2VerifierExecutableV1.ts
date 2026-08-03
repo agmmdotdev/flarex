@@ -7241,6 +7241,7 @@ export type DeclarativeV2VerifierCompletedLinkLookupStepV1 =
       readonly found: boolean;
       readonly moduleOrdinal: bigint | null;
       readonly producingParseResultSha256: Uint8Array | null;
+      readonly usesRunMutation: boolean | null;
       readonly usage: DeclarativeV2VerifierCompletedLinkLookupUsageV1;
     }>;
 
@@ -8375,6 +8376,10 @@ const advanceLinkerOne = (
       state,
       state.pendingTargetPosition,
     );
+    const resolvedExportStart = state.moduleView.getUint32(
+      resolvedModuleIndex * 64 + 24,
+      false,
+    );
     state.importEdgeView.setUint32(
       importedOffset + 20,
       resolvedModuleIndex + 1,
@@ -8382,7 +8387,10 @@ const advanceLinkerOne = (
     );
     state.importEdgeView.setUint32(
       importedOffset + 24,
-      state.exportView.getUint32(state.exportIndex * 48 + 8, false),
+      state.exportView.getUint32(
+        (resolvedExportStart + state.exportIndex) * 48 + 8,
+        false,
+      ),
       false,
     );
     const targetState = state.graph.getUint32(
@@ -8666,6 +8674,7 @@ interface AuthenticatedLinkDriverStateV1 {
 }
 
 interface CompletedLinkClaimStateV1 {
+  linker: LinkerStateV1 | undefined;
   bindings: CapturedAuthenticatedLinkBindingsV1 | undefined;
   readonly rawModules: Array<DeclarativeV2VerifierModuleResultV1>;
   readonly modules: Array<DeclarativeV2VerifierOwnedModuleArenaV1>;
@@ -8686,15 +8695,26 @@ interface CompletedLinkLookupStateV1 {
     | "compareExport"
     | "findFunction"
     | "compareFunction"
+    | "scanReachableCalls"
+    | "findLocalTarget"
+    | "compareLocalTarget"
     | "complete";
   moduleIndex: number;
   exportIndex: number;
   functionIndex: number;
+  callIndex: number;
   localToken: number;
+  targetToken: number;
+  targetFunctionIndex: number;
+  readonly reachableModuleIndexes: number[];
+  readonly reachableFunctionIndexes: number[];
+  readonly reachableVisited: Map<number, Set<number>>;
+  reachableIndex: number;
   byteIndex: number;
   transitionCount: bigint;
   terminalCharged: boolean;
   found: boolean;
+  usesRunMutation: boolean;
   calls: bigint;
   exports: bigint;
   frontierEntries: bigint;
@@ -9985,6 +10005,8 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
         return Result.succeed(undefined);
       };
 
+  const COMPLETED_LINK_TARGET_ARTIFACT_V1 = 1;
+  const COMPLETED_LINK_TARGET_LOCAL_V1 = 3;
   const completedClaims = new WeakMap<object, CompletedLinkClaimStateV1>();
   const completedLookups = new WeakMap<object, CompletedLinkLookupStateV1>();
 
@@ -10010,12 +10032,16 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
     state.modulePath = undefined;
     state.exportName = undefined;
     state.expectedUtf8.source = undefined;
+    state.reachableModuleIndexes.splice(0);
+    state.reachableFunctionIndexes.splice(0);
+    state.reachableVisited.clear();
     const claim = state.claim;
     state.claim = undefined;
     if (claim?.activeLookup !== undefined) claim.activeLookup = undefined;
   };
   const releaseCompletedClaim = (state: CompletedLinkClaimStateV1): void => {
     state.closed = true;
+    state.linker = undefined;
     state.bindings = undefined;
     state.rawModules.splice(0);
     state.modules.splice(0);
@@ -10052,6 +10078,7 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
         moduleClaim === undefined
           ? null
           : new Uint8Array(moduleClaim.producingParseResultSha256),
+      usesRunMutation: state.found ? state.usesRunMutation : null,
       usage: lookupUsage(state),
     }) satisfies DeclarativeV2VerifierCompletedLinkLookupStepV1;
     releaseCompletedLookup(state);
@@ -10089,6 +10116,7 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
         }
         registration.claimed = true;
         const state: CompletedLinkClaimStateV1 = {
+          linker: presentation.state,
           bindings: registration.bindings,
           rawModules: registration.rawModules.splice(0),
           modules: registration.modules.splice(0),
@@ -10139,11 +10167,19 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
           moduleIndex: 0,
           exportIndex: 0,
           functionIndex: 0,
+          callIndex: 0,
           localToken: -1,
+          targetToken: -1,
+          targetFunctionIndex: 0,
+          reachableModuleIndexes: [],
+          reachableFunctionIndexes: [],
+          reachableVisited: new Map(),
+          reachableIndex: 0,
           byteIndex: 0,
           transitionCount: 0n,
           terminalCharged: false,
           found: false,
+          usesRunMutation: false,
           calls: 1n,
           exports: 0n,
           frontierEntries: 0n,
@@ -10182,7 +10218,12 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
         if (claim === undefined) {
           throw new Error("Accepted completed-link lookup lost its claim.");
         }
-        while (transitions < allowance.success && state.phase !== "complete") {
+        let invalid = false;
+        while (
+          transitions < allowance.success &&
+          state.phase !== "complete" &&
+          !invalid
+        ) {
           if (
             state.transitionCount %
                 BigInt(DECLARATIVE_V2_VERIFIER_TRANSITION_QUANTUM_V1) ===
@@ -10297,13 +10338,21 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
                 state.byteIndex = 0;
               }
             }
-          } else {
+          } else if (state.phase === "compareFunction") {
             const functionToken =
               module!.functionView.getUint32(state.functionIndex * 144, false) - 1;
             const length = tokenLengthV1(module!, functionToken);
             if (state.byteIndex >= length) {
               state.found = true;
-              state.phase = "complete";
+              state.reachableVisited.set(
+                state.moduleIndex,
+                new Set([state.functionIndex]),
+              );
+              state.reachableModuleIndexes.push(state.moduleIndex);
+              state.reachableFunctionIndexes.push(state.functionIndex);
+              state.reachableIndex = 0;
+              state.callIndex = 0;
+              state.phase = "scanReachableCalls";
             } else {
               state.stringBytes += 1n;
               if (
@@ -10321,9 +10370,218 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
                 state.byteIndex += 1;
               }
             }
+          } else if (state.phase === "scanReachableCalls") {
+            if (state.reachableIndex >= state.reachableModuleIndexes.length) {
+              state.phase = "complete";
+            } else {
+              const reachableModuleIndex =
+                state.reachableModuleIndexes[state.reachableIndex]!;
+              const reachableFunctionIndex =
+                state.reachableFunctionIndexes[state.reachableIndex]!;
+              const reachableModule = claim.modules[reachableModuleIndex];
+              if (reachableModule === undefined) {
+                invalid = true;
+              } else if (state.callIndex >= reachableModule.callCount) {
+                state.reachableIndex += 1;
+                state.callIndex = 0;
+              } else {
+                state.frontierEntries += 1n;
+                const offset =
+                  (reachableModule.importCount + state.callIndex) * 64;
+                state.callIndex += 1;
+                const caller = reachableModule.importEdgeView.getUint32(
+                  offset + 20,
+                  false,
+                );
+                if (caller === reachableFunctionIndex + 1) {
+                  const abiStored = reachableModule.importEdgeView.getUint32(
+                    offset + 36,
+                    false,
+                  );
+                  const abi = abiStored === 0
+                    ? undefined
+                    : DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1[abiStored - 1];
+                  if (abi?.name === "runMutation") {
+                    state.usesRunMutation = true;
+                    state.phase = "complete";
+                  } else if (abiStored === 0) {
+                    const targetStored =
+                      reachableModule.importEdgeView.getUint32(
+                        offset + 24,
+                        false,
+                      );
+                    const targetKind =
+                      reachableModule.importEdgeView.getUint32(
+                        offset + 16,
+                        false,
+                      );
+                    if (targetStored === 0) {
+                      invalid = true;
+                    } else if (targetKind === COMPLETED_LINK_TARGET_LOCAL_V1) {
+                      state.targetToken = targetStored - 1;
+                      state.targetFunctionIndex = 0;
+                      state.byteIndex = 0;
+                      state.phase = "findLocalTarget";
+                    } else if (
+                      targetKind === COMPLETED_LINK_TARGET_ARTIFACT_V1
+                    ) {
+                      const importStored =
+                        reachableModule.importEdgeView.getUint32(
+                          offset + 28,
+                          false,
+                        );
+                      if (importStored === 0) {
+                        invalid = true;
+                      } else {
+                        const linker: LinkerStateV1 | undefined = claim.linker;
+                        const linkerModuleOffset = reachableModuleIndex * 64;
+                        const linkerImportStart = linker?.moduleView.getUint32(
+                          linkerModuleOffset + 16,
+                          false,
+                        );
+                        const linkerImportCount = linker?.moduleView.getUint32(
+                          linkerModuleOffset + 20,
+                          false,
+                        );
+                        const importIndex = importStored - 1;
+                        if (
+                          linker === undefined ||
+                          linkerImportStart === undefined ||
+                          linkerImportCount === undefined ||
+                          importIndex >= linkerImportCount
+                        ) {
+                          invalid = true;
+                        } else {
+                          const linkerImportOffset =
+                            (linkerImportStart + importIndex) * 64;
+                          const resolvedModuleStored =
+                            linker.importEdgeView.getUint32(
+                              linkerImportOffset + 20,
+                              false,
+                            );
+                          const resolvedFunctionStored: number =
+                            linker.importEdgeView.getUint32(
+                              linkerImportOffset + 24,
+                              false,
+                            );
+                          const resolvedModuleIndex = resolvedModuleStored - 1;
+                          const resolvedFunctionIndex =
+                            resolvedFunctionStored - 1;
+                          const resolvedModule =
+                            claim.modules[resolvedModuleIndex];
+                          let visited =
+                            state.reachableVisited.get(resolvedModuleIndex);
+                          if (
+                            resolvedModuleStored === 0 ||
+                            resolvedFunctionStored === 0 ||
+                            resolvedModule === undefined ||
+                            resolvedFunctionIndex >= resolvedModule.functionCount
+                          ) {
+                            invalid = true;
+                          } else {
+                            if (visited === undefined) {
+                              visited = new Set();
+                              state.reachableVisited.set(
+                                resolvedModuleIndex,
+                                visited,
+                              );
+                            }
+                            if (!visited.has(resolvedFunctionIndex)) {
+                              visited.add(resolvedFunctionIndex);
+                              state.reachableModuleIndexes.push(
+                                resolvedModuleIndex,
+                              );
+                              state.reachableFunctionIndexes.push(
+                                resolvedFunctionIndex,
+                              );
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } else if (state.phase === "findLocalTarget") {
+            const sourceModuleIndex =
+              state.reachableModuleIndexes[state.reachableIndex]!;
+            const sourceModule = claim.modules[sourceModuleIndex];
+            if (sourceModule === undefined) {
+              invalid = true;
+            } else if (
+              state.targetFunctionIndex >= sourceModule.functionCount
+            ) {
+              invalid = true;
+            } else {
+              const candidateToken = sourceModule.functionView.getUint32(
+                state.targetFunctionIndex * 144,
+                false,
+              ) - 1;
+              if (
+                tokenLengthV1(sourceModule, candidateToken) !==
+                  tokenLengthV1(sourceModule, state.targetToken)
+              ) {
+                state.targetFunctionIndex += 1;
+              } else {
+                state.byteIndex = 0;
+                state.phase = "compareLocalTarget";
+              }
+            }
+          } else if (state.phase === "compareLocalTarget") {
+            const sourceModuleIndex =
+              state.reachableModuleIndexes[state.reachableIndex]!;
+            const sourceModule = claim.modules[sourceModuleIndex];
+            if (sourceModule === undefined) {
+              invalid = true;
+            } else {
+              const candidateToken = sourceModule.functionView.getUint32(
+                state.targetFunctionIndex * 144,
+                false,
+              ) - 1;
+              const length = tokenLengthV1(sourceModule, candidateToken);
+              if (state.byteIndex >= length) {
+                let visited = state.reachableVisited.get(sourceModuleIndex);
+                if (visited === undefined) {
+                  visited = new Set();
+                  state.reachableVisited.set(sourceModuleIndex, visited);
+                }
+                if (!visited.has(state.targetFunctionIndex)) {
+                    visited.add(state.targetFunctionIndex);
+                    state.reachableModuleIndexes.push(sourceModuleIndex);
+                    state.reachableFunctionIndexes.push(
+                      state.targetFunctionIndex,
+                    );
+                }
+                state.phase = "scanReachableCalls";
+                state.byteIndex = 0;
+              } else {
+                state.stringBytes += 1n;
+                if (
+                  sourceModule.stringBytes[
+                    tokenOffsetV1(sourceModule, candidateToken) + state.byteIndex
+                  ] !==
+                    sourceModule.stringBytes[
+                      tokenOffsetV1(sourceModule, state.targetToken) +
+                      state.byteIndex
+                    ]
+                ) {
+                  state.targetFunctionIndex += 1;
+                  state.phase = "findLocalTarget";
+                  state.byteIndex = 0;
+                } else {
+                  state.byteIndex += 1;
+                }
+              }
+            }
           }
           transitions += 1;
           state.transitionCount += 1n;
+        }
+        if (invalid) {
+          releaseCompletedLookup(state);
+          releaseCompletedClaim(claim);
+          return Result.fail(executableError("access", "invalidInput"));
         }
         return Result.succeed(
           state.phase === "complete"

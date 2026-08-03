@@ -1944,7 +1944,8 @@ export function makeDeclarativeV2VerifierRegistrationFactoryV1(
           if (
             !found.success.found ||
             found.success.moduleOrdinal === null ||
-            found.success.producingParseResultSha256 === null
+            found.success.producingParseResultSha256 === null ||
+            found.success.usesRunMutation === null
           ) {
             return failTerminal(
               state,
@@ -1952,6 +1953,19 @@ export function makeDeclarativeV2VerifierRegistrationFactoryV1(
             );
           }
           const pending = state.pendingHandler!;
+          if (
+            pending.fn.functionKind === "query" &&
+            found.success.usesRunMutation
+          ) {
+            return failTerminal(
+              state,
+              registrationError(
+                operation,
+                "moduleMismatch",
+                "handlerCapability",
+              ),
+            );
+          }
           pending.moduleOrdinal = found.success.moduleOrdinal;
           pending.producingParseResultSha256 =
             found.success.producingParseResultSha256;

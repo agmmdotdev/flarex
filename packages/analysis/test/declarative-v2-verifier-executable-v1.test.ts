@@ -2707,6 +2707,31 @@ describe("Declarative V2 streaming engine", () => {
   });
 
   test.each([
+    ["missing reference", "await runMutation()"],
+    ["dynamic reference", "await runMutation(reference)"],
+    ["forged reference", "await runMutation({_path: reference})"],
+    ["dropped call", 'runMutation({_path:"internal:helper"})'],
+    ["direct return", 'return runMutation({_path:"internal:helper"})'],
+    ["overlapping call", 'Promise.all([runMutation({_path:"internal:helper"})])'],
+  ])("rejects non-static internal-mutation authority: %s", (_label, expression) => {
+    const source = UTF8_ENCODER.encode(
+      'import { runMutation } from "flarex:platform"; ' +
+        `export async function f(reference) { ${expression}; return null; }`,
+    );
+    Result.match(runSource(source, [source]), {
+      onFailure: (failure) => {
+        throw failure;
+      },
+      onSuccess: (success) => {
+        expect(success.verified).toBe(false);
+        expect(success.diagnostics).toEqual(expect.arrayContaining([
+          expect.objectContaining({ code: "CORE_CALL_TARGET" }),
+        ]));
+      },
+    });
+  });
+
+  test.each([
     ["dynamic import", "export function f() { return import(\"./x.js\"); }", "CORE_DYNAMIC_IMPORT"],
     ["construction", "export function f() { return new Date(); }", "CORE_CONSTRUCTION"],
     ["computed dispatch", "export function f(x) { return x[\"y\"](); }", "CORE_COMPUTED_DISPATCH"],

@@ -19,6 +19,7 @@
     "./internal/candidate-bound-point-query-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointQueryRuntimeTargetV1.ts",
     "./internal/candidate-bound-point-query-internal-call-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointQueryInternalCallRuntimeTargetV1.ts",
     "./internal/candidate-bound-point-mutation-internal-query-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationInternalQueryRuntimeTargetV1.ts",
+    "./internal/candidate-bound-point-mutation-internal-call-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationInternalCallRuntimeTargetV1.ts",
     "./internal/point-mutation-grant-preparation-v1": "./src/pointMutationGrantPreparation.ts",
     "./internal/point-mutation-transaction-grant-issuer-v1": "./src/transactionGrantIssuer.ts",
     "./internal/application-revision-readiness-coordinator-v1": "./src/deployment/PrivateApplicationRevisionReadinessCoordinatorV1.ts",
@@ -30,7 +31,7 @@
     "./test/sync-protocol": "./src/syncProtocol.ts"
   },
   "scripts": {
-    "build": "pnpm check:exact-runtime-core && pnpm check:point-mutation-runtime-kernel && pnpm check:point-query-runtime-kernel && pnpm check:point-query-exact-runtime-core && pnpm check:point-query-internal-call-runtime-kernel && pnpm check:point-query-internal-call-exact-runtime-core && pnpm check:point-mutation-internal-query-runtime-kernel && pnpm check:point-mutation-internal-query-exact-runtime-core && tsc -p tsconfig.json",
+    "build": "pnpm check:exact-runtime-core && pnpm check:point-mutation-runtime-kernel && pnpm check:point-query-runtime-kernel && pnpm check:point-query-exact-runtime-core && pnpm check:point-query-internal-call-runtime-kernel && pnpm check:point-query-internal-call-exact-runtime-core && pnpm check:point-mutation-internal-query-runtime-kernel && pnpm check:point-mutation-internal-query-exact-runtime-core && pnpm check:point-mutation-internal-call-runtime-kernel && pnpm check:point-mutation-internal-call-exact-runtime-core && tsc -p tsconfig.json",
     "check:exact-runtime-core": "tsx scripts/buildPointMutationExactRuntimeCore.ts check",
     "check:point-mutation-runtime-kernel": "tsx scripts/buildPointMutationRuntimeKernel.ts check",
     "exact-runtime-core:update": "tsx scripts/buildPointMutationExactRuntimeCore.ts update",
@@ -47,6 +48,10 @@
     "point-mutation-internal-query-runtime-kernel:update": "tsx scripts/buildPointMutationInternalQueryRuntimeKernel.ts update",
     "check:point-mutation-internal-query-exact-runtime-core": "tsx scripts/buildPointMutationInternalQueryExactRuntimeCore.ts check",
     "point-mutation-internal-query-exact-runtime-core:update": "tsx scripts/buildPointMutationInternalQueryExactRuntimeCore.ts update",
+    "check:point-mutation-internal-call-runtime-kernel": "tsx scripts/buildPointMutationInternalCallRuntimeKernel.ts check",
+    "point-mutation-internal-call-runtime-kernel:update": "tsx scripts/buildPointMutationInternalCallRuntimeKernel.ts update",
+    "check:point-mutation-internal-call-exact-runtime-core": "tsx scripts/buildPointMutationInternalCallExactRuntimeCore.ts check",
+    "point-mutation-internal-call-exact-runtime-core:update": "tsx scripts/buildPointMutationInternalCallExactRuntimeCore.ts update",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

@@ -9,7 +9,8 @@
     "./point-mutation": "./src/pointMutation.ts",
     "./point-query": "./src/pointQuery.ts",
     "./point-query-internal-call": "./src/pointQueryInternalCall.ts",
-    "./point-mutation-internal-query": "./src/pointMutationInternalQuery.ts"
+    "./point-mutation-internal-query": "./src/pointMutationInternalQuery.ts",
+    "./point-mutation-internal-call": "./src/pointMutationInternalCall.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

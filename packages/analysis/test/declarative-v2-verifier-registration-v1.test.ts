@@ -156,11 +156,13 @@ function registrationBudget(
 
 function runModule(
   modulePath = "functions/example.js",
+  source = SOURCE,
+  moduleOrdinal = 0n,
 ): DeclarativeV2VerifierModuleResultV1 {
-  const bytes = UTF8.encode(SOURCE);
+  const bytes = UTF8.encode(source);
   const created = Result.getOrThrow(createDeclarativeV2VerifierEngineV1({
     modulePath: artifactModulePath(modulePath),
-    moduleOrdinal: 0n,
+    moduleOrdinal,
     sourceSha256: new Uint8Array(32).fill(17),
     maximums: budget("command_budget", bytes.byteLength),
     required: budget("attempt_usage", bytes.byteLength),
@@ -204,6 +206,11 @@ interface LinkFixture {
   readonly result: DeclarativeV2VerifierLinkResultV1;
 }
 
+interface LinkedModuleFixture {
+  readonly modulePath: string;
+  readonly source: string;
+}
+
 function reconstructColdModule(
   warm: DeclarativeV2VerifierModuleResultV1,
 ): DeclarativeV2VerifierModuleResultV1 {
@@ -242,33 +249,51 @@ function runLink(
   coldModule = false,
   bindings = linkBindings(),
   modulePath = "functions/example.js",
+  source = SOURCE,
+  additionalModules: ReadonlyArray<LinkedModuleFixture> = [],
 ): LinkFixture {
-  const warm = runModule(modulePath);
-  const module = coldModule ? reconstructColdModule(warm) : warm;
-  const claim = Object.freeze({
-    ...bindings,
-    moduleOrdinal: 0n,
-    producingParseResultSha256: new Uint8Array(
-      Buffer.from(module.evidenceSha256, "hex"),
-    ),
-  }) satisfies DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1;
+  const warmModules = [
+    { modulePath, source },
+    ...additionalModules,
+  ].map((entry, index) =>
+    runModule(entry.modulePath, entry.source, BigInt(index))
+  );
+  const modules = warmModules.map(module =>
+    coldModule ? reconstructColdModule(module) : module
+  );
+  const claims = modules.map((module, index) =>
+    Object.freeze({
+      ...bindings,
+      moduleOrdinal: BigInt(index),
+      producingParseResultSha256: new Uint8Array(
+        Buffer.from(module.evidenceSha256, "hex"),
+      ),
+    }) satisfies DeclarativeV2VerifierAuthenticatedLinkModuleClaimV1
+  );
   const factory = makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1({
-    claim: candidate =>
-      candidate === module
-        ? Result.succeed(claim)
+    claim: candidate => {
+      const index = modules.findIndex(module => candidate === module);
+      return index >= 0
+        ? Result.succeed(claims[index]!)
         : Result.fail(new DeclarativeV2VerifierExecutableV1Error({
           operation: "link",
           reason: "invalidInput",
-        })),
+        }));
+    },
   });
   const commandBudget = budget("command_budget", 0, {
     objectBodyBytes: 0n,
     sourceBytes: 0n,
+    modules: BigInt(modules.length),
   });
   const accumulator = Result.getOrThrow(factory.create(bindings, commandBudget));
-  for (let guard = 0; guard < 1_000_000; guard += 1) {
-    const admitted = Result.getOrThrow(factory.admit(accumulator, module, 1_024));
-    if (admitted.status === "ready") break;
+  for (const module of modules) {
+    for (let guard = 0; guard < 1_000_000; guard += 1) {
+      const admitted = Result.getOrThrow(
+        factory.admit(accumulator, module, 1_024),
+      );
+      if (admitted.status === "ready") break;
+    }
   }
   const sealed = Result.getOrThrow(factory.seal(accumulator, 1_024));
   if (sealed.status !== "complete") throw new Error("link fixture did not seal");
@@ -337,6 +362,8 @@ function registrationFixture(
   records: ReadonlyArray<DeclarativeV2SemanticRecordV1> = SEMANTIC_RECORDS,
   modulePath = "functions/example.js",
   currentProgressPredecessor?: Uint8Array,
+  source = SOURCE,
+  additionalModules: ReadonlyArray<LinkedModuleFixture> = [],
 ): {
   readonly factory: ReturnType<
     typeof makeDeclarativeV2VerifierRegistrationFactoryV1
@@ -366,6 +393,8 @@ function registrationFixture(
     coldModule,
     linkBindings(41, progressSha256),
     modulePath,
+    source,
+    additionalModules,
   );
   const semantic = semanticBytes(records);
   const semanticBudget = semanticBudgetFor(records, semantic);
@@ -460,6 +489,203 @@ function registrationFixture(
 }
 
 describe("private Declarative V2 registration verifier", () => {
+  test("rejects runMutation from a declared query handler", () => {
+    const fixture = registrationFixture(
+      1024,
+      undefined,
+      false,
+      false,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      'import {runMutation} from "flarex:platform";' +
+        'export async function getThing(){return await runMutation(' +
+        '{_path:"internal:mutate"})}',
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
+  test("rejects runMutation reachable through a local query helper", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      false,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      'import {runMutation} from "flarex:platform";' +
+        "async function helper(){return await runMutation(" +
+        '{_path:"internal:mutate"})}' +
+        "export async function getThing(){return await helper()}",
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
+  test("rejects a dropped local helper that can reach runMutation", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      false,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      'import {runMutation} from "flarex:platform";' +
+        "async function helper(){return await runMutation(" +
+        '{_path:"internal:mutate"})}' +
+        'export async function getThing(){helper();return "ok"}',
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
+  test("rejects runMutation reachable through an imported query helper", () => {
+    const records = Object.freeze([
+      ...SEMANTIC_RECORDS.slice(0, 2),
+      { kind: "module", modulePath: "functions/helper.js" },
+      ...SEMANTIC_RECORDS.slice(2),
+    ]) satisfies ReadonlyArray<DeclarativeV2SemanticRecordV1>;
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      records,
+      "functions/example.js",
+      undefined,
+      'import {helper} from "./helper.js";' +
+        "export async function getThing(){return await helper()}",
+      [{
+        modulePath: "functions/helper.js",
+        source: 'import {runMutation} from "flarex:platform";' +
+          'function decoy(){return "ok"}' +
+          "export async function helper(){return await runMutation(" +
+          '{_path:"internal:mutate"})}',
+      }],
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
+  test("rejects a dropped imported helper that can reach runMutation", () => {
+    const records = Object.freeze([
+      ...SEMANTIC_RECORDS.slice(0, 2),
+      { kind: "module", modulePath: "functions/helper.js" },
+      ...SEMANTIC_RECORDS.slice(2),
+    ]) satisfies ReadonlyArray<DeclarativeV2SemanticRecordV1>;
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      false,
+      records,
+      "functions/example.js",
+      undefined,
+      'import {helper} from "./helper.js";' +
+        'export async function getThing(){helper();return "ok"}',
+      [{
+        modulePath: "functions/helper.js",
+        source: 'import {runMutation} from "flarex:platform";' +
+          'function decoy(){return "ok"}' +
+          "export async function helper(){return await runMutation(" +
+          '{_path:"internal:mutate"})}',
+      }],
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
+  test("terminates cycle-safe handler reachability without runMutation", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      false,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      "async function helper(){return await helper()}" +
+        "export async function getThing(){return await helper()}",
+    );
+    expect(Result.isSuccess(fixture.result)).toBe(true);
+  });
+
+  test("keeps multi-module reachability receipts identical across allowances and restart", () => {
+    const modulePaths = ["a", "b", "c"].map(
+      name => `functions/${name}.js`,
+    );
+    const records = Object.freeze([
+      ...SEMANTIC_RECORDS.slice(0, 1),
+      ...modulePaths.map(modulePath => ({ kind: "module", modulePath } as const)),
+      ...SEMANTIC_RECORDS.slice(1),
+    ]) satisfies ReadonlyArray<DeclarativeV2SemanticRecordV1>;
+    const modules = [{
+      modulePath: modulePaths[0]!,
+      source: 'import {b} from "./b.js";' +
+        "export async function a(){return await b()}",
+    }, {
+      modulePath: modulePaths[1]!,
+      source: 'import {c} from "./c.js";' +
+        "export async function b(){return await c()}",
+    }, {
+      modulePath: modulePaths[2]!,
+      source: 'export async function c(){return "ok"}',
+    }];
+    const run = (allowance: 1 | 1024, coldModule: boolean) =>
+      Result.getOrThrow(registrationFixture(
+        allowance,
+        undefined,
+        false,
+        coldModule,
+        records,
+        "functions/example.js",
+        undefined,
+        'import {a} from "./a.js";' +
+          "export async function getThing(){return await a()}",
+        modules,
+      ).result);
+    const singleStep = run(1, false);
+    const quantum = run(1024, false);
+    const cold = run(1, true);
+    expect(singleStep.actual).toEqual(quantum.actual);
+    expect(singleStep.actual).toEqual(cold.actual);
+    expect(singleStep.capacity).toEqual(quantum.capacity);
+    expect(singleStep.capacity).toEqual(cold.capacity);
+    expect(singleStep.registrationFrames).toEqual(quantum.registrationFrames);
+    expect(singleStep.registrationFrames).toEqual(cold.registrationFrames);
+    expect(singleStep.registrationRootSha256).toEqual(
+      cold.registrationRootSha256,
+    );
+  });
+
   test("publishes deterministic registration frames only after exact proof", () => {
     const warm = registrationFixture(1);
     const coldOne = registrationFixture(1, undefined, false, true);

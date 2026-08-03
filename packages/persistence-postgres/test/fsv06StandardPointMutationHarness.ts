@@ -2,11 +2,11 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { Miniflare } from "miniflare";
 import { Cause, Effect, Exit, Fiber, Layer, Result, Scope } from "effect";
 import {
-  claimCandidateBoundPointMutationInternalQueryRuntimeTargetV1,
-} from "../../flarex-backend/src/artifactRuntime/CandidateBoundPointMutationInternalQueryRuntimeTargetV1";
+  claimCandidateBoundPointMutationInternalCallRuntimeTargetV1,
+} from "../../flarex-backend/src/artifactRuntime/CandidateBoundPointMutationInternalCallRuntimeTargetV1";
 import {
-  POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_MAIN_MODULE_V1,
-} from "../../flarex-backend/src/artifactRuntime/PointMutationInternalQueryExactRuntimeHost";
+  POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_MAIN_MODULE_V1,
+} from "../../flarex-backend/src/artifactRuntime/PointMutationInternalCallExactRuntimeHost";
 import {
   makePointMutationTransactionGrantIssuerV1,
 } from "../../flarex-backend/src/transactionGrantIssuer";
@@ -634,6 +634,325 @@ export async function proveSap06A2MutationInternalQueryV1(
   });
 }
 
+export async function proveSap06A3MutationInternalCallV1(
+  lane: Fsv06StandardPointMutationLaneV1,
+): Promise<Readonly<{
+  readonly lane: "pglite" | "postgres";
+  readonly inlineInternalMutation: true;
+  readonly nestedInternalQuery: true;
+  readonly caughtFailurePreservedWrite: true;
+  readonly oneParentPublication: true;
+  readonly exactReplay: true;
+  readonly confirmedRollbackPreserved: true;
+  readonly occConflictReran: true;
+  readonly interruptionRecovered: true;
+  readonly decisionUncertaintyRecovered: true;
+  readonly coldSelectionReplay: true;
+  readonly runtimeExecutions: number;
+  readonly currentRowPointerCount: 6;
+  readonly liveRowCount: 0;
+  readonly commitCount: number;
+  readonly outcomeCount: number;
+  readonly feedCount: number;
+  readonly outboxCount: number;
+  readonly postgresVersion: string | null;
+}>> {
+  const artifacts = makeRuntimeArtifactPublisherFixtureV1();
+  const insertReady = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    artifacts,
+    "fsv06-insert",
+    true,
+  );
+  await Effect.runPromise(Effect.scoped(
+    activateApplicationRevisionV1(
+      insertReady.revisionId,
+      null,
+      insertReady.context,
+    ),
+  ));
+  let runtimeExecutions = 0;
+  const proofController: Fsv06CompositionProofControllerV1 = {
+    loseCommitResponseAtBeforeCommit: false,
+    loseCommitResponseAfterSettlement: false,
+    observedOperations: [],
+  };
+  const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+    insertReady.deploymentId,
+  );
+  const applicationLayer = Layer.merge(
+    makeApplicationPointMutationSystemV1Layer(systemLive(
+      lane,
+      deploymentId,
+      artifacts,
+      proofController,
+      () => { runtimeExecutions += 1; },
+    )),
+    makeStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
+  );
+  const invoke = <A, E>(effect: Effect.Effect<
+    A,
+    E,
+    | ApplicationPointMutationSystemV1
+    | StandardApplicationActiveRevisionReaderV1
+    | Scope.Scope
+  >) => Effect.runPromise(Effect.scoped(effect.pipe(
+    Effect.provide(applicationLayer),
+  )));
+  const inserted = await invoke(invokeStandardApplicationPointMutationV1(
+    TransactionFunctionPathV1Schema.make("o:c"),
+    { status: "staged" },
+    TransactionRequestKeyV1Schema.make(`sap06-a3:${lane.name}:insert`),
+  ));
+  if (
+    inserted.status !== "committed" ||
+    inserted.disposition !== "published" ||
+    typeof inserted.value !== "string"
+  ) {
+    throw new Error("SAP06-A3 setup insert was not authoritative.");
+  }
+  const documentIds = [inserted.value];
+  for (let index = 1; index < 6; index += 1) {
+    const setup = await invoke(invokeStandardApplicationPointMutationV1(
+      TransactionFunctionPathV1Schema.make("o:c"),
+      { status: `staged-${index}` },
+      TransactionRequestKeyV1Schema.make(
+        `sap06-a3:${lane.name}:insert-${index}`,
+      ),
+    ));
+    if (
+      setup.status !== "committed" ||
+      setup.disposition !== "published" ||
+      typeof setup.value !== "string"
+    ) {
+      throw new Error("SAP06-A3 recovery setup insert was not authoritative.");
+    }
+    documentIds.push(setup.value);
+  }
+  const previous = await Effect.runPromise(Effect.scoped(
+    readActiveApplicationRevisionV1(insertReady.context),
+  ));
+  const internalReady = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    artifacts,
+    "sap06-a3-mutation-internal-call",
+    false,
+  );
+  await Effect.runPromise(Effect.scoped(
+    activateApplicationRevisionV1(
+      internalReady.revisionId,
+      previous.expectedActiveRevision,
+      internalReady.context,
+    ),
+  ));
+  proofController.observedOperations = [];
+  const before = await durableCounts(lane.persistence);
+  const mainKey = TransactionRequestKeyV1Schema.make(
+    `sap06-a3:${lane.name}:delete-read`,
+  );
+  const deleted = await invoke(invokeStandardApplicationPointMutationV1(
+    TransactionFunctionPathV1Schema.make("o:u"),
+    { i: inserted.value },
+    mainKey,
+  ));
+  const after = await durableCounts(lane.persistence);
+  if (
+    deleted.status !== "committed" ||
+    deleted.disposition !== "published" ||
+    deleted.value !== null ||
+    proofController.observedOperations?.join(",") !== "delete:1,get:2"
+  ) {
+    throw new Error(
+      "SAP06-A3 did not preserve the caught child write for its nested read.",
+    );
+  }
+  if (
+    before.currentRows !== 6 || after.currentRows !== 6 ||
+    before.liveRows !== 6 || after.liveRows !== 5 ||
+    after.commits !== before.commits + 1 ||
+    after.outcomes !== before.outcomes + 1 ||
+    after.feed !== before.feed + 1 ||
+    after.outbox !== before.outbox + 1
+  ) {
+    throw new Error(
+      `SAP06-A3 publication mismatch: ${JSON.stringify({ before, after })}`,
+    );
+  }
+  const executionsAfterMain = runtimeExecutions;
+  const replayed = await invoke(invokeStandardApplicationPointMutationV1(
+    TransactionFunctionPathV1Schema.make("o:u"),
+    { i: inserted.value },
+    mainKey,
+  ));
+  if (
+    replayed.disposition !== "replayed" ||
+    replayed.commitSeq !== deleted.commitSeq ||
+    runtimeExecutions !== executionsAfterMain
+  ) {
+    throw new Error("SAP06-A3 exact replay re-executed the nested call.");
+  }
+
+  proofController.confirmedRollbackStep = "beforeCommit";
+  const beforeRollback = await durableCounts(lane.persistence);
+  const rollbackKey = TransactionRequestKeyV1Schema.make(
+    `sap06-a3:${lane.name}:confirmed-rollback`,
+  );
+  let confirmedRollbackPreserved = false;
+  try {
+    await invoke(invokeStandardApplicationPointMutationV1(
+      TransactionFunctionPathV1Schema.make("o:u"),
+      { i: documentIds[1]! },
+      rollbackKey,
+    ));
+  } catch (cause) {
+    confirmedRollbackPreserved = failureTag(cause) === "PointCommitSqlErrorV1" &&
+      isNonArrayRecord(cause) && cause.sqlState === "40001";
+  }
+  const afterRollback = await durableCounts(lane.persistence);
+  if (
+    !confirmedRollbackPreserved ||
+    proofController.confirmedRollbackStep !== undefined ||
+    JSON.stringify(afterRollback) !== JSON.stringify(beforeRollback)
+  ) {
+    throw new Error("SAP06-A3 exposed child state after confirmed rollback.");
+  }
+  const rollbackRecovery = await invoke(
+    invokeStandardApplicationPointMutationV1(
+      TransactionFunctionPathV1Schema.make("o:u"),
+      { i: documentIds[1]! },
+      TransactionRequestKeyV1Schema.make(
+        `sap06-a3:${lane.name}:rollback-recovery`,
+      ),
+    ),
+  );
+  if (rollbackRecovery.disposition !== "published") {
+    throw new Error("SAP06-A3 did not continue after confirmed rollback.");
+  }
+
+  let occCompetitorCommitted = false;
+  proofController.afterRuntimeOnce = async () => {
+    const competitor = await invoke(invokeStandardApplicationPointMutationV1(
+      TransactionFunctionPathV1Schema.make("o:u"),
+      { i: documentIds[2]! },
+      TransactionRequestKeyV1Schema.make(
+        `sap06-a3:${lane.name}:occ-competitor`,
+      ),
+    ));
+    occCompetitorCommitted = competitor.disposition === "published";
+  };
+  const executionsBeforeOcc = runtimeExecutions;
+  let occPrimaryRejectedAtReplacement = false;
+  try {
+    await invoke(invokeStandardApplicationPointMutationV1(
+      TransactionFunctionPathV1Schema.make("o:u"),
+      { i: documentIds[2]! },
+      TransactionRequestKeyV1Schema.make(`sap06-a3:${lane.name}:occ-primary`),
+    ));
+  } catch (cause) {
+    occPrimaryRejectedAtReplacement = failureTag(cause) ===
+      "PointMutationJournalResultRejectedV1Error";
+  }
+  if (
+    !occPrimaryRejectedAtReplacement ||
+    !occCompetitorCommitted ||
+    runtimeExecutions - executionsBeforeOcc !== 3
+  ) {
+    throw new Error("SAP06-A3 did not rerun its parent after OCC conflict.");
+  }
+
+  proofController.loseCommitResponseAtBeforeCommit = true;
+  const uncertain = await invoke(invokeStandardApplicationPointMutationV1(
+    TransactionFunctionPathV1Schema.make("o:u"),
+    { i: documentIds[3]! },
+    TransactionRequestKeyV1Schema.make(`sap06-a3:${lane.name}:uncertain`),
+  ));
+  if (
+    uncertain.disposition !== "replayed" ||
+    proofController.loseCommitResponseAfterSettlement
+  ) {
+    throw new Error("SAP06-A3 did not recover its parent decision uncertainty.");
+  }
+
+  const interruption = transactionBlock();
+  proofController.beforeCommitBlock = interruption;
+  const interruptionKey = TransactionRequestKeyV1Schema.make(
+    `sap06-a3:${lane.name}:interrupted`,
+  );
+  const interruptedFiber = Effect.runFork(Effect.scoped(
+    invokeStandardApplicationPointMutationV1(
+      TransactionFunctionPathV1Schema.make("o:u"),
+      { i: documentIds[4]! },
+      interruptionKey,
+    ).pipe(Effect.provide(applicationLayer)),
+  ));
+  await interruption.reached;
+  const interruptRequest = Effect.runPromise(Fiber.interrupt(interruptedFiber));
+  interruption.release();
+  await interruptRequest;
+  const interruptedExit = await Effect.runPromise(Fiber.await(interruptedFiber));
+  if (
+    !Exit.isFailure(interruptedExit) ||
+    !interruptedExit.cause.reasons.some(Cause.isInterruptReason)
+  ) {
+    throw new Error("SAP06-A3 interruption was not terminal to its caller.");
+  }
+  const interruptedReplay = await invoke(
+    invokeStandardApplicationPointMutationV1(
+      TransactionFunctionPathV1Schema.make("o:u"),
+      { i: documentIds[4]! },
+      interruptionKey,
+    ),
+  );
+  if (interruptedReplay.disposition !== "replayed") {
+    throw new Error("SAP06-A3 interruption did not settle through parent replay.");
+  }
+
+  const cold = await invoke(invokeStandardApplicationPointMutationV1(
+    TransactionFunctionPathV1Schema.make("o:u"),
+    { i: documentIds[5]! },
+    TransactionRequestKeyV1Schema.make(`sap06-a3:${lane.name}:cold`),
+  ));
+  if (cold.disposition !== "published") {
+    throw new Error("SAP06-A3 cold active-selection reconstruction failed.");
+  }
+  const durable = await durableCounts(lane.persistence);
+  if (
+    durable.currentRows !== 6 || durable.liveRows !== 0 ||
+    durable.commits !== 12 || durable.outcomes !== 12 ||
+    durable.feed !== 12 || durable.outbox !== 12
+  ) {
+    throw new Error(
+      `SAP06-A3 recovery publication drifted: ${JSON.stringify(durable)}.`,
+    );
+  }
+  const postgresVersion = lane.name === "postgres"
+    ? (await lane.persistence.query<{ version: string }>(
+      "select version() as version",
+    )).rows[0]?.version ?? null
+    : null;
+  return Object.freeze({
+    lane: lane.name,
+    inlineInternalMutation: true as const,
+    nestedInternalQuery: true as const,
+    caughtFailurePreservedWrite: true as const,
+    oneParentPublication: true as const,
+    exactReplay: true as const,
+    confirmedRollbackPreserved: true as const,
+    occConflictReran: true as const,
+    interruptionRecovered: true as const,
+    decisionUncertaintyRecovered: true as const,
+    coldSelectionReplay: true as const,
+    runtimeExecutions,
+    currentRowPointerCount: 6 as const,
+    liveRowCount: 0 as const,
+    commitCount: durable.commits,
+    outcomeCount: durable.outcomes,
+    feedCount: durable.feed,
+    outboxCount: durable.outbox,
+    postgresVersion,
+  });
+}
+
 function systemLive(
   lane: Fsv06StandardPointMutationLaneV1,
   deploymentId: ApplicationPointMutationSystemLiveV1["deploymentId"],
@@ -764,7 +1083,7 @@ function testRuntimeDispatcher(
   return Object.freeze({
     bind: (target: unknown) => Effect.gen(function* () {
       const claimed = yield* Effect.fromResult(
-        claimCandidateBoundPointMutationInternalQueryRuntimeTargetV1(target),
+        claimCandidateBoundPointMutationInternalCallRuntimeTargetV1(target),
       ).pipe(Effect.mapError(cause =>
         new ApplicationPointMutationRouteIndependentDispatcherV1Error({
           reason: "targetRejected",
@@ -874,7 +1193,7 @@ function testRuntimeDispatcher(
 }
 
 export function pointMutationWorkerdDispatchModuleSourceForTest(): string {
-  return `import { FlarexPointMutationInternalQueryExactRuntimeV1 } from "./${POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_MAIN_MODULE_V1}";
+  return `import { FlarexPointMutationInternalCallExactRuntimeV1 } from "./${POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_MAIN_MODULE_V1}";
 const encode = value => JSON.stringify(value, (_key, member) =>
   typeof member === "bigint" ? member.toString() : member);
 export default {
@@ -907,13 +1226,13 @@ export default {
     };
     try {
       const result = await Reflect.apply(
-        FlarexPointMutationInternalQueryExactRuntimeV1.prototype.run,
+        FlarexPointMutationInternalCallExactRuntimeV1.prototype.run,
         {},
         [input, journal],
       );
       return Response.json({ ok: true, result });
     } catch (error) {
-      const reason = error?.name === "PointMutationInternalQueryExactRuntimeJournalBoundaryV1Error"
+      const reason = error?.name === "PointMutationInternalCallExactRuntimeJournalBoundaryV1Error"
         ? "journalBoundaryFailed"
         : "userCodeFailed";
       return Response.json({
