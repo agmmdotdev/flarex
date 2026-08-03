@@ -59,6 +59,7 @@ The accepted operations are:
 
 ```text
 startAttempt
+heartbeatAttempt
 completeAttempt
 requestCancellation
 handleLeaseExpiry

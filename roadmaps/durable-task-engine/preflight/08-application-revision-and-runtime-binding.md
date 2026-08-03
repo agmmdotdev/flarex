@@ -675,8 +675,9 @@ loader to `@flarex/durable-task`.
 
 DTE02-E has now fixed the exact identity types and validation owners in
 [`09-domain-identity-types-and-ownership.md`](./09-domain-identity-types-and-ownership.md).
-DTE02-F next maps the run-attempt commands to the opaque
-`TaskDefinitionRevisionIdV1` without exposing this binding surface.
+DTE02-F now maps the run-attempt commands to the opaque
+`TaskDefinitionRevisionIdV1` without exposing this binding surface in
+[`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md).
 
 ## Explicit Non-Goals
 
@@ -723,7 +724,8 @@ DTE02-D is complete with these conclusions:
 10. DTE01 admission and DTE-IP01 scope remain unchanged; and
 11. DTE02-E domain identity types and ownership is now complete in
     [`09-domain-identity-types-and-ownership.md`](./09-domain-identity-types-and-ownership.md),
-    and DTE02-F is the next preflight.
+    and DTE02-F is now complete in
+    [`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md).
 
 ## Authority And Evidence
 

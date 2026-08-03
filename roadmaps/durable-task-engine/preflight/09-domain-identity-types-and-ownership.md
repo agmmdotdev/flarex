@@ -3,7 +3,7 @@
 ## Status And Scope
 
 **Status:** Complete identity-contract receipt. DTE02-F input and store-port
-contract is next.
+contract is also complete; DTE02-G final identity admission is next.
 
 This receipt fixes the names, encoded forms, validation rules, generation
 authority, equality, visibility, and scope behavior of the identities needed
@@ -14,8 +14,9 @@ not derived from a public digest.
 This document does not create a package, schema, migration, table, public API,
 runtime host, scheduler, or production route. Roadmap 04 still owns physical
 columns, indexes, transactional SQL, collision retry implementation, and
-PGlite/Postgres proof. DTE02-F owns the exact command and typed-error unions
-that carry these values.
+PGlite/Postgres proof. DTE02-F now fixes the exact command and typed-error
+unions that carry these values in
+[`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md).
 
 ## Decision Summary
 
@@ -375,10 +376,11 @@ maps failure according to the evidence source:
 | supplied fence differs from current accepted fence | stale-execution result; no mutation and no existence disclosure beyond the authorized run context |
 | fence would exceed signed-64-bit maximum | terminal fence-exhaustion failure; never wrap or reset |
 
-DTE02-F owns the concrete tagged error union because its names must match the
-admitted service and store commands. It must preserve these categories and
-must not collapse corruption, stale execution, invalid command, generation
-failure, scope mismatch, or absence into a generic `Error`.
+DTE02-F now fixes the concrete tagged error union in
+[`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md).
+It preserves these categories rather than collapsing corruption, stale
+execution, invalid command, generation failure, scope mismatch, or absence
+into a generic `Error`.
 
 Schema parse diagnostics are boundary detail, not a stable public API. Safe
 errors may name the expected identity kind and canonical format, but must not
@@ -460,10 +462,11 @@ runtime. It must not import:
 - application-revision, scope-authority, artifact, or runtime-publication
   types.
 
-Production ID generation remains behind the future scope-bound
-`TaskSystemRunAttemptStore`. DTE02-F must make creation/claim commands omit
-caller-generated run IDs, attempt IDs, and fences and make store receipts
-return them.
+Production ID generation remains behind the broader Task System persistence
+owner. DTE02-F keeps new-run creation outside the narrow DTE-IP01 service and
+makes attempt-claim commands omit caller-generated attempt IDs and fences;
+store receipts return the accepted grant. See
+[`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md).
 
 ## Required Proofs For Later Roadmaps
 
@@ -541,7 +544,8 @@ DTE02-E is complete with these conclusions:
 10. existing Flarex application, scope, transaction-session, and transaction-
     fence authorities remain distinct; and
 11. DTE-IP01 can define the approved run-attempt identity schemas with its
-    admitted `effect` dependency only, so DTE02-F is the next preflight.
+    admitted `effect` dependency only; DTE02-F is now complete and DTE02-G is
+    the next preflight.
 
 ## Authority And Evidence
 

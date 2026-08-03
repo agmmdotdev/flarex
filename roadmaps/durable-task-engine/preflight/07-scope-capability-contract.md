@@ -300,6 +300,7 @@ may not return state first and validate the scope afterward.
 | --- | --- | --- |
 | bind definition and create run | yes; match the active selection to fresh located authority | yes; scope clock first, then active/task binding and idempotent insert |
 | `startAttempt` | yes for the request/wake operation | yes, before run/attempt load and fence comparison |
+| `heartbeatAttempt` | yes for the heartbeat operation | yes, before attempt/fence validation and database-time lease renewal |
 | `completeAttempt` | yes for the completion operation | yes, before attempt-fence and duplicate/conflict handling |
 | `requestCancellation` | yes for the request operation | yes, before cancellation-generation transition |
 | `handleLeaseExpiry` | yes for the recovery operation | yes, before lease/fence recovery decision |
@@ -309,9 +310,9 @@ The first implementation may optimize repeated preliminary resolution only
 inside one explicitly scoped same-deployment operation. It may not remove the
 per-transaction scope-clock check.
 
-Future heartbeat, due-run discovery, waitpoint, batch, or scheduler operations
-inherit the same rule when admitted. Their absence from this table is not
-permission to use an unscoped database service.
+Future due-run discovery, waitpoint, batch, or scheduler operations inherit the
+same rule when admitted. Their absence from this table is not permission to
+use an unscoped database service.
 
 ### Drift And Mismatch Behavior
 
@@ -404,9 +405,9 @@ store's typed boundary, but it must retain the distinction between:
 - transient foreign-port failure; and
 - terminal unsupported placement or integration failure.
 
-The exact domain error class names are DTE02-F's owner because they must agree
-with the admitted DTE01 store error union. DTE02-F may narrow spelling, but it
-may not collapse these meanings.
+The exact domain error class names are now fixed by DTE02-F in
+[`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md).
+That receipt retains, rather than collapses, these meanings.
 
 ### Domain-Owned Lifecycle Errors
 
@@ -484,10 +485,11 @@ durable identity, but it never serializes a live capability. See
 
 DTE02-E now fixes domain identities as scope-local lookup values in
 [`09-domain-identity-types-and-ownership.md`](./09-domain-identity-types-and-ownership.md).
-DTE02-F must keep every scope-authority field out of commands and expose only
-the semantic store port already fixed by DTE01. Its final error union must
-retain this receipt's stale, absence, corruption, transient, and terminal
-distinctions.
+DTE02-F now keeps every scope-authority field out of commands and exposes only
+the semantic store port in
+[`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md).
+Its final error union retains this receipt's stale, absence, corruption,
+transient, and terminal distinctions.
 
 ### Roadmap 04
 

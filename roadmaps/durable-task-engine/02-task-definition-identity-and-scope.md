@@ -5,8 +5,9 @@
 **Status:** Active preflight. DTE02-A current-authority inventory, revised
 DTE02-B first-class task-definition contract, and DTE02-C trusted scope
 capability contract are complete. DTE02-D application revision and durable
-task runtime binding and DTE02-E domain identity types and ownership are also
-complete. DTE02-F DTE-IP01 input and store-port contract is next.
+task runtime binding, DTE02-E domain identity types and ownership, and DTE02-F
+DTE-IP01 input/store-port contract are also complete. DTE02-G final identity
+admission is next.
 
 This roadmap owns the identity and authority boundary required before the
 admitted `@flarex/durable-task` package can be created. It does not authorize a
@@ -530,24 +531,31 @@ and package proofs remain DTE-IP01 work.
 
 ### DTE02-F: DTE-IP01 Input Contract
 
-**Status:** Next.
+**Status:** Complete. See
+[`preflight/10-dte-ip01-input-and-store-port-contract.md`](./preflight/10-dte-ip01-input-and-store-port-contract.md).
 
-Required output:
+Accepted output:
 
-- exact run-attempt service command fields;
-- exact scope-bound Task System port surface consumed by the admitted source
-  closure;
-- mapping from every retained Trigger identity field;
-- removed organization/environment/deployment fields and rationale; and
-- executable package-boundary updates if the final contract changes any DTE01
-  assumption.
+- six exact service commands, including the explicit heartbeat operation
+  already present in DTE01's admitted source/test closure;
+- exact run, lease, cancellation, heartbeat, database-time, result-commitment,
+  and requested-effect supporting values;
+- a two-operation scope-bound `TaskSystemRunAttemptStore` with one pure,
+  re-invocable transactional decision seam and one authoritative inspection;
+- exact command, decision, and store error categories;
+- complete retained Trigger identity/field mapping and product-authority
+  removal rationale; and
+- DTE01 service-list correction without a new source, dependency, export, or
+  package boundary.
 
-Exit gate: the complete admitted package can be created without placeholders,
-generic strings standing in for authority, or a new workspace dependency.
+Exit gate: the complete admitted package can be created without authority
+placeholders, generic identity strings, hidden host/persistence state, or a new
+workspace dependency. The contract gate is accepted; implementation remains
+production-inert DTE-IP01 work.
 
 ### DTE02-G: Final Identity Admission
 
-**Status:** Pending.
+**Status:** Next.
 
 Required output:
 

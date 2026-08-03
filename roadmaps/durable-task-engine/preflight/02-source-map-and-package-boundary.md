@@ -203,6 +203,7 @@ guards or calculations in Effect.
 
 ```text
 startAttempt
+heartbeatAttempt
 completeAttempt
 requestCancellation
 handleLeaseExpiry
