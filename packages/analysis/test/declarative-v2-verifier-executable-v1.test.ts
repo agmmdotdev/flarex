@@ -2248,6 +2248,24 @@ describe("Declarative V2 streaming engine", () => {
     });
   });
 
+  test("admits the exact mutation-to-internal-query fixture", () => {
+    const source = UTF8_ENCODER.encode(
+      'import {databaseDelete,runQuery} from "flarex:platform";' +
+        'export async function u(_,{i}){ await databaseDelete(i); ' +
+        'return await runQuery({_path:"q:r"},{i})}',
+    );
+    Result.match(runSource(source, [source]), {
+      onFailure: failure => { throw failure; },
+      onSuccess: success => {
+        expect(
+          success.verified,
+          success.diagnostics.map(({ code }) => code).join(","),
+        ).toBe(true);
+        expect(success.diagnostics).toEqual([]);
+      },
+    });
+  });
+
   test("derives regex versus division from canonical parser state across reductions", () => {
     for (const [sourceText, expectedCode] of [
       ["export function f(value) { return (value) / 2; }", undefined],

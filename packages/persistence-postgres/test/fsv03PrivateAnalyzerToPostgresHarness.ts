@@ -135,7 +135,7 @@ const LOCATOR = Object.freeze({
   schemaName: "public",
 });
 const MAXIMUM = 20_000_000n;
-const FSV06_COMMAND_MAXIMUM = 40_000_000n;
+const FSV06_COMMAND_MAXIMUM = 50_000_000n;
 const OPERATION_BUDGET = Object.freeze({
   maximumCalls: 256,
   maximumRows: 256,
@@ -1361,6 +1361,9 @@ async function provisionRegistrationScope(
 function definitionInput(
   revisionVariant?: string,
 ): StandardApplicationDefinitionInputV1 {
+  if (revisionVariant === "sap06-a2-mutation-internal-query") {
+    return sap06A2DefinitionInput();
+  }
   if (
     revisionVariant === "fsv06-insert" ||
     revisionVariant === "fsv06-update"
@@ -1709,6 +1712,101 @@ function fsv06DefinitionInput(
         artifactModulePath,
       }],
       executionPath: artifactModulePath,
+      schemaPath: null,
+      authPath: null,
+    },
+  };
+}
+
+function sap06A2DefinitionInput(): StandardApplicationDefinitionInputV1 {
+  return {
+    programBudgetInput: {
+      maximumModules: 2,
+      maximumFunctions: 2,
+      maximumIdentifierUtf8Bytes: 4_096,
+      maximumValidatorNodes: 512,
+      maximumValidatorDepth: 32,
+      maximumValidatorStringUtf8Bytes: 4_096,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: {
+        tables: [{
+          logicalName: "o",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                status: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+              },
+            },
+          },
+        }],
+        indexes: [],
+      },
+      modules: [{
+        modulePath: "o",
+        functions: [{
+          exportName: "u",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "any" },
+          returnsValidator: { type: "any" },
+        }],
+      }, {
+        modulePath: "q",
+        functions: [{
+          exportName: "r",
+          kind: "query",
+          visibility: "internal",
+          argsValidator: { type: "any" },
+          returnsValidator: { type: "any" },
+        }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 2,
+      maximumEntryBindings: 2,
+      maximumSourceBytes: 8_192,
+      maximumSourceMapBytes: 1_024,
+      maximumBytesMaterialized: 64_000,
+      maximumSemanticRecords: 64,
+      maximumSemanticRecordBytes: 8_000,
+      maximumSemanticStreamBytes: 32_000,
+    },
+    graphInput: {
+      modules: [{
+        path: "m",
+        roles: ["function", "execution"],
+        sourceBytes: UTF8.encode(
+          'import {databaseDelete,runQuery} from "flarex:platform";' +
+          'export async function u(_,{i}){ await databaseDelete(i); ' +
+          'return await runQuery({_path:"q:r"},{i})}',
+        ),
+        sourceMapBytes: null,
+      }, {
+        path: "q",
+        roles: ["function"],
+        sourceBytes: UTF8.encode(
+          'import { databaseGet } from "flarex:platform"; ' +
+          'export function r(_,{i}) { return databaseGet(i); }',
+        ),
+        sourceMapBytes: null,
+      }],
+      functionEntries: [{
+        logicalModulePath: "o",
+        artifactModulePath: "m",
+      }, {
+        logicalModulePath: "q",
+        artifactModulePath: "q",
+      }],
+      executionPath: "m",
       schemaPath: null,
       authPath: null,
     },

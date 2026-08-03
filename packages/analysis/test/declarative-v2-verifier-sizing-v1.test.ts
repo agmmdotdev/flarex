@@ -121,11 +121,12 @@ describe("private parse-module verifier capacity", () => {
       evidenceFramesPerDomainUnit: 21,
       maximumSemanticOutputBytesPerDomainByte: 8,
       arenaOperationalByteLimit: 67_108_864,
-      selectedSourceAndModulePathByteLimit: 128,
-      arenaBytesAtSelectedLimit: 48_273_592,
-      arenaBytesAtNextPowerOfTwo: 156_553_528,
+      selectedSourceAndModulePathByteLimit: 156,
+      firstExcludedSourceAndModulePathByteLimit: 157,
+      arenaBytesAtSelectedLimit: 66_819_028,
+      arenaBytesAtFirstExcludedLimit: 67_534_609,
     });
-    expect(DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1).toBe(128);
+    expect(DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1).toBe(156);
     expect(DECLARATIVE_V2_VERIFIER_PARSE_ARENA_OPERATIONAL_BYTE_LIMIT_V1)
       .toBe(67_108_864);
     expect(generateDeclarativeV2VerifierBoundsV1()).toContain(
@@ -216,17 +217,21 @@ describe("private parse-module verifier capacity", () => {
     const exact = planDeclarativeV2VerifierParseCapacityV1(
       fixture({
         modulePath: modulePathOfLength(12),
-        source: new Uint8Array(116),
+        source: new Uint8Array(144),
       }),
       bindings(),
     );
     if (Result.isFailure(exact)) throw exact.failure;
-    expect(exact.success.domainByteLength).toBe(128n);
-    expect(exact.success.arenaByteLength).toBeLessThanOrEqual(48_273_592);
+    expect(exact.success.domainByteLength).toBe(156n);
+    expect(exact.success.arenaByteLength).toBe(66_818_980);
+    expect(exact.success.arenaByteLength).toBeLessThanOrEqual(
+      DECLARATIVE_V2_VERIFIER_PARSE_ARENA_OPERATIONAL_BYTE_LIMIT_V1,
+    );
+    expect(exact.success.arenaByteLength).toBeLessThanOrEqual(0xffff_ffff);
     expect(planDeclarativeV2VerifierParseCapacityV1(
       fixture({
         modulePath: modulePathOfLength(12),
-        source: new Uint8Array(117),
+        source: new Uint8Array(145),
       }),
       bindings(),
     )).toMatchObject({
@@ -234,8 +239,8 @@ describe("private parse-module verifier capacity", () => {
         operation: "capacity",
         reason: "domainLimitExceeded",
         path: "domainByteLength",
-        observed: 129n,
-        maximum: 128n,
+        observed: 157n,
+        maximum: 156n,
       },
     });
   });

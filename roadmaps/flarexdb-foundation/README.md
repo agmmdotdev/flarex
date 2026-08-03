@@ -1223,8 +1223,12 @@ implemented:
   multiplicities: maximum production RHS length `3`, two epsilon productions,
   six parser-stack entries per admitted domain unit, four parse diagnostic
   phases per unit, and the owned evidence/semantic multiplicity and encoding
-  constants used by the capacity proof. The generated bounds identity is
-  `db2dd17538d9c26f8d03b01f244cb8d2bfe845bb8a41e3093261778b25c9b56b`.
+  constants used by the capacity proof. The current monotonic generator-v2
+  bounds identity is
+  `0c8fa2dc3b7b720dd48da148be06e47feb49747a075b09ca6e543075703cd8a0`.
+  The earlier generator-v1 identity
+  `db2dd17538d9c26f8d03b01f244cb8d2bfe845bb8a41e3093261778b25c9b56b`
+  is historical evidence only.
 
   The exact V1 caller-proportional arena is
   `12_544 + 56*tokens + 24*parserStates + 16*nestingDepth + 64*modules +
@@ -1250,15 +1254,14 @@ implemented:
   same-length actual-fit module. The exact universal maximum remains unproved,
   while this constructive family proves the hard ceiling `Nmax <= 160_613`.
 
-  Capability 1 selects a conservative combined UTF-8 module-path plus
-  source-domain limit of `128` bytes. The generated checked arena proof selects
-  the largest power-of-two domain beneath a `67,108,864`-byte core arena
-  ceiling, leaving half of the Cloudflare Worker `128` MiB isolate limit for
-  non-arena host state: the complete V1 caller-proportional arena is at most
-  `48,273,592` bytes at `128`, while the next power of two (`256`) requires
-  `156,553,528` bytes. Every formula is evaluated with checked
-  signed-int64 arithmetic before existing u32 region/total addressability
-  admission; `129` fails before allocation. This deliberately conservative
+  The current generator-v2 proof selects a conservative combined UTF-8
+  module-path plus source-domain limit of `156` bytes by monotonic search under
+  the unchanged `67,108,864`-byte core arena ceiling, leaving half of the
+  Cloudflare Worker `128` MiB isolate limit for non-arena host state. The
+  complete V1 caller-proportional arena is `66,819,028` bytes at `156`; the
+  first excluded capacity, `157`, requires `67,534,609` bytes. Every formula
+  is evaluated with checked signed-int64 arithmetic before existing u32
+  region/total addressability admission; `157` fails before allocation. This deliberately conservative
   limit changes accepted inputs and pre-allocation failure order while
   preserving admitted V1 bytes and identities. An analysis-owned streaming,
   interning, or
@@ -1754,20 +1757,20 @@ implemented:
   analyzer capabilities. The accepted direction is to preserve V1 call
   accounting and close parse allocation with a proven conservative
   source/domain limit plus generated parser and diagnostic multiplicity bounds.
-  Capability 1 selected a checked `128`-byte combined module-path/source limit;
-  its maximum arena is `48,273,592` bytes beneath the `67,108,864`-byte core
-  arena ceiling, while the next power of two requires `156,553,528`
-  bytes. Streaming/factoring, a new arena representation, and a new evidence
+  The current bounded generator-v2 correction selects a checked `156`-byte
+  combined module-path/source limit; its maximum arena is `66,819,028` bytes
+  beneath the unchanged `67,108,864`-byte core arena ceiling, while the first
+  excluded capacity `157` requires `67,534,609` bytes. Streaming/factoring, a new arena representation, and a new evidence
   representation are deferred.
 
   **A1b2 capability 1 — verifier core contract completion.** The
   analysis-owned capability is implemented and committed. It preserves
-  observable V1 `calls`, selects the checked `128`-byte combined
+  observable V1 `calls`, selects the checked `156`-byte combined
   module-path/source domain, admits immutable parse capacity before allocation,
   and retains verifier-owned terminal actual enforcement. The generated proof
-  pins a `48,273,592`-byte maximum arena at the selected limit beneath the
-  `67,108,864`-byte core arena ceiling; the next power-of-two domain requires
-  `156,553,528` bytes. Source, link, and registration retain their existing
+  pins a `66,819,028`-byte maximum arena at the selected limit beneath the
+  unchanged `67,108,864`-byte core arena ceiling; `157` is the first excluded
+  capacity at `67,534,609` bytes. Source, link, and registration retain their existing
   capacity/actual laws, the provisional command-plan API is removed, and
   focused monolithic, restart, canonical-byte, generated-bound, identity,
   allowance, and transport compatibility lanes are green. The capability
@@ -1850,8 +1853,9 @@ micro-gates. They established the command-input/admission/sealed-capability/
 terminal-proof lifecycle, source-length addressability counterexample, and
 observable V1 call-accounting contract. The selected direction preserves V1
 call accounting and uses generated parser/diagnostic bounds with a checked
-conservative `128`-byte combined source/domain limit and a `48,273,592`-byte
-maximum arena proof beneath the `67,108,864`-byte core arena ceiling.
+conservative `156`-byte combined source/domain limit and a `66,819,028`-byte
+maximum arena proof beneath the unchanged `67,108,864`-byte core arena ceiling;
+`157` is the first excluded capacity at `67,534,609` bytes.
 Streaming/factoring, arena-version, and evidence-version redesigns are deferred.
 
 Analyzer completion is exactly two medium capabilities: verifier core contract
@@ -1872,7 +1876,7 @@ result-bound registration presentation without rerunning the linker,
 duplicating the module representation, or serializing a handle. The Effect
 host reads the claimed restart source cooperatively, preserves the original
 transport failure channel, retains admitted payload chunks and joins each role
-once, and consumes a complete module path before the committed `128`-byte
+once, and consumes a complete module path before the committed `156`-byte
 combined source/domain limit is enforced. Progress replay or skipping fails
 before a new owner driver is created.
 

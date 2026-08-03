@@ -1,17 +1,12 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { Miniflare } from "miniflare";
 import { Cause, Effect, Exit, Fiber, Layer, Result, Scope } from "effect";
 import {
-  executePointMutationV1,
-  inspectPointMutationRuntimeFailureV1,
-  type PointMutationRuntimeDatabaseV1,
-} from "../../function-runtime/src/pointMutation";
+  claimCandidateBoundPointMutationInternalQueryRuntimeTargetV1,
+} from "../../flarex-backend/src/artifactRuntime/CandidateBoundPointMutationInternalQueryRuntimeTargetV1";
 import {
-  claimCandidateBoundPointMutationRuntimeTargetV1,
-} from "../../flarex-backend/src/artifactRuntime/CandidateBoundPointMutationRuntimeTargetV1";
-import {
-  POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
-  type PointMutationExactRuntimeWorkerDefinitionV1,
-} from "../../flarex-backend/src/artifactRuntime/PointMutationExactRuntimeHost";
+  POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_MAIN_MODULE_V1,
+} from "../../flarex-backend/src/artifactRuntime/PointMutationInternalQueryExactRuntimeHost";
 import {
   makePointMutationTransactionGrantIssuerV1,
 } from "../../flarex-backend/src/transactionGrantIssuer";
@@ -22,8 +17,6 @@ import {
 import type { PointMutationJournalRpcParentTargetV1 } from
   "../../executor/src/pointMutationJournalRpc";
 import {
-  POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
-  POINT_MUTATION_EXACT_RUNTIME_RESULT_VERSION_V1,
   type PointMutationExactRuntimeRequestV1,
 } from "flarex-protocol/point-mutation-exact-runtime";
 import {
@@ -44,12 +37,6 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
-import {
-  isCanonicalFlarexRuntimeObjectV1,
-  normalizeFlarexValueV1,
-  type CanonicalFlarexRuntimeValueV1,
-  type CanonicalFlarexRuntimeObjectV1,
-} from "flarex-protocol/value";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -91,6 +78,14 @@ import { makeRuntimeArtifactPublisherFixtureV1 } from
   "./runtimeArtifactPublisherFixture";
 
 type Persistence = PGliteFlarexPersistence | PostgresFlarexPersistence;
+type PointMutationSuccessV1 = Extract<
+  PointMutationExactRuntimeHostResponseV1,
+  Readonly<{ readonly kind: "success" }>
+>;
+type PointMutationFailureV1 = Extract<
+  PointMutationExactRuntimeHostResponseV1,
+  Readonly<{ readonly kind: "failure" }>
+>;
 
 const NOW = Date.now();
 const COMPATIBILITY_DATE = "2026-06-14";
@@ -145,6 +140,7 @@ interface Fsv06CompositionProofControllerV1 {
   loseCommitResponseAtBeforeCommit: boolean;
   loseCommitResponseAfterSettlement: boolean;
   beforeCommitBlock?: TransactionBlockV1;
+  observedOperations?: Array<string>;
 }
 
 interface TransactionBlockV1 {
@@ -501,6 +497,143 @@ export async function proveFsv06StandardPointMutationV1(
   });
 }
 
+export async function proveSap06A2MutationInternalQueryV1(
+  lane: Fsv06StandardPointMutationLaneV1,
+): Promise<Readonly<{
+  readonly lane: "pglite" | "postgres";
+  readonly inlineInternalQuery: true;
+  readonly realWorkerdExecution: true;
+  readonly stagedDeleteObservedByChild: true;
+  readonly oneParentPublication: true;
+  readonly runtimeExecutions: number;
+  readonly currentRowPointerCount: 1;
+  readonly liveRowCount: 0;
+  readonly commitCount: 2;
+  readonly outcomeCount: 2;
+  readonly feedCount: 2;
+  readonly outboxCount: 2;
+  readonly postgresVersion: string | null;
+}>> {
+  const artifacts = makeRuntimeArtifactPublisherFixtureV1();
+  const insertReady = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    artifacts,
+    "fsv06-insert",
+    true,
+  );
+  await Effect.runPromise(Effect.scoped(
+    activateApplicationRevisionV1(
+      insertReady.revisionId,
+      null,
+      insertReady.context,
+    ),
+  ));
+  let runtimeExecutions = 0;
+  const proofController: Fsv06CompositionProofControllerV1 = {
+    loseCommitResponseAtBeforeCommit: false,
+    loseCommitResponseAfterSettlement: false,
+    observedOperations: [],
+  };
+  const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+    insertReady.deploymentId,
+  );
+  const applicationLayer = Layer.merge(
+    makeApplicationPointMutationSystemV1Layer(systemLive(
+      lane,
+      deploymentId,
+      artifacts,
+      proofController,
+      () => { runtimeExecutions += 1; },
+    )),
+    makeStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
+  );
+  const invoke = <A, E>(effect: Effect.Effect<
+    A,
+    E,
+    | ApplicationPointMutationSystemV1
+    | StandardApplicationActiveRevisionReaderV1
+    | Scope.Scope
+  >) => Effect.runPromise(Effect.scoped(effect.pipe(
+    Effect.provide(applicationLayer),
+  )));
+  const inserted = await invoke(invokeStandardApplicationPointMutationV1(
+    TransactionFunctionPathV1Schema.make("o:c"),
+    { status: "staged" },
+    TransactionRequestKeyV1Schema.make(`sap06-a2:${lane.name}:insert`),
+  ));
+  if (
+    inserted.status !== "committed" ||
+    inserted.disposition !== "published" ||
+    typeof inserted.value !== "string"
+  ) {
+    throw new Error("SAP06-A2 setup insert was not authoritative.");
+  }
+  const previous = await Effect.runPromise(Effect.scoped(
+    readActiveApplicationRevisionV1(insertReady.context),
+  ));
+  const internalReady = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    artifacts,
+    "sap06-a2-mutation-internal-query",
+    false,
+  );
+  await Effect.runPromise(Effect.scoped(
+    activateApplicationRevisionV1(
+      internalReady.revisionId,
+      previous.expectedActiveRevision,
+      internalReady.context,
+    ),
+  ));
+  proofController.observedOperations = [];
+  const before = await durableCounts(lane.persistence);
+  const deleted = await invoke(invokeStandardApplicationPointMutationV1(
+    TransactionFunctionPathV1Schema.make("o:u"),
+    { i: inserted.value },
+    TransactionRequestKeyV1Schema.make(`sap06-a2:${lane.name}:delete-read`),
+  ));
+  const after = await durableCounts(lane.persistence);
+  if (
+    deleted.status !== "committed" ||
+    deleted.disposition !== "published" ||
+    deleted.value !== null ||
+    proofController.observedOperations?.join(",") !== "delete:1,get:2"
+  ) {
+    throw new Error("SAP06-A2 did not serialize delete then child read.");
+  }
+  if (
+    before.currentRows !== 1 || after.currentRows !== 1 ||
+    before.liveRows !== 1 || after.liveRows !== 0 ||
+    after.commits !== before.commits + 1 ||
+    after.outcomes !== before.outcomes + 1 ||
+    after.feed !== before.feed + 1 ||
+    after.outbox !== before.outbox + 1
+  ) {
+    throw new Error(
+      `SAP06-A2 publication mismatch: ${JSON.stringify({ before, after })}`,
+    );
+  }
+  const postgresVersion = lane.name === "postgres"
+    ? (await lane.persistence.query<{ version: string }>(
+      "select version() as version",
+    )).rows[0]?.version ?? null
+    : null;
+  return Object.freeze({
+    lane: lane.name,
+    inlineInternalQuery: true as const,
+    realWorkerdExecution: true as const,
+    stagedDeleteObservedByChild: true as const,
+    oneParentPublication: true as const,
+    runtimeExecutions,
+    currentRowPointerCount: 1 as const,
+    liveRowCount: 0 as const,
+    commitCount: 2 as const,
+    outcomeCount: 2 as const,
+    feedCount: 2 as const,
+    outboxCount: 2 as const,
+    postgresVersion,
+  });
+}
+
 function systemLive(
   lane: Fsv06StandardPointMutationLaneV1,
   deploymentId: ApplicationPointMutationSystemLiveV1["deploymentId"],
@@ -631,77 +764,188 @@ function testRuntimeDispatcher(
   return Object.freeze({
     bind: (target: unknown) => Effect.gen(function* () {
       const claimed = yield* Effect.fromResult(
-        claimCandidateBoundPointMutationRuntimeTargetV1(target),
+        claimCandidateBoundPointMutationInternalQueryRuntimeTargetV1(target),
       ).pipe(Effect.mapError(cause =>
         new ApplicationPointMutationRouteIndependentDispatcherV1Error({
           reason: "targetRejected",
           cause,
         })
       ));
-      const source = yield* applicationSourceFromExactDefinition(
-        claimed.definition,
-      );
-      const modulePromise = importSourceModule(source);
       return Object.freeze({
         run: async (
           request: PointMutationExactRuntimeRequestV1,
           journal: PointMutationJournalRpcParentTargetV1,
         ) => {
           onRuntimeExecution();
-          const loaded = await modulePromise;
-          const exportName = request.function.path.slice(
-            request.function.path.lastIndexOf(":") + 1,
-          );
-          try {
-            const invocation = invocationBinding(request, journal);
-            const value = await loaded.withPlatform(
-              invocation.platform,
-              () => executePointMutationV1(
-                {
-                  function: request.function,
-                  arguments: request.arguments,
-                  tables: request.tables,
-                },
-                {
-                  resolve: () => Object.freeze({
-                    isMutation: true,
-                    isPublic: true,
-                    _handler: loaded.sourceModule[exportName],
-                  }),
-                },
-                invocation.factory,
+          const runtime = new Miniflare({
+            compatibilityDate: claimed.definition.compatibilityDate,
+            modules: [
+              {
+                type: "ESModule" as const,
+                path: "fsv06-dispatch.js",
+                contents: pointMutationWorkerdDispatchModuleSourceForTest(),
+              },
+              ...Object.entries(claimed.definition.modules).map(
+                ([path, contents]) => ({
+                  type: "ESModule" as const,
+                  path,
+                  contents,
+                }),
               ),
-            );
+            ],
+            serviceBindings: {
+              JOURNAL: async (input: Request) => {
+                const body = JSON.parse(await input.text()) as Readonly<{
+                  readonly tableName: string;
+                  readonly operation: object;
+                }>;
+                try {
+                  if (
+                    proofController.observedOperations !== undefined &&
+                    isNonArrayRecord(body.operation) &&
+                    typeof body.operation.kind === "string" &&
+                    typeof body.operation.syscallSequence === "string"
+                  ) {
+                    proofController.observedOperations.push(
+                      `${body.operation.kind}:${body.operation.syscallSequence}`,
+                    );
+                  }
+                  const table = await journal.resolvePointTable(body.tableName);
+                  const result = await table.runPointOperation(
+                    body.operation as never,
+                  );
+                  return pointMutationRpcResponse({ ok: true, result });
+                } catch (cause) {
+                  return pointMutationRpcResponse({
+                    ok: false,
+                    name: errorName(cause),
+                    message: errorMessage(cause),
+                  });
+                }
+              },
+            },
+          });
+          try {
+            const response = await runtime.dispatchFetch("https://fsv06.test/", {
+              method: "POST",
+              body: JSON.stringify(serializePointMutationRequest(request)),
+            });
+            const envelope = await response.json() as Readonly<{
+              readonly ok: boolean;
+              readonly result?: PointMutationSuccessV1["result"];
+              readonly reason?: PointMutationFailureV1["reason"];
+              readonly name?: string;
+              readonly message?: string;
+              readonly causeName?: string;
+              readonly causeMessage?: string;
+            }>;
             const afterRuntime = proofController.afterRuntimeOnce;
             if (afterRuntime !== undefined) {
               delete proofController.afterRuntimeOnce;
               await afterRuntime();
             }
-            return disposableResponse({
-              format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-              version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
-              kind: "success",
-              result: {
-                format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
-                version: POINT_MUTATION_EXACT_RUNTIME_RESULT_VERSION_V1,
-                value,
-              },
-            });
+            return envelope.ok && envelope.result !== undefined
+              ? disposableResponse({
+                  format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
+                  version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+                  kind: "success",
+                  result: envelope.result,
+                })
+              : disposableResponse({
+                  format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
+                  version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+                  kind: "failure",
+                  reason: envelope.reason ?? "userCodeFailed",
+                });
           } catch (cause) {
-            const failure = inspectPointMutationRuntimeFailureV1(cause);
             return disposableResponse({
               format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
               version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
               kind: "failure",
-              reason: failure?.kind === "journalBoundary"
-                ? "journalBoundaryFailed"
-                : "userCodeFailed",
+              reason: "userCodeFailed",
             });
+          } finally {
+            await runtime.dispose();
           }
         },
       });
     }),
   });
+}
+
+export function pointMutationWorkerdDispatchModuleSourceForTest(): string {
+  return `import { FlarexPointMutationInternalQueryExactRuntimeV1 } from "./${POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_MAIN_MODULE_V1}";
+const encode = value => JSON.stringify(value, (_key, member) =>
+  typeof member === "bigint" ? member.toString() : member);
+export default {
+  async fetch(request, env) {
+    const input = await request.json();
+    input.context.randomSeed = new Uint8Array(input.context.randomSeed);
+    const journal = {
+      resolvePointTable(tableName) {
+        return {
+          async runPointOperation(operation) {
+            const response = await env.JOURNAL.fetch("https://journal/point", {
+              method: "POST",
+              body: encode({ tableName, operation }),
+            });
+            const envelope = JSON.parse(await response.text());
+            if (!envelope.ok) {
+              const error = new Error(envelope.message);
+              Object.defineProperty(error, "name", {
+                value: envelope.name,
+                enumerable: false,
+                configurable: false,
+                writable: false,
+              });
+              throw error;
+            }
+            return envelope.result;
+          },
+        };
+      },
+    };
+    try {
+      const result = await Reflect.apply(
+        FlarexPointMutationInternalQueryExactRuntimeV1.prototype.run,
+        {},
+        [input, journal],
+      );
+      return Response.json({ ok: true, result });
+    } catch (error) {
+      const reason = error?.name === "PointMutationInternalQueryExactRuntimeJournalBoundaryV1Error"
+        ? "journalBoundaryFailed"
+        : "userCodeFailed";
+      return Response.json({
+        ok: false,
+        reason,
+        name: error?.name,
+        message: error?.message,
+        causeName: error?.cause?.name,
+        causeMessage: error?.cause?.message,
+      });
+    }
+  },
+};`;
+}
+
+function serializePointMutationRequest(request: PointMutationExactRuntimeRequestV1) {
+  return Object.freeze({
+    ...request,
+    context: Object.freeze({
+      ...request.context,
+      randomSeed: Array.from(request.context.randomSeed),
+    }),
+  });
+}
+
+function pointMutationRpcResponse(value: unknown): Response {
+  return new Response(
+    JSON.stringify(value, (_key, member: unknown) =>
+      typeof member === "bigint" ? member.toString() : member
+    ),
+    { headers: { "content-type": "application/json" } },
+  );
 }
 
 function sessionTargetWithProofFaults(
@@ -751,213 +995,6 @@ function transactionBlock(): TransactionBlockV1 {
   return Object.freeze({ reached, markReached, released, release });
 }
 
-function applicationSourceFromExactDefinition(
-  definition: PointMutationExactRuntimeWorkerDefinitionV1,
-): Effect.Effect<
-  string,
-  ApplicationPointMutationRouteIndependentDispatcherV1Error
-> {
-  const bridge = definition.modules[
-    POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1
-  ];
-  if (bridge === undefined) {
-    return Effect.fail(
-      new ApplicationPointMutationRouteIndependentDispatcherV1Error({
-        reason: "unavailable",
-        cause: new Error("The exact runtime definition omitted its execution bridge."),
-      }),
-    );
-  }
-  const match = /import \* as applicationModuleV1 from ("(?:[^"\\]|\\.)+");/.exec(
-    bridge,
-  );
-  if (match?.[1] === undefined) {
-    return Effect.fail(
-      new ApplicationPointMutationRouteIndependentDispatcherV1Error({
-        reason: "targetRejected",
-        cause: new Error("The exact runtime execution bridge was not canonical."),
-      }),
-    );
-  }
-  return Effect.try({
-    try: () => {
-      const specifier = JSON.parse(match[1]) as unknown;
-      if (typeof specifier !== "string") {
-        throw new Error("The exact runtime execution bridge import was invalid.");
-      }
-      const resolved = new URL(
-        specifier,
-        `https://flarex-runtime.invalid/${POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1}`,
-      ).pathname.slice(1);
-      const source = definition.modules[resolved];
-      if (source === undefined) {
-        throw new Error(`The exact runtime definition omitted ${resolved}.`);
-      }
-      return source;
-    },
-    catch: cause =>
-      new ApplicationPointMutationRouteIndependentDispatcherV1Error({
-        reason: "targetRejected",
-        cause,
-      }),
-  });
-}
-
-function invocationBinding(
-  request: PointMutationExactRuntimeRequestV1,
-  journal: PointMutationJournalRpcParentTargetV1,
-) {
-  let sequence = 0;
-  const tableNameForDocument = (documentId: string): string => {
-    const tableId = Number(documentId.slice(0, documentId.indexOf(":")));
-    const table = request.tables.find(candidate => candidate.tableId === tableId);
-    if (table === undefined) throw new Error("Unknown document table.");
-    return table.logicalName;
-  };
-  const run = async (
-    tableName: string,
-    operation: (syscallSequence: string) => object,
-  ) => {
-    const table = await journal.resolvePointTable(tableName);
-    const result = await table.runPointOperation(
-      operation(String(sequence + 1)),
-    );
-    sequence += 1;
-    return result;
-  };
-  const db = Object.freeze({
-    get: async (
-      documentId: string,
-    ): Promise<CanonicalFlarexRuntimeObjectV1 | null> => {
-      const result = await run(tableNameForDocument(documentId), sequence => ({
-        kind: "get",
-        syscallSequence: sequence,
-        documentId,
-      }));
-      if (result.kind !== "present") return null;
-      if (!isCanonicalFlarexRuntimeObjectV1(result.document)) {
-        throw new Error("Point get returned a non-document value.");
-      }
-      return result.document;
-    },
-    insert: async (tableName: string, fields: unknown): Promise<string> => {
-      const result = await run(tableName, sequence => ({
-        kind: "insert",
-        syscallSequence: sequence,
-        fields,
-      }));
-      if (result.kind !== "inserted") throw new Error("Insert did not settle.");
-      return result.documentId;
-    },
-    patch: async (documentId: string, patch: unknown): Promise<void> => {
-      const result = await run(tableNameForDocument(documentId), sequence => ({
-        kind: "patch",
-        syscallSequence: sequence,
-        documentId,
-        patch,
-      }));
-      if (result.kind !== "unit") throw new Error("Patch did not settle.");
-    },
-    replace: async (documentId: string, fields: unknown): Promise<void> => {
-      const result = await run(tableNameForDocument(documentId), sequence => ({
-        kind: "replace",
-        syscallSequence: sequence,
-        documentId,
-        fields,
-      }));
-      if (result.kind !== "unit") throw new Error("Replace did not settle.");
-    },
-    delete: async (documentId: string): Promise<void> => {
-      const result = await run(tableNameForDocument(documentId), sequence => ({
-        kind: "delete",
-        syscallSequence: sequence,
-        documentId,
-      }));
-      if (result.kind !== "unit") throw new Error("Delete did not settle.");
-    },
-    query: () => { throw new Error("Queries are outside FSV06."); },
-    normalizeId: () => { throw new Error("normalizeId is outside FSV06."); },
-    system: Object.freeze({}),
-  }) satisfies PointMutationRuntimeDatabaseV1;
-  return Object.freeze({
-    factory: Object.freeze({
-      open: () => Object.freeze({
-        context: Object.freeze({
-          auth: Object.freeze({ getUserIdentity: async () => null }),
-          db,
-        }),
-        journal: Object.freeze({
-          close: () => undefined,
-          drain: async () => undefined,
-        }),
-      }),
-    }),
-    platform: Object.freeze({
-      databaseInsert: db.insert,
-      databasePatch: db.patch,
-    }),
-  });
-}
-
-interface TestPlatformBindingV1 {
-  readonly databaseInsert: PointMutationRuntimeDatabaseV1["insert"];
-  readonly databasePatch: PointMutationRuntimeDatabaseV1["patch"];
-}
-
-interface ImportedSourceModuleV1 {
-  readonly sourceModule: Readonly<Record<string, unknown>>;
-  readonly withPlatform: (
-    platform: TestPlatformBindingV1,
-    effect: () => Promise<CanonicalFlarexRuntimeValueV1>,
-  ) => Promise<CanonicalFlarexRuntimeValueV1>;
-}
-
-async function importSourceModule(source: string): Promise<ImportedSourceModuleV1> {
-  const platformSource = [
-    "import{AsyncLocalStorage as A}from'node:async_hooks';",
-    "const s=new A;",
-    "export function databaseInsert(...a){const p=s.getStore();if(!p)throw Error();return p.databaseInsert(...a)}",
-    "export function databasePatch(...a){const p=s.getStore();if(!p)throw Error();return p.databasePatch(...a)}",
-    "export function withPlatform(p,f){return s.run(p,f)}",
-  ].join("");
-  const platformUrl = `data:text/javascript;base64,${
-    Buffer.from(platformSource, "utf8").toString("base64")
-  }`;
-  const resolvedSource = source.replace(
-    /(['"])flarex:platform\1/,
-    JSON.stringify(platformUrl),
-  );
-  if (resolvedSource === source) {
-    throw new Error("FSV06 source omitted its authenticated platform import.");
-  }
-  const encoded = Buffer.from(resolvedSource, "utf8").toString("base64");
-  const sourceModule: unknown = await import(
-    /* @vite-ignore */ `data:text/javascript;base64,${encoded}`
-  );
-  const platformModule: unknown = await import(
-    /* @vite-ignore */ platformUrl
-  );
-  if (
-    !isNonArrayRecord(sourceModule) ||
-    !isNonArrayRecord(platformModule) ||
-    typeof platformModule.withPlatform !== "function"
-  ) {
-    throw new Error("FSV06 source module namespace was invalid.");
-  }
-  const withPlatform = platformModule.withPlatform;
-  return Object.freeze({
-    sourceModule: Object.freeze(Object.fromEntries(Object.entries(sourceModule))),
-    withPlatform: async (
-      platform: TestPlatformBindingV1,
-      effect: () => Promise<CanonicalFlarexRuntimeValueV1>,
-    ) => normalizeFlarexValueV1(
-      await Promise.resolve(
-        Reflect.apply(withPlatform, undefined, [platform, effect]),
-      ),
-    ).value,
-  });
-}
-
 function disposableResponse(
   response: PointMutationExactRuntimeHostResponseV1,
 ): PointMutationExactRuntimeHostResponseV1 & Disposable {
@@ -980,12 +1017,21 @@ function uuidFactory(prefix: "f6060000" | "f6160000"): () => string {
 async function durableCounts(persistence: Persistence) {
   const rows = await persistence.query<{
     current_rows: string;
+    live_rows: string;
     commits: string;
     outcomes: string;
     feed: string;
     outbox: string;
   }>(`select
     (select count(*)::text from fx_app_row_current) as current_rows,
+    (select count(*)::text
+       from fx_app_row_current as current_row
+       join fx_app_row_rev as revision
+         on revision.scope_uuid = current_row.scope_uuid
+        and revision.table_id = current_row.table_id
+        and revision.row_id = current_row.row_id
+        and revision.commit_seq = current_row.commit_seq
+      where revision.value_json is not null) as live_rows,
     (select count(*)::text from fx_system_commit) as commits,
     (select count(*)::text from fx_system_idempotency) as outcomes,
     (select count(*)::text from fx_system_commit_app_row_change) as feed,
@@ -994,6 +1040,7 @@ async function durableCounts(persistence: Persistence) {
   if (row === undefined) throw new Error("FSV06 durable counts are missing.");
   return Object.freeze({
     currentRows: Number(row.current_rows),
+    liveRows: Number(row.live_rows),
     commits: Number(row.commits),
     outcomes: Number(row.outcomes),
     feed: Number(row.feed),
@@ -1055,4 +1102,16 @@ function failureTag(value: unknown): string | undefined {
       typeof value._tag === "string"
     ? value._tag
     : value instanceof Error ? value.name : undefined;
+}
+
+function errorName(value: unknown): string {
+  return value instanceof Error ? value.name : failureTag(value) ?? "Error";
+}
+
+function errorMessage(value: unknown): string {
+  return value instanceof Error
+    ? value.message
+    : isNonArrayRecord(value) && typeof value.message === "string"
+      ? value.message
+      : String(value);
 }

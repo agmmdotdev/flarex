@@ -2,19 +2,20 @@
 
 ## Status And Scope
 
-**Status:** `SAP06-A1` is complete as a private, route-independent,
-production-inert capability. One public query may call an authenticated
-same-candidate internal query inline inside one accepted SAP05 execution.
-The focused `SAP06-A2` mutation-to-internal-query preflight is also complete;
-its implementation and three new private runtime identities remain separately
-gated. Roadmap 43 remains closed as the first point-mutation vertical and
-roadmap 44 remains closed as the second point-query vertical.
+**Status:** `SAP06-A1` and `SAP06-A2` are complete as private,
+route-independent, production-inert capabilities. One public query may call an
+authenticated same-candidate internal query inside one accepted SAP05
+execution. One public mutation may call authenticated same-candidate internal
+queries inside the existing SAP04 Worker, attempt, journal, and live overlay.
+`SAP06-A3` internal-mutation entry authority remains separately gated. Roadmap
+43 remains closed as the first point-mutation vertical and roadmap 44 remains
+closed as the second point-query vertical.
 
 This roadmap owns the separately gated internal-call family. It does not make
 all call directions equivalent and does not expose another top-level System or
 Standard operation merely because user code gains one `ctx.runQuery` method.
-The implemented first slice remains private, route-independent, production-inert, and
-bound to the already selected application revision.
+Both implemented slices remain private, route-independent, production-inert,
+and bound to the already selected application revision.
 
 Read this record with
 [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md),
@@ -30,24 +31,24 @@ owners that this implemented slice composes.
 | --- | --- | --- |
 | `packages/flarex/src/server.ts` and `packages/flarex/src/api.ts` | `QueryCtx` already types `runQuery`; function references carry query/mutation kind plus public/internal visibility | The developer type vocabulary exists, but a structural function reference is a selector, never runtime authority |
 | `packages/analysis/src/declarativeV2VerifierV1.contract.ts` and `declarativeV2VerifierExecutableV1.contract.ts` | Core V1 defines `functionReference`, mixed-catchability `runQuery`/`runMutation`, static call targets, query-to-query permission, and query-to-mutation rejection | SAP06-A1 found that the executable admitted missing and dynamic nested-call operands despite that contract. The direct fix now requires one canonical literal `{ _path: "module:export" }` operand and direct `await` consumption; it refreshes only the private analyzer implementation identity and persists no call graph |
-| `packages/function-runtime/src/pointQuery.ts` and `pointQueryInternalCall.ts` | the accepted PQV-A2 kernel remains frozen, while SAP06-A1 owns the separate exact inline-query-call kernel and cumulative call stack/budgets | SAP06-A2 can reuse the proven child-query mechanics, but must compose them with the mutation journal rather than PQV-A1 |
+| `packages/function-runtime/src/pointQuery.ts`, `pointQueryInternalCall.ts`, and `pointMutationInternalQuery.ts` | the accepted PQV-A2 kernel remains frozen; SAP06-A1 owns its query-call kernel, and SAP06-A2 owns the separate mutation-with-internal-query kernel | SAP06-A2 composes the proven child-query mechanics with the mutation journal rather than PQV-A1 |
 | `packages/flarex-protocol/src/point-query-exact-runtime.ts` | the request and syscall ABI are query-only, public-only, and contain no internal-call catalog or call budget | Existing V1 must not be silently widened |
 | `packages/flarex-backend/src/artifactRuntime/PointQueryExactRuntimeWorkerCore.ts` and `PointQueryExactRuntimeHost.ts` | the exact Worker graph registers only the selected public query and shares one PQV-A1 read capability | Internal query calls require a new private target/profile/ABI, not a legacy generated-runtime fallback |
 | `packages/persistence-postgres/src/applicationPointQuerySnapshotV1.ts` | PQV-A1 owns one Scope-revoked snapshot, active-head revalidation, retained-history check, and monotonic point-read/document-byte budgets | An inline callee can share this exact capability; opening a second snapshot would be incorrect |
 | `packages/persistence-postgres/src/applicationRevisionQueryRuntimeTargetV1.ts` | the active candidate already authenticates canonical metadata and R2 function-entry/projection evidence, but the current claim selects one public query | The stored evidence can authenticate internal query callees without schema or migration work |
-| `packages/flarex-backend/src/artifactRuntime/CandidateBoundPointQueryRuntimeTargetV1.ts` and `CandidateBoundPointQueryInternalCallRuntimeTargetV1.ts` | the PQV-A2 target remains frozen; the SAP06-A1 target proves exact ordered-catalog/R2 materialization without body duplication | SAP06-A2 can reuse the catalog and R2 verification formulas under a separately named mutation target, not widen either accepted query target |
+| `packages/flarex-backend/src/artifactRuntime/CandidateBoundPointQueryRuntimeTargetV1.ts`, `CandidateBoundPointQueryInternalCallRuntimeTargetV1.ts`, and `CandidateBoundPointMutationInternalQueryRuntimeTargetV1.ts` | the PQV-A2 target remains frozen; SAP06-A1 and SAP06-A2 each own separately named exact ordered-catalog/R2 materialization without body duplication | Neither accepted query target nor the original mutation target is widened or retained as fallback |
 | `packages/standard-application-invocation/src/querySystemV1.ts` and `v1.ts` | SAP05 now selects only the SAP06-A1 internal-call query profile and keeps active read, PQV-A1, Workerd dispatch, result validation, and Scope in one private composition | This remains query regression evidence; mutation-to-query must stay inside SAP04 rather than call SAP05 |
-| `packages/standard-application-invocation/src/systemV1.ts`, `packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts`, and `packages/executor/src/pointMutationExactRuntimeBinding.ts` | SAP04/FSV06 resolves one active selection, mints/adopts one grant and attempt, runs one exact Worker against one journal, reruns only through the accepted OCC owner, and returns one authoritative outcome | SAP06-A2 must replace only the private runtime target/profile selected inside this existing composition; it must not add another invocation, grant, attempt, or outcome |
+| `packages/standard-application-invocation/src/systemV1.ts`, `packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts`, and `packages/executor/src/pointMutationExactRuntimeBinding.ts` | SAP04/FSV06 resolves one active selection, mints/adopts one grant and attempt, runs one exact Worker against one journal, reruns only through the accepted OCC owner, and returns one authoritative outcome | SAP06-A2 replaces only the private runtime target/profile selected inside this existing composition; it adds no invocation, grant, attempt, or outcome |
 | `packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeWorkerCore.ts`, `packages/executor/src/pointMutationJournal.ts`, and `packages/persistence-postgres/src/sessionJournalStore.ts` | Mutation `db.get` already serializes through the exact journal capability. `readLogicalPoint` reads a live/deleted staged overlay first and reaches the pinned snapshot only when no overlay exists | This is the exact read-your-writes authority for an inline internal query. PQV-A1, SAP05, a child transaction, and a savepoint are all incorrect for SAP06-A2 |
 | `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts` | the legacy generated runtime has structural nested calls and a depth counter | It is compatibility evidence only; it is not an authority or fallback for the accepted exact runtime |
 
-No current mutation package export implements an exact internal call. No
-current database row stores call-site or call-chain authority. The candidate already
+The private mutation runtime now implements the exact internal-query call, but
+no database row stores call-site or call-chain authority. The candidate already
 stores the function metadata, function-group manifest, entry references, and
-transaction projection required to authenticate same-candidate internal query
-targets. Therefore SAP06-A1 uses a separate private protocol/runtime identity but
-no schema, migration, transaction owner, package extraction, or production
-route.
+transaction projection required to authenticate same-candidate internal-query
+targets. SAP06-A1 and SAP06-A2 therefore use separate private protocol/runtime
+identities without a schema, migration, transaction owner, package extraction,
+or production route.
 
 ## Call-Class Decision
 
@@ -57,7 +58,7 @@ route.
 | external/System caller -> internal mutation | Forbidden. SAP04 continues to accept only a public mutation | Existing SAP04 boundary |
 | public or internal query handler -> internal query | **First slice.** Inline execution in the same exact query Worker and PQV-A1 snapshot | `SAP06-A1` |
 | query handler -> any mutation | Forbidden by the Core capability matrix and by runtime defense | Permanent query rule |
-| public mutation handler -> internal query | **Preflight complete; implementation separately gated.** Inline in the same exact mutation Worker and live journal overlay | `SAP06-A2` below |
+| public mutation handler -> internal query | **Complete privately.** Inline in the same exact mutation Worker and live journal overlay | `SAP06-A2` below |
 | internal mutation handler -> internal query | The `runQuery` context semantics are settled by `SAP06-A2`, but no internal mutation becomes executable until `SAP06-A3` supplies legitimate inline mutation-entry authority | `SAP06-A2` runtime surface plus later `SAP06-A3` entry gate |
 | public or internal mutation handler -> internal mutation | Deferred. It must append inline to the same C03/C07 journal and outcome | Separate `SAP06-A3` preflight |
 | action/workflow/scheduled/background call | Excluded | Separate action, workflow, and durable-task gates |
@@ -320,9 +321,10 @@ The analyzer implementation identity is
 `b8d1e425b5afb3b8ca17844d486a142fdca2c10dde2a1834228436fbb1579b56`;
 the refresh closes the existing-contract static-operand and child-lifetime
 admission gap without introducing a new analyzer protocol identity.
-SAP06-A2/A3, production routing, and every non-query call class remain open.
+SAP06-A3, production routing, and every internal-mutation call class remain
+open.
 
-## `SAP06-A2` Preflight: Mutation-To-Internal-Query
+## `SAP06-A2`: Mutation-To-Internal-Query
 
 ### Decision And Smallest Truthful Slice
 
@@ -470,7 +472,7 @@ The accepted mutation identities are frozen:
 
 They bind one public mutation and expose no authenticated internal-query
 catalog or `ctx.runQuery`. Widening them would change their canonical target
-meaning and generated Worker graph. `SAP06-A2` therefore proposes exactly:
+meaning and generated Worker graph. `SAP06-A2` therefore implements exactly:
 
 - `flarex.system/candidate-bound-mutation-internal-query-runtime-target/v1`;
 - `point-mutation-internal-query-exact-runtime-v1`; and
@@ -503,13 +505,21 @@ The accepted analyzer already:
   nested calls; and
 - treats `runQuery` as mixed while preventing pure host-failure observation.
 
-No analyzer identity refresh is expected because `SAP06-A2` uses that accepted
-behavior unchanged. Implementation must add/retain focused fixtures for a
-mutation caller and must prove runtime/catalog rejection for unknown, wrong
-kind, public, wrong group, module, export, and cross-candidate targets. The
-analyzer proves the static operand; the runtime target proves what that path is
-authorized to mean. Persisted call-site or call-graph authority remains
-unnecessary and excluded.
+`SAP06-A2` uses that accepted behavior unchanged, but the exact persisted
+mutation fixture exposed a generated-capacity proof defect: its canonical
+source plus required nonempty module path exceeded the old 128-byte admitted
+domain. The analysis-owned monotonic generator now selects 156 bytes and proves
+157 is the first excluded capacity while keeping the operational arena ceiling
+at 67,108,864 bytes. The selected proof requires 66,819,028 bytes; the first
+excluded proof requires 67,534,609 bytes. The bounds identity changed from
+`db2dd17538d9c26f8d03b01f244cb8d2bfe845bb8a41e3093261778b25c9b56b`
+to `0c8fa2dc3b7b720dd48da148be06e47feb49747a075b09ca6e543075703cd8a0`.
+The analyzer application identity remains
+`b8d1e425b5afb3b8ca17844d486a142fdca2c10dde2a1834228436fbb1579b56`
+because the private port remains outside its Worker bundle. This correction
+adds no analyzer protocol identity. The analyzer proves the static operand;
+the runtime target proves what that path is authorized to mean. Persisted
+call-site or call-graph authority remains unnecessary and excluded.
 
 ### Failure And Catchability Contract
 
@@ -591,9 +601,9 @@ invocation. The child publishes no durable outcome. Successful mutation
 publication remains exactly one parent application-row change set, authoritative
 outcome, commit/change-feed sequence, and outbox batch through C07.
 
-### Proposed Implementation Capability
+### Implementation Capability
 
-One separately approved medium capability should own:
+The completed medium capability owns:
 
 - `packages/flarex-protocol/src/`: the new target/profile/ABI contracts,
   defensive codecs, subpath exports, and vectors;
@@ -647,11 +657,14 @@ Rejected:
   or
 - alter C03/C07/OCC/commit/outcome/feed/outbox behavior.
 
-The preflight is **READY FOR A SEPARATE IMPLEMENTATION APPROVAL**. That approval
-must explicitly accept the three proposed private identities and the direct
-replacement of the private SAP04 runtime selection. It does not authorize
-`SAP06-A3`, FSV07, routes, production, actions, workflows, schedules, durable
-tasks, relations, or public SDK work.
+The approved implementation uses the three private identities above and
+directly replaces the private SAP04 runtime selection. The generated mutation
+internal-query kernel digest is
+`2fdbc186a9099ad2e318d054c4f72d68987a73ea56b89fa9e12b20a4bd46cd95`; the
+generated exact Worker core digest is
+`ebdb95cf8aa4622717cf0581eb00a3d0d2895edfe136c8b099ff025bb398e5ca`.
+It does not authorize `SAP06-A3`, FSV07, routes, production, actions,
+workflows, schedules, durable tasks, relations, or public SDK work.
 
 ## SAP06-A1 Acceptance Matrix
 

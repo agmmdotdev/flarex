@@ -732,22 +732,21 @@ analyzer owns static function-reference proof, while the runtime target owns
 candidate/kind/visibility authorization. Mutation-to-query and
 mutation-to-mutation retain separate transaction-aware gates.
 
-The docs-first `SAP06-A2` preflight now closes the first of those gates without
-authorizing implementation. A mutation-to-internal-query call must execute
-inline in the same exact mutation Worker and use the existing C03 journal's
-live overlay for read-your-writes; it must not open PQV-A1, SAP05, a child SQL
-transaction, savepoint, journal, grant, outcome, feed item, or outbox item.
-Nested internal-query calls remain on that same overlay and one operation-local
-call stack. Query-to-mutation stays forbidden.
+Completed private `SAP06-A2` closes the mutation-to-internal-query gate. The
+call executes inline in the same exact mutation Worker and uses the existing
+C03 journal's live overlay for read-your-writes; it does not open PQV-A1,
+SAP05, a child SQL transaction, savepoint, journal, grant, outcome, feed item,
+or outbox item. Nested internal-query calls remain on that same overlay and one
+operation-local call stack. Query-to-mutation stays forbidden.
 
 Because the accepted mutation V1 target/profile do not bind an internal-query
-catalog or `ctx.runQuery`, implementation requires separately approving the
-three private identities recorded in roadmap 45. The private SAP04 composer
-would then select only that new profile, while the existing mutation V1
-identities remain frozen regression evidence rather than a dual path. Existing
-function metadata, transaction projection, manifest, candidate publication,
-and R2 references are sufficient; no schema, persisted call graph, alternate
-transaction/consistency owner, or commit/outcome change is proposed.
+catalog or `ctx.runQuery`, the implementation uses the three separately
+approved private identities recorded in roadmap 45. The private SAP04 composer
+selects only that new profile, while the existing mutation V1 identities remain
+frozen regression evidence rather than a dual path. Existing function metadata,
+transaction projection, manifest, candidate publication, and R2 references are
+sufficient; no schema, persisted call graph, alternate transaction/consistency
+owner, or commit/outcome change was introduced.
 
 ### Transaction Meaning
 

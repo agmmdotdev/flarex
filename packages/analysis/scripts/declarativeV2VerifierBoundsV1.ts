@@ -164,25 +164,42 @@ const arenaBytes = (domainByteLength: number): bigint => {
 };
 
 export function generateDeclarativeV2VerifierBoundsV1(): string {
-  let selectedDomainByteLimit = 1;
+  const operationalByteLimit = BigInt(ARENA_OPERATIONAL_BYTE_LIMIT);
+  let admittedDomainByteLimit = 0;
+  let excludedDomainByteLimit = 1;
   while (
-    arenaBytes(selectedDomainByteLimit * 2) <=
-      BigInt(ARENA_OPERATIONAL_BYTE_LIMIT)
+    arenaBytes(excludedDomainByteLimit) <= operationalByteLimit
   ) {
-    selectedDomainByteLimit *= 2;
+    admittedDomainByteLimit = excludedDomainByteLimit;
+    excludedDomainByteLimit *= 2;
+    if (!Number.isSafeInteger(excludedDomainByteLimit)) {
+      throw new Error("Parse domain search exceeded safe integer addressability.");
+    }
   }
-  const nextPowerOfTwo = selectedDomainByteLimit * 2;
-  const selectedArenaBytes = arenaBytes(selectedDomainByteLimit);
-  const nextPowerOfTwoArenaBytes = arenaBytes(nextPowerOfTwo);
+  while (excludedDomainByteLimit - admittedDomainByteLimit > 1) {
+    const candidate = Math.floor(
+      (admittedDomainByteLimit + excludedDomainByteLimit) / 2,
+    );
+    if (arenaBytes(candidate) <= operationalByteLimit) {
+      admittedDomainByteLimit = candidate;
+    } else {
+      excludedDomainByteLimit = candidate;
+    }
+  }
+  const selectedArenaBytes = arenaBytes(admittedDomainByteLimit);
+  const firstExcludedArenaBytes = arenaBytes(excludedDomainByteLimit);
   if (
-    selectedArenaBytes > BigInt(ARENA_OPERATIONAL_BYTE_LIMIT) ||
-    nextPowerOfTwoArenaBytes <= BigInt(ARENA_OPERATIONAL_BYTE_LIMIT) ||
-    selectedArenaBytes > MAX_U32
+    admittedDomainByteLimit < 1 ||
+    excludedDomainByteLimit !== admittedDomainByteLimit + 1 ||
+    selectedArenaBytes > operationalByteLimit ||
+    firstExcludedArenaBytes <= operationalByteLimit ||
+    selectedArenaBytes > MAX_U32 ||
+    firstExcludedArenaBytes > MAX_U32
   ) {
     throw new Error("Selected parse domain limit lost its checked arena proof.");
   }
   const withoutIdentity = Object.freeze({
-    generatorVersion: 1,
+    generatorVersion: 2,
     maximumProductionRhsLength,
     epsilonProductionCount,
     parseDiagnosticPhasesPerDomainUnit: parseDiagnosticPhases.size,
@@ -201,9 +218,10 @@ export function generateDeclarativeV2VerifierBoundsV1(): string {
     maximumSemanticTransitionsPerDomainUnitSquared:
       MAXIMUM_SEMANTIC_TRANSITIONS_PER_DOMAIN_UNIT_SQUARED,
     arenaOperationalByteLimit: ARENA_OPERATIONAL_BYTE_LIMIT,
-    selectedSourceAndModulePathByteLimit: selectedDomainByteLimit,
+    selectedSourceAndModulePathByteLimit: admittedDomainByteLimit,
+    firstExcludedSourceAndModulePathByteLimit: excludedDomainByteLimit,
     arenaBytesAtSelectedLimit: Number(selectedArenaBytes),
-    arenaBytesAtNextPowerOfTwo: Number(nextPowerOfTwoArenaBytes),
+    arenaBytesAtFirstExcludedLimit: Number(firstExcludedArenaBytes),
   });
   const value = Object.freeze({
     ...withoutIdentity,

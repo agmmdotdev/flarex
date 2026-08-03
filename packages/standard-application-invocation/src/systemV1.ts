@@ -45,10 +45,8 @@ import {
   type InvalidActiveApplicationRevisionSelectionV1Error,
 } from
   "@flarex/persistence-postgres/internal/application-revision-activation-v1";
-import {
-  claimApplicationRevisionRuntimeTargetAuthorityV1,
-} from
-  "@flarex/persistence-postgres/internal/application-revision-runtime-target-v1";
+import { claimApplicationRevisionMutationInternalQueryRuntimeTargetAuthorityV1 } from
+  "@flarex/persistence-postgres/internal/application-revision-mutation-internal-query-runtime-target-v1";
 import {
   deriveApplicationRevisionSyscallValidatorV1,
   type InvalidApplicationRevisionSyscallValidatorV1Error,
@@ -84,13 +82,13 @@ import {
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
 import {
-  prepareCandidateBoundPointMutationRuntimeTargetV1,
-  type CandidateBoundPointMutationRuntimeTargetV1,
-  type CandidateBoundRuntimeTargetBudgetV1,
-  type PreparedCandidateBoundPointMutationRuntimeTargetV1,
-  type PrepareCandidateBoundPointMutationRuntimeTargetV1Error,
+  prepareCandidateBoundPointMutationInternalQueryRuntimeTargetV1,
+  type CandidateBoundPointMutationInternalQueryRuntimeTargetV1,
+  type CandidateBoundMutationInternalQueryRuntimeTargetBudgetV1,
+  type PreparedCandidateBoundPointMutationInternalQueryRuntimeTargetV1,
+  type PrepareCandidateBoundPointMutationInternalQueryRuntimeTargetV1Error,
 } from
-  "flarex-backend/internal/candidate-bound-point-mutation-runtime-target-v1";
+  "flarex-backend/internal/candidate-bound-point-mutation-internal-query-runtime-target-v1";
 import type {
   DeclarativeV2RuntimeArtifactR2StoreV1,
 } from "flarex-backend/internal/declarative-v2-runtime-artifact-r2-v1";
@@ -130,7 +128,7 @@ import type { CommittedPointOutcomeResolutionV1 } from
 
 export interface ApplicationPointMutationRouteIndependentDispatcherV1 {
   readonly bind: (
-    target: CandidateBoundPointMutationRuntimeTargetV1,
+    target: CandidateBoundPointMutationInternalQueryRuntimeTargetV1,
   ) => Effect.Effect<
     PointMutationExactRuntimeArtifactHostBindingV1,
     ApplicationPointMutationRouteIndependentDispatcherV1Error,
@@ -184,7 +182,7 @@ export interface ApplicationPointMutationSystemLiveV1 {
   readonly grantIssuer: PointMutationTransactionGrantIssuerV1;
   readonly grantVerifier: TransactionGrantVerifierV1;
   readonly runtimeArtifacts: DeclarativeV2RuntimeArtifactR2StoreV1;
-  readonly runtimeBudget: CandidateBoundRuntimeTargetBudgetV1;
+  readonly runtimeBudget: CandidateBoundMutationInternalQueryRuntimeTargetBudgetV1;
   readonly compatibilityDate: string;
   readonly dispatcher: ApplicationPointMutationRouteIndependentDispatcherV1;
   readonly randomUuid: () => string;
@@ -198,9 +196,9 @@ export interface ApplicationPointMutationSystemLiveV1 {
     PointCommitTransactionProofOptionsV1["afterTransactionStep"];
 }
 
-type RuntimeTargetErrorV1 = PrepareCandidateBoundPointMutationRuntimeTargetV1Error<
+type RuntimeTargetErrorV1 = PrepareCandidateBoundPointMutationInternalQueryRuntimeTargetV1Error<
   Effect.Error<ReturnType<
-    typeof claimApplicationRevisionRuntimeTargetAuthorityV1
+    typeof claimApplicationRevisionMutationInternalQueryRuntimeTargetAuthorityV1
   >>
 >;
 
@@ -316,10 +314,12 @@ function makeInvoke(
   const syscallValidator = yield* deriveApplicationRevisionSyscallValidatorV1(
     activeRevision,
   );
-  const runtimeTarget = yield* prepareCandidateBoundPointMutationRuntimeTargetV1(
+  const runtimeTarget = yield* prepareCandidateBoundPointMutationInternalQueryRuntimeTargetV1(
     activeRevision,
     functionRef,
-    Object.freeze({ claim: claimApplicationRevisionRuntimeTargetAuthorityV1 }),
+    Object.freeze({
+      claim: claimApplicationRevisionMutationInternalQueryRuntimeTargetAuthorityV1,
+    }),
     live.runtimeArtifacts,
     live.runtimeBudget,
     live.compatibilityDate,
@@ -540,7 +540,7 @@ const projectTarget = Effect.fn(
 )(function* (
   deploymentId: TransactionGrantDeploymentIdV1,
   basis: ActiveApplicationRevisionInvocationBasisV1,
-  runtimeTarget: PreparedCandidateBoundPointMutationRuntimeTargetV1,
+  runtimeTarget: PreparedCandidateBoundPointMutationInternalQueryRuntimeTargetV1,
 ) {
   const packageSha256Hex = encodeBytesToLowercaseHex(
     basis.metadata.packageSha256,

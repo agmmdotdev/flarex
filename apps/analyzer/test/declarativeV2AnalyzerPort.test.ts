@@ -1151,7 +1151,7 @@ describe("private Declarative V2 analyzer Effect port", () => {
               path: "domainByteLength",
               observed: BigInt(UTF8.encode(first).byteLength) +
                 BigInt(UTF8.encode(SOURCE).byteLength),
-              maximum: 128n,
+              maximum: 156n,
             },
           },
         },

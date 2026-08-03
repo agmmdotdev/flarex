@@ -1013,11 +1013,11 @@ describe("authenticated Declarative V2 command producer", () => {
       .not.toEqual(result.candidate.deploymentAnalysisSha256);
     expect(Buffer.from(result.candidate.deploymentAnalysisSha256)
       .toString("hex")).toBe(
-        "5dbd281b7f2232cdd59b02e34488ae2df25c962725067f5435b45502ce668693",
+        "1990fd4383c0923a6967947ae2d639657c5533a8cdf956a00c5bba618c8c1656",
       );
     expect(Buffer.from(result.candidate.deploymentCodegenAnalysisSha256)
       .toString("hex")).toBe(
-        "3ca253a56133a2edec170165676c936ad037ad1d8cea514e6e6baa134796a07b",
+        "83f71fe3292583ec97bff7faac9565266f10d92af7c78e7c9cdfdff425f3e222",
       );
     expect(result.command).toMatchObject({
       commandKind: "registration_page",
