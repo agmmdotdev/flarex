@@ -8,6 +8,10 @@ relation-free point-mutation vertical. This completion remains private,
 route-independent, and production-inert; it does not authorize FSV07 or a
 public query API.
 
+Roadmap 45 subsequently extends this accepted SAP05 composition with the
+separately versioned, private SAP06-A1 inline query-to-internal-query runtime.
+That later capability does not reopen or widen PQV-A2's frozen V1 identities.
+
 This roadmap owns one bounded, route-independent, production-inert point-query
 vertical:
 
@@ -19,8 +23,8 @@ coherent FSV05 active revision
   -> validated query result with no mutation publication
 ```
 
-It does not authorize FSV07, a public SDK, production routing, actions,
-workflows, schedules, nested calls, generic queries, SQL batches, relations,
+It did not authorize FSV07, a public SDK, production routing, actions,
+workflows, schedules, generic queries, SQL batches, relations,
 developer indexes, Payload, Medusa, or a second read/OCC/commit system.
 
 ## Existing Owners And Missing Composition

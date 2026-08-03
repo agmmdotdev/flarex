@@ -2231,6 +2231,23 @@ describe("Declarative V2 streaming engine", () => {
     }
   });
 
+  test("admits the exact awaited internal-call cycle fixture for runtime rejection", () => {
+    const source = UTF8_ENCODER.encode(
+      'import { databaseGet, runQuery, valueGet } from "flarex:platform"; ' +
+        'export async function i(_, a) { const id = valueGet(a, "id"); ' +
+        'if (id === "cycle") ' +
+        'return await runQuery({_path:"internal:i"}, a); ' +
+        'return await databaseGet(id); }',
+    );
+    Result.match(runSource(source, [source]), {
+      onFailure: failure => { throw failure; },
+      onSuccess: success => {
+        expect(success.verified).toBe(true);
+        expect(success.diagnostics).toEqual([]);
+      },
+    });
+  });
+
   test("derives regex versus division from canonical parser state across reductions", () => {
     for (const [sourceText, expectedCode] of [
       ["export function f(value) { return (value) / 2; }", undefined],
@@ -2619,9 +2636,12 @@ describe("Declarative V2 streaming engine", () => {
     "runQuery",
     "runMutation",
   ])("permits existing mixed ABI catchability for %s", (operation) => {
+    const argumentsSource = operation === "runQuery" || operation === "runMutation"
+      ? '({_path:"internal:helper"})'
+      : "()";
     const source = UTF8_ENCODER.encode(
       `import { ${operation} } from "flarex:platform"; ` +
-        `export async function f() { try { return await ${operation}(); } catch { return null; } }`,
+        `export async function f() { try { return await ${operation}${argumentsSource}; } catch { return null; } }`,
     );
     Result.match(runSource(source, [source]), {
       onFailure: (failure) => {
@@ -2636,6 +2656,34 @@ describe("Declarative V2 streaming engine", () => {
             catchability: "mixed",
           }),
         ]);
+      },
+    });
+  });
+
+  test.each([
+    ["missing reference", "await runQuery()"],
+    ["dynamic reference", "await runQuery(reference)"],
+    ["forged reference", 'await runQuery({_path: reference})'],
+    ["dropped call", 'runQuery({_path:"internal:helper"})'],
+    ["direct return", 'return runQuery({_path:"internal:helper"})'],
+    ["comma return", 'return runQuery({_path:"internal:helper"}), null'],
+    ["logical return", 'return runQuery({_path:"internal:helper"}) && null'],
+    ["conditional return", 'return runQuery({_path:"internal:helper"}) ? null : null'],
+    ["overlapping call", 'Promise.all([runQuery({_path:"internal:helper"})])'],
+  ])("rejects non-static internal-call authority: %s", (_label, expression) => {
+    const source = UTF8_ENCODER.encode(
+      'import { runQuery } from "flarex:platform"; ' +
+        `export async function f(reference) { ${expression}; return null; }`,
+    );
+    Result.match(runSource(source, [source]), {
+      onFailure: (failure) => {
+        throw failure;
+      },
+      onSuccess: (success) => {
+        expect(success.verified).toBe(false);
+        expect(success.diagnostics).toEqual(expect.arrayContaining([
+          expect.objectContaining({ code: "CORE_CALL_TARGET" }),
+        ]));
       },
     });
   });

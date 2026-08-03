@@ -5625,6 +5625,22 @@ export function createDeclarativeV2VerifierEngineV1(
               throw new Error("Accepted ABI lookup lost its definition.");
             }
             if (
+              (abi.name === "runQuery" || abi.name === "runMutation") &&
+              !(
+                tokenMatches(index - 1, "await") &&
+                tokenMatches(index + 1, "(") &&
+                tokenMatches(index + 2, "{") &&
+                tokenMatches(index + 3, "_path") &&
+                tokenMatches(index + 4, ":") &&
+                at(index + 5).kind === "string" &&
+                tokenMatches(index + 6, "}") &&
+                (tokenMatches(index + 7, ",") ||
+                  tokenMatches(index + 7, ")"))
+              )
+            ) {
+              add("CORE_CALL_TARGET", token);
+            }
+            if (
               !chargeMany([[
                 "outputBytes",
                 BigInt(

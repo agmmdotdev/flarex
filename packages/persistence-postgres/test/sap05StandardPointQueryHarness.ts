@@ -5,14 +5,14 @@ import {
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
-  POINT_QUERY_EXACT_RUNTIME_MAIN_MODULE_V1,
-} from "../../flarex-backend/src/artifactRuntime/PointQueryExactRuntimeHost";
+  POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_MAIN_MODULE_V1,
+} from "../../flarex-backend/src/artifactRuntime/PointQueryInternalCallExactRuntimeHost";
 import {
-  claimCandidateBoundPointQueryRuntimeTargetV1,
-  readCandidateBoundPointQueryDocumentV1,
-  revalidateCandidateBoundPointQueryRuntimeTargetV1,
+  claimCandidateBoundPointQueryInternalCallRuntimeTargetV1,
+  readCandidateBoundPointQueryInternalCallDocumentV1,
+  revalidateCandidateBoundPointQueryInternalCallRuntimeTargetV1,
 } from
-  "../../flarex-backend/src/artifactRuntime/CandidateBoundPointQueryRuntimeTargetV1";
+  "../../flarex-backend/src/artifactRuntime/CandidateBoundPointQueryInternalCallRuntimeTargetV1";
 import {
   TransactionFunctionPathV1Schema,
 } from "flarex-protocol/transaction-session";
@@ -97,17 +97,19 @@ interface Sap05DispatcherControlsV1 {
     undefined;
   beforeNextRead: (() => Promise<void>) | undefined;
   failNextCleanup: boolean;
+  failNextWorkerWithTerminalError: boolean;
   failNextWorkerWithUnknownError: boolean;
 }
 
 export async function proveSap05StandardPointQueryV1(
   lane: Sap05StandardPointQueryLaneV1,
+  revisionVariant: "sap05-query" | "sap06-a1-query-internal" = "sap05-query",
 ): Promise<Sap05StandardPointQueryProofV1> {
   const artifacts = makeRuntimeArtifactPublisherFixtureV1();
   const ready = await prepareFsv05ReadyRevisionFixtureV1(
     lane,
     artifacts,
-    "sap05-query",
+    revisionVariant,
     true,
   );
   await Effect.runPromise(Effect.scoped(
@@ -142,6 +144,7 @@ export async function proveSap05StandardPointQueryV1(
     nextReadCause: undefined,
     beforeNextRead: undefined,
     failNextCleanup: false,
+    failNextWorkerWithTerminalError: false,
     failNextWorkerWithUnknownError: false,
   };
   const system = makeSystemLive(
@@ -200,7 +203,7 @@ export async function proveSap05StandardPointQueryV1(
       Effect.provide(layer),
       Effect.scoped,
     ),
-    "CandidateBoundQueryRuntimeDispatchV1Error",
+    "CandidateBoundQueryInternalCallRuntimeDispatchV1Error",
   );
   dispatcherControls.nextReadCause = Cause.die(new Error("sap05-read-defect"));
   const defectExit = await Effect.runPromiseExit(
@@ -225,6 +228,18 @@ export async function proveSap05StandardPointQueryV1(
     Cause.hasDies(unknownWorkerExit.cause);
   if (!unknownWorkerDefectPreserved) {
     throw new Error("SAP05 flattened an unknown Worker defect into its typed channel.");
+  }
+  dispatcherControls.failNextWorkerWithTerminalError = true;
+  const terminalFailureTyped = await failsWithReason(
+    invokeStandardApplicationPointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
+      Effect.provide(layer),
+      Effect.scoped,
+    ),
+    "ApplicationPointQueryRouteIndependentDispatcherV1Error",
+    "targetRejected",
+  );
+  if (!terminalFailureTyped) {
+    throw new Error("SAP05 lost the exact terminal nested-call classification.");
   }
   const gate = makeAsyncGate();
   dispatcherControls.beforeNextRead = gate.wait;
@@ -292,7 +307,7 @@ export async function proveSap05StandardPointQueryV1(
       FUNCTION_PATH,
       { id: documentId },
     ).pipe(Effect.provide(layer), Effect.scoped),
-    "CandidateBoundQueryRuntimeDispatchV1Error",
+    "CandidateBoundQueryInternalCallRuntimeDispatchV1Error",
   );
   for (const [key, body] of capturedObjects) {
     artifacts.replaceBodyForTest(key, body);
@@ -358,6 +373,18 @@ export async function proveSap05StandardPointQueryV1(
   });
 }
 
+export async function proveSap06A1InternalPointQueryV1(
+  lane: Sap05StandardPointQueryLaneV1,
+): Promise<Sap05StandardPointQueryProofV1 & Readonly<{
+  readonly inlineInternalQuery: true;
+}>> {
+  const proof = await proveSap05StandardPointQueryV1(
+    lane,
+    "sap06-a1-query-internal",
+  );
+  return Object.freeze({ ...proof, inlineInternalQuery: true as const });
+}
+
 function makeSystemLive(
   ready: Awaited<ReturnType<typeof prepareFsv05ReadyRevisionFixtureV1>>,
   artifacts: ReturnType<typeof makeRuntimeArtifactPublisherFixtureV1>,
@@ -394,7 +421,7 @@ function workerdDispatcher(
         | undefined;
       let dispatchSignal: AbortSignal | undefined;
       const claimed = yield* Effect.fromResult(
-        claimCandidateBoundPointQueryRuntimeTargetV1(target),
+        claimCandidateBoundPointQueryInternalCallRuntimeTargetV1(target),
       ).pipe(Effect.mapError(cause => dispatcherFailure("targetRejected", cause)));
       return yield* Effect.acquireUseRelease(
         Effect.sync(() => new Miniflare({
@@ -422,11 +449,11 @@ function workerdDispatcher(
                   unknown,
                   ApplicationPointQueryRouteIndependentDispatchV1Error
                 > = url.pathname === "/revalidate"
-                  ? revalidateCandidateBoundPointQueryRuntimeTargetV1<
+                  ? revalidateCandidateBoundPointQueryInternalCallRuntimeTargetV1<
                       ApplicationPointQueryRouteIndependentDispatchV1Error
                     >(target)
                     .pipe(Effect.as(null))
-                  : readCandidateBoundPointQueryDocumentV1<
+                  : readCandidateBoundPointQueryInternalCallDocumentV1<
                       Readonly<{ readonly tableName: string; readonly documentId: string }>,
                       unknown,
                       ApplicationPointQueryRouteIndependentDispatchV1Error
@@ -454,14 +481,14 @@ function workerdDispatcher(
                 const cause = Cause.squash(exit.cause);
                 return Response.json({
                   ok: false,
-                  name: "PointQueryExactRuntimeReadBoundaryV1Error",
+                  name: "PointQueryInternalCallExactRuntimeReadBoundaryV1Error",
                   message: errorMessage(cause),
                 });
               } catch (cause) {
                 readBoundaryCause ??= Cause.die(cause);
                 return Response.json({
                   ok: false,
-                  name: "PointQueryExactRuntimeReadBoundaryV1Error",
+                  name: "PointQueryInternalCallExactRuntimeReadBoundaryV1Error",
                   message: errorMessage(cause),
                 });
               }
@@ -486,6 +513,14 @@ function workerdDispatcher(
             catch: cause => dispatcherFailure("unavailable", cause),
           });
           let observedEnvelope = envelope;
+          if (controls.failNextWorkerWithTerminalError) {
+            controls.failNextWorkerWithTerminalError = false;
+            observedEnvelope = Object.freeze({
+              ok: false,
+              name: "PointQueryInternalCallExactRuntimeTerminalV1Error",
+              message: "internal-call-target-rejected",
+            });
+          }
           if (controls.failNextWorkerWithUnknownError) {
             controls.failNextWorkerWithUnknownError = false;
             observedEnvelope = Object.freeze({
@@ -500,7 +535,7 @@ function workerdDispatcher(
               ? observedEnvelope.name
               : "";
             if (
-              name === "PointQueryExactRuntimeReadBoundaryV1Error" &&
+              name === "PointQueryInternalCallExactRuntimeReadBoundaryV1Error" &&
               readBoundaryCause !== undefined
             ) {
               return yield* Effect.failCause(readBoundaryCause);
@@ -538,7 +573,7 @@ function workerdDispatcher(
 }
 
 function workerdDispatchModuleSource(): string {
-  return `import { FlarexPointQueryExactRuntimeV1 } from "./${POINT_QUERY_EXACT_RUNTIME_MAIN_MODULE_V1}";
+  return `import { FlarexPointQueryInternalCallExactRuntimeV1 } from "./${POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_MAIN_MODULE_V1}";
 export default {
   async fetch(request, env) {
     const input = await request.json();
@@ -563,7 +598,7 @@ export default {
     };
     try {
       const result = await Reflect.apply(
-        FlarexPointQueryExactRuntimeV1.prototype.run,
+        FlarexPointQueryInternalCallExactRuntimeV1.prototype.run,
         {},
         [input, capability],
       );
@@ -591,14 +626,17 @@ function serializeRequest(request: Parameters<
 
 function dispatcherReason(name: string):
   ApplicationPointQueryRouteIndependentDispatcherV1Error["reason"] | undefined {
-  if (name === "PointQueryExactRuntimeInvalidRequestV1Error") {
+  if (name === "PointQueryInternalCallExactRuntimeInvalidRequestV1Error") {
     return "invalidRequest";
   }
-  if (name === "PointQueryExactRuntimeReadBoundaryV1Error") {
+  if (name === "PointQueryInternalCallExactRuntimeReadBoundaryV1Error") {
     return "readBoundary";
   }
-  if (name === "PointQueryExactRuntimeUserCodeV1Error") return "userCode";
-  if (name === "PointQueryExactRuntimeWorkerDefinitionV1Error") {
+  if (name === "PointQueryInternalCallExactRuntimeUserCodeV1Error") return "userCode";
+  if (name === "PointQueryInternalCallExactRuntimeTerminalV1Error") {
+    return "targetRejected";
+  }
+  if (name === "PointQueryInternalCallExactRuntimeWorkerDefinitionV1Error") {
     return "workerDefinition";
   }
   return undefined;

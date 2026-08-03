@@ -237,7 +237,8 @@ export async function prepareFsv04RegisteredRevisionFixtureV1(
   );
   const commandBudgetMaximum = input.revisionVariant?.startsWith("fsv06-") ||
       input.revisionVariant?.startsWith("pqv-a2-") ||
-      input.revisionVariant?.startsWith("sap05-")
+      input.revisionVariant?.startsWith("sap05-") ||
+      input.revisionVariant?.startsWith("sap06-")
     ? FSV06_COMMAND_MAXIMUM
     : MAXIMUM;
   const registration = await Effect.runPromise(Effect.scoped(
@@ -477,12 +478,13 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
         (lane.runtimeArtifacts ?? makeRuntimeArtifactPublisherFixtureV1())
           .publisher,
     });
+    const totalModuleCount = BigInt(definition.program.modules.length);
     const preparation = yield* registrationContext.prepareAnalysis({
       preparedDefinition: definition,
       authenticatedEvidence,
       attemptCeilings: budget(
         "attempt_ceilings",
-        commandBudgetMaximum * 4n,
+        commandBudgetMaximum * (totalModuleCount + 3n),
       ),
     });
     const repository = makeDeclarativeV2VerifierProgressRepositoryV2(
@@ -507,7 +509,7 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
     const sourceCommand = yield* driver.prepareCommand({
       kind: "source_page",
       firstModuleOrdinal: 0n,
-      moduleCount: 1n,
+      moduleCount: totalModuleCount,
     });
     const sessionBindings = Object.freeze({
       attemptSha256: new Uint8Array(preparation.attemptSha256),
@@ -596,52 +598,61 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
             preparation,
             restartCommitments: driver.restartCommitments,
             selection: "source_page",
+            totalModuleCount,
             parsePagesRootSha256: ZERO_DIGEST,
           });
           currentProgress = source.settlement.nextProgress;
           resultingUsage = source.resultingUsage;
-          const parseCommand = yield* driver.prepareCommand({
-            kind: "parse_module",
-            moduleOrdinal: 0n,
-          });
-          const parsed = yield* executeCommand({
-            driver,
-            preparedCommand: parseCommand,
-            persistenceBridge,
-            persistenceSession: acquired.session,
-            host,
-            analyzerSession,
-            commandAdmissions,
-            currentProgress,
-            resultingUsage,
-            preparation,
-            restartCommitments: driver.restartCommitments,
-            selection: "parse_module",
-            parsePagesRootSha256: ZERO_DIGEST,
-          });
-          currentProgress = parsed.settlement.nextProgress;
-          resultingUsage = parsed.resultingUsage;
-          const parsePagesRootSha256 = parsed.evidenceRootSha256;
-          const coldParse = yield*
-            loadPrivateDeclarativeV2SettledRestartEvidenceV1({
-              bridge: persistenceBridge,
-              session: acquired.session,
-              commandKind: "parse_module",
-              sequence: parsed.settlement.sequence,
-              reservationSha256: parsed.settlement.reservationSha256,
-              outputManifestSha256:
-                frameSha256(parsed.settlement.outputManifest),
-              receiptSha256: parsed.settlement.receiptSha256,
-              pageBudget: PAGE_BUDGET,
+          let parsePagesRootSha256 = ZERO_DIGEST;
+          for (
+            let moduleOrdinal = 0n;
+            moduleOrdinal < totalModuleCount;
+            moduleOrdinal += 1n
+          ) {
+            const parseCommand = yield* driver.prepareCommand({
+              kind: "parse_module",
+              moduleOrdinal,
             });
-          if (coldParse.pages.length === 0) {
-            return yield* Effect.die(
-              new Error(
-                "FSV03 cold parse evidence reload omitted persisted pages.",
-              ),
-            );
+            const parsed = yield* executeCommand({
+              driver,
+              preparedCommand: parseCommand,
+              persistenceBridge,
+              persistenceSession: acquired.session,
+              host,
+              analyzerSession,
+              commandAdmissions,
+              currentProgress,
+              resultingUsage,
+              preparation,
+              restartCommitments: driver.restartCommitments,
+              selection: "parse_module",
+              totalModuleCount,
+              parsePagesRootSha256: ZERO_DIGEST,
+            });
+            currentProgress = parsed.settlement.nextProgress;
+            resultingUsage = parsed.resultingUsage;
+            parsePagesRootSha256 = parsed.evidenceRootSha256;
+            const coldParse = yield*
+              loadPrivateDeclarativeV2SettledRestartEvidenceV1({
+                bridge: persistenceBridge,
+                session: acquired.session,
+                commandKind: "parse_module",
+                sequence: parsed.settlement.sequence,
+                reservationSha256: parsed.settlement.reservationSha256,
+                outputManifestSha256:
+                  frameSha256(parsed.settlement.outputManifest),
+                receiptSha256: parsed.settlement.receiptSha256,
+                pageBudget: PAGE_BUDGET,
+              });
+            if (coldParse.pages.length === 0) {
+              return yield* Effect.die(
+                new Error(
+                  "FSV03 cold parse evidence reload omitted persisted pages.",
+                ),
+              );
+            }
+            durableAnalyzerEvidenceReloads.push("parse_module");
           }
-          durableAnalyzerEvidenceReloads.push("parse_module");
           const registrationCommand = yield* driver.prepareCommand({
             kind: "registration_page",
           });
@@ -711,6 +722,7 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
             preparation,
             restartCommitments: driver.restartCommitments,
             selection: "link_page",
+            totalModuleCount,
             parsePagesRootSha256,
             futureRegistrationIntentBytes: intent.canonicalBytes,
             futureRegistrationIntentSha256: intentSha256,
@@ -752,6 +764,7 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
             preparation,
             restartCommitments: driver.restartCommitments,
             selection: "registration_page",
+            totalModuleCount,
             parsePagesRootSha256,
             futureRegistrationIntentBytes: intent.canonicalBytes,
             futureRegistrationIntentSha256: intentSha256,
@@ -836,6 +849,7 @@ const executeCommand = Effect.fn("FSV03.executeCommand")(function* (
     | "parse_module"
     | "link_page"
     | "registration_page";
+  readonly totalModuleCount: bigint;
   readonly parsePagesRootSha256: Uint8Array;
   readonly futureRegistrationIntentBytes?: Uint8Array;
   readonly futureRegistrationIntentSha256?: Uint8Array;
@@ -885,7 +899,7 @@ const executeCommand = Effect.fn("FSV03.executeCommand")(function* (
           futureRegistrationIntentSha256:
             input.futureRegistrationIntentSha256,
         }),
-      totalModuleCount: 1n,
+      totalModuleCount: input.totalModuleCount,
       parsePagesRootSha256: input.parsePagesRootSha256,
       analyzerReleaseSha256: analyzerReleaseSha256(),
       ...(input.semantic === undefined
@@ -1357,12 +1371,16 @@ function definitionInput(
     revisionVariant === "pqv-a1-query" ||
     revisionVariant === "pqv-a1-query-second" ||
     revisionVariant === "pqv-a2-query" ||
-    revisionVariant === "sap05-query"
+    revisionVariant === "sap05-query" ||
+    revisionVariant === "sap06-a1-query-internal"
   ) {
     return pqvA1DefinitionInput(
       revisionVariant === "pqv-a1-query-second",
-      revisionVariant === "pqv-a2-query" || revisionVariant === "sap05-query",
-      revisionVariant === "sap05-query",
+      revisionVariant === "pqv-a2-query" || revisionVariant === "sap05-query" ||
+        revisionVariant === "sap06-a1-query-internal",
+      revisionVariant === "sap05-query" ||
+        revisionVariant === "sap06-a1-query-internal",
+      revisionVariant === "sap06-a1-query-internal",
     );
   }
   const variantSpaces = revisionVariant === "second"
@@ -1460,11 +1478,12 @@ function pqvA1DefinitionInput(
   second: boolean,
   executePointRead = false,
   validateArguments = false,
+  internalCall = false,
 ): StandardApplicationDefinitionInputV1 {
   return {
     programBudgetInput: {
-      maximumModules: 1,
-      maximumFunctions: 1,
+      maximumModules: internalCall ? 2 : 1,
+      maximumFunctions: internalCall ? 2 : 1,
       maximumIdentifierUtf8Bytes: 4_096,
       maximumValidatorNodes: 512,
       maximumValidatorDepth: 32,
@@ -1532,11 +1551,47 @@ function pqvA1DefinitionInput(
               }
             : { type: "any" },
         }],
-      }],
+      }, ...(internalCall ? [{
+        modulePath: "internal",
+        functions: [{
+          exportName: "i",
+          kind: "query" as const,
+          visibility: "internal" as const,
+          argsValidator: {
+            type: "object" as const,
+            value: {
+              id: {
+                optional: false,
+                fieldType: { type: "string" as const },
+              },
+            },
+          },
+          returnsValidator: {
+            type: "union" as const,
+            value: [{
+              type: "object" as const,
+              value: {
+                _id: {
+                  optional: false,
+                  fieldType: { type: "id" as const, tableName: "orders" },
+                },
+                _creationTime: {
+                  optional: false,
+                  fieldType: { type: "number" as const },
+                },
+                status: {
+                  optional: false,
+                  fieldType: { type: "string" as const },
+                },
+              },
+            }, { type: "null" as const }],
+          },
+        }],
+      }] : [])],
     },
     materializationBudgetInput: {
-      maximumModules: 1,
-      maximumEntryBindings: 1,
+      maximumModules: internalCall ? 2 : 1,
+      maximumEntryBindings: internalCall ? 2 : 1,
       maximumSourceBytes: 4_096,
       maximumSourceMapBytes: 1_024,
       maximumBytesMaterialized: 32_000,
@@ -1546,22 +1601,34 @@ function pqvA1DefinitionInput(
     },
     graphInput: {
       modules: [{
-        path: "orders.js",
+        path: internalCall ? "o" : "orders.js",
         roles: ["function", "execution"],
         sourceBytes: UTF8.encode(
-          `export function get(context, args) { ` +
+          (internalCall
+            ? 'import{runQuery}from"flarex:platform";export async function get(_,a){return await runQuery({_path:"internal:i"},a)}'
+            : `export function get(context, args) { ` +
             `return ${second ? "undefined" : executePointRead
               ? "context.db.get(args.id)"
-              : "null"}; }\n` +
-            "export function run() {}\n",
+              : "null"}; }\n`) +
+            (internalCall ? "" : "export function run() {}\n"),
         ),
         sourceMapBytes: null,
-      }],
+      }, ...(internalCall ? [{
+        path: "i",
+        roles: ["function"] as const,
+        sourceBytes: UTF8.encode(
+          'import{databaseGet}from"flarex:platform";export function i(_,a){return databaseGet(a.id)}',
+        ),
+        sourceMapBytes: null,
+      }] : [])],
       functionEntries: [{
         logicalModulePath: "orders",
-        artifactModulePath: "orders.js",
-      }],
-      executionPath: "orders.js",
+        artifactModulePath: internalCall ? "o" : "orders.js",
+      }, ...(internalCall ? [{
+        logicalModulePath: "internal",
+        artifactModulePath: "i",
+      }] : [])],
+      executionPath: internalCall ? "o" : "orders.js",
       schemaPath: null,
       authPath: null,
     },

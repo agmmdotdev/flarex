@@ -2,16 +2,16 @@
 
 ## Status And Scope
 
-**Status:** implementation preflight complete; implementation is not yet
-authorized. The recommended first capability is `SAP06-A1` — inline
-query-to-internal-query calls inside one accepted SAP05 execution. Roadmap 43
+**Status:** `SAP06-A1` is complete as a private, route-independent,
+production-inert capability. One public query may call an authenticated
+same-candidate internal query inline inside one accepted SAP05 execution. Roadmap 43
 remains closed as the first point-mutation vertical and roadmap 44 remains
 closed as the second point-query vertical.
 
 This roadmap owns the separately gated internal-call family. It does not make
 all call directions equivalent and does not expose another top-level System or
 Standard operation merely because user code gains one `ctx.runQuery` method.
-The first slice remains private, route-independent, production-inert, and
+The implemented first slice remains private, route-independent, production-inert, and
 bound to the already selected application revision.
 
 Read this record with
@@ -20,14 +20,14 @@ Read this record with
 [`44-second-flarexdb-system-api-point-query-vertical.md`](./44-second-flarexdb-system-api-point-query-vertical.md).
 Roadmap 40 retains portable execution semantics, roadmap 42 retains the
 Standard API family, and roadmap 44 retains the completed PQV-A1/PQV-A2/SAP05
-owners that this future slice composes.
+owners that this implemented slice composes.
 
 ## Current Evidence
 
 | Existing owner | Current fact | Consequence |
 | --- | --- | --- |
 | `packages/flarex/src/server.ts` and `packages/flarex/src/api.ts` | `QueryCtx` already types `runQuery`; function references carry query/mutation kind plus public/internal visibility | The developer type vocabulary exists, but a structural function reference is a selector, never runtime authority |
-| `packages/analysis/src/declarativeV2VerifierV1.contract.ts` and `declarativeV2VerifierExecutableV1.contract.ts` | Core V1 already defines `functionReference`, mixed-catchability `runQuery`/`runMutation`, static call targets, query-to-query permission, and query-to-mutation rejection | No analyzer semantic change or analyzer identity refresh is required for the first direction if implementation preserves this accepted contract |
+| `packages/analysis/src/declarativeV2VerifierV1.contract.ts` and `declarativeV2VerifierExecutableV1.contract.ts` | Core V1 defines `functionReference`, mixed-catchability `runQuery`/`runMutation`, static call targets, query-to-query permission, and query-to-mutation rejection | SAP06-A1 found that the executable admitted missing and dynamic nested-call operands despite that contract. The direct fix now requires one canonical literal `{ _path: "module:export" }` operand and direct `await` consumption; it refreshes only the private analyzer implementation identity and persists no call graph |
 | `packages/function-runtime/src/pointQuery.ts` | the accepted query kernel admits exactly one public query and exposes only `auth` plus point `db.get` | There is no executable internal-call owner today |
 | `packages/flarex-protocol/src/point-query-exact-runtime.ts` | the request and syscall ABI are query-only, public-only, and contain no internal-call catalog or call budget | Existing V1 must not be silently widened |
 | `packages/flarex-backend/src/artifactRuntime/PointQueryExactRuntimeWorkerCore.ts` and `PointQueryExactRuntimeHost.ts` | the exact Worker graph registers only the selected public query and shares one PQV-A1 read capability | Internal query calls require a new private target/profile/ABI, not a legacy generated-runtime fallback |
@@ -42,7 +42,7 @@ No current package export implements an exact internal call. No current
 database row stores call-site or call-chain authority. The candidate already
 stores the function metadata, function-group manifest, entry references, and
 transaction projection required to authenticate same-candidate internal query
-targets. Therefore SAP06-A1 needs a new private protocol/runtime identity but
+targets. Therefore SAP06-A1 uses a separate private protocol/runtime identity but
 no schema, migration, transaction owner, package extraction, or production
 route.
 
@@ -88,7 +88,7 @@ before Worker construction. User code supplies only the statically verified
 function-reference selector and arguments; it cannot supply metadata, target
 digests, snapshot tokens, R2 references, database handles, or capabilities.
 
-The recommended target binds the ordered set of all exact internal transaction
+The implemented target binds the ordered set of all exact internal transaction
 queries in the candidate, sorted by function ordinal with path as a defensive
 tie-breaker. The accepted analyzer remains responsible for proving that a
 `runQuery` operand is a static function reference. A persisted call graph or
@@ -124,7 +124,7 @@ create a child C07 commit.
 Do not widen the accepted
 `flarex.system/candidate-bound-query-runtime-target/v1`,
 `point-query-exact-runtime-v1`, or
-`flarex.system/point-query-syscall-abi/v1` spellings. SAP06-A1 requires these
+`flarex.system/point-query-syscall-abi/v1` spellings. SAP06-A1 uses these
 new private versioned identities:
 
 - `flarex.system/candidate-bound-query-internal-call-runtime-target/v1`;
@@ -141,7 +141,7 @@ builds an exact registry for the root plus admitted internal callees. It never
 uses the legacy `PushSourcePackage` runtime or structural registry as fallback.
 
 The SAP05 private composer moves to this new profile as the sole internal-call
-capable path when SAP06-A1 is accepted. The PQV-A2 V1 identities remain frozen
+capable path. The PQV-A2 V1 identities remain frozen
 evidence and are not dual-selected at runtime.
 
 The host retains the opaque target and the single PQV-A1 capability behind
@@ -256,11 +256,10 @@ integration, cancellation, cleanup, and full-Cause ownership. The SAP05
 `ApplicationPointQuerySystemV1` Layer remains the private composition owner;
 dynamic target/call state stays per invocation.
 
-## Implementation Assignment After Explicit Approval
+## Implemented Path Ownership
 
-Implement one medium capability, `SAP06-A1 — Inline Query-To-Internal-Query`,
-without another preflight if and only if the private identity/trust decision
-above is accepted.
+`SAP06-A1 — Inline Query-To-Internal-Query` landed as one bounded capability
+after the private identity/trust decision above was accepted.
 
 Likely owned paths:
 
@@ -284,11 +283,46 @@ implementation proves that call-site edges must become analyzer/persistence
 authority, that a schema/migration is needed, or that the existing transaction
 projection cannot materialize every authenticated internal callee.
 
+## Implemented SAP06-A1 Boundary
+
+SAP05 now selects only the separate internal-call-capable target/profile/ABI.
+The accepted PQV-A2 V1 target and generated runtime identities remain unchanged
+regression evidence and are not dual-selected. The new target authenticates the
+root public query plus the canonically ordered same-candidate internal-query
+catalog from canonical function metadata, the transaction projection,
+function-group manifest, and exact R2 references. PostgreSQL stores no runtime
+body and no call-site or call-chain record.
+
+The exact Worker adds one private synthetic `flarex:platform` module to the
+committed Worker graph. Analyzer-approved `runQuery`, `databaseGet`, and auth
+operations delegate through an operation-local context stack to the same
+PQV-A1 capability; exact R2 application bodies are neither rewritten nor
+copied into PostgreSQL. Root and child execution share one Scope, snapshot,
+read boundary, cancellation lifetime, deterministic environment, and monotonic
+budgets. A child gets no transaction, journal, durable receipt, outcome, feed,
+or outbox authority.
+
+The fixed implementation identities are:
+
+- `flarex.system/candidate-bound-query-internal-call-runtime-target/v1`;
+- `point-query-internal-call-exact-runtime-v1`; and
+- `flarex.system/point-query-internal-call-syscall-abi/v1`.
+
+The generated query kernel digest is
+`440d051b477bbec4ce9f1949c402d84233dd2fdcdeb999b092af89cc36f73b05` and
+the generated exact Worker core digest is
+`98982f46c8893bbfee4289605ac81260c8c6eb5178f902d5950e3b90ce59e65b`.
+The analyzer implementation identity is
+`b8d1e425b5afb3b8ca17844d486a142fdca2c10dde2a1834228436fbb1579b56`;
+the refresh closes the existing-contract static-operand and child-lifetime
+admission gap without introducing a new analyzer protocol identity.
+SAP06-A2/A3, production routing, and every non-query call class remain open.
+
 ## Acceptance Matrix
 
 | Lane | Required proof |
 | --- | --- |
-| Analyzer contract | exact static internal-query reference accepted; dynamic/forged reference, query-to-mutation, wrong kind, and host-failure observation rejected; analyzer identity unchanged unless behavior actually changes |
+| Analyzer contract | exact directly awaited static internal-query reference accepted; missing, dynamic, forged, dropped, return-wrapped, overlapping, query-to-mutation, wrong kind, and host-failure observation rejected; private analyzer implementation identity refreshed because behavior changed |
 | Protocol vectors | all new identity fields, ordering, bounds, catalog perturbations, duplicate ordinals/paths, wrong visibility/kind/group/module/export, and defensive decode |
 | Function runtime | nested success/missing read; auth/time/random inheritance; args/result validation; application catchability; host failure poisoning; sequential repeat; direct/indirect recursion; depth/count/byte budgets |
 | R2 and target | warm/cold materialization, exact catalog and manifest correlation, missing/corrupt/codec/length/digest/reference/module failures, target replay, and no PostgreSQL bodies |
@@ -298,9 +332,9 @@ projection cannot materialize every authenticated internal callee.
 | Regressions | PQV-A1, PQV-A2, SAP05, SAP04/FSV06 mixed catchability, generated mutation/query identities, typechecks/builds, Drizzle metadata, Effect boundaries, and diff checks |
 | Final review | exact-final TypeScript/Effect and code-quality reviewers both clean after all behavioral fixes |
 
-## Material Decisions Requiring Approval
+## Accepted Material Decisions
 
-Implementation requires explicit approval of one coherent decision:
+Implementation followed the explicitly accepted coherent decision to:
 
 1. add the three new private target/profile/ABI identities above;
 2. authenticate the ordered candidate-scoped internal-query catalog from

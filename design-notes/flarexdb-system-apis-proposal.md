@@ -708,8 +708,8 @@ index scans to application code.
 
 ### Private Internal User-Code Calls
 
-Roadmap 45 completes the implementation preflight for the next bounded
-application-data capability. `SAP06-A1` is only inline
+Roadmap 45 completes the first bounded internal-call implementation.
+`SAP06-A1` is only inline
 query-to-internal-query execution. A remote/System caller still cannot select
 an internal function, and a query can never call a mutation.
 
@@ -721,10 +721,13 @@ is selected from an authenticated ordered catalog of same-candidate
 the existing function metadata, manifest, and R2 publication. It opens no
 snapshot or transaction and creates no receipt, outcome, feed, or outbox fact.
 
-Implementation must use a new private candidate-bound internal-call query
-target, runtime profile, and syscall ABI. It must not silently widen the
+Implementation uses a separate private candidate-bound internal-call query
+target, runtime profile, and syscall ABI. It does not silently widen the
 accepted PQV-A2 V1 identities or fall back to the legacy structural nested-call
-runtime. Persisted call-site edges are deliberately excluded: the accepted
+runtime. Exact R2 bodies remain unchanged; an operation-scoped synthetic
+`flarex:platform` module delegates only the analyzer-approved auth, point-read,
+and internal-query operations through the live shared context. Persisted
+call-site edges are deliberately excluded: the accepted
 analyzer owns static function-reference proof, while the runtime target owns
 candidate/kind/visibility authorization. Mutation-to-query and
 mutation-to-mutation retain separate transaction-aware preflights.

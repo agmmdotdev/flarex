@@ -17,19 +17,19 @@ import {
 } from
   "@flarex/persistence-postgres/internal/application-point-query-snapshot-v1";
 import {
-  claimApplicationRevisionQueryRuntimeTargetAuthorityV1,
+  claimApplicationRevisionQueryInternalCallRuntimeTargetAuthorityV1,
 } from
-  "@flarex/persistence-postgres/internal/application-revision-query-runtime-target-v1";
+  "@flarex/persistence-postgres/internal/application-revision-query-internal-call-runtime-target-v1";
 import {
-  prepareCandidateBoundPointQueryRuntimeTargetV1,
-  validateCandidateBoundPointQueryResultV1,
-  type CandidateBoundPointQueryRuntimeTargetV1,
-  type CandidateBoundQueryRuntimeDispatchV1Error,
-  type CandidateBoundQueryRuntimeTargetBudgetV1,
-  type InvalidCandidateBoundPointQueryRuntimeTargetV1Error,
-  type PrepareCandidateBoundPointQueryRuntimeTargetV1Error,
+  prepareCandidateBoundPointQueryInternalCallRuntimeTargetV1,
+  validateCandidateBoundPointQueryInternalCallResultV1,
+  type CandidateBoundPointQueryInternalCallRuntimeTargetV1,
+  type CandidateBoundQueryInternalCallRuntimeDispatchV1Error,
+  type CandidateBoundQueryInternalCallRuntimeTargetBudgetV1,
+  type InvalidCandidateBoundPointQueryInternalCallRuntimeTargetV1Error,
+  type PrepareCandidateBoundPointQueryInternalCallRuntimeTargetV1Error,
 } from
-  "flarex-backend/internal/candidate-bound-point-query-runtime-target-v1";
+  "flarex-backend/internal/candidate-bound-point-query-internal-call-runtime-target-v1";
 import type {
   DeclarativeV2RuntimeArtifactR2StoreV1,
 } from "flarex-backend/internal/declarative-v2-runtime-artifact-r2-v1";
@@ -53,7 +53,7 @@ import {
 
 export interface ApplicationPointQueryRouteIndependentDispatcherV1 {
   readonly dispatch: (
-    target: CandidateBoundPointQueryRuntimeTargetV1,
+    target: CandidateBoundPointQueryInternalCallRuntimeTargetV1,
     request: PointQueryExactRuntimeRequestV1,
   ) => Effect.Effect<
     unknown,
@@ -83,8 +83,8 @@ export class ApplicationPointQueryRouteIndependentDispatcherV1Error
  */
 export type ApplicationPointQueryRouteIndependentDispatchV1Error =
   | ApplicationPointQueryRouteIndependentDispatcherV1Error
-  | InvalidCandidateBoundPointQueryRuntimeTargetV1Error
-  | CandidateBoundQueryRuntimeDispatchV1Error
+  | InvalidCandidateBoundPointQueryInternalCallRuntimeTargetV1Error
+  | CandidateBoundQueryInternalCallRuntimeDispatchV1Error
   | ReadApplicationPointQueryDocumentV1Error
   | RevalidateApplicationPointQuerySnapshotV1Error;
 
@@ -111,7 +111,7 @@ export interface ApplicationPointQuerySystemLiveV1 {
   readonly activationContext: ApplicationRevisionActivationContextV1;
   readonly snapshotBudget: ApplicationPointQuerySnapshotBudgetV1;
   readonly runtimeArtifacts: DeclarativeV2RuntimeArtifactR2StoreV1;
-  readonly runtimeBudget: CandidateBoundQueryRuntimeTargetBudgetV1;
+  readonly runtimeBudget: CandidateBoundQueryInternalCallRuntimeTargetBudgetV1;
   readonly compatibilityDate: string;
   readonly dispatcher: ApplicationPointQueryRouteIndependentDispatcherV1;
   readonly executionContextFactory: () => ApplicationPointQueryExecutionContextV1;
@@ -122,9 +122,9 @@ type QuerySnapshotReadErrorV1 =
   | RevalidateApplicationPointQuerySnapshotV1Error;
 
 type QueryRuntimeTargetErrorV1 =
-  PrepareCandidateBoundPointQueryRuntimeTargetV1Error<
+  PrepareCandidateBoundPointQueryInternalCallRuntimeTargetV1Error<
     | Effect.Error<ReturnType<
-        typeof claimApplicationRevisionQueryRuntimeTargetAuthorityV1
+        typeof claimApplicationRevisionQueryInternalCallRuntimeTargetAuthorityV1
       >>
     | QuerySnapshotReadErrorV1
   >;
@@ -135,8 +135,8 @@ export type InvokeApplicationPointQueryV1Error =
   | InvalidApplicationPointQuerySnapshotV1Error
   | OpenApplicationPointQuerySnapshotV1Error
   | QueryRuntimeTargetErrorV1
-  | InvalidCandidateBoundPointQueryRuntimeTargetV1Error
-  | CandidateBoundQueryRuntimeDispatchV1Error
+  | InvalidCandidateBoundPointQueryInternalCallRuntimeTargetV1Error
+  | CandidateBoundQueryInternalCallRuntimeDispatchV1Error
   | PointQueryExactRuntimeProtocolV1Error
   | ApplicationPointQueryRouteIndependentDispatchV1Error
   | ApplicationPointQueryActiveSelectionMismatchV1Error;
@@ -221,12 +221,12 @@ function makeInvoke(
       live.snapshotBudget,
       live.activationContext,
     );
-    const runtimeTarget = yield* prepareCandidateBoundPointQueryRuntimeTargetV1(
+    const runtimeTarget = yield* prepareCandidateBoundPointQueryInternalCallRuntimeTargetV1(
       activeRevision,
       snapshot.capability,
       functionRef,
       Object.freeze({
-        claim: claimApplicationRevisionQueryRuntimeTargetAuthorityV1,
+        claim: claimApplicationRevisionQueryInternalCallRuntimeTargetAuthorityV1,
       }),
       Object.freeze({
         revalidate: revalidateApplicationPointQuerySnapshotV1,
@@ -259,7 +259,7 @@ function makeInvoke(
       request,
     );
     const decoded = yield* decodePointQueryExactRuntimeResultV1Effect(dispatched);
-    return yield* validateCandidateBoundPointQueryResultV1(
+    return yield* validateCandidateBoundPointQueryInternalCallResultV1(
       runtimeTarget.target,
       decoded.value,
     );
