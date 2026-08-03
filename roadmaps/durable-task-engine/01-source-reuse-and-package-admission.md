@@ -2,8 +2,9 @@
 
 ## Status And Mandate
 
-**Status:** Active design preflight. The first substantial DTE01-A capability
-closure is complete; no package admission or implementation is authorized yet.
+**Status:** Active design preflight. DTE01-A capability closure and DTE01-B/C
+source classification/package-boundary decisions are complete; no package
+admission or implementation is authorized yet.
 
 This roadmap owns the first decision required by the
 [`Flarex Durable Task Engine`](./README.md) roadmap family:
@@ -27,6 +28,13 @@ production routing, public APIs, or the later durable-task vertical.
   accepts the complete run-attempt lifecycle as the first medium capability,
   rejects whole-file copying, identifies its authority and atomicity seams, and
   defines the source/test closure for DTE01-B.
+- [`preflight/02-source-map-and-package-boundary.md`](./preflight/02-source-map-and-package-boundary.md)
+  completes the symbol-level reuse classification and fixes the future private
+  `@flarex/durable-task` service, Layer, export, dependency, and adapter
+  boundary.
+- [`preflight/source-map.run-attempt-v1.json`](./preflight/source-map.run-attempt-v1.json)
+  is the mechanically checkable source, hash, transformation, and test map for
+  the accepted capability.
 
 ## Parent Vision And Fixed Boundaries
 

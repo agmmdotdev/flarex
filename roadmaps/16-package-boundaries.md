@@ -142,6 +142,27 @@ only when two legitimate owners duplicate a stable, coherent abstraction and
 neither existing lower-level package is the correct home. A speculative
 “common” package would obscure authority rather than improve it.
 
+### Accepted Planned Durable Task Package
+
+The durable-task preflight accepts one future private package,
+`@flarex/durable-task`, with only an
+`./internal/run-attempt-v1` export. It will own the host-neutral run-attempt
+lifecycle domain, pure policy, typed Effect service, Task System store port,
+and domain Layer. Its initial runtime dependency is only the root-catalog
+`effect` package.
+
+`@flarex/persistence-postgres` will implement its Task System store port;
+`flarex-backend` will own host composition, durable effect delivery, and
+runtime projection adapters. The durable-task package must not import
+persistence, Drizzle, Prisma, Redis, Node, Cloudflare, backend, apps, Trigger
+packages, or the frozen Trigger source island. It has no package-root, public
+protocol, SDK, or host-adapter export.
+
+This records a package-boundary decision, not package admission. Creation is
+still gated by
+[`durable-task-engine/01-source-reuse-and-package-admission.md`](./durable-task-engine/01-source-reuse-and-package-admission.md)
+and its remaining provenance, compatibility, bundle, and final-decision gates.
+
 `@flarex/utils` is not a core or common-domain package. A candidate belongs
 there only after it is proven to be a stable generic primitive with independent
 consumers and no lower-level domain owner. Repeated protocol canonicalization,
