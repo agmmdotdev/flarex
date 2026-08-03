@@ -10,11 +10,13 @@ scope, revision, runtime, run, attempt, lease, cancellation, and store input an
 explicit owner without importing Trigger product identity, Flarex persistence
 types, or a public protocol into the domain package.
 
-The decision is not blanket implementation authorization. Roadmap 03 is the
-next design action because DTE01's original package start condition also
-requires exact lifecycle phase, outcome, failure, retry, evidence, and effect
-unions. After that focused contract is accepted, DTE-IP01 may create the
-production-inert domain package under DTE01's existing stop boundary.
+The decision is not blanket implementation authorization. Roadmap 03 is now
+active because DTE01's original package start condition also requires exact
+lifecycle phase, outcome, failure, retry, evidence, and effect unions. DTE03-A
+has completed the source-to-Flarex transition inventory; DTE03-B's phase and
+aggregate model is next. Only after the complete focused contract is accepted
+may DTE-IP01 create the production-inert domain package under DTE01's existing
+stop boundary.
 
 No schema, migration, Postgres adapter, backend composition, runtime dispatch,
 public API, queue, scheduler, observability UI, or production route is admitted
@@ -29,8 +31,9 @@ The alternative outcomes are rejected:
   semantics, and tests were already admitted by DTE01, so this did not widen
   the source closure.
 - **defer** is unnecessary for identity/scope. Every identity and authority
-  needed by DTE-IP01 has an exact owner and representation. Roadmap 03 remains
-  a sequenced lifecycle-model prerequisite, not an unresolved identity defect.
+  needed by DTE-IP01 has an exact owner and representation. Active Roadmap 03
+  remains a sequenced lifecycle-model prerequisite, not an unresolved identity
+  defect.
 - **reject** would discard a contract that reuses current Flarex application,
   activation, runtime, and scope authorities while preserving Trigger's useful
   task/run/attempt semantics. The audit found no conflicting owner or unsafe
@@ -407,13 +410,18 @@ checks fail the checkpoint; no placeholder test command may return success.
 
 ## Exact Handoff
 
-### Next Design Action: Roadmap 03
+### Current Design Action: Roadmap 03
 
-Create `03-run-attempt-engine.md` and its focused preflight receipts. Begin
-with a current source-to-Flarex transition inventory, then close the lifecycle
-model gate above. Reuse the admitted Trigger status/retry/failure/cancellation/
-lease behavior and compatibility scenarios; do not redesign from a blank
-state machine.
+[`../03-run-attempt-engine.md`](../03-run-attempt-engine.md) is active.
+[`12-current-lifecycle-and-transition-inventory.md`](./12-current-lifecycle-and-transition-inventory.md)
+completes DTE03-A's current source-to-Flarex transition inventory. DTE03-B's
+exact phase, terminal outcome, and aggregate model is next, followed by the
+remaining policy, transition, evidence/effect, compatibility, and final
+admission checkpoints.
+
+Roadmap 03 continues to reuse the admitted Trigger status/retry/failure/
+cancellation/lease behavior and compatibility scenarios rather than redesign
+from a blank state machine.
 
 Roadmap 03 may refine lifecycle model and outcome names. It may not reopen
 DTE02 identity, scope, application/runtime binding, command authority, or
@@ -508,7 +516,8 @@ DTE02 is complete with these conclusions:
 9. current Standard Application, activation, scope, persistence, protocol,
    transaction, and Trigger-boundary owners remain consistent and unchanged;
 10. no DTE01 reopening condition is triggered;
-11. Roadmap 03's lifecycle-model gate is the next design prerequisite; and
+11. Roadmap 03 is active, DTE03-A is complete, and its lifecycle-model gate
+    remains the current design prerequisite; and
 12. DTE-IP01 may start only after that gate, remains substantial and
     production-inert, and stops before persistence or host integration.
 

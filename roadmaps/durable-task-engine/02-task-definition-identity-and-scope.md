@@ -4,8 +4,9 @@
 
 **Status:** Complete — **admit** the private task identity, scope, revision,
 runtime-binding, DTE-IP01 command, and Task System store-port contract. DTE02-A
-through DTE02-G are complete. Roadmap 03's lifecycle-model gate is next;
-DTE-IP01 package creation follows that gate.
+through DTE02-G are complete. Roadmap 03 is active, DTE03-A's lifecycle
+inventory is complete, and DTE03-B's phase/aggregate model is next. DTE-IP01
+package creation remains blocked on Roadmap 03's complete lifecycle-model gate.
 
 This roadmap owns the identity and authority boundary required before the
 admitted `@flarex/durable-task` package can be created. It does not authorize a
