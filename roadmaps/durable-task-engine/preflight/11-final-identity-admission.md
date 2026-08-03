@@ -13,8 +13,8 @@ types, or a public protocol into the domain package.
 The decision is not blanket implementation authorization. Roadmap 03 is now
 active because DTE01's original package start condition also requires exact
 lifecycle phase, outcome, failure, retry, evidence, and effect unions. DTE03-A
-has completed the source-to-Flarex transition inventory, and DTE03-B has fixed
-the phase/terminal/aggregate model; DTE03-C's failure/retry/attempt policy is
+has completed its source inventory, aggregate, and failure/retry policy
+checkpoints; DTE03-D's cancellation/heartbeat/lease transition tables are
 next. Only after the complete focused contract is accepted may DTE-IP01 create
 the production-inert domain package under DTE01's existing stop boundary.
 
@@ -416,9 +416,11 @@ checks fail the checkpoint; no placeholder test command may return success.
 [`12-current-lifecycle-and-transition-inventory.md`](./12-current-lifecycle-and-transition-inventory.md)
 completes DTE03-A's source inventory, and
 [`13-phase-terminal-and-aggregate-model.md`](./13-phase-terminal-and-aggregate-model.md)
-completes DTE03-B's exact five-phase aggregate. DTE03-C's failure, retry, and
-attempt policy is next, followed by transition, evidence/effect,
-compatibility, and final admission checkpoints.
+completes DTE03-B's exact five-phase aggregate, and
+[`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md)
+completes DTE03-C's policy. DTE03-D's cancellation/heartbeat/lease tables are
+next, followed by evidence/effect, compatibility, and final admission
+checkpoints.
 
 Roadmap 03 continues to reuse the admitted Trigger status/retry/failure/
 cancellation/lease behavior and compatibility scenarios rather than redesign
@@ -517,9 +519,9 @@ DTE02 is complete with these conclusions:
 9. current Standard Application, activation, scope, persistence, protocol,
    transaction, and Trigger-boundary owners remain consistent and unchanged;
 10. no DTE01 reopening condition is triggered;
-11. Roadmap 03 is active, DTE03-A and DTE03-B are complete, DTE03-C is next,
-    and the full lifecycle-model gate remains the current design prerequisite;
-    and
+11. Roadmap 03 is active, DTE03-A through DTE03-C are complete, DTE03-D is
+    next, and the full lifecycle-model gate remains the current design
+    prerequisite; and
 12. DTE-IP01 may start only after that gate, remains substantial and
     production-inert, and stops before persistence or host integration.
 

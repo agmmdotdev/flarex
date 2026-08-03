@@ -2,11 +2,11 @@
 
 ## Status
 
-**Status:** Active. DTE03-A's current Trigger-to-Flarex lifecycle inventory and
-DTE03-B's exact phase/terminal/aggregate model are complete. DTE03-C, the
-completion, failure, retry, and attempt policy, is next. The Roadmap 03
-lifecycle-model gate remains closed, so DTE-IP01 package creation is not yet
-authorized.
+**Status:** Active. DTE03-A's source inventory, DTE03-B's exact aggregate, and
+DTE03-C's completion-failure/retry/attempt policy are complete. DTE03-D's
+cancellation, heartbeat, lease, and recovery transition tables are next. The
+Roadmap 03 lifecycle-model gate remains closed, so DTE-IP01 package creation is
+not yet authorized.
 
 This roadmap owns the host-neutral run-attempt lifecycle contract required by
 the already-admitted private `@flarex/durable-task` package. It refines the
@@ -148,9 +148,10 @@ Immediate retry is `ready`; durable retry is `retry_waiting`. Waitpoint,
 checkpoint, delayed, paused, pending-version, and product scheduling states are
 not admitted phases.
 
-### DTE03-C: Completion, Failure, Retry, And Attempt Policy — Next
+### DTE03-C: Completion, Failure, Retry, And Attempt Policy — Complete
 
-Define and admit:
+[`preflight/14-failure-retry-and-attempt-policy.md`](./preflight/14-failure-retry-and-attempt-policy.md)
+admits:
 
 - `RunAttemptPolicyV1` and its bounded values;
 - `TaskExecutionFailureV1` and terminal classification;
@@ -162,10 +163,12 @@ Define and admit:
 - database-time calculation and overflow behavior; and
 - exact first-failure/error ordering.
 
-The checkpoint must resolve Trigger's start-versus-completion attempt-ceiling
-boundary difference instead of copying it silently.
+The checkpoint resolves Trigger's start-versus-completion attempt-ceiling
+difference with one inclusive total-attempt limit in `1..250`, preserves the
+deterministic retry formula using stored jitter and database time, and retains
+the original failure when retry is exhausted.
 
-### DTE03-D: Cancellation, Heartbeat, Lease, And Recovery Tables
+### DTE03-D: Cancellation, Heartbeat, Lease, And Recovery Tables — Next
 
 Define exhaustive transition tables for:
 
@@ -296,6 +299,7 @@ This roadmap is governed by:
   and its DTE02-A through DTE02-G receipts;
 - [`preflight/12-current-lifecycle-and-transition-inventory.md`](./preflight/12-current-lifecycle-and-transition-inventory.md);
 - [`preflight/13-phase-terminal-and-aggregate-model.md`](./preflight/13-phase-terminal-and-aggregate-model.md);
+- [`preflight/14-failure-retry-and-attempt-policy.md`](./preflight/14-failure-retry-and-attempt-policy.md);
 - the frozen Trigger source at the DTE01 pinned commit; and
 - current Flarex code only for implemented authority and package-boundary
   evidence.

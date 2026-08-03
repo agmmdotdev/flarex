@@ -478,10 +478,10 @@ DTE03-A closes these direction questions:
 
 ## Handoff
 
-Proceed to DTE03-C using DTE03-B's five-phase discriminated aggregate. Fix the
-failure taxonomy, attempt ceiling, retry directive precedence, deterministic
-backoff/jitter, OOM policy, and error order without adding scheduling,
-persistence, host, waitpoint, or product state.
+Proceed to DTE03-D using DTE03-B's five-phase aggregate and DTE03-C's admitted
+failure/retry/attempt policy. Fix exhaustive cancellation, heartbeat, lease,
+completion, and recovery transitions without adding scheduling, persistence,
+host, waitpoint, or product state.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete model.
 
@@ -497,6 +497,7 @@ Do not create `packages/durable-task/` until DTE03-G admits the complete model.
 - [`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md)
 - [`11-final-identity-admission.md`](./11-final-identity-admission.md)
 - [`13-phase-terminal-and-aggregate-model.md`](./13-phase-terminal-and-aggregate-model.md)
+- [`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md)
 - [`source-map.run-attempt-v1.json`](./source-map.run-attempt-v1.json)
 - frozen Trigger source and tests at commit
   `f10bc23785e569e5d917318cf2033aabdbe96a0b`

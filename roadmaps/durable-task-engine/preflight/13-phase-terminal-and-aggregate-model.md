@@ -3,7 +3,9 @@
 ## Receipt Status
 
 **Status:** Complete — admit the DTE03-B phase, terminal-outcome, and aggregate
-shape as the state-model input to DTE03-C through DTE03-G.
+shape as the state-model input to DTE03-C through DTE03-G. DTE03-C now refines
+the policy-owned leaves in
+[`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md).
 
 **Decision:** Use one five-phase discriminated aggregate with orthogonal
 cancellation, leased attempt ownership, bounded completion replay, and ordered
@@ -400,20 +402,19 @@ type TaskTerminalFailureClassV1 =
   | "task_failure"
   | "system_failure"
   | "resource_exhaustion"
-  | "timed_out"
-  | "attempt_limit_exhausted";
+  | "timed_out";
 ```
 
 Success always names the completing attempt. Cancellation may have no attempt
-when accepted from `ready` or `retry_waiting`. Failure may have no attempt when
-the system rejects a next grant because the accepted attempt ceiling is
-exhausted; ordinary task completion failure and lease-loss failure name their
-attempt.
+when accepted from `ready` or `retry_waiting`. Failure may have no attempt only
+for a later Roadmap 04/system transition that terminalizes before any attempt
+is granted. DTE-IP01 task-completion and lease-loss failures name their attempt.
 
-`attempt_limit_exhausted` is an accepted lifecycle terminal classification,
-not a thrown transition error. Fence, version, lease-version, cancellation-
-generation, or effect-sequence exhaustion remains the DTE02 terminal store or
-counter error and is not disguised as task failure.
+Attempt-limit exhaustion rejects retry while retaining the original failure
+classification. A valid startable aggregate always has another attempt
+available. Fence, version, lease-version, cancellation-generation, or
+effect-sequence exhaustion remains the DTE02 terminal store or counter error
+and is not disguised as task failure.
 
 `TaskExecutionFailureV1` and the complete mapping into these classes are fixed
 by DTE03-C. Trigger's product status spelling is not stored.
@@ -547,15 +548,17 @@ Additional cross-field invariants are mandatory:
    same run's attempt-history ordering;
 2. a current attempt number is exactly the last issued number;
 3. a retry's previous attempt number is exactly the last issued number;
-4. a terminal success attempt is the last issued attempt;
-5. terminal cancellation acknowledgement/lease expiry names the last issued
+4. `ready` and `retry_waiting` always have a next attempt within the bound
+   inclusive attempt limit;
+5. a terminal success attempt is the last issued attempt;
+6. terminal cancellation acknowledgement/lease expiry names the last issued
    attempt, while cancellation without an active attempt may be null;
-6. terminal outcome and cancellation resolution fields agree exactly;
-7. all timestamp addition and ordering is safe and database-derived;
-8. completion replay keys and effect sequences are unique and monotonic;
-9. no phase contains a host authority, scope identifier, transaction, queue,
+7. terminal outcome and cancellation resolution fields agree exactly;
+8. all timestamp addition and ordering is safe and database-derived;
+9. completion replay keys and effect sequences are unique and monotonic;
+10. no phase contains a host authority, scope identifier, transaction, queue,
    artifact locator, or mutable foreign value; and
-10. unsupported or contradictory stored combinations decode as corruption,
+11. unsupported or contradictory stored combinations decode as corruption,
     not a recoverable transition request.
 
 ## Operation Applicability Matrix
@@ -684,9 +687,10 @@ into it only after scope-clock validation and corruption checks.
 
 ## Exact Remaining Work
 
-### DTE03-C — Next
+### DTE03-C — Complete
 
-Fix:
+[`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md)
+fixes:
 
 - `RunAttemptPolicyV1` validation bounds and normalization;
 - the global and definition attempt-ceiling boundary;
@@ -697,9 +701,11 @@ Fix:
 - OOM/compute-profile policy for the first vertical; and
 - exact failure-evaluation and typed-error order.
 
-DTE03-C may fill `boundPolicy`, `TaskRetryCauseV1`,
-`TaskTerminalFailureClassV1`, and `TaskExecutionFailureV1`. It may not add a
-phase or move host/persistence authority into the aggregate.
+DTE03-C fills `boundPolicy`, `TaskRetryCauseV1`,
+`TaskTerminalFailureClassV1`, and `TaskExecutionFailureV1` without adding a
+phase or moving host/persistence authority into the aggregate. It also removes
+the provisional attempt-limit terminal class: the last attempt's original
+failure remains terminal and startable states must have another attempt.
 
 ### DTE03-D Through DTE03-G
 
@@ -724,9 +730,9 @@ DTE03-B does not reopen DTE01 or DTE02:
 
 ## Handoff
 
-Proceed to DTE03-C using the exact five-phase aggregate as fixed input. Begin
-with the current Trigger retry/error decision order, then choose and justify the
-single attempt-ceiling boundary before defining backoff and failure unions.
+Proceed to DTE03-D using the exact five-phase aggregate and DTE03-C policy.
+Define exhaustive cancellation, heartbeat, completion, and lease-expiry race
+tables without adding another phase or retry authority.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.
@@ -740,5 +746,6 @@ lifecycle contract.
 - [`06-task-target-and-definition-contract.md`](./06-task-target-and-definition-contract.md)
 - [`09-domain-identity-types-and-ownership.md`](./09-domain-identity-types-and-ownership.md)
 - [`source-map.run-attempt-v1.json`](./source-map.run-attempt-v1.json)
+- [`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md)
 - frozen Trigger source and tests at commit
   `f10bc23785e569e5d917318cf2033aabdbe96a0b`
