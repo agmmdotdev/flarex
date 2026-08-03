@@ -11,6 +11,13 @@ domain file.
 
 ## Notes
 
+- `flarex-postgres-persistence-domain-separation-idea.md`
+  - Exploratory, snapshot-based idea for separating domain policy,
+    orchestration, repository contracts, Postgres adapters, transactions, and
+    compatibility surfaces that currently coexist in
+    `@flarex/persistence-postgres`. It authorizes no migration and must be
+    revalidated against the working tree before becoming a roadmap.
+
 - `flarex-durable-task-engine.md`
   - Accepted direction for extracting Trigger.dev's durable-run semantics into
     a host-neutral Flarex state machine backed by a private FlarexDB Task
