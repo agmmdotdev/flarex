@@ -2,12 +2,10 @@
 
 ## Status
 
-**Status:** Active preflight. DTE02-A current-authority inventory, revised
-DTE02-B first-class task-definition contract, and DTE02-C trusted scope
-capability contract are complete. DTE02-D application revision and durable
-task runtime binding, DTE02-E domain identity types and ownership, and DTE02-F
-DTE-IP01 input/store-port contract are also complete. DTE02-G final identity
-admission is next.
+**Status:** Complete — **admit** the private task identity, scope, revision,
+runtime-binding, DTE-IP01 command, and Task System store-port contract. DTE02-A
+through DTE02-G are complete. Roadmap 03's lifecycle-model gate is next;
+DTE-IP01 package creation follows that gate.
 
 This roadmap owns the identity and authority boundary required before the
 admitted `@flarex/durable-task` package can be created. It does not authorize a
@@ -555,16 +553,25 @@ production-inert DTE-IP01 work.
 
 ### DTE02-G: Final Identity Admission
 
-**Status:** Next.
+**Status:** Complete — **admit**. See
+[`preflight/11-final-identity-admission.md`](./preflight/11-final-identity-admission.md).
 
-Required output:
+Accepted output:
 
-- one final decision receipt: admit, revise, or reject;
-- closed inventory of all identity authorities and trust boundaries;
-- reviewer-confirmed consistency with current Standard Application and
-  persistence contracts;
-- focused tests or compile-time gates for the approved private surface; and
-- exact handoff to Roadmap 03 and DTE-IP01 package creation.
+- one consolidated admit decision and closed identity/authority inventory;
+- end-to-end new-run, existing-run, runtime/effect, and observability trust
+  boundaries;
+- repository-consistency audit against current Standard Application,
+  registration/activation, scope, persistence, protocol, transaction, and
+  Trigger-boundary owners;
+- explicit DTE01 reopening matrix with no triggered condition;
+- current pre-admission checks plus exact Roadmap03, DTE-IP01 compile-time, and
+  runtime-test gates; and
+- exact sequence: Roadmap 03 lifecycle-model admission, then production-inert
+  DTE-IP01 package creation under DTE01's stop boundary.
+
+Exit gate: DTE02 identity/scope is admitted without placeholders or ownership
+conflicts. It does not bypass Roadmap 03 or authorize persistence/host work.
 
 ## Reopening Rules
 
@@ -600,15 +607,15 @@ DTE02 does not authorize:
 - observability authorization or UI APIs; or
 - production routing.
 
-## Completion Condition
+## Completion Receipt
 
-DTE02 is complete only when DTE02-B through DTE02-G have durable evidence and
-the final receipt names the exact identity types, scope capability, immutable
-revision/artifact projection, validation owner, and service inputs that
-DTE-IP01 may implement.
+DTE02-B through DTE02-G now have durable evidence. The final receipt names the
+exact identity types, scope capability, immutable revision/runtime binding,
+validation owners, service commands, store port, trust boundaries, executable
+gates, and implementation sequence.
 
-Until then, the current result is a bounded architecture decision and inventory,
-not permission to add placeholder identity fields to the admitted package.
+The result admits a bounded private contract. It is not permission to add
+placeholder lifecycle unions, skip Roadmap 03, or begin persistence/host work.
 
 ## Authority And References
 
@@ -619,13 +626,15 @@ Use these sources in order:
 2. [`./01-source-reuse-and-package-admission.md`](./01-source-reuse-and-package-admission.md)
    and [`./preflight/05-final-package-admission.md`](./preflight/05-final-package-admission.md)
    for the admitted source/package closure and its identity prerequisite;
-3. [`../../design-notes/flarexdb-system-apis-proposal.md`](../../design-notes/flarexdb-system-apis-proposal.md)
+3. [`./preflight/11-final-identity-admission.md`](./preflight/11-final-identity-admission.md)
+   for the consolidated DTE02 decision and handoff;
+4. [`../../design-notes/flarexdb-system-apis-proposal.md`](../../design-notes/flarexdb-system-apis-proposal.md)
    for control-plane versus data-plane authority;
-4. [`../42-standard-application-apis.md`](../42-standard-application-apis.md)
+5. [`../42-standard-application-apis.md`](../42-standard-application-apis.md)
    for private Standard Application stage ownership;
-5. current application registration, readiness, activation, scope-resolution,
+6. current application registration, readiness, activation, scope-resolution,
    and runtime-target code and tests for implemented behavior;
-6. [`../16-package-boundaries.md`](../16-package-boundaries.md) for the admitted
+7. [`../16-package-boundaries.md`](../16-package-boundaries.md) for the admitted
    package dependency direction; and
-7. the pinned Trigger.dev source only as compatibility evidence, never as
+8. the pinned Trigger.dev source only as compatibility evidence, never as
    Flarex identity authority.

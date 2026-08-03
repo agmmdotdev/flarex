@@ -84,8 +84,8 @@ The complete behavior includes:
 
 ## Implementation Start Condition
 
-Package creation starts only after the next focused task-identity preflight
-fixes the private Flarex contract for:
+Package creation starts only after the focused task-identity preflight fixes
+the private Flarex contract for:
 
 - tenant/customer administration versus concrete task data scope;
 - task definition and immutable definition revision;
@@ -94,9 +94,11 @@ fixes the private Flarex contract for:
 - the opaque identifiers the run-attempt service may accept without becoming
   their authority.
 
-Roadmap 02 owns the exact type names and validation/authority boundary. DTE01
-does not invent placeholder `organizationId`, `tenantId`, `environmentId`, or
-generic string fields merely to start copying code.
+Roadmap 02 now supplies those names and boundaries through
+[`11-final-identity-admission.md`](./11-final-identity-admission.md). DTE01 does
+not invent placeholder `organizationId`, `tenantId`, `environmentId`, or
+generic string fields merely to start copying code. Roadmap 03 must still
+confirm the internal lifecycle model names before DTE-IP01 starts.
 
 This is a start condition, not a reopening of source admission. Reopen DTE01-B/C
 only if Roadmap 02 proves that task identity requires a new package dependency,
@@ -473,7 +475,7 @@ DTE01 is complete because:
 8. DTE-IP01 is substantial, bounded, production-inert, and has an exact stop
    boundary.
 
-The decision is **admit**. The next roadmap action is the private task
-definition/identity/scope preflight. The next implementation action is DTE-IP01
-only after that prerequisite and the internal run-attempt model names are
-accepted.
+The decision is **admit**. The private task definition/identity/scope
+prerequisite is now complete through DTE02-G. The next roadmap action is
+Roadmap 03's lifecycle-model gate. The next implementation action is DTE-IP01
+only after that gate accepts the internal run-attempt model names.

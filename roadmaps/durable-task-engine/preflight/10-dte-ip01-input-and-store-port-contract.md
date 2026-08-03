@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-**Status:** Complete contract receipt. DTE02-G final identity admission is
-next.
+**Status:** Complete contract receipt. DTE02-G final identity admission is also
+complete; Roadmap 03's lifecycle-model gate is next.
 
 This receipt fixes the exact command boundary consumed by the admitted
 `@flarex/durable-task` run-attempt service and the exact semantic
@@ -914,8 +914,9 @@ DTE02-F is complete with these conclusions:
     removal rationale;
 11. exact command, decision, and store error meanings remain in the typed
     Effect channel; and
-12. no DTE01 dependency/export/source-map reopening condition is triggered, so
-    DTE02-G final identity admission is next.
+12. no DTE01 dependency/export/source-map reopening condition is triggered;
+    DTE02-G now admits the consolidated contract in
+    [`11-final-identity-admission.md`](./11-final-identity-admission.md).
 
 ## Authority And Evidence
 

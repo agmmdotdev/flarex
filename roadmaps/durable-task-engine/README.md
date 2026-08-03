@@ -2,14 +2,12 @@
 
 ## Status And Scope
 
-**Status:** Vision authority. DTE01 source reuse and package admission is
-complete with one admitted, production-inert run-attempt package slice.
-Roadmap 02 task identity/scope is active. Its current-authority inventory,
-revised first-class task-definition contract, trusted scope capability,
-application revision and durable task runtime binding, domain identity, and
-DTE-IP01 input/store-port contracts are complete. Final DTE02 identity
-admission is next. No package implementation, schema, host integration, or
-production activation exists yet.
+**Status:** Vision authority. DTE01 source reuse/package admission and DTE02
+task identity/scope admission are complete. One production-inert run-attempt
+package slice and its exact identity, authority, command, and store-port
+prerequisites are admitted. Roadmap 03 run-attempt lifecycle modeling is next;
+DTE-IP01 package creation follows its lifecycle-model gate. No package
+implementation, schema, host integration, or production activation exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -262,9 +260,9 @@ cross-provider placement, and public SDK integration remain later gates.
 
 ## Roadmap Decomposition
 
-The first focused preflight is complete. Roadmap 02 is the required next
-preflight because its private identity/scope contract is an implementation
-prerequisite for the admitted package. The later files remain candidates for
+The first two focused preflights are complete. Roadmap 03 is the required next
+preflight because DTE-IP01 still needs exact lifecycle phase, outcome, failure,
+retry, evidence, and effect unions. The later files remain candidates for
 their owning discussions:
 
 1. [`01-source-reuse-and-package-admission.md`](./01-source-reuse-and-package-admission.md)
@@ -272,14 +270,14 @@ their owning discussions:
      future private `@flarex/durable-task` package, with provenance,
      compatibility, and executable boundary gates;
 2. [`02-task-definition-identity-and-scope.md`](./02-task-definition-identity-and-scope.md)
-   - **active:** private task definition, Standard Application stages,
+   - **complete: admit:** private task definition, Standard Application stages,
      tenant/project/environment/deployment/scope resolution, revision,
      artifact binding, private domain identities, and DTE-IP01 command/store
-     contracts; DTE02-A through DTE02-F are complete and DTE02-G final identity
-     admission is next;
+     contracts; DTE02-A through DTE02-G are complete;
 3. `03-run-attempt-engine.md`
-   - reused statuses, retry policy, run/attempt lifecycle, cancellation,
-     leases, fences, clocks, failures, and deterministic transition evidence;
+   - **next:** reused statuses, retry policy, run/attempt lifecycle,
+     cancellation, leases, fences, clocks, failures, outcomes, evidence/effect
+     unions, and deterministic transition behavior;
 4. `04-task-system-api-and-postgres.md`
    - private operation contracts, Drizzle schema, transactions, idempotency,
      discovery, ordered events, corruption policy, PGlite, and real Postgres;

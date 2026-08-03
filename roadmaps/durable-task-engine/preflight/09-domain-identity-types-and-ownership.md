@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-**Status:** Complete identity-contract receipt. DTE02-F input and store-port
-contract is also complete; DTE02-G final identity admission is next.
+**Status:** Complete identity-contract receipt. DTE02-F input/store-port and
+DTE02-G final identity admission are also complete; Roadmap 03's lifecycle
+model is next.
 
 This receipt fixes the names, encoded forms, validation rules, generation
 authority, equality, visibility, and scope behavior of the identities needed
@@ -544,8 +545,8 @@ DTE02-E is complete with these conclusions:
 10. existing Flarex application, scope, transaction-session, and transaction-
     fence authorities remain distinct; and
 11. DTE-IP01 can define the approved run-attempt identity schemas with its
-    admitted `effect` dependency only; DTE02-F is now complete and DTE02-G is
-    the next preflight.
+    admitted `effect` dependency only; DTE02-F and DTE02-G are now complete,
+    and Roadmap 03 is next.
 
 ## Authority And Evidence
 
