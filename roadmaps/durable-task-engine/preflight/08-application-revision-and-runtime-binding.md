@@ -472,8 +472,9 @@ binding directly or normalize it across application-revision rows, but:
   retry, duration, compute, or queue evidence must not converge;
 - the ID remains distinct from application revision, task ID, candidate
   digest, manifest digest, or runtime-target digest; and
-- its exact generation/content-addressing rule remains DTE02-E and Roadmap 04
-  ownership.
+- DTE02-E now fixes its identity as storage-issued `taskdef_` plus canonical
+  lowercase UUIDv4; Roadmap 04 owns the unique semantic binding constraint and
+  transactional implementation.
 
 The stored row is physically constrained by the trusted scope. Scope identity
 is not reintroduced as a caller command field merely because persistence keys
@@ -672,8 +673,9 @@ snapshots. It must not add candidate frames, R2 references, active selections,
 runtime materialization specs, ComputeProvider calls, or a fake artifact
 loader to `@flarex/durable-task`.
 
-DTE02-E must now fix the exact identity types and validation owners.
-DTE02-F then maps the run-attempt commands to the opaque
+DTE02-E has now fixed the exact identity types and validation owners in
+[`09-domain-identity-types-and-ownership.md`](./09-domain-identity-types-and-ownership.md).
+DTE02-F next maps the run-attempt commands to the opaque
 `TaskDefinitionRevisionIdV1` without exposing this binding surface.
 
 ## Explicit Non-Goals
@@ -719,7 +721,9 @@ DTE02-D is complete with these conclusions:
 9. current runtime publication and candidate-bound target mechanics are reuse
    inputs, while their function identity and groups are not;
 10. DTE01 admission and DTE-IP01 scope remain unchanged; and
-11. DTE02-E domain identity types and ownership is the next preflight.
+11. DTE02-E domain identity types and ownership is now complete in
+    [`09-domain-identity-types-and-ownership.md`](./09-domain-identity-types-and-ownership.md),
+    and DTE02-F is the next preflight.
 
 ## Authority And Evidence
 

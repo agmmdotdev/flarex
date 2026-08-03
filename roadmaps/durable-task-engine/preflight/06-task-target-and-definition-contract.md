@@ -144,10 +144,12 @@ interface CanonicalTaskManifestV1 {
 }
 ```
 
-These are ownership names, not implementation authorization. DTE02-D now fixes
-the runtime binding and `durable_task` projection semantics; DTE02-E and the
-future task-definition package preflight must still decide identity validators,
-exact codecs, imports, brands, and protocol placement before code is added.
+These are ownership names, not implementation authorization. DTE02-D fixes the
+runtime binding and `durable_task` projection semantics, and DTE02-E now fixes
+the `TaskIdV1` validation/equality contract plus the private run-attempt
+identity owners. The future task-definition package preflight must still place
+and implement the canonical manifest codecs, imports, and brand without
+creating a second definition owner.
 
 ### First-Version Inclusion
 

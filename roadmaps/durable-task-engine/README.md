@@ -5,11 +5,11 @@
 **Status:** Vision authority. DTE01 source reuse and package admission is
 complete with one admitted, production-inert run-attempt package slice.
 Roadmap 02 task identity/scope is active. Its current-authority inventory,
-revised first-class task-definition contract, and trusted scope capability
-contract are complete. Its application revision and durable task runtime
-binding is now also complete; domain identity types are next. No package
-implementation, schema, host integration, or production activation exists
-yet.
+revised first-class task-definition contract, trusted scope capability,
+application revision and durable task runtime binding, and domain identity
+contract are complete. The DTE-IP01 input/store-port contract is next. No
+package implementation, schema, host integration, or production activation
+exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -273,9 +273,9 @@ their owning discussions:
      compatibility, and executable boundary gates;
 2. [`02-task-definition-identity-and-scope.md`](./02-task-definition-identity-and-scope.md)
    - **active:** private task definition, Standard Application stages,
-     tenant/project/environment/deployment/scope resolution, revision and
-     artifact binding; DTE02-A through DTE02-D are complete and DTE02-E domain
-     identity types and ownership is next;
+     tenant/project/environment/deployment/scope resolution, revision,
+     artifact binding, and private domain identities; DTE02-A through DTE02-E
+     are complete and DTE02-F DTE-IP01 input/store-port contract is next;
 3. `03-run-attempt-engine.md`
    - reused statuses, retry policy, run/attempt lifecycle, cancellation,
      leases, fences, clocks, failures, and deterministic transition evidence;

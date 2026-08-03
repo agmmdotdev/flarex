@@ -482,10 +482,12 @@ durable identity, but it never serializes a live capability. See
 
 ### DTE02-E And DTE02-F
 
-Domain identity types remain scope-local lookup values. DTE02-F must keep every
-scope-authority field out of commands and expose only the semantic store port
-already fixed by DTE01. Its final error union must retain this receipt's stale,
-absence, corruption, transient, and terminal distinctions.
+DTE02-E now fixes domain identities as scope-local lookup values in
+[`09-domain-identity-types-and-ownership.md`](./09-domain-identity-types-and-ownership.md).
+DTE02-F must keep every scope-authority field out of commands and expose only
+the semantic store port already fixed by DTE01. Its final error union must
+retain this receipt's stale, absence, corruption, transient, and terminal
+distinctions.
 
 ### Roadmap 04
 

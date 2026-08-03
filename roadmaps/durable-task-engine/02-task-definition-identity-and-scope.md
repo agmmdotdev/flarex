@@ -5,8 +5,8 @@
 **Status:** Active preflight. DTE02-A current-authority inventory, revised
 DTE02-B first-class task-definition contract, and DTE02-C trusted scope
 capability contract are complete. DTE02-D application revision and durable
-task runtime binding is also complete. DTE02-E domain identity types and
-ownership is next.
+task runtime binding and DTE02-E domain identity types and ownership are also
+complete. DTE02-F DTE-IP01 input and store-port contract is next.
 
 This roadmap owns the identity and authority boundary required before the
 admitted `@flarex/durable-task` package can be created. It does not authorize a
@@ -257,9 +257,11 @@ This ID denotes exactly one accepted tuple:
 - versioned retry/timeout/compute policy owned by the task definition.
 
 The ID is not interchangeable with task ID, application revision ID, handler
-path, deployment ID, or artifact digest. Roadmap 04 decides whether the ID is
-storage-issued or content-addressed after the canonical registration input and
-idempotency behavior are fixed.
+path, deployment ID, or artifact digest. DTE02-E fixes it as a storage-issued
+`taskdef_` plus canonical lowercase UUIDv4 identity. Canonical binding evidence
+and a scope-local unique semantic binding key make identical registrations
+converge; the ID itself is not a content digest. Roadmap 04 owns the physical
+constraint and transactional proof.
 
 There is no mutable `latest` field inside a task-definition revision. Any
 change to handler binding, retry policy, timeout, compute policy, or immutable
@@ -288,15 +290,17 @@ the transaction authority.
 
 ### Attempt Identity And Fence
 
-An attempt has a task-domain attempt identifier and a monotonic execution
-fence. The attempt identifier names lifecycle history. The fence authorizes a
-specific lease generation. They are not interchangeable, and an attempt ID by
-itself cannot authorize heartbeat, completion, cancellation acknowledgment, or
-retry commitment.
+An attempt has a `TaskAttemptIdV1`, `TaskAttemptNumberV1`, and monotonic
+`TaskExecutionFenceV1`. The attempt identifier names lifecycle history, the
+number describes retry-policy position, and the fence authorizes a specific
+execution ownership generation. They are not interchangeable, and an attempt
+ID or number by itself cannot authorize heartbeat, completion, cancellation
+acknowledgment, or retry commitment.
 
-Exact types and transition commands remain Roadmap 03's owner. DTE02 fixes only
-that all attempt operations occur through the same scope-bound Task System
-capability as the run.
+DTE02-E fixes their identity and encoding contracts. Roadmap 03 owns the exact
+transition commands and decides which transitions create attempt history or
+consume a retry ordinal. All operations still occur through the same
+scope-bound Task System capability as the run.
 
 ## Private Authority Flow
 
@@ -502,23 +506,31 @@ compute proofs remain owned by their later implementation roadmaps.
 
 ### DTE02-E: Domain Identity Types And Ownership
 
-**Status:** Next.
+**Status:** Complete. See
+[`preflight/09-domain-identity-types-and-ownership.md`](./preflight/09-domain-identity-types-and-ownership.md).
 
-Required output:
+Accepted output:
 
-- exact internal names and validators for task-definition revision, run, and
-  attempt identities;
-- generation and storage authority for each identifier;
-- opaque versus serializable boundaries;
-- canonical equality and error behavior; and
-- confirmation that no type duplicates an existing Flarex protocol authority.
+- exact `TaskIdV1`, `TaskDefinitionRevisionIdV1`, `TaskRunIdV1`,
+  `TaskAttemptIdV1`, `TaskAttemptNumberV1`, and `TaskExecutionFenceV1`
+  contracts;
+- storage-issued canonical UUIDv4 identities for definition revision, run,
+  and attempt, with no Trigger internal/friendly alias pair;
+- persistence-owned generation, bounded collision behavior, and scope-local
+  lookup through the DTE02-C capability;
+- canonical equality, serializable/opaque/visible boundaries, and distinct
+  malformed, absent, cross-scope, corrupt, stale, and exhausted behavior; and
+- explicit separation from application, scope, transaction-session, and
+  transaction-fence authorities.
 
-Exit gate: DTE-IP01 can import or define the approved task-domain identifiers
-without adding `flarex-protocol` or persistence dependencies.
+Exit gate: DTE-IP01 can define the approved task-domain identifiers with its
+already admitted `effect` dependency and without `flarex-protocol` or
+persistence dependencies. The contract gate is accepted; executable schema
+and package proofs remain DTE-IP01 work.
 
 ### DTE02-F: DTE-IP01 Input Contract
 
-**Status:** Pending.
+**Status:** Next.
 
 Required output:
 
