@@ -158,10 +158,13 @@ persistence, Drizzle, Prisma, Redis, Node, Cloudflare, backend, apps, Trigger
 packages, or the frozen Trigger source island. It has no package-root, public
 protocol, SDK, or host-adapter export.
 
-This records a package-boundary decision, not package admission. Creation is
-still gated by
-[`durable-task-engine/01-source-reuse-and-package-admission.md`](./durable-task-engine/01-source-reuse-and-package-admission.md)
-and its remaining provenance, compatibility, bundle, and final-decision gates.
+This package boundary is now admitted by
+[`DTE01-G`](./durable-task-engine/preflight/05-final-package-admission.md).
+Creation remains sequenced behind the private task identity/scope contract and
+must land as the complete production-inert package checkpoint with its
+provenance, compatibility tests, and admitted-package gates. Admission does not
+authorize a persistence implementation, app/backend dependency, Worker bundle,
+public export, schema, or production route.
 
 `@flarex/utils` is not a core or common-domain package. A candidate belongs
 there only after it is proven to be a stable generic primitive with independent

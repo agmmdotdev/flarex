@@ -2,10 +2,10 @@
 
 ## Status And Mandate
 
-**Status:** Active design preflight. DTE01-A through DTE01-F are complete:
-capability closure, source classification, package boundary, provenance,
-compatibility harness, and executable pre-admission gates are fixed. DTE01-G
-final admission remains; no package implementation is authorized yet.
+**Status:** Complete — **admit** one transformed, production-inert
+`run-attempt-lifecycle-v1` package slice. DTE01-A through DTE01-G are complete.
+The admission authorizes the bounded future package checkpoint recorded below;
+it does not create that package or authorize schema, host, or production work.
 
 This roadmap owns the first decision required by the
 [`Flarex Durable Task Engine`](./README.md) roadmap family:
@@ -43,6 +43,10 @@ production routing, public APIs, or the later durable-task vertical.
   records the executable source-map and production-boundary checks now in
   force, their admitted-package fail-closed mode, and the exact deferred
   package, compatibility, persistence, and Worker bundle gates.
+- [`preflight/05-final-package-admission.md`](./preflight/05-final-package-admission.md)
+  chooses **admit**, consolidates the exact product/source/test/package/port
+  decision, and fixes the implementation start condition, rollback, validation,
+  and stop boundary.
 
 ## Parent Vision And Fixed Boundaries
 
@@ -598,7 +602,9 @@ DTE01 does not:
 - change root or island dependencies or lockfiles;
 - generate Prisma or Drizzle clients;
 - define task tables, migrations, SQL, or indexes;
-- accept final task statuses, lifecycle, error taxonomy, or wire contracts;
+- freeze public or persisted status/error wire representations; DTE01 accepts
+  internal lifecycle semantics while the run-attempt roadmap owns their exact
+  internal model names and later wire owners remain separate;
 - add Trigger compatibility to the public Flarex SDK or management API;
 - implement task execution, scheduling, wake delivery, compute, observability,
   or UI behavior;

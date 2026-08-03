@@ -10,9 +10,11 @@ This receipt consumes the
 binds it to the machine-readable
 [`source-map.run-attempt-v1.json`](./source-map.run-attempt-v1.json).
 
-It authorizes no package creation. DTE01-D/E are now fixed by the
+It did not independently authorize package creation. DTE01-D/E are fixed by the
 [`provenance and compatibility harness receipt`](./03-provenance-and-compatibility-harness.md).
-DTE01-F/G still gate executable boundary checks and final package admission.
+DTE01-F is fixed by the [`boundary gate receipt`](./04-boundary-and-bundle-gates.md),
+and DTE01-G now admits the complete bounded checkpoint in the
+[`final package admission`](./05-final-package-admission.md).
 
 ## Decision Summary
 
@@ -70,13 +72,23 @@ The planned manifest identity is:
   "exports": {
     "./internal/run-attempt-v1": "./src/runAttempt/v1.ts"
   },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
   "dependencies": {
     "effect": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
 ```
 
-This is a preflight contract, not permission to add the manifest yet.
+This is the admitted future manifest contract. Its creation remains sequenced
+behind the identity/scope start condition in the final admission receipt.
 
 `private: true` is deliberate even though several older Flarex workspace
 packages omit it. The first task surface is platform-internal and must not

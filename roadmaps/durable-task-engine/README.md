@@ -2,8 +2,10 @@
 
 ## Status And Scope
 
-**Status:** Vision authority; focused roadmap decomposition and implementation
-preflight remain pending.
+**Status:** Vision authority. DTE01 source reuse and package admission is
+complete with one admitted, production-inert run-attempt package slice.
+Roadmap 02 task identity/scope is the next preflight; no package implementation,
+schema, host integration, or production activation exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -238,12 +240,15 @@ cross-provider placement, and public SDK integration remain later gates.
 
 ## Roadmap Decomposition
 
-The first focused preflight now exists. The remaining files are candidates for
-the next discussions; their names and order are not approved by this README:
+The first focused preflight is complete. Roadmap 02 is the required next
+preflight because its private identity/scope contract is an implementation
+prerequisite for the admitted package. The later files remain candidates for
+their owning discussions:
 
 1. [`01-source-reuse-and-package-admission.md`](./01-source-reuse-and-package-admission.md)
-   - source map, license/provenance, dependency closure, workspace strategy,
-     transformed package ownership, and compatibility receipt harness;
+   - **complete: admit** the medium run-attempt lifecycle source closure into a
+     future private `@flarex/durable-task` package, with provenance,
+     compatibility, and executable boundary gates;
 2. `02-task-definition-identity-and-scope.md`
    - private task definition, Standard Application stages, tenant/project/
      environment/deployment/scope resolution, revision and artifact binding;
@@ -271,10 +276,11 @@ the next discussions; their names and order are not approved by this README:
     - public SDK, management API, quotas, operational readiness, routing,
       rollout, and eventual compatibility-island retirement.
 
-Roadmap 01 must identify a substantial connected Trigger capability worth
-lifting first. It should be medium-sized: large enough to prove an end-to-end
-lifecycle decision, but still bounded enough for one admission preflight and
-its compatibility evidence.
+Roadmap 01 identified the complete run-attempt lifecycle as the first
+substantial connected Trigger capability. Its admitted package checkpoint is
+large enough to exercise transition, failure, retry, cancellation, lease,
+fence, service, Layer, and requested-effect seams while excluding persistence
+implementation and host activation.
 
 ## Non-Goals
 

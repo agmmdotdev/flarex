@@ -43,6 +43,21 @@ if (isCliEntrypoint()) {
     discoverWorkspaceManifests(),
     discoverWorkspaceSources(),
   );
+  const durableTaskRoot = path.join(repoRoot, "packages/durable-task");
+  if (existsSync(durableTaskRoot)) {
+    const durableTaskTsconfigPath = path.join(durableTaskRoot, "tsconfig.json");
+    if (!existsSync(durableTaskTsconfigPath)) {
+      report.errors.push("packages/durable-task/tsconfig.json is required after package admission.");
+    } else {
+      try {
+        report.errors.push(...analyzeDurableTaskTsconfig(
+          JSON.parse(readFileSync(durableTaskTsconfigPath, "utf8")),
+        ));
+      } catch (error) {
+        report.errors.push(`packages/durable-task/tsconfig.json must be valid JSON: ${errorMessage(error)}.`);
+      }
+    }
+  }
 
   if (report.errors.length > 0) {
     console.error(report.errors.join("\n"));
@@ -184,6 +199,21 @@ export function analyzeDurableTaskManifest(manifest) {
     errors.push(`${durableTaskManifestPath}: runtime dependencies must contain only root-catalog effect.`);
   }
 
+  if (!hasExactStringRecord(manifest.scripts, {
+    build: "tsc -p tsconfig.json",
+    typecheck: "tsc -p tsconfig.json",
+    test: "vitest run",
+  })) {
+    errors.push(`${durableTaskManifestPath}: scripts must exactly match the admitted build, typecheck, and test commands.`);
+  }
+
+  if (!hasExactStringRecord(manifest.devDependencies, {
+    typescript: "catalog:",
+    vitest: "catalog:",
+  })) {
+    errors.push(`${durableTaskManifestPath}: devDependencies must contain only root-catalog typescript and vitest.`);
+  }
+
   for (const field of ["optionalDependencies", "peerDependencies"]) {
     const values = manifest[field];
     if (values !== undefined && (!isRecord(values) || Object.keys(values).length > 0)) {
@@ -208,6 +238,41 @@ export function analyzeDurableTaskManifest(manifest) {
   const expectedFiles = ["src", "THIRD_PARTY_NOTICES.md", "trigger-source-map.json", "licenses"];
   if (!Array.isArray(files) || JSON.stringify(files) !== JSON.stringify(expectedFiles)) {
     errors.push(`${durableTaskManifestPath}: files must exactly match the admitted distribution list.`);
+  }
+  return errors;
+}
+
+/** @param {unknown} tsconfig */
+export function analyzeDurableTaskTsconfig(tsconfig) {
+  const label = "packages/durable-task/tsconfig.json";
+  if (!isRecord(tsconfig)) return [`${label} must be an object.`];
+  /** @type {string[]} */
+  const errors = [];
+  if (!hasExactKeys(tsconfig, ["compilerOptions", "extends", "include"])) {
+    errors.push(`${label} must contain only extends, compilerOptions, and include.`);
+  }
+  if (tsconfig.extends !== "../../tsconfig.base.json") {
+    errors.push(`${label} must extend ../../tsconfig.base.json.`);
+  }
+  if (!Array.isArray(tsconfig.include) || JSON.stringify(tsconfig.include) !== JSON.stringify(["src", "test"])) {
+    errors.push(`${label} include must exactly match src and test.`);
+  }
+  const compilerOptions = tsconfig.compilerOptions;
+  if (!isRecord(compilerOptions)) {
+    errors.push(`${label} compilerOptions must be an object.`);
+    return errors;
+  }
+  if (!hasExactKeys(compilerOptions, ["lib", "noUncheckedIndexedAccess", "types"])) {
+    errors.push(`${label} compilerOptions must contain only lib, types, and noUncheckedIndexedAccess.`);
+  }
+  if (!Array.isArray(compilerOptions.lib) || JSON.stringify(compilerOptions.lib) !== JSON.stringify(["ES2022"])) {
+    errors.push(`${label} compilerOptions.lib must exactly match ES2022 without DOM.`);
+  }
+  if (!Array.isArray(compilerOptions.types) || compilerOptions.types.length !== 0) {
+    errors.push(`${label} compilerOptions.types must be empty.`);
+  }
+  if (compilerOptions.noUncheckedIndexedAccess !== true) {
+    errors.push(`${label} compilerOptions.noUncheckedIndexedAccess must be true.`);
   }
   return errors;
 }
@@ -437,11 +502,13 @@ function prohibitedDurableTaskGlobalForNode(node) {
   if (memberPath?.length === 2 && memberPath[0] === "Math" && memberPath[1] === "random") {
     return "Math.random";
   }
-  if (
-    memberPath?.length === 1
-    && memberPath[0] === "process"
-    && isProcessReferenceNode(node)
-  ) return "process";
+  for (const globalName of ["process", "fetch", "caches", "crypto", "performance"]) {
+    if (
+      memberPath?.length === 1
+      && memberPath[0] === globalName
+      && isGlobalReferenceNode(node)
+    ) return globalName;
+  }
 
   if (
     (ts.isNewExpression(node) || ts.isCallExpression(node))
@@ -496,7 +563,7 @@ function isExactGlobalMember(node, member) {
 }
 
 /** @param {ts.Node} node */
-function isProcessReferenceNode(node) {
+function isGlobalReferenceNode(node) {
   if (!ts.isIdentifier(node)) return true;
   if (ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) return false;
   if (ts.isPropertyAssignment(node.parent) && node.parent.name === node) return false;
@@ -528,6 +595,28 @@ function scriptKindForPath(file) {
  */
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** @param {unknown} value @param {Readonly<Record<string, string>>} expected */
+function hasExactStringRecord(value, expected) {
+  if (!isRecord(value)) return false;
+  const actualKeys = Object.keys(value).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  return actualKeys.length === expectedKeys.length
+    && actualKeys.every((key, index) => key === expectedKeys[index] && value[key] === expected[key]);
+}
+
+/** @param {Readonly<Record<string, unknown>>} value @param {readonly string[]} expected */
+function hasExactKeys(value, expected) {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length
+    && actual.every((key, index) => key === sortedExpected[index]);
+}
+
+/** @param {unknown} error */
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** @param {string} value */

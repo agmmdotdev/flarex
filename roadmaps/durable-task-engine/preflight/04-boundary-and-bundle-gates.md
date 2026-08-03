@@ -10,7 +10,9 @@ enter the implementation slice.
 This receipt consumes the
 [`source/package boundary`](./02-source-map-and-package-boundary.md) and the
 [`provenance/harness contract`](./03-provenance-and-compatibility-harness.md).
-It does not admit `@flarex/durable-task`; DTE01-G owns that decision.
+It did not independently admit `@flarex/durable-task`; DTE01-G now owns and
+records that decision in the
+[`final package admission`](./05-final-package-admission.md).
 
 ## Gate Principle
 
@@ -119,6 +121,11 @@ DTE01-F adds rules scoped to the future durable-task owner. Its manifest must:
 - use the exact `@flarex/durable-task`, `0.0.1`, private ESM identity;
 - export only `./internal/run-attempt-v1` at the fixed target;
 - have only root-catalog `effect` as a runtime dependency; and
+- use the exact TypeScript build/typecheck and Vitest test commands with only
+  root-catalog TypeScript/Vitest development dependencies; and
+- use the exact host-neutral TypeScript config: extend the root base, override
+  `lib` to `ES2022`, clear ambient `types`, enable
+  `noUncheckedIndexedAccess`, and include only `src`/`test`; and
 - use the exact source, notice, map, and licenses distribution list.
 
 Durable-task production source uses a positive import boundary: it may import
@@ -132,9 +139,10 @@ the existing TypeScript-AST scanner.
 
 The same AST pass rejects direct, captured, destructured, or computed
 `Date.now` and `Math.random` references; zero-argument `Date()` and `new Date()`;
-and bare or `globalThis` `process` use in production package source. Controlled
-time, jitter, persistence time, and host configuration must enter through the
-accepted domain/store contracts.
+and bare or `globalThis` `process`, `fetch`, `caches`, `crypto`, and
+`performance` use in production package source. Controlled time, jitter,
+identity generation, network/cache access, persistence time, and host
+configuration must enter through the accepted domain/store contracts.
 
 Production source in any app or package also rejects imports of the durable
 task compatibility harness. Test paths and test files may import test-only
@@ -289,5 +297,7 @@ DTE01-F is accepted because:
 6. each deployable graph has a concrete existing dry-run/bundle command and an
    exact forbidden-input inspection requirement.
 
-DTE01-G may now consolidate the accepted medium capability and choose admit,
-narrow, defer, or reject. No source transplant occurs before that decision.
+DTE01-G consolidates the accepted medium capability and chooses **admit**. The
+source transplant still waits for the identity/scope start condition and exact
+checkpoint boundary in the
+[`final package admission`](./05-final-package-admission.md).

@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   analyzeDurableTaskManifest,
+  analyzeDurableTaskTsconfig,
   analyzeTriggerCompatibilityBoundary,
   collectFiles,
   discoverWorkspaceManifests,
@@ -112,7 +113,13 @@ describe("Trigger compatibility boundary checker", () => {
       type: "module",
       files: ["src", "THIRD_PARTY_NOTICES.md", "trigger-source-map.json", "licenses"],
       exports: { "./internal/run-attempt-v1": "./src/runAttempt/v1.ts" },
+      scripts: {
+        build: "tsc -p tsconfig.json",
+        typecheck: "tsc -p tsconfig.json",
+        test: "vitest run",
+      },
       dependencies: { effect: "catalog:" },
+      devDependencies: { typescript: "catalog:", vitest: "catalog:" },
     })).toEqual([]);
 
     expect(analyzeDurableTaskManifest({
@@ -122,6 +129,7 @@ describe("Trigger compatibility boundary checker", () => {
       type: "commonjs",
       files: ["src", "extra"],
       exports: { ".": "./src/index.ts" },
+      scripts: { test: "node test.js" },
       dependencies: { effect: "catalog:", ioredis: "catalog:" },
       devDependencies: { prisma: "catalog:" },
       optionalDependencies: { cache: "npm:ioredis@5.0.0" },
@@ -132,11 +140,42 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/durable-task/package.json: type must be module.",
       "packages/durable-task/package.json: exports must contain only ./internal/run-attempt-v1.",
       "packages/durable-task/package.json: runtime dependencies must contain only root-catalog effect.",
+      "packages/durable-task/package.json: scripts must exactly match the admitted build, typecheck, and test commands.",
+      "packages/durable-task/package.json: devDependencies must contain only root-catalog typescript and vitest.",
       "packages/durable-task/package.json: optionalDependencies must be absent or empty.",
       'packages/durable-task/package.json: dependencies must not contain non-portable dependency "ioredis".',
       'packages/durable-task/package.json: devDependencies must not contain non-portable dependency "prisma".',
       'packages/durable-task/package.json: optionalDependencies must not contain non-portable dependency "cache".',
       "packages/durable-task/package.json: files must exactly match the admitted distribution list.",
+    ]));
+  });
+
+  it("removes DOM, Cloudflare, and ambient host types from durable-task", () => {
+    expect(analyzeDurableTaskTsconfig({
+      extends: "../../tsconfig.base.json",
+      compilerOptions: {
+        lib: ["ES2022"],
+        types: [],
+        noUncheckedIndexedAccess: true,
+      },
+      include: ["src", "test"],
+    })).toEqual([]);
+
+    expect(analyzeDurableTaskTsconfig({
+      extends: "../../tsconfig.base.json",
+      compilerOptions: {
+        lib: ["ES2022", "DOM"],
+        types: ["@cloudflare/workers-types"],
+      },
+      include: ["src"],
+      references: [],
+    })).toEqual(expect.arrayContaining([
+      "packages/durable-task/tsconfig.json must contain only extends, compilerOptions, and include.",
+      "packages/durable-task/tsconfig.json include must exactly match src and test.",
+      "packages/durable-task/tsconfig.json compilerOptions must contain only lib, types, and noUncheckedIndexedAccess.",
+      "packages/durable-task/tsconfig.json compilerOptions.lib must exactly match ES2022 without DOM.",
+      "packages/durable-task/tsconfig.json compilerOptions.types must be empty.",
+      "packages/durable-task/tsconfig.json compilerOptions.noUncheckedIndexedAccess must be true.",
     ]));
   });
 
@@ -284,6 +323,23 @@ describe("Trigger compatibility boundary checker", () => {
       'packages/durable-task/src/runAttempt/Policy.ts:6 must not use prohibited durable-task global "Date.now".',
       'packages/durable-task/src/runAttempt/Policy.ts:7 must not use prohibited durable-task global "Math.random".',
       'packages/durable-task/src/runAttempt/Policy.ts:8 must not use prohibited durable-task global "process".',
+    ]);
+  });
+
+  it("rejects network, Cloudflare cache, host-random ID, and performance-clock globals", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/durable-task/src/runAttempt/Policy.ts",
+      text: `
+        const request = globalThis["fetch"];
+        const cache = caches.default;
+        const id = globalThis.crypto.randomUUID();
+        const mark = performance.now();
+      `,
+    }]).errors).toEqual([
+      'packages/durable-task/src/runAttempt/Policy.ts:2 must not use prohibited durable-task global "fetch".',
+      'packages/durable-task/src/runAttempt/Policy.ts:3 must not use prohibited durable-task global "caches".',
+      'packages/durable-task/src/runAttempt/Policy.ts:4 must not use prohibited durable-task global "crypto".',
+      'packages/durable-task/src/runAttempt/Policy.ts:5 must not use prohibited durable-task global "performance".',
     ]);
   });
 });
