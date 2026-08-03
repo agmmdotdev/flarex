@@ -706,6 +706,29 @@ route-independent Workerd composition. None of these
 operations exposes raw snapshot tokens, read sets, transactions, databases, or
 index scans to application code.
 
+### Private Internal User-Code Calls
+
+Roadmap 45 completes the implementation preflight for the next bounded
+application-data capability. `SAP06-A1` is only inline
+query-to-internal-query execution. A remote/System caller still cannot select
+an internal function, and a query can never call a mutation.
+
+The child stays inside the root SAP05 Worker, exact active revision and
+candidate, PQV-A1 snapshot, auth/execution identity, deterministic environment,
+Scope, cancellation lifetime, and monotonic read/resource budgets. The callee
+is selected from an authenticated ordered catalog of same-candidate
+`kind=query`, `visibility=internal`, `group=transaction` entries committed by
+the existing function metadata, manifest, and R2 publication. It opens no
+snapshot or transaction and creates no receipt, outcome, feed, or outbox fact.
+
+Implementation must use a new private candidate-bound internal-call query
+target, runtime profile, and syscall ABI. It must not silently widen the
+accepted PQV-A2 V1 identities or fall back to the legacy structural nested-call
+runtime. Persisted call-site edges are deliberately excluded: the accepted
+analyzer owns static function-reference proof, while the runtime target owns
+candidate/kind/visibility authorization. Mutation-to-query and
+mutation-to-mutation retain separate transaction-aware preflights.
+
 ### Transaction Meaning
 
 `ctx.db.transact` is a logical staging API, not a long-lived SQL transaction:
