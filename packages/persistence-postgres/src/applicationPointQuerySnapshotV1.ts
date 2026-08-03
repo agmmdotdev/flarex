@@ -121,6 +121,11 @@ export interface ApplicationPointQuerySnapshotMetadataV1 {
   readonly budget: ApplicationPointQuerySnapshotBudgetV1;
 }
 
+export interface ApplicationPointQuerySnapshotTableV1 {
+  readonly tableId: CatalogTableId;
+  readonly logicalName: string;
+}
+
 declare const querySnapshotBrand: unique symbol;
 export interface AuthenticatedApplicationPointQuerySnapshotV1 {
   readonly [querySnapshotBrand]: true;
@@ -394,6 +399,27 @@ export function inspectApplicationPointQuerySnapshotV1(
 > {
   return claimSnapshot(capability).pipe(
     Result.map(state => copyMetadata(state.metadata)),
+  );
+}
+
+/**
+ * Private SAP05 request projection. The table bindings come only from the
+ * authenticated schema manifest captured by the live snapshot capability;
+ * callers cannot supply or amend catalog identities.
+ */
+export function inspectApplicationPointQuerySnapshotTablesV1(
+  capability: unknown,
+): Result.Result<
+  ReadonlyArray<ApplicationPointQuerySnapshotTableV1>,
+  InvalidApplicationPointQuerySnapshotV1Error
+> {
+  return claimSnapshot(capability).pipe(
+    Result.map(state => Object.freeze(
+      state.schemaManifest.tableDefinitions.tables.map(table => Object.freeze({
+        tableId: table.tableId,
+        logicalName: table.logicalName,
+      })),
+    )),
   );
 }
 

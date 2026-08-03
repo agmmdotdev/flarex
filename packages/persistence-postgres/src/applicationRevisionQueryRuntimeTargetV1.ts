@@ -1,5 +1,6 @@
 import { bytesEqualFullScan, copyBytes } from "@flarex/utils/bytes";
 import { Data, Effect, Result } from "effect";
+import type { CatalogTableId } from "flarex-protocol/catalog";
 import type {
   DeclarativeV2CandidateFrameV1,
   DeclarativeV2FunctionGroupEntryFrameV1,
@@ -19,6 +20,7 @@ import {
   InvalidActiveApplicationRevisionSelectionV1Error,
 } from "./applicationRevisionActiveSelectionStateV1";
 import {
+  inspectApplicationPointQuerySnapshotTablesV1,
   inspectApplicationPointQuerySnapshotV1,
   InvalidApplicationPointQuerySnapshotV1Error,
   type ApplicationPointQuerySnapshotMetadataV1,
@@ -80,6 +82,10 @@ export interface ApplicationRevisionQueryRuntimeTargetAuthorityV1 {
   readonly functionMetadataSha256: Uint8Array;
   readonly publication: LoadedCandidateRuntimePublicationV1["publication"];
   readonly function: ApplicationRevisionQueryRuntimeTargetFunctionV1;
+  readonly tables: ReadonlyArray<Readonly<{
+    readonly tableId: CatalogTableId;
+    readonly logicalName: string;
+  }>>;
 }
 
 export class ApplicationRevisionQueryRuntimeTargetV1Error
@@ -125,6 +131,9 @@ export const claimApplicationRevisionQueryRuntimeTargetAuthorityV1 = Effect.fn(
   );
   const snapshot = yield* Effect.fromResult(
     inspectApplicationPointQuerySnapshotV1(snapshotCapability),
+  );
+  const tables = yield* Effect.fromResult(
+    inspectApplicationPointQuerySnapshotTablesV1(snapshotCapability),
   );
   if (
     snapshot.identity !== "flarex.system/application-point-query-snapshot/v1" ||
@@ -259,5 +268,6 @@ export const claimApplicationRevisionQueryRuntimeTargetAuthorityV1 = Effect.fn(
         readonly group: "transaction";
       },
     }),
+    tables,
   });
 });

@@ -6,6 +6,9 @@ import {
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect, Result, Scope } from "effect";
+import { requireAppDocumentIdentityV1ForTableResult } from
+  "flarex-protocol/app-document-id";
+import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   encodeCandidateBoundQueryRuntimeTargetV1,
   type CandidateBoundQueryRuntimeTargetFrameV1,
@@ -35,6 +38,8 @@ import {
   POINT_QUERY_EXACT_RUNTIME_VERSION_V1,
   type PointQueryExactRuntimeArtifactRefV1,
 } from "flarex-protocol/point-query-exact-runtime";
+import { validateValidatorValueIssueV1 } from
+  "flarex-protocol/internal/validator-engine-core";
 import type {
   ObjectValidatorJsonV1,
   ValidatorJsonV1,
@@ -164,6 +169,10 @@ export interface CandidateBoundQueryRuntimeTargetAuthorityV1 {
       readonly group: "transaction";
     };
   }>;
+  readonly tables: ReadonlyArray<Readonly<{
+    readonly tableId: CatalogTableId;
+    readonly logicalName: string;
+  }>>;
 }
 
 export interface CandidateBoundQueryRuntimeTargetAuthorityPortV1<Selection, Snapshot, E> {
@@ -225,6 +234,7 @@ export interface PreparedCandidateBoundPointQueryRuntimeTargetV1 {
       | Readonly<{ readonly type: "any" }>;
     readonly returnsValidator: ValidatorJsonV1 | null;
   }>;
+  readonly tables: CandidateBoundQueryRuntimeTargetAuthorityV1["tables"];
   readonly snapshotCommitSeq: bigint;
 }
 
@@ -273,6 +283,7 @@ interface QueryTargetStateV1<Snapshot, Input, Output, E> {
   readonly canonicalTargetBytes: Uint8Array;
   readonly artifact: PointQueryExactRuntimeArtifactRefV1;
   readonly function: PreparedCandidateBoundPointQueryRuntimeTargetV1["function"];
+  readonly tables: CandidateBoundQueryRuntimeTargetAuthorityV1["tables"];
   readonly snapshotCommitSeq: bigint;
   readonly maximumResultBytes: number;
   readonly definition: PointQueryExactRuntimeWorkerDefinitionV1;
@@ -372,6 +383,7 @@ export const prepareCandidateBoundPointQueryRuntimeTargetV1 = Effect.fn(
       canonicalTargetBytes: copyBytes(encoded.canonicalBytes),
       artifact,
       function: functionProjection,
+      tables: captureTables(authority.tables),
       snapshotCommitSeq: authority.snapshot.snapshotToken.commitSeq,
       maximumResultBytes: budget.maximumResultBytes,
       definition,
@@ -449,6 +461,36 @@ export const validateCandidateBoundPointQueryResultV1 = Effect.fn(
       maximum: state.maximumResultBytes,
     });
   }
+  if (state.function.returnsValidator !== null) {
+    const tableIdsByName = new Map(
+      state.tables.map(table => [table.logicalName, table.tableId] as const),
+    );
+    const issue = validateValidatorValueIssueV1(
+      state.function.returnsValidator,
+      normalized.value,
+      {
+        path: "$result",
+        idPolicy: {
+          mode: "tableAware",
+          check: (tableName, documentId) => {
+            const tableId = tableIdsByName.get(tableName);
+            if (tableId === undefined) return "unavailable";
+            return Result.isSuccess(
+                requireAppDocumentIdentityV1ForTableResult(documentId, tableId),
+              )
+              ? "valid"
+              : "invalid";
+          },
+        },
+      },
+    );
+    if (issue !== undefined) {
+      return yield* new CandidateBoundQueryRuntimeDispatchV1Error({
+        reason: "functionMismatch",
+        path: issue.path,
+      });
+    }
+  }
   return normalized.value;
 });
 
@@ -483,6 +525,7 @@ function preparedResult<Snapshot, Input, Output, E>(
     runtimeTargetSha256: copyBytes(state.runtimeTargetSha256),
     artifact: Object.freeze({ ...state.artifact }),
     function: state.function,
+    tables: state.tables,
     snapshotCommitSeq: state.snapshotCommitSeq,
   });
 }
@@ -495,6 +538,15 @@ function captureSnapshotLiveness(
     snapshotToken: Object.freeze({ ...input.snapshotToken }),
     budget: Object.freeze({ ...input.budget }),
   });
+}
+
+function captureTables(
+  tables: CandidateBoundQueryRuntimeTargetAuthorityV1["tables"],
+): CandidateBoundQueryRuntimeTargetAuthorityV1["tables"] {
+  return Object.freeze(tables.map(table => Object.freeze({
+    tableId: table.tableId,
+    logicalName: table.logicalName,
+  })));
 }
 
 const requireExactSnapshotLiveness = Effect.fn(

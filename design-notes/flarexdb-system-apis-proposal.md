@@ -330,7 +330,8 @@ The remaining limitations are architectural, not merely naming or packaging:
    lease: the floor is currently fixed at zero, while a future O11 advancement
    makes an old capability fail stale unless a separately approved query-lease
    owner exists. Completed PQV-A2 owns the candidate-bound exact query runtime
-   and query-only syscall ABI; SAP05 later owns the private System/Standard invocation. No
+   and query-only syscall ABI; completed SAP05 owns the private System/Standard invocation
+   and returns only the validated query value. No
    part of this sequence is FSV07, a public SDK, mutation authority, or a
    production route.
 7. **The main executor facade remains legacy-routed.** Private
@@ -699,8 +700,9 @@ writes. Unsupported read-your-writes or query shapes fail closed.
 The first private query vertical is deliberately narrower. Completed PQV-A1 binds one
 FSV05 active selection to one target-native snapshot and bounded document point
 reads only. Completed PQV-A2 binds that read capability to exact query runtime
-and R2 artifact authority. With both prerequisites accepted, SAP05 may next expose
-`invokeApplicationPointQueryV1` through a thin Standard consumer. None of these
+and R2 artifact authority. Completed SAP05 exposes
+`invokeApplicationPointQueryV1` through a thin Standard consumer and genuine
+route-independent Workerd composition. None of these
 operations exposes raw snapshot tokens, read sets, transactions, databases, or
 index scans to application code.
 

@@ -236,7 +236,8 @@ export async function prepareFsv04RegisteredRevisionFixtureV1(
     ),
   );
   const commandBudgetMaximum = input.revisionVariant?.startsWith("fsv06-") ||
-      input.revisionVariant?.startsWith("pqv-a2-")
+      input.revisionVariant?.startsWith("pqv-a2-") ||
+      input.revisionVariant?.startsWith("sap05-")
     ? FSV06_COMMAND_MAXIMUM
     : MAXIMUM;
   const registration = await Effect.runPromise(Effect.scoped(
@@ -1355,11 +1356,13 @@ function definitionInput(
   if (
     revisionVariant === "pqv-a1-query" ||
     revisionVariant === "pqv-a1-query-second" ||
-    revisionVariant === "pqv-a2-query"
+    revisionVariant === "pqv-a2-query" ||
+    revisionVariant === "sap05-query"
   ) {
     return pqvA1DefinitionInput(
       revisionVariant === "pqv-a1-query-second",
-      revisionVariant === "pqv-a2-query",
+      revisionVariant === "pqv-a2-query" || revisionVariant === "sap05-query",
+      revisionVariant === "sap05-query",
     );
   }
   const variantSpaces = revisionVariant === "second"
@@ -1456,6 +1459,7 @@ function definitionInput(
 function pqvA1DefinitionInput(
   second: boolean,
   executePointRead = false,
+  validateArguments = false,
 ): StandardApplicationDefinitionInputV1 {
   return {
     programBudgetInput: {
@@ -1494,8 +1498,39 @@ function pqvA1DefinitionInput(
           exportName: "get",
           kind: "query",
           visibility: "public",
-          argsValidator: { type: "any" },
-          returnsValidator: { type: "any" },
+          argsValidator: validateArguments
+            ? {
+                type: "object",
+                value: {
+                  id: {
+                    optional: false,
+                    fieldType: { type: "string" },
+                  },
+                },
+              }
+            : { type: "any" },
+          returnsValidator: validateArguments
+            ? {
+                type: "union",
+                value: [{
+                  type: "object",
+                  value: {
+                    _id: {
+                      optional: false,
+                      fieldType: { type: "id", tableName: "orders" },
+                    },
+                    _creationTime: {
+                      optional: false,
+                      fieldType: { type: "number" },
+                    },
+                    status: {
+                      optional: false,
+                      fieldType: { type: "string" },
+                    },
+                  },
+                }, { type: "null" }],
+              }
+            : { type: "any" },
         }],
       }],
     },

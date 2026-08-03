@@ -2,10 +2,11 @@
 
 ## Status And Scope
 
-**Status:** active private implementation plan. `PQV-A1` and `PQV-A2` are
-complete. `SAP05` is the next separately gated implementation capability.
-Roadmap 43 stays
-closed as the completed first relation-free point-mutation vertical.
+**Status:** complete private implementation vertical. `PQV-A1`, `PQV-A2`, and
+`SAP05` are complete. Roadmap 43 stays closed as the completed first
+relation-free point-mutation vertical. This completion remains private,
+route-independent, and production-inert; it does not authorize FSV07 or a
+public query API.
 
 This roadmap owns one bounded, route-independent, production-inert point-query
 vertical:
@@ -165,11 +166,37 @@ rejection, bounded cancellation, and no mutation publication. There is no
 schema migration, PostgreSQL body storage, route, trigger, or production
 consumer.
 
-## `[ ] SAP05`: Invoke One Standard Application Point Query
+## `[x] SAP05`: Invoke One Standard Application Point Query
 
-After PQV-A1 and PQV-A2 are accepted, implement the private System operation
+The accepted implementation provides the private System operation
 `invokeApplicationPointQueryV1` and thin Standard
 `invokeStandardApplicationPointQueryV1`. The operation returns only a validated
 query result and proves that no mutation journal, app-row revision, committed
 outcome, commit/change feed, or outbox fact is produced. This remains private,
 route-independent, and production-inert; it is not FSV07 or a public SDK.
+
+The accepted composition reads one coherent FSV05 selection, opens one scoped
+PQV-A1 snapshot, derives one PQV-A2 target from the exact candidate/R2
+publication, and dispatches the generated query-only Worker through a private
+route-independent host port. The only runtime database operation delegates to
+the live target's PQV-A1 point-document read. Snapshot table bindings are
+projected only from the authenticated captured schema manifest; callers cannot
+author table IDs, snapshot tokens, runtime targets, or database handles. After
+the foreign Worker boundary, the scoped PQV-A2 target re-applies the exact
+registered return validator with those authenticated table bindings before the
+System operation returns the canonical value.
+
+`@flarex/standard-application-invocation` owns the private System service/Layer
+and thin Standard consumer. Their Effects retain `Scope.Scope`; scope closure
+revokes the active selection, snapshot, and runtime target and releases the
+Worker host. Owner failures remain typed, foreign Worker dispatch failures are
+classified at the private host port, cleanup uncertainty remains typed, and
+read defects, unknown Worker failures, and interruption retain their full
+Cause across the test-owned Workerd bridge. The
+dedicated PGlite and genuine PostgreSQL lanes cross real Standard definition,
+analysis, inactive registration, readiness, activation, active read, PQV-A1,
+PQV-A2 R2 materialization, and Workerd execution. They cover present/missing
+documents, invalid arguments and foreign result rejection, unknown functions,
+closed authority, corrupt R2 content, cancellation, read defects, cleanup
+uncertainty, cold reconstruction, deterministic unchanged-state replay, and
+exact before/after proof of zero mutation publication.

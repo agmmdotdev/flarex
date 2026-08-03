@@ -9,6 +9,7 @@ import type {
   TransactionFunctionPathV1,
   TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
+import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 
 import {
   ApplicationPointMutationSystemV1,
@@ -16,6 +17,11 @@ import {
   type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
   type InvokeApplicationPointMutationV1Error,
 } from "./systemV1";
+import {
+  ApplicationPointQuerySystemV1,
+  invokeApplicationPointQueryV1,
+  type InvokeApplicationPointQueryV1Error,
+} from "./querySystemV1";
 
 export interface StandardApplicationActiveRevisionReaderV1Api {
   readonly read: ReturnType<typeof makeRead>;
@@ -31,6 +37,10 @@ export class StandardApplicationActiveRevisionReaderV1 extends Context.Service<
 export type InvokeStandardApplicationPointMutationV1Error =
   | ReadActiveApplicationRevisionV1Error
   | InvokeApplicationPointMutationV1Error;
+
+export type InvokeStandardApplicationPointQueryV1Error =
+  | ReadActiveApplicationRevisionV1Error
+  | InvokeApplicationPointQueryV1Error;
 
 /**
  * SAP04 thin consumer. It reads one coherent active revision and delegates to
@@ -57,6 +67,32 @@ export const invokeStandardApplicationPointMutationV1 = Effect.fn(
     functionRef,
     args,
     requestKey,
+  );
+});
+
+/**
+ * SAP05 thin consumer. It reads one coherent active revision and delegates to
+ * the private System query operation without translating its validated value
+ * or typed owner failures.
+ */
+export const invokeStandardApplicationPointQueryV1 = Effect.fn(
+  "StandardApplication.invokePointQueryV1",
+)(function* (
+  functionRef: TransactionFunctionPathV1,
+  args: unknown,
+): Effect.fn.Return<
+  CanonicalFlarexRuntimeValueV1,
+  InvokeStandardApplicationPointQueryV1Error,
+  | StandardApplicationActiveRevisionReaderV1
+  | ApplicationPointQuerySystemV1
+  | Scope.Scope
+> {
+  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const active = yield* reader.read;
+  return yield* invokeApplicationPointQueryV1(
+    active.selection,
+    functionRef,
+    args,
   );
 });
 
