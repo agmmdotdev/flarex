@@ -18,6 +18,9 @@ in
 DTE03-E now fixes the exact operation outcome, evidence, requested-effect,
 inspection, acceptance, and typed error unions in
 [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md).
+DTE03-F's accepted/rejected policy vectors and executable contract gate are
+complete in
+[`17-compatibility-vectors-and-executable-gate.md`](./17-compatibility-vectors-and-executable-gate.md).
 No package, schema, migration, adapter, host, scheduler, route, or activation is
 authorized here.
 
@@ -529,7 +532,7 @@ correlations, bounds, and receipt retention are fixed in
 | OOM retry uses queue | retained as forced durable retry |
 | long delay uses queue threshold `>=` | retained as durable threshold comparison |
 
-DTE03-F must mark the authority replacements as expected differences while
+DTE03-F marks the authority replacements as exact expected differences while
 preserving normalized retry/terminal outcomes.
 
 ## Required Policy Tests And Vectors
@@ -574,14 +577,16 @@ DTE03-F and DTE-IP01 must cover at least:
     retry evidence, not a terminal class.
 12. Policy arithmetic failure or corrupted policy commits nothing.
 
-## Exact Handoff To DTE03-F
+## DTE03-F Closure And Handoff To DTE03-G
 
 DTE03-D has applied these policy inputs to the complete transition/race tables
 without changing their retry or terminal meaning, and DTE03-E has encoded them
 into closed outcomes, replay, evidence, effects, inspection, acceptance, and
-typed-error unions. DTE03-F must now prove forced-durable lease-loss recovery,
+typed-error unions. DTE03-F now proves forced-durable lease-loss recovery,
 retry suppression after cancellation, terminal retention of the original
-failure, and every policy-evidence branch through canonical executable vectors.
+failure, accepted policy correlations, and every retry-rejection reason through
+canonical executable vectors. DTE03-G must audit that coverage with the policy
+contract before deciding package admission.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.

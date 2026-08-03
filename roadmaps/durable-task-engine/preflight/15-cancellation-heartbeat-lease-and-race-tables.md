@@ -18,6 +18,9 @@ closed outcome, inspection, acceptance, evidence, requested-effect, and error
 records in
 [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
 without changing their meaning.
+DTE03-F's canonical race/replay vectors and executable contract gate are
+complete in
+[`17-compatibility-vectors-and-executable-gate.md`](./17-compatibility-vectors-and-executable-gate.md).
 
 No package, database schema, migration, adapter, queue, scheduler, compute host,
 route, public API, or production activation is authorized.
@@ -575,7 +578,7 @@ At minimum:
 11. Early expiry wake is current/no-write in V1.
 12. Ordinary stale work returns current rather than becoming an exception.
 
-## Exact Handoff To DTE03-F
+## DTE03-F Closure And Handoff To DTE03-G
 
 DTE03-E has encoded these tables into:
 
@@ -587,10 +590,10 @@ DTE03-E has encoded these tables into:
 - exact requested-effect variants and ordering; and
 - the final typed lifecycle/store/decision error union and evaluation order.
 
-DTE03-F must now prove those records against the complete race matrix through
-canonical/executable vectors. It may not change a phase destination, lease
-boundary, race winner, replay duration, disposition, or typed-error/current
-distinction fixed here.
+DTE03-F now proves those records against the complete race matrix through 65
+canonical vectors and 37 exact named differences. DTE03-G must audit that the
+fixtures did not change a phase destination, lease boundary, race winner,
+replay duration, disposition, or typed-error/current distinction fixed here.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.

@@ -15,8 +15,9 @@ active because DTE01's original package start condition also requires exact
 lifecycle phase, outcome, failure, retry, evidence, and effect unions. DTE03-A
 through DTE03-E have completed the source inventory, aggregate, failure/retry
 policy, cancellation/heartbeat/lease/race, and closed operation-result
-checkpoints; DTE03-F's compatibility vectors/executable gate are next. Only
-after the complete focused contract is accepted may DTE-IP01 create
+checkpoints; DTE03-F's compatibility vectors/executable contract gate are also
+complete, and DTE03-G final lifecycle admission is next. Only after the
+complete focused contract is accepted may DTE-IP01 create
 the production-inert domain package under DTE01's existing stop boundary.
 
 No schema, migration, Postgres adapter, backend composition, runtime dispatch,
@@ -523,8 +524,8 @@ DTE02 is complete with these conclusions:
 9. current Standard Application, activation, scope, persistence, protocol,
    transaction, and Trigger-boundary owners remain consistent and unchanged;
 10. no DTE01 reopening condition is triggered;
-11. Roadmap 03 is active, DTE03-A through DTE03-E are complete, DTE03-F is
-    next, and the full lifecycle-model gate remains the current design
+11. Roadmap 03 is active, DTE03-A through DTE03-F are complete, DTE03-G is
+    next, and final lifecycle admission remains the current design
     prerequisite; and
 12. DTE-IP01 may start only after that gate, remains substantial and
     production-inert, and stops before persistence or host integration.

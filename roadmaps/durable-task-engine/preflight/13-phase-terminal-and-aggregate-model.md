@@ -18,8 +18,10 @@ the future private `@flarex/durable-task` package. DTE03-C owns the leaf
 failure/retry policy and its validation bounds; DTE03-D owns exact command
 transition tables and the lease-history refinement; DTE03-E now fixes the
 closed operation-outcome, evidence, requested-effect, inspection, acceptance,
-and error unions. Those checkpoints fill the named owners below without adding
-another phase, aggregate axis, or authority-bearing command field.
+and error unions. DTE03-F now fixes the canonical compatibility vectors and
+executable contract gate. Those checkpoints fill the named owners below
+without adding another phase, aggregate axis, or authority-bearing command
+field.
 
 This is documentation admission only. It does not authorize package creation,
 schema, migration, adapter, host, scheduler, runtime, route, or activation
@@ -751,11 +753,13 @@ receipt leaves, bounded policy evidence, exact sequenced effects, typed errors,
 and evaluation order. It also closes the DTE02 decision finalization gap while
 retaining store validation authority.
 
-### DTE03-F — Next
+### DTE03-F — Complete
 
-DTE03-F creates executable compatibility vectors.
+[`17-compatibility-vectors-and-executable-gate.md`](./17-compatibility-vectors-and-executable-gate.md)
+creates 65 canonical vectors, 37 exact named divergences, and the fail-closed
+contract checker without creating a second aggregate or lifecycle engine.
 
-### DTE03-G
+### DTE03-G — Next
 
 DTE03-G audits and decides final admission.
 
@@ -775,10 +779,10 @@ DTE03-B does not reopen DTE01 or DTE02:
 
 ## Handoff
 
-Proceed to DTE03-F using the exact five-phase aggregate, DTE03-C policy,
-DTE03-D transition/race tables, and DTE03-E closed service contract. Create
-canonical/executable compatibility vectors without changing admitted race
-winners or adding host authority.
+Proceed to DTE03-G using the exact five-phase aggregate, DTE03-C policy,
+DTE03-D transition/race tables, DTE03-E closed service contract, and DTE03-F
+vector gate. Audit the whole model without changing admitted race winners or
+adding host authority.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.

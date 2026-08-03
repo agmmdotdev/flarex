@@ -7,9 +7,10 @@ task identity/scope admission are complete. Roadmap 03 is active: DTE03-A's
 Trigger-to-Flarex lifecycle inventory, DTE03-B's exact five-phase aggregate,
 DTE03-C's failure/retry/attempt policy, and DTE03-D's cancellation, heartbeat,
 lease, completion, and race tables, and DTE03-E's closed outcome, inspection,
-acceptance, evidence, effect, and error contract are complete. DTE03-F's
-compatibility vectors and executable gate are next. DTE-IP01 package creation
-remains blocked on the complete Roadmap 03 lifecycle-model gate. No package
+acceptance, evidence, effect, and error contract are complete. DTE03-F's 65
+canonical lifecycle vectors, 37 exact named divergences, and executable
+contract gate are also complete. DTE03-G final lifecycle admission is next.
+DTE-IP01 package creation remains blocked on that decision. No package
 implementation, schema, host integration, or production activation exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
@@ -263,12 +264,11 @@ cross-provider placement, and public SDK integration remain later gates.
 
 ## Roadmap Decomposition
 
-The first two focused roadmaps are complete. Roadmap 03 is active because
-DTE-IP01 still needs exact lifecycle phase, outcome, failure, retry, evidence,
-and effect unions. Its source inventory, exact aggregate, failure/retry policy,
-and cancellation/heartbeat/lease/race tables, closed operation outcomes,
-inspection, acceptance, evidence, effects, and errors are complete;
-compatibility vectors and executable gates are next.
+The first two focused roadmaps are complete. Roadmap 03 is active because its
+final admission audit remains. Its source inventory, exact aggregate,
+failure/retry policy, cancellation/heartbeat/lease/race tables, closed service
+contract, canonical compatibility vectors, named divergences, and executable
+contract gate are complete.
 The later files remain candidates for their owning discussions:
 
 1. [`01-source-reuse-and-package-admission.md`](./01-source-reuse-and-package-admission.md)
@@ -281,9 +281,8 @@ The later files remain candidates for their owning discussions:
      artifact binding, private domain identities, and DTE-IP01 command/store
      contracts; DTE02-A through DTE02-G are complete;
 3. [`03-run-attempt-engine.md`](./03-run-attempt-engine.md)
-   - **active:** DTE03-A inventory through DTE03-E closed service contract are
-     complete; DTE03-F compatibility vectors/executable gates are next,
-     followed by final lifecycle admission;
+   - **active:** DTE03-A through DTE03-F are complete; DTE03-G final lifecycle
+     admission is next and remains the package-creation gate;
 4. `04-task-system-api-and-postgres.md`
    - private operation contracts, Drizzle schema, transactions, idempotency,
      discovery, ordered events, corruption policy, PGlite, and real Postgres;

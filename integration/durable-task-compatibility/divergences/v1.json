@@ -1,0 +1,302 @@
+{
+  "schemaVersion": "flarex.run-attempt-divergences.v1",
+  "upstreamCommit": "f10bc23785e569e5d917318cf2033aabdbe96a0b",
+  "differences": [
+    {
+      "scenarioId": "pending-cancellation-suppresses-retry",
+      "jsonPointer": "/expected/outcomeKind",
+      "trigger": "retry-or-product-status-dependent",
+      "flarex": "terminal_failed",
+      "rationale": "A committed cancellation request suppresses new execution while preserving the actual failure as terminal truth.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "pending-cancellation-lease-expiry",
+      "jsonPointer": "/expected/transition",
+      "trigger": "pending-cancel-stalled-snapshot-branch",
+      "flarex": "lease_expiry_cancelled",
+      "rationale": "Flarex resolves cancellation from database-time lease authority rather than Trigger snapshot and Redis heartbeat authority.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "start-stale-version",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "store-residency-and-product-status-dependent",
+      "flarex": "stale_run_version",
+      "rationale": "Flarex uses the scope-bound aggregate version as the non-authorizing start basis.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "heartbeat-stale-attempt",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "snapshot-dependent-no-op",
+      "flarex": "stale_attempt",
+      "rationale": "Flarex exposes one bounded current reason without returning snapshot or worker authority.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "heartbeat-stale-fence",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "snapshot-dependent-no-op",
+      "flarex": "stale_fence",
+      "rationale": "Execution fencing is a Flarex aggregate contract rather than a Trigger machine or snapshot identity.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "heartbeat-at-lease-deadline",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "redis-heartbeat-timeout-dependent",
+      "flarex": "lease_expired",
+      "rationale": "Database time and the stored logical lease decide authority even before an expiry wake is consumed.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "completion-in-inactive-phase",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "product-run-status-dependent",
+      "flarex": "phase_not_active",
+      "rationale": "Flarex projects its five-phase aggregate and does not decode Trigger product statuses.",
+      "owner": "roadmaps/durable-task-engine/preflight/13-phase-terminal-and-aggregate-model.md"
+    },
+    {
+      "scenarioId": "completion-stale-attempt",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "attempt-row-and-snapshot-dependent",
+      "flarex": "stale_attempt",
+      "rationale": "A completion without replay cannot mutate the later current attempt.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "completion-stale-fence",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "attempt-row-dependent",
+      "flarex": "stale_fence",
+      "rationale": "The Flarex execution fence is checked before logical lease time and is not a worker identity.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "completion-at-lease-deadline",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "heartbeat-timeout-processing-dependent",
+      "flarex": "lease_expired",
+      "rationale": "A completion cannot resurrect authority at or beyond the stored database-time deadline.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "cancellation-already-requested",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "product-cancel-status-dependent",
+      "flarex": "already_requested",
+      "rationale": "V1 preserves the first bounded cancellation reason and does not manufacture another request identity.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "lease-wake-in-inactive-phase",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "stalled-snapshot-branch-dependent",
+      "flarex": "phase_not_active",
+      "rationale": "A wake is stale work and never becomes lifecycle authority.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "lease-wake-stale-attempt",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "snapshot-dependent-no-op",
+      "flarex": "stale_attempt",
+      "rationale": "The aggregate attempt cursor protects a newer attempt from an old wake.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "lease-wake-stale-fence",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "snapshot-dependent-no-op",
+      "flarex": "stale_fence",
+      "rationale": "The execution fence is a stable stale-work guard in the Flarex aggregate.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "lease-wake-stale-version",
+      "jsonPointer": "/expected/currentReason",
+      "trigger": "heartbeat-id-or-redis-key-dependent",
+      "flarex": "stale_lease_version",
+      "rationale": "Flarex replaces host wake identity with a monotonic lease version.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "duplicate-start-replays-grant",
+      "jsonPointer": "/expected/disposition",
+      "trigger": "read-residency-and-attempt-row-dependent",
+      "flarex": "idempotent",
+      "rationale": "The accepted start receipt is stored in the aggregate and replayed without consuming a second allocation candidate.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "duplicate-heartbeat-replays-renewal",
+      "jsonPointer": "/expected/disposition",
+      "trigger": "snapshot-update-dependent",
+      "flarex": "idempotent",
+      "rationale": "Exact latest heartbeat redelivery returns the original renewal and effect sequence without renewing twice.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "duplicate-cancellation-replays-request",
+      "jsonPointer": "/expected/disposition",
+      "trigger": "product-cancel-status-dependent",
+      "flarex": "idempotent",
+      "rationale": "Exact latest cancellation redelivery returns the stored first-generation request receipt.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "duplicate-expiry-replays-recovery",
+      "jsonPointer": "/expected/disposition",
+      "trigger": "stalled-snapshot-handler-dependent",
+      "flarex": "idempotent",
+      "rationale": "Exact latest expiry redelivery returns the original recovery decision and cannot schedule a second retry.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "completion-replay-after-retry-state",
+      "jsonPointer": "/expected/disposition",
+      "trigger": "attempt-row-and-product-state-dependent",
+      "flarex": "idempotent",
+      "rationale": "Attempt-bounded completion replay survives transition into retry waiting.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "completion-replay-after-later-attempt",
+      "jsonPointer": "/expected/disposition",
+      "trigger": "attempt-row-and-product-state-dependent",
+      "flarex": "idempotent",
+      "rationale": "Bounded completion replay survives later attempt progress and terminalization.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "failure-message-only-redelivery",
+      "jsonPointer": "/expected/disposition",
+      "trigger": "message-may-participate-in-serialized-error-shape",
+      "flarex": "idempotent",
+      "rationale": "The bounded message is diagnostic only; redelivery returns the originally stored receipt without rewriting history.",
+      "owner": "roadmaps/durable-task-engine/preflight/15-cancellation-heartbeat-lease-and-race-tables.md"
+    },
+    {
+      "scenarioId": "delivery-resume-returns-stored-receipt",
+      "jsonPointer": "/expected/disposition",
+      "trigger": "event-bus-or-queue-delivery-dependent",
+      "flarex": "idempotent",
+      "rationale": "Durably committed effect intent is replay data; host delivery failure cannot undo or re-author the transition.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "conflicting-completion",
+      "jsonPointer": "/expected/errorTag",
+      "trigger": "product-state-dependent-rejection",
+      "flarex": "ConflictingTaskAttemptCompletionError",
+      "rationale": "A different canonical completion for an accepted attempt and fence is an explicit safe conflict.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "acknowledgement-without-request",
+      "jsonPointer": "/expected/safeReason",
+      "trigger": "product-status-dependent",
+      "flarex": "cancellation_not_requested",
+      "rationale": "Flarex validates cancellation acknowledgement against bounded aggregate state before lease time.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "acknowledgement-wrong-generation",
+      "jsonPointer": "/expected/safeReason",
+      "trigger": "no-equivalent-flarex-generation-contract",
+      "flarex": "generation_mismatch",
+      "rationale": "The generation prevents an acknowledgement from resolving a different accepted cancellation request.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "malformed-aggregate-decodes-as-corruption",
+      "jsonPointer": "/expected/errorTag",
+      "trigger": "orm-row-and-product-invariant-dependent",
+      "flarex": "TaskSystemRunAttemptCorruptionError",
+      "rationale": "Stored contradictions fail closed and are never repaired or interpreted as ordinary current state.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "malformed-completion-replay-decodes-as-corruption",
+      "jsonPointer": "/expected/safeReason",
+      "trigger": "attempt-row-and-product-state-dependent-corruption",
+      "flarex": "completion_replay_invalid",
+      "rationale": "A malformed stored replay is corruption and cannot fall through to phase/current evaluation.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "malformed-evidence-decodes-as-corruption",
+      "jsonPointer": "/expected/safeReason",
+      "trigger": "event-or-snapshot-shape-dependent-corruption",
+      "flarex": "evidence_invalid",
+      "rationale": "Malformed stored transition evidence fails before lifecycle policy and never becomes ordinary command failure.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "malformed-effect-sequence-decodes-as-corruption",
+      "jsonPointer": "/expected/safeReason",
+      "trigger": "queue-or-event-delivery-identity-dependent-corruption",
+      "flarex": "effect_sequence_invalid",
+      "rationale": "Malformed stored effect identity is corruption and cannot be repaired by delivery or a later mutation.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "missing-run-is-unavailable",
+      "jsonPointer": "/expected/errorTag",
+      "trigger": "product-run-not-found-shape",
+      "flarex": "TaskSystemRunAttemptUnavailableError",
+      "rationale": "The service exposes one scope-safe unavailable error without revealing existence.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "cross-scope-run-is-unavailable",
+      "jsonPointer": "/expected/errorTag",
+      "trigger": "organization-environment-lookup-dependent",
+      "flarex": "TaskSystemRunAttemptUnavailableError",
+      "rationale": "Tenant authority is acquired outside the lifecycle command and cross-scope identity is indistinguishable from absence.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "transient-store-failure",
+      "jsonPointer": "/expected/errorTag",
+      "trigger": "prisma-or-redis-cause-dependent",
+      "flarex": "TaskSystemRunAttemptTransientStoreError",
+      "rationale": "The store port maps retryable infrastructure failure without exposing its foreign cause or permitting partial commit.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "terminal-store-failure",
+      "jsonPointer": "/expected/errorTag",
+      "trigger": "prisma-or-redis-cause-dependent",
+      "flarex": "TaskSystemRunAttemptTerminalStoreError",
+      "rationale": "The store port separates terminal configuration or constraint failure from transient retry policy.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "effect-sequence-overflow-rejected",
+      "jsonPointer": "/expected/safeReason",
+      "trigger": "event-delivery-identity-dependent",
+      "flarex": "requested_effect_sequence_exhausted",
+      "rationale": "Checked cursor arithmetic rejects the whole transition before the store can commit a partial effect range.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "invalid-command-is-redacted",
+      "jsonPointer": "/expected/safeReason",
+      "trigger": "framework-validator-error-shape",
+      "flarex": "invalid_command_without_raw_input",
+      "rationale": "The command boundary retains safe diagnostics but not raw input, payloads, stacks, or foreign causes.",
+      "owner": "roadmaps/durable-task-engine/preflight/16-operation-outcomes-evidence-effects-and-errors.md"
+    },
+    {
+      "scenarioId": "waitpoint-completion-outside-v1",
+      "jsonPointer": "/expected/safeReason",
+      "trigger": "supported-waitpoint-execution-snapshot",
+      "flarex": "outside_run_attempt_lifecycle_v1",
+      "rationale": "Waitpoints and enhanced execution snapshots remain outside the first vertical rather than weakening the five-phase aggregate.",
+      "owner": "roadmaps/durable-task-engine/preflight/12-current-lifecycle-and-transition-inventory.md"
+    }
+  ]
+}

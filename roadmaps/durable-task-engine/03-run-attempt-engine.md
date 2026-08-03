@@ -6,9 +6,10 @@
 DTE03-C's completion-failure/retry/attempt policy, and DTE03-D's cancellation,
 heartbeat, lease, completion, and race tables, and DTE03-E's exact operation
 outcomes, inspection, acceptance/replay, evidence, effects, and errors are
-complete. DTE03-F's compatibility vectors and executable gate are next. The
-Roadmap 03 lifecycle-model gate remains closed, so DTE-IP01 package creation is
-not yet authorized.
+complete. DTE03-F's canonical compatibility vectors, exact named divergences,
+and executable contract gate are complete. DTE03-G final lifecycle admission
+is next. The Roadmap 03 lifecycle-model gate remains closed, so DTE-IP01
+package creation is not yet authorized.
 
 This roadmap owns the host-neutral run-attempt lifecycle contract required by
 the already-admitted private `@flarex/durable-task` package. It refines the
@@ -214,7 +215,7 @@ idempotent replay data and cursor-derived sequenced effects now reach the store
 as one coherent decision, while the store validates and atomically commits the
 sequence range.
 
-### DTE03-F: Compatibility Vectors And Executable Gate — Next
+### DTE03-F: Compatibility Vectors And Executable Gate — Complete
 
 Produce canonical JSON-safe scenario and receipt vectors for the admitted
 Trigger behaviors, including:
@@ -235,7 +236,18 @@ Every semantic difference must be named in the vector metadata. The harness
 may execute the frozen Trigger workspace separately, but active Flarex source
 must not import it.
 
-### DTE03-G: Final Lifecycle Admission
+Receipt:
+[`preflight/17-compatibility-vectors-and-executable-gate.md`](./preflight/17-compatibility-vectors-and-executable-gate.md).
+The production-inert suite contains 65 canonical vectors, fourteen inspection
+cases, and 37 exact named differences. The fail-closed root checker binds them
+to the accepted source map, exhaustive current reasons, accepted transition
+plans, policy branches, effect order/sequences, removed-field exclusions, and
+exact divergence pointers. It deliberately does not create a temporary
+lifecycle engine before DTE03-G; if admitted, DTE-IP01 must bind the future
+package Schema and pure decisions to these same vectors before persistence or
+host work.
+
+### DTE03-G: Final Lifecycle Admission — Next
 
 Audit DTE03-A through DTE03-F as one contract and choose `admit`, `revise`,
 `defer`, or `reject`. Only `admit` opens DTE-IP01.

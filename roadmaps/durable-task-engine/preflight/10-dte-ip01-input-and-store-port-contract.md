@@ -4,8 +4,9 @@
 
 **Status:** Complete contract receipt, refined by DTE03-E's implementability
 corrections to idempotent decision replay and effect-sequence finalization.
-DTE02-G final identity admission remains complete; DTE03-F is the next Roadmap
-03 checkpoint.
+DTE02-G final identity admission remains complete; DTE03-F's canonical vectors
+and executable contract gate are complete, and DTE03-G is the next Roadmap 03
+checkpoint.
 
 This receipt fixes the exact command boundary consumed by the admitted
 `@flarex/durable-task` run-attempt service and the exact semantic

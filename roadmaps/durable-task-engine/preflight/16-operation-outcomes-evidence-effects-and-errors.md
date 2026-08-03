@@ -15,8 +15,10 @@ authority.
 
 This receipt encodes DTE03-D's already-fixed transitions. It does not change a
 phase, retry decision, cancellation winner, lease boundary, or replay rule.
-DTE03-F remains responsible for canonical compatibility vectors and executable
-fixtures, and DTE03-G remains the final admission audit.
+DTE03-F's canonical compatibility vectors and executable contract gate are now
+complete in
+[`17-compatibility-vectors-and-executable-gate.md`](./17-compatibility-vectors-and-executable-gate.md),
+and DTE03-G remains the final admission audit.
 
 No package, database schema, migration, adapter, queue, scheduler, compute host,
 route, observability API/UI, public SDK, or production activation is authorized.
@@ -1374,9 +1376,9 @@ At minimum:
 12. Command, decision, and store errors remain typed and preserve owner/order.
 13. Inspection and lifecycle events are not a tenant-facing observability API.
 
-## Exact Handoff To DTE03-F
+## DTE03-F Closure And Handoff To DTE03-G
 
-DTE03-F must now turn DTE03-A through DTE03-E into canonical scenario fixtures:
+DTE03-F turns DTE03-A through DTE03-E into canonical scenario fixtures:
 
 - closed command inputs and expected receipt/error encodings;
 - phase/cancellation/lease boundary matrices;
@@ -1384,11 +1386,15 @@ DTE03-F must now turn DTE03-A through DTE03-E into canonical scenario fixtures:
 - Trigger differential cases where source behavior is retained;
 - translated assertions where Flarex deliberately changes identity/authority;
 - explicit outside-first-vertical cases; and
-- executable pure-decision and Schema gates required before DTE03-G.
+- an executable pre-admission contract gate.
 
-DTE03-F may discover a contradiction and return to the owning checkpoint. It
-may not relax a race winner, add a Trigger product field, or create the package
-merely to make a vector pass.
+DTE03-F resolves the earlier ordering contradiction explicitly: creating a
+temporary pure-decision/Schema implementation before DTE03-G would violate the
+same package gate. The pre-admission executable gate therefore validates the
+canonical fixtures, source classifications, named divergences, coverage,
+effect plans, and policy correlations. If DTE03-G admits the package, the first
+DTE-IP01 gate must bind the actual package Schema and pure decisions to these
+same vectors before any persistence or host integration.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.

@@ -16,7 +16,9 @@ and DTE03-D's exhaustive transition/race tables are complete in
 [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md).
 DTE03-E's exact result/evidence/effect/error contract is complete in
 [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md).
-DTE03-F is the next checkpoint.
+DTE03-F's canonical vectors and executable contract gate are complete in
+[`17-compatibility-vectors-and-executable-gate.md`](./17-compatibility-vectors-and-executable-gate.md).
+DTE03-G is the next checkpoint.
 
 This receipt inventories current source behavior and fixes the questions the
 remaining Roadmap 03 checkpoints must answer. It does not define the final
@@ -476,7 +478,7 @@ DTE03-A closes these direction questions:
 - requested effect variants and exact order; and
 - typed domain/store/corruption error order.
 
-### DTE03-F — Next
+### DTE03-F — Complete
 
 - canonical scenario and receipt encoding;
 - which Trigger scenarios can run differentially and which are translated
@@ -484,16 +486,17 @@ DTE03-A closes these direction questions:
 - explicit expected differences; and
 - executable compatibility gates.
 
-### DTE03-G
+### DTE03-G — Next
 
 - final lifecycle admission and DTE-IP01 implementation gate.
 
 ## Handoff
 
-Proceed to DTE03-F using the admitted source inventory, five-phase aggregate,
-failure/retry policy, transition/race tables, and exact DTE03-E service contract.
-Create canonical compatibility vectors and executable fixtures without adding
-scheduling, persistence, host, waitpoint, or product state.
+Proceed to DTE03-G using the admitted source inventory, five-phase aggregate,
+failure/retry policy, transition/race tables, exact DTE03-E service contract,
+and DTE03-F's 65 canonical vectors plus 37 exact named divergences. Audit them
+as one lifecycle contract without adding scheduling, persistence, host,
+waitpoint, or product state.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete model.
 
@@ -502,6 +505,7 @@ Do not create `packages/durable-task/` until DTE03-G admits the complete model.
 - [`../03-run-attempt-engine.md`](../03-run-attempt-engine.md)
 - [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md)
 - [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
+- [`17-compatibility-vectors-and-executable-gate.md`](./17-compatibility-vectors-and-executable-gate.md)
 - [`../01-source-reuse-and-package-admission.md`](../01-source-reuse-and-package-admission.md)
 - [`../02-task-definition-identity-and-scope.md`](../02-task-definition-identity-and-scope.md)
 - [`01-run-attempt-lifecycle-closure.md`](./01-run-attempt-lifecycle-closure.md)
