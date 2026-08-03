@@ -474,10 +474,11 @@ No DTE01 reopening condition is triggered.
 
 ### DTE02-D
 
-Application revision and runtime binding must use the issuer-backed active
-selection for new runs and must persist enough immutable evidence for later
-continuation without consulting the active head. Its projection may contain
-scope-bound durable identity, but it must not serialize a live capability.
+DTE02-D now requires the issuer-backed active selection for new runs and fixes
+the immutable `durable_task` runtime binding used for later continuation
+without consulting the active head. Its projection may contain scope-bound
+durable identity, but it never serializes a live capability. See
+[`08-application-revision-and-runtime-binding.md`](./08-application-revision-and-runtime-binding.md).
 
 ### DTE02-E And DTE02-F
 
@@ -540,7 +541,8 @@ DTE02-C is complete with these conclusions:
    absent and all rows are constrained by the captured scope;
 9. live locator migration remains fail-closed and outside the first vertical;
 10. DTE01 admission remains unchanged; and
-11. DTE02-D application revision and runtime binding is the next preflight.
+11. DTE02-D was the required next handoff and is now completed by
+    [`08-application-revision-and-runtime-binding.md`](./08-application-revision-and-runtime-binding.md).
 
 ## Authority And Evidence
 

@@ -144,9 +144,10 @@ interface CanonicalTaskManifestV1 {
 }
 ```
 
-These are ownership names, not implementation authorization. DTE02-D/E and
-the future task-definition package preflight must decide exact codecs, imports,
-brands, and protocol placement before code is added.
+These are ownership names, not implementation authorization. DTE02-D now fixes
+the runtime binding and `durable_task` projection semantics; DTE02-E and the
+future task-definition package preflight must still decide identity validators,
+exact codecs, imports, brands, and protocol placement before code is added.
 
 ### First-Version Inclusion
 
@@ -288,9 +289,9 @@ Action runtime work may later supply reusable sandbox or nested-call mechanics.
 That is implementation reuse below the task contract, not an `action -> task`
 identity mapping.
 
-The task artifact class and exact execution-group spelling remain DTE02-D and
-Roadmap 06 decisions. They must not default silently to `edge_action` merely
-because that prototype group exists.
+The task artifact group is now fixed by DTE02-D as `durable_task`, separate
+from `edge_action`. Roadmap 06 still owns its compute-provider implementation,
+runtime ABI, compatibility configuration, and task execution context.
 
 ## Versioned Run-Attempt Policy
 

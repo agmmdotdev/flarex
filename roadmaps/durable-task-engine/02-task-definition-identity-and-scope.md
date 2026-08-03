@@ -4,8 +4,9 @@
 
 **Status:** Active preflight. DTE02-A current-authority inventory, revised
 DTE02-B first-class task-definition contract, and DTE02-C trusted scope
-capability contract are complete. DTE02-D application revision and runtime
-binding is next.
+capability contract are complete. DTE02-D application revision and durable
+task runtime binding is also complete. DTE02-E domain identity types and
+ownership is next.
 
 This roadmap owns the identity and authority boundary required before the
 admitted `@flarex/durable-task` package can be created. It does not authorize a
@@ -137,12 +138,15 @@ A caller must not provide an arbitrary artifact URL, object-store key,
 `packageSha256`, or `artifactSha256` and claim that it belongs to a task.
 
 The existing active-revision selection and runtime-publication chain is the
-authority framework. DTE02-D must extend or narrow that chain with canonical
-task-catalog and task-handler artifact commitments; it must not treat a current
-function target as task authority merely because the artifact mechanics look
-similar. The durable task binding captures only the identifiers and digests
-needed to prove that the task definition and handler artifact came from the
-same authenticated application revision.
+authority framework. DTE02-D now fixes its task extension as one canonical
+task catalog plus a separate `durable_task` projection, group manifest,
+materialization specification, and application-revision task-binding digest.
+It does not treat a current function target as task authority merely because
+the artifact mechanics look similar. The durable task binding captures only
+the identifiers, digests, and immutable object references needed to prove that
+the task definition and handler artifact came from the same authenticated
+application revision. See
+[`preflight/08-application-revision-and-runtime-binding.md`](./preflight/08-application-revision-and-runtime-binding.md).
 
 Large source, artifact, input, output, log, trace, and checkpoint bodies remain
 in their owning object stores. Task state stores bounded identities, digests,
@@ -245,7 +249,10 @@ This ID denotes exactly one accepted tuple:
 - stable `TaskIdV1` and canonical task-manifest identity;
 - exact handler module/export and handler artifact identity;
 - payload/output validator commitments;
-- task-catalog and runtime-artifact evidence;
+- canonical task-catalog digest, `durable_task` entry/projection/group-manifest
+  evidence, and `applicationRevisionTaskBindingSha256`;
+- immutable runtime materialization specification and object references needed
+  for restart-safe reconstruction;
 - artifact and package evidence required by the compute boundary; and
 - versioned retry/timeout/compute policy owned by the task definition.
 
@@ -267,6 +274,12 @@ The working internal name for a durable run identifier remains:
 A new run captures one `TaskDefinitionRevisionIdV1`. The binding never changes
 after insertion. Attempts inherit the run's definition revision; they do not
 resolve the currently active application revision again.
+
+DTE02-D separates this stable definition binding from the durable
+`TaskRunCreationAuthorityReceiptV1`, which records the activation revision,
+head, readiness, candidate, and task-binding evidence that authorized the new
+run. Re-observing or later changing activation does not change the definition
+revision.
 
 Run creation also owns a scope-local idempotency identity. Its exact spelling,
 request digest, conflict behavior, retention, and replay receipt belong to
@@ -465,23 +478,31 @@ when the first adapter exists.
 
 ### DTE02-D: Application Revision And Runtime Binding
 
-**Status:** Next.
+**Status:** Complete. See
+[`preflight/08-application-revision-and-runtime-binding.md`](./preflight/08-application-revision-and-runtime-binding.md).
 
-Required output:
+Accepted output:
 
-- exact projection copied from active revision metadata;
-- exact function-target and runtime-publication evidence captured;
-- binding digest and canonical encoding owner;
-- artifact availability and corruption failures;
-- later-activation behavior; and
-- recovery proof after all process-local capabilities are lost.
+- one canonical task catalog and a separate `durable_task` runtime projection
+  committed into the existing application revision and activation head;
+- task runtime entry, projection, group-manifest, materialization-specification,
+  and application-revision binding frames with exact digest relationships;
+- immutable task-definition runtime binding separated from the activation
+  receipt that authorized new-run creation;
+- explicit artifact-unavailable, foreign-resource, corruption,
+  unsupported-runtime, and compute-availability failure meanings;
+- later activation affecting only new runs; and
+- restart recovery from the stored definition revision and immutable objects
+  without current active selection or mutable host runtime defaults.
 
 Exit gate: a durable run deterministically resolves its original runtime target
 without consulting a mutable `latest` pointer or accepting a caller artifact.
+The contract is accepted; its package/protocol, persistence, readiness, and
+compute proofs remain owned by their later implementation roadmaps.
 
 ### DTE02-E: Domain Identity Types And Ownership
 
-**Status:** Pending.
+**Status:** Next.
 
 Required output:
 
