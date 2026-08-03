@@ -19,11 +19,13 @@ domain file.
     revalidated against the working tree before becoming a roadmap.
 
 - `flarex-durable-task-engine.md`
-  - Accepted direction for extracting Trigger.dev's durable-run semantics into
-    a host-neutral Flarex state machine backed by a private FlarexDB Task
-    System API and Cloudflare/compute-provider adapters. Trigger remains an
-    inactive compatibility island, and pnpm workspace integration is deferred
-    to a separate design decision.
+  - Accepted direction for extracting Trigger.dev's first-class task-definition
+    and durable-run semantics into a canonical Standard Application task
+    catalog plus a host-neutral Flarex state machine backed by a private
+    FlarexDB Task System API and Cloudflare/compute-provider adapters. Current
+    Flarex actions are not task authority. Trigger remains an inactive
+    compatibility island, and pnpm workspace integration is deferred to a
+    separate design decision.
 
 - `flarex-dynamic-worker-bundle-partitioning.md`
   - Accepted runtime design direction for automatic, size-bounded Dynamic

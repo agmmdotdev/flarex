@@ -1,281 +1,302 @@
-# DTE02-B: Task Target And Definition Contract
+# DTE02-B: First-Class Task Definition Contract
 
 ## Decision
 
-**Outcome: ADMIT one existing Standard Application target shape for the first
-private task vertical.**
+**Outcome: REVISE the earlier action-based candidate and ADMIT a first-class
+Flarex task-definition model derived from Trigger.dev's task contract.**
 
-The first Flarex durable task target is exactly:
+The first private durable task is not an `action`, `internalAction`, mutation,
+query, or `workflowMutation`. It is a separate Standard Application task
+definition with:
 
-```text
-handler kind: action
-visibility: internal
-runtime execution group: edge_action
-lookup key: canonical functionPath in one authenticated active revision
-```
+- one stable developer task ID;
+- one immutable handler/artifact binding;
+- payload and output validation;
+- normalized retry and maximum-duration policy;
+- Flarex-owned compute policy;
+- one first-version queue policy; and
+- a `run` handler executed under durable run/attempt authority.
 
-This decision reuses the existing `internalAction` declaration, Standard
-Application definition and analysis pipeline, canonical function metadata,
-candidate function-group entry, and `edge_action` runtime projection. It does
-not add a `task` function kind, a second analyzer, public task syntax, or an
-action execution route.
+Existing Flarex `action` and `internalAction` code is prototype evidence only.
+It may later contribute sandbox, artifact-loading, external-I/O, or nested-call
+mechanics, but it does not define task identity, task metadata, execution
+lifecycle, or public API direction.
 
-The target is definition-admissible and invocation-inert. Current production
-runtime authority does not execute actions end to end. Roadmap 06 must admit a
-candidate-bound action runtime target and compute route before any task attempt
-can invoke user code. Unknown or unsupported execution must fail closed; it
-must never fall back to the current mutation route.
+This correction does not revoke DTE01's run-attempt package admission. It
+changes the definition and identity feeding that engine before implementation
+begins.
 
-## Why `internalAction`
+## Why The Earlier Action Decision Was Withdrawn
 
-### It Matches Task Execution Semantics
+The current Flarex action surface proves only that the repository can describe
+an `action` function kind with public/internal visibility and an `ActionCtx`
+containing authentication plus `runQuery`/`runMutation` placeholders. Current
+roadmaps already state that actions are not executable end to end.
 
-A durable task attempt is non-transactional orchestration that may be retried,
-interrupted, or resumed by platform policy. It must not imply that the whole
-handler is one application-row transaction.
+That prototype is too weak to become durable-task authority. Treating it as
+the foundation would incorrectly make these provisional choices permanent:
 
-The existing action context is the closest Flarex contract because user code
-can perform non-transactional work and call separately authorized queries or
-mutations. Those nested database operations continue through their existing
-executor, OCC, commit, outcome, feed, and outbox owners. The task engine owns
-only task lifecycle state.
+- function path as logical task identity;
+- `internal` visibility as task authorization;
+- `edge_action` as the durable task artifact class;
+- `ActionCtx` as the durable task context; and
+- action invocation semantics as the task execution contract.
 
-This preserves the critical separation:
+None follows from Trigger.dev's task model or from the durable lifecycle we
+already admitted. The revised decision removes those assumptions now, before
+schema or package implementation makes them expensive.
 
-```text
-task attempt lifecycle transaction
-  != user application mutation transaction
-```
+## Trigger.dev Definition Logic To Reuse
 
-### Internal Visibility Is The First Authority Boundary
+The pinned Trigger source already separates task metadata from run-engine
+state. Its reusable definition concepts include:
 
-The first vertical is a private platform capability, not a direct client
-invocation API. Requiring `visibility: internal` prevents a public function
-reference from becoming an accidental task-creation authorization surface.
+- `TaskOptions` / `CommonTaskOptions`;
+- stable `id` that remains constant between deployment versions;
+- payload schema and JSON-schema metadata;
+- `run` handler;
+- retry policy and defaults;
+- queue name and concurrency limit;
+- maximum duration and TTL;
+- compute or machine selection;
+- lifecycle hooks;
+- `TaskMetadata` and `TaskManifest`;
+- task resource catalog and handler lookup; and
+- duplicate task-ID collision detection across source files.
 
-Internal visibility is necessary but not sufficient. The caller still needs a
-trusted active application selection and a scope-bound Task System capability.
-A caller cannot authorize a task merely by knowing an internal function path.
+These are migration inputs, not dependencies. Flarex will source-map and adapt
+their semantics into Flarex-owned types, Effect decoders, canonical encodings,
+artifacts, and tests. Active packages still may not import `@trigger.dev/*` or
+the frozen source island.
 
-### The Artifact Model Already Separates Actions
+### Reuse Classification
 
-Current candidate materialization groups `action` functions into
-`edge_action`; query, mutation, and `workflowMutation` functions are grouped
-into `transaction`. The registered function entry already carries:
+| Trigger capability | Flarex treatment |
+| --- | --- |
+| stable task ID and duplicate collision behavior | preserve semantics and hostile tests |
+| task metadata/manifest field meanings | seam-adapt into a canonical private Flarex task manifest |
+| retry defaults and backoff algorithm | reuse under DTE01's admitted deterministic policy |
+| task resource catalog lookup | adapt into immutable revision/artifact lookup; remove global mutable runtime authority |
+| `run` handler and payload/output typing | preserve developer semantics behind a Flarex runtime boundary |
+| maximum duration | preserve meaning with database/compute-owned enforcement evidence |
+| queue and concurrency metadata | translate to the private Task System and later scheduling owner |
+| machine preset | replace with a Flarex compute-profile reference |
+| organization/project/environment/deployment fields | discard; resolve through Flarex control-plane and scope authority |
+| runtime global registration and Node file-context behavior | replace with deterministic Standard Application analysis/indexing |
+| Trigger lifecycle hooks | defer until their execution ordering and failure semantics have their own source map |
 
-- canonical function ordinal;
-- function path;
-- artifact execution module;
-- export name;
-- handler kind;
-- visibility;
-- execution group; and
-- runtime projection digest and object reference.
+Reimplementation remains last. A field or algorithm is rewritten only when it
+cannot be separated from Trigger product, host, or storage authority.
 
-The first task target therefore uses an existing artifact boundary rather than
-creating a task-specific bundle representation.
+## First-Class Standard Application Model
 
-## Rejected First-Target Alternatives
-
-### Query
-
-A query is read-only and request/response oriented. It cannot represent a
-general durable task attempt and would make retries or long-running
-orchestration meaningless.
-
-**Decision:** reject as the first task handler kind.
-
-### Mutation
-
-A mutation is transaction-owned application work. Running an arbitrary
-durable task handler as one mutation would conflate task retry and lease
-semantics with application OCC and commit semantics. It would also encourage
-the task engine to become a second application-data transaction owner.
-
-The existing mutation runtime is not a shortcut for task execution.
-
-**Decision:** reject as the first task handler kind.
-
-### `workflowMutation`
-
-`workflowMutation` is the existing design direction for durable, multi-step,
-cross-shard database work with explicit compensation. It is not currently an
-end-to-end runtime capability, and its future step/partition semantics are
-narrower than a general durable task.
-
-The durable task engine may later provide infrastructure used by a
-`workflowMutation` implementation, but binding one run attempt directly to a
-`workflowMutation` handler now would pre-decide that separate roadmap's
-orchestration and compensation model.
-
-**Decision:** defer; do not use as the first generic task target.
-
-### New `task` Function Kind
-
-Adding a fifth function kind would require coordinated SDK, analyzer,
-canonical program, metadata codec, physical artifact, readiness, registration,
-activation, code generation, and runtime changes. None is needed to prove the
-private task engine.
-
-A future public `task()` API may lower to an internal action plus a task
-descriptor, or may justify a distinct canonical kind after the private
-vertical. DTE02-B does not decide that public lowering.
-
-**Decision:** reject for the first private vertical.
-
-## Current Reuse Chain
-
-The current source of truth already supports the definition half of the target:
-
-1. `internalAction` produces exclusive `isAction` and `isInternal` markers.
-2. The analyzer recognizes `action` and `internal` independently and emits one
-   canonical function record.
-3. Standard Application definition preparation normalizes the canonical
-   program and lowers the source graph without task-specific behavior.
-4. Authenticated Standard Application analysis binds source and semantic
-   evidence.
-5. Application revision registration durably binds canonical function metadata,
-   validator, handler-set, candidate, and artifact evidence.
-6. Candidate runtime publication places action functions in the existing
-   `edge_action` projection.
-7. Readiness and activation bind the projection into one active application
-   revision.
-
-DTE02-B consumes the result after step 7. It does not inspect SDK objects,
-source modules, or analyzer-private state itself.
-
-## Canonical Target Lookup
-
-The backend begins with an issuer-backed
-`AuthenticatedActiveApplicationRevisionSelectionV1` and one requested
-function path. The future task-target adapter must perform one bounded lookup
-with the following order.
-
-### 1. Claim The Active Runtime State
-
-Claim the selection through the existing private active-selection owner. A
-structurally similar object, revoked selection, missing selection, or selection
-from another process must fail as `notIssued` or the final domain equivalent.
-
-Do not accept active metadata, scope metadata, or runtime publication as
-independent caller fields.
-
-### 2. Revalidate Candidate-Level Evidence
-
-Before selecting the function, verify the same candidate-level commitments
-used by current runtime target adapters:
-
-- supported storage generation;
-- decoded canonical function metadata digest equals active metadata;
-- candidate digest equals active metadata;
-- candidate runtime-projection-set digest equals active metadata; and
-- candidate function-group-manifest digest equals active metadata.
-
-Any mismatch is candidate evidence failure, not an unknown task.
-
-### 3. Select Exactly One Function Metadata Entry
-
-Lookup uses exact canonical `functionPath` equality in the already canonical
-function metadata set. The canonical decoder owns duplicate-path rejection and
-ordering. The task adapter must not normalize, trim, case-fold, append an
-extension, or guess an export name.
-
-Missing metadata or missing function-group entry is `unknownFunction`.
-
-### 4. Require The Exact Task Target Shape
-
-The selected metadata and function-group entry must both prove:
+The target Standard Application shape has two distinct catalogs:
 
 ```text
-kind / handlerKind = action
-visibility = internal
-group = edge_action
+Standard Application revision
+  function catalog
+    query
+    mutation
+    action
+    workflowMutation
+
+  task catalog
+    CanonicalTaskManifestV1
+      taskId
+      handler binding
+      payload/output validators
+      run-attempt policy
+      maximum duration
+      compute profile
+      queue policy
 ```
 
-Any other supported Standard Application function is
-`unsupportedTaskTarget`, not a fallback candidate.
+The task catalog is not a fifth ordinary function kind. A task is a durable
+execution definition whose handler, policies, and lifecycle are bound
+together. The handler may reuse common artifact mechanics, but its definition
+cannot be reconstructed from a function entry alone.
 
-### 5. Cross-Check Function Evidence
+The existing Standard Application definition API does not currently implement
+this task catalog. A later focused implementation preflight must extend the
+private Standard definition/analysis/registration chain without weakening the
+existing function contract or introducing a second competing application
+definition.
 
-The adapter must reject unless all of the following agree:
+## Canonical Private Task Manifest
 
-- metadata ordinal equals function-group entry ordinal;
-- the canonical path contains a valid module/export separator;
-- export name equals the canonical path suffix;
-- logical execution module resolves to the artifact execution module;
-- entry projection digest equals the `edge_action` projection reference;
-- the projection contains the selected artifact module; and
-- argument and return validators come from the same decoded canonical metadata
-  entry.
+The working normalized type name is:
 
-The exact runtime object-reference and digest projection is finalized by
-DTE02-D. DTE02-B fixes the selection algorithm and target shape.
+`CanonicalTaskManifestV1`
 
-## Logical Task Key
+Its first-version semantic fields are:
 
-For the first private vertical, the logical task key is the canonical function
-path under one Flarex scope:
+```ts
+interface CanonicalTaskManifestV1 {
+  readonly version: 1;
+  readonly taskId: TaskIdV1;
+  readonly handler: CanonicalTaskHandlerBindingV1;
+  readonly payloadValidator: CanonicalTaskValidatorV1;
+  readonly outputValidator: CanonicalTaskValidatorV1 | null;
+  readonly runAttemptPolicy: RunAttemptPolicyV1;
+  readonly maximumDurationInSeconds: number;
+  readonly computeProfile: TaskComputeProfileRefV1;
+  readonly queue: { readonly kind: "default" };
+}
+```
+
+These are ownership names, not implementation authorization. DTE02-D/E and
+the future task-definition package preflight must decide exact codecs, imports,
+brands, and protocol placement before code is added.
+
+### First-Version Inclusion
+
+The first private vertical includes:
+
+- stable task ID;
+- one handler export and immutable artifact binding;
+- payload and output validators;
+- retry policy;
+- maximum attempt duration;
+- one default queue;
+- one Flarex compute profile; and
+- the `run` handler.
+
+### Deferred Definition Features
+
+The first private vertical excludes:
+
+- named queues and configurable concurrency;
+- TTL;
+- schedules and trigger sources;
+- lifecycle hooks and middleware;
+- catch-error callbacks that mutate retry policy;
+- child tasks;
+- batches and debounce;
+- waitpoints and checkpoints;
+- user-selected deployment versions or regions;
+- Trigger machine names and pricing tiers; and
+- public `task()` SDK syntax.
+
+Those Trigger features remain reuse candidates with their source and tests.
+They are not discarded merely because the first vertical defers them.
+
+## Stable Logical Task Identity
+
+The first logical task key is:
 
 ```text
-(trusted scope, canonical functionPath)
+(trusted Flarex scope, TaskIdV1)
 ```
 
-Only `functionPath` crosses into the definition request as caller intent. The
-trusted scope is supplied by the operation-scoped capability, not serialized
-beside the path.
+`TaskIdV1` preserves Trigger's important semantic rule: a developer-specified
+task ID is unique within the application/scope and remains stable across
+application revisions.
 
-This choice has deliberate first-version semantics:
+Consequences:
 
-- the same canonical path in a later application revision is the same logical
-  task but a different immutable definition revision;
-- renaming the path creates a different logical task;
-- the path is not globally unique across scopes;
-- the path does not authorize invocation; and
-- a future public stable task ID may add alias/rename policy without changing
-  existing immutable run bindings.
+- the same task ID in a later application revision is the same logical task
+  with a new immutable definition revision;
+- changing the task ID creates a different logical task;
+- renaming a source file, module, export, or bundle path does not by itself
+  change logical task identity;
+- task ID is not globally unique across scopes;
+- knowing a task ID does not authorize run creation; and
+- duplicate task IDs in one analyzed application are rejected before
+  registration.
 
-No separate customer-chosen task ID is admitted in the first vertical.
+Function path may remain handler-location evidence. It is not the logical task
+key and must not leak into public task identity.
 
-## Immutable Definition Revision Claim
+## Immutable Task-Definition Revision
 
-One task-definition revision binds exactly one normalized claim:
+The working identity remains:
 
-```text
-trusted scope authority supplied out of band
-+ active application revision ID
-+ canonical function ordinal and path
-+ handlerKind = action
-+ visibility = internal
-+ executionGroup = edge_action
-+ function metadata / validator / handler commitments
-+ candidate and runtime-projection commitments
-+ selected runtime object references finalized by DTE02-D
-+ normalized RunAttemptPolicyV1
-```
+`TaskDefinitionRevisionIdV1`
 
-The working durable identity remains `TaskDefinitionRevisionIdV1`. The exact
-identifier codec and generation authority remain DTE02-E decisions.
+One revision binds exactly one accepted tuple:
 
-Changing any claim member creates a different immutable definition revision.
-There is no mutable `latest` policy or runtime target inside the revision.
+- trusted scope supplied by authority;
+- stable `TaskIdV1`;
+- immutable application revision ID;
+- canonical task manifest digest;
+- exact handler module/export and artifact evidence;
+- payload and output validator commitments;
+- normalized run-attempt policy;
+- maximum duration;
+- compute-profile reference; and
+- queue-policy version.
 
-## Versioned Task Policy
+Changing any tuple member creates another definition revision. There is no
+mutable `latest` policy, handler, artifact, or compute target inside a revision.
 
-### Ownership
+A run captures one `TaskDefinitionRevisionIdV1` at creation. Later application
+activation changes which revision new runs resolve, but never retargets an
+existing run or attempt.
 
-Task retry behavior is not added to Standard Application function metadata.
-The analyzer proves the handler and artifact. The durable-task domain owns the
-run-attempt policy that governs execution of that handler.
+## Standard Application Stage Integration
 
-The first definition revision binds one normalized `RunAttemptPolicyV1`. Its
-decoder and lifecycle algorithm land in the already admitted
-`./internal/run-attempt-v1` package surface. This does not authorize a new
-task-definition export or reopen the DTE01 package boundary.
+### 1. Private Definition
 
-### First-Version Normalized Shape
+A private producer supplies task intent to the Standard Application definition
+owner. The producer is not yet a public SDK. The definition owner normalizes
+task IDs, handler bindings, validators, and policies into the canonical task
+catalog beside the existing canonical function program.
 
-The first version contains only the Trigger-derived retry fields needed by the
-admitted lifecycle plus an explicitly disabled compute escalation:
+### 2. Analysis And Indexing
+
+Analysis validates the task catalog and handler source graph, rejects duplicate
+task IDs, and produces canonical task-manifest evidence. Trigger's indexer and
+resource-catalog behavior are the reuse oracle, but a mutable runtime global is
+not the Flarex authority.
+
+### 3. Registration
+
+Application revision registration binds the canonical task-catalog digest,
+handler artifact commitments, and validator/policy evidence into the immutable
+application revision. Registration remains inactive.
+
+### 4. Readiness And Activation
+
+Readiness proves required task artifacts can be materialized and validated.
+Activation includes task-catalog/artifact commitments in the same coherent
+application revision selection. DTE02 does not create a second task deployment
+head.
+
+### 5. Run Creation
+
+Under an authenticated active application selection and a scope-bound Task
+System capability, run creation resolves `TaskIdV1` from the canonical task
+catalog, captures its immutable definition revision, validates the payload,
+and performs idempotent durable run insertion.
+
+## Task Handler And Runtime Boundary
+
+The durable task handler receives a task-specific context, not today's
+prototype `ActionCtx` by inheritance.
+
+The future context may expose deliberately admitted capabilities such as:
+
+- run and attempt metadata;
+- cancellation signal;
+- structured logger and trace context;
+- `runQuery` and `runMutation` through existing Flarex runtime owners;
+- child-task and wait capabilities only after their roadmaps; and
+- no raw Task System, Postgres, Drizzle, Cloudflare, object-store, or compute
+  credentials.
+
+Action runtime work may later supply reusable sandbox or nested-call mechanics.
+That is implementation reuse below the task contract, not an `action -> task`
+identity mapping.
+
+The task artifact class and exact execution-group spelling remain DTE02-D and
+Roadmap 06 decisions. They must not default silently to `edge_action` merely
+because that prototype group exists.
+
+## Versioned Run-Attempt Policy
+
+Task retry policy remains owned by the durable-task domain, not by the existing
+function catalog. The first version preserves the DTE01-admitted Trigger
+semantics:
 
 ```ts
 interface RunAttemptPolicyV1 {
@@ -291,8 +312,7 @@ interface RunAttemptPolicyV1 {
 }
 ```
 
-The private input may omit retry members. Normalization fills the admitted
-Trigger-compatible defaults:
+Omitted private input fields normalize to:
 
 ```text
 maxAttempts = 3
@@ -303,184 +323,101 @@ randomize = true
 outOfMemory = disabled
 ```
 
-Semantics are fixed:
+DTE01's deterministic jitter, attempt numbering, duration output, finite/safe
+validation, corruption separation, and compatibility tests remain in force.
+Compute escalation stays disabled until a Flarex compute-profile owner exists.
 
-- attempts are one-indexed;
-- `maxAttempts` is the maximum total number of attempts, including the first;
-- after failed attempt `n`, no retry is scheduled when
-  `n >= maxAttempts`;
-- otherwise the base delay is
-  `min(maxTimeoutInMs, minTimeoutInMs * factor^(n - 1))`;
-- `randomize: false` uses multiplier `1`;
-- `randomize: true` consumes a supplied deterministic jitter sample and
-  preserves Trigger's multiplier interval `[1, 2)`;
-- the final delay is rounded to the nearest integer millisecond; and
-- the lifecycle returns a duration, never a host-clock timestamp.
+Maximum duration is separate from retry delay. It belongs to the immutable
+task manifest and requires compute interruption plus durable attempt evidence;
+it must not be approximated by a process-local timer alone.
 
-### Validation Policy
+## Definition Registration Idempotency
 
-DTE-IP01 must encode the finite/safe constraints in its Effect Schema and
-retain invalid input versus stored corruption as different typed failures.
-The first bounded policy is:
+The registration request still uses a scope-local idempotency key and a
+canonical claim digest.
 
-- `maxAttempts`: safe integer from 1 through 100;
-- `factor`: finite number from 1 through 100;
-- `minTimeoutInMs`: safe integer from 1 through 86,400,000;
-- `maxTimeoutInMs`: safe integer from `minTimeoutInMs` through 86,400,000;
-- `randomize`: Boolean; and
-- no unknown fields after normalization.
-
-The exponentiation path must reject non-finite or unsafe intermediate/final
-durations rather than persisting an unusable retry wake.
-
-The first version deliberately excludes:
-
-- Trigger machine names or pricing tiers;
-- OOM compute escalation;
-- user callbacks that calculate retry delay;
-- error-specific retry callbacks;
-- per-environment defaults;
-- attempt execution timeout;
-- queue priority or concurrency; and
-- mutable policy lookup after run creation.
-
-Lease duration, heartbeat cadence, and recovery scan cadence are platform
-lifecycle configuration, not user task-definition retry fields. An explicit
-attempt execution timeout can be added only through a new versioned policy and
-immutable definition revision.
-
-## Registration Idempotency
-
-The working private request-key name is
-`TaskDefinitionRegistrationRequestKeyV1`. DTE02-E owns its exact type and
-codec, but DTE02-B fixes these input constraints:
-
-- primitive string;
-- nonblank under ECMAScript trim semantics;
-- no null code unit;
-- at most 1,024 UTF-8 bytes; and
-- no normalization of the accepted spelling.
-
-The registration operation computes a canonical claim digest from the full
-immutable definition claim. Scope is supplied by authority and included by the
-persistence owner in the uniqueness boundary.
-
-Required behavior:
+Required behavior remains:
 
 | Existing state | New request | Result |
 | --- | --- | --- |
-| no receipt, no matching claim | any valid key and claim | insert one revision and receipt |
-| same key, same claim digest | identical replay | return the original revision |
+| no receipt, no matching claim | valid key and claim | insert one definition revision and receipt |
+| same key, same claim digest | identical replay | return original revision |
 | same key, different claim digest | conflicting reuse | typed request-key conflict |
-| different key, same claim digest | semantically identical registration | converge on the same revision and add/replay the receipt |
+| different key, same claim digest | identical task definition | converge on the same revision |
 | different key, different claim digest | new immutable definition | insert another revision |
 
-The operation must commit the revision and request receipt atomically. A lost
-response is resolved by retrying the same request key. It must not create a
-second revision or infer success from an active application head alone.
-
-Whether `TaskDefinitionRevisionIdV1` is storage-issued or derived from the
-canonical claim remains DTE02-E's decision. Idempotency semantics do not depend
-on that representation.
-
-## Definition Versus Invocation Readiness
-
-DTE02-B admits identification and immutable binding, not execution.
-
-The following facts are current:
-
-- `internalAction` can be declared and analyzed;
-- action metadata can be registered with an application revision;
-- action artifacts can be grouped into `edge_action` and covered by readiness
-  and activation evidence; and
-- the current exact runtime target and invoke path do not execute actions.
-
-Therefore:
-
-1. tests may prove target selection over authenticated fixture evidence;
-2. a future private definition registration may remain production-inert;
-3. run creation and attempt dispatch remain closed until DTE02-D, Roadmap 04,
-   and Roadmap 06 gates are satisfied; and
-4. no route may reinterpret an internal action as a mutation to obtain current
-   runtime support.
-
-This is a truthful capability gate, not an implementation blocker for the
-host-neutral DTE-IP01 lifecycle package.
+The canonical claim now includes stable task ID and canonical task-manifest
+evidence rather than treating function path/action metadata as the definition.
 
 ## Package Consequences
 
-DTE02-B does not reopen DTE01:
+DTE01 remains admitted exactly as a run-attempt lifecycle package with only
+`./internal/run-attempt-v1`. It may receive validated task-definition-revision
+identity and policy snapshots through its store contract, but it does not own
+Standard Application task definition, analysis, registration, or artifacts.
 
-- `RunAttemptPolicyV1` is already part of the admitted run-attempt model and
-  Schema ownership;
-- the retry algorithm and defaults already have admitted Trigger provenance;
-- no new runtime dependency is required;
-- no public or package-root export is required;
-- no Standard Application or persistence import enters
-  `@flarex/durable-task`; and
-- the action target lookup remains a future persistence/backend adapter, not
-  domain-package code.
+The first-class task catalog requires its own focused package/API preflight.
+That preflight must decide whether the owner is an extension of the private
+Standard Application definition chain or a narrow task-definition package
+consumed by it. This receipt does not authorize another package, dependency,
+or public export.
 
-A future task-definition service/package surface is not admitted by this
-receipt. DTE-IP01 receives an accepted task-definition-revision identity and a
-validated policy snapshot through its scope-bound store contract; it does not
-register definitions.
+No active package may import Trigger task types directly. Provenance mapping
+must point from each adapted task-definition/catalog symbol to its Flarex owner
+and retained tests.
 
-## Required Proofs For Later Implementation
+## Required Proofs
 
-### Standard Reuse Proof
+### Definition And Catalog
 
-- an `internalAction` survives Standard definition, analysis, registration,
-  readiness, and activation with one canonical path;
-- no task-specific SDK inspection or analyzer branch exists; and
-- wrong kind, wrong visibility, duplicate path, or mismatched artifact evidence
-  fails closed.
+- stable task IDs survive application revisions;
+- duplicate IDs across files/modules are rejected deterministically;
+- source/module/export renames do not silently change logical identity;
+- unknown manifest fields and invalid policy fail closed;
+- canonical task ordering and digest behavior are deterministic; and
+- no action/function entry can masquerade as a task manifest.
 
-### Policy Proof
+### Revision And Activation
 
-- omitted fields normalize to the exact first-version defaults;
-- boundary values and invalid numeric values are covered;
-- retry attempt numbering and rounding match the pinned Trigger vectors;
-- deterministic jitter produces repeatable receipts;
-- stored invalid policy is corruption, not defaultable missing input; and
-- new fields or variants cannot bypass exhaustive policy handling.
+- a definition revision binds task ID, application revision, artifact,
+  validators, and policy coherently;
+- identical registration replays converge;
+- later activation affects only new runs;
+- existing runs remain pinned after task changes or removal; and
+- a caller cannot provide its own artifact or scope and claim authority.
 
-### Idempotency Proof
+### Trigger Compatibility
 
-- identical request replay returns the same revision;
-- same key with a different claim conflicts;
-- different keys for the same claim converge;
-- transaction rollback leaves neither a revision nor receipt;
-- lost response followed by replay is safe; and
-- scope A receipts cannot replay or discover scope B definitions.
+- task ID stability and duplicate-collision scenarios are retained;
+- retry defaults and backoff vectors remain compatible;
+- included first-version task fields have a source-map entry;
+- deferred Trigger fields remain explicitly inventoried; and
+- Trigger organization, environment, deployment, machine, and host globals do
+  not enter the Flarex domain contract.
 
 ## Decision Receipt
 
-DTE02-B is complete with these exact conclusions:
+DTE02-B is complete after revision with these conclusions:
 
-1. the first private task target is `action` + `internal` + `edge_action`;
-2. canonical function path is the first logical task key;
-3. target lookup reuses active revision, canonical metadata, and runtime
-   publication evidence;
-4. task retry policy remains a durable-task domain value, not Standard
-   Application metadata;
-5. the first retry policy preserves admitted Trigger semantics with bounded,
-   deterministic Flarex validation;
-6. definition registration is idempotent by request key and canonical claim;
-7. no current action invocation capability is claimed; and
-8. DTE02-C scope capability is the next preflight.
+1. durable tasks are first-class Standard Application definitions;
+2. `TaskIdV1`, not function path, is the logical task identity;
+3. `CanonicalTaskManifestV1` is separate from the existing function catalog;
+4. immutable definition revisions bind task, application, artifact, validator,
+   policy, duration, compute, and queue evidence;
+5. Trigger task metadata, manifest, catalog, collision, retry, and executor
+   semantics are reuse inputs;
+6. Flarex action prototypes do not define task identity or lifecycle;
+7. DTE01 run-attempt admission remains valid; and
+8. DTE02-C scope capability remains the next preflight.
 
 ## Authority And Evidence
 
-This decision is grounded in:
+This revised decision is grounded in:
 
-- existing `internalAction` SDK markers and action context;
-- canonical declarative function kind and visibility records;
-- Standard Application definition and authenticated analysis stages;
-- canonical function metadata decoding and duplicate-path rejection;
-- candidate runtime projection grouping (`action -> edge_action`);
-- application revision registration, readiness, activation, and selection;
-- the current mutation-only runtime target's fail-closed pattern;
+- Trigger `CommonTaskOptions`, `TaskOptions`, `TaskMetadata`, `TaskManifest`,
+  `TaskMetadataWithFunctions`, and resource-catalog collision behavior;
+- current Flarex action code and roadmap evidence that it is not executable end
+  to end;
 - [`../02-task-definition-identity-and-scope.md`](../02-task-definition-identity-and-scope.md);
 - [`./05-final-package-admission.md`](./05-final-package-admission.md); and
-- the retry schema and algorithm in the pinned Trigger.dev source map.
+- the DTE01 source map for retry and run-attempt behavior.

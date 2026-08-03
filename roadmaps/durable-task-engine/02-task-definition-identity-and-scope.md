@@ -2,8 +2,9 @@
 
 ## Status
 
-**Status:** Active preflight. DTE02-A current-authority inventory and DTE02-B
-task-target/definition contract are complete. DTE02-C scope capability is next.
+**Status:** Active preflight. DTE02-A current-authority inventory and the
+revised DTE02-B first-class task-definition contract are complete. DTE02-C
+scope capability is next.
 
 This roadmap owns the identity and authority boundary required before the
 admitted `@flarex/durable-task` package can be created. It does not authorize a
@@ -12,10 +13,10 @@ scheduler, deployment route, or production activation.
 
 Roadmap 01 admitted a reusable Trigger.dev run-attempt lifecycle closure. That
 admission deliberately stopped before inventing Flarex task identity. This
-roadmap now defines how a task is associated with Flarex's existing Standard
-Application, application-revision, runtime-artifact, and data-scope owners
-without importing Trigger.dev's organization model or creating a parallel
-deployment system.
+roadmap now defines how a first-class task catalog is added to Flarex's private
+Standard Application chain and associated with application-revision,
+runtime-artifact, and data-scope owners without importing Trigger.dev's
+organization model or creating a parallel deployment system.
 
 ## Mandate
 
@@ -134,12 +135,13 @@ run creation only. It must not retarget an existing run or attempt.
 A caller must not provide an arbitrary artifact URL, object-store key,
 `packageSha256`, or `artifactSha256` and claim that it belongs to a task.
 
-The existing active-revision runtime target is the source of runtime
-publication evidence. The durable task binding captures the identifiers and
-digests needed to prove that the function target and runtime artifact came
-from the same authenticated application revision. The exact minimal durable
-projection is decided in DTE02-D; it must not copy an entire runtime
-publication merely for convenience.
+The existing active-revision selection and runtime-publication chain is the
+authority framework. DTE02-D must extend or narrow that chain with canonical
+task-catalog and task-handler artifact commitments; it must not treat a current
+function target as task authority merely because the artifact mechanics look
+similar. The durable task binding captures only the identifiers and digests
+needed to prove that the task definition and handler artifact came from the
+same authenticated application revision.
 
 Large source, artifact, input, output, log, trace, and checkpoint bodies remain
 in their owning object stores. Task state stores bounded identities, digests,
@@ -165,10 +167,14 @@ claim. DTE02 must preserve those distinctions.
 The current function-kind vocabulary contains `query`, `mutation`,
 `workflowMutation`, and `action`, with internal/public visibility represented
 separately. Cron is a trigger descriptor rather than a fifth function kind.
-DTE02 does not add a public `task` function kind. DTE02-B admits exactly an
-`internal` `action` in the existing `edge_action` runtime group for the first
-private target. Its definition/artifact path exists; invocation remains closed
-until the later action compute capability is proven.
+No current function kind is the durable task contract. DTE02-B instead admits
+a separate canonical task catalog derived from Trigger.dev's task metadata and
+manifest semantics. The existing action surface remains prototype evidence
+only and does not decide task identity, context, artifact group, or execution.
+
+The Standard Application path does not yet implement that task catalog. The
+future private definition/analysis extension must add it beside the existing
+function catalog without creating a second application definition owner.
 
 ### Registered Application Revision
 
@@ -208,13 +214,21 @@ out of `@flarex/durable-task`.
 
 ### Logical Task Key
 
-For the first private vertical, a task is selected by a canonical function path
-inside a verified Standard Application revision. That path is a definition
-lookup key, not durable authorization and not a globally unique customer ID.
+For the first private vertical, the logical task key is a stable developer task
+ID under one trusted Flarex scope:
 
-The first vertical will not introduce a public developer-chosen task ID. A
-future SDK may add a stable task key or rename policy, but it must map into this
-private model without changing existing run bindings.
+```text
+(trusted scope, TaskIdV1)
+```
+
+The ID remains stable across application revisions. Function path, module path,
+export name, and artifact location are handler-binding evidence, not logical
+task identity. Renaming those locations does not silently create a new task;
+changing `TaskIdV1` does.
+
+The first private producer may construct this definition before a public SDK
+exists. A later Trigger-style `task({ id, run, ... })` API must lower to the
+same canonical private task manifest rather than create a parallel model.
 
 ### Immutable Task-Definition Revision
 
@@ -227,14 +241,15 @@ This ID denotes exactly one accepted tuple:
 
 - resolved scope authority at registration or run-binding time;
 - immutable application revision ID;
-- canonical function path and exact function metadata identity;
-- accepted function kind and visibility;
-- candidate and runtime-projection evidence;
+- stable `TaskIdV1` and canonical task-manifest identity;
+- exact handler module/export and handler artifact identity;
+- payload/output validator commitments;
+- task-catalog and runtime-artifact evidence;
 - artifact and package evidence required by the compute boundary; and
 - versioned retry/timeout/compute policy owned by the task definition.
 
-The ID is not interchangeable with application revision ID, function path,
-deployment ID, or artifact digest. Roadmap 04 decides whether the ID is
+The ID is not interchangeable with task ID, application revision ID, handler
+path, deployment ID, or artifact digest. Roadmap 04 decides whether the ID is
 storage-issued or content-addressed after the canonical registration input and
 idempotency behavior are fixed.
 
@@ -276,7 +291,7 @@ authenticated control-plane request
   -> Flarex deployment/environment resolution
   -> persistence-owned trusted scope resolution
   -> authenticated active application revision selection
-  -> canonical Standard Application function target lookup
+  -> canonical Standard Application task manifest lookup by TaskIdV1
   -> immutable task-definition revision binding
   -> scope-bound Task System capability
   -> idempotent run creation using TaskDefinitionRevisionIdV1
@@ -325,8 +340,9 @@ active application selection, runtime-target lookup, operation-scoped adapter
 composition, and safe host projections.
 
 Standard Application packages remain the source of canonical definition and
-analysis artifacts. DTE02 must not add a second parser or analyzer for the same
-function definition merely to recognize tasks.
+analysis artifacts. Their future task-catalog extension must adapt Trigger task
+metadata/indexing semantics into the same stage chain. DTE02 must not reuse an
+action entry as a shortcut or add a parallel application parser/analyzer.
 
 ## Definition And Run Semantics
 
@@ -338,17 +354,18 @@ true:
 1. the request holds an issuer-backed active application selection;
 2. the selection resolves to the same trusted scope used by the Task System
    operation;
-3. the canonical function path exists exactly once in the selected revision;
-4. it is the DTE02-B `action` + `internal` + `edge_action` target and remains
-   invocation-inert until the first action compute route is admitted;
-5. its validator and declared-handler evidence agree with the authenticated
-   revision metadata;
-6. its runtime projection and artifact publication are complete;
+3. `TaskIdV1` exists exactly once in the canonical task catalog;
+4. its canonical manifest, handler binding, validators, and policies agree
+   with the authenticated application revision;
+5. its task-catalog and handler-artifact evidence are complete;
+6. its exact runtime capability has been separately admitted rather than
+   inferred from the action prototype;
 7. its task policy passes a versioned, deterministic decoder; and
 8. registration or lookup returns one immutable task-definition revision.
 
 Failure is fail-closed. There is no fallback to another application revision,
-function path, artifact, deployment, or source island implementation.
+task ID, action/function entry, artifact, deployment, or source-island
+implementation.
 
 ### New Run Creation
 
@@ -367,7 +384,7 @@ request fails with a typed conflict; it does not silently create another run.
 Once a run exists:
 
 - a later application activation does not retarget it;
-- a renamed or removed function in a later revision does not change it;
+- a renamed handler or removed task in a later revision does not change it;
 - a new runtime artifact does not change it;
 - losing a process-local capability does not lose its durable binding;
 - every claimed attempt still requires a fresh, scope-bound store operation;
@@ -399,23 +416,24 @@ Conclusion: Flarex already owns the required application, runtime, and scope
 authorities. DTE02 must compose and narrow them; it must not introduce a
 Trigger-shaped identity subsystem.
 
-### DTE02-B: Task Target And Definition Contract
+### DTE02-B: First-Class Task Definition Contract
 
-**Status:** Complete. See
+**Status:** Revised and complete. See
 [`preflight/06-task-target-and-definition-contract.md`](./preflight/06-task-target-and-definition-contract.md).
 
 Required output:
 
-- exact accepted private function kind for the first vertical;
-- canonical function-target lookup rule;
+- exact first-class canonical task-manifest shape for the first vertical;
+- stable task-ID and canonical task lookup rule;
 - versioned task policy input and normalized form;
 - logical-key and immutable-revision distinction;
 - definition registration idempotency and conflict rules; and
-- proof that no parallel Standard Application analyzer is introduced.
+- proof that no action alias or parallel Standard Application analyzer is
+  introduced.
 
-Exit gate: one private task definition can be identified in a verified
-application revision without adding a public SDK surface or unsupported
-runtime promise.
+Exit gate: one first-class private task definition can be identified by stable
+task ID in a verified application revision without using the action prototype,
+adding a public SDK surface, or promising an unsupported runtime.
 
 ### DTE02-C: Scope Capability Contract
 

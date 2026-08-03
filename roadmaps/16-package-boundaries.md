@@ -166,6 +166,13 @@ provenance, compatibility tests, and admitted-package gates. Admission does not
 authorize a persistence implementation, app/backend dependency, Worker bundle,
 public export, schema, or production route.
 
+The DTE01 package owns run-attempt lifecycle only. The revised DTE02-B contract
+uses a first-class canonical Standard Application task catalog with stable
+`TaskIdV1`; it does not reinterpret `action`/`internalAction` or function path
+as task authority. The task-definition/catalog owner and any additional
+private package surface require their own focused admission and must not be
+smuggled into `./internal/run-attempt-v1`.
+
 `@flarex/utils` is not a core or common-domain package. A candidate belongs
 there only after it is proven to be a stable generic primitive with independent
 consumers and no lower-level domain owner. Repeated protocol canonicalization,

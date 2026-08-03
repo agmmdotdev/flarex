@@ -42,6 +42,13 @@ Redlock-style coordination, Node timer loops, and long-running Docker or
 Kubernetes supervisor processes. It cannot run unchanged as a Cloudflare
 Worker.
 
+Trigger also has a mature task-definition boundary: stable task IDs, task
+metadata and manifests, payload schemas, retry and duration policy, queues,
+compute selection, lifecycle hooks, resource-catalog lookup, and duplicate-ID
+collision detection. Those definition semantics are migration input alongside
+the run engine; Flarex should not replace them with its current action
+prototype.
+
 ## Accepted Direction
 
 Trigger.dev is migration input, not a runtime dependency or embedded product.
@@ -73,6 +80,35 @@ in-memory timer, or delivery of one particular wakeup. Wakeups may reduce
 latency, but durable discovery and fenced claims must recover missed or
 duplicated delivery.
 
+## First-Class Task Definitions
+
+A Flarex durable task is a first-class Standard Application definition, not an
+alias for `action`, `internalAction`, mutation, query, or `workflowMutation`.
+
+The private Standard Application model should gain a canonical task catalog
+beside its existing function catalog. Each canonical task manifest binds:
+
+- stable developer `TaskIdV1`;
+- handler module/export and immutable artifact evidence;
+- payload and output validators;
+- normalized retry and maximum-duration policy;
+- Flarex compute-profile policy; and
+- versioned queue policy.
+
+`TaskIdV1` remains stable across application revisions and is the logical task
+identity under a trusted scope. Handler function path is location evidence,
+not public identity. Each application revision creates an immutable
+task-definition revision that captures the exact manifest, artifact,
+validators, and policies used by its runs.
+
+Current Flarex action code is prototype evidence only. Action runtime work may
+later provide reusable sandbox, external-I/O, or nested-call mechanics, but it
+does not decide the task definition, context, artifact class, or lifecycle.
+
+The first private producer should target the canonical task manifest directly.
+A later Trigger-style public `task({ id, run, ... })` API must lower to that
+same model rather than introduce a second task representation.
+
 ## Storage Ownership
 
 Replacing Trigger's database integration means:
@@ -98,8 +134,8 @@ to its tables or transaction capabilities.
 Before defining tables, the task lifecycle and atomic operations must be
 specified. The likely authoritative concepts are:
 
-- task definition identity bound to an immutable application revision and
-  runtime artifact;
+- stable task ID and canonical task-manifest identity bound to an immutable
+  application revision and runtime artifact;
 - run identity, application/environment scope, input reference, and creation
   idempotency identity;
 - attempt number, execution fence, compute assignment, and lease expiry using
@@ -120,6 +156,8 @@ body store.
 
 Preserve or adapt from Trigger.dev:
 
+- task options, metadata, manifest, stable-ID, duplicate-collision, handler
+  catalog, payload-schema, retry, and maximum-duration semantics;
 - run and attempt state-transition invariants;
 - retry, cancellation, heartbeat, and visibility-timeout behavior;
 - checkpoint, resume, waitpoint, delayed-run, debounce, and TTL semantics;
@@ -132,7 +170,8 @@ Replace rather than carry forward:
 
 - Trigger organization, project, environment, deployment, and authentication
   ownership;
-- public Trigger SDK and API contracts;
+- public Trigger SDK and API transport/product contracts, while preserving the
+  reusable task-definition semantics behind a Flarex-owned API;
 - Prisma models, generated clients, and direct database access;
 - Redis keyspace, Lua script, and Redlock authority;
 - long-running Node polling and in-memory timer ownership;
@@ -147,15 +186,17 @@ split at the semantic boundary.
 
 ## Actions And Durable Tasks
 
-Actions and durable tasks may share application artifacts, runtime
-materialization, sandboxing, compute providers, logs, and traces. They do not
-share the same invocation semantics.
+Actions and durable tasks may share low-level application artifact,
+materialization, sandbox, compute, log, trace, and nested-call mechanics. They
+do not share identity, definition, context, or invocation semantics.
 
 - An action is normally a direct request/response execution. Its caller owns
   the request lifetime, and completion is returned synchronously when possible.
 - A task creates durable run authority before execution. Retries, delays,
   cancellation, heartbeats, checkpoints, and eventual result inspection belong
   to the task engine rather than the request lifetime.
+- A task is selected by stable task ID from a canonical task catalog. It is not
+  selected by reinterpreting an action function path.
 
 The task engine must not become a parallel FlarexDB transaction or commit
 system. User-code database effects continue through the existing trusted
@@ -167,7 +208,8 @@ state only.
 The first implementation should deliberately omit broad Trigger parity. It
 should prove one private, production-inert path:
 
-1. define and analyze one Flarex task;
+1. define and analyze one first-class canonical Flarex task manifest with a
+   stable task ID;
 2. bind it to one immutable application revision and runtime artifact;
 3. create one idempotent durable run;
 4. persist and discover the due run through the Task System API;

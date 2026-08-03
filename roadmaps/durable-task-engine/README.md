@@ -5,7 +5,7 @@
 **Status:** Vision authority. DTE01 source reuse and package admission is
 complete with one admitted, production-inert run-attempt package slice.
 Roadmap 02 task identity/scope is active. Its current-authority inventory and
-first private task-target/definition contract are complete; no package
+revised first-class task-definition contract are complete; no package
 implementation, schema, host integration, or production activation exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
@@ -57,6 +57,8 @@ Trigger package or source-island dependencies from active Flarex packages.
 
 Trigger.dev supplies substantial reusable behavior for:
 
+- stable task definitions, metadata/manifests, resource catalogs, duplicate-ID
+  detection, handler lookup, retry/duration policy, and task execution hooks;
 - runs, attempts, snapshots, retries, cancellation, TTL, and delayed work;
 - waitpoints, checkpoints, debounce, batching, concurrency, and fair queues;
 - idempotency, event ordering, restart recovery, and uncertainty handling;
@@ -116,7 +118,20 @@ A Flarex tenant is the customer and administrative boundary. A scope is the
 concrete data-plane authority. They are not interchangeable, and a mechanical
 `organizationId -> tenantId` or `environmentId -> scopeId` rename is invalid.
 
-### 4. Task State Lives Behind A Private FlarexDB Task System API
+### 4. Tasks Are First-Class Definitions, Not Action Aliases
+
+The durable task contract is derived from Trigger.dev's stable task ID,
+metadata, manifest, handler, retry, duration, queue, and catalog semantics. It
+will enter the private Standard Application chain as a canonical task catalog
+beside the existing function catalog.
+
+Current Flarex `action` and `internalAction` code is prototype evidence only.
+It may supply reusable runtime mechanics later, but it does not own task
+identity, task metadata, task context, artifact grouping, or lifecycle.
+`TaskIdV1`, not function path, is the logical task identity across application
+revisions.
+
+### 5. Task State Lives Behind A Private FlarexDB Task System API
 
 Durable run state is reserved platform state, not arbitrary developer app data.
 A private Task System API will own operation-specific atomic capabilities such
@@ -133,7 +148,7 @@ continue through the existing executor, OCC, commit, outcome, feed, and outbox
 owners. Durable task work must not create a parallel application-data commit
 system or change those owners incidentally.
 
-### 5. Durable Truth Is Reconstructable
+### 6. Durable Truth Is Reconstructable
 
 The authoritative database clock, monotonic attempt fence, lease, cancellation
 generation, run version, idempotency identity, and terminal outcome must be
@@ -144,7 +159,7 @@ process-local timers may reduce latency, but delivery is not authoritative.
 Missed and duplicated wakeups must recover through bounded durable discovery
 and fenced claims.
 
-### 6. Execution Reuses Existing Flarex Runtime Owners
+### 7. Execution Reuses Existing Flarex Runtime Owners
 
 The task engine schedules and supervises task attempts; it does not create a
 second user-code runtime. Attempts bind to immutable Flarex application
@@ -156,7 +171,7 @@ User code receives the same restricted execution and database capabilities as
 other Flarex runtime paths. It never receives task tables, Postgres, Drizzle,
 Cloudflare infrastructure authority, or compute-provider credentials.
 
-### 7. Observability Has Separate State, Trace, And Stream Lanes
+### 8. Observability Has Separate State, Trace, And Stream Lanes
 
 The web application will consume safe, scope-authorized read models rather than
 raw task tables. Durable run/attempt state, trace/log projections, live change
@@ -178,6 +193,7 @@ authoritative run and attempt records.
 
 ```text
 private then public Flarex task APIs
+        -> canonical Standard Application task definitions
         -> reused and adapted durable-run engine logic
              -> private FlarexDB Task System API
                   -> Drizzle/Postgres implementation
@@ -198,7 +214,8 @@ the package roadmap; this README does not create them.
 Public SDK ergonomics come last. The first real-system-compatible task
 definition, analysis, registration, and invocation surfaces must be private
 and capability-gated through the Standard Application owners before the public
-`flarex` package exposes a task API.
+`flarex` package exposes a task API. A future Trigger-style
+`task({ id, run, ... })` producer must lower into that canonical private model.
 
 ## Reuse And Migration Evidence
 
@@ -223,7 +240,8 @@ runtime fallback.
 
 The first proof remains deliberately smaller than Trigger parity:
 
-1. define and analyze one private Flarex task;
+1. define and analyze one first-class private Flarex task manifest with a
+   stable task ID;
 2. bind it to one immutable application revision and runtime artifact;
 3. create one idempotent durable run inside one trusted scope;
 4. discover the due run through the private Task System API;
@@ -253,8 +271,8 @@ their owning discussions:
 2. [`02-task-definition-identity-and-scope.md`](./02-task-definition-identity-and-scope.md)
    - **active:** private task definition, Standard Application stages,
      tenant/project/environment/deployment/scope resolution, revision and
-     artifact binding; DTE02-A/B are complete and DTE02-C scope capability is
-     next;
+     artifact binding; DTE02-A and revised DTE02-B are complete and DTE02-C
+     scope capability is next;
 3. `03-run-attempt-engine.md`
    - reused statuses, retry policy, run/attempt lifecycle, cancellation,
      leases, fences, clocks, failures, and deterministic transition evidence;
