@@ -2,9 +2,10 @@
 
 ## Status
 
-**Status:** Active preflight. DTE02-A current-authority inventory and the
-revised DTE02-B first-class task-definition contract are complete. DTE02-C
-scope capability is next.
+**Status:** Active preflight. DTE02-A current-authority inventory, revised
+DTE02-B first-class task-definition contract, and DTE02-C trusted scope
+capability contract are complete. DTE02-D application revision and runtime
+binding is next.
 
 This roadmap owns the identity and authority boundary required before the
 admitted `@flarex/durable-task` package can be created. It does not authorize a
@@ -291,9 +292,10 @@ authenticated control-plane request
   -> Flarex deployment/environment resolution
   -> persistence-owned trusted scope resolution
   -> authenticated active application revision selection
+  -> fresh located authority matched to the selection
+  -> operation-scoped Task System store capability
   -> canonical Standard Application task manifest lookup by TaskIdV1
   -> immutable task-definition revision binding
-  -> scope-bound Task System capability
   -> idempotent run creation using TaskDefinitionRevisionIdV1
   -> run-attempt lifecycle service
 ```
@@ -307,7 +309,9 @@ The flow intentionally has two different forms of evidence:
 Persisting a capability object is meaningless. Persisting a copied metadata
 record does not recreate issuer authority. On recovery, the Task System loads
 the durable binding and the host reacquires and validates the current
-capabilities needed for the next operation.
+capabilities needed for the next operation. The exact new-run and continuation
+paths, port lifetime, and per-transaction revalidation rules are fixed by
+[`preflight/07-scope-capability-contract.md`](./preflight/07-scope-capability-contract.md).
 
 ## Package Boundary Consequences
 
@@ -437,24 +441,31 @@ adding a public SDK surface, or promising an unsupported runtime.
 
 ### DTE02-C: Scope Capability Contract
 
-**Status:** Next.
+**Status:** Complete. See
+[`preflight/07-scope-capability-contract.md`](./preflight/07-scope-capability-contract.md).
 
-Required output:
+Accepted output:
 
-- exact host-to-persistence scope resolution call path;
-- scope-bound Task System port construction and lifetime;
-- stale epoch, generation, locator, and deployment mismatch behavior;
-- tests proving that caller-supplied tenant/scope text cannot establish
-  authority; and
-- an explicit decision on which operations must reacquire or revalidate scope
-  authority inside their transaction.
+- the exact two-stage backend authorization then persistence scope-resolution
+  call path for new runs and existing-run continuation;
+- `TaskSystemRunAttemptStore` as the domain-visible scope-bound capability,
+  dynamically constructed and Effect-scoped rather than a generic scope
+  service or singleton;
+- exact active-selection/fresh-authority equality, target-local scope-clock
+  revalidation, and fail-closed stale epoch, generation, locator, and
+  deployment behavior;
+- a proof matrix showing that caller-supplied tenant/scope text cannot
+  establish authority or switch a captured capability to another scope; and
+- per-operation reacquisition and in-transaction revalidation requirements.
 
 Exit gate: task lifecycle commands cannot cross scope by changing a serialized
-identifier or by reusing a port under another request.
+identifier or by reusing a port under another request. The gate is accepted at
+the contract level; Roadmap 04 must execute its PGlite and real-Postgres proof
+when the first adapter exists.
 
 ### DTE02-D: Application Revision And Runtime Binding
 
-**Status:** Pending.
+**Status:** Next.
 
 Required output:
 

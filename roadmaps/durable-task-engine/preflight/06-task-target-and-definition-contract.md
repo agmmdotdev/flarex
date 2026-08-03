@@ -408,7 +408,8 @@ DTE02-B is complete after revision with these conclusions:
    semantics are reuse inputs;
 6. Flarex action prototypes do not define task identity or lifecycle;
 7. DTE01 run-attempt admission remains valid; and
-8. DTE02-C scope capability remains the next preflight.
+8. DTE02-C was the required next handoff and is now completed by
+   [`07-scope-capability-contract.md`](./07-scope-capability-contract.md).
 
 ## Authority And Evidence
 
