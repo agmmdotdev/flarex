@@ -25,7 +25,10 @@ those gates authorizes FSV07 routing or public SDK stabilization.
 The completed first internal-call capability is recorded in
 [`45-private-internal-user-code-calls.md`](./45-private-internal-user-code-calls.md).
 It implements only inline query-to-internal-query execution as `SAP06-A1` and
-leaves every mutation call direction separately gated.
+leaves every mutation call direction separately gated. The same roadmap now
+contains the completed docs-first `SAP06-A2` mutation-to-internal-query
+preflight; implementation and its three private runtime identities still need
+separate explicit approval.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -562,7 +565,8 @@ checker in roadmap 16. It must not mark that broader gate complete.
 | `SAP04` | **Complete privately:** narrow Standard point-mutation invocation over the implementation-bearing System Application Data function; slice `FSV06` | Implemented over coherent FSV05 selection, C03-V validation, FSV06-A1 exact runtime dispatch, and the existing C07 owners; no route, production caller, or public SDK stabilization is implied |
 | `SAP05` | **Complete privately:** thin Standard point-query consumer over `invokeApplicationPointQueryV1` returning only the validated value | Implemented over the coherent FSV05 active reader, PQV-A1 snapshot authority, PQV-A2 candidate-bound R2/Workerd query runtime, and zero-mutation-publication proof; no route, production caller, or public SDK stabilization is implied |
 | `SAP06-A1` | **Complete privately:** one public/internal query handler calls one registered internal query inline | Separate private target/profile/ABI binds the same candidate and PQV-A1 snapshot; SAP05 selects it as the sole query runtime path; no child transaction, outcome, route, or public internal-function invocation |
-| `SAP06-A2+` | Add mutation-to-internal-query, mutation-to-internal-mutation, workflow, action, and schedule operations individually | each capability has an implemented owner contract and focused preflight; query-to-mutation remains forbidden |
+| `SAP06-A2` | **Preflight complete; implementation separately gated:** one public mutation calls authenticated same-candidate internal queries inline | Reuse the exact mutation Worker, C03 journal/overlay, read/write set, grant/session, OCC retry, and parent outcome; approve the separate target/profile/ABI identities in roadmap 45 before code |
+| `SAP06-A3+` | Add mutation-to-internal-mutation, workflow, action, and schedule operations individually | each capability has an implemented owner contract and focused preflight; query-to-mutation remains forbidden |
 
 Stop and amend this roadmap before implementation if a slice would create a
 second canonical/application/artifact/error representation, add a catch-all
