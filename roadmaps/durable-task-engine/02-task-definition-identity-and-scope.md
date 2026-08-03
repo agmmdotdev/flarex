@@ -2,8 +2,8 @@
 
 ## Status
 
-**Status:** Active preflight. DTE02-A current-authority inventory is complete;
-the remaining checkpoints define and prove the private task identity contract.
+**Status:** Active preflight. DTE02-A current-authority inventory and DTE02-B
+task-target/definition contract are complete. DTE02-C scope capability is next.
 
 This roadmap owns the identity and authority boundary required before the
 admitted `@flarex/durable-task` package can be created. It does not authorize a
@@ -165,9 +165,10 @@ claim. DTE02 must preserve those distinctions.
 The current function-kind vocabulary contains `query`, `mutation`,
 `workflowMutation`, and `action`, with internal/public visibility represented
 separately. Cron is a trigger descriptor rather than a fifth function kind.
-DTE02 does not add a public `task` function kind. Which existing private
-function kind is allowed for the first task target is an explicit DTE02-B
-decision and must match actual runtime support.
+DTE02 does not add a public `task` function kind. DTE02-B admits exactly an
+`internal` `action` in the existing `edge_action` runtime group for the first
+private target. Its definition/artifact path exists; invocation remains closed
+until the later action compute capability is proven.
 
 ### Registered Application Revision
 
@@ -338,8 +339,8 @@ true:
 2. the selection resolves to the same trusted scope used by the Task System
    operation;
 3. the canonical function path exists exactly once in the selected revision;
-4. its private function kind and visibility are supported by the first compute
-   route;
+4. it is the DTE02-B `action` + `internal` + `edge_action` target and remains
+   invocation-inert until the first action compute route is admitted;
 5. its validator and declared-handler evidence agree with the authenticated
    revision metadata;
 6. its runtime projection and artifact publication are complete;
@@ -400,7 +401,8 @@ Trigger-shaped identity subsystem.
 
 ### DTE02-B: Task Target And Definition Contract
 
-**Status:** Next.
+**Status:** Complete. See
+[`preflight/06-task-target-and-definition-contract.md`](./preflight/06-task-target-and-definition-contract.md).
 
 Required output:
 
@@ -417,7 +419,7 @@ runtime promise.
 
 ### DTE02-C: Scope Capability Contract
 
-**Status:** Pending.
+**Status:** Next.
 
 Required output:
 
