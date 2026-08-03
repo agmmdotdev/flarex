@@ -131,14 +131,15 @@ retry change and then described as mechanical.
 
 ## Provenance Validation Gate
 
-DTE01-F must add a root command named:
+DTE01-F adds the root command:
 
 ```text
 pnpm check:durable-task-source-map
 ```
 
-Its owner is a root script, planned as
-`scripts/check-durable-task-source-map.mjs`. The command must fail closed when:
+Its owner is
+[`scripts/check-durable-task-source-map.mjs`](../../../scripts/check-durable-task-source-map.mjs).
+The command fails closed when:
 
 - the map schema or reuse/license class is unknown;
 - the pinned commit differs from `third_party/trigger.dev/SOURCE.json`;
@@ -407,6 +408,7 @@ DTE01-D and DTE01-E are accepted because:
 6. deliberate Flarex corrections are exact, named divergences; and
 7. the harness is structurally excluded from production authority.
 
-The remaining DTE01 work is DTE01-F executable source-map, dependency/import,
-bundle, and test-lane gates followed by the DTE01-G final package admission
-decision.
+The remaining DTE01 work is the DTE01-G final package admission decision. The
+executable source-map and current production-boundary gates plus the
+owner-triggered bundle/test gates are fixed in the
+[`DTE01-F receipt`](./04-boundary-and-bundle-gates.md).

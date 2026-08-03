@@ -2,10 +2,10 @@
 
 ## Status And Mandate
 
-**Status:** Active design preflight. DTE01-A through DTE01-E are complete:
-capability closure, source classification, package boundary, provenance, and
-the compatibility harness contract are fixed. DTE01-F/G boundary gates and
-final admission remain; no package implementation is authorized yet.
+**Status:** Active design preflight. DTE01-A through DTE01-F are complete:
+capability closure, source classification, package boundary, provenance,
+compatibility harness, and executable pre-admission gates are fixed. DTE01-G
+final admission remains; no package implementation is authorized yet.
 
 This roadmap owns the first decision required by the
 [`Flarex Durable Task Engine`](./README.md) roadmap family:
@@ -39,6 +39,10 @@ production routing, public APIs, or the later durable-task vertical.
 - [`preflight/03-provenance-and-compatibility-harness.md`](./preflight/03-provenance-and-compatibility-harness.md)
   fixes package-local attribution and license artifacts, the guarded upstream
   refresh procedure, and the exact isolated-runner scenario/receipt protocol.
+- [`preflight/04-boundary-and-bundle-gates.md`](./preflight/04-boundary-and-bundle-gates.md)
+  records the executable source-map and production-boundary checks now in
+  force, their admitted-package fail-closed mode, and the exact deferred
+  package, compatibility, persistence, and Worker bundle gates.
 
 ## Parent Vision And Fixed Boundaries
 
@@ -168,7 +172,7 @@ type TriggerSourceReuseEntry = {
   readonly upstreamCommit: string;
   readonly upstreamPath: string;
   readonly upstreamSha256: string;
-  readonly selectedSymbols: readonly string[] | "whole-file";
+  readonly selectedSymbols: readonly string[];
   readonly targetPackage: string;
   readonly targetPath: string;
   readonly reuseClass: "U" | "S" | "T" | "D";
@@ -179,6 +183,10 @@ type TriggerSourceReuseEntry = {
   readonly licenseNotice: "apache-2.0" | "mit" | "mixed";
 };
 ```
+
+Whole-file test selection is encoded as `selectedSymbols: ["whole-file"]` so
+the map retains one representation and every symbol-selection field remains
+mechanically iterable.
 
 The final representation may differ, but it must support these checks:
 
@@ -555,8 +563,8 @@ DTE01 is complete only when:
 - parity/compatibility evidence is executable by design;
 - provenance and license handling are defined;
 - forbidden runtime dependencies and bundle gates are machine-enforceable;
-- the first implementation slice is small enough to complete and validate as
-  one checkpoint; and
+- the first implementation slice is substantial but bounded enough to complete
+  and validate as one coherent checkpoint; and
 - no database schema, host activation, public API, or production route was
   authorized implicitly.
 
