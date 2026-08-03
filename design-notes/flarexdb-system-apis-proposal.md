@@ -748,6 +748,26 @@ transaction projection, manifest, candidate publication, and R2 references are
 sufficient; no schema, persisted call graph, alternate transaction/consistency
 owner, or commit/outcome change was introduced.
 
+The docs-first `SAP06-A3` preflight now defines the next separately approved
+gate. One public SAP04 mutation or inline internal mutation may directly await
+an authenticated same-candidate internal mutation in the same Worker, Scope,
+attempt, C03 journal, overlay, read/write set, OCC retry, and parent outcome.
+Internal mutation frames retain SAP06-A2 `runQuery`; query frames never receive
+`runMutation`. The proposed combined internal-call target/profile/ABI binds one
+public root and the complete ordered internal query/mutation catalog from the
+existing candidate, manifest, transaction projection, function entries, and
+R2 commitments. SAP04 would select only that profile, with no dual path.
+
+No child transaction, savepoint, grant, session, attempt, request key,
+idempotency identity, journal, commit, durable result, feed, or outbox item is
+introduced. This makes one first-slice difference from Convex explicit: if a
+parent catches an application-owned child failure, writes already settled by
+that child remain in the parent journal. An uncaught or terminal failure still
+prevents the parent attempt from sealing. Convex-compatible child rollback
+would require a separately designed C03 journal checkpoint/savepoint owner and
+is not simulated here. The A3 implementation and this semantic choice remain
+subject to separate approval.
+
 ### Transaction Meaning
 
 `ctx.db.transact` is a logical staging API, not a long-lived SQL transaction:

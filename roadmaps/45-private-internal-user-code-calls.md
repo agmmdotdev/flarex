@@ -7,9 +7,10 @@ route-independent, production-inert capabilities. One public query may call an
 authenticated same-candidate internal query inside one accepted SAP05
 execution. One public mutation may call authenticated same-candidate internal
 queries inside the existing SAP04 Worker, attempt, journal, and live overlay.
-`SAP06-A3` internal-mutation entry authority remains separately gated. Roadmap
-43 remains closed as the first point-mutation vertical and roadmap 44 remains
-closed as the second point-query vertical.
+The focused `SAP06-A3` mutation-to-internal-mutation preflight is complete;
+implementation and its combined internal-call target/profile/ABI remain
+separately gated. Roadmap 43 remains closed as the first point-mutation
+vertical and roadmap 44 remains closed as the second point-query vertical.
 
 This roadmap owns the separately gated internal-call family. It does not make
 all call directions equivalent and does not expose another top-level System or
@@ -40,6 +41,7 @@ owners that this implemented slice composes.
 | `packages/standard-application-invocation/src/querySystemV1.ts` and `v1.ts` | SAP05 now selects only the SAP06-A1 internal-call query profile and keeps active read, PQV-A1, Workerd dispatch, result validation, and Scope in one private composition | This remains query regression evidence; mutation-to-query must stay inside SAP04 rather than call SAP05 |
 | `packages/standard-application-invocation/src/systemV1.ts`, `packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts`, and `packages/executor/src/pointMutationExactRuntimeBinding.ts` | SAP04/FSV06 resolves one active selection, mints/adopts one grant and attempt, runs one exact Worker against one journal, reruns only through the accepted OCC owner, and returns one authoritative outcome | SAP06-A2 replaces only the private runtime target/profile selected inside this existing composition; it adds no invocation, grant, attempt, or outcome |
 | `packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeWorkerCore.ts`, `packages/executor/src/pointMutationJournal.ts`, and `packages/persistence-postgres/src/sessionJournalStore.ts` | Mutation `db.get` already serializes through the exact journal capability. `readLogicalPoint` reads a live/deleted staged overlay first and reaches the pinned snapshot only when no overlay exists | This is the exact read-your-writes authority for an inline internal query. PQV-A1, SAP05, a child transaction, and a savepoint are all incorrect for SAP06-A2 |
+| `../../npm-packages/convex/src/server/registration.ts` | Convex documents nested `runMutation` as a sub-transaction whose writes roll back when the child throws | Flarex's current C03 journal has no child checkpoint/savepoint owner. The bounded A3 proposal therefore records an explicit first-slice divergence: caught application-owned child failures preserve already settled writes; matching Convex rollback requires a separate transaction/journal preflight |
 | `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts` | the legacy generated runtime has structural nested calls and a depth counter | It is compatibility evidence only; it is not an authority or fallback for the accepted exact runtime |
 
 The private mutation runtime now implements the exact internal-query call, but
@@ -60,7 +62,7 @@ or production route.
 | query handler -> any mutation | Forbidden by the Core capability matrix and by runtime defense | Permanent query rule |
 | public mutation handler -> internal query | **Complete privately.** Inline in the same exact mutation Worker and live journal overlay | `SAP06-A2` below |
 | internal mutation handler -> internal query | The `runQuery` context semantics are settled by `SAP06-A2`, but no internal mutation becomes executable until `SAP06-A3` supplies legitimate inline mutation-entry authority | `SAP06-A2` runtime surface plus later `SAP06-A3` entry gate |
-| public or internal mutation handler -> internal mutation | Deferred. It must append inline to the same C03/C07 journal and outcome | Separate `SAP06-A3` preflight |
+| public or internal mutation handler -> internal mutation | **Preflight complete; implementation separately gated.** Inline in the same exact mutation Worker, attempt, journal, and live overlay | `SAP06-A3` below |
 | action/workflow/scheduled/background call | Excluded | Separate action, workflow, and durable-task gates |
 
 “Public caller” and “public function” are distinct. A remote caller never
@@ -665,6 +667,342 @@ generated exact Worker core digest is
 `ebdb95cf8aa4622717cf0581eb00a3d0d2895edfe136c8b099ff025bb398e5ca`.
 It does not authorize `SAP06-A3`, FSV07, routes, production, actions,
 workflows, schedules, durable tasks, relations, or public SDK work.
+
+## `SAP06-A3` Preflight: Mutation-To-Internal-Mutation
+
+### Decision And Smallest Truthful Slice
+
+The current owners can support one bounded inline internal-mutation capability
+without a schema, migration, persisted call graph, child transaction, new
+consistency owner, or change to C07 publication:
+
+> one externally admitted public SAP04 mutation, or an internal mutation it
+> directly awaits, may call an authenticated same-candidate internal mutation
+> through `ctx.runMutation`; every frame executes inline in the same exact
+> Worker, Scope, mutation attempt, C03 journal, and live overlay.
+
+Internal-mutation nesting is included. Once a legitimate internal mutation
+frame exists, denying that frame `runMutation` would require another temporary
+context shape and another later profile without creating a safer authority
+boundary. Every internal mutation also retains SAP06-A2 `ctx.runQuery`; nested
+internal queries stay on the same mutation overlay and may call further
+internal queries. A query frame never receives `runMutation`, so query-to-
+mutation remains forbidden at every depth.
+
+SAP04 remains the only top-level operation and continues to admit exactly one
+public root mutation. A remote/System caller cannot select an internal
+mutation. No child receives a request key, invocation identity, grant, attempt,
+snapshot, transaction, journal, outcome, receipt, feed item, or outbox item.
+
+The preflight is implementation-ready under the current owners. Implementation
+requires explicit approval of the three private identities below, direct
+replacement of SAP04's A2 profile, and the first-slice no-child-rollback
+semantics. No other material boundary is open.
+
+### Authority And Exact Callable Catalog
+
+The new target remains bound to the root invocation's exact:
+
+- FSV05 active selection, revision, candidate, readiness, and activation;
+- scope, storage generation, generation fence, and epoch;
+- authenticated root public mutation, grant, session, attempt, execution
+  claim, predecessor/reservation/receipt lineage, and pinned snapshot;
+- canonical function metadata, transaction projection, function-group
+  manifest, function-entry references, compatibility date, Worker graph, and
+  content-addressed R2 commitments; and
+- operation Scope, auth/execution identity, deterministic time/random state,
+  cancellation, deadline, and resource policy.
+
+The persistence authority adapter derives one ordered candidate-scoped
+internal-function catalog from existing immutable evidence. Every callable
+entry must be `visibility=internal`, `group=transaction`, and either
+`kind=query` or `kind=mutation`. The entry binds ordinal, path, logical and
+artifact module, export, argument and return validators, projection, function
+entry, manifest membership, and R2 reference. One canonical catalog sorted by
+ordinal with path as the defensive tie-breaker prevents different query and
+mutation lists from disagreeing. Duplicate ordinal/path and every inconsistent
+kind, visibility, group, module, export, projection, manifest, entry, or R2
+relationship fail before executable use.
+
+User code supplies only the analyzer-approved literal selector
+`{ _path: "module:export" }` and arguments. It cannot author catalog entries,
+function metadata, target digests, R2 references, candidates, grants, attempts,
+journal/database handles, snapshots, or alternate revisions. The host checks
+the selected entry's exact kind for each operation: `runMutation` accepts only
+an internal mutation and `runQuery` accepts only an internal query.
+
+R2 remains the sole body store. PostgreSQL stores only candidate/revision
+authority, relationships, content-addressed commitments, journal/application
+data, and durable parent evidence. No new row or body copy is required.
+
+### Existing Transaction, Journal, And Publication Ownership
+
+Every root and child frame reuses one existing chain:
+
+```text
+public SAP04 request and request key
+  -> coherent FSV05 active selection and C03-V validator
+  -> authenticated candidate/R2 runtime target
+  -> grant, admission, session, execution claim, and exact attempt
+  -> one PointMutationJournal over one SessionJournalStore overlay
+  -> one serialized syscall sequence and read/write set
+  -> sealed parent journal and authenticated commit input
+  -> existing OCC replacement and C07 commit
+  -> one authoritative outcome, application-row change set, feed, and outbox
+```
+
+An internal mutation is inline function composition, not a scheduled or
+top-level invocation. It receives the same mutation database capability as its
+parent. Its point reads and writes pass through the same journal semaphore,
+table capabilities, C03-V validation, durable overlay, dependency set, and
+monotonic syscall sequence. It can neither open nor commit a SQL transaction;
+each syscall retains the current short persistence transaction owner.
+
+No child transaction, savepoint, journal branch, snapshot, grant, session,
+attempt, request key, idempotency identity, predecessor, reservation, receipt,
+commit compiler, recovery decision, durable outcome, feed fact, or outbox item
+exists. The parent remains the sole authority for OCC validation, confirmed
+rollback, decision uncertainty, retry, sealing, commit, and outcome lookup.
+
+### Ordering, Read-Your-Writes, And No Child Rollback
+
+Accepted source uses direct `await`, and every database syscall is serialized
+through the existing journal tail. Consequently:
+
+- parent writes settled before `runMutation` are visible to the child;
+- child reads observe the current live/deleted overlay before pinned-snapshot
+  fallback;
+- child inserts, patches, replacements, and deletes settle into the same
+  overlay and are visible to the parent and later children;
+- an internal mutation's `runQuery` children use SAP06-A2's read-only context
+  over that same overlay;
+- child argument rejection happens before handler entry and appends no journal
+  operation;
+- a failed C03-V write validation appends no logical write; and
+- later parent/child operations retain the global monotonic syscall order.
+
+The first slice deliberately has no child savepoint. If a child throws an
+application-owned error after earlier writes and the parent catches it, those
+already settled writes remain in the parent journal; call/syscall/read/write
+and byte budgets remain charged. Child return-validator rejection follows the
+same rule because it occurs after handler execution. If the error escapes the
+root, the parent attempt does not seal and none of its staged writes commit.
+Any terminal child failure poisons and drains the shared boundary and prevents
+successful sealing even if JavaScript code catches the Promise rejection.
+
+This differs from Convex's documented nested-mutation sub-transaction rollback.
+Matching that behavior would require a new C03 journal checkpoint/rollback or
+savepoint authority, its concurrency and recovery laws, and a separate
+approval. It must not be simulated with process-local undo, inverse writes, a
+second journal, or a long PostgreSQL transaction. The recommended A3 slice
+records the limitation instead of inventing that owner.
+
+### Private Runtime And Identity Decision
+
+Neither the original mutation V1 identities nor SAP06-A2's identities may be
+widened. The A2 target authenticates one public root mutation plus internal
+queries and its Worker intentionally gives no frame `ctx.runMutation`.
+SAP06-A3 therefore proposes one combined internal-call profile:
+
+- `flarex.system/candidate-bound-mutation-internal-call-runtime-target/v1`;
+- `point-mutation-internal-call-exact-runtime-v1`; and
+- `flarex.system/point-mutation-internal-call-syscall-abi/v1`.
+
+"Internal-call" is intentional: the executable target binds both internal
+query and internal mutation entries because every mutation frame retains
+SAP06-A2 `runQuery`. Naming the profile "internal-mutation" would hide part of
+its authority. After implementation, private SAP04 selects only this new
+profile. The accepted original mutation and SAP06-A2 profiles remain frozen
+regression evidence; they are not dual-selected, reinterpreted, or used as
+fallbacks.
+
+The exact Worker registry contains one public root mutation and the complete
+authenticated internal-function catalog. Root and internal mutation frames
+receive auth, the same mutation database, `runQuery`, and `runMutation`.
+Internal query frames receive auth, read-only `db.get`, and `runQuery` only.
+All frames share one Worker, Scope, journal, overlay, call stack, terminal
+drain, deterministic environment, and cancellation lifetime. The legacy
+generated runtime remains compatibility evidence only.
+
+### Analyzer And Static Reference Gate
+
+The accepted Core contract already permits `runMutation` from mutations,
+forbids it from queries, and marks it mixed-catchability. The executable's
+shared nested-call gate applies to both `runQuery` and `runMutation`: it
+requires a directly awaited canonical literal reference and rejects missing,
+dynamic, forged, dropped, return-wrapped, and overlapping calls. The runtime
+target, not the selector, proves kind, internal visibility, group, module,
+export, candidate, and R2 authority.
+
+No analyzer protocol or implementation-identity change is expected. The later
+implementation must add exact mutation-focused fixtures for:
+
+- public mutation -> internal mutation and internal mutation -> internal
+  mutation acceptance;
+- internal mutation -> internal query acceptance;
+- query -> mutation, direct external internal selection, wrong kind,
+  visibility, group, module/export, and cross-candidate rejection; and
+- missing, dynamic, forged, dropped, return-wrapped, overlapping, and pure
+  host-failure-observation rejection.
+
+If exact tests expose an existing-contract analyzer defect, its smallest
+private implementation correction and generated identity refresh require the
+implementation approval. Persisted call sites or call graphs remain excluded;
+if legitimate authority depends on them, stop for a new protocol/storage
+decision.
+
+### Failure And Catchability Contract
+
+At either internal-call boundary, user code may catch only:
+
+- a declared `CoreApplicationErrorV1` thrown by child user code;
+- deterministic child argument-validator rejection;
+- deterministic child return-validator rejection; and
+- the already accepted exact C03-V document-validation error from a mutation
+  write.
+
+Unknown targets; wrong kind/visibility/group/module/export/candidate;
+catalog/manifest/projection/R2/reference mismatch; stale, closed, superseded,
+or mixed authority; journal/overlay/read/write/integration/OCC failures;
+syscall, call, read, write, document, byte, CPU, deadline, platform, cycle, or
+depth exhaustion; cancellation, interruption, timeout, host/protocol failure,
+uncertainty, cleanup failure, and defects remain terminal. The host records
+them outside the user Promise chain and the shared boundary rethrows them while
+draining, so user catch cannot produce a successful seal. The Effect/host
+boundary retains full `Cause` and maps foreign failures once at their owner.
+
+Dropped and overlapping nested calls remain analyzer-rejected. Runtime defense
+still tracks every admitted child to completion, closes admission on parent
+settlement or cancellation, drains outstanding work, and gives journal failure
+precedence where the existing owner requires it. No child survives parent
+interruption.
+
+### Budgets, Cycles, Retry, And Replay
+
+The new target commits one combined operation-wide internal-call policy:
+
+- 64 attempted `runQuery` plus `runMutation` calls, charged before lookup;
+- maximum combined nested depth 8;
+- 8 MiB cumulative internal-call argument semantic bytes, charged before
+  handler entry; and
+- 8 MiB cumulative internal-call result semantic bytes, charged before return.
+
+One active function-ordinal stack spans the public root, internal mutations,
+and internal queries. Direct and indirect recursion are forbidden across the
+whole catalog. Sequential repeated calls after return are allowed within the
+cumulative limits. A query frame cannot form a mutation edge because its
+context has no `runMutation`.
+
+All existing mutation syscall, point-dependency, read/document, write-
+operation/write-byte, successful-result, R2/module/hash, CPU, deadline,
+cancellation, platform, time, and random limits remain shared and monotonic.
+Children reset none of them. Diagnostic frames may carry root execution ID,
+parent/callee ordinal, call sequence, depth, and kind, but are process-local
+and non-authoritative.
+
+An authorized OCC replacement is a fresh parent attempt under the existing
+owner. It re-executes the same root request and immutable target at the new
+pinned snapshot with a new attempt-local journal, overlay, syscall sequence,
+stack, and counters. No child retries independently. Confirmed rollback and
+decision uncertainty are observed and settled only through the parent's
+existing outcome/recovery owners; deterministic child calls replay as part of
+the parent execution.
+
+### Effect, Scope, And Result Ownership
+
+SAP04's System and thin Standard signatures remain unchanged. The conceptual
+internal operation is invocation-scoped rather than another Context service or
+top-level API:
+
+```ts
+runInternalPointMutationFromMutationV1(
+  parent: AuthenticatedCandidateBoundMutationInternalCallTargetV1,
+  functionRef: StaticInternalMutationFunctionReferenceV1,
+  args: unknown,
+): Effect.Effect<
+  CanonicalFlarexRuntimeValueV1,
+  InternalMutationApplicationFailureV1 |
+    ExistingMutationRuntimeJournalAndTargetOwnerErrors,
+  Scope.Scope
+>
+```
+
+The Worker-facing method remains the Promise ABI required by user code.
+`ApplicationPointMutationSystemV1` stays the shared private Layer owner, while
+target, attempt, journal, call stack, Worker, and runtime state stay scoped to
+one invocation. A child result is returned inline only after its registered
+validator succeeds. It is not a durable outcome. Successful publication is
+still exactly the parent's one application-row change set, outcome,
+commit/change-feed sequence, and outbox batch.
+
+### Proposed Implementation Capability
+
+One separately approved medium capability should own:
+
+- `packages/flarex-protocol/src/`: combined internal-call target/profile/ABI,
+  canonical catalog and budget contracts, defensive codecs, exports, and
+  perturbation vectors;
+- `packages/function-runtime/src/`: one mutation-internal-call kernel that
+  retains A2 query frames and adds mutation frames over the same database,
+  stack, budgets, failure drain, and registry;
+- `packages/persistence-postgres/src/`: one private active-selection adapter
+  deriving the root plus the ordered internal query/mutation catalog from
+  current metadata and candidate publication evidence;
+- `packages/flarex-backend/src/artifactRuntime/`: candidate-bound R2
+  materialization, exact Worker core/host/source, generated closure, per-kind
+  contexts, and route-independent binding;
+- `packages/standard-application-invocation/src/systemV1.ts`: direct private
+  SAP04 selection of the new profile with no fallback;
+- focused analyzer, protocol, runtime, Workerd, journal, PGlite, PostgreSQL,
+  SAP04/FSV06, SAP06-A1/A2, C03/C03-V/C04/C07, and generated-identity tests;
+  and
+- this roadmap plus only directly stale cross-references.
+
+No package extraction or dependency cycle is expected. Stop before code if
+implementation requires schema/migration, persisted call graph, child
+checkpoint/savepoint/rollback authority, a different journal/transaction/
+consistency owner, changes to grant/session/OCC/commit/outcome/feed/outbox
+identities, public contract, activation/routing/production behavior, or package
+extraction.
+
+### SAP06-A3 Acceptance Matrix
+
+| Lane | Required proof |
+| --- | --- |
+| Analyzer | direct-awaited literal public/internal mutation -> internal mutation and internal mutation -> internal query accepted; missing/dynamic/forged/dropped/return-wrapped/overlapping, direct external internal selection, query -> mutation, wrong kind/visibility/group, and pure host observation rejected; identity changes only if behavior truthfully changes |
+| Protocol | deterministic vectors for all three proposed identities; unified catalog ordering/uniqueness/bounds; root, query, mutation, validator, graph, projection, manifest, entry, R2, and policy field perturbations; hostile decoding and immutable outputs |
+| Function runtime | parent write -> child read/write -> parent read-your-writes; insert/patch/replace/delete/missing cases; mutation -> mutation -> query nesting; auth/time/random inheritance; child argument/result and declared error catchability; caught error preserves prior writes and charges; terminal poisoning; repeat/cycle/depth/count/byte limits |
+| Worker and journal | genuine same Worker/Scope/attempt/grant/session/journal/overlay and monotonic syscall sequence; child writes use C03-V and existing table capability; query child stays read-only; dropped/overlap defense, terminal drain, cancellation/interruption, cleanup uncertainty, and resource return |
+| Target and R2 | exact root/unified-catalog/manifest/projection/function-entry/module correlation; warm/cold materialization and deterministic replay; missing/corrupt/codec/length/digest/reference/module/export cases; no PostgreSQL bodies or legacy fallback |
+| PGlite | full SAP04 composition with nested child mutation writes and A2 query reads, caught application failure preserving prior writes, uncaught/terminal failure preventing seal, OCC rerun, confirmed rollback, uncertainty observation, one authoritative parent outcome/feed/outbox, and no child publication |
+| PostgreSQL | server version and zero skips; multi-connection overlay/OCC conflict, replacement attempt, restart/replay, cancellation, confirmed rollback/uncertainty, stale fence/epoch/selection, concurrency, exact final rows/journal/outcome/feed/outbox, and no child publication |
+| Regressions | SAP04/FSV06, C03/C03-V/C04/C07, SAP06-A1/A2, SAP05/PQV-A1/A2, frozen original/A2 identities, generated Worker/analyzer checks, package typechecks/builds, Drizzle metadata, Effect boundaries, and diff checks |
+| Final review | exact-final TypeScript/Effect and code-quality reviewers both clean after the last behavioral diff |
+
+### Rejected Alternatives And Approval Gate
+
+Rejected:
+
+- dispatch a child through SAP04 as another top-level invocation;
+- open a child transaction, savepoint, snapshot, journal, grant, attempt, or
+  idempotency/outcome identity;
+- emulate rollback with process-local undo or inverse writes;
+- give a query frame `runMutation` or permit query-to-mutation;
+- persist call sites, call frames, or a child result/publication;
+- silently widen the original mutation or SAP06-A2 identities;
+- dual-select old/new profiles or fall back to the legacy runtime;
+- store source, module, projection, or manifest bodies in PostgreSQL;
+- let a child survive interruption or become action/background/durable work;
+  or
+- alter C03/C07/OCC/commit/outcome/feed/outbox authority.
+
+The preflight is **READY FOR A SEPARATE IMPLEMENTATION APPROVAL**. That approval
+must explicitly accept the three proposed combined internal-call identities,
+direct replacement of the private SAP04 A2 profile, and the documented
+first-slice divergence from Convex child-subtransaction rollback. It does not
+authorize SAP07, FSV07, routes, production, actions, workflows, schedules,
+durable tasks, relations, public SDK work, schema/migrations, or a child
+savepoint owner.
 
 ## SAP06-A1 Acceptance Matrix
 
