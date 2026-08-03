@@ -13,10 +13,10 @@ types, or a public protocol into the domain package.
 The decision is not blanket implementation authorization. Roadmap 03 is now
 active because DTE01's original package start condition also requires exact
 lifecycle phase, outcome, failure, retry, evidence, and effect unions. DTE03-A
-through DTE03-D have completed the source inventory, aggregate, failure/retry
-policy, and cancellation/heartbeat/lease/race checkpoints; DTE03-E's closed
-operation-result contract is next. Only after the complete focused contract is
-accepted may DTE-IP01 create
+through DTE03-E have completed the source inventory, aggregate, failure/retry
+policy, cancellation/heartbeat/lease/race, and closed operation-result
+checkpoints; DTE03-F's compatibility vectors/executable gate are next. Only
+after the complete focused contract is accepted may DTE-IP01 create
 the production-inert domain package under DTE01's existing stop boundary.
 
 No schema, migration, Postgres adapter, backend composition, runtime dispatch,
@@ -421,9 +421,10 @@ completes DTE03-B's exact five-phase aggregate, and
 [`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md)
 completes DTE03-C's policy, and
 [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md)
-completes DTE03-D's transition/race tables. DTE03-E's evidence/effect/outcome/
-error contract is next, followed by compatibility and final admission
-checkpoints.
+completes DTE03-D's transition/race tables, and
+[`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
+completes DTE03-E's closed result/evidence/effect/error contract. DTE03-F's
+compatibility/executable gate is next, followed by final admission.
 
 Roadmap 03 continues to reuse the admitted Trigger status/retry/failure/
 cancellation/lease behavior and compatibility scenarios rather than redesign
@@ -522,7 +523,7 @@ DTE02 is complete with these conclusions:
 9. current Standard Application, activation, scope, persistence, protocol,
    transaction, and Trigger-boundary owners remain consistent and unchanged;
 10. no DTE01 reopening condition is triggered;
-11. Roadmap 03 is active, DTE03-A through DTE03-D are complete, DTE03-E is
+11. Roadmap 03 is active, DTE03-A through DTE03-E are complete, DTE03-F is
     next, and the full lifecycle-model gate remains the current design
     prerequisite; and
 12. DTE-IP01 may start only after that gate, remains substantial and

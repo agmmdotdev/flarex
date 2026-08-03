@@ -15,9 +15,11 @@ This receipt fills the policy-owned leaves in DTE03-B's five-phase aggregate.
 DTE03-D now applies them through the admitted command transition and race tables
 in
 [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md).
-DTE03-E owns the exact operation outcome, evidence, requested-effect,
-inspection, and typed error unions. No package, schema, migration, adapter,
-host, scheduler, route, or activation is authorized here.
+DTE03-E now fixes the exact operation outcome, evidence, requested-effect,
+inspection, acceptance, and typed error unions in
+[`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md).
+No package, schema, migration, adapter, host, scheduler, route, or activation is
+authorized here.
 
 ## Pinned Trigger Behavior
 
@@ -487,10 +489,10 @@ attempt exhaustion at start.
 terminates a run before any attempt was granted. DTE-IP01 failed completion and
 lease-expiry transitions always name their current attempt.
 
-## Evidence Requirements For Later DTE03-E
+## Evidence Requirements Closed By DTE03-E
 
-DTE03-E must provide bounded evidence sufficient to explain policy without
-copying raw errors:
+DTE03-E provides bounded `TaskFailurePolicyDecisionEvidenceV1` sufficient to
+explain policy without copying raw errors:
 
 - failure kind/code and optional safe message;
 - current and maximum attempt number;
@@ -503,7 +505,9 @@ copying raw errors:
 - terminal class when terminalizing.
 
 The evidence is diagnostic/audit data committed with the transition. It is not
-a second policy input and cannot be edited to change state.
+a second policy input and cannot be edited to change state. Exact structural
+correlations, bounds, and receipt retention are fixed in
+[`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md).
 
 ## Compatibility And Difference Matrix
 
@@ -570,14 +574,14 @@ DTE03-F and DTE-IP01 must cover at least:
     retry evidence, not a terminal class.
 12. Policy arithmetic failure or corrupted policy commits nothing.
 
-## Exact Handoff To DTE03-E
+## Exact Handoff To DTE03-F
 
 DTE03-D has applied these policy inputs to the complete transition/race tables
-without changing their retry or terminal meaning. DTE03-E must encode the fixed
-decisions into closed outcome, replay, evidence, requested-effect, inspection,
-and typed-error unions. It must preserve forced-durable lease-loss recovery,
-retry suppression after a cancellation request, and terminal retention of the
-original bounded failure.
+without changing their retry or terminal meaning, and DTE03-E has encoded them
+into closed outcomes, replay, evidence, effects, inspection, acceptance, and
+typed-error unions. DTE03-F must now prove forced-durable lease-loss recovery,
+retry suppression after cancellation, terminal retention of the original
+failure, and every policy-evidence branch through canonical executable vectors.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.
@@ -604,6 +608,7 @@ DTE03-C does not reopen DTE01/DTE02 authority or package boundaries:
 - [`../03-run-attempt-engine.md`](../03-run-attempt-engine.md)
 - [`13-phase-terminal-and-aggregate-model.md`](./13-phase-terminal-and-aggregate-model.md)
 - [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md)
+- [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
 - [`12-current-lifecycle-and-transition-inventory.md`](./12-current-lifecycle-and-transition-inventory.md)
 - [`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md)
 - [`06-task-target-and-definition-contract.md`](./06-task-target-and-definition-contract.md)

@@ -13,10 +13,11 @@ exact direct replay is idempotent, conflicting completion is a typed conflict,
 and invalid cancellation acknowledgement is a typed command/transition error.
 
 This receipt fixes transition semantics for the five DTE02 mutation operations
-over DTE03-B's five phases and DTE03-C's policy. DTE03-E still owns the exact
-closed outcome, evidence, requested-effect, inspection, and error record
-shapes. It must encode the dispositions and details fixed here without changing
-their meaning.
+over DTE03-B's five phases and DTE03-C's policy. DTE03-E now encodes the exact
+closed outcome, inspection, acceptance, evidence, requested-effect, and error
+records in
+[`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
+without changing their meaning.
 
 No package, database schema, migration, adapter, queue, scheduler, compute host,
 route, public API, or production activation is authorized.
@@ -168,7 +169,7 @@ error channel in these tables:
 - decoded-but-impossible policy/counter/state data attributable to corruption
   or an internal invariant.
 
-DTE03-E assigns exact tagged error types and safe details.
+DTE03-E fixes the exact tagged error types and safe details.
 
 ## `startAttempt` Transition Table
 
@@ -223,9 +224,9 @@ the same table and retains the request. This preserves time for a live worker
 to acknowledge cancellation; it does not withdraw or supersede the request.
 
 Each accepted renewal requests cancellation/obsolescence of the prior expiry
-wake followed by one wake for the new lease version. DTE03-E fixes exact effect
-order and may omit a best-effort cancellation effect only if stale-wake
-handling and durable discovery still prove safety.
+wake followed by one wake for the new lease version. DTE03-E fixes the exact
+effect order and retains that cancellation effect for both first and later
+accepted heartbeats.
 
 ## Completion Replay And Conflict Table
 
@@ -258,8 +259,8 @@ When no completion replay exists, evaluation first requires an active phase and
 the exact current attempt/fence. A mismatch returns `current`. For that matching
 pair, a cancellation acknowledgement validates request presence and generation
 before logical lease time; success/failure proceeds directly to the lease-time
-check. This fixes which overlapping row below applies while leaving DTE03-E to
-name the exact typed error records.
+check. This fixes which overlapping row below applies; DTE03-E names the exact
+typed error records.
 
 | Current state | Condition | Result |
 | --- | --- | --- |
@@ -423,9 +424,9 @@ without an earlier completion replay is current, not conflicting.
 No cancellation path returns to ready/retry/active without the request. V1 has
 no withdrawal, pause, or resume command.
 
-## Commit-Payload And Requested-Effect Ordering Constraints For DTE03-E
+## Commit-Payload And Requested-Effect Ordering Closed By DTE03-E
 
-DTE03-E must use these semantic orders when a variant applies. The first line
+DTE03-E uses these semantic orders when a variant applies. The first line
 in each sequence is aggregate/evidence data in the accepting atomic commit, not
 a requested-effect variant. Backticked later lines name only effect kinds
 already admitted by DTE02.
@@ -436,6 +437,7 @@ already admitted by DTE02.
 persist accepted grant evidence
 -> `dispatch_attempt`
 -> `wake_lease_expiry`
+-> `publish_lifecycle_event`
 -> `notify_current_state`
 ```
 
@@ -445,6 +447,7 @@ persist accepted grant evidence
 persist renewal evidence
 -> `cancel_obsolete_lease_wake` for the prior version
 -> `wake_lease_expiry` for the new version
+-> `publish_lifecycle_event` only for the first accepted heartbeat
 -> `notify_current_state`
 ```
 
@@ -453,6 +456,7 @@ persist renewal evidence
 ```text
 persist cancellation-request evidence
 -> `request_execution_cancellation`
+-> `publish_lifecycle_event`
 -> `notify_current_state`
 ```
 
@@ -493,12 +497,12 @@ active attempt leaves any earlier retry wake harmlessly stale through the
 advanced run version; it does not require an unadmitted retry-wake cancellation
 effect.
 
-If DTE03-E includes `publish_lifecycle_event` for a start, heartbeat, or active
-cancellation transition, it follows that transition's dispatch/wake/cancel
-intents and precedes `notify_current_state`.
+DTE03-E includes `publish_lifecycle_event` for start, first heartbeat, and
+active cancellation. It follows that transition's dispatch/wake/cancel intents
+and precedes `notify_current_state`. Later heartbeats omit the lifecycle event.
 
-These are domain intent orders, not direct host calls. DTE03-E may split
-evidence from requested effects but cannot place dispatch/wake/cancel delivery
+These are domain intent orders, not direct host calls. DTE03-E keeps evidence
+separate from requested effects and cannot place dispatch/wake/cancel delivery
 before the accepting state commit.
 
 ## Error And Current-State Boundary
@@ -571,9 +575,9 @@ At minimum:
 11. Early expiry wake is current/no-write in V1.
 12. Ordinary stale work returns current rather than becoming an exception.
 
-## Exact Handoff To DTE03-E
+## Exact Handoff To DTE03-F
 
-DTE03-E must now encode these tables into:
+DTE03-E has encoded these tables into:
 
 - five exact mutation outcome unions;
 - exact `RunAttemptInspectionV1` phase projections;
@@ -583,9 +587,10 @@ DTE03-E must now encode these tables into:
 - exact requested-effect variants and ordering; and
 - the final typed lifecycle/store/decision error union and evaluation order.
 
-It may refine record names and safe diagnostic fields. It may not change a
-phase destination, lease boundary, race winner, replay duration, disposition,
-or typed-error/current distinction fixed here.
+DTE03-F must now prove those records against the complete race matrix through
+canonical/executable vectors. It may not change a phase destination, lease
+boundary, race winner, replay duration, disposition, or typed-error/current
+distinction fixed here.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.
@@ -613,6 +618,7 @@ DTE03-D does not reopen DTE01/DTE02:
 - [`12-current-lifecycle-and-transition-inventory.md`](./12-current-lifecycle-and-transition-inventory.md)
 - [`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md)
 - [`11-final-identity-admission.md`](./11-final-identity-admission.md)
+- [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
 - [`source-map.run-attempt-v1.json`](./source-map.run-attempt-v1.json)
 - frozen Trigger start/completion/cancellation/heartbeat/stalled-execution
   source and admitted tests at commit

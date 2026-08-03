@@ -4,8 +4,8 @@
 
 **Status:** Complete — **admit** the private task identity, scope, revision,
 runtime-binding, DTE-IP01 command, and Task System store-port contract. DTE02-A
-through DTE02-G are complete. Roadmap 03 is active; DTE03-A through DTE03-D are
-complete, and DTE03-E's closed operation-result contract is next. DTE-IP01
+through DTE02-G are complete. Roadmap 03 is active; DTE03-A through DTE03-E are
+complete, and DTE03-F's compatibility vectors/executable gate are next. DTE-IP01
 package creation remains blocked on Roadmap 03's complete lifecycle-model gate.
 
 This roadmap owns the identity and authority boundary required before the

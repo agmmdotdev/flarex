@@ -2,8 +2,10 @@
 
 ## Status And Scope
 
-**Status:** Complete contract receipt. DTE02-G final identity admission is also
-complete; Roadmap 03's lifecycle-model gate is next.
+**Status:** Complete contract receipt, refined by DTE03-E's implementability
+corrections to idempotent decision replay and effect-sequence finalization.
+DTE02-G final identity admission remains complete; DTE03-F is the next Roadmap
+03 checkpoint.
 
 This receipt fixes the exact command boundary consumed by the admitted
 `@flarex/durable-task` run-attempt service and the exact semantic
@@ -14,9 +16,10 @@ queue, and host identities from the domain package.
 
 This receipt does not implement the package or adapter. It does not define SQL,
 tables, public APIs, run creation, scheduling, compute dispatch, result-object
-storage, observability projections, or production activation. Roadmap 03 still
-owns the complete phase/transition tables and retry/failure policy. Roadmap 04
-owns the physical Task System schema and transaction implementation.
+storage, observability projections, or production activation. Roadmap 03 owns
+and has now fixed the complete phase/transition, retry/failure, outcome,
+evidence, effect, inspection, acceptance, and error contract through DTE03-E.
+Roadmap 04 owns the physical Task System schema and transaction implementation.
 
 ## Correction To The DTE01 Service List
 
@@ -438,9 +441,10 @@ current authorized state without pretending the old command succeeded.
 
 Only `accepted` receipts may contain newly persisted evidence/effects.
 Idempotent receipts return the exact stored acceptance evidence/effects by
-identity, not newly allocated duplicates. Current receipts return no newly
-requested effects except the explicitly allowed early-wake replacement whose
-persistence itself changes the disposition to accepted.
+persisted sequence and semantic identity, not newly assigned duplicates.
+Current receipts return no newly requested effects. DTE03-D deliberately makes
+an early lease-expiry wake current/no-write rather than accepting a replacement
+wake.
 
 Inspection returns `RunAttemptInspectionV1`, containing the run ID, captured
 definition revision ID, current run version and phase, cancellation generation,
@@ -595,7 +599,12 @@ This allocation seam preserves both owners:
 type TaskRunAttemptDecisionV1<Outcome> =
   | {
       readonly kind: "no_change";
-      readonly disposition: "idempotent" | "current";
+      readonly disposition: "idempotent";
+      readonly replay: TaskRunAttemptAcceptedReceiptV1<Outcome>;
+    }
+  | {
+      readonly kind: "no_change";
+      readonly disposition: "current";
       readonly outcome: Outcome;
     }
   | {
@@ -603,7 +612,8 @@ type TaskRunAttemptDecisionV1<Outcome> =
       readonly expectedRunVersion: TaskRunVersionV1;
       readonly next: TaskRunAttemptAggregateV1;
       readonly evidence: readonly TaskRunAttemptEvidenceV1[];
-      readonly requestedEffects: readonly TaskRequestedEffectV1[];
+      readonly requestedEffects:
+        readonly PersistedTaskRequestedEffectV1[];
       readonly outcome: Outcome;
     };
 ```
@@ -611,13 +621,18 @@ type TaskRunAttemptDecisionV1<Outcome> =
 For `commit`, the adapter must require the current stored run version to equal
 `expectedRunVersion`, require `next.runVersion` to advance exactly once, and
 validate every operation-specific fence/lease/completion invariant before
-writing. It atomically stores the aggregate mutation, evidence, accepted
-completion replay value, terminal result commitment, and requested effects.
-It assigns contiguous run-local effect sequences in array order.
+writing. It validates that the decision's proposed effect sequences begin at
+the current cursor plus one, remain contiguous in array order, agree with the
+accepted run/version, and equal the cursor stored in `next`. It atomically
+stores the aggregate mutation, evidence, accepted completion replay value,
+terminal result commitment, and requested effects. Transactional validation is
+the authoritative sequence assignment.
 
-For `no_change`, the adapter writes nothing. An idempotent result may reference
-only previously persisted acceptance evidence loaded in `current`. A current
-result cannot manufacture effect intents.
+For `no_change`, the adapter writes nothing. An idempotent decision returns only
+the exact `TaskRunAttemptAcceptedReceiptV1` selected from the latest direct
+acceptance or completion replay; the adapter reconstructs the service receipt
+from it. A current decision returns its current outcome, and the adapter uses
+the transaction observation time/current version plus empty evidence/effects.
 
 A `RunAttemptDecisionErrorV1` causes rollback/no write and is lifted by
 `RunAttemptLifecycle` into its typed Effect error channel. The store never
@@ -667,11 +682,14 @@ kinds:
 Waitpoint, checkpoint, batch, child-run, debounce, delayed-run, stream,
 billing, metadata, and arbitrary host callback variants are not admitted.
 
-The domain returns ordered intent data without effect IDs. The store assigns
-`TaskRequestedEffectSequenceV1` while persisting the transition. The persisted
-effect identity is the scope-bound `(TaskRunIdV1, sequence)` pair. Delivery
-adapters use that pair idempotently, but possession of it does not authorize a
-task transition.
+The pure decision deterministically proposes `TaskRequestedEffectSequenceV1`
+from the decoded aggregate cursor, and the store validates and commits that
+exact contiguous range while persisting the transition. This correction is
+required so `next`, its replay receipt, and its effect cursor are already one
+coherent atomic value. The decision cannot choose another starting sequence,
+and the store remains the assignment authority. The persisted effect identity
+is the scope-bound `(TaskRunIdV1, sequence)` pair. Delivery adapters use that
+pair idempotently, but possession of it does not authorize a task transition.
 
 An effect consumer may fail, retry, duplicate, or arrive late without changing
 the already committed lifecycle state. It reacquires scope authority and
@@ -711,6 +729,12 @@ safe, and never exposed as Prisma/Drizzle/Postgres public types.
 - `InvalidTaskCancellationAcknowledgementError`;
 - `TaskRunAttemptPolicyError`; and
 - `TaskRunAttemptCounterExhaustedError`.
+
+DTE03-E refines `StaleTaskRunVersionError` and
+`StaleTaskExecutionFenceError` to impossible accepted-commit proposals whose
+basis/fence disagrees with decoded current state. Ordinary old command delivery
+returns the operation's typed `current` outcome under DTE03-D; it does not enter
+the error channel.
 
 Attempt exhaustion, retry exhaustion, non-retryable execution failure, and
 ordinary cancellation are accepted lifecycle outcomes, not thrown errors.
@@ -908,8 +932,10 @@ DTE02-F is complete with these conclusions:
 8. `TaskSystemRunAttemptStore` has only `transactRunAttempt` and
    `inspectRunAttempt`, with a pure re-invocable decision callback and no CRUD,
    row, transaction, clock, or ID-generator leakage;
-9. the adapter persists accepted state, evidence, completion replay data, and
-   ordered effect intents atomically and returns detached domain receipts;
+9. the pure decision proposes cursor-derived contiguous effect sequences, and
+   the adapter validates and persists accepted state, evidence, completion
+   replay data, sequenced effects, and the cursor atomically before returning
+   detached domain receipts;
 10. every retained Trigger identity field has an explicit Flarex mapping or
     removal rationale;
 11. exact command, decision, and store error meanings remain in the typed
@@ -934,5 +960,7 @@ This decision is grounded in:
 - [`07-scope-capability-contract.md`](./07-scope-capability-contract.md);
 - [`08-application-revision-and-runtime-binding.md`](./08-application-revision-and-runtime-binding.md);
 - [`09-domain-identity-types-and-ownership.md`](./09-domain-identity-types-and-ownership.md);
+- DTE03-E's
+  [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md);
   and
 - [`../02-task-definition-identity-and-scope.md`](../02-task-definition-identity-and-scope.md).

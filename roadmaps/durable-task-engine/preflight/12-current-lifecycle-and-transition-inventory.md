@@ -14,7 +14,9 @@ DTE03-C's policy is complete in
 [`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md),
 and DTE03-D's exhaustive transition/race tables are complete in
 [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md).
-DTE03-E is the next checkpoint.
+DTE03-E's exact result/evidence/effect/error contract is complete in
+[`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md).
+DTE03-F is the next checkpoint.
 
 This receipt inventories current source behavior and fixes the questions the
 remaining Roadmap 03 checkpoints must answer. It does not define the final
@@ -346,7 +348,7 @@ The selected Trigger flows directly perform or emit:
 - run canceled; and
 - terminal cleanup and related product fan-out.
 
-DTE03-E must admit only bounded lifecycle-requested effects needed by the first
+DTE03-E admits only bounded lifecycle-requested effects needed by the first
 vertical. Every admitted effect receives a run-local monotonic effect sequence
 and is persisted in transition order. Queue/wake delivery, compute dispatch,
 observability projection, and cleanup adapters consume those intents later;
@@ -466,7 +468,7 @@ DTE03-A closes these direction questions:
 - stale fence/version/lease behavior; and
 - completion/cancellation/expiry race winners and replay responses.
 
-### DTE03-E — Next
+### DTE03-E — Complete
 
 - five mutation outcome unions and inspection projection;
 - evidence kinds and payload bounds;
@@ -474,20 +476,23 @@ DTE03-A closes these direction questions:
 - requested effect variants and exact order; and
 - typed domain/store/corruption error order.
 
-### DTE03-F/G
+### DTE03-F — Next
 
 - canonical scenario and receipt encoding;
 - which Trigger scenarios can run differentially and which are translated
   assertions only;
 - explicit expected differences; and
-- final admission and DTE-IP01 executable gates.
+- executable compatibility gates.
+
+### DTE03-G
+
+- final lifecycle admission and DTE-IP01 implementation gate.
 
 ## Handoff
 
-Proceed to DTE03-E using DTE03-B's five-phase aggregate, DTE03-C's admitted
-failure/retry/attempt policy, and DTE03-D's exhaustive cancellation, heartbeat,
-lease, completion, replay, and race tables. Fix the exact outcome, inspection,
-acceptance, evidence, requested-effect, and error unions without adding
+Proceed to DTE03-F using the admitted source inventory, five-phase aggregate,
+failure/retry policy, transition/race tables, and exact DTE03-E service contract.
+Create canonical compatibility vectors and executable fixtures without adding
 scheduling, persistence, host, waitpoint, or product state.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete model.
@@ -496,6 +501,7 @@ Do not create `packages/durable-task/` until DTE03-G admits the complete model.
 
 - [`../03-run-attempt-engine.md`](../03-run-attempt-engine.md)
 - [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md)
+- [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
 - [`../01-source-reuse-and-package-admission.md`](../01-source-reuse-and-package-admission.md)
 - [`../02-task-definition-identity-and-scope.md`](../02-task-definition-identity-and-scope.md)
 - [`01-run-attempt-lifecycle-closure.md`](./01-run-attempt-lifecycle-closure.md)

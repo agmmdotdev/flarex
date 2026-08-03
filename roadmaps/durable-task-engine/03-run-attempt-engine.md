@@ -4,8 +4,9 @@
 
 **Status:** Active. DTE03-A's source inventory, DTE03-B's exact aggregate,
 DTE03-C's completion-failure/retry/attempt policy, and DTE03-D's cancellation,
-heartbeat, lease, completion, and race tables are complete. DTE03-E's closed
-operation outcomes, evidence, effects, inspection, and errors are next. The
+heartbeat, lease, completion, and race tables, and DTE03-E's exact operation
+outcomes, inspection, acceptance/replay, evidence, effects, and errors are
+complete. DTE03-F's compatibility vectors and executable gate are next. The
 Roadmap 03 lifecycle-model gate remains closed, so DTE-IP01 package creation is
 not yet authorized.
 
@@ -190,9 +191,10 @@ the accepted/idempotent/current/error boundary. Terminal cancellation is not
 recorded merely because a request was sent, and one accepted heartbeat sequence
 renews the lease at most once.
 
-### DTE03-E: Operation Outcomes, Evidence, Effects, And Error Order — Next
+### DTE03-E: Operation Outcomes, Evidence, Effects, And Error Order — Complete
 
-Define and admit:
+[`preflight/16-operation-outcomes-evidence-effects-and-errors.md`](./preflight/16-operation-outcomes-evidence-effects-and-errors.md)
+admits:
 
 - one closed outcome union for each of the five mutation operations;
 - `RunAttemptInspectionV1` for the read operation;
@@ -207,7 +209,12 @@ Define and admit:
 Requested effects describe post-commit work. They do not contain a queue,
 Worker, runtime artifact loader, backend client, or product event payload.
 
-### DTE03-F: Compatibility Vectors And Executable Gate
+The checkpoint also corrects DTE02's decision-result finalization gap: exact
+idempotent replay data and cursor-derived sequenced effects now reach the store
+as one coherent decision, while the store validates and atomically commits the
+sequence range.
+
+### DTE03-F: Compatibility Vectors And Executable Gate — Next
 
 Produce canonical JSON-safe scenario and receipt vectors for the admitted
 Trigger behaviors, including:
@@ -306,6 +313,7 @@ This roadmap is governed by:
 - [`preflight/13-phase-terminal-and-aggregate-model.md`](./preflight/13-phase-terminal-and-aggregate-model.md);
 - [`preflight/14-failure-retry-and-attempt-policy.md`](./preflight/14-failure-retry-and-attempt-policy.md);
 - [`preflight/15-cancellation-heartbeat-lease-and-race-tables.md`](./preflight/15-cancellation-heartbeat-lease-and-race-tables.md);
+- [`preflight/16-operation-outcomes-evidence-effects-and-errors.md`](./preflight/16-operation-outcomes-evidence-effects-and-errors.md);
 - the frozen Trigger source at the DTE01 pinned commit; and
 - current Flarex code only for implemented authority and package-boundary
   evidence.

@@ -16,10 +16,10 @@ execution-snapshot status axes.
 This receipt fixes the exact state topology and valid field combinations for
 the future private `@flarex/durable-task` package. DTE03-C owns the leaf
 failure/retry policy and its validation bounds; DTE03-D owns exact command
-transition tables and the lease-history refinement; DTE03-E owns the closed
-operation-outcome, evidence, requested-effect, and error unions. Those later
-checkpoints fill the named owners below without adding another phase, another
-aggregate axis, or an authority-bearing command field.
+transition tables and the lease-history refinement; DTE03-E now fixes the
+closed operation-outcome, evidence, requested-effect, inspection, acceptance,
+and error unions. Those checkpoints fill the named owners below without adding
+another phase, aggregate axis, or authority-bearing command field.
 
 This is documentation admission only. It does not authorize package creation,
 schema, migration, adapter, host, scheduler, runtime, route, or activation
@@ -115,11 +115,11 @@ returns current state. Completion is the deliberate exception: its replay must
 survive later attempts and therefore also enters `completionReplays`.
 
 DTE03-E fixes the closed operation-specific members of
-`TaskRunAttemptMutationAcceptanceV1`. Every member contains its canonical
-command identity, observed database time, accepted run version, resulting
-phase/outcome, exact evidence, and persisted requested effects. It is not an
-unbounded command log and does not retain raw input, foreign errors, or host
-authority.
+`TaskRunAttemptMutationAcceptanceV1` in
+[`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md).
+Every member contains its canonical command identity and exact accepted receipt
+data. It is not an unbounded command log and does not retain raw input, foreign
+errors, or host authority.
 
 `boundPolicy` is the immutable normalized policy captured when the run is
 created:
@@ -200,8 +200,10 @@ type TaskRequestedEffectCursorV1 =
 ```
 
 The cursor covers every run-local requested effect, including any admitted by
-Roadmap 04 during run creation. The store assigns contiguous sequences in the
-decision's array order and advances this cursor atomically. Delivery state is
+Roadmap 04 during run creation. DTE03-E corrects the finalization seam: the pure
+decision derives the only valid contiguous sequence range from this cursor, and
+the store independently validates and atomically commits that range, the exact
+effect array, acceptance/replay receipt, and advanced cursor. Delivery state is
 not part of the lifecycle aggregate and cannot change `runVersion`.
 
 ## Ready State
@@ -457,20 +459,19 @@ including a failed completion that scheduled a later attempt:
 interface TaskAttemptCompletionReplayV1 {
   readonly attempt: TaskTerminalAttemptRefV1;
   readonly completion: TaskAttemptCompletionV1;
-  readonly observedAtMs: TaskDatabaseTimeMsV1;
-  readonly acceptedRunVersion: TaskRunVersionV1;
-  readonly resultingPhase: RunAttemptPhaseV1;
-  readonly outcome: CompleteAttemptOutcomeV1;
-  readonly evidence: readonly TaskRunAttemptEvidenceV1[];
-  readonly requestedEffects:
-    readonly PersistedTaskRequestedEffectV1[];
+  readonly accepted: TaskRunAttemptAcceptedReceiptV1<
+    Exclude<CompleteAttemptOutcomeV1, { readonly kind: "current" }>
+  >;
 }
 ```
 
-The entry contains the canonical accepted completion and exact persisted
-acceptance receipt needed to reconstruct an idempotent response after the run
-has advanced. DTE03-E fixes the leaf outcome/evidence/effect unions; it may not
-remove the canonical completion or original receipt fields.
+The entry contains the canonical accepted completion and exact nested persisted
+acceptance receipt needed to return an idempotent response after the run has
+advanced. This nesting retains all originally required observed-time, accepted-
+version, resulting-phase, outcome, evidence, and effect data without duplicating
+the receipt structure. DTE03-E fixes its leaf unions in
+[`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
+without removing the canonical completion or original receipt fields.
 
 Replay entries obey all of these invariants:
 
@@ -619,6 +620,7 @@ phase = ready
 ready.kind = initial
 runVersion = 1
 attemptHistory = none
+leaseHistory = none
 cancellation = not_requested, generation 0
 lastLifecycleAcceptance = null
 completionReplays = []
@@ -647,8 +649,8 @@ authority model:
 - no completion replay internals, raw result, raw failure cause, requested
   effect delivery state, scope, storage, artifact, or host authority.
 
-DTE03-E fixes the exact inspection union. Its phase-specific projection must
-remain exhaustive over the five admitted aggregate variants.
+DTE03-E fixes the exact inspection union. Its phase-specific projection
+remains exhaustive over the five admitted aggregate variants.
 
 ## Trigger Status Projection
 
@@ -712,7 +714,7 @@ into it only after scope-clock validation and corruption checks.
 10. Roadmap 04 creates the only initial `ready` aggregate; DTE-IP01 only
     transitions or inspects it.
 
-## Exact Remaining Work
+## Roadmap 03 Decision Ledger
 
 ### DTE03-C — Complete
 
@@ -741,11 +743,21 @@ fixes cancellation, heartbeat, lease, completion, expiry, replay, and
 cross-command race tables. It also adds the run-local lease-history cursor
 required to keep lease versions monotonic across cleared attempts.
 
-### DTE03-E Through DTE03-G
+### DTE03-E — Complete
 
-DTE03-E fixes operation outcomes, replay receipt leaf unions, evidence,
-effects, inspection, and errors. DTE03-F creates executable compatibility
-vectors. DTE03-G audits and decides final admission.
+[`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
+fixes operation outcomes, current/inspection projections, acceptance and replay
+receipt leaves, bounded policy evidence, exact sequenced effects, typed errors,
+and evaluation order. It also closes the DTE02 decision finalization gap while
+retaining store validation authority.
+
+### DTE03-F — Next
+
+DTE03-F creates executable compatibility vectors.
+
+### DTE03-G
+
+DTE03-G audits and decides final admission.
 
 ## Reopening Audit
 
@@ -763,10 +775,10 @@ DTE03-B does not reopen DTE01 or DTE02:
 
 ## Handoff
 
-Proceed to DTE03-E using the exact five-phase aggregate, DTE03-C policy, and
-DTE03-D transition/race tables. Define the closed outcome, inspection,
-acceptance, evidence, requested-effect, and typed-error unions without changing
-the admitted race winners or adding host authority.
+Proceed to DTE03-F using the exact five-phase aggregate, DTE03-C policy,
+DTE03-D transition/race tables, and DTE03-E closed service contract. Create
+canonical/executable compatibility vectors without changing admitted race
+winners or adding host authority.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.
@@ -782,5 +794,6 @@ lifecycle contract.
 - [`source-map.run-attempt-v1.json`](./source-map.run-attempt-v1.json)
 - [`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md)
 - [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md)
+- [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md)
 - frozen Trigger source and tests at commit
   `f10bc23785e569e5d917318cf2033aabdbe96a0b`
