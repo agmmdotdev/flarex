@@ -236,12 +236,12 @@ The proof begins with one queue and a bounded retry policy. Cron, batches,
 debounce, waitpoints, checkpoints, advanced fairness, broad observability UI,
 cross-provider placement, and public SDK integration remain later gates.
 
-## Proposed Roadmap Decomposition
+## Roadmap Decomposition
 
-The following focused files are candidates for the next discussion. They do
-not exist yet and their order is not approved by this README:
+The first focused preflight now exists. The remaining files are candidates for
+the next discussions; their names and order are not approved by this README:
 
-1. `01-source-reuse-and-package-admission.md`
+1. [`01-source-reuse-and-package-admission.md`](./01-source-reuse-and-package-admission.md)
    - source map, license/provenance, dependency closure, workspace strategy,
      transformed package ownership, and compatibility receipt harness;
 2. `02-task-definition-identity-and-scope.md`
@@ -271,9 +271,8 @@ not exist yet and their order is not approved by this README:
     - public SDK, management API, quotas, operational readiness, routing,
       rollout, and eventual compatibility-island retirement.
 
-The next discussion should challenge this decomposition, identify the smallest
-connected Trigger source slice worth lifting first, and decide whether the
-source-reuse/package-admission plan must precede every other file.
+Roadmap 01 must identify the smallest connected Trigger source slice worth
+lifting first and complete its admission preflight before implementation.
 
 ## Non-Goals
 
