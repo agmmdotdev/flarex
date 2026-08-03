@@ -12,10 +12,12 @@ from the database, enforce one inclusive total-attempt limit, and keep foreign
 failure mapping outside the pure lifecycle decision.
 
 This receipt fills the policy-owned leaves in DTE03-B's five-phase aggregate.
-DTE03-D still owns command transition and race tables. DTE03-E owns the exact
-operation outcome, evidence, requested-effect, inspection, and typed error
-unions. No package, schema, migration, adapter, host, scheduler, route, or
-activation is authorized here.
+DTE03-D now applies them through the admitted command transition and race tables
+in
+[`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md).
+DTE03-E owns the exact operation outcome, evidence, requested-effect,
+inspection, and typed error unions. No package, schema, migration, adapter,
+host, scheduler, route, or activation is authorized here.
 
 ## Pinned Trigger Behavior
 
@@ -443,12 +445,12 @@ failure produces no transition, replay entry, evidence, or effect.
 
 Cancellation acknowledgement is a different completion variant and never
 passes through failure policy. Successful completion also bypasses this
-policy. DTE03-D decides how an already-requested cancellation races a success
-or failed completion before step 1.
+policy. DTE03-D fixes how an already-requested cancellation races a success or
+failed completion before step 1.
 
 ## Lease-Expiry Failure Synthesis
 
-DTE03-D will apply these fixed policy inputs when a matching lease expires:
+DTE03-D applies these fixed policy inputs when a matching lease expires:
 
 | Active phase | Synthesized failure | Retry delivery |
 | --- | --- | --- |
@@ -568,22 +570,14 @@ DTE03-F and DTE-IP01 must cover at least:
     retry evidence, not a terminal class.
 12. Policy arithmetic failure or corrupted policy commits nothing.
 
-## Exact Handoff To DTE03-D
+## Exact Handoff To DTE03-E
 
-DTE03-D must now define the complete transition/race tables using these fixed
-inputs:
-
-- five DTE03-B phases;
-- orthogonal cancellation request/resolution;
-- active grant versus heartbeat-proven execution;
-- exact attempt availability rule;
-- exact retry/terminal decision order;
-- forced-durable lease-loss and OOM behavior; and
-- terminal failure carrying the original bounded failure.
-
-It must decide accepted/idempotent/current/conflict behavior for every command,
-especially cancellation request versus success/failure completion, first and
-duplicate heartbeat, early and stale expiry, and completion versus expiry.
+DTE03-D has applied these policy inputs to the complete transition/race tables
+without changing their retry or terminal meaning. DTE03-E must encode the fixed
+decisions into closed outcome, replay, evidence, requested-effect, inspection,
+and typed-error unions. It must preserve forced-durable lease-loss recovery,
+retry suppression after a cancellation request, and terminal retention of the
+original bounded failure.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.
@@ -609,6 +603,7 @@ DTE03-C does not reopen DTE01/DTE02 authority or package boundaries:
 
 - [`../03-run-attempt-engine.md`](../03-run-attempt-engine.md)
 - [`13-phase-terminal-and-aggregate-model.md`](./13-phase-terminal-and-aggregate-model.md)
+- [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md)
 - [`12-current-lifecycle-and-transition-inventory.md`](./12-current-lifecycle-and-transition-inventory.md)
 - [`10-dte-ip01-input-and-store-port-contract.md`](./10-dte-ip01-input-and-store-port-contract.md)
 - [`06-task-target-and-definition-contract.md`](./06-task-target-and-definition-contract.md)

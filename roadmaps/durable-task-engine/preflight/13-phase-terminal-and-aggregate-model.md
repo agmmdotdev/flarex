@@ -3,9 +3,10 @@
 ## Receipt Status
 
 **Status:** Complete — admit the DTE03-B phase, terminal-outcome, and aggregate
-shape as the state-model input to DTE03-C through DTE03-G. DTE03-C now refines
-the policy-owned leaves in
-[`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md).
+shape as the state-model input to DTE03-C through DTE03-G. DTE03-C has fixed
+the policy-owned leaves, and DTE03-D has fixed the operation transition tables
+and refined the aggregate with the run-local lease-history cursor required by
+DTE02.
 
 **Decision:** Use one five-phase discriminated aggregate with orthogonal
 cancellation, leased attempt ownership, bounded completion replay, and ordered
@@ -13,12 +14,12 @@ effect cursors. Do not reproduce Trigger's separately mutable run-status and
 execution-snapshot status axes.
 
 This receipt fixes the exact state topology and valid field combinations for
-the future private `@flarex/durable-task` package. DTE03-C still owns the leaf
+the future private `@flarex/durable-task` package. DTE03-C owns the leaf
 failure/retry policy and its validation bounds; DTE03-D owns exact command
-transition tables; DTE03-E owns the closed operation-outcome, evidence,
-requested-effect, and error unions. Those later checkpoints fill the named
-owners below without adding another phase, another aggregate axis, or an
-authority-bearing command field.
+transition tables and the lease-history refinement; DTE03-E owns the closed
+operation-outcome, evidence, requested-effect, and error unions. Those later
+checkpoints fill the named owners below without adding another phase, another
+aggregate axis, or an authority-bearing command field.
 
 This is documentation admission only. It does not authorize package creation,
 schema, migration, adapter, host, scheduler, runtime, route, or activation
@@ -93,6 +94,7 @@ interface TaskRunAttemptAggregateBaseV1 {
   readonly runVersion: TaskRunVersionV1;
   readonly boundPolicy: TaskRunAttemptBoundPolicyV1;
   readonly attemptHistory: TaskAttemptHistoryCursorV1;
+  readonly leaseHistory: TaskLeaseHistoryCursorV1;
   readonly lastLifecycleAcceptance:
     | TaskRunAttemptMutationAcceptanceV1
     | null;
@@ -162,6 +164,27 @@ The cursor advances only when `startAttempt` accepts a new attempt grant. A
 retry decision does not increment it. The next candidate number is one greater
 than the issued value, or `1` when the cursor is `none`, subject to DTE03-C's
 ceiling and overflow rules.
+
+### Lease History Cursor
+
+DTE03-D fixes the run-local cursor needed to preserve DTE02's monotonic lease
+identity after current-attempt state is cleared:
+
+```ts
+type TaskLeaseHistoryCursorV1 =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "issued";
+      readonly lastLeaseVersion: TaskLeaseVersionV1;
+    };
+```
+
+The initial run has `none`. An accepted start grant issues the first or next
+lease version, and every accepted heartbeat renewal advances it once. Clearing
+an attempt never resets it. In active phases the current lease version equals
+the last issued value. No cancellation, completion, retry, terminalization, or
+stale/idempotent delivery advances it. Exact transition semantics are owned by
+[`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md).
 
 ### Requested-Effect Cursor
 
@@ -305,10 +328,11 @@ Only `attempt_granted` and `executing` may carry `requested`. `ready` and
 because no attempt owns execution. `terminal` carries either `not_requested`
 or `resolved`; it never carries a pending request.
 
-`superseded_by_completion` exists only so DTE03-D can choose a current-attempt
-success/failure race winner without discarding accepted cancellation evidence.
-It is legal only with terminal success or failure, never terminal cancellation.
-The exact winner and response table remains DTE03-D's responsibility.
+`superseded_by_completion` records DTE03-D's current-attempt success/failure race
+winner without discarding accepted cancellation evidence. It is legal only
+with terminal success or failure, never terminal cancellation. The exact winner
+and response table are fixed in
+[`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md).
 
 ## Accepted Retry State
 
@@ -539,6 +563,7 @@ Phase-inapplicable fields are absent, not present as optional `undefined` or
 | accepted retry | only as immediate-ready origin | absent | absent | required durable retry | absent |
 | terminal outcome | absent | absent | absent | absent | required |
 | attempt-history cursor | none or issued | issued and equals current attempt number | issued and equals current attempt number | issued and equals previous attempt number | none or issued |
+| lease-history cursor | none or issued | issued and equals current lease version | issued and equals current lease version | issued | none or issued |
 | last lifecycle acceptance | null only before first DTE-IP01 mutation, otherwise latest | latest accepted mutation | latest accepted mutation | latest accepted mutation | latest accepted mutation |
 | completion replay | bounded history | bounded history excluding current attempt | bounded history excluding current attempt | bounded history may include previous attempt | bounded history |
 
@@ -555,7 +580,8 @@ Additional cross-field invariants are mandatory:
    attempt, while cancellation without an active attempt may be null;
 7. terminal outcome and cancellation resolution fields agree exactly;
 8. all timestamp addition and ordering is safe and database-derived;
-9. completion replay keys and effect sequences are unique and monotonic;
+9. completion replay keys, lease versions, and effect sequences are unique and
+   monotonic;
 10. no phase contains a host authority, scope identifier, transaction, queue,
    artifact locator, or mutable foreign value; and
 11. unsupported or contradictory stored combinations decode as corruption,
@@ -564,7 +590,8 @@ Additional cross-field invariants are mandatory:
 ## Operation Applicability Matrix
 
 This matrix fixes which states each admitted operation may interpret. DTE03-D
-will fix the exact accepted/idempotent/current variants and race order.
+fixes the exact accepted/idempotent/current variants and race order in
+[`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md).
 
 | Operation | `ready` | `attempt_granted` | `executing` | `retry_waiting` | `terminal` |
 | --- | --- | --- | --- | --- | --- |
@@ -676,8 +703,8 @@ into it only after scope-clock validation and corruption checks.
 5. Only active phases carry current attempt/fence/lease state.
 6. Terminal state carries exactly one success, cancellation, or failure
    outcome and no current execution authority.
-7. Attempt and effect zero values use explicit cursor variants rather than
-   weakening positive brands.
+7. Attempt, lease, and effect zero values use explicit cursor variants rather
+   than weakening positive brands.
 8. Direct mutation replay uses one latest-acceptance slot; completion replay is
    bounded per accepted attempt and survives later phase advancement.
 9. The aggregate is a discriminated union with absent inapplicable fields, not
@@ -707,10 +734,16 @@ phase or moving host/persistence authority into the aggregate. It also removes
 the provisional attempt-limit terminal class: the last attempt's original
 failure remains terminal and startable states must have another attempt.
 
-### DTE03-D Through DTE03-G
+### DTE03-D — Complete
 
-DTE03-D fixes cancellation, heartbeat, lease, completion, and expiry transition
-tables. DTE03-E fixes operation outcomes, replay receipt leaf unions, evidence,
+[`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md)
+fixes cancellation, heartbeat, lease, completion, expiry, replay, and
+cross-command race tables. It also adds the run-local lease-history cursor
+required to keep lease versions monotonic across cleared attempts.
+
+### DTE03-E Through DTE03-G
+
+DTE03-E fixes operation outcomes, replay receipt leaf unions, evidence,
 effects, inspection, and errors. DTE03-F creates executable compatibility
 vectors. DTE03-G audits and decides final admission.
 
@@ -730,9 +763,10 @@ DTE03-B does not reopen DTE01 or DTE02:
 
 ## Handoff
 
-Proceed to DTE03-D using the exact five-phase aggregate and DTE03-C policy.
-Define exhaustive cancellation, heartbeat, completion, and lease-expiry race
-tables without adding another phase or retry authority.
+Proceed to DTE03-E using the exact five-phase aggregate, DTE03-C policy, and
+DTE03-D transition/race tables. Define the closed outcome, inspection,
+acceptance, evidence, requested-effect, and typed-error unions without changing
+the admitted race winners or adding host authority.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete
 lifecycle contract.
@@ -747,5 +781,6 @@ lifecycle contract.
 - [`09-domain-identity-types-and-ownership.md`](./09-domain-identity-types-and-ownership.md)
 - [`source-map.run-attempt-v1.json`](./source-map.run-attempt-v1.json)
 - [`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md)
+- [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md)
 - frozen Trigger source and tests at commit
   `f10bc23785e569e5d917318cf2033aabdbe96a0b`

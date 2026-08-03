@@ -2,9 +2,10 @@
 
 ## Status
 
-**Status:** Active. DTE03-A's source inventory, DTE03-B's exact aggregate, and
-DTE03-C's completion-failure/retry/attempt policy are complete. DTE03-D's
-cancellation, heartbeat, lease, and recovery transition tables are next. The
+**Status:** Active. DTE03-A's source inventory, DTE03-B's exact aggregate,
+DTE03-C's completion-failure/retry/attempt policy, and DTE03-D's cancellation,
+heartbeat, lease, completion, and race tables are complete. DTE03-E's closed
+operation outcomes, evidence, effects, inspection, and errors are next. The
 Roadmap 03 lifecycle-model gate remains closed, so DTE-IP01 package creation is
 not yet authorized.
 
@@ -168,9 +169,10 @@ difference with one inclusive total-attempt limit in `1..250`, preserves the
 deterministic retry formula using stored jitter and database time, and retains
 the original failure when retry is exhausted.
 
-### DTE03-D: Cancellation, Heartbeat, Lease, And Recovery Tables — Next
+### DTE03-D: Cancellation, Heartbeat, Lease, And Recovery Tables — Complete
 
-Define exhaustive transition tables for:
+[`preflight/15-cancellation-heartbeat-lease-and-race-tables.md`](./preflight/15-cancellation-heartbeat-lease-and-race-tables.md)
+admits exhaustive transition tables for:
 
 - first and duplicate cancellation requests;
 - cancellation generation acknowledgement and completion races;
@@ -181,11 +183,14 @@ Define exhaustive transition tables for:
 - completion racing lease expiry; and
 - worker-loss retry exhaustion.
 
-Terminal cancellation must not be recorded merely because a request was sent.
-Heartbeat acceptance must durably renew the lease at most once per accepted
-sequence.
+The checkpoint fixes database-time logical lease expiry, run-local monotonic
+lease versions, direct and completion replay precedence, first-completion
+conflicts, cancellation race winners, forced-durable lease-loss recovery, and
+the accepted/idempotent/current/error boundary. Terminal cancellation is not
+recorded merely because a request was sent, and one accepted heartbeat sequence
+renews the lease at most once.
 
-### DTE03-E: Operation Outcomes, Evidence, Effects, And Error Order
+### DTE03-E: Operation Outcomes, Evidence, Effects, And Error Order — Next
 
 Define and admit:
 
@@ -300,6 +305,7 @@ This roadmap is governed by:
 - [`preflight/12-current-lifecycle-and-transition-inventory.md`](./preflight/12-current-lifecycle-and-transition-inventory.md);
 - [`preflight/13-phase-terminal-and-aggregate-model.md`](./preflight/13-phase-terminal-and-aggregate-model.md);
 - [`preflight/14-failure-retry-and-attempt-policy.md`](./preflight/14-failure-retry-and-attempt-policy.md);
+- [`preflight/15-cancellation-heartbeat-lease-and-race-tables.md`](./preflight/15-cancellation-heartbeat-lease-and-race-tables.md);
 - the frozen Trigger source at the DTE01 pinned commit; and
 - current Flarex code only for implemented authority and package-boundary
   evidence.

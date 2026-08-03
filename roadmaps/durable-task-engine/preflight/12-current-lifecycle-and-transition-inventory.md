@@ -10,6 +10,12 @@ run-attempt aggregate. DTE03-B is now complete in
 it retains the admitted Trigger transition semantics and hostile scenarios
 without copying Trigger's independently mutable status axes.
 
+DTE03-C's policy is complete in
+[`14-failure-retry-and-attempt-policy.md`](./14-failure-retry-and-attempt-policy.md),
+and DTE03-D's exhaustive transition/race tables are complete in
+[`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md).
+DTE03-E is the next checkpoint.
+
 This receipt inventories current source behavior and fixes the questions the
 remaining Roadmap 03 checkpoints must answer. It does not define the final
 `RunAttemptPhaseV1`, terminal outcome, aggregate, failure, effect, or operation
@@ -158,8 +164,8 @@ Flarex disposition:
 - accept a greater sequence, including a gap, exactly once;
 - return an idempotent/current result for a duplicate sequence without
   extending the lease twice;
-- reject or report lower sequence and stale fence according to DTE03-D/E's
-  exact outcome table; and
+- return lower sequence and stale fence as current state according to DTE03-D,
+  with the exact outcome record fixed by DTE03-E; and
 - compute and store lease renewal from database time in the same transaction.
 
 ### Successful Completion
@@ -430,9 +436,9 @@ DTE03-A closes these direction questions:
 10. The Trigger source and tests remain the default behavior oracle; the
     deliberate divergences above require explicit vectors.
 
-## Exact Remaining Decisions
+## Roadmap 03 Decision Ledger
 
-### DTE03-B
+### DTE03-B — Complete
 
 - exact `RunAttemptPhaseV1` members and names;
 - whether retry wait is an aggregate phase or an accepted handoff outcome;
@@ -442,7 +448,7 @@ DTE03-A closes these direction questions:
 - legal already-created/pre-dispatched initial state; and
 - representation of unsupported source states at the adapter boundary.
 
-### DTE03-C
+### DTE03-C — Complete
 
 - exact failure union and classification table;
 - exact global ceiling and per-definition limit semantics;
@@ -452,7 +458,7 @@ DTE03-A closes these direction questions:
 - immediate versus durable retry threshold ownership; and
 - exact error-evaluation order.
 
-### DTE03-D
+### DTE03-D — Complete
 
 - cancellation generation request/acknowledgement table;
 - heartbeat duplicate/gap/lower-sequence outcomes;
@@ -460,7 +466,7 @@ DTE03-A closes these direction questions:
 - stale fence/version/lease behavior; and
 - completion/cancellation/expiry race winners and replay responses.
 
-### DTE03-E
+### DTE03-E — Next
 
 - five mutation outcome unions and inspection projection;
 - evidence kinds and payload bounds;
@@ -478,16 +484,18 @@ DTE03-A closes these direction questions:
 
 ## Handoff
 
-Proceed to DTE03-D using DTE03-B's five-phase aggregate and DTE03-C's admitted
-failure/retry/attempt policy. Fix exhaustive cancellation, heartbeat, lease,
-completion, and recovery transitions without adding scheduling, persistence,
-host, waitpoint, or product state.
+Proceed to DTE03-E using DTE03-B's five-phase aggregate, DTE03-C's admitted
+failure/retry/attempt policy, and DTE03-D's exhaustive cancellation, heartbeat,
+lease, completion, replay, and race tables. Fix the exact outcome, inspection,
+acceptance, evidence, requested-effect, and error unions without adding
+scheduling, persistence, host, waitpoint, or product state.
 
 Do not create `packages/durable-task/` until DTE03-G admits the complete model.
 
 ## Authority And Evidence
 
 - [`../03-run-attempt-engine.md`](../03-run-attempt-engine.md)
+- [`15-cancellation-heartbeat-lease-and-race-tables.md`](./15-cancellation-heartbeat-lease-and-race-tables.md)
 - [`../01-source-reuse-and-package-admission.md`](../01-source-reuse-and-package-admission.md)
 - [`../02-task-definition-identity-and-scope.md`](../02-task-definition-identity-and-scope.md)
 - [`01-run-attempt-lifecycle-closure.md`](./01-run-attempt-lifecycle-closure.md)
