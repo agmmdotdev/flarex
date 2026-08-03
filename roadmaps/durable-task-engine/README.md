@@ -271,8 +271,10 @@ the next discussions; their names and order are not approved by this README:
     - public SDK, management API, quotas, operational readiness, routing,
       rollout, and eventual compatibility-island retirement.
 
-Roadmap 01 must identify the smallest connected Trigger source slice worth
-lifting first and complete its admission preflight before implementation.
+Roadmap 01 must identify a substantial connected Trigger capability worth
+lifting first. It should be medium-sized: large enough to prove an end-to-end
+lifecycle decision, but still bounded enough for one admission preflight and
+its compatibility evidence.
 
 ## Non-Goals
 

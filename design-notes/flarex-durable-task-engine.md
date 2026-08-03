@@ -216,12 +216,14 @@ The accepted holding plan is:
    lockfile;
 3. do not make active Flarex packages depend directly on upstream Trigger
    package names;
-4. use the capability preflight to identify the smallest coherent semantic
-   owner worth extracting;
+4. use the capability preflight to identify a substantial coherent semantic
+   vertical worth extracting, sized to prove real lifecycle behavior rather
+   than isolated helpers;
 5. transform that capability into a Flarex-owned package with Flarex identity,
    protocols, typed failures, storage capabilities, and host boundaries; and
-6. admit transformed packages to the Flarex workspace one at a time, only after
-   focused behavior-parity tests and Worker bundle checks pass.
+6. admit transformed capability packages to the Flarex workspace in coherent
+   checkpoints, only after focused behavior-parity tests and Worker bundle
+   checks pass.
 
 This is a pause, not a decision to preserve two permanent production package
 graphs. The compatibility island remains provenance and migration input while

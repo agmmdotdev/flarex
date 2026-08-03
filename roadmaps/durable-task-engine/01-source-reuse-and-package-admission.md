@@ -2,8 +2,8 @@
 
 ## Status And Mandate
 
-**Status:** Active design preflight; no package admission or implementation is
-authorized yet.
+**Status:** Active design preflight. The first substantial DTE01-A capability
+closure is complete; no package admission or implementation is authorized yet.
 
 This roadmap owns the first decision required by the
 [`Flarex Durable Task Engine`](./README.md) roadmap family:
@@ -20,6 +20,13 @@ private Task System API and its persistence implementation must guarantee.
 Completion of this roadmap may authorize one bounded transformed package slice.
 It does not authorize the complete Trigger run engine, a merged workspace,
 production routing, public APIs, or the later durable-task vertical.
+
+## Preflight Receipts
+
+- [`preflight/01-run-attempt-lifecycle-closure.md`](./preflight/01-run-attempt-lifecycle-closure.md)
+  accepts the complete run-attempt lifecycle as the first medium capability,
+  rejects whole-file copying, identifies its authority and atomicity seams, and
+  defines the source/test closure for DTE01-B.
 
 ## Parent Vision And Fixed Boundaries
 
@@ -97,9 +104,11 @@ the complete operation and its failure ordering have been characterized.
 
 ## Candidate First Source Slice
 
-The current hypothesis is to start from the smallest connected run-attempt and
-bounded-retry behavior required by the first private product proof. Candidate
-production sources include:
+The current hypothesis is to start from a substantial, medium-sized connected
+capability: the complete run-attempt lifecycle required by the first private
+product proof. The slice should cover attempt start, completion, retry,
+cancellation, stale or duplicate outcomes, and the execution-state evidence
+that connects those decisions. Candidate production sources include:
 
 - [`statuses.ts`](../../third_party/trigger.dev/upstream/internal-packages/run-engine/src/engine/statuses.ts)
   for run and execution-status predicates;
@@ -115,10 +124,11 @@ production sources include:
   tests.
 
 This list is a hypothesis, not an approved copy set. DTE01-A must prove the
-complete transitive source and test closure and may shrink, split, reorder, or
-reject it. In particular, it must determine whether execution snapshots are
-part of the first Flarex authority or a Trigger representation that should be
-projected from a smaller run/attempt contract.
+complete transitive source and test closure and may reshape or reject it. It
+must not shrink the slice to isolated predicates or retry helpers that avoid
+the actual orchestration, persistence, race, and recovery seams. In particular,
+it must determine whether execution snapshots are part of the first Flarex
+authority or a Trigger representation projected from the run/attempt contract.
 
 The first slice should exclude unless the closure proves an immediate need:
 
@@ -177,9 +187,9 @@ extraction input until a separate source-refresh decision.
 
 ### Objective
 
-Identify the smallest coherent Trigger operation required for the first
-run-attempt proof and enumerate every source, type, generated contract, test,
-and runtime dependency it actually uses.
+Identify the complete medium-sized Trigger capability required for the first
+run-attempt lifecycle proof and enumerate every source, type, generated
+contract, test, and runtime dependency it actually uses.
 
 ### Required analysis
 
@@ -219,8 +229,9 @@ Trigger entry operation
 - Every production dependency and direct behavioral test is accounted for.
 - Hidden database, Redis, clock, and process authority is explicit.
 - Excluded adjacent features have named later owners.
-- The closure is small enough for one bounded transformed package admission or
-  is rejected with a narrower proposed slice.
+- The closure is substantial enough to exercise orchestration, state,
+  persistence, race, and recovery seams while remaining bounded enough for one
+  coherent transformed-package admission checkpoint.
 
 ## DTE01-B: Classify Reuse And Semantic Change
 
@@ -595,4 +606,3 @@ Use these sources in order for DTE01 decisions:
    for the current machine-enforced import boundary; and
 8. current package manifests, source, tests, and build outputs as evidence,
    never as automatic approval to preserve an upstream authority.
-
