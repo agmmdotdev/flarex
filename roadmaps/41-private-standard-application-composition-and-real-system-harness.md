@@ -4,9 +4,10 @@
 
 **Status:** `SAC01-P`, `SAC01-A`, the `SAC01-B1` pure corpus foundation, and
 the first `FSV03` private real-system mutation proof are complete. The
-`SAC01-F1` implementation and PGlite fast lane are complete; its named
-genuine-PostgreSQL acceptance lane is implemented but remains open until it
-runs with an authenticated database URL and zero skips. A pure
+`SAC01-F1` and the bounded `SAC01-F2a` implementation plus PGlite fast lanes
+are complete; their named genuine-PostgreSQL acceptance lanes are implemented
+but remain open until they run with an authenticated database URL and zero
+skips. A pure
 test-local definition fixture, deterministic case catalog, and replay
 selection are implemented under the backend test owner. The definition-fixture
 success lane enters the implemented Standard definition API. The corpus's
@@ -21,14 +22,20 @@ R2-to-exact-runtime dispatch seam, and FSV06-A2 enforces the existing mixed ABI
 so only exact C03-V validation is application-catchable and non-poisoning.
 FSV06 now composes the first private route-independent SAP04 point mutation
 through those owners. `SAC01-F1` adds the first test-local Effect composition
-operation and representative relation-free cooking workload: one definition
-with separate mutation/query modules travels through Standard definition,
+operation and representative relation-free cooking workload. `SAC01-F2a`
+extracts the lifecycle/invocation composition into one reusable test-owned
+runner that accepts an explicit Standard definition producer and workload
+operation, and proves it with independent cooking and English-learning
+applications. Each definition with separate mutation/query modules travels
+through Standard definition,
 analysis, inactive registration, readiness, activation, real Workerd mutation,
 the existing executor/OCC/commit owners, and authoritative Standard point-query
 readback in PGlite. Exact mutation replay and deterministic query replay are
-part of its receipt. Its matching genuine-PostgreSQL test is deliberately
-fail-closed when the required URL is absent. Genuine-PostgreSQL acceptance, a
-dedicated harness package, multi-application workload runner, broader
+part of each receipt. The matching genuine-PostgreSQL tests are deliberately
+fail-closed when the required URL is absent. This is reusable one-application-
+per-environment composition, not a serializable workload language, concurrent
+multi-application environment, reference model, or simulator. Genuine-
+PostgreSQL acceptance, a dedicated harness package, broader
 invocation families, controlled setup/inspection, and live production
 composition remain open.
 
@@ -790,6 +797,7 @@ the replacement analyzer and is now closed through the accepted FSV03 chain.
 | `SAC01-D` | Compose verified registration and schema/catalog publication/readiness for one private application revision | Complete through FSV03, FSV04, and FSV05 without adding test-owned authority |
 | `SAC01-E` | Execute and authoritatively read back one real point mutation | Complete through FSV06 and C07 with PGlite and genuine PostgreSQL evidence |
 | `SAC01-F1` | Compose one representative relation-free application with public mutation and query modules through one active revision | Implementation and PGlite fast lane complete in the persistence test owner; the named genuine-PostgreSQL lane is implemented and fail-closed but remains unaccepted until it runs with zero skips. The operation uses SAP04/SAP05 and the existing runtime/executor/commit/read owners, with exact mutation replay and deterministic query replay |
+| `SAC01-F2a` | Reuse one private relation-free lifecycle/invocation runner across distinct application definitions and workload operations | Complete in the persistence test owner for independent cooking and English-learning consumers in PGlite. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips. The runner accepts explicit Standard definition input and exposes only real point mutation/query operations; it is not a serializable workload DSL, model simulator, controlled setup/inspection API, public package, or multi-application shared environment |
 | `SAC01-F2+` | Add internal calls, actions, workflow mutations, controlled setup/inspection, faults, and scheduled invocations to representative workloads one capability at a time | Each capability must already have its own runtime/host/claim contract; scheduling and durable-task semantics remain separately gated |
 | `SAC01-G` | Extract a dedicated private corpus or system-harness package | At least two concrete consumers, an acyclic graph, explicit lifecycle owner, private exports, and same-slice deletion of test-local duplication |
 

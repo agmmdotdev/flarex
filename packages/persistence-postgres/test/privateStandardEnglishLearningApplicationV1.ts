@@ -9,7 +9,9 @@ import type {
   InvokeStandardApplicationPointMutationV1Error,
   InvokeStandardApplicationPointQueryV1Error,
 } from "../../standard-application-invocation/src/v1";
-import { makePrivateStandardCookingDefinitionV1 } from
+import type { Fsv06StandardPointMutationLaneV1 } from
+  "./fsv06StandardPointMutationHarness";
+import { makePrivateStandardEnglishLearningDefinitionV1 } from
   "./privateStandardApplicationTestDefinitionsV1";
 import {
   type PrivateStandardApplicationTestClientV1,
@@ -17,28 +19,24 @@ import {
   runPrivateStandardApplicationTestV1,
   type RunPrivateStandardApplicationTestV1Error,
 } from "./privateStandardApplicationTestHarnessV1";
-import type { Fsv06StandardPointMutationLaneV1 } from
-  "./fsv06StandardPointMutationHarness";
 
-export { PrivateStandardApplicationTestIntegrationV1Error } from
-  "./privateStandardApplicationTestHarnessV1";
-
-const COOKING_DEFINITION = {
-  applicationId: "cooking",
-  revisionName: "sac01-cooking-app",
-  makeDefinitionInput: makePrivateStandardCookingDefinitionV1,
+const ENGLISH_LEARNING_DEFINITION = {
+  applicationId: "english-learning",
+  revisionName: "sac01-english-learning-app",
+  makeDefinitionInput: makePrivateStandardEnglishLearningDefinitionV1,
 } satisfies PrivateStandardApplicationTestDefinitionV1;
 
-export interface PrivateStandardCookingApplicationProofV1 {
+export interface PrivateStandardEnglishLearningApplicationProofV1 {
   readonly version: 1;
-  readonly scenario: "cooking-recipe-create-and-read-v1";
+  readonly scenario: "english-learning-lesson-create-and-read-v1";
   readonly lane: "pglite" | "postgres";
   readonly definitionAnalyzedRegisteredReadyActivated: true;
-  readonly mutationPath: "recipeCommands:create";
-  readonly queryPath: "recipes:get";
+  readonly mutationPath: "lessonCommands:create";
+  readonly queryPath: "lessons:get";
   readonly documentId: string;
-  readonly title: "Tomato soup";
-  readonly servings: 4;
+  readonly term: "apple";
+  readonly translation: "a fruit";
+  readonly mastery: 0;
   readonly mutationReplay: true;
   readonly queryReplay: true;
   readonly mutationRuntimeExecutions: 1;
@@ -46,59 +44,52 @@ export interface PrivateStandardCookingApplicationProofV1 {
   readonly postgresVersion: string | null;
 }
 
-interface CookingWorkloadProofV1 {
+interface EnglishLearningWorkloadProofV1 {
   readonly documentId: string;
   readonly mutationReplay: true;
   readonly queryReplay: true;
 }
 
-type CookingWorkloadErrorV1 =
+type EnglishLearningWorkloadErrorV1 =
   | InvokeStandardApplicationPointMutationV1Error
   | InvokeStandardApplicationPointQueryV1Error;
 
-export type PrivateStandardCookingApplicationErrorV1 =
-  RunPrivateStandardApplicationTestV1Error<CookingWorkloadErrorV1>;
+export type PrivateStandardEnglishLearningApplicationErrorV1 =
+  RunPrivateStandardApplicationTestV1Error<EnglishLearningWorkloadErrorV1>;
 
-export type RunPrivateStandardCookingApplicationV1 = (
-  lane: Fsv06StandardPointMutationLaneV1,
-) => Effect.Effect<
-  PrivateStandardCookingApplicationProofV1,
-  PrivateStandardCookingApplicationErrorV1
->;
-
-export const runPrivateStandardCookingApplicationV1:
-  RunPrivateStandardCookingApplicationV1 = Effect.fn(
-  "PrivateStandardApplicationTest.runCookingApplicationV1",
+export const runPrivateStandardEnglishLearningApplicationV1 = Effect.fn(
+  "PrivateStandardApplicationTest.runEnglishLearningApplicationV1",
 )(function* (
   lane: Fsv06StandardPointMutationLaneV1,
 ): Effect.fn.Return<
-  PrivateStandardCookingApplicationProofV1,
-  PrivateStandardCookingApplicationErrorV1
+  PrivateStandardEnglishLearningApplicationProofV1,
+  PrivateStandardEnglishLearningApplicationErrorV1
 > {
   const receipt = yield* runPrivateStandardApplicationTestV1({
     lane,
-    definition: COOKING_DEFINITION,
-    runWorkload: runCookingWorkloadV1,
+    definition: ENGLISH_LEARNING_DEFINITION,
+    runWorkload: runEnglishLearningWorkloadV1,
   });
   if (
     receipt.mutationRuntimeExecutions !== 1 ||
     receipt.queryRuntimeExecutions !== 2
   ) {
     return yield* Effect.die(new Error(
-      "The cooking workload observed unexpected runtime execution counts.",
+      "The English-learning workload observed unexpected runtime execution counts.",
     ));
   }
   return {
     version: 1,
-    scenario: "cooking-recipe-create-and-read-v1",
+    scenario: "english-learning-lesson-create-and-read-v1",
     lane: receipt.lane,
     definitionAnalyzedRegisteredReadyActivated:
       receipt.definitionAnalyzedRegisteredReadyActivated,
-    mutationPath: "recipeCommands:create",
-    queryPath: "recipes:get",
+    mutationPath: "lessonCommands:create",
+    queryPath: "lessons:get",
     documentId: receipt.workloadProof.documentId,
-    title: "Tomato soup",
-    servings: 4,
+    term: "apple",
+    translation: "a fruit",
+    mastery: 0,
     mutationReplay: receipt.workloadProof.mutationReplay,
     queryReplay: receipt.workloadProof.queryReplay,
     mutationRuntimeExecutions: 1,
@@ -107,22 +98,29 @@ export const runPrivateStandardCookingApplicationV1:
   };
 });
 
-const runCookingWorkloadV1 = Effect.fn(
-  "PrivateStandardApplicationTest.runCookingWorkloadV1",
+const runEnglishLearningWorkloadV1 = Effect.fn(
+  "PrivateStandardApplicationTest.runEnglishLearningWorkloadV1",
 )(function* (
   client: PrivateStandardApplicationTestClientV1,
-): Effect.fn.Return<CookingWorkloadProofV1, CookingWorkloadErrorV1> {
+): Effect.fn.Return<
+  EnglishLearningWorkloadProofV1,
+  EnglishLearningWorkloadErrorV1
+> {
   const mutationPath = TransactionFunctionPathV1Schema.make(
-    "recipeCommands:create",
+    "lessonCommands:create",
   );
-  const queryPath = TransactionFunctionPathV1Schema.make("recipes:get");
+  const queryPath = TransactionFunctionPathV1Schema.make("lessons:get");
   const requestKey = TransactionRequestKeyV1Schema.make(
-    "sac01:cooking:create",
+    "sac01:english-learning:create",
   );
-  const recipe = { title: "Tomato soup", servings: 4 } as const;
+  const lesson = {
+    term: "apple",
+    translation: "a fruit",
+    mastery: 0,
+  } as const;
   const inserted = yield* client.invokeMutation(
     mutationPath,
-    recipe,
+    lesson,
     requestKey,
   );
   if (
@@ -131,13 +129,13 @@ const runCookingWorkloadV1 = Effect.fn(
     typeof inserted.value !== "string"
   ) {
     return yield* Effect.die(new Error(
-      "The cooking workload did not publish an authoritative recipe id.",
+      "The English-learning workload did not publish an authoritative lesson id.",
     ));
   }
   const documentId = inserted.value;
   const replayedMutation = yield* client.invokeMutation(
     mutationPath,
-    recipe,
+    lesson,
     requestKey,
   );
   if (
@@ -146,33 +144,34 @@ const runCookingWorkloadV1 = Effect.fn(
     replayedMutation.value !== documentId
   ) {
     return yield* Effect.die(new Error(
-      "The cooking workload did not deterministically replay its mutation.",
+      "The English-learning workload did not replay its mutation.",
     ));
   }
 
   const firstRead = yield* client.invokeQuery(queryPath, { id: documentId });
-  requireRecipeDocument(firstRead, documentId);
+  requireLessonDocument(firstRead, documentId);
   const replayedRead = yield* client.invokeQuery(queryPath, { id: documentId });
-  requireRecipeDocument(replayedRead, documentId);
+  requireLessonDocument(replayedRead, documentId);
   if (JSON.stringify(firstRead) !== JSON.stringify(replayedRead)) {
     return yield* Effect.die(new Error(
-      "The cooking workload did not deterministically replay its point query.",
+      "The English-learning workload did not replay its point query.",
     ));
   }
   return { documentId, mutationReplay: true, queryReplay: true };
 });
 
-function requireRecipeDocument(value: unknown, documentId: string): void {
+function requireLessonDocument(value: unknown, documentId: string): void {
   if (
     !isNonArrayRecord(value) ||
     value._id !== documentId ||
     typeof value._creationTime !== "number" ||
     !Number.isFinite(value._creationTime) ||
-    value.title !== "Tomato soup" ||
-    value.servings !== 4
+    value.term !== "apple" ||
+    value.translation !== "a fruit" ||
+    value.mastery !== 0
   ) {
     throw new Error(
-      "The cooking workload did not read the authoritative recipe document.",
+      "The English-learning workload did not read its authoritative lesson.",
     );
   }
 }

@@ -219,6 +219,7 @@ export interface Fsv04RegisteredRevisionFixtureInputV1 {
   readonly runtimeArtifacts: RuntimeArtifactPublisherFixtureV1;
   readonly physicalLocator?: ScopePhysicalLocator;
   readonly revisionVariant?: string;
+  readonly standardDefinitionInput?: StandardApplicationDefinitionInputV1;
   readonly provisionScope?: boolean;
 }
 
@@ -232,10 +233,11 @@ export async function prepareFsv04RegisteredRevisionFixtureV1(
   }
   const definition = Result.getOrThrow(
     prepareStandardApplicationDefinitionV1(
-      definitionInput(input.revisionVariant),
+      input.standardDefinitionInput ?? definitionInput(input.revisionVariant),
     ),
   );
-  const commandBudgetMaximum = input.revisionVariant?.startsWith("fsv06-") ||
+  const commandBudgetMaximum = input.standardDefinitionInput !== undefined ||
+      input.revisionVariant?.startsWith("fsv06-") ||
       input.revisionVariant?.startsWith("pqv-a2-") ||
       input.revisionVariant?.startsWith("sap05-") ||
       input.revisionVariant?.startsWith("sap06-") ||
@@ -1362,9 +1364,6 @@ async function provisionRegistrationScope(
 function definitionInput(
   revisionVariant?: string,
 ): StandardApplicationDefinitionInputV1 {
-  if (revisionVariant === "sac01-cooking-app") {
-    return sac01CookingApplicationDefinitionInput();
-  }
   if (revisionVariant?.startsWith("aav-a1-")) {
     return aavA1DefinitionInput();
   }
@@ -1481,148 +1480,6 @@ function definitionInput(
         artifactModulePath: "orders.js",
       }],
       executionPath: "orders.js",
-      schemaPath: null,
-      authPath: null,
-    },
-  };
-}
-
-function sac01CookingApplicationDefinitionInput():
-  StandardApplicationDefinitionInputV1 {
-  return {
-    programBudgetInput: {
-      maximumModules: 2,
-      maximumFunctions: 2,
-      maximumIdentifierUtf8Bytes: 4_096,
-      maximumValidatorNodes: 512,
-      maximumValidatorDepth: 32,
-      maximumValidatorStringUtf8Bytes: 4_096,
-    },
-    programInput: {
-      format: "flarex.declarative-program/v1",
-      version: 1,
-      schema: {
-        tables: [{
-          logicalName: "recipes",
-          definition: {
-            kind: "appDocument",
-            definitionVersion: 1,
-            documentType: {
-              type: "object",
-              value: {
-                title: {
-                  fieldType: { type: "string" },
-                  optional: false,
-                },
-                servings: {
-                  fieldType: { type: "number" },
-                  optional: false,
-                },
-              },
-            },
-          },
-        }],
-        indexes: [],
-      },
-      modules: [{
-        modulePath: "recipeCommands",
-        functions: [{
-          exportName: "create",
-          kind: "mutation",
-          visibility: "public",
-          argsValidator: {
-            type: "object",
-            value: {
-              title: {
-                optional: false,
-                fieldType: { type: "string" },
-              },
-              servings: {
-                optional: false,
-                fieldType: { type: "number" },
-              },
-            },
-          },
-          returnsValidator: { type: "id", tableName: "recipes" },
-        }],
-      }, {
-        modulePath: "recipes",
-        functions: [{
-          exportName: "get",
-          kind: "query",
-          visibility: "public",
-          argsValidator: {
-            type: "object",
-            value: {
-              id: {
-                optional: false,
-                fieldType: { type: "string" },
-              },
-            },
-          },
-          returnsValidator: {
-            type: "union",
-            value: [{
-              type: "object",
-              value: {
-                _id: {
-                  optional: false,
-                  fieldType: { type: "id", tableName: "recipes" },
-                },
-                _creationTime: {
-                  optional: false,
-                  fieldType: { type: "number" },
-                },
-                title: {
-                  optional: false,
-                  fieldType: { type: "string" },
-                },
-                servings: {
-                  optional: false,
-                  fieldType: { type: "number" },
-                },
-              },
-            }, { type: "null" }],
-          },
-        }],
-      }],
-    },
-    materializationBudgetInput: {
-      maximumModules: 2,
-      maximumEntryBindings: 2,
-      maximumSourceBytes: 8_192,
-      maximumSourceMapBytes: 1_024,
-      maximumBytesMaterialized: 64_000,
-      maximumSemanticRecords: 64,
-      maximumSemanticRecordBytes: 8_000,
-      maximumSemanticStreamBytes: 32_000,
-    },
-    graphInput: {
-      modules: [{
-        path: "recipeMutation",
-        roles: ["function", "execution"],
-        sourceBytes: UTF8.encode(
-          'import{databaseInsert}from"flarex:platform";' +
-            'export function create(_,a){return databaseInsert("recipes",a)}',
-        ),
-        sourceMapBytes: null,
-      }, {
-        path: "recipeQuery",
-        roles: ["function"],
-        sourceBytes: UTF8.encode(
-          'import{databaseGet}from"flarex:platform";' +
-            'export function get(_,a){return databaseGet(a.id)}',
-        ),
-        sourceMapBytes: null,
-      }],
-      functionEntries: [{
-        logicalModulePath: "recipeCommands",
-        artifactModulePath: "recipeMutation",
-      }, {
-        logicalModulePath: "recipes",
-        artifactModulePath: "recipeQuery",
-      }],
-      executionPath: "recipeMutation",
       schemaPath: null,
       authPath: null,
     },

@@ -278,6 +278,15 @@ generic fixture API, controlled database escape hatch, or deterministic model
 simulator. Its matching genuine-PostgreSQL lane remains an explicit acceptance
 gate rather than an inferred property of the PGlite result.
 
+`SAC01-F2a` now factors that exact lifecycle/invocation composition into one
+test-owned runner and proves the same relation-free public mutation/query
+surface with independent cooking and English-learning definitions. The runner
+remains local to persistence tests and accepts workload Effects rather than a
+public or serializable workload language. It does not yet authorize
+`flarex-test` adoption, controlled setup/inspection, identity, actions,
+scheduling, or a deterministic model simulator. Its two genuine-PostgreSQL
+cases remain explicit open acceptance evidence.
+
 Roadmap 41's completed `SAC01-P` preflight accepts a first pure definition and
 corpus seed local to backend tests only. That test fixture is not a stable
 package API, live harness, or adoption surface for `flarex-test`.

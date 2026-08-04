@@ -332,6 +332,12 @@ Named Flarex differences are:
   workload, not a reference model, controlled scheduler, simulator, or
   genuine-PostgreSQL result. Its matching PostgreSQL lane is named and
   fail-closed but remains open until run with an authenticated database URL.
+- `SAC01-F2a` reusable private lifecycle/invocation composition for independent
+  cooking and English-learning definitions and workload Effects over the same
+  real Standard mutation/query owners. Both PGlite consumers pass. This is
+  cross-application integration reuse, not a serializable history corpus,
+  reference model, controlled scheduler, shrinker, or concurrent
+  multi-application environment; its matching PostgreSQL cases remain open.
 - Effect runtime-boundary static enforcement and its own regression tests.
 
 ## Known Gaps And Limitations
@@ -355,9 +361,10 @@ Named Flarex differences are:
 - There is no browser-run Vite/WebSocket end-to-end lane, multi-browser matrix,
   SSR/Next.js lane, or reconnect/network-loss client suite.
 - There is no deterministic simulator, reference model, controlled scheduler,
-  shrinking, or generated history corpus. `SAC01-F1` now provides one fixed
-  real-path PGlite replay workload, but it does not close those simulation
-  gaps.
+  shrinking, or generated history corpus. `SAC01-F1` and `SAC01-F2a` now
+  provide two independent real-path PGlite replay workloads through a reusable
+  composition operation, but workload policy remains code-owned and does not
+  close those simulation gaps.
 - Current fault coverage is hand-authored. It does not systematically explore
   crashes between commit/outbox/notify, service-binding loss, delayed/duplicate
   delivery, artifact eviction, DO restart, or recovery catch-up.

@@ -1,3 +1,6 @@
+import type {
+  StandardApplicationDefinitionInputV1,
+} from "@flarex/standard-application-definition/v1";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
   canonicalizeAppDocumentV1,
@@ -58,7 +61,6 @@ import {
 import {
   makeRuntimeArtifactPublisherFixtureV1,
 } from "./runtimeArtifactPublisherFixture";
-
 type Persistence = PGliteFlarexPersistence | PostgresFlarexPersistence;
 
 export const FSV05_SUPPORTED_LOCATOR = Object.freeze({
@@ -679,6 +681,7 @@ export async function prepareFsv05ReadyRevisionFixtureV1(
   artifacts: ReturnType<typeof makeRuntimeArtifactPublisherFixtureV1>,
   variant: string | undefined,
   provisionScope: boolean,
+  standardDefinitionInput?: StandardApplicationDefinitionInputV1,
 ) {
   const registered = await prepareFsv04RegisteredRevisionFixtureV1({
     name: lane.name,
@@ -687,6 +690,9 @@ export async function prepareFsv05ReadyRevisionFixtureV1(
     runtimeArtifacts: artifacts,
     physicalLocator: FSV05_SUPPORTED_LOCATOR,
     ...(variant === undefined ? {} : { revisionVariant: variant }),
+    ...(standardDefinitionInput === undefined
+      ? {}
+      : { standardDefinitionInput }),
     provisionScope,
   }).catch(cause => {
     throw new Error(`FSV05 could not prepare revision ${variant ?? "base"}.`, {
