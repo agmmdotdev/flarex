@@ -22,6 +22,12 @@ import {
   invokeApplicationPointQueryV1,
   type InvokeApplicationPointQueryV1Error,
 } from "./querySystemV1";
+import {
+  ApplicationActionSystemV1,
+  invokeApplicationActionV1,
+  type InvokeApplicationActionV1Error,
+  type InvokeApplicationActionV1Result,
+} from "./actionSystemV1";
 
 export interface StandardApplicationActiveRevisionReaderV1Api {
   readonly read: ReturnType<typeof makeRead>;
@@ -41,6 +47,10 @@ export type InvokeStandardApplicationPointMutationV1Error =
 export type InvokeStandardApplicationPointQueryV1Error =
   | ReadActiveApplicationRevisionV1Error
   | InvokeApplicationPointQueryV1Error;
+
+export type InvokeStandardApplicationActionV1Error =
+  | ReadActiveApplicationRevisionV1Error
+  | InvokeApplicationActionV1Error;
 
 /**
  * SAP04 thin consumer. It reads one coherent active revision and delegates to
@@ -96,6 +106,33 @@ export const invokeStandardApplicationPointQueryV1 = Effect.fn(
   );
 });
 
+/**
+ * SAP07 thin consumer. It selects one coherent active revision and delegates
+ * to the private route-independent action System operation.
+ */
+export const invokeStandardApplicationActionV1 = Effect.fn(
+  "StandardApplication.invokeActionV1",
+)(function* (
+  functionRef: TransactionFunctionPathV1,
+  args: unknown,
+  requestKey: TransactionRequestKeyV1,
+): Effect.fn.Return<
+  InvokeApplicationActionV1Result,
+  InvokeStandardApplicationActionV1Error,
+  | StandardApplicationActiveRevisionReaderV1
+  | ApplicationActionSystemV1
+  | Scope.Scope
+> {
+  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const active = yield* reader.read;
+  return yield* invokeApplicationActionV1(
+    active.selection,
+    functionRef,
+    args,
+    requestKey,
+  );
+});
+
 export function makeStandardApplicationActiveRevisionReaderV1Layer(
   context: ApplicationRevisionActivationContextV1,
 ): Layer.Layer<StandardApplicationActiveRevisionReaderV1> {
@@ -114,3 +151,8 @@ function makeRead(context: ApplicationRevisionActivationContextV1) {
 export {
   type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
 } from "./systemV1";
+export type {
+  CompletedApplicationActionV1,
+  InvokeApplicationActionV1Result,
+  NonCompletedApplicationActionV1,
+} from "./actionSystemV1";

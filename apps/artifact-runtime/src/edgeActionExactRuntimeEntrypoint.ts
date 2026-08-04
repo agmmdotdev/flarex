@@ -2,6 +2,10 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { Effect, Exit } from "effect";
 import type { EdgeActionExactRuntimeWorkerDefinitionV1 } from
   "flarex-backend/internal/candidate-bound-edge-action-runtime-target-v1";
+import type {
+  EdgeActionExactRuntimeArtifactHostResultV1 as BackendEdgeActionExactRuntimeArtifactHostResultV1,
+} from
+  "flarex-backend/internal/edge-action-route-independent-coordinator-v1";
 import {
   decodeEdgeActionExactRuntimeRequestV1Effect,
   decodeEdgeActionExactRuntimeResultV1Effect,
@@ -58,23 +62,7 @@ export interface EdgeActionExactRuntimeArtifactHostEnvV1 {
 }
 
 export type EdgeActionExactRuntimeArtifactHostResultV1 =
-  | Readonly<{
-      readonly kind: "success";
-      readonly result: EdgeActionExactRuntimeResultV1;
-    }>
-  | Readonly<{
-      readonly kind: "failure";
-      readonly reason:
-        | "authorityFailed"
-        | "invalidRequest"
-        | "workerLoadFailed"
-        | "callbackFailed"
-        | "userCodeFailed"
-        | "invalidResult"
-        | "timedOut"
-        | "cancelled"
-        | "cleanupUncertain";
-    }>;
+  BackendEdgeActionExactRuntimeArtifactHostResultV1;
 
 interface ExpectedHostError {
   readonly _tag: "EdgeActionArtifactHostExpectedError";

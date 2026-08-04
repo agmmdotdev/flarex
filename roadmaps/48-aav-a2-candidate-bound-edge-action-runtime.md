@@ -427,7 +427,7 @@ preserve the exact candidate across callbacks.
 
 ## Next Gate
 
-AAV-A2 acceptance stops at this checkpoint. The next separate gate is SAP07:
-the private route-independent Standard public action
-and its developer-visible analyzer/runtime surface. Durable-task compute-host
-integration remains independent and later.
+AAV-A2 acceptance stopped at this checkpoint. The separately gated private
+route-independent SAP07 Standard public-action composition is also accepted
+and complete. This AAV-A2 record still does not authorize FSV07,
+routing, schedules, or durable-task compute-host integration.

@@ -50,7 +50,10 @@ both mandatory exact-final reviewers reported no findings. The separate AAV-A2
 private implementation is now supplied by
 [`48-aav-a2-candidate-bound-edge-action-runtime.md`](./48-aav-a2-candidate-bound-edge-action-runtime.md),
 and both mandatory exact-final reviewers reported no findings. The final
-private `SAP07` operation remains unimplemented.
+private `SAP07` operation is accepted and complete, and both mandatory exact-
+final reviewers reported no findings: one
+route-independent public action composes the existing active reader, AAV-A1,
+AAV-A2, and R2 body ownership without adding a route or another lifecycle.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -597,7 +600,7 @@ checker in roadmap 16. It must not mark that broader gate complete.
 | `SAP06-A3` | **Complete privately:** public/internal mutations call authenticated same-candidate internal mutations inline | One combined internal-call target/profile/ABI preserves SAP06-A2 `runQuery`, the same journal/overlay/OCC/outcome, no child publication, and the accepted no-child-savepoint first-slice semantics |
 | `AAV-A1` | **Accepted and complete privately:** direct edge-action request/outcome plus shared external-effect uncertainty evidence | Four private identities, R2-only body ownership, exactly two new tables, short transactions, crash/replay/cancellation rules, distinct direct-action/task-attempt subjects, and no duplication of Task System run/attempt/orchestration state |
 | `AAV-A2` | **Accepted and complete privately:** candidate-bound exact `action-edge` runtime and authenticated outbound/query/mutation callback bridge | Separate target/profile/syscall ABI, canonical host policy, verified R2 materialization, fresh Worker Loader execution, controlled egress, and AAV-A1-backed child-mutation evidence are implemented without widening query/mutation identities or implementing SAP07 |
-| `SAP07` | One private, route-independent public Standard edge action | `AAV-A1` and `AAV-A2` complete; no FSV07 route, internal action, `runAction`, schedule, Node host, or public SDK is implied |
+| `SAP07` | **Accepted and complete privately:** one route-independent public Standard edge action | Existing active selection, AAV-A1 request/outcome and expiry-recovery authority, AAV-A2 opaque host dispatch, and R2 result replay compose through `ApplicationActionSystemV1` plus a thin Standard consumer; no FSV07 route, internal action, `runAction`, schedule, Node host, or public SDK is implied |
 | Later separately gated operations | Add workflow and schedule operations individually | each capability has an implemented owner contract and focused preflight; query-to-mutation and query/mutation-to-action remain forbidden |
 
 Stop and amend this roadmap before implementation if a slice would create a

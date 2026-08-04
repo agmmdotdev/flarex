@@ -1,6 +1,9 @@
 import type {
   AuthenticatedActiveApplicationRevisionSelectionV1,
 } from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+import type {
+  DirectActionExecutionSubjectCapabilityV1,
+} from "@flarex/persistence-postgres/internal/application-action-authority-v1";
 import {
   claimCandidateBoundEdgeActionRuntimeTargetV1,
   type EdgeActionExactRuntimeWorkerDefinitionV1,
@@ -31,6 +34,14 @@ import {
 } from "./edgeActionOutboundGatewayV1";
 import { makeEdgeActionHostSyscallSequencerV1 } from
   "./edgeActionHostSyscallSequencerV1";
+import {
+  issueActiveApplicationEdgeActionSettlementV1 as issueSettlement,
+  revokeActiveApplicationEdgeActionSettlementV1,
+  type ActiveApplicationEdgeActionSettlementV1,
+} from "./edgeActionSettlementCapabilityV1";
+
+export type { ActiveApplicationEdgeActionSettlementV1 } from
+  "./edgeActionSettlementCapabilityV1";
 
 declare const capabilityBundleBrand: unique symbol;
 export interface ActiveApplicationEdgeActionCapabilityBundleV1 {
@@ -70,9 +81,11 @@ export class InvalidActiveApplicationEdgeActionCapabilityBundleV1Error
 
 interface BundleStateV1 {
   readonly claim: ActiveApplicationEdgeActionArtifactHostClaimV1;
+  readonly subject: DirectActionExecutionSubjectCapabilityV1;
 }
 
 const bundleStates = new WeakMap<object, BundleStateV1>();
+const settlementIssuedBundles = new WeakSet<object>();
 
 /**
  * The sole AAV-A2 callback/outbound composition owner. Both capabilities are
@@ -142,6 +155,7 @@ export const issueActiveApplicationEdgeActionCapabilityBundleV1 = Effect.fn(
       callback,
       outbound,
     }),
+    subject: preparedState.execution.subject,
   });
   return yield* Effect.acquireRelease(
     Effect.sync(() => {
@@ -174,6 +188,33 @@ export function claimActiveApplicationEdgeActionArtifactHostDispatchV1(
   bundleStates.delete(bundle);
   return Result.succeed(state.claim);
 }
+
+/**
+ * Issues the only terminal-settlement capability before the host consumes the
+ * dispatch bundle. It carries no persistence or execution-subject surface.
+ */
+export const issueActiveApplicationEdgeActionSettlementCapabilityV1 =
+  Effect.fn("ActiveApplicationEdgeActionSettlement.issueV1")(function* (
+    bundle: ActiveApplicationEdgeActionCapabilityBundleV1,
+  ): Effect.fn.Return<
+    ActiveApplicationEdgeActionSettlementV1,
+    InvalidActiveApplicationEdgeActionCapabilityBundleV1Error,
+    Scope.Scope
+  > {
+    const state = bundleStates.get(bundle);
+    if (state === undefined || settlementIssuedBundles.has(bundle)) {
+      return yield* new InvalidActiveApplicationEdgeActionCapabilityBundleV1Error({
+        reason: "notIssuedOrAlreadyClaimed",
+      });
+    }
+    settlementIssuedBundles.add(bundle);
+    return yield* Effect.acquireRelease(
+      Effect.sync(() => issueSettlement(state.subject)),
+      settlement => Effect.sync(() => {
+        revokeActiveApplicationEdgeActionSettlementV1(settlement);
+      }),
+    );
+  });
 
 function invalidBundle(): Result.Result<
   never,

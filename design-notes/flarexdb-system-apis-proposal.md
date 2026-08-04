@@ -853,10 +853,14 @@ failures remain distinct. Defects and full Cause are not normalized into the
 ordinary error channel.
 
 The separately approved AAV-A1 implementation owns its exact two-table schema.
-The AAV-A2 identities and implementation boundary now have an accepted private
-implementation. This
-proposal does not authorize `SAP07`, FSV07, routing, a public SDK, Node actions,
-schedules, or durable-task host integration. AAV-A1 proves compatibility with
+The AAV-A2 identities and implementation boundary have an accepted private
+implementation. SAP07 now supplies the separately gated private
+`ApplicationActionSystemV1` and thin Standard public-action consumer. Both
+mandatory exact-final reviewers reported no findings. It reuses AAV-A1
+settlement, database-time expiry recovery, and R2 bodies and transfers
+only the existing AAV-A2 opaque host bundle. This proposal does not authorize
+FSV07, routing, a public SDK, Node actions, schedules, or durable-task host
+integration. AAV-A1 proves compatibility with
 the admitted durable-task domain and pins the absence of duplicate
 run/attempt/effect authority. See
 [`../roadmaps/46-private-standard-edge-action-vertical.md`](../roadmaps/46-private-standard-edge-action-vertical.md)

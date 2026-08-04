@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const operations = vi.hoisted(() => ({
   claimExecution: vi.fn(),
+  settleExecution: vi.fn(),
   revokeExecution: vi.fn(),
   prepareTarget: vi.fn(),
   claimTarget: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock(
   async importOriginal => ({
     ...await importOriginal<Readonly<Record<string, unknown>>>(),
     claimDirectActionExecutionV1: operations.claimExecution,
+    settleDirectActionInvocationV1: operations.settleExecution,
     revokeDirectActionExecutionSubjectV1: operations.revokeExecution,
   }),
 );
@@ -28,12 +30,15 @@ vi.mock(
 
 import {
   prepareActiveApplicationEdgeActionDispatchV1,
+  settleActiveApplicationEdgeActionV1,
+  type ActiveApplicationActionEvidenceLiveV1,
   type ActiveApplicationEdgeActionDispatchLiveV1,
   type PrepareActiveApplicationEdgeActionDispatchV1Input,
 } from "../src/actionAdmissionSystemV1";
 import {
   claimActiveApplicationEdgeActionArtifactHostDispatchV1,
   issueActiveApplicationEdgeActionCapabilityBundleV1,
+  issueActiveApplicationEdgeActionSettlementCapabilityV1,
   type ActiveApplicationEdgeActionCapabilityBundleLiveV1,
 } from "../src/edgeActionDispatchCapabilityBundleV1";
 import type { AuthenticatedActiveApplicationRevisionSelectionV1 } from
@@ -46,6 +51,7 @@ import {
 describe("active application edge-action dispatch composition v1", () => {
   beforeEach(() => {
     operations.claimExecution.mockReset();
+    operations.settleExecution.mockReset();
     operations.revokeExecution.mockReset();
     operations.prepareTarget.mockReset();
     operations.claimTarget.mockReset();
@@ -69,8 +75,13 @@ describe("active application edge-action dispatch composition v1", () => {
       definition: fixture.definition,
       hostPolicy: fixture.hostPolicy,
     }));
+    operations.settleExecution.mockReturnValue(Effect.succeed({
+      ...fixture.execution.invocation,
+      lifecycle: "failed",
+      terminalCode: "edge_action_userCodeFailed",
+    }));
 
-    const { claim, replay } = await Effect.runPromise(Effect.scoped(
+    const { claim, replay, settled, settlementReplay } = await Effect.runPromise(Effect.scoped(
       Effect.gen(function* () {
         const prepared = yield* prepareActiveApplicationEdgeActionDispatchV1(
         input,
@@ -82,11 +93,35 @@ describe("active application edge-action dispatch composition v1", () => {
           fixture.bundleLive as unknown as
             ActiveApplicationEdgeActionCapabilityBundleLiveV1<never, never>,
         );
+        const settlement =
+          yield* issueActiveApplicationEdgeActionSettlementCapabilityV1(bundle);
         const claim = claimActiveApplicationEdgeActionArtifactHostDispatchV1(
           bundle,
         );
+        const settled = yield* settleActiveApplicationEdgeActionV1(
+          settlement,
+          {
+            lifecycle: "failed",
+            terminalCode: "edge_action_userCodeFailed",
+          },
+          fixture.bundleLive.evidence as unknown as
+            ActiveApplicationActionEvidenceLiveV1<never, never>,
+        );
+        const settlementReplay = yield* Effect.result(
+          settleActiveApplicationEdgeActionV1(
+            settlement,
+            {
+              lifecycle: "failed",
+              terminalCode: "edge_action_userCodeFailed",
+            },
+            fixture.bundleLive.evidence as unknown as
+              ActiveApplicationActionEvidenceLiveV1<never, never>,
+          ),
+        );
         return {
           claim,
+          settled,
+          settlementReplay,
           replay: claimActiveApplicationEdgeActionArtifactHostDispatchV1(bundle),
         };
       }),
@@ -133,6 +168,16 @@ describe("active application edge-action dispatch composition v1", () => {
       });
     }
     expect(Result.isFailure(replay)).toBe(true);
+    expect(settled.lifecycle).toBe("failed");
+    expect(Result.isFailure(settlementReplay)).toBe(true);
+    expect(operations.settleExecution).toHaveBeenCalledWith(
+      fixture.execution.subject,
+      {
+        lifecycle: "failed",
+        terminalCode: "edge_action_userCodeFailed",
+      },
+      fixture.bundleLive.evidence.authority,
+    );
     expect(Result.isFailure(
       claimActiveApplicationEdgeActionArtifactHostDispatchV1({}),
     )).toBe(true);

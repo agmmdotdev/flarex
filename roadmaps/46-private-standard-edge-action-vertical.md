@@ -2,12 +2,13 @@
 
 ## Status And Decision
 
-**Status:** The docs-first action and AAV-A2 implementation preflights,
-durable-task ownership reconciliation, and private AAV-A1 implementation and
-acceptance are complete. The separately approved AAV-A2 private runtime is now
-accepted and complete privately, while the first executable
-Standard action vertical remains **not implemented**. Existing
-owners can authenticate an
+**Status:** AAV-A1, AAV-A2, and SAP07 are accepted and complete privately. Both
+mandatory exact-final reviewers reported no findings. The route-independent
+`ApplicationActionSystemV1` and thin Standard consumer compose the existing
+active-revision reader, AAV-A1 durable request/outcome authority, AAV-A2 opaque
+candidate-bound host bundle, and R2 result ownership without adding another
+schema, migration, route, trigger, or production caller. Existing owners can
+authenticate an
 `action` function, publish its `edge_action` projection to R2, settle cold-
 materialization readiness, and select the active revision. The admitted
 `@flarex/durable-task` domain owns task run/attempt lifecycle and sequenced
@@ -16,7 +17,7 @@ own user external-effect dispatch evidence. The new AAV-A1 owners now durably
 distinguish a confirmed pre-dispatch failure from an external effect that may
 have succeeded before its response was lost, without creating task lifecycle.
 
-The next separate implementation gate is:
+The implemented private gate is:
 
 > **`SAP07 - Private Route-Independent Standard Edge Action`**
 
@@ -38,8 +39,41 @@ final private Standard gate
 is named `SAP07` only in this roadmap and means **one route-independent public
 edge action**; it does not mean FSV07 production routing or a public SDK.
 
-No runtime code, schema, migration, generated artifact, route, binding,
-trigger, or production behavior was changed by this docs-only preflight.
+SAP07 adds no schema, migration, generated runtime identity, route, binding,
+trigger, or production behavior. It does not authorize FSV07 or durable-task
+host integration.
+
+## SAP07 Implementation Receipt
+
+The private implementation adds:
+
+- `ApplicationActionSystemV1`, whose scoped operation admits the exact public
+  action request, prepares the AAV-A2 candidate target, issues one opaque host
+  bundle and one opaque settlement capability, and publishes or replays the
+  durable AAV-A1 outcome;
+- `invokeStandardApplicationActionV1`, a thin consumer of the existing
+  Scope-owned active-revision reader;
+- a private backend coordinator that validates the route-independent artifact-
+  host result while preserving rejected host Promises as defects; and
+- focused unit, Workerd-regression, and migrated-PGlite composition evidence.
+
+The PGlite proof selects a real activated revision, claims its real registered
+`actions:send` entry and content-addressed `edge_action` target, transfers the
+opaque bundle once, stores canonical arguments and result bodies only in the
+R2 adapter, persists one invocation row with no byte columns, and replays the
+completed result without a second host execution. It also proves database-time
+expiry recovery: an execution with no possible dispatch returns to `admitted`
+and completes, while durable outbound-dispatch evidence settles the parent as
+`uncertain` without another Worker. Request-key inspection precedes new active-
+revision admission, so a completed pinned outcome remains replayable after an
+active revision changes, while an admitted retry dispatches only when scope,
+revision, candidate, action binding, compatibility date, and host-policy
+authority still match. The existing AAV-A2 Workerd
+tests remain the sandbox/global-fetch/fixed-time/deterministic-random proof;
+the accepted analyzer capability matrix remains unchanged and continues to
+forbid action database access and to expose only authenticated query/mutation
+nested calls. SAP07 does not add `runAction`, timers, scheduler, storage,
+nondeterministic crypto, or an internal-action root.
 
 ## Sources Of Truth
 
@@ -410,7 +444,7 @@ identities would change.
   publication owners; and
 - focused unit, Workerd, PGlite/PostgreSQL, and roadmap updates.
 
-### `SAP07` likely allowlist
+### `SAP07` implementation allowlist
 
 - private System action service and thin Standard consumer beside the current
   query/mutation composers;
@@ -496,6 +530,6 @@ This plan does not authorize:
 
 ## Next Gate
 
-AAV-A2 is accepted and complete privately. Stop at this checkpoint. The next
-separate gate is `SAP07`; do not start FSV07, routes, schedules, or durable-task
-host integration from AAV-A2 acceptance.
+SAP07 is accepted and complete privately. Stop at this
+checkpoint. Do not start FSV07, routes, schedules, or durable-task host
+integration from SAP07 completion; each requires its own current roadmap gate.

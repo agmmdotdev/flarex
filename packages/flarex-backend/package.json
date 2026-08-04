@@ -18,6 +18,7 @@
     "./internal/execution-evidence-body-r2-v1": "./src/executionEvidence/ExecutionEvidenceBodyStoreV1.ts",
     "./internal/candidate-bound-point-mutation-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationRuntimeTargetV1.ts",
     "./internal/candidate-bound-edge-action-runtime-target-v1": "./src/artifactRuntime/CandidateBoundEdgeActionRuntimeTargetV1.ts",
+    "./internal/edge-action-route-independent-coordinator-v1": "./src/artifactRuntime/EdgeActionRouteIndependentCoordinatorV1.ts",
     "./internal/candidate-bound-point-query-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointQueryRuntimeTargetV1.ts",
     "./internal/candidate-bound-point-query-internal-call-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointQueryInternalCallRuntimeTargetV1.ts",
     "./internal/candidate-bound-point-mutation-internal-query-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationInternalQueryRuntimeTargetV1.ts",

@@ -6,8 +6,10 @@ import {
   confirmExternalEffectAttemptV1,
   declareExternalEffectDispatchV1,
   failExternalEffectBeforeDispatchV1,
+  inspectDirectActionInvocationV1,
   markExternalEffectUncertainV1,
   prepareExternalEffectAttemptV1,
+  recoverExpiredDirectActionExecutionV1,
   revokeDirectActionExecutionSubjectV1,
   settleDirectActionInvocationV1,
   type ApplicationActionAuthorityContextV1,
@@ -64,6 +66,14 @@ import {
   revokePreparedActiveApplicationEdgeActionDispatchV1,
   type PreparedActiveApplicationEdgeActionDispatchV1,
 } from "./edgeActionPreparedDispatchStateV1";
+import {
+  inspectActiveApplicationEdgeActionSettlementV1,
+  revokeActiveApplicationEdgeActionSettlementV1,
+  type ActiveApplicationEdgeActionSettlementV1,
+} from "./edgeActionSettlementCapabilityV1";
+
+export type { ActiveApplicationEdgeActionSettlementV1 } from
+  "./edgeActionSettlementCapabilityV1";
 
 export type { PreparedActiveApplicationEdgeActionDispatchV1 } from
   "./edgeActionPreparedDispatchStateV1";
@@ -110,6 +120,60 @@ export interface ActiveApplicationActionEvidenceLiveV1<
   readonly bodyBudget: ExecutionEvidenceBodyBudgetV1;
   readonly authority: ApplicationActionAuthorityContextV1<HashError>;
 }
+
+/** Reads the existing request-key owner without selecting a new revision. */
+export const inspectActiveApplicationActionInvocationV1 = Effect.fn(
+  "ActiveApplicationActionAdmission.inspectV1",
+)(function* <HashError>(
+  requestKey: string,
+  authority: ApplicationActionAuthorityContextV1<HashError>,
+): Effect.fn.Return<
+  ApplicationActionInvocationProjectionV1,
+  ApplicationActionAuthorityV1Error<HashError>
+> {
+  return yield* inspectDirectActionInvocationV1(requestKey, authority);
+});
+
+/** Delegates expiry and dispatch-uncertainty decisions to the AAV-A1 owner. */
+export const recoverExpiredActiveApplicationActionExecutionV1 = Effect.fn(
+  "ActiveApplicationActionAdmission.recoverExpiredV1",
+)(function* <HashError>(
+  requestKey: string,
+  authority: ApplicationActionAuthorityContextV1<HashError>,
+): Effect.fn.Return<
+  ApplicationActionInvocationProjectionV1,
+  ApplicationActionAuthorityV1Error<HashError>
+> {
+  return yield* recoverExpiredDirectActionExecutionV1(requestKey, authority);
+});
+
+/** Proves that a stored admitted request still names the current exact target. */
+export const isActiveApplicationActionInvocationTargetCurrentV1 = Effect.fn(
+  "ActiveApplicationActionAdmission.isTargetCurrentV1",
+)(function* (
+  invocation: ApplicationActionInvocationProjectionV1,
+  selection: AuthenticatedActiveApplicationRevisionSelectionV1,
+  functionPath: string,
+  compatibilityDate: string,
+  hostPolicySha256: Uint8Array,
+): Effect.fn.Return<
+  boolean,
+  ClaimApplicationRevisionActionRuntimeTargetAuthorityV1Error
+> {
+  const target = yield* claimApplicationRevisionActionRuntimeTargetAuthorityV1(
+    selection,
+    functionPath,
+  );
+  return invocation.scopeId === target.scopeAuthority.scopeId &&
+    invocation.applicationRevisionId ===
+      target.metadata.applicationRevisionId &&
+    bytesEqualFullScan(invocation.candidateSha256, target.candidateSha256) &&
+    bytesEqualFullScan(
+      invocation.actionBindingSha256,
+      target.function.entryReference.sha256,
+    ) && invocation.compatibilityDate === compatibilityDate &&
+    bytesEqualFullScan(invocation.hostPolicySha256, hostPolicySha256);
+});
 
 export interface ActiveApplicationActionEffectRunnerV1 {
   readonly runPromise: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
@@ -158,6 +222,28 @@ export type PrepareActiveApplicationEdgeActionDispatchV1Error<
 export type ActiveApplicationActionEvidenceV1Error<HashError, CanonicalError> =
   | ExecutionEvidenceBodyStoreV1Error<HashError, CanonicalError>
   | ApplicationActionAuthorityV1Error<HashError>;
+
+export class InvalidActiveApplicationEdgeActionSettlementV1Error
+  extends Data.TaggedError(
+    "InvalidActiveApplicationEdgeActionSettlementV1Error",
+  )<{ readonly reason: "notIssuedOrAlreadySettled" }> {}
+
+export type SettleActiveApplicationEdgeActionV1Outcome =
+  | Readonly<{
+      readonly lifecycle: "completed";
+      readonly resultValue: CanonicalFlarexValueV1;
+    }>
+  | Readonly<{
+      readonly lifecycle: "failed" | "uncertain" | "cancelled";
+      readonly terminalCode: string;
+    }>;
+
+export type SettleActiveApplicationEdgeActionV1Error<
+  HashError,
+  CanonicalError,
+> =
+  | InvalidActiveApplicationEdgeActionSettlementV1Error
+  | ActiveApplicationActionEvidenceV1Error<HashError, CanonicalError>;
 
 /**
  * Private AAV-A2 composition. It claims the existing AAV-A1 execution subject,
@@ -527,4 +613,43 @@ export const completeActiveApplicationActionV1 = Effect.fn(
     { lifecycle: "completed", result },
     live.authority,
   );
+});
+
+/**
+ * SAP07's sole opaque terminalization bridge. Failed owner transitions leave
+ * the capability usable for the narrow failed-to-uncertain fallback; success
+ * consumes it exactly once.
+ */
+export const settleActiveApplicationEdgeActionV1 = Effect.fn(
+  "ActiveApplicationEdgeActionSettlement.settleV1",
+)(function* <HashError, CanonicalError>(
+  settlement: ActiveApplicationEdgeActionSettlementV1,
+  outcome: SettleActiveApplicationEdgeActionV1Outcome,
+  live: ActiveApplicationActionEvidenceLiveV1<HashError, CanonicalError>,
+): Effect.fn.Return<
+  ApplicationActionInvocationProjectionV1,
+  SettleActiveApplicationEdgeActionV1Error<HashError, CanonicalError>
+> {
+  const subject = inspectActiveApplicationEdgeActionSettlementV1(settlement);
+  if (subject === undefined) {
+    return yield* new InvalidActiveApplicationEdgeActionSettlementV1Error({
+      reason: "notIssuedOrAlreadySettled",
+    });
+  }
+  const projection = outcome.lifecycle === "completed"
+    ? yield* completeActiveApplicationActionV1(
+        subject,
+        outcome.resultValue,
+        live,
+      )
+    : yield* settleDirectActionInvocationV1(
+        subject,
+        Object.freeze({
+          lifecycle: outcome.lifecycle,
+          terminalCode: outcome.terminalCode,
+        }),
+        live.authority,
+      );
+  revokeActiveApplicationEdgeActionSettlementV1(settlement);
+  return projection;
 });
