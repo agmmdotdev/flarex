@@ -142,14 +142,14 @@ DTE04-A2a must prove:
 6. no `TaskIdV1`, tenant, deployment, scope, locator, SQL, Drizzle, Prisma,
    Cloudflare, or object-store client enters the new package surface.
 
-## Remaining DTE04-A2b Blocker
+## DTE04-A2b Handoff Resolution
 
-This checkpoint does not close DTE04-A2. DTE04-A2b must still implement, in
-the Standard Application owners, the canonical task catalog and `TaskIdV1`,
+This checkpoint alone did not close DTE04-A2. DTE04-A2b now implements, in the
+Standard Application owner, the canonical task catalog and `TaskIdV1`,
 `TaskDefinitionRuntimeBindingV1`, and
-`TaskRunCreationAuthorityReceiptV1`. DTE04-A3 remains closed until both halves
-are complete and their digest/correlation contract has one final admission
-receipt.
+`TaskRunCreationAuthorityReceiptV1`. Preflight 24 closes their digest and
+correlation contract, so both DTE04-A2 halves are complete and DTE04-A3 is the
+next admitted slice.
 
 ## Admission Receipt
 

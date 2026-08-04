@@ -6,6 +6,7 @@
     "src"
   ],
   "exports": {
+    "./internal/task-definition-v1": "./src/taskDefinition/v1.ts",
     "./v1": "./src/v1.ts"
   },
   "scripts": {
@@ -14,9 +15,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@flarex/analysis": "workspace:*",
     "@flarex/declarative-materializer": "workspace:*",
     "@flarex/declarative-program": "workspace:*",
-    "effect": "catalog:"
+    "@flarex/durable-task": "workspace:*",
+    "@flarex/utils": "workspace:*",
+    "effect": "catalog:",
+    "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
     "typescript": "catalog:",

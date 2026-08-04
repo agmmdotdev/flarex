@@ -50,14 +50,34 @@ const productionSourceExtensions = new Set([
   ".cjs",
 ]);
 const expectedRuntimeDependencies = new Map([
+  ["@flarex/analysis", "workspace:*"],
   ["@flarex/declarative-materializer", "workspace:*"],
   ["@flarex/declarative-program", "workspace:*"],
+  ["@flarex/durable-task", "workspace:*"],
+  ["@flarex/utils", "workspace:*"],
   ["effect", "catalog:"],
+  ["flarex-protocol", "workspace:*"],
 ]);
-const allowedProductionImports = new Set([
+const shippedDefinitionAllowedProductionImports = new Set([
   "@flarex/declarative-materializer/v1",
   "@flarex/declarative-program/v1",
   "effect",
+]);
+const taskDefinitionAllowedProductionImports = new Set([
+  ...shippedDefinitionAllowedProductionImports,
+  "@flarex/analysis/internal/private-sha256-v1",
+  "@flarex/durable-task/internal/run-attempt-v1",
+  "@flarex/utils/bytes",
+  "flarex-protocol/json",
+  "flarex-protocol/validator-json",
+]);
+const admittedDurableTaskDefinitionSymbols = new Set([
+  "RunAttemptPolicyV1",
+  "RunAttemptPolicyV1Schema",
+  "TaskComputeProfileRefV1",
+  "TaskComputeProfileRefV1Schema",
+  "TaskDefinitionRevisionIdV1",
+  "TaskDefinitionRevisionIdV1Schema",
 ]);
 const standardApplicationDefinitionSourceRoot =
   "packages/standard-application-definition/src";
@@ -93,7 +113,9 @@ if (isCliEntrypoint()) {
     process.exitCode = 1;
   } else {
     console.log("Standard Application definition boundary check passed.");
-    console.log("Allowed package exports: ./v1");
+    console.log(
+      "Allowed package exports: ./v1, ./internal/task-definition-v1",
+    );
     console.log(
       `Allowed runtime dependencies: ${expectedRuntimeDependencies.size}`,
     );
@@ -196,19 +218,22 @@ export function collectProductionSourceFiles(
 function collectExportErrors(exportsValue, errors) {
   if (!isRecord(exportsValue)) {
     errors.push(
-      "Standard Application definition package must expose only the explicit ./v1 subpath.",
+      "Standard Application definition package must expose only the explicit ./v1 and ./internal/task-definition-v1 subpaths.",
     );
     return;
   }
 
   const exportNames = Object.keys(exportsValue).sort();
   if (
-    exportNames.length !== 1
-    || exportNames[0] !== "./v1"
+    exportNames.length !== 2
+    || exportNames[0] !== "./internal/task-definition-v1"
+    || exportNames[1] !== "./v1"
+    || exportsValue["./internal/task-definition-v1"] !==
+      "./src/taskDefinition/v1.ts"
     || exportsValue["./v1"] !== "./src/v1.ts"
   ) {
     errors.push(
-      "Standard Application definition package must expose exactly ./v1 -> ./src/v1.ts and no package root.",
+      "Standard Application definition package must expose exactly ./v1 and ./internal/task-definition-v1 with no package root.",
     );
   }
 }
@@ -281,10 +306,21 @@ function collectSourceImportErrors(source, errors) {
 
   /** @type {Set<ts.Node>} */
   const visitedJsDoc = new Set();
+  const admittedDurableTaskLocalBindings = collectAdmittedDurableTaskLocalBindings(
+    sourceFile,
+  );
   visit(sourceFile);
 
   /** @param {ts.Node} node */
   function visit(node) {
+    if (isLocalBindingReExport(node, admittedDurableTaskLocalBindings)) {
+      const { line } = sourceFile.getLineAndCharacterOfPosition(
+        node.getStart(sourceFile),
+      );
+      errors.push(
+        `${source.relativePath}:${line + 1} re-exports an admitted durable-task binding.`,
+      );
+    }
     const moduleReference = moduleReferenceFromNode(node);
     if (moduleReference !== undefined) {
       if (moduleReference.kind === "nonLiteralDynamicImport") {
@@ -298,6 +334,7 @@ function collectSourceImportErrors(source, errors) {
           moduleReference.specifier,
           node.getStart(sourceFile),
         );
+        collectDurableTaskSymbolError(moduleReference.specifier, node);
       }
     }
 
@@ -345,6 +382,71 @@ function collectSourceImportErrors(source, errors) {
       `${source.relativePath}:${line + 1} uses a non-literal ${operation}.`,
     );
   }
+
+  /**
+   * @param {string} specifier
+   * @param {ts.Node} node
+   */
+  function collectDurableTaskSymbolError(specifier, node) {
+    if (
+      specifier !== "@flarex/durable-task/internal/run-attempt-v1"
+      || isAdmittedDurableTaskDefinitionImport(node)
+    ) {
+      return;
+    }
+    const { line } = sourceFile.getLineAndCharacterOfPosition(
+      node.getStart(sourceFile),
+    );
+    errors.push(
+      `${source.relativePath}:${line + 1} imports forbidden durable-task symbols from ${JSON.stringify(specifier)}.`,
+    );
+  }
+}
+
+/**
+ * @param {ts.SourceFile} sourceFile
+ * @returns {ReadonlySet<string>}
+ */
+function collectAdmittedDurableTaskLocalBindings(sourceFile) {
+  const bindings = new Set();
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement)
+      || statement.moduleSpecifier === undefined
+      || !ts.isStringLiteralLike(statement.moduleSpecifier)
+      || statement.moduleSpecifier.text !==
+        "@flarex/durable-task/internal/run-attempt-v1"
+      || !isAdmittedDurableTaskDefinitionImport(statement)
+    ) {
+      continue;
+    }
+    const namedImports = statement.importClause?.namedBindings;
+    if (namedImports !== undefined && ts.isNamedImports(namedImports)) {
+      for (const element of namedImports.elements) bindings.add(element.name.text);
+    }
+  }
+  return bindings;
+}
+
+/**
+ * @param {ts.Node} node
+ * @param {ReadonlySet<string>} importedBindings
+ */
+function isLocalBindingReExport(node, importedBindings) {
+  if (
+    ts.isExportDeclaration(node)
+    && node.moduleSpecifier === undefined
+    && node.exportClause !== undefined
+    && ts.isNamedExports(node.exportClause)
+  ) {
+    return node.exportClause.elements.some((element) =>
+      importedBindings.has(element.propertyName?.text ?? element.name.text)
+    );
+  }
+  return ts.isExportAssignment(node)
+    && !node.isExportEquals
+    && ts.isIdentifier(node.expression)
+    && importedBindings.has(node.expression.text);
 }
 
 /**
@@ -470,14 +572,19 @@ function isAllowedProductionImport(specifier, relativePath) {
   if (specifier.includes("\\")) {
     return false;
   }
-  if (allowedProductionImports.has(specifier)) {
+  const normalizedSourcePath = relativePath.replaceAll("\\", "/");
+  const allowedImports = normalizedSourcePath.startsWith(
+      `${standardApplicationDefinitionSourceRoot}/taskDefinition/`,
+    )
+    ? taskDefinitionAllowedProductionImports
+    : shippedDefinitionAllowedProductionImports;
+  if (allowedImports.has(specifier)) {
     return true;
   }
   if (!specifier.startsWith(".")) {
     return false;
   }
 
-  const normalizedSourcePath = relativePath.replaceAll("\\", "/");
   const resolvedImportPath = path.posix.normalize(path.posix.join(
     path.posix.dirname(normalizedSourcePath),
     specifier,
@@ -486,6 +593,24 @@ function isAllowedProductionImport(specifier, relativePath) {
     || resolvedImportPath.startsWith(
       `${standardApplicationDefinitionSourceRoot}/`,
     );
+}
+
+/** @param {ts.Node} node */
+function isAdmittedDurableTaskDefinitionImport(node) {
+  if (!ts.isImportDeclaration(node)) return false;
+  const clause = node.importClause;
+  if (
+    clause === undefined || clause.name !== undefined
+    || clause.namedBindings === undefined
+    || !ts.isNamedImports(clause.namedBindings)
+    || clause.namedBindings.elements.length === 0
+  ) {
+    return false;
+  }
+  return clause.namedBindings.elements.every((element) => {
+    const importedName = element.propertyName?.text ?? element.name.text;
+    return admittedDurableTaskDefinitionSymbols.has(importedName);
+  });
 }
 
 /**

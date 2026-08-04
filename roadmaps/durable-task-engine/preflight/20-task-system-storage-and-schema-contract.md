@@ -405,7 +405,7 @@ tree and journal. DTE04-A3 must:
 - contain no data backfill from Trigger tables, because none are authoritative
   Flarex state.
 
-## Decision Receipt And Remaining Prerequisites
+## Decision Receipt And Upstream Closure
 
 Closed on 2026-08-04:
 
@@ -418,7 +418,8 @@ Closed on 2026-08-04:
    time; and
 6. an initial run with no requested effects and `requestedEffectCursor = none`.
 
-The following Standard Application contracts still block DDL and run creation:
+The following Standard Application contracts were the final upstream blockers
+and are now implemented by DTE04-A2b:
 
 1. implemented canonical Standard Application task catalog and `TaskIdV1`;
 2. implemented `TaskDefinitionRuntimeBindingV1` canonical frame/decoder and
@@ -428,6 +429,8 @@ The following Standard Application contracts still block DDL and run creation:
    reference, request-key/request digest preimages, receipt, and conflict
    contract.
 
-These are not Postgres representation choices. Until they land, the admitted
-next code slice is DTE04-A2b in the Standard Application owners. DDL,
-migration, definition registration, and run creation remain closed.
+These are not Postgres representation choices. They now land through the
+private `@flarex/standard-application-definition/internal/task-definition-v1`
+surface and Preflight 24. DTE04-A3 is therefore the next admitted code slice.
+Definition registration, run creation, adapters, and host activation remain
+closed until their own checkpoints.

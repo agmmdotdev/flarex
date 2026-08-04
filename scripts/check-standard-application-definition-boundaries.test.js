@@ -20,10 +20,72 @@ describe("Standard Application definition boundary checker", () => {
           export { localHelper } from "./localHelper";
           void import("effect");
         `,
+      }, {
+        relativePath:
+          "packages/standard-application-definition/src/taskDefinition/Schema.ts",
+        text: `
+          import { makePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
+          import { copyBytes } from "@flarex/utils/bytes";
+          import { encodeCanonicalJson } from "flarex-protocol/json";
+          import { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+          import type { RunAttemptPolicyV1 } from "@flarex/durable-task/internal/run-attempt-v1";
+          import { TaskComputeProfileRefV1Schema } from "@flarex/durable-task/internal/run-attempt-v1";
+        `,
       }],
     );
 
     expect(report.errors).toEqual([]);
+  });
+
+  it("confines private imports and durable-task symbols to the task subtree", () => {
+    const privatePath =
+      "packages/standard-application-definition/src/taskDefinition/Schema.ts";
+    const report = analyzeStandardApplicationDefinitionBoundary(
+      validManifest(),
+      [{
+        relativePath: sourcePath,
+        text: `
+          import { copyBytes } from "@flarex/utils/bytes";
+          import { makePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
+        `,
+      }, {
+        relativePath: privatePath,
+        text: `
+          import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
+          import * as DurableTask from "@flarex/durable-task/internal/run-attempt-v1";
+          void import("@flarex/durable-task/internal/run-attempt-v1");
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([
+      `${sourcePath}:2 imports forbidden module "@flarex/utils/bytes".`,
+      `${sourcePath}:3 imports forbidden module "@flarex/analysis/internal/private-sha256-v1".`,
+      `${privatePath}:2 imports forbidden durable-task symbols from "@flarex/durable-task/internal/run-attempt-v1".`,
+      `${privatePath}:3 imports forbidden durable-task symbols from "@flarex/durable-task/internal/run-attempt-v1".`,
+      `${privatePath}:4 imports forbidden durable-task symbols from "@flarex/durable-task/internal/run-attempt-v1".`,
+    ]);
+  });
+
+  it("rejects local re-exports of admitted durable-task bindings", () => {
+    const privatePath =
+      "packages/standard-application-definition/src/taskDefinition/Schema.ts";
+    const report = analyzeStandardApplicationDefinitionBoundary(
+      validManifest(),
+      [{
+        relativePath: privatePath,
+        text: `
+          import { RunAttemptPolicyV1Schema as Leaked } from "@flarex/durable-task/internal/run-attempt-v1";
+          export { Leaked };
+          export default Leaked;
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([
+      `${privatePath}:3 re-exports an admitted durable-task binding.`,
+      `${privatePath}:4 re-exports an admitted durable-task binding.`,
+    ]);
   });
 
   it("rejects a root or additional package export", () => {
@@ -39,7 +101,7 @@ describe("Standard Application definition boundary checker", () => {
     );
 
     expect(report.errors).toEqual([
-      "Standard Application definition package must expose exactly ./v1 -> ./src/v1.ts and no package root.",
+      "Standard Application definition package must expose exactly ./v1 and ./internal/task-definition-v1 with no package root.",
     ]);
   });
 
@@ -63,9 +125,12 @@ describe("Standard Application definition boundary checker", () => {
     );
 
     expect(report.errors).toEqual([
-      "Standard Application definition runtime dependencies must be exactly: @flarex/declarative-materializer, @flarex/declarative-program, effect.",
+      "Standard Application definition runtime dependencies must be exactly: @flarex/analysis, @flarex/declarative-materializer, @flarex/declarative-program, @flarex/durable-task, @flarex/utils, effect, flarex-protocol.",
       "Standard Application definition dependency @flarex/declarative-materializer must use workspace:*.",
+      "Standard Application definition dependency @flarex/durable-task must use workspace:*.",
+      "Standard Application definition dependency @flarex/utils must use workspace:*.",
       "Standard Application definition dependency effect must use catalog:.",
+      "Standard Application definition dependency flarex-protocol must use workspace:*.",
       "Standard Application definition package must not declare optionalDependencies.",
       "Standard Application definition package must not declare peerDependencies.",
     ]);
@@ -254,12 +319,17 @@ function validManifest() {
   return {
     name: "@flarex/standard-application-definition",
     exports: {
+      "./internal/task-definition-v1": "./src/taskDefinition/v1.ts",
       "./v1": "./src/v1.ts",
     },
     dependencies: {
+      "@flarex/analysis": "workspace:*",
       "@flarex/declarative-materializer": "workspace:*",
       "@flarex/declarative-program": "workspace:*",
+      "@flarex/durable-task": "workspace:*",
+      "@flarex/utils": "workspace:*",
       "effect": "catalog:",
+      "flarex-protocol": "workspace:*",
     },
   };
 }

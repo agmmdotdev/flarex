@@ -315,12 +315,13 @@ for their owning discussions:
    - **complete: admit:** DTE03-A through DTE03-G close the lifecycle model and
      authorize only the production-inert DTE-IP01 package transplant;
 4. [`04-task-system-api-and-postgres.md`](./04-task-system-api-and-postgres.md)
-   - **active; DTE04-A1 and DTE04-A2a complete:** domain-owned persisted
+   - **active; DTE04-A1 through DTE04-A2b complete:** domain-owned persisted
      aggregate/effect envelopes and the five-phase persistence projection are
      implemented and validated; the immutable input-reference, exact creation
      request/digest preimages, stable receipt, and typed conflict contract are
-     also implemented, while Standard Application task-definition authority
-     still blocks DDL, run creation, and adapters;
+     also implemented, together with the private canonical Standard
+     Application task catalog, immutable runtime binding, and separate
+     creation-authority receipt. DTE04-A3 schema is the next admitted slice;
 5. `05-cloudflare-wake-and-scheduling.md`
    - Queues, alarms, cron, missed-wakeup recovery, duplicate delivery, bounded
      schedulers, and fail-closed activation;

@@ -11,6 +11,13 @@ valid and materialization-failure lanes, and the `flarex-dev` developer
 producer use those Standard contracts. Canonical-failure corpus cases remain
 isolated with their owning decoder. `SAP01-D` machine-enforces the definition
 package's direct manifest, export, and production-import boundary.
+The same package now exposes the production-inert private
+`./internal/task-definition-v1` surface admitted by DTE04-A2b. It owns the
+canonical task catalog, exact `TaskIdV1`, application-revision task-binding
+frame, immutable task-definition runtime binding, separate creation-authority
+receipt, and their canonical SHA-256 operations. The original `./v1` behavior
+is unchanged, and no registration, activation, runtime, persistence, route, or
+public SDK surface is enabled.
 `@flarex/standard-application-analysis/v1` exposes the function-first analysis
 operation over a request-scoped context, and the analyzer app provides the
 first private implementation over the accepted replacement host.

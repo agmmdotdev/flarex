@@ -147,9 +147,10 @@ interface CanonicalTaskManifestV1 {
 These are ownership names, not implementation authorization. DTE02-D fixes the
 runtime binding and `durable_task` projection semantics, and DTE02-E now fixes
 the `TaskIdV1` validation/equality contract plus the private run-attempt
-identity owners. The future task-definition package preflight must still place
-and implement the canonical manifest codecs, imports, and brand without
-creating a second definition owner.
+identity owners. DTE04-A2b now places and implements the canonical manifest
+codecs, imports, and brand in the existing Standard Application definition
+owner through
+[`24-standard-application-task-definition-contract.md`](./24-standard-application-task-definition-contract.md).
 
 ### First-Version Inclusion
 
@@ -359,11 +360,10 @@ DTE01 remains admitted exactly as a run-attempt lifecycle package with only
 identity and policy snapshots through its store contract, but it does not own
 Standard Application task definition, analysis, registration, or artifacts.
 
-The first-class task catalog requires its own focused package/API preflight.
-That preflight must decide whether the owner is an extension of the private
-Standard Application definition chain or a narrow task-definition package
-consumed by it. This receipt does not authorize another package, dependency,
-or public export.
+The first-class task catalog's focused package/API decision is now closed by
+DTE04-A2b: it extends the private Standard Application definition chain through
+`./internal/task-definition-v1`; it does not create another package or public
+export. This earlier receipt by itself did not authorize that change.
 
 No active package may import Trigger task types directly. Provenance mapping
 must point from each adapted task-definition/catalog symbol to its Flarex owner

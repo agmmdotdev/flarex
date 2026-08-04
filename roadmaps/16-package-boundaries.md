@@ -169,9 +169,13 @@ public export, schema, or production route.
 The DTE01 package owns run-attempt lifecycle only. The revised DTE02-B contract
 uses a first-class canonical Standard Application task catalog with stable
 `TaskIdV1`; it does not reinterpret `action`/`internalAction` or function path
-as task authority. The task-definition/catalog owner and any additional
-private package surface require their own focused admission and must not be
-smuggled into `./internal/run-attempt-v1`.
+as task authority. The task-definition/catalog owner is now admitted and
+implemented by DTE04-A2b as
+`@flarex/standard-application-definition/internal/task-definition-v1`. It
+imports only the run-attempt policy, compute-profile reference, and
+definition-revision identity from `./internal/run-attempt-v1`; durable-task
+does not depend back on Standard Application or artifact owners. No host or
+public surface is activated.
 
 `@flarex/utils` is not a core or common-domain package. A candidate belongs
 there only after it is proven to be a stable generic primitive with independent
@@ -182,9 +186,12 @@ legacy compatibility remain with their real owners.
 ### Accepted Standard Definition Package
 
 Roadmap 42 owns one narrow internal package:
-`@flarex/standard-application-definition` with only an explicit `./v1`
-export. It composes the existing canonical-program and declarative-materializer
-owners for Developer API and internal Test API producers.
+`@flarex/standard-application-definition` with the shipped explicit `./v1`
+export plus the private DTE04-A2b `./internal/task-definition-v1` export. The
+shipped surface composes the existing canonical-program and
+declarative-materializer owners for Developer API and internal Test API
+producers. The private surface owns only production-inert task definition,
+runtime-binding, and creation-authority evidence.
 
 ```text
 flarex-dev producer --------\
@@ -194,8 +201,10 @@ backend test producer ------/       -> @flarex/declarative-program
 ```
 
 The package is not a generic core, public SDK barrel, live harness, analyzer
-host, registry, runtime, or persistence owner. It may use pure Effect `Result`
-composition, but has no service, Layer, runner, Node, Cloudflare, database, or
+host, registry, runtime, or persistence owner. Its shipped definition path uses
+pure Effect `Result` composition. Its private task-definition path additionally
+uses the existing portable private SHA adapter through explicit Effect
+operations, but has no service, Layer, runner, Node, Cloudflare, database, or
 application dependency. Later Standard stages require their own placement
 preflight; they do not automatically accumulate in this package.
 

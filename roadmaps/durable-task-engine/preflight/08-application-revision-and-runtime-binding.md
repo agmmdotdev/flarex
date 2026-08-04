@@ -119,7 +119,9 @@ reuse their mutation/query identity or pretend a task is a function path.
 
 The current revision is insufficient for durable tasks because:
 
-- Standard Application definition has no task catalog;
+- Standard Application definition now has the production-inert DTE04-A2b task
+  catalog and runtime/authority frames, but no registration or activation
+  integration;
 - authenticated analysis emits no task-catalog evidence;
 - the current candidate and registration roots contain no task commitment;
 - runtime publication contains only function entries and the two function
@@ -181,10 +183,12 @@ It commits task ID, handler binding, payload/output validators, run-attempt
 policy, maximum duration, compute-profile reference, and queue policy because
 those values are fields of `CanonicalTaskManifestV1`.
 
-The exact Standard definition/analysis package placement and codecs require
-the focused task-catalog package/API preflight already required by DTE02-B.
-This receipt fixes what that preflight must produce; it does not authorize a
-new package or protocol export.
+The exact Standard definition package placement and codecs are now closed by
+DTE04-A2b in
+[`24-standard-application-task-definition-contract.md`](./24-standard-application-task-definition-contract.md):
+one private subpath on the existing definition owner, with no new package or
+public protocol export. This earlier receipt fixed the required output but did
+not itself authorize that implementation.
 
 ### Task Runtime Entry
 

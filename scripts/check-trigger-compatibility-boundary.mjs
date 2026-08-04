@@ -10,6 +10,20 @@ const sourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts",
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
 const durableTaskManifestPath = "packages/durable-task/package.json";
 const durableTaskSourcePrefix = "packages/durable-task/";
+const standardApplicationDefinitionManifestPath =
+  "packages/standard-application-definition/package.json";
+const standardApplicationTaskDefinitionSourcePrefix =
+  "packages/standard-application-definition/src/taskDefinition/";
+const standardApplicationTaskDefinitionDurableTaskSpecifier =
+  "@flarex/durable-task/internal/run-attempt-v1";
+const admittedStandardApplicationDurableTaskSymbols = new Set([
+  "RunAttemptPolicyV1",
+  "RunAttemptPolicyV1Schema",
+  "TaskComputeProfileRefV1",
+  "TaskComputeProfileRefV1Schema",
+  "TaskDefinitionRevisionIdV1",
+  "TaskDefinitionRevisionIdV1Schema",
+]);
 const durableTaskAllowedExports = Object.freeze({
   "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
   "./internal/run-creation-v1": "./src/runCreation/v1.ts",
@@ -96,6 +110,11 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
           relativePath !== durableTaskManifestPath
           && (isDurableTaskPackageSpecifier(name)
             || (typeof value === "string" && isDurableTaskDependencyReference(value, relativePath)))
+          && !isAdmittedStandardApplicationTaskDefinitionDependency(
+            relativePath,
+            name,
+            value,
+          )
         ) {
           errors.push(`${relativePath}: ${field} must not activate @flarex/durable-task before host admission.`);
         }
@@ -115,11 +134,19 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       true,
       scriptKindForPath(relativePath),
     );
+    const admittedDurableTaskLocalBindings =
+      collectAdmittedStandardApplicationDurableTaskLocalBindings(sourceFile);
 
     visit(sourceFile);
 
     /** @param {ts.Node} node */
     function visit(node) {
+      if (isLocalBindingReExport(node, admittedDurableTaskLocalBindings)) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not re-export admitted @flarex/durable-task bindings before host admission.`);
+      }
       const specifier = moduleSpecifierForNode(node);
       if (specifier !== undefined && isForbiddenModuleSpecifier(specifier)) {
         const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
@@ -156,6 +183,11 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && !relativePath.startsWith(durableTaskSourcePrefix)
         && isProductionSource(relativePath)
         && isDurableTaskProductionSpecifier(specifier, relativePath)
+        && !isAdmittedStandardApplicationTaskDefinitionImport(
+          relativePath,
+          specifier,
+          node,
+        )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate @flarex/durable-task before host admission.`);
@@ -165,6 +197,54 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
   }
 
   return { errors };
+}
+
+/**
+ * @param {ts.SourceFile} sourceFile
+ * @returns {ReadonlySet<string>}
+ */
+function collectAdmittedStandardApplicationDurableTaskLocalBindings(sourceFile) {
+  const bindings = new Set();
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement)
+      || statement.moduleSpecifier === undefined
+      || !ts.isStringLiteralLike(statement.moduleSpecifier)
+      || !isAdmittedStandardApplicationTaskDefinitionImport(
+        sourceFile.fileName,
+        statement.moduleSpecifier.text,
+        statement,
+      )
+    ) {
+      continue;
+    }
+    const namedImports = statement.importClause?.namedBindings;
+    if (namedImports !== undefined && ts.isNamedImports(namedImports)) {
+      for (const element of namedImports.elements) bindings.add(element.name.text);
+    }
+  }
+  return bindings;
+}
+
+/**
+ * @param {ts.Node} node
+ * @param {ReadonlySet<string>} importedBindings
+ */
+function isLocalBindingReExport(node, importedBindings) {
+  if (
+    ts.isExportDeclaration(node)
+    && node.moduleSpecifier === undefined
+    && node.exportClause !== undefined
+    && ts.isNamedExports(node.exportClause)
+  ) {
+    return node.exportClause.elements.some((element) =>
+      importedBindings.has(element.propertyName?.text ?? element.name.text)
+    );
+  }
+  return ts.isExportAssignment(node)
+    && !node.isExportEquals
+    && ts.isIdentifier(node.expression)
+    && importedBindings.has(node.expression.text);
 }
 
 /** @param {Readonly<Record<string, unknown>>} manifest */
@@ -492,6 +572,56 @@ function isDurableTaskProductionSpecifier(specifier, relativePath) {
 /** @param {string} specifier */
 function isDurableTaskPackageSpecifier(specifier) {
   return specifier === expectedTargetPackage || specifier.startsWith(`${expectedTargetPackage}/`);
+}
+
+/**
+ * DTE04-A2b admits only the Standard definition owner's exact workspace
+ * dependency. It is schema/type reuse, not host activation.
+ *
+ * @param {string} relativePath
+ * @param {string} name
+ * @param {unknown} value
+ */
+function isAdmittedStandardApplicationTaskDefinitionDependency(
+  relativePath,
+  name,
+  value,
+) {
+  return relativePath === standardApplicationDefinitionManifestPath
+    && name === expectedTargetPackage
+    && value === "workspace:*";
+}
+
+/**
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function isAdmittedStandardApplicationTaskDefinitionImport(
+  relativePath,
+  specifier,
+  node,
+) {
+  if (
+    !relativePath.startsWith(standardApplicationTaskDefinitionSourcePrefix)
+    || specifier !== standardApplicationTaskDefinitionDurableTaskSpecifier
+    || !ts.isImportDeclaration(node)
+  ) {
+    return false;
+  }
+  const clause = node.importClause;
+  if (
+    clause === undefined || clause.name !== undefined
+    || clause.namedBindings === undefined
+    || !ts.isNamedImports(clause.namedBindings)
+    || clause.namedBindings.elements.length === 0
+  ) {
+    return false;
+  }
+  return clause.namedBindings.elements.every((element) => {
+    const importedName = element.propertyName?.text ?? element.name.text;
+    return admittedStandardApplicationDurableTaskSymbols.has(importedName);
+  });
 }
 
 /** @param {string} specifier @param {string} relativePath */

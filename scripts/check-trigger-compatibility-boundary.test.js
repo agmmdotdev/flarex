@@ -275,6 +275,61 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the Standard task-definition schema dependency", () => {
+    expect(analyzeTriggerCompatibilityBoundary([{
+      relativePath: "packages/standard-application-definition/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }], [{
+      relativePath:
+        "packages/standard-application-definition/src/taskDefinition/Schema.ts",
+      text: `
+        import { RunAttemptPolicyV1Schema } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([{
+      relativePath: "packages/standard-application-definition/package.json",
+      manifest: {
+        dependencies: { task: "workspace:@flarex/durable-task@*" },
+      },
+    }], [{
+      relativePath:
+        "packages/standard-application-definition/src/taskDefinition/Schema.ts",
+      text: `
+        import { create } from "@flarex/durable-task/internal/run-creation-v1";
+        import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }, {
+      relativePath: "packages/standard-application-definition/src/v1.ts",
+      text: `
+        import { policy } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([
+      "packages/standard-application-definition/package.json: dependencies must not activate @flarex/durable-task before host admission.",
+      "packages/standard-application-definition/src/taskDefinition/Schema.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/standard-application-definition/src/taskDefinition/Schema.ts:3 production source must not activate @flarex/durable-task before host admission.",
+      "packages/standard-application-definition/src/v1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+    ]);
+  });
+
+  it("rejects local re-exports of admitted durable-task bindings", () => {
+    const privatePath =
+      "packages/standard-application-definition/src/taskDefinition/Schema.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: privatePath,
+      text: `
+        import { RunAttemptPolicyV1Schema as Leaked } from "@flarex/durable-task/internal/run-attempt-v1";
+        export { Leaked };
+        export default Leaked;
+      `,
+    }]).errors).toEqual([
+      `${privatePath}:3 production source must not re-export admitted @flarex/durable-task bindings before host admission.`,
+      `${privatePath}:4 production source must not re-export admitted @flarex/durable-task bindings before host admission.`,
+    ]);
+  });
+
   it("rejects file, link, and workspace path aliases to durable-task before host admission", () => {
     for (const reference of [
       "file:../../packages/durable-task",

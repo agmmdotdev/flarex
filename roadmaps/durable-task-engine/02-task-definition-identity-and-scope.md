@@ -180,9 +180,12 @@ a separate canonical task catalog derived from Trigger.dev's task metadata and
 manifest semantics. The existing action surface remains prototype evidence
 only and does not decide task identity, context, artifact group, or execution.
 
-The Standard Application path does not yet implement that task catalog. The
-future private definition/analysis extension must add it beside the existing
-function catalog without creating a second application definition owner.
+The Standard Application path now implements the production-inert task
+catalog, exact `TaskIdV1`, canonical digests, immutable runtime binding, and
+creation-authority receipt through DTE04-A2b and
+[`preflight/24-standard-application-task-definition-contract.md`](./preflight/24-standard-application-task-definition-contract.md).
+The existing function catalog remains unchanged. Artifact publication,
+registration, readiness, activation, and runtime routing remain later owners.
 
 ### Registered Application Revision
 

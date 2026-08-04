@@ -738,15 +738,27 @@ importers:
 
   packages/standard-application-definition:
     dependencies:
+      '@flarex/analysis':
+        specifier: workspace:*
+        version: link:../analysis
       '@flarex/declarative-materializer':
         specifier: workspace:*
         version: link:../declarative-materializer
       '@flarex/declarative-program':
         specifier: workspace:*
         version: link:../declarative-program
+      '@flarex/durable-task':
+        specifier: workspace:*
+        version: link:../durable-task
+      '@flarex/utils':
+        specifier: workspace:*
+        version: link:../utils
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90
+      flarex-protocol:
+        specifier: workspace:*
+        version: link:../flarex-protocol
     devDependencies:
       typescript:
         specifier: 'catalog:'
