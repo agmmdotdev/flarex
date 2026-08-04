@@ -138,15 +138,7 @@ export async function proveSap05StandardPointQueryV1(
   const before = await mutationPublicationCounts(lane.persistence);
   let realWorkerdExecutions = 0;
   let executionSequence = 0;
-  const dispatcherControls: Sap05DispatcherControlsV1 = {
-    overrideNextResult: false,
-    nextResult: undefined,
-    nextReadCause: undefined,
-    beforeNextRead: undefined,
-    failNextCleanup: false,
-    failNextWorkerWithTerminalError: false,
-    failNextWorkerWithUnknownError: false,
-  };
+  const dispatcherControls = makeSap05DispatcherControlsV1();
   const system = makeSystemLive(
     ready,
     artifacts,
@@ -383,6 +375,36 @@ export async function proveSap06A1InternalPointQueryV1(
     "sap06-a1-query-internal",
   );
   return Object.freeze({ ...proof, inlineInternalQuery: true as const });
+}
+
+/** Test-only default composition used by representative multi-function apps. */
+export function makeSap05StandardPointQuerySystemLiveForTestV1(
+  ready: Awaited<ReturnType<typeof prepareFsv05ReadyRevisionFixtureV1>>,
+  artifacts: ReturnType<typeof makeRuntimeArtifactPublisherFixtureV1>,
+  onExecution: () => void,
+  executionContextFactory: ApplicationPointQuerySystemLiveV1[
+    "executionContextFactory"
+  ],
+): ApplicationPointQuerySystemLiveV1 {
+  return makeSystemLive(
+    ready,
+    artifacts,
+    onExecution,
+    executionContextFactory,
+    makeSap05DispatcherControlsV1(),
+  );
+}
+
+function makeSap05DispatcherControlsV1(): Sap05DispatcherControlsV1 {
+  return {
+    overrideNextResult: false,
+    nextResult: undefined,
+    nextReadCause: undefined,
+    beforeNextRead: undefined,
+    failNextCleanup: false,
+    failNextWorkerWithTerminalError: false,
+    failNextWorkerWithUnknownError: false,
+  };
 }
 
 function makeSystemLive(

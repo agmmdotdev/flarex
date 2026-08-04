@@ -953,6 +953,25 @@ export async function proveSap06A3MutationInternalCallV1(
   });
 }
 
+/** Test-only default composition used by representative multi-function apps. */
+export function makeFsv06StandardPointMutationSystemLiveForTestV1(
+  lane: Fsv06StandardPointMutationLaneV1,
+  deploymentId: string,
+  artifacts: ReturnType<typeof makeRuntimeArtifactPublisherFixtureV1>,
+  onRuntimeExecution: () => void,
+): ApplicationPointMutationSystemLiveV1 {
+  return systemLive(
+    lane,
+    TransactionGrantDeploymentIdV1Schema.make(deploymentId),
+    artifacts,
+    {
+      loseCommitResponseAtBeforeCommit: false,
+      loseCommitResponseAfterSettlement: false,
+    },
+    onRuntimeExecution,
+  );
+}
+
 function systemLive(
   lane: Fsv06StandardPointMutationLaneV1,
   deploymentId: ApplicationPointMutationSystemLiveV1["deploymentId"],

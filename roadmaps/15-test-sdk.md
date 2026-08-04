@@ -269,6 +269,15 @@ harness are separately owned by
 Both layers exist below this public ergonomic boundary and must prove the
 replacement application path before `flarex-test` adopts it.
 
+Roadmap 41's `SAC01-F1` now supplies the first such lower-layer PGlite proof: a
+private test-owned Effect operation drives one relation-free cooking revision
+through definition, analysis, registration, readiness, activation, point
+mutation, exact replay, and point-query readback. It remains test-local to the
+persistence owner. It is not a `flarex-test` export, package-adoption decision,
+generic fixture API, controlled database escape hatch, or deterministic model
+simulator. Its matching genuine-PostgreSQL lane remains an explicit acceptance
+gate rather than an inferred property of the PGlite result.
+
 Roadmap 41's completed `SAC01-P` preflight accepts a first pure definition and
 corpus seed local to backend tests only. That test fixture is not a stable
 package API, live harness, or adoption surface for `flarex-test`.

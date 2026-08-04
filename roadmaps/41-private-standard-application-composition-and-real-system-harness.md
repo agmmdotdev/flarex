@@ -3,7 +3,10 @@
 ## Status And Scope
 
 **Status:** `SAC01-P`, `SAC01-A`, the `SAC01-B1` pure corpus foundation, and
-the first `FSV03` private real-system mutation proof are complete. A pure
+the first `FSV03` private real-system mutation proof are complete. The
+`SAC01-F1` implementation and PGlite fast lane are complete; its named
+genuine-PostgreSQL acceptance lane is implemented but remains open until it
+runs with an authenticated database URL and zero skips. A pure
 test-local definition fixture, deterministic case catalog, and replay
 selection are implemented under the backend test owner. The definition-fixture
 success lane enters the implemented Standard definition API. The corpus's
@@ -17,9 +20,17 @@ validator. FSV06-A1 additionally closes the private candidate-bound
 R2-to-exact-runtime dispatch seam, and FSV06-A2 enforces the existing mixed ABI
 so only exact C03-V validation is application-catchable and non-poisoning.
 FSV06 now composes the first private route-independent SAP04 point mutation
-through those owners. A dedicated harness package, representative multi-
-function/application workload runner, broader invocation families, and live
-production composition remain unimplemented.
+through those owners. `SAC01-F1` adds the first test-local Effect composition
+operation and representative relation-free cooking workload: one definition
+with separate mutation/query modules travels through Standard definition,
+analysis, inactive registration, readiness, activation, real Workerd mutation,
+the existing executor/OCC/commit owners, and authoritative Standard point-query
+readback in PGlite. Exact mutation replay and deterministic query replay are
+part of its receipt. Its matching genuine-PostgreSQL test is deliberately
+fail-closed when the required URL is absent. Genuine-PostgreSQL acceptance, a
+dedicated harness package, multi-application workload runner, broader
+invocation families, controlled setup/inspection, and live production
+composition remain open.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,
@@ -765,20 +776,21 @@ capabilities. Corpus evaluation calls the existing owners directly and retains
 their exact `Result` failures; it must not create a common corpus error or
 success type.
 
-This slice makes no upload-correlation, analyzer, executor, persistence,
-runtime, manifest, export-map, route, binding, configuration, or activation
-change. `SAC01-C` remains the first gate allowed to adapt the corpus to the
-replacement analyzer.
+The B1 slice itself made no upload-correlation, analyzer, executor,
+persistence, runtime, manifest, export-map, route, binding, configuration, or
+activation change. `SAC01-C` was the first gate allowed to adapt that corpus to
+the replacement analyzer and is now closed through the accepted FSV03 chain.
 
-### Later Gates
+### Gate Ledger
 
 | Gate | Scope | Entry condition |
 | --- | --- | --- |
 | `SAC01-B2` | Expand corpus membership or workload parameters without adding new domain semantics | Standard API `SAP01-B` is complete and a concrete coverage gap is identified; remains pure and test-local unless a second real consumer proves extraction |
-| `SAC01-C` | Move the owned analyzer corpus lane through the implemented Standard analysis operation | `SAP02` and the A1b2 command plan, link and registration ownership, pure engine, Effect host, and private adapter are implemented; the slice must retain corpus ownership and must not invent registration or runtime authority |
-| `SAC01-D` | Compose verified registration and schema/catalog publication/readiness for one private application revision | Replacement registration owner and an approved schema-lifecycle adapter exist without direct database access |
-| `SAC01-E` | Execute and authoritatively read back one real point mutation | `SAC01-C`, `SAC01-D`, and foundation `C07` are complete with real PGlite/Postgres evidence |
-| `SAC01-F` | Add queries, internal calls, workflow mutations, actions, and scheduled invocations one capability at a time | Each capability has its own runtime/host/claim contract and focused preflight |
+| `SAC01-C` | Move the owned analyzer corpus lane through the implemented Standard analysis operation | Complete through SAP02 and the accepted FSV03 analyzer/registration chain; future corpus expansion must retain its test owner |
+| `SAC01-D` | Compose verified registration and schema/catalog publication/readiness for one private application revision | Complete through FSV03, FSV04, and FSV05 without adding test-owned authority |
+| `SAC01-E` | Execute and authoritatively read back one real point mutation | Complete through FSV06 and C07 with PGlite and genuine PostgreSQL evidence |
+| `SAC01-F1` | Compose one representative relation-free application with public mutation and query modules through one active revision | Implementation and PGlite fast lane complete in the persistence test owner; the named genuine-PostgreSQL lane is implemented and fail-closed but remains unaccepted until it runs with zero skips. The operation uses SAP04/SAP05 and the existing runtime/executor/commit/read owners, with exact mutation replay and deterministic query replay |
+| `SAC01-F2+` | Add internal calls, actions, workflow mutations, controlled setup/inspection, faults, and scheduled invocations to representative workloads one capability at a time | Each capability must already have its own runtime/host/claim contract; scheduling and durable-task semantics remain separately gated |
 | `SAC01-G` | Extract a dedicated private corpus or system-harness package | At least two concrete consumers, an acyclic graph, explicit lifecycle owner, private exports, and same-slice deletion of test-local duplication |
 
 ### Parallel-Work Safety And Stop Conditions

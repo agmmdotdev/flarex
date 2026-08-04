@@ -124,7 +124,7 @@ The following substitutions are invalid:
 | Real Postgres | package `test:postgres` with an actual database URL | PostgreSQL transactions, locks, isolation, concurrent claims, migrations, cleanup, request-scoped clients | Worker service bindings or hosted Hyperdrive |
 | H04 local workerd/Postgres | executor Worker `test:service-binding:postgres` | Exact Wrangler bundle in a named multi-Worker graph, private binding, auth, real PostgreSQL OCC, and connection cleanup | Live Cloudflare placement or Hyperdrive resource configuration |
 | H05 hosted | executor Worker `test:service-binding:hosted:postgres` plus evidence collectors/receipt | Public probe to private Worker binding, cache-disabled Hyperdrive path, hosted traffic, authoritative SQL, source/config/trace/cleanup evidence | Broader product behavior outside the bounded proof |
-| Deterministic simulation | Not implemented | Eventually: seeded histories, model invariants, controlled interleavings, replay, shrinking | Platform proof unless paired with adapter lanes |
+| Deterministic simulation | Not implemented | Eventually: seeded histories, model invariants, controlled interleavings, replay, shrinking | Platform proof unless paired with adapter lanes; the SAC01-F1 deterministic real-system workload is integration replay, not this simulator |
 
 ### Current Command Boundaries
 
@@ -325,6 +325,13 @@ Named Flarex differences are:
 - Deterministic clock/ID injection in executor and integration tests, explicit
   conflict injection, concurrent outcome assertions, and rollback/failure
   coverage in persistence lanes.
+- `SAC01-F1` private real-path PGlite workload evidence for one relation-free
+  cooking revision through definition, analysis, registration, readiness,
+  activation, real Workerd point mutation, exact replay, authoritative point
+  query, and deterministic query replay. This is a representative integration
+  workload, not a reference model, controlled scheduler, simulator, or
+  genuine-PostgreSQL result. Its matching PostgreSQL lane is named and
+  fail-closed but remains open until run with an authenticated database URL.
 - Effect runtime-boundary static enforcement and its own regression tests.
 
 ## Known Gaps And Limitations
@@ -347,8 +354,10 @@ Named Flarex differences are:
   decisive coverage currently lives in example and integration consumers.
 - There is no browser-run Vite/WebSocket end-to-end lane, multi-browser matrix,
   SSR/Next.js lane, or reconnect/network-loss client suite.
-- There is no deterministic simulator, reference model, scheduler, seed
-  receipt, replay, shrinking, or coverage corpus.
+- There is no deterministic simulator, reference model, controlled scheduler,
+  shrinking, or generated history corpus. `SAC01-F1` now provides one fixed
+  real-path PGlite replay workload, but it does not close those simulation
+  gaps.
 - Current fault coverage is hand-authored. It does not systematically explore
   crashes between commit/outbox/notify, service-binding loss, delayed/duplicate
   delivery, artifact eviction, DO restart, or recovery catch-up.
