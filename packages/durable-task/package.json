@@ -1,0 +1,27 @@
+{
+  "name": "@flarex/durable-task",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "files": [
+    "src",
+    "THIRD_PARTY_NOTICES.md",
+    "trigger-source-map.json",
+    "licenses"
+  ],
+  "exports": {
+    "./internal/run-attempt-v1": "./src/runAttempt/v1.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

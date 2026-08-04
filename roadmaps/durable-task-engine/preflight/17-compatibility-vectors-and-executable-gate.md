@@ -150,6 +150,22 @@ The checker prevents OOM or lease-loss retry from becoming immediate, prevents
 non-OOM retry from claiming compute escalation, prevents override delay from
 claiming jitter, and requires lease-expiry retry to use lease-loss eligibility.
 
+DTE-IP01 now executes these receipts against the real package rather than
+counting fixture entries. All 65 vectors pass through the production pure
+decision, aggregate Schema, command decoder, or closed error boundary; the 24
+cursor cases and eight replay links are derived from those results, and all
+fourteen inspection cases are generated through the production projection.
+Each vector records database time and retry-randomization as explicit input,
+separate from the expected receipt. The harness feeds each admitted
+`priorEffectCursor` directly from the cursor cases and round-trips every
+ordinary and replay aggregate through the production Schema before invoking a
+decision. The later-attempt replay case reaches its state through real start
+and completion transitions rather than fabricating a terminal aggregate.
+Executable binding also corrected the stale never-retry fixture class from
+`task_failure` to `system_failure`: the scenario uses the admitted
+`configuration_invalid` code, whose closed failure kind and terminal class are
+both system failure under DTE03-C.
+
 ### Replay, Race, And Error Coverage
 
 Canonical cases include:

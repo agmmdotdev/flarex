@@ -75,12 +75,12 @@ describe("durable task source map checker", () => {
     ]));
   });
 
-  it("validates the pinned repository map in pre-admission mode", () => {
+  it("validates the pinned repository map in admitted-package mode", () => {
     const report = inspectDurableTaskSourceMapRepository(process.cwd());
     expect(report).toEqual({
       errors: [],
       entryCount: 29,
-      mode: "pre-admission",
+      mode: "admitted-package",
     });
   });
 

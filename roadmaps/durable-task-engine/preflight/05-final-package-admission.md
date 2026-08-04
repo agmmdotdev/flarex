@@ -419,6 +419,12 @@ coherent checkpoint named:
 
 > **DTE-IP01: Run-Attempt Domain Package Transplant**
 
+**Implementation status:** complete at the production-inert stop boundary.
+The package, provenance map, closed schemas and decisions, private services and
+Layer, deterministic test-store Layer, executable compatibility bindings, and
+required validation/reviewer checkpoint are owned by this single slice. No
+Roadmap 04 persistence or host work entered the change.
+
 DTE-IP01 must, in one reviewed change:
 
 1. add the complete package/notice/license/map structure above;

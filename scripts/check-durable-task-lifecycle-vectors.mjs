@@ -95,7 +95,8 @@ const operations = new Set([
   "inspectCurrentAttempt",
 ]);
 const dispositions = new Set(["accepted", "idempotent", "current"]);
-const vectorKeys = new Set(["id", "classification", "sourceEntryIndexes", "coverage", "initial", "command", "expected"]);
+const vectorKeys = new Set(["id", "classification", "sourceEntryIndexes", "coverage", "input", "initial", "command", "expected"]);
+const inputKeys = new Set(["databaseNowMs", "retryRandomize"]);
 const initialKeys = new Set(["phase", "cancellation", "runVersion", "stateVariant"]);
 const commandKeys = new Set(["operation", "identity"]);
 const receiptExpectationKeys = new Set([
@@ -470,6 +471,7 @@ export function analyzeDurableTaskLifecycleVectors(input) {
     } else {
       for (const coverage of vector.coverage) observedCoverage.add(coverage);
     }
+    validateInput(vector.input, label, errors);
     validateInitial(vector.initial, label, errors);
     validateCommand(vector.command, label, errors);
     validateExpected(vector, label, observedCurrentReasons, observedTransitions, observedRetryRejections, errors);
@@ -525,6 +527,22 @@ export function analyzeDurableTaskLifecycleVectors(input) {
     vectorCount: suite.vectors.length,
     divergenceCount: countDivergences(divergences.differences),
   };
+}
+
+/** @param {unknown} value @param {string} label @param {string[]} errors */
+function validateInput(value, label, errors) {
+  if (!isRecord(value)) {
+    errors.push(`${label}.input must be an object.`);
+    return;
+  }
+  checkExactKeys(value, inputKeys, `${label}.input`, errors);
+  if (typeof value.databaseNowMs !== "number" || !Number.isSafeInteger(value.databaseNowMs) ||
+    value.databaseNowMs < expectedSymbolicEpochMs) {
+    errors.push(`${label}.input.databaseNowMs must be a safe integer on or after the symbolic epoch.`);
+  }
+  if (typeof value.retryRandomize !== "boolean") {
+    errors.push(`${label}.input.retryRandomize must be boolean.`);
+  }
 }
 
 /** @param {unknown} value @param {Map<string, Record<string, unknown>>} vectorsById @param {string[]} errors */

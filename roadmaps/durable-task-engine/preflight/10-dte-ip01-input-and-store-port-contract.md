@@ -519,7 +519,7 @@ interface TaskSystemRunAttemptStoreShape {
     request: TaskSystemRunAttemptTransactionV1<Outcome>,
   ) => Effect.Effect<
     TaskSystemRunAttemptTransactionReceiptV1<Outcome>,
-    TaskSystemRunAttemptStoreErrorV1
+    RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1
   >;
 
   readonly inspectRunAttempt: (
@@ -638,6 +638,12 @@ the transaction observation time/current version plus empty evidence/effects.
 A `RunAttemptDecisionErrorV1` causes rollback/no write and is lifted by
 `RunAttemptLifecycle` into its typed Effect error channel. The store never
 converts a rejected decision into a partial commit.
+
+The transaction Effect therefore exposes the exact union of decision and
+store errors. This is not a second store concern: the adapter preserves the
+pure callback's failure unchanged while retaining transaction ownership and
+rolling back. Modeling only `TaskSystemRunAttemptStoreErrorV1` here would make
+the admitted callback failure impossible to return without erasure or a defect.
 
 ### Transaction Receipt
 

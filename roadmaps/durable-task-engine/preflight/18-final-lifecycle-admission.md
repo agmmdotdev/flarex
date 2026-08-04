@@ -15,6 +15,34 @@ be created only inside DTE-IP01 and only with the exact package boundary,
 source map, contract, candidate-vector gate, and stop boundary consolidated
 below.
 
+## DTE-IP01 Implementation Closure
+
+DTE-IP01 has now created the private `@flarex/durable-task` package and stopped
+at this receipt's boundary. The package contains the full persisted aggregate,
+command, completion, state, inspection, evidence, effect, acceptance, and
+replay schemas; deterministic retry and status policy; all five pure mutation
+decisions; the six-operation lifecycle service; the two-operation scope-bound
+store port; and the live Layer. Accepted graphs are schema-validated, detached,
+and recursively frozen, with owned digest byte views. Aggregate decoding
+enforces the DTE03-B legal-state matrix, including attempt/lease cursor
+agreement, bound lease duration, next-attempt eligibility, terminal/cancellation
+correlation, and completion-to-evidence-to-outcome/effect replay integrity.
+
+The deterministic suite executes all 65 mutation vectors, fourteen inspection
+cases, 24 effect-cursor cases, and eight replay links. Its reusable store Layer
+proves accepted writes, zero-write idempotent replay, scope isolation, and
+closed store-failure propagation. Vector inputs are independent from expected
+receipts, cursor cases supply the actual prior cursor, every synthetic
+aggregate crosses the production decoder, and stored-corruption mutation tests
+cover the mandatory aggregate invariant families. The implementation-discovered port
+correction is explicit: `transactRunAttempt` preserves the fixed
+`RunAttemptDecisionErrorV1` callback failure beside
+`TaskSystemRunAttemptStoreErrorV1`; inspection retains only store errors.
+
+No Drizzle schema, migration, production store, queue, scheduler, compute host,
+backend route, observability API, public SDK, deployment, or activation was
+added. Roadmap 04 remains a separate preflight and authority gate.
+
 ## Audited Evidence Set
 
 The decision uses these accepted owners as one closed evidence set:
@@ -198,6 +226,11 @@ by `RunAttemptDecisionErrorV1`. The exact store-error members are
 `TaskSystemRunAttemptTerminalStoreError`, joined by
 `TaskSystemRunAttemptStoreErrorV1`. `RunAttemptLifecycleErrorV1` is the closed
 exported union of command, decision, and store errors.
+
+`transactRunAttempt` preserves `RunAttemptDecisionErrorV1` beside the closed
+store-error union so a rejected pure decision rolls back without being erased,
+reclassified as persistence failure, or promoted to a defect. Inspection has
+no decision callback and therefore retains only the store-error channel.
 
 Corruption, invariant violations, and unexpected defects do not become
 current/idempotent domain outcomes. Missing and cross-scope runs remain

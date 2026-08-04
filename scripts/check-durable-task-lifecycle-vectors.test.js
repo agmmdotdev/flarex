@@ -143,6 +143,9 @@ describe("durable task lifecycle vector checker", () => {
     vector(input, "start-durable-retry-due").initial.cancellation = "resolved";
     vector(input, "start-terminal-phase").initial.cancellation = "requested";
     vector(input, "successful-first-attempt").expected.recordedAtMs = 1;
+    vector(input, "start-initial-due").input.secret = "forbidden";
+    vector(input, "start-durable-retry-due").input.databaseNowMs = 1;
+    vector(input, "successful-first-attempt").input.retryRandomize = "yes";
     input.suite.secret = "forbidden";
     input.suite.inspectionCases[0].secret = "forbidden";
     input.suite.effectCursorCases[0].secret = "forbidden";
@@ -160,6 +163,9 @@ describe("durable task lifecycle vector checker", () => {
         expect.stringContaining("initial inactive phase cannot retain cancellation"),
         expect.stringContaining("initial terminal phase cannot retain requested cancellation"),
         expect.stringContaining("recordedAtMs must be on or after the symbolic epoch"),
+        "vectors[0].input has unsupported field secret.",
+        expect.stringContaining("input.databaseNowMs must be a safe integer on or after the symbolic epoch"),
+        expect.stringContaining("input.retryRandomize must be boolean"),
         "vector suite has unsupported field secret.",
         "inspectionCases[0] has unsupported field secret.",
         "effectCursorCases[0] has unsupported field secret.",

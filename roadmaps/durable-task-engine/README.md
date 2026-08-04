@@ -10,17 +10,22 @@ DTE03-C's failure/retry/attempt policy, and DTE03-D's cancellation, heartbeat,
 lease, completion, and race tables, and DTE03-E's closed outcome, inspection,
 acceptance, evidence, effect, and error contract are complete. DTE03-F's 65
 canonical lifecycle vectors, 37 exact named divergences, and executable
-contract gate are also complete. DTE03-G has chosen **admit**. DTE-IP01 is now
-the exact next implementation checkpoint. No package implementation, schema,
-host integration, or production activation exists yet.
+contract gate are also complete. DTE03-G chose **admit**, and DTE-IP01 now
+implements the private production-inert `@flarex/durable-task` package with its
+closed schemas, pure decisions, service/Layer boundary, provenance map, and
+deterministic compatibility suite. No persistence schema or adapter, host
+integration, public API, scheduling, or production activation exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
 this README records the shared vision, non-negotiable boundaries, target system
 shape, and proposed roadmap decomposition. Its current implementation authority
-is limited to the admitted DTE-IP01 private package checkpoint; it does not
-authorize schema or migration changes, workspace merging, public APIs,
+has completed the admitted DTE-IP01 private package checkpoint; it does not
+authorize persistence schema or migration changes, public APIs,
 scheduling, deployment, or production activation.
+That checkpoint includes fail-closed legal-state decoding, owned frozen
+aggregate snapshots, and an executable compatibility harness whose inputs do
+not derive from its expected receipts.
 
 The accepted architecture direction remains recorded in
 [`../../design-notes/flarex-durable-task-engine.md`](../../design-notes/flarex-durable-task-engine.md).

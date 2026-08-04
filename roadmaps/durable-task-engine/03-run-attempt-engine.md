@@ -8,9 +8,19 @@ cancellation, heartbeat, lease, completion, and race tables, and DTE03-E's
 exact operation outcomes, inspection, acceptance/replay, evidence, effects,
 and errors are complete. DTE03-F's canonical compatibility vectors, exact
 named divergences, and executable contract gate are complete. DTE03-G admits
-the combined lifecycle model. DTE-IP01 is now authorized as the exact
+the combined lifecycle model. DTE-IP01 has now completed the exact
 production-inert package transplant defined by DTE01; later database and host
 work remain closed.
+
+The implementation binds the closed aggregate and command schemas to all 65
+mutation vectors, fourteen inspection projections, 24 effect-cursor cases,
+and eight replay links. It adds the pure decision lane, private lifecycle and
+scope-bound store services, live Layer, deterministic test-store Layer, exact
+source provenance, and detached/frozen success projections without adding a
+persistence or host implementation. The executable suite keeps input time,
+retry randomization, and prior effect cursor independent from expected output,
+decodes every synthetic state through the production aggregate Schema, and
+mutation-tests the admitted legal-state correlations as stored corruption.
 
 This roadmap owns the host-neutral run-attempt lifecycle contract required by
 the already-admitted private `@flarex/durable-task` package. It refines the
