@@ -410,6 +410,17 @@ The platform must distinguish retry-safe transport failure from an action that
 may already have completed an external effect; moving execution to another
 provider cannot weaken that rule.
 
+The 2026-08-04 private Standard action preflight in
+[`../roadmaps/46-private-standard-edge-action-vertical.md`](../roadmaps/46-private-standard-edge-action-vertical.md)
+turns that requirement into an explicit implementation gate. Existing
+`edge_action` publication, R2 materialization, readiness, and active selection
+are sufficient artifact authority, but no durable action request/result/effect-
+attempt owner currently settles crash and response-loss uncertainty. `AAV-A1`
+must close that private protocol/storage boundary before a Dynamic Worker action
+host is accepted. `AAV-A2` then owns the candidate-bound edge-action
+target/profile/syscall ABI. No current query or mutation identity is widened,
+and no in-memory or legacy runtime fallback counts as proof.
+
 ### Verified Convex Node-Action Reference Model
 
 Convex provides the semantic and implementation reference for this boundary.

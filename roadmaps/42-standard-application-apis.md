@@ -29,6 +29,12 @@ mutation-to-internal-query execution as `SAP06-A2`, and inline mutation-to-
 internal-mutation execution as `SAP06-A3`. All remain private and route-
 independent. The combined mutation internal-call profile reuses the existing
 C03/C07 parent attempt under the accepted no-child-savepoint semantics.
+The docs-first edge-action preflight is owned by
+[`46-private-standard-edge-action-vertical.md`](./46-private-standard-edge-action-vertical.md).
+It found that artifact publication, readiness, and active selection already
+support `edge_action`, but durable invocation/result/external-effect uncertainty
+authority does not. `AAV-A1` is therefore the next separate approval gate;
+neither an action runtime nor the final private `SAP07` operation is implemented.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -69,6 +75,11 @@ Read these authorities together:
 - [`44-second-flarexdb-system-api-point-query-vertical.md`](./44-second-flarexdb-system-api-point-query-vertical.md)
   owns the separately gated private point-query sequence: scoped target-native
   snapshot authority, candidate-bound exact query runtime/ABI, then SAP05;
+- [`45-private-internal-user-code-calls.md`](./45-private-internal-user-code-calls.md)
+  owns completed private query and mutation internal calls; and
+- [`46-private-standard-edge-action-vertical.md`](./46-private-standard-edge-action-vertical.md)
+  owns the edge-action preflight, durable invocation/uncertainty prerequisite,
+  candidate-bound runtime gate, and later private Standard action gate;
 - [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md) owns public developer
   ergonomics, generated APIs, CLI/codegen, and distribution;
 - [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md)
@@ -567,7 +578,10 @@ checker in roadmap 16. It must not mark that broader gate complete.
 | `SAP06-A1` | **Complete privately:** one public/internal query handler calls one registered internal query inline | Separate private target/profile/ABI binds the same candidate and PQV-A1 snapshot; SAP05 selects it as the sole query runtime path; no child transaction, outcome, route, or public internal-function invocation |
 | `SAP06-A2` | **Complete privately:** one public mutation calls authenticated same-candidate internal queries inline | Reuses the exact mutation Worker, C03 journal/overlay, read/write set, grant/session, OCC retry, and parent outcome under the separate target/profile/ABI identities in roadmap 45; no child publication or production route is added |
 | `SAP06-A3` | **Complete privately:** public/internal mutations call authenticated same-candidate internal mutations inline | One combined internal-call target/profile/ABI preserves SAP06-A2 `runQuery`, the same journal/overlay/OCC/outcome, no child publication, and the accepted no-child-savepoint first-slice semantics |
-| Later separately gated operations | Add workflow, action, and schedule operations individually | each capability has an implemented owner contract and focused preflight; query-to-mutation remains forbidden |
+| `AAV-A1` | **Preflight complete; implementation approval required:** durable edge-action request, terminal result, effect-attempt, and uncertainty authority | A separate implementation-bearing preflight must pin its private protocol, append-only storage, short transitions, crash/replay/cancellation rules, and durable-task exclusion before any schema or migration |
+| `AAV-A2` | Candidate-bound exact `action-edge` runtime and authenticated outbound/query/mutation callback bridge | `AAV-A1` accepted and complete; separately pin the target/profile/syscall ABI and host policy without widening query/mutation identities |
+| `SAP07` | One private, route-independent public Standard edge action | `AAV-A1` and `AAV-A2` complete; no FSV07 route, internal action, `runAction`, schedule, Node host, or public SDK is implied |
+| Later separately gated operations | Add workflow and schedule operations individually | each capability has an implemented owner contract and focused preflight; query-to-mutation and query/mutation-to-action remain forbidden |
 
 Stop and amend this roadmap before implementation if a slice would create a
 second canonical/application/artifact/error representation, add a catch-all

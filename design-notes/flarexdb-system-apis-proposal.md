@@ -767,6 +767,83 @@ would require a separately designed C03 journal checkpoint/savepoint owner and
 is not simulated here. That future compatibility expansion remains separately
 gated.
 
+### Private Edge-Action Boundary
+
+Roadmap 46 owns the first Standard action preflight. Current source truth already
+admits canonical public/internal `action` metadata, publishes `edge_action`
+projection and manifest references, verifies exact bodies from R2, settles cold
+readiness, and exposes one coherent Scope-owned active selection. It does not
+yet expose an action runtime, authenticated outbound syscall, or durable action
+invocation/effect owner.
+
+That missing durability is substantive. Once user code can perform an external
+effect, a Worker crash, timeout, cancellation, or lost response can occur after
+the destination accepted the request. Mutation OCC replay, C07 commit recovery,
+mutation outcomes, feeds, and outbox cannot prove what happened at an arbitrary
+remote service. A test-local Worker or process-local idempotency map would make
+the API appear executable while leaving duplicate-effect behavior undefined.
+
+The ordered private gates are therefore:
+
+```text
+AAV-A1
+  durable action request/result/effect-attempt and uncertainty authority
+    -> AAV-A2
+       candidate-bound action-edge exact runtime and callback bridge
+         -> SAP07
+            private System operation plus thin Standard public-action consumer
+```
+
+`AAV-A1` is a separately approved private protocol, storage, migration, and
+short-transaction decision. Its proposed private identities are
+`flarex.system/application-action-invocation-request/v1`,
+`flarex.system/application-action-invocation-outcome/v1`, and
+`flarex.system/application-action-effect-attempt/v1`. It must persist an exact request before execution,
+an external or child-mutation effect attempt before dispatch, completed
+validated results, contradictory request-key conflicts, and durable uncertain
+state when an effect may have succeeded. Confirmed pre-dispatch failures may
+retry exact captured bytes; possible post-dispatch success must not cause
+automatic user-code replay. A remote idempotency key improves behavior only
+when the destination honors it and is not an exactly-once guarantee.
+
+The first action root is one public `action`. Direct internal-action selection,
+`runAction`, actions from queries or mutations, schedules, storage, workflows,
+and background/durable tasks stay absent. The edge action receives only auth,
+a controlled outbound capability, and authenticated `runQuery`/`runMutation`
+callbacks. Each query callback opens a fresh coherent read. Each mutation
+callback is a separate SAP04/C07 invocation with a derived child request key and
+its own outcome. Neither callback joins an action transaction, because the
+action owns no database, journal, savepoint, OCC, or commit capability.
+The first developer surface keeps the ordinary global `fetch` spelling only as
+a capability-backed record-before-dispatch host call; it is not uncontrolled
+ambient network authority. Fixed invocation time and deterministic request-
+owned `Math.random` are permitted, while timers, `waitUntil`, and
+nondeterministic crypto randomness remain absent.
+
+`AAV-A2` must use a new private action target/profile/syscall ABI rather than
+widening query, mutation, or internal-call identities. The exact target binds
+the active selection, candidate, readiness/activation, public action entry,
+`edge_action` projection, manifest/function entry, validators, compatibility
+date, content-addressed R2 references, outbound allowlist, callback policy, and
+host-policy identity. R2 remains the sole body store. The first host is a
+Cloudflare-compatible Dynamic Worker/Worker Loader equivalent; Node actions,
+provider adapters, and heavy jobs remain separate.
+
+The eventual System operation is scoped and returns only a durable completed
+validated value or a typed non-completed result. `ApplicationActionSystemV1`
+owns shared private composition through a Layer; each active selection,
+invocation claim, target, outbound adapter, callback capability, Worker, and
+cleanup lifetime remains request Scope-owned. Expected admission, stale,
+application, retryable pre-start, uncertainty, corruption, and cancellation
+failures remain distinct. Defects and full Cause are not normalized into the
+ordinary error channel.
+
+This proposal does not authorize the `AAV-A1` schema, `AAV-A2` identities,
+`SAP07`, FSV07, routing, a public SDK, Node actions, schedules, or durable-task
+integration. See
+[`../roadmaps/46-private-standard-edge-action-vertical.md`](../roadmaps/46-private-standard-edge-action-vertical.md)
+for the implementation gates and acceptance matrix.
+
 ### Transaction Meaning
 
 `ctx.db.transact` is a logical staging API, not a long-lived SQL transaction:
