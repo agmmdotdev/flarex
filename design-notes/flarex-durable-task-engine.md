@@ -198,6 +198,21 @@ do not share identity, definition, context, or invocation semantics.
 - A task is selected by stable task ID from a canonical task catalog. It is not
   selected by reinterpreting an action function path.
 
+The shared implementation seam should be a narrow user-code execution/compute
+port, not either product API calling the other. A direct edge-action adapter and
+a durable-task attempt adapter may both use the same R2 loader, Worker sandbox,
+controlled outbound capability, authenticated query/mutation callback
+mechanics, and resource accounting. The action adapter binds an `edge_action`
+target and request lifetime; the task adapter binds a distinct `durable_task`
+target, task definition revision, attempt fence, and task context.
+
+External-effect dispatch uncertainty is the one deliberately shared evidence
+concern. Its owner may bind evidence to either a direct action invocation or a
+fenced task attempt, but must preserve those distinct parent identities and may
+not own scheduling, leases, retries, cancellation, or terminal transitions.
+Task lifecycle “requested effects” remain internal orchestration instructions
+and are not widened into the user external-effect journal.
+
 The task engine must not become a parallel FlarexDB transaction or commit
 system. User-code database effects continue through the existing trusted
 executor and its OCC/commit owners. Task lifecycle transactions govern task

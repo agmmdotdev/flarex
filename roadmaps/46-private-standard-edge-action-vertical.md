@@ -2,26 +2,34 @@
 
 ## Status And Decision
 
-**Status:** The docs-first action preflight is complete. The first executable
-Standard action vertical is **not implementation-ready**. Existing owners can
-authenticate an `action` function, publish its `edge_action` projection to R2,
-settle cold-materialization readiness, and select the active revision. They do
-not own a durable action invocation, result, or external-effect attempt whose
-state distinguishes a confirmed pre-execution failure from an effect that may
-have succeeded before its response was lost.
+**Status:** The docs-first action preflight and durable-task ownership
+reconciliation are complete. The first executable Standard action vertical is
+still **not implementation-ready**. Existing owners can authenticate an
+`action` function, publish its `edge_action` projection to R2, settle cold-
+materialization readiness, and select the active revision. The admitted
+`@flarex/durable-task` domain owns task run/attempt lifecycle and sequenced
+orchestration requests; it does not turn direct actions into tasks and does not
+own user external-effect dispatch evidence. No owner yet durably distinguishes
+a confirmed pre-execution failure from an external effect that may have
+succeeded before its response was lost.
 
 The next separately approved capability is therefore:
 
-> **`AAV-A1 — Durable Edge-Action Invocation And External-Effect Uncertainty
-> Authority`**
+> **`AAV-A1 — Direct Edge-Action Invocation And Shared External-Effect
+> Uncertainty Authority`**
 
-`AAV-A1` is a new private protocol, persistence, and transaction-owner decision.
-It requires its own implementation-bearing preflight before schema or migration
-work. An in-memory Dynamic Worker proof cannot substitute for it. Only after
-`AAV-A1` is accepted may `AAV-A2` assemble the candidate-bound edge-action
-runtime and callback bridge. The final private Standard gate is named `SAP07`
-only in this roadmap and means **one route-independent public edge action**; it
-does not mean FSV07 production routing or a public SDK.
+`AAV-A1` remains a new private protocol, persistence, and transaction-owner
+decision. Its implementation-bearing preflight must prove that direct action
+request/outcome authority does not duplicate task run/attempt authority and
+that external-effect uncertainty has one narrow execution-evidence owner
+reusable by direct actions and future durable-task execution adapters. It must
+not add action-shaped task runs, task-shaped action attempts, dual writes, or a
+second retry/lease/cancellation state machine. An in-memory Dynamic Worker proof
+cannot substitute for it. Only after `AAV-A1` is accepted may `AAV-A2` assemble
+the candidate-bound edge-action runtime and callback bridge. The final private
+Standard gate is named `SAP07` only in this roadmap and means **one route-
+independent public edge action**; it does not mean FSV07 production routing or
+a public SDK.
 
 No code, protocol, schema, migration, generated artifact, route, binding,
 trigger, or production behavior was changed by this preflight.
@@ -124,7 +132,7 @@ database record.
 
 ## Ordered Capability Gates
 
-### `AAV-A1` — durable invocation and uncertainty authority
+### `AAV-A1` — direct invocation and shared uncertainty authority
 
 This is the immediate approval gate. Its separate preflight must decide the
 smallest append-only schema and the exact canonical preimages for these proposed
@@ -134,7 +142,7 @@ private identities:
 - `flarex.system/application-action-invocation-outcome/v1`; and
 - `flarex.system/application-action-effect-attempt/v1`.
 
-Those owners must cover:
+The direct-action owner must cover:
 
 - a bounded action invocation request bound to scope, active revision,
   candidate, readiness, activation, exact action entry, canonical arguments,
@@ -151,6 +159,23 @@ Those owners must cover:
 - one short transaction owner for each state transition, never a transaction
   held across user code or external I/O.
 
+The external-effect-attempt portion is execution evidence, not action or task
+lifecycle. Its preflight must define one subject binding that can identify a
+direct action invocation now and a fenced durable-task attempt later without
+making either identity an alias of the other. A task attempt continues to own
+its run version, execution fence, lease, heartbeat, retry, cancellation, and
+terminal transition through `@flarex/durable-task` and the Task System API. A
+direct action continues to own its request key, request lifetime, validated
+result, and typed non-completed result. The shared evidence owner may record an
+exact outbound request and its dispatch uncertainty; it may not schedule,
+retry, claim, cancel, or complete either parent lifecycle.
+
+The durable-task domain's `flarex.task-requested-effect.v1` values are internal
+orchestration requests such as attempt dispatch, wakeup, cancellation, event
+publication, and notification. They are not user HTTP/payment/email effect
+attempts and must not be reused or widened as the external-effect evidence
+protocol merely because both use the word `effect`.
+
 The required semantic posture is:
 
 - exact completed-request replay returns the stored validated result;
@@ -163,14 +188,22 @@ The required semantic posture is:
 - a stable effect key permits remote idempotency only when the destination
   explicitly honors that contract. It does not create exactly-once delivery.
 
-`AAV-A1` must remain separate from durable tasks, schedules, workflows,
-Trigger.dev, mutation outcomes, and the commit outbox. If implementation needs
-redrive or background orchestration, that is another gate.
+Direct action invocation remains separate from durable-task identity,
+definition, scheduling, run/attempt lifecycle, and retry policy. The shared
+external-effect evidence boundary must nevertheless be compatible with and
+reusable by the durable-task compute path rather than duplicated behind a
+second private API. It remains separate from mutation outcomes and the commit
+outbox. If the first direct action needs redrive, background orchestration, or
+task creation, that is another gate.
 
 ### `AAV-A2` — candidate-bound edge-action exact runtime
 
 After `AAV-A1`, assemble one Cloudflare-compatible Dynamic Worker/Worker Loader
-equivalent for the `edge_action` group. The expected private identities are:
+equivalent for the `edge_action` group. This runtime is independently invokable
+by SAP07. A durable task may later reuse its lower-level sandbox, outbound,
+callback, and materialization mechanics through a narrow compute/execution
+port, but it retains a separate `durable_task` target, task context, and task
+runtime identity. The expected private action identities are:
 
 - `flarex.system/candidate-bound-edge-action-runtime-target/v1`;
 - `edge-action-exact-runtime-v1`; and
@@ -326,17 +359,21 @@ defects remain terminal outside the user Promise chain.
 
 ### `AAV-A1` likely allowlist
 
-- one private action invocation/effect protocol module and vectors under
+- one private direct-action invocation protocol plus one narrowly shared
+  external-effect evidence protocol and vectors under
   `packages/flarex-protocol/src/`;
 - one append-only migration plus matching Drizzle schema/meta closure under
   `packages/persistence-postgres/`;
 - one private repository/facade with PGlite and genuine-PostgreSQL tests;
-- the smallest backend coordinator port needed to claim/observe durable state;
+- the smallest backend coordinator port needed to claim/observe direct-action
+  state plus an execution-evidence port that is not an orchestration API;
   and
 - this roadmap, roadmap 42, the System API proposal, and the roadmap registry.
 
-It must stop if rows belong in the durable-task engine, if effect redrive is
-required, or if mutation outcome/outbox identities would change.
+It must stop if proposed rows duplicate task run/attempt/effect-sequence state,
+if the subject binding cannot preserve distinct direct-action and task-attempt
+identities, if effect redrive is required, or if mutation outcome/outbox
+identities would change.
 
 ### `AAV-A2` likely allowlist
 
@@ -374,7 +411,7 @@ cycle or second consumer.
 - hostile decoding, field perturbation, ordering, bounds, clone/alias safety,
   and deterministic generated identities.
 
-### Durable invocation and uncertainty
+### Direct invocation and shared uncertainty
 
 - exact request replay, contradictory reuse, concurrent admission winner,
   rollback at every write boundary, cold reload, fence/epoch invalidation, and
@@ -421,7 +458,8 @@ This plan does not authorize:
 - FSV07, production routing, caller switches, bindings, triggers, public SDK
   stabilization, or legacy removal;
 - schedules, cron, actions calling actions, workflows, workflow mutations,
-  background/durable tasks, Trigger.dev integration, or effect redrive;
+  background/durable-task creation or orchestration, Trigger.dev runtime
+  integration, or effect redrive;
 - Node actions, Node host extraction, provider-specific callbacks, containers,
   heavy jobs, or automatic platform spill;
 - relations, Payload, Medusa, generic queries, index scans, SQL batches, or
@@ -435,7 +473,8 @@ This plan does not authorize:
 ## Approval Gate
 
 The immediate manager/user decision is whether to authorize an implementation-
-bearing `AAV-A1` preflight for a new private durable action request/outcome/
-effect-attempt authority and its append-only storage. Do not start `AAV-A2`,
-`SAP07`, FSV07, routes, schedules, or durable-task integration from this
-docs-only checkpoint.
+bearing `AAV-A1` preflight for a private direct-action request/outcome owner and
+one shared external-effect evidence owner, with explicit proof that neither
+duplicates the admitted durable-task lifecycle. Do not start `AAV-A2`, `SAP07`,
+FSV07, routes, schedules, or durable-task host integration from this docs-only
+checkpoint.

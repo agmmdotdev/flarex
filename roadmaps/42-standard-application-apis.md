@@ -32,9 +32,12 @@ C03/C07 parent attempt under the accepted no-child-savepoint semantics.
 The docs-first edge-action preflight is owned by
 [`46-private-standard-edge-action-vertical.md`](./46-private-standard-edge-action-vertical.md).
 It found that artifact publication, readiness, and active selection already
-support `edge_action`, but durable invocation/result/external-effect uncertainty
-authority does not. `AAV-A1` is therefore the next separate approval gate;
-neither an action runtime nor the final private `SAP07` operation is implemented.
+support `edge_action`, but direct invocation/result and shared external-effect
+uncertainty authority do not. The durable-task engine owns task run/attempt
+lifecycle only; it is neither a direct action API nor a user-effect journal.
+`AAV-A1` is therefore the next separate approval gate, with a mandatory no-
+duplication proof against the durable-task owners. Neither an action runtime nor
+the final private `SAP07` operation is implemented.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -78,7 +81,8 @@ Read these authorities together:
 - [`45-private-internal-user-code-calls.md`](./45-private-internal-user-code-calls.md)
   owns completed private query and mutation internal calls; and
 - [`46-private-standard-edge-action-vertical.md`](./46-private-standard-edge-action-vertical.md)
-  owns the edge-action preflight, durable invocation/uncertainty prerequisite,
+  owns the edge-action preflight, direct invocation/shared uncertainty
+  prerequisite,
   candidate-bound runtime gate, and later private Standard action gate;
 - [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md) owns public developer
   ergonomics, generated APIs, CLI/codegen, and distribution;
@@ -578,7 +582,7 @@ checker in roadmap 16. It must not mark that broader gate complete.
 | `SAP06-A1` | **Complete privately:** one public/internal query handler calls one registered internal query inline | Separate private target/profile/ABI binds the same candidate and PQV-A1 snapshot; SAP05 selects it as the sole query runtime path; no child transaction, outcome, route, or public internal-function invocation |
 | `SAP06-A2` | **Complete privately:** one public mutation calls authenticated same-candidate internal queries inline | Reuses the exact mutation Worker, C03 journal/overlay, read/write set, grant/session, OCC retry, and parent outcome under the separate target/profile/ABI identities in roadmap 45; no child publication or production route is added |
 | `SAP06-A3` | **Complete privately:** public/internal mutations call authenticated same-candidate internal mutations inline | One combined internal-call target/profile/ABI preserves SAP06-A2 `runQuery`, the same journal/overlay/OCC/outcome, no child publication, and the accepted no-child-savepoint first-slice semantics |
-| `AAV-A1` | **Preflight complete; implementation approval required:** durable edge-action request, terminal result, effect-attempt, and uncertainty authority | A separate implementation-bearing preflight must pin its private protocol, append-only storage, short transitions, crash/replay/cancellation rules, and durable-task exclusion before any schema or migration |
+| `AAV-A1` | **Docs preflight and task/action ownership reconciliation complete; implementation approval required:** direct edge-action request/outcome plus shared external-effect uncertainty evidence | A separate implementation-bearing preflight must pin its private protocol, append-only storage, short transitions, crash/replay/cancellation rules, distinct direct-action/task-attempt subject identities, and no-duplication proof against Task System run/attempt/orchestration state before any schema or migration |
 | `AAV-A2` | Candidate-bound exact `action-edge` runtime and authenticated outbound/query/mutation callback bridge | `AAV-A1` accepted and complete; separately pin the target/profile/syscall ABI and host policy without widening query/mutation identities |
 | `SAP07` | One private, route-independent public Standard edge action | `AAV-A1` and `AAV-A2` complete; no FSV07 route, internal action, `runAction`, schedule, Node host, or public SDK is implied |
 | Later separately gated operations | Add workflow and schedule operations individually | each capability has an implemented owner contract and focused preflight; query-to-mutation and query/mutation-to-action remain forbidden |

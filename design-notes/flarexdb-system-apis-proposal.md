@@ -773,8 +773,8 @@ Roadmap 46 owns the first Standard action preflight. Current source truth alread
 admits canonical public/internal `action` metadata, publishes `edge_action`
 projection and manifest references, verifies exact bodies from R2, settles cold
 readiness, and exposes one coherent Scope-owned active selection. It does not
-yet expose an action runtime, authenticated outbound syscall, or durable action
-invocation/effect owner.
+yet expose an action runtime, authenticated outbound syscall, direct action
+invocation/result owner, or shared external-effect evidence owner.
 
 That missing durability is substantive. Once user code can perform an external
 effect, a Worker crash, timeout, cancellation, or lost response can occur after
@@ -787,7 +787,7 @@ The ordered private gates are therefore:
 
 ```text
 AAV-A1
-  durable action request/result/effect-attempt and uncertainty authority
+  direct action request/result plus shared external-effect uncertainty evidence
     -> AAV-A2
        candidate-bound action-edge exact runtime and callback bridge
          -> SAP07
@@ -795,16 +795,28 @@ AAV-A1
 ```
 
 `AAV-A1` is a separately approved private protocol, storage, migration, and
-short-transaction decision. Its proposed private identities are
+short-transaction decision. It must not duplicate the durable-task engine's
+run/attempt, lease, retry, cancellation, terminal, or sequenced orchestration-
+effect state. Its proposed private identities are
 `flarex.system/application-action-invocation-request/v1`,
 `flarex.system/application-action-invocation-outcome/v1`, and
-`flarex.system/application-action-effect-attempt/v1`. It must persist an exact request before execution,
-an external or child-mutation effect attempt before dispatch, completed
+`flarex.system/application-action-effect-attempt/v1`. The final preflight must
+decide whether the last identity becomes the narrow shared execution-evidence
+contract or is replaced by an explicitly shared identity; it must not create
+parallel action-only and task-only external-effect journals. It must persist an
+exact direct-action request before execution, an external or child-mutation
+effect attempt before dispatch, completed
 validated results, contradictory request-key conflicts, and durable uncertain
 state when an effect may have succeeded. Confirmed pre-dispatch failures may
 retry exact captured bytes; possible post-dispatch success must not cause
 automatic user-code replay. A remote idempotency key improves behavior only
 when the destination honors it and is not an exactly-once guarantee.
+
+Direct action request/outcome state remains action-owned. External-effect
+evidence may later bind to a fenced durable-task attempt through the same narrow
+owner, without turning the direct action into a task or giving the evidence
+owner task orchestration authority. The task engine's own requested effects are
+dispatch/wake/cancel/event instructions and are not this user-effect evidence.
 
 The first action root is one public `action`. Direct internal-action selection,
 `runAction`, actions from queries or mutations, schedules, storage, workflows,
@@ -840,7 +852,9 @@ ordinary error channel.
 
 This proposal does not authorize the `AAV-A1` schema, `AAV-A2` identities,
 `SAP07`, FSV07, routing, a public SDK, Node actions, schedules, or durable-task
-integration. See
+host integration. It does require the AAV-A1 schema preflight to prove
+compatibility with the admitted durable-task domain and absence of duplicate
+run/attempt/effect authority. See
 [`../roadmaps/46-private-standard-edge-action-vertical.md`](../roadmaps/46-private-standard-edge-action-vertical.md)
 for the implementation gates and acceptance matrix.
 

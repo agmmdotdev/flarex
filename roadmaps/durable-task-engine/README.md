@@ -178,6 +178,20 @@ User code receives the same restricted execution and database capabilities as
 other Flarex runtime paths. It never receives task tables, Postgres, Drizzle,
 Cloudflare infrastructure authority, or compute-provider credentials.
 
+The compute substrate may share R2 materialization, sandbox, outbound I/O,
+query/mutation callback, and resource-control mechanics with the independently
+invokable edge-action runtime. That reuse does not make a task an action alias:
+the task keeps its stable task ID, `durable_task` target/profile, task context,
+run/attempt authority, and eventual-result semantics, while a direct edge action
+keeps its function identity and request/response contract.
+
+Sequenced `flarex.task-requested-effect.v1` values are task-orchestration
+instructions such as dispatch, wakeup, cancellation, event publication, and
+notification. They are not evidence that an arbitrary user HTTP/payment/email
+effect was dispatched. A separately admitted external-effect evidence owner may
+be reused by both execution adapters, but it must not gain task scheduling,
+lease, retry, cancellation, or terminal-transition authority.
+
 ### 8. Observability Has Separate State, Trace, And Stream Lanes
 
 The web application will consume safe, scope-authorized read models rather than
