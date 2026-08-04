@@ -12,6 +12,10 @@ const durableTaskManifestPath = "packages/durable-task/package.json";
 const durableTaskSourcePrefix = "packages/durable-task/";
 const standardApplicationDefinitionManifestPath =
   "packages/standard-application-definition/package.json";
+const persistencePostgresManifestPath =
+  "packages/persistence-postgres/package.json";
+const persistencePostgresSchemaPath =
+  "packages/persistence-postgres/src/schema.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -23,6 +27,30 @@ const admittedStandardApplicationDurableTaskSymbols = new Set([
   "TaskComputeProfileRefV1Schema",
   "TaskDefinitionRevisionIdV1",
   "TaskDefinitionRevisionIdV1Schema",
+]);
+const admittedPersistenceDurableTaskSymbolsBySpecifier = new Map([
+  ["@flarex/durable-task/internal/run-attempt-v1", new Set([
+    "MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1",
+    "MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1",
+    "TaskAttemptIdV1",
+    "TaskCancellationGenerationV1",
+    "TaskDefinitionRevisionIdV1",
+    "TaskExecutionFenceV1",
+    "TaskLeaseVersionV1",
+    "TaskRequestedEffectPersistenceCursorV1",
+    "TaskRequestedEffectSequenceV1",
+    "TaskRequestedEffectV1",
+    "TaskRunAttemptPersistenceProjectionV1",
+    "TaskRunIdV1",
+    "TaskRunVersionV1",
+  ])],
+  ["@flarex/durable-task/internal/run-creation-v1", new Set([
+    "MAX_TASK_INPUT_CANONICAL_BYTES_V1",
+    "TaskInputSha256V1",
+    "TaskRunCreationAuthoritySha256V1",
+    "TaskRunCreationRequestKeySha256V1",
+    "TaskRunCreationRequestSha256V1",
+  ])],
 ]);
 const durableTaskAllowedExports = Object.freeze({
   "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
@@ -110,7 +138,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
           relativePath !== durableTaskManifestPath
           && (isDurableTaskPackageSpecifier(name)
             || (typeof value === "string" && isDurableTaskDependencyReference(value, relativePath)))
-          && !isAdmittedStandardApplicationTaskDefinitionDependency(
+          && !isAdmittedDurableTaskConsumerDependency(
             relativePath,
             name,
             value,
@@ -135,7 +163,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       scriptKindForPath(relativePath),
     );
     const admittedDurableTaskLocalBindings =
-      collectAdmittedStandardApplicationDurableTaskLocalBindings(sourceFile);
+      collectAdmittedDurableTaskLocalBindings(sourceFile);
 
     visit(sourceFile);
 
@@ -183,11 +211,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && !relativePath.startsWith(durableTaskSourcePrefix)
         && isProductionSource(relativePath)
         && isDurableTaskProductionSpecifier(specifier, relativePath)
-        && !isAdmittedStandardApplicationTaskDefinitionImport(
-          relativePath,
-          specifier,
-          node,
-        )
+        && !isAdmittedDurableTaskConsumerImport(relativePath, specifier, node)
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate @flarex/durable-task before host admission.`);
@@ -203,14 +227,14 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
  * @param {ts.SourceFile} sourceFile
  * @returns {ReadonlySet<string>}
  */
-function collectAdmittedStandardApplicationDurableTaskLocalBindings(sourceFile) {
+function collectAdmittedDurableTaskLocalBindings(sourceFile) {
   const bindings = new Set();
   for (const statement of sourceFile.statements) {
     if (
       !ts.isImportDeclaration(statement)
       || statement.moduleSpecifier === undefined
       || !ts.isStringLiteralLike(statement.moduleSpecifier)
-      || !isAdmittedStandardApplicationTaskDefinitionImport(
+      || !isAdmittedDurableTaskConsumerImport(
         sourceFile.fileName,
         statement.moduleSpecifier.text,
         statement,
@@ -575,21 +599,37 @@ function isDurableTaskPackageSpecifier(specifier) {
 }
 
 /**
- * DTE04-A2b admits only the Standard definition owner's exact workspace
- * dependency. It is schema/type reuse, not host activation.
+ * DTE04-A2b and DTE04-A3 admit only the two exact workspace consumers. They
+ * are schema/type ownership edges, not host activation.
  *
  * @param {string} relativePath
  * @param {string} name
  * @param {unknown} value
  */
-function isAdmittedStandardApplicationTaskDefinitionDependency(
+function isAdmittedDurableTaskConsumerDependency(
   relativePath,
   name,
   value,
 ) {
-  return relativePath === standardApplicationDefinitionManifestPath
+  return (
+    relativePath === standardApplicationDefinitionManifestPath
+    || relativePath === persistencePostgresManifestPath
+  )
     && name === expectedTargetPackage
     && value === "workspace:*";
+}
+
+/**
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
+  return isAdmittedStandardApplicationTaskDefinitionImport(
+    relativePath,
+    specifier,
+    node,
+  ) || isAdmittedPersistenceTaskSchemaImport(relativePath, specifier, node);
 }
 
 /**
@@ -621,6 +661,36 @@ function isAdmittedStandardApplicationTaskDefinitionImport(
   return clause.namedBindings.elements.every((element) => {
     const importedName = element.propertyName?.text ?? element.name.text;
     return admittedStandardApplicationDurableTaskSymbols.has(importedName);
+  });
+}
+
+/**
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function isAdmittedPersistenceTaskSchemaImport(relativePath, specifier, node) {
+  const admittedSymbols =
+    admittedPersistenceDurableTaskSymbolsBySpecifier.get(specifier);
+  if (
+    relativePath !== persistencePostgresSchemaPath
+    || admittedSymbols === undefined
+    || !ts.isImportDeclaration(node)
+  ) {
+    return false;
+  }
+  const clause = node.importClause;
+  if (
+    clause === undefined || clause.name !== undefined
+    || clause.namedBindings === undefined
+    || !ts.isNamedImports(clause.namedBindings)
+    || clause.namedBindings.elements.length === 0
+  ) {
+    return false;
+  }
+  return clause.namedBindings.elements.every((element) => {
+    const importedName = element.propertyName?.text ?? element.name.text;
+    return admittedSymbols.has(importedName);
   });
 }
 

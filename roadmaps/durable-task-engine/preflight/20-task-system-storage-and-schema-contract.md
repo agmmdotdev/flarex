@@ -2,10 +2,12 @@
 
 ## Status
 
-**Status:** Lifecycle representation and run-creation domain decisions
-complete; exact DDL remains blocked by Standard Application task authority.
-This file admits codec/projection and creation-contract
-implementation preflight but does not yet authorize DDL or migration changes.
+**Status:** **Complete: admit DTE04-A3.** Lifecycle representation,
+run-creation, and Standard Application task-authority contracts are complete.
+This file admits exactly the five-table Drizzle schema, generated migration,
+constraints, indexes, and PGlite/real-Postgres migration proofs. It does not
+admit registration, lifecycle adapters, run creation, discovery operations,
+effect delivery, host composition, or routing.
 
 ## Objective
 
@@ -39,21 +41,20 @@ stored row
 Relational projections never override the aggregate. If the two disagree, the
 row is corrupt and the operation fails before a decision or repair write.
 
-## Candidate Tables
+## Admitted Tables
 
 The first draft undercounted the model by naming only run and requested-effect
 tables. DTE02 already requires durable definition registration and a separate
 creation-authority receipt, while DTE02 requires a scope-local attempt-history
 identity whose UUID collisions can be detected. The minimum complete topology
 therefore has five
-tables. Names remain provisional until the exact DDL receipt, but
-responsibilities are fixed.
+tables. DTE04-A3 fixes their physical names and responsibilities as follows.
 
 ### `fx_system_durable_task_definition_revision_v1`
 
 One immutable definition/runtime binding accepted under a trusted scope.
 
-| Field group | Candidate representation | Contract |
+| Field group | Physical representation | Contract |
 | --- | --- | --- |
 | identity | `scope_id`, `task_definition_revision_id` | Composite primary key; the ID is storage-issued `taskdef_` plus canonical UUIDv4. |
 | logical task | canonical `task_id` | Display/lookup evidence only; never execution authority without the binding. |
@@ -62,15 +63,17 @@ One immutable definition/runtime binding accepted under a trusted scope.
 | runtime evidence | bounded projection columns required to locate the immutable artifact objects | Derived from the decoded binding, not caller-selected runtime targets. |
 
 The authoritative `TaskDefinitionRuntimeBindingV1` codec and canonical task
-catalog do not exist in code yet. This table may not be created with an opaque
-`unknown` blob or a persistence-invented manifest shape. Their owner must land
-before the table's exact columns and foreign keys are admitted.
+catalog are implemented by DTE04-A2b. The definition row stores its canonical
+binding frame bytes and digest plus only relational correlation projections.
+Singleton runtime-object digests are projected for lookup; the decoded binding
+remains the authority for the complete bounded runtime-object list, including
+repeated runtime-projection modules. No sixth runtime-object table is admitted.
 
-### `fx_system_durable_task_runs_v1`
+### `fx_system_durable_task_run_v1`
 
 One row per scope-bound durable run.
 
-| Field group | Candidate representation | Contract |
+| Field group | Physical representation | Contract |
 | --- | --- | --- |
 | identity | `scope_id`, `run_id` | Composite primary key; every lookup and foreign key includes scope. |
 | immutable binding | definition-revision ID plus creation-authority receipt/envelope | Never retargeted after insert; decoded and correlated with aggregate. |
@@ -97,13 +100,17 @@ One scope-local idempotency identity for new-run creation.
 | `scope_id`, versioned request-key digest | Composite primary key; raw keys are not query or log fields. |
 | canonical creation-request digest | Covers every caller-selectable creation input and its codec version. |
 | `run_id` | Scope-qualified foreign key to the one winning run. |
-| receipt digest/version | Reconstructs and verifies the original creation receipt. |
+| receipt version and correlated replay fields | Reconstructs and verifies the original creation receipt without inventing a second receipt digest. |
 
 The exact request-key grammar, payload reference, canonical digest algorithm,
-and typed conflict are not yet implemented owners. This table is therefore a
-required topology, not admitted DDL.
+stable receipt, and typed conflict are implemented by DTE04-A2a. The raw
+request key is never stored. The row stores the key-preimage digest, request
+digest, receipt version, and winning run reference; the definition revision,
+database creation time, and creation-authority digest are reconstructed from
+the immutable run row. There is no separately owned receipt canonical frame or
+receipt digest in the admitted domain contract, so SQL must not invent one.
 
-### `fx_system_durable_task_requested_effects_v1`
+### `fx_system_durable_task_requested_effect_v1`
 
 One immutable intent row for every accepted requested effect.
 
@@ -429,8 +436,10 @@ and are now implemented by DTE04-A2b:
    reference, request-key/request digest preimages, receipt, and conflict
    contract.
 
-These are not Postgres representation choices. They now land through the
-private `@flarex/standard-application-definition/internal/task-definition-v1`
-surface and Preflight 24. DTE04-A3 is therefore the next admitted code slice.
-Definition registration, run creation, adapters, and host activation remain
-closed until their own checkpoints.
+These are not Postgres representation choices. They land through the private
+`@flarex/standard-application-definition/internal/task-definition-v1` surface
+and Preflight 24. DTE04-A3 has now implemented this preflight's five-table
+schema and migration checkpoint. DTE04-B's scope-bound lifecycle adapter is
+the next admitted code slice. Definition registration, run creation,
+discovery, effect delivery, and host activation remain closed until their own
+checkpoints.

@@ -75,7 +75,7 @@ describe("Declarative V2 verifier-progress V1 retirement migration", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "45" }]);
+      expect(receipts.rows).toEqual([{ count: "47" }]);
     } finally {
       try {
         await db.close();

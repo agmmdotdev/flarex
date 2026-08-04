@@ -664,6 +664,9 @@ importers:
       '@flarex/analysis':
         specifier: workspace:*
         version: link:../analysis
+      '@flarex/durable-task':
+        specifier: workspace:*
+        version: link:../durable-task
       '@flarex/standard-application-analysis':
         specifier: workspace:*
         version: link:../standard-application-analysis

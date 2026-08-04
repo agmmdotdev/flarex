@@ -151,20 +151,21 @@ lifecycle domain, pure policy, typed Effect service, Task System store port,
 and domain Layer. Its initial runtime dependency is only the root-catalog
 `effect` package.
 
-`@flarex/persistence-postgres` will implement its Task System store port;
-`flarex-backend` will own host composition, durable effect delivery, and
-runtime projection adapters. The durable-task package must not import
-persistence, Drizzle, Prisma, Redis, Node, Cloudflare, backend, apps, Trigger
-packages, or the frozen Trigger source island. It has no package-root, public
-protocol, SDK, or host-adapter export.
+`@flarex/persistence-postgres` now owns the DTE04-A3 five-table Task System
+schema and generated migration through exact private domain-contract
+dependencies. DTE04-B will implement the scope-bound Task System lifecycle
+store port in that package; `flarex-backend` will own host composition, durable
+effect delivery, and runtime projection adapters. The durable-task package must
+not import persistence, Drizzle, Prisma, Redis, Node, Cloudflare, backend, apps,
+Trigger packages, or the frozen Trigger source island. It has no package-root,
+public protocol, SDK, or host-adapter export.
 
 This package boundary is now admitted by
 [`DTE01-G`](./durable-task-engine/preflight/05-final-package-admission.md).
 Creation remains sequenced behind the private task identity/scope contract and
-must land as the complete production-inert package checkpoint with its
-provenance, compatibility tests, and admitted-package gates. Admission does not
-authorize a persistence implementation, app/backend dependency, Worker bundle,
-public export, schema, or production route.
+the lifecycle adapter checkpoint. The DTE04-A3 schema admission does not
+authorize an app/backend dependency, Worker bundle, public export, store
+adapter, run creation, discovery, effect delivery, or production route.
 
 The DTE01 package owns run-attempt lifecycle only. The revised DTE02-B contract
 uses a first-class canonical Standard Application task catalog with stable

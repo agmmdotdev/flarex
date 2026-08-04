@@ -314,6 +314,47 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the DTE04-A3 persistence schema dependency and symbols", () => {
+    const schemaPath = "packages/persistence-postgres/src/schema.ts";
+    expect(analyzeTriggerCompatibilityBoundary([{
+      relativePath: "packages/persistence-postgres/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }], [{
+      relativePath: schemaPath,
+      text: `
+        import {
+          MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1,
+          type TaskRequestedEffectV1,
+          type TaskRunAttemptPersistenceProjectionV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import {
+          MAX_TASK_INPUT_CANONICAL_BYTES_V1,
+          type TaskInputSha256V1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: schemaPath,
+      text: `
+        import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
+        import { decodeTaskRunCreationRequestV1 } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }, {
+      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      text: `
+        import type { TaskRunIdV1 } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([
+      `${schemaPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+      `${schemaPath}:3 production source must not activate @flarex/durable-task before host admission.`,
+      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate @flarex/durable-task before host admission.",
+    ]);
+  });
+
   it("rejects local re-exports of admitted durable-task bindings", () => {
     const privatePath =
       "packages/standard-application-definition/src/taskDefinition/Schema.ts";

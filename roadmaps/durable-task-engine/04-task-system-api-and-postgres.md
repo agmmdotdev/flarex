@@ -2,14 +2,16 @@
 
 ## Status
 
-**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-A2b are complete. The
+**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-A3 are complete. The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
-implemented; locking,
-database-clock, bounded retry, and non-mutating discovery decisions are closed
-for later checkpoints. DDL, migration, adapter, creation, host, queue, and
-activation changes remain unauthorized.
+implemented. The five-table Drizzle schema, generated migration, relational
+constraints, due-work index, and PGlite/real-Postgres migration proofs are also
+implemented. Locking, database-clock, bounded retry, and non-mutating discovery
+decisions are closed for later checkpoints. The lifecycle adapter is the next admitted slice.
+Creation, discovery, effect delivery, host, queue, and activation changes
+remain unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
 run-attempt domain. Its purpose is to connect the existing scope-bound
@@ -20,8 +22,9 @@ Roadmaps 01 through 03.
 The audit originally found that canonical task definition/runtime binding and
 task-input reference owners were documentation-only. DTE04-A1 therefore
 stopped after the domain-owned JSON envelope and pure lifecycle projection.
-DTE04-A2a and DTE04-A2b now close those upstream contracts without inventing
-them in persistence. Concrete DDL may begin only under DTE04-A3.
+DTE04-A2a and DTE04-A2b close those upstream contracts without inventing them
+in persistence. DTE04-A3 has now landed the admitted five-table physical model
+without introducing a store adapter or enabling any runtime path.
 
 ## Outcome
 
@@ -69,9 +72,10 @@ DTE04-A1 now additionally supplies:
 - hostile codec, ownership, size, proxy, depth, and five-phase projection
   tests.
 
-No concrete store exists. Runs in tests are seeded into an in-memory fixture;
-there is no Drizzle table, migration, Postgres adapter, run-creation API, due
-discovery query, requested-effect delivery table, or production composition.
+No concrete store adapter exists. Runs in domain tests are seeded into an
+in-memory fixture. DTE04-A3 supplies the five Drizzle tables and migration, but
+there is no Postgres lifecycle adapter, run-creation API, due-discovery query,
+requested-effect delivery operation, or production composition.
 
 `@flarex/persistence-postgres` already owns the repository's Drizzle schema,
 migrations, PGlite and `pg` construction, scope authority, transaction
@@ -250,8 +254,10 @@ admitted:
   canonical preimages/digests, strict ownership/correlation tests, and exact
   boundary-gate updates; no registration, activation, persistence, or host
   change;
-- **DTE04-A3 — schema:** five Drizzle tables, migration, constraints, indexes,
-  and PGlite/real-Postgres migration tests;
+- **DTE04-A3 — schema — complete:** five scope-qualified Drizzle tables,
+  generated migration, constraints, indexes, PGlite upgrade/rollback/replay
+  proof, and real-Postgres migration/query-plan proof; no store adapter,
+  creation, discovery, delivery, or host integration;
 - **DTE04-B — lifecycle adapter:** scope-bound `TaskSystemRunAttemptStore`
   Layer, transaction/error mapping, and DTE-IP01 vectors on PGlite;
 - **DTE04-C — creation:** closed creation contract, initial aggregate builder,
