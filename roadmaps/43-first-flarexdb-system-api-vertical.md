@@ -187,7 +187,7 @@ factories.
 | --- | --- | --- |
 | `FSV02` registration is complete but deliberately inactive | Direct use without the later gates | Consume it only through completed FSV04/FSV05 evidence; registration itself is still neither readiness nor activation |
 | The former stored-attempt exact-runtime test-contract mismatch is repaired under C07's directly composed owner flow | Nothing current; the persistence package typecheck is green | Keep the fixture aligned with the RPC-projected logical outcome contract |
-| FSV04/FSV05 readiness and shared-primary activation, C03-V syscall validation, FSV06-A1 exact runtime dispatch, and FSV06/SAP04 invocation exist privately | Production caller routing | Preserve the private route-independent composition until the separate FSV07 preflight is accepted |
+| FSV04/FSV05 readiness and shared-primary activation, C03-V syscall validation, FSV06-A1 exact runtime dispatch, and FSV06/SAP04 invocation exist privately | Production caller routing | The FSV07 preflight is recorded below as a no-go decision; preserve the private route-independent composition until every named routing gate closes |
 | FSV03 proves one private selected-revision point mutation and FSV06 consumes FSV05 active selection | Broader invocation families | Keep the FSV03 test-owned selector separate; SAP05+ queries, actions, workflows, schedules, relations, and adapters retain their own gates |
 | Root executor routing is legacy-only | Production use of replacement data APIs | Preserve current routing until the separate `FSV07` decision |
 | Raw persistence and kernel subpaths expose excessive authority | Safe consumption by other packages | Add narrow implementation-bearing functions and service boundaries; never expose the raw repository as the System API |
@@ -913,6 +913,101 @@ Any route or binding activation requires a separate preflight that names:
 
 Do not infer this authorization from `FSV06`.
 
+#### `[x] FSV07-P`: Record The Routing Preflight And No-Go Decision
+
+The 2026-08-05 repository-grounded preflight is complete. Its decision is **do
+not activate production routing yet**. This receipt authorizes no route,
+binding, deployment, schema, migration, compatibility fallback, dual execution,
+or legacy retirement.
+
+Exact current caller:
+
+```text
+POST /invoke
+  -> routePublicWorker
+  -> routePublicInvoke
+  -> loadActiveDeploymentEffect
+  -> routeInvoke
+  -> BackendExecutionArtifactRuntime.invoke
+     or anonymous executeInvokeEffect/functions fallback
+```
+
+That path loads the legacy active deployment and serves both query and mutation
+requests through the current `InvokeResponse` and `ExecutionIdentity` contract.
+None of `invokeStandardApplicationPointMutationV1`,
+`invokeStandardApplicationPointQueryV1`, or
+`invokeStandardApplicationActionV1` has a production caller.
+
+The first possible target caller is deliberately narrower: the mutation branch
+of the backend-owned `/invoke` adapter, after persisted deployment/project/scope
+resolution, would provide the request-scoped Standard active-revision reader
+and point-mutation System Layer and call
+`invokeStandardApplicationPointMutationV1`. Query and action routing remain
+separate decisions. The route must not call persistence repositories, the C07
+kernel, or the candidate runtime directly.
+
+The following gates block that caller:
+
+1. Foundation `H05-B` has not captured the live Cloudflare, cache-disabled
+   Hyperdrive, private executor/probe, SQL/OCC/control/trace, and teardown
+   receipt.
+2. Foundation `S02-D2` has not composed the existing read-only scope resolver
+   into persisted-session execution. The public route therefore cannot yet
+   select `legacy_v1` versus `flarexdb_v1` from trusted persisted authority.
+3. Foundation `S02-E` has not proved real-Postgres scope/fence isolation,
+   pooled-connection cleanup, and cross-scope rejection.
+4. Roadmap 37's hosted crash/expiry redelivery soak and its live-journal,
+   retained-byte, oldest-nonterminal, terminal-backlog, and cleanup-failure
+   observability evidence remain open.
+5. `PublicInvokeRequestBody` permits a mutation without `idempotencyKey`, while
+   SAP04 requires an exact transaction request key. FSV07 must preserve or
+   explicitly version that public behavior; it may not invent a request key,
+   reject previously valid traffic silently, or route only the convenient
+   subset.
+6. The current route resolves and forwards authenticated `ExecutionIdentity`,
+   while the private SAP04 point-mutation composition currently pins anonymous
+   authentication. Authenticated and anonymous parity, including policy digest
+   and error projection, must be owned before any public caller switches.
+7. The authoritative SAP04 committed outcome is not the existing
+   `InvokeResponse`. A backend-owned response/error adapter needs explicit
+   parity proof; the route may not expose private persistence or commit shapes.
+
+Fail-closed rollback and recovery:
+
+- until every gate closes, the only accepted rollback is to leave the current
+  route and bindings unchanged;
+- a future cutover must select one engine from persisted generation authority,
+  never invoke both and never fall back after a replacement failure;
+- missing, stale, or contradictory scope/generation/fence/revision evidence
+  must fail closed before user code or a transaction begins; and
+- deployment rollback must not reinterpret an already advanced scope clock or
+  reset counters. The exact forward/rollback procedure and owner are required
+  before activation.
+
+Deployment and migration impact:
+
+- this preflight changes neither;
+- `H05-B` is a separately authorized staging mutation with mandatory teardown;
+- the later caller needs the trusted executor/Hyperdrive bindings and
+  request-scoped Layer composition; and
+- clean replacement scopes must bootstrap directly on `flarexdb_v1`.
+  Existing advanced clocks are not reset, and any live legacy-row transition
+  requires its own evidence-backed migration decision.
+
+The entire current `/invoke` path remains a retained legacy obligation. No
+legacy code, table, binding, response field, or behavior may be removed until
+hosted mutation parity covers authenticated and anonymous calls, success,
+validation, conflict/retry, replay, interruption, confirmed rollback,
+uncertainty recovery, crash/expiry redelivery, cold restart, resource budgets,
+scope isolation, pooled cleanup, response/error compatibility, commit/change
+feed, result, and outbox facts. Query and action retirement additionally require
+their own routed parity decisions.
+
+The next executable prerequisite is `H05-B`, not an FSV07 route edit. Running
+that proof changes external staging state and remains outside this no-mutation
+preflight. After `H05-B`, complete `S02-D2`, `S02-E`, and the roadmap 37 hosted
+soak before returning here for an implementation-bearing routing decision.
+
 ## Completed FSV01 And FSV02 Handoff
 
 The analyzer handoff was received and reverified before `FSV01` implementation.
@@ -937,7 +1032,9 @@ C03-V supplies scope-lifetime syscall-time validation, FSV06-A1 supplies the
 candidate-bound exact runtime target, FSV06-A2 supplies the existing mixed-ABI
 catchability semantics, and FSV06 composes them without creating a route,
 trigger, hosted-redelivery authority, public SDK, or production caller. The
-next gate is the separate FSV07 production-routing preflight.
+FSV07-P records the separate production-routing preflight as a no-go decision.
+The next executable prerequisite is foundation `H05-B`; production routing
+remains unchanged.
 
 ## Overall Completion Criteria
 
