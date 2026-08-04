@@ -18,7 +18,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
     "typescript": "catalog:",

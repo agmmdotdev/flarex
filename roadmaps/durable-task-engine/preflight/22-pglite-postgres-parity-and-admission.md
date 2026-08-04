@@ -188,8 +188,20 @@ an obviously unbounded or sequential full-scope design.
 - pure lifecycle projection/correlation tests across all five phases;
 - hostile byte-tag, base64url, bigint, unknown-key, aliasing, cycle, and size
   cases;
-- no persistence package, schema, migration, or runtime dependency change; and
+- no persistence package, schema, migration, host-runtime, or activation
+  change; the only new domain dependency is the admitted
+  `flarex-protocol/json` subpath; and
 - main-thread diff audit plus both required reviewers before commit.
+
+Receipt (2026-08-04): the durable-task package typecheck and all 41 package
+tests pass, including 12 focused persistence codec/projection tests. The
+source-map, 65-vector lifecycle, and narrow Trigger compatibility boundary
+checks pass. Hostile coverage includes accessor/cycle/prototype rejection,
+canonical base64url, byte ownership, distinct size ceilings, stateful proxies,
+globally oversized nested containers, and deep object/array rejection. Both
+required final reviewers reported no remaining finding after the accepted
+fixes. DTE04-A1 is complete; this receipt does not open DTE04-A3 or any
+concrete adapter.
 
 ### DTE04-A2/A3
 

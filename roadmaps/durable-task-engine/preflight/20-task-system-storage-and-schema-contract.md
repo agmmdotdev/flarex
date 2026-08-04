@@ -208,7 +208,12 @@ wrapper is recognized only at Schema-owned byte positions; it is not a generic
 recursive convention for arbitrary future JSON payloads. Aggregate canonical
 JSON is limited to 1 MiB and one requested-effect canonical JSON value to 64
 KiB, measured with the protocol-owned canonical JSON encoder before the value
-crosses the adapter. Decode re-encodes to enforce the same ceiling.
+crosses the adapter. Decode captures caller/driver input once through data
+descriptors, charges one global canonical-byte budget, and then measures and
+decodes only the owned frozen snapshot. Envelope nesting is limited to 128
+levels so hostile input cannot escape the typed boundary through call-stack
+exhaustion. A future valid shape requiring a deeper graph needs a new envelope
+codec decision rather than silently weakening this bound.
 
 The choice must prove:
 

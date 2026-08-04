@@ -2,10 +2,11 @@
 
 ## Status
 
-**Status:** Active, docs-first preflight. DTE-IP01 is complete. The lifecycle
-JSON envelope, relational projection, locking, database-clock, bounded retry,
-and non-mutating discovery decisions are closed. DDL, migration, adapter,
-creation, host, queue, and activation changes remain unauthorized.
+**Status:** Active. DTE-IP01 and DTE04-A1 are complete. The lifecycle JSON
+envelope and pure relational projection are implemented; locking,
+database-clock, bounded retry, and non-mutating discovery decisions are closed
+for later checkpoints. DDL, migration, adapter, creation, host, queue, and
+activation changes remain unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
 run-attempt domain. Its purpose is to connect the existing scope-bound
@@ -15,9 +16,9 @@ Roadmaps 01 through 03.
 
 The audit found that canonical task definition/runtime binding and task-input
 reference owners remain documentation-only. Roadmap 04 must not invent them in
-the persistence package. The next bounded code candidate is therefore the
-domain-owned JSON envelope and pure lifecycle projection only; concrete DDL
-waits for those upstream contracts and a refreshed schema receipt.
+the persistence package. DTE04-A1 therefore stopped after the domain-owned JSON
+envelope and pure lifecycle projection. DTE04-A2 must close those upstream
+contracts before concrete DDL can begin under DTE04-A3.
 
 ## Outcome
 
@@ -51,6 +52,19 @@ DTE-IP01 already supplies:
   scope-bound; and
 - 65 canonical compatibility vectors plus 37 named Trigger-to-Flarex
   divergences.
+
+DTE04-A1 now additionally supplies:
+
+- independently versioned JSON-safe aggregate and requested-effect envelopes;
+- canonical decimal bigint preservation and Schema-position-owned canonical
+  base64url byte wrappers;
+- trap-safe, single-read hostile-input capture with global canonical-byte and
+  nesting limits;
+- one pure `TaskRunAttemptPersistenceProjectionV1` covering all five phases;
+- the admitted `flarex-protocol/json` dependency while the boundary checker
+  continues to reject every other protocol subpath; and
+- hostile codec, ownership, size, proxy, depth, and five-phase projection
+  tests.
 
 No concrete store exists. Runs in tests are seeded into an in-memory fixture;
 there is no Drizzle table, migration, Postgres adapter, run-creation API, due
@@ -220,7 +234,7 @@ composition and failure map are closed in Preflight 21 before implementation.
 Implementation is split into reviewable checkpoints after each owning gate is
 admitted:
 
-- **DTE04-A1 — lifecycle persistence values:** domain-owned aggregate and
+- **DTE04-A1 — lifecycle persistence values — complete:** domain-owned aggregate and
   requested-effect JSON envelopes plus pure relational projection and hostile
   round-trip/correlation tests; no persistence package or DDL change;
 - **DTE04-A2 — definition and creation contracts:** canonical task catalog,

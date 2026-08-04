@@ -193,10 +193,11 @@ export function analyzeDurableTaskManifest(manifest) {
   const dependencies = manifest.dependencies;
   if (
     !isRecord(dependencies)
-    || Object.keys(dependencies).length !== 1
+    || Object.keys(dependencies).length !== 2
     || dependencies.effect !== "catalog:"
+    || dependencies["flarex-protocol"] !== "workspace:*"
   ) {
-    errors.push(`${durableTaskManifestPath}: runtime dependencies must contain only root-catalog effect.`);
+    errors.push(`${durableTaskManifestPath}: runtime dependencies must contain only root-catalog effect and workspace flarex-protocol.`);
   }
 
   if (!hasExactStringRecord(manifest.scripts, {
@@ -388,6 +389,7 @@ function isAllowedDurableTaskProductionSpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   if (normalized === "effect" || normalized.startsWith("effect/")) return true;
+  if (normalized === "flarex-protocol/json") return true;
   return specifier.replaceAll("\\", "/").startsWith(".")
     && resolved.startsWith("packages/durable-task/src/")
     && !resolved.includes("/generated/prisma")

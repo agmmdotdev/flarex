@@ -105,7 +105,7 @@ describe("Trigger compatibility boundary checker", () => {
     }
   });
 
-  it("keeps the durable-task package private, narrow, and root-catalog owned", () => {
+  it("keeps the durable-task package private, narrow, and dependency-owned", () => {
     expect(analyzeDurableTaskManifest({
       name: "@flarex/durable-task",
       version: "0.0.1",
@@ -118,7 +118,10 @@ describe("Trigger compatibility boundary checker", () => {
         typecheck: "tsc -p tsconfig.json",
         test: "vitest run",
       },
-      dependencies: { effect: "catalog:" },
+      dependencies: {
+        effect: "catalog:",
+        "flarex-protocol": "workspace:*",
+      },
       devDependencies: { typescript: "catalog:", vitest: "catalog:" },
     })).toEqual([]);
 
@@ -139,7 +142,7 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/durable-task/package.json: private must remain true during the private vertical.",
       "packages/durable-task/package.json: type must be module.",
       "packages/durable-task/package.json: exports must contain only ./internal/run-attempt-v1.",
-      "packages/durable-task/package.json: runtime dependencies must contain only root-catalog effect.",
+      "packages/durable-task/package.json: runtime dependencies must contain only root-catalog effect and workspace flarex-protocol.",
       "packages/durable-task/package.json: scripts must exactly match the admitted build, typecheck, and test commands.",
       "packages/durable-task/package.json: devDependencies must contain only root-catalog typescript and vitest.",
       "packages/durable-task/package.json: optionalDependencies must be absent or empty.",
@@ -193,6 +196,20 @@ describe("Trigger compatibility boundary checker", () => {
       'packages/durable-task/src/runAttempt/Policy.ts:3 must not import non-portable durable-task module "ioredis".',
       'packages/durable-task/src/runAttempt/Policy.ts:4 must not import non-portable durable-task module "@prisma/client".',
       'packages/durable-task/src/runAttempt/Policy.ts:5 production source must not import durable-task compatibility harness "../../../integration/durable-task-compatibility/compare.mjs".',
+    ]);
+  });
+
+  it("allows only the admitted protocol JSON subpath in durable-task production", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/durable-task/src/runAttempt/PersistenceCodec.ts",
+      text: 'import type { JsonObject } from "flarex-protocol/json";',
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/durable-task/src/runAttempt/PersistenceCodec.ts",
+      text: 'import { decode } from "flarex-protocol";',
+    }]).errors).toEqual([
+      'packages/durable-task/src/runAttempt/PersistenceCodec.ts:1 must not import non-portable durable-task module "flarex-protocol".',
     ]);
   });
 

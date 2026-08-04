@@ -315,9 +315,10 @@ for their owning discussions:
    - **complete: admit:** DTE03-A through DTE03-G close the lifecycle model and
      authorize only the production-inert DTE-IP01 package transplant;
 4. [`04-task-system-api-and-postgres.md`](./04-task-system-api-and-postgres.md)
-   - **active docs-first preflight:** lifecycle envelope/projection and
-     transaction decisions are closed for the DTE04-A1 code candidate; task
-     definition/input contracts still block DDL, run creation, and adapters;
+   - **active; DTE04-A1 complete:** domain-owned persisted aggregate/effect
+     envelopes and the five-phase persistence projection are implemented and
+     validated; task definition/input contracts still block DDL, run creation,
+     and adapters;
 5. `05-cloudflare-wake-and-scheduling.md`
    - Queues, alarms, cron, missed-wakeup recovery, duplicate delivery, bounded
      schedulers, and fail-closed activation;

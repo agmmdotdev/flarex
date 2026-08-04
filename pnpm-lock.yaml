@@ -347,6 +347,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90
+      flarex-protocol:
+        specifier: workspace:*
+        version: link:../flarex-protocol
     devDependencies:
       typescript:
         specifier: 'catalog:'
