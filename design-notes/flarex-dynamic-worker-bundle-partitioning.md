@@ -410,16 +410,17 @@ The platform must distinguish retry-safe transport failure from an action that
 may already have completed an external effect; moving execution to another
 provider cannot weaken that rule.
 
-The 2026-08-04 private Standard action preflight in
+The 2026-08-04 private Standard action roadmap in
 [`../roadmaps/46-private-standard-edge-action-vertical.md`](../roadmaps/46-private-standard-edge-action-vertical.md)
 turns that requirement into an explicit implementation gate. Existing
 `edge_action` publication, R2 materialization, readiness, and active selection
-are sufficient artifact authority, but no direct action request/result owner or
-shared external-effect evidence owner currently settles crash and response-loss
-uncertainty. `AAV-A1` must close that private protocol/storage boundary without
-duplicating durable-task run/attempt/orchestration state before a Dynamic Worker
-action host is accepted. `AAV-A2` then owns the candidate-bound edge-action
-target/profile/syscall ABI. A future durable-task adapter may reuse lower-level
+are sufficient artifact authority. AAV-A1 now closes the private direct-action
+and shared external-effect uncertainty boundary without duplicating durable-task
+run/attempt/orchestration state. The implementation preflight in
+[`../roadmaps/48-aav-a2-candidate-bound-edge-action-runtime.md`](../roadmaps/48-aav-a2-candidate-bound-edge-action-runtime.md)
+pins the candidate-bound edge-action target/profile/syscall ABI, host-owned
+egress policy, fresh Worker Loader isolation, resource ceilings, and cleanup;
+implementation is still gated. A future durable-task adapter may reuse lower-level
 loader, sandbox, outbound, callback, and resource mechanics through a narrow
 compute port while retaining a distinct `durable_task` target and lifecycle. No
 current query or mutation identity is widened, and no in-memory or legacy

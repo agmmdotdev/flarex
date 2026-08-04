@@ -833,8 +833,9 @@ ambient network authority. Fixed invocation time and deterministic request-
 owned `Math.random` are permitted, while timers, `waitUntil`, and
 nondeterministic crypto randomness remain absent.
 
-`AAV-A2` must use a new private action target/profile/syscall ABI rather than
-widening query, mutation, or internal-call identities. The exact target binds
+The AAV-A2 preflight now pins a new private action target/profile/syscall ABI
+and canonical host-policy frame rather than widening query, mutation, or
+internal-call identities. The exact target binds
 the active selection, candidate, readiness/activation, public action entry,
 `edge_action` projection, manifest/function entry, validators, compatibility
 date, content-addressed R2 references, outbound allowlist, callback policy, and
@@ -851,16 +852,19 @@ application, retryable pre-start, uncertainty, corruption, and cancellation
 failures remain distinct. Defects and full Cause are not normalized into the
 ordinary error channel.
 
-The separately approved AAV-A1 implementation now owns its exact two-table
-schema. This proposal still does not authorize `AAV-A2` identities, `SAP07`,
-FSV07, routing, a public SDK, Node actions, schedules, or durable-task host
-integration. AAV-A1 proves compatibility with the admitted durable-task domain
-and pins the absence of duplicate
+The separately approved AAV-A1 implementation owns its exact two-table schema.
+The AAV-A2 identities and implementation boundary are now accepted as a
+preflight only; runtime implementation still requires explicit approval. This
+proposal does not authorize `SAP07`, FSV07, routing, a public SDK, Node actions,
+schedules, or durable-task host integration. AAV-A1 proves compatibility with
+the admitted durable-task domain and pins the absence of duplicate
 run/attempt/effect authority. See
 [`../roadmaps/46-private-standard-edge-action-vertical.md`](../roadmaps/46-private-standard-edge-action-vertical.md)
 for the ordered implementation gates and
 [`../roadmaps/47-aav-a1-direct-action-and-shared-effect-authority.md`](../roadmaps/47-aav-a1-direct-action-and-shared-effect-authority.md)
-for the exact AAV-A1 implementation receipt.
+for the exact AAV-A1 implementation receipt, and
+[`../roadmaps/48-aav-a2-candidate-bound-edge-action-runtime.md`](../roadmaps/48-aav-a2-candidate-bound-edge-action-runtime.md)
+for the exact AAV-A2 implementation gate.
 
 ### Transaction Meaning
 

@@ -2,10 +2,11 @@
 
 ## Status And Decision
 
-**Status:** The docs-first action preflight, durable-task ownership
-reconciliation, and private AAV-A1 implementation and acceptance are complete.
-The first executable Standard action vertical remains
-**not implemented**. Existing
+**Status:** The docs-first action and AAV-A2 implementation preflights,
+durable-task ownership reconciliation, and private AAV-A1 implementation and
+acceptance are complete. AAV-A2 implementation still requires explicit
+approval, and the first executable Standard action vertical remains **not
+implemented**. Existing
 owners can authenticate an
 `action` function, publish its `edge_action` projection to R2, settle cold-
 materialization readiness, and select the active revision. The admitted
@@ -15,7 +16,7 @@ own user external-effect dispatch evidence. The new AAV-A1 owners now durably
 distinguish a confirmed pre-dispatch failure from an external effect that may
 have succeeded before its response was lost, without creating task lifecycle.
 
-The next separately gated capability is:
+The next separately gated implementation is:
 
 > **`AAV-A2 — Candidate-Bound Edge-Action Exact Runtime`**
 
@@ -27,14 +28,18 @@ authority and that external-effect uncertainty has one narrow execution-
 evidence owner reusable by direct actions and future durable-task execution
 adapters. Implementation must not add action-shaped task runs, task-shaped
 action attempts, dual writes, or a second retry/lease/cancellation state
-machine. An in-memory Dynamic Worker proof cannot substitute for it. Only after
-`AAV-A1` is accepted, so a separately approved `AAV-A2` may assemble the candidate-bound
-edge-action runtime and callback bridge. The final private Standard gate is
-named `SAP07` only in this roadmap and means **one route-independent public edge
-action**; it does not mean FSV07 production routing or a public SDK.
+machine. An in-memory Dynamic Worker proof cannot substitute for it.
 
-No code, protocol, schema, migration, generated artifact, route, binding,
-trigger, or production behavior was changed by this preflight.
+[`48-aav-a2-candidate-bound-edge-action-runtime.md`](./48-aav-a2-candidate-bound-edge-action-runtime.md)
+now pins the exact AAV-A2 target/profile/ABI, host-owned policy, ceilings,
+Worker isolation, callback/outbound bridges, and cleanup boundary without
+authorizing code. After separate implementation approval, AAV-A2 may assemble
+only that candidate-bound runtime and bridge. The final private Standard gate
+is named `SAP07` only in this roadmap and means **one route-independent public
+edge action**; it does not mean FSV07 production routing or a public SDK.
+
+No runtime code, schema, migration, generated artifact, route, binding,
+trigger, or production behavior was changed by this docs-only preflight.
 
 ## Sources Of Truth
 
@@ -218,9 +223,12 @@ runtime identity. The expected private action identities are:
 - `edge-action-exact-runtime-v1`; and
 - `flarex.system/edge-action-syscall-abi/v1`.
 
-These spellings are proposals until the `AAV-A2` implementation preflight pins
-their canonical preimages, codecs, bounds, and generated closure. They must not
-widen the accepted query, mutation, or internal-call identities.
+The implementation preflight in
+[`48-aav-a2-candidate-bound-edge-action-runtime.md`](./48-aav-a2-candidate-bound-edge-action-runtime.md)
+now pins these spellings, the separate runtime-format/entrypoint and host-policy
+identities, their canonical preimages, bounds, cleanup semantics, and generated
+closure. Implementation remains separately gated. The accepted query,
+mutation, and internal-call identities are not widened.
 
 The target must bind the live active selection, registered revision/candidate,
 readiness and activation receipts, public action entry, `edge_action`
@@ -252,11 +260,14 @@ The first host-policy proposal to pressure-test is deliberately bounded:
   Worker and every owned subrequest have settled or produced typed cleanup
   uncertainty.
 
-These numbers are not approved implementation constants. `AAV-A2` must verify
-them against installed/runtime constraints and pin them through one explicit
-private host-policy/configuration identity. A configuration or generated-source
-identity refresh is not a protocol-version change unless canonical wire
-semantics change.
+Roadmap 48 verified and pins these as the first private implementation
+constants, including a 5,000 ms post-cancellation tracked-capability drain.
+They live in one canonical
+`flarex.system/edge-action-host-policy/v1` frame owned by trusted host
+configuration. The current policy digest must match the AAV-A1 request and
+runtime target or execution is stale/invalidated. A configuration or
+generated-source identity refresh is not a protocol-version change unless
+canonical wire semantics change.
 
 ### `SAP07` — one private Standard public edge action
 

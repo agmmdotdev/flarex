@@ -39,8 +39,11 @@ The private AAV-A1 implementation described by
 [`47-aav-a1-direct-action-and-shared-effect-authority.md`](./47-aav-a1-direct-action-and-shared-effect-authority.md),
 now provides the direct request/outcome and shared external-effect evidence
 owners with a mandatory no-duplication proof against the durable-task owners;
-both mandatory exact-final reviewers reported no findings. Neither an action runtime nor the final private
-`SAP07` operation is implemented.
+both mandatory exact-final reviewers reported no findings. The separate AAV-A2
+implementation preflight is now pinned by
+[`48-aav-a2-candidate-bound-edge-action-runtime.md`](./48-aav-a2-candidate-bound-edge-action-runtime.md),
+but neither its action runtime nor the final private `SAP07` operation is
+implemented.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -586,7 +589,7 @@ checker in roadmap 16. It must not mark that broader gate complete.
 | `SAP06-A2` | **Complete privately:** one public mutation calls authenticated same-candidate internal queries inline | Reuses the exact mutation Worker, C03 journal/overlay, read/write set, grant/session, OCC retry, and parent outcome under the separate target/profile/ABI identities in roadmap 45; no child publication or production route is added |
 | `SAP06-A3` | **Complete privately:** public/internal mutations call authenticated same-candidate internal mutations inline | One combined internal-call target/profile/ABI preserves SAP06-A2 `runQuery`, the same journal/overlay/OCC/outcome, no child publication, and the accepted no-child-savepoint first-slice semantics |
 | `AAV-A1` | **Accepted and complete privately:** direct edge-action request/outcome plus shared external-effect uncertainty evidence | Four private identities, R2-only body ownership, exactly two new tables, short transactions, crash/replay/cancellation rules, distinct direct-action/task-attempt subjects, and no duplication of Task System run/attempt/orchestration state |
-| `AAV-A2` | Candidate-bound exact `action-edge` runtime and authenticated outbound/query/mutation callback bridge | `AAV-A1` accepted and complete; separately pin the target/profile/syscall ABI and host policy without widening query/mutation identities |
+| `AAV-A2` | **Implementation preflight complete; implementation approval required:** candidate-bound exact `action-edge` runtime and authenticated outbound/query/mutation callback bridge | Roadmap 48 pins the private target/profile/syscall ABI, host policy, ceilings, R2/Worker Loader boundary, and cleanup without widening query/mutation identities or implementing SAP07 |
 | `SAP07` | One private, route-independent public Standard edge action | `AAV-A1` and `AAV-A2` complete; no FSV07 route, internal action, `runAction`, schedule, Node host, or public SDK is implied |
 | Later separately gated operations | Add workflow and schedule operations individually | each capability has an implemented owner contract and focused preflight; query-to-mutation and query/mutation-to-action remain forbidden |
 

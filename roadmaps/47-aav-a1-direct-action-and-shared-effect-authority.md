@@ -454,10 +454,11 @@ AAV-A1 does not authorize:
 
 ## Next Gate
 
-The next separate preflight is `AAV-A2`: one candidate-bound `action-edge`
-exact runtime and its authenticated
-outbound/query/mutation callback bridge. `AAV-A2` must pin its target, profile,
-syscall ABI, host policy, resource ceilings, and cleanup semantics before code.
-It must reuse this AAV-A1 authority rather than create another invocation or
-effect journal. SAP07, durable-task host integration, routes, and production
-behavior remain later gates.
+The separate AAV-A2 implementation preflight is now complete in
+[`48-aav-a2-candidate-bound-edge-action-runtime.md`](./48-aav-a2-candidate-bound-edge-action-runtime.md).
+It pins one candidate-bound `action-edge` exact runtime, authenticated
+outbound/query/mutation callback bridge, target/profile/syscall ABI, canonical
+host policy, resource ceilings, and cleanup semantics. Implementation still
+requires explicit approval and must reuse this AAV-A1 authority rather than
+create another invocation or effect journal. SAP07, durable-task host
+integration, routes, and production behavior remain later gates.
