@@ -339,5 +339,7 @@ Closed on 2026-08-04:
    never a global scope-selectable Layer.
 
 Real Postgres must still prove these choices before DTE04-B admission. Run
-creation remains blocked by Preflight 20's missing task-definition binding,
-creation receipt, input reference, and exact creation request/error contracts.
+creation remains blocked by Preflight 20's missing Standard Application task
+catalog, task-definition runtime binding, and creation-authority receipt. The
+storage-neutral input reference and exact request/error contracts are complete
+under DTE04-A2a.

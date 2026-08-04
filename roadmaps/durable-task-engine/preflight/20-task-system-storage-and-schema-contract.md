@@ -2,8 +2,9 @@
 
 ## Status
 
-**Status:** Lifecycle representation decision complete; run-creation schema
-blocked by explicit upstream contracts. This file admits a codec/projection
+**Status:** Lifecycle representation and run-creation domain decisions
+complete; exact DDL remains blocked by Standard Application task authority.
+This file admits codec/projection and creation-contract
 implementation preflight but does not yet authorize DDL or migration changes.
 
 ## Objective
@@ -417,16 +418,16 @@ Closed on 2026-08-04:
    time; and
 6. an initial run with no requested effects and `requestedEffectCursor = none`.
 
-The following upstream contracts block DDL and run creation:
+The following Standard Application contracts still block DDL and run creation:
 
 1. implemented canonical Standard Application task catalog and `TaskIdV1`;
 2. implemented `TaskDefinitionRuntimeBindingV1` canonical frame/decoder and
    semantic digest;
-3. implemented `TaskRunCreationAuthorityReceiptV1` frame/decoder;
-4. an owned task-input reference codec and retention contract; and
-5. exact creation request key/digest/receipt/conflict types.
+3. implemented `TaskRunCreationAuthorityReceiptV1` frame/decoder; and
+4. final correlation of those values with the completed DTE04-A2a input
+   reference, request-key/request digest preimages, receipt, and conflict
+   contract.
 
 These are not Postgres representation choices. Until they land, the admitted
-next code slice is limited to the domain-owned aggregate/requested-effect JSON
-envelope and pure relational projection with tests. DDL, migration, definition
-registration, and run creation remain closed.
+next code slice is DTE04-A2b in the Standard Application owners. DDL,
+migration, definition registration, and run creation remain closed.

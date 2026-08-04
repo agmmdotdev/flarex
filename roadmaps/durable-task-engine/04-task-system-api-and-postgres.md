@@ -2,7 +2,8 @@
 
 ## Status
 
-**Status:** Active. DTE-IP01 and DTE04-A1 are complete. The lifecycle JSON
+**Status:** Active. DTE-IP01, DTE04-A1, and DTE04-A2a are complete. The
+storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection are implemented; locking,
 database-clock, bounded retry, and non-mutating discovery decisions are closed
 for later checkpoints. DDL, migration, adapter, creation, host, queue, and
@@ -237,10 +238,14 @@ admitted:
 - **DTE04-A1 — lifecycle persistence values — complete:** domain-owned aggregate and
   requested-effect JSON envelopes plus pure relational projection and hostile
   round-trip/correlation tests; no persistence package or DDL change;
-- **DTE04-A2 — definition and creation contracts:** canonical task catalog,
-  `TaskDefinitionRuntimeBindingV1`, creation-authority receipt, task-input
-  reference, and exact creation request/error contracts through their proper
-  Standard Application/domain owners;
+- **DTE04-A2a — input and creation domain contract — complete:** domain-owned immutable
+  task-input reference, request key, canonical key/request digest preimages,
+  stable creation receipt, and typed validation/conflict errors; no service,
+  hashing, object-store, persistence, or DDL work;
+- **DTE04-A2b — Standard Application definition authority:** canonical task
+  catalog, `TaskDefinitionRuntimeBindingV1`, and creation-authority receipt
+  through the existing Standard Application definition/analysis/activation
+  owners;
 - **DTE04-A3 — schema:** five Drizzle tables, migration, constraints, indexes,
   and PGlite/real-Postgres migration tests;
 - **DTE04-B — lifecycle adapter:** scope-bound `TaskSystemRunAttemptStore`
@@ -312,3 +317,4 @@ web observability respectively.
 - [`preflight/20-task-system-storage-and-schema-contract.md`](./preflight/20-task-system-storage-and-schema-contract.md)
 - [`preflight/21-transaction-idempotency-and-effect-order.md`](./preflight/21-transaction-idempotency-and-effect-order.md)
 - [`preflight/22-pglite-postgres-parity-and-admission.md`](./preflight/22-pglite-postgres-parity-and-admission.md)
+- [`preflight/23-run-creation-domain-contract.md`](./preflight/23-run-creation-domain-contract.md)

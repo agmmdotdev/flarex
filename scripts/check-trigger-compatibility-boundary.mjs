@@ -10,7 +10,10 @@ const sourceExtensions = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts",
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
 const durableTaskManifestPath = "packages/durable-task/package.json";
 const durableTaskSourcePrefix = "packages/durable-task/";
-const durableTaskAllowedExport = "./internal/run-attempt-v1";
+const durableTaskAllowedExports = Object.freeze({
+  "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
+  "./internal/run-creation-v1": "./src/runCreation/v1.ts",
+});
 const expectedTargetPackage = "@flarex/durable-task";
 const forbiddenDurableTaskPackages = new Set([
   "@prisma/client",
@@ -184,20 +187,22 @@ export function analyzeDurableTaskManifest(manifest) {
   const exportsField = manifest.exports;
   if (
     !isRecord(exportsField)
-    || Object.keys(exportsField).length !== 1
-    || exportsField[durableTaskAllowedExport] !== "./src/runAttempt/v1.ts"
+    || !hasExactStringRecord(exportsField, durableTaskAllowedExports)
   ) {
-    errors.push(`${durableTaskManifestPath}: exports must contain only ${durableTaskAllowedExport}.`);
+    errors.push(
+      `${durableTaskManifestPath}: exports must contain only the admitted run-attempt and run-creation internal subpaths.`,
+    );
   }
 
   const dependencies = manifest.dependencies;
   if (
     !isRecord(dependencies)
-    || Object.keys(dependencies).length !== 2
+    || Object.keys(dependencies).length !== 3
+    || dependencies["@flarex/utils"] !== "workspace:*"
     || dependencies.effect !== "catalog:"
     || dependencies["flarex-protocol"] !== "workspace:*"
   ) {
-    errors.push(`${durableTaskManifestPath}: runtime dependencies must contain only root-catalog effect and workspace flarex-protocol.`);
+    errors.push(`${durableTaskManifestPath}: runtime dependencies must contain only workspace @flarex/utils, root-catalog effect, and workspace flarex-protocol.`);
   }
 
   if (!hasExactStringRecord(manifest.scripts, {
@@ -389,6 +394,7 @@ function isAllowedDurableTaskProductionSpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   if (normalized === "effect" || normalized.startsWith("effect/")) return true;
+  if (normalized === "@flarex/utils/bytes") return true;
   if (normalized === "flarex-protocol/json") return true;
   return specifier.replaceAll("\\", "/").startsWith(".")
     && resolved.startsWith("packages/durable-task/src/")

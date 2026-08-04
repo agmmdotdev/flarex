@@ -10,6 +10,7 @@
     "licenses"
   ],
   "exports": {
+    "./internal/run-creation-v1": "./src/runCreation/v1.ts",
     "./internal/run-attempt-v1": "./src/runAttempt/v1.ts"
   },
   "scripts": {
@@ -18,6 +19,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex-protocol": "workspace:*"
   },
