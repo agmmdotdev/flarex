@@ -833,7 +833,7 @@ ambient network authority. Fixed invocation time and deterministic request-
 owned `Math.random` are permitted, while timers, `waitUntil`, and
 nondeterministic crypto randomness remain absent.
 
-The AAV-A2 preflight now pins a new private action target/profile/syscall ABI
+The AAV-A2 implementation now supplies the pinned private action target/profile/syscall ABI
 and canonical host-policy frame rather than widening query, mutation, or
 internal-call identities. The exact target binds
 the active selection, candidate, readiness/activation, public action entry,
@@ -853,8 +853,8 @@ failures remain distinct. Defects and full Cause are not normalized into the
 ordinary error channel.
 
 The separately approved AAV-A1 implementation owns its exact two-table schema.
-The AAV-A2 identities and implementation boundary are now accepted as a
-preflight only; runtime implementation still requires explicit approval. This
+The AAV-A2 identities and implementation boundary now have an accepted private
+implementation. This
 proposal does not authorize `SAP07`, FSV07, routing, a public SDK, Node actions,
 schedules, or durable-task host integration. AAV-A1 proves compatibility with
 the admitted durable-task domain and pins the absence of duplicate

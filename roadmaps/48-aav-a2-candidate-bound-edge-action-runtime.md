@@ -2,10 +2,18 @@
 
 ## Status And Decision
 
-**Status:** Implementation preflight complete; implementation is not yet
-authorized. This record pins one private, production-inert runtime capability
-that may be implemented only after explicit approval. It does not implement
-SAP07, expose a route, activate a caller, or change a public SDK.
+**Status:** Accepted and complete privately. Both mandatory exact-final
+reviewers reported no findings. The implementation adds the candidate-bound
+target, generated exact runtime, fresh Worker Loader host, controlled outbound
+gateway, and authenticated callback bridge. It does not implement SAP07,
+expose a route, activate a caller, or change a public SDK.
+
+Runtime-projection and manifest bodies remain in R2, no schema or migration was
+added, and outbound plus child-mutation evidence reuses AAV-A1. Focused
+protocol, unit, Workerd, PGlite, generated-source, Drizzle, and Effect-boundary
+checks pass. The accepted AAV-A1 genuine-PostgreSQL receipt remains the
+unchanged database proof; a live rerun was unavailable in the implementation
+shell because no authenticated PostgreSQL URL was configured.
 
 AAV-A2 is the exact `action-edge` execution substrate between the accepted
 AAV-A1 direct-action/effect authority and the later SAP07 Standard System
@@ -121,6 +129,11 @@ The Dynamic Worker receives only:
 - fixed invocation time and deterministic request-owned random seed;
 - one outbound gateway Service Binding; and
 - one authenticated callback Service Binding.
+
+Before dispatch, the trusted composition recomputes the canonical execution-
+identity SHA-256 from that auth projection and compares it with the immutable
+AAV-A1 invocation commitment. A caller cannot substitute anonymous or user
+auth after admission.
 
 It receives no raw R2 bucket, PostgreSQL/Hyperdrive handle, executor, active
 reader, Worker Loader, deployment administration, provider credentials,
@@ -242,6 +255,13 @@ User code supplies only the statically admitted function reference and
 canonical arguments. It cannot supply candidate, active selection, scope,
 request key, grant, journal, transaction, validator, module/export, or
 execution subject authority.
+
+The two bridges are never attached independently. One private single-use
+capability bundle consumes the opaque prepared dispatch, derives both bridges
+from its exact candidate selection and AAV-A1 execution subject, and gives
+them one shared syscall sequencer. The artifact-host claim accepts only that
+issued bundle; arbitrary callback, outbound, selection, subject, or counter
+objects are not a supported composition surface.
 
 Callbacks do not join an action transaction. Query callbacks have a fresh
 snapshot. Mutation callbacks own their existing independent OCC/commit/outcome
@@ -407,8 +427,7 @@ preserve the exact candidate across callbacks.
 
 ## Next Gate
 
-After explicit implementation approval, complete this one AAV-A2 capability,
-its tests, mandatory reviewers, and one commit. Acceptance then stops. The next
-separate gate is SAP07: the private route-independent Standard public action
+AAV-A2 acceptance stops at this checkpoint. The next separate gate is SAP07:
+the private route-independent Standard public action
 and its developer-visible analyzer/runtime surface. Durable-task compute-host
 integration remains independent and later.

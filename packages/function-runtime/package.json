@@ -6,6 +6,7 @@
     "src"
   ],
   "exports": {
+    "./edge-action": "./src/edgeAction.ts",
     "./point-mutation": "./src/pointMutation.ts",
     "./point-query": "./src/pointQuery.ts",
     "./point-query-internal-call": "./src/pointQueryInternalCall.ts",

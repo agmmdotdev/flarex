@@ -115,8 +115,14 @@ export interface ApplicationActionInvocationProjectionV1 {
   readonly applicationRevisionId: string;
   readonly candidateSha256: Uint8Array;
   readonly actionFunctionPath: string;
+  readonly actionBindingSha256: Uint8Array;
+  readonly executionIdentitySha256: Uint8Array;
+  readonly compatibilityDate: string;
+  readonly hostPolicySha256: Uint8Array;
+  readonly arguments: ExecutionEvidenceBodyReferenceV1;
   readonly lifecycle: ApplicationActionInvocationLifecycleV1;
   readonly executionGeneration: bigint;
+  readonly randomSeedSha256: Uint8Array | null;
   readonly invocationTime: Date | null;
   readonly executionDeadline: Date | null;
   readonly lastEffectOrdinal: bigint;
@@ -1026,6 +1032,30 @@ function decodeInvocationRow(row: InvocationRow): Effect.Effect<ApplicationActio
   if (admittedAt === undefined || updatedAt === undefined || invocationTime === undefined || executionDeadline === undefined || cancellationRequestedAt === undefined || terminalAt === undefined) {
     return corruption("invocation row contains an invalid timestamp");
   }
+  if (
+    !isUint8ArrayWithByteLength(row.requestIdentitySha256, 32) ||
+    !isUint8ArrayWithByteLength(row.candidateSha256, 32) ||
+    !isUint8ArrayWithByteLength(row.actionBindingSha256, 32) ||
+    !isUint8ArrayWithByteLength(row.executionIdentitySha256, 32) ||
+    !isUint8ArrayWithByteLength(row.hostPolicySha256, 32) ||
+    (row.randomSeedSha256 !== null &&
+      !isUint8ArrayWithByteLength(row.randomSeedSha256, 32)) ||
+    (row.lifecycle === "executing" && row.randomSeedSha256 === null)
+  ) return corruption("invocation row contains an invalid authority digest");
+  const argumentsReference = Effect.fromResult(
+    decodeExecutionEvidenceBodyReferenceV1({
+      storeIdentity: row.argumentStoreIdentity,
+      kind: "action_arguments",
+      codecIdentity: row.argumentCodecIdentity,
+      objectKey: row.argumentObjectKey,
+      byteLength: row.argumentByteLength,
+      sha256: row.argumentSha256,
+    }),
+  ).pipe(Effect.mapError(() =>
+    new ApplicationActionAuthorityCorruptionV1Error({
+      detail: "invocation contains an invalid argument reference",
+    })
+  ));
   const result: Effect.Effect<
     ExecutionEvidenceBodyReferenceV1 | null,
     ApplicationActionAuthorityCorruptionV1Error
@@ -1047,7 +1077,10 @@ function decodeInvocationRow(row: InvocationRow): Effect.Effect<ApplicationActio
           })
         ))
     : Effect.succeed(null);
-  return result.pipe(Effect.map(result => Object.freeze({
+  return Effect.gen(function* () {
+    const argumentsValue = yield* argumentsReference;
+    const resultValue = yield* result;
+    return Object.freeze({
     scopeId: row.scopeId,
     requestKey: row.requestKey,
     invocationId: row.invocationId,
@@ -1055,18 +1088,27 @@ function decodeInvocationRow(row: InvocationRow): Effect.Effect<ApplicationActio
     applicationRevisionId: row.applicationRevisionId,
     candidateSha256: copyBytes(row.candidateSha256),
     actionFunctionPath: row.actionFunctionPath,
+    actionBindingSha256: copyBytes(row.actionBindingSha256),
+    executionIdentitySha256: copyBytes(row.executionIdentitySha256),
+    compatibilityDate: row.compatibilityDate,
+    hostPolicySha256: copyBytes(row.hostPolicySha256),
+    arguments: argumentsValue,
     lifecycle: row.lifecycle,
     executionGeneration: row.executionGeneration,
+    randomSeedSha256: row.randomSeedSha256 === null
+      ? null
+      : copyBytes(row.randomSeedSha256),
     invocationTime,
     executionDeadline,
     lastEffectOrdinal: row.lastEffectOrdinal,
     cancellationRequestedAt,
-    result,
+    result: resultValue,
     terminalCode: row.terminalCode,
     admittedAt,
     updatedAt,
     terminalAt,
-  })));
+    });
+  });
 }
 
 function decodeEffectRow(row: EffectRow): Effect.Effect<ExternalEffectAttemptProjectionV1, ApplicationActionAuthorityCorruptionV1Error> {

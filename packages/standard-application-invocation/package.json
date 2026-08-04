@@ -6,6 +6,10 @@
     "src"
   ],
   "exports": {
+    "./internal/edge-action-dispatch-capability-bundle-v1": "./src/edgeActionDispatchCapabilityBundleV1.ts",
+    "./internal/edge-action-outbound-gateway-v1": "./src/edgeActionOutboundGatewayV1.ts",
+    "./internal/edge-action-callback-bridge-v1": "./src/edgeActionCallbackBridgeV1.ts",
+    "./internal/edge-action-host-syscall-sequencer-v1": "./src/edgeActionHostSyscallSequencerV1.ts",
     "./internal/action-admission-system-v1": "./src/actionAdmissionSystemV1.ts",
     "./internal/system-query-v1": "./src/querySystemV1.ts",
     "./internal/system-v1": "./src/systemV1.ts",

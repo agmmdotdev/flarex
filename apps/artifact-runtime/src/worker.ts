@@ -22,6 +22,9 @@ import type { InvokeResponse } from "flarex-backend/types";
 export {
   FlarexPointMutationExactRuntimeArtifactHostV1,
 } from "./pointMutationExactRuntimeEntrypoint";
+export {
+  FlarexEdgeActionExactRuntimeArtifactHostV1,
+} from "./edgeActionExactRuntimeEntrypoint";
 
 type ExecutorTransport = ExecutionArtifactWorkerExecutorTransport;
 

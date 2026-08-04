@@ -4,9 +4,9 @@
 
 **Status:** The docs-first action and AAV-A2 implementation preflights,
 durable-task ownership reconciliation, and private AAV-A1 implementation and
-acceptance are complete. AAV-A2 implementation still requires explicit
-approval, and the first executable Standard action vertical remains **not
-implemented**. Existing
+acceptance are complete. The separately approved AAV-A2 private runtime is now
+accepted and complete privately, while the first executable
+Standard action vertical remains **not implemented**. Existing
 owners can authenticate an
 `action` function, publish its `edge_action` projection to R2, settle cold-
 materialization readiness, and select the active revision. The admitted
@@ -16,9 +16,9 @@ own user external-effect dispatch evidence. The new AAV-A1 owners now durably
 distinguish a confirmed pre-dispatch failure from an external effect that may
 have succeeded before its response was lost, without creating task lifecycle.
 
-The next separately gated implementation is:
+The next separate implementation gate is:
 
-> **`AAV-A2 — Candidate-Bound Edge-Action Exact Runtime`**
+> **`SAP07 - Private Route-Independent Standard Edge Action`**
 
 [`47-aav-a1-direct-action-and-shared-effect-authority.md`](./47-aav-a1-direct-action-and-shared-effect-authority.md)
 now records AAV-A1 as a private protocol, R2 reference, persistence, and
@@ -31,10 +31,10 @@ action attempts, dual writes, or a second retry/lease/cancellation state
 machine. An in-memory Dynamic Worker proof cannot substitute for it.
 
 [`48-aav-a2-candidate-bound-edge-action-runtime.md`](./48-aav-a2-candidate-bound-edge-action-runtime.md)
-now pins the exact AAV-A2 target/profile/ABI, host-owned policy, ceilings,
-Worker isolation, callback/outbound bridges, and cleanup boundary without
-authorizing code. After separate implementation approval, AAV-A2 may assemble
-only that candidate-bound runtime and bridge. The final private Standard gate
+pins the exact AAV-A2 target/profile/ABI, host-owned policy, ceilings,
+Worker isolation, callback/outbound bridges, and cleanup boundary. The private
+implementation now supplies only that candidate-bound runtime and bridge. The
+final private Standard gate
 is named `SAP07` only in this roadmap and means **one route-independent public
 edge action**; it does not mean FSV07 production routing or a public SDK.
 
@@ -496,6 +496,6 @@ This plan does not authorize:
 
 ## Next Gate
 
-Prepare the separate `AAV-A2`
-implementation preflight. Do not start `AAV-A2`, `SAP07`, FSV07, routes,
-schedules, or durable-task host integration from this checkpoint.
+AAV-A2 is accepted and complete privately. Stop at this checkpoint. The next
+separate gate is `SAP07`; do not start FSV07, routes, schedules, or durable-task
+host integration from AAV-A2 acceptance.

@@ -416,11 +416,11 @@ turns that requirement into an explicit implementation gate. Existing
 `edge_action` publication, R2 materialization, readiness, and active selection
 are sufficient artifact authority. AAV-A1 now closes the private direct-action
 and shared external-effect uncertainty boundary without duplicating durable-task
-run/attempt/orchestration state. The implementation preflight in
+run/attempt/orchestration state. The separately approved implementation in
 [`../roadmaps/48-aav-a2-candidate-bound-edge-action-runtime.md`](../roadmaps/48-aav-a2-candidate-bound-edge-action-runtime.md)
 pins the candidate-bound edge-action target/profile/syscall ABI, host-owned
 egress policy, fresh Worker Loader isolation, resource ceilings, and cleanup;
-implementation is still gated. A future durable-task adapter may reuse lower-level
+it is accepted and complete privately. A future durable-task adapter may reuse lower-level
 loader, sandbox, outbound, callback, and resource mechanics through a narrow
 compute port while retaining a distinct `durable_task` target and lifecycle. No
 current query or mutation identity is widened, and no in-memory or legacy
