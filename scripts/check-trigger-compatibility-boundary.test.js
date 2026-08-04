@@ -314,7 +314,7 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
-  it("admits only the DTE04-A3 persistence schema dependency and symbols", () => {
+  it("admits only the checkpoint-owned persistence task symbols", () => {
     const schemaPath = "packages/persistence-postgres/src/schema.ts";
     expect(analyzeTriggerCompatibilityBoundary([{
       relativePath: "packages/persistence-postgres/package.json",
@@ -334,6 +334,18 @@ describe("Trigger compatibility boundary checker", () => {
           MAX_TASK_INPUT_CANONICAL_BYTES_V1,
           type TaskInputSha256V1,
         } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts",
+      text: `
+        import {
+          TaskSystemRunAttemptStore,
+          decodePersistedTaskRunAttemptAggregateJsonV1,
+          type TaskSystemRunAttemptTransactionV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
       `,
     }]).errors).toEqual([]);
 

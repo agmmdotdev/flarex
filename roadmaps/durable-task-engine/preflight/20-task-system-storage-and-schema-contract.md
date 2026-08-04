@@ -438,8 +438,9 @@ and are now implemented by DTE04-A2b:
 
 These are not Postgres representation choices. They land through the private
 `@flarex/standard-application-definition/internal/task-definition-v1` surface
-and Preflight 24. DTE04-A3 has now implemented this preflight's five-table
-schema and migration checkpoint. DTE04-B's scope-bound lifecycle adapter is
-the next admitted code slice. Definition registration, run creation,
-discovery, effect delivery, and host activation remain closed until their own
-checkpoints.
+and Preflight 24. DTE04-A3 has implemented this preflight's five-table schema
+and migration checkpoint. The first DTE04-B slice now implements the
+scope-bound lifecycle adapter without widening this storage contract; its
+canonical concrete-adapter vector lane and final review remain open.
+Definition registration, run creation, discovery, effect delivery, and host
+activation remain closed until their own checkpoints.

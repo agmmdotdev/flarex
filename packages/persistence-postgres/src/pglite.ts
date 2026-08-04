@@ -54,6 +54,10 @@ import {
   createLocatedPointMutationSessionActivationTargetV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
 } from "./transactionSessionActivation";
+import {
+  createLocatedTaskSystemRunAttemptTargetV1,
+  type LocatedTaskSystemRunAttemptTargetV1,
+} from "./taskSystemRunAttemptStoreV1";
 import type { LocatedScopeClockReader } from "./scopeAuthorityResolution";
 import type {
   ScopePhysicalLocator,
@@ -67,6 +71,11 @@ import {
   createFlarexRuntimePersistenceTransaction,
 } from "./runtimePersistenceTransaction";
 import { flarexSchema } from "./schema";
+
+export {
+  makeTaskSystemRunAttemptStoreV1,
+  type TaskSystemRunAttemptStoreOptionsV1,
+} from "./taskSystemRunAttemptStoreV1";
 
 type PGliteLike = {
   exec(sql: string): Promise<unknown>;
@@ -154,6 +163,16 @@ export function createPGliteLocatedPointMutationSessionActivationTargetV1(
     persistence.drizzle,
     physicalLocator,
     options,
+  );
+}
+
+export function createPGliteLocatedTaskSystemRunAttemptTargetV1(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedTaskSystemRunAttemptTargetV1 {
+  return createLocatedTaskSystemRunAttemptTargetV1(
+    persistence.drizzle,
+    physicalLocator,
   );
 }
 

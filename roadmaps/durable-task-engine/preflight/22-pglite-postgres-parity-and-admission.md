@@ -221,6 +221,11 @@ concrete adapter.
 - Effect boundary/type/error tests; and
 - both required reviewers against the final diff.
 
+DTE04-B currently includes the scope-bound adapter, connected PGlite lifecycle
+and error coverage, and a real-Postgres lock/time/concurrency proof. The
+canonical 65-vector lane through the concrete adapter and final admission
+review remain open; this checkpoint is not a DTE04-B admission receipt.
+
 ### DTE04-C/D
 
 - creation concurrency/idempotency/conflict matrix;

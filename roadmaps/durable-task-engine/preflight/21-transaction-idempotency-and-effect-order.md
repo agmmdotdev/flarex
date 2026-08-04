@@ -2,9 +2,11 @@
 
 ## Status
 
-**Status:** Lifecycle transaction authority complete; creation API remains
-blocked by Preflight 20's upstream definition/input contracts. This file does
-not authorize a concrete adapter or migration by itself.
+**Status:** Lifecycle transaction authority complete and implemented by the
+first DTE04-B adapter slice. The focused PGlite and real-Postgres lock/time
+proofs pass; canonical concrete-adapter vector coverage and final DTE04-B
+review remain open. Creation is a separate DTE04-C checkpoint. This file does
+not authorize creation, discovery, delivery, host composition, or activation.
 
 ## Objective
 
@@ -338,8 +340,14 @@ Closed on 2026-08-04:
 7. operation-scoped store construction over the existing located target,
    never a global scope-selectable Layer.
 
-Real Postgres must still prove these choices before DTE04-B admission. Run
-creation remains blocked by Preflight 20's missing Standard Application task
-catalog, task-definition runtime binding, and creation-authority receipt. The
-storage-neutral input reference and exact request/error contracts are complete
-under DTE04-A2a.
+The first real-Postgres proof now confirms two deliberately blocked same-run
+writers serialize and that the authoritative millisecond read is no earlier
+than a server-clock sample taken immediately before the blocker releases the
+run lock. PGlite confirms connected lifecycle commits, exact no-change replay
+without identity allocation, collision retry, rollback, aggregate/effect/
+attempt-ledger corruption, non-disclosure, and stale-authority behavior. DTE04-B
+still requires its canonical 65-vector concrete-adapter lane and unchanged-diff
+reviewers before admission. The Standard Application task catalog,
+task-definition runtime binding, creation-authority receipt, storage-neutral
+input reference, and exact creation request/error contracts are complete;
+their existence does not bypass the separate DTE04-C creation checkpoint.

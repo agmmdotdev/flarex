@@ -8,10 +8,13 @@ envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
 implemented. The five-table Drizzle schema, generated migration, relational
 constraints, due-work index, and PGlite/real-Postgres migration proofs are also
-implemented. Locking, database-clock, bounded retry, and non-mutating discovery
-decisions are closed for later checkpoints. The lifecycle adapter is the next admitted slice.
-Creation, discovery, effect delivery, host, queue, and activation changes
-remain unauthorized.
+implemented. DTE04-B now has a scope-bound lifecycle adapter implementation,
+transaction/error mapping, connected PGlite lifecycle/rollback/corruption
+proofs, and focused real-Postgres same-run serialization plus post-lock
+database-time proof. DTE04-B is not yet admitted: its canonical 65-vector
+concrete-adapter lane and final reviewer checkpoint remain open. Creation,
+discovery, effect delivery, host, queue, and activation changes remain
+unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
 run-attempt domain. Its purpose is to connect the existing scope-bound
@@ -23,8 +26,9 @@ The audit originally found that canonical task definition/runtime binding and
 task-input reference owners were documentation-only. DTE04-A1 therefore
 stopped after the domain-owned JSON envelope and pure lifecycle projection.
 DTE04-A2a and DTE04-A2b close those upstream contracts without inventing them
-in persistence. DTE04-A3 has now landed the admitted five-table physical model
-without introducing a store adapter or enabling any runtime path.
+in persistence. DTE04-A3 landed the admitted five-table physical model. The
+current DTE04-B slice adds only the private store adapter over that model and
+still enables no backend or production runtime path.
 
 ## Outcome
 
@@ -72,10 +76,14 @@ DTE04-A1 now additionally supplies:
 - hostile codec, ownership, size, proxy, depth, and five-phase projection
   tests.
 
-No concrete store adapter exists. Runs in domain tests are seeded into an
-in-memory fixture. DTE04-A3 supplies the five Drizzle tables and migration, but
-there is no Postgres lifecycle adapter, run-creation API, due-discovery query,
-requested-effect delivery operation, or production composition.
+A concrete, production-inert store adapter now exists in
+`taskSystemRunAttemptStoreV1.ts`. Its factory accepts one already-resolved
+`LocatedTrustedScopeAuthority`, captures the authority and target, and returns
+one scope-bound `TaskSystemRunAttemptStore` value. PGlite and Postgres expose
+only their corresponding located-target constructors and store factory; no
+caller-selectable scope enters a lifecycle request. There is still no
+run-creation API, due-discovery query, requested-effect delivery operation, or
+production composition.
 
 `@flarex/persistence-postgres` already owns the repository's Drizzle schema,
 migrations, PGlite and `pg` construction, scope authority, transaction
@@ -197,18 +205,19 @@ TypeScript `$type` or `JSON.stringify` is not validation or a codec.
 For a lifecycle mutation, the concrete adapter must preserve this order:
 
 1. enter the captured located-scope transaction capability;
-2. validate fresh scope clock/authority and obtain one database-time snapshot;
+2. validate fresh scope clock/authority;
 3. load and lock the scope-qualified run row;
-4. normalize the Drizzle driver result, decode an owned aggregate, and verify
+4. obtain one authoritative database-time snapshot after any lock wait;
+5. normalize the Drizzle driver result, decode an owned aggregate, and verify
    its relational projections;
-5. allocate an attempt ID and fence only when the operation is
+6. allocate an attempt ID and fence only when the operation is
    `start_attempt`, without publishing an unused candidate;
-6. invoke the pure `decide` callback with no I/O or user code;
-7. on decision failure or `no_change`, perform no lifecycle/effect write;
-8. on `commit`, revalidate the expected version, next version, aggregate,
+7. invoke the pure `decide` callback with no I/O or user code;
+8. on decision failure or `no_change`, perform no lifecycle/effect write;
+9. on `commit`, revalidate the expected version, next version, aggregate,
    evidence, completion replay, and contiguous effect sequence;
-9. update the run row and insert requested effects atomically; and
-10. return detached, readonly domain receipts only after the transaction
+10. update the run row and insert requested effects atomically; and
+11. return detached, readonly domain receipts only after the transaction
     succeeds.
 
 Only a bounded whole-transaction retry may reinvoke `decide`, and only for the
@@ -258,8 +267,13 @@ admitted:
   generated migration, constraints, indexes, PGlite upgrade/rollback/replay
   proof, and real-Postgres migration/query-plan proof; no store adapter,
   creation, discovery, delivery, or host integration;
-- **DTE04-B — lifecycle adapter:** scope-bound `TaskSystemRunAttemptStore`
-  Layer, transaction/error mapping, and DTE-IP01 vectors on PGlite;
+- **DTE04-B — lifecycle adapter — implementation in progress:** the
+  scope-bound `TaskSystemRunAttemptStore` value, transaction/error mapping,
+  aggregate-to-effect/attempt-ledger correlation, allocation-free replay and
+  current paths, connected PGlite lifecycle/error matrix, and focused
+  real-Postgres lock/time/concurrency proof are implemented. The canonical
+  65-vector lane
+  through the concrete adapter and final reviewers remain before admission;
 - **DTE04-C — creation:** closed creation contract, initial aggregate builder,
   idempotency conflict semantics, and immutable binding checks;
 - **DTE04-D — discovery and effect ledger:** bounded stable discovery plus

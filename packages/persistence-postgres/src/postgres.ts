@@ -45,6 +45,10 @@ import {
   createLocatedPointMutationSessionActivationTargetV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
 } from "./transactionSessionActivation";
+import {
+  createLocatedTaskSystemRunAttemptTargetV1,
+  type LocatedTaskSystemRunAttemptTargetV1,
+} from "./taskSystemRunAttemptStoreV1";
 import type { LocatedScopeClockReader } from "./scopeAuthorityResolution";
 import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
@@ -63,6 +67,11 @@ import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
 } from "./postgresLocatedReadCommitted";
 import { flarexSchema } from "./schema";
+
+export {
+  makeTaskSystemRunAttemptStoreV1,
+  type TaskSystemRunAttemptStoreOptionsV1,
+} from "./taskSystemRunAttemptStoreV1";
 
 export interface PostgresPersistenceOptions {
   pool?: Pool;
@@ -139,6 +148,17 @@ export function createPostgresLocatedPointMutationSessionActivationTargetV1(
           persistence.pool,
         ),
     },
+  );
+}
+
+export function createPostgresLocatedTaskSystemRunAttemptTargetV1(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedTaskSystemRunAttemptTargetV1 {
+  return createLocatedTaskSystemRunAttemptTargetV1(
+    persistence.drizzle,
+    physicalLocator,
+    createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
   );
 }
 

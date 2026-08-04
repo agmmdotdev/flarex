@@ -13,21 +13,22 @@ canonical lifecycle vectors, 37 exact named divergences, and executable
 contract gate are also complete. DTE03-G chose **admit**, and DTE-IP01 now
 implements the private production-inert `@flarex/durable-task` package with its
 closed schemas, pure decisions, service/Layer boundary, provenance map, and
-deterministic compatibility suite. Roadmap 04's docs-first audit has now closed
-the lifecycle JSON-envelope, projection, transaction, database-clock, retry,
-and discovery decisions. It also found that the canonical task-definition
-binding and task-input reference owners must land before concrete DDL or run
-creation. No persistence schema or adapter, host integration, public API,
-scheduling, or production activation exists yet.
+deterministic compatibility suite. Roadmap 04 has completed DTE04-A1 through
+DTE04-A3 and the first DTE04-B implementation slice: the five-table
+schema/migration and a scope-bound Drizzle lifecycle adapter now exist, with
+connected PGlite proofs and focused real-Postgres lock/time/concurrency proof.
+The canonical 65-vector adapter lane and final DTE04-B admission review remain
+open. Run creation, discovery/delivery, host integration, public API,
+scheduling, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
 this README records the shared vision, non-negotiable boundaries, target system
 shape, and proposed roadmap decomposition. Its current implementation authority
-has completed the admitted DTE-IP01 private package checkpoint and opened only
-Roadmap 04's planning preflight; it does not yet authorize persistence schema
-or migration changes, public APIs, scheduling, deployment, or production
-activation.
+has completed the admitted DTE-IP01 private package checkpoint, DTE04-A1
+through DTE04-A3, and the bounded DTE04-B adapter implementation described
+above. It does not authorize run creation, discovery, delivery, public APIs,
+scheduling, deployment, or production activation.
 That checkpoint includes fail-closed legal-state decoding, owned frozen
 aggregate snapshots, and an executable compatibility harness whose inputs do
 not derive from its expected receipts.
@@ -92,8 +93,10 @@ Its current run-engine construction also mixes that behavior with:
 - Docker, Kubernetes, registry, and Trigger compute assumptions; and
 - Trigger public SDK, management API, and dashboard contracts.
 
-No active Flarex package currently implements the general durable task
-lifecycle, and no imported Trigger package is production-routed.
+`@flarex/durable-task` now implements the admitted private run-attempt
+lifecycle, and `@flarex/persistence-postgres` now contains its first
+production-inert scope-bound lifecycle adapter. No backend/host composes that
+capability and no imported Trigger package is production-routed.
 
 ## Foundation Decisions
 
@@ -315,7 +318,8 @@ for their owning discussions:
    - **complete: admit:** DTE03-A through DTE03-G close the lifecycle model and
      authorize only the production-inert DTE-IP01 package transplant;
 4. [`04-task-system-api-and-postgres.md`](./04-task-system-api-and-postgres.md)
-   - **active; DTE04-A1 through DTE04-A3 complete:** domain-owned persisted
+   - **active; DTE04-A1 through DTE04-A3 complete, DTE04-B implementation in
+     progress:** domain-owned persisted
      aggregate/effect envelopes and the five-phase persistence projection are
      implemented and validated; the immutable input-reference, exact creation
      request/digest preimages, stable receipt, and typed conflict contract are
@@ -323,8 +327,12 @@ for their owning discussions:
      Application task catalog, immutable runtime binding, and separate
      creation-authority receipt. The five scope-qualified Drizzle tables,
      generated migration, constraints, indexes, and PGlite/real-Postgres
-     migration proofs are complete. DTE04-B's scope-bound lifecycle adapter is
-     the next admitted slice; creation and runtime activation remain closed;
+     migration proofs are complete. DTE04-B's scope-bound lifecycle adapter,
+     transaction/error mapping, connected PGlite matrix, and focused
+     real-Postgres writer-lock/database-time proof are implemented. The
+     canonical 65-vector concrete-adapter lane and final DTE04-B reviewers are
+     still required before admission; creation and runtime activation remain
+     closed;
 5. `05-cloudflare-wake-and-scheduling.md`
    - Queues, alarms, cron, missed-wakeup recovery, duplicate delivery, bounded
      schedulers, and fail-closed activation;

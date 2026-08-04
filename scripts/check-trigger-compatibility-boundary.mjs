@@ -16,6 +16,8 @@ const persistencePostgresManifestPath =
   "packages/persistence-postgres/package.json";
 const persistencePostgresSchemaPath =
   "packages/persistence-postgres/src/schema.ts";
+const persistencePostgresTaskRunAttemptStorePath =
+  "packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -51,6 +53,42 @@ const admittedPersistenceDurableTaskSymbolsBySpecifier = new Map([
     "TaskRunCreationRequestKeySha256V1",
     "TaskRunCreationRequestSha256V1",
   ])],
+]);
+const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
+  "InvalidRunAttemptTransitionError",
+  "PersistedTaskRequestedEffectV1",
+  "RunAttemptDecisionErrorV1",
+  "RunAttemptOperationV1",
+  "StaleTaskRunVersionError",
+  "TaskAttemptGrantCandidateV1",
+  "TaskAttemptIdV1",
+  "TaskAttemptNumberV1",
+  "TaskDatabaseTimeMsV1",
+  "TaskExecutionFenceV1",
+  "TaskRunAttemptAggregateV1",
+  "TaskRunAttemptCounterExhaustedError",
+  "TaskRunAttemptDecisionV1",
+  "TaskRunIdV1",
+  "TaskSystemRunAttemptCorruptionError",
+  "TaskSystemRunAttemptInspectionSnapshotV1",
+  "TaskSystemRunAttemptStaleScopeAuthorityError",
+  "TaskSystemRunAttemptStore",
+  "TaskSystemRunAttemptStoreErrorV1",
+  "TaskSystemRunAttemptStoreShape",
+  "TaskSystemRunAttemptTerminalStoreError",
+  "TaskSystemRunAttemptTransactionReceiptV1",
+  "TaskSystemRunAttemptTransactionV1",
+  "TaskSystemRunAttemptTransientStoreError",
+  "TaskSystemRunAttemptUnavailableError",
+  "decodePersistedTaskRequestedEffectJsonV1",
+  "decodePersistedTaskRunAttemptAggregateJsonV1",
+  "decodeTaskAttemptIdV1",
+  "decodeTaskAttemptNumberV1",
+  "decodeTaskDatabaseTimeMsV1",
+  "decodeTaskExecutionFenceV1",
+  "encodePersistedTaskRequestedEffectJsonV1",
+  "encodePersistedTaskRunAttemptAggregateJsonV1",
+  "projectTaskRunAttemptPersistenceV1",
 ]);
 const durableTaskAllowedExports = Object.freeze({
   "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
@@ -599,8 +637,9 @@ function isDurableTaskPackageSpecifier(specifier) {
 }
 
 /**
- * DTE04-A2b and DTE04-A3 admit only the two exact workspace consumers. They
- * are schema/type ownership edges, not host activation.
+ * DTE04-A2b through DTE04-B admit only the two exact workspace consumers.
+ * These are definition/schema/private-adapter ownership edges, not host
+ * activation.
  *
  * @param {string} relativePath
  * @param {string} name
@@ -629,7 +668,7 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
     relativePath,
     specifier,
     node,
-  ) || isAdmittedPersistenceTaskSchemaImport(relativePath, specifier, node);
+  ) || isAdmittedPersistenceTaskImport(relativePath, specifier, node);
 }
 
 /**
@@ -669,12 +708,15 @@ function isAdmittedStandardApplicationTaskDefinitionImport(
  * @param {string} specifier
  * @param {ts.Node} node
  */
-function isAdmittedPersistenceTaskSchemaImport(relativePath, specifier, node) {
-  const admittedSymbols =
-    admittedPersistenceDurableTaskSymbolsBySpecifier.get(specifier);
+function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
+  const admittedSymbols = relativePath === persistencePostgresSchemaPath
+    ? admittedPersistenceDurableTaskSymbolsBySpecifier.get(specifier)
+    : relativePath === persistencePostgresTaskRunAttemptStorePath
+      && specifier === "@flarex/durable-task/internal/run-attempt-v1"
+    ? admittedPersistenceTaskRunAttemptStoreSymbols
+    : undefined;
   if (
-    relativePath !== persistencePostgresSchemaPath
-    || admittedSymbols === undefined
+    admittedSymbols === undefined
     || !ts.isImportDeclaration(node)
   ) {
     return false;
