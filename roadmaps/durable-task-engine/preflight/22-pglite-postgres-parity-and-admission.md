@@ -77,6 +77,7 @@ receipt claims parity.
 | conflicting creation identity | digest | yes | concurrent |
 | initial aggregate exact legal state | yes | yes | yes |
 | start attempt and atomic dispatch intent | decision | yes | concurrent |
+| attempt-ID collision rollback/new candidate | allocation | yes | concurrent |
 | duplicate start/current outcome | decision | yes | concurrent |
 | heartbeat duplicate and stale fence | decision | yes | concurrent |
 | completion replay after response loss | decision | yes | concurrent |
@@ -134,7 +135,7 @@ fallback behavior.
 
 ## Migration Proof
 
-DTE04-A must produce evidence for:
+DTE04-A3 must produce evidence for:
 
 - `drizzle-kit check` on the complete existing tree;
 - migration from an empty PGlite database;
@@ -181,9 +182,20 @@ an obviously unbounded or sequential full-scope design.
 
 ## Checkpoint Validation
 
-### DTE04-A
+### DTE04-A1
 
-- package typecheck and focused codec/schema tests;
+- durable-task package typecheck and focused extended-JSON codec tests;
+- pure lifecycle projection/correlation tests across all five phases;
+- hostile byte-tag, base64url, bigint, unknown-key, aliasing, cycle, and size
+  cases;
+- no persistence package, schema, migration, or runtime dependency change; and
+- main-thread diff audit plus both required reviewers before commit.
+
+### DTE04-A2/A3
+
+- canonical task-definition, creation-receipt, input-reference, request, and
+  conflict codec tests in their proper owners;
+- package typecheck and focused schema tests;
 - PGlite migration tests;
 - real-Postgres migration/schema tests;
 - Drizzle schema check; and
@@ -219,7 +231,8 @@ an obviously unbounded or sequential full-scope design.
 
 Roadmap 04 may become **complete: admit** only when:
 
-1. Preflight 20 has no blocking representation/schema decision;
+1. Preflight 20 has no blocking representation/schema or upstream
+   definition/input decision for the checkpoint being admitted;
 2. Preflight 21 has no blocking transaction/clock/retry/composition decision;
 3. PGlite and real Postgres pass the shared matrix;
 4. real Postgres passes every required race and plan proof;

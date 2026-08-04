@@ -2,9 +2,10 @@
 
 ## Status
 
-**Status:** Active, docs-first preflight. DTE-IP01 is complete. This roadmap
-does not yet authorize schema, migration, adapter, host, queue, or activation
-changes.
+**Status:** Active, docs-first preflight. DTE-IP01 is complete. The lifecycle
+JSON envelope, relational projection, locking, database-clock, bounded retry,
+and non-mutating discovery decisions are closed. DDL, migration, adapter,
+creation, host, queue, and activation changes remain unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
 run-attempt domain. Its purpose is to connect the existing scope-bound
@@ -12,9 +13,11 @@ run-attempt domain. Its purpose is to connect the existing scope-bound
 preserving the lifecycle semantics and reuse evidence already closed by
 Roadmaps 01 through 03.
 
-The roadmap is admitted for implementation only after Preflights 19 through 22
-close with one exact schema, transaction protocol, error map, Effect
-composition, and PGlite/real-Postgres proof plan.
+The audit found that canonical task definition/runtime binding and task-input
+reference owners remain documentation-only. Roadmap 04 must not invent them in
+the persistence package. The next bounded code candidate is therefore the
+domain-owned JSON envelope and pure lifecycle projection only; concrete DDL
+waits for those upstream contracts and a refreshed schema receipt.
 
 ## Outcome
 
@@ -138,11 +141,15 @@ win under its version, fence, lease, and database-time rules.
 
 ## Storage Direction Under Preflight
 
-The candidate physical model has two necessary responsibilities:
+The minimum complete physical model has five responsibilities:
 
-- one authoritative run row containing the encoded aggregate plus relational
-  columns needed for scope lookup, compare-and-swap, due discovery, and
-  correlation checks; and
+- one immutable task-definition revision row containing the canonical
+  definition/runtime binding;
+- one authoritative run row containing the encoded aggregate, immutable
+  creation receipt/input reference, and relational lifecycle projections;
+- one scope-local creation-request row owning idempotency identity; and
+- one immutable attempt-identity row for every accepted grant, providing
+  scope-local collision and run/ordinal/fence correlation; and
 - one append-only requested-effect row per `(scope, run, sequence)` committed
   in the same transaction as the accepted lifecycle state.
 
@@ -158,11 +165,11 @@ cannot be satisfied by the aggregate and requested-effect ledger. Large input,
 result, log, trace, stream, checkpoint, or artifact bodies remain references to
 their owning stores, never inline task-state blobs.
 
-The encoded aggregate is not automatically JSONB-safe. Its domain encoding
-uses canonical decimal strings for Postgres-range big integers but retains a
-`Uint8Array` result digest. Preflight 20 must choose and test an explicit
-JSON-safe or byte-oriented persistence envelope; a TypeScript `$type` or
-`JSON.stringify` is not validation or a codec.
+The encoded aggregate is not automatically JSONB-safe. Preflight 20 closes a
+domain-owned, versioned extended-JSON envelope: canonical bigint strings stay
+strings and bytes use one exact tagged canonical base64url representation. The
+Postgres adapter stores only the resulting decoded JSON value in JSONB. A
+TypeScript `$type` or `JSON.stringify` is not validation or a codec.
 
 ## Transaction Contract Under Preflight
 
@@ -210,11 +217,18 @@ composition and failure map are closed in Preflight 21 before implementation.
 
 ## Implementation Checkpoints
 
-Implementation is split into reviewable checkpoints after the preflights are
+Implementation is split into reviewable checkpoints after each owning gate is
 admitted:
 
-- **DTE04-A — codecs and schema:** persistence envelope, projection functions,
-  Drizzle tables, migration, constraints, and migration tests only;
+- **DTE04-A1 — lifecycle persistence values:** domain-owned aggregate and
+  requested-effect JSON envelopes plus pure relational projection and hostile
+  round-trip/correlation tests; no persistence package or DDL change;
+- **DTE04-A2 — definition and creation contracts:** canonical task catalog,
+  `TaskDefinitionRuntimeBindingV1`, creation-authority receipt, task-input
+  reference, and exact creation request/error contracts through their proper
+  Standard Application/domain owners;
+- **DTE04-A3 — schema:** five Drizzle tables, migration, constraints, indexes,
+  and PGlite/real-Postgres migration tests;
 - **DTE04-B — lifecycle adapter:** scope-bound `TaskSystemRunAttemptStore`
   Layer, transaction/error mapping, and DTE-IP01 vectors on PGlite;
 - **DTE04-C — creation:** closed creation contract, initial aggregate builder,
@@ -234,7 +248,7 @@ both standing reviewer subagents before commit under `AGENTS.md`.
 Roadmap 04 cannot reach **complete: admit** until all of these are true:
 
 - Preflights 19 through 22 contain no unresolved authority or representation
-  decision required by the first implementation checkpoint;
+  decision required by the checkpoint being implemented;
 - no active package imports Trigger source, Trigger packages, Prisma, or a
   `third_party` path;
 - the migration is generated and checked through the existing persistence

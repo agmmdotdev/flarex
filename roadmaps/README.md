@@ -117,7 +117,7 @@ consumers.
 | --- | --- | --- |
 | [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md) | Accepted direction; preflight required | Standard versioned contract chain between developer definitions, direct fixtures, artifact generation, analysis, verification, and runtime projection without making SDK objects downstream authority. |
 | [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md) | Accepted direction; preflight required | Shared user-code execution semantics with Cloudflare Dynamic Worker and in-process adapters while preserving executor and FlarexDB authority and retaining platform evidence. |
-| [`durable-task-engine/README.md`](./durable-task-engine/README.md) | Roadmap 04 docs-first persistence preflight active | DTE-IP01 is complete; the private Task System API, Drizzle schema, transaction/idempotency/effect-order protocol, and PGlite/real-Postgres admission plan are now being closed before any persistence implementation, while host, scheduling, observability, public API, and activation remain separately gated. |
+| [`durable-task-engine/README.md`](./durable-task-engine/README.md) | DTE04-A1 lifecycle persistence-value candidate ready | Aggregate/effect JSON-envelope, lifecycle projection, READ COMMITTED locking, database-clock, retry, and discovery decisions are closed; missing canonical task-definition and input-reference owners still block DDL, run creation, and concrete adapters. |
 
 ## Foundation Execution And Deferred Contracts
 

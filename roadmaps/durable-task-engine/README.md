@@ -13,10 +13,12 @@ canonical lifecycle vectors, 37 exact named divergences, and executable
 contract gate are also complete. DTE03-G chose **admit**, and DTE-IP01 now
 implements the private production-inert `@flarex/durable-task` package with its
 closed schemas, pure decisions, service/Layer boundary, provenance map, and
-deterministic compatibility suite. Roadmap 04 is now in docs-first preflight
-for the private Task System API and Postgres adapter. No persistence schema or
-adapter, host integration, public API, scheduling, or production activation
-exists yet.
+deterministic compatibility suite. Roadmap 04's docs-first audit has now closed
+the lifecycle JSON-envelope, projection, transaction, database-clock, retry,
+and discovery decisions. It also found that the canonical task-definition
+binding and task-input reference owners must land before concrete DDL or run
+creation. No persistence schema or adapter, host integration, public API,
+scheduling, or production activation exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -313,10 +315,9 @@ for their owning discussions:
    - **complete: admit:** DTE03-A through DTE03-G close the lifecycle model and
      authorize only the production-inert DTE-IP01 package transplant;
 4. [`04-task-system-api-and-postgres.md`](./04-task-system-api-and-postgres.md)
-   - **active docs-first preflight:** private creation/discovery contracts,
-     Drizzle schema authority, transactions, idempotency, requested-effect
-     ordering, corruption policy, PGlite, and real Postgres; no implementation
-     is authorized until Preflights 19 through 22 close;
+   - **active docs-first preflight:** lifecycle envelope/projection and
+     transaction decisions are closed for the DTE04-A1 code candidate; task
+     definition/input contracts still block DDL, run creation, and adapters;
 5. `05-cloudflare-wake-and-scheduling.md`
    - Queues, alarms, cron, missed-wakeup recovery, duplicate delivery, bounded
      schedulers, and fail-closed activation;

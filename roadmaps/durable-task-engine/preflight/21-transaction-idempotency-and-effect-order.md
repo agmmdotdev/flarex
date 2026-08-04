@@ -2,9 +2,9 @@
 
 ## Status
 
-**Status:** Draft transaction authority. No adapter implementation is
-authorized until the isolation, clock, retry, and creation-error decisions in
-this file are closed.
+**Status:** Lifecycle transaction authority complete; creation API remains
+blocked by Preflight 20's upstream definition/input contracts. This file does
+not authorize a concrete adapter or migration by itself.
 
 ## Objective
 
@@ -43,37 +43,43 @@ The admitted implementation sequence is:
 3. Revalidate the scope authority facets required by DTE02—epoch, storage
    generation, physical locator, and deployment binding—inside or immediately
    adjacent to the transaction according to their owning contract.
-4. Obtain one database-time millisecond value. The same value is supplied to
-   the decision and returned in the receipt.
-5. Load the run by `(scope, run ID)` from the writer and acquire the exact row
-   lock/isolation protection closed below.
+4. Acquire a shared lock on the captured scope-clock row and correlate its
+   epoch, storage generation/fence, scope ID, and located target with the
+   preliminary trusted authority. Authority-changing operations take the
+   conflicting update lock.
+5. Load the run by `(scope, run ID)` from the writer with `FOR UPDATE`.
 6. If no row is visible, return the non-disclosing unavailable error. Do not
    probe another scope or database.
-7. Normalize and detach the driver row, decode the persistence envelope and
+7. Obtain one database-time millisecond value after any wait for the run lock.
+   The same value is supplied to the decision and returned in the receipt.
+8. Normalize and detach the driver row, decode the persistence envelope and
    aggregate, and correlate every authority-bearing projection.
-8. For `start_attempt` only, allocate a candidate attempt ID and monotonic fence
+9. For `start_attempt` only, allocate a candidate attempt ID and monotonic fence
    inside the transaction. Allocation failure is typed; an unused candidate
    leaves no attempt/effect row.
-9. Invoke `request.decide` with the owned aggregate, database time, and optional
+10. Invoke `request.decide` with the owned aggregate, database time, and optional
    candidate.
-10. If the callback returns a decision error, roll back/no-write and preserve
+11. If the callback returns a decision error, roll back/no-write and preserve
     that exact typed failure.
-11. If it returns `no_change`, perform no run/effect mutation. Return the
+12. If it returns `no_change`, perform no run/effect mutation. Return the
     reconstructed idempotent or current receipt from decoded state.
-12. If it returns `commit`, validate the expected current version, exactly-one
+13. If it returns `commit`, validate the expected current version, exactly-one
     next-version advance, legal next aggregate, evidence/replay correlation,
     and contiguous requested-effect range.
-13. Derive the relational projection once from the validated next aggregate.
-14. Update the run with a predicate including scope, run ID, and expected
+14. Derive the relational projection once from the validated next aggregate.
+15. Update the run with a predicate including scope, run ID, and expected
     version. A zero-row update is a transaction conflict/current-state race,
     never permission for a blind retry outside the admitted policy.
-15. Insert every requested-effect intent in array/sequence order with the
+16. For an accepted new grant, insert its immutable scope-local attempt-
+    identity row and require its run, ordinal, fence, and accepted version to
+    correlate with `next`.
+17. Insert every requested-effect intent in array/sequence order with the
     scope/run/sequence unique key and accepted run version.
-16. Commit once. Return detached/frozen domain values; never return a row,
+18. Commit once. Return detached/frozen domain values; never return a row,
     driver result, or live transaction-owned object.
 
 No user code, queue call, logging exporter, object-store write, HTTP request, or
-effect delivery may occur between steps 2 and 16.
+effect delivery may occur between steps 2 and 18.
 
 ## `no_change` Semantics
 
@@ -127,9 +133,11 @@ command. Its candidate sequence is:
    do not mutate the original run; and
 8. commit and return only a detached domain receipt.
 
-The exact conflict type and creation service owner remain blocking decisions.
-They must not be squeezed into `TaskSystemRunAttemptStoreErrorV1` if that would
-misdescribe a valid caller conflict as storage failure.
+The exact conflict type and creation service owner remain blocked on the
+task-definition, input-reference, and creation-receipt contracts listed by
+Preflight 20. They must not be squeezed into
+`TaskSystemRunAttemptStoreErrorV1` if that would misdescribe a valid caller
+conflict as storage failure.
 
 `INSERT ... ON CONFLICT DO NOTHING` followed by a scoped primary read is a
 candidate mechanic, not the contract. The final SQL must prove correct behavior
@@ -151,7 +159,7 @@ private read-model service; it does not expose this aggregate directly.
 
 ## Due Discovery Transaction
 
-The candidate discovery contract is a bounded query with:
+The discovery contract is a non-mutating bounded query with:
 
 - one captured scope and due kind;
 - an inclusive database-time ceiling;
@@ -160,38 +168,47 @@ The candidate discovery contract is a bounded query with:
 - receipts containing only the identifiers/version basis needed to request a
   later lifecycle operation.
 
-Discovery does not grant or expire an attempt. It may use a short transaction
-and row locking/`SKIP LOCKED` only if the final contract also owns a durable
-claim. Without such a claim, locking while reading gives no authority after
-commit and is unnecessary complexity.
-
-The initial recommendation is an indexed, non-mutating bounded scan. Duplicate
-and stale receipts are expected; the later lifecycle transaction decides the
-winner. Roadmap 05 may add scheduler ownership separately if performance or
-fairness evidence requires it.
+Discovery does not grant or expire an attempt and does not use `FOR UPDATE`,
+`SKIP LOCKED`, or a scheduler-claim write. Locking while reading would provide
+no authority after commit. Duplicate and stale receipts are expected; the
+later lifecycle transaction decides the winner. Roadmap 05 may add scheduler
+ownership separately if performance or fairness evidence requires it.
 
 ## Isolation And Locking Decision
 
-The lifecycle operation needs one of these closed strategies:
+The decision is the existing located **READ COMMITTED** transaction runner,
+with locks acquired in this global order:
 
-- **row lock plus expected-version update** at the package's supported
-  isolation level; or
-- **serializable transaction plus expected-version update** with a bounded
-  whole-transaction retry.
+1. captured scope-clock row `FOR SHARE`;
+2. definition/request row only for creation operations; and
+3. run row `FOR UPDATE` for lifecycle mutation.
 
-The implementation must not mix an assumed row lock, an autocommit read, and a
-later write on another connection. The transaction capability type must expose
-every Drizzle operation actually required.
+The shared scope-clock lock permits independent runs in the same scope to
+proceed concurrently while preventing a scope-authority update from completing
+under the operation. The run lock serializes decisions for one run. The update
+still includes expected run version as a defensive correlation check.
 
-Before DTE04-B, a real-Postgres race harness must decide the strategy by proving
-simultaneous start, heartbeat/completion, completion/lease-expiry, and duplicate
-creation behavior. PGlite alone cannot close production locking semantics.
+Serializable isolation is rejected for the first lifecycle adapter because the
+domain already has one-row ownership and version/fence rules; it would add
+retry/abort surface without strengthening the admitted authority. A future
+multi-run/waitpoint transaction must reopen this decision.
+
+The implementation must not mix a locked read, an autocommit query, and a later
+write on another connection. Real-Postgres race tests still prove the choice;
+the decision is not inferred from PGlite behavior.
 
 ## Database Clock Decision
 
-The adapter reads exactly one authoritative millisecond snapshot per decision.
-Preflight closure must choose the existing scope-clock operation or exact SQL
-clock expression and record whether it is transaction-start or wall-clock time.
+The adapter reads exactly one authoritative millisecond snapshot per decision
+using the repository's existing wall-clock spelling:
+
+```sql
+floor(extract(epoch from clock_timestamp()) * 1000)::bigint::text
+```
+
+It decodes the text as a nonnegative JavaScript safe integer and then as
+`TaskDatabaseTimeMsV1`. The query runs after the run lock is acquired so lock
+wait does not consume a lease/retry window before the decision sees time.
 
 The choice must preserve:
 
@@ -201,15 +218,25 @@ The choice must preserve:
 - retry semantics—a retried transaction may obtain a newer value; and
 - no process clock fallback.
 
-`Date.now()`, caller timestamps, and silently rounded `timestamptz` values are
-rejected.
+`Date.now()`, caller timestamps, `transaction_timestamp()`, and silently
+rounded `timestamptz` values are rejected. A retried transaction obtains a new
+wall-clock snapshot.
 
 ## Retry And Uncertain Commit Policy
 
-Retries are allowed only around the entire database transaction and only for an
-explicit classifier such as admitted serialization/deadlock SQL states. The
-policy must define maximum attempts and observability without exposing secrets
-or logging the entire aggregate.
+Retries are allowed only around the entire database transaction, with at most
+three transaction executions total, and only when settlement proves rollback
+and the causal
+Postgres SQLSTATE is `40001` (serialization failure) or `40P01` (deadlock).
+The callback may therefore be reinvoked with a new candidate and database time.
+There is no statement-level retry and no retry after uncertain settlement.
+
+Generated-ID collision handling is a separate permitted cause within that same
+three-execution budget: a
+proven rollback caused by the exact named attempt-identity primary-key
+constraint may retry with another UUIDv4 candidate. Another `23505`, an unrecognized
+constraint, or a digest/semantic uniqueness conflict is not an ID collision and
+is never retried through this branch.
 
 Map failures as follows:
 
@@ -219,7 +246,8 @@ Map failures as follows:
 | Missing or cross-scope row | `TaskSystemRunAttemptUnavailableError`. |
 | Malformed envelope/aggregate/projection/effect order | `TaskSystemRunAttemptCorruptionError`. |
 | Stale located authority facet | `TaskSystemRunAttemptStaleScopeAuthorityError`. |
-| Admitted serialization/deadlock conflict after retry budget | transient `transaction_conflict`. |
+| Admitted serialization/deadlock conflict after the three-attempt budget | transient `transaction_conflict`. |
+| Exact attempt-ID primary-key collision | retry another candidate up to three, then terminal `identity_allocation_exhausted`. |
 | Connection unavailable or admitted timeout | corresponding transient store error. |
 | Unsupported driver/placement/transaction/serialization or exhausted allocation | exact terminal store error. |
 | Unknown thrown cause, callback defect, invariant bug | Effect defect; do not launder into `driver_failure`. |
@@ -229,6 +257,30 @@ classified merely from the thrown driver error. The caller retries the same
 domain command on a fresh scope capability; stored acceptance then reconstructs
 the idempotent receipt. Run creation similarly reuses its creation-idempotency
 identity. No cleanup write runs on the uncertain connection.
+
+The existing `LocatedReadCommittedTransactionFailureV1` settlement facets are
+preserved: only a proven callback rollback can expose its typed callback cause;
+`decisionUncertain` is never internally retried or flattened into a known
+rollback.
+
+## Attempt Identity And Fence Allocation
+
+For `start_attempt`:
+
+- generate canonical UUIDv4 candidates inside the logical transaction, prefix
+  and decode them as `TaskAttemptIdV1`, and allow at most three collision
+  candidates;
+- derive the next execution fence as one greater than the latest fence retained
+  by the decoded aggregate/projection, or `1n` for the initial run;
+- fail with the existing terminal allocation/version error when the signed
+  Postgres bigint ceiling is reached; and
+- persist no attempt row merely for allocation; a successful grant commit
+  inserts exactly one immutable attempt-identity row together with the accepted
+  aggregate and dispatch effect.
+
+A whole-transaction retry may use another uncommitted UUID candidate, but the
+fence remains derived from the newly locked current aggregate. Random ID order
+never defines task order or authority.
 
 ## Effect Implementation Shape
 
@@ -243,6 +295,14 @@ Use installed Effect v4 semantics:
 - `Effect.mapError` translates only a known typed lower-level error;
 - acquire/release of long-lived pools is Layer/scoped-resource work; and
   operation-scoped located stores are composed at their actual lifetime.
+
+The concrete target extends the existing package-internal located
+READ-COMMITTED capability and retains its Drizzle database behind a unique
+symbol, following current persistence target construction. A factory receives
+the already-resolved `LocatedTrustedScopeAuthority`, captures its authority and
+target, and constructs a `TaskSystemRunAttemptStore` service value for that
+scope. The domain `RunAttemptLifecycleLive` Layer consumes that value; no Layer
+performs control-plane scope resolution or caches it globally.
 
 Do not:
 
@@ -264,16 +324,20 @@ receipts, raw SQL parameters, or secrets.
 Corruption is observable and fail-closed. Ordinary stale duplicate delivery is
 an idempotent/current receipt, not error noise.
 
-## Open Decisions Blocking DTE04-B
+## Decision Receipt And Remaining Blocker
 
-1. Row-lock/read-committed versus serializable transaction strategy.
-2. Exact scope-clock operation/expression and retry observation semantics.
-3. Exact SQL-state classifier and bounded retry budget.
-4. Attempt-ID and fence allocation mechanism inside the captured transaction.
-5. Creation service/error/receipt types and simultaneous-writer algorithm.
-6. Whether discovery remains a non-mutating scan or acquires an admitted
-   durable scheduler claim.
-7. Exact Effect Layer composition entry point from `postgres.ts`/`pglite.ts`.
+Closed on 2026-08-04:
 
-The real-Postgres experiments in Preflight 22 must close items 1, 2, 3, and 5
-before the first live adapter checkpoint.
+1. located READ COMMITTED with scope `FOR SHARE`, then run `FOR UPDATE`;
+2. wall-clock epoch milliseconds read after the run lock;
+3. at most three whole-transaction attempts for proven-rollback SQLSTATE
+   `40001` or `40P01` only;
+4. UUIDv4 attempt IDs with three collision candidates and fence = latest + 1;
+5. non-mutating bounded discovery with no scheduler claim;
+6. requested-effect insertion in the lifecycle transaction; and
+7. operation-scoped store construction over the existing located target,
+   never a global scope-selectable Layer.
+
+Real Postgres must still prove these choices before DTE04-B admission. Run
+creation remains blocked by Preflight 20's missing task-definition binding,
+creation receipt, input reference, and exact creation request/error contracts.

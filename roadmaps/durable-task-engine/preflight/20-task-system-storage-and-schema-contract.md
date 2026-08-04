@@ -2,9 +2,9 @@
 
 ## Status
 
-**Status:** Draft schema authority. No DDL or migration is authorized until the
-open representation decisions and exact column/constraint table in this file
-are closed.
+**Status:** Lifecycle representation decision complete; run-creation schema
+blocked by explicit upstream contracts. This file admits a codec/projection
+implementation preflight but does not yet authorize DDL or migration changes.
 
 ## Objective
 
@@ -40,7 +40,30 @@ row is corrupt and the operation fails before a decision or repair write.
 
 ## Candidate Tables
 
-Names are provisional until DTE04-A admission, but responsibilities are fixed.
+The first draft undercounted the model by naming only run and requested-effect
+tables. DTE02 already requires durable definition registration and a separate
+creation-authority receipt, while DTE02 requires a scope-local attempt-history
+identity whose UUID collisions can be detected. The minimum complete topology
+therefore has five
+tables. Names remain provisional until the exact DDL receipt, but
+responsibilities are fixed.
+
+### `fx_system_durable_task_definition_revision_v1`
+
+One immutable definition/runtime binding accepted under a trusted scope.
+
+| Field group | Candidate representation | Contract |
+| --- | --- | --- |
+| identity | `scope_id`, `task_definition_revision_id` | Composite primary key; the ID is storage-issued `taskdef_` plus canonical UUIDv4. |
+| logical task | canonical `task_id` | Display/lookup evidence only; never execution authority without the binding. |
+| application binding | application revision ID and candidate digest | Scope-qualified foreign key to the admitted application revision. |
+| semantic identity | binding codec/version, byte length, SHA-256, and canonical bytes | Unique scope-local semantic binding digest; identical bytes converge, digest/byte disagreement fails closed. |
+| runtime evidence | bounded projection columns required to locate the immutable artifact objects | Derived from the decoded binding, not caller-selected runtime targets. |
+
+The authoritative `TaskDefinitionRuntimeBindingV1` codec and canonical task
+catalog do not exist in code yet. This table may not be created with an opaque
+`unknown` blob or a persistence-invented manifest shape. Their owner must land
+before the table's exact columns and foreign keys are admitted.
 
 ### `fx_system_durable_task_runs_v1`
 
@@ -59,6 +82,26 @@ One row per scope-bound durable run.
 | effect cursor | requested-effect sequence bigint | Derived; correlated with aggregate and effect inserts. |
 | database times | exact epoch-millisecond signed bigint or another closed lossless encoding | Preserve safe-integer millisecond semantics; no timezone or precision drift. |
 
+The run row also carries the immutable creation-authority receipt codec,
+length, SHA-256, and bytes, plus the task-input reference digest/codec selected
+by its owning payload-storage contract. Neither value is lifecycle state, so
+neither is duplicated inside `TaskRunAttemptAggregateV1`.
+
+### `fx_system_durable_task_run_request_v1`
+
+One scope-local idempotency identity for new-run creation.
+
+| Field | Contract |
+| --- | --- |
+| `scope_id`, versioned request-key digest | Composite primary key; raw keys are not query or log fields. |
+| canonical creation-request digest | Covers every caller-selectable creation input and its codec version. |
+| `run_id` | Scope-qualified foreign key to the one winning run. |
+| receipt digest/version | Reconstructs and verifies the original creation receipt. |
+
+The exact request-key grammar, payload reference, canonical digest algorithm,
+and typed conflict are not yet implemented owners. This table is therefore a
+required topology, not admitted DDL.
+
 ### `fx_system_durable_task_requested_effects_v1`
 
 One immutable intent row for every accepted requested effect.
@@ -76,12 +119,29 @@ acknowledgements, queue message IDs, alarm state, or consumer ownership. Those
 belong to Roadmap 05. A future delivery table may be justified there without
 changing the immutable intent identity.
 
+### `fx_system_durable_task_attempt_identity_v1`
+
+One immutable row for each accepted execution grant.
+
+| Field | Contract |
+| --- | --- |
+| `scope_id`, `attempt_id` | Composite primary key and scope-local collision authority. |
+| `run_id`, `attempt_number` | Scope-qualified run foreign key and unique policy ordinal per run. |
+| `execution_fence` | Unique monotonic fence per run, correlated with the accepted aggregate. |
+| accepted run version | The exact lifecycle acceptance that created the attempt identity. |
+
+This row is inserted only when a `start_attempt` decision commits. It is
+immutable attempt-history identity and collision evidence, not a second current
+attempt/heartbeat/lease/terminal state machine. Those mutable semantics remain
+solely in the run aggregate.
+
 ## Tables Not Yet Justified
 
-Roadmap 04 does not create separate tables for attempts, heartbeats, leases,
+Roadmap 04 does not create separate mutable tables for heartbeats, leases,
 accepted receipts, completion replays, evidence, or lifecycle events merely
-because Trigger has them. The admitted aggregate already bounds and correlates
-that history.
+because Trigger has them. Apart from the immutable attempt-identity ledger
+required by DTE02, the admitted aggregate already bounds and correlates that
+history.
 
 A separate immutable event/evidence ledger requires one of these proofs:
 
@@ -109,13 +169,46 @@ Therefore these shortcuts are rejected:
 - trusting Drizzle's inferred TypeScript type as runtime validation; or
 - serializing a typed array through its default object-key representation.
 
-DTE04-A must choose exactly one of:
+The decision is **versioned JSONB envelope** for the run aggregate and
+requested-effect payload. The codec is domain-owned inside
+`@flarex/durable-task`, while the JSONB adapter and size/row policy remain in
+`@flarex/persistence-postgres`.
 
-1. **versioned JSONB envelope:** a persistence-owned Schema converts every
-   non-JSON member, including digest bytes, into a canonical JSON value before
-   JSONB storage; or
-2. **canonical byte envelope:** a versioned canonical JSON/binary encoding is
-   stored as `bytea`, with relational projections providing queryability.
+The domain codec first uses the existing aggregate/effect Schema, then maps its
+encoded extended values to a JSON-safe envelope. Canonical decimal bigint
+strings remain strings. Every `Uint8Array` is represented by one exact tagged
+base64url value using Effect `Encoding`; decode must validate and canonically
+re-encode the spelling. Unknown tags, unknown keys, sparse arrays, non-finite
+numbers, cycles, accessors, and unsupported prototypes fail before storage or
+domain decode.
+
+The envelope is versioned independently from
+`flarex.task-run-attempt-aggregate.v1`. JSONB key ordering is not semantic and
+is never hashed after database round trip. Canonical request, definition, and
+receipt digests use their owners' canonical byte frames, not PostgreSQL's JSONB
+serialization.
+
+The exact first-version envelopes are:
+
+```ts
+interface PersistedTaskRunAttemptAggregateJsonV1 {
+  readonly codec: "flarex.task-run-attempt-persisted-json.v1";
+  readonly aggregate: JsonObject;
+}
+
+interface PersistedTaskRequestedEffectJsonV1 {
+  readonly codec: "flarex.task-requested-effect-persisted-json.v1";
+  readonly effect: JsonObject;
+}
+```
+
+Within those closed encoded objects, a byte array is represented only as the
+one-key record `{ "$flarex.uint8array.v1": "<canonical-base64url>" }`. The
+wrapper is recognized only at Schema-owned byte positions; it is not a generic
+recursive convention for arbitrary future JSON payloads. Aggregate canonical
+JSON is limited to 1 MiB and one requested-effect canonical JSON value to 64
+KiB, measured with the protocol-owned canonical JSON encoder before the value
+crosses the adapter. Decode re-encodes to enforce the same ceiling.
 
 The choice must prove:
 
@@ -126,10 +219,15 @@ The choice must prove:
 - owned input/output values and no caller or driver aliasing; and
 - migration/forward-read policy for a future envelope version.
 
-The current recommendation is to prefer a versioned JSON-safe envelope if it
-can reuse the domain Schema without duplicating aggregate validation. Use
-`bytea` only if canonical bytes materially simplify exactness or size limits.
-This recommendation is not a final representation decision.
+The persistence package stores the envelope as `jsonb` with `$type<unknown>()`
+and always invokes the domain codec. The TypeScript annotation is deliberately
+not treated as validation. A future byte envelope is a new codec/migration, not
+an adapter-local fallback.
+
+DTE04-A1 may add the lower-layer `flarex-protocol/json` dependency needed for
+the shared `JsonObject` type and canonical byte-size measurement. It does not
+add Drizzle, Postgres, Cloudflare, Node, or Trigger dependencies to the domain
+package.
 
 ## Projection Contract
 
@@ -145,6 +243,36 @@ aggregate. It derives, at minimum:
 
 The same function is used for insert/update derivation and load correlation.
 Do not hand-maintain projection values in individual operation branches.
+
+The closed lifecycle projection is:
+
+- `run_version`;
+- `phase`;
+- `due_kind`: `start_attempt`, `handle_lease_expiry`, or null;
+- `due_at_ms`;
+- current attempt ID or null;
+- execution-fence basis retained by the current/startable aggregate, or null;
+- current lease version/expiry or null;
+- cancellation generation; and
+- requested-effect cursor, stored as zero when the aggregate cursor is
+  `none`.
+
+The domain-owned pure value is named
+`TaskRunAttemptPersistenceProjectionV1`. It contains domain IDs/brands and
+nullable domain values; it contains no column names, SQL null sentinel,
+Drizzle type, scope ID, or row. The Postgres adapter alone translates it into
+physical columns. Its `requestedEffectSequence` is a nonnegative bigint cursor
+so the adapter can represent domain `none` as physical zero without teaching
+the domain model that sequence zero is an issued effect.
+
+`ready` and `retry_waiting` project `start_attempt` using respectively
+`eligibleAtMs` and `notBeforeMs`. `attempt_granted` and `executing` project
+`handle_lease_expiry` using the current lease expiry. `terminal` projects no
+due work. The fence basis is derivable for every startable state: initial ready
+projects null, while immediate-retry ready and retry waiting retain the
+previous attempt fence. Active states retain the current fence. The immutable
+attempt ledger, not this projection, preserves scope-local attempt identity
+after a terminal state no longer retains an attempt reference.
 
 Projection comparison must preserve exact nullability and number/bigint
 representations. A mismatch maps to the existing
@@ -167,11 +295,17 @@ only when:
 - there is no attempt, lifecycle acceptance, terminal outcome, completion
   replay, cancellation request, or lease;
 - run version and every counter use the exact admitted initial values; and
-- any initial requested effects form the aggregate's exact contiguous history
-  and are inserted atomically.
+- the requested-effect cursor is `none`; and
+- no initial requested effect row is emitted.
+
+The initial run is made visible to bounded `start_attempt` discovery. Creating
+a queue or wake intent before Roadmap 05 would add a delivery owner merely to
+create a run and is rejected. The existing Schema's ability to decode a
+nonempty initial cursor remains compatibility tolerance, not the Roadmap 04
+creation policy.
 
 The precise run-creation request/receipt and idempotency digest remain an open
-DTE02/Roadmap 04 contract. DTE04-A schema work cannot invent those values.
+DTE02/Roadmap 04 contract. DTE04-A3 schema work cannot invent those values.
 
 ## Idempotency Representation
 
@@ -191,6 +325,11 @@ string as the unique authority. Retention/expiry cannot permit the same logical
 request to create a second still-relevant run without a separately admitted
 policy.
 
+The physical decision is a separate request table, not request columns on the
+run row. The semantic request codec remains blocked on the task-input reference
+owner. Roadmap 04 will not hash a placeholder or omit input identity merely to
+make the unique constraint implementable.
+
 ## Numeric And Time Representation
 
 Lifecycle versions, fences, lease versions, cancellation generations, and
@@ -198,10 +337,11 @@ effect sequences fit signed Postgres `bigint` and are domain-validated against
 that ceiling. Use Drizzle `mode: "bigint"` for those fields so JavaScript
 number precision cannot erase authority.
 
-Database times are nonnegative safe-integer epoch milliseconds. The DDL must
-store them losslessly and the driver codec must reject values outside the
-domain range. A `timestamptz` convenience conversion is not allowed to change
-millisecond spelling, timezone behavior, or comparison semantics.
+Database times are nonnegative safe-integer epoch milliseconds and use Drizzle
+`bigint(..., { mode: "bigint" })`. The adapter converts to/from number only
+after the value is proven within the safe-integer domain range. A `timestamptz`
+convenience conversion is not allowed to change millisecond spelling, timezone
+behavior, or comparison semantics.
 
 One transaction reads one database-clock value through the existing scope
 clock/authority owner or an exact admitted extension. Caller time and
@@ -211,7 +351,8 @@ process-local `Date.now()` never enter lifecycle decisions.
 
 The final DDL must include, at minimum:
 
-- composite scope-qualified primary/foreign keys;
+- composite scope-qualified primary/foreign keys, including run-to-definition
+  and request/effect/attempt-to-run keys;
 - nonblank/domain-format checks where SQL can state them without becoming a
   weaker competing decoder;
 - positive/nonnegative checks for stored counters;
@@ -248,7 +389,7 @@ or fall back to an unvalidated projection.
 ## Migration Ownership
 
 The migration lives in the existing `packages/persistence-postgres/drizzle`
-tree and journal. DTE04-A must:
+tree and journal. DTE04-A3 must:
 
 - generate/check it through the package's existing Drizzle commands;
 - prove empty-database migration and upgrade from the previous journal;
@@ -258,16 +399,29 @@ tree and journal. DTE04-A must:
 - contain no data backfill from Trigger tables, because none are authoritative
   Flarex state.
 
-## Open Decisions Blocking DTE04-A
+## Decision Receipt And Remaining Prerequisites
 
-1. JSON-safe JSONB envelope versus canonical `bytea` envelope.
-2. Exact run-creation request, digest, conflict, and receipt types.
-3. Exact table/column/index names and constraint table.
-4. Whether immutable creation-authority evidence is embedded in the aggregate
-   envelope, stored beside it, or referenced through an already-owned durable
-   record—with one authority and correlation rule.
-5. Exact due-kind projection for initial ready, retry waiting, and lease expiry.
-6. Whether initial creation emits any requested effects in Roadmap 04 or leaves
-   the run discoverable with an empty cursor.
+Closed on 2026-08-04:
 
-Until these close, this file is a design constraint, not DDL authorization.
+1. domain-owned versioned JSON-safe envelope stored as JSONB;
+2. five-table minimum topology: definition revision, run, creation request,
+   immutable attempt identity, and requested effect;
+3. creation-authority receipt beside the run, outside the lifecycle aggregate;
+4. exact lifecycle due projection and startable fence basis;
+5. signed-bigint storage for every lifecycle counter and epoch-millisecond
+   time; and
+6. an initial run with no requested effects and `requestedEffectCursor = none`.
+
+The following upstream contracts block DDL and run creation:
+
+1. implemented canonical Standard Application task catalog and `TaskIdV1`;
+2. implemented `TaskDefinitionRuntimeBindingV1` canonical frame/decoder and
+   semantic digest;
+3. implemented `TaskRunCreationAuthorityReceiptV1` frame/decoder;
+4. an owned task-input reference codec and retention contract; and
+5. exact creation request key/digest/receipt/conflict types.
+
+These are not Postgres representation choices. Until they land, the admitted
+next code slice is limited to the domain-owned aggregate/requested-effect JSON
+envelope and pure relational projection with tests. DDL, migration, definition
+registration, and run creation remain closed.
