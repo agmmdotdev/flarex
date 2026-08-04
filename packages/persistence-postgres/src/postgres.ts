@@ -16,6 +16,10 @@ import {
   type LocatedApplicationRevisionActivationTargetV1,
 } from "./applicationRevisionActivationV1";
 import {
+  createLocatedApplicationActionAuthorityTargetV1,
+  type LocatedApplicationActionAuthorityTargetV1,
+} from "./applicationActionAuthorityV1";
+import {
   createLocatedIndexBuildReconciliationTargetV1,
   type LocatedIndexBuildReconciliationTargetV1,
 } from "./indexBuildReconciliation";
@@ -165,6 +169,17 @@ export function createPostgresLocatedApplicationRevisionActivationTargetV1(
   physicalLocator: ScopePhysicalLocator,
 ): LocatedApplicationRevisionActivationTargetV1 {
   return createLocatedApplicationRevisionActivationTargetV1(
+    persistence.drizzle,
+    physicalLocator,
+    createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
+  );
+}
+
+export function createPostgresLocatedApplicationActionAuthorityTargetV1(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedApplicationActionAuthorityTargetV1 {
+  return createLocatedApplicationActionAuthorityTargetV1(
     persistence.drizzle,
     physicalLocator,
     createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),

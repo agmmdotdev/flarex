@@ -4630,6 +4630,365 @@ export const invokeSessionDocumentWrites = pgTable(
   ],
 );
 
+/**
+ * Private, route-independent direct edge-action invocation authority.
+ * Canonical arguments and results remain in R2; this row stores only their
+ * content-addressed references and the fenced lifecycle decision.
+ */
+export const fxSystemApplicationActionInvocationsV1 = pgTable(
+  "fx_system_application_action_invocation_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    scopeUuid: uuid("scope_uuid")
+      .$type<ScopeUuidV1>()
+      .generatedAlwaysAs(sql`
+        case
+          when "scope_id" ~ '^scope_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          then substring("scope_id" from 7)::uuid
+          else null
+        end
+      `),
+    scopeEpoch: text("scope_epoch").$type<ScopeEpoch>().notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    }).$type<StorageGenerationFence>().notNull(),
+    requestKey: text("request_key").notNull(),
+    invocationId: uuid("invocation_id").notNull(),
+    requestIdentitySha256: bytea("request_identity_sha256").notNull(),
+    actionBindingSha256: bytea("action_binding_sha256").notNull(),
+    applicationRevisionId: text("application_revision_id").notNull(),
+    candidateSha256: bytea("candidate_sha256").notNull(),
+    actionFunctionPath: text("action_function_path").notNull(),
+    executionIdentitySha256: bytea("execution_identity_sha256").notNull(),
+    compatibilityDate: text("compatibility_date").notNull(),
+    hostPolicySha256: bytea("host_policy_sha256").notNull(),
+    argumentStoreIdentity: text("argument_store_identity").notNull(),
+    argumentCodecIdentity: text("argument_codec_identity").notNull(),
+    argumentObjectKey: text("argument_object_key").notNull(),
+    argumentByteLength: bigint("argument_byte_length", { mode: "bigint" })
+      .notNull(),
+    argumentSha256: bytea("argument_sha256").notNull(),
+    lifecycle: text("lifecycle").$type<
+      "admitted" | "executing" | "completed" | "failed" | "uncertain" |
+        "cancelled"
+    >().notNull(),
+    executionGeneration: bigint("execution_generation", { mode: "bigint" })
+      .notNull().default(sql`0`),
+    invocationTime: timestamp("invocation_time", { withTimezone: true }),
+    executionDeadline: timestamp("execution_deadline", { withTimezone: true }),
+    randomSeedSha256: bytea("random_seed_sha256"),
+    lastEffectOrdinal: bigint("last_effect_ordinal", { mode: "bigint" })
+      .notNull().default(sql`0`),
+    cancellationRequestedAt: timestamp("cancellation_requested_at", {
+      withTimezone: true,
+    }),
+    resultStoreIdentity: text("result_store_identity"),
+    resultCodecIdentity: text("result_codec_identity"),
+    resultObjectKey: text("result_object_key"),
+    resultByteLength: bigint("result_byte_length", { mode: "bigint" }),
+    resultSha256: bytea("result_sha256"),
+    terminalCode: text("terminal_code"),
+    admittedAt: timestamp("admitted_at", { withTimezone: true })
+      .notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull().defaultNow(),
+    terminalAt: timestamp("terminal_at", { withTimezone: true }),
+  },
+  table => [
+    primaryKey({ columns: [table.scopeUuid, table.requestKey] }),
+    unique("fx_action_invocation_v1_scope_invocation_unique").on(
+      table.scopeUuid,
+      table.invocationId,
+    ),
+    foreignKey({
+      name: "fx_action_invocation_v1_scope_fk",
+      columns: [table.scopeId],
+      foreignColumns: [fxSystemScopeClocks.scopeId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_action_invocation_v1_revision_fk",
+      columns: [
+        table.scopeId,
+        table.candidateSha256,
+        table.applicationRevisionId,
+      ],
+      foreignColumns: [
+        fxSystemApplicationRevisionsV1.scopeId,
+        fxSystemApplicationRevisionsV1.candidateSha256,
+        fxSystemApplicationRevisionsV1.revisionId,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_action_invocation_v1_identity_check",
+      sql`${nonBlankText(table.scopeId)}
+        and ${nonBlankText(table.requestKey)}
+        and octet_length(convert_to(${table.requestKey}, 'UTF8')) <= 2048
+        and ${nonBlankText(table.applicationRevisionId)}
+        and octet_length(convert_to(${table.applicationRevisionId}, 'UTF8')) <= 2048
+        and ${nonBlankText(table.actionFunctionPath)}
+        and octet_length(convert_to(${table.actionFunctionPath}, 'UTF8')) <= 2048
+        and ${nonBlankText(table.compatibilityDate)}
+        and octet_length(convert_to(${table.compatibilityDate}, 'UTF8')) <= 2048
+        and octet_length(${table.requestIdentitySha256}) = 32
+        and octet_length(${table.actionBindingSha256}) = 32
+        and octet_length(${table.candidateSha256}) = 32
+        and octet_length(${table.executionIdentitySha256}) = 32
+        and octet_length(${table.hostPolicySha256}) = 32
+        and ${table.storageGenerationFence} >= 1`,
+    ),
+    check(
+      "fx_action_invocation_v1_argument_reference_check",
+      sql`${table.argumentStoreIdentity} =
+          'flarex.r2/execution-evidence-body/v1'
+        and ${table.argumentCodecIdentity} =
+          'flarex.codec/canonical-flarex-value/v1'
+        and ${nonBlankText(table.argumentObjectKey)}
+        and octet_length(convert_to(${table.argumentObjectKey}, 'UTF8')) <= 2048
+        and ${table.argumentByteLength} >= 1
+        and octet_length(${table.argumentSha256}) = 32`,
+    ),
+    check(
+      "fx_action_invocation_v1_execution_check",
+      sql`(
+        (${table.lifecycle} = 'admitted'
+          and ${table.invocationTime} is null
+          and ${table.executionDeadline} is null
+          and ${table.randomSeedSha256} is null)
+        or (${table.lifecycle} <> 'admitted'
+          and (${table.executionGeneration} >= 1 or
+            (${table.lifecycle} = 'cancelled' and
+              ${table.executionGeneration} = 0))
+          and ((${table.executionGeneration} = 0
+              and ${table.invocationTime} is null
+              and ${table.executionDeadline} is null
+              and ${table.randomSeedSha256} is null)
+            or (${table.executionGeneration} >= 1
+              and ${table.invocationTime} is not null
+              and ${table.executionDeadline} is not null
+              and ${table.executionDeadline} > ${table.invocationTime}
+              and octet_length(${table.randomSeedSha256}) = 32)))
+      ) and ${table.executionGeneration} >= 0
+        and ${table.lastEffectOrdinal} >= 0`,
+    ),
+    check(
+      "fx_action_invocation_v1_terminal_check",
+      sql`(
+        (${table.lifecycle} in ('admitted', 'executing')
+          and ${table.terminalAt} is null
+          and ${table.terminalCode} is null
+          and ${table.resultStoreIdentity} is null
+          and ${table.resultCodecIdentity} is null
+          and ${table.resultObjectKey} is null
+          and ${table.resultByteLength} is null
+          and ${table.resultSha256} is null)
+        or (${table.lifecycle} = 'completed'
+          and ${table.terminalAt} is not null
+          and ${table.terminalCode} is null
+          and ${table.resultStoreIdentity} =
+            'flarex.r2/execution-evidence-body/v1'
+          and ${table.resultCodecIdentity} =
+            'flarex.codec/canonical-flarex-value/v1'
+          and ${nonBlankText(table.resultObjectKey)}
+          and octet_length(convert_to(${table.resultObjectKey}, 'UTF8')) <= 2048
+          and ${table.resultByteLength} >= 1
+          and octet_length(${table.resultSha256}) = 32)
+        or (${table.lifecycle} in ('failed', 'uncertain', 'cancelled')
+          and ${table.terminalAt} is not null
+          and ${nonBlankText(table.terminalCode)}
+          and octet_length(convert_to(${table.terminalCode}, 'UTF8')) <= 2048
+          and ${table.resultStoreIdentity} is null
+          and ${table.resultCodecIdentity} is null
+          and ${table.resultObjectKey} is null
+          and ${table.resultByteLength} is null
+          and ${table.resultSha256} is null)
+      )`,
+    ),
+    check(
+      "fx_action_invocation_v1_timestamp_check",
+      sql`isfinite(${table.admittedAt})
+        and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.admittedAt}
+        and (${table.terminalAt} is null or
+          (isfinite(${table.terminalAt}) and
+            ${table.terminalAt} >= ${table.admittedAt}))
+        and (${table.cancellationRequestedAt} is null or
+          isfinite(${table.cancellationRequestedAt}))`,
+    ),
+  ],
+);
+
+/** Shared evidence for possibly externally visible effects. */
+export const fxSystemExternalEffectAttemptsV1 = pgTable(
+  "fx_system_external_effect_attempt_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    scopeUuid: uuid("scope_uuid")
+      .$type<ScopeUuidV1>()
+      .generatedAlwaysAs(sql`
+        case
+          when "scope_id" ~ '^scope_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          then substring("scope_id" from 7)::uuid
+          else null
+        end
+      `),
+    subjectKind: text("subject_kind").$type<
+      "direct_action" | "durable_task_attempt"
+    >().notNull(),
+    subjectIdentitySha256: bytea("subject_identity_sha256").notNull(),
+    subjectFence: bigint("subject_fence", { mode: "bigint" }).notNull(),
+    effectOrdinal: bigint("effect_ordinal", { mode: "bigint" }).notNull(),
+    effectKind: text("effect_kind").$type<
+      "outbound_http" | "child_mutation"
+    >().notNull(),
+    stableEffectKey: text("stable_effect_key").notNull(),
+    requestIdentitySha256: bytea("request_identity_sha256").notNull(),
+    requestStoreIdentity: text("request_store_identity"),
+    requestCodecIdentity: text("request_codec_identity"),
+    requestObjectKey: text("request_object_key"),
+    requestByteLength: bigint("request_byte_length", { mode: "bigint" }),
+    requestSha256: bytea("request_sha256"),
+    childMutationRequestKey: text("child_mutation_request_key"),
+    childMutationFunctionPath: text("child_mutation_function_path"),
+    childMutationArgumentsSha256: bytea("child_mutation_arguments_sha256"),
+    state: text("state").$type<
+      "prepared" | "failed_before_dispatch" | "dispatching" | "confirmed" |
+        "uncertain"
+    >().notNull(),
+    preparedAt: timestamp("prepared_at", { withTimezone: true })
+      .notNull().defaultNow(),
+    dispatchDeclaredAt: timestamp("dispatch_declared_at", {
+      withTimezone: true,
+    }),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    responseStoreIdentity: text("response_store_identity"),
+    responseCodecIdentity: text("response_codec_identity"),
+    responseObjectKey: text("response_object_key"),
+    responseByteLength: bigint("response_byte_length", { mode: "bigint" }),
+    responseSha256: bytea("response_sha256"),
+    childMutationOutcomeSha256: bytea("child_mutation_outcome_sha256"),
+    terminalCode: text("terminal_code"),
+  },
+  table => [
+    primaryKey({ columns: [
+      table.scopeUuid,
+      table.subjectKind,
+      table.subjectIdentitySha256,
+      table.subjectFence,
+      table.effectOrdinal,
+    ] }),
+    foreignKey({
+      name: "fx_external_effect_attempt_v1_scope_fk",
+      columns: [table.scopeId],
+      foreignColumns: [fxSystemScopeClocks.scopeId],
+    }).onDelete("restrict"),
+    check(
+      "fx_external_effect_attempt_v1_identity_check",
+      sql`${table.subjectKind} in ('direct_action', 'durable_task_attempt')
+        and octet_length(${table.subjectIdentitySha256}) = 32
+        and ${table.subjectFence} >= 1
+        and ${table.effectOrdinal} >= 1
+        and ${table.effectKind} in ('outbound_http', 'child_mutation')
+        and ${nonBlankText(table.stableEffectKey)}
+        and octet_length(convert_to(${table.stableEffectKey}, 'UTF8')) <= 2048
+        and octet_length(${table.requestIdentitySha256}) = 32`,
+    ),
+    check(
+      "fx_external_effect_attempt_v1_request_check",
+      sql`(
+        (${table.effectKind} = 'outbound_http'
+          and ${table.requestStoreIdentity} =
+            'flarex.r2/execution-evidence-body/v1'
+          and ${table.requestCodecIdentity} =
+            'flarex.codec/canonical-http-request/v1'
+          and ${nonBlankText(table.requestObjectKey)}
+          and octet_length(convert_to(${table.requestObjectKey}, 'UTF8')) <= 2048
+          and ${table.requestByteLength} >= 1
+          and octet_length(${table.requestSha256}) = 32
+          and ${table.childMutationRequestKey} is null
+          and ${table.childMutationFunctionPath} is null
+          and ${table.childMutationArgumentsSha256} is null)
+        or (${table.effectKind} = 'child_mutation'
+          and ${table.requestStoreIdentity} is null
+          and ${table.requestCodecIdentity} is null
+          and ${table.requestObjectKey} is null
+          and ${table.requestByteLength} is null
+          and ${table.requestSha256} is null
+          and ${nonBlankText(table.childMutationRequestKey)}
+          and octet_length(convert_to(${table.childMutationRequestKey}, 'UTF8')) <= 2048
+          and ${nonBlankText(table.childMutationFunctionPath)}
+          and octet_length(convert_to(${table.childMutationFunctionPath}, 'UTF8')) <= 2048
+          and octet_length(${table.childMutationArgumentsSha256}) = 32)
+      )`,
+    ),
+    check(
+      "fx_external_effect_attempt_v1_state_check",
+      sql`(
+        (${table.state} = 'prepared'
+          and ${table.dispatchDeclaredAt} is null
+          and ${table.settledAt} is null
+          and ${table.terminalCode} is null)
+        or (${table.state} = 'failed_before_dispatch'
+          and ${table.dispatchDeclaredAt} is null
+          and ${table.settledAt} is not null
+          and ${nonBlankText(table.terminalCode)})
+        or (${table.state} = 'dispatching'
+          and ${table.dispatchDeclaredAt} is not null
+          and ${table.settledAt} is null
+          and ${table.terminalCode} is null)
+        or (${table.state} = 'uncertain'
+          and ${table.dispatchDeclaredAt} is not null
+          and ${table.settledAt} is not null
+          and ${nonBlankText(table.terminalCode)})
+        or (${table.state} = 'confirmed'
+          and ${table.dispatchDeclaredAt} is not null
+          and ${table.settledAt} is not null
+          and ${table.terminalCode} is null)
+      )`,
+    ),
+    check(
+      "fx_external_effect_attempt_v1_outcome_check",
+      sql`(
+        (${table.state} <> 'confirmed'
+          and ${table.responseStoreIdentity} is null
+          and ${table.responseCodecIdentity} is null
+          and ${table.responseObjectKey} is null
+          and ${table.responseByteLength} is null
+          and ${table.responseSha256} is null
+          and ${table.childMutationOutcomeSha256} is null)
+        or (${table.state} = 'confirmed'
+          and ${table.effectKind} = 'outbound_http'
+          and ${table.responseStoreIdentity} =
+            'flarex.r2/execution-evidence-body/v1'
+          and ${table.responseCodecIdentity} =
+            'flarex.codec/canonical-http-response/v1'
+          and ${nonBlankText(table.responseObjectKey)}
+          and octet_length(convert_to(${table.responseObjectKey}, 'UTF8')) <= 2048
+          and ${table.responseByteLength} >= 1
+          and octet_length(${table.responseSha256}) = 32
+          and ${table.childMutationOutcomeSha256} is null)
+        or (${table.state} = 'confirmed'
+          and ${table.effectKind} = 'child_mutation'
+          and ${table.responseStoreIdentity} is null
+          and ${table.responseCodecIdentity} is null
+          and ${table.responseObjectKey} is null
+          and ${table.responseByteLength} is null
+          and ${table.responseSha256} is null
+          and octet_length(${table.childMutationOutcomeSha256}) = 32)
+      )`,
+    ),
+    check(
+      "fx_external_effect_attempt_v1_timestamp_check",
+      sql`isfinite(${table.preparedAt})
+        and (${table.dispatchDeclaredAt} is null or
+          (isfinite(${table.dispatchDeclaredAt}) and
+            ${table.dispatchDeclaredAt} >= ${table.preparedAt}))
+        and (${table.settledAt} is null or
+          (isfinite(${table.settledAt}) and
+            ${table.settledAt} >= ${table.preparedAt}))`,
+    ),
+  ],
+);
+
 export const flarexSchema = {
   commits,
   deploymentPackages,
@@ -4651,6 +5010,7 @@ export const flarexSchema = {
   fxControlScopes,
   fxSystemApplicationRevisionRequestsV1,
   fxSystemApplicationRevisionsV1,
+  fxSystemApplicationActionInvocationsV1,
   fxSystemDeclarativeV2ActivationHeads,
   fxSystemDeclarativeV2ActivationRevisions,
   fxSystemDeclarativeV2Candidates,
@@ -4659,6 +5019,7 @@ export const flarexSchema = {
   fxSystemDeclarativeV2VerifierCommandsV2,
   fxSystemDeclarativeV2VerifierEvidencePagesV2,
   fxSystemIndexBuildStates,
+  fxSystemExternalEffectAttemptsV1,
   fxSystemSnapshotLeases,
   fxSystemScopeClocks,
   fxSystemPointMutationRedeliveryScheduler,

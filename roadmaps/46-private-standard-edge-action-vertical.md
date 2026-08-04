@@ -3,24 +3,24 @@
 ## Status And Decision
 
 **Status:** The docs-first action preflight, durable-task ownership
-reconciliation, and AAV-A1 implementation-bearing preflight are complete. The
-first executable Standard action vertical remains **not implemented**. Existing
+reconciliation, and private AAV-A1 implementation and acceptance are complete.
+The first executable Standard action vertical remains
+**not implemented**. Existing
 owners can authenticate an
 `action` function, publish its `edge_action` projection to R2, settle cold-
 materialization readiness, and select the active revision. The admitted
 `@flarex/durable-task` domain owns task run/attempt lifecycle and sequenced
 orchestration requests; it does not turn direct actions into tasks and does not
-own user external-effect dispatch evidence. No owner yet durably distinguishes
-a confirmed pre-execution failure from an external effect that may have
-succeeded before its response was lost.
+own user external-effect dispatch evidence. The new AAV-A1 owners now durably
+distinguish a confirmed pre-dispatch failure from an external effect that may
+have succeeded before its response was lost, without creating task lifecycle.
 
-The next separately approved capability is therefore:
+The next separately gated capability is:
 
-> **`AAV-A1 — Direct Edge-Action Invocation And Shared External-Effect
-> Uncertainty Authority`**
+> **`AAV-A2 — Candidate-Bound Edge-Action Exact Runtime`**
 
 [`47-aav-a1-direct-action-and-shared-effect-authority.md`](./47-aav-a1-direct-action-and-shared-effect-authority.md)
-now pins AAV-A1 as a new private protocol, R2 reference, persistence, and
+now records AAV-A1 as a private protocol, R2 reference, persistence, and
 transaction-owner implementation with exactly two tables. It proves that
 direct action request/outcome authority does not duplicate task run/attempt
 authority and that external-effect uncertainty has one narrow execution-
@@ -28,7 +28,7 @@ evidence owner reusable by direct actions and future durable-task execution
 adapters. Implementation must not add action-shaped task runs, task-shaped
 action attempts, dual writes, or a second retry/lease/cancellation state
 machine. An in-memory Dynamic Worker proof cannot substitute for it. Only after
-`AAV-A1` is implemented and accepted may `AAV-A2` assemble the candidate-bound
+`AAV-A1` is accepted, so a separately approved `AAV-A2` may assemble the candidate-bound
 edge-action runtime and callback bridge. The final private Standard gate is
 named `SAP07` only in this roadmap and means **one route-independent public edge
 action**; it does not mean FSV07 production routing or a public SDK.
@@ -483,11 +483,8 @@ This plan does not authorize:
   artifact bodies; or
 - schema/migration work outside the exact two-table AAV-A1 shape in roadmap 47.
 
-## Approval Gate
+## Next Gate
 
-The immediate manager/user decision is whether to authorize the exact AAV-A1
-implementation admitted by roadmap 47: four private protocol identities, R2
-body references, exactly two new tables, operation-specific repository/facade,
-focused validation, generated closure, mandatory reviewers, and one commit. Do
-not start `AAV-A2`, `SAP07`, FSV07, routes, schedules, or durable-task host
-integration from this checkpoint.
+Prepare the separate `AAV-A2`
+implementation preflight. Do not start `AAV-A2`, `SAP07`, FSV07, routes,
+schedules, or durable-task host integration from this checkpoint.

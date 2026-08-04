@@ -2,9 +2,20 @@
 
 ## Status And Decision
 
-**Status:** Implementation-bearing preflight complete; implementation requires
-separate approval. No protocol module, schema, migration, repository, runtime,
-route, binding, trigger, or production behavior is authorized by this receipt.
+**Status:** Accepted and complete privately. Both mandatory exact-final
+reviewers reported no findings after the final corrections. The four admitted
+protocol identities, R2 evidence-body owner,
+exactly two PostgreSQL tables, operation-specific authority, active-action
+admission facade, and PGlite/genuine-PostgreSQL proofs now exist. The capability
+remains production-inert: there is no action runtime, route, binding, trigger,
+scheduler, task integration, or production caller.
+
+Implementation evidence preserves the ownership decision: canonical argument,
+result, and HTTP bodies live only in content-addressed R2 objects; PostgreSQL
+stores their identities, codec/length/digest commitments, parent authority,
+fences, lifecycle, and uncertainty evidence. The active-action admission
+composition writes and verifies R2 before the short PostgreSQL transaction,
+and exact request replay reuses one invocation row and one R2 object.
 
 The admitted design is one private, production-inert capability with two
 deliberately different parent authorities:
@@ -160,6 +171,14 @@ body fails closed. No source module, runtime projection, arguments, result,
 HTTP body, arbitrary headers JSON, stack, Cause, or foreign error is stored in
 PostgreSQL.
 
+The private Standard System compositions are the first write consumers for
+arguments, completed results, and outbound HTTP request/response references.
+They publish the canonical bytes to R2, cold-read and verify the exact stored
+object, and only then enter the short PostgreSQL transition. The lower
+persistence owner re-decodes every supplied reference and stores only its
+captured canonical identity fields; it is not an alternate object-store
+verification or publication API.
+
 The owning AAV-A2 host-policy identity sets argument, result, request,
 response, cumulative, and concurrency ceilings. AAV-A1 validates references
 against the captured host policy rather than creating a second set of action
@@ -272,10 +291,14 @@ The private System owner exposes narrow operations, not a generic repository:
 6. `failExternalEffectBeforeDispatchV1` is permitted only from `prepared`.
 7. `markExternalEffectUncertainV1` changes `dispatching` to `uncertain`.
 8. `settleDirectActionInvocationV1` records a validated completed result or a
-   closed terminal non-completed result.
+   closed terminal non-completed result. A parent cannot become completed,
+   failed, or cancelled while a prepared effect remains, and an uncertain
+   parent atomically closes every dispatching effect as uncertain.
 9. `requestDirectActionCancellationV1` records cancellation intent; cancellation
    before execution settles immediately, while an executing host must drain
-   owned work before the parent can classify the result.
+   owned work before the parent can classify the result. Expiry recovery never
+   clears that intent or resurrects the invocation as admitted: it closes
+   undispatched effects and terminals the parent as cancelled.
 10. `recoverExpiredDirectActionExecutionV1` uses database time and current
     effect/child-outcome evidence to retry only a proven pre-dispatch execution;
     any possible dispatch settles the parent as uncertain.
@@ -286,6 +309,10 @@ Every operation reacquires one scope-bound capability, validates epoch and
 storage generation before lookup, uses database time, decodes stored state as
 corruption, performs one short transaction, and returns detached immutable
 data. No transaction spans Worker execution, R2 I/O, HTTP I/O, or SAP04/SAP05.
+Once a transaction has started, caller interruption is observed only after the
+transaction settles; the caller cannot return while an uncancellable driver
+transaction continues in the background. Every caller-supplied digest is
+captured before the asynchronous persistence boundary.
 
 Concurrent exact admission has one winner and exact followers replay it.
 Contradictory request-key reuse writes nothing. Concurrent claim, effect
@@ -306,8 +333,10 @@ state or a typed conflict without partial writes.
   mutation that may have committed permits a new generation for the same exact
   request.
 - Expiry, cancellation, timeout, cleanup failure, or response loss after a
-  possible dispatch settles `uncertain`; user code is not restarted to
-  reconstruct its continuation.
+  possible dispatch atomically marks dispatching evidence `uncertain`, closes
+  any concurrently prepared evidence as `failed_before_dispatch`, and marks
+  the parent `uncertain`; already confirmed evidence remains confirmed. User
+  code is not restarted to reconstruct its continuation.
 - A prepared but not dispatch-declared effect can be closed as
   `failed_before_dispatch` and does not by itself prevent exact-request retry.
 - A confirmed child mutation is never rolled back by the action. It remains a
@@ -391,6 +420,9 @@ preflight before migration work.
 - prepared rollback, dispatch-boundary uncertainty, confirmed response,
   completed replay, cancellation, deadline recovery, and lost-response cases;
 - transaction failure at every write boundary with no partial state;
+- controlled interruption proving the caller waits for transaction settlement,
+  plus hostile post-validation buffer mutation proving persisted digests use
+  owned captures;
 - stale scope epoch/storage generation and captured-revision behavior; and
 - server version, concurrency counts, zero skips, and bounded stress evidence.
 
@@ -420,12 +452,12 @@ AAV-A1 does not authorize:
 - PostgreSQL storage of user code, artifact bodies, canonical arguments,
   results, HTTP bodies, logs, traces, or arbitrary JSON.
 
-## Approval Gate
+## Next Gate
 
-The next decision is whether to authorize one coherent AAV-A1 implementation
-of the four private protocol identities, R2 evidence-body references, exactly
-two new tables in one forward-only migration, operation-specific
-repository/facade, focused tests,
-generated closure, roadmap reconciliation, mandatory reviewers, fixes,
-re-review, and one commit. AAV-A2, SAP07, durable-task host integration, routes,
-and production behavior remain later gates.
+The next separate preflight is `AAV-A2`: one candidate-bound `action-edge`
+exact runtime and its authenticated
+outbound/query/mutation callback bridge. `AAV-A2` must pin its target, profile,
+syscall ABI, host policy, resource ceilings, and cleanup semantics before code.
+It must reuse this AAV-A1 authority rather than create another invocation or
+effect journal. SAP07, durable-task host integration, routes, and production
+behavior remain later gates.

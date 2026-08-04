@@ -12,6 +12,8 @@
     "./internal/application-revision-readiness-v1": "./src/applicationRevisionReadinessV1.ts",
     "./internal/application-revision-activation-v1": "./src/applicationRevisionActivationV1.ts",
     "./internal/application-revision-syscall-validator-v1": "./src/applicationRevisionSyscallValidatorV1.ts",
+    "./internal/application-action-authority-v1": "./src/applicationActionAuthorityV1.ts",
+    "./internal/application-revision-action-runtime-target-v1": "./src/applicationRevisionActionRuntimeTargetV1.ts",
     "./internal/application-revision-runtime-target-v1": "./src/applicationRevisionRuntimeTargetV1.ts",
     "./internal/application-point-query-snapshot-v1": "./src/applicationPointQuerySnapshotV1.ts",
     "./internal/application-revision-query-runtime-target-v1": "./src/applicationRevisionQueryRuntimeTargetV1.ts",

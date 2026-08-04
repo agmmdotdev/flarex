@@ -772,9 +772,10 @@ gated.
 Roadmap 46 owns the first Standard action preflight. Current source truth already
 admits canonical public/internal `action` metadata, publishes `edge_action`
 projection and manifest references, verifies exact bodies from R2, settles cold
-readiness, and exposes one coherent Scope-owned active selection. It does not
-yet expose an action runtime, authenticated outbound syscall, direct action
-invocation/result owner, or shared external-effect evidence owner.
+readiness, and exposes one coherent Scope-owned active selection. AAV-A1 now
+adds the private direct action invocation/result owner and shared external-
+effect evidence owner. It still does not expose an action runtime or
+authenticated outbound syscall.
 
 That missing durability is substantive. Once user code can perform an external
 effect, a Worker crash, timeout, cancellation, or lost response can occur after
@@ -850,10 +851,11 @@ application, retryable pre-start, uncertainty, corruption, and cancellation
 failures remain distinct. Defects and full Cause are not normalized into the
 ordinary error channel.
 
-This proposal does not authorize the `AAV-A1` schema, `AAV-A2` identities,
-`SAP07`, FSV07, routing, a public SDK, Node actions, schedules, or durable-task
-host integration. The completed AAV-A1 preflight proves compatibility with the
-admitted durable-task domain and pins the absence of duplicate
+The separately approved AAV-A1 implementation now owns its exact two-table
+schema. This proposal still does not authorize `AAV-A2` identities, `SAP07`,
+FSV07, routing, a public SDK, Node actions, schedules, or durable-task host
+integration. AAV-A1 proves compatibility with the admitted durable-task domain
+and pins the absence of duplicate
 run/attempt/effect authority. See
 [`../roadmaps/46-private-standard-edge-action-vertical.md`](../roadmaps/46-private-standard-edge-action-vertical.md)
 for the ordered implementation gates and
