@@ -78,6 +78,8 @@
     "test:sac01-f1:postgres": "vitest run test/privateStandardApplicationTestApiV1.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:dte04-a3:pglite": "vitest run test/taskSystemSchemaMigration.test.ts test/pglite.migrations.test.ts --no-file-parallelism --testTimeout=480000",
     "test:dte04-a3:postgres": "vitest run test/taskSystemSchemaMigration.postgres.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:dte04-b:pglite": "vitest run test/taskSystemRunAttemptStore.test.ts test/taskSystemRunAttemptCompatibility.test.ts --no-file-parallelism --testTimeout=120000",
+    "test:dte04-b:postgres": "vitest run test/taskSystemRunAttemptStore.postgres.test.ts --no-file-parallelism --testTimeout=120000",
     "test:s11:pglite": "vitest run test/appUniqueKeys.test.ts test/pglite.migrations.test.ts --no-file-parallelism",
     "test:s11:postgres": "vitest run test/appUniqueKeys.postgres.test.ts --no-file-parallelism --testTimeout=60000",
     "test:s03-d3:pglite": "vitest run test/indexBuildReconciliation.test.ts test/indexBuildStates.test.ts --no-file-parallelism",

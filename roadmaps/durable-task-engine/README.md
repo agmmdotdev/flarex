@@ -14,11 +14,13 @@ contract gate are also complete. DTE03-G chose **admit**, and DTE-IP01 now
 implements the private production-inert `@flarex/durable-task` package with its
 closed schemas, pure decisions, service/Layer boundary, provenance map, and
 deterministic compatibility suite. Roadmap 04 has completed DTE04-A1 through
-DTE04-A3 and the first DTE04-B implementation slice: the five-table
+DTE04-A3 and a substantial DTE04-B lifecycle-adapter slice: the five-table
 schema/migration and a scope-bound Drizzle lifecycle adapter now exist, with
-connected PGlite proofs and focused real-Postgres lock/time/concurrency proof.
-The canonical 65-vector adapter lane and final DTE04-B admission review remain
-open. Run creation, discovery/delivery, host integration, public API,
+connected PGlite proofs, a partial canonical compatibility lane, and focused
+real-Postgres lock/time/concurrency proof. Of 65 canonical vectors, all remain
+covered by the pure oracle, 30 transition-reconstructable histories execute
+through the adapter, two invalid commands remain at the decoder boundary, and
+33 persisted histories remain open. Run creation, discovery/delivery, host integration, public API,
 scheduling, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
@@ -329,10 +331,11 @@ for their owning discussions:
      generated migration, constraints, indexes, and PGlite/real-Postgres
      migration proofs are complete. DTE04-B's scope-bound lifecycle adapter,
      transaction/error mapping, connected PGlite matrix, and focused
-     real-Postgres writer-lock/database-time proof are implemented. The
-     canonical 65-vector concrete-adapter lane and final DTE04-B reviewers are
-     still required before admission; creation and runtime activation remain
-     closed;
+     real-Postgres writer-lock/database-time proof are implemented. The partial
+     canonical lane executes 30 transition-reconstructable histories through
+     the adapter and two invalid commands at the decoder boundary; 33 histories
+     and final reviewers remain before admission. Creation and runtime
+     activation remain closed;
 5. `05-cloudflare-wake-and-scheduling.md`
    - Queues, alarms, cron, missed-wakeup recovery, duplicate delivery, bounded
      schedulers, and fail-closed activation;

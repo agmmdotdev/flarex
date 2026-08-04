@@ -217,14 +217,20 @@ concrete adapter.
 
 - all concrete-store lifecycle tests on PGlite;
 - focused real-Postgres transaction/race tests;
-- 65-vector compatibility lane through the adapter;
+- all store-addressable cases in the 65-vector compatibility lane through the
+  adapter, with invalid command shapes retained at their pre-store decoder
+  boundary;
 - Effect boundary/type/error tests; and
 - both required reviewers against the final diff.
 
 DTE04-B currently includes the scope-bound adapter, connected PGlite lifecycle
-and error coverage, and a real-Postgres lock/time/concurrency proof. The
-canonical 65-vector lane through the concrete adapter and final admission
-review remain open; this checkpoint is not a DTE04-B admission receipt.
+and error coverage, a partial canonical lane, and a real-Postgres
+lock/time/concurrency proof. The pure oracle covers all 65 vectors; 30
+transition-reconstructable histories execute through the concrete adapter and
+two invalid commands execute at their decoder boundary. The remaining 33
+persisted histories must be derived through real transitions before the full
+gate and final reviewers can close. This checkpoint is not yet a DTE04-B
+admission receipt.
 
 ### DTE04-C/D
 

@@ -8,6 +8,7 @@ import {
   TaskSystemRunAttemptTransientStoreError,
   TaskSystemRunAttemptUnavailableError,
   type RunAttemptDecisionErrorV1,
+  type RunAttemptLifecycleErrorV1,
 } from "../src/runAttempt/Errors.js";
 import {
   decideCompleteAttemptV1,
@@ -17,15 +18,11 @@ import {
   decideStartAttemptV1,
 } from "../src/runAttempt/Layers/RunAttemptLifecycleLive.js";
 import type {
-  CompleteAttemptCommandV1,
-  HandleLeaseExpiryCommandV1,
-  HeartbeatAttemptCommandV1,
-  RequestCancellationCommandV1,
-  StartAttemptCommandV1,
   TaskAttemptCompletionV1,
   TaskAttemptGrantCandidateV1,
   TaskDatabaseTimeMsV1,
   TaskExecutionFailureV1,
+  RunAttemptCommandV1,
   TaskRunAttemptAggregateV1,
   TaskRunAttemptDecisionV1,
   TaskRunAttemptEvidenceV1,
@@ -62,6 +59,7 @@ import {
   heartbeatSequence,
   leaseVersion,
   readyAggregate,
+  runId,
   runVersion,
   committedDecision,
 } from "./support.js";
@@ -146,9 +144,22 @@ export interface CompatibilityActualV1 {
   readonly safeReason?: string;
 }
 
-interface ExecutedVectorV1 {
+export interface ExecutedVectorV1 {
   readonly actual: CompatibilityActualV1;
   readonly next: TaskRunAttemptAggregateV1 | null;
+}
+
+export type CompatibilityLifecycleCommandV1 = Exclude<
+  RunAttemptCommandV1,
+  { readonly type: "inspect_current_attempt" }
+>;
+
+export interface PreparedCompatibilityVectorV1 {
+  readonly vector: CompatibilityVectorV1;
+  readonly current: TaskRunAttemptAggregateV1;
+  readonly command: CompatibilityLifecycleCommandV1 | null;
+  readonly execution: ExecutedVectorV1;
+  readonly boundary: "task_system_store" | "command_decoder";
 }
 
 const ATTEMPT_ID_2 = attemptId("attempt_00000000-0000-4000-8000-000000000002");
@@ -243,7 +254,9 @@ function activeFor(vector: CompatibilityVectorV1, priorEffectCursor: bigint): Ta
   const now = observedAt(vector);
   const maximumAttempt = vector.id.includes("attempt-limit") || vector.id.includes("maximum-attempt");
   const staleAttempt = vector.id.includes("stale-attempt");
-  const secondAttempt = vector.id === "immediate-retry-followup-success" || staleAttempt;
+  const secondAttempt = vector.id === "immediate-retry-followup-success"
+    || staleAttempt
+    || vector.command.identity.startsWith("attempt-2");
   const number = maximumAttempt ? attemptNumber(3) : secondAttempt ? attemptNumber(2) : ATTEMPT_NUMBER_1;
   const id = maximumAttempt ? ATTEMPT_ID_3 : secondAttempt ? ATTEMPT_ID_2 : ATTEMPT_ID;
   const executionFence = maximumAttempt ? FENCE_3 : vector.id.includes("stale-fence") ? FENCE_2 : secondAttempt ? FENCE_2 : FENCE_1;
@@ -483,6 +496,86 @@ function commandFence(vector: CompatibilityVectorV1) {
   return FENCE_1;
 }
 
+export function compatibilityCommandV1(
+  vector: CompatibilityVectorV1,
+): CompatibilityLifecycleCommandV1 | null {
+  if (
+    vector.id === "invalid-command-is-redacted"
+    || vector.id === "waitpoint-completion-outside-v1"
+  ) return null;
+
+  switch (vector.command.operation) {
+    case "startAttempt":
+      return {
+        type: "start_attempt",
+        runId: vector.id === "missing-run-is-unavailable"
+          ? runId("run_00000000-0000-4000-8000-000000000098")
+          : vector.id === "cross-scope-run-is-unavailable"
+            ? runId("run_00000000-0000-4000-8000-000000000099")
+            : RUN_ID,
+        expectedRunVersion: vector.command.identity.includes("run-v4")
+          ? runVersion(4n)
+          : runVersion(1n),
+        retryJitter: JITTER,
+      };
+    case "heartbeatAttempt":
+      return {
+        type: "heartbeat_attempt",
+        runId: RUN_ID,
+        attemptId: commandAttemptId(vector),
+        executionFence: commandFence(vector),
+        heartbeatSequence: heartbeatSequence(
+          vector.command.identity.includes("sequence-3")
+            ? 3
+            : vector.command.identity.includes("sequence-1") ? 1 : 2,
+        ),
+      };
+    case "completeAttempt":
+      return {
+        type: "complete_attempt",
+        runId: RUN_ID,
+        attemptId: commandAttemptId(vector),
+        executionFence: commandFence(vector),
+        completion: vector.id === "conflicting-completion"
+          ? {
+              kind: "failed",
+              failure: {
+                kind: "task_failure",
+                code: "handler_failed",
+                message: null,
+              },
+              retry: { kind: "do_not_retry" },
+              executionDurationMs: null,
+            }
+          : completionFor(vector),
+      };
+    case "requestCancellation":
+      return {
+        type: "request_cancellation",
+        runId: RUN_ID,
+        reason: vector.command.identity === "user-request"
+          ? { code: "requested", message: null }
+          : { code: "policy_cancelled", message: null },
+      };
+    case "handleLeaseExpiry":
+      return {
+        type: "handle_lease_expiry",
+        runId: RUN_ID,
+        attemptId: commandAttemptId(vector),
+        executionFence: commandFence(vector),
+        expectedLeaseVersion: vector.command.identity.includes("lease-4")
+          ? leaseVersion(4n)
+          : vector.command.identity.includes("lease-2")
+            ? leaseVersion(2n)
+            : LEASE_VERSION_1,
+      };
+    default:
+      throw new Error(
+        `unsupported admitted operation ${vector.command.operation}`,
+      );
+  }
+}
+
 function transition(evidence: readonly TaskRunAttemptEvidenceV1[], outcomeKind: string): string | null {
   const first = evidence[0];
   if (first === undefined) return null;
@@ -572,6 +665,41 @@ function errorActual(tag: string, safeReason: string): CompatibilityActualV1 {
     evidenceKinds: [],
     effects: [],
   };
+}
+
+export function normalizeCompatibilityLifecycleFailureV1(
+  error: RunAttemptLifecycleErrorV1,
+): CompatibilityActualV1 {
+  switch (error._tag) {
+    case "ConflictingTaskAttemptCompletionError":
+    case "InvalidTaskCancellationAcknowledgementError":
+    case "TaskRunAttemptCounterExhaustedError":
+    case "InvalidRunAttemptTransitionError":
+    case "StaleTaskExecutionFenceError":
+    case "StaleTaskRunVersionError":
+    case "TaskRunAttemptPolicyError":
+      return errorActual(error._tag, safeDecisionError(error));
+    case "TaskSystemRunAttemptUnavailableError":
+      return errorActual(error._tag, error.reason);
+    case "TaskSystemRunAttemptCorruptionError":
+      return errorActual(
+        error._tag,
+        error.reason === "aggregate_invalid" ? "invalid_aggregate" : error.reason,
+      );
+    case "TaskSystemRunAttemptTransientStoreError":
+      return errorActual(error._tag, "serialization_or_connection");
+    case "TaskSystemRunAttemptTerminalStoreError":
+      return errorActual(error._tag, "constraint_or_configuration");
+    case "TaskSystemRunAttemptStaleScopeAuthorityError":
+      return errorActual(error._tag, error.authority);
+    case "InvalidRunAttemptCommandError":
+      return errorActual(error._tag, "invalid_command_without_raw_input");
+  }
+  return absurdCompatibilityFailure(error);
+}
+
+function absurdCompatibilityFailure(value: never): never {
+  throw new Error(`unsupported compatibility lifecycle failure: ${String(value)}`);
 }
 
 function isMutableRecord(value: unknown): value is Record<string, unknown> {
@@ -757,67 +885,37 @@ function executeSchemaOrStoreError(vector: CompatibilityVectorV1): ExecutedVecto
 function executeDecision(
   vector: CompatibilityVectorV1,
   current: TaskRunAttemptAggregateV1,
+  command: CompatibilityLifecycleCommandV1,
 ): ExecutedVectorV1 {
   const now = observedAt(vector);
-  switch (vector.command.operation) {
-    case "startAttempt": {
-      const expectedVersion = vector.command.identity.includes("run-v4") ? runVersion(4n) : runVersion(1n);
-      const command: StartAttemptCommandV1 = {
-        type: "start_attempt", runId: RUN_ID, expectedRunVersion: expectedVersion, retryJitter: JITTER,
-      };
+  switch (command.type) {
+    case "start_attempt": {
       return normalizeDecision(decideStartAttemptV1(command, {
         databaseNowMs: now,
         current,
         attemptGrantCandidate: candidateFor(current),
       }));
     }
-    case "heartbeatAttempt": {
-      const sequence = vector.command.identity.includes("sequence-3") ? 3 : vector.command.identity.includes("sequence-1") ? 1 : 2;
-      const command: HeartbeatAttemptCommandV1 = {
-        type: "heartbeat_attempt", runId: RUN_ID,
-        attemptId: commandAttemptId(vector), executionFence: commandFence(vector),
-        heartbeatSequence: heartbeatSequence(sequence),
-      };
+    case "heartbeat_attempt": {
       return normalizeDecision(decideHeartbeatAttemptV1(command, { databaseNowMs: now, current, attemptGrantCandidate: null }));
     }
-    case "completeAttempt": {
-      const command: CompleteAttemptCommandV1 = {
-        type: "complete_attempt", runId: RUN_ID,
-        attemptId: commandAttemptId(vector), executionFence: commandFence(vector),
-        completion: vector.id === "conflicting-completion"
-          ? { kind: "failed", failure: { kind: "task_failure", code: "handler_failed", message: null }, retry: { kind: "do_not_retry" }, executionDurationMs: null }
-          : completionFor(vector),
-      };
+    case "complete_attempt": {
       return normalizeDecision(decideCompleteAttemptV1(command, { databaseNowMs: now, current, attemptGrantCandidate: null }));
     }
-    case "requestCancellation": {
-      const command: RequestCancellationCommandV1 = {
-        type: "request_cancellation", runId: RUN_ID,
-        reason: vector.command.identity === "user-request"
-          ? { code: "requested", message: null }
-          : { code: "policy_cancelled", message: null },
-      };
+    case "request_cancellation": {
       return normalizeDecision(decideRequestCancellationV1(command, { databaseNowMs: now, current, attemptGrantCandidate: null }));
     }
-    case "handleLeaseExpiry": {
-      const lease = vector.command.identity.includes("lease-4") ? leaseVersion(4n)
-        : vector.command.identity.includes("lease-2") ? leaseVersion(2n) : LEASE_VERSION_1;
-      const command: HandleLeaseExpiryCommandV1 = {
-        type: "handle_lease_expiry", runId: RUN_ID,
-        attemptId: commandAttemptId(vector), executionFence: commandFence(vector), expectedLeaseVersion: lease,
-      };
+    case "handle_lease_expiry": {
       return normalizeDecision(decideHandleLeaseExpiryV1(command, { databaseNowMs: now, current, attemptGrantCandidate: null }));
     }
-    default:
-      throw new Error(`unsupported admitted operation ${vector.command.operation}`);
   }
 }
 
-export function executeCompatibilityVectorsV1(
+export function prepareCompatibilityVectorsV1(
   vectors: readonly CompatibilityVectorV1[],
   effectCursorCases: readonly CompatibilityEffectCursorCaseV1[],
-): ReadonlyMap<string, ExecutedVectorV1> {
-  const results = new Map<string, ExecutedVectorV1>();
+): ReadonlyMap<string, PreparedCompatibilityVectorV1> {
+  const results = new Map<string, PreparedCompatibilityVectorV1>();
   const committed = new Map<string, TaskRunAttemptAggregateV1>();
   const priorEffectCursors = new Map(effectCursorCases.map((entry) => [entry.scenarioId, entry.priorEffectCursor]));
   if (priorEffectCursors.size !== effectCursorCases.length) throw new Error("duplicate compatibility effect cursor case");
@@ -831,11 +929,59 @@ export function executeCompatibilityVectorsV1(
     const decodedCurrent = Result.getOrThrow(
       decodeTaskRunAttemptAggregateV1(Result.getOrThrow(encodeTaskRunAttemptAggregateV1(current))),
     );
-    const executed = boundary ?? executeDecision(vector, decodedCurrent);
-    results.set(vector.id, executed);
+    const command = compatibilityCommandV1(vector);
+    if (boundary === null && command === null) {
+      throw new Error(`compatibility vector ${vector.id} has no executable boundary`);
+    }
+    let executed: ExecutedVectorV1;
+    if (boundary !== null) {
+      executed = boundary;
+    } else if (command !== null) {
+      executed = executeDecision(vector, decodedCurrent, command);
+    } else {
+      throw new Error(`compatibility vector ${vector.id} has no executable command`);
+    }
+    results.set(vector.id, Object.freeze({
+      vector,
+      current: decodedCurrent,
+      command,
+      execution: executed,
+      boundary: command === null ? "command_decoder" : "task_system_store",
+    }));
     if (executed.next !== null) committed.set(vector.id, executed.next);
   }
   return results;
+}
+
+export function executeCompatibilityVectorsV1(
+  vectors: readonly CompatibilityVectorV1[],
+  effectCursorCases: readonly CompatibilityEffectCursorCaseV1[],
+): ReadonlyMap<string, ExecutedVectorV1> {
+  return new Map(
+    [...prepareCompatibilityVectorsV1(vectors, effectCursorCases)]
+      .map(([id, prepared]) => [id, prepared.execution]),
+  );
+}
+
+export function normalizeCompatibilityReceiptV1(input: {
+  readonly disposition: "accepted" | "current" | "idempotent";
+  readonly observedAtMs: TaskDatabaseTimeMsV1;
+  readonly runVersion: bigint;
+  readonly outcome: { readonly kind: string; readonly reason?: string };
+  readonly evidence: readonly TaskRunAttemptEvidenceV1[];
+  readonly requestedEffects: ReadonlyArray<{
+    readonly sequence: bigint;
+    readonly effect: { readonly kind: string };
+  }>;
+}): CompatibilityActualV1 {
+  return receiptActual({
+    disposition: input.disposition,
+    observedAtMs: input.disposition === "current" ? null : input.observedAtMs,
+    acceptedRunVersion: input.disposition === "current" ? null : input.runVersion,
+    outcome: input.outcome,
+    evidence: input.evidence,
+    effects: input.requestedEffects,
+  });
 }
 
 export function normalizeExpectedV1(expected: CompatibilityExpectedV1): CompatibilityActualV1 {

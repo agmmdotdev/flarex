@@ -25,6 +25,7 @@ import {
   type TaskAttemptNumberV1,
   type TaskDatabaseTimeMsV1,
   type TaskExecutionFenceV1,
+  type TaskPersistenceCodecErrorV1,
   type TaskRunAttemptAggregateV1,
   type TaskRunAttemptDecisionV1,
   type TaskRunIdV1,
@@ -36,7 +37,7 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result, SchemaIssue } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
@@ -73,6 +74,9 @@ import {
 const TASK_RUN_ATTEMPT_TARGET_DB: unique symbol = Symbol(
   "FlarexDB/taskSystemRunAttemptTargetDbV1",
 );
+const READ_TASK_SYSTEM_DATABASE_NOW_V1: unique symbol = Symbol(
+  "FlarexDB/readTaskSystemDatabaseNowV1",
+);
 const UTF8 = new TextEncoder();
 const POSTGRES_SIGNED_BIGINT_MAX = 9_223_372_036_854_775_807n;
 const MAX_TRANSACTION_EXECUTIONS = 3;
@@ -84,6 +88,13 @@ type TaskAttemptIdentityRow =
 type TaskRequestedEffectRow =
   typeof fxSystemDurableTaskRequestedEffectsV1.$inferSelect;
 
+export type ReadTaskSystemDatabaseNowV1 = (
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  operation: RunAttemptOperationV1,
+  runId: TaskRunIdV1,
+) => Promise<TaskDatabaseTimeMsV1>;
+
 interface ExpectedAttemptIdentityV1 {
   readonly attemptId: TaskAttemptIdV1;
   readonly attemptNumber: TaskAttemptNumberV1;
@@ -94,6 +105,7 @@ interface ExpectedAttemptIdentityV1 {
 export interface LocatedTaskSystemRunAttemptTargetV1
   extends LocatedReadCommittedAttemptTargetV1 {
   readonly [TASK_RUN_ATTEMPT_TARGET_DB]: FlarexMetadataDatabase;
+  readonly [READ_TASK_SYSTEM_DATABASE_NOW_V1]: ReadTaskSystemDatabaseNowV1;
 }
 
 export interface TaskSystemRunAttemptStoreOptionsV1 {
@@ -105,12 +117,14 @@ export function createLocatedTaskSystemRunAttemptTargetV1(
   physicalLocator: ScopePhysicalLocator,
   runReadCommitted: RunLocatedReadCommittedTransactionV1 =
     createDefaultLocatedReadCommittedTransactionRunnerV1(db),
+  readDatabaseNow: ReadTaskSystemDatabaseNowV1 = readTaskSystemDatabaseNowV1,
 ): LocatedTaskSystemRunAttemptTargetV1 {
   return Object.freeze({
     physicalLocator: captureScopePhysicalLocator(physicalLocator),
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
     [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
     [TASK_RUN_ATTEMPT_TARGET_DB]: db,
+    [READ_TASK_SYSTEM_DATABASE_NOW_V1]: readDatabaseNow,
   });
 }
 
@@ -265,7 +279,7 @@ async function transactOnce<Outcome>(
     runId: request.runId,
     reason: "unavailable",
   }));
-  const databaseNowMs = await readDatabaseNow(
+  const databaseNowMs = await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](
     tx,
     authority.scopeId,
     request.operation,
@@ -319,7 +333,7 @@ async function inspectOnce(
   runId: TaskRunIdV1,
 ): Promise<TaskSystemRunAttemptInspectionSnapshotV1> {
   await requireLockedScopeAuthority(tx, authority, target, operation, runId);
-  const observedAtMs = await readDatabaseNow(
+  const observedAtMs = await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](
     tx,
     authority.scopeId,
     operation,
@@ -393,7 +407,7 @@ async function loadRun(
   return rows[0] ?? null;
 }
 
-async function readDatabaseNow(
+async function readTaskSystemDatabaseNowV1(
   tx: AppRowTransaction,
   scopeId: ScopeId,
   operation: RunAttemptOperationV1,
@@ -424,16 +438,18 @@ function decodeAndCorrelateRunRow(
   if (row.aggregateCodecVersion !== 1 || row.runId !== runId) {
     throw rollbackStoreError(corruption(operation, runId, "aggregate_invalid"));
   }
-  const decoded = Result.getOrThrowWith(Result.gen(function* () {
-    const aggregate = yield* decodePersistedTaskRunAttemptAggregateJsonV1(
-      row.aggregateJson,
-    );
-    const encoded = yield* encodePersistedTaskRunAttemptAggregateJsonV1(
-      aggregate,
-    );
-    return { aggregate, encoded };
-  }), () => rollbackStoreError(corruption(operation, runId, "aggregate_invalid")));
-  const { aggregate, encoded } = decoded;
+  const aggregate = Result.getOrThrowWith(
+    decodePersistedTaskRunAttemptAggregateJsonV1(row.aggregateJson),
+    issue => rollbackStoreError(corruption(
+      operation,
+      runId,
+      classifyAggregateDecodeCorruption(issue),
+    )),
+  );
+  const encoded = Result.getOrThrowWith(
+    encodePersistedTaskRunAttemptAggregateJsonV1(aggregate),
+    () => rollbackStoreError(corruption(operation, runId, "aggregate_invalid")),
+  );
   const projection = projectTaskRunAttemptPersistenceV1(aggregate);
   if (
     row.aggregateByteLength !== encodedJsonByteLength(encoded)
@@ -454,6 +470,32 @@ function decodeAndCorrelateRunRow(
     throw rollbackStoreError(corruption(operation, runId, "binding_reference_invalid"));
   }
   return aggregate;
+}
+
+function classifyAggregateDecodeCorruption(
+  error: TaskPersistenceCodecErrorV1,
+): TaskSystemRunAttemptCorruptionError["reason"] {
+  if (error.issue.kind !== "domain_value_invalid") return "aggregate_invalid";
+  const formatted = SchemaIssue.makeFormatterStandardSchemaV1()(
+    error.issue.cause.issue,
+  );
+  const paths = formatted.issues.flatMap(issue =>
+    issue.path === undefined ? [] : [issue.path]
+  );
+  if (paths.some(path => path.includes("completionReplays"))) {
+    return "completion_replay_invalid";
+  }
+  if (paths.some(path => path.includes("evidence"))) {
+    return "evidence_invalid";
+  }
+  if (paths.some(path =>
+    path.includes("requestedEffectCursor")
+    || path.includes("requestedEffects")
+    || path.includes("sequence")
+  )) {
+    return "effect_sequence_invalid";
+  }
+  return "aggregate_invalid";
 }
 
 async function correlateLifecycleLedger(
@@ -519,17 +561,19 @@ function requestedEffectRowMatches(
   row: TaskRequestedEffectRow,
   expected: PersistedTaskRequestedEffectV1,
 ): boolean {
-  const decoded = decodePersistedTaskRequestedEffectJsonV1(row.payloadJson);
-  if (Result.isFailure(decoded)) return false;
-  const canonical = encodePersistedTaskRequestedEffectJsonV1(decoded.success);
-  return row.payloadCodecVersion === 1
-    && row.sequence === expected.sequence
-    && row.acceptedRunVersion === expected.effect.acceptedRunVersion
-    && row.kind === expected.effect.kind
-    && row.notBeforeMs === effectNotBeforeMs(expected)
-    && Result.isSuccess(canonical)
-    && row.payloadByteLength === encodedJsonByteLength(canonical.success)
-    && persistedValueEqual(decoded.success, expected);
+  return Result.gen(function* () {
+    const decoded = yield* decodePersistedTaskRequestedEffectJsonV1(
+      row.payloadJson,
+    );
+    const canonical = yield* encodePersistedTaskRequestedEffectJsonV1(decoded);
+    return row.payloadCodecVersion === 1
+      && row.sequence === expected.sequence
+      && row.acceptedRunVersion === expected.effect.acceptedRunVersion
+      && row.kind === expected.effect.kind
+      && row.notBeforeMs === effectNotBeforeMs(expected)
+      && row.payloadByteLength === encodedJsonByteLength(canonical)
+      && persistedValueEqual(decoded, expected);
+  }).pipe(Result.getOrElse(() => false));
 }
 
 async function correlateAttemptIdentities(
@@ -606,19 +650,21 @@ async function correlateAttemptIdentities(
     ) {
       throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
     }
-    const decoded = decodePersistedTaskRequestedEffectJsonV1(
-      dispatchRow.payloadJson,
+    const decoded = Result.getOrThrowWith(
+      decodePersistedTaskRequestedEffectJsonV1(dispatchRow.payloadJson),
+      () => rollbackStoreError(
+        corruption(operation, runId, "acceptance_invalid"),
+      ),
     );
     if (
-      Result.isFailure(decoded)
-      || decoded.success.effect.kind !== "dispatch_attempt"
-      || !requestedEffectRowMatches(dispatchRow, decoded.success)
-      || decoded.success.effect.taskDefinitionRevisionId
+      decoded.effect.kind !== "dispatch_attempt"
+      || !requestedEffectRowMatches(dispatchRow, decoded)
+      || decoded.effect.taskDefinitionRevisionId
         !== aggregate.taskDefinitionRevisionId
     ) {
       throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
     }
-    const attempt = decoded.success.effect.attempt;
+    const attempt = decoded.effect.attempt;
     const identity = identitiesById.get(attempt.attemptId);
     if (
       identity === undefined
@@ -627,7 +673,7 @@ async function correlateAttemptIdentities(
       || identity.attemptNumber !== attempt.attemptNumber
       || identity.executionFence !== attempt.executionFence
       || identity.acceptedRunVersion
-        !== decoded.success.effect.acceptedRunVersion
+        !== decoded.effect.acceptedRunVersion
     ) {
       throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
     }

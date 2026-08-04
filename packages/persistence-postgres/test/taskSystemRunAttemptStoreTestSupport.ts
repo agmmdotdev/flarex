@@ -1,5 +1,9 @@
 import {
   encodePersistedTaskRunAttemptAggregateJsonV1,
+  encodePersistedTaskRequestedEffectJsonV1,
+  decideStartAttemptV1,
+  type PersistedTaskRequestedEffectV1,
+  type TaskAttemptGrantCandidateV1,
   decodeTaskDefinitionRevisionIdV1,
   projectTaskRunAttemptPersistenceV1,
   type TaskCancellationGenerationV1,
@@ -8,6 +12,7 @@ import {
   type TaskDurationMsV1,
   type TaskMaximumAttemptsV1,
   type TaskRetryFactorV1,
+  type TaskRetryJitterV1,
   type TaskRunAttemptAggregateV1,
   type TaskRunIdV1,
   type TaskRunVersionV1,
@@ -51,6 +56,7 @@ const computeProfile = Brand.nominal<TaskComputeProfileRefV1>();
 const maximumAttempts = Brand.nominal<TaskMaximumAttemptsV1>();
 const retryFactor = Brand.nominal<TaskRetryFactorV1>();
 const runId = Brand.nominal<TaskRunIdV1>();
+const retryJitter = Brand.nominal<TaskRetryJitterV1>();
 const taskDefinitionRevisionId = Result.getOrThrow(
   decodeTaskDefinitionRevisionIdV1(TASK_DEFINITION_ID),
 );
@@ -262,6 +268,250 @@ export async function seedAdditionalTaskSystemRunV1(
     from fx_system_durable_task_run_v1
     where scope_id = '${TASK_SCOPE_ID}' and run_id = '${TASK_RUN_ID}'
   `, [aggregateJson]);
+}
+
+/** Seeds the immutable ledgers required by a canonical compatibility aggregate. */
+export async function seedCompatibilityLifecycleLedgerV1(
+  persistence: Pick<FlarexSqlClient, "query">,
+  aggregate: TaskRunAttemptAggregateV1,
+): Promise<void> {
+  const attemptCount = aggregate.attemptHistory.kind === "none"
+    ? 0
+    : Number(aggregate.attemptHistory.lastAttemptNumber);
+  if (attemptCount > 1) {
+    throw new Error(
+      "multi-attempt compatibility history requires transition-derived setup",
+    );
+  }
+  if (
+    (aggregate.phase === "attempt_granted" || aggregate.phase === "executing")
+    && (
+      aggregate.currentAttempt.grantBasisRunVersion !== 1n
+      || aggregate.currentAttempt.computeProfile
+        !== aggregate.boundPolicy.initialComputeProfile
+    )
+  ) {
+    throw new Error(
+      "active compatibility history is not reconstructable from initial ready",
+    );
+  }
+
+  const effects = new Map<bigint, PersistedTaskRequestedEffectV1>();
+  if (attemptCount === 1) {
+    const start = reconstructFirstAttemptStart(aggregate);
+    const attempt = start.next.phase === "attempt_granted"
+      ? start.next.currentAttempt
+      : null;
+    if (attempt === null) {
+      throw new Error("first-attempt reconstruction did not grant an attempt");
+    }
+    await persistence.query(`
+      insert into fx_system_durable_task_attempt_identity_v1 (
+        scope_id, attempt_id, run_id, attempt_number, execution_fence,
+        accepted_run_version
+      ) values (
+        '${TASK_SCOPE_ID}', '${attempt.attemptId}', '${aggregate.runId}',
+        ${attempt.attemptNumber}, ${attempt.executionFence}, ${start.next.runVersion}
+      )
+    `);
+    for (const effect of start.requestedEffects) effects.set(effect.sequence, effect);
+  }
+
+  const acceptances = aggregate.lastLifecycleAcceptance === null
+    ? aggregate.completionReplays.map(replay => replay.accepted)
+    : [
+        aggregate.lastLifecycleAcceptance.accepted,
+        ...aggregate.completionReplays.map(replay => replay.accepted),
+      ];
+  for (const acceptance of acceptances) {
+    for (const effect of acceptance.requestedEffects) {
+      const existing = effects.get(effect.sequence);
+      if (existing !== undefined && !persistedEffectsEqual(existing, effect)) {
+        throw new Error("retained compatibility effect conflicts with history");
+      }
+      effects.set(effect.sequence, effect);
+    }
+  }
+
+  const lastSequence = aggregate.requestedEffectCursor.kind === "none"
+    ? 0n
+    : aggregate.requestedEffectCursor.lastSequence;
+  if (BigInt(effects.size) !== lastSequence) {
+    throw new Error(
+      "compatibility effect history does not match its requested-effect cursor",
+    );
+  }
+  const sortedEffects = [...effects.values()].sort((left, right) =>
+    left.sequence < right.sequence
+      ? -1
+      : left.sequence > right.sequence
+      ? 1
+      : 0
+  );
+  if (sortedEffects.some(
+    (effect, index) => effect.sequence !== BigInt(index) + 1n,
+  )) {
+    throw new Error(
+      "compatibility effect history is not transition-reconstructable",
+    );
+  }
+
+  for (const effect of sortedEffects) {
+    const encoded = Result.getOrThrow(
+      encodePersistedTaskRequestedEffectJsonV1(effect),
+    );
+    const payloadJson = JSON.stringify(encoded);
+    const payloadByteLength = new TextEncoder().encode(payloadJson).byteLength;
+    await persistence.query(`
+      insert into fx_system_durable_task_requested_effect_v1 (
+        scope_id, run_id, sequence, accepted_run_version, kind,
+        payload_codec_version, payload_byte_length, payload_json,
+        not_before_ms
+      ) values (
+        '${TASK_SCOPE_ID}', '${aggregate.runId}', ${effect.sequence},
+        ${effect.effect.acceptedRunVersion}, '${effect.effect.kind}',
+        1, ${payloadByteLength}, $1::jsonb, ${effectNotBeforeMs(effect)}
+      )
+    `, [payloadJson]);
+  }
+}
+
+export async function resetCompatibilityTaskRunV1(
+  persistence: Pick<FlarexSqlClient, "query">,
+  aggregate: TaskRunAttemptAggregateV1,
+): Promise<void> {
+  const encoded = Result.getOrThrow(
+    encodePersistedTaskRunAttemptAggregateJsonV1(aggregate),
+  );
+  const projection = projectTaskRunAttemptPersistenceV1(aggregate);
+  const aggregateJson = JSON.stringify(encoded);
+  const aggregateByteLength = new TextEncoder().encode(aggregateJson).byteLength;
+  await persistence.query(`
+    delete from fx_system_durable_task_requested_effect_v1
+    where scope_id = '${TASK_SCOPE_ID}'
+      and run_id in ('${TASK_RUN_ID}', '${aggregate.runId}')
+  `);
+  await persistence.query(`
+    delete from fx_system_durable_task_attempt_identity_v1
+    where scope_id = '${TASK_SCOPE_ID}'
+      and run_id in ('${TASK_RUN_ID}', '${aggregate.runId}')
+  `);
+  await persistence.query("set session_replication_role = replica");
+  try {
+    await persistence.query(`
+      update fx_system_durable_task_run_v1
+      set run_id = '${aggregate.runId}',
+        task_definition_revision_id = '${aggregate.taskDefinitionRevisionId}',
+        created_at_ms = ${aggregate.createdAtMs},
+        aggregate_codec_version = 1,
+        aggregate_byte_length = ${aggregateByteLength},
+        aggregate_json = $1::jsonb,
+        run_version = ${projection.runVersion},
+        phase = '${projection.phase}',
+        due_kind = ${sqlText(projection.dueKind)},
+        due_at_ms = ${projection.dueAtMs},
+        current_attempt_id = ${sqlText(projection.currentAttemptId)},
+        execution_fence_basis = ${projection.executionFenceBasis},
+        current_lease_version = ${projection.currentLeaseVersion},
+        current_lease_expires_at_ms = ${projection.currentLeaseExpiresAtMs},
+        cancellation_generation = ${projection.cancellationGeneration},
+        requested_effect_sequence = ${projection.requestedEffectSequence}
+      where scope_id = '${TASK_SCOPE_ID}'
+        and run_id in ('${TASK_RUN_ID}', '${aggregate.runId}')
+    `, [aggregateJson]);
+  } finally {
+    await persistence.query("set session_replication_role = origin");
+  }
+}
+
+function reconstructFirstAttemptStart(
+  aggregate: TaskRunAttemptAggregateV1,
+) {
+  const attempt = singleAttemptRef(aggregate);
+  const grantedAtMs = aggregate.phase === "attempt_granted"
+    || aggregate.phase === "executing"
+    ? aggregate.currentAttempt.grantedAtMs
+    : aggregate.createdAtMs;
+  const predecessor: TaskRunAttemptAggregateV1 = {
+    version: "flarex.task-run-attempt-aggregate.v1",
+    runId: aggregate.runId,
+    taskDefinitionRevisionId: aggregate.taskDefinitionRevisionId,
+    createdAtMs: aggregate.createdAtMs,
+    runVersion: runVersion(1n),
+    boundPolicy: aggregate.boundPolicy,
+    attemptHistory: { kind: "none" },
+    leaseHistory: { kind: "none" },
+    lastLifecycleAcceptance: null,
+    completionReplays: Object.freeze([]),
+    requestedEffectCursor: { kind: "none" },
+    phase: "ready",
+    ready: { kind: "initial", eligibleAtMs: grantedAtMs },
+    cancellation: {
+      kind: "not_requested",
+      generation: cancellationGeneration(0n),
+    },
+  };
+  const decision = Result.getOrThrow(decideStartAttemptV1({
+    type: "start_attempt",
+    runId: aggregate.runId,
+    expectedRunVersion: runVersion(1n),
+    retryJitter: retryJitter(0.25),
+  }, {
+    databaseNowMs: grantedAtMs,
+    current: predecessor,
+    attemptGrantCandidate: attempt,
+  }));
+  if (decision.kind !== "commit") {
+    throw new Error("first-attempt reconstruction did not commit");
+  }
+  return decision;
+}
+
+function singleAttemptRef(
+  aggregate: TaskRunAttemptAggregateV1,
+): TaskAttemptGrantCandidateV1 {
+  switch (aggregate.phase) {
+    case "attempt_granted":
+    case "executing":
+      return aggregate.currentAttempt;
+    case "ready":
+      if (aggregate.ready.kind === "immediate_retry") {
+        return aggregate.ready.acceptedRetry.previousAttempt;
+      }
+      break;
+    case "retry_waiting":
+      return aggregate.retry.previousAttempt;
+    case "terminal":
+      if (aggregate.terminal.attempt !== null) return aggregate.terminal.attempt;
+      break;
+  }
+  const replayAttempt = aggregate.completionReplays[0]?.attempt;
+  if (replayAttempt !== undefined) return replayAttempt;
+  throw new Error("single-attempt aggregate does not retain its attempt reference");
+}
+
+function persistedEffectsEqual(
+  left: PersistedTaskRequestedEffectV1,
+  right: PersistedTaskRequestedEffectV1,
+): boolean {
+  const encodedLeft = Result.getOrThrow(
+    encodePersistedTaskRequestedEffectJsonV1(left),
+  );
+  const encodedRight = Result.getOrThrow(
+    encodePersistedTaskRequestedEffectJsonV1(right),
+  );
+  return JSON.stringify(encodedLeft) === JSON.stringify(encodedRight);
+}
+
+function effectNotBeforeMs(effect: PersistedTaskRequestedEffectV1): string {
+  switch (effect.effect.kind) {
+    case "continue_retry":
+    case "wake_retry":
+    case "wake_lease_expiry":
+      return String(effect.effect.notBeforeMs);
+    default:
+      return "null";
+  }
 }
 
 export async function locatedTaskAuthorityV1(

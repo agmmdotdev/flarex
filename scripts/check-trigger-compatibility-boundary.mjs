@@ -65,6 +65,7 @@ const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "TaskAttemptNumberV1",
   "TaskDatabaseTimeMsV1",
   "TaskExecutionFenceV1",
+  "TaskPersistenceCodecErrorV1",
   "TaskRunAttemptAggregateV1",
   "TaskRunAttemptCounterExhaustedError",
   "TaskRunAttemptDecisionV1",

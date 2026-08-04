@@ -8,11 +8,13 @@ envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
 implemented. The five-table Drizzle schema, generated migration, relational
 constraints, due-work index, and PGlite/real-Postgres migration proofs are also
-implemented. DTE04-B now has a scope-bound lifecycle adapter implementation,
-transaction/error mapping, connected PGlite lifecycle/rollback/corruption
-proofs, and focused real-Postgres same-run serialization plus post-lock
-database-time proof. DTE04-B is not yet admitted: its canonical 65-vector
-concrete-adapter lane and final reviewer checkpoint remain open. Creation,
+implemented. DTE04-B now has a scope-bound lifecycle adapter, transaction/error
+mapping, connected PGlite lifecycle/rollback/corruption proofs, a partial
+canonical compatibility lane, and focused real-Postgres same-run serialization
+plus post-lock database-time proof. The pure oracle still covers all 65 vectors;
+30 transition-reconstructable histories now execute through the concrete
+adapter, two invalid commands remain at their decoder boundary, and 33 histories
+remain open until their setup is derived from the real transition path. Creation,
 discovery, effect delivery, host, queue, and activation changes remain
 unauthorized.
 
@@ -271,9 +273,12 @@ admitted:
   scope-bound `TaskSystemRunAttemptStore` value, transaction/error mapping,
   aggregate-to-effect/attempt-ledger correlation, allocation-free replay and
   current paths, connected PGlite lifecycle/error matrix, and focused
-  real-Postgres lock/time/concurrency proof are implemented. The canonical
-  65-vector lane
-  through the concrete adapter and final reviewers remain before admission;
+  real-Postgres lock/time/concurrency proof are implemented. The reusable
+  compatibility harness now drives 30 transition-reconstructable vectors
+  through the concrete PGlite adapter while retaining two invalid command
+  shapes at their pre-store decoder boundary. The remaining 33 vectors need
+  transition-derived persisted histories before the 65-vector gate and final
+  admission review can close;
 - **DTE04-C — creation:** closed creation contract, initial aggregate builder,
   idempotency conflict semantics, and immutable binding checks;
 - **DTE04-D — discovery and effect ledger:** bounded stable discovery plus

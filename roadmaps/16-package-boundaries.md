@@ -152,9 +152,9 @@ and domain Layer. Its initial runtime dependency is only the root-catalog
 `effect` package.
 
 `@flarex/persistence-postgres` now owns the DTE04-A3 five-table Task System
-schema and generated migration through exact private domain-contract
-dependencies. DTE04-B will implement the scope-bound Task System lifecycle
-store port in that package; `flarex-backend` will own host composition, durable
+schema and generated migration plus the DTE04-B scope-bound Task System
+lifecycle-store adapter through exact private domain-contract dependencies.
+`flarex-backend` will own host composition, durable
 effect delivery, and runtime projection adapters. The durable-task package must
 not import persistence, Drizzle, Prisma, Redis, Node, Cloudflare, backend, apps,
 Trigger packages, or the frozen Trigger source island. It has no package-root,
