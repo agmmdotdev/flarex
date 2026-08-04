@@ -476,6 +476,6 @@ DTE01 is complete because:
    boundary.
 
 The decision is **admit**. The private task definition/identity/scope
-prerequisite is now complete through DTE02-G. The next roadmap action is
-Roadmap 03's lifecycle-model gate. The next implementation action is DTE-IP01
-only after that gate accepts the internal run-attempt model names.
+prerequisite is complete through DTE02-G, and Roadmap 03 admits the internal
+run-attempt model through DTE03-G. The next implementation action is now
+exactly DTE-IP01 under this receipt's package and stop boundaries.

@@ -577,7 +577,7 @@ DTE03-F and DTE-IP01 must cover at least:
     retry evidence, not a terminal class.
 12. Policy arithmetic failure or corrupted policy commits nothing.
 
-## DTE03-F Closure And Handoff To DTE03-G
+## DTE03-F And DTE03-G Closure
 
 DTE03-D has applied these policy inputs to the complete transition/race tables
 without changing their retry or terminal meaning, and DTE03-E has encoded them
@@ -585,11 +585,10 @@ into closed outcomes, replay, evidence, effects, inspection, acceptance, and
 typed-error unions. DTE03-F now proves forced-durable lease-loss recovery,
 retry suppression after cancellation, terminal retention of the original
 failure, accepted policy correlations, and every retry-rejection reason through
-canonical executable vectors. DTE03-G must audit that coverage with the policy
-contract before deciding package admission.
-
-Do not create `packages/durable-task/` until DTE03-G admits the complete
-lifecycle contract.
+canonical executable vectors. DTE03-G audited that coverage with this policy
+contract and chose `admit` in
+[`18-final-lifecycle-admission.md`](./18-final-lifecycle-admission.md).
+Package creation is now allowed only inside DTE-IP01.
 
 ## Reopening Audit
 

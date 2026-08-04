@@ -3,7 +3,7 @@
 ## Receipt Status
 
 **Status:** Complete — admit the DTE03-B phase, terminal-outcome, and aggregate
-shape as the state-model input to DTE03-C through DTE03-G. DTE03-C has fixed
+shape as the state-model input to DTE03-C through DTE03-G. DTE03-C fixed
 the policy-owned leaves, and DTE03-D has fixed the operation transition tables
 and refined the aggregate with the run-local lease-history cursor required by
 DTE02.
@@ -21,7 +21,8 @@ closed operation-outcome, evidence, requested-effect, inspection, acceptance,
 and error unions. DTE03-F now fixes the canonical compatibility vectors and
 executable contract gate. Those checkpoints fill the named owners below
 without adding another phase, aggregate axis, or authority-bearing command
-field.
+field. DTE03-G admits the combined lifecycle contract in
+[`18-final-lifecycle-admission.md`](./18-final-lifecycle-admission.md).
 
 This is documentation admission only. It does not authorize package creation,
 schema, migration, adapter, host, scheduler, runtime, route, or activation
@@ -759,9 +760,10 @@ retaining store validation authority.
 creates 65 canonical vectors, 37 exact named divergences, and the fail-closed
 contract checker without creating a second aggregate or lifecycle engine.
 
-### DTE03-G — Next
+### DTE03-G — Complete: Admit
 
-DTE03-G audits and decides final admission.
+DTE03-G audits and admits the complete lifecycle contract in
+[`18-final-lifecycle-admission.md`](./18-final-lifecycle-admission.md).
 
 ## Reopening Audit
 
@@ -779,13 +781,10 @@ DTE03-B does not reopen DTE01 or DTE02:
 
 ## Handoff
 
-Proceed to DTE03-G using the exact five-phase aggregate, DTE03-C policy,
+Proceed to DTE-IP01 using the exact five-phase aggregate, DTE03-C policy,
 DTE03-D transition/race tables, DTE03-E closed service contract, and DTE03-F
-vector gate. Audit the whole model without changing admitted race winners or
-adding host authority.
-
-Do not create `packages/durable-task/` until DTE03-G admits the complete
-lifecycle contract.
+vector gate as one admitted model. Package creation remains bounded by the
+production-inert checkpoint and adds no host authority.
 
 ## Authority And Evidence
 

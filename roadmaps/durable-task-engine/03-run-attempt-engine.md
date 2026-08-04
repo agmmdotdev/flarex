@@ -2,14 +2,15 @@
 
 ## Status
 
-**Status:** Active. DTE03-A's source inventory, DTE03-B's exact aggregate,
-DTE03-C's completion-failure/retry/attempt policy, and DTE03-D's cancellation,
-heartbeat, lease, completion, and race tables, and DTE03-E's exact operation
-outcomes, inspection, acceptance/replay, evidence, effects, and errors are
-complete. DTE03-F's canonical compatibility vectors, exact named divergences,
-and executable contract gate are complete. DTE03-G final lifecycle admission
-is next. The Roadmap 03 lifecycle-model gate remains closed, so DTE-IP01
-package creation is not yet authorized.
+**Status:** Complete — **admit**. DTE03-A's source inventory, DTE03-B's exact
+aggregate, DTE03-C's completion-failure/retry/attempt policy, DTE03-D's
+cancellation, heartbeat, lease, completion, and race tables, and DTE03-E's
+exact operation outcomes, inspection, acceptance/replay, evidence, effects,
+and errors are complete. DTE03-F's canonical compatibility vectors, exact
+named divergences, and executable contract gate are complete. DTE03-G admits
+the combined lifecycle model. DTE-IP01 is now authorized as the exact
+production-inert package transplant defined by DTE01; later database and host
+work remain closed.
 
 This roadmap owns the host-neutral run-attempt lifecycle contract required by
 the already-admitted private `@flarex/durable-task` package. It refines the
@@ -17,9 +18,10 @@ Trigger.dev status, retry, failure, cancellation, heartbeat, and stalled-run
 semantics admitted by DTE01 into exact Flarex domain models under the identity,
 authority, command, and store-port contract admitted by DTE02.
 
-It does not authorize a package implementation, database schema, migration,
-Postgres adapter, scheduler, queue, compute host, backend route, observability
-API, public SDK, deployment, or production activation.
+It authorizes only DTE-IP01's private production-inert package implementation.
+It does not authorize a database schema, migration, Postgres adapter,
+scheduler, queue, compute host, backend route, observability API, public SDK,
+deployment, or production activation.
 
 ## Mandate
 
@@ -243,11 +245,11 @@ cases, and 37 exact named differences. The fail-closed root checker binds them
 to the accepted source map, exhaustive current reasons, accepted transition
 plans, policy branches, effect order/sequences, removed-field exclusions, and
 exact divergence pointers. It deliberately does not create a temporary
-lifecycle engine before DTE03-G; if admitted, DTE-IP01 must bind the future
+lifecycle engine before DTE03-G. Now admitted, DTE-IP01 must bind the real
 package Schema and pure decisions to these same vectors before persistence or
 host work.
 
-### DTE03-G: Final Lifecycle Admission — Next
+### DTE03-G: Final Lifecycle Admission — Complete: Admit
 
 Audit DTE03-A through DTE03-F as one contract and choose `admit`, `revise`,
 `defer`, or `reject`. Only `admit` opens DTE-IP01.
@@ -257,9 +259,16 @@ tables, policy order, effects, errors, compatibility vectors, package gates,
 and reopening rules. It must identify the first implementation action without
 authorizing Roadmap 04 persistence or host work.
 
+Receipt:
+[`preflight/18-final-lifecycle-admission.md`](./preflight/18-final-lifecycle-admission.md).
+The decision is **`admit`**. All twelve exit conditions are accepted, DTE01 and
+DTE02 remain closed, and DTE-IP01 must begin with the real package Schema and
+pure decision lane against the DTE03-F vectors before its service/Layer
+checkpoint can close. No persistence or host work is admitted.
+
 ## Lifecycle-Model Exit Gate
 
-DTE03-G may admit the package model only when all of the following are fixed:
+DTE03-G admits the package model because all of the following are fixed:
 
 1. every aggregate phase and terminal outcome has one unambiguous meaning;
 2. every aggregate field combination is legal by construction or rejected by
@@ -280,8 +289,9 @@ DTE03-G may admit the package model only when all of the following are fixed:
 12. no DTE01 source/dependency boundary or DTE02 identity/authority/store-port
     contract has been reopened silently.
 
-Until all twelve conditions are accepted, `packages/durable-task/` must not be
-created.
+All twelve conditions are accepted by the DTE03-G receipt. Creation of
+`packages/durable-task/` is now allowed only inside DTE-IP01 and remains subject
+to the exact package gate and stop boundary.
 
 ## Reopening Rules
 
@@ -326,6 +336,8 @@ This roadmap is governed by:
 - [`preflight/14-failure-retry-and-attempt-policy.md`](./preflight/14-failure-retry-and-attempt-policy.md);
 - [`preflight/15-cancellation-heartbeat-lease-and-race-tables.md`](./preflight/15-cancellation-heartbeat-lease-and-race-tables.md);
 - [`preflight/16-operation-outcomes-evidence-effects-and-errors.md`](./preflight/16-operation-outcomes-evidence-effects-and-errors.md);
+- [`preflight/17-compatibility-vectors-and-executable-gate.md`](./preflight/17-compatibility-vectors-and-executable-gate.md);
+- [`preflight/18-final-lifecycle-admission.md`](./preflight/18-final-lifecycle-admission.md);
 - the frozen Trigger source at the DTE01 pinned commit; and
 - current Flarex code only for implemented authority and package-boundary
   evidence.

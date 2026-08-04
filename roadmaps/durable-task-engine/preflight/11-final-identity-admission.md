@@ -10,15 +10,14 @@ scope, revision, runtime, run, attempt, lease, cancellation, and store input an
 explicit owner without importing Trigger product identity, Flarex persistence
 types, or a public protocol into the domain package.
 
-The decision is not blanket implementation authorization. Roadmap 03 is now
-active because DTE01's original package start condition also requires exact
-lifecycle phase, outcome, failure, retry, evidence, and effect unions. DTE03-A
-through DTE03-E have completed the source inventory, aggregate, failure/retry
-policy, cancellation/heartbeat/lease/race, and closed operation-result
-checkpoints; DTE03-F's compatibility vectors/executable contract gate are also
-complete, and DTE03-G final lifecycle admission is next. Only after the
-complete focused contract is accepted may DTE-IP01 create
-the production-inert domain package under DTE01's existing stop boundary.
+The decision is not blanket implementation authorization. DTE01's original
+package start condition also requires exact lifecycle phase, outcome, failure,
+retry, evidence, and effect unions. Roadmap 03 now supplies them. DTE03-A
+through DTE03-E completed the source inventory, aggregate, failure/retry policy,
+cancellation/heartbeat/lease/race, and closed operation-result checkpoints;
+DTE03-F completed the compatibility vectors/executable contract gate; and
+DTE03-G has now admitted the complete lifecycle model. DTE-IP01 may create the
+production-inert domain package under DTE01's existing stop boundary.
 
 No schema, migration, Postgres adapter, backend composition, runtime dispatch,
 public API, queue, scheduler, observability UI, or production route is admitted
@@ -490,7 +489,7 @@ own stateful rollback before creating state.
 DTE02-G does not authorize:
 
 - implementing task definitions or the `durable_task` projection now;
-- creating `@flarex/durable-task` before Roadmap 03's lifecycle-model gate;
+- creating `@flarex/durable-task` outside the admitted DTE-IP01 checkpoint;
 - a partial package shell, placeholder types, or one-helper extraction;
 - task tables, SQL, Drizzle schemas, migrations, or adapters;
 - merging Trigger's workspace or lockfile;
@@ -524,11 +523,10 @@ DTE02 is complete with these conclusions:
 9. current Standard Application, activation, scope, persistence, protocol,
    transaction, and Trigger-boundary owners remain consistent and unchanged;
 10. no DTE01 reopening condition is triggered;
-11. Roadmap 03 is active, DTE03-A through DTE03-F are complete, DTE03-G is
-    next, and final lifecycle admission remains the current design
-    prerequisite; and
-12. DTE-IP01 may start only after that gate, remains substantial and
-    production-inert, and stops before persistence or host integration.
+11. Roadmap 03 is complete, DTE03-A through DTE03-F close the lifecycle
+    contract, and DTE03-G chooses `admit`; and
+12. DTE-IP01 may now start, remains substantial and production-inert, and stops
+    before persistence or host integration.
 
 ## Authority And Evidence
 

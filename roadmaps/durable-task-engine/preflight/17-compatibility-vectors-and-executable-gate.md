@@ -4,7 +4,8 @@
 
 **Status:** Complete — the Roadmap 03 lifecycle model now has one canonical,
 JSON-safe compatibility suite, one exact divergence manifest, and one
-production-inert fail-closed checker. DTE03-G is the next checkpoint.
+production-inert fail-closed checker. DTE03-G has admitted the combined
+lifecycle contract.
 
 This receipt closes DTE03-F over the admitted DTE03-A source inventory,
 DTE03-B aggregate, DTE03-C failure/retry policy, DTE03-D transition/race
@@ -227,7 +228,7 @@ canonical JSON fixtures
   -> DTE03-G admission audit
 ```
 
-If DTE03-G chooses `admit`, the first DTE-IP01 implementation action is to
+Because DTE03-G chooses `admit`, the first DTE-IP01 implementation action is to
 create the private package's exact Effect Schema and pure decision surface,
 reuse/adapt the admitted Trigger logic, and run that candidate against these
 same vectors. No store adapter, migration, route, queue, Worker, observability
@@ -273,10 +274,12 @@ DTE03-F is complete because:
 10. the executable gate has positive and mutation-negative tests while
     remaining outside production authority.
 
-## Exact Handoff To DTE03-G
+## DTE03-G Closure And Handoff To DTE-IP01
 
-DTE03-G must audit DTE03-A through DTE03-F as one lifecycle contract and choose
-`admit`, `revise`, `defer`, or `reject`. It must verify:
+DTE03-G audited DTE03-A through DTE03-F as one lifecycle contract and chose
+`admit` in
+[`18-final-lifecycle-admission.md`](./18-final-lifecycle-admission.md). It
+verified:
 
 - the type inventory across identity, aggregate, policy, transition, outcome,
   evidence, effect, error, fixture, and divergence contracts;
@@ -289,7 +292,9 @@ DTE03-G must audit DTE03-A through DTE03-F as one lifecycle contract and choose
   its pure decision and Schema vector lane passes; and
 - the explicit reopening triggers for DTE01, DTE02, and DTE03-A through F.
 
-Do not create `packages/durable-task/` until that receipt says `admit`.
+The receipt now permits `packages/durable-task/` only inside DTE-IP01. Its first
+gate is the real package Schema and pure decisions against these same vectors;
+persistence and host work remain prohibited.
 
 ## Authority And Evidence
 

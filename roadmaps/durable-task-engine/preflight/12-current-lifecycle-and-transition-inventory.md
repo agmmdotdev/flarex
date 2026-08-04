@@ -18,7 +18,8 @@ DTE03-E's exact result/evidence/effect/error contract is complete in
 [`16-operation-outcomes-evidence-effects-and-errors.md`](./16-operation-outcomes-evidence-effects-and-errors.md).
 DTE03-F's canonical vectors and executable contract gate are complete in
 [`17-compatibility-vectors-and-executable-gate.md`](./17-compatibility-vectors-and-executable-gate.md).
-DTE03-G is the next checkpoint.
+DTE03-G admits the combined lifecycle contract in
+[`18-final-lifecycle-admission.md`](./18-final-lifecycle-admission.md).
 
 This receipt inventories current source behavior and fixes the questions the
 remaining Roadmap 03 checkpoints must answer. It does not define the final
@@ -486,19 +487,19 @@ DTE03-A closes these direction questions:
 - explicit expected differences; and
 - executable compatibility gates.
 
-### DTE03-G — Next
+### DTE03-G — Complete: Admit
 
-- final lifecycle admission and DTE-IP01 implementation gate.
+- final lifecycle admission and DTE-IP01 implementation gate are complete in
+  [`18-final-lifecycle-admission.md`](./18-final-lifecycle-admission.md).
 
 ## Handoff
 
-Proceed to DTE03-G using the admitted source inventory, five-phase aggregate,
+Proceed to DTE-IP01 using the admitted source inventory, five-phase aggregate,
 failure/retry policy, transition/race tables, exact DTE03-E service contract,
-and DTE03-F's 65 canonical vectors plus 37 exact named divergences. Audit them
-as one lifecycle contract without adding scheduling, persistence, host,
-waitpoint, or product state.
-
-Do not create `packages/durable-task/` until DTE03-G admits the complete model.
+and DTE03-F's 65 canonical vectors plus 37 exact named divergences as one
+lifecycle contract. Package creation is authorized only within that
+production-inert checkpoint; scheduling, persistence, host, waitpoint, and
+product state remain excluded.
 
 ## Authority And Evidence
 

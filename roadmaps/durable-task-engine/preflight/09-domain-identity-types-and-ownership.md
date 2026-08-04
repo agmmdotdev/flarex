@@ -546,7 +546,7 @@ DTE02-E is complete with these conclusions:
     fence authorities remain distinct; and
 11. DTE-IP01 can define the approved run-attempt identity schemas with its
     admitted `effect` dependency only; DTE02-F and DTE02-G are now complete,
-    and Roadmap 03 is next.
+    and Roadmap 03 now admits the complete lifecycle model.
 
 ## Authority And Evidence
 

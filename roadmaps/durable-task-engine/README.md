@@ -2,22 +2,24 @@
 
 ## Status And Scope
 
-**Status:** Vision authority. DTE01 source reuse/package admission and DTE02
-task identity/scope admission are complete. Roadmap 03 is active: DTE03-A's
+**Status:** Vision authority. DTE01 source reuse/package admission, DTE02 task
+identity/scope admission, and Roadmap 03 lifecycle admission are complete.
+DTE03-A's
 Trigger-to-Flarex lifecycle inventory, DTE03-B's exact five-phase aggregate,
 DTE03-C's failure/retry/attempt policy, and DTE03-D's cancellation, heartbeat,
 lease, completion, and race tables, and DTE03-E's closed outcome, inspection,
 acceptance, evidence, effect, and error contract are complete. DTE03-F's 65
 canonical lifecycle vectors, 37 exact named divergences, and executable
-contract gate are also complete. DTE03-G final lifecycle admission is next.
-DTE-IP01 package creation remains blocked on that decision. No package
-implementation, schema, host integration, or production activation exists yet.
+contract gate are also complete. DTE03-G has chosen **admit**. DTE-IP01 is now
+the exact next implementation checkpoint. No package implementation, schema,
+host integration, or production activation exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
 this README records the shared vision, non-negotiable boundaries, target system
-shape, and proposed roadmap decomposition. It does not authorize package
-creation, schema or migration changes, workspace merging, public APIs,
+shape, and proposed roadmap decomposition. Its current implementation authority
+is limited to the admitted DTE-IP01 private package checkpoint; it does not
+authorize schema or migration changes, workspace merging, public APIs,
 scheduling, deployment, or production activation.
 
 The accepted architecture direction remains recorded in
@@ -264,11 +266,10 @@ cross-provider placement, and public SDK integration remain later gates.
 
 ## Roadmap Decomposition
 
-The first two focused roadmaps are complete. Roadmap 03 is active because its
-final admission audit remains. Its source inventory, exact aggregate,
-failure/retry policy, cancellation/heartbeat/lease/race tables, closed service
-contract, canonical compatibility vectors, named divergences, and executable
-contract gate are complete.
+The first three focused roadmaps are complete. Roadmap 03's source inventory,
+exact aggregate, failure/retry policy, cancellation/heartbeat/lease/race
+tables, closed service contract, canonical compatibility vectors, named
+divergences, and executable contract gate are admitted as one lifecycle model.
 The later files remain candidates for their owning discussions:
 
 1. [`01-source-reuse-and-package-admission.md`](./01-source-reuse-and-package-admission.md)
@@ -281,8 +282,8 @@ The later files remain candidates for their owning discussions:
      artifact binding, private domain identities, and DTE-IP01 command/store
      contracts; DTE02-A through DTE02-G are complete;
 3. [`03-run-attempt-engine.md`](./03-run-attempt-engine.md)
-   - **active:** DTE03-A through DTE03-F are complete; DTE03-G final lifecycle
-     admission is next and remains the package-creation gate;
+   - **complete: admit:** DTE03-A through DTE03-G close the lifecycle model and
+     authorize only the production-inert DTE-IP01 package transplant;
 4. `04-task-system-api-and-postgres.md`
    - private operation contracts, Drizzle schema, transactions, idempotency,
      discovery, ordered events, corruption policy, PGlite, and real Postgres;

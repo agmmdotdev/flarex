@@ -18,7 +18,8 @@ phase, retry decision, cancellation winner, lease boundary, or replay rule.
 DTE03-F's canonical compatibility vectors and executable contract gate are now
 complete in
 [`17-compatibility-vectors-and-executable-gate.md`](./17-compatibility-vectors-and-executable-gate.md),
-and DTE03-G remains the final admission audit.
+and DTE03-G admits the complete lifecycle contract in
+[`18-final-lifecycle-admission.md`](./18-final-lifecycle-admission.md).
 
 No package, database schema, migration, adapter, queue, scheduler, compute host,
 route, observability API/UI, public SDK, or production activation is authorized.
@@ -1376,7 +1377,7 @@ At minimum:
 12. Command, decision, and store errors remain typed and preserve owner/order.
 13. Inspection and lifecycle events are not a tenant-facing observability API.
 
-## DTE03-F Closure And Handoff To DTE03-G
+## DTE03-F And DTE03-G Closure
 
 DTE03-F turns DTE03-A through DTE03-E into canonical scenario fixtures:
 
@@ -1392,12 +1393,11 @@ DTE03-F resolves the earlier ordering contradiction explicitly: creating a
 temporary pure-decision/Schema implementation before DTE03-G would violate the
 same package gate. The pre-admission executable gate therefore validates the
 canonical fixtures, source classifications, named divergences, coverage,
-effect plans, and policy correlations. If DTE03-G admits the package, the first
-DTE-IP01 gate must bind the actual package Schema and pure decisions to these
-same vectors before any persistence or host integration.
-
-Do not create `packages/durable-task/` until DTE03-G admits the complete
-lifecycle contract.
+effect plans, and policy correlations. DTE03-G admits the package model in
+[`18-final-lifecycle-admission.md`](./18-final-lifecycle-admission.md), so the
+first DTE-IP01 gate must bind the actual package Schema and pure decisions to
+these same vectors before any persistence or host integration. Package
+creation is allowed only inside that checkpoint.
 
 ## Reopening Audit
 
