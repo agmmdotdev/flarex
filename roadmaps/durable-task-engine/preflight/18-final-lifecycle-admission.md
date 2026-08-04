@@ -423,11 +423,13 @@ candidate Schema/decision lane inside DTE-IP01.
 
 ## Final Handoff
 
-Roadmap 03 is **complete: admit**. The next implementation action is exactly
-**DTE-IP01: Run-Attempt Domain Package Transplant**. The next roadmap after a
-successful DTE-IP01 package checkpoint is Roadmap 04, which must separately
-preflight the private Task System API, Drizzle schema, transaction protocol,
-and concrete Postgres/PGlite adapters.
+Roadmap 03 is **complete: admit**, and DTE-IP01 subsequently completed in the
+private production-inert `@flarex/durable-task` package. Roadmap 04 is now open
+only as a docs-first preflight. Its private Task System API, Drizzle schema,
+transaction protocol, and concrete Postgres/PGlite adapter remain
+implementation-closed until
+[`../04-task-system-api-and-postgres.md`](../04-task-system-api-and-postgres.md)
+and Preflights 19 through 22 close their blocking decisions.
 
 ## Authority And Evidence
 

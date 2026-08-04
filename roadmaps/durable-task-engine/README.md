@@ -13,16 +13,19 @@ canonical lifecycle vectors, 37 exact named divergences, and executable
 contract gate are also complete. DTE03-G chose **admit**, and DTE-IP01 now
 implements the private production-inert `@flarex/durable-task` package with its
 closed schemas, pure decisions, service/Layer boundary, provenance map, and
-deterministic compatibility suite. No persistence schema or adapter, host
-integration, public API, scheduling, or production activation exists yet.
+deterministic compatibility suite. Roadmap 04 is now in docs-first preflight
+for the private Task System API and Postgres adapter. No persistence schema or
+adapter, host integration, public API, scheduling, or production activation
+exists yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
 this README records the shared vision, non-negotiable boundaries, target system
 shape, and proposed roadmap decomposition. Its current implementation authority
-has completed the admitted DTE-IP01 private package checkpoint; it does not
-authorize persistence schema or migration changes, public APIs,
-scheduling, deployment, or production activation.
+has completed the admitted DTE-IP01 private package checkpoint and opened only
+Roadmap 04's planning preflight; it does not yet authorize persistence schema
+or migration changes, public APIs, scheduling, deployment, or production
+activation.
 That checkpoint includes fail-closed legal-state decoding, owned frozen
 aggregate snapshots, and an executable compatibility harness whose inputs do
 not derive from its expected receipts.
@@ -294,7 +297,8 @@ The first three focused roadmaps are complete. Roadmap 03's source inventory,
 exact aggregate, failure/retry policy, cancellation/heartbeat/lease/race
 tables, closed service contract, canonical compatibility vectors, named
 divergences, and executable contract gate are admitted as one lifecycle model.
-The later files remain candidates for their owning discussions:
+Roadmap 04 is now the active docs-first preflight. Later files remain candidates
+for their owning discussions:
 
 1. [`01-source-reuse-and-package-admission.md`](./01-source-reuse-and-package-admission.md)
    - **complete: admit** the medium run-attempt lifecycle source closure into a
@@ -308,9 +312,11 @@ The later files remain candidates for their owning discussions:
 3. [`03-run-attempt-engine.md`](./03-run-attempt-engine.md)
    - **complete: admit:** DTE03-A through DTE03-G close the lifecycle model and
      authorize only the production-inert DTE-IP01 package transplant;
-4. `04-task-system-api-and-postgres.md`
-   - private operation contracts, Drizzle schema, transactions, idempotency,
-     discovery, ordered events, corruption policy, PGlite, and real Postgres;
+4. [`04-task-system-api-and-postgres.md`](./04-task-system-api-and-postgres.md)
+   - **active docs-first preflight:** private creation/discovery contracts,
+     Drizzle schema authority, transactions, idempotency, requested-effect
+     ordering, corruption policy, PGlite, and real Postgres; no implementation
+     is authorized until Preflights 19 through 22 close;
 5. `05-cloudflare-wake-and-scheduling.md`
    - Queues, alarms, cron, missed-wakeup recovery, duplicate delivery, bounded
      schedulers, and fail-closed activation;
