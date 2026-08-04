@@ -192,6 +192,11 @@ effect was dispatched. A separately admitted external-effect evidence owner may
 be reused by both execution adapters, but it must not gain task scheduling,
 lease, retry, cancellation, or terminal-transition authority.
 
+The exact shared-subject and no-duplication receipt is
+[`../47-aav-a1-direct-action-and-shared-effect-authority.md`](../47-aav-a1-direct-action-and-shared-effect-authority.md).
+Its first implementation admits only the direct-action parent; task host
+integration remains separately gated.
+
 ### 8. Observability Has Separate State, Trace, And Stream Lanes
 
 The web application will consume safe, scope-authorized read models rather than

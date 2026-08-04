@@ -797,15 +797,15 @@ AAV-A1
 `AAV-A1` is a separately approved private protocol, storage, migration, and
 short-transaction decision. It must not duplicate the durable-task engine's
 run/attempt, lease, retry, cancellation, terminal, or sequenced orchestration-
-effect state. Its proposed private identities are
+effect state. Its admitted private identities are
 `flarex.system/application-action-invocation-request/v1`,
-`flarex.system/application-action-invocation-outcome/v1`, and
-`flarex.system/application-action-effect-attempt/v1`. The final preflight must
-decide whether the last identity becomes the narrow shared execution-evidence
-contract or is replaced by an explicitly shared identity; it must not create
-parallel action-only and task-only external-effect journals. It must persist an
-exact direct-action request before execution, an external or child-mutation
-effect attempt before dispatch, completed
+`flarex.system/application-action-invocation-outcome/v1`,
+`flarex.system/external-effect-execution-subject/v1`, and
+`flarex.system/external-effect-attempt/v1`. The earlier action-only effect
+identity is rejected before implementation; it receives no compatibility
+decoder or parallel journal. AAV-A1 must persist an exact direct-action request
+before execution, an external or child-mutation effect attempt before dispatch,
+completed
 validated results, contradictory request-key conflicts, and durable uncertain
 state when an effect may have succeeded. Confirmed pre-dispatch failures may
 retry exact captured bytes; possible post-dispatch success must not cause
@@ -852,11 +852,13 @@ ordinary error channel.
 
 This proposal does not authorize the `AAV-A1` schema, `AAV-A2` identities,
 `SAP07`, FSV07, routing, a public SDK, Node actions, schedules, or durable-task
-host integration. It does require the AAV-A1 schema preflight to prove
-compatibility with the admitted durable-task domain and absence of duplicate
+host integration. The completed AAV-A1 preflight proves compatibility with the
+admitted durable-task domain and pins the absence of duplicate
 run/attempt/effect authority. See
 [`../roadmaps/46-private-standard-edge-action-vertical.md`](../roadmaps/46-private-standard-edge-action-vertical.md)
-for the implementation gates and acceptance matrix.
+for the ordered implementation gates and
+[`../roadmaps/47-aav-a1-direct-action-and-shared-effect-authority.md`](../roadmaps/47-aav-a1-direct-action-and-shared-effect-authority.md)
+for the exact AAV-A1 implementation receipt.
 
 ### Transaction Meaning
 

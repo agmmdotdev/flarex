@@ -425,6 +425,11 @@ compute port while retaining a distinct `durable_task` target and lifecycle. No
 current query or mutation identity is widened, and no in-memory or legacy
 runtime fallback counts as proof.
 
+The implementation-bearing ownership and storage receipt is
+[`../roadmaps/47-aav-a1-direct-action-and-shared-effect-authority.md`](../roadmaps/47-aav-a1-direct-action-and-shared-effect-authority.md).
+It admits one direct-action invocation row and one shared external-effect row,
+keeps canonical bodies in R2, and rejects a parallel action-only effect journal.
+
 ### Verified Convex Node-Action Reference Model
 
 Convex provides the semantic and implementation reference for this boundary.
