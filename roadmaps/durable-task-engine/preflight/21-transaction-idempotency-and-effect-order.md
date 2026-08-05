@@ -2,12 +2,14 @@
 
 ## Status
 
-**Status:** Lifecycle transaction authority and DTE04-B/C are complete. The
+**Status:** Lifecycle transaction authority and DTE04-B/C/D are complete. The
 focused PGlite and real-Postgres lock/time proofs pass. The canonical lane now
 executes 62 transition-derived histories plus one explicit near-overflow setup
 through the adapter and two invalid commands at the decoder boundary. The
-separate DTE04-C creation transaction and PGlite matrix now pass. This file
-does not authorize discovery, delivery, host composition, or activation.
+separate DTE04-C creation transaction and PGlite matrix now pass. DTE04-D's
+read-only discovery and requested-effect-ledger transactions also pass their
+PGlite matrix. This file does not authorize claims, delivery, host
+composition, or activation.
 
 ## Objective
 
@@ -174,11 +176,39 @@ The discovery contract is a non-mutating bounded query with:
 - receipts containing only the identifiers/version basis needed to request a
   later lifecycle operation.
 
+DTE04-D closes the cursor shape as a versioned due-kind-bound value containing
+the first page's database-issued `throughMs` and the last returned
+`(dueAtMs, runId)`. The cursor is exclusive and page size is limited to
+`1..100`. The first page reads database time once; continuation pages retain
+that ceiling rather than widening the scan. Corrupt observed candidates fail
+the whole read instead of being skipped.
+
+DTE04-D validates cursor structure but does not authenticate cursor
+provenance. The only admitted private caller behavior is to feed back a cursor
+issued by the same scope-bound capability. Raw cursor fields must not cross a
+user/API trust boundary; a transportable integrity envelope and
+restart/multi-host handoff are deferred to the roadmap that composes and
+exposes discovery. Re-reading wall time on continuation is not a substitute:
+Postgres wall time is not monotonic and could reject a valid issued scan after
+clock regression. A caller-minted ceiling can at most over-select a bounded
+hint; lifecycle database-time and version/fence validation remains the only
+transition authority.
+
 Discovery does not grant or expire an attempt and does not use `FOR UPDATE`,
 `SKIP LOCKED`, or a scheduler-claim write. Locking while reading would provide
 no authority after commit. Duplicate and stale receipts are expected; the
 later lifecycle transaction decides the winner. Roadmap 05 may add scheduler
 ownership separately if performance or fairness evidence requires it.
+
+Requested-effect reads are a separate scope-bound capability. The first page
+captures the decoded run aggregate's current requested-effect cursor as
+`throughSequence`; continuation carries that immutable snapshot plus an
+exclusive `afterSequence`. Page size is `1..100`, rows are ordered by sequence,
+and every observed row must canonically decode and correlate with its run,
+sequence, accepted run version, kind, schedule projection, and payload byte
+length. A missing or noncontiguous sequence before the snapshot is corruption.
+The operation never marks, claims, retries, acknowledges, or delivers an
+effect.
 
 ## Isolation And Locking Decision
 

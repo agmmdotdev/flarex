@@ -2,7 +2,7 @@
 
 ## Status
 
-**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-C are complete. The
+**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-D are complete. The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
@@ -21,9 +21,11 @@ and stale attempt/fence outcomes, now execute through the adapter. DTE04-C's
 separate scope-bound creation capability constructs and persists the sole legal
 initial state, binds trusted Standard definition/authority evidence at factory
 construction, and proves exact/concurrent replay, typed conflict, collision
-retry, corruption rejection, and lifecycle interoperation in PGlite.
-Discovery, effect delivery, host, queue, and activation changes remain
-unauthorized.
+retry, corruption rejection, and lifecycle interoperation in PGlite. DTE04-D
+adds separate scope-bound, read-only due-discovery and requested-effect-ledger
+capabilities with stable snapshot ceilings, exact keyset/sequence cursors,
+corruption checks, and no claim or delivery authority. Real-Postgres parity,
+effect delivery, host, queue, and activation changes remain unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
 run-attempt domain. Its purpose is to connect the existing scope-bound
@@ -37,7 +39,8 @@ stopped after the domain-owned JSON envelope and pure lifecycle projection.
 DTE04-A2a and DTE04-A2b close those upstream contracts without inventing them
 in persistence. DTE04-A3 landed the admitted five-table physical model,
 DTE04-B added the private lifecycle adapter, and DTE04-C added the separate
-private creation capability. No backend or production runtime path is enabled.
+private creation capability. DTE04-D added the two private read capabilities.
+No backend or production runtime path is enabled.
 
 ## Outcome
 
@@ -90,8 +93,9 @@ A concrete, production-inert store adapter now exists in
 `LocatedTrustedScopeAuthority`, captures the authority and target, and returns
 one scope-bound `TaskSystemRunAttemptStore` value. PGlite and Postgres expose
 only their corresponding located-target constructors and store factory; no
-caller-selectable scope enters a lifecycle request. There is still no
-run-creation API, due-discovery query, requested-effect delivery operation, or
+caller-selectable scope enters a lifecycle request. The private run-creation,
+due-discovery, and requested-effect-ledger capabilities are now implemented but
+remain unwired. There is still no requested-effect delivery operation or
 production composition.
 
 `@flarex/persistence-postgres` already owns the repository's Drizzle schema,
@@ -176,6 +180,24 @@ Discovery is a hint producer, not transition authority. It returns bounded,
 scope-local candidates ordered by a stable cursor. Starting or expiring an
 attempt still requires the lifecycle transaction to reload current state and
 win under its version, fence, lease, and database-time rules.
+
+DTE04-D fixes the private read contracts before implementation. Both page
+sizes are positive integers capped at `100`. The first due-discovery page
+captures one database-time `throughMs`; continuation retains that ceiling and
+uses an exclusive `(dueAtMs, runId)` cursor under one due kind. A discovery
+candidate contains only the exact later-command basis: expected run version
+for `start_attempt`, or attempt/fence/lease identity for
+`handle_lease_expiry`. Requested-effect paging captures the run's current
+effect cursor as `throughSequence`, advances from an exclusive
+`afterSequence`, and requires every returned sequence through that snapshot to
+be contiguous. Neither cursor is authorization, a claim, or delivery evidence.
+The production-inert DTE04-D capability validates cursor structure but does
+not authenticate cursor provenance. Its private caller must continue with the
+cursor returned by the same capability; no route may accept caller-minted
+cursor fields. A future transportable cursor envelope, integrity mechanism,
+or restart handoff belongs to the host/API roadmap that exposes it. Even a
+misconstructed internal cursor can produce only bounded hints: the lifecycle
+transaction still reloads database time and state before accepting work.
 
 ## Storage Direction Under Preflight
 
@@ -296,8 +318,16 @@ admitted:
   connected PGlite concurrency/error/lifecycle matrix. It emits no initial
   requested effect and adds no package export, host, route, queue, or
   activation path;
-- **DTE04-D — discovery and effect ledger:** bounded stable discovery plus
-  atomic requested-effect persistence/read contracts, without delivery;
+- **DTE04-D — discovery and effect ledger — complete:** two scope-bound
+  read-only capabilities; input decoders with a `1..100` cap; database-time
+  discovery ceilings that cannot be widened by continuation; exclusive
+  `(dueAtMs, runId)` keyset paging; exact later lifecycle-command bases;
+  run-locked requested-effect snapshot ceilings; contiguous canonical effect
+  paging; typed unavailable, corruption, stale-authority, transient, and
+  terminal failures; compiled-query observations; and connected PGlite
+  boundedness, tie-order, no-write, snapshot, corruption, non-disclosure, and
+  stale-authority proofs. No claim, delivery, host route, queue, or activation
+  path was added;
 - **DTE04-E — real Postgres parity:** race, locking, rollback, uncertain
   response, migration, and query-plan proof; and
 - **DTE04-F — final admission:** source map/notice refresh, boundary and bundle

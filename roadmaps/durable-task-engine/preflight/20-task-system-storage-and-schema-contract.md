@@ -2,12 +2,12 @@
 
 ## Status
 
-**Status:** **Complete: admit DTE04-A3; DTE04-B/C implemented.** Lifecycle
+**Status:** **Complete: admit DTE04-A3; DTE04-B/C/D implemented.** Lifecycle
 representation, run-creation, and Standard Application task-authority
 contracts are complete. The admitted five-table Drizzle schema now backs the
-scope-bound lifecycle and creation capabilities. This file still does not
-admit registration, discovery operations, effect delivery, host composition,
-or routing.
+scope-bound lifecycle, creation, discovery, and requested-effect-ledger
+capabilities. This file still does not admit registration, effect delivery,
+host composition, or routing.
 
 ## Objective
 

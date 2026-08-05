@@ -11,7 +11,8 @@
   ],
   "exports": {
     "./internal/run-creation-v1": "./src/runCreation/v1.ts",
-    "./internal/run-attempt-v1": "./src/runAttempt/v1.ts"
+    "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
+    "./internal/run-read-v1": "./src/runRead/v1.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

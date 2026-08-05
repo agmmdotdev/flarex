@@ -22,6 +22,10 @@ const persistencePostgresTaskRunCreationPath =
   "packages/persistence-postgres/src/taskSystemRunCreationV1.ts";
 const persistencePostgresTaskSystemRunRowPath =
   "packages/persistence-postgres/src/taskSystemRunRowV1.ts";
+const persistencePostgresTaskSystemRequestedEffectRowPath =
+  "packages/persistence-postgres/src/taskSystemRequestedEffectRowV1.ts";
+const persistencePostgresTaskSystemRunReadPath =
+  "packages/persistence-postgres/src/taskSystemRunReadV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -131,9 +135,34 @@ const admittedPersistenceTaskSystemRunRowSymbols = new Set([
   "encodePersistedTaskRunAttemptAggregateJsonV1",
   "projectTaskRunAttemptPersistenceV1",
 ]);
+const admittedPersistenceTaskSystemRequestedEffectRowSymbols = new Set([
+  "PersistedTaskRequestedEffectV1",
+  "decodePersistedTaskRequestedEffectJsonV1",
+  "encodePersistedTaskRequestedEffectJsonV1",
+]);
+const admittedPersistenceTaskSystemRunReadSymbolsBySpecifier = new Map([
+  ["@flarex/durable-task/internal/run-read-v1", new Set([
+    "InvalidTaskSystemRunReadRequestError",
+    "TaskDueDiscoveryCandidateV1",
+    "TaskDueDiscoveryPageV1",
+    "TaskDueDiscoveryRequestV1",
+    "TaskRequestedEffectPageRequestV1",
+    "TaskRequestedEffectPageV1",
+    "decodeTaskDueDiscoveryRequestV1",
+    "decodeTaskRequestedEffectPageRequestV1",
+  ])],
+  ["@flarex/durable-task/internal/run-attempt-v1", new Set([
+    "TaskRequestedEffectPersistenceCursorV1",
+    "TaskRunAttemptAggregateV1",
+    "TaskRunIdV1",
+    "decodeTaskDatabaseTimeMsV1",
+    "decodeTaskRequestedEffectSequenceV1",
+  ])],
+]);
 const durableTaskAllowedExports = Object.freeze({
   "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
   "./internal/run-creation-v1": "./src/runCreation/v1.ts",
+  "./internal/run-read-v1": "./src/runRead/v1.ts",
 });
 const expectedTargetPackage = "@flarex/durable-task";
 const forbiddenDurableTaskPackages = new Set([
@@ -373,7 +402,7 @@ export function analyzeDurableTaskManifest(manifest) {
     || !hasExactStringRecord(exportsField, durableTaskAllowedExports)
   ) {
     errors.push(
-      `${durableTaskManifestPath}: exports must contain only the admitted run-attempt and run-creation internal subpaths.`,
+      `${durableTaskManifestPath}: exports must contain only the admitted run-attempt, run-creation, and run-read internal subpaths.`,
     );
   }
 
@@ -760,6 +789,11 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     : relativePath === persistencePostgresTaskSystemRunRowPath
       && specifier === "@flarex/durable-task/internal/run-attempt-v1"
     ? admittedPersistenceTaskSystemRunRowSymbols
+    : relativePath === persistencePostgresTaskSystemRequestedEffectRowPath
+      && specifier === "@flarex/durable-task/internal/run-attempt-v1"
+    ? admittedPersistenceTaskSystemRequestedEffectRowSymbols
+    : relativePath === persistencePostgresTaskSystemRunReadPath
+    ? admittedPersistenceTaskSystemRunReadSymbolsBySpecifier.get(specifier)
     : undefined;
   if (
     admittedSymbols === undefined

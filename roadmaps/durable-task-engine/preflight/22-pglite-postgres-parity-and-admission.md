@@ -2,9 +2,10 @@
 
 ## Status
 
-**Status:** Draft validation gate. This file defines the proof required before
-Roadmap 04 implementation can be admitted; passing a PGlite happy path alone is
-explicitly insufficient.
+**Status:** Active validation gate. DTE04-D's PGlite read matrix is complete;
+DTE04-E still owns real-Postgres read parity, races, and query-plan evidence.
+Passing the PGlite lane alone remains explicitly insufficient for final
+Roadmap 04 admission.
 
 ## Objective
 
@@ -258,10 +259,22 @@ mutation. This remains the DTE04-B admission receipt.
 
 ### DTE04-D
 
-- discovery boundedness/query-plan tests;
-- requested-effect atomicity/order tests;
+- discovery `1..100` boundedness, database-ceiling/keyset stability, exact
+  compiled-query, tie-order, stale-candidate, and corruption tests;
+- requested-effect snapshot paging, canonical row correlation, contiguity,
+  atomicity/order, and no-delivery tests;
 - cross-scope and stale-authority hostile cases; and
 - both required reviewers after final fixes.
+
+Receipt (2026-08-05): domain-owned request/cursor decoders enforce exact
+shapes and page sizes `1..100` before a transaction opens. The scope-bound
+PGlite adapter proves database-issued due ceilings, exclusive
+`(dueAtMs, runId)` tie-order paging, compiled-query observation, zero lifecycle
+mutation, requested-effect snapshot stability across a later heartbeat,
+contiguous canonical sequence reads, missing-run non-disclosure, corrupt-row
+rejection, and stale-scope failure. The implementation adds no claim,
+delivery, route, queue, or activation path. Real-Postgres plan/race parity
+remains assigned to DTE04-E.
 
 ### DTE04-E/F
 

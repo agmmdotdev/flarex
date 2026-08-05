@@ -115,6 +115,7 @@ describe("Trigger compatibility boundary checker", () => {
       exports: {
         "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
         "./internal/run-creation-v1": "./src/runCreation/v1.ts",
+        "./internal/run-read-v1": "./src/runRead/v1.ts",
       },
       scripts: {
         build: "tsc -p tsconfig.json",
@@ -145,7 +146,7 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/durable-task/package.json: version must be 0.0.1 during the private vertical.",
       "packages/durable-task/package.json: private must remain true during the private vertical.",
       "packages/durable-task/package.json: type must be module.",
-      "packages/durable-task/package.json: exports must contain only the admitted run-attempt and run-creation internal subpaths.",
+      "packages/durable-task/package.json: exports must contain only the admitted run-attempt, run-creation, and run-read internal subpaths.",
       "packages/durable-task/package.json: runtime dependencies must contain only workspace @flarex/utils, root-catalog effect, and workspace flarex-protocol.",
       "packages/durable-task/package.json: scripts must exactly match the admitted build, typecheck, and test commands.",
       "packages/durable-task/package.json: devDependencies must contain only root-catalog typescript and vitest.",
@@ -376,6 +377,31 @@ describe("Trigger compatibility boundary checker", () => {
     }]).errors).toEqual([]);
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemRequestedEffectRowV1.ts",
+      text: `
+        import {
+          decodePersistedTaskRequestedEffectJsonV1,
+          encodePersistedTaskRequestedEffectJsonV1,
+          type PersistedTaskRequestedEffectV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemRunReadV1.ts",
+      text: `
+        import {
+          decodeTaskDueDiscoveryRequestV1,
+          type TaskDueDiscoveryPageV1,
+        } from "@flarex/durable-task/internal/run-read-v1";
+        import {
+          decodeTaskDatabaseTimeMsV1,
+          type TaskRunAttemptAggregateV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: schemaPath,
       text: `
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -398,12 +424,21 @@ describe("Trigger compatibility boundary checker", () => {
       text: `
         import { decodeTaskRunCreationRequestV1 } from "@flarex/durable-task/internal/run-creation-v1";
       `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemRunReadV1.ts",
+      text: `
+        import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
+        import { MAX_TASK_SYSTEM_READ_PAGE_SIZE_V1 } from "@flarex/durable-task/internal/run-read-v1";
+      `,
     }]).errors).toEqual([
       `${schemaPath}:2 production source must not activate @flarex/durable-task before host admission.`,
       `${schemaPath}:3 production source must not activate @flarex/durable-task before host admission.`,
       "packages/persistence-postgres/src/postgres.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskSystemRunCreationV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskSystemRunRowV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/taskSystemRunReadV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/taskSystemRunReadV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
     ]);
   });
 

@@ -14,7 +14,7 @@ contract gate are also complete. DTE03-G chose **admit**, and DTE-IP01 now
 implements the private production-inert `@flarex/durable-task` package with its
 closed schemas, pure decisions, service/Layer boundary, provenance map, and
 deterministic compatibility suite. Roadmap 04 has completed DTE04-A1 through
-DTE04-C: the five-table
+DTE04-D: the five-table
 schema/migration and a scope-bound Drizzle lifecycle adapter now exist, with
 connected PGlite proofs, a complete canonical compatibility lane, and focused
 real-Postgres lock/time/concurrency proof. Of 65 canonical vectors, all remain
@@ -25,9 +25,11 @@ scope-bound, production-inert run-creation capability with immutable Standard
 task binding/authority checks, the sole legal initial aggregate, atomic
 idempotent replay/conflict handling, captured lazy-operation configuration,
 canonical stored-authority correlation, terminal identity exhaustion, and
-connected PGlite concurrency and lifecycle-interoperation proof.
-Discovery/delivery, host integration, public
-API, scheduling, and production activation do not exist yet.
+connected PGlite concurrency and lifecycle-interoperation proof. DTE04-D now
+adds production-inert due-discovery and requested-effect-ledger reads with
+stable bounded snapshots and connected PGlite proof. Delivery, host
+integration, public API, scheduling, and production activation do not exist
+yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -326,7 +328,7 @@ for their owning discussions:
    - **complete: admit:** DTE03-A through DTE03-G close the lifecycle model and
      authorize only the production-inert DTE-IP01 package transplant;
 4. [`04-task-system-api-and-postgres.md`](./04-task-system-api-and-postgres.md)
-   - **active; DTE04-A1 through DTE04-C complete, DTE04-D next and closed:**
+   - **active; DTE04-A1 through DTE04-D complete, DTE04-E next:**
      domain-owned persisted
      aggregate/effect envelopes and the five-phase persistence projection are
      implemented and validated; the immutable input-reference, exact creation
@@ -343,8 +345,11 @@ for their owning discussions:
      decoder boundary. DTE04-C adds the separate scope-bound creation
      capability, trusted binding/authority capture, exact initial aggregate,
      atomic creation identity, stable replay, typed conflict, run-ID collision
-     retry, and connected PGlite concurrency/lifecycle proof. Discovery,
-     delivery, host integration, and runtime activation remain closed;
+     retry, and connected PGlite concurrency/lifecycle proof. DTE04-D adds
+     separate scope-bound due-discovery and requested-effect-ledger reads with
+     stable bounded snapshots, canonical row correlation, and PGlite
+     no-write/corruption/authority proofs. Real-Postgres read parity, delivery,
+     host integration, and runtime activation remain closed;
 5. `05-cloudflare-wake-and-scheduling.md`
    - Queues, alarms, cron, missed-wakeup recovery, duplicate delivery, bounded
      schedulers, and fail-closed activation;

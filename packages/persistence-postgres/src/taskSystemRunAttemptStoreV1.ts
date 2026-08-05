@@ -8,7 +8,6 @@ import {
   TaskSystemRunAttemptTerminalStoreError,
   TaskSystemRunAttemptTransientStoreError,
   TaskSystemRunAttemptUnavailableError,
-  decodePersistedTaskRequestedEffectJsonV1,
   decodePersistedTaskRunAttemptAggregateJsonV1,
   decodeTaskAttemptIdV1,
   decodeTaskAttemptNumberV1,
@@ -61,6 +60,10 @@ import {
   requireLockedTaskSystemScopeAuthorityV1,
 } from "./taskSystemScopeAuthorityV1";
 import { decodeAndCorrelateTaskSystemRunRowV1 } from "./taskSystemRunRowV1";
+import {
+  decodeAndCorrelateTaskSystemRequestedEffectRowV1,
+  taskSystemRequestedEffectNotBeforeMsV1,
+} from "./taskSystemRequestedEffectRowV1";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "./transactionSessionActivation";
@@ -485,19 +488,10 @@ function requestedEffectRowMatches(
   row: TaskRequestedEffectRow,
   expected: PersistedTaskRequestedEffectV1,
 ): boolean {
-  return Result.gen(function* () {
-    const decoded = yield* decodePersistedTaskRequestedEffectJsonV1(
-      row.payloadJson,
-    );
-    const canonical = yield* encodePersistedTaskRequestedEffectJsonV1(decoded);
-    return row.payloadCodecVersion === 1
-      && row.sequence === expected.sequence
-      && row.acceptedRunVersion === expected.effect.acceptedRunVersion
-      && row.kind === expected.effect.kind
-      && row.notBeforeMs === effectNotBeforeMs(expected)
-      && row.payloadByteLength === encodedJsonByteLength(canonical)
-      && persistedValueEqual(decoded, expected);
-  }).pipe(Result.getOrElse(() => false));
+  return decodeAndCorrelateTaskSystemRequestedEffectRowV1(row).pipe(
+    Result.map(decoded => persistedValueEqual(decoded, expected)),
+    Result.getOrElse(() => false),
+  );
 }
 
 async function correlateAttemptIdentities(
@@ -575,7 +569,7 @@ async function correlateAttemptIdentities(
       throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
     }
     const decoded = Result.getOrThrowWith(
-      decodePersistedTaskRequestedEffectJsonV1(dispatchRow.payloadJson),
+      decodeAndCorrelateTaskSystemRequestedEffectRowV1(dispatchRow),
       () => rollbackStoreError(
         corruption(operation, runId, "acceptance_invalid"),
       ),
@@ -847,7 +841,7 @@ async function applyDecision<Outcome>(
         payloadCodecVersion: 1,
         payloadByteLength,
         payloadJson,
-        notBeforeMs: effectNotBeforeMs(persisted),
+        notBeforeMs: taskSystemRequestedEffectNotBeforeMsV1(persisted),
       })),
     );
   }
@@ -1010,17 +1004,6 @@ function invalidDecision<Outcome>(
     phase: current.phase,
     reason,
   });
-}
-
-function effectNotBeforeMs(effect: PersistedTaskRequestedEffectV1): bigint | null {
-  switch (effect.effect.kind) {
-    case "continue_retry":
-    case "wake_retry":
-    case "wake_lease_expiry":
-      return BigInt(effect.effect.notBeforeMs);
-    default:
-      return null;
-  }
 }
 
 function encodedJsonByteLength(value: unknown): bigint {
