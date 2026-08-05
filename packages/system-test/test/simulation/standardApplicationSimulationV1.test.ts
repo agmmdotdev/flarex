@@ -7,6 +7,8 @@ import {
 } from "@flarex/system-test/simulation/v1";
 import { makeCreateAndReadDefinitionV1 } from
   "./support/createAndReadDefinitionV1";
+import { makeCreateAndReadFunctionSourcesV1 } from
+  "./support/createAndReadFunctionSourcesV1";
 
 it("defines an owned immutable Standard Application simulation config", () => {
   const input: StandardApplicationSimulationV1<void, true, never> = {
@@ -21,6 +23,7 @@ it("defines an owned immutable Standard Application simulation config", () => {
         queryModulePath: "records",
         mutationArtifactPath: "recordMutation",
         queryArtifactPath: "recordQuery",
+        ...makeCreateAndReadFunctionSourcesV1("records"),
         fields: {
           value: {
             fieldType: { type: "string" },
@@ -73,6 +76,7 @@ it("rejects invalid runtime-execution expectations at definition time", () => {
         queryModulePath: "records",
         mutationArtifactPath: "recordMutation",
         queryArtifactPath: "recordQuery",
+        ...makeCreateAndReadFunctionSourcesV1("records"),
         fields: {
           value: {
             fieldType: { type: "string" },
@@ -109,6 +113,7 @@ it("captures each runtime-execution expectation exactly once", () => {
         queryModulePath: "records",
         mutationArtifactPath: "recordMutation",
         queryArtifactPath: "recordQuery",
+        ...makeCreateAndReadFunctionSourcesV1("records"),
         fields: {
           value: {
             fieldType: { type: "string" },

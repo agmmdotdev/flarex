@@ -103,7 +103,13 @@ and commit sequences `1..4` aligned across committed outcomes, commit feed,
 and outbox. This remains the existing one-row runtime/OCC/commit path; it adds
 no index scan, multi-row mutation, relation, alternate transaction owner, or
 production route. The PGlite lane passes; genuine-PostgreSQL acceptance
-remains open.
+remains open. Cooking and English-learning own their directly inspectable JavaScript
+function fixtures beneath their simulation folders. The shared definition
+helper accepts caller-owned source bytes, copies them into the graph input, and
+only composes declarations, validators, graph entries, and budgets; it no
+longer hides application function bodies. Node test composition loads those
+fixtures explicitly, so this does not claim developer-file discovery, bundler
+lowering, or public SDK ergonomics.
 
 This slice also exposed an analyzer/registration integration defect before
 runtime dispatch. Adding a second declared export to one logical Standard
@@ -116,6 +122,18 @@ The affected owner is the analyzer/registration progress composition, not the
 simulation or point runtime. Disposition: open. Cooking uses ordinary separate
 user modules for its lifecycle functions and does not weaken an assertion,
 duplicate core logic, add a fallback, or claim the defect fixed.
+
+Moving those accepted source bytes into app-owned files exposed a second
+reproduction on the same boundary. Semantically identical valid
+`databasePatch` and `databaseReplace` modules fail preparation when ordinary
+spaces are added around the platform import, destructured parameters, or
+syscall arguments; compact token spacing succeeds, and the release finalizer
+again masks the originating error as `pendingExists`. JavaScript formatting
+must not alter semantic acceptance. Disposition: open with the same
+analyzer/registration integration owner. The ownership cleanup preserves the
+previously accepted source spelling in app-owned fixture files, including the
+compact single-line patch/replace spelling currently required, and does not
+change that shared parser/verifier owner.
 
 Real-system scenarios are also diagnostic boundaries. If one exposes a defect
 owned by a shared runtime, protocol, persistence, OCC/commit, registration,

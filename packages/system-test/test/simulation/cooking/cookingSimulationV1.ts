@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Effect, Result } from "effect";
 import {
@@ -96,6 +98,28 @@ const COOKING_REPLACE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
 const COOKING_DELETE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:delete",
 );
+const COOKING_FUNCTION_SOURCES = {
+  create: readFileSync(new URL(
+    "./functions/recipeCreate.js",
+    import.meta.url,
+  )),
+  patch: readFileSync(new URL(
+    "./functions/recipePatch.js",
+    import.meta.url,
+  )),
+  replace: readFileSync(new URL(
+    "./functions/recipeReplace.js",
+    import.meta.url,
+  )),
+  remove: readFileSync(new URL(
+    "./functions/recipeDelete.js",
+    import.meta.url,
+  )),
+  get: readFileSync(new URL(
+    "./functions/recipesQuery.js",
+    import.meta.url,
+  )),
+} as const;
 const COOKING_RECIPE = {
   title: "Tomato soup",
   description: "A slow-simmered weeknight soup.",
@@ -564,13 +588,18 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
       queryModulePath: "recipes",
       mutationArtifactPath: "recipeMutation",
       queryArtifactPath: "recipeQuery",
+      mutationSourceBytes: COOKING_FUNCTION_SOURCES.create,
+      querySourceBytes: COOKING_FUNCTION_SOURCES.get,
       pointMutationLifecycle: {
         patchModulePath: "recipePatch",
         patchArtifactPath: "recipePatch",
+        patchSourceBytes: COOKING_FUNCTION_SOURCES.patch,
         replaceModulePath: "recipeReplace",
         replaceArtifactPath: "recipeReplace",
+        replaceSourceBytes: COOKING_FUNCTION_SOURCES.replace,
         deleteModulePath: "recipeDelete",
         deleteArtifactPath: "recipeDelete",
+        deleteSourceBytes: COOKING_FUNCTION_SOURCES.remove,
       },
       fields: {
         title: {

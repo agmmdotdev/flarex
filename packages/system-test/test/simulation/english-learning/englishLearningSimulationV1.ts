@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Effect } from "effect";
 import {
@@ -43,6 +45,16 @@ const ENGLISH_LEARNING_QUERY_PATH = TransactionFunctionPathV1Schema.make(
 const ENGLISH_LEARNING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:english-learning:create",
 );
+const ENGLISH_LEARNING_FUNCTION_SOURCES = {
+  create: readFileSync(new URL(
+    "./functions/lessonCreate.js",
+    import.meta.url,
+  )),
+  get: readFileSync(new URL(
+    "./functions/lessonsQuery.js",
+    import.meta.url,
+  )),
+} as const;
 const ENGLISH_LEARNING_LESSON = {
   term: "apple",
   translation: "a fruit",
@@ -146,6 +158,8 @@ export const englishLearningSimulationV1 =
         queryModulePath: "lessons",
         mutationArtifactPath: "lessonMutation",
         queryArtifactPath: "lessonQuery",
+        mutationSourceBytes: ENGLISH_LEARNING_FUNCTION_SOURCES.create,
+        querySourceBytes: ENGLISH_LEARNING_FUNCTION_SOURCES.get,
         fields: {
           term: {
             fieldType: { type: "string" },

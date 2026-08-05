@@ -379,7 +379,11 @@ Named Flarex differences are:
   prove patch preservation, full replacement, and the final null read, while
   logical inspection proves one tombstoned current row, four revisions, and
   commit sequences `1..4` aligned across outcomes, feed, and outbox in PGlite.
-  The matching genuine-PostgreSQL lane remains open.
+  Cooking and English-learning now own directly inspectable function-source fixtures in
+  their application folders; the shared definition helper accepts source bytes
+  and only composes declarations, validators, graph entries, and budgets. This
+  is not automatic developer-file discovery or bundler coverage. The matching
+  genuine-PostgreSQL lane remains open.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate
@@ -414,6 +418,15 @@ Named Flarex differences are:
   `SAC01-F2e` records this as open analyzer/registration integration debt and
   uses ordinary separate user modules for each lifecycle function; it does not
   repair, bypass, or claim closure of the defect.
+- The same preparation path is currently sensitive to otherwise insignificant
+  whitespace in valid `databasePatch` and `databaseReplace` modules: adding
+  spaces around the platform import, destructured parameters, or syscall
+  arguments reproduces the masked `pendingExists` failure, while the compact
+  token spelling succeeds. Source formatting must not change semantic
+  acceptance. App-owned fixtures preserve the already accepted spelling during
+  this ownership-only move, including the compact single-line spelling required
+  by the current patch/replace path; analyzer/parser correction remains open and is not
+  owned by the simulation.
 - The live staging H05-B proof through real cache-disabled Hyperdrive remains
   incomplete; harness and dry-run evidence do not close production activation.
 - The root integration suite uses source aliases and local workspace code for

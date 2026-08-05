@@ -37,6 +37,8 @@ import {
 } from "@flarex/system-test/simulation/v1";
 import { makeCreateAndReadDefinitionV1 } from
   "../simulation/support/createAndReadDefinitionV1";
+import { makeCreateAndReadFunctionSourcesV1 } from
+  "../simulation/support/createAndReadFunctionSourcesV1";
 import { cookingSimulationV1 } from
   "../simulation/cooking/cookingSimulationV1";
 
@@ -47,6 +49,7 @@ function makeCookingDefinitionV1() {
     queryModulePath: "recipes",
     mutationArtifactPath: "recipeMutation",
     queryArtifactPath: "recipeQuery",
+    ...makeCreateAndReadFunctionSourcesV1("recipes"),
     fields: {
       title: {
         fieldType: { type: "string" },

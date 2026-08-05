@@ -4,22 +4,25 @@ import type {
 import type { ObjectValidatorJsonV1 } from
   "flarex-protocol/validator-json";
 
-const UTF8 = new TextEncoder();
-
 export interface CreateAndReadDefinitionInputV1 {
   readonly tableName: string;
   readonly mutationModulePath: string;
   readonly queryModulePath: string;
   readonly mutationArtifactPath: string;
   readonly queryArtifactPath: string;
+  readonly mutationSourceBytes: Uint8Array;
+  readonly querySourceBytes: Uint8Array;
   readonly fields: ObjectValidatorJsonV1["value"];
   readonly pointMutationLifecycle?: Readonly<{
     readonly patchModulePath: string;
     readonly patchArtifactPath: string;
+    readonly patchSourceBytes: Uint8Array;
     readonly replaceModulePath: string;
     readonly replaceArtifactPath: string;
+    readonly replaceSourceBytes: Uint8Array;
     readonly deleteModulePath: string;
     readonly deleteArtifactPath: string;
+    readonly deleteSourceBytes: Uint8Array;
   }>;
 }
 
@@ -104,29 +107,17 @@ export function makeCreateAndReadDefinitionV1(
   const lifecycleGraphModules = lifecycle === undefined ? [] : [{
     path: lifecycle.patchArtifactPath,
     roles: ["function" as const],
-    sourceBytes: UTF8.encode(
-      'import{databasePatch}from"flarex:platform";' +
-        "export async function patch(_,{id,patch}){" +
-        "await databasePatch(id,patch);return null}",
-    ),
+    sourceBytes: new Uint8Array(lifecycle.patchSourceBytes),
     sourceMapBytes: null,
   }, {
     path: lifecycle.replaceArtifactPath,
     roles: ["function" as const],
-    sourceBytes: UTF8.encode(
-      'import{databaseReplace}from"flarex:platform";' +
-        "export async function replace(_,{id,fields}){" +
-        "await databaseReplace(id,fields);return null}",
-    ),
+    sourceBytes: new Uint8Array(lifecycle.replaceSourceBytes),
     sourceMapBytes: null,
   }, {
     path: lifecycle.deleteArtifactPath,
     roles: ["function" as const],
-    sourceBytes: UTF8.encode(
-      'import{databaseDelete}from"flarex:platform";' +
-        "export async function remove(_,{id}){" +
-        "await databaseDelete(id);return null}",
-    ),
+    sourceBytes: new Uint8Array(lifecycle.deleteSourceBytes),
     sourceMapBytes: null,
   }];
   const lifecycleFunctionEntries = lifecycle === undefined ? [] : [{
@@ -227,18 +218,12 @@ export function makeCreateAndReadDefinitionV1(
       modules: [{
         path: input.mutationArtifactPath,
         roles: ["function", "execution"],
-        sourceBytes: UTF8.encode(
-          'import{databaseInsert}from"flarex:platform";' +
-            `export function create(_,a){return databaseInsert("${input.tableName}",a)}`,
-        ),
+        sourceBytes: new Uint8Array(input.mutationSourceBytes),
         sourceMapBytes: null,
       }, ...lifecycleGraphModules, {
         path: input.queryArtifactPath,
         roles: ["function"],
-        sourceBytes: UTF8.encode(
-          'import{databaseGet}from"flarex:platform";' +
-            "export function get(_,a){return databaseGet(a.id)}",
-        ),
+        sourceBytes: new Uint8Array(input.querySourceBytes),
         sourceMapBytes: null,
       }],
       functionEntries: [{
