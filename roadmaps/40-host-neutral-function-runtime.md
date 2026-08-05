@@ -7,9 +7,10 @@ prerequisite journal-boundary correction, canonical declarative-program first
 vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
-Function API Core direction recorded below is accepted as the next design
-boundary, but its implementation remains gated on the focused preflight and
-identity/parity plan in this record. Production routing remains deferred.
+Function API Core direction and focused preflight recorded below are accepted.
+`FAC01`, the shared invocation-context foundation for the currently selected
+query and mutation profiles, is the next implementation gate. Production
+routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -758,6 +759,262 @@ public authoring contract, analyzer operation identity, persistence schema,
 snapshot or transaction ownership, action uncertainty semantics, production
 route, or activation behavior.
 
+## Centralized Function API Core Preflight Decision
+
+**Decision date:** 2026-08-06
+**Decision:** proceed in bounded, committed slices. The first implementation
+slice is `FAC01`, the shared invocation-context foundation used by the two
+currently selected private query and mutation profiles. This preflight does not
+change a public authoring contract, analyzer operation identity, protocol
+format/version, persistence schema, transaction owner, active reader, route, or
+production behavior.
+
+### Current Exact-Graph Inventory
+
+All accepted exact profiles use the same broad graph pattern, but the purpose
+of each module is different and must remain explicit:
+
+| Module class | Current examples | Classification | Centralization decision |
+| --- | --- | --- | --- |
+| application source modules | authenticated candidate module paths loaded from R2 | candidate/application body data | remain immutable R2-owned bodies; never copy into PostgreSQL or a shared runtime package |
+| generated configuration module | `*-exact-runtime-config-v1.js` | candidate/profile data: target digest, compatibility time, budgets, root and internal catalogs | remain generated and candidate-bound |
+| generated execution bridge | `*-exact-runtime-execution-v1.js` | exact application registry and module/export adapter | remain generated; it is data-shaped code, not a general runtime facade |
+| generated runtime kernel | `*-runtime-kernel-v1.js` and the matching `*RuntimeKernel.generated.ts` source receipt | reusable runtime behavior built from one `@flarex/function-runtime` capability subpath | retain as a deterministic graph artifact while progressively sharing its source-level feature owners |
+| exact Worker main | `*-exact-runtime-v1.js` and the matching `*WorkerCore.generated.ts` source receipt | request/RPC decoder, host-capability adapter, one-shot admission, deterministic globals, settlement, and currently some duplicated facade construction | keep the Cloudflare-only adapter; move only portable facade semantics out of it |
+| synthetic `flarex:platform` module | present in exact query, query-internal-call, mutation-internal-query, and mutation-internal-call graphs | private analyzer/runtime compatibility ABI plus duplicated ambient context forwarding | temporary private adapter; shrink after shared context features exist and remove only when normal `ctx.*` authoring is analyzer-proven |
+| declaration-only platform files | `Point*Platform.d.ts` | build-time description of the private synthetic module | keep aligned with the temporary adapter; never publish as a developer API |
+
+The original point-mutation profile has configuration, execution bridge,
+kernel, and Worker main modules but no synthetic platform module. Its Worker
+main constructs the database and a broad context containing throwing
+`runQuery`, `runMutation`, scheduler, and storage placeholders. The original
+point-query profile uses a synthetic platform module but has no internal-call
+feature. Both identities remain accepted historical profiles, but neither is
+the sole selected Standard invocation path now.
+
+The selected private paths are:
+
+- SAP05 selects only the query-internal-call target/profile from roadmap 45;
+- SAP04 selects only the combined mutation-internal-call target/profile from
+  roadmap 45; and
+- edge action remains the separately owned action profile. Its kernel receives
+  an authenticated callback capability and has no database facade or synthetic
+  `flarex:platform` module.
+
+The query-internal-call Worker currently constructs auth, a point-read database,
+pending-read settlement, and a context binder. Its function-runtime kernel adds
+only the admitted `runQuery` feature for each parent or child frame. The
+mutation-internal-call Worker currently constructs auth, the existing
+journal-backed database, deterministic time/random state, and a broad base
+context with unsupported features. Its function-runtime kernel adds the
+admitted `runQuery` and `runMutation` features for each frame. The synthetic
+platform modules then repeat ambient lookup plus auth/database/internal-call
+forwarding so analyzed fixture source can import private safe-ABI functions.
+
+This inventory classifies the duplication as follows:
+
+| Concern | Classification |
+| --- | --- |
+| auth facade and exact query/mutation base-context shape | exact duplication suitable for a shared feature owner |
+| point-read pending set, close, drain, and read-boundary error | intentional query host behavior; later reader-facade extraction may accept a narrow read port but cannot erase this owner |
+| mutation journal database and read-your-writes overlay | intentional mutation host behavior; any later writer-facade extraction must preserve the current journal operation order and poisoning rules |
+| same-snapshot query `runQuery` | intentional query-internal-call policy owned by its kernel |
+| same-journal mutation `runQuery` / `runMutation` | intentional mutation-internal-call policy owned by its kernel |
+| deterministic globals, one-shot admission, RPC disposal, request decoding | Cloudflare-only Worker mechanics |
+| validator, handler, nested-call budget, result and failure settlement | reusable capability-specific kernel behavior already owned by `@flarex/function-runtime` |
+| ambient `contextsV1` arrays and forwarding exports | temporary private ABI behavior, not the future authoring or concurrency model |
+
+### Convex Comparison And Deliberate Divergence
+
+Current Convex source constructs query, mutation, and action contexts in the
+shared server implementation. `registration_impl.ts` combines `setupReader`,
+`setupWriter`, `setupAuth`, and action-call helpers; `database_impl.ts` owns the
+JavaScript database facade; and `syscall.ts` delegates through host-injected
+`Convex.syscall` / `Convex.asyncSyscall`. The isolate installs that narrow host
+bridge in `crates/isolate/src/request_scope.rs`. Convex generates application
+API/type artifacts and bundles application modules, but it does not generate a
+new database implementation for each function profile.
+
+Flarex adopts that shape:
+
+```text
+normal handler ctx
+  -> shared @flarex/function-runtime facade
+  -> exact feature-specific host port
+  -> query snapshot OR mutation journal OR action callback
+  -> existing executor / OCC / commit owner where applicable
+```
+
+Flarex deliberately does not copy the exact Convex global syscall transport.
+Candidate/revision/fence identity, content-addressed R2 bodies, authenticated
+Worker Loader graphs, Workerd isolation, service-binding RPC, query snapshots,
+mutation journals, and action uncertainty are real platform differences. The
+shared facade may see only the narrow invocation port for its selected feature;
+it never sees PostgreSQL, Drizzle, R2, a raw binding namespace, a transaction,
+activation authority, or commit authority.
+
+### Rejected Designs
+
+1. **One universal context with optional or throwing capabilities is
+   rejected.** It makes availability a runtime accident, repeats the broad
+   placeholder shape already visible in the original mutation Worker, and
+   permits query, mutation, and action consistency contracts to drift.
+2. **The ambient synthetic platform stack is rejected as the permanent core.**
+   It is safe only under the current one-shot admission assumptions and makes
+   future concurrent or re-entrant admission depend on mutable module state.
+   The first slices may retain it as the existing private authoring bridge, but
+   no new developer contract may depend on it.
+3. **Generating a complete facade per exact profile is rejected.** Generated
+   source should select data, registry, budgets, and approved support-module
+   identities, not reimplement database and context semantics.
+4. **Replacing the exact Worker with only an in-process kernel is rejected.**
+   It would lose authenticated graph, Workerd, module-freshness, RPC, and
+   resource-boundary evidence.
+5. **Changing authored source to `ctx.*` in the same first slice is rejected.**
+   That is an analyzer/authoring contract change and would hide whether the
+   runtime extraction itself preserved behavior. It receives a later explicit
+   parity slice while reusing the existing safe-operation identities.
+6. **A new catch-all core package is rejected.** The existing
+   `@flarex/function-runtime` package is the proven portable owner.
+
+### Selected Feature Contracts
+
+The shared core uses positive capability composition. Absence is represented
+by absence from the context type and object, not by an optional member or a
+throwing stub.
+
+| Facade feature | Trusted host port | Query internal-call | Mutation internal-call | Edge action |
+| --- | --- | --- | --- | --- |
+| auth | captured anonymous/authenticated identity plus trusted clone operation | yes | yes | yes, through its separate action context |
+| point reader | `readPointDocument(table, id)` plus query settlement owner | yes | supplied by the journal-backed database | no |
+| point writer | exact journal operations | no | yes | no |
+| internal query | kernel-owned authenticated registry invocation | yes, same snapshot | yes, same journal/overlay | callback as a separate transaction only |
+| internal mutation | kernel-owned authenticated registry invocation | no | yes, same journal/overlay | callback as a separate transaction only |
+| controlled outbound effect | action callback capability | no | no | yes |
+
+The shared auth facade preserves `null` for anonymous invocation and returns an
+owned clone for authenticated identity on each call. Query and mutation base
+context constructors contain only `auth` and the exact database surface passed
+to them. Internal-call kernels attach only their admitted call methods. No
+scheduler, storage, action, write, or internal-call member is synthesized when
+the profile does not admit it.
+
+The shared implementation is pure Promise-based TypeScript because these
+facades execute inside user-code Workerd modules. Effect remains appropriate at
+the backend/executor composition and lifecycle boundaries; placing an Effect
+runtime inside handler `ctx` methods would create a second execution contract.
+Typed host failures continue to be classified by their existing query,
+mutation, action, and backend owners.
+
+### Normal `ctx.*` Authoring Plan
+
+The public developer API and internal system-test API remain sibling producers
+over `@flarex/standard-application-definition/v1`. Both should eventually emit
+ordinary Convex-shaped handlers. The analyzer will recognize the admitted
+`ctx.auth`, `ctx.db`, `ctx.runQuery`, and `ctx.runMutation` member-call forms and
+lower them to the existing safe-operation catalog. This does not require a new
+database semantic owner or new operation names.
+
+That analyzer slice must prove lexical binding and shadowing, direct member-call
+shape, catchability, required `await` behavior, query-versus-mutation
+availability, static internal references, and rejection of aliases or dynamic
+property access that would escape the safe catalog. Only after analyzer,
+materializer, Workerd, and system-test parity passes may fixture application
+source stop importing `flarex:platform`. The platform specifier remains
+reserved and private throughout the transition; there is no dual public
+authoring contract.
+
+### `FAC01`: First Implementation Slice
+
+The first implementation is deliberately smaller than database or nested-call
+centralization while still proving one real query and one real mutation
+consumer:
+
+1. add one intentional private support subpath under
+   `@flarex/function-runtime` for the shared auth facade and exact query and
+   mutation base-context constructors;
+2. add one deterministic generated support-module receipt and one private exact
+   graph module specifier for that shared implementation;
+3. make the selected query-internal-call and mutation-internal-call Worker cores
+   import that support module;
+4. delete their duplicated auth/base-context construction, including the
+   mutation core's unsupported `runQuery`, `runMutation`, scheduler, and storage
+   placeholders; and
+5. retain the existing kernels as the only owners that attach admitted internal
+   calls, and retain the query read boundary and mutation journal as their
+   current host owners.
+
+`FAC01` does not modify the original query, original mutation,
+mutation-internal-query, or edge-action identities. Those profiles are
+regression evidence and enter later slices only when a selected consumer or
+removal gate justifies them. This avoids mechanically rewriting frozen profiles
+before the current Standard query and mutation paths prove the shared core.
+
+### Identity And Generated Closure
+
+`FAC01` deliberately refreshes:
+
+- the new shared support-module source receipt and SHA-256;
+- the selected query-internal-call Worker-core generated source and SHA-256;
+- the selected mutation-internal-call Worker-core generated source and SHA-256;
+- both selected worker graph-basis digests; and
+- candidate-bound runtime-target digests derived from those graph bases.
+
+The existing query-internal-call and mutation-internal-call protocol format,
+version, exact-runtime-profile identity, syscall-ABI identity, request/result
+shape, call budgets, and persistence schema remain unchanged. Tests must prove
+that regenerated target digests are derived rather than silently pinned old
+receipts. There is no old/new graph fallback or dual acceptance.
+
+### `FAC01` Validation And Removal Gate
+
+Required evidence is:
+
+- focused `@flarex/function-runtime` tests for anonymous/authenticated cloning,
+  runtime freezing, exact query/mutation member availability, and capability
+  alias preservation;
+- byte-deterministic support-module and both selected Worker-core builds;
+- graph-basis and runtime-target identity tests for both selected profiles;
+- genuine Workerd query-internal-call and mutation-internal-call success,
+  nested-call, validation, first-failure, close/drain, disposal, and resource
+  budget coverage;
+- SAP05 and SAP04 system composition regression, including PGlite and genuine
+  PostgreSQL evidence already owned by those verticals in proportion to the
+  changed facade boundary; and
+- unchanged journal order, read-your-writes, OCC retry, rollback, uncertainty,
+  committed application row, result, feed, and outbox behavior.
+
+The duplicated selected-profile auth/base-context builders are removed in the
+same commit. The temporary platform modules are not removed in `FAC01` because
+current analyzer-authored fixtures still import their private ABI. Their
+removal gate is normal-`ctx.*` analyzer parity plus migration of every direct
+application-source import, followed by generated-graph and Workerd proof with
+no fallback.
+
+### Sequenced Follow-On Slices
+
+After `FAC01`, continue one coherent commit at a time:
+
+1. shared point-reader facade over the query read port, then shared
+   journal-backed reader/writer facade mechanics where exact operation ordering
+   can be preserved;
+2. shared internal query/mutation context composition and application-error
+   mechanics without changing their distinct snapshot/journal contracts;
+3. normal `ctx.*` analyzer lowering and migration of internal simulation source,
+   then deletion of the synthetic platform implementation where no direct
+   source import remains;
+4. edge-action alignment over its callback port without adding direct database
+   authority; and
+5. developer and internal-test API integration as sibling authoring producers,
+   with the real end-to-end test lane continuing through analyzer, R2, Workerd,
+   executor, and PostgreSQL.
+
+Each slice must update this roadmap from current evidence. Ordinary extraction
+decisions within these settled boundaries are pre-approved; a slice must still
+stop if evidence requires a public/protocol version, persistence migration,
+new transaction or trust owner, activation/routing behavior, or a change to
+action uncertainty.
+
 ## Test Evidence Lanes
 
 The target has three complementary lanes:
@@ -795,11 +1052,13 @@ into this package, or make the private system harness a runtime dependency. The
 harness is a top-level test composition consumer; production and portable
 runtime packages never depend back on it.
 
-## Mandatory Preflight Before Implementation
+## Initial Extraction Preflight Requirements (Completed)
 
-The preflight is a research deliverable. It must inspect current code, generated
-artifacts, build scripts, tests, and host behavior and produce an accepted
-amendment to this record before extraction begins.
+The following requirements governed the original exact point-mutation
+extraction and are retained as historical constraints. That preflight and
+extraction are complete. The later cross-profile centralization preflight and
+its current implementation sequence are recorded in the accepted decision
+above.
 
 ### P1. Execution-Semantics Inventory
 
@@ -903,9 +1162,9 @@ Specify focused tests for:
 - unchanged OCC, commit, idempotency, feed, outbox, and authoritative row
   behavior.
 
-## Preflight Exit Criteria
+## Initial Preflight Exit Criteria (Completed)
 
-Implementation may begin only after the preflight has:
+The original extraction began only after its preflight had:
 
 1. mapped the complete first-vertical execution lifecycle;
 2. separated portable semantics from Cloudflare, executor, and persistence
@@ -918,7 +1177,8 @@ Implementation may begin only after the preflight has:
 8. selected the smallest first vertical and rollback/removal gate; and
 9. been recorded as an accepted update to this roadmap.
 
-An incomplete answer to any item keeps this decision research-only.
+The accepted extraction amendment satisfied these items. They remain useful
+regression constraints, not a second pending gate for `FAC01`.
 
 ## Known Risks
 
@@ -962,11 +1222,11 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-The next gate is the focused centralized Function API Core preflight above.
-Later private point-query, internal-call, and edge-action verticals now provide
-the concrete repeated consumers that the earlier post-extraction decision did
-not yet have. The preflight must reconcile those current implementations before
-any cross-profile extraction begins.
+The centralized Function API Core preflight above is complete. The next gate is
+`FAC01`: add the shared auth/base-context support module, consume it from the
+selected query-internal-call and mutation-internal-call exact Workers, remove
+their migrated duplicate construction, refresh the exact generated/identity
+closure, and prove Workerd plus SAP05/SAP04 parity.
 
 The public `flarex-test` real-runtime contract remains unchanged. Internal
 simulation APIs may adopt shared authoring primitives and normal `ctx.*`
