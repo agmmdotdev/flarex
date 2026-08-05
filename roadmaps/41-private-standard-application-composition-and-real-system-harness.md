@@ -62,6 +62,30 @@ references. This typed simulation config is not a
 serializable history DSL, model simulator, controlled scheduler, shrinker, or
 public `flarex-test` API.
 
+`SAC01-F2c` begins the richer application-workload ladder with cooking. The
+same unified config now supplies a recipe schema and value containing nested
+objects, arrays of structured ingredients and steps, optional members, a
+literal union, booleans, a string record, and a nullable field. The workload
+proves those values survive definition, analysis, active runtime execution,
+the existing one-row OCC/commit path, authoritative point-query readback,
+idempotent mutation replay, and deterministic query replay in PGlite. Logical
+inspection separately proves commit-sequence alignment across the commit feed
+and outbox; it does not inspect rich payloads in those projections. The shared
+create/read test-definition helper now accepts the protocol-owned object-
+validator field shape rather than a test-invented string/number subset. This
+expands test data only: it adds no query builder, index scan, relation
+traversal, multi-row mutation, runtime capability, authority, public API, or
+production route. The matching genuine-PostgreSQL cooking lane remains
+required before a PostgreSQL acceptance claim.
+
+Real-system scenarios are also diagnostic boundaries. If one exposes a defect
+owned by a shared runtime, protocol, persistence, OCC/commit, registration,
+readiness, activation, or host capability, the harness work must first notify
+the user and record a reproducible issue with expected/actual behavior,
+evidence, affected owner, and disposition in the owning roadmap or design
+record. It must not silently repair that owner, duplicate its logic, weaken the
+assertion, or add a fallback under simulation authority.
+
 `SAC01-F2b` gives each run a setup-only mutation client before workload
 execution, then supplies immutable logical inspection receipts after setup and
 after the workload. Setup uses the existing Standard point-mutation owner; it
@@ -833,6 +857,7 @@ the replacement analyzer and is now closed through the accepted FSV03 chain.
 | `SAC01-F1` | Compose one representative relation-free application with public mutation and query modules through one active revision | Implementation and PGlite fast lane complete and retained by private `@flarex/system-test`; the named genuine-PostgreSQL lane is implemented and fail-closed but remains unaccepted until it runs with zero skips. The operation uses SAP04/SAP05 and the existing runtime/executor/commit/read owners, with exact mutation replay and deterministic query replay |
 | `SAC01-F2a` | Reuse one private relation-free lifecycle/invocation runner across distinct application definitions and workload operations | Complete for independent cooking and English-learning consumers in `@flarex/system-test` with PGlite. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips. Every application uses the unified `defineStandardApplicationSimulationV1` config over explicit Standard definition input and real point mutation/query operations; the lane remains runner input. This is not a serializable workload DSL, model simulator, public package, or multi-application shared environment |
 | `SAC01-F2b` | Add private controlled setup and logical authoritative inspection to the reusable runner | Complete in `@flarex/system-test` with separate setup/workload scopes and PGlite ready/replay/cancellation/failure, post-workload freshness, and exact scope/deployment-predicate audit evidence. Setup delegates to SAP04/FSV06; inspection returns immutable scope-filtered logical evidence and no SQL, database handle, physical locator, document value, or mutation authority. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips |
+| `SAC01-F2c` | Grow cooking into the first realistic complex-document workload without widening runtime authority | PGlite implementation complete for nested objects, structured arrays, optional fields, literal unions, booleans, records, nullable values, mutation replay, point-query replay, and commit-sequence alignment across feed/outbox inspection. Rich feed/outbox payload inspection is not claimed. The genuine-PostgreSQL cooking lane remains open until it runs with zero skips. Index scans, relations, multi-row mutations, and model simulation remain separate gates |
 | `SAC01-F2+` | Add internal calls, actions, workflow mutations, faults, and scheduled invocations to representative workloads one capability at a time | Each capability must already have its own runtime/host/claim contract; scheduling and durable-task semantics remain separately gated |
 | `SAC01-G` | Extract a dedicated private corpus or system-harness package | Complete as private `@flarex/system-test`: cooking and English-learning are separate `defineStandardApplicationSimulationV1` configs; the package owns setup/workload scopes and real-system composition while database lanes remain explicit runner inputs; intentional versioned subpaths plus graph guards enforce the dependency leaf, reject source-tree escapes, and require declared owner dependencies; persistence publishes no test-support adapter; and the persistence-local general harness duplication was deleted in the same slice |
 

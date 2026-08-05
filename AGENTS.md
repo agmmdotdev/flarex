@@ -25,6 +25,17 @@ authoritative application-row semantics. Any proposed change to those owners
 requires a separate explicit preflight and approval; it is never an incidental
 Declarative V2 implementation step.
 
+Treat a system test or application simulation that exposes a defect in shared
+core or system logic as diagnostic evidence, not authority to repair that
+owner. Before changing the shared owner, tell the user and record the issue in
+the owning roadmap or design note with the reproducible scenario, expected and
+actual behavior, affected owner or trust boundary, available evidence, and
+current disposition. Stop at that ownership boundary until the correction is
+separately approved. Test-harness and simulation-local defects may be corrected
+within their approved slice, but never make a scenario pass by weakening its
+assertions, adding a fallback or dual path, or reproducing shared system logic
+inside the test package.
+
 Before committing a significant code change, spawn both project custom reviewer
 subagents: `typescript-diff-reviewer` and `code-quality-diff-reviewer`.
 Significant code changes include behavior changes, public contract/type changes,

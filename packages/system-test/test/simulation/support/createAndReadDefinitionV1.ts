@@ -1,6 +1,8 @@
 import type {
   StandardApplicationDefinitionInputV1,
 } from "@flarex/standard-application-definition/v1";
+import type { ObjectValidatorJsonV1 } from
+  "flarex-protocol/validator-json";
 
 const UTF8 = new TextEncoder();
 
@@ -10,23 +12,16 @@ export interface CreateAndReadDefinitionInputV1 {
   readonly queryModulePath: string;
   readonly mutationArtifactPath: string;
   readonly queryArtifactPath: string;
-  readonly fields: Readonly<Record<string, Readonly<{
-    readonly type: "number" | "string";
-  }>>>;
+  readonly fields: ObjectValidatorJsonV1["value"];
 }
 
 export function makeCreateAndReadDefinitionV1(
   input: CreateAndReadDefinitionInputV1,
 ): StandardApplicationDefinitionInputV1 {
-  const makeDocumentFields = () => Object.fromEntries(
-    Object.entries(input.fields).map(([fieldName, field]) => [
-      fieldName,
-      {
-        fieldType: { type: field.type },
-        optional: false,
-      },
-    ]),
-  );
+  const makeDocumentFields = (): ObjectValidatorJsonV1["value"] =>
+    Object.fromEntries(Object.entries(input.fields).map(
+      ([fieldName, field]) => [fieldName, { ...field }],
+    ));
   return {
     programBudgetInput: {
       maximumModules: 2,

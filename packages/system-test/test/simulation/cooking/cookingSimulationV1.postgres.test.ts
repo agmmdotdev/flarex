@@ -35,6 +35,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         lane: "postgres",
         definitionAnalyzedRegisteredReadyActivated: true,
         workloadProof: {
+          richDocumentRoundTrip: true,
           mutationReplay: true,
           queryReplay: true,
         },

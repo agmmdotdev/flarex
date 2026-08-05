@@ -25,6 +25,7 @@ import { makeCreateAndReadDefinitionV1 } from
 
 export interface CookingWorkloadProofV1 {
   readonly documentId: string;
+  readonly richDocumentRoundTrip: true;
   readonly mutationReplay: true;
   readonly queryReplay: true;
   readonly workloadInspection: StandardApplicationAuthoritativeInspectionV1;
@@ -47,7 +48,41 @@ const COOKING_QUERY_PATH = TransactionFunctionPathV1Schema.make("recipes:get");
 const COOKING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:create",
 );
-const COOKING_RECIPE = { title: "Tomato soup", servings: 4 } as const;
+const COOKING_RECIPE = {
+  title: "Tomato soup",
+  description: "A slow-simmered weeknight soup.",
+  servings: 4,
+  difficulty: "medium",
+  published: true,
+  tags: ["soup", "vegetarian"],
+  ingredients: [{
+    name: "Tomato",
+    amount: 6,
+    unit: "whole",
+    note: "ripe",
+  }, {
+    name: "Vegetable stock",
+    amount: 750,
+    unit: "ml",
+  }],
+  steps: [{
+    position: 1,
+    instruction: "Roast the tomatoes.",
+    durationMinutes: 25,
+  }, {
+    position: 2,
+    instruction: "Blend and simmer with stock.",
+  }],
+  nutrition: {
+    caloriesPerServing: 180,
+    vegetarian: true,
+  },
+  localizedTitles: {
+    en: "Tomato soup",
+    es: "Sopa de tomate",
+  },
+  source: null,
+} as const;
 
 const prepareCookingStateV1 = Effect.fn(
   "SystemTestCookingSimulation.setupV1",
@@ -110,6 +145,7 @@ const runCookingWorkloadV1 = Effect.fn(
   }
   return {
     documentId: setup.documentId,
+    richDocumentRoundTrip: true,
     mutationReplay: true,
     queryReplay: true,
     workloadInspection,
@@ -123,7 +159,16 @@ function requireRecipeDocument(value: unknown, documentId: string): void {
     typeof value._creationTime !== "number" ||
     !Number.isFinite(value._creationTime) ||
     value.title !== "Tomato soup" ||
-    value.servings !== 4
+    value.description !== "A slow-simmered weeknight soup." ||
+    value.servings !== 4 ||
+    value.difficulty !== "medium" ||
+    value.published !== true ||
+    !hasExpectedRecipeTags(value.tags) ||
+    !hasExpectedRecipeIngredients(value.ingredients) ||
+    !hasExpectedRecipeSteps(value.steps) ||
+    !hasExpectedRecipeNutrition(value.nutrition) ||
+    !hasExpectedLocalizedTitles(value.localizedTitles) ||
+    value.source !== null
   ) {
     throw new Error(
       "The cooking workload did not read the authoritative recipe document.",
@@ -131,9 +176,59 @@ function requireRecipeDocument(value: unknown, documentId: string): void {
   }
 }
 
+function hasExpectedRecipeTags(value: unknown): boolean {
+  return Array.isArray(value) &&
+    value.length === 2 &&
+    value[0] === "soup" &&
+    value[1] === "vegetarian";
+}
+
+function hasExpectedRecipeIngredients(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const tomato = value[0];
+  const stock = value[1];
+  return isNonArrayRecord(tomato) &&
+    tomato.name === "Tomato" &&
+    tomato.amount === 6 &&
+    tomato.unit === "whole" &&
+    tomato.note === "ripe" &&
+    isNonArrayRecord(stock) &&
+    stock.name === "Vegetable stock" &&
+    stock.amount === 750 &&
+    stock.unit === "ml" &&
+    !("note" in stock);
+}
+
+function hasExpectedRecipeSteps(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const roast = value[0];
+  const simmer = value[1];
+  return isNonArrayRecord(roast) &&
+    roast.position === 1 &&
+    roast.instruction === "Roast the tomatoes." &&
+    roast.durationMinutes === 25 &&
+    isNonArrayRecord(simmer) &&
+    simmer.position === 2 &&
+    simmer.instruction === "Blend and simmer with stock." &&
+    !("durationMinutes" in simmer);
+}
+
+function hasExpectedRecipeNutrition(value: unknown): boolean {
+  return isNonArrayRecord(value) &&
+    value.caloriesPerServing === 180 &&
+    value.vegetarian === true;
+}
+
+function hasExpectedLocalizedTitles(value: unknown): boolean {
+  return isNonArrayRecord(value) &&
+    value.en === "Tomato soup" &&
+    value.es === "Sopa de tomate" &&
+    Object.keys(value).length === 2;
+}
+
 export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   version: 1,
-  simulationId: "cooking-recipe-create-and-read-v1",
+  simulationId: "cooking-rich-recipe-create-and-read-v1",
   application: {
     applicationId: "cooking",
     revisionName: "sac01-cooking-app",
@@ -144,8 +239,121 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
       mutationArtifactPath: "recipeMutation",
       queryArtifactPath: "recipeQuery",
       fields: {
-        title: { type: "string" },
-        servings: { type: "number" },
+        title: {
+          fieldType: { type: "string" },
+          optional: false,
+        },
+        description: {
+          fieldType: { type: "string" },
+          optional: true,
+        },
+        servings: {
+          fieldType: { type: "number" },
+          optional: false,
+        },
+        difficulty: {
+          fieldType: {
+            type: "union",
+            value: [
+              { type: "literal", value: "easy" },
+              { type: "literal", value: "medium" },
+              { type: "literal", value: "hard" },
+            ],
+          },
+          optional: false,
+        },
+        published: {
+          fieldType: { type: "boolean" },
+          optional: false,
+        },
+        tags: {
+          fieldType: {
+            type: "array",
+            value: { type: "string" },
+          },
+          optional: false,
+        },
+        ingredients: {
+          fieldType: {
+            type: "array",
+            value: {
+              type: "object",
+              value: {
+                name: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+                amount: {
+                  fieldType: { type: "number" },
+                  optional: false,
+                },
+                unit: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+                note: {
+                  fieldType: { type: "string" },
+                  optional: true,
+                },
+              },
+            },
+          },
+          optional: false,
+        },
+        steps: {
+          fieldType: {
+            type: "array",
+            value: {
+              type: "object",
+              value: {
+                position: {
+                  fieldType: { type: "number" },
+                  optional: false,
+                },
+                instruction: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+                durationMinutes: {
+                  fieldType: { type: "number" },
+                  optional: true,
+                },
+              },
+            },
+          },
+          optional: false,
+        },
+        nutrition: {
+          fieldType: {
+            type: "object",
+            value: {
+              caloriesPerServing: {
+                fieldType: { type: "number" },
+                optional: false,
+              },
+              vegetarian: {
+                fieldType: { type: "boolean" },
+                optional: false,
+              },
+            },
+          },
+          optional: false,
+        },
+        localizedTitles: {
+          fieldType: {
+            type: "record",
+            keys: { type: "string" },
+            values: { type: "string" },
+          },
+          optional: false,
+        },
+        source: {
+          fieldType: {
+            type: "union",
+            value: [{ type: "string" }, { type: "null" }],
+          },
+          optional: false,
+        },
       },
     }),
   },

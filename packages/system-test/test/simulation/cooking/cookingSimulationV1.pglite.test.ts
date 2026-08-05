@@ -22,11 +22,12 @@ it("runs the cooking simulation through the real Standard path", async () => {
 
   expect(proof).toMatchObject({
     version: 1,
-    simulationId: "cooking-recipe-create-and-read-v1",
+    simulationId: "cooking-rich-recipe-create-and-read-v1",
     applicationId: "cooking",
     lane: "pglite",
     definitionAnalyzedRegisteredReadyActivated: true,
     workloadProof: {
+      richDocumentRoundTrip: true,
       mutationReplay: true,
       queryReplay: true,
     },

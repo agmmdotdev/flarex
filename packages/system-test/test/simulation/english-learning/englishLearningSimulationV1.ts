@@ -147,9 +147,18 @@ export const englishLearningSimulationV1 =
         mutationArtifactPath: "lessonMutation",
         queryArtifactPath: "lessonQuery",
         fields: {
-          term: { type: "string" },
-          translation: { type: "string" },
-          mastery: { type: "number" },
+          term: {
+            fieldType: { type: "string" },
+            optional: false,
+          },
+          translation: {
+            fieldType: { type: "string" },
+            optional: false,
+          },
+          mastery: {
+            fieldType: { type: "number" },
+            optional: false,
+          },
         },
       }),
     },

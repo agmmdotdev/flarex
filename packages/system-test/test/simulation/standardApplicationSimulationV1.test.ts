@@ -21,7 +21,12 @@ it("defines an owned immutable Standard Application simulation config", () => {
         queryModulePath: "records",
         mutationArtifactPath: "recordMutation",
         queryArtifactPath: "recordQuery",
-        fields: { value: { type: "string" } },
+        fields: {
+          value: {
+            fieldType: { type: "string" },
+            optional: false,
+          },
+        },
       }),
     },
     setup: () => Effect.void,
@@ -68,7 +73,12 @@ it("rejects invalid runtime-execution expectations at definition time", () => {
         queryModulePath: "records",
         mutationArtifactPath: "recordMutation",
         queryArtifactPath: "recordQuery",
-        fields: { value: { type: "string" } },
+        fields: {
+          value: {
+            fieldType: { type: "string" },
+            optional: false,
+          },
+        },
       }),
     },
     setup: () => Effect.void,
@@ -99,7 +109,12 @@ it("captures each runtime-execution expectation exactly once", () => {
         queryModulePath: "records",
         mutationArtifactPath: "recordMutation",
         queryArtifactPath: "recordQuery",
-        fields: { value: { type: "string" } },
+        fields: {
+          value: {
+            fieldType: { type: "string" },
+            optional: false,
+          },
+        },
       }),
     },
     setup: () => Effect.void,

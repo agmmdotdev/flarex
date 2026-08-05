@@ -215,6 +215,13 @@ command and preserve the focused receipts; never relabel the broad suite green.
 14. **Legacy tests are labeled.** Durable Object storage and Nitro compatibility
     coverage preserve migration safety but do not define the replacement target.
 
+15. **Shared defects cross an explicit ownership gate.** When a real-system
+    workload exposes a defect in core or system logic, record the reproducible
+    scenario, expected and actual behavior, affected owner, evidence, and
+    disposition in its owning roadmap or design note and notify the user before
+    changing that owner. The test slice may correct its own harness, but may not
+    weaken the scenario or add a substitute core path to obtain green evidence.
+
 ## Decisions And Rationale
 
 ### Use A Layered Evidence Pyramid
@@ -347,6 +354,17 @@ Named Flarex differences are:
   matching PostgreSQL cases are implemented and fail closed without a URL.
   This exposes neither raw database authority nor document values and remains
   an integration harness capability rather than a model simulator.
+- `SAC01-F2c` starts realistic application-shape coverage with the cooking
+  simulation while retaining the existing one-row point runtime boundary. Its
+  recipe document exercises nested objects, arrays of objects, optional
+  fields, literal unions, booleans, records, and nullable values through the
+  real Standard definition, runtime, OCC/commit, and authoritative readback
+  owners. Logical inspection separately proves the resulting commit sequence
+  is aligned across the commit feed and outbox; it does not inspect rich values
+  in those projections. The PGlite lane passes. Its genuine-PostgreSQL lane
+  remains a separately required acceptance result, and this slice does not
+  claim index scans, relation traversal, multi-row atomic mutation, or a model
+  simulator.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate

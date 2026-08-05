@@ -48,8 +48,14 @@ function makeCookingDefinitionV1() {
     mutationArtifactPath: "recipeMutation",
     queryArtifactPath: "recipeQuery",
     fields: {
-      title: { type: "string" },
-      servings: { type: "number" },
+      title: {
+        fieldType: { type: "string" },
+        optional: false,
+      },
+      servings: {
+        fieldType: { type: "number" },
+        optional: false,
+      },
     },
   });
 }
