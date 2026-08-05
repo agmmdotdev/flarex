@@ -5,8 +5,11 @@
 **Status:** Preflight and the first-extraction amendment are accepted. The
 prerequisite journal-boundary correction, canonical declarative-program first
 vertical, and host-neutral exact public point-mutation extraction are
-implemented and validated. Production routing and broader runtime capabilities
-remain deferred.
+implemented and validated. Later private point-query, internal-call, and edge-
+action verticals proved additional concrete consumers. The centralized
+Function API Core direction recorded below is accepted as the next design
+boundary, but its implementation remains gated on the focused preflight and
+identity/parity plan in this record. Production routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -623,6 +626,138 @@ FlarexDB semantic owner rather than a thin adapter. A future private
 test-support subpath requires a concrete repeated consumer and must remain a
 fixture/lifecycle helper over caller-supplied capabilities.
 
+## Accepted Centralized Function API Core Direction
+
+The capability-by-capability verticals proved the host-neutral runtime owner,
+but they also exposed an architectural duplication that must be corrected
+before more developer-visible System APIs are added. Exact point-query,
+query-internal-call, mutation-internal-query, mutation-internal-call, and
+related hosts currently generate profile-specific `flarex:platform` modules.
+Those modules repeat operation-scoped context lookup, auth and database
+forwarding, internal-call forwarding, and some application-error mechanics.
+The exact Worker cores also construct overlapping `ctx` and database facade
+objects around their host capabilities.
+
+This is not a reason to remove generated Worker graphs. Worker Loader still
+requires one exact, authenticated module graph whose candidate-specific
+configuration, application registry, module references, compatibility facts,
+and digests participate in runtime identity. It is a reason to stop generating
+reusable execution semantics as profile-specific template source.
+
+The accepted distinction is:
+
+| Generated per candidate/profile | Shared implementation owned by `@flarex/function-runtime` |
+| --- | --- |
+| immutable configuration and budgets | invocation-scoped context carrier |
+| exact module/export registry | `ctx.auth` facade |
+| authenticated R2 module references and digests | database reader/writer facades and query-builder semantics |
+| selected runtime profile and support-module identities | `ctx.runQuery` / `ctx.runMutation` semantics |
+| minimal Worker entrypoint and host adapter wiring | validator, result, settlement, and failure semantics |
+
+Generated code declares which approved runtime profile and capability modules
+the exact graph contains. It must not emit another implementation of database
+methods, internal calls, context-stack management, or shared application-error
+behavior merely because the selected profile differs.
+
+### One Core, Narrow Capability Profiles
+
+The central core is rich at the developer boundary and narrow at the authority
+boundary. It may construct the supported Convex-shaped APIs, including
+`ctx.auth`, `ctx.db`, query builders, `ctx.runQuery`, and `ctx.runMutation`, but
+every effect delegates to an explicit per-invocation capability supplied by the
+trusted host. It never receives Postgres, Drizzle, a transaction object, raw R2
+or Worker bindings, an unrestricted service-binding namespace, activation
+authority, or commit authority.
+
+Do not create one universal context with optional or throwing methods. Compose
+separate exact profiles from reusable feature owners:
+
+| Feature | Query profile | Mutation profile | Edge-action profile |
+| --- | --- | --- | --- |
+| auth | yes | yes | yes |
+| database reader | yes | yes | no |
+| database writer | no | yes | no |
+| internal query | only when the selected private profile admits it | only when the selected private profile admits it | authenticated callback, separate transaction |
+| internal mutation | no | only when the selected private profile admits it | authenticated callback, separate transaction |
+| controlled outbound effect | no | no | only when the selected action profile admits it |
+
+Query and mutation internal calls preserve their accepted same-session,
+same-journal/snapshot rules. Action callbacks preserve their separately owned
+transaction and uncertainty semantics. Reusing a facade implementation must
+not collapse these distinct consistency contracts.
+
+The context carrier is invocation-scoped. A process-wide mutable singleton is
+forbidden because attempts, nested calls, and future concurrently admitted
+invocations must not leak context or capabilities. A Cloudflare adapter may
+bind the shared core to a one-shot exact Worker, while an in-process semantic
+adapter supplies the same narrowed ports without claiming isolate freshness.
+
+### Authoring And Execution Primitives Remain Separate
+
+There are two related but distinct primitive layers:
+
+1. `@flarex/standard-application-definition/v1` owns inert typed authoring and
+   lowering primitives: validators, function contracts, references, and
+   canonical definition preparation.
+2. `@flarex/function-runtime` owns executable context/facade construction,
+   capability profiles, handler invocation, validation, lifecycle settlement,
+   and portable failure semantics.
+
+The future developer API and the internal simulation/test API are sibling
+producers above the first layer. Neither is implemented on top of the other.
+They may use different ergonomics, invalid-input fixtures, seeds, and fault
+plans, but both lower into the same Standard Application contracts and execute
+through the same runtime core. Test convenience must not become runtime
+authority or a second database implementation.
+
+Developer and simulation handlers should author ordinary `ctx.*` calls. The
+analyzer may recognize or lower those calls to its canonical safe-operation
+catalog, but `flarex:platform` is a private generated/runtime ABI, not an
+application authoring API. Direct imports of `databaseGet`, `databaseInsert`,
+`runQuery`, or `runMutation` from `flarex:platform` are temporary private
+fixture/runtime evidence and must not be stabilized as developer syntax.
+
+### Extensibility Rule
+
+New APIs such as storage, scheduling, search, or additional action effects are
+added as separately owned feature modules only after their analyzer operation,
+runtime facade, authenticated host port, availability matrix, budgets, typed
+failures, and Workerd/in-process evidence agree. Application code cannot supply
+runtime plugins or select raw capabilities. A generated manifest may select
+only platform-owned, versioned features admitted by the active target.
+
+Do not create a new `flarex-core` or catch-all runtime package. The existing
+`@flarex/function-runtime` package is the proven owner; use intentional private
+subpaths and retain capability-specific public/internal subpaths where their
+contracts genuinely differ.
+
+### Focused Implementation Preflight
+
+Before implementation, amend this record with one exact inventory and
+migration plan that:
+
+1. classifies every generated runtime module as candidate data, application
+   registry, minimal host adapter, reusable runtime behavior, or legacy-only;
+2. maps duplicated platform/context/database/internal-call/error behavior
+   across all accepted exact profiles;
+3. defines the invocation-scoped feature contracts and the query, mutation,
+   and action availability matrices without a universal optional capability;
+4. identifies the smallest shared query-plus-mutation extraction that proves
+   two real consumers without changing their snapshot/journal semantics;
+5. defines how normal `ctx.*` authoring reaches the analyzer-owned safe ABI
+   without exposing `flarex:platform` to developers;
+6. records every generated-core, support-module, target, profile, ABI, and graph
+   identity that must be deliberately refreshed;
+7. requires byte-deterministic generated output, in-process semantic parity,
+   genuine Workerd execution, and unchanged executor/OCC/commit evidence; and
+8. removes migrated template implementations in the same capability slice,
+   with no parallel old/new facade, dual acceptance, or fallback.
+
+The preflight must stop for a new decision if centralization would change a
+public authoring contract, analyzer operation identity, persistence schema,
+snapshot or transaction ownership, action uncertainty semantics, production
+route, or activation behavior.
+
 ## Test Evidence Lanes
 
 The target has three complementary lanes:
@@ -826,6 +961,20 @@ active verified runtime projection
 ```
 
 ## Next Correctness Gate
+
+The next gate is the focused centralized Function API Core preflight above.
+Later private point-query, internal-call, and edge-action verticals now provide
+the concrete repeated consumers that the earlier post-extraction decision did
+not yet have. The preflight must reconcile those current implementations before
+any cross-profile extraction begins.
+
+The public `flarex-test` real-runtime contract remains unchanged. Internal
+simulation APIs may adopt shared authoring primitives and normal `ctx.*`
+handlers, but their end-to-end lane must continue through the actual analyzer,
+R2 materialization, Workerd runtime, executor, and Postgres owners. A faster
+in-process semantic lane is complementary evidence and must be named as such.
+
+### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction
 audit are complete. The first proposed next consumer—public `flarex-test`

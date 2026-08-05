@@ -282,6 +282,14 @@ may instead provide literal fixtures, invalid shapes, seeds, and fault plans.
 Those producers lower into the same explicit Standard definition preparation
 operation.
 
+They are sibling producers over shared typed authoring primitives; the test API
+must not be implemented on top of an unfinished public developer SDK, and the
+developer SDK must not depend on test policy. Executable `ctx`, database,
+internal-call, and action facades are a separate primitive layer owned by
+[`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md).
+Both producers may author normal `ctx.*` handlers, but neither owns the private
+`flarex:platform` ABI or may introduce another runtime implementation.
+
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 
 Raw `unknown` remains the canonical decoder boundary and runtime validator

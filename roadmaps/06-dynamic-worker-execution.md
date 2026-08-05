@@ -218,7 +218,8 @@ module and exposes internal runtime routes. For normal invocation it:
 3. accepts only query or mutation execution;
 4. derives function kind and visibility from runtime registration metadata;
 5. begins an executor-owned session with identity and expected metadata;
-6. builds a restricted `ctx` around syscall requests;
+6. supplies the selected narrow host capabilities to the shared Function API
+   Core, which builds the restricted `ctx` and syscall facades;
 7. executes the handler;
 8. finishes and returns the trusted result; or
 9. best-effort aborts on failure and retries only retryable Postgres mutation
@@ -242,6 +243,14 @@ Implemented query/mutation contexts expose:
 The database facade contains no SQL client, Hyperdrive binding, Durable Object
 stub, storage handle, service-binding namespace, or transaction object. All
 database effects cross the active session syscall boundary.
+
+The target implementation of these facades is centralized under
+`@flarex/function-runtime` as recorded in
+[`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md).
+Candidate-specific generated modules retain immutable configuration, exact
+application registration, authenticated module references, and minimal host
+adapter wiring. They must not independently reimplement shared `ctx`, database,
+internal-call, or application-error semantics for each runtime profile.
 
 Same-artifact nested queries and mutations reuse the outer executor session and
 therefore the same atomic transaction/read-write set. Nested mutations from a
@@ -277,7 +286,9 @@ roadmap 17.
    `globalOutbound: null`; external effects require an explicitly designed
    capability rather than ambient `fetch`.
 6. **Backend and executor bindings are private.** Developer modules see only
-   generated context methods, never the service binding itself.
+   shared runtime-owned context methods, never the service binding itself.
+   `flarex:platform` remains a private generated/runtime ABI rather than a
+   developer authoring surface.
 7. **Every hop authenticates at its authority boundary.** Public backend to
    artifact runtime and Dynamic Worker to executor require explicit capability
    configuration in hosted production. Runtime to Dynamic Worker should use an
