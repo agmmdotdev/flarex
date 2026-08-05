@@ -5,48 +5,47 @@ import { createMigratedPGlitePersistence } from
 import {
   makePGliteStandardApplicationSystemTestLaneV1,
 } from "@flarex/system-test/lanes/v1";
+import {
+  runStandardApplicationSimulationV1,
+} from "@flarex/system-test/environment/v1";
 
 import { expectSinglePublicationInspectionV1 } from
   "../support/inspectionAssertionsV1";
-import { runEnglishLearningScenarioV1 } from
-  "./englishLearningScenarioV1";
+import { englishLearningSimulationV1 } from
+  "./englishLearningSimulationV1";
 
-it("runs the English-learning application through the real Standard path", async () => {
+it("runs the English-learning simulation through the real Standard path", async () => {
   const persistence = await createMigratedPGlitePersistence();
-  const proof = await Effect.runPromise(
-    runEnglishLearningScenarioV1(
-      makePGliteStandardApplicationSystemTestLaneV1(persistence),
-    ),
-  );
+  const proof = await Effect.runPromise(runStandardApplicationSimulationV1({
+    lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+    simulation: englishLearningSimulationV1,
+  }));
 
   expect(proof).toMatchObject({
     version: 1,
-    scenario: "english-learning-lesson-create-and-read-v1",
+    simulationId: "english-learning-lesson-create-and-read-v1",
+    applicationId: "english-learning",
     lane: "pglite",
     definitionAnalyzedRegisteredReadyActivated: true,
-    mutationPath: "lessonCommands:create",
-    queryPath: "lessons:get",
-    term: "apple",
-    translation: "a fruit",
-    mastery: 0,
-    mutationReplay: true,
-    queryReplay: true,
-    controlledSetup: true,
+    workloadProof: {
+      mutationReplay: true,
+      queryReplay: true,
+    },
     mutationRuntimeExecutions: 1,
     queryRuntimeExecutions: 2,
     postgresVersion: null,
   });
-  expect(proof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
+  expect(proof.workloadProof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
   expectSinglePublicationInspectionV1(
     proof.afterSetupInspection,
     "lessons",
-    proof.documentId,
+    proof.workloadProof.documentId,
     0,
   );
   expectSinglePublicationInspectionV1(
     proof.finalInspection,
     "lessons",
-    proof.documentId,
+    proof.workloadProof.documentId,
     2,
   );
 }, 480_000);

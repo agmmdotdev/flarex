@@ -1,6 +1,3 @@
-import type {
-  StandardApplicationDefinitionInputV1,
-} from "@flarex/standard-application-definition/v1";
 import { Data, Effect, Fiber, Layer, Scope } from "effect";
 import type {
   TransactionFunctionPathV1,
@@ -45,20 +42,14 @@ import {
   type StandardApplicationSystemTestInspectionV1Error,
 } from "../inspection/authoritativeStateV1";
 import type {
-  StandardApplicationSystemTestScenarioV1,
-} from "../scenario/standardApplicationScenarioV1";
+  StandardApplicationSimulationV1,
+} from "../simulation/standardApplicationSimulationV1";
 
 type ApplicationTestRequirementsV1 =
   | ApplicationPointMutationSystemV1
   | ApplicationPointQuerySystemV1
   | StandardApplicationActiveRevisionReaderV1
   | Scope.Scope;
-
-export interface StandardApplicationSystemTestDefinitionV1 {
-  readonly applicationId: string;
-  readonly revisionName: string;
-  readonly makeDefinitionInput: () => StandardApplicationDefinitionInputV1;
-}
 
 export interface StandardApplicationSystemTestSetupClientV1 {
   readonly invokeMutation: (
@@ -86,10 +77,10 @@ export interface StandardApplicationSystemTestClientV1
   >;
 }
 
-export interface StandardApplicationSystemTestRunReceiptV1<Setup, A> {
+export interface StandardApplicationSimulationRunReceiptV1<Setup, A> {
   readonly version: 1;
   readonly applicationId: string;
-  readonly scenarioId: string;
+  readonly simulationId: string;
   readonly lane: "pglite" | "postgres";
   readonly definitionAnalyzedRegisteredReadyActivated: true;
   readonly setupProof: Setup;
@@ -102,27 +93,27 @@ export interface StandardApplicationSystemTestRunReceiptV1<Setup, A> {
   readonly postgresVersion: string | null;
 }
 
-export interface RunStandardApplicationSystemTestV1Input<Setup, A, E> {
+export interface RunStandardApplicationSimulationV1Input<Setup, A, E> {
   readonly lane: StandardApplicationSystemTestLaneV1;
-  readonly scenario: StandardApplicationSystemTestScenarioV1<Setup, A, E>;
+  readonly simulation: StandardApplicationSimulationV1<Setup, A, E>;
 }
 
 export type StandardApplicationSystemTestLaneV1 =
   PersistenceStandardApplicationSystemTestLaneV1;
 
-export class StandardApplicationSystemTestIntegrationV1Error
+export class StandardApplicationSimulationIntegrationV1Error
   extends Data.TaggedError(
-    "StandardApplicationSystemTestIntegrationV1Error",
+    "StandardApplicationSimulationIntegrationV1Error",
   )<{
     readonly phase: "prepareRevision" | "inspectPostgresVersion";
     readonly applicationId: string;
     readonly cause: unknown;
   }> {}
 
-export type RunStandardApplicationSystemTestV1Error<E> =
+export type RunStandardApplicationSimulationV1Error<E> =
   | E
   | ActivateApplicationRevisionV1Error
-  | StandardApplicationSystemTestIntegrationV1Error
+  | StandardApplicationSimulationIntegrationV1Error
   | StandardApplicationSystemTestInspectionV1Error;
 
 /**
@@ -130,29 +121,29 @@ export type RunStandardApplicationSystemTestV1Error<E> =
  * application revision. Definitions and workload policy remain caller-owned;
  * the operation only composes the existing lifecycle and invocation owners.
  */
-export const runStandardApplicationSystemTestV1 = Effect.fn(
-  "StandardApplicationSystemTest.runV1",
+export const runStandardApplicationSimulationV1 = Effect.fn(
+  "StandardApplicationSimulation.runV1",
 )(function* <Setup, A, E>(
-  input: RunStandardApplicationSystemTestV1Input<Setup, A, E>,
+  input: RunStandardApplicationSimulationV1Input<Setup, A, E>,
 ): Effect.fn.Return<
-  StandardApplicationSystemTestRunReceiptV1<Setup, A>,
-  RunStandardApplicationSystemTestV1Error<E>
+  StandardApplicationSimulationRunReceiptV1<Setup, A>,
+  RunStandardApplicationSimulationV1Error<E>
 > {
-  const { scenario } = input;
+  const { simulation } = input;
   const artifacts = makeMemoryRuntimeArtifactStoreV1();
-  const standardDefinitionInput = scenario.definition.makeDefinitionInput();
+  const standardDefinitionInput = simulation.application.define();
   const ready = yield* prepareFsv05ReadyRevisionFixtureEffectV1(
       input.lane,
       artifacts,
-      scenario.definition.revisionName,
+      simulation.application.revisionName,
       true,
       standardDefinitionInput,
     ).pipe(
       Effect.uninterruptible,
       Effect.mapError(cause =>
-        new StandardApplicationSystemTestIntegrationV1Error({
+        new StandardApplicationSimulationIntegrationV1Error({
           phase: "prepareRevision",
-          applicationId: scenario.definition.applicationId,
+          applicationId: simulation.application.applicationId,
           cause,
         })
       ),
@@ -178,7 +169,7 @@ export const runStandardApplicationSystemTestV1 = Effect.fn(
       queryExecutionSequence += 1;
       return {
         executionId:
-          `${scenario.definition.applicationId}-query-${queryExecutionSequence}`,
+          `${simulation.application.applicationId}-query-${queryExecutionSequence}`,
         randomSeed: makeQueryRandomSeedV1(queryExecutionSequence),
         executionTime: 1_780_100_000_000 + queryExecutionSequence,
       };
@@ -190,7 +181,7 @@ export const runStandardApplicationSystemTestV1 = Effect.fn(
     makeStandardApplicationActiveRevisionReaderV1Layer(ready.context),
   );
   const inspector = yield* makeStandardApplicationSystemTestInspectorV1({
-    applicationId: scenario.definition.applicationId,
+    applicationId: simulation.application.applicationId,
     deploymentId: ready.deploymentId,
     persistence: input.lane.persistence,
     getMutationRuntimeExecutions: () => mutationRuntimeExecutions,
@@ -245,7 +236,7 @@ export const runStandardApplicationSystemTestV1 = Effect.fn(
           )
         )),
       } satisfies StandardApplicationSystemTestSetupClientV1);
-      return Effect.suspend(() => scenario.prepareState(setupClient)).pipe(
+      return Effect.suspend(() => simulation.setup(setupClient)).pipe(
         Effect.ensuring(Effect.sync(() => { setupActive = false; })),
       );
     },
@@ -294,17 +285,32 @@ export const runStandardApplicationSystemTestV1 = Effect.fn(
           inspector.inspectAuthoritativeState(),
         ))),
       } satisfies StandardApplicationSystemTestClientV1);
-      return Effect.suspend(() => scenario.runWorkload(client, setupProof)).pipe(
+      return Effect.suspend(() => simulation.workload(client, setupProof)).pipe(
         Effect.ensuring(Effect.sync(() => { clientActive = false; })),
       );
     },
     (invocationScope, exit) => Scope.close(invocationScope, exit),
   );
   const finalInspection = yield* inspector.inspectAuthoritativeState();
+  const expectedRuntimeExecutions = simulation.expectedRuntimeExecutions;
+  if (
+    expectedRuntimeExecutions !== undefined &&
+    (
+      mutationRuntimeExecutions !== expectedRuntimeExecutions.mutations ||
+      queryRuntimeExecutions !== expectedRuntimeExecutions.queries
+    )
+  ) {
+    return yield* Effect.die(new Error(
+      `Simulation ${simulation.simulationId} expected ` +
+      `${expectedRuntimeExecutions.mutations} mutation and ` +
+      `${expectedRuntimeExecutions.queries} query runtime executions, but ` +
+      `observed ${mutationRuntimeExecutions} and ${queryRuntimeExecutions}.`,
+    ));
+  }
   const postgresVersion = input.lane.name === "postgres"
     ? (yield* runUninterruptibleIntegrationPromiseV1(
         "inspectPostgresVersion",
-        scenario.definition.applicationId,
+        simulation.application.applicationId,
         () => input.lane.persistence.query<{ version: string }>(
           "select version() as version",
         ),
@@ -313,8 +319,8 @@ export const runStandardApplicationSystemTestV1 = Effect.fn(
 
   return {
     version: 1,
-    applicationId: scenario.definition.applicationId,
-    scenarioId: scenario.scenarioId,
+    applicationId: simulation.application.applicationId,
+    simulationId: simulation.simulationId,
     lane: input.lane.name,
     definitionAnalyzedRegisteredReadyActivated: true,
     setupProof,
@@ -337,13 +343,13 @@ function makeQueryRandomSeedV1(sequence: number): Uint8Array {
 }
 
 function runUninterruptibleIntegrationPromiseV1<A>(
-  phase: StandardApplicationSystemTestIntegrationV1Error["phase"],
+  phase: StandardApplicationSimulationIntegrationV1Error["phase"],
   applicationId: string,
   evaluate: () => PromiseLike<A>,
-): Effect.Effect<A, StandardApplicationSystemTestIntegrationV1Error> {
+): Effect.Effect<A, StandardApplicationSimulationIntegrationV1Error> {
   return Effect.uninterruptible(Effect.tryPromise({
     try: evaluate,
-    catch: cause => new StandardApplicationSystemTestIntegrationV1Error({
+    catch: cause => new StandardApplicationSimulationIntegrationV1Error({
       phase,
       applicationId,
       cause,

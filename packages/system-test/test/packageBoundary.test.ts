@@ -50,7 +50,7 @@ describe("@flarex/system-test package boundary", () => {
         "./environment/v1": "./src/environment/standardApplicationEnvironmentV1.ts",
         "./inspection/v1": "./src/inspection/authoritativeStateV1.ts",
         "./lanes/v1": "./src/lanes/databaseLaneV1.ts",
-        "./scenario/v1": "./src/scenario/standardApplicationScenarioV1.ts",
+        "./simulation/v1": "./src/simulation/standardApplicationSimulationV1.ts",
       },
     });
   });

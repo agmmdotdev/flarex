@@ -283,8 +283,10 @@ gate rather than an inferred property of the PGlite result.
 `SAC01-F2a` now factors that exact lifecycle/invocation composition into one
 test-owned runner and proves the same relation-free public mutation/query
 surface with independent cooking and English-learning definitions. The runner
-now lives in `@flarex/system-test` and accepts a typed callback-based scenario
-rather than a public or serializable workload language. It does not authorize `flarex-test`
+now lives in `@flarex/system-test`; every application is authored through the
+private `defineStandardApplicationSimulationV1` config, while the database lane
+remains an explicit runner input rather than application configuration. This is
+not a public or serializable workload language. It does not authorize `flarex-test`
 adoption, identity, actions, scheduling, or a deterministic model simulator.
 Its two genuine-PostgreSQL cases remain explicit open acceptance evidence.
 

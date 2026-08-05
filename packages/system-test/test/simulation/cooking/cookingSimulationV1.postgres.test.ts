@@ -7,13 +7,15 @@ import {
 import {
   makePostgresStandardApplicationSystemTestLaneV1,
 } from "@flarex/system-test/lanes/v1";
+import {
+  runStandardApplicationSimulationV1,
+} from "@flarex/system-test/environment/v1";
 
-import { runEnglishLearningScenarioV1 } from
-  "./englishLearningScenarioV1";
+import { cookingSimulationV1 } from "./cookingSimulationV1";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describe("English-learning simulation genuine PostgreSQL environment", () => {
+describe("cooking simulation genuine PostgreSQL environment", () => {
   it("requires an authenticated genuine PostgreSQL URL", () => {
     expect(
       postgresUrl,
@@ -22,21 +24,20 @@ describe("English-learning simulation genuine PostgreSQL environment", () => {
   });
 });
 
-describePostgres("English-learning simulation - PostgreSQL", () => {
-  it("creates and reads one lesson", async () => {
+describePostgres("cooking simulation - PostgreSQL", () => {
+  it("creates and reads one recipe", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
-      const proof = await Effect.runPromise(
-        runEnglishLearningScenarioV1(
-          makePostgresStandardApplicationSystemTestLaneV1(persistence),
-        ),
-      );
+      const proof = await Effect.runPromise(runStandardApplicationSimulationV1({
+        lane: makePostgresStandardApplicationSystemTestLaneV1(persistence),
+        simulation: cookingSimulationV1,
+      }));
       expect(proof).toMatchObject({
         lane: "postgres",
-        scenario: "english-learning-lesson-create-and-read-v1",
         definitionAnalyzedRegisteredReadyActivated: true,
-        controlledSetup: true,
-        mutationReplay: true,
-        queryReplay: true,
+        workloadProof: {
+          mutationReplay: true,
+          queryReplay: true,
+        },
         mutationRuntimeExecutions: 1,
         queryRuntimeExecutions: 2,
       });
