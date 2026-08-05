@@ -268,16 +268,27 @@ function simpleTerminalAggregate(vector: CompatibilityVectorV1, priorEffectCurso
   }, { databaseNowMs: now, current, attemptGrantCandidate: null })).next;
 }
 
+function compatibilityTargetAttemptNumber(vector: CompatibilityVectorV1): number {
+  if (vector.id.includes("attempt-limit") || vector.id.includes("maximum-attempt")) return 3;
+  if (
+    vector.id === "immediate-retry-followup-success"
+    || vector.id === "oom-target-not-different"
+    || vector.id.includes("stale-attempt")
+    || vector.command.identity.startsWith("attempt-2")
+  ) return 2;
+  return 1;
+}
+
+function compatibilityAttemptStartRunVersion(attempt: number): bigint {
+  return (3n * BigInt(attempt)) - 1n;
+}
+
 function activeFor(vector: CompatibilityVectorV1, priorEffectCursor: bigint): TaskRunAttemptAggregateV1 {
   const now = observedAt(vector);
-  const maximumAttempt = vector.id.includes("attempt-limit") || vector.id.includes("maximum-attempt");
-  const staleAttempt = vector.id.includes("stale-attempt");
-  const secondAttempt = vector.id === "immediate-retry-followup-success"
-    || staleAttempt
-    || vector.command.identity.startsWith("attempt-2");
-  const number = maximumAttempt ? attemptNumber(3) : secondAttempt ? attemptNumber(2) : ATTEMPT_NUMBER_1;
-  const id = maximumAttempt ? ATTEMPT_ID_3 : secondAttempt ? ATTEMPT_ID_2 : ATTEMPT_ID;
-  const executionFence = maximumAttempt ? FENCE_3 : vector.id.includes("stale-fence") ? FENCE_2 : secondAttempt ? FENCE_2 : FENCE_1;
+  const targetAttempt = compatibilityTargetAttemptNumber(vector);
+  const number = attemptNumber(targetAttempt);
+  const id = targetAttempt === 3 ? ATTEMPT_ID_3 : targetAttempt === 2 ? ATTEMPT_ID_2 : ATTEMPT_ID;
+  const executionFence = targetAttempt === 3 ? FENCE_3 : targetAttempt === 2 ? FENCE_2 : FENCE_1;
   const expiryOperation = vector.command.operation === "handleLeaseExpiry";
   const expired = expiryOperation && !vector.id.includes("before-deadline") && !vector.id.includes("stale-") && !vector.id.includes("inactive");
   const atDeadline = vector.id.includes("at-lease-deadline");
@@ -286,14 +297,18 @@ function activeFor(vector: CompatibilityVectorV1, priorEffectCursor: bigint): Ta
     : expired
       ? databaseTime(now - 1)
       : databaseTime(now + 30_000);
-  const targetLease = maximumAttempt
-    ? leaseVersion(4n)
-    : vector.id === "pending-cancellation-lease-expiry"
+  const targetVersion = runVersion(BigInt(vector.initial.runVersion));
+  const targetStartVersion = compatibilityAttemptStartRunVersion(targetAttempt);
+  const acceptedHeartbeatCount = vector.initial.phase === "attempt_granted"
+    ? 0n
+    : BigInt(targetVersion)
+      - targetStartVersion
+      - (vector.initial.cancellation === "requested" ? 1n : 0n);
+  const targetLease = vector.id === "pending-cancellation-lease-expiry"
       ? leaseVersion(3n)
       : vector.initial.phase === "attempt_granted"
-        ? LEASE_VERSION_1
-        : leaseVersion(2n);
-  const targetVersion = runVersion(BigInt(vector.initial.runVersion));
+        ? leaseVersion((2n * BigInt(targetAttempt)) - 1n)
+        : leaseVersion((2n * BigInt(targetAttempt)) - 1n + acceptedHeartbeatCount);
   const boundPolicy = policyFor(vector);
   const computeProfile = vector.id === "oom-target-not-different" ? COMPUTE_LARGE : COMPUTE_SMALL;
   const lifecycleAtMs = databaseTime(leaseExpiresAt - 30_000);
@@ -423,7 +438,17 @@ function defaultPriorEffectCursor(vector: CompatibilityVectorV1): bigint {
   if (vector.initial.phase === "attempt_granted") return 4n;
   if (vector.initial.phase === "retry_waiting") return 13n;
   if (vector.initial.phase === "terminal") return 12n;
-  return vector.initial.cancellation === "requested" ? 14n : 8n;
+  if (vector.initial.cancellation === "requested") return 14n;
+  const targetAttempt = compatibilityTargetAttemptNumber(vector);
+  const targetStartVersion = compatibilityAttemptStartRunVersion(targetAttempt);
+  const acceptedHeartbeatCount = BigInt(vector.initial.runVersion) - targetStartVersion;
+  if (acceptedHeartbeatCount < 1n) return 8n;
+  const priorAttemptCursorAdjustment = vector.id === "completion-stale-attempt" ? -1n : 0n;
+  const startCursor = 4n
+    + (13n * BigInt(targetAttempt - 1))
+    + priorAttemptCursorAdjustment;
+  const heartbeatCursor = startCursor + 4n + (3n * (acceptedHeartbeatCount - 1n));
+  return heartbeatCursor;
 }
 
 function ordinaryInitial(vector: CompatibilityVectorV1, priorEffectCursor: bigint): TaskRunAttemptAggregateV1 {
@@ -581,6 +606,33 @@ function appendCompletionTransition(
   );
 }
 
+function appendLeaseExpiryTransition(
+  state: MutableCompatibilityHistoryV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+): MutableCompatibilityHistoryV1 {
+  if (
+    state.current.phase !== "attempt_granted"
+    && state.current.phase !== "executing"
+  ) {
+    throw new Error("compatibility lease-expiry history is not active");
+  }
+  return appendCompatibilityCommit(
+    state,
+    "handle_lease_expiry",
+    decideHandleLeaseExpiryV1({
+      type: "handle_lease_expiry",
+      runId: RUN_ID,
+      attemptId: state.current.currentAttempt.attemptId,
+      executionFence: state.current.currentAttempt.executionFence,
+      expectedLeaseVersion: state.current.currentAttempt.lease.version,
+    }, {
+      databaseNowMs,
+      current: state.current,
+      attemptGrantCandidate: null,
+    }),
+  );
+}
+
 function appendCancellationTransition(
   state: MutableCompatibilityHistoryV1,
   databaseNowMs: TaskDatabaseTimeMsV1,
@@ -657,11 +709,50 @@ function transitionDerivedOrdinaryState(
     }
   } else if (vector.initial.phase === "executing") {
     const requested = vector.initial.cancellation === "requested";
-    const heartbeatCount = Number(targetRunVersion - (requested ? 3n : 2n));
+    const targetAttempt = compatibilityTargetAttemptNumber(vector);
+    const targetStartVersion = compatibilityAttemptStartRunVersion(targetAttempt);
+    const heartbeatCount = Number(
+      targetRunVersion - targetStartVersion - (requested ? 1n : 0n),
+    );
     if (heartbeatCount < 1 || heartbeatCount > 8) return null;
     const finalHeartbeatAt = activeHistoryFinalHeartbeatAt(vector);
-    const startAt = databaseTime(finalHeartbeatAt - heartbeatCount - 1);
-    state = appendStartTransition(transitionReadyState(vector, startAt), startAt);
+    const initialStartAt = databaseTime(finalHeartbeatAt - 120_000);
+    state = transitionReadyState(vector, initialStartAt);
+    for (let completedAttempt = 1; completedAttempt < targetAttempt; completedAttempt += 1) {
+      const startAt = state.current.phase === "ready"
+        ? state.current.ready.eligibleAtMs
+        : state.current.phase === "retry_waiting"
+          ? state.current.retry.notBeforeMs
+          : null;
+      if (startAt === null) return null;
+      state = appendStartTransition(state, startAt);
+      const heartbeatAt = databaseTime(startAt + 1);
+      state = appendHeartbeatTransition(state, heartbeatAt, 1);
+      if (vector.id === "completion-stale-attempt") {
+        state = appendLeaseExpiryTransition(state, databaseTime(heartbeatAt + 30_001));
+      } else {
+        const failure = vector.id === "oom-target-not-different" && completedAttempt === 1
+          ? { kind: "resource_exhaustion" as const, code: "out_of_memory" as const, message: null }
+          : { kind: "task_failure" as const, code: "handler_failed" as const, message: null };
+        state = appendCompletionTransition(state, databaseTime(heartbeatAt + 1), {
+          kind: "failed",
+          failure,
+          retry: { kind: "use_bound_policy" },
+          executionDurationMs: null,
+        });
+      }
+    }
+    const targetEligibleAt = state.current.phase === "ready"
+      ? state.current.ready.eligibleAtMs
+      : state.current.phase === "retry_waiting"
+        ? state.current.retry.notBeforeMs
+        : null;
+    if (targetEligibleAt === null) return null;
+    const targetStartAt = databaseTime(Math.max(
+      Number(targetEligibleAt),
+      Number(finalHeartbeatAt) - heartbeatCount - 1,
+    ));
+    state = appendStartTransition(state, targetStartAt);
     for (let index = 1; index <= heartbeatCount; index += 1) {
       state = appendHeartbeatTransition(
         state,
@@ -846,6 +937,8 @@ export function compatibilityCommandV1(
         executionFence: commandFence(vector),
         expectedLeaseVersion: vector.command.identity.includes("lease-4")
           ? leaseVersion(4n)
+          : vector.command.identity.includes("lease-6")
+            ? leaseVersion(6n)
           : vector.command.identity.includes("lease-3")
             ? leaseVersion(3n)
           : vector.command.identity.includes("lease-2")

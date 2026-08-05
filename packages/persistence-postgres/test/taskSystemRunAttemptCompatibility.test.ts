@@ -51,20 +51,10 @@ const FOREIGN_SCOPE_ID = "scope_72000000-0000-4000-8000-000000000099";
 
 const DEFERRED_HISTORY_REASONS = Object.freeze({
   "start-durable-retry-due": "non_transition_cursor",
-  "attempt-limit-terminal-failure": "multi_attempt_fixture",
-  "oom-target-not-different": "multi_attempt_fixture",
-  "lease-loss-attempt-limit-terminal": "multi_attempt_fixture",
-  "heartbeat-stale-attempt": "multi_attempt_fixture",
-  "heartbeat-stale-fence": "multi_attempt_fixture",
-  "completion-stale-attempt": "multi_attempt_fixture",
-  "completion-stale-fence": "multi_attempt_fixture",
-  "lease-wake-stale-attempt": "multi_attempt_fixture",
-  "lease-wake-stale-fence": "multi_attempt_fixture",
   "effect-sequence-overflow-rejected": "explicit_corruption_setup",
 } satisfies Readonly<Record<string, CompatibilityHistoryDeferralReasonV1>>);
 
 type CompatibilityHistoryDeferralReasonV1 =
-  | "multi_attempt_fixture"
   | "non_transition_cursor"
   | "explicit_corruption_setup";
 
@@ -177,7 +167,7 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
         }
       }
 
-      expect(storeVectors).toBe(52);
+      expect(storeVectors).toBe(61);
       expect(commandBoundaryVectors).toEqual(COMMAND_BOUNDARY_VECTOR_IDS);
       expect(deferredHistoryVectors).toEqual(
         Object.entries(DEFERRED_HISTORY_REASONS).map(([id, reason]) => ({
