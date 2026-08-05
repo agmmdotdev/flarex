@@ -455,9 +455,6 @@ function invocation(
           patch: async () => { events.push("patch"); },
           replace: async () => { events.push("replace"); },
           delete: async () => { events.push("delete"); },
-          query: () => { throw new Error("scans unavailable"); },
-          normalizeId: () => { throw new Error("normalization unavailable"); },
-          system: {},
         },
       },
       invokeWithContext: <A>(

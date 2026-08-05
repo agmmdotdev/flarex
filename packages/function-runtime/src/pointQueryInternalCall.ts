@@ -14,6 +14,7 @@ import {
 } from "flarex-protocol/validator-json";
 import { validateValidatorValueIssueV1 } from
   "flarex-protocol/internal/validator-engine-core";
+import type { FunctionRuntimePointReaderV1 } from "./functionApiCore";
 
 export type PointQueryInternalCallRuntimeArgsValidatorV1 =
   | ObjectValidatorJsonV1
@@ -64,18 +65,11 @@ export interface CapturedPointQueryInternalCallRuntimeArgumentsV1 {
   readonly semanticSizeBytes: number;
 }
 
-export interface PointQueryInternalCallRuntimeDatabaseV1 {
-  readonly get: (
-    documentId: string,
-  ) => Promise<CanonicalFlarexRuntimeObjectV1 | null>;
-  readonly insert: (...args: ReadonlyArray<unknown>) => never;
-  readonly patch: (...args: ReadonlyArray<unknown>) => never;
-  readonly replace: (...args: ReadonlyArray<unknown>) => never;
-  readonly delete: (...args: ReadonlyArray<unknown>) => never;
-  readonly query: (...args: ReadonlyArray<unknown>) => never;
-  readonly normalizeId: (...args: ReadonlyArray<unknown>) => never;
-  readonly system: Readonly<Record<string, never>>;
-}
+export interface PointQueryInternalCallRuntimeDatabaseV1
+  extends FunctionRuntimePointReaderV1<
+    string,
+    CanonicalFlarexRuntimeObjectV1
+  > {}
 
 export interface PointQueryInternalCallRuntimeContextV1 {
   readonly auth: Readonly<{

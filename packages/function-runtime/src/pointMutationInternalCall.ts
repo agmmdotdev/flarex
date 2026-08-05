@@ -13,6 +13,7 @@ import {
   requireValidatorAdmission,
   validateValue,
 } from "./pointMutationInternalQueryPrimitives";
+import type { FunctionRuntimePointReaderV1 } from "./functionApiCore";
 
 export type PointMutationInternalCallRuntimeArgsValidatorV1 =
   | ObjectValidatorJsonV1
@@ -67,17 +68,15 @@ export interface CapturedPointMutationInternalCallRuntimeArgumentsV1 {
   readonly semanticSizeBytes: number;
 }
 
-export interface PointMutationInternalCallRuntimeDatabaseV1 {
-  readonly get: (
-    documentId: string,
-  ) => Promise<CanonicalFlarexRuntimeObjectV1 | null>;
+export interface PointMutationInternalCallRuntimeDatabaseV1
+  extends FunctionRuntimePointReaderV1<
+    string,
+    CanonicalFlarexRuntimeObjectV1
+  > {
   readonly insert: (tableName: string, fields: unknown) => Promise<string>;
   readonly patch: (documentId: string, patch: unknown) => Promise<void>;
   readonly replace: (documentId: string, fields: unknown) => Promise<void>;
   readonly delete: (documentId: string) => Promise<void>;
-  readonly query: (...args: ReadonlyArray<unknown>) => never;
-  readonly normalizeId: (...args: ReadonlyArray<unknown>) => never;
-  readonly system: Readonly<Record<string, never>>;
 }
 
 export interface PointMutationInternalCallRuntimeContextV1 {
@@ -657,9 +656,6 @@ function makeReadOnlyDatabase(
     patch: forbidden,
     replace: forbidden,
     delete: forbidden,
-    query: forbidden,
-    normalizeId: forbidden,
-    system: Object.freeze({}),
   });
 }
 

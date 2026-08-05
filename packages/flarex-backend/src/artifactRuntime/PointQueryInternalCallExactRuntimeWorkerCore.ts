@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimePointReaderV1,
   createQueryFunctionRuntimeBaseContextV1,
 } from "flarex:function-api-core/v1";
 import type {
@@ -111,14 +112,9 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
         callFrames: Array<PointQueryInternalCallFrameV1>;
         failure?: unknown;
       } = { closed: false, pending: new Set(), callFrames: [] };
-      const terminalOperation = (message: string): never => {
-        const cause = new Error(message);
-        state.failure ??= cause;
-        throw namedError("PointQueryInternalCallRuntimeTerminalV1Error", cause);
-      };
       activeTerminalFailureRecorder = cause => { state.failure ??= cause; };
-      const database = freeze({
-        get: (documentId: string) => {
+      const database = createFunctionRuntimePointReaderV1(
+        (documentId: string) => {
           if (state.closed) throw readBoundaryError(new Error("Query read boundary is closed."));
           const pending = Promise.resolve().then(() => {
             const tableName = tableNameForDocument(request.tables, documentId);
@@ -132,14 +128,7 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
           void pending.then(cleanup, cleanup);
           return pending;
         },
-        insert: () => terminalOperation("Writes are unavailable in exact point-query runtime."),
-        patch: () => terminalOperation("Writes are unavailable in exact point-query runtime."),
-        replace: () => terminalOperation("Writes are unavailable in exact point-query runtime."),
-        delete: () => terminalOperation("Writes are unavailable in exact point-query runtime."),
-        query: () => terminalOperation("Scans are unavailable in exact point-query runtime."),
-        normalizeId: () => terminalOperation("Operation is unavailable in exact point-query runtime."),
-        system: freeze({}),
-      });
+      );
       const invocations: PointQueryInternalCallRuntimeInvocationFactoryV1 = freeze({
         open: () => freeze({
           context: createQueryFunctionRuntimeBaseContextV1(
@@ -461,9 +450,6 @@ function tableNameForDocument(
   return separator > 0 && table !== undefined ? table.logicalName : null;
 }
 
-function unavailableWrite(): never {
-  return terminalUnavailable("Writes are unavailable in exact point-query runtime.");
-}
 function unavailableOperation(): never {
   return terminalUnavailable("Operation is unavailable in exact point-query runtime.");
 }

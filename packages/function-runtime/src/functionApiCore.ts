@@ -19,6 +19,14 @@ export interface FunctionRuntimeBaseContextV1<Database extends object> {
   readonly db: Database;
 }
 
+export type FunctionRuntimePointReadV1<DocumentId, Document> = (
+  documentId: DocumentId,
+) => Promise<Document | null>;
+
+export interface FunctionRuntimePointReaderV1<DocumentId, Document> {
+  readonly get: FunctionRuntimePointReadV1<DocumentId, Document>;
+}
+
 export function createFunctionRuntimeAuthV1(
   projection: FunctionRuntimeAuthProjectionV1,
   cloneIdentity: FunctionRuntimeIdentityCloneV1,
@@ -28,6 +36,15 @@ export function createFunctionRuntimeAuthV1(
       projection.kind === "anonymous"
         ? null
         : cloneIdentity(projection.user),
+  });
+}
+
+export function createFunctionRuntimePointReaderV1<DocumentId, Document>(
+  readPointDocument: FunctionRuntimePointReadV1<DocumentId, Document>,
+): Readonly<FunctionRuntimePointReaderV1<DocumentId, Document>> {
+  return freeze({
+    get: (documentId: DocumentId): Promise<Document | null> =>
+      readPointDocument(documentId),
   });
 }
 

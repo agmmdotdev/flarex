@@ -2,6 +2,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimePointReaderV1,
   createMutationFunctionRuntimeBaseContextV1,
 } from "flarex:function-api-core/v1";
 import type {
@@ -217,9 +218,6 @@ interface ExactRuntimeDatabase {
   readonly patch: (documentId: string, patch: unknown) => Promise<void>;
   readonly replace: (documentId: string, fields: unknown) => Promise<void>;
   readonly delete: (documentId: string) => Promise<void>;
-  readonly query: (...args: ReadonlyArray<unknown>) => never;
-  readonly normalizeId: (...args: ReadonlyArray<unknown>) => never;
-  readonly system: Readonly<Record<string, never>>;
 }
 
 interface ExactRuntimeJournal {
@@ -1562,14 +1560,17 @@ function databaseForJournal(
     );
     return execution;
   }
-  const database = Object.freeze({
-    get: (documentId: string) =>
+  const pointReader = createFunctionRuntimePointReaderV1(
+    (documentId: string) =>
       trackCallerPromise(run(
         tableNameForDocumentId(documentId),
         { kind: "get", documentId },
       ).then((outcome) =>
         outcome.kind === "missing" ? null : outcome.document
       )),
+  );
+  const database = Object.freeze({
+    ...pointReader,
     insert: (tableName: string, fields: unknown) => {
       const capturedFields = captureDeveloperFields(fields, "insert fields");
       return trackCallerPromise(run(
@@ -1600,9 +1601,6 @@ function databaseForJournal(
         tableNameForDocumentId(documentId),
         { kind: "delete", documentId },
       ).then(() => undefined)),
-    query: unsupported("ctx.db.query"),
-    normalizeId: unsupported("ctx.db.normalizeId"),
-    system: Object.freeze({}),
   });
   return Object.freeze({
     database,
@@ -2207,12 +2205,4 @@ function isAppDocumentId(value: unknown): value is string {
   }
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
     .test(value.slice(separator + 1));
-}
-
-function unsupported(
-  capability: string,
-): (...args: ReadonlyArray<unknown>) => never {
-  return (..._args: ReadonlyArray<unknown>) => {
-    throw new Error(`${capability} is unavailable during exact point-mutation execution.`);
-  };
 }

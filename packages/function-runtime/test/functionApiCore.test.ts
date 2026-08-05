@@ -4,6 +4,7 @@ import type { UserIdentity } from "flarex-protocol/auth";
 
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimePointReaderV1,
   createMutationFunctionRuntimeBaseContextV1,
   createQueryFunctionRuntimeBaseContextV1,
 } from "../src/functionApiCore";
@@ -27,6 +28,37 @@ describe("@flarex/function-runtime/function-api-core", () => {
     expect(cloneIdentity).not.toHaveBeenCalled();
     expect(Object.isFrozen(auth)).toBe(true);
     expect(Object.keys(auth)).toEqual(["getUserIdentity"]);
+  });
+
+  it("constructs an exact frozen point reader without changing port timing", async () => {
+    const document = Object.freeze({ _id: "orders:1", status: "open" });
+    const promisedDocument = Promise.resolve(document);
+    const readPointDocument = vi.fn((documentId: string) => {
+      expect(documentId).toBe("orders:1");
+      return promisedDocument;
+    });
+    const reader = createFunctionRuntimePointReaderV1(readPointDocument);
+
+    const result = reader.get("orders:1");
+
+    expect(result).toBe(promisedDocument);
+    await expect(result).resolves.toBe(document);
+    expect(readPointDocument).toHaveBeenCalledOnce();
+    expect(Object.keys(reader)).toEqual(["get"]);
+    expect(Object.isFrozen(reader)).toBe(true);
+    expect("insert" in reader).toBe(false);
+    expect("query" in reader).toBe(false);
+    expect("normalizeId" in reader).toBe(false);
+    expect("system" in reader).toBe(false);
+  });
+
+  it("preserves a point-read port's synchronous failure", () => {
+    const failure = new Error("reader closed");
+    const reader = createFunctionRuntimePointReaderV1((_documentId: string) => {
+      throw failure;
+    });
+
+    expect(() => reader.get("orders:1")).toThrow(failure);
   });
 
   it("returns a fresh owned identity from the trusted clone port on every call", async () => {

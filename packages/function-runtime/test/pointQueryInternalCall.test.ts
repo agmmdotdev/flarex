@@ -220,13 +220,6 @@ function invocation(
         auth: { getUserIdentity: async () => null },
         db: {
           get: async () => { events.push("get"); return { status: "open" }; },
-          insert: () => { throw new Error("writes unavailable"); },
-          patch: () => { throw new Error("writes unavailable"); },
-          replace: () => { throw new Error("writes unavailable"); },
-          delete: () => { throw new Error("writes unavailable"); },
-          query: () => { throw new Error("scans unavailable"); },
-          normalizeId: () => { throw new Error("normalization unavailable"); },
-          system: {},
         },
       },
       invokeWithContext: <A>(

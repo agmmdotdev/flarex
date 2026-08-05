@@ -1033,6 +1033,108 @@ uncertainty, activation, route, or production behavior changed. The existing
 synthetic platform ABI remains private and temporary; there is no fallback or
 dual graph acceptance.
 
+### `FAC02` Point-Reader Preflight Decision
+
+**Accepted:** 2026-08-06
+
+The current Convex runtime keeps the JavaScript database facade separate from
+the host bridge. `database_impl.ts` owns `setupReader()` and its `get` method,
+which delegates through the async syscall boundary; `setupWriter()` reuses that
+reader's `get` and adds mutation methods. `registration_impl.ts` installs the
+reader on query contexts and the writer on mutation contexts. Convex therefore
+provides useful shape guidance, but it does not justify moving snapshot,
+journal, transaction, or persistence authority into a Flarex facade.
+
+Current Flarex evidence has two deliberately different point-read adapters:
+
+- the selected query Worker owns table lookup, revalidation, pending-read
+  tracking, close/drain, read-boundary failure capture, and its admitted
+  snapshot capability; and
+- the selected mutation Worker owns table-capability resolution, exact journal
+  sequencing, read-your-writes, application-error catchability, poisoning,
+  close/drain, and disposal.
+
+`FAC02` therefore accepts one generic, frozen, positive-capability point-reader
+facade under the existing private Function API Core. Its whole contract is
+`get(documentId) -> Promise<document | null>`. The constructor captures one
+supplied read function and delegates directly: it does not insert a promise
+turn, catch or translate errors, inspect identifiers or documents, or acquire
+host capabilities. This preserves each adapter's existing synchronous
+validation and closed-boundary behavior as well as its asynchronous failure
+identity and ordering.
+
+The selected query profile will expose only `get`; it will no longer advertise
+throwing write, scan, normalization, or empty system placeholders. The selected
+mutation profile will compose the shared reader with its existing journal-owned
+`insert`, `patch`, `replace`, and `delete` methods, and will no longer advertise
+unimplemented scan, normalization, or system members. Capability absence is
+represented by member absence, matching the positive-capability rule already
+accepted by this roadmap. This is a private runtime contract correction for the
+selected profiles, not a public developer API or a claim that full Convex query
+or system database surfaces exist.
+
+Rejected in this slice are a universal database port, a facade that receives
+tables or transaction state, promise normalization in the shared constructor,
+error translation in the shared constructor, mutation-writer extraction,
+query-builder or `normalizeId` work, original-profile rewrites, and any new
+syscall, protocol, persistence, routing, activation, or production authority.
+
+The implementation gate requires focused facade tests for exact keys, freezing,
+argument forwarding, promise identity, and synchronous-throw preservation;
+selected query and mutation Workerd proofs for exact context capabilities and
+unchanged close/drain and journal ordering; deterministic regeneration of the
+shared support module and both selected Worker cores; derived graph-basis and
+candidate-target identity proofs; SAP05 and SAP06-A3 PGlite and genuine
+PostgreSQL regressions; affected typechecks and Effect-boundary checks; and both
+mandatory exact-final reviewers. The commit must remove the selected profiles'
+duplicated point-reader object construction and unsupported database members in
+the same slice, with no old/new fallback.
+
+### `FAC02` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+The private Function API Core now owns
+`createFunctionRuntimePointReaderV1`. It constructs one exact frozen `{ get }`
+facade and delegates directly to the invocation adapter without introducing a
+promise turn or failure mapping. The selected query Worker supplies its existing
+snapshot/read-boundary adapter. The selected mutation Worker supplies its
+existing journal-backed adapter and composes that reader with the unchanged
+writer methods. The selected query database no longer contains write, scan,
+normalization, or system placeholders; the selected mutation database no longer
+contains scan, normalization, or system placeholders.
+
+The deterministic generated closure is:
+
+- shared Function API Core SHA-256
+  `e5c52cf21f6ee4e576b240d014aca40d0172ef108fb25ec649f53313082af986`;
+- selected query-internal-call runtime-kernel SHA-256
+  `5b2eb183302adbdcbaae4b263687d9d456b8348f183fe5daaff41c11e6ab5373`;
+- selected query-internal-call Worker-core SHA-256
+  `4cd6846af0a53951d38e624a6bb04c2daa3b74f264011a138a78cc8d2de83dd5`;
+- selected mutation-internal-call runtime-kernel SHA-256
+  `ee99614520496543277b38eaf0077426158606dd9bd67f87742ec6ea4d3dccad`;
+  and
+- selected mutation-internal-call Worker-core SHA-256
+  `bae25a31640465943c7c2042803cd964bd3f6a2b8d55fc701d39813da94653f9`.
+
+Validation passed for all 48 `@flarex/function-runtime` tests and its
+typecheck; the complete backend generated-source build and typecheck; focused
+generated-identity plus selected query and mutation Workerd suites (7 tests);
+`check:effect-boundaries`; SAP05 and SAP06-A3 PGlite acceptance; and SAP05 and
+SAP06-A3 genuine PostgreSQL acceptance (2 tests each) on separate databases in
+one fresh isolated PostgreSQL 18 cluster. The generated checks failed closed on
+the initially stale selected kernel receipts, after which both kernels were
+explicitly regenerated and the complete backend build passed. The exact-final
+TypeScript/Effect and code-quality reviewers reported no findings; the latter
+also independently recomputed all five generated SHA-256 receipts.
+
+No analyzer operation, public protocol/profile/syscall ABI version,
+persistence schema, query snapshot owner, mutation journal operation order,
+read-your-writes behavior, OCC/commit owner, action uncertainty, activation,
+route, or production behavior changed. There is no fallback, dual facade, or
+second read authority.
+
 ### Sequenced Follow-On Slices
 
 After `FAC01`, continue one coherent commit at a time:

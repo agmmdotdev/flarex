@@ -189,6 +189,9 @@ export async function update(ctx) {
   if (Object.keys(ctx).join(",") !== "auth,db,runQuery,runMutation" || "scheduler" in ctx || "storage" in ctx) {
     throw new Error("invalid mutation context shape");
   }
+  if (Object.keys(ctx.db).join(",") !== "get,insert,patch,replace,delete" || "query" in ctx.db || "normalizeId" in ctx.db || "system" in ctx.db) {
+    throw new Error("invalid mutation database shape");
+  }
   if (await ctx.auth.getUserIdentity() !== null) throw new Error("invalid anonymous identity");
   let id;
   try {
