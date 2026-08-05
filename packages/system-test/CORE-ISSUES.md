@@ -18,43 +18,39 @@ None.
 
 ## Investigation Leads
 
-### `ST-CORE-006` — Historical verified-body parser-terminal failure
-
-- **Status:** Historical observation only; not currently reproducible and not
-  an authoritative shared-core defect. No analyzer change is authorized.
-- **Discovered by:** Cooking custom-logic and nested-call simulation expansion
-  after applying the representable `ST-CORE-004` test budget.
-- **Observed boundary:** Verified parse-body restart hashing before registration
-  and runtime dispatch.
-- **Historical reproduction:** During development of `SAC01-F2f`, the
-  pre-adjustment cooking source family combined nullish coalescing,
-  `Array.prototype.reduce`, template/object construction, and thrown
-  missing-state errors with the nested Standard calls. Running
-  `pnpm --filter @flarex/system-test exec vitest run
-  test/simulation/cooking/cookingSimulationV1.pglite.test.ts` under a command
-  budget that admitted its immutable capacities reached restart-evidence
-  production and threw `Verified body token lost its parser terminal.` from
-  `advanceRestartBodyHashV1`.
-- **Evidence limitation:** The exact pre-adjustment bytes were not retained and
-  the current narrower, still application-owned cooking modules pass. The
-  current fixture therefore is not a reproduction. This issue remains an
-  investigation lead, not a closure-ready defect, until the required minimized
-  inert source vector identifies the triggering syntax.
-- **Expected:** Every body accepted by the parser retains its terminal through
-  verified-body hashing and warm/cold restart evidence, or the originating
-  unsupported syntax is rejected as a typed analysis diagnostic.
-- **Actual:** The historical development source reached an internal invariant
-  defect after parse admission, but the triggering module and syntax were not
-  isolated before the source changed.
-- **Resolution owner:** If a minimized vector reproduces the failure, a
-  separate analysis executable/restart preflight. The system-test simulation
-  must not catch, translate, minify around, or weaken an invariant failure.
-- **Acceptance evidence required:** Minimized source vector, typed failure or
-  corrected terminal ownership, warm/cold equivalence, interruption and
-  rollback, generated closure if identities change, and both mandatory
-  reviewers.
+None.
 
 ## Resolved Issues
+
+### `ST-CORE-006` — Canonical-rejected tokens lacked restart terminal ownership
+
+- **Status:** Resolved in the private analyzer executable/restart owner.
+- **Discovered by:** Cooking custom-logic and nested-call simulation expansion.
+- **Observed boundary:** Verified parse-body restart hashing before registration
+  and runtime dispatch.
+- **Reproduction:** Each lexically accepted module
+  `export function f(){return x=>x;}`,
+  `export function f(){return x=>{return x;};}`, and
+  `export function f(){return new Error();}` completed with the expected
+  `CORE_SYNTAX` or `CORE_CONSTRUCTION` diagnostic, then restart record
+  production threw `Verified body token lost its parser terminal.` from
+  `advanceRestartBodyHashV1`.
+- **Root cause:** Canonical grammar terminal IDs begin at one, while stored zero
+  means an uninitialized token record. Lexically admitted tokens outside the
+  canonical grammar received no initial terminal, so diagnostic-bearing
+  rejected modules could not serialize their function body evidence.
+- **Resolution:** Terminal ID zero is the explicit parser-owned canonical
+  rejection identity and is stored as one. A successful canonical shift still
+  overwrites the initial identity with the exact shifted terminal. The restart
+  hasher remains a fail-closed consumer and does not infer syntax. Arrow and
+  construction syntax remain unsupported and retain their typed diagnostics.
+  No canonical grammar/table or restart protocol identity changes.
+- **Resolution owner:** The private analysis executable parser-terminal owner.
+- **Acceptance evidence:** Three minimized vectors pin their typed diagnostic,
+  exact body hash, one-transition record streaming, and cold reconstruction.
+  The complete 152-test executable suite, restart evidence/runtime tests,
+  analysis typecheck, generated checks, analyzer identity reproduction, and
+  both mandatory exact-final reviewers pass.
 
 ### `ST-CORE-005` — Aggregate command budgets rejected by per-record restart codec
 

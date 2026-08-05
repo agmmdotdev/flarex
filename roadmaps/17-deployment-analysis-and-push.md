@@ -1771,7 +1771,21 @@ activation remain blocked until their production host composition is proven.
         signed-int64 maximum preserve the canonical bytes of previously
         admitted records, so the restart evidence identity remains V1; the
         bundled private analyzer implementation identity is
-        `206835e4a5e3fd24d6b3c14e50225927cc452f1ea0b5e9978db265cca3cd47f0`.
+        `7322c6a6a4927424377752794ab11840d17f49dbbbeb34741a5ef5149a7253e9`.
+
+        The accepted `ST-CORE-006` correction keeps unsupported arrow and
+        construction syntax outside the canonical Standard subset. Canonical
+        grammar terminals remain numbered from one; terminal zero is now the
+        parser-owned rejection identity for a lexically admitted token that the
+        canonical grammar rejects, while stored zero remains the uninitialized
+        arena sentinel because terminal identities are stored plus one.
+        Successful shifts overwrite the initial identity exactly as before.
+        Diagnostic-bearing rejected modules can therefore produce and rehydrate
+        deterministic restart records without the restart hasher inferring
+        syntax. Previously successful module bytes and body hashes, canonical
+        grammar/table identity, diagnostics, and restart V1 protocol remain
+        unchanged; only the private analyzer implementation identity above
+        refreshes.
 
         Durable command usage and restart recovery usage remain separate
         ledgers. Recovery-side `objectCalls`, page/body bytes, hashes, records,

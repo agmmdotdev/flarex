@@ -216,6 +216,83 @@ describe("private verifier result access", () => {
 });
 
 describe("private verifier restart bridge", () => {
+  test.each([
+    [
+      "concise arrow",
+      "export function f(){return x=>x;}",
+      "CORE_SYNTAX",
+      "619ef22ab56fce1149f83b2678fb868744adfe0adf7c544c9aa7885d1fa0b62e",
+    ],
+    [
+      "block arrow",
+      "export function f(){return x=>{return x;};}",
+      "CORE_SYNTAX",
+      "ad608fa20a37457f0c9d24ef6d713c9f4ddbdf326c3e1d8dad3f9dc0fe63e066",
+    ],
+    [
+      "new expression",
+      "export function f(){return new Error();}",
+      "CORE_CONSTRUCTION",
+      "c9f6be2ea35dee2f252c5a156d5741942ec1675d5770b2166119a8d193b8b6cc",
+    ],
+  ])(
+    "retains parser-owned rejection terminals for %s bodies",
+    (_label, source, diagnostic, expectedBodySha256) => {
+      const sourceBytes = UTF8_ENCODER.encode(source);
+      const presented = Result.getOrThrow(runSource(sourceBytes, [sourceBytes]));
+      expect(presented.verified).toBe(false);
+      expect(presented.diagnostics.map(item => item.code)).toContain(diagnostic);
+      const module = runModuleResult(
+        source,
+        "functions/restart-terminal.js",
+        6n,
+      );
+      const bridge = makeDeclarativeV2VerifierExecutableRestartBridgeV1();
+      const opened = Result.getOrThrow(bridge.openModuleRecords(
+        module,
+        new Uint8Array(32).fill(8),
+        budget("command_budget", sourceBytes.byteLength),
+      ));
+      const records = [];
+      for (let iteration = 0; iteration < 10_000; iteration += 1) {
+        const read = Result.getOrThrow(bridge.readModuleRecord(opened, 1));
+        if (read.status === "complete") break;
+        if (read.status === "item") records.push(read.record);
+      }
+      const functionRecord = records.find(record => record.kind === "function_v1");
+      expect(functionRecord).toMatchObject({
+        kind: "function_v1",
+        moduleOrdinal: 6n,
+        functionName: "f",
+      });
+      if (functionRecord?.kind !== "function_v1") {
+        throw new Error("missing rejected restart function record");
+      }
+      expect(Buffer.from(functionRecord.bodySha256).toString("hex"))
+        .toBe(expectedBodySha256);
+
+      const builder = Result.getOrThrow(bridge.createModuleBuilder(
+        budget("command_budget", sourceBytes.byteLength),
+        budget("attempt_usage", sourceBytes.byteLength),
+      ));
+      for (const record of records) {
+        Result.getOrThrow(bridge.appendModuleRecord(builder, record));
+      }
+      let cold: DeclarativeV2VerifierModuleResultV1 | undefined;
+      for (let iteration = 0; iteration < 100_000; iteration += 1) {
+        const built = Result.getOrThrow(bridge.finishModuleBuilder(builder, 1));
+        if (built.status === "complete") {
+          cold = built.result;
+          break;
+        }
+      }
+      if (cold === undefined) {
+        throw new Error("rejected cold module builder did not finish");
+      }
+      expect(cold.evidenceSha256).toBe(module.evidenceSha256);
+    },
+  );
+
   test("derives exact parameter and token-body identities without presentation state", () => {
     const source =
       "export async function ready({ value } = {}, ...rest) { return value; } " +

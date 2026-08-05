@@ -134,6 +134,10 @@ const SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER =
       "byteLength",
     )?.get;
 const UINT8_ARRAY_SUBARRAY = Uint8Array.prototype.subarray;
+// Canonical grammar terminals begin at one. Terminal zero is the parser-owned
+// identity for a lexically admitted token rejected by that grammar; stored zero
+// remains the uninitialized arena sentinel because terminal IDs are stored +1.
+const CANONICAL_REJECTED_TOKEN_TERMINAL_V1 = 0;
 const MAX_SIGNED_INT64 = 9_223_372_036_854_775_807n;
 const MAX_U32 = 0xffff_ffff;
 const EXECUTABLE_ASSET_RESULT = Encoding.decodeBase64(
@@ -2307,10 +2311,10 @@ export function createDeclarativeV2VerifierEngineV1(
     stringBytes.set(raw, stringCursor);
     stringCursor += raw.length;
     tokenCount += 1;
-    const fallbackTerminal = canonicalTokenTerminals(tokenAt(emittedIndex))[0];
-    if (fallbackTerminal !== undefined) {
-      tokenView.setUint32(offset + 36, fallbackTerminal + 1, false);
-    }
+    const initialTerminal =
+      canonicalTokenTerminals(tokenAt(emittedIndex))[0] ??
+      CANONICAL_REJECTED_TOKEN_TERMINAL_V1;
+    tokenView.setUint32(offset + 36, initialTerminal + 1, false);
     canonicalParserWaitingForForHeader = false;
     usage.tokens += 1n;
     usage.tokenBytes += BigInt(tokenByteLength);
@@ -3284,10 +3288,10 @@ export function createDeclarativeV2VerifierEngineV1(
     tokenView.setUint32(offset + 20, currentTokenLineBefore ? 1 : 0, false);
     stringCursor += state.outputLength;
     tokenCount += 1;
-    const fallbackTerminal = canonicalTokenTerminals(tokenAt(emittedIndex))[0];
-    if (fallbackTerminal !== undefined) {
-      tokenView.setUint32(offset + 36, fallbackTerminal + 1, false);
-    }
+    const initialTerminal =
+      canonicalTokenTerminals(tokenAt(emittedIndex))[0] ??
+      CANONICAL_REJECTED_TOKEN_TERMINAL_V1;
+    tokenView.setUint32(offset + 36, initialTerminal + 1, false);
     usage.tokens += 1n;
     usage.tokenBytes += BigInt(state.rawByteLength);
     currentTokenLineBefore = false;

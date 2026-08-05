@@ -399,9 +399,10 @@ Named Flarex differences are:
   The matching genuine-PostgreSQL lane remains implemented but requires an
   authenticated URL. The work also exposed and resolved the test-owned
   `ST-CORE-004`, exposed the reproducible shared-boundary mismatch
-  `ST-CORE-005` (now resolved), and recorded the historical observation
-  `ST-CORE-006`. Their evidence, limitations, and authority boundaries live in
-  the package ledger rather than being hidden in simulation glue.
+  `ST-CORE-005` (now resolved), and exposed the now-resolved rejected-token
+  restart-ownership defect `ST-CORE-006`. Their evidence and authority
+  boundaries live in the package ledger rather than being hidden in simulation
+  glue.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate
@@ -430,9 +431,10 @@ Named Flarex differences are:
 - `@flarex/system-test` resolved the original analyzer arena/finalization
   defects `ST-CORE-001` through `ST-CORE-003`. The richer cooking workload then
   exposed the now-resolved aggregate-budget/per-record restart-codec defect
-  `ST-CORE-005`. `ST-CORE-006` records a historical parser-terminal observation
-  whose exact source was not retained; it is an investigation lead rather than
-  an authoritative defect reproduction. The evidence, temporary constraints,
+  `ST-CORE-005`. Minimized arrow and construction vectors then reproduced and
+  resolved `ST-CORE-006`: these constructs remain typed canonical rejections,
+  while their diagnostic-bearing module results now retain parser-owned
+  rejection-terminal identity through restart serialization. The evidence,
   owners, limitations, and acceptance requirements remain in
   [`CORE-ISSUES.md`](../packages/system-test/CORE-ISSUES.md).
 - The live staging H05-B proof through real cache-disabled Hyperdrive remains
