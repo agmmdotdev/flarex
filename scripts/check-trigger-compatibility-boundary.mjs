@@ -163,6 +163,8 @@ const durableTaskAllowedExports = Object.freeze({
   "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
   "./internal/run-creation-v1": "./src/runCreation/v1.ts",
   "./internal/run-read-v1": "./src/runRead/v1.ts",
+  "./internal/scheduling-v1": "./src/scheduling/v1.ts",
+  "./internal/scheduling-testing-v1": "./src/scheduling/testing-v1.ts",
 });
 const expectedTargetPackage = "@flarex/durable-task";
 const forbiddenDurableTaskPackages = new Set([
@@ -402,7 +404,7 @@ export function analyzeDurableTaskManifest(manifest) {
     || !hasExactStringRecord(exportsField, durableTaskAllowedExports)
   ) {
     errors.push(
-      `${durableTaskManifestPath}: exports must contain only the admitted run-attempt, run-creation, and run-read internal subpaths.`,
+      `${durableTaskManifestPath}: exports must contain only the admitted run-attempt, run-creation, run-read, scheduling, and scheduling-testing internal subpaths.`,
     );
   }
 

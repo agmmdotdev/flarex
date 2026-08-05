@@ -29,9 +29,11 @@ canonical stored-authority correlation, terminal identity exhaustion, and
 connected PGlite concurrency and lifecycle-interoperation proof. DTE04-D adds
 production-inert due-discovery and requested-effect-ledger reads with stable
 bounded snapshots, and DTE04-E proves their real-Postgres parity together with
-the creation and lifecycle race/uncertainty matrix. Delivery, host
-integration, public API, scheduling, and production activation do not exist
-yet.
+the creation and lifecycle race/uncertainty matrix. Roadmap 05 is now active:
+DTE05-A admits a scope-bound host-neutral scheduling boundary and DTE05-B
+completes only the production-inert standard runner plus deterministic
+in-memory adapters. Cloudflare bindings, cross-scope scheduler authority,
+public APIs, compute delivery, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -314,8 +316,8 @@ exact aggregate, failure/retry policy, cancellation/heartbeat/lease/race
 tables, closed service contract, canonical compatibility vectors, named
 divergences, and executable contract gate are admitted as one lifecycle model.
 Roadmap 04's private Task System API and Postgres implementation are admitted
-without activation. Roadmap 05 is the next candidate for its owning docs-first
-discussion; later files remain candidates as well:
+without activation. Roadmap 05 now owns the active scheduling work; later
+files remain candidates:
 
 1. [`01-source-reuse-and-package-admission.md`](./01-source-reuse-and-package-admission.md)
    - **complete: admit** the medium run-attempt lifecycle source closure into a
@@ -354,9 +356,11 @@ discussion; later files remain candidates as well:
      uncertainty parity. DTE04-F closes provenance, package, migration,
      boundedness, and final-review admission. Delivery, host integration, and
      runtime activation remain closed;
-5. `05-cloudflare-wake-and-scheduling.md`
-   - Queues, alarms, cron, missed-wakeup recovery, duplicate delivery, bounded
-     schedulers, and fail-closed activation;
+5. [`05-cloudflare-wake-and-scheduling.md`](./05-cloudflare-wake-and-scheduling.md)
+   - **active; DTE05-A and DTE05-B complete:** standard scope-bound
+     scheduler contracts, host-neutral bounded recovery, deterministic memory
+     adapters, then trusted partitions, Queue hints, cron repair, optional
+     alarm acceleration, and fail-closed admission;
 6. `06-compute-provider-and-runtime.md`
    - Worker Loader reuse, compute assignment, heartbeats, interruption,
      checkpoints, AgentOS boundary, and restricted user capabilities;
