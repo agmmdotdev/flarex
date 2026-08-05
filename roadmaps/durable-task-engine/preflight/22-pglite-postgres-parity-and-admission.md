@@ -2,7 +2,7 @@
 
 ## Status
 
-**Status:** Active validation gate. DTE04-D's PGlite read matrix is complete.
+**Status:** **Complete: admit.** DTE04-D's PGlite read matrix is complete.
 DTE04-E now has a fail-closed real-Postgres read lane for snapshot parity,
 representative normal-planner index selection, lock blocking/release, retry
 after hidden successful read settlements, and cross-scope non-disclosure. Its
@@ -16,8 +16,10 @@ covers atomic rollback with gap-free effects, whole-transaction attempt-
 identity collision retry without an orphan candidate, and a committed
 completion whose hidden response replays without rewriting stored state.
 The fail-closed admission command passed non-skipped across the connected read,
-creation, and lifecycle lanes. DTE04-E is complete; the broader DTE04-F package,
-migration, boundary, provenance, bundle, and final-review gate remains open.
+creation, and lifecycle lanes. DTE04-E is complete, and DTE04-F closed the
+package, migration, boundary, provenance, bundle, boundedness, and final-review
+gate. The durable final receipt is
+[`25-final-task-system-postgres-admission.md`](./25-final-task-system-postgres-admission.md).
 
 ## Objective
 
@@ -290,13 +292,16 @@ remains assigned to DTE04-E.
 
 ### DTE04-E/F
 
+**Complete.** The final receipt owns the durable boundedness and exclusion
+claims for these gates.
+
 - complete PGlite and Postgres package suites relevant to the touched owner;
 - root typecheck/boundary/provenance/source-map gates;
 - package/bundle checks proving no source-island/Prisma dependency;
 - migration journal verification;
 - final TypeScript/Effect and code-quality reviewers on the unchanged final
   diff; and
-- a final `admit` or `revise` receipt with exact command/test counts.
+- a final durable `admit` or `revise` receipt.
 
 ## Admission Decision
 

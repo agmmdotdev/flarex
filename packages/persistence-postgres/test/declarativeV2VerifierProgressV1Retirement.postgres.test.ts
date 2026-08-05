@@ -97,7 +97,7 @@ describePostgres("Declarative V2 verifier-progress V1 retirement - PostgreSQL", 
             select count(*)::text as count
             from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations
           `);
-          expect(receipts.rows).toEqual([{ count: "45" }]);
+          expect(receipts.rows).toEqual([{ count: "47" }]);
           const version = await current.query<{ version: string }>(
             `select version()`,
           );

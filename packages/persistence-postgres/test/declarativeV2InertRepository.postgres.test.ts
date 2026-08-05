@@ -39,10 +39,12 @@ describePostgres("real Postgres Declarative V2 inert foundation", () => {
           count(*) filter (where contype = 'c')::text as check_count,
           count(*) filter (where contype = 'f')::text as foreign_key_count
         from pg_constraint
-        where conname like 'fx_dv2_%'
+        join pg_namespace on pg_namespace.oid = pg_constraint.connamespace
+        where pg_namespace.nspname = current_schema()
+          and starts_with(conname, 'fx_dv2_')
       `);
       expect(constraints.rows).toEqual([{
-        check_count: "43",
+        check_count: "55",
         foreign_key_count: "20",
       }]);
       await insertSessionTestScope(persistence);

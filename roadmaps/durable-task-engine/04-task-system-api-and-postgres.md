@@ -2,9 +2,11 @@
 
 ## Status
 
-**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-E are complete. The
-real-Postgres read, creation, and lifecycle parity lanes passed their connected
-admission command; DTE04-F final admission remains open. The
+**Status:** **Complete: admit.** DTE-IP01 and DTE04-A1 through DTE04-F are
+complete. The real-Postgres read, creation, and lifecycle parity lanes passed
+their connected admission command, and the final provenance, migration,
+package, bundle, boundedness, broad-validation, and review gates are closed.
+The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
@@ -355,15 +357,17 @@ admitted:
   collision retry, and committed-but-hidden completion replay without a new
   write. The fail-closed connected command passed non-skipped across the read,
   creation, and lifecycle lanes; and
-- **DTE04-F — final admission — active:** source map/notice refresh, boundary and bundle
-  checks, broad validation, reviewers, and an explicit admit/revise receipt.
+- **DTE04-F — final admission — complete:** source map/notice, boundary,
+  package/bundle, migration, boundedness, broad-validation, and final-review
+  gates passed. The durable evidence and stop boundary are recorded in
+  [`preflight/25-final-task-system-postgres-admission.md`](./preflight/25-final-task-system-postgres-admission.md).
 
 Each code checkpoint is a significant schema or behavioral change and requires
 both standing reviewer subagents before commit under `AGENTS.md`.
 
 ## Admission Gates
 
-Roadmap 04 cannot reach **complete: admit** until all of these are true:
+Roadmap 04 reached **complete: admit** after all of these gates were proven:
 
 - Preflights 19 through 22 contain no unresolved authority or representation
   decision required by the checkpoint being implemented;
