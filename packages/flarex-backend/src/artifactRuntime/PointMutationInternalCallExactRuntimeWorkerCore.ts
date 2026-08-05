@@ -1,5 +1,9 @@
 // Authored exact point-mutation runtime core. Built to an embedded JS artifact.
 import { WorkerEntrypoint } from "cloudflare:workers";
+import {
+  createFunctionRuntimeAuthV1,
+  createMutationFunctionRuntimeBaseContextV1,
+} from "flarex:function-api-core/v1";
 import type {
   UserIdentity,
 } from "flarex-protocol/auth";
@@ -619,7 +623,10 @@ export class FlarexPointMutationInternalCallExactRuntimeV1 extends WorkerEntrypo
               request.tables,
               admittedCapability,
             );
-            const context = executionContext(request, journalRuntime.database);
+            const context = createMutationFunctionRuntimeBaseContextV1(
+              createFunctionRuntimeAuthV1(request.auth, cloneUserIdentityV1),
+              journalRuntime.database,
+            );
             return Object.freeze({
               context,
               invokeWithContext: <A>(
@@ -1340,31 +1347,8 @@ function isTableJournalCapability(
   );
 }
 
-function executionContext(
-  request: DecodedExactRuntimeRequest,
-  database: ExactRuntimeDatabase,
-) {
-  return Object.freeze({
-    auth: Object.freeze({
-      getUserIdentity: async () => request.auth.kind === "anonymous"
-        ? null
-        : nativeStructuredClone(request.auth.user),
-    }),
-    db: database,
-    runQuery: unsupported("ctx.runQuery"),
-    runMutation: unsupported("ctx.runMutation"),
-    scheduler: Object.freeze({
-      runAfter: unsupported("ctx.scheduler.runAfter"),
-      runAt: unsupported("ctx.scheduler.runAt"),
-      cancel: unsupported("ctx.scheduler.cancel"),
-    }),
-    storage: Object.freeze({
-      getUrl: unsupported("ctx.storage.getUrl"),
-      generateUploadUrl: unsupported("ctx.storage.generateUploadUrl"),
-      delete: unsupported("ctx.storage.delete"),
-      getMetadata: unsupported("ctx.storage.getMetadata"),
-    }),
-  });
+function cloneUserIdentityV1(identity: UserIdentity): UserIdentity {
+  return nativeStructuredClone(identity);
 }
 
 function isUserIdentity(value: unknown): value is UserIdentity {

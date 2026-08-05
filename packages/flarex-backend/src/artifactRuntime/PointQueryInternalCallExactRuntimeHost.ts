@@ -13,6 +13,11 @@ import {
   type ExecutionArtifactWorkerDefinition,
 } from "./HostKit";
 import {
+  FUNCTION_API_CORE_MODULE_V1,
+  FUNCTION_API_CORE_SHA256_V1,
+  FUNCTION_API_CORE_SOURCE_V1,
+} from "./FunctionApiCore.generated";
+import {
   POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
   POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
 } from "./PointQueryInternalCallExactRuntimeWorkerCore.generated";
@@ -102,6 +107,7 @@ export function pointQueryInternalCallExactRuntimeWorkerGraphBasisV1(input: Read
       POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SHA256_V1],
     [POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_MODULE_V1,
       POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_SHA256_V1],
+    [FUNCTION_API_CORE_MODULE_V1, FUNCTION_API_CORE_SHA256_V1],
     [POINT_QUERY_INTERNAL_CALL_PLATFORM_MODULE_V1,
       pointQueryInternalCallExactRuntimePlatformSourceV1()],
     [POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1, bridge],
@@ -145,6 +151,10 @@ export function buildPointQueryInternalCallExactRuntimeWorkerDefinitionV1(
       Object.freeze({
         path: POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_MODULE_V1,
         source: POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_SOURCE_V1,
+      }),
+      Object.freeze({
+        path: FUNCTION_API_CORE_MODULE_V1,
+        source: FUNCTION_API_CORE_SOURCE_V1,
       }),
       Object.freeze({
         path: POINT_QUERY_INTERNAL_CALL_PLATFORM_MODULE_V1,

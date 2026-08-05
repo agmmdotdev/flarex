@@ -45,7 +45,10 @@ describe("point-query internal-call exact runtime in workerd", () => {
       sourceModules: [{
         path: "root.js",
         source: 'import{runQuery}from"flarex:platform";' +
-          'export async function get(_,a){return await runQuery({_path:"orders:internal"},a)}',
+          'export async function get(ctx,a){' +
+          'if(Object.keys(ctx).join(",")!=="auth,db,runQuery"||"runMutation" in ctx||"scheduler" in ctx||"storage" in ctx)throw new Error("invalid query context shape");' +
+          'if(await ctx.auth.getUserIdentity()!==null)throw new Error("invalid anonymous identity");' +
+          'return await runQuery({_path:"orders:internal"},a)}',
       }, {
         path: "internal.js",
         source: 'import{runQuery}from"flarex:platform";' +

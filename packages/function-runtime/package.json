@@ -7,6 +7,7 @@
   ],
   "exports": {
     "./edge-action": "./src/edgeAction.ts",
+    "./internal/function-api-core-v1": "./src/functionApiCore.ts",
     "./point-mutation": "./src/pointMutation.ts",
     "./point-query": "./src/pointQuery.ts",
     "./point-query-internal-call": "./src/pointQueryInternalCall.ts",

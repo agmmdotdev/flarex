@@ -1,4 +1,8 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import {
+  createFunctionRuntimeAuthV1,
+  createQueryFunctionRuntimeBaseContextV1,
+} from "flarex:function-api-core/v1";
 import type {
   capturePointQueryInternalCallRuntimeArgumentsV1,
   executePointQueryInternalCallV1,
@@ -47,6 +51,7 @@ const runtimeKernelPromise = import(runtimeKernelModulePath) as Promise<Readonly
 
 const nativeDate = globalThis.Date;
 const nativeMath = globalThis.Math;
+const nativeStructuredClone = globalThis.structuredClone;
 const defineProperty = Object.defineProperty;
 const getPrototypeOf = Object.getPrototypeOf;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
@@ -137,14 +142,10 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
       });
       const invocations: PointQueryInternalCallRuntimeInvocationFactoryV1 = freeze({
         open: () => freeze({
-          context: freeze({
-            auth: freeze({
-              getUserIdentity: async () => request.auth.kind === "anonymous"
-                ? null
-                : structuredClone(request.auth.user),
-            }),
-            db: database,
-          }),
+          context: createQueryFunctionRuntimeBaseContextV1(
+            createFunctionRuntimeAuthV1(request.auth, cloneUserIdentityV1),
+            database,
+          ),
           invokeWithContext: <A>(
             context: PointQueryInternalCallRuntimeContextV1,
             operation: () => A | PromiseLike<A>,
@@ -221,6 +222,10 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
       }
     }
   }
+}
+
+function cloneUserIdentityV1(identity: UserIdentity): UserIdentity {
+  return nativeStructuredClone(identity);
 }
 
 async function resolveFunction(path: string): Promise<unknown> {

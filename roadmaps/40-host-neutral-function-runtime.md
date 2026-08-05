@@ -7,10 +7,11 @@ prerequisite journal-boundary correction, canonical declarative-program first
 vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
-Function API Core direction and focused preflight recorded below are accepted.
-`FAC01`, the shared invocation-context foundation for the currently selected
-query and mutation profiles, is the next implementation gate. Production
-routing remains deferred.
+Function API Core direction and focused preflight recorded below are accepted,
+and `FAC01`, the shared invocation-context foundation for the currently
+selected query and mutation profiles, is implemented and validated. The next
+gate is the bounded shared point-reader facade preflight described below.
+Production routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -991,6 +992,47 @@ removal gate is normal-`ctx.*` analyzer parity plus migration of every direct
 application-source import, followed by generated-graph and Workerd proof with
 no fallback.
 
+### `FAC01` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+The committed implementation establishes one private, self-contained
+`flarex:function-api-core/v1` support module generated from
+`@flarex/function-runtime/internal/function-api-core-v1`. It owns the exact
+anonymous/authenticated auth facade and frozen query/mutation base-context
+construction. The selected query-internal-call and mutation-internal-call
+Workers both consume that module, preserve their existing database capability
+objects by identity, and no longer construct duplicate auth/base contexts. The
+mutation profile no longer advertises fake throwing scheduler or storage
+members. This is runtime implementation reuse, not a new public authoring API.
+
+The deterministic generated closure is:
+
+- shared Function API Core SHA-256
+  `30fdbbf7e3563264eb0e21b0c39399ec2f59c4281f110f1062e4f2e6b38ca47b`;
+- selected query-internal-call Worker-core SHA-256
+  `3699b1105327c98844838ab005bd308eb05cd01a2d94beb57cb87e51e1b1d0cb`;
+  and
+- selected mutation-internal-call Worker-core SHA-256
+  `9c94eadf207dd3494ef003c918b711c7398a1b53c4fc83f9418faabda8f73c5b`.
+
+Validation passed for the full `@flarex/function-runtime` suite (46 tests),
+focused generated-identity and selected-profile Workerd suites, backend and
+affected-consumer typechecks, every backend generated-source check,
+`check:effect-boundaries`, SAP05 PGlite and genuine PostgreSQL suites, and the
+SAP06-A3 mutation-internal-call PGlite and genuine PostgreSQL suites that prove
+the combined SAP04-selected mutation profile. The genuine PostgreSQL evidence
+used a fresh isolated PostgreSQL 18 cluster and included both acceptance cases
+in each selected suite. The exact-final TypeScript/Effect and code-quality
+reviewers reported no findings after the one identified graph-to-target
+identity-proof gap was corrected and re-reviewed.
+
+No analyzer operation identity, protocol/profile/syscall ABI version,
+persistence schema, snapshot or journal owner, OCC/commit behavior, action
+uncertainty, activation, route, or production behavior changed. The existing
+synthetic platform ABI remains private and temporary; there is no fallback or
+dual graph acceptance.
+
 ### Sequenced Follow-On Slices
 
 After `FAC01`, continue one coherent commit at a time:
@@ -1222,11 +1264,15 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-The centralized Function API Core preflight above is complete. The next gate is
-`FAC01`: add the shared auth/base-context support module, consume it from the
-selected query-internal-call and mutation-internal-call exact Workers, remove
-their migrated duplicate construction, refresh the exact generated/identity
-closure, and prove Workerd plus SAP05/SAP04 parity.
+The centralized Function API Core preflight and `FAC01` implementation receipt
+above are complete. The next gate is a fresh bounded preflight for the first
+follow-on: a shared point-reader facade over the existing query point-read port.
+That preflight must prove the exact portable reader contract shared by the
+selected query and journal-backed mutation consumers, preserve their different
+snapshot and journal ownership, and reject any facade shape that widens
+database authority or changes operation order. The reader implementation, if
+the gate closes, remains one separate committed slice; mutation writer and
+internal-call composition stay later slices.
 
 The public `flarex-test` real-runtime contract remains unchanged. Internal
 simulation APIs may adopt shared authoring primitives and normal `ctx.*`

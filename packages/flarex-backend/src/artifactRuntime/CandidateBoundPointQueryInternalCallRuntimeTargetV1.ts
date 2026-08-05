@@ -69,6 +69,8 @@ import {
   type DeclarativeV2RuntimeArtifactSha256V1,
   type DeclarativeV2RuntimeArtifactSha256V1Error,
 } from "./DeclarativeV2RuntimeArtifactSha256";
+import { deriveCandidateBoundRuntimeTargetCommitmentV1 } from
+  "./CandidateBoundRuntimeTargetCommitment";
 
 const FRAME_BUDGET = Object.freeze({
   maximumFrameBytes: 64 * 1_048_576,
@@ -84,8 +86,6 @@ const TARGET_ENCODING_BUDGET = Object.freeze({
   maximumTextBytes: 4_096,
   maximumPreimageBytes: 16 * 1_048_576,
 });
-const UTF8 = new TextEncoder();
-
 export interface CandidateBoundQueryInternalCallRuntimeTargetAuthorityV1 {
   readonly metadata: Readonly<{
     readonly scopeId: string;
@@ -356,18 +356,16 @@ export const prepareCandidateBoundPointQueryInternalCallRuntimeTargetV1 = Effect
       reason: "workerDefinitionFailed", cause,
     }),
   });
-  const graphBasisSha256 = yield* sha256(UTF8.encode(graphBasis), {
-    maximumInputBytes: budget.maximumHashBytes,
-  });
-  const encoded = yield* Effect.fromResult(
-    encodeCandidateBoundQueryInternalCallRuntimeTargetV1(
+  const commitment = yield* deriveCandidateBoundRuntimeTargetCommitmentV1(
+    graphBasis,
+    budget.maximumHashBytes,
+    graphBasisSha256 => encodeCandidateBoundQueryInternalCallRuntimeTargetV1(
       targetFrame(authority, compatibilityDate, graphBasisSha256, budget),
       TARGET_ENCODING_BUDGET,
     ),
+    sha256,
   );
-  const runtimeTargetSha256 = yield* sha256(encoded.canonicalBytes, {
-    maximumInputBytes: budget.maximumHashBytes,
-  });
+  const runtimeTargetSha256 = commitment.runtimeTargetSha256;
   const targetHex = encodeBytesToLowercaseHex(runtimeTargetSha256);
   const artifact = Object.freeze({
     runtime: "dynamic-worker" as const,
@@ -407,7 +405,7 @@ export const prepareCandidateBoundPointQueryInternalCallRuntimeTargetV1 = Effect
       readPort,
       snapshotLiveness: captureSnapshotLiveness(liveSnapshot),
       runtimeTargetSha256: copyBytes(runtimeTargetSha256),
-      canonicalTargetBytes: copyBytes(encoded.canonicalBytes),
+      canonicalTargetBytes: copyBytes(commitment.canonicalTargetBytes),
       artifact,
       function: functionProjection,
       tables: captureTables(authority.tables),

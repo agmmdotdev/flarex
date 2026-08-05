@@ -16,6 +16,10 @@ import { POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1 } from
   "../src/artifactRuntime/PointMutationInternalCallExactRuntimeWorkerCore.generated";
 import { POINT_MUTATION_INTERNAL_CALL_RUNTIME_KERNEL_SOURCE_V1 } from
   "../src/artifactRuntime/PointMutationInternalCallRuntimeKernel.generated";
+import {
+  FUNCTION_API_CORE_MODULE_V1,
+  FUNCTION_API_CORE_SOURCE_V1,
+} from "../src/artifactRuntime/FunctionApiCore.generated";
 import { requirePointMutationArgumentSemanticSizeV1 } from
   "flarex-protocol/point-mutation-start";
 import {
@@ -168,6 +172,11 @@ export default { async fetch() {
         },
         {
           type: "ESModule",
+          path: FUNCTION_API_CORE_MODULE_V1,
+          contents: FUNCTION_API_CORE_SOURCE_V1,
+        },
+        {
+          type: "ESModule",
           path: POINT_MUTATION_INTERNAL_CALL_PLATFORM_MODULE_V1,
           contents: pointMutationInternalCallExactRuntimePlatformSourceV1(),
         },
@@ -177,6 +186,10 @@ export default { async fetch() {
           contents: `
 import { errorCode, errorCreate, errorData, errorMessage } from "flarex:platform";
 export async function update(ctx) {
+  if (Object.keys(ctx).join(",") !== "auth,db,runQuery,runMutation" || "scheduler" in ctx || "storage" in ctx) {
+    throw new Error("invalid mutation context shape");
+  }
+  if (await ctx.auth.getUserIdentity() !== null) throw new Error("invalid anonymous identity");
   let id;
   try {
     await ctx.runMutation({ _path: "orders:mutateInternal" }, {});
@@ -316,6 +329,7 @@ export default { async fetch() {
           { type: "ESModule", path: POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_CONFIG_MODULE_V1, contents: configuration },
           { type: "ESModule", path: POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1, contents: bridge },
           { type: "ESModule", path: POINT_MUTATION_INTERNAL_CALL_RUNTIME_KERNEL_MODULE_V1, contents: POINT_MUTATION_INTERNAL_CALL_RUNTIME_KERNEL_SOURCE_V1 },
+          { type: "ESModule", path: FUNCTION_API_CORE_MODULE_V1, contents: FUNCTION_API_CORE_SOURCE_V1 },
           { type: "ESModule", path: POINT_MUTATION_INTERNAL_CALL_PLATFORM_MODULE_V1, contents: pointMutationInternalCallExactRuntimePlatformSourceV1() },
           { type: "ESModule", path: "orders.js", contents: "export function update() { return null; } export function readInternal() { return null; }" },
         ],
