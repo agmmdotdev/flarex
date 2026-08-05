@@ -7,9 +7,10 @@ pins the first Trigger scheduling sources. DTE05-B completes the first
 implementation checkpoint: one scope-bound, production-inert scheduler core,
 its narrow ports, and deterministic in-memory adapters. DTE05-C1 completes
 one already-resolved trusted-scope Postgres composition, and DTE05-C2 completes
-the production-inert trusted partition directory. No
-Cloudflare binding, cross-scope scheduler host, deployment configuration, or
-production activation is authorized.
+the production-inert trusted partition directory. DTE05-D completes the
+private, unwired Queue wake-hint publisher/consumer and fresh partition
+resolver. No Cloudflare binding, cross-scope scheduler host, deployment
+configuration, or production activation is authorized.
 
 Roadmap 04 remains the durable-state authority. Its due-discovery candidates
 and lifecycle transactions are sufficient to reconstruct missed work. Queue
@@ -259,15 +260,40 @@ Completion evidence on 2026-08-06:
   Standard Application boundary, and all 57 script tests passed. No production
   package consumes the new private directory subpath.
 
-### DTE05-D: Queue Wake Hints — Pending
+### DTE05-D: Queue Wake Hints — Complete
+
+The owning preflight is
+[`preflight/28-dte05-queue-wake-hints.md`](./preflight/28-dte05-queue-wake-hints.md).
 
 - define the minimal authenticated/opaque wake envelope;
 - publish only after durable transition settlement;
 - consume at-least-once messages through the same scheduler core;
 - re-read durable state before every action;
-- acknowledge stale/current outcomes and retry only typed transient failures;
+- acknowledge stale/current outcomes, acknowledge post-commit publication loss
+  for DTE05-E repair, and retry only typed pre-transition transient failures;
   and
 - prove lost publication is repaired by durable discovery.
+
+This checkpoint admits a private, unwired Queue-shaped adapter and a
+scope-bound publishing composition. DTE05-E remains the first deployed or
+directory-driven repair host.
+
+Completion evidence on 2026-08-06:
+
+- the full 27-package workspace typecheck passed;
+- all 75 durable-task tests passed, including receiver-preserving lifecycle
+  and jitter capture plus post-settlement wake publication;
+- all 347 active executor tests passed with five existing skips, including ten
+  Queue adapter tests and one installed Cloudflare Queue structural-type proof;
+- the DTE05-D PGlite lane passed both after-commit publication/loss tests, and
+  the C1/C2 regression lanes passed all 2 and 11 tests respectively;
+- a disposable genuine-PostgreSQL 18 cluster passed both DTE05-D tests, all
+  four C2 regressions, and both C1 regressions, then was stopped and removed;
+- the 65-vector lifecycle gate, 29-entry source-map gate, Trigger boundary,
+  Standard Application boundary, and all 58 script tests passed; and
+- both required project reviewers accepted the final diff with no remaining
+  findings. No Worker entrypoint or Wrangler file imports or activates the
+  private Queue adapter.
 
 ### DTE05-E: Cron Repair Sweep — Pending
 

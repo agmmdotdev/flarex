@@ -588,6 +588,72 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the unwired Task Queue adapter over the fresh scheduler resolver", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/executor/src/taskQueueWakeV1.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerResolverV1 } from
+          "@flarex/persistence-postgres/internal/task-wake-scheduler-resolver-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/taskQueueWakeResolver.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerResolverV1 } from
+          "../../persistence-postgres/src/taskSystemWakeSchedulerResolverV1.ts";
+      `,
+    }, {
+      relativePath: "apps/executor/src/taskQueueWakeResolverNodeNext.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerResolverV1 } from
+          "../../../packages/persistence-postgres/src/taskSystemWakeSchedulerResolverV1.js";
+      `,
+    }, {
+      relativePath: "apps/executor/src/taskQueueWakeResolverBundled.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerResolverV1 } from
+          "../../../packages/persistence-postgres/src/taskSystemWakeSchedulerResolverV1";
+      `,
+    }, {
+      relativePath: "apps/executor/src/worker.ts",
+      text: `
+        import { makeTaskQueueWakeAdapterV1 } from
+          "@flarex/executor/internal/task-queue-wake-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/taskQueueWake.ts",
+      text: `
+        import { makeTaskQueueWakeAdapterV1 } from
+          "../../executor/src/taskQueueWakeV1.ts";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/taskQueueWakeNodeNext.ts",
+      text: `
+        import { makeTaskQueueWakeAdapterV1 } from
+          "../../executor/src/taskQueueWakeV1.js";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/taskQueueWakeBundled.ts",
+      text: `
+        import { makeTaskQueueWakeAdapterV1 } from
+          "../../executor/src/taskQueueWakeV1";
+      `,
+    }, {
+      relativePath: "packages/executor/test/taskQueueWakeV1.test.ts",
+      text: `
+        import { makeTaskQueueWakeAdapterV1 } from
+          "../src/taskQueueWakeV1.ts";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/taskQueueWakeResolver.ts:2 production source must not consume the Task wake scheduler resolver outside the admitted Queue adapter.",
+      "apps/executor/src/taskQueueWakeResolverNodeNext.ts:2 production source must not consume the Task wake scheduler resolver outside the admitted Queue adapter.",
+      "apps/executor/src/taskQueueWakeResolverBundled.ts:2 production source must not consume the Task wake scheduler resolver outside the admitted Queue adapter.",
+      "apps/executor/src/worker.ts:2 production source must not activate the Task Queue wake adapter before Worker admission.",
+      "packages/flarex-backend/src/taskQueueWake.ts:2 production source must not activate the Task Queue wake adapter before Worker admission.",
+      "packages/flarex-backend/src/taskQueueWakeNodeNext.ts:2 production source must not activate the Task Queue wake adapter before Worker admission.",
+      "packages/flarex-backend/src/taskQueueWakeBundled.ts:2 production source must not activate the Task Queue wake adapter before Worker admission.",
+    ]);
+  });
+
   it("rejects file, link, and workspace path aliases to durable-task before host admission", () => {
     for (const reference of [
       "file:../../packages/durable-task",

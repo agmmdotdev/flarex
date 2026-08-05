@@ -17,12 +17,14 @@
     "./point-mutation-start": "./src/pointMutationStartPreparation.ts",
     "./point-mutation-session": "./src/pointMutationSessionActivation.ts",
     "./internal/stored-attempt-authentication-v1": "./src/storedAttemptAuthentication.ts",
+    "./internal/task-queue-wake-v1": "./src/taskQueueWakeV1.ts",
     "./transaction-grant": "./src/transactionGrant.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:dte05-d": "vitest run test/taskQueueWakeV1.test.ts --testTimeout=120000",
     "test:postgres": "vitest run test/postgresRetry.test.ts test/deploymentAuthority.postgres.test.ts test/transactionGrantVerifier.test.ts"
   },
   "dependencies": {

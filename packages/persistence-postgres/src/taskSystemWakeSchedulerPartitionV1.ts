@@ -4,12 +4,14 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   makeRunAttemptDueCandidateHandlerV1,
+  makeWakePublishingRunAttemptDueCandidateHandlerV1,
   makeTaskWakeSchedulerV1,
   type InvalidTaskWakeSchedulerConfigurationError,
   type TaskDueCandidateLifecycleContractError,
   type TaskRetryJitterSourceV1,
   type TaskWakeSchedulerOptionsV1,
   type TaskWakeSchedulerV1,
+  type TaskWakeHintPublisherV1,
 } from "@flarex/durable-task/internal/scheduling-v1";
 import type { Result } from "effect";
 
@@ -33,6 +35,16 @@ export type TaskSystemWakeSchedulerPartitionV1 = TaskWakeSchedulerV1<
   TaskSystemDueDiscoveryErrorV1,
   TaskSystemWakeSchedulerPartitionHandlerErrorV1
 >;
+
+export type TaskSystemWakePublishingSchedulerPartitionHandlerErrorV1<
+  PublishFailure,
+> = TaskSystemWakeSchedulerPartitionHandlerErrorV1 | PublishFailure;
+
+export type TaskSystemWakePublishingSchedulerPartitionV1<PublishFailure> =
+  TaskWakeSchedulerV1<
+    TaskSystemDueDiscoveryErrorV1,
+    TaskSystemWakePublishingSchedulerPartitionHandlerErrorV1<PublishFailure>
+  >;
 
 export interface TaskSystemWakeSchedulerPartitionOptionsV1 {
   readonly scheduler: TaskWakeSchedulerOptionsV1;
@@ -65,6 +77,38 @@ export function makeTaskSystemWakeSchedulerPartitionV1(
   const handler = makeRunAttemptDueCandidateHandlerV1(
     lifecycle,
     retryJitter,
+  );
+  return makeTaskWakeSchedulerV1(source, handler, schedulerOptions);
+}
+
+/**
+ * Constructs the same scope-bound scheduler and adds only post-settlement
+ * publication of persisted retry and lease-expiry wake effects.
+ */
+export function makeTaskSystemWakePublishingSchedulerPartitionV1<
+  PublishFailure,
+>(
+  located: LocatedTrustedScopeAuthority<LocatedTaskSystemRunAttemptTargetV1>,
+  options: TaskSystemWakeSchedulerPartitionOptionsV1,
+  publisher: TaskWakeHintPublisherV1<PublishFailure>,
+): Result.Result<
+  TaskSystemWakePublishingSchedulerPartitionV1<PublishFailure>,
+  InvalidTaskWakeSchedulerConfigurationError
+> {
+  const schedulerOptions = options.scheduler;
+  const retryJitter = options.retryJitter;
+  const runReadOptions = options.runRead;
+  const runAttemptStoreOptions = options.runAttemptStore;
+  const source = makeTaskSystemDueDiscoveryV1(located, runReadOptions);
+  const store = makeTaskSystemRunAttemptStoreV1(
+    located,
+    runAttemptStoreOptions,
+  );
+  const lifecycle = makeRunAttemptLifecycleV1(store);
+  const handler = makeWakePublishingRunAttemptDueCandidateHandlerV1(
+    lifecycle,
+    retryJitter,
+    publisher,
   );
   return makeTaskWakeSchedulerV1(source, handler, schedulerOptions);
 }

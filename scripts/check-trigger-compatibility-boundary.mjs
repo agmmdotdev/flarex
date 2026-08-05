@@ -30,6 +30,12 @@ const persistencePostgresTaskWakeSchedulerPartitionPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
 const persistencePostgresTaskWakeSchedulerDirectoryPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts";
+const persistencePostgresTaskWakeSchedulerResolverPath =
+  "packages/persistence-postgres/src/taskSystemWakeSchedulerResolverV1.ts";
+const persistencePostgresTaskWakeSchedulerCompositionPath =
+  "packages/persistence-postgres/src/taskSystemWakeSchedulerCompositionV1.ts";
+const executorTaskQueueWakePath =
+  "packages/executor/src/taskQueueWakeV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -174,7 +180,10 @@ const admittedPersistenceTaskWakeSchedulerSymbolsBySpecifier = new Map([
     "TaskRetryJitterSourceV1",
     "TaskWakeSchedulerOptionsV1",
     "TaskWakeSchedulerV1",
+    "TaskWakeHintPublisherV1",
+    "TaskWakeRequestedEffectV1",
     "makeRunAttemptDueCandidateHandlerV1",
+    "makeWakePublishingRunAttemptDueCandidateHandlerV1",
     "makeTaskWakeSchedulerV1",
   ])],
 ]);
@@ -182,6 +191,14 @@ const admittedPersistenceTaskWakeSchedulerDirectorySymbolsBySpecifier =
   new Map([
     ["@flarex/durable-task/internal/scheduling-v1", new Set([
       "InvalidTaskWakeSchedulerConfigurationError",
+    ])],
+  ]);
+const admittedPersistenceTaskWakeSchedulerResolverSymbolsBySpecifier =
+  new Map([
+    ["@flarex/durable-task/internal/scheduling-v1", new Set([
+      "InvalidTaskWakeSchedulerConfigurationError",
+      "TaskWakeHintPublisherV1",
+      "TaskWakeRequestedEffectV1",
     ])],
   ]);
 const durableTaskAllowedExports = Object.freeze({
@@ -346,6 +363,8 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isProductionSource(relativePath)
         && isTaskWakeSchedulerPartitionSpecifier(specifier, relativePath)
         && relativePath !== persistencePostgresTaskWakeSchedulerDirectoryPath
+        && relativePath !== persistencePostgresTaskWakeSchedulerResolverPath
+        && relativePath !== persistencePostgresTaskWakeSchedulerCompositionPath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -361,6 +380,27 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
           node.getStart(sourceFile),
         ).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate the Task wake scheduler directory before host admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isTaskWakeSchedulerResolverSpecifier(specifier, relativePath)
+        && relativePath !== executorTaskQueueWakePath
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not consume the Task wake scheduler resolver outside the admitted Queue adapter.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isTaskQueueWakeAdapterSpecifier(specifier, relativePath)
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task Queue wake adapter before Worker admission.`);
       }
       if (
         specifier !== undefined
@@ -773,6 +813,29 @@ function isTaskWakeSchedulerDirectorySpecifier(specifier, relativePath) {
     || resolved === `${targetWithoutExtension}.js`;
 }
 
+/** @param {string} specifier @param {string} relativePath */
+function isTaskWakeSchedulerResolverSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const targetWithoutExtension =
+    persistencePostgresTaskWakeSchedulerResolverPath.slice(0, -3);
+  return normalized === "@flarex/persistence-postgres/internal/task-wake-scheduler-resolver-v1"
+    || resolved === persistencePostgresTaskWakeSchedulerResolverPath
+    || resolved === targetWithoutExtension
+    || resolved === `${targetWithoutExtension}.js`;
+}
+
+/** @param {string} specifier @param {string} relativePath */
+function isTaskQueueWakeAdapterSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const targetWithoutExtension = executorTaskQueueWakePath.slice(0, -3);
+  return normalized === "@flarex/executor/internal/task-queue-wake-v1"
+    || resolved === executorTaskQueueWakePath
+    || resolved === targetWithoutExtension
+    || resolved === `${targetWithoutExtension}.js`;
+}
+
 /** @param {string} specifier */
 function isDurableTaskPackageSpecifier(specifier) {
   return specifier === expectedTargetPackage || specifier.startsWith(`${expectedTargetPackage}/`);
@@ -870,6 +933,10 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     ? admittedPersistenceTaskWakeSchedulerSymbolsBySpecifier.get(specifier)
     : relativePath === persistencePostgresTaskWakeSchedulerDirectoryPath
     ? admittedPersistenceTaskWakeSchedulerDirectorySymbolsBySpecifier.get(
+      specifier,
+    )
+    : relativePath === persistencePostgresTaskWakeSchedulerResolverPath
+    ? admittedPersistenceTaskWakeSchedulerResolverSymbolsBySpecifier.get(
       specifier,
     )
     : undefined;

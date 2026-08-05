@@ -34,8 +34,10 @@ DTE05-A admits a scope-bound host-neutral scheduling boundary, DTE05-B
 completes the production-inert standard runner plus deterministic in-memory
 adapters, DTE05-C1 completes only the located-scope Postgres composition, and
 DTE05-C2 completes the production-inert trusted partition directory.
-Cloudflare bindings, a cross-scope scheduler host,
-public APIs, compute delivery, and production activation do not exist yet.
+DTE05-D completes the private, unwired Queue wake-hint adapter and fresh
+partition resolver. Cloudflare bindings, a cross-scope scheduler or repair
+host, public APIs, compute delivery, and production activation do not exist
+yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -360,7 +362,7 @@ files remain candidates:
      boundedness, and final-review admission. Delivery, host integration, and
      runtime activation remain closed;
 5. [`05-cloudflare-wake-and-scheduling.md`](./05-cloudflare-wake-and-scheduling.md)
-   - **active; DTE05-A through DTE05-C2 complete:** standard
+   - **active; DTE05-A through DTE05-D complete:** standard
      scope-bound scheduler contracts, host-neutral bounded recovery,
      deterministic memory adapters, located-scope Postgres composition, then
      trusted partition discovery, Queue hints, cron repair, optional alarm

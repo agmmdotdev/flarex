@@ -15,9 +15,11 @@ import {
   TaskWakeSchedulerHandlerContractError,
   TaskWakeSchedulerSourceContractError,
   makeRunAttemptDueCandidateHandlerV1,
+  makeWakePublishingRunAttemptDueCandidateHandlerV1,
   makeTaskWakeSchedulerV1,
   type TaskDueCandidateHandlingReceiptV1,
   type TaskDueWorkSourceV1,
+  type TaskWakeRequestedEffectV1,
 } from "../src/scheduling/v1.js";
 import {
   makeFixedTaskRetryJitterSourceV1,
@@ -238,6 +240,75 @@ describe("TaskWakeSchedulerV1", () => {
     const result = await runTestEffect(program);
     expect(result.first.handled[0]?.disposition).toBe("accepted");
     expect(result.duplicate.handled[0]?.disposition).toBe("idempotent");
+    expect(store.writeCount()).toBe(1);
+  });
+
+  it("publishes persisted wake effects only after settlement and preserves idempotent duplicates", async () => {
+    const source = makeInMemoryTaskDueWorkSourceV1({
+      throughMs: THROUGH,
+      candidates: [startCandidate(RUN_1, 1)],
+    });
+    const store = createDeterministicRunAttemptStore({ initial: readyAggregate() });
+    const published: Array<Readonly<{
+      readonly kind: TaskWakeRequestedEffectV1["effect"]["kind"];
+      readonly sequence: bigint;
+      readonly writeCount: number;
+    }>> = [];
+    const program = Effect.gen(function* () {
+      const lifecycle = yield* RunAttemptLifecycle;
+      const handler = makeWakePublishingRunAttemptDueCandidateHandlerV1(
+        lifecycle,
+        makeFixedTaskRetryJitterSourceV1(JITTER),
+        {
+          publish: requested => Effect.sync(() => {
+            published.push(Object.freeze({
+              kind: requested.effect.kind,
+              sequence: requested.sequence,
+              writeCount: store.writeCount(),
+            }));
+          }),
+        },
+      );
+      const scheduler = Result.getOrThrow(makeTaskWakeSchedulerV1(
+        source,
+        handler,
+        { pageSize: 1, maximumPages: 1, maximumCandidates: 1 },
+      ));
+      yield* scheduler.run({ dueKind: "start_attempt", cursor: null });
+      yield* scheduler.run({ dueKind: "start_attempt", cursor: null });
+    }).pipe(
+      Effect.provide(RunAttemptLifecycleLive),
+      Effect.provide(store.layer),
+    );
+
+    await runTestEffect(program);
+
+    expect(published).toEqual([
+      { kind: "wake_lease_expiry", sequence: 2n, writeCount: 1 },
+      { kind: "wake_lease_expiry", sequence: 2n, writeCount: 1 },
+    ]);
+    expect(store.writeCount()).toBe(1);
+  });
+
+  it("preserves an exact publisher failure after the lifecycle write commits", async () => {
+    const failure = Object.freeze({ _tag: "InjectedWakePublishFailure" as const });
+    const store = createDeterministicRunAttemptStore({ initial: readyAggregate() });
+    const program = Effect.gen(function* () {
+      const lifecycle = yield* RunAttemptLifecycle;
+      const handler = makeWakePublishingRunAttemptDueCandidateHandlerV1(
+        lifecycle,
+        makeFixedTaskRetryJitterSourceV1(JITTER),
+        { publish: () => Effect.fail(failure) },
+      );
+      return yield* handler.handle(startCandidate(RUN_1, 1));
+    }).pipe(
+      Effect.provide(RunAttemptLifecycleLive),
+      Effect.provide(store.layer),
+    );
+
+    const observed = await runTestFailure(program);
+
+    expect(observed).toBe(failure);
     expect(store.writeCount()).toBe(1);
   });
 
@@ -505,9 +576,10 @@ describe("RunAttempt due-candidate handler", () => {
         });
       },
     };
-    const handler = makeRunAttemptDueCandidateHandlerV1(
+    const handler = makeWakePublishingRunAttemptDueCandidateHandlerV1(
       lifecycle,
       makeFixedTaskRetryJitterSourceV1(JITTER),
+      { publish: () => Effect.die("current outcome must not publish a wake") },
     );
     const start = startCandidate(RUN_1, 10);
     const expiry: TaskDueDiscoveryCandidateV1 = {
@@ -581,22 +653,30 @@ describe("RunAttempt due-candidate handler", () => {
   it("captures lifecycle and jitter operations at construction", async () => {
     const currentState = projectRunAttemptStateV1(readyAggregate());
     const lifecycle = {
-      startAttempt: () => Effect.succeed({
-        disposition: "current" as const,
-        observedAtMs: NOW,
-        runVersion: RUN_VERSION_2,
-        outcome: {
-          kind: "current" as const,
-          reason: "stale_run_version" as const,
-          state: currentState,
-        },
-        evidence: [],
-        requestedEffects: [],
-      }),
-      handleLeaseExpiry: () => Effect.die("not invoked"),
+      currentState,
+      startAttempt() {
+        return Effect.succeed({
+          disposition: "current" as const,
+          observedAtMs: NOW,
+          runVersion: RUN_VERSION_2,
+          outcome: {
+            kind: "current" as const,
+            reason: "stale_run_version" as const,
+            state: this.currentState,
+          },
+          evidence: [],
+          requestedEffects: [],
+        });
+      },
+      handleLeaseExpiry() {
+        return Effect.die("not invoked");
+      },
     };
     const jitter = {
-      nextRetryJitter: () => Effect.succeed(JITTER),
+      value: JITTER,
+      nextRetryJitter() {
+        return Effect.succeed(this.value);
+      },
     };
     const handler = makeRunAttemptDueCandidateHandlerV1(lifecycle, jitter);
     lifecycle.startAttempt = () => Effect.die("mutated lifecycle method");

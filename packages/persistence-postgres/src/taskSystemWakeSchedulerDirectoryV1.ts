@@ -2,7 +2,6 @@ import type { InvalidTaskWakeSchedulerConfigurationError } from
   "@flarex/durable-task/internal/scheduling-v1";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect, Result } from "effect";
-import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
@@ -14,16 +13,16 @@ import {
 } from "./replacementScopeDirectoryDiscoveryV1";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
-  type ScopeClockTargetReaderResolver,
-  type ScopeMetadataReader,
-  type ScopeProvisioningReceiptReader,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import type {
   LocatedTaskSystemRunAttemptTargetV1,
 } from "./taskSystemRunAttemptStoreV1";
-import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
+import {
+  captureTaskSystemWakeSchedulerAuthorityPortsV1,
+  captureTaskSystemWakeSchedulerPartitionOptionsV1,
+} from "./taskSystemWakeSchedulerCompositionV1";
 import {
   makeTaskSystemWakeSchedulerPartitionV1,
   type TaskSystemWakeSchedulerPartitionOptionsV1,
@@ -101,8 +100,12 @@ export function createTaskSystemWakeSchedulerDirectoryV1(
   controlDb: FlarexMetadataDatabase,
   options: TaskSystemWakeSchedulerDirectoryOptionsV1,
 ): TaskSystemWakeSchedulerDirectoryV1 {
-  const authority = captureAuthorityPorts(options.authority);
-  const partitionOptions = capturePartitionOptions(options.partition);
+  const authority = captureTaskSystemWakeSchedulerAuthorityPortsV1(
+    options.authority,
+  );
+  const partitionOptions = captureTaskSystemWakeSchedulerPartitionOptionsV1(
+    options.partition,
+  );
   const directory = createReplacementScopeDirectoryDiscoveryV1<
     string,
     | TaskSystemWakeSchedulerDirectoryInputError
@@ -163,60 +166,4 @@ export function createTaskSystemWakeSchedulerDirectoryV1(
     });
 
   return Object.freeze({ discoverEffect });
-}
-
-function captureAuthorityPorts(
-  ports: TrustedScopeAuthorityResolutionPorts<
-    LocatedTaskSystemRunAttemptTargetV1
-  >,
-): TrustedScopeAuthorityResolutionPorts<LocatedTaskSystemRunAttemptTargetV1> {
-  const scopeMetadataOwner = ports.scopeMetadata;
-  const getScopeMetadataByDeploymentId =
-    scopeMetadataOwner.getScopeMetadataByDeploymentId;
-  const receiptOwner = ports.provisioningReceipts;
-  const getScopeAuthorityProvisioningReceipt =
-    receiptOwner.getScopeAuthorityProvisioningReceipt;
-  const targetOwner = ports.scopeClockTargets;
-  const resolve = targetOwner.resolve;
-  const scopeMetadata: ScopeMetadataReader = Object.freeze({
-    getScopeMetadataByDeploymentId: (deploymentId: string) =>
-      getScopeMetadataByDeploymentId.call(scopeMetadataOwner, deploymentId),
-  });
-  const provisioningReceipts: ScopeProvisioningReceiptReader = Object.freeze({
-    getScopeAuthorityProvisioningReceipt: (scopeId: ScopeId) =>
-      getScopeAuthorityProvisioningReceipt.call(receiptOwner, scopeId),
-  });
-  const scopeClockTargets: ScopeClockTargetReaderResolver<
-    LocatedTaskSystemRunAttemptTargetV1
-  > = Object.freeze({
-    resolve: (physicalLocator: ScopePhysicalLocator) =>
-      resolve.call(targetOwner, physicalLocator),
-  });
-  return Object.freeze({
-    scopeMetadata,
-    provisioningReceipts,
-    scopeClockTargets,
-  });
-}
-
-function capturePartitionOptions(
-  options: TaskSystemWakeSchedulerPartitionOptionsV1,
-): TaskSystemWakeSchedulerPartitionOptionsV1 {
-  const nextRetryJitter = options.retryJitter.nextRetryJitter;
-  const observeQuery = options.runRead?.observeQuery;
-  const randomUuid = options.runAttemptStore?.randomUuid;
-  return Object.freeze({
-    scheduler: Object.freeze({
-      pageSize: options.scheduler.pageSize,
-      maximumPages: options.scheduler.maximumPages,
-      maximumCandidates: options.scheduler.maximumCandidates,
-    }),
-    retryJitter: Object.freeze({ nextRetryJitter }),
-    ...(observeQuery === undefined
-      ? {}
-      : { runRead: Object.freeze({ observeQuery }) }),
-    ...(randomUuid === undefined
-      ? {}
-      : { runAttemptStore: Object.freeze({ randomUuid }) }),
-  });
 }
