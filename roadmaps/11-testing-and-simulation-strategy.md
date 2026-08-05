@@ -409,24 +409,13 @@ Named Flarex differences are:
   every selected suite skipped when the database URL is absent.
 - No repository CI configuration currently shows which lanes are mandatory,
   conditional, scheduled, or release-gating.
-- A realistic Standard definition with a second declared function in the same
-  logical module currently fails during analyzer/registration preparation,
-  even when that second function is a pure `return null` export. The verifier
-  progress release finalizer then reports `pendingExists`, masking the original
-  analyzer failure. Expected behavior is either successful multi-export module
-  registration or preservation of the originating typed analysis error.
-  `SAC01-F2e` records this as open analyzer/registration integration debt and
-  uses ordinary separate user modules for each lifecycle function; it does not
-  repair, bypass, or claim closure of the defect.
-- The same preparation path is currently sensitive to otherwise insignificant
-  whitespace in valid `databasePatch` and `databaseReplace` modules: adding
-  spaces around the platform import, destructured parameters, or syscall
-  arguments reproduces the masked `pendingExists` failure, while the compact
-  token spelling succeeds. Source formatting must not change semantic
-  acceptance. App-owned fixtures preserve the already accepted spelling during
-  this ownership-only move, including the compact single-line spelling required
-  by the current patch/replace path; analyzer/parser correction remains open and is not
-  owned by the simulation.
+- `@flarex/system-test` has exposed three related open shared-core defects:
+  valid multi-export preparation failure, patch/replace formatting-dependent
+  analysis, and release finalization masking the originating typed failure with
+  `pendingExists`. Their authoritative reproductions, temporary fixture
+  constraints, owners, and acceptance requirements are recorded as
+  [`ST-CORE-001` through `ST-CORE-003`](../packages/system-test/CORE-ISSUES.md).
+  The simulations do not repair, bypass, or claim closure of them.
 - The live staging H05-B proof through real cache-disabled Hyperdrive remains
   incomplete; harness and dry-run evidence do not close production activation.
 - The root integration suite uses source aliases and local workspace code for

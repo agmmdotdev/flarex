@@ -111,29 +111,15 @@ longer hides application function bodies. Node test composition loads those
 fixtures explicitly, so this does not claim developer-file discovery, bundler
 lowering, or public SDK ergonomics.
 
-This slice also exposed an analyzer/registration integration defect before
-runtime dispatch. Adding a second declared export to one logical Standard
-module fails registration even when the added export is a pure `return null`,
-and the verifier-progress release finalizer masks the originating failure with
-`DeclarativeV2VerifierProgressRepositoryConflictV2Error` reason
-`pendingExists`. Expected behavior is successful registration of a valid
-multi-export module or preservation of the originating typed analyzer error.
-The affected owner is the analyzer/registration progress composition, not the
-simulation or point runtime. Disposition: open. Cooking uses ordinary separate
-user modules for its lifecycle functions and does not weaken an assertion,
-duplicate core logic, add a fallback, or claim the defect fixed.
-
-Moving those accepted source bytes into app-owned files exposed a second
-reproduction on the same boundary. Semantically identical valid
-`databasePatch` and `databaseReplace` modules fail preparation when ordinary
-spaces are added around the platform import, destructured parameters, or
-syscall arguments; compact token spacing succeeds, and the release finalizer
-again masks the originating error as `pendingExists`. JavaScript formatting
-must not alter semantic acceptance. Disposition: open with the same
-analyzer/registration integration owner. The ownership cleanup preserves the
-previously accepted source spelling in app-owned fixture files, including the
-compact single-line patch/replace spelling currently required, and does not
-change that shared parser/verifier owner.
+This slice also exposed three related shared-core defects before runtime
+dispatch: valid multi-export modules fail preparation, patch/replace analysis
+depends on source formatting, and verifier-progress release finalization masks
+the originating typed failure with `pendingExists`. The package-owned
+[`ST-CORE-001` through `ST-CORE-003`](../packages/system-test/CORE-ISSUES.md)
+records are authoritative for their reproduction, temporary fixture
+constraints, resolution owners, and acceptance evidence. They remain open;
+the simulation does not weaken an assertion, add a fallback, or claim them
+fixed.
 
 Real-system scenarios are also diagnostic boundaries. If one exposes a defect
 owned by a shared runtime, protocol, persistence, OCC/commit, registration,
