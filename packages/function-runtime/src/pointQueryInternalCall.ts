@@ -1,4 +1,3 @@
-import type { UserIdentity } from "flarex-protocol/auth";
 import type {
   CanonicalFlarexRuntimeObjectV1,
   CanonicalFlarexRuntimeValueV1,
@@ -14,7 +13,10 @@ import {
 } from "flarex-protocol/validator-json";
 import { validateValidatorValueIssueV1 } from
   "flarex-protocol/internal/validator-engine-core";
-import type { FunctionRuntimePointReaderV1 } from "./functionApiCore";
+import type {
+  FunctionRuntimePointReaderV1,
+  FunctionRuntimeQueryContextV1,
+} from "./functionApiCore";
 
 export type PointQueryInternalCallRuntimeArgsValidatorV1 =
   | ObjectValidatorJsonV1
@@ -71,16 +73,16 @@ export interface PointQueryInternalCallRuntimeDatabaseV1
     CanonicalFlarexRuntimeObjectV1
   > {}
 
-export interface PointQueryInternalCallRuntimeContextV1 {
-  readonly auth: Readonly<{
-    readonly getUserIdentity: () => Promise<UserIdentity | null>;
-  }>;
-  readonly db: PointQueryInternalCallRuntimeDatabaseV1;
-  readonly runQuery: (
-    reference: unknown,
-    args?: unknown,
-  ) => Promise<CanonicalFlarexRuntimeValueV1>;
-}
+export type PointQueryInternalCallRuntimeRunQueryV1 = (
+  reference: unknown,
+  args?: unknown,
+) => Promise<CanonicalFlarexRuntimeValueV1>;
+
+export interface PointQueryInternalCallRuntimeContextV1
+  extends FunctionRuntimeQueryContextV1<
+    PointQueryInternalCallRuntimeDatabaseV1,
+    PointQueryInternalCallRuntimeRunQueryV1
+  > {}
 
 export interface PointQueryInternalCallRuntimeReadBoundaryV1 {
   readonly close: () => void;
@@ -88,7 +90,9 @@ export interface PointQueryInternalCallRuntimeReadBoundaryV1 {
 }
 
 export interface PointQueryInternalCallRuntimeInvocationV1 {
-  readonly context: Omit<PointQueryInternalCallRuntimeContextV1, "runQuery">;
+  readonly createContext: (
+    runQuery: PointQueryInternalCallRuntimeRunQueryV1,
+  ) => PointQueryInternalCallRuntimeContextV1;
   readonly invokeWithContext: <A>(
     context: PointQueryInternalCallRuntimeContextV1,
     operation: () => A | PromiseLike<A>,
@@ -335,11 +339,10 @@ export async function executePointQueryInternalCallV1(
     throw failure;
   };
   const contextFor = (parentOrdinal: number):
-    PointQueryInternalCallRuntimeContextV1 => Object.freeze({
-      ...invocation.context,
-      runQuery: (reference: unknown, args?: unknown) =>
+    PointQueryInternalCallRuntimeContextV1 => invocation.createContext(
+      (reference: unknown, args?: unknown) =>
         runInternal(parentOrdinal, reference, args),
-    });
+    );
   const executeInternal = async (
     parentOrdinal: number,
     reference: unknown,

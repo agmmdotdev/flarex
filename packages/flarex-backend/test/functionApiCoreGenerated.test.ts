@@ -24,9 +24,15 @@ describe("generated function API core", () => {
       "utf8",
     ).digest("hex")).toBe(FUNCTION_API_CORE_SHA256_V1);
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
-      "createQueryFunctionRuntimeBaseContextV1",
+      "createQueryFunctionRuntimeContextV1",
     );
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
+      "createMutationFunctionRuntimeContextV1",
+    );
+    expect(FUNCTION_API_CORE_SOURCE_V1).not.toContain(
+      "createQueryFunctionRuntimeBaseContextV1",
+    );
+    expect(FUNCTION_API_CORE_SOURCE_V1).not.toContain(
       "createMutationFunctionRuntimeBaseContextV1",
     );
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(

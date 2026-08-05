@@ -9,6 +9,10 @@ import {
   type PointQueryInternalCallRuntimeInputV1,
   type PointQueryInternalCallRuntimeInvocationFactoryV1,
 } from "../src/pointQueryInternalCall";
+import {
+  createFunctionRuntimeAuthV1,
+  createQueryFunctionRuntimeContextV1,
+} from "../src/functionApiCore";
 
 const DOCUMENT_ID = "7:00000000-0000-0000-0000-000000000001";
 const INTERNAL_REFERENCE = Object.freeze({ _path: "orders:internal" });
@@ -27,7 +31,13 @@ describe("@flarex/function-runtime/point-query-internal-call", () => {
         root: async context => await context.runQuery(INTERNAL_REFERENCE, {
           id: DOCUMENT_ID,
         }),
-        internal: async context => await context.db.get(DOCUMENT_ID),
+        internal: async context => {
+          expect(Object.keys(context)).toEqual(["auth", "db", "runQuery"]);
+          expect(Object.keys(context.db)).toEqual(["get"]);
+          expect("runMutation" in context).toBe(false);
+          expect("insert" in context.db).toBe(false);
+          return await context.db.get(DOCUMENT_ID);
+        },
       }),
       invocation(events),
     );
@@ -214,14 +224,17 @@ function invocation(
 ): PointQueryInternalCallRuntimeInvocationFactoryV1 {
   let terminal: unknown;
   let depth = 0;
+  const auth = createFunctionRuntimeAuthV1(
+    Object.freeze({ kind: "anonymous" }),
+    identity => identity,
+  );
+  const database = {
+    get: async () => { events.push("get"); return { status: "open" }; },
+  };
   return {
     open: () => ({
-      context: {
-        auth: { getUserIdentity: async () => null },
-        db: {
-          get: async () => { events.push("get"); return { status: "open" }; },
-        },
-      },
+      createContext: runQuery =>
+        createQueryFunctionRuntimeContextV1(auth, database, runQuery),
       invokeWithContext: <A>(
         _context: PointQueryInternalCallRuntimeContextV1,
         operation: () => A | PromiseLike<A>,

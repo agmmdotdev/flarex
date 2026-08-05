@@ -14,9 +14,23 @@ export interface FunctionRuntimeAuthV1 {
   readonly getUserIdentity: () => Promise<UserIdentity | null>;
 }
 
-export interface FunctionRuntimeBaseContextV1<Database extends object> {
+export type FunctionRuntimeCallableV1 = (...args: never[]) => unknown;
+
+export interface FunctionRuntimeQueryContextV1<
+  Database extends object,
+  RunQuery extends FunctionRuntimeCallableV1,
+> {
   readonly auth: Readonly<FunctionRuntimeAuthV1>;
   readonly db: Database;
+  readonly runQuery: RunQuery;
+}
+
+export interface FunctionRuntimeMutationContextV1<
+  Database extends object,
+  RunQuery extends FunctionRuntimeCallableV1,
+  RunMutation extends FunctionRuntimeCallableV1,
+> extends FunctionRuntimeQueryContextV1<Database, RunQuery> {
+  readonly runMutation: RunMutation;
 }
 
 export type FunctionRuntimePointReadV1<DocumentId, Document> = (
@@ -172,23 +186,28 @@ export function createFunctionRuntimePointDatabaseWriterV1<
   });
 }
 
-export function createQueryFunctionRuntimeBaseContextV1<Database extends object>(
+export function createQueryFunctionRuntimeContextV1<
+  Database extends object,
+  RunQuery extends FunctionRuntimeCallableV1,
+>(
   auth: Readonly<FunctionRuntimeAuthV1>,
   db: Database,
-): Readonly<FunctionRuntimeBaseContextV1<Database>> {
-  return createFunctionRuntimeBaseContextV1(auth, db);
+  runQuery: RunQuery,
+): Readonly<FunctionRuntimeQueryContextV1<Database, RunQuery>> {
+  return freeze({ auth, db, runQuery });
 }
 
-export function createMutationFunctionRuntimeBaseContextV1<Database extends object>(
+export function createMutationFunctionRuntimeContextV1<
+  Database extends object,
+  RunQuery extends FunctionRuntimeCallableV1,
+  RunMutation extends FunctionRuntimeCallableV1,
+>(
   auth: Readonly<FunctionRuntimeAuthV1>,
   db: Database,
-): Readonly<FunctionRuntimeBaseContextV1<Database>> {
-  return createFunctionRuntimeBaseContextV1(auth, db);
-}
-
-function createFunctionRuntimeBaseContextV1<Database extends object>(
-  auth: Readonly<FunctionRuntimeAuthV1>,
-  db: Database,
-): Readonly<FunctionRuntimeBaseContextV1<Database>> {
-  return freeze({ auth, db });
+  runQuery: RunQuery,
+  runMutation: RunMutation,
+): Readonly<
+  FunctionRuntimeMutationContextV1<Database, RunQuery, RunMutation>
+> {
+  return freeze({ auth, db, runQuery, runMutation });
 }

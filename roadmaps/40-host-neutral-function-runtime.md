@@ -1240,6 +1240,127 @@ snapshot, journal, OCC, commit,
 action uncertainty, activation, route, or production authority changed, and
 there is no fallback or parallel writer facade.
 
+### `FAC04` Exact Context-Profile Preflight Decision
+
+**Accepted:** 2026-08-06
+
+Current Convex `registration_impl.ts` constructs distinct positive-capability
+contexts. A query receives its reader plus `runQuery`; a mutation receives its
+writer plus `runQuery` and `runMutation`. `database_impl.ts` likewise composes
+the writer from the reader rather than presenting a universal database with
+throwing members. Storage, scheduler, metadata, full table readers, overloads,
+and the global syscall bridge are Convex-owned surfaces and are not authority
+for this Flarex slice.
+
+The selected Flarex query/internal-call kernel currently adds `runQuery` by
+spreading a host-created base context. The selected mutation/internal-call
+kernel does the same for `runQuery` and `runMutation`, but it also projects an
+internal query through a mutation-shaped database whose write methods throw and
+keeps a throwing `runMutation` member on that query context. That representation
+is inconsistent with the positive-capability decision above even though its
+terminal failure behavior is deliberate.
+
+`FAC04` directly replaces the private base-context constructors with exact
+query- and mutation-context constructors in Function API Core:
+
+- the query constructor returns only `auth`, the supplied reader, and the
+  supplied `runQuery` function;
+- the mutation constructor returns only `auth`, the supplied writer,
+  `runQuery`, and `runMutation`;
+- each result is a fresh frozen invocation-owned record, while auth, database,
+  and call-function identities are preserved exactly; and
+- no constructor catches, awaits, validates, normalizes, retries, or acquires
+  authority.
+
+The selected invocation factories expose context-creation callbacks backed by
+that shared support module. Their kernels continue to own parent ordinals,
+catalog lookup, call/depth/byte budgets, cycle detection, pending-call
+settlement, handler invocation, and application-versus-terminal failure
+classification. The query kernel creates only query contexts. The mutation
+kernel creates a mutation context for the root and internal mutations, and an
+exact query context with the journal's already-created point reader for
+internal queries. The mutation journal remains the only reader/writer and
+read-your-writes owner.
+
+The temporary private `flarex:platform` ABI still needs its old terminal
+behavior until normal `ctx.*` analyzer lowering replaces every direct platform
+import. During that compatibility window, the mutation kernel may bind a
+separate private platform projection containing the existing throwing write and
+query-to-mutation guards while passing the exact positive-capability context to
+the user handler. This is not a second developer facade: it is scoped only to
+the already-reserved private platform module, shares the same auth/database/call
+functions, and remains covered by the existing removal gate. A forbidden
+private-platform call must still record the terminal failure before throwing so
+user code cannot make it non-terminal by catching it.
+
+Rejected in this slice are a universal or optional context, throwing members on
+the handler's query context, an inlined second Function API Core inside runtime
+kernels, moving registry/call-budget/pending-call policy into the shared core,
+changing application-error data capture, normal `ctx.*` analyzer lowering,
+removing `flarex:platform`, extending database features, and any protocol,
+schema, snapshot, journal, OCC, commit, action, activation, routing, or
+production change. Shared application-error capture mechanics remain the next
+bounded core slice after exact context profiles.
+
+The implementation gate requires core tests for exact key order, runtime
+freezing, fresh allocation, identity preservation, and query/mutation member
+absence; function-runtime nested-call tests proving exact child query versus
+mutation profiles and unchanged uncatchable terminal guards; selected Workerd
+proof for the same direct-ctx and private-platform behavior; deterministic
+refresh of the support module, both selected kernels, and both selected Worker
+cores; graph-basis and derived target identity proof; SAP05 and SAP06-A3 under
+PGlite and genuine PostgreSQL; affected typechecks, the complete backend
+generated build, Effect-boundary checks, both mandatory exact-final reviewers,
+and one commit with no old base-context API or fallback left behind.
+
+### `FAC04` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+Function API Core now owns the exact frozen query and mutation context
+constructors. The selected query/internal-call factory supplies the shared query
+constructor with its existing point reader and per-parent `runQuery`. The
+selected mutation/internal-call factory supplies an exact point reader for
+child queries and its existing journal-backed writer for root and child
+mutations. The kernel retains call policy, and its separate private platform
+projection retains the already-owned terminal write and query-to-mutation
+guards without exposing those negative capabilities on a handler context.
+
+The deterministic generated closure is:
+
+- Function API Core
+  `2e2a5157a1787023079e9863a4838b75f92501ef66f49dcf6635c70a5ef99ab6`;
+- point-query internal-call kernel
+  `787d5db3c71add5078eac6bd7a2003038ed6eb000d2c65806fcc82221f9c3032`;
+- point-query internal-call Worker core
+  `7a19f31a36c5186cd7e06876a3a1a5993e7c9195388cd2e605e66d732e2e7880`;
+- point-mutation internal-call kernel
+  `7f84ed314e7134dda1c41891dfd08cea08481bf37e6e19d1bb897e86092f668c`;
+  and
+- point-mutation internal-call Worker core
+  `6dd45642a548247de1559b36e3f75336b63df9ac691066a19a36cf4d2dbe9286`.
+
+Validation passed the complete 50-test function-runtime suite, the focused
+23-test core and selected-kernel suite, the focused generated/graph-basis and
+Workerd suite (8 tests), both affected package typechecks through the complete
+backend generated build, and the workspace Effect-boundary check. SAP05 and
+SAP06-A3 each passed under PGlite and against a fresh PostgreSQL 18 cluster;
+the PostgreSQL lanes covered two tests each. The changed operations are pure,
+lifecycle-free per-invocation context construction and existing Promise-shaped
+handler calls, so no new Effect service, Layer, resource, retry, or error
+channel is applicable. No schema, persistence, snapshot, journal, OCC, commit,
+action, activation, route, or production authority changed, and no old
+base-context API or fallback remains.
+
+Both mandatory exact-final reviewers reported no actionable findings. The
+TypeScript review first identified one bounded type-only loss of correlation
+between a resolved function's query/mutation marker and its handler context.
+The final kernel now uses literal-kind overloads plus a discriminated internal
+handler, was regenerated and fully revalidated, and both reviewers accepted the
+exact final staged diff. The code-quality review confirmed the positive
+capability profiles, private terminal poisoning, journal ordering,
+read-your-writes behavior, and generated identities remain intact.
+
 ### Sequenced Follow-On Slices
 
 After `FAC01`, continue one coherent commit at a time:

@@ -4,7 +4,8 @@ import {
   createFunctionRuntimeAuthV1,
   createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
-  createMutationFunctionRuntimeBaseContextV1,
+  createMutationFunctionRuntimeContextV1,
+  createQueryFunctionRuntimeContextV1,
 } from "flarex:function-api-core/v1";
 import type {
   UserIdentity,
@@ -19,6 +20,8 @@ import type {
   PointMutationInternalCallRuntimeContextV1,
   PointMutationInternalCallRuntimeInputV1,
   PointMutationInternalCallRuntimeInvocationFactoryV1,
+  PointMutationInternalCallRuntimeRunMutationV1,
+  PointMutationInternalCallRuntimeRunQueryV1,
 } from "@flarex/function-runtime/point-mutation-internal-call";
 import type {
   CanonicalFlarexRuntimeObjectV1,
@@ -222,6 +225,7 @@ interface ExactRuntimeDatabase {
 }
 
 interface ExactRuntimeJournal {
+  readonly reader: Pick<ExactRuntimeDatabase, "get">;
   readonly database: ExactRuntimeDatabase;
   readonly close: () => void;
   readonly drain: () => Promise<void>;
@@ -618,16 +622,35 @@ export class FlarexPointMutationInternalCallExactRuntimeV1 extends WorkerEntrypo
       const invocations: PointMutationInternalCallRuntimeInvocationFactoryV1 =
         Object.freeze({
           open: () => {
-            journalRuntime = databaseForJournal(
+            const openedJournal = databaseForJournal(
               request.tables,
               admittedCapability,
             );
-            const context = createMutationFunctionRuntimeBaseContextV1(
-              createFunctionRuntimeAuthV1(request.auth, cloneUserIdentityV1),
-              journalRuntime.database,
+            journalRuntime = openedJournal;
+            const auth = createFunctionRuntimeAuthV1(
+              request.auth,
+              cloneUserIdentityV1,
             );
             return Object.freeze({
-              context,
+              database: openedJournal.database,
+              createQueryContext: (
+                runQuery: PointMutationInternalCallRuntimeRunQueryV1,
+              ) =>
+                createQueryFunctionRuntimeContextV1(
+                  auth,
+                  openedJournal.reader,
+                  runQuery,
+                ),
+              createMutationContext: (
+                runQuery: PointMutationInternalCallRuntimeRunQueryV1,
+                runMutation: PointMutationInternalCallRuntimeRunMutationV1,
+              ) =>
+                createMutationFunctionRuntimeContextV1(
+                  auth,
+                  openedJournal.database,
+                  runQuery,
+                  runMutation,
+                ),
               invokeWithContext: <A>(
                 invocationContext: PointMutationInternalCallRuntimeContextV1,
                 operation: () => A | PromiseLike<A>,
@@ -635,13 +658,13 @@ export class FlarexPointMutationInternalCallExactRuntimeV1 extends WorkerEntrypo
                 invocationContext,
                 operation,
               ),
-              journal: journalRuntime,
+              journal: openedJournal,
               recordCallFrame: (_frame: PointMutationInternalCallFrameV1) => {},
               isApplicationCatchableError: (cause: unknown) =>
                 inspectPointMutationInternalCallCoreApplicationErrorV1(cause) ||
                 isApplicationDocumentValidationFailure(cause),
               recordTerminalFailure: (cause: unknown) => {
-                journalRuntime!.poison(cause);
+                openedJournal.poison(cause);
               },
             });
           },
@@ -1606,6 +1629,7 @@ function databaseForJournal(
     }),
   );
   return Object.freeze({
+    reader: pointReader,
     database,
     close: () => {
       acceptingOperations = false;

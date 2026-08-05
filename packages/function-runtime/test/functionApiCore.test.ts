@@ -6,8 +6,8 @@ import {
   createFunctionRuntimeAuthV1,
   createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
-  createMutationFunctionRuntimeBaseContextV1,
-  createQueryFunctionRuntimeBaseContextV1,
+  createMutationFunctionRuntimeContextV1,
+  createQueryFunctionRuntimeContextV1,
 } from "../src/functionApiCore";
 
 const IDENTITY = Object.freeze({
@@ -179,7 +179,7 @@ describe("@flarex/function-runtime/function-api-core", () => {
     expect(cloneIdentity).toHaveBeenNthCalledWith(2, IDENTITY);
   });
 
-  it("constructs exact frozen query and mutation base contexts", async () => {
+  it("constructs fresh exact frozen query and mutation contexts", async () => {
     const auth = createFunctionRuntimeAuthV1(
       Object.freeze({ kind: "anonymous" }),
       identity => identity,
@@ -189,20 +189,49 @@ describe("@flarex/function-runtime/function-api-core", () => {
       get: vi.fn(),
       insert: vi.fn(),
     });
+    const runQuery = vi.fn(() => Promise.resolve("query"));
+    const runMutation = vi.fn(() => Promise.resolve("mutation"));
 
-    const query = createQueryFunctionRuntimeBaseContextV1(auth, queryDb);
-    const mutation = createMutationFunctionRuntimeBaseContextV1(auth, mutationDb);
+    const query = createQueryFunctionRuntimeContextV1(
+      auth,
+      queryDb,
+      runQuery,
+    );
+    const secondQuery = createQueryFunctionRuntimeContextV1(
+      auth,
+      queryDb,
+      runQuery,
+    );
+    const mutation = createMutationFunctionRuntimeContextV1(
+      auth,
+      mutationDb,
+      runQuery,
+      runMutation,
+    );
 
-    expect(query).toEqual({ auth, db: queryDb });
-    expect(mutation).toEqual({ auth, db: mutationDb });
+    expect(query).toEqual({ auth, db: queryDb, runQuery });
+    expect(mutation).toEqual({ auth, db: mutationDb, runQuery, runMutation });
+    expect(secondQuery).not.toBe(query);
+    expect(secondQuery).toEqual(query);
+    expect(query.auth).toBe(auth);
     expect(query.db).toBe(queryDb);
+    expect(query.runQuery).toBe(runQuery);
+    expect(mutation.auth).toBe(auth);
     expect(mutation.db).toBe(mutationDb);
-    expect(Object.keys(query)).toEqual(["auth", "db"]);
-    expect(Object.keys(mutation)).toEqual(["auth", "db"]);
+    expect(mutation.runQuery).toBe(runQuery);
+    expect(mutation.runMutation).toBe(runMutation);
+    expect(Object.keys(query)).toEqual(["auth", "db", "runQuery"]);
+    expect(Object.keys(mutation)).toEqual([
+      "auth",
+      "db",
+      "runQuery",
+      "runMutation",
+    ]);
     expect(Object.isFrozen(query)).toBe(true);
+    expect(Object.isFrozen(secondQuery)).toBe(true);
     expect(Object.isFrozen(mutation)).toBe(true);
-    expect("runQuery" in query).toBe(false);
-    expect("runMutation" in mutation).toBe(false);
+    expect("runMutation" in query).toBe(false);
+    expect("runMutation" in mutation).toBe(true);
     expect("scheduler" in mutation).toBe(false);
     expect("storage" in mutation).toBe(false);
   });

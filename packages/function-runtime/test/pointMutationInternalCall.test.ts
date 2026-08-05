@@ -7,7 +7,13 @@ import {
   type PointMutationInternalCallRuntimeContextV1,
   type PointMutationInternalCallRuntimeInputV1,
   type PointMutationInternalCallRuntimeInvocationFactoryV1,
+  type PointMutationInternalCallRuntimeQueryContextV1,
 } from "../src/pointMutationInternalCall";
+import {
+  createFunctionRuntimeAuthV1,
+  createMutationFunctionRuntimeContextV1,
+  createQueryFunctionRuntimeContextV1,
+} from "../src/functionApiCore";
 
 const DOCUMENT_ID = "7:00000000-0000-0000-0000-000000000001";
 const INTERNAL_REFERENCE = Object.freeze({ _path: "orders:internal" });
@@ -27,7 +33,13 @@ describe("@flarex/function-runtime/point-mutation-internal-call", () => {
         root: async context => await context.runQuery(INTERNAL_REFERENCE, {
           id: DOCUMENT_ID,
         }),
-        internal: async context => await context.db.get(DOCUMENT_ID),
+        internal: async context => {
+          expect(Object.keys(context)).toEqual(["auth", "db", "runQuery"]);
+          expect(Object.keys(context.db)).toEqual(["get"]);
+          expect("runMutation" in context).toBe(false);
+          expect("insert" in context.db).toBe(false);
+          return await context.db.get(DOCUMENT_ID);
+        },
       }),
       invocation(events),
     );
@@ -94,13 +106,26 @@ describe("@flarex/function-runtime/point-mutation-internal-call", () => {
           ? { isMutation: true, isInternal: true, _handler: async (
               context: PointMutationInternalCallRuntimeContextV1,
             ) => {
+              expect(Object.keys(context)).toEqual([
+                "auth",
+                "db",
+                "runQuery",
+                "runMutation",
+              ]);
+              expect(Object.keys(context.db)).toEqual([
+                "get",
+                "insert",
+                "patch",
+                "replace",
+                "delete",
+              ]);
               await context.db.patch(DOCUMENT_ID, { status: "child" });
               await context.runQuery(INTERNAL_REFERENCE, {});
               return 42;
             } }
           : path === "orders:internal"
           ? { isQuery: true, isInternal: true, _handler: async (
-              context: PointMutationInternalCallRuntimeContextV1,
+              context: PointMutationInternalCallRuntimeQueryContextV1,
             ) => await context.db.get(DOCUMENT_ID) }
           : undefined,
       },
@@ -205,7 +230,7 @@ describe("@flarex/function-runtime/point-mutation-internal-call", () => {
     });
   });
 
-  it("keeps query-to-mutation forbidden and terminal outside user catch", async () => {
+  it("keeps the private platform query-to-mutation guard terminal", async () => {
     const mutation = {
       ordinal: 2,
       path: "orders:mutateInternal",
@@ -225,16 +250,16 @@ describe("@flarex/function-runtime/point-mutation-internal-call", () => {
             ) => context.runQuery(INTERNAL_REFERENCE, {}) }
           : path === "orders:internal"
           ? { isQuery: true, isInternal: true, _handler: async (
-              context: PointMutationInternalCallRuntimeContextV1,
+              context: PointMutationInternalCallRuntimeQueryContextV1,
             ) => {
-              try {
-                return await context.runMutation(
-                  INTERNAL_MUTATION_REFERENCE,
-                  {},
-                );
-              } catch {
-                return { status: "caught" };
-              }
+              expect(Object.keys(context)).toEqual([
+                "auth",
+                "db",
+                "runQuery",
+              ]);
+              expect("runMutation" in context).toBe(false);
+              expect("insert" in context.db).toBe(false);
+              return { status: "caught" };
             } }
           : path === "orders:mutateInternal"
           ? { isMutation: true, isInternal: true, _handler: () => ({
@@ -242,7 +267,23 @@ describe("@flarex/function-runtime/point-mutation-internal-call", () => {
             }) }
           : undefined,
       },
-      invocation([]),
+      invocation(
+        [],
+        async () => undefined,
+        () => false,
+        (platformContext, depth) => {
+          if (depth !== 1) return;
+          try {
+            void platformContext.runMutation(
+              INTERNAL_MUTATION_REFERENCE,
+              {},
+            );
+          } catch {
+            // The private platform compatibility call remains catchable at the
+            // call site, but its terminal record must survive the catch.
+          }
+        },
+      ),
     )).rejects.toMatchObject({
       name: "PointMutationInternalCallTerminalV1Error",
       reason: "internalTargetInvalid",
@@ -427,7 +468,9 @@ function input(
 
 function registry(handlers: Readonly<{
   root: (context: PointMutationInternalCallRuntimeContextV1) => unknown | PromiseLike<unknown>;
-  internal: (context: PointMutationInternalCallRuntimeContextV1) => unknown | PromiseLike<unknown>;
+  internal: (
+    context: PointMutationInternalCallRuntimeQueryContextV1,
+  ) => unknown | PromiseLike<unknown>;
 }>) {
   return {
     resolve: (path: string) => path === "orders:update"
@@ -442,25 +485,44 @@ function invocation(
   events: string[],
   drain: () => Promise<void> = async () => undefined,
   isApplicationCatchableError: (cause: unknown) => boolean = () => false,
+  inspectPlatformContext?: (
+    context: PointMutationInternalCallRuntimeContextV1,
+    depth: number,
+  ) => void,
 ): PointMutationInternalCallRuntimeInvocationFactoryV1 {
   let terminal: unknown;
   let depth = 0;
+  const auth = createFunctionRuntimeAuthV1(
+    Object.freeze({ kind: "anonymous" }),
+    identity => identity,
+  );
+  const reader = {
+    get: async () => { events.push("get"); return { status: "open" }; },
+  };
+  const database = {
+    ...reader,
+    insert: async () => { events.push("insert"); return DOCUMENT_ID; },
+    patch: async () => { events.push("patch"); },
+    replace: async () => { events.push("replace"); },
+    delete: async () => { events.push("delete"); },
+  };
   return {
     open: () => ({
-      context: {
-        auth: { getUserIdentity: async () => null },
-        db: {
-          get: async () => { events.push("get"); return { status: "open" }; },
-          insert: async () => { events.push("insert"); return DOCUMENT_ID; },
-          patch: async () => { events.push("patch"); },
-          replace: async () => { events.push("replace"); },
-          delete: async () => { events.push("delete"); },
-        },
-      },
+      database,
+      createQueryContext: runQuery =>
+        createQueryFunctionRuntimeContextV1(auth, reader, runQuery),
+      createMutationContext: (runQuery, runMutation) =>
+        createMutationFunctionRuntimeContextV1(
+          auth,
+          database,
+          runQuery,
+          runMutation,
+        ),
       invokeWithContext: <A>(
-        _context: PointMutationInternalCallRuntimeContextV1,
+        context: PointMutationInternalCallRuntimeContextV1,
         operation: () => A | PromiseLike<A>,
       ): Promise<Awaited<A>> => {
+        inspectPlatformContext?.(context, depth);
         const label = depth === 0 ? "orders:update" : "orders:internal";
         depth += 1;
         events.push(`enter:${label}`);

@@ -252,6 +252,12 @@ export async function mutateInternal(ctx, args) {
   throw errorCreate("DECLARED", "declared child", { reason: "test", id });
 }
 export async function readInternal(ctx, args) {
+  if (Object.keys(ctx).join(",") !== "auth,db,runQuery" || "runMutation" in ctx || "scheduler" in ctx || "storage" in ctx) {
+    throw new Error("invalid internal query context shape");
+  }
+  if (Object.keys(ctx.db).join(",") !== "get" || "insert" in ctx.db || "query" in ctx.db || "normalizeId" in ctx.db || "system" in ctx.db) {
+    throw new Error("invalid internal query database shape");
+  }
   return await ctx.db.get(args.id);
 }`,
         },
@@ -284,6 +290,174 @@ export async function readInternal(ctx, args) {
           ["get", "6"],
         ],
       } });
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("keeps the private platform query-to-mutation guard terminal", async () => {
+    const runtimeHash = "b".repeat(64);
+    const artifact = Object.freeze({
+      runtime: "dynamic-worker" as const,
+      artifactId: TransactionArtifactIdV1Schema.make(
+        `artifact_${runtimeHash.slice(0, 32)}`,
+      ),
+      sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
+        runtimeHash,
+      ),
+      executionModule: TransactionExecutionModuleV1Schema.make(
+        "flarexCandidateBoundMutationInternalCallRuntimeTarget/execution-v1.js",
+      ),
+    });
+    const root = Object.freeze({
+      path: TransactionFunctionPathV1Schema.make("orders:update"),
+      executionModule: artifact.executionModule,
+      kind: "mutation" as const,
+      visibility: "public" as const,
+      argsValidator: Object.freeze({ type: "any" as const }),
+      returnsValidator: null,
+    });
+    const catalog = Object.freeze([Object.freeze({
+      functionOrdinal: 1n,
+      functionPath: "orders:readInternal",
+      artifactExecutionModule: "orders.js",
+      exportName: "readInternal",
+      handlerKind: "query" as const,
+      argsValidator: Object.freeze({ type: "any" as const }),
+      returnsValidator: null,
+    }), Object.freeze({
+      functionOrdinal: 2n,
+      functionPath: "orders:mutateInternal",
+      artifactExecutionModule: "orders.js",
+      exportName: "mutateInternal",
+      handlerKind: "mutation" as const,
+      argsValidator: Object.freeze({ type: "any" as const }),
+      returnsValidator: null,
+    })]);
+    const configuration = pointMutationInternalCallExactRuntimeWorkerConfigurationSourceV1({
+      moduleTime: Date.UTC(2026, 7, 6),
+      runtimeTargetSha256Hex: runtimeHash,
+      artifact,
+      function: root,
+      rootFunctionOrdinal: 0n,
+      internalFunctionCatalog: catalog,
+    });
+    const bridge = pointMutationInternalCallExactRuntimeExecutionBridgeSourceV1({
+      root: {
+        artifactExecutionModule: "orders.js",
+        exportName: "update",
+        functionPath: "orders:update",
+      },
+      internalFunctionCatalog: catalog,
+    });
+    const normalized = normalizeFlarexValueV1({});
+    const request = JSON.stringify({
+      format: "flarex.point-mutation-exact-runtime",
+      version: 1,
+      artifact,
+      function: root,
+      auth: { kind: "anonymous" },
+      arguments: {},
+      argumentArraySemanticBytes: requirePointMutationArgumentSemanticSizeV1(
+        normalized.semanticSizeBytes,
+      ),
+      tables: [{ tableId: 1, logicalName: "orders" }],
+      context: {
+        executionId: "execution-fac04-forbidden",
+        logScopeId: "log-fac04-forbidden",
+        randomSeed: Array.from(new Uint8Array(32).fill(9)),
+        executionTime: 100,
+        initialCreationTimeCursor: 100,
+      },
+    });
+    const runtime = new Miniflare({
+      compatibilityDate: "2026-06-18",
+      modules: [
+        {
+          type: "ESModule",
+          path: "worker.js",
+          contents: `${POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1}
+export default { async fetch() {
+  const request = ${request};
+  request.context.randomSeed = new Uint8Array(request.context.randomSeed);
+  const journal = { resolvePointTable() { throw new Error("unexpected database access"); } };
+  try {
+    const result = await Reflect.apply(
+      FlarexPointMutationInternalCallExactRuntimeV1.prototype.run,
+      {},
+      [request, journal],
+    );
+    return Response.json({ value: result.value });
+  } catch (error) {
+    return Response.json({
+      error: error?.name,
+      terminalError: error?.cause?.name,
+      terminalReason: error?.cause?.reason,
+    }, { status: 422 });
+  }
+} };`,
+        },
+        {
+          type: "ESModule",
+          path: POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_CONFIG_MODULE_V1,
+          contents: configuration,
+        },
+        {
+          type: "ESModule",
+          path: POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
+          contents: bridge,
+        },
+        {
+          type: "ESModule",
+          path: POINT_MUTATION_INTERNAL_CALL_RUNTIME_KERNEL_MODULE_V1,
+          contents: POINT_MUTATION_INTERNAL_CALL_RUNTIME_KERNEL_SOURCE_V1,
+        },
+        {
+          type: "ESModule",
+          path: FUNCTION_API_CORE_MODULE_V1,
+          contents: FUNCTION_API_CORE_SOURCE_V1,
+        },
+        {
+          type: "ESModule",
+          path: POINT_MUTATION_INTERNAL_CALL_PLATFORM_MODULE_V1,
+          contents: pointMutationInternalCallExactRuntimePlatformSourceV1(),
+        },
+        {
+          type: "ESModule",
+          path: "orders.js",
+          contents: `
+import { runMutation as platformRunMutation } from "flarex:platform";
+export async function update(ctx) {
+  return await ctx.runQuery({ _path: "orders:readInternal" }, {});
+}
+export async function readInternal(ctx) {
+  if (Object.keys(ctx).join(",") !== "auth,db,runQuery" || "runMutation" in ctx) {
+    throw new Error("invalid internal query context shape");
+  }
+  if (Object.keys(ctx.db).join(",") !== "get" || "insert" in ctx.db) {
+    throw new Error("invalid internal query database shape");
+  }
+  try {
+    await platformRunMutation({ _path: "orders:mutateInternal" }, {});
+  } catch {
+    return { status: "child-caught" };
+  }
+  return { status: "unreachable" };
+}
+export function mutateInternal() {
+  return { status: "unreachable" };
+}`,
+        },
+      ],
+    });
+    try {
+      const response = await runtime.dispatchFetch("https://fac04.test/");
+      await expect(response.json()).resolves.toEqual({
+        error: "PointMutationInternalCallExactRuntimeJournalBoundaryV1Error",
+        terminalError: "PointMutationInternalCallTerminalV1Error",
+        terminalReason: "internalTargetInvalid",
+      });
+      expect(response.status).toBe(422);
     } finally {
       await runtime.dispose();
     }

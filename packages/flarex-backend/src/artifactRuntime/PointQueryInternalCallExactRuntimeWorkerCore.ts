@@ -2,7 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
   createFunctionRuntimePointReaderV1,
-  createQueryFunctionRuntimeBaseContextV1,
+  createQueryFunctionRuntimeContextV1,
 } from "flarex:function-api-core/v1";
 import type {
   capturePointQueryInternalCallRuntimeArgumentsV1,
@@ -12,6 +12,7 @@ import type {
   PointQueryInternalCallRuntimeContextV1,
   PointQueryInternalCallRuntimeInputV1,
   PointQueryInternalCallRuntimeInvocationFactoryV1,
+  PointQueryInternalCallRuntimeRunQueryV1,
 } from "@flarex/function-runtime/point-query-internal-call";
 import type { PointQueryInternalCallExactRuntimeResultV1 } from
   "flarex-protocol/point-query-internal-call-exact-runtime";
@@ -129,12 +130,16 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
           return pending;
         },
       );
+      const auth = createFunctionRuntimeAuthV1(
+        request.auth,
+        cloneUserIdentityV1,
+      );
       const invocations: PointQueryInternalCallRuntimeInvocationFactoryV1 = freeze({
         open: () => freeze({
-          context: createQueryFunctionRuntimeBaseContextV1(
-            createFunctionRuntimeAuthV1(request.auth, cloneUserIdentityV1),
-            database,
-          ),
+          createContext: (
+            runQuery: PointQueryInternalCallRuntimeRunQueryV1,
+          ) =>
+            createQueryFunctionRuntimeContextV1(auth, database, runQuery),
           invokeWithContext: <A>(
             context: PointQueryInternalCallRuntimeContextV1,
             operation: () => A | PromiseLike<A>,
