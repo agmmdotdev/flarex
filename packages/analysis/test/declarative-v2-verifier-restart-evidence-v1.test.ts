@@ -214,12 +214,43 @@ describe("Declarative V2 verifier restart evidence V1", () => {
         generousBudget,
       ),
     )).toBe(true);
-    expect(Result.isFailure(
-      createDeclarativeV2VerifierRestartRecordEncoderV1(
-        record,
-        makeBudget({ frameBytes: 9_223_372_036_854_775_807n }),
+    const baseline = encode(record, generousBudget, 1_024).canonicalBytes;
+    for (const value of [
+      0xffff_ffffn,
+      0x1_0000_0000n,
+      9_223_372_036_854_775_807n,
+    ]) {
+      const aggregateBudget = makeUniformBudget(value);
+      const admitted = encode(record, aggregateBudget, 1_024);
+      expect(admitted.canonicalBytes).toEqual(baseline);
+      expect(decode(admitted.canonicalBytes, aggregateBudget, 1_024).record)
+        .toEqual(admitted.record);
+    }
+    const addressabilityDecoder = Result.getOrThrow(
+      createDeclarativeV2VerifierRestartRecordDecoderV1(
+        makeUniformBudget(9_223_372_036_854_775_807n),
       ),
-    )).toBe(true);
+    );
+    expect(addressabilityDecoder.push(
+      new Uint8Array([0xff, 0xff, 0xff, 0xfc]),
+      4,
+    )).toMatchObject({
+      failure: {
+        reason: "budgetExceeded",
+        path: "frameBytes",
+        observed: 0x1_0000_0000n,
+        maximum: 0xffff_ffffn,
+      },
+    });
+    const emptyDecoder = Result.getOrThrow(
+      createDeclarativeV2VerifierRestartRecordDecoderV1(generousBudget),
+    );
+    expect(emptyDecoder.push(new Uint8Array(4), 4)).toMatchObject({
+      failure: {
+        reason: "malformed",
+        path: "lengthPrefix",
+      },
+    });
   });
 
   it("rejects malformed, truncated, trailing, noncanonical, and invalid UTF-8 bytes", () => {
@@ -847,6 +878,20 @@ function makeBudget(
       ]),
     ),
     ...overrides,
+  }) as DeclarativeV2VerifierBudgetFrameV2;
+}
+
+function makeUniformBudget(
+  value: bigint,
+): DeclarativeV2VerifierBudgetFrameV2 {
+  return Object.freeze({
+    kind: "command_budget",
+    ...Object.fromEntries(
+      DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2.map((dimension) => [
+        dimension,
+        value,
+      ]),
+    ),
   }) as DeclarativeV2VerifierBudgetFrameV2;
 }
 

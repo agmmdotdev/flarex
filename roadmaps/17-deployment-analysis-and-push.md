@@ -1763,6 +1763,16 @@ activation remain blocked until their production host composition is proven.
         bytes proves impossible. Reserved storage remains capacity rather than
         terminal actual.
 
+        The accepted `ST-CORE-005` correction preserves that boundary. Command
+        budgets remain aggregate bigint authority, while the restart-evidence
+        adapter derives a u32-capped view only for each length-framed JSON
+        record. Cumulative admission and usage charging continue against the
+        unclamped command budget. Boundary vectors at u32, u32-plus-one, and
+        signed-int64 maximum preserve the canonical bytes of previously
+        admitted records, so the restart evidence identity remains V1; the
+        bundled private analyzer implementation identity is
+        `206835e4a5e3fd24d6b3c14e50225927cc452f1ea0b5e9978db265cca3cd47f0`.
+
         Durable command usage and restart recovery usage remain separate
         ledgers. Recovery-side `objectCalls`, page/body bytes, hashes, records,
         and manifests belong only to the bounded recovery receipt; they never

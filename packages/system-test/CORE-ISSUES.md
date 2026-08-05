@@ -14,34 +14,7 @@ fixture succeeds.
 
 ## Open Issues
 
-### `ST-CORE-005` — Parse capacity and restart-record numeric domains diverge
-
-- **Status:** Open; no shared analyzer or restart-contract change authorized.
-- **Discovered by:** Attempting to make the `ST-CORE-004` test ceiling cover
-  the analysis owner's complete accepted parse domain.
-- **Observed boundary:** Verifier restart-evidence production after immutable
-  parse-capacity admission and before registration completes.
-- **Reproduction:** Set the authenticated Standard test command budget to
-  `1000000000000`, which is finite and covers the generated capacity of the
-  accepted 26,869-byte parse domain. Initial capacity admission succeeds, then
-  restart-evidence production fails closed with
-  `DeclarativeV2VerifierRestartRuntimeV1Error`, reason `corruption`, path
-  `record`. The restart codec retains u32-bound fields while sizing and command
-  budget capture accept larger signed-int64 values.
-- **Expected:** The advertised accepted parse domain, immutable capacity,
-  command-budget codec, and restart evidence agree on one representable numeric
-  domain, or admission rejects the unsupported budget with a precise typed
-  limit error before analysis begins.
-- **Actual:** A budget accepted by sizing can become an opaque restart-record
-  corruption. The system-test harness must remain below the narrower boundary,
-  so it cannot honestly claim coverage of every source size admitted by the
-  current generated arena bound.
-- **Resolution owner:** A separate analysis/restart protocol and compatibility
-  preflight. This simulation slice does not change sizing formulas, generated
-  identities, restart bytes, or production admission.
-- **Acceptance evidence required:** Exact boundary vectors on both sides of the
-  chosen numeric limit, warm/cold replay, interruption and rollback, generated
-  identity refresh if required, and both mandatory reviewers.
+None.
 
 ## Investigation Leads
 
@@ -83,6 +56,35 @@ fixture succeeds.
 
 ## Resolved Issues
 
+### `ST-CORE-005` — Aggregate command budgets rejected by per-record restart codec
+
+- **Status:** Resolved in the private analyzer restart-evidence owner.
+- **Discovered by:** Attempting to make the `ST-CORE-004` test ceiling cover
+  the analysis owner's complete accepted parse domain.
+- **Observed boundary:** Verifier restart-evidence production after immutable
+  parse-capacity admission and before registration completes.
+- **Reproduction:** Set the authenticated Standard test command budget to
+  `1000000000000`. Initial capacity admission succeeds, then restart-evidence
+  production previously failed closed with
+  `DeclarativeV2VerifierRestartRuntimeV1Error`, reason `corruption`, path
+  `record`.
+- **Root cause:** Whole-command aggregate bigint ceilings were passed directly
+  to an incremental JSON codec whose individual length-framed records are
+  u32-addressed. The adapter therefore rejected a representable small record
+  solely because the remaining aggregate ceiling exceeded the codec's
+  per-record representation.
+- **Resolution:** The restart-evidence owner derives an internal per-record
+  codec view capped at u32 while retaining the original bigint command budget
+  for cumulative admission and exact usage charging. No authoritative budget,
+  sizing formula, canonical restart byte, or restart evidence identity changes.
+- **Resolution owner:** The private analyzer restart-evidence adapter.
+- **Acceptance evidence:** u32, u32-plus-one, and signed-int64 aggregate budget
+  vectors produce byte-identical records; encoder/decoder exact ceilings and
+  one-less refusal remain pinned; producer/rehydrator warm-cold replay accepts
+  the large aggregate frame ceiling; the 1-trillion-budget cooking PGlite path,
+  generated analyzer identity, focused tests, typechecks, generated verifier
+  checks, and both mandatory exact-final reviewers pass.
+
 ### `ST-CORE-004` — Standard simulation budget rejected ordinary user logic
 
 - **Status:** Resolved within the private system-test harness.
@@ -96,13 +98,15 @@ fixture succeeds.
   `667413977`, maximum `100000000`.
 - **Expected:** The general Standard simulation environment admits ordinary
   application logic while retaining a finite fail-closed command budget.
-- **Resolution:** The test-owned Standard ceiling is now `1000000000`, which
-  admits the current realistic modules and remains within the restart
-  representation's u32 boundary. The real cooking definition, analysis,
+- **Resolution:** The test-owned Standard ceiling was first raised to
+  `1000000000`, which admitted the current realistic modules while
+  `ST-CORE-005` remained open. After that core correction, the ceiling is
+  `1000000000000` and covers the generated accepted source domain. The real
+  cooking definition, analysis,
   registration, runtime, nested calls, OCC/commit, readback, feed, and outbox
   path passes without minification or source splitting. This does not change
-  analyzer sizing, production admission, or claim coverage of the complete
-  generated source domain; that unresolved mismatch is `ST-CORE-005`.
+  analyzer sizing or production admission; the former restart-codec mismatch
+  was resolved by `ST-CORE-005`.
 - **Resolution owner:** The private `@flarex/system-test` authenticated
   analysis-fixture budget policy.
 - **Acceptance evidence:** Focused simulation-config and cooking PGlite tests,

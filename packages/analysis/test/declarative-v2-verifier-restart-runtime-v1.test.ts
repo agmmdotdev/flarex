@@ -46,11 +46,13 @@ import {
 const encoder = new TextEncoder();
 
 describe("Declarative V2 verifier restart runtime V1", () => {
-  it("produces claimed pages and rehydrates fresh opaque module authority", () => {
+  it("admits large aggregate budgets while producing and rehydrating pages", () => {
     const source =
       "export async function ready({ value } = {}, ...rest) { return value; }";
     const module = runModule(source, "functions/restart-runtime.js", 4n);
-    const maximum = budget("command_budget");
+    const maximum = budget("command_budget", 1_000_000n, {
+      frameBytes: 9_223_372_036_854_775_807n,
+    });
     const reservationSha256 = bytes(1);
     const authenticatedInputSha256 = bytes(2);
     const producerAuthority = Object.freeze({});

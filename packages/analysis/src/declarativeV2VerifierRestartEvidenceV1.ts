@@ -30,6 +30,7 @@ import {
 } from "./declarativeV2IncrementalCanonicalJsonV1";
 
 const MAX_SIGNED_INT64 = 9_223_372_036_854_775_807n;
+const MAX_LENGTH_FRAMED_RECORD_BYTES = 0xffff_ffffn;
 const MAX_ALLOWANCE = 1_024;
 const DIGEST_BYTES = 32;
 const LENGTH_PREFIX_BYTES = 4;
@@ -1352,6 +1353,14 @@ function safeNumber(value: bigint): number | undefined {
   return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined;
 }
 
+function perRecordCodecLimit(value: bigint): number {
+  return Number(
+    value > MAX_LENGTH_FRAMED_RECORD_BYTES
+      ? MAX_LENGTH_FRAMED_RECORD_BYTES
+      : value,
+  );
+}
+
 function makeJsonLimits(
   budget: DeclarativeV2VerifierBudgetFrameV2,
   operation: "createEncoder" | "createDecoder",
@@ -1359,21 +1368,18 @@ function makeJsonLimits(
   IncrementalCanonicalJsonLimitsV1,
   DeclarativeV2VerifierRestartEvidenceV1Error
 > {
-  const maximumFrameBytes = safeNumber(budget.frameBytes);
-  const maximumCanonicalBytes = safeNumber(budget.canonicalBytes);
-  const maximumStringBytes = safeNumber(budget.stringBytes);
-  const maximumMembers = safeNumber(budget.graphNodes);
-  const maximumDepth = safeNumber(budget.nestingDepth);
-  const maximumTokenBytes = safeNumber(budget.tokenBytes);
-  const maximumOutputBytes = safeNumber(budget.outputBytes);
+  // Command budgets are aggregate bigint ceilings. The restart record framing
+  // and incremental JSON codec are individually u32-addressed, so constrain
+  // only their per-record mechanics while cumulative charging continues to use
+  // the original budget values.
+  const maximumFrameBytes = perRecordCodecLimit(budget.frameBytes);
+  const maximumCanonicalBytes = perRecordCodecLimit(budget.canonicalBytes);
+  const maximumStringBytes = perRecordCodecLimit(budget.stringBytes);
+  const maximumMembers = perRecordCodecLimit(budget.graphNodes);
+  const maximumDepth = perRecordCodecLimit(budget.nestingDepth);
+  const maximumTokenBytes = perRecordCodecLimit(budget.tokenBytes);
+  const maximumOutputBytes = perRecordCodecLimit(budget.outputBytes);
   if (
-    maximumFrameBytes === undefined ||
-    maximumCanonicalBytes === undefined ||
-    maximumStringBytes === undefined ||
-    maximumMembers === undefined ||
-    maximumDepth === undefined ||
-    maximumTokenBytes === undefined ||
-    maximumOutputBytes === undefined ||
     maximumFrameBytes < LENGTH_PREFIX_BYTES ||
     maximumCanonicalBytes < LENGTH_PREFIX_BYTES ||
     (
@@ -1401,9 +1407,7 @@ function makeJsonLimits(
     maximumMembers,
     maximumDepth,
   );
-  return Result.isFailure(result)
-    ? Result.fail(mapJsonIssue(operation, result.failure))
-    : Result.succeed(result.success);
+  return Result.mapError(result, issue => mapJsonIssue(operation, issue));
 }
 
 function zeroUsage(
@@ -1577,9 +1581,7 @@ export function createDeclarativeV2VerifierRestartRecordEncoderV1(
     return Result.fail(restartError("createEncoder", "invalidBudget"));
   }
   const limits = makeJsonLimits(budget, "createEncoder");
-  if (Result.isFailure(limits)) {
-    return Result.fail(restartError("createEncoder", "invalidBudget"));
-  }
+  if (Result.isFailure(limits)) return Result.fail(limits.failure);
   const semanticAdmission = Object.freeze({
     ...zeroUsage("attempt_usage"),
     ...recordSemanticUsage(record, 0),
@@ -1593,13 +1595,10 @@ export function createDeclarativeV2VerifierRestartRecordEncoderV1(
     return Result.fail(semanticExceeded);
   }
   const maximumFrameBytes = Math.min(
-    safeNumber(budget.frameBytes) ?? Number.POSITIVE_INFINITY,
-    safeNumber(budget.canonicalBytes) ?? Number.POSITIVE_INFINITY,
-    safeNumber(budget.outputBytes) ?? Number.POSITIVE_INFINITY,
+    perRecordCodecLimit(budget.frameBytes),
+    perRecordCodecLimit(budget.canonicalBytes),
+    perRecordCodecLimit(budget.outputBytes),
   );
-  if (!Number.isSafeInteger(maximumFrameBytes)) {
-    return Result.fail(restartError("createEncoder", "invalidBudget"));
-  }
   const sizingSink = makeIncrementalCanonicalJsonByteSinkV1(() => undefined);
   const created = createIncrementalCanonicalJsonByteSinkEncoderV1(
     createEventSource(entriesForRecord(record)),
@@ -1830,9 +1829,7 @@ export function createDeclarativeV2VerifierRestartRecordDecoderV1(
     return Result.fail(restartError("createDecoder", "invalidBudget"));
   }
   const limits = makeJsonLimits(budget, "createDecoder");
-  if (Result.isFailure(limits)) {
-    return Result.fail(restartError("createDecoder", "invalidBudget"));
-  }
+  if (Result.isFailure(limits)) return Result.fail(limits.failure);
   const parsed = createFlatObjectSink();
   const created = createIncrementalCanonicalJsonDecoderV1(
     limits.success,
@@ -1995,18 +1992,38 @@ export function createDeclarativeV2VerifierRestartRecordDecoderV1(
         consumed += 1;
         remaining -= 1;
         if (prefixBytes === LENGTH_PREFIX_BYTES) {
-          const maximumFrameBytes = safeNumber(budget.frameBytes)!;
-          if (
-            prefix === 0 ||
-            prefix > maximumFrameBytes - LENGTH_PREFIX_BYTES ||
-            BigInt(prefix) > budget.canonicalBytes -
-              BigInt(LENGTH_PREFIX_BYTES) ||
-            BigInt(prefix) > budget.tokenBytes
-          ) {
+          const maximumFrameBytes = perRecordCodecLimit(budget.frameBytes);
+          const observedFrameBytes = BigInt(LENGTH_PREFIX_BYTES + prefix);
+          if (prefix === 0) {
+            terminal = restartError("push", "malformed", {
+              path: "lengthPrefix",
+            });
+            return Result.fail(terminal);
+          }
+          if (prefix > maximumFrameBytes - LENGTH_PREFIX_BYTES) {
             terminal = restartError("push", "budgetExceeded", {
               path: "frameBytes",
-              observed: BigInt(LENGTH_PREFIX_BYTES + prefix),
-              maximum: budget.frameBytes,
+              observed: observedFrameBytes,
+              maximum: BigInt(maximumFrameBytes),
+            });
+            return Result.fail(terminal);
+          }
+          if (
+            BigInt(prefix) > budget.canonicalBytes -
+              BigInt(LENGTH_PREFIX_BYTES)
+          ) {
+            terminal = restartError("push", "budgetExceeded", {
+              path: "canonicalBytes",
+              observed: observedFrameBytes,
+              maximum: budget.canonicalBytes,
+            });
+            return Result.fail(terminal);
+          }
+          if (BigInt(prefix) > budget.tokenBytes) {
+            terminal = restartError("push", "budgetExceeded", {
+              path: "tokenBytes",
+              observed: BigInt(prefix),
+              maximum: budget.tokenBytes,
             });
             return Result.fail(terminal);
           }

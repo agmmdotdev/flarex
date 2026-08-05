@@ -21,7 +21,7 @@ describe("private analyzer deterministic identity", () => {
     expect(installed.identity).toEqual({
       protocolIdentity: "flarex.private-source-analyzer-handshake.v1",
       protocolVersion: 1,
-      implementationIdentity: "c29980af03ba0564c8fe3e794e26764651c86bcaa33adbd4e697a63d789dc586",
+      implementationIdentity: "206835e4a5e3fd24d6b3c14e50225927cc452f1ea0b5e9978db265cca3cd47f0",
       configurationIdentity: "c0ffa918d2cbfe69cc6193807caecdccf6d50c391bc2525db300b5a4cc4ce795",
     });
     expect(canonicalPrivateAnalyzerHostConfigurationV1(installed.configuration)).toBe(
@@ -71,14 +71,21 @@ describe("private analyzer deterministic identity", () => {
     expect(outputChecks).toBe(1);
   });
 
-  it("keeps the app private with no package export surface", async () => {
+  it("keeps the app private with its exact internal export surface", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       readonly dependencies?: unknown;
       readonly private?: unknown;
       readonly exports?: unknown;
     };
     expect(packageJson.private).toBe(true);
-    expect(packageJson.exports).toBeUndefined();
+    expect(packageJson.exports).toEqual({
+      "./internal/declarative-v2-analyzer-port-v1":
+        "./src/DeclarativeV2AnalyzerPort.ts",
+      "./internal/declarative-v2-analyzer-restart-plan-v1":
+        "./src/PrivateDeclarativeV2AnalyzerRestartPlan.ts",
+      "./internal/private-application-revision-registration-evidence-v1":
+        "./src/PrivateApplicationRevisionRegistrationEvidence.ts",
+    });
     expect(packageJson.dependencies).toEqual({
       "@flarex/analysis": "workspace:*",
       "@flarex/executor-http": "workspace:*",

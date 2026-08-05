@@ -399,7 +399,7 @@ Named Flarex differences are:
   The matching genuine-PostgreSQL lane remains implemented but requires an
   authenticated URL. The work also exposed and resolved the test-owned
   `ST-CORE-004`, exposed the reproducible shared-boundary mismatch
-  `ST-CORE-005`, and recorded the non-reproducible historical observation
+  `ST-CORE-005` (now resolved), and recorded the historical observation
   `ST-CORE-006`. Their evidence, limitations, and authority boundaries live in
   the package ledger rather than being hidden in simulation glue.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
@@ -429,7 +429,7 @@ Named Flarex differences are:
   conditional, scheduled, or release-gating.
 - `@flarex/system-test` resolved the original analyzer arena/finalization
   defects `ST-CORE-001` through `ST-CORE-003`. The richer cooking workload then
-  exposed the currently open, reproducible parse-capacity/restart-domain defect
+  exposed the now-resolved aggregate-budget/per-record restart-codec defect
   `ST-CORE-005`. `ST-CORE-006` records a historical parser-terminal observation
   whose exact source was not retained; it is an investigation lead rather than
   an authoritative defect reproduction. The evidence, temporary constraints,
