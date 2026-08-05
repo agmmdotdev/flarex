@@ -13,6 +13,14 @@ export interface CreateAndReadDefinitionInputV1 {
   readonly mutationArtifactPath: string;
   readonly queryArtifactPath: string;
   readonly fields: ObjectValidatorJsonV1["value"];
+  readonly pointMutationLifecycle?: Readonly<{
+    readonly patchModulePath: string;
+    readonly patchArtifactPath: string;
+    readonly replaceModulePath: string;
+    readonly replaceArtifactPath: string;
+    readonly deleteModulePath: string;
+    readonly deleteArtifactPath: string;
+  }>;
 }
 
 export function makeCreateAndReadDefinitionV1(
@@ -22,10 +30,120 @@ export function makeCreateAndReadDefinitionV1(
     Object.fromEntries(Object.entries(input.fields).map(
       ([fieldName, field]) => [fieldName, { ...field }],
     ));
+  const makePatchFields = (): ObjectValidatorJsonV1["value"] =>
+    Object.fromEntries(Object.entries(input.fields).map(
+      ([fieldName, field]) => [fieldName, { ...field, optional: true }],
+    ));
+  const lifecycle = input.pointMutationLifecycle;
+  const lifecycleProgramModules = lifecycle === undefined ? [] : [{
+    modulePath: lifecycle.patchModulePath,
+    functions: [{
+      exportName: "patch",
+      kind: "mutation" as const,
+      visibility: "public" as const,
+      argsValidator: {
+        type: "object" as const,
+        value: {
+          id: {
+            optional: false,
+            fieldType: { type: "id" as const, tableName: input.tableName },
+          },
+          patch: {
+            optional: false,
+            fieldType: {
+              type: "object" as const,
+              value: makePatchFields(),
+            },
+          },
+        },
+      },
+      returnsValidator: { type: "null" as const },
+    }],
+  }, {
+    modulePath: lifecycle.replaceModulePath,
+    functions: [{
+      exportName: "replace",
+      kind: "mutation" as const,
+      visibility: "public" as const,
+      argsValidator: {
+        type: "object" as const,
+        value: {
+          id: {
+            optional: false,
+            fieldType: { type: "id" as const, tableName: input.tableName },
+          },
+          fields: {
+            optional: false,
+            fieldType: {
+              type: "object" as const,
+              value: makeDocumentFields(),
+            },
+          },
+        },
+      },
+      returnsValidator: { type: "null" as const },
+    }],
+  }, {
+    modulePath: lifecycle.deleteModulePath,
+    functions: [{
+      exportName: "remove",
+      kind: "mutation" as const,
+      visibility: "public" as const,
+      argsValidator: {
+        type: "object" as const,
+        value: {
+          id: {
+            optional: false,
+            fieldType: { type: "id" as const, tableName: input.tableName },
+          },
+        },
+      },
+      returnsValidator: { type: "null" as const },
+    }],
+  }];
+  const lifecycleGraphModules = lifecycle === undefined ? [] : [{
+    path: lifecycle.patchArtifactPath,
+    roles: ["function" as const],
+    sourceBytes: UTF8.encode(
+      'import{databasePatch}from"flarex:platform";' +
+        "export async function patch(_,{id,patch}){" +
+        "await databasePatch(id,patch);return null}",
+    ),
+    sourceMapBytes: null,
+  }, {
+    path: lifecycle.replaceArtifactPath,
+    roles: ["function" as const],
+    sourceBytes: UTF8.encode(
+      'import{databaseReplace}from"flarex:platform";' +
+        "export async function replace(_,{id,fields}){" +
+        "await databaseReplace(id,fields);return null}",
+    ),
+    sourceMapBytes: null,
+  }, {
+    path: lifecycle.deleteArtifactPath,
+    roles: ["function" as const],
+    sourceBytes: UTF8.encode(
+      'import{databaseDelete}from"flarex:platform";' +
+        "export async function remove(_,{id}){" +
+        "await databaseDelete(id);return null}",
+    ),
+    sourceMapBytes: null,
+  }];
+  const lifecycleFunctionEntries = lifecycle === undefined ? [] : [{
+    logicalModulePath: lifecycle.patchModulePath,
+    artifactModulePath: lifecycle.patchArtifactPath,
+  }, {
+    logicalModulePath: lifecycle.replaceModulePath,
+    artifactModulePath: lifecycle.replaceArtifactPath,
+  }, {
+    logicalModulePath: lifecycle.deleteModulePath,
+    artifactModulePath: lifecycle.deleteArtifactPath,
+  }];
+  const moduleCount = lifecycle === undefined ? 2 : 5;
   return {
     programBudgetInput: {
-      maximumModules: 2,
-      maximumFunctions: 2,
+      maximumModules: moduleCount,
+      maximumFunctions: moduleCount,
       maximumIdentifierUtf8Bytes: 4_096,
       maximumValidatorNodes: 512,
       maximumValidatorDepth: 32,
@@ -60,7 +178,7 @@ export function makeCreateAndReadDefinitionV1(
           },
           returnsValidator: { type: "id", tableName: input.tableName },
         }],
-      }, {
+      }, ...lifecycleProgramModules, {
         modulePath: input.queryModulePath,
         functions: [{
           exportName: "get",
@@ -96,12 +214,12 @@ export function makeCreateAndReadDefinitionV1(
       }],
     },
     materializationBudgetInput: {
-      maximumModules: 2,
-      maximumEntryBindings: 2,
+      maximumModules: moduleCount,
+      maximumEntryBindings: moduleCount,
       maximumSourceBytes: 8_192,
       maximumSourceMapBytes: 1_024,
       maximumBytesMaterialized: 64_000,
-      maximumSemanticRecords: 64,
+      maximumSemanticRecords: lifecycle === undefined ? 64 : 160,
       maximumSemanticRecordBytes: 8_000,
       maximumSemanticStreamBytes: 32_000,
     },
@@ -114,7 +232,7 @@ export function makeCreateAndReadDefinitionV1(
             `export function create(_,a){return databaseInsert("${input.tableName}",a)}`,
         ),
         sourceMapBytes: null,
-      }, {
+      }, ...lifecycleGraphModules, {
         path: input.queryArtifactPath,
         roles: ["function"],
         sourceBytes: UTF8.encode(
@@ -126,7 +244,7 @@ export function makeCreateAndReadDefinitionV1(
       functionEntries: [{
         logicalModulePath: input.mutationModulePath,
         artifactModulePath: input.mutationArtifactPath,
-      }, {
+      }, ...lifecycleFunctionEntries, {
         logicalModulePath: input.queryModulePath,
         artifactModulePath: input.queryArtifactPath,
       }],

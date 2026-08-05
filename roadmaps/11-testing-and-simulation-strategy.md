@@ -372,6 +372,14 @@ Named Flarex differences are:
   dispatch. Logical inspection proves both rejections add no runtime execution,
   application row/revision, committed outcome, commit, feed change, or outbox
   entry in PGlite. The matching genuine-PostgreSQL lane remains open.
+- `SAC01-F2e` exercises the complete existing single-document mutation
+  lifecycle without widening point authority. Separate public cooking modules
+  patch two fields, replace the full recipe, and delete it; every operation is
+  immediately replayed under its original request key. Authoritative queries
+  prove patch preservation, full replacement, and the final null read, while
+  logical inspection proves one tombstoned current row, four revisions, and
+  commit sequences `1..4` aligned across outcomes, feed, and outbox in PGlite.
+  The matching genuine-PostgreSQL lane remains open.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate
@@ -397,6 +405,15 @@ Named Flarex differences are:
   every selected suite skipped when the database URL is absent.
 - No repository CI configuration currently shows which lanes are mandatory,
   conditional, scheduled, or release-gating.
+- A realistic Standard definition with a second declared function in the same
+  logical module currently fails during analyzer/registration preparation,
+  even when that second function is a pure `return null` export. The verifier
+  progress release finalizer then reports `pendingExists`, masking the original
+  analyzer failure. Expected behavior is either successful multi-export module
+  registration or preservation of the originating typed analysis error.
+  `SAC01-F2e` records this as open analyzer/registration integration debt and
+  uses ordinary separate user modules for each lifecycle function; it does not
+  repair, bypass, or claim closure of the defect.
 - The live staging H05-B proof through real cache-disabled Hyperdrive remains
   incomplete; harness and dry-run evidence do not close production activation.
 - The root integration suite uses source aliases and local workspace code for

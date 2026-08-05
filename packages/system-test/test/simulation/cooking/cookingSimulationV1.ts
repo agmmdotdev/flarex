@@ -36,6 +36,11 @@ export interface CookingWorkloadProofV1 {
   readonly committedStateUnchangedAfterRejections: true;
   readonly mutationReplay: true;
   readonly queryReplay: true;
+  readonly patchReplay: true;
+  readonly replaceReplay: true;
+  readonly deleteReplay: true;
+  readonly pointMutationLifecycle: true;
+  readonly deletedDocumentReadsNull: true;
   readonly workloadInspection: StandardApplicationAuthoritativeInspectionV1;
 }
 
@@ -62,6 +67,15 @@ type CookingExpectedArgumentIssueV1 = Extract<
 const COOKING_MUTATION_PATH = TransactionFunctionPathV1Schema.make(
   "recipeCommands:create",
 );
+const COOKING_PATCH_PATH = TransactionFunctionPathV1Schema.make(
+  "recipePatch:patch",
+);
+const COOKING_REPLACE_PATH = TransactionFunctionPathV1Schema.make(
+  "recipeReplace:replace",
+);
+const COOKING_DELETE_PATH = TransactionFunctionPathV1Schema.make(
+  "recipeDelete:remove",
+);
 const COOKING_QUERY_PATH = TransactionFunctionPathV1Schema.make("recipes:get");
 const COOKING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:create",
@@ -72,6 +86,15 @@ const COOKING_INVALID_AMOUNT_REQUEST_KEY =
   );
 const COOKING_MISSING_NAME_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:missing-ingredient-name",
+);
+const COOKING_PATCH_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "sac01:cooking:patch",
+);
+const COOKING_REPLACE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "sac01:cooking:replace",
+);
+const COOKING_DELETE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "sac01:cooking:delete",
 );
 const COOKING_RECIPE = {
   title: "Tomato soup",
@@ -123,6 +146,49 @@ const COOKING_RECIPE_WITH_MISSING_INGREDIENT_NAME = {
     note: "ripe",
   }, COOKING_RECIPE.ingredients[1]],
 } as const;
+const COOKING_PATCH = {
+  description: "A doubled batch for the freezer.",
+  servings: 8,
+} as const;
+const COOKING_RECIPE_AFTER_PATCH = {
+  ...COOKING_RECIPE,
+  ...COOKING_PATCH,
+} as const;
+const COOKING_REPLACEMENT_RECIPE = {
+  title: "Mushroom risotto",
+  description: "A creamy rice dish finished with herbs.",
+  servings: 3,
+  difficulty: "hard",
+  published: false,
+  tags: ["rice", "vegetarian"],
+  ingredients: [{
+    name: "Arborio rice",
+    amount: 300,
+    unit: "g",
+  }, {
+    name: "Mushroom",
+    amount: 250,
+    unit: "g",
+    note: "sliced",
+  }],
+  steps: [{
+    position: 1,
+    instruction: "Toast the rice.",
+  }, {
+    position: 2,
+    instruction: "Add stock gradually and stir.",
+    durationMinutes: 30,
+  }],
+  nutrition: {
+    caloriesPerServing: 520,
+    vegetarian: true,
+  },
+  localizedTitles: {
+    en: "Mushroom risotto",
+    it: "Risotto ai funghi",
+  },
+  source: "Kitchen notebook",
+} as const;
 
 const prepareCookingStateV1 = Effect.fn(
   "SystemTestCookingSimulation.setupV1",
@@ -171,7 +237,7 @@ const runCookingWorkloadV1 = Effect.fn(
     COOKING_QUERY_PATH,
     { id: setup.documentId },
   );
-  requireRecipeDocument(firstRead, setup.documentId);
+  requireRecipeDocument(firstRead, setup.documentId, COOKING_RECIPE);
 
   const beforeInvalidInputInspection =
     yield* client.inspectAuthoritativeState();
@@ -203,22 +269,119 @@ const runCookingWorkloadV1 = Effect.fn(
       field: "name",
     },
   );
-  const workloadInspection = yield* client.inspectAuthoritativeState();
+  const afterInvalidInputInspection = yield* client.inspectAuthoritativeState();
   requireNoRejectedMutationSideEffects(
     beforeInvalidInputInspection,
-    workloadInspection,
+    afterInvalidInputInspection,
   );
 
   const replayedRead = yield* client.invokeQuery(
     COOKING_QUERY_PATH,
     { id: setup.documentId },
   );
-  requireRecipeDocument(replayedRead, setup.documentId);
+  requireRecipeDocument(replayedRead, setup.documentId, COOKING_RECIPE);
   if (JSON.stringify(firstRead) !== JSON.stringify(replayedRead)) {
     return yield* Effect.die(new Error(
       "The cooking workload did not deterministically replay its point query.",
     ));
   }
+
+  const patched = yield* client.invokeMutation(
+    COOKING_PATCH_PATH,
+    { id: setup.documentId, patch: COOKING_PATCH },
+    COOKING_PATCH_REQUEST_KEY,
+  );
+  requireLifecycleMutation(
+    patched,
+    "patch",
+    "published",
+    setup.commitSeq + 1n,
+  );
+  const replayedPatch = yield* client.invokeMutation(
+    COOKING_PATCH_PATH,
+    { id: setup.documentId, patch: COOKING_PATCH },
+    COOKING_PATCH_REQUEST_KEY,
+  );
+  requireLifecycleMutation(
+    replayedPatch,
+    "patch replay",
+    "replayed",
+    patched.commitSeq,
+  );
+  const patchedRead = yield* client.invokeQuery(
+    COOKING_QUERY_PATH,
+    { id: setup.documentId },
+  );
+  requireRecipeDocument(
+    patchedRead,
+    setup.documentId,
+    COOKING_RECIPE_AFTER_PATCH,
+  );
+
+  const replaced = yield* client.invokeMutation(
+    COOKING_REPLACE_PATH,
+    { id: setup.documentId, fields: COOKING_REPLACEMENT_RECIPE },
+    COOKING_REPLACE_REQUEST_KEY,
+  );
+  requireLifecycleMutation(
+    replaced,
+    "replace",
+    "published",
+    setup.commitSeq + 2n,
+  );
+  const replayedReplace = yield* client.invokeMutation(
+    COOKING_REPLACE_PATH,
+    { id: setup.documentId, fields: COOKING_REPLACEMENT_RECIPE },
+    COOKING_REPLACE_REQUEST_KEY,
+  );
+  requireLifecycleMutation(
+    replayedReplace,
+    "replace replay",
+    "replayed",
+    replaced.commitSeq,
+  );
+  const replacedRead = yield* client.invokeQuery(
+    COOKING_QUERY_PATH,
+    { id: setup.documentId },
+  );
+  requireRecipeDocument(
+    replacedRead,
+    setup.documentId,
+    COOKING_REPLACEMENT_RECIPE,
+  );
+
+  const deleted = yield* client.invokeMutation(
+    COOKING_DELETE_PATH,
+    { id: setup.documentId },
+    COOKING_DELETE_REQUEST_KEY,
+  );
+  requireLifecycleMutation(
+    deleted,
+    "delete",
+    "published",
+    setup.commitSeq + 3n,
+  );
+  const replayedDelete = yield* client.invokeMutation(
+    COOKING_DELETE_PATH,
+    { id: setup.documentId },
+    COOKING_DELETE_REQUEST_KEY,
+  );
+  requireLifecycleMutation(
+    replayedDelete,
+    "delete replay",
+    "replayed",
+    deleted.commitSeq,
+  );
+  const deletedRead = yield* client.invokeQuery(
+    COOKING_QUERY_PATH,
+    { id: setup.documentId },
+  );
+  if (deletedRead !== null) {
+    return yield* Effect.die(new Error(
+      "The cooking workload read a deleted recipe instead of null.",
+    ));
+  }
+  const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
     richDocumentRoundTrip: true,
@@ -227,9 +390,32 @@ const runCookingWorkloadV1 = Effect.fn(
     committedStateUnchangedAfterRejections: true,
     mutationReplay: true,
     queryReplay: true,
+    patchReplay: true,
+    replaceReplay: true,
+    deleteReplay: true,
+    pointMutationLifecycle: true,
+    deletedDocumentReadsNull: true,
     workloadInspection,
   };
 });
+
+function requireLifecycleMutation(
+  outcome: AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  scenario: string,
+  disposition: "published" | "replayed",
+  commitSeq: bigint,
+): void {
+  if (
+    outcome.status !== "committed" ||
+    outcome.disposition !== disposition ||
+    outcome.commitSeq !== commitSeq ||
+    outcome.value !== null
+  ) {
+    throw new Error(
+      `The cooking ${scenario} mutation did not produce the expected committed null outcome.`,
+    );
+  }
+}
 
 function requireArgumentValidationFailure(
   result: CookingMutationAttemptResultV1,
@@ -328,23 +514,21 @@ function sameStrings(
     left.every((value, index) => right[index] === value);
 }
 
-function requireRecipeDocument(value: unknown, documentId: string): void {
+function requireRecipeDocument(
+  value: unknown,
+  documentId: string,
+  expected: Readonly<Record<string, unknown>>,
+): void {
   if (
     !isNonArrayRecord(value) ||
     value._id !== documentId ||
     typeof value._creationTime !== "number" ||
     !Number.isFinite(value._creationTime) ||
-    value.title !== "Tomato soup" ||
-    value.description !== "A slow-simmered weeknight soup." ||
-    value.servings !== 4 ||
-    value.difficulty !== "medium" ||
-    value.published !== true ||
-    !hasExpectedRecipeTags(value.tags) ||
-    !hasExpectedRecipeIngredients(value.ingredients) ||
-    !hasExpectedRecipeSteps(value.steps) ||
-    !hasExpectedRecipeNutrition(value.nutrition) ||
-    !hasExpectedLocalizedTitles(value.localizedTitles) ||
-    value.source !== null
+    Object.keys(value).length !== Object.keys(expected).length + 2 ||
+    !Object.entries(expected).every(
+      ([fieldName, fieldValue]) => Object.hasOwn(value, fieldName) &&
+        sameJsonValue(value[fieldName], fieldValue),
+    )
   ) {
     throw new Error(
       "The cooking workload did not read the authoritative recipe document.",
@@ -352,59 +536,25 @@ function requireRecipeDocument(value: unknown, documentId: string): void {
   }
 }
 
-function hasExpectedRecipeTags(value: unknown): boolean {
-  return Array.isArray(value) &&
-    value.length === 2 &&
-    value[0] === "soup" &&
-    value[1] === "vegetarian";
-}
-
-function hasExpectedRecipeIngredients(value: unknown): boolean {
-  if (!Array.isArray(value) || value.length !== 2) return false;
-  const tomato = value[0];
-  const stock = value[1];
-  return isNonArrayRecord(tomato) &&
-    tomato.name === "Tomato" &&
-    tomato.amount === 6 &&
-    tomato.unit === "whole" &&
-    tomato.note === "ripe" &&
-    isNonArrayRecord(stock) &&
-    stock.name === "Vegetable stock" &&
-    stock.amount === 750 &&
-    stock.unit === "ml" &&
-    !("note" in stock);
-}
-
-function hasExpectedRecipeSteps(value: unknown): boolean {
-  if (!Array.isArray(value) || value.length !== 2) return false;
-  const roast = value[0];
-  const simmer = value[1];
-  return isNonArrayRecord(roast) &&
-    roast.position === 1 &&
-    roast.instruction === "Roast the tomatoes." &&
-    roast.durationMinutes === 25 &&
-    isNonArrayRecord(simmer) &&
-    simmer.position === 2 &&
-    simmer.instruction === "Blend and simmer with stock." &&
-    !("durationMinutes" in simmer);
-}
-
-function hasExpectedRecipeNutrition(value: unknown): boolean {
-  return isNonArrayRecord(value) &&
-    value.caloriesPerServing === 180 &&
-    value.vegetarian === true;
-}
-
-function hasExpectedLocalizedTitles(value: unknown): boolean {
-  return isNonArrayRecord(value) &&
-    value.en === "Tomato soup" &&
-    value.es === "Sopa de tomate" &&
-    Object.keys(value).length === 2;
+function sameJsonValue(actual: unknown, expected: unknown): boolean {
+  if (Object.is(actual, expected)) return true;
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual) &&
+      actual.length === expected.length &&
+      expected.every((member, index) => sameJsonValue(actual[index], member));
+  }
+  if (!isNonArrayRecord(expected) || !isNonArrayRecord(actual)) return false;
+  const expectedEntries = Object.entries(expected);
+  return Object.keys(actual).length === expectedEntries.length &&
+    expectedEntries.every(
+      ([key, value]) => Object.hasOwn(actual, key) &&
+        sameJsonValue(actual[key], value),
+    );
 }
 
 export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   version: 1,
-  simulationId: "cooking-rich-recipe-create-and-read-v1",
+  simulationId: "cooking-rich-recipe-point-lifecycle-v1",
   application: {
     applicationId: "cooking",
     revisionName: "sac01-cooking-app",
@@ -414,6 +564,14 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
       queryModulePath: "recipes",
       mutationArtifactPath: "recipeMutation",
       queryArtifactPath: "recipeQuery",
+      pointMutationLifecycle: {
+        patchModulePath: "recipePatch",
+        patchArtifactPath: "recipePatch",
+        replaceModulePath: "recipeReplace",
+        replaceArtifactPath: "recipeReplace",
+        deleteModulePath: "recipeDelete",
+        deleteArtifactPath: "recipeDelete",
+      },
       fields: {
         title: {
           fieldType: { type: "string" },
@@ -536,7 +694,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 1,
-    queries: 2,
+    mutations: 4,
+    queries: 5,
   },
 });

@@ -22,7 +22,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
 
   expect(proof).toMatchObject({
     version: 1,
-    simulationId: "cooking-rich-recipe-create-and-read-v1",
+    simulationId: "cooking-rich-recipe-point-lifecycle-v1",
     applicationId: "cooking",
     lane: "pglite",
     definitionAnalyzedRegisteredReadyActivated: true,
@@ -33,9 +33,14 @@ it("runs the cooking simulation through the real Standard path", async () => {
       committedStateUnchangedAfterRejections: true,
       mutationReplay: true,
       queryReplay: true,
+      patchReplay: true,
+      replaceReplay: true,
+      deleteReplay: true,
+      pointMutationLifecycle: true,
+      deletedDocumentReadsNull: true,
     },
-    mutationRuntimeExecutions: 1,
-    queryRuntimeExecutions: 2,
+    mutationRuntimeExecutions: 4,
+    queryRuntimeExecutions: 5,
     postgresVersion: null,
   });
   expect(proof.workloadProof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
@@ -46,18 +51,24 @@ it("runs the cooking simulation through the real Standard path", async () => {
     1,
     0,
   );
-  expectSinglePublicationInspectionV1(
-    proof.workloadProof.workloadInspection,
-    "recipes",
-    proof.workloadProof.documentId,
-    1,
-    1,
-  );
-  expectSinglePublicationInspectionV1(
-    proof.finalInspection,
-    "recipes",
-    proof.workloadProof.documentId,
-    1,
-    2,
-  );
+  const lifecycleInspection = {
+    version: 1,
+    currentRows: [{
+      tableName: "recipes",
+      documentId: proof.workloadProof.documentId,
+      commitSeq: "4",
+      valueState: "tombstone",
+    }],
+    currentRowCount: 1,
+    liveRowCount: 0,
+    revisionRowCount: 4,
+    commitSeqs: ["1", "2", "3", "4"],
+    idempotencyOutcomeCommitSeqs: ["1", "2", "3", "4"],
+    commitFeedCommitSeqs: ["1", "2", "3", "4"],
+    outboxCommitSeqs: ["1", "2", "3", "4"],
+    mutationRuntimeExecutions: 4,
+    queryRuntimeExecutions: 5,
+  } as const;
+  expect(proof.workloadProof.workloadInspection).toEqual(lifecycleInspection);
+  expect(proof.finalInspection).toEqual(lifecycleInspection);
 }, 480_000);

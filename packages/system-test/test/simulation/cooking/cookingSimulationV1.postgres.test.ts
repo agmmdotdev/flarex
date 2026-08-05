@@ -25,7 +25,7 @@ describe("cooking simulation genuine PostgreSQL environment", () => {
 });
 
 describePostgres("cooking simulation - PostgreSQL", () => {
-  it("creates and reads one recipe", async () => {
+  it("creates, patches, replaces, deletes, and reads one recipe", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       const proof = await Effect.runPromise(runStandardApplicationSimulationV1({
         lane: makePostgresStandardApplicationSystemTestLaneV1(persistence),
@@ -41,9 +41,14 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           richDocumentRoundTrip: true,
           mutationReplay: true,
           queryReplay: true,
+          patchReplay: true,
+          replaceReplay: true,
+          deleteReplay: true,
+          pointMutationLifecycle: true,
+          deletedDocumentReadsNull: true,
         },
-        mutationRuntimeExecutions: 1,
-        queryRuntimeExecutions: 2,
+        mutationRuntimeExecutions: 4,
+        queryRuntimeExecutions: 5,
       });
       expect(proof.afterSetupInspection).toMatchObject({
         currentRowCount: 1,
@@ -52,6 +57,21 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         commitSeqs: ["1"],
         commitFeedCommitSeqs: ["1"],
         outboxCommitSeqs: ["1"],
+      });
+      expect(proof.finalInspection).toMatchObject({
+        currentRows: [{
+          tableName: "recipes",
+          documentId: proof.workloadProof.documentId,
+          commitSeq: "4",
+          valueState: "tombstone",
+        }],
+        currentRowCount: 1,
+        liveRowCount: 0,
+        revisionRowCount: 4,
+        commitSeqs: ["1", "2", "3", "4"],
+        idempotencyOutcomeCommitSeqs: ["1", "2", "3", "4"],
+        commitFeedCommitSeqs: ["1", "2", "3", "4"],
+        outboxCommitSeqs: ["1", "2", "3", "4"],
       });
       expect(proof.postgresVersion).toMatch(/^PostgreSQL \d+\.\d+\b/);
     });
