@@ -40,12 +40,14 @@ it("runs the English-learning simulation through the real Standard path", async 
     proof.afterSetupInspection,
     "lessons",
     proof.workloadProof.documentId,
+    1,
     0,
   );
   expectSinglePublicationInspectionV1(
     proof.finalInspection,
     "lessons",
     proof.workloadProof.documentId,
+    1,
     2,
   );
 }, 480_000);

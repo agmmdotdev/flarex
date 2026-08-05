@@ -78,6 +78,19 @@ traversal, multi-row mutation, runtime capability, authority, public API, or
 production route. The matching genuine-PostgreSQL cooking lane remains
 required before a PostgreSQL acceptance claim.
 
+`SAC01-F2d` adds two negative cooking mutations under the same application
+definition: an ingredient amount with the wrong scalar type and an ingredient
+missing its required name. Both calls use distinct request keys and are folded
+as typed Effect `Result` values only at the test boundary. Each must return a
+protocol-owned `ValidatorValueErrorV1` with its exact reason and nested
+`$args.ingredients[0]` path. Inspection before and after the rejected calls
+must be identical for current rows, revisions, commits, idempotency outcomes,
+commit-feed changes, outbox entries, and query executions; mutation-runtime
+executions must also remain unchanged, proving rejection precedes runtime
+dispatch. This is validation and no-side-effect evidence only. It does not add
+an alternate validator, error mapping, runtime, transaction, or persistence
+path. The PGlite lane passes; genuine-PostgreSQL acceptance remains open.
+
 Real-system scenarios are also diagnostic boundaries. If one exposes a defect
 owned by a shared runtime, protocol, persistence, OCC/commit, registration,
 readiness, activation, or host capability, the harness work must first notify
@@ -858,6 +871,7 @@ the replacement analyzer and is now closed through the accepted FSV03 chain.
 | `SAC01-F2a` | Reuse one private relation-free lifecycle/invocation runner across distinct application definitions and workload operations | Complete for independent cooking and English-learning consumers in `@flarex/system-test` with PGlite. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips. Every application uses the unified `defineStandardApplicationSimulationV1` config over explicit Standard definition input and real point mutation/query operations; the lane remains runner input. This is not a serializable workload DSL, model simulator, public package, or multi-application shared environment |
 | `SAC01-F2b` | Add private controlled setup and logical authoritative inspection to the reusable runner | Complete in `@flarex/system-test` with separate setup/workload scopes and PGlite ready/replay/cancellation/failure, post-workload freshness, and exact scope/deployment-predicate audit evidence. Setup delegates to SAP04/FSV06; inspection returns immutable scope-filtered logical evidence and no SQL, database handle, physical locator, document value, or mutation authority. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips |
 | `SAC01-F2c` | Grow cooking into the first realistic complex-document workload without widening runtime authority | PGlite implementation complete for nested objects, structured arrays, optional fields, literal unions, booleans, records, nullable values, mutation replay, point-query replay, and commit-sequence alignment across feed/outbox inspection. Rich feed/outbox payload inspection is not claimed. The genuine-PostgreSQL cooking lane remains open until it runs with zero skips. Index scans, relations, multi-row mutations, and model simulation remain separate gates |
+| `SAC01-F2d` | Prove nested argument rejection and no committed side effects in the cooking workload | PGlite implementation complete for exact nested type-mismatch and missing-required-field `ValidatorValueErrorV1` evidence before runtime dispatch, with unchanged rows, revisions, commits, idempotency outcomes, feed, and outbox. The genuine-PostgreSQL cooking lane remains open until it runs with zero skips. Shared validation/runtime owners remain unchanged |
 | `SAC01-F2+` | Add internal calls, actions, workflow mutations, faults, and scheduled invocations to representative workloads one capability at a time | Each capability must already have its own runtime/host/claim contract; scheduling and durable-task semantics remain separately gated |
 | `SAC01-G` | Extract a dedicated private corpus or system-harness package | Complete as private `@flarex/system-test`: cooking and English-learning are separate `defineStandardApplicationSimulationV1` configs; the package owns setup/workload scopes and real-system composition while database lanes remain explicit runner inputs; intentional versioned subpaths plus graph guards enforce the dependency leaf, reject source-tree escapes, and require declared owner dependencies; persistence publishes no test-support adapter; and the persistence-local general harness duplication was deleted in the same slice |
 

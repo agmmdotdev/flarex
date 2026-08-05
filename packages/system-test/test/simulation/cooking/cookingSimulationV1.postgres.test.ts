@@ -35,6 +35,9 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         lane: "postgres",
         definitionAnalyzedRegisteredReadyActivated: true,
         workloadProof: {
+          rejectedInvalidMutations: 2,
+          invalidArgumentsRejectedBeforeRuntime: true,
+          committedStateUnchangedAfterRejections: true,
           richDocumentRoundTrip: true,
           mutationReplay: true,
           queryReplay: true,

@@ -7,6 +7,7 @@ export function expectSinglePublicationInspectionV1(
   inspection: StandardApplicationAuthoritativeInspectionV1,
   tableName: string,
   documentId: string,
+  mutationRuntimeExecutions: number,
   queryRuntimeExecutions: number,
 ): void {
   expect(Object.isFrozen(inspection)).toBe(true);
@@ -27,7 +28,7 @@ export function expectSinglePublicationInspectionV1(
     idempotencyOutcomeCommitSeqs: ["1"],
     commitFeedCommitSeqs: ["1"],
     outboxCommitSeqs: ["1"],
-    mutationRuntimeExecutions: 1,
+    mutationRuntimeExecutions,
     queryRuntimeExecutions,
   });
 }

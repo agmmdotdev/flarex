@@ -28,6 +28,9 @@ it("runs the cooking simulation through the real Standard path", async () => {
     definitionAnalyzedRegisteredReadyActivated: true,
     workloadProof: {
       richDocumentRoundTrip: true,
+      rejectedInvalidMutations: 2,
+      invalidArgumentsRejectedBeforeRuntime: true,
+      committedStateUnchangedAfterRejections: true,
       mutationReplay: true,
       queryReplay: true,
     },
@@ -40,6 +43,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
     proof.afterSetupInspection,
     "recipes",
     proof.workloadProof.documentId,
+    1,
     0,
   );
   expectSinglePublicationInspectionV1(
@@ -47,11 +51,13 @@ it("runs the cooking simulation through the real Standard path", async () => {
     "recipes",
     proof.workloadProof.documentId,
     1,
+    1,
   );
   expectSinglePublicationInspectionV1(
     proof.finalInspection,
     "recipes",
     proof.workloadProof.documentId,
+    1,
     2,
   );
 }, 480_000);

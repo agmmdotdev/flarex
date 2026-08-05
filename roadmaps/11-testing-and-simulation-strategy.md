@@ -365,6 +365,13 @@ Named Flarex differences are:
   remains a separately required acceptance result, and this slice does not
   claim index scans, relation traversal, multi-row atomic mutation, or a model
   simulator.
+- `SAC01-F2d` adds the first negative realistic cooking cases without changing
+  a shared owner. One nested ingredient has the wrong scalar type and another
+  omits a required nested field. The Standard mutation path returns the exact
+  protocol-owned `ValidatorValueErrorV1` reason and nested path before runtime
+  dispatch. Logical inspection proves both rejections add no runtime execution,
+  application row/revision, committed outcome, commit, feed change, or outbox
+  entry in PGlite. The matching genuine-PostgreSQL lane remains open.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate

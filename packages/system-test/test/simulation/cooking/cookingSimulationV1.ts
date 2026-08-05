@@ -1,14 +1,19 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
 
 import type {
+  AuthoritativeCommittedApplicationPointMutationOutcomeV1,
   InvokeStandardApplicationPointMutationV1Error,
   InvokeStandardApplicationPointQueryV1Error,
 } from "@flarex/standard-application-invocation/v1";
+import {
+  ValidatorValueErrorV1,
+  type ValidatorValueIssueV1,
+} from "flarex-protocol/validator-engine";
 import type {
   StandardApplicationSystemTestClientV1,
   StandardApplicationSystemTestSetupClientV1,
@@ -26,6 +31,9 @@ import { makeCreateAndReadDefinitionV1 } from
 export interface CookingWorkloadProofV1 {
   readonly documentId: string;
   readonly richDocumentRoundTrip: true;
+  readonly rejectedInvalidMutations: 2;
+  readonly invalidArgumentsRejectedBeforeRuntime: true;
+  readonly committedStateUnchangedAfterRejections: true;
   readonly mutationReplay: true;
   readonly queryReplay: true;
   readonly workloadInspection: StandardApplicationAuthoritativeInspectionV1;
@@ -41,12 +49,29 @@ type CookingWorkloadErrorV1 =
   | InvokeStandardApplicationPointQueryV1Error
   | StandardApplicationSystemTestInspectionV1Error;
 
+type CookingMutationAttemptResultV1 = Result.Result<
+  AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  InvokeStandardApplicationPointMutationV1Error
+>;
+
+type CookingExpectedArgumentIssueV1 = Extract<
+  ValidatorValueIssueV1,
+  { readonly reason: "typeMismatch" | "missingRequiredField" }
+>;
+
 const COOKING_MUTATION_PATH = TransactionFunctionPathV1Schema.make(
   "recipeCommands:create",
 );
 const COOKING_QUERY_PATH = TransactionFunctionPathV1Schema.make("recipes:get");
 const COOKING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:create",
+);
+const COOKING_INVALID_AMOUNT_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:invalid-ingredient-amount",
+  );
+const COOKING_MISSING_NAME_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "sac01:cooking:missing-ingredient-name",
 );
 const COOKING_RECIPE = {
   title: "Tomato soup",
@@ -82,6 +107,21 @@ const COOKING_RECIPE = {
     es: "Sopa de tomate",
   },
   source: null,
+} as const;
+const COOKING_RECIPE_WITH_INVALID_INGREDIENT_AMOUNT = {
+  ...COOKING_RECIPE,
+  ingredients: [{
+    ...COOKING_RECIPE.ingredients[0],
+    amount: "six",
+  }, COOKING_RECIPE.ingredients[1]],
+} as const;
+const COOKING_RECIPE_WITH_MISSING_INGREDIENT_NAME = {
+  ...COOKING_RECIPE,
+  ingredients: [{
+    amount: 6,
+    unit: "whole",
+    note: "ripe",
+  }, COOKING_RECIPE.ingredients[1]],
 } as const;
 
 const prepareCookingStateV1 = Effect.fn(
@@ -132,7 +172,43 @@ const runCookingWorkloadV1 = Effect.fn(
     { id: setup.documentId },
   );
   requireRecipeDocument(firstRead, setup.documentId);
+
+  const beforeInvalidInputInspection =
+    yield* client.inspectAuthoritativeState();
+  const invalidAmountResult = yield* Effect.result(client.invokeMutation(
+    COOKING_MUTATION_PATH,
+    COOKING_RECIPE_WITH_INVALID_INGREDIENT_AMOUNT,
+    COOKING_INVALID_AMOUNT_REQUEST_KEY,
+  ));
+  requireArgumentValidationFailure(
+    invalidAmountResult,
+    "invalid nested ingredient amount",
+    {
+      reason: "typeMismatch",
+      path: "$args.ingredients[0].amount",
+      expected: "number",
+    },
+  );
+  const missingNameResult = yield* Effect.result(client.invokeMutation(
+    COOKING_MUTATION_PATH,
+    COOKING_RECIPE_WITH_MISSING_INGREDIENT_NAME,
+    COOKING_MISSING_NAME_REQUEST_KEY,
+  ));
+  requireArgumentValidationFailure(
+    missingNameResult,
+    "missing required nested ingredient name",
+    {
+      reason: "missingRequiredField",
+      path: "$args.ingredients[0].name",
+      field: "name",
+    },
+  );
   const workloadInspection = yield* client.inspectAuthoritativeState();
+  requireNoRejectedMutationSideEffects(
+    beforeInvalidInputInspection,
+    workloadInspection,
+  );
+
   const replayedRead = yield* client.invokeQuery(
     COOKING_QUERY_PATH,
     { id: setup.documentId },
@@ -146,11 +222,111 @@ const runCookingWorkloadV1 = Effect.fn(
   return {
     documentId: setup.documentId,
     richDocumentRoundTrip: true,
+    rejectedInvalidMutations: 2,
+    invalidArgumentsRejectedBeforeRuntime: true,
+    committedStateUnchangedAfterRejections: true,
     mutationReplay: true,
     queryReplay: true,
     workloadInspection,
   };
 });
+
+function requireArgumentValidationFailure(
+  result: CookingMutationAttemptResultV1,
+  scenario: string,
+  expectedIssue: CookingExpectedArgumentIssueV1,
+): void {
+  const observation = Result.match(result, {
+    onFailure: failure => ({
+      rejectedAsExpected:
+        failure instanceof ValidatorValueErrorV1 &&
+        matchesExpectedArgumentIssue(failure.issue, expectedIssue),
+      outcome: failureName(failure),
+    }),
+    onSuccess: () => ({
+      rejectedAsExpected: false,
+      outcome: "success",
+    }),
+  });
+  if (!observation.rejectedAsExpected) {
+    throw new Error(
+      `The cooking ${scenario} scenario produced ${observation.outcome} instead of the expected argument-validation issue.`,
+    );
+  }
+}
+
+function matchesExpectedArgumentIssue(
+  actual: ValidatorValueIssueV1,
+  expected: CookingExpectedArgumentIssueV1,
+): boolean {
+  switch (expected.reason) {
+    case "typeMismatch":
+      return actual.reason === "typeMismatch" &&
+        actual.path === expected.path &&
+        actual.expected === expected.expected;
+    case "missingRequiredField":
+      return actual.reason === "missingRequiredField" &&
+        actual.path === expected.path &&
+        actual.field === expected.field;
+  }
+}
+
+function failureName(value: unknown): string {
+  if (isNonArrayRecord(value) && typeof value._tag === "string") {
+    return value._tag;
+  }
+  return value instanceof Error ? value.name : typeof value;
+}
+
+function requireNoRejectedMutationSideEffects(
+  before: StandardApplicationAuthoritativeInspectionV1,
+  after: StandardApplicationAuthoritativeInspectionV1,
+): void {
+  if (
+    after.mutationRuntimeExecutions !== before.mutationRuntimeExecutions ||
+    after.queryRuntimeExecutions !== before.queryRuntimeExecutions ||
+    !sameCurrentRows(before.currentRows, after.currentRows) ||
+    after.currentRowCount !== before.currentRowCount ||
+    after.liveRowCount !== before.liveRowCount ||
+    after.revisionRowCount !== before.revisionRowCount ||
+    !sameStrings(before.commitSeqs, after.commitSeqs) ||
+    !sameStrings(
+      before.idempotencyOutcomeCommitSeqs,
+      after.idempotencyOutcomeCommitSeqs,
+    ) ||
+    !sameStrings(
+      before.commitFeedCommitSeqs,
+      after.commitFeedCommitSeqs,
+    ) ||
+    !sameStrings(before.outboxCommitSeqs, after.outboxCommitSeqs)
+  ) {
+    throw new Error(
+      "Rejected cooking arguments reached runtime or changed authoritative committed state.",
+    );
+  }
+}
+
+function sameCurrentRows(
+  left: StandardApplicationAuthoritativeInspectionV1["currentRows"],
+  right: StandardApplicationAuthoritativeInspectionV1["currentRows"],
+): boolean {
+  return left.length === right.length && left.every((row, index) => {
+    const candidate = right[index];
+    return candidate !== undefined &&
+      candidate.tableName === row.tableName &&
+      candidate.documentId === row.documentId &&
+      candidate.commitSeq === row.commitSeq &&
+      candidate.valueState === row.valueState;
+  });
+}
+
+function sameStrings(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return left.length === right.length &&
+    left.every((value, index) => right[index] === value);
+}
 
 function requireRecipeDocument(value: unknown, documentId: string): void {
   if (
