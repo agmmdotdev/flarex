@@ -121,12 +121,14 @@ describe("private parse-module verifier capacity", () => {
       evidenceFramesPerDomainUnit: 21,
       maximumSemanticOutputBytesPerDomainByte: 8,
       arenaOperationalByteLimit: 67_108_864,
-      selectedSourceAndModulePathByteLimit: 156,
-      firstExcludedSourceAndModulePathByteLimit: 157,
-      arenaBytesAtSelectedLimit: 66_819_028,
-      arenaBytesAtFirstExcludedLimit: 67_534_609,
+      generatorVersion: 3,
+      arenaIdentity: "flarex.declarative-v2/verifier-arena/v2",
+      selectedSourceAndModulePathByteLimit: 26_869,
+      firstExcludedSourceAndModulePathByteLimit: 26_870,
+      arenaBytesAtSelectedLimit: 67_108_001,
+      arenaBytesAtFirstExcludedLimit: 67_110_498,
     });
-    expect(DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1).toBe(156);
+    expect(DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1).toBe(26_869);
     expect(DECLARATIVE_V2_VERIFIER_PARSE_ARENA_OPERATIONAL_BYTE_LIMIT_V1)
       .toBe(67_108_864);
     expect(generateDeclarativeV2VerifierBoundsV1()).toContain(
@@ -214,24 +216,35 @@ describe("private parse-module verifier capacity", () => {
   });
 
   test("rejects the first byte beyond the combined source/path domain", () => {
+    const pathByteLength = 12;
     const exact = planDeclarativeV2VerifierParseCapacityV1(
       fixture({
-        modulePath: modulePathOfLength(12),
-        source: new Uint8Array(144),
+        modulePath: modulePathOfLength(pathByteLength),
+        source: new Uint8Array(
+          DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1 - pathByteLength,
+        ),
       }),
       bindings(),
     );
     if (Result.isFailure(exact)) throw exact.failure;
-    expect(exact.success.domainByteLength).toBe(156n);
-    expect(exact.success.arenaByteLength).toBe(66_818_980);
+    expect(exact.success.domainByteLength).toBe(
+      BigInt(DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1),
+    );
+    expect(exact.success.arenaByteLength).toBe(
+      GENERATED_DECLARATIVE_V2_VERIFIER_PARSE_BOUNDS_V1
+        .arenaBytesAtSelectedLimit - pathByteLength,
+    );
     expect(exact.success.arenaByteLength).toBeLessThanOrEqual(
       DECLARATIVE_V2_VERIFIER_PARSE_ARENA_OPERATIONAL_BYTE_LIMIT_V1,
     );
     expect(exact.success.arenaByteLength).toBeLessThanOrEqual(0xffff_ffff);
     expect(planDeclarativeV2VerifierParseCapacityV1(
       fixture({
-        modulePath: modulePathOfLength(12),
-        source: new Uint8Array(145),
+        modulePath: modulePathOfLength(pathByteLength),
+        source: new Uint8Array(
+          DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1 -
+            pathByteLength + 1,
+        ),
       }),
       bindings(),
     )).toMatchObject({
@@ -239,8 +252,9 @@ describe("private parse-module verifier capacity", () => {
         operation: "capacity",
         reason: "domainLimitExceeded",
         path: "domainByteLength",
-        observed: 157n,
-        maximum: 156n,
+        observed:
+          BigInt(DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1 + 1),
+        maximum: BigInt(DECLARATIVE_V2_VERIFIER_PARSE_DOMAIN_BYTE_LIMIT_V1),
       },
     });
   });

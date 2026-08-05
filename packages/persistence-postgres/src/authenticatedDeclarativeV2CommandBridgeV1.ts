@@ -121,7 +121,8 @@ export class AuthenticatedDeclarativeV2CommandBridgeV1Error
       | "readSettledEvidencePageBatch"
       | "settle"
       | "observeDecision"
-      | "release";
+      | "release"
+      | "abandon";
     readonly reason:
       | "invalidSession"
       | "invalidWork"
@@ -329,6 +330,17 @@ export interface AuthenticatedDeclarativeV2CommandBridgeV1<
     never
   >;
   readonly release: (
+    session: AuthenticatedDeclarativeV2CommandSessionV1,
+    budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  ) => Effect.Effect<
+    Readonly<{
+      readonly operationUsage:
+        DeclarativeV2VerifierProgressRepositoryOperationUsageV2;
+    }>,
+    AuthenticatedDeclarativeV2CommandBridgeV1Failure,
+    never
+  >;
+  readonly abandon: (
     session: AuthenticatedDeclarativeV2CommandSessionV1,
     budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
   ) => Effect.Effect<
@@ -873,6 +885,19 @@ export function makeAuthenticatedDeclarativeV2CommandBridgeV1<
       },
     );
 
+  const abandon: AuthenticatedDeclarativeV2CommandBridgeV1["abandon"] =
+    Effect.fn("AuthenticatedDeclarativeV2CommandBridgeV1.abandon")(
+      function* (session, budget) {
+        const state = yield* lookupSession(sessions, session, "abandon");
+        const abandoned = yield* repository.abandon(state.run, budget);
+        state.closed = true;
+        sessions.delete(session);
+        return Object.freeze({
+          operationUsage: abandoned.operationUsage,
+        });
+      },
+    );
+
   return Object.freeze({
     acquire,
     proposeReservation,
@@ -886,6 +911,7 @@ export function makeAuthenticatedDeclarativeV2CommandBridgeV1<
     settle,
     observeDecision,
     release,
+    abandon,
   });
 }
 

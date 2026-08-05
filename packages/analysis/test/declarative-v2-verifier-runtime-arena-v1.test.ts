@@ -10,7 +10,8 @@ import {
 } from "../src/declarativeV2VerifierExecutableV1.generated";
 import {
   GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1,
-  planDeclarativeV2VerifierArenaV1,
+  deriveDeclarativeV2VerifierParseArenaStorageV2,
+  planDeclarativeV2VerifierArenaV2,
 } from "../src/declarativeV2VerifierV1";
 import {
   appendDeclarativeV2VerifierRuntimeOrderTextV1,
@@ -80,7 +81,12 @@ function arena(
   mutate?: Readonly<Record<string, bigint>>,
 ): DeclarativeV2VerifierRuntimeArenaHandleV1 {
   const admitted = budgets(mutate);
-  const plan = planDeclarativeV2VerifierArenaV1(admitted);
+  const plan = planDeclarativeV2VerifierArenaV2({
+    ...admitted,
+    storage: deriveDeclarativeV2VerifierParseArenaStorageV2(
+      admitted.required,
+    ),
+  });
   if (Result.isFailure(plan)) throw plan.failure;
   const created = createDeclarativeV2VerifierRuntimeArenaV1(
     plan.success,

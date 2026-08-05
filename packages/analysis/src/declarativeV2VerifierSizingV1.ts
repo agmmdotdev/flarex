@@ -23,7 +23,8 @@ import {
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1,
 } from "./declarativeV2VerifierExecutableV1";
 import {
-  planDeclarativeV2VerifierArenaV1,
+  deriveDeclarativeV2VerifierParseArenaStorageV2,
+  planDeclarativeV2VerifierArenaV2,
 } from "./declarativeV2VerifierV1";
 import {
   GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1,
@@ -178,9 +179,10 @@ export function planDeclarativeV2VerifierParseCapacityV1(
   return Result.gen(function*() {
     const captured = yield* captureCapacityInput(input, expectedBindings);
     const capacity = yield* deriveParseCapacity(captured);
-    const arena = yield* planDeclarativeV2VerifierArenaV1({
+    const arena = yield* planDeclarativeV2VerifierArenaV2({
       maximums: captured.commandBudget,
       required: capacity,
+      storage: deriveDeclarativeV2VerifierParseArenaStorageV2(capacity),
     }).pipe(Result.mapError((failure) => {
       if (
         failure.reason === "invalidInput" ||

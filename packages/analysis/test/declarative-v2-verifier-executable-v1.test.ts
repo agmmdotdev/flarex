@@ -1339,12 +1339,12 @@ describe("Declarative V2 executable verifier asset", () => {
       );
     expect(first.manifest).toMatchObject({
       assetSha256:
-        "fea88d3ad2cec58bf17f3e40173c57febcc710bc56c7ad595c3893de0795a082",
+        "2981337528312c956f878f78c3345ebe9845aa03338d4cf789e8530a09865246",
       assetByteLength: 4_734_280,
       contractSha256:
-        "8471dd709f9c91126af8e075ebdb1c0d909225c0afe0706d371bb40cd4101d90",
+        "839003bac7ec6a43d8f9c6bd3ed20d8eea5d74ddcf1a9b4ba50b3560a94e664f",
       manifestIdentity:
-        "6a37199aba1b3f8517d133d8c50caa082f3f87e6e61df5924f6a4b33a93e4370",
+        "d7a9aeab8232b49317f2f575e5b050d6ed40cec4f1519ee1aa24143326734008",
     });
   }, 120_000);
 

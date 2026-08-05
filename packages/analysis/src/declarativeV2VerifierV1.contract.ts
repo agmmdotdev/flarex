@@ -12,8 +12,8 @@ export const DECLARATIVE_V2_EXECUTABLE_CORE_IDENTITY_V1 =
   "flarex.declarative-v2/executable-core/v1" as const;
 export const DECLARATIVE_V2_VERIFIER_ASSET_FORMAT_IDENTITY_V1 =
   "flarex.declarative-v2/verifier-asset/v1" as const;
-export const DECLARATIVE_V2_VERIFIER_ARENA_IDENTITY_V1 =
-  "flarex.declarative-v2/verifier-arena/v1" as const;
+export const DECLARATIVE_V2_VERIFIER_ARENA_IDENTITY_V2 =
+  "flarex.declarative-v2/verifier-arena/v2" as const;
 export const DECLARATIVE_V2_VERIFIER_DIAGNOSTIC_IDENTITY_V1 =
   "flarex.declarative-v2/verifier-diagnostics/v1" as const;
 export const DECLARATIVE_V2_VERIFIER_UNICODE_IDENTITY_V1 =
@@ -575,21 +575,27 @@ export const DECLARATIVE_V2_VERIFIER_ARENA_WIDTHS_V1 = [
   { id: 11, name: "frontierRecord", bytes: 32, dimension: "frontierEntries" },
 ] as const;
 
-export const DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1 = [
-  { id: 1, dimension: "objectBodyBytes", factor: 3 },
-  { id: 2, dimension: "tokenBytes", factor: 1 },
-  { id: 3, dimension: "stringBytes", factor: 1 },
-  { id: 4, dimension: "canonicalBytes", factor: 2 },
-  { id: 5, dimension: "frameBytes", factor: 2 },
-  { id: 6, dimension: "diagnosticBytes", factor: 2 },
-  { id: 7, dimension: "outputBytes", factor: 2 },
+export const DECLARATIVE_V2_VERIFIER_FACTORED_ARENA_POLICY_V2 = {
+  diagnosticRecordBytes: 32,
+  evidenceIndexRecordBytes: 4,
+  maximumEvidenceFixedBytes: 1_024,
+  maximumEvidenceTextFields: 3,
+  maximumJsonEscapeBytesPerInputByte: 6,
+} as const;
+
+export const DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2 = [
+  { id: 1, name: "tokenBytesStorage" },
+  { id: 2, name: "stringBytesStorage" },
+  { id: 3, name: "frameBytesStorage" },
+  { id: 4, name: "diagnosticBytesStorage" },
+  { id: 5, name: "outputBytesStorage" },
 ] as const;
 
 export const DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1 =
   freezeOwnedDeclarativeV2ContractGraph({
   executableCoreIdentity: DECLARATIVE_V2_EXECUTABLE_CORE_IDENTITY_V1,
   assetFormatIdentity: DECLARATIVE_V2_VERIFIER_ASSET_FORMAT_IDENTITY_V1,
-  arenaIdentity: DECLARATIVE_V2_VERIFIER_ARENA_IDENTITY_V1,
+  arenaIdentity: DECLARATIVE_V2_VERIFIER_ARENA_IDENTITY_V2,
   diagnosticIdentity: DECLARATIVE_V2_VERIFIER_DIAGNOSTIC_IDENTITY_V1,
   unicodeIdentity: DECLARATIVE_V2_VERIFIER_UNICODE_IDENTITY_V1,
   language: {
@@ -619,7 +625,8 @@ export const DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1 =
     tableBytesAccounting:
       "precharged bytes visited while loading or consulting the generated asset; never a hidden AST or graph allocation",
     widths: DECLARATIVE_V2_VERIFIER_ARENA_WIDTHS_V1,
-    byteFactors: DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1,
+    storageRegions: DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2,
+    storagePolicy: DECLARATIVE_V2_VERIFIER_FACTORED_ARENA_POLICY_V2,
   },
   asset: {
     magic: DECLARATIVE_V2_VERIFIER_ASSET_MAGIC_V1,

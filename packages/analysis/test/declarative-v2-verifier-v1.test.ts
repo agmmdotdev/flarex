@@ -22,9 +22,10 @@ import { generateDeclarativeV2VerifierV1 } from "../scripts/declarativeV2Verifie
 import {
   DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1,
   GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1,
+  deriveDeclarativeV2VerifierParseArenaStorageV2,
   loadDeclarativeV2VerifierAssetV1,
   loadGeneratedDeclarativeV2VerifierAssetV1,
-  planDeclarativeV2VerifierArenaV1,
+  planDeclarativeV2VerifierArenaV2,
 } from "../src/declarativeV2VerifierV1";
 import {
   GENERATED_DECLARATIVE_V2_VERIFIER_ASSET_BASE64_V1,
@@ -85,7 +86,11 @@ function plan(
   maximums: DeclarativeV2VerifierBudgetFrameV2,
   required: DeclarativeV2VerifierBudgetFrameV2,
 ) {
-  return planDeclarativeV2VerifierArenaV1({ maximums, required });
+  return planDeclarativeV2VerifierArenaV2({
+    maximums,
+    required,
+    storage: deriveDeclarativeV2VerifierParseArenaStorageV2(required),
+  });
 }
 
 async function makeGeneratorFixture(): Promise<string> {
@@ -120,15 +125,15 @@ describe("Declarative V2 verifier Core V1 asset", () => {
       GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1,
     );
     expect(first.manifest.assetSha256).toBe(
-      "2628c87ff60030554c9a2e3021a96a68e4d9d18b9213eead8841a588e5884e4b",
+      "00eb1d44298eac350d1e4dcac1d14896b13b8e0d841c8c01108c8a60fca8fc39",
     );
     expect(first.manifest.specificationSha256).toBe(
-      "60b32982eff5aa8a2a40399acc3da4170b580981e26a36cd7caf548e0288d325",
+      "de3de99e65449e9ab0d84a85541a2bf20fc65cf290204852c5032e7dd866e3e9",
     );
     expect(first.manifest.manifestIdentity).toBe(
-      "f9028856d104730e6da992e6e59293bcca6270e903d71ba554c16e92f05aad5a",
+      "4969b46aa3ebcb82f95d2578b4424515b755d7792304b2a0ffe8f25340cbee30",
     );
-    expect(first.manifest.assetByteLength).toBe(83_544);
+    expect(first.manifest.assetByteLength).toBe(83_584);
   });
 
   test("binds every generation identity input", async () => {
@@ -354,11 +359,25 @@ describe("Declarative V2 verifier Core V1 asset", () => {
 describe("Declarative V2 verifier Core V1 arena planner", () => {
   test("plans all 26 dimensions exactly and freezes owned results", () => {
     const required = frame("attempt_usage");
+    const storage = deriveDeclarativeV2VerifierParseArenaStorageV2(required);
     const result = plan(frame("command_budget"), required);
     expect(Result.isSuccess(result)).toBe(true);
     if (Result.isFailure(result)) return;
     expect(result.success.requiredBytes).toBeGreaterThan(12_544);
-    expect(result.success.regions).toHaveLength(18);
+    expect(result.success.regions).toHaveLength(16);
+    expect(result.success.regions.map(({ name }) => name)).not.toContain(
+      "objectBodyBytesStorage",
+    );
+    expect(result.success.regions.map(({ name }) => name)).not.toContain(
+      "canonicalBytesStorage",
+    );
+    expect(
+      Object.fromEntries(
+        result.success.regions
+          .filter(({ name }) => name.endsWith("Storage"))
+          .map(({ name, byteLength }) => [name, BigInt(byteLength)]),
+      ),
+    ).toEqual(storage);
     expect(Object.isFrozen(result.success)).toBe(true);
     expect(Object.isFrozen(result.success.regions)).toBe(true);
     expect(Object.isFrozen(result.success.usage)).toBe(true);
@@ -395,7 +414,7 @@ describe("Declarative V2 verifier Core V1 arena planner", () => {
   });
 
   test("rejects invalid shapes, accessors, address overflow, and arithmetic overflow", () => {
-    expect(Result.isFailure(planDeclarativeV2VerifierArenaV1({}))).toBe(true);
+    expect(Result.isFailure(planDeclarativeV2VerifierArenaV2({}))).toBe(true);
     const hostile = Object.defineProperty({
       maximums: frame("command_budget"),
     }, "required", {
@@ -404,7 +423,7 @@ describe("Declarative V2 verifier Core V1 arena planner", () => {
         throw new Error("must not run");
       },
     });
-    expect(Result.isFailure(planDeclarativeV2VerifierArenaV1(hostile))).toBe(true);
+    expect(Result.isFailure(planDeclarativeV2VerifierArenaV2(hostile))).toBe(true);
     for (const input of [
       new Proxy({}, {
         ownKeys() {
@@ -420,7 +439,7 @@ describe("Declarative V2 verifier Core V1 arena planner", () => {
         },
       }),
     ]) {
-      const result = planDeclarativeV2VerifierArenaV1(input);
+      const result = planDeclarativeV2VerifierArenaV2(input);
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {
         expect(result.failure.reason).toBe("invalidInput");
@@ -431,9 +450,13 @@ describe("Declarative V2 verifier Core V1 arena planner", () => {
         throw new Error("nested ownKeys trap");
       },
     });
-    const nested = planDeclarativeV2VerifierArenaV1({
+    const nestedRequiredFrame = frame("attempt_usage");
+    const nested = planDeclarativeV2VerifierArenaV2({
       maximums: hostileMaximums,
-      required: frame("attempt_usage"),
+      required: nestedRequiredFrame,
+      storage: deriveDeclarativeV2VerifierParseArenaStorageV2(
+        nestedRequiredFrame,
+      ),
     });
     expect(Result.isFailure(nested)).toBe(true);
     if (Result.isFailure(nested)) {
@@ -444,9 +467,12 @@ describe("Declarative V2 verifier Core V1 arena planner", () => {
         throw new Error("nested descriptor trap");
       },
     });
-    const nestedRequired = planDeclarativeV2VerifierArenaV1({
+    const nestedRequired = planDeclarativeV2VerifierArenaV2({
       maximums: frame("command_budget"),
       required: hostileRequired,
+      storage: deriveDeclarativeV2VerifierParseArenaStorageV2(
+        frame("attempt_usage"),
+      ),
     });
     expect(Result.isFailure(nestedRequired)).toBe(true);
     if (Result.isFailure(nestedRequired)) {
@@ -460,14 +486,15 @@ describe("Declarative V2 verifier Core V1 arena planner", () => {
     if (Result.isFailure(address)) {
       expect(address.failure.reason).toBe("addressabilityExceeded");
     }
-    const overflow = plan(
-      frame("command_budget", {
-        objectBodyBytes: 9_223_372_036_854_775_807n,
+    const overflowRequired = frame("attempt_usage");
+    const overflow = planDeclarativeV2VerifierArenaV2({
+      maximums: frame("command_budget"),
+      required: overflowRequired,
+      storage: Object.freeze({
+        ...deriveDeclarativeV2VerifierParseArenaStorageV2(overflowRequired),
+        tokenBytesStorage: 9_223_372_036_854_775_807n,
       }),
-      frame("attempt_usage", {
-        objectBodyBytes: 9_223_372_036_854_775_807n,
-      }),
-    );
+    });
     expect(Result.isFailure(overflow)).toBe(true);
     if (Result.isFailure(overflow)) {
       expect(overflow.failure.reason).toBe("overflow");

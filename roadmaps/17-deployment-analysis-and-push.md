@@ -1696,7 +1696,10 @@ activation remain blocked until their production host composition is proven.
         epsilon productions, six parser-stack entries per admitted domain
         unit, four parse diagnostic phases per unit, and the owned
         evidence/semantic multiplicity and encoding constants used by the
-        capacity proof. The current monotonic generator-v2 bounds identity is
+        capacity proof. The current monotonic generator-v3 factored-arena
+        bounds identity is
+        `a777dcb4ba18a5ff7d6f9b382111f03b7b25e76e8e41906b67b7c90ac1dad841`.
+        The superseded generator-v2 fixed-arena identity is
         `0c8fa2dc3b7b720dd48da148be06e47feb49747a075b09ca6e543075703cd8a0`.
         The earlier generator-v1 identity
         `db2dd17538d9c26f8d03b01f244cb8d2bfe845bb8a41e3093261778b25c9b56b`
@@ -1729,7 +1732,7 @@ activation remain blocked until their production host composition is proven.
         maximum remains unproved, while this constructive family proves the
         hard ceiling `Nmax <= 160_613`.
 
-        The current generator-v2 proof selects a conservative combined UTF-8
+        The superseded generator-v2 proof selected a conservative combined UTF-8
         module-path plus source-domain limit of `156` bytes by monotonic search
         beneath the unchanged `67,108,864`-byte core arena ceiling, leaving
         half of the Cloudflare Worker `128` MiB isolate limit for non-arena
@@ -1737,21 +1740,28 @@ activation remain blocked until their production host composition is proven.
         bytes at `156`; the first excluded capacity, `157`, requires
         `67,534,609` bytes. Every formula is evaluated with checked signed-int64
         arithmetic before existing u32 region/total addressability admission;
-        `157` fails before allocation. This deliberately conservative limit changes accepted
-        inputs and pre-allocation failure order while preserving admitted V1
-        bytes and identities. An
-        analysis-owned streaming, interning, or factoring design could separate
-        peak storage capacity from cumulative canonical/hash/output actual
-        while preserving canonical evidence bytes, but would change the
-        arena/module/restart representation and require monolithic and warm/cold
-        compatibility proof. A separately versioned arena representation would
-        deliberately change arena/generated identity and restart representation.
-        A separately versioned evidence representation is an option only if
-        evidence bytes and identity are intentionally changed, with downstream
-        compatibility proved separately. Those three representation directions
-        are deferred. Reserved storage remains capacity rather than terminal
-        actual, and streaming would not remove canonical/hash/output work from
-        terminal accounting.
+        `157` failed before allocation. That deliberately conservative limit
+        changed accepted inputs and pre-allocation failure order while
+        preserving admitted V1 bytes and identities. The accepted analyzer
+        correction directly replaces that conservative
+        private arena representation with a separately versioned factored arena
+        that distinguishes peak retained storage from cumulative canonical,
+        hash, diagnostic, frame, and output work. It preserves canonical
+        evidence/protocol bytes and terminal actual accounting: factoring
+        storage must not remove, refund, or reinterpret canonical/hash/output
+        work. The generated arena identity and every restart representation
+        that commits to it changed together; there is no parallel old/new arena,
+        dual acceptance, or fallback. Monolithic and warm/cold reconstruction
+        prove the same accepted module, evidence, and terminal result under the
+        new identity, including interruption, rollback, and budget refusal. The
+        generator-v3 proof selects `26,869` combined bytes at `67,108,001`
+        retained arena bytes; `26,870` is the first excluded capacity at
+        `67,110,498` bytes beneath the unchanged `67,108,864` operational
+        ceiling.
+        A separately versioned evidence representation remains outside this
+        correction and requires its own approval if preserving current evidence
+        bytes proves impossible. Reserved storage remains capacity rather than
+        terminal actual.
 
         Durable command usage and restart recovery usage remain separate
         ledgers. Recovery-side `objectCalls`, page/body bytes, hashes, records,
@@ -2268,21 +2278,24 @@ activation remain blocked until their production host composition is proven.
 
         The earlier b0b/b0c micro-gate sequence is superseded by two
         medium-sized coherent analyzer capabilities. The accepted direction is
-        to preserve V1 call accounting and to close parse allocation with a
-        proven conservative source/domain limit plus generated parser and
-        diagnostic multiplicity bounds. Streaming/factoring, a new arena
-        representation, and a new evidence representation are deferred; they
-        are not compatibility shims or parallel implementations.
+        to preserve V1 call accounting and to close parse allocation with
+        generated parser and diagnostic multiplicity bounds. The accepted
+        follow-on correction replaces only the private fixed-arena storage
+        representation with its factored successor while preserving those
+        multiplicity, call-accounting, terminal-actual, evidence-byte, and
+        authority contracts. A new evidence representation remains deferred;
+        the arena replacement is not a compatibility shim or parallel
+        implementation.
 
         **A1b2 capability 1 — verifier core contract completion.** The
         four-command verifier core is implemented and committed as one
         analysis-owned capability. It preserves observable V1 `calls`; the
-        current bounded generator-v2 correction selects the checked `156`-byte
+        historical bounded generator-v2 correction selected the checked `156`-byte
         combined module-path/source domain and admits its
         immutable parse capacity before allocation, and retains verifier-owned
         terminal actual enforcement. The generated proof pins a
         `66,819,028`-byte maximum arena at the selected limit beneath the
-        unchanged `67,108,864`-byte core arena ceiling; `157` is the first
+        unchanged `67,108,864`-byte core arena ceiling; `157` was the first
         excluded capacity at `67,534,609` bytes. Source, link, and registration retain
         their existing capacity/actual laws, the provisional command-plan API
         is removed, and focused monolithic, restart, canonical-byte,
@@ -2519,12 +2532,15 @@ activation remain blocked until their production host composition is proven.
    micro-gates. They established the four-stage command-input/admission/sealed-
    capability/terminal-proof lifecycle, the source-length addressability
    counterexample, and the observable V1 call-accounting contract. The selected
-   completion preserves V1 call accounting and uses generator-v2
-   parser/diagnostic bounds with a checked conservative `156`-byte combined
+   completion preserves V1 call accounting. The generator-v2
+   parser/diagnostic proof used a checked conservative `156`-byte combined
    source/domain limit and a `66,819,028`-byte maximum arena proof beneath the
-   unchanged `67,108,864`-byte core arena ceiling; `157` is the first excluded
-   capacity at `67,534,609` bytes. Streaming/factoring,
-   arena-version, and evidence-version redesigns are deferred.
+   unchanged `67,108,864`-byte core arena ceiling; `157` was the first excluded
+   capacity at `67,534,609` bytes. That fixed-arena historical proof remains
+   evidence for the superseded representation. The completed direct private
+   replacement factors retained storage from cumulative work, changed the
+   generated arena/restart identity, and preserves evidence bytes and terminal
+   accounting. Evidence-version redesign remains deferred.
 
    Analyzer completion is exactly two medium capabilities: verifier core
    contract completion, followed by one accepted complete analyzer port.
@@ -2550,7 +2566,10 @@ activation remain blocked until their production host composition is proven.
    host reads the claimed restart source cooperatively, preserves the original
    transport failure channel, retains admitted payload chunks and joins each
    role once, and consumes a complete module path before the committed
-   `156`-byte combined source/domain limit is enforced. Progress replay or
+   generator-v3 factored-arena limit is enforced. The current selected combined
+   source/domain limit is `26,869` bytes beneath the unchanged
+   `67,108,864`-byte core arena ceiling; `26,870` is the first excluded
+   capacity. Progress replay or
    skipping fails before a new owner driver is created.
 
    The complete analyzer port remains externally unwired and

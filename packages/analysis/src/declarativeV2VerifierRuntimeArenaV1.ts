@@ -5,15 +5,15 @@ import type {
   DeclarativeV2VerifierBudgetFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
 
-interface DeclarativeV2VerifierArenaRegionV1 {
+interface DeclarativeV2VerifierArenaRegionV2 {
   readonly name: string;
   readonly offset: number;
   readonly byteLength: number;
 }
 
-interface DeclarativeV2VerifierArenaPlanV1 {
+interface DeclarativeV2VerifierArenaPlanV2 {
   readonly requiredBytes: number;
-  readonly regions: ReadonlyArray<DeclarativeV2VerifierArenaRegionV1>;
+  readonly regions: ReadonlyArray<DeclarativeV2VerifierArenaRegionV2>;
   readonly usage: DeclarativeV2VerifierBudgetFrameV2;
 }
 
@@ -261,7 +261,7 @@ interface MutableRuntimeUsageV1 {
 interface RuntimeArenaStateV1 {
   readonly buffer: ArrayBuffer;
   readonly bytes: Uint8Array;
-  readonly regions: ReadonlyArray<DeclarativeV2VerifierArenaRegionV1>;
+  readonly regions: ReadonlyArray<DeclarativeV2VerifierArenaRegionV2>;
   readonly required: DeclarativeV2VerifierBudgetFrameV2;
   readonly usage: MutableRuntimeUsageV1;
   stringCursor: number;
@@ -446,7 +446,7 @@ function captureBefore(
 function regionByName(
   arena: RuntimeArenaStateV1,
   name: string,
-): DeclarativeV2VerifierArenaRegionV1 | undefined {
+): DeclarativeV2VerifierArenaRegionV2 | undefined {
   for (let index = 0; index < arena.regions.length; index += 1) {
     const candidate = arena.regions[index];
     if (candidate?.name === name) return candidate;
@@ -584,7 +584,7 @@ function sameArena(
 }
 
 export function createDeclarativeV2VerifierRuntimeArenaV1(
-  plan: DeclarativeV2VerifierArenaPlanV1,
+  plan: DeclarativeV2VerifierArenaPlanV2,
 ): Result.Result<
   DeclarativeV2VerifierRuntimeArenaHandleV1,
   DeclarativeV2VerifierRuntimeArenaV1Error

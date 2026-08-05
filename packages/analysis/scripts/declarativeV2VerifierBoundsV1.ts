@@ -17,10 +17,13 @@ import {
 } from "../src/declarativeV2VerificationEvidenceV2";
 import {
   DECLARATIVE_V2_CORE_DIAGNOSTICS_V1,
-  DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1,
   DECLARATIVE_V2_VERIFIER_ARENA_WIDTHS_V1,
   DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1,
 } from "../src/declarativeV2VerifierV1.contract";
+import {
+  DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2,
+  DECLARATIVE_V2_VERIFIER_FACTORED_ARENA_POLICY_V2,
+} from "../src/declarativeV2VerifierArenaStorageV2";
 
 const GENERATED_FILE = "src/declarativeV2VerifierBoundsV1.generated.ts";
 const MAX_U32 = 0xffff_ffffn;
@@ -42,6 +45,20 @@ const SEMANTIC_OUTPUT_RECORDS_PER_DOMAIN_UNIT =
 const MAXIMUM_SEMANTIC_TRANSITIONS_PER_DOMAIN_UNIT_SQUARED =
   DECLARATIVE_V2_VERIFIER_PARSE_SEMANTIC_CAPACITY_BOUNDS_V1
     .maximumSemanticTransitionsPerDomainUnitSquared;
+
+if (
+  DECLARATIVE_V2_VERIFIER_FACTORED_ARENA_POLICY_V2
+      .maximumEvidenceTextFields !== MAXIMUM_EVIDENCE_TEXT_FIELDS ||
+  DECLARATIVE_V2_VERIFIER_FACTORED_ARENA_POLICY_V2
+      .maximumJsonEscapeBytesPerInputByte !==
+        MAXIMUM_JSON_ESCAPE_BYTES_PER_INPUT_BYTE ||
+  DECLARATIVE_V2_VERIFIER_FACTORED_ARENA_POLICY_V2
+      .maximumEvidenceFixedBytes !== MAXIMUM_EVIDENCE_FIXED_BYTES
+) {
+  throw new Error(
+    "Factored arena storage policy diverged from its evidence codec bounds.",
+  );
+}
 
 const canonicalJson = (value: unknown): string => {
   if (
@@ -99,20 +116,21 @@ const evidenceFramesPerDomainUnit =
     .nonDiagnosticEvidenceFramesPerDomainUnit +
   parseDiagnosticDefinitionCount;
 
+const maximumEvidenceFrameBytes = (domain: bigint): bigint =>
+  BigInt(MAXIMUM_EVIDENCE_FIXED_BYTES) +
+  domain *
+    BigInt(
+      MAXIMUM_EVIDENCE_TEXT_FIELDS *
+        MAXIMUM_JSON_ESCAPE_BYTES_PER_INPUT_BYTE,
+    );
+
 const parseCapacity = (domainByteLength: number) => {
   const domain = BigInt(domainByteLength);
   const units = domain + 1n;
   const diagnosticCount = BigInt(parseDiagnosticDefinitionCount) * units;
   const evidenceFrameCount =
     1n + BigInt(evidenceFramesPerDomainUnit) * units;
-  const maximumEvidenceFrameBytes =
-    BigInt(MAXIMUM_EVIDENCE_FIXED_BYTES) +
-    domain *
-      BigInt(
-        MAXIMUM_EVIDENCE_TEXT_FIELDS *
-          MAXIMUM_JSON_ESCAPE_BYTES_PER_INPUT_BYTE,
-      );
-  const canonicalBytes = evidenceFrameCount * maximumEvidenceFrameBytes;
+  const canonicalBytes = evidenceFrameCount * maximumEvidenceFrameBytes(domain);
   const diagnosticBytes = diagnosticCount *
     (
       BigInt(MAXIMUM_EVIDENCE_FIXED_BYTES) +
@@ -153,12 +171,31 @@ const parseCapacity = (domainByteLength: number) => {
 
 const arenaBytes = (domainByteLength: number): bigint => {
   const capacity = parseCapacity(domainByteLength);
+  const domain = BigInt(domainByteLength);
+  const storage = {
+    tokenBytesStorage: capacity.tokenBytes,
+    stringBytesStorage: capacity.stringBytes,
+    frameBytesStorage:
+      maximumEvidenceFrameBytes(domain) +
+      (capacity.importEdges + capacity.graphNodes) *
+        BigInt(
+          DECLARATIVE_V2_VERIFIER_FACTORED_ARENA_POLICY_V2
+            .evidenceIndexRecordBytes,
+        ),
+    diagnosticBytesStorage:
+      capacity.graphNodes *
+        BigInt(
+          DECLARATIVE_V2_VERIFIER_FACTORED_ARENA_POLICY_V2
+            .diagnosticRecordBytes,
+        ),
+    outputBytesStorage: capacity.stringBytes,
+  } as const;
   let total = BigInt(DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1.arena.baseBytes);
   for (const width of DECLARATIVE_V2_VERIFIER_ARENA_WIDTHS_V1) {
     total += capacity[width.dimension] * BigInt(width.bytes);
   }
-  for (const factor of DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1) {
-    total += capacity[factor.dimension] * BigInt(factor.factor);
+  for (const { name } of DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2) {
+    total += storage[name];
   }
   return total;
 };
@@ -199,7 +236,11 @@ export function generateDeclarativeV2VerifierBoundsV1(): string {
     throw new Error("Selected parse domain limit lost its checked arena proof.");
   }
   const withoutIdentity = Object.freeze({
-    generatorVersion: 2,
+    generatorVersion: 3,
+    arenaIdentity:
+      DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1.arenaIdentity,
+    factoredArenaPolicy:
+      DECLARATIVE_V2_VERIFIER_FACTORED_ARENA_POLICY_V2,
     maximumProductionRhsLength,
     epsilonProductionCount,
     parseDiagnosticPhasesPerDomainUnit: parseDiagnosticPhases.size,

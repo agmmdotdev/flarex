@@ -20,7 +20,7 @@ import {
   type PreparedStandardApplicationDefinitionV1,
   type StandardApplicationDefinitionInputV1,
 } from "@flarex/standard-application-definition/v1";
-import { Effect, Result } from "effect";
+import { Effect, Exit, Result } from "effect";
 import {
   decodeAppCreationTimeV1,
 } from "flarex-protocol/app-document";
@@ -110,6 +110,7 @@ import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/int
 import {
   makeDeclarativeV2VerifierProgressRepositoryV2,
   type DeclarativeV2VerifierProgressRepositoryV2,
+  type DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
 } from "@flarex/persistence-postgres/internal/system-test/declarativeV2VerifierProgressRepositoryV2";
 import {
   getSchemaVersionArtifactByIdEffect,
@@ -135,7 +136,7 @@ const LOCATOR = Object.freeze({
   schemaName: "public",
 });
 const MAXIMUM = 20_000_000n;
-const FSV06_COMMAND_MAXIMUM = 50_000_000n;
+const STANDARD_APPLICATION_COMMAND_MAXIMUM = 100_000_000n;
 const OPERATION_BUDGET = Object.freeze({
   maximumCalls: 256,
   maximumRows: 256,
@@ -143,6 +144,41 @@ const OPERATION_BUDGET = Object.freeze({
   maximumCanonicalBytes: 128 * 1_048_576,
   maximumHashBytes: 128 * 1_048_576,
   maximumElapsedMilliseconds: 120_000,
+});
+
+export interface AuthenticatedAnalysisSessionCleanupV1 {
+  readonly release: (
+    session: AuthenticatedDeclarativeV2CommandSessionV1,
+    budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  ) => Effect.Effect<unknown, unknown, never>;
+  readonly abandon: (
+    session: AuthenticatedDeclarativeV2CommandSessionV1,
+    budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
+  ) => Effect.Effect<unknown, unknown, never>;
+}
+
+export const finalizeAuthenticatedAnalysisSessionV1 = Effect.fn(
+  "FSV03.finalizeAuthenticatedAnalysisSession",
+)(function (
+  cleanup: AuthenticatedAnalysisSessionCleanupV1,
+  session: AuthenticatedDeclarativeV2CommandSessionV1,
+  exit: Exit.Exit<unknown, unknown>,
+) {
+  if (Exit.isSuccess(exit)) {
+    return cleanup.release(session, OPERATION_BUDGET).pipe(
+      Effect.asVoid,
+      Effect.orDie,
+    );
+  }
+  return cleanup.abandon(session, OPERATION_BUDGET).pipe(
+    Effect.asVoid,
+    Effect.catchCause(cause =>
+      Effect.logError(
+        "FSV03 analysis-session abandonment failed; preserving the primary scope exit.",
+        cause,
+      )
+    ),
+  );
 });
 const PAGE_BUDGET = Object.freeze({
   ...OPERATION_BUDGET,
@@ -242,7 +278,7 @@ export async function prepareFsv04RegisteredRevisionFixtureV1(
       input.revisionVariant?.startsWith("sap05-") ||
       input.revisionVariant?.startsWith("sap06-") ||
       input.revisionVariant?.startsWith("sac01-")
-    ? FSV06_COMMAND_MAXIMUM
+    ? STANDARD_APPLICATION_COMMAND_MAXIMUM
     : MAXIMUM;
   const registration = await Effect.runPromise(Effect.scoped(
     withAuthenticatedApplicationRevisionEvidenceTestDriverV1(
@@ -504,10 +540,11 @@ const runAuthenticatedAnalysisAndRegistration = Effect.fn(
         preparation.attemptSha256,
         OPERATION_BUDGET,
       ),
-      acquired => persistenceBridge.release(
+      (acquired, exit) => finalizeAuthenticatedAnalysisSessionV1(
+        persistenceBridge,
         acquired.session,
-        OPERATION_BUDGET,
-      ).pipe(Effect.orDie),
+        exit,
+      ),
     );
     const sourceCommand = yield* driver.prepareCommand({
       kind: "source_page",

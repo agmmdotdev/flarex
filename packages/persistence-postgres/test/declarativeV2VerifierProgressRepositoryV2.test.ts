@@ -381,6 +381,94 @@ describe("Declarative V2 progress repository V2 attempt/lease/reservation", () =
     ));
   });
 
+  it("abandons authenticated pending work after a failed analysis scope", async () => {
+    let failAbandon = false;
+    const current = await fixture({
+      observeQuery: query => {
+        if (failAbandon && query.name === "abandonAttempt") {
+          failAbandon = false;
+          throw new Error("injected abandon rollback");
+        }
+      },
+    });
+    await moveAttemptToParse(current.persistence, current.attemptSha256);
+    const bridge = makeAuthenticatedDeclarativeV2CommandBridgeV1(
+      current.repository,
+    );
+    const acquired = await runEffect(
+      bridge.acquire(scopeId, current.attemptSha256, operationBudget),
+    );
+    const observed = await runEffect(current.repository.observeAttempt(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    if (observed.kind !== "present") throw new Error("Expected attempt.");
+    const input = await reservationInput(
+      observed.attempt,
+      1n,
+      0xb1,
+      1n,
+      "parse_module",
+    );
+    await runEffect(bridge.reserve(
+      acquired.session,
+      {
+        ...input,
+        futureRegistrationIntentBytes: null,
+      },
+      operationBudget,
+    ));
+
+    expect(await runEffectFailure(bridge.release(
+      acquired.session,
+      operationBudget,
+    ))).toMatchObject({
+      _tag: "DeclarativeV2VerifierProgressRepositoryConflictV2Error",
+      operation: "release",
+      reason: "pendingExists",
+    });
+    failAbandon = true;
+    await expect(runEffect(
+      bridge.abandon(acquired.session, operationBudget),
+    )).rejects.toThrow("injected abandon rollback");
+    const afterRollback = await runEffect(current.repository.observeAttempt(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    if (afterRollback.kind !== "present") throw new Error("Expected attempt.");
+    expect(afterRollback.attempt).toMatchObject({
+      lifecycle: "parsing",
+      pendingKind: "parse_module",
+      pendingSequence: 1n,
+    });
+    expect(afterRollback.attempt.leaseExpiresAt).not.toBeNull();
+
+    await runEffect(bridge.abandon(acquired.session, operationBudget));
+
+    const afterAbandon = await runEffect(current.repository.observeAttempt(
+      scopeId,
+      current.attemptSha256,
+      operationBudget,
+    ));
+    if (afterAbandon.kind !== "present") throw new Error("Expected attempt.");
+    expect(afterAbandon.attempt).toMatchObject({
+      lifecycle: "abandoned",
+      pendingKind: null,
+      pendingSequence: null,
+      leaseExpiresAt: null,
+    });
+    expect(await runEffectFailure(bridge.abandon(
+      acquired.session,
+      operationBudget,
+    ))).toMatchObject({
+      _tag: "AuthenticatedDeclarativeV2CommandBridgeV1Error",
+      operation: "abandon",
+      reason: "invalidSession",
+    });
+  });
+
   it("atomically binds one immutable future-registration intent to pending link work", async () => {
     const current = await fixture();
     await moveAttemptToLink(current.persistence, current.attemptSha256);

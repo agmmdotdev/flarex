@@ -24,7 +24,6 @@ import {
   GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1,
 } from "./declarativeV2VerifierV1.generated";
 import {
-  DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1,
   DECLARATIVE_V2_VERIFIER_ARENA_WIDTHS_V1,
   DECLARATIVE_V2_VERIFIER_ASSET_ALIGNMENT_V1,
   DECLARATIVE_V2_VERIFIER_ASSET_FORMAT_VERSION_V1,
@@ -34,6 +33,13 @@ import {
   DECLARATIVE_V2_VERIFIER_ASSET_SECTIONS_V1,
   DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1,
 } from "./declarativeV2VerifierV1.contract";
+import {
+  DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2,
+  deriveDeclarativeV2VerifierLinkArenaStorageV2,
+  deriveDeclarativeV2VerifierParseArenaStorageV2,
+  type DeclarativeV2VerifierArenaStorageRegionV2,
+  type DeclarativeV2VerifierArenaStorageV2,
+} from "./declarativeV2VerifierArenaStorageV2";
 import {
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_ASSET_BASE64_V1,
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1,
@@ -1415,7 +1421,7 @@ interface LocalVerifierPlanFailureV1 {
   readonly maximum?: bigint;
 }
 
-interface LocalVerifierArenaPlanV1 {
+interface LocalVerifierArenaPlanV2 {
   readonly requiredBytes: number;
   readonly regions: ReadonlyArray<Readonly<{
     readonly name: string;
@@ -1476,20 +1482,63 @@ const captureLocalBudgetFrame = (
   return Object.freeze(captured) as DeclarativeV2VerifierBudgetFrameV2;
 };
 
-const planDeclarativeV2VerifierArenaV1 = (
+const captureLocalArenaStorageV2 = (
+  value: unknown,
+): DeclarativeV2VerifierArenaStorageV2 | undefined => {
+  if (value === null || typeof value !== "object") return undefined;
+  const names: ReadonlyArray<DeclarativeV2VerifierArenaStorageRegionV2> =
+    DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2.map(
+    ({ name }) => name,
+  );
+  let keys: readonly PropertyKey[];
+  try {
+    keys = Reflect.ownKeys(value);
+  } catch {
+    return undefined;
+  }
+  if (
+    keys.length !== names.length ||
+    keys.some(key => !names.some(name => name === key))
+  ) return undefined;
+  const captured = Object.create(null) as Record<
+    typeof names[number],
+    bigint
+  >;
+  for (const name of names) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, name);
+    } catch {
+      return undefined;
+    }
+    if (
+      descriptor === undefined ||
+      !("value" in descriptor) ||
+      typeof descriptor.value !== "bigint" ||
+      descriptor.value < 0n ||
+      descriptor.value > MAX_SIGNED_INT64
+    ) return undefined;
+    captured[name] = descriptor.value;
+  }
+  return Object.freeze(captured);
+};
+
+const planDeclarativeV2VerifierArenaV2 = (
   input: unknown,
-): Result.Result<LocalVerifierArenaPlanV1, LocalVerifierPlanFailureV1> => {
+): Result.Result<LocalVerifierArenaPlanV2, LocalVerifierPlanFailureV1> => {
   if (input === null || typeof input !== "object") {
     return Result.fail(localPlanFailure("invalidInput"));
   }
   let maximumsValue: unknown;
   let requiredValue: unknown;
+  let storageValue: unknown;
   try {
     const keys = Reflect.ownKeys(input);
     if (
-      keys.length !== 2 ||
+      keys.length !== 3 ||
       !Object.hasOwn(input, "maximums") ||
-      !Object.hasOwn(input, "required")
+      !Object.hasOwn(input, "required") ||
+      !Object.hasOwn(input, "storage")
     ) return Result.fail(localPlanFailure("invalidInput"));
     const maximumsDescriptor = Object.getOwnPropertyDescriptor(
       input,
@@ -1499,14 +1548,21 @@ const planDeclarativeV2VerifierArenaV1 = (
       input,
       "required",
     );
+    const storageDescriptor = Object.getOwnPropertyDescriptor(
+      input,
+      "storage",
+    );
     if (
       maximumsDescriptor === undefined ||
       requiredDescriptor === undefined ||
+      storageDescriptor === undefined ||
       !("value" in maximumsDescriptor) ||
-      !("value" in requiredDescriptor)
+      !("value" in requiredDescriptor) ||
+      !("value" in storageDescriptor)
     ) return Result.fail(localPlanFailure("invalidInput"));
     maximumsValue = maximumsDescriptor.value;
     requiredValue = requiredDescriptor.value;
+    storageValue = storageDescriptor.value;
   } catch {
     return Result.fail(localPlanFailure("invalidInput"));
   }
@@ -1514,6 +1570,10 @@ const planDeclarativeV2VerifierArenaV1 = (
   const required = captureLocalBudgetFrame(requiredValue, "attempt_usage");
   if (maximums === undefined || required === undefined) {
     return Result.fail(localPlanFailure("invalidBudget"));
+  }
+  const storage = captureLocalArenaStorageV2(storageValue);
+  if (storage === undefined) {
+    return Result.fail(localPlanFailure("invalidBudget", "storage"));
   }
   if (required.sourceMapBytes !== 0n) {
     return Result.fail(localPlanFailure(
@@ -1605,11 +1665,11 @@ const planDeclarativeV2VerifierArenaV1 = (
     );
     if (failure !== undefined) return Result.fail(failure);
   }
-  for (const factor of DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1) {
+  for (const { name } of DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2) {
     const failure = append(
-      `${factor.dimension}Storage`,
-      required[factor.dimension],
-      BigInt(factor.factor),
+      name,
+      storage[name],
+      1n,
     );
     if (failure !== undefined) return Result.fail(failure);
   }
@@ -1778,9 +1838,10 @@ export function createDeclarativeV2VerifierEngineV1(
     return Result.fail(executableError("create", "invalidInput"));
   }
   const prepared = Result.gen(function*() {
-    const arenaPlan = yield* planDeclarativeV2VerifierArenaV1({
+    const arenaPlan = yield* planDeclarativeV2VerifierArenaV2({
       maximums: input.maximums,
       required: input.required,
+      storage: deriveDeclarativeV2VerifierParseArenaStorageV2(input.required),
     }).pipe(Result.mapError((failure) => {
       const evidence = {
         ...(failure.path === undefined ? {} : { dimension: failure.path }),
@@ -7413,9 +7474,10 @@ export function createDeclarativeV2VerifierLinkerV1(
   DeclarativeV2VerifierLinkerV1,
   DeclarativeV2VerifierExecutableV1Error
 > {
-  const plan = planDeclarativeV2VerifierArenaV1({
+  const plan = planDeclarativeV2VerifierArenaV2({
     maximums,
     required: requiredInput,
+    storage: deriveDeclarativeV2VerifierLinkArenaStorageV2(requiredInput),
   });
   if (Result.isFailure(plan)) {
     return Result.fail(executableError(
@@ -10770,9 +10832,10 @@ const captureAccessBudgetV1 = (
     kind: "attempt_usage",
     ...members,
   }) as DeclarativeV2VerifierBudgetFrameV2;
-  const planned = planDeclarativeV2VerifierArenaV1({
+  const planned = planDeclarativeV2VerifierArenaV2({
     maximums,
     required,
+    storage: deriveDeclarativeV2VerifierParseArenaStorageV2(required),
   });
   return Result.isFailure(planned)
     ? Result.fail(executableError("access", "invalidInput"))

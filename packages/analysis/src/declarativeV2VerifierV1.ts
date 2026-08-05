@@ -17,8 +17,7 @@ import {
 } from "./declarativeV2VerifierV1.generated";
 import {
   DECLARATIVE_V2_EXECUTABLE_CORE_IDENTITY_V1,
-  DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1,
-  DECLARATIVE_V2_VERIFIER_ARENA_IDENTITY_V1,
+  DECLARATIVE_V2_VERIFIER_ARENA_IDENTITY_V2,
   DECLARATIVE_V2_VERIFIER_ARENA_WIDTHS_V1,
   DECLARATIVE_V2_VERIFIER_ASSET_ALIGNMENT_V1,
   DECLARATIVE_V2_VERIFIER_ASSET_FORMAT_IDENTITY_V1,
@@ -31,6 +30,12 @@ import {
   DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1,
   DECLARATIVE_V2_VERIFIER_UNICODE_IDENTITY_V1,
 } from "./declarativeV2VerifierV1.contract";
+import {
+  DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2,
+  deriveDeclarativeV2VerifierLinkArenaStorageV2,
+  deriveDeclarativeV2VerifierParseArenaStorageV2,
+  type DeclarativeV2VerifierArenaStorageV2,
+} from "./declarativeV2VerifierArenaStorageV2";
 
 const UTF8_ENCODER = new TextEncoder();
 const TYPED_ARRAY_PROTOTYPE: object = Object.getPrototypeOf(
@@ -48,13 +53,20 @@ const MAX_SIGNED_INT64 = 9_223_372_036_854_775_807n;
 
 export {
   DECLARATIVE_V2_EXECUTABLE_CORE_IDENTITY_V1,
-  DECLARATIVE_V2_VERIFIER_ARENA_IDENTITY_V1,
+  DECLARATIVE_V2_VERIFIER_ARENA_IDENTITY_V2,
+  DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2,
+  deriveDeclarativeV2VerifierLinkArenaStorageV2,
+  deriveDeclarativeV2VerifierParseArenaStorageV2,
   DECLARATIVE_V2_VERIFIER_ASSET_FORMAT_IDENTITY_V1,
   DECLARATIVE_V2_VERIFIER_DIAGNOSTIC_IDENTITY_V1,
   DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1,
   DECLARATIVE_V2_VERIFIER_UNICODE_IDENTITY_V1,
   GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1,
 };
+export type {
+  DeclarativeV2VerifierArenaStorageRegionV2,
+  DeclarativeV2VerifierArenaStorageV2,
+} from "./declarativeV2VerifierArenaStorageV2";
 
 export type DeclarativeV2VerifierAssetV1ErrorReason =
   | "invalidInput"
@@ -96,20 +108,21 @@ export interface DeclarativeV2VerifierLoadedAssetV1 {
   readonly copySectionBytes: (name: string) => Uint8Array | undefined;
 }
 
-export interface DeclarativeV2VerifierArenaPlanInputV1 {
+export interface DeclarativeV2VerifierArenaPlanInputV2 {
   readonly maximums: DeclarativeV2VerifierBudgetFrameV2;
   readonly required: DeclarativeV2VerifierBudgetFrameV2;
+  readonly storage: DeclarativeV2VerifierArenaStorageV2;
 }
 
-export interface DeclarativeV2VerifierArenaRegionV1 {
+export interface DeclarativeV2VerifierArenaRegionV2 {
   readonly name: string;
   readonly offset: number;
   readonly byteLength: number;
 }
 
-export interface DeclarativeV2VerifierArenaPlanV1 {
+export interface DeclarativeV2VerifierArenaPlanV2 {
   readonly requiredBytes: number;
-  readonly regions: ReadonlyArray<DeclarativeV2VerifierArenaRegionV1>;
+  readonly regions: ReadonlyArray<DeclarativeV2VerifierArenaRegionV2>;
   readonly usage: DeclarativeV2VerifierBudgetFrameV2;
 }
 
@@ -417,16 +430,16 @@ function checkedMultiply(
   return result <= MAX_SIGNED_INT64 ? result : undefined;
 }
 
-export function planDeclarativeV2VerifierArenaV1(
+export function planDeclarativeV2VerifierArenaV2(
   input: unknown,
 ): Result.Result<
-  DeclarativeV2VerifierArenaPlanV1,
+  DeclarativeV2VerifierArenaPlanV2,
   DeclarativeV2VerifierAssetV1Error
 > {
   return Result.gen(function*() {
   const capturedInput = captureExactOwnDataRecord(
     input,
-    ["maximums", "required"],
+    ["maximums", "required", "storage"],
   );
   if (capturedInput === undefined) {
     return yield* Result.fail(assetError("planArena", "invalidInput"));
@@ -439,6 +452,33 @@ export function planDeclarativeV2VerifierArenaV1(
     capturedInput.required,
     "attempt_usage",
   );
+  const storageRecord = captureExactOwnDataRecord(
+    capturedInput.storage,
+    DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2.map(({ name }) => name),
+  );
+  if (storageRecord === undefined) {
+    return yield* Result.fail(assetError(
+      "planArena",
+      "invalidBudget",
+      "storage",
+    ));
+  }
+  const storage = Object.create(null) as Record<string, bigint>;
+  for (const { name } of DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2) {
+    const value = storageRecord[name];
+    if (
+      typeof value !== "bigint" ||
+      value < 0n ||
+      value > MAX_SIGNED_INT64
+    ) {
+      return yield* Result.fail(assetError(
+        "planArena",
+        "invalidBudget",
+        `storage.${name}`,
+      ));
+    }
+    storage[name] = value;
+  }
   if (required.sourceMapBytes !== 0n) {
     return yield* Result.fail(assetError(
       "planArena",
@@ -495,7 +535,7 @@ export function planDeclarativeV2VerifierArenaV1(
       ));
     }
   }
-  const regions: DeclarativeV2VerifierArenaRegionV1[] = [];
+  const regions: DeclarativeV2VerifierArenaRegionV2[] = [];
   let total = BigInt(DECLARATIVE_V2_VERIFIER_SPECIFICATION_V1.arena.baseBytes);
   const appendRegion = (
     name: string,
@@ -533,11 +573,11 @@ export function planDeclarativeV2VerifierArenaV1(
     );
     if (failure !== undefined) return yield* Result.fail(failure);
   }
-  for (const factor of DECLARATIVE_V2_VERIFIER_ARENA_BYTE_FACTORS_V1) {
+  for (const { name } of DECLARATIVE_V2_VERIFIER_ARENA_STORAGE_REGIONS_V2) {
     const failure = appendRegion(
-      `${factor.dimension}Storage`,
-      required[factor.dimension],
-      BigInt(factor.factor),
+      name,
+      storage[name]!,
+      1n,
     );
     if (failure !== undefined) return yield* Result.fail(failure);
   }
