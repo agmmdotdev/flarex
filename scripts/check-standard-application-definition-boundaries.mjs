@@ -333,6 +333,7 @@ function collectSourceImportErrors(source, errors) {
         collectSpecifierError(
           moduleReference.specifier,
           node.getStart(sourceFile),
+          node,
         );
         collectDurableTaskSymbolError(moduleReference.specifier, node);
       }
@@ -362,8 +363,20 @@ function collectSourceImportErrors(source, errors) {
   /**
    * @param {string} specifier
    * @param {number} position
+   * @param {ts.Node} [node]
    */
-  function collectSpecifierError(specifier, position) {
+  function collectSpecifierError(specifier, position, node) {
+    if (
+      specifier === "flarex-protocol/validator-json"
+      && !source.relativePath.replaceAll("\\", "/").includes(
+        "/taskDefinition/",
+      )
+      && node !== undefined
+      && ts.isImportDeclaration(node)
+      && node.importClause?.isTypeOnly === true
+    ) {
+      return;
+    }
     if (!isAllowedProductionImport(specifier, source.relativePath)) {
       const { line } = sourceFile.getLineAndCharacterOfPosition(position);
       errors.push(

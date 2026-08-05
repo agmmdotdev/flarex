@@ -44,6 +44,12 @@ The test SDK is a convenience boundary over production domain paths. It must
 not become a second backend, transaction engine, sync implementation, or raw
 database escape hatch.
 
+Valid private simulations should use the Standard-compatible typed validator,
+function-contract, module, and function-reference values owned by roadmap 42.
+Raw `unknown` arguments remain available only through a visibly unsafe
+negative-test boundary. The later public test SDK may wrap those primitives but
+must not fork their wire lowering or runtime validation semantics.
+
 ## Current Sources Of Truth
 
 Use these authorities in order when they disagree:

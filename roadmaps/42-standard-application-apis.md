@@ -6,7 +6,11 @@
 `SAP03` are implemented. The pure
 `@flarex/standard-application-definition/v1` package
 exposes canonical-program and artifact-materialization stages plus a combined
-definition-preparation operation. The backend definition fixture, the corpus's
+definition-preparation operation. `SAA01` is implemented as the first shared
+typed-authoring slice inside that existing export: pure validator constructors,
+typed function contracts, and typed references lower directly to the
+protocol-owned `ValidatorJsonV1` and canonical program input without creating
+another wire format or runtime validator. The backend definition fixture, the corpus's
 valid and materialization-failure lanes, and the `flarex-dev` developer
 producer use those Standard contracts. Canonical-failure corpus cases remain
 isolated with their owning decoder. `SAP01-D` machine-enforces the definition
@@ -161,6 +165,14 @@ Developer and test APIs may have different ergonomics. They must converge on
 the same Standard API before downstream domain owners. Neither producer is
 authority merely because it successfully constructs an inert value.
 
+Both producers may share pure type-level and lowering mechanics below their
+distinct policies. Validator constructors, inferred argument and return types,
+function contracts, module export names, and function references therefore
+have one Standard-compatible implementation. Developer APIs remain responsible
+for source inspection, code generation, and ergonomic handler context. Test
+APIs remain responsible for invalid fixtures, seeds, faults, workload policy,
+and authoritative inspection.
+
 ## Invariants And Trust Boundaries
 
 1. **One canonical representation.** Standard APIs reuse the canonical
@@ -269,6 +281,42 @@ The later developer API may provide `defineTable`, `query`, `mutation`,
 may instead provide literal fixtures, invalid shapes, seeds, and fault plans.
 Those producers lower into the same explicit Standard definition preparation
 operation.
+
+### Share Typed Authoring Mechanics Without Sharing Producer Policy
+
+Raw `unknown` remains the canonical decoder boundary and runtime validator
+execution remains authoritative. That does not require ordinary producers to
+hand-author `ValidatorJsonV1`, repeat function paths, or erase argument and
+return types.
+
+The implemented `SAA01` slice adds pure Standard-compatible authoring mechanics to
+the existing `@flarex/standard-application-definition/v1` export:
+
+- one generic validator value whose owned immutable `.json` member is the exact
+  protocol `ValidatorJsonV1` representation;
+- compositional validator constructors with inferred value and optionality;
+- query, mutation, workflow-mutation, and action metadata contracts that require
+  both argument and return validators;
+- module-owned export names and typed function references derived from those
+  contracts; and
+- one explicit raw invocation boundary for negative system tests.
+
+These values are inert metadata. They do not contain handlers, contexts,
+database capabilities, registration, readiness, activation, or invocation
+authority. They do not replace the canonical decoder, validator engine, or the
+public SDK's currently broader compatibility representation. SDK-only
+validator semantics that cannot lower exactly to `ValidatorJsonV1` must fail
+at the later developer-producer adapter rather than gaining a second Standard
+representation.
+
+`SAA01` migrated the shared system-test definition helper and the cooking and
+English-learning simulations. Valid invocations use typed references whose
+contracts are checked against the registered definition before runtime work and
+whose results are still checked after runtime execution; intentional invalid
+arguments use the visibly unsafe raw boundary. A later
+developer-producer slice may delegate its Standard-compatible lowering to the
+same primitives, while public SDK ergonomics, generated `ctx.db`, nested-call
+contexts, and compatibility remain owned by roadmap 09.
 
 ### Preserve Existing Owner Types
 

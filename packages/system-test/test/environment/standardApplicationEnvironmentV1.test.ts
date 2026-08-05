@@ -6,6 +6,9 @@ import {
   "flarex-protocol/transaction-session";
 import { describe, expect, it } from "vitest";
 
+import { standardV1 } from
+  "@flarex/standard-application-definition/v1";
+
 import type {
   InvokeStandardApplicationPointMutationV1Error,
 } from "@flarex/standard-application-invocation/v1";
@@ -22,6 +25,7 @@ import {
   type StandardApplicationSystemTestSetupClientV1,
   runStandardApplicationSimulationV1,
   StandardApplicationSimulationIntegrationV1Error,
+  StandardApplicationTypedReferenceV1Error,
 } from "@flarex/system-test/environment/v1";
 import {
   StandardApplicationSystemTestInspectionV1Error,
@@ -35,7 +39,10 @@ import {
   type StandardApplicationSimulationRuntimeExpectationsV1,
   type StandardApplicationSimulationV1,
 } from "@flarex/system-test/simulation/v1";
-import { makeCreateAndReadDefinitionV1 } from
+import {
+  makeCreateAndReadDefinitionV1,
+  makeCreateAndReadModulesV1,
+} from
   "../simulation/support/createAndReadDefinitionV1";
 import { makeCreateAndReadFunctionSourcesV1 } from
   "../simulation/support/createAndReadFunctionSourcesV1";
@@ -43,23 +50,22 @@ import { cookingSimulationV1 } from
   "../simulation/cooking/cookingSimulationV1";
 
 function makeCookingDefinitionV1() {
+  const fields = {
+    title: standardV1.string(),
+    servings: standardV1.number(),
+  } as const;
   return makeCreateAndReadDefinitionV1({
     tableName: "recipes",
-    mutationModulePath: "recipeCommands",
-    queryModulePath: "recipes",
+    ...makeCreateAndReadModulesV1({
+      tableName: "recipes",
+      fields,
+      mutationModulePath: "recipeCommands",
+      queryModulePath: "recipes",
+    }),
     mutationArtifactPath: "recipeMutation",
     queryArtifactPath: "recipeQuery",
     ...makeCreateAndReadFunctionSourcesV1("recipes"),
-    fields: {
-      title: {
-        fieldType: { type: "string" },
-        optional: false,
-      },
-      servings: {
-        fieldType: { type: "number" },
-        optional: false,
-      },
-    },
+    fields,
   });
 }
 
@@ -189,6 +195,92 @@ describe("Standard Application system-test environment - PGlite", () => {
     );
   }, 480_000);
 
+  it("rejects a mismatched typed query contract before runtime invocation", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const mismatchedGet = standardV1.module("recipes", {
+      get: standardV1.publicQuery({
+        args: standardV1.object({ id: standardV1.string() }),
+        returns: standardV1.number(),
+      }),
+    }).reference("get");
+    const failure = await Effect.runPromise(Effect.flip(
+      runStandardApplicationSimulationV1({
+        lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+        simulation: defineTestSimulationV1(
+          "typed-reference-return-mismatch",
+          client => publishRecipeForInspectionV1(
+            client,
+            "Typed soup",
+            "system-test:typed-reference-return-mismatch:setup",
+          ),
+          (client, documentId) => client.query(mismatchedGet, { id: documentId }),
+        ),
+      }),
+    ));
+
+    expect(failure).toBeInstanceOf(StandardApplicationTypedReferenceV1Error);
+    expect(failure).toMatchObject({
+      _tag: "StandardApplicationTypedReferenceV1Error",
+      phase: "queryContract",
+      functionPath: "recipes:get",
+      detail: { reason: "contractMismatch", facet: "returns" },
+    });
+  }, 480_000);
+
+  it("rejects a mismatched typed mutation contract before any durable effect", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const mismatchedCreate = standardV1.module("recipeCommands", {
+      create: standardV1.publicMutation({
+        args: standardV1.object({
+          title: standardV1.string(),
+          servings: standardV1.number(),
+        }),
+        returns: standardV1.null(),
+      }),
+    }).reference("create");
+    const failure = await Effect.runPromise(Effect.flip(
+      runStandardApplicationSimulationV1({
+        lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+        simulation: defineTestSimulationV1(
+          "typed-mutation-contract-mismatch",
+          () => Effect.void,
+          client => client.mutation(
+            mismatchedCreate,
+            { title: "Never committed soup", servings: 2 },
+            TransactionRequestKeyV1Schema.make(
+              "system-test:typed-mutation-contract-mismatch:create",
+            ),
+          ),
+        ),
+      }),
+    ));
+
+    expect(failure).toBeInstanceOf(StandardApplicationTypedReferenceV1Error);
+    expect(failure).toMatchObject({
+      _tag: "StandardApplicationTypedReferenceV1Error",
+      phase: "mutationContract",
+      functionPath: "recipeCommands:create",
+      detail: { reason: "contractMismatch", facet: "returns" },
+    });
+    const durableCounts = await persistence.query<Record<string, unknown>>(`
+      select
+        (select count(*)::text from fx_app_row_current) as current_count,
+        (select count(*)::text from fx_app_row_rev) as revision_count,
+        (select count(*)::text from fx_system_commit) as commit_count,
+        (select count(*)::text from fx_system_idempotency) as outcome_count,
+        (select count(*)::text from fx_system_commit_app_row_change) as feed_count,
+        (select count(*)::text from fx_system_outbox) as outbox_count
+    `);
+    expect(durableCounts.rows).toEqual([{
+      current_count: "0",
+      revision_count: "0",
+      commit_count: "0",
+      outcome_count: "0",
+      feed_count: "0",
+      outbox_count: "0",
+    }]);
+  }, 480_000);
+
   it("revokes the workload client when its owning run completes", async () => {
     const persistence = await createMigratedPGlitePersistence();
     let escapedSetupClient:
@@ -210,7 +302,7 @@ describe("Standard Application system-test environment - PGlite", () => {
               ));
             }
             const setupInvocation = yield* Effect.exit(
-              escapedSetupClient.invokeMutation(
+              escapedSetupClient.unsafeInvokeMutation(
                 TransactionFunctionPathV1Schema.make("recipeCommands:create"),
                 { title: "Late setup soup", servings: 1 },
                 TransactionRequestKeyV1Schema.make("system-test:late-setup:create"),
@@ -239,7 +331,7 @@ describe("Standard Application system-test environment - PGlite", () => {
     if (escapedClient === undefined) {
       throw new Error("The workload did not receive its test client.");
     }
-    await expect(Effect.runPromise(escapedClient.invokeQuery(
+    await expect(Effect.runPromise(escapedClient.unsafeInvokeQuery(
       TransactionFunctionPathV1Schema.make("recipes:get"),
       { id: "unreachable" },
     ))).rejects.toThrow(
@@ -269,7 +361,7 @@ describe("Standard Application system-test environment - PGlite", () => {
     if (escapedSetupClient === undefined) {
       throw new Error("The failing setup did not receive its test client.");
     }
-    await expect(Effect.runPromise(escapedSetupClient.invokeMutation(
+    await expect(Effect.runPromise(escapedSetupClient.unsafeInvokeMutation(
       TransactionFunctionPathV1Schema.make("recipeCommands:create"),
       { title: "Unreachable soup", servings: 1 },
       TransactionRequestKeyV1Schema.make("system-test:unreachable-setup:create"),
@@ -299,7 +391,7 @@ describe("Standard Application system-test environment - PGlite", () => {
     if (escapedClient === undefined) {
       throw new Error("The failing workload did not receive its test client.");
     }
-    await expect(Effect.runPromise(escapedClient.invokeQuery(
+    await expect(Effect.runPromise(escapedClient.unsafeInvokeQuery(
       TransactionFunctionPathV1Schema.make("recipes:get"),
       { id: "unreachable" },
     ))).rejects.toThrow(
@@ -317,7 +409,7 @@ describe("Standard Application system-test environment - PGlite", () => {
           "managed-invocation-lifecycle",
           () => Effect.void,
           client => Effect.gen(function*() {
-            const fiber = yield* client.invokeMutation(
+            const fiber = yield* client.unsafeInvokeMutation(
               TransactionFunctionPathV1Schema.make("recipeCommands:create"),
               { title: "Detached soup", servings: 2 },
               TransactionRequestKeyV1Schema.make("system-test:detached:create"),
@@ -347,7 +439,7 @@ describe("Standard Application system-test environment - PGlite", () => {
           "per-call-cancellation",
           () => Effect.void,
           client => Effect.gen(function*() {
-            const fiber = yield* client.invokeMutation(
+            const fiber = yield* client.unsafeInvokeMutation(
               TransactionFunctionPathV1Schema.make("recipeCommands:create"),
               { title: "Cancelled soup", servings: 3 },
               TransactionRequestKeyV1Schema.make("system-test:cancelled:create"),
@@ -462,7 +554,7 @@ const publishRecipeForInspectionV1 = Effect.fn(
   title: string,
   requestKey: string,
 ): Effect.fn.Return<string, InvokeStandardApplicationPointMutationV1Error> {
-  const outcome = yield* client.invokeMutation(
+  const outcome = yield* client.unsafeInvokeMutation(
     TransactionFunctionPathV1Schema.make("recipeCommands:create"),
     { title, servings: 1 },
     TransactionRequestKeyV1Schema.make(requestKey),

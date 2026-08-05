@@ -1,124 +1,93 @@
 import type {
+  StandardFunctionCatalogV1,
   StandardApplicationDefinitionInputV1,
+  StandardModuleV1,
+  StandardValidatorRecordV1,
 } from "@flarex/standard-application-definition/v1";
-import type { ObjectValidatorJsonV1 } from
-  "flarex-protocol/validator-json";
+import { standardV1 } from "@flarex/standard-application-definition/v1";
 
-type CreateAndReadFunctionInputV1 =
-  StandardApplicationDefinitionInputV1["programInput"]["modules"][number][
-    "functions"
-  ][number];
+type AnyStandardModuleV1 = StandardModuleV1<
+  string,
+  StandardFunctionCatalogV1
+>;
 
 export interface CreateAndReadAdditionalFunctionModuleV1 {
-  readonly modulePath: string;
+  readonly module: AnyStandardModuleV1;
   readonly artifactModulePath: string;
   readonly sourceBytes: Uint8Array;
-  readonly functions: ReadonlyArray<CreateAndReadFunctionInputV1>;
 }
 
-export interface CreateAndReadDefinitionInputV1 {
+export interface CreateAndReadDefinitionInputV1<
+  Fields extends StandardValidatorRecordV1,
+> {
   readonly tableName: string;
-  readonly mutationModulePath: string;
-  readonly queryModulePath: string;
+  readonly mutationModule: AnyStandardModuleV1;
+  readonly queryModule: AnyStandardModuleV1;
   readonly mutationArtifactPath: string;
   readonly queryArtifactPath: string;
   readonly mutationSourceBytes: Uint8Array;
   readonly querySourceBytes: Uint8Array;
-  readonly fields: ObjectValidatorJsonV1["value"];
+  readonly fields: Fields;
   readonly additionalFunctionModules?:
     ReadonlyArray<CreateAndReadAdditionalFunctionModuleV1>;
   readonly pointMutationLifecycle?: Readonly<{
-    readonly patchModulePath: string;
+    readonly patchModule: AnyStandardModuleV1;
     readonly patchArtifactPath: string;
     readonly patchSourceBytes: Uint8Array;
-    readonly replaceModulePath: string;
+    readonly replaceModule: AnyStandardModuleV1;
     readonly replaceArtifactPath: string;
     readonly replaceSourceBytes: Uint8Array;
-    readonly deleteModulePath: string;
+    readonly deleteModule: AnyStandardModuleV1;
     readonly deleteArtifactPath: string;
     readonly deleteSourceBytes: Uint8Array;
   }>;
 }
 
-export function makeCreateAndReadDefinitionV1(
-  input: CreateAndReadDefinitionInputV1,
+export function makeCreateAndReadModulesV1<
+  TableName extends string,
+  Fields extends StandardValidatorRecordV1,
+  MutationModulePath extends string,
+  QueryModulePath extends string,
+>(input: Readonly<{
+  readonly tableName: TableName;
+  readonly fields: Fields;
+  readonly mutationModulePath: MutationModulePath;
+  readonly queryModulePath: QueryModulePath;
+}>) {
+  const document = standardV1.object({
+    _id: standardV1.id(input.tableName),
+    _creationTime: standardV1.number(),
+    ...input.fields,
+  });
+  return Object.freeze({
+    mutationModule: standardV1.module(input.mutationModulePath, {
+      create: standardV1.publicMutation({
+        args: standardV1.object(input.fields),
+        returns: standardV1.id(input.tableName),
+      }),
+    }),
+    queryModule: standardV1.module(input.queryModulePath, {
+      get: standardV1.publicQuery({
+        args: standardV1.object({ id: standardV1.string() }),
+        returns: standardV1.nullable(document),
+      }),
+    }),
+  });
+}
+
+export function makeCreateAndReadDefinitionV1<
+  Fields extends StandardValidatorRecordV1,
+>(
+  input: CreateAndReadDefinitionInputV1<Fields>,
 ): StandardApplicationDefinitionInputV1 {
-  const makeDocumentFields = (): ObjectValidatorJsonV1["value"] =>
-    Object.fromEntries(Object.entries(input.fields).map(
-      ([fieldName, field]) => [fieldName, { ...field }],
-    ));
-  const makePatchFields = (): ObjectValidatorJsonV1["value"] =>
-    Object.fromEntries(Object.entries(input.fields).map(
-      ([fieldName, field]) => [fieldName, { ...field, optional: true }],
-    ));
+  const documentValidator = standardV1.object(input.fields);
   const lifecycle = input.pointMutationLifecycle;
   const additionalFunctionModules = input.additionalFunctionModules ?? [];
-  const lifecycleProgramModules = lifecycle === undefined ? [] : [{
-    modulePath: lifecycle.patchModulePath,
-    functions: [{
-      exportName: "patch",
-      kind: "mutation" as const,
-      visibility: "public" as const,
-      argsValidator: {
-        type: "object" as const,
-        value: {
-          id: {
-            optional: false,
-            fieldType: { type: "id" as const, tableName: input.tableName },
-          },
-          patch: {
-            optional: false,
-            fieldType: {
-              type: "object" as const,
-              value: makePatchFields(),
-            },
-          },
-        },
-      },
-      returnsValidator: { type: "null" as const },
-    }],
-  }, {
-    modulePath: lifecycle.replaceModulePath,
-    functions: [{
-      exportName: "replace",
-      kind: "mutation" as const,
-      visibility: "public" as const,
-      argsValidator: {
-        type: "object" as const,
-        value: {
-          id: {
-            optional: false,
-            fieldType: { type: "id" as const, tableName: input.tableName },
-          },
-          fields: {
-            optional: false,
-            fieldType: {
-              type: "object" as const,
-              value: makeDocumentFields(),
-            },
-          },
-        },
-      },
-      returnsValidator: { type: "null" as const },
-    }],
-  }, {
-    modulePath: lifecycle.deleteModulePath,
-    functions: [{
-      exportName: "remove",
-      kind: "mutation" as const,
-      visibility: "public" as const,
-      argsValidator: {
-        type: "object" as const,
-        value: {
-          id: {
-            optional: false,
-            fieldType: { type: "id" as const, tableName: input.tableName },
-          },
-        },
-      },
-      returnsValidator: { type: "null" as const },
-    }],
-  }];
+  const lifecycleProgramModules = lifecycle === undefined ? [] : [
+    lifecycle.patchModule.toCanonicalInput(),
+    lifecycle.replaceModule.toCanonicalInput(),
+    lifecycle.deleteModule.toCanonicalInput(),
+  ];
   const lifecycleGraphModules = lifecycle === undefined ? [] : [{
     path: lifecycle.patchArtifactPath,
     roles: ["function" as const],
@@ -136,19 +105,18 @@ export function makeCreateAndReadDefinitionV1(
     sourceMapBytes: null,
   }];
   const lifecycleFunctionEntries = lifecycle === undefined ? [] : [{
-    logicalModulePath: lifecycle.patchModulePath,
+    logicalModulePath: lifecycle.patchModule.modulePath,
     artifactModulePath: lifecycle.patchArtifactPath,
   }, {
-    logicalModulePath: lifecycle.replaceModulePath,
+    logicalModulePath: lifecycle.replaceModule.modulePath,
     artifactModulePath: lifecycle.replaceArtifactPath,
   }, {
-    logicalModulePath: lifecycle.deleteModulePath,
+    logicalModulePath: lifecycle.deleteModule.modulePath,
     artifactModulePath: lifecycle.deleteArtifactPath,
   }];
-  const additionalProgramModules = additionalFunctionModules.map(module => ({
-    modulePath: module.modulePath,
-    functions: module.functions.map(fn => ({ ...fn })),
-  }));
+  const additionalProgramModules = additionalFunctionModules.map(
+    entry => entry.module.toCanonicalInput(),
+  );
   const additionalGraphModules = additionalFunctionModules.map(module => ({
     path: module.artifactModulePath,
     roles: ["function" as const],
@@ -156,12 +124,17 @@ export function makeCreateAndReadDefinitionV1(
     sourceMapBytes: null,
   }));
   const additionalFunctionEntries = additionalFunctionModules.map(module => ({
-    logicalModulePath: module.modulePath,
+    logicalModulePath: module.module.modulePath,
     artifactModulePath: module.artifactModulePath,
   }));
-  const baseModuleCount = lifecycle === undefined ? 2 : 5;
-  const moduleCount = baseModuleCount + additionalFunctionModules.length;
-  const functionCount = baseModuleCount + additionalFunctionModules.reduce(
+  const programModules = [
+    input.mutationModule.toCanonicalInput(),
+    ...lifecycleProgramModules,
+    ...additionalProgramModules,
+    input.queryModule.toCanonicalInput(),
+  ];
+  const moduleCount = programModules.length;
+  const functionCount = programModules.reduce(
     (count, module) => count + module.functions.length,
     0,
   );
@@ -183,60 +156,12 @@ export function makeCreateAndReadDefinitionV1(
           definition: {
             kind: "appDocument",
             definitionVersion: 1,
-            documentType: {
-              type: "object",
-              value: makeDocumentFields(),
-            },
+            documentType: documentValidator.json,
           },
         }],
         indexes: [],
       },
-      modules: [{
-        modulePath: input.mutationModulePath,
-        functions: [{
-          exportName: "create",
-          kind: "mutation",
-          visibility: "public",
-          argsValidator: {
-            type: "object",
-            value: makeDocumentFields(),
-          },
-          returnsValidator: { type: "id", tableName: input.tableName },
-        }],
-      }, ...lifecycleProgramModules, ...additionalProgramModules, {
-        modulePath: input.queryModulePath,
-        functions: [{
-          exportName: "get",
-          kind: "query",
-          visibility: "public",
-          argsValidator: {
-            type: "object",
-            value: {
-              id: {
-                optional: false,
-                fieldType: { type: "string" },
-              },
-            },
-          },
-          returnsValidator: {
-            type: "union",
-            value: [{
-              type: "object",
-              value: {
-                _id: {
-                  optional: false,
-                  fieldType: { type: "id", tableName: input.tableName },
-                },
-                _creationTime: {
-                  optional: false,
-                  fieldType: { type: "number" },
-                },
-                ...makeDocumentFields(),
-              },
-            }, { type: "null" }],
-          },
-        }],
-      }],
+      modules: programModules,
     },
     materializationBudgetInput: {
       maximumModules: moduleCount,
@@ -265,10 +190,10 @@ export function makeCreateAndReadDefinitionV1(
         sourceMapBytes: null,
       }],
       functionEntries: [{
-        logicalModulePath: input.mutationModulePath,
+        logicalModulePath: input.mutationModule.modulePath,
         artifactModulePath: input.mutationArtifactPath,
       }, ...lifecycleFunctionEntries, ...additionalFunctionEntries, {
-        logicalModulePath: input.queryModulePath,
+        logicalModulePath: input.queryModule.modulePath,
         artifactModulePath: input.queryArtifactPath,
       }],
       executionPath: input.mutationArtifactPath,

@@ -16,6 +16,7 @@ describe("Standard Application definition boundary checker", () => {
         text: `
           import { Result } from "effect";
           import type { CanonicalDeclarativeProgramV1 } from "@flarex/declarative-program/v1";
+          import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
           export { materializeDeclarativeV2ArtifactsV1 } from "@flarex/declarative-materializer/v1";
           export { localHelper } from "./localHelper";
           void import("effect");
@@ -151,6 +152,24 @@ describe("Standard Application definition boundary checker", () => {
     expect(report.errors).toEqual([
       `${sourcePath}:2 imports forbidden module "@flarex/analysis".`,
       `${sourcePath}:3 imports forbidden module "@flarex/persistence-postgres/runtime".`,
+    ]);
+  });
+
+  it("rejects runtime validator-json authority in the shipped definition tree", () => {
+    const report = analyzeStandardApplicationDefinitionBoundary(
+      validManifest(),
+      [{
+        relativePath: sourcePath,
+        text: `
+          import { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+          void import("flarex-protocol/validator-json");
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([
+      `${sourcePath}:2 imports forbidden module "flarex-protocol/validator-json".`,
+      `${sourcePath}:3 imports forbidden module "flarex-protocol/validator-json".`,
     ]);
   });
 

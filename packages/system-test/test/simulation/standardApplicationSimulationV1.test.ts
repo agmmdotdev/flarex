@@ -1,14 +1,28 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
 
+import { standardV1 } from
+  "@flarex/standard-application-definition/v1";
+
 import {
   defineStandardApplicationSimulationV1,
   type StandardApplicationSimulationV1,
 } from "@flarex/system-test/simulation/v1";
-import { makeCreateAndReadDefinitionV1 } from
+import {
+  makeCreateAndReadDefinitionV1,
+  makeCreateAndReadModulesV1,
+} from
   "./support/createAndReadDefinitionV1";
 import { makeCreateAndReadFunctionSourcesV1 } from
   "./support/createAndReadFunctionSourcesV1";
+
+const RECORD_FIELDS = { value: standardV1.string() } as const;
+const RECORD_MODULES = makeCreateAndReadModulesV1({
+  tableName: "records",
+  fields: RECORD_FIELDS,
+  mutationModulePath: "recordCommands",
+  queryModulePath: "records",
+});
 
 it("defines an owned immutable Standard Application simulation config", () => {
   const input: StandardApplicationSimulationV1<void, true, never> = {
@@ -19,17 +33,11 @@ it("defines an owned immutable Standard Application simulation config", () => {
       revisionName: "definition-contract-v1",
       define: () => makeCreateAndReadDefinitionV1({
         tableName: "records",
-        mutationModulePath: "recordCommands",
-        queryModulePath: "records",
+        ...RECORD_MODULES,
         mutationArtifactPath: "recordMutation",
         queryArtifactPath: "recordQuery",
         ...makeCreateAndReadFunctionSourcesV1("records"),
-        fields: {
-          value: {
-            fieldType: { type: "string" },
-            optional: false,
-          },
-        },
+        fields: RECORD_FIELDS,
       }),
     },
     setup: () => Effect.void,
@@ -72,17 +80,11 @@ it("rejects invalid runtime-execution expectations at definition time", () => {
       revisionName: "invalid-expectations-v1",
       define: () => makeCreateAndReadDefinitionV1({
         tableName: "records",
-        mutationModulePath: "recordCommands",
-        queryModulePath: "records",
+        ...RECORD_MODULES,
         mutationArtifactPath: "recordMutation",
         queryArtifactPath: "recordQuery",
         ...makeCreateAndReadFunctionSourcesV1("records"),
-        fields: {
-          value: {
-            fieldType: { type: "string" },
-            optional: false,
-          },
-        },
+        fields: RECORD_FIELDS,
       }),
     },
     setup: () => Effect.void,
@@ -109,17 +111,11 @@ it("captures each runtime-execution expectation exactly once", () => {
       revisionName: "single-read-expectations-v1",
       define: () => makeCreateAndReadDefinitionV1({
         tableName: "records",
-        mutationModulePath: "recordCommands",
-        queryModulePath: "records",
+        ...RECORD_MODULES,
         mutationArtifactPath: "recordMutation",
         queryArtifactPath: "recordQuery",
         ...makeCreateAndReadFunctionSourcesV1("records"),
-        fields: {
-          value: {
-            fieldType: { type: "string" },
-            optional: false,
-          },
-        },
+        fields: RECORD_FIELDS,
       }),
     },
     setup: () => Effect.void,
@@ -152,28 +148,20 @@ it("composes owned supplemental function modules without making them execution r
   );
   const definition = makeCreateAndReadDefinitionV1({
     tableName: "records",
-    mutationModulePath: "recordCommands",
-    queryModulePath: "records",
+    ...RECORD_MODULES,
     mutationArtifactPath: "recordMutation",
     queryArtifactPath: "recordQuery",
     ...makeCreateAndReadFunctionSourcesV1("records"),
-    fields: {
-      value: {
-        fieldType: { type: "string" },
-        optional: false,
-      },
-    },
+    fields: RECORD_FIELDS,
     additionalFunctionModules: [{
-      modulePath: "recordInspection",
+      module: standardV1.module("recordInspection", {
+        inspect: standardV1.internalQuery({
+          args: standardV1.any(),
+          returns: standardV1.null(),
+        }),
+      }),
       artifactModulePath: "recordInspectionArtifact",
       sourceBytes,
-      functions: [{
-        exportName: "inspect",
-        kind: "query",
-        visibility: "internal",
-        argsValidator: { type: "any" },
-        returnsValidator: { type: "null" },
-      }],
     }],
   });
   sourceBytes.fill(0);

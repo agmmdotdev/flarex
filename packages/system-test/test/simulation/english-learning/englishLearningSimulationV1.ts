@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Effect } from "effect";
 import {
-  TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
+
+import { standardV1 } from
+  "@flarex/standard-application-definition/v1";
 
 import type {
   InvokeStandardApplicationPointMutationV1Error,
@@ -14,6 +16,7 @@ import type {
 import type {
   StandardApplicationSystemTestClientV1,
   StandardApplicationSystemTestSetupClientV1,
+  StandardApplicationTypedReferenceV1Error,
 } from "@flarex/system-test/environment/v1";
 import {
   defineStandardApplicationSimulationV1,
@@ -34,14 +37,37 @@ export interface EnglishLearningSetupProofV1 {
 
 type EnglishLearningWorkloadErrorV1 =
   | InvokeStandardApplicationPointMutationV1Error
-  | InvokeStandardApplicationPointQueryV1Error;
+  | InvokeStandardApplicationPointQueryV1Error
+  | StandardApplicationTypedReferenceV1Error;
 
-const ENGLISH_LEARNING_MUTATION_PATH = TransactionFunctionPathV1Schema.make(
-  "lessonCommands:create",
+const ENGLISH_LEARNING_FIELDS = {
+  term: standardV1.string(),
+  translation: standardV1.string(),
+  mastery: standardV1.number(),
+} as const;
+const ENGLISH_LEARNING_DOCUMENT = standardV1.object({
+  _id: standardV1.id("lessons"),
+  _creationTime: standardV1.number(),
+  ...ENGLISH_LEARNING_FIELDS,
+});
+const ENGLISH_LEARNING_MUTATION_MODULE = standardV1.module(
+  "lessonCommands",
+  {
+    create: standardV1.publicMutation({
+      args: standardV1.object(ENGLISH_LEARNING_FIELDS),
+      returns: standardV1.id("lessons"),
+    }),
+  },
 );
-const ENGLISH_LEARNING_QUERY_PATH = TransactionFunctionPathV1Schema.make(
-  "lessons:get",
-);
+const ENGLISH_LEARNING_QUERY_MODULE = standardV1.module("lessons", {
+  get: standardV1.publicQuery({
+    args: standardV1.object({ id: standardV1.string() }),
+    returns: standardV1.nullable(ENGLISH_LEARNING_DOCUMENT),
+  }),
+});
+const ENGLISH_LEARNING_CREATE =
+  ENGLISH_LEARNING_MUTATION_MODULE.reference("create");
+const ENGLISH_LEARNING_GET = ENGLISH_LEARNING_QUERY_MODULE.reference("get");
 const ENGLISH_LEARNING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:english-learning:create",
 );
@@ -66,8 +92,8 @@ const prepareEnglishLearningStateV1 = Effect.fn(
 )(function* (
   client: StandardApplicationSystemTestSetupClientV1,
 ): Effect.fn.Return<EnglishLearningSetupProofV1, EnglishLearningWorkloadErrorV1> {
-  const inserted = yield* client.invokeMutation(
-    ENGLISH_LEARNING_MUTATION_PATH,
+  const inserted = yield* client.mutation(
+    ENGLISH_LEARNING_CREATE,
     ENGLISH_LEARNING_LESSON,
     ENGLISH_LEARNING_REQUEST_KEY,
   );
@@ -92,8 +118,8 @@ const runEnglishLearningWorkloadV1 = Effect.fn(
   EnglishLearningWorkloadProofV1,
   EnglishLearningWorkloadErrorV1
 > {
-  const replayedMutation = yield* client.invokeMutation(
-    ENGLISH_LEARNING_MUTATION_PATH,
+  const replayedMutation = yield* client.mutation(
+    ENGLISH_LEARNING_CREATE,
     ENGLISH_LEARNING_LESSON,
     ENGLISH_LEARNING_REQUEST_KEY,
   );
@@ -107,13 +133,13 @@ const runEnglishLearningWorkloadV1 = Effect.fn(
     ));
   }
 
-  const firstRead = yield* client.invokeQuery(
-    ENGLISH_LEARNING_QUERY_PATH,
+  const firstRead = yield* client.query(
+    ENGLISH_LEARNING_GET,
     { id: setup.documentId },
   );
   requireLessonDocument(firstRead, setup.documentId);
-  const replayedRead = yield* client.invokeQuery(
-    ENGLISH_LEARNING_QUERY_PATH,
+  const replayedRead = yield* client.query(
+    ENGLISH_LEARNING_GET,
     { id: setup.documentId },
   );
   requireLessonDocument(replayedRead, setup.documentId);
@@ -154,26 +180,13 @@ export const englishLearningSimulationV1 =
       revisionName: "sac01-english-learning-app",
       define: () => makeCreateAndReadDefinitionV1({
         tableName: "lessons",
-        mutationModulePath: "lessonCommands",
-        queryModulePath: "lessons",
+        mutationModule: ENGLISH_LEARNING_MUTATION_MODULE,
+        queryModule: ENGLISH_LEARNING_QUERY_MODULE,
         mutationArtifactPath: "lessonMutation",
         queryArtifactPath: "lessonQuery",
         mutationSourceBytes: ENGLISH_LEARNING_FUNCTION_SOURCES.create,
         querySourceBytes: ENGLISH_LEARNING_FUNCTION_SOURCES.get,
-        fields: {
-          term: {
-            fieldType: { type: "string" },
-            optional: false,
-          },
-          translation: {
-            fieldType: { type: "string" },
-            optional: false,
-          },
-          mastery: {
-            fieldType: { type: "number" },
-            optional: false,
-          },
-        },
+        fields: ENGLISH_LEARNING_FIELDS,
       }),
     },
     setup: prepareEnglishLearningStateV1,

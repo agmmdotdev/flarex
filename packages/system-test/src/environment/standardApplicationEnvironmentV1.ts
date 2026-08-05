@@ -4,6 +4,25 @@ import type {
   TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
 import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
+import type { Json } from "flarex-protocol/json";
+import { TransactionFunctionPathV1Schema } from
+  "flarex-protocol/transaction-session";
+import {
+  validateValidatorValueV1,
+  type ValidatorValueIssueV1,
+} from "flarex-protocol/validator-engine";
+import { isNonArrayRecord } from "@flarex/utils/records";
+
+import type {
+  AnyStandardFunctionContractV1,
+  InferStandardFunctionArgsV1,
+  InferStandardFunctionReturnV1,
+  StandardFunctionArgsValidatorV1,
+  StandardFunctionContractV1,
+  StandardFunctionReferenceV1,
+  StandardApplicationDefinitionInputV1,
+  StandardValidatorV1,
+} from "@flarex/standard-application-definition/v1";
 
 import {
   ApplicationPointQuerySystemV1,
@@ -52,7 +71,26 @@ type ApplicationTestRequirementsV1 =
   | Scope.Scope;
 
 export interface StandardApplicationSystemTestSetupClientV1 {
-  readonly invokeMutation: (
+  readonly mutation: <
+    Path extends string,
+    Contract extends StandardFunctionContractV1<
+      "mutation" | "workflowMutation",
+      "public" | "internal",
+      StandardFunctionArgsValidatorV1,
+      StandardValidatorV1<Json, "required">
+    >,
+  >(
+    reference: StandardFunctionReferenceV1<Path, Contract>,
+    args: InferStandardFunctionArgsV1<Contract>,
+    requestKey: TransactionRequestKeyV1,
+  ) => Effect.Effect<
+    StandardApplicationTypedMutationOutcomeV1<
+      InferStandardFunctionReturnV1<Contract>
+    >,
+    | InvokeStandardApplicationPointMutationV1Error
+    | StandardApplicationTypedReferenceV1Error
+  >;
+  readonly unsafeInvokeMutation: (
     functionPath: TransactionFunctionPathV1,
     args: unknown,
     requestKey: TransactionRequestKeyV1,
@@ -64,7 +102,23 @@ export interface StandardApplicationSystemTestSetupClientV1 {
 
 export interface StandardApplicationSystemTestClientV1
   extends StandardApplicationSystemTestSetupClientV1 {
-  readonly invokeQuery: (
+  readonly query: <
+    Path extends string,
+    Contract extends StandardFunctionContractV1<
+      "query",
+      "public" | "internal",
+      StandardFunctionArgsValidatorV1,
+      StandardValidatorV1<unknown, "required">
+    >,
+  >(
+    reference: StandardFunctionReferenceV1<Path, Contract>,
+    args: InferStandardFunctionArgsV1<Contract>,
+  ) => Effect.Effect<
+    InferStandardFunctionReturnV1<Contract>,
+    | InvokeStandardApplicationPointQueryV1Error
+    | StandardApplicationTypedReferenceV1Error
+  >;
+  readonly unsafeInvokeQuery: (
     functionPath: TransactionFunctionPathV1,
     args: unknown,
   ) => Effect.Effect<
@@ -76,6 +130,31 @@ export interface StandardApplicationSystemTestClientV1
     StandardApplicationSystemTestInspectionV1Error
   >;
 }
+
+export type StandardApplicationTypedMutationOutcomeV1<Value> = Omit<
+  AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  "value"
+> & Readonly<{ readonly value: Value }>;
+
+export class StandardApplicationTypedReferenceV1Error extends Data.TaggedError(
+  "StandardApplicationTypedReferenceV1Error",
+)<{
+  readonly phase:
+    | "mutationContract"
+    | "queryContract"
+    | "mutationReturn"
+    | "queryReturn";
+  readonly functionPath: string;
+  readonly detail:
+    | Readonly<{
+        readonly reason: "contractMismatch";
+        readonly facet: "missing" | "kind" | "visibility" | "args" | "returns";
+      }>
+    | Readonly<{
+        readonly reason: "returnValueMismatch";
+        readonly issue: ValidatorValueIssueV1;
+      }>;
+}> {}
 
 export interface StandardApplicationSimulationRunReceiptV1<Setup, A> {
   readonly version: 1;
@@ -132,6 +211,9 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
   const { simulation } = input;
   const artifacts = makeMemoryRuntimeArtifactStoreV1();
   const standardDefinitionInput = simulation.application.define();
+  const registeredFunctionContracts = indexRegisteredFunctionContractsV1(
+    standardDefinitionInput,
+  );
   const ready = yield* prepareFsv05ReadyRevisionFixtureEffectV1(
       input.lane,
       artifacts,
@@ -223,8 +305,38 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
             ))
       );
       const setupClient = Object.freeze({
-        invokeMutation: Effect.fn(
+        mutation: <
+          Path extends string,
+          Contract extends StandardFunctionContractV1<
+            "mutation" | "workflowMutation",
+            "public" | "internal",
+            StandardFunctionArgsValidatorV1,
+            StandardValidatorV1<Json, "required">
+          >,
+        >(
+          reference: StandardFunctionReferenceV1<Path, Contract>,
+          args: InferStandardFunctionArgsV1<Contract>,
+          requestKey: TransactionRequestKeyV1,
+        ) => invokeWhileSetupActive(() =>
+          requireTypedReferenceBindingV1(
+            "mutationContract",
+            registeredFunctionContracts,
+            reference,
+          ).pipe(Effect.flatMap(() => invokeApplication(
+              invocationScope,
+              invokeStandardApplicationPointMutationV1(
+                TransactionFunctionPathV1Schema.make(reference.path),
+                args,
+                requestKey,
+              ).pipe(Effect.flatMap(outcome =>
+                projectTypedMutationOutcomeV1(reference, outcome)
+              )),
+            )))
+        ).pipe(Effect.withSpan(
           "StandardApplicationSystemTest.setupMutationV1",
+        )),
+        unsafeInvokeMutation: Effect.fn(
+          "StandardApplicationSystemTest.unsafeSetupMutationV1",
         )((functionPath, args, requestKey) => invokeWhileSetupActive(() =>
           invokeApplication(
             invocationScope,
@@ -258,8 +370,66 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
             ))
       );
       const client = Object.freeze({
-        invokeMutation: Effect.fn(
+        mutation: <
+          Path extends string,
+          Contract extends StandardFunctionContractV1<
+            "mutation" | "workflowMutation",
+            "public" | "internal",
+            StandardFunctionArgsValidatorV1,
+            StandardValidatorV1<Json, "required">
+          >,
+        >(
+          reference: StandardFunctionReferenceV1<Path, Contract>,
+          args: InferStandardFunctionArgsV1<Contract>,
+          requestKey: TransactionRequestKeyV1,
+        ) => invokeWhileActive(() =>
+          requireTypedReferenceBindingV1(
+            "mutationContract",
+            registeredFunctionContracts,
+            reference,
+          ).pipe(Effect.flatMap(() => invokeApplication(
+              invocationScope,
+              invokeStandardApplicationPointMutationV1(
+                TransactionFunctionPathV1Schema.make(reference.path),
+                args,
+                requestKey,
+              ).pipe(Effect.flatMap(outcome =>
+                projectTypedMutationOutcomeV1(reference, outcome)
+              )),
+            )))
+        ).pipe(Effect.withSpan(
           "StandardApplicationSystemTest.invokeMutationV1",
+        )),
+        query: <
+          Path extends string,
+          Contract extends StandardFunctionContractV1<
+            "query",
+            "public" | "internal",
+            StandardFunctionArgsValidatorV1,
+            StandardValidatorV1<unknown, "required">
+          >,
+        >(
+          reference: StandardFunctionReferenceV1<Path, Contract>,
+          args: InferStandardFunctionArgsV1<Contract>,
+        ) => invokeWhileActive(() =>
+          requireTypedReferenceBindingV1(
+            "queryContract",
+            registeredFunctionContracts,
+            reference,
+          ).pipe(Effect.flatMap(() => invokeApplication(
+              invocationScope,
+              invokeStandardApplicationPointQueryV1(
+                TransactionFunctionPathV1Schema.make(reference.path),
+                args,
+              ).pipe(Effect.flatMap(value =>
+                projectTypedQueryValueV1(reference, value)
+              )),
+            )))
+        ).pipe(Effect.withSpan(
+          "StandardApplicationSystemTest.invokeQueryV1",
+        )),
+        unsafeInvokeMutation: Effect.fn(
+          "StandardApplicationSystemTest.unsafeMutationV1",
         )((functionPath, args, requestKey) => invokeWhileActive(() =>
           invokeApplication(
             invocationScope,
@@ -270,8 +440,8 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
             ),
           )
         )),
-        invokeQuery: Effect.fn(
-          "StandardApplicationSystemTest.invokeQueryV1",
+        unsafeInvokeQuery: Effect.fn(
+          "StandardApplicationSystemTest.unsafeQueryV1",
         )((functionPath, args) => invokeWhileActive(() =>
           invokeApplication(
             invocationScope,
@@ -340,6 +510,183 @@ function makeQueryRandomSeedV1(sequence: number): Uint8Array {
   const seed = new Uint8Array(32);
   new DataView(seed.buffer).setUint32(28, sequence);
   return seed;
+}
+
+type RegisteredFunctionContractV1 = Readonly<{
+  readonly kind: string;
+  readonly visibility: string;
+  readonly argsValidator: unknown;
+  readonly returnsValidator: unknown;
+}>;
+
+function indexRegisteredFunctionContractsV1(
+  definition: StandardApplicationDefinitionInputV1,
+): ReadonlyMap<string, RegisteredFunctionContractV1> {
+  const contracts = new Map<string, RegisteredFunctionContractV1>();
+  for (const module of definition.programInput.modules) {
+    for (const fn of module.functions) {
+      contracts.set(`${module.modulePath}:${fn.exportName}`, Object.freeze({
+        kind: fn.kind,
+        visibility: fn.visibility,
+        argsValidator: fn.argsValidator,
+        returnsValidator: fn.returnsValidator,
+      }));
+    }
+  }
+  return contracts;
+}
+
+function requireTypedReferenceBindingV1(
+  phase: "mutationContract" | "queryContract",
+  contracts: ReadonlyMap<string, RegisteredFunctionContractV1>,
+  reference: StandardFunctionReferenceV1<string, AnyStandardFunctionContractV1>,
+): Effect.Effect<void, StandardApplicationTypedReferenceV1Error> {
+  const registered = contracts.get(reference.path);
+  const facet = registered === undefined
+    ? "missing"
+    : registered.kind !== reference.contract.kind
+    ? "kind"
+    : registered.visibility !== reference.contract.visibility
+    ? "visibility"
+    : !sameValidatorJsonV1(
+        registered.argsValidator,
+        reference.contract.args.json,
+      )
+    ? "args"
+    : !sameValidatorJsonV1(
+        registered.returnsValidator,
+        reference.contract.returns.json,
+      )
+    ? "returns"
+    : undefined;
+  return facet === undefined
+    ? Effect.void
+    : Effect.fail(new StandardApplicationTypedReferenceV1Error({
+        phase,
+        functionPath: reference.path,
+        detail: { reason: "contractMismatch", facet },
+      }));
+}
+
+function sameValidatorJsonV1(
+  candidate: unknown,
+  expected: AnyStandardFunctionContractV1["returns"]["json"],
+): boolean {
+  if (candidate === expected) return true;
+  if (!isNonArrayRecord(candidate) || candidate.type !== expected.type) {
+    return false;
+  }
+  switch (expected.type) {
+    case "null":
+    case "number":
+    case "bigint":
+    case "boolean":
+    case "string":
+    case "bytes":
+    case "any":
+      return true;
+    case "id":
+      return candidate.tableName === expected.tableName;
+    case "literal":
+      return Object.is(candidate.value, expected.value);
+    case "array":
+      return sameValidatorJsonV1(candidate.value, expected.value);
+    case "record":
+      return sameValidatorJsonV1(candidate.keys, expected.keys) &&
+        sameValidatorJsonV1(candidate.values, expected.values);
+    case "union": {
+      if (!Array.isArray(candidate.value) ||
+        candidate.value.length !== expected.value.length) {
+        return false;
+      }
+      const candidateMembers = candidate.value;
+      return expected.value.every((member, index) =>
+        sameValidatorJsonV1(candidateMembers[index], member)
+      );
+    }
+    case "object": {
+      if (!isNonArrayRecord(candidate.value)) return false;
+      const candidateFieldRecord = candidate.value;
+      const expectedFields = Object.keys(expected.value);
+      const candidateFields = Object.keys(candidateFieldRecord);
+      if (candidateFields.length !== expectedFields.length) return false;
+      return expectedFields.every(fieldName => {
+        const candidateField = candidateFieldRecord[fieldName];
+        const expectedField = expected.value[fieldName];
+        return expectedField !== undefined &&
+          isNonArrayRecord(candidateField) &&
+          candidateField.optional === expectedField.optional &&
+          sameValidatorJsonV1(
+            candidateField.fieldType,
+            expectedField.fieldType,
+          );
+      });
+    }
+  }
+}
+
+function projectTypedMutationOutcomeV1<
+  Contract extends StandardFunctionContractV1<
+    "mutation" | "workflowMutation",
+    "public" | "internal",
+    StandardFunctionArgsValidatorV1,
+    StandardValidatorV1<Json, "required">
+  >,
+>(
+  reference: StandardFunctionReferenceV1<string, Contract>,
+  outcome: AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+): Effect.Effect<
+  StandardApplicationTypedMutationOutcomeV1<
+    InferStandardFunctionReturnV1<Contract>
+  >,
+  StandardApplicationTypedReferenceV1Error
+> {
+  return validateTypedReferenceReturnV1(
+    "mutationReturn",
+    reference,
+    outcome.value,
+  ).pipe(Effect.as(outcome as StandardApplicationTypedMutationOutcomeV1<
+    InferStandardFunctionReturnV1<Contract>
+  >));
+}
+
+function projectTypedQueryValueV1<
+  Contract extends StandardFunctionContractV1<
+    "query",
+    "public" | "internal",
+    StandardFunctionArgsValidatorV1,
+    StandardValidatorV1<unknown, "required">
+  >,
+>(
+  reference: StandardFunctionReferenceV1<string, Contract>,
+  value: CanonicalFlarexRuntimeValueV1,
+): Effect.Effect<
+  InferStandardFunctionReturnV1<Contract>,
+  StandardApplicationTypedReferenceV1Error
+> {
+  return validateTypedReferenceReturnV1(
+    "queryReturn",
+    reference,
+    value,
+  ).pipe(Effect.as(value as InferStandardFunctionReturnV1<Contract>));
+}
+
+function validateTypedReferenceReturnV1(
+  phase: StandardApplicationTypedReferenceV1Error["phase"],
+  reference: StandardFunctionReferenceV1<string, AnyStandardFunctionContractV1>,
+  value: CanonicalFlarexRuntimeValueV1,
+): Effect.Effect<void, StandardApplicationTypedReferenceV1Error> {
+  return Effect.fromResult(validateValidatorValueV1(
+    reference.contract.returns.json,
+    value,
+    { idPolicy: { mode: "shapeOnly" } },
+  )).pipe(Effect.mapError(error =>
+    new StandardApplicationTypedReferenceV1Error({
+      phase,
+      functionPath: reference.path,
+      detail: { reason: "returnValueMismatch", issue: error.issue },
+    })
+  ));
 }
 
 function runUninterruptibleIntegrationPromiseV1<A>(

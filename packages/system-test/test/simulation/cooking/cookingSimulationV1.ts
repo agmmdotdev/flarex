@@ -7,6 +7,12 @@ import {
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
 
+import {
+  standardV1,
+  type StandardIdV1,
+} from
+  "@flarex/standard-application-definition/v1";
+
 import type {
   AuthoritativeCommittedApplicationPointMutationOutcomeV1,
   InvokeStandardApplicationPointMutationV1Error,
@@ -19,6 +25,7 @@ import {
 import type {
   StandardApplicationSystemTestClientV1,
   StandardApplicationSystemTestSetupClientV1,
+  StandardApplicationTypedReferenceV1Error,
 } from "@flarex/system-test/environment/v1";
 import type {
   StandardApplicationAuthoritativeInspectionV1,
@@ -53,14 +60,15 @@ export interface CookingWorkloadProofV1 {
 }
 
 export interface CookingSetupProofV1 {
-  readonly documentId: string;
+  readonly documentId: StandardIdV1<"recipes">;
   readonly commitSeq: bigint;
 }
 
 type CookingWorkloadErrorV1 =
   | InvokeStandardApplicationPointMutationV1Error
   | InvokeStandardApplicationPointQueryV1Error
-  | StandardApplicationSystemTestInspectionV1Error;
+  | StandardApplicationSystemTestInspectionV1Error
+  | StandardApplicationTypedReferenceV1Error;
 
 type CookingMutationAttemptResultV1 = Result.Result<
   AuthoritativeCommittedApplicationPointMutationOutcomeV1,
@@ -72,25 +80,6 @@ type CookingExpectedArgumentIssueV1 = Extract<
   { readonly reason: "typeMismatch" | "missingRequiredField" }
 >;
 
-const COOKING_MUTATION_PATH = TransactionFunctionPathV1Schema.make(
-  "recipeCommands:create",
-);
-const COOKING_PATCH_PATH = TransactionFunctionPathV1Schema.make(
-  "recipePatch:patch",
-);
-const COOKING_REPLACE_PATH = TransactionFunctionPathV1Schema.make(
-  "recipeReplace:replace",
-);
-const COOKING_DELETE_PATH = TransactionFunctionPathV1Schema.make(
-  "recipeDelete:remove",
-);
-const COOKING_QUERY_PATH = TransactionFunctionPathV1Schema.make("recipes:get");
-const COOKING_ASSESSMENT_PATH = TransactionFunctionPathV1Schema.make(
-  "recipeViews:assessment",
-);
-const COOKING_PUBLISH_PATH = TransactionFunctionPathV1Schema.make(
-  "recipeWorkflows:publish",
-);
 const COOKING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:create",
 );
@@ -266,111 +255,165 @@ const COOKING_PUBLISH_RECEIPT = {
   ingredientCount: 2,
   timedMinutes: 30,
 } as const;
-const COOKING_ID_ARGS_VALIDATOR = {
-  type: "object",
-  value: {
-    id: {
-      optional: false,
-      fieldType: { type: "string" },
-    },
-  },
+const COOKING_FIELDS = {
+  title: standardV1.string(),
+  description: standardV1.optional(standardV1.string()),
+  servings: standardV1.number(),
+  difficulty: standardV1.union(
+    standardV1.literal("easy"),
+    standardV1.literal("medium"),
+    standardV1.literal("hard"),
+  ),
+  published: standardV1.boolean(),
+  tags: standardV1.array(standardV1.string()),
+  ingredients: standardV1.array(standardV1.object({
+    name: standardV1.string(),
+    amount: standardV1.number(),
+    unit: standardV1.string(),
+    note: standardV1.optional(standardV1.string()),
+  })),
+  steps: standardV1.array(standardV1.object({
+    position: standardV1.number(),
+    instruction: standardV1.string(),
+    durationMinutes: standardV1.optional(standardV1.number()),
+  })),
+  nutrition: standardV1.object({
+    caloriesPerServing: standardV1.number(),
+    vegetarian: standardV1.boolean(),
+  }),
+  localizedTitles: standardV1.record(
+    standardV1.string(),
+    standardV1.string(),
+  ),
+  source: standardV1.nullable(standardV1.string()),
 } as const;
+const COOKING_DOCUMENT = standardV1.object({
+  _id: standardV1.id("recipes"),
+  _creationTime: standardV1.number(),
+  ...COOKING_FIELDS,
+});
+const COOKING_ID_ARGS = standardV1.object({ id: standardV1.string() });
 const COOKING_ASSESSMENT_FIELDS = {
-  title: {
-    optional: false,
-    fieldType: { type: "string" },
-  },
-  servings: {
-    optional: false,
-    fieldType: { type: "number" },
-  },
-  published: {
-    optional: false,
-    fieldType: { type: "boolean" },
-  },
-  ingredientCount: {
-    optional: false,
-    fieldType: { type: "number" },
-  },
-  stepCount: {
-    optional: false,
-    fieldType: { type: "number" },
-  },
-  timedMinutes: {
-    optional: false,
-    fieldType: { type: "number" },
-  },
-  publishable: {
-    optional: false,
-    fieldType: { type: "boolean" },
-  },
+  title: standardV1.string(),
+  servings: standardV1.number(),
+  published: standardV1.boolean(),
+  ingredientCount: standardV1.number(),
+  stepCount: standardV1.number(),
+  timedMinutes: standardV1.number(),
+  publishable: standardV1.boolean(),
 } as const;
-const COOKING_ASSESSMENT_RETURN_VALIDATOR = {
-  type: "union",
-  value: [{
-    type: "object",
-    value: COOKING_ASSESSMENT_FIELDS,
-  }, { type: "null" }],
-} as const;
-const COOKING_ASSESSMENT_VIEW_RETURN_VALIDATOR = {
-  type: "union",
-  value: [{
-    type: "object",
-    value: {
-      ...COOKING_ASSESSMENT_FIELDS,
-      headline: {
-        optional: false,
-        fieldType: { type: "string" },
-      },
-      effort: {
-        optional: false,
-        fieldType: {
-          type: "union",
-          value: [
-            { type: "literal", value: "short" },
-            { type: "literal", value: "long" },
-          ],
-        },
-      },
-    },
-  }, { type: "null" }],
-} as const;
-const COOKING_PUBLISH_RETURN_VALIDATOR = {
-  type: "union",
-  value: [{
-    type: "object",
-    value: {
-      changed: {
-        optional: false,
-        fieldType: { type: "boolean" },
-      },
-      beforePublished: {
-        optional: false,
-        fieldType: { type: "boolean" },
-      },
-      afterPublished: {
-        optional: false,
-        fieldType: { type: "boolean" },
-      },
-      ingredientCount: {
-        optional: false,
-        fieldType: { type: "number" },
-      },
-      timedMinutes: {
-        optional: false,
-        fieldType: { type: "number" },
-      },
-    },
-  }, { type: "null" }],
-} as const;
+const COOKING_ASSESSMENT = standardV1.nullable(
+  standardV1.object(COOKING_ASSESSMENT_FIELDS),
+);
+const COOKING_ASSESSMENT_VIEW = standardV1.nullable(standardV1.object({
+  ...COOKING_ASSESSMENT_FIELDS,
+  headline: standardV1.string(),
+  effort: standardV1.union(
+    standardV1.literal("short"),
+    standardV1.literal("long"),
+  ),
+}));
+const COOKING_PUBLISH_RECEIPT_VALIDATOR = standardV1.nullable(
+  standardV1.object({
+    changed: standardV1.boolean(),
+    beforePublished: standardV1.boolean(),
+    afterPublished: standardV1.boolean(),
+    ingredientCount: standardV1.number(),
+    timedMinutes: standardV1.number(),
+  }),
+);
+const COOKING_MUTATION_MODULE = standardV1.module("recipeCommands", {
+  create: standardV1.publicMutation({
+    args: standardV1.object(COOKING_FIELDS),
+    returns: standardV1.id("recipes"),
+  }),
+});
+const COOKING_PATCH_MODULE = standardV1.module("recipePatch", {
+  patch: standardV1.publicMutation({
+    args: standardV1.object({
+      id: standardV1.id("recipes"),
+      patch: standardV1.object({
+        title: standardV1.optional(standardV1.string()),
+        description: standardV1.optional(standardV1.string()),
+        servings: standardV1.optional(standardV1.number()),
+        difficulty: standardV1.optional(standardV1.union(
+          standardV1.literal("easy"),
+          standardV1.literal("medium"),
+          standardV1.literal("hard"),
+        )),
+        published: standardV1.optional(standardV1.boolean()),
+        tags: standardV1.optional(standardV1.array(standardV1.string())),
+        ingredients: standardV1.optional(COOKING_FIELDS.ingredients),
+        steps: standardV1.optional(COOKING_FIELDS.steps),
+        nutrition: standardV1.optional(COOKING_FIELDS.nutrition),
+        localizedTitles: standardV1.optional(COOKING_FIELDS.localizedTitles),
+        source: standardV1.optional(COOKING_FIELDS.source),
+      }),
+    }),
+    returns: standardV1.null(),
+  }),
+});
+const COOKING_REPLACE_MODULE = standardV1.module("recipeReplace", {
+  replace: standardV1.publicMutation({
+    args: standardV1.object({
+      id: standardV1.id("recipes"),
+      fields: standardV1.object(COOKING_FIELDS),
+    }),
+    returns: standardV1.null(),
+  }),
+});
+const COOKING_DELETE_MODULE = standardV1.module("recipeDelete", {
+  remove: standardV1.publicMutation({
+    args: standardV1.object({ id: standardV1.id("recipes") }),
+    returns: standardV1.null(),
+  }),
+});
+const COOKING_QUERY_MODULE = standardV1.module("recipes", {
+  get: standardV1.publicQuery({
+    args: COOKING_ID_ARGS,
+    returns: standardV1.nullable(COOKING_DOCUMENT),
+  }),
+});
+const COOKING_ASSESSMENT_MODULE = standardV1.module("recipeAssessment", {
+  assess: standardV1.internalQuery({
+    args: COOKING_ID_ARGS,
+    returns: COOKING_ASSESSMENT,
+  }),
+});
+const COOKING_ASSESSMENT_VIEW_MODULE = standardV1.module("recipeViews", {
+  assessment: standardV1.publicQuery({
+    args: COOKING_ID_ARGS,
+    returns: COOKING_ASSESSMENT_VIEW,
+  }),
+});
+const COOKING_MAINTENANCE_MODULE = standardV1.module("recipeMaintenance", {
+  markPublished: standardV1.internalMutation({
+    args: COOKING_ID_ARGS,
+    returns: COOKING_PUBLISH_RECEIPT_VALIDATOR,
+  }),
+});
+const COOKING_WORKFLOW_MODULE = standardV1.module("recipeWorkflows", {
+  publish: standardV1.publicMutation({
+    args: COOKING_ID_ARGS,
+    returns: COOKING_PUBLISH_RECEIPT_VALIDATOR,
+  }),
+});
+const COOKING_CREATE = COOKING_MUTATION_MODULE.reference("create");
+const COOKING_PATCH_FUNCTION = COOKING_PATCH_MODULE.reference("patch");
+const COOKING_REPLACE = COOKING_REPLACE_MODULE.reference("replace");
+const COOKING_DELETE = COOKING_DELETE_MODULE.reference("remove");
+const COOKING_GET = COOKING_QUERY_MODULE.reference("get");
+const COOKING_ASSESSMENT_FUNCTION =
+  COOKING_ASSESSMENT_VIEW_MODULE.reference("assessment");
+const COOKING_PUBLISH = COOKING_WORKFLOW_MODULE.reference("publish");
 
 const prepareCookingStateV1 = Effect.fn(
   "SystemTestCookingSimulation.setupV1",
 )(function* (
   client: StandardApplicationSystemTestSetupClientV1,
 ): Effect.fn.Return<CookingSetupProofV1, CookingWorkloadErrorV1> {
-  const inserted = yield* client.invokeMutation(
-    COOKING_MUTATION_PATH,
+  const inserted = yield* client.mutation(
+    COOKING_CREATE,
     COOKING_RECIPE,
     COOKING_REQUEST_KEY,
   );
@@ -392,8 +435,8 @@ const runCookingWorkloadV1 = Effect.fn(
   client: StandardApplicationSystemTestClientV1,
   setup: CookingSetupProofV1,
 ): Effect.fn.Return<CookingWorkloadProofV1, CookingWorkloadErrorV1> {
-  const replayedMutation = yield* client.invokeMutation(
-    COOKING_MUTATION_PATH,
+  const replayedMutation = yield* client.mutation(
+    COOKING_CREATE,
     COOKING_RECIPE,
     COOKING_REQUEST_KEY,
   );
@@ -407,16 +450,16 @@ const runCookingWorkloadV1 = Effect.fn(
     ));
   }
 
-  const firstRead = yield* client.invokeQuery(
-    COOKING_QUERY_PATH,
+  const firstRead = yield* client.query(
+    COOKING_GET,
     { id: setup.documentId },
   );
   requireRecipeDocument(firstRead, setup.documentId, COOKING_RECIPE);
 
   const beforeInvalidInputInspection =
     yield* client.inspectAuthoritativeState();
-  const invalidAmountResult = yield* Effect.result(client.invokeMutation(
-    COOKING_MUTATION_PATH,
+  const invalidAmountResult = yield* Effect.result(client.unsafeInvokeMutation(
+    TransactionFunctionPathV1Schema.make(COOKING_CREATE.path),
     COOKING_RECIPE_WITH_INVALID_INGREDIENT_AMOUNT,
     COOKING_INVALID_AMOUNT_REQUEST_KEY,
   ));
@@ -429,8 +472,8 @@ const runCookingWorkloadV1 = Effect.fn(
       expected: "number",
     },
   );
-  const missingNameResult = yield* Effect.result(client.invokeMutation(
-    COOKING_MUTATION_PATH,
+  const missingNameResult = yield* Effect.result(client.unsafeInvokeMutation(
+    TransactionFunctionPathV1Schema.make(COOKING_CREATE.path),
     COOKING_RECIPE_WITH_MISSING_INGREDIENT_NAME,
     COOKING_MISSING_NAME_REQUEST_KEY,
   ));
@@ -449,8 +492,8 @@ const runCookingWorkloadV1 = Effect.fn(
     afterInvalidInputInspection,
   );
 
-  const replayedRead = yield* client.invokeQuery(
-    COOKING_QUERY_PATH,
+  const replayedRead = yield* client.query(
+    COOKING_GET,
     { id: setup.documentId },
   );
   requireRecipeDocument(replayedRead, setup.documentId, COOKING_RECIPE);
@@ -460,8 +503,8 @@ const runCookingWorkloadV1 = Effect.fn(
     ));
   }
 
-  const patched = yield* client.invokeMutation(
-    COOKING_PATCH_PATH,
+  const patched = yield* client.mutation(
+    COOKING_PATCH_FUNCTION,
     { id: setup.documentId, patch: COOKING_PATCH },
     COOKING_PATCH_REQUEST_KEY,
   );
@@ -471,8 +514,8 @@ const runCookingWorkloadV1 = Effect.fn(
     "published",
     setup.commitSeq + 1n,
   );
-  const replayedPatch = yield* client.invokeMutation(
-    COOKING_PATCH_PATH,
+  const replayedPatch = yield* client.mutation(
+    COOKING_PATCH_FUNCTION,
     { id: setup.documentId, patch: COOKING_PATCH },
     COOKING_PATCH_REQUEST_KEY,
   );
@@ -482,8 +525,8 @@ const runCookingWorkloadV1 = Effect.fn(
     "replayed",
     patched.commitSeq,
   );
-  const patchedRead = yield* client.invokeQuery(
-    COOKING_QUERY_PATH,
+  const patchedRead = yield* client.query(
+    COOKING_GET,
     { id: setup.documentId },
   );
   requireRecipeDocument(
@@ -492,8 +535,8 @@ const runCookingWorkloadV1 = Effect.fn(
     COOKING_RECIPE_AFTER_PATCH,
   );
 
-  const replaced = yield* client.invokeMutation(
-    COOKING_REPLACE_PATH,
+  const replaced = yield* client.mutation(
+    COOKING_REPLACE,
     { id: setup.documentId, fields: COOKING_REPLACEMENT_RECIPE },
     COOKING_REPLACE_REQUEST_KEY,
   );
@@ -503,8 +546,8 @@ const runCookingWorkloadV1 = Effect.fn(
     "published",
     setup.commitSeq + 2n,
   );
-  const replayedReplace = yield* client.invokeMutation(
-    COOKING_REPLACE_PATH,
+  const replayedReplace = yield* client.mutation(
+    COOKING_REPLACE,
     { id: setup.documentId, fields: COOKING_REPLACEMENT_RECIPE },
     COOKING_REPLACE_REQUEST_KEY,
   );
@@ -514,8 +557,8 @@ const runCookingWorkloadV1 = Effect.fn(
     "replayed",
     replaced.commitSeq,
   );
-  const replacedRead = yield* client.invokeQuery(
-    COOKING_QUERY_PATH,
+  const replacedRead = yield* client.query(
+    COOKING_GET,
     { id: setup.documentId },
   );
   requireRecipeDocument(
@@ -524,8 +567,8 @@ const runCookingWorkloadV1 = Effect.fn(
     COOKING_REPLACEMENT_RECIPE,
   );
 
-  const assessment = yield* client.invokeQuery(
-    COOKING_ASSESSMENT_PATH,
+  const assessment = yield* client.query(
+    COOKING_ASSESSMENT_FUNCTION,
     { id: setup.documentId },
   );
   requireExactObject(
@@ -534,8 +577,8 @@ const runCookingWorkloadV1 = Effect.fn(
     "custom recipe assessment",
   );
 
-  const published = yield* client.invokeMutation(
-    COOKING_PUBLISH_PATH,
+  const published = yield* client.mutation(
+    COOKING_PUBLISH,
     { id: setup.documentId },
     COOKING_PUBLISH_REQUEST_KEY,
   );
@@ -546,8 +589,8 @@ const runCookingWorkloadV1 = Effect.fn(
     setup.commitSeq + 3n,
     COOKING_PUBLISH_RECEIPT,
   );
-  const replayedPublish = yield* client.invokeMutation(
-    COOKING_PUBLISH_PATH,
+  const replayedPublish = yield* client.mutation(
+    COOKING_PUBLISH,
     { id: setup.documentId },
     COOKING_PUBLISH_REQUEST_KEY,
   );
@@ -558,8 +601,8 @@ const runCookingWorkloadV1 = Effect.fn(
     published.commitSeq,
     COOKING_PUBLISH_RECEIPT,
   );
-  const publishedAssessment = yield* client.invokeQuery(
-    COOKING_ASSESSMENT_PATH,
+  const publishedAssessment = yield* client.query(
+    COOKING_ASSESSMENT_FUNCTION,
     { id: setup.documentId },
   );
   requireExactObject(
@@ -568,8 +611,8 @@ const runCookingWorkloadV1 = Effect.fn(
     "persisted published recipe assessment",
   );
 
-  const deleted = yield* client.invokeMutation(
-    COOKING_DELETE_PATH,
+  const deleted = yield* client.mutation(
+    COOKING_DELETE,
     { id: setup.documentId },
     COOKING_DELETE_REQUEST_KEY,
   );
@@ -579,8 +622,8 @@ const runCookingWorkloadV1 = Effect.fn(
     "published",
     setup.commitSeq + 4n,
   );
-  const replayedDelete = yield* client.invokeMutation(
-    COOKING_DELETE_PATH,
+  const replayedDelete = yield* client.mutation(
+    COOKING_DELETE,
     { id: setup.documentId },
     COOKING_DELETE_REQUEST_KEY,
   );
@@ -590,8 +633,8 @@ const runCookingWorkloadV1 = Effect.fn(
     "replayed",
     deleted.commitSeq,
   );
-  const deletedRead = yield* client.invokeQuery(
-    COOKING_QUERY_PATH,
+  const deletedRead = yield* client.query(
+    COOKING_GET,
     { id: setup.documentId },
   );
   if (deletedRead !== null) {
@@ -813,185 +856,41 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
     revisionName: "sac01-cooking-app",
     define: () => makeCreateAndReadDefinitionV1({
       tableName: "recipes",
-      mutationModulePath: "recipeCommands",
-      queryModulePath: "recipes",
+      mutationModule: COOKING_MUTATION_MODULE,
+      queryModule: COOKING_QUERY_MODULE,
       mutationArtifactPath: "recipeMutation",
       queryArtifactPath: "recipeQuery",
       mutationSourceBytes: COOKING_FUNCTION_SOURCES.create,
       querySourceBytes: COOKING_FUNCTION_SOURCES.get,
       pointMutationLifecycle: {
-        patchModulePath: "recipePatch",
+        patchModule: COOKING_PATCH_MODULE,
         patchArtifactPath: "recipePatch",
         patchSourceBytes: COOKING_FUNCTION_SOURCES.patch,
-        replaceModulePath: "recipeReplace",
+        replaceModule: COOKING_REPLACE_MODULE,
         replaceArtifactPath: "recipeReplace",
         replaceSourceBytes: COOKING_FUNCTION_SOURCES.replace,
-        deleteModulePath: "recipeDelete",
+        deleteModule: COOKING_DELETE_MODULE,
         deleteArtifactPath: "recipeDelete",
         deleteSourceBytes: COOKING_FUNCTION_SOURCES.remove,
       },
       additionalFunctionModules: [{
-        modulePath: "recipeAssessment",
+        module: COOKING_ASSESSMENT_MODULE,
         artifactModulePath: "recipeAssessmentInternal",
         sourceBytes: COOKING_FUNCTION_SOURCES.assess,
-        functions: [{
-          exportName: "assess",
-          kind: "query",
-          visibility: "internal",
-          argsValidator: COOKING_ID_ARGS_VALIDATOR,
-          returnsValidator: COOKING_ASSESSMENT_RETURN_VALIDATOR,
-        }],
       }, {
-        modulePath: "recipeViews",
+        module: COOKING_ASSESSMENT_VIEW_MODULE,
         artifactModulePath: "recipeAssessmentView",
         sourceBytes: COOKING_FUNCTION_SOURCES.assessmentView,
-        functions: [{
-          exportName: "assessment",
-          kind: "query",
-          visibility: "public",
-          argsValidator: COOKING_ID_ARGS_VALIDATOR,
-          returnsValidator: COOKING_ASSESSMENT_VIEW_RETURN_VALIDATOR,
-        }],
       }, {
-        modulePath: "recipeMaintenance",
+        module: COOKING_MAINTENANCE_MODULE,
         artifactModulePath: "recipePublishInternal",
         sourceBytes: COOKING_FUNCTION_SOURCES.publishInternal,
-        functions: [{
-          exportName: "markPublished",
-          kind: "mutation",
-          visibility: "internal",
-          argsValidator: COOKING_ID_ARGS_VALIDATOR,
-          returnsValidator: COOKING_PUBLISH_RETURN_VALIDATOR,
-        }],
       }, {
-        modulePath: "recipeWorkflows",
+        module: COOKING_WORKFLOW_MODULE,
         artifactModulePath: "recipePublishWorkflow",
         sourceBytes: COOKING_FUNCTION_SOURCES.publishWorkflow,
-        functions: [{
-          exportName: "publish",
-          kind: "mutation",
-          visibility: "public",
-          argsValidator: COOKING_ID_ARGS_VALIDATOR,
-          returnsValidator: COOKING_PUBLISH_RETURN_VALIDATOR,
-        }],
       }],
-      fields: {
-        title: {
-          fieldType: { type: "string" },
-          optional: false,
-        },
-        description: {
-          fieldType: { type: "string" },
-          optional: true,
-        },
-        servings: {
-          fieldType: { type: "number" },
-          optional: false,
-        },
-        difficulty: {
-          fieldType: {
-            type: "union",
-            value: [
-              { type: "literal", value: "easy" },
-              { type: "literal", value: "medium" },
-              { type: "literal", value: "hard" },
-            ],
-          },
-          optional: false,
-        },
-        published: {
-          fieldType: { type: "boolean" },
-          optional: false,
-        },
-        tags: {
-          fieldType: {
-            type: "array",
-            value: { type: "string" },
-          },
-          optional: false,
-        },
-        ingredients: {
-          fieldType: {
-            type: "array",
-            value: {
-              type: "object",
-              value: {
-                name: {
-                  fieldType: { type: "string" },
-                  optional: false,
-                },
-                amount: {
-                  fieldType: { type: "number" },
-                  optional: false,
-                },
-                unit: {
-                  fieldType: { type: "string" },
-                  optional: false,
-                },
-                note: {
-                  fieldType: { type: "string" },
-                  optional: true,
-                },
-              },
-            },
-          },
-          optional: false,
-        },
-        steps: {
-          fieldType: {
-            type: "array",
-            value: {
-              type: "object",
-              value: {
-                position: {
-                  fieldType: { type: "number" },
-                  optional: false,
-                },
-                instruction: {
-                  fieldType: { type: "string" },
-                  optional: false,
-                },
-                durationMinutes: {
-                  fieldType: { type: "number" },
-                  optional: true,
-                },
-              },
-            },
-          },
-          optional: false,
-        },
-        nutrition: {
-          fieldType: {
-            type: "object",
-            value: {
-              caloriesPerServing: {
-                fieldType: { type: "number" },
-                optional: false,
-              },
-              vegetarian: {
-                fieldType: { type: "boolean" },
-                optional: false,
-              },
-            },
-          },
-          optional: false,
-        },
-        localizedTitles: {
-          fieldType: {
-            type: "record",
-            keys: { type: "string" },
-            values: { type: "string" },
-          },
-          optional: false,
-        },
-        source: {
-          fieldType: {
-            type: "union",
-            value: [{ type: "string" }, { type: "null" }],
-          },
-          optional: false,
-        },
-      },
+      fields: COOKING_FIELDS,
     }),
   },
   setup: prepareCookingStateV1,

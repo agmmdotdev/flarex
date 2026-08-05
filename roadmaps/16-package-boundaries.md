@@ -219,6 +219,16 @@ rules, and graph construction remain in `flarex-dev`; the Standard package
 must not acquire hidden cross-stage policy that only the combined operation
 enforces.
 
+The approved `SAA01` typed-authoring mechanics live in the existing `./v1`
+export rather than a new package or root barrel. They are pure owned metadata
+constructors that emit the exact protocol `ValidatorJsonV1` and canonical
+program input shapes. The protocol decoder and validator engine remain the
+only runtime authorities. `@flarex/system-test` consumes these mechanics for
+typed simulation definitions and references; producer-specific workload,
+fault, source, handler-context, and codegen policy remains outside the Standard
+package. The public `flarex` SDK remains a separate compatibility surface until
+roadmap 09 admits an exact adapter.
+
 ### Hosted Runtime Topology
 
 The production execution path is deliberately split:

@@ -253,9 +253,9 @@ The default decision is to enter the Standard definition API owned by roadmap
 The private harness must not depend on a public SDK. The future SDK/codegen and
 the private fixture/corpus become separate producers of the same Standard API.
 
-`SAC01-P` found that the smallest Test API groundwork is fixture data passed
-directly to the existing canonical decoder and materializer, not a generic
-builder or application representation. Roadmap 42 now owns migration of that
+`SAC01-P` found that the smallest initial Test API groundwork was fixture data
+passed directly to the existing canonical decoder and materializer, not a
+generic builder or application representation. Roadmap 42 now owns migration of that
 fixture sequence onto the shared Standard definition operation. The current V1
 canonical program already owns:
 
@@ -822,10 +822,13 @@ Exact path allowlist:
 6. make no manifest, export-map, production-source, analyzer-source, executor,
    persistence, runtime, route, binding, or configuration change.
 
-The initial API should favor explicit fixture data and owner calls over a
-generic builder. A fluent schema/query/mutation API, arbitrary metadata bag,
-untyped function registry, generic `invoke`, or wrapper that erases the
-canonical/materializer error unions is outside this slice.
+The initial API favored explicit fixture data and owner calls over a generic
+builder. The later `SAA01` slice in roadmap 42 may share pure typed validator,
+function-contract, module, and reference mechanics because those values lower
+directly to the same explicit canonical input. A fluent stateful application
+builder, arbitrary metadata bag, untyped function registry, generic
+`invoke(anything)`, or wrapper that erases the canonical/materializer error
+unions remains outside this roadmap.
 
 Validation for `SAC01-A`:
 

@@ -18,6 +18,25 @@ import {
 } from "@flarex/declarative-materializer/v1";
 import { Result } from "effect";
 
+export {
+  standardV1,
+  type AnyStandardFunctionContractV1,
+  type InferStandardFunctionArgsV1,
+  type InferStandardFunctionReturnV1,
+  type InferStandardObjectV1,
+  type InferStandardValidatorV1,
+  type StandardFunctionArgsValidatorV1,
+  type StandardFunctionCatalogV1,
+  type StandardFunctionContractV1,
+  type StandardFunctionContractInputV1,
+  type StandardFunctionReferenceV1,
+  type StandardIdV1,
+  type StandardModuleV1,
+  type StandardValidatorV1,
+  type StandardValidatorOptionalityV1,
+  type StandardValidatorRecordV1,
+} from "./authoringV1";
+
 export interface StandardApplicationDefinitionInputV1 {
   readonly programBudgetInput: CanonicalDeclarativeProgramBudgetInputV1;
   readonly programInput: CanonicalDeclarativeProgramInputV1;
