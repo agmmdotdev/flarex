@@ -1,4 +1,7 @@
 declare module "flarex:function-api-core/v1" {
+  export const createFunctionRuntimePointDatabaseWriterV1:
+    typeof import("@flarex/function-runtime/internal/function-api-core-v1")
+      .createFunctionRuntimePointDatabaseWriterV1;
   export const createFunctionRuntimePointReaderV1:
     typeof import("@flarex/function-runtime/internal/function-api-core-v1")
       .createFunctionRuntimePointReaderV1;

@@ -4,6 +4,7 @@ import type { UserIdentity } from "flarex-protocol/auth";
 
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
   createMutationFunctionRuntimeBaseContextV1,
   createQueryFunctionRuntimeBaseContextV1,
@@ -59,6 +60,102 @@ describe("@flarex/function-runtime/function-api-core", () => {
     });
 
     expect(() => reader.get("orders:1")).toThrow(failure);
+  });
+
+  it("constructs an exact frozen point database writer with direct delegates", async () => {
+    const reader = createFunctionRuntimePointReaderV1(async () => null);
+    const insertPromise = Promise.resolve("orders:1");
+    const patchPromise = Promise.resolve();
+    const replacePromise = Promise.resolve();
+    const deletePromise = Promise.resolve();
+    const insert = vi.fn(() => insertPromise);
+    const patch = vi.fn(() => patchPromise);
+    const replace = vi.fn(() => replacePromise);
+    const deletePointDocument = vi.fn(() => deletePromise);
+    const writer = {
+      insertPointDocument: insert,
+      patchPointDocument: patch,
+      replacePointDocument: replace,
+      deletePointDocument,
+    };
+    const database = createFunctionRuntimePointDatabaseWriterV1(
+      reader,
+      writer,
+    );
+    writer.insertPointDocument = vi.fn(() => Promise.resolve("orders:other"));
+    writer.patchPointDocument = vi.fn(() => Promise.resolve());
+    writer.replacePointDocument = vi.fn(() => Promise.resolve());
+    writer.deletePointDocument = vi.fn(() => Promise.resolve());
+    const insertValue = Object.freeze({ status: "open" });
+    const patchValue = Object.freeze({ status: "patched" });
+    const replacementValue = Object.freeze({ status: "replaced" });
+
+    expect(database.get).toBe(reader.get);
+    expect(database.insert("orders", insertValue)).toBe(insertPromise);
+    expect(database.patch("orders:1", patchValue)).toBe(patchPromise);
+    expect(database.replace("orders:1", replacementValue)).toBe(replacePromise);
+    expect(database.delete("orders:1")).toBe(deletePromise);
+    await Promise.all([insertPromise, patchPromise, replacePromise, deletePromise]);
+    expect(insert).toHaveBeenCalledWith("orders", insertValue);
+    expect(patch).toHaveBeenCalledWith("orders:1", patchValue);
+    expect(replace).toHaveBeenCalledWith("orders:1", replacementValue);
+    expect(deletePointDocument).toHaveBeenCalledWith("orders:1");
+    expect(Object.keys(database)).toEqual([
+      "get",
+      "insert",
+      "patch",
+      "replace",
+      "delete",
+    ]);
+    expect(Object.isFrozen(database)).toBe(true);
+  });
+
+  it("preserves synchronous failure timing for every point writer delegate", () => {
+    const failure = new Error("journal closed");
+    const reader = createFunctionRuntimePointReaderV1(async () => null);
+    const insert = () => Promise.resolve("orders:1");
+    const unit = () => Promise.resolve();
+    const throwing = (): never => { throw failure; };
+    const invocations = [
+      () => createFunctionRuntimePointDatabaseWriterV1(
+        reader,
+        Object.freeze({
+          insertPointDocument: throwing,
+          patchPointDocument: unit,
+          replacePointDocument: unit,
+          deletePointDocument: unit,
+        }),
+      ).insert("orders", {}),
+      () => createFunctionRuntimePointDatabaseWriterV1(
+        reader,
+        Object.freeze({
+          insertPointDocument: insert,
+          patchPointDocument: throwing,
+          replacePointDocument: unit,
+          deletePointDocument: unit,
+        }),
+      ).patch("orders:1", {}),
+      () => createFunctionRuntimePointDatabaseWriterV1(
+        reader,
+        Object.freeze({
+          insertPointDocument: insert,
+          patchPointDocument: unit,
+          replacePointDocument: throwing,
+          deletePointDocument: unit,
+        }),
+      ).replace("orders:1", {}),
+      () => createFunctionRuntimePointDatabaseWriterV1(
+        reader,
+        Object.freeze({
+          insertPointDocument: insert,
+          patchPointDocument: unit,
+          replacePointDocument: unit,
+          deletePointDocument: throwing,
+        }),
+      ).delete("orders:1"),
+    ];
+
+    for (const invoke of invocations) expect(invoke).toThrow(failure);
   });
 
   it("returns a fresh owned identity from the trusted clone port on every call", async () => {

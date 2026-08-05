@@ -2,6 +2,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
   createMutationFunctionRuntimeBaseContextV1,
 } from "flarex:function-api-core/v1";
@@ -1569,39 +1570,41 @@ function databaseForJournal(
         outcome.kind === "missing" ? null : outcome.document
       )),
   );
-  const database = Object.freeze({
-    ...pointReader,
-    insert: (tableName: string, fields: unknown) => {
-      const capturedFields = captureDeveloperFields(fields, "insert fields");
-      return trackCallerPromise(run(
-        requireTableName(tableName),
-        { kind: "insert", fields: capturedFields },
-      ).then((outcome) => outcome.documentId));
-    },
-    patch: (documentId: string, patch: unknown) =>
-      trackCallerPromise(run(
-        tableNameForDocumentId(documentId),
-        {
-          kind: "patch",
-          documentId,
-          patch: capturePatch(patch),
-        },
-      ).then(() => undefined)),
-    replace: (documentId: string, fields: unknown) =>
-      trackCallerPromise(run(
-        tableNameForDocumentId(documentId),
-        {
-          kind: "replace",
-          documentId,
-          fields: captureDeveloperFields(fields, "replacement fields"),
-        },
-      ).then(() => undefined)),
-    delete: (documentId: string) =>
-      trackCallerPromise(run(
-        tableNameForDocumentId(documentId),
-        { kind: "delete", documentId },
-      ).then(() => undefined)),
-  });
+  const database = createFunctionRuntimePointDatabaseWriterV1(
+    pointReader,
+    freeze({
+      insertPointDocument: (tableName: string, fields: unknown) => {
+        const capturedFields = captureDeveloperFields(fields, "insert fields");
+        return trackCallerPromise(run(
+          requireTableName(tableName),
+          { kind: "insert", fields: capturedFields },
+        ).then((outcome) => outcome.documentId));
+      },
+      patchPointDocument: (documentId: string, patch: unknown) =>
+        trackCallerPromise(run(
+          tableNameForDocumentId(documentId),
+          {
+            kind: "patch",
+            documentId,
+            patch: capturePatch(patch),
+          },
+        ).then(() => undefined)),
+      replacePointDocument: (documentId: string, fields: unknown) =>
+        trackCallerPromise(run(
+          tableNameForDocumentId(documentId),
+          {
+            kind: "replace",
+            documentId,
+            fields: captureDeveloperFields(fields, "replacement fields"),
+          },
+        ).then(() => undefined)),
+      deletePointDocument: (documentId: string) =>
+        trackCallerPromise(run(
+          tableNameForDocumentId(documentId),
+          { kind: "delete", documentId },
+        ).then(() => undefined)),
+    }),
+  );
   return Object.freeze({
     database,
     close: () => {

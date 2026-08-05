@@ -27,6 +27,85 @@ export interface FunctionRuntimePointReaderV1<DocumentId, Document> {
   readonly get: FunctionRuntimePointReadV1<DocumentId, Document>;
 }
 
+export type FunctionRuntimePointInsertV1<
+  TableName,
+  InsertValue,
+  DocumentId,
+> = (tableName: TableName, value: InsertValue) => Promise<DocumentId>;
+
+export type FunctionRuntimePointPatchV1<DocumentId, PatchValue> = (
+  documentId: DocumentId,
+  value: PatchValue,
+) => Promise<void>;
+
+export type FunctionRuntimePointReplaceV1<DocumentId, ReplacementValue> = (
+  documentId: DocumentId,
+  value: ReplacementValue,
+) => Promise<void>;
+
+export type FunctionRuntimePointDeleteV1<DocumentId> = (
+  documentId: DocumentId,
+) => Promise<void>;
+
+export interface FunctionRuntimePointWriterV1<
+  DocumentId,
+  TableName,
+  InsertValue,
+  PatchValue,
+  ReplacementValue,
+> {
+  readonly insert: FunctionRuntimePointInsertV1<
+    TableName,
+    InsertValue,
+    DocumentId
+  >;
+  readonly patch: FunctionRuntimePointPatchV1<DocumentId, PatchValue>;
+  readonly replace: FunctionRuntimePointReplaceV1<
+    DocumentId,
+    ReplacementValue
+  >;
+  readonly delete: FunctionRuntimePointDeleteV1<DocumentId>;
+}
+
+export interface FunctionRuntimePointWriterPortV1<
+  DocumentId,
+  TableName,
+  InsertValue,
+  PatchValue,
+  ReplacementValue,
+> {
+  readonly insertPointDocument: FunctionRuntimePointInsertV1<
+    TableName,
+    InsertValue,
+    DocumentId
+  >;
+  readonly patchPointDocument: FunctionRuntimePointPatchV1<
+    DocumentId,
+    PatchValue
+  >;
+  readonly replacePointDocument: FunctionRuntimePointReplaceV1<
+    DocumentId,
+    ReplacementValue
+  >;
+  readonly deletePointDocument: FunctionRuntimePointDeleteV1<DocumentId>;
+}
+
+export interface FunctionRuntimePointDatabaseWriterV1<
+  DocumentId,
+  Document,
+  TableName,
+  InsertValue,
+  PatchValue,
+  ReplacementValue,
+> extends FunctionRuntimePointReaderV1<DocumentId, Document>,
+    FunctionRuntimePointWriterV1<
+      DocumentId,
+      TableName,
+      InsertValue,
+      PatchValue,
+      ReplacementValue
+    > {}
+
 export function createFunctionRuntimeAuthV1(
   projection: FunctionRuntimeAuthProjectionV1,
   cloneIdentity: FunctionRuntimeIdentityCloneV1,
@@ -45,6 +124,51 @@ export function createFunctionRuntimePointReaderV1<DocumentId, Document>(
   return freeze({
     get: (documentId: DocumentId): Promise<Document | null> =>
       readPointDocument(documentId),
+  });
+}
+
+export function createFunctionRuntimePointDatabaseWriterV1<
+  DocumentId,
+  Document,
+  TableName,
+  InsertValue,
+  PatchValue,
+  ReplacementValue,
+>(
+  reader: Readonly<FunctionRuntimePointReaderV1<DocumentId, Document>>,
+  writer: Readonly<FunctionRuntimePointWriterPortV1<
+    DocumentId,
+    TableName,
+    InsertValue,
+    PatchValue,
+    ReplacementValue
+  >>,
+): Readonly<FunctionRuntimePointDatabaseWriterV1<
+  DocumentId,
+  Document,
+  TableName,
+  InsertValue,
+  PatchValue,
+  ReplacementValue
+>> {
+  const {
+    insertPointDocument,
+    patchPointDocument,
+    replacePointDocument,
+    deletePointDocument,
+  } = writer;
+  return freeze({
+    get: reader.get,
+    insert: (tableName: TableName, value: InsertValue): Promise<DocumentId> =>
+      insertPointDocument(tableName, value),
+    patch: (documentId: DocumentId, value: PatchValue): Promise<void> =>
+      patchPointDocument(documentId, value),
+    replace: (
+      documentId: DocumentId,
+      value: ReplacementValue,
+    ): Promise<void> => replacePointDocument(documentId, value),
+    delete: (documentId: DocumentId): Promise<void> =>
+      deletePointDocument(documentId),
   });
 }
 

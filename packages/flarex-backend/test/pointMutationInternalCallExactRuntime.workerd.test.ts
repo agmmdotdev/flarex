@@ -116,7 +116,8 @@ export default { async fetch() {
   request.context.randomSeed = new Uint8Array(request.context.randomSeed);
   const operations = [];
   const settledOperations = [];
-  let document;
+  const documents = new Map();
+  let nextDocument = 0;
   const journal = {
     resolvePointTable() {
       return {
@@ -130,13 +131,43 @@ export default { async fetch() {
               });
               throw error;
             }
-            document = Object.freeze({ _id: "1:00000000-0000-4000-8000-000000000001", _creationTime: 100, ...operation.fields });
+            nextDocument += 1;
+            const documentId = "1:00000000-0000-4000-8000-" + String(nextDocument).padStart(12, "0");
+            const document = Object.freeze({ _id: documentId, _creationTime: 100, ...operation.fields });
+            documents.set(documentId, document);
             settledOperations.push([operation.kind, String(operation.syscallSequence)]);
-            return Object.freeze({ kind: "inserted", documentId: document._id, document });
+            return Object.freeze({ kind: "inserted", documentId, document });
+          }
+          if (operation.kind === "patch") {
+            const current = documents.get(operation.documentId);
+            const next = { ...current };
+            for (const [field, value] of Object.entries(operation.patch)) {
+              if (value === undefined) delete next[field];
+              else next[field] = value;
+            }
+            const document = Object.freeze(next);
+            documents.set(operation.documentId, document);
+            settledOperations.push([operation.kind, String(operation.syscallSequence)]);
+            return Object.freeze({ kind: "unit", operation: "patch" });
+          }
+          if (operation.kind === "replace") {
+            const current = documents.get(operation.documentId);
+            const document = Object.freeze({ _id: current._id, _creationTime: current._creationTime, ...operation.fields });
+            documents.set(operation.documentId, document);
+            settledOperations.push([operation.kind, String(operation.syscallSequence)]);
+            return Object.freeze({ kind: "unit", operation: "replace" });
+          }
+          if (operation.kind === "delete") {
+            documents.delete(operation.documentId);
+            settledOperations.push([operation.kind, String(operation.syscallSequence)]);
+            return Object.freeze({ kind: "unit", operation: "delete" });
           }
           if (operation.kind === "get") {
+            const document = documents.get(operation.documentId);
             settledOperations.push([operation.kind, String(operation.syscallSequence)]);
-            return Object.freeze({ kind: "present", document });
+            return document === undefined
+              ? Object.freeze({ kind: "missing", document: null })
+              : Object.freeze({ kind: "present", document });
           }
           throw new Error("unexpected journal operation");
         },
@@ -214,6 +245,10 @@ export async function update(ctx) {
 export async function mutateInternal(ctx, args) {
   const id = await ctx.db.insert("orders", { status: args.invalid ? "invalid" : "open" });
   if (args.invalid) return id;
+  await ctx.db.patch(id, { status: "patched" });
+  await ctx.db.replace(id, { status: "open" });
+  const temporaryId = await ctx.db.insert("orders", { status: "temporary" });
+  await ctx.db.delete(temporaryId);
   throw errorCreate("DECLARED", "declared child", { reason: "test", id });
 }
 export async function readInternal(ctx, args) {
@@ -231,8 +266,23 @@ export async function readInternal(ctx, args) {
           _creationTime: 100,
           status: "open",
         },
-        operations: [["insert", "1"], ["insert", "2"], ["get", "2"]],
-        settledOperations: [["insert", "1"], ["get", "2"]],
+        operations: [
+          ["insert", "1"],
+          ["patch", "2"],
+          ["replace", "3"],
+          ["insert", "4"],
+          ["delete", "5"],
+          ["insert", "6"],
+          ["get", "6"],
+        ],
+        settledOperations: [
+          ["insert", "1"],
+          ["patch", "2"],
+          ["replace", "3"],
+          ["insert", "4"],
+          ["delete", "5"],
+          ["get", "6"],
+        ],
       } });
     } finally {
       await runtime.dispose();

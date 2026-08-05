@@ -1135,6 +1135,111 @@ read-your-writes behavior, OCC/commit owner, action uncertainty, activation,
 route, or production behavior changed. There is no fallback, dual facade, or
 second read authority.
 
+### `FAC03` Point-Writer Preflight Decision
+
+**Accepted:** 2026-08-06
+
+Current Convex `database_impl.ts` constructs `setupWriter()` by reusing the
+shared reader and adding `insert`, `patch`, `replace`, and `delete` wrappers.
+That composition is the useful model for Flarex. Convex's concrete wrappers are
+`async`, support its full reader/table overload surface, validate through the
+Convex value codec, and delegate to its global async-syscall bridge. Those
+details are not portable authority and must not be copied into Flarex.
+
+The selected Flarex mutation Worker currently has observable call-time policy
+that predates this extraction:
+
+- `insert` captures and bounds fields before validating the projected table
+  name;
+- `patch` validates the document ID/table projection before capturing the
+  patch;
+- `replace` validates the document ID/table projection before capturing and
+  bounding replacement fields;
+- `delete` validates only the document ID/table projection;
+- every successful capture enters the existing strictly sequenced journal,
+  receives its syscall sequence there, and returns the exact tracked promise;
+  and
+- application document-validation failures remain catchable without poisoning
+  the journal, while every other admitted journal failure keeps the existing
+  first-failure and poisoning behavior.
+
+`FAC03` accepts one generic private point-database-writer constructor in the
+existing Function API Core. It receives the already constructed point reader
+plus four exact invocation-local write functions and returns one frozen object
+with keys `get`, `insert`, `patch`, `replace`, and `delete` in that order. Each
+method is a non-`async` direct delegate. The constructor captures the supplied
+function references once, adds no promise turn, catch, validation, cloning,
+normalization, retry, or authority lookup, and returns each supplied promise by
+identity. This preserves synchronous throw timing as well as asynchronous
+journal failure identity.
+
+The selected mutation Worker remains the sole owner of field/patch capture,
+table and ID validation, promise tracking, table-capability resolution,
+operation serialization, syscall sequencing, outcome decoding, application
+failure catchability, poisoning, close/drain, and RPC disposal. The shared core
+does not receive tables, a journal capability, transaction state, PostgreSQL,
+R2, Workerd bindings, or commit authority. The original mutation profile and
+the mutation kernel's temporary read-only internal-query projection remain
+unchanged; exact query/mutation context-profile composition is the next
+separate slice.
+
+Rejected in this slice are `async` facade wrappers, capture or validation moves
+into the shared core, generic operation envelopes, a universal optional
+database, Convex table overloads, scans, `normalizeId`, system tables,
+query-builder work, internal-call composition changes, original-profile
+rewrites, and any protocol, schema, persistence, OCC, commit, activation,
+routing, action, or production change.
+
+The implementation gate requires focused core tests for exact keys, freezing,
+argument order, promise identity, and synchronous-throw preservation for all
+four writes; selected mutation Workerd proof that all writer methods traverse
+one ordered journal while the final nested read observes the same overlay;
+deterministic regeneration of the shared support module, selected mutation
+runtime kernel, and selected mutation Worker core; derived query and mutation
+graph/target identity proof because both graphs commit the shared support
+module; SAP05 and SAP06-A3 PGlite and genuine PostgreSQL regressions; affected
+typechecks, the complete backend generated build, Effect-boundary checks, and
+both mandatory exact-final reviewers. The commit must remove the selected
+Worker's duplicate writer-object construction with no fallback or dual facade.
+
+### `FAC03` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+`FAC03` adds the private, generic
+`createFunctionRuntimePointDatabaseWriterV1` constructor to Function API Core
+and makes the selected mutation/internal-call Worker its first consumer. The
+constructor composes the existing point reader with four named invocation-local
+writer ports and returns the exact frozen `get` / `insert` / `patch` /
+`replace` / `delete` facade. It captures each port once and delegates directly,
+so call-time validation order, synchronous throws, exact promise identity, and
+the existing journal's admission and failure semantics remain owned by the
+Worker.
+
+Focused core tests prove exact keys and freezing, reader identity, writer
+argument forwarding, one-time port capture, promise identity, and synchronous
+throw timing for all four methods. The selected Workerd scenario proves all
+four writes traverse one ordered journal, a rejected write does not consume a
+sequence, and a later nested read observes the journal overlay. The generated
+closure was refreshed and verified at Function API Core
+`518a0a15f48fe9543db21eb5844f58d78c4f5f881dbb9c7fcb3f8daec9136bcd`,
+mutation/internal-call runtime kernel
+`1a945b0b8f60e0ccf303de765c278546c7cbd58aa75759de7f6099b750d14c46`,
+and mutation/internal-call Worker core
+`31475266069092f31d3bc28439773dff3ff9308bcab0cc0ebd4a4f4d6a7fd8c6`.
+
+Validation passed with all 50 `@flarex/function-runtime` tests and its
+typecheck; the complete `flarex-backend` generated build and typecheck; seven
+focused generated/Workerd tests; SAP05 and SAP06-A3 under PGlite; both suites
+against a fresh isolated PostgreSQL 18 cluster; and the workspace Effect
+runtime-boundary check. Both mandatory exact-final reviewers reported no
+actionable findings; they independently verified facade/runtime/generated
+agreement, direct-delegation timing and identity, journal/read-your-writes
+preservation, and the absence of authority drift. No schema, persistence,
+snapshot, journal, OCC, commit,
+action uncertainty, activation, route, or production authority changed, and
+there is no fallback or parallel writer facade.
+
 ### Sequenced Follow-On Slices
 
 After `FAC01`, continue one coherent commit at a time:

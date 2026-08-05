@@ -32,6 +32,9 @@ describe("generated function API core", () => {
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
       "createFunctionRuntimePointReaderV1",
     );
+    expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
+      "createFunctionRuntimePointDatabaseWriterV1",
+    );
   });
 
   it("commits the same support identity into selected query and mutation graphs", () => {
