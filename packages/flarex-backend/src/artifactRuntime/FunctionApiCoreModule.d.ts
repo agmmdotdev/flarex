@@ -14,4 +14,7 @@ declare module "flarex:function-api-core/v1" {
   export const createMutationFunctionRuntimeContextV1:
     typeof import("@flarex/function-runtime/internal/function-api-core-v1")
       .createMutationFunctionRuntimeContextV1;
+  export const createFunctionRuntimeApplicationErrorRegistryV1:
+    typeof import("@flarex/function-runtime/internal/function-api-core-v1")
+      .createFunctionRuntimeApplicationErrorRegistryV1;
 }

@@ -135,33 +135,15 @@ export interface PointMutationInternalCallRuntimeInvocationV1 {
   readonly recordTerminalFailure: (cause: unknown) => void;
 }
 
-export interface CapturedPointMutationInternalCallCoreApplicationErrorV1 {
-  readonly code: string;
-  readonly message: string;
-  readonly data?: CanonicalFlarexRuntimeValueV1;
-}
-
-export function capturePointMutationInternalCallCoreApplicationErrorV1(
-  code: unknown,
-  message: unknown,
-  data?: unknown,
-): CapturedPointMutationInternalCallCoreApplicationErrorV1 {
-  const capturedCode = captureApplicationErrorText(code, "code");
-  const capturedMessage = captureApplicationErrorText(message, "message");
-  if (data === undefined) {
-    return Object.freeze({ code: capturedCode, message: capturedMessage });
-  }
-  const capturedData = normalizeRuntimeValue(
+export function capturePointMutationInternalCallCoreApplicationErrorDataV1(
+  data: unknown,
+): CanonicalFlarexRuntimeValueV1 {
+  return normalizeRuntimeValue(
     data,
     "$applicationError.data",
     0,
     new WeakSet(),
   ).value;
-  return Object.freeze({
-    code: capturedCode,
-    message: capturedMessage,
-    data: capturedData,
-  });
 }
 
 export interface PointMutationInternalCallRuntimeInvocationFactoryV1 {
@@ -803,15 +785,4 @@ function contractFailureMessage(
     case "callCycle":
       return "Recursive internal calls are unavailable.";
   }
-}
-
-function captureApplicationErrorText(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.length === 0 ||
-    new TextEncoder().encode(value).byteLength > 1_024) {
-    throw new PointMutationInternalCallApplicationV1Error(
-      "argumentsInvalid",
-      `Core application error ${field} must be a nonempty string no greater than 1024 UTF-8 bytes.`,
-    );
-  }
-  return value;
 }

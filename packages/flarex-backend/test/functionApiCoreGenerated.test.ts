@@ -13,6 +13,8 @@ import {
 } from "../src/artifactRuntime/FunctionApiCore.generated";
 import { pointMutationInternalCallExactRuntimeWorkerGraphBasisV1 } from
   "../src/artifactRuntime/PointMutationInternalCallExactRuntimeHost";
+import { pointMutationInternalQueryExactRuntimeWorkerGraphBasisV1 } from
+  "../src/artifactRuntime/PointMutationInternalQueryExactRuntimeHost";
 import { pointQueryInternalCallExactRuntimeWorkerGraphBasisV1 } from
   "../src/artifactRuntime/PointQueryInternalCallExactRuntimeHost";
 
@@ -41,9 +43,12 @@ describe("generated function API core", () => {
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
       "createFunctionRuntimePointDatabaseWriterV1",
     );
+    expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
+      "createFunctionRuntimeApplicationErrorRegistryV1",
+    );
   });
 
-  it("commits the same support identity into selected query and mutation graphs", () => {
+  it("commits the same support identity into all selected graphs", () => {
     const supportIdentity = JSON.stringify([
       FUNCTION_API_CORE_MODULE_V1,
       FUNCTION_API_CORE_SHA256_V1,
@@ -62,9 +67,18 @@ describe("generated function API core", () => {
       functionPath: "application:write",
       internalFunctionCatalog: Object.freeze([]),
     });
+    const mutationInternalQueryBasis =
+      pointMutationInternalQueryExactRuntimeWorkerGraphBasisV1({
+        compatibilityDate: "2026-06-18",
+        artifactExecutionModule: "application.js",
+        exportName: "write",
+        functionPath: "application:write",
+        internalQueryCatalog: Object.freeze([]),
+      });
 
     expect(queryBasis).toContain(supportIdentity);
     expect(mutationBasis).toContain(supportIdentity);
+    expect(mutationInternalQueryBasis).toContain(supportIdentity);
   });
 
   it.each([
@@ -76,6 +90,17 @@ describe("generated function API core", () => {
         artifactExecutionModule: "application.js",
         exportName: "read",
         functionPath: "application:read",
+        internalQueryCatalog: Object.freeze([]),
+      }),
+    },
+    {
+      profile: "mutation-internal-query",
+      discriminator: 0x69,
+      graphBasis: () => pointMutationInternalQueryExactRuntimeWorkerGraphBasisV1({
+        compatibilityDate: "2026-06-18",
+        artifactExecutionModule: "application.js",
+        exportName: "write",
+        functionPath: "application:write",
         internalQueryCatalog: Object.freeze([]),
       }),
     },

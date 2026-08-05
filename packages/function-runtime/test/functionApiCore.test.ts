@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { UserIdentity } from "flarex-protocol/auth";
 
 import {
+  createFunctionRuntimeApplicationErrorRegistryV1,
   createFunctionRuntimeAuthV1,
   createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
@@ -234,5 +235,109 @@ describe("@flarex/function-runtime/function-api-core", () => {
     expect("runMutation" in mutation).toBe(true);
     expect("scheduler" in mutation).toBe(false);
     expect("storage" in mutation).toBe(false);
+  });
+
+  it("constructs one unforgeable declared-application-error registry", () => {
+    const data = Object.freeze({ reason: "declared" });
+    const captureData = vi.fn((_value: unknown) => data);
+    const registry = createFunctionRuntimeApplicationErrorRegistryV1(
+      captureData,
+      (detail?: string): never => { throw new Error(detail ?? "invalid"); },
+    );
+
+    const withoutData = registry.create("NO_DATA", "without data");
+    const withData = registry.create("WITH_DATA", "with data", { source: 1 });
+
+    expect(Object.keys(registry)).toEqual([
+      "create",
+      "inspect",
+      "code",
+      "message",
+      "data",
+    ]);
+    expect(Object.isFrozen(registry)).toBe(true);
+    expect(withoutData).toBeInstanceOf(Error);
+    expect(withoutData.name).toBe("CoreApplicationErrorV1");
+    expect(withoutData.message).toBe("without data");
+    expect(Object.getOwnPropertyDescriptor(withoutData, "name")).toEqual({
+      value: "CoreApplicationErrorV1",
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+    expect(Object.isFrozen(withoutData)).toBe(false);
+    expect(Object.hasOwn(withoutData, "code")).toBe(false);
+    expect(Object.hasOwn(withoutData, "data")).toBe(false);
+    expect(registry.inspect(withoutData)).toBe(true);
+    expect(registry.code(withoutData)).toBe("NO_DATA");
+    expect(registry.message(withoutData)).toBe("without data");
+    expect(registry.data(withoutData)).toBeUndefined();
+    expect(registry.inspect(withData)).toBe(true);
+    expect(registry.code(withData)).toBe("WITH_DATA");
+    expect(registry.message(withData)).toBe("with data");
+    expect(registry.data(withData)).toBe(data);
+    expect(captureData).toHaveBeenCalledOnce();
+    expect(captureData).toHaveBeenCalledWith({ source: 1 });
+  });
+
+  it("preserves declared-error validation order, byte bounds, and data failures", () => {
+    const dataFailure = new Error("data rejected");
+    const captureData = vi.fn((_value: unknown): never => { throw dataFailure; });
+    const invalid = vi.fn((detail?: string): never => {
+      throw new Error(detail ?? "invalid declared error");
+    });
+    const registry = createFunctionRuntimeApplicationErrorRegistryV1(
+      captureData,
+      invalid,
+    );
+    const codeDiagnostic =
+      "Core application error code must be a nonempty string no greater than 1024 UTF-8 bytes.";
+    const messageDiagnostic =
+      "Core application error message must be a nonempty string no greater than 1024 UTF-8 bytes.";
+
+    expect(() => registry.create("", "", { ignored: true }))
+      .toThrow(codeDiagnostic);
+    expect(() => registry.create("VALID", "", { ignored: true }))
+      .toThrow(messageDiagnostic);
+    expect(captureData).not.toHaveBeenCalled();
+    expect(invalid).toHaveBeenNthCalledWith(1, codeDiagnostic);
+    expect(invalid).toHaveBeenNthCalledWith(2, messageDiagnostic);
+
+    const maximumUtf8Text = "é".repeat(512);
+    expect(() => registry.create(maximumUtf8Text, maximumUtf8Text))
+      .not.toThrow();
+    expect(() => registry.create("é".repeat(513), "message"))
+      .toThrow(codeDiagnostic);
+    expect(() => registry.create("VALID", "é".repeat(513)))
+      .toThrow(messageDiagnostic);
+    expect(() => registry.create("VALID", "message", { rejected: true }))
+      .toThrow(dataFailure);
+    expect(captureData).toHaveBeenCalledOnce();
+  });
+
+  it("isolates declared errors by registry and rejects structural spoofs", () => {
+    const invalid = (detail?: string): never => {
+      throw new Error(detail ?? "invalid declared error");
+    };
+    const first = createFunctionRuntimeApplicationErrorRegistryV1(
+      _value => null,
+      invalid,
+    );
+    const second = createFunctionRuntimeApplicationErrorRegistryV1(
+      _value => null,
+      invalid,
+    );
+    const declared = first.create("DECLARED", "declared");
+    const spoof = new Error("declared");
+    Object.defineProperty(spoof, "name", { value: "CoreApplicationErrorV1" });
+
+    expect(first.inspect(declared)).toBe(true);
+    expect(second.inspect(declared)).toBe(false);
+    expect(first.inspect(spoof)).toBe(false);
+    expect(first.inspect(null)).toBe(false);
+    expect(first.inspect(() => undefined)).toBe(false);
+    expect(() => second.code(declared)).toThrow("invalid declared error");
+    expect(() => first.message(spoof)).toThrow("invalid declared error");
+    expect(() => first.data(null)).toThrow("invalid declared error");
   });
 });

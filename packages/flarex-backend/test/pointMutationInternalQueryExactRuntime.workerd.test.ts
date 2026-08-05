@@ -2,6 +2,10 @@ import { Miniflare } from "miniflare";
 import { describe, expect, it } from "vitest";
 
 import {
+  FUNCTION_API_CORE_MODULE_V1,
+  FUNCTION_API_CORE_SOURCE_V1,
+} from "../src/artifactRuntime/FunctionApiCore.generated";
+import {
   POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_CONFIG_MODULE_V1,
   POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
   POINT_MUTATION_INTERNAL_QUERY_PLATFORM_MODULE_V1,
@@ -149,6 +153,11 @@ export default { async fetch() {
         },
         {
           type: "ESModule",
+          path: FUNCTION_API_CORE_MODULE_V1,
+          contents: FUNCTION_API_CORE_SOURCE_V1,
+        },
+        {
+          type: "ESModule",
           path: POINT_MUTATION_INTERNAL_QUERY_PLATFORM_MODULE_V1,
           contents: pointMutationInternalQueryExactRuntimePlatformSourceV1(),
         },
@@ -283,6 +292,7 @@ export default { async fetch() {
           { type: "ESModule", path: POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_CONFIG_MODULE_V1, contents: configuration },
           { type: "ESModule", path: POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1, contents: bridge },
           { type: "ESModule", path: POINT_MUTATION_INTERNAL_QUERY_RUNTIME_KERNEL_MODULE_V1, contents: POINT_MUTATION_INTERNAL_QUERY_RUNTIME_KERNEL_SOURCE_V1 },
+          { type: "ESModule", path: FUNCTION_API_CORE_MODULE_V1, contents: FUNCTION_API_CORE_SOURCE_V1 },
           { type: "ESModule", path: POINT_MUTATION_INTERNAL_QUERY_PLATFORM_MODULE_V1, contents: pointMutationInternalQueryExactRuntimePlatformSourceV1() },
           { type: "ESModule", path: "orders.js", contents: "export function update() { return null; } export function readInternal() { return null; }" },
         ],

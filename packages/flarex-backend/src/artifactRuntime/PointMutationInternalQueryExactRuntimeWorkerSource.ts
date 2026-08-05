@@ -120,12 +120,16 @@ export default Object.freeze(registryV1);
 
 export function pointMutationInternalQueryExactRuntimePlatformSourceV1(): string {
   return `// Private exact mutation/internal-query syscall ABI for one scoped Worker.
+import { createFunctionRuntimeApplicationErrorRegistryV1 } from "flarex:function-api-core/v1";
 import {
-  capturePointMutationInternalQueryCoreApplicationErrorV1,
+  capturePointMutationInternalQueryCoreApplicationErrorDataV1,
   PointMutationInternalQueryApplicationV1Error,
 } from "./pointMutationInternalQueryExactRuntimeWorker/flarex-point-mutation-internal-query-runtime-kernel-v1.js";
 const contextsV1 = [];
-const coreApplicationErrorsV1 = new WeakMap();
+const coreApplicationErrorsV1 = createFunctionRuntimeApplicationErrorRegistryV1(
+  capturePointMutationInternalQueryCoreApplicationErrorDataV1,
+  (detailV1) => { throw new PointMutationInternalQueryApplicationV1Error("argumentsInvalid", detailV1); },
+);
 function currentV1() {
   const contextV1 = contextsV1.at(-1);
   if (contextV1 === undefined) throw new Error("Point-mutation syscall escaped its invocation context.");
@@ -148,24 +152,12 @@ export function databasePatch(documentIdV1, patchV1) { return currentV1().db.pat
 export function databaseReplace(documentIdV1, fieldsV1) { return currentV1().db.replace(documentIdV1, fieldsV1); }
 export function databaseDelete(documentIdV1) { return currentV1().db.delete(documentIdV1); }
 export function runQuery(referenceV1, argsV1) { return currentV1().runQuery(referenceV1, argsV1); }
-export function errorCreate(codeV1, messageV1, dataV1) {
-  const capturedV1 = capturePointMutationInternalQueryCoreApplicationErrorV1(codeV1, messageV1, dataV1);
-  const errorV1 = new Error(capturedV1.message);
-  Object.defineProperty(errorV1, "name", { value: "CoreApplicationErrorV1" });
-  coreApplicationErrorsV1.set(errorV1, capturedV1);
-  return errorV1;
-}
+export function errorCreate(codeV1, messageV1, dataV1) { return coreApplicationErrorsV1.create(codeV1, messageV1, dataV1); }
 export function inspectPointMutationInternalQueryCoreApplicationErrorV1(valueV1) {
-  return typeof valueV1 === "object" && valueV1 !== null && coreApplicationErrorsV1.has(valueV1);
+  return coreApplicationErrorsV1.inspect(valueV1);
 }
-function requireCoreApplicationErrorV1(valueV1) {
-  if (!inspectPointMutationInternalQueryCoreApplicationErrorV1(valueV1)) {
-    throw new PointMutationInternalQueryApplicationV1Error("argumentsInvalid");
-  }
-  return coreApplicationErrorsV1.get(valueV1);
-}
-export function errorCode(errorV1) { return requireCoreApplicationErrorV1(errorV1).code; }
-export function errorMessage(errorV1) { return requireCoreApplicationErrorV1(errorV1).message; }
-export function errorData(errorV1) { return requireCoreApplicationErrorV1(errorV1).data; }
+export function errorCode(errorV1) { return coreApplicationErrorsV1.code(errorV1); }
+export function errorMessage(errorV1) { return coreApplicationErrorsV1.message(errorV1); }
+export function errorData(errorV1) { return coreApplicationErrorsV1.data(errorV1); }
 `;
 }

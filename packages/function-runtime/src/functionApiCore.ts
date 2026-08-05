@@ -1,4 +1,5 @@
 import type { UserIdentity } from "flarex-protocol/auth";
+import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 
 const freeze = Object.freeze;
 
@@ -31,6 +32,34 @@ export interface FunctionRuntimeMutationContextV1<
   RunMutation extends FunctionRuntimeCallableV1,
 > extends FunctionRuntimeQueryContextV1<Database, RunQuery> {
   readonly runMutation: RunMutation;
+}
+
+export interface CapturedFunctionRuntimeApplicationErrorV1 {
+  readonly code: string;
+  readonly message: string;
+  readonly data?: CanonicalFlarexRuntimeValueV1;
+}
+
+export type FunctionRuntimeApplicationErrorDataCaptureV1 = (
+  data: unknown,
+) => CanonicalFlarexRuntimeValueV1;
+
+export type FunctionRuntimeApplicationErrorInvalidV1 = (
+  detail?: string,
+) => never;
+
+export interface FunctionRuntimeApplicationErrorRegistryV1 {
+  readonly create: (
+    code: unknown,
+    message: unknown,
+    data?: unknown,
+  ) => Error;
+  readonly inspect: (value: unknown) => boolean;
+  readonly code: (error: unknown) => string;
+  readonly message: (error: unknown) => string;
+  readonly data: (
+    error: unknown,
+  ) => CanonicalFlarexRuntimeValueV1 | undefined;
 }
 
 export type FunctionRuntimePointReadV1<DocumentId, Document> = (
@@ -210,4 +239,72 @@ export function createMutationFunctionRuntimeContextV1<
   FunctionRuntimeMutationContextV1<Database, RunQuery, RunMutation>
 > {
   return freeze({ auth, db, runQuery, runMutation });
+}
+
+export function createFunctionRuntimeApplicationErrorRegistryV1(
+  captureData: FunctionRuntimeApplicationErrorDataCaptureV1,
+  invalid: FunctionRuntimeApplicationErrorInvalidV1,
+): Readonly<FunctionRuntimeApplicationErrorRegistryV1> {
+  const capturedByError = new WeakMap<
+    object,
+    CapturedFunctionRuntimeApplicationErrorV1
+  >();
+  const inspect = (value: unknown): boolean =>
+    typeof value === "object" &&
+    value !== null &&
+    capturedByError.has(value);
+  const requireCaptured = (
+    value: unknown,
+  ): CapturedFunctionRuntimeApplicationErrorV1 => {
+    if (typeof value !== "object" || value === null) return invalid();
+    const captured = capturedByError.get(value);
+    return captured ?? invalid();
+  };
+  return freeze({
+    create: (code: unknown, message: unknown, data?: unknown): Error => {
+      const capturedCode = captureFunctionRuntimeApplicationErrorTextV1(
+        code,
+        "code",
+        invalid,
+      );
+      const capturedMessage = captureFunctionRuntimeApplicationErrorTextV1(
+        message,
+        "message",
+        invalid,
+      );
+      const captured = data === undefined
+        ? freeze({ code: capturedCode, message: capturedMessage })
+        : freeze({
+            code: capturedCode,
+            message: capturedMessage,
+            data: captureData(data),
+          });
+      const error = new Error(capturedMessage);
+      Object.defineProperty(error, "name", { value: "CoreApplicationErrorV1" });
+      capturedByError.set(error, captured);
+      return error;
+    },
+    inspect,
+    code: (error: unknown): string => requireCaptured(error).code,
+    message: (error: unknown): string => requireCaptured(error).message,
+    data: (error: unknown): CanonicalFlarexRuntimeValueV1 | undefined =>
+      requireCaptured(error).data,
+  });
+}
+
+function captureFunctionRuntimeApplicationErrorTextV1(
+  value: unknown,
+  field: "code" | "message",
+  invalid: FunctionRuntimeApplicationErrorInvalidV1,
+): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    new TextEncoder().encode(value).byteLength > 1_024
+  ) {
+    return invalid(
+      `Core application error ${field} must be a nonempty string no greater than 1024 UTF-8 bytes.`,
+    );
+  }
+  return value;
 }

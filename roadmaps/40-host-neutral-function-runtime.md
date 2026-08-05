@@ -8,9 +8,9 @@ vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
 Function API Core direction and focused preflight recorded below are accepted,
-and `FAC01`, the shared invocation-context foundation for the currently
-selected query and mutation profiles, is implemented and validated. The next
-gate is the bounded shared point-reader facade preflight described below.
+and `FAC01` through `FAC05` are implemented and validated. The next gate is a
+fresh `FAC06` preflight for normal `ctx.*` analyzer lowering and removal of
+synthetic private-platform authoring where current evidence permits it.
 Production routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
@@ -1360,6 +1360,135 @@ handler, was regenerated and fully revalidated, and both reviewers accepted the
 exact final staged diff. The code-quality review confirmed the positive
 capability profiles, private terminal poisoning, journal ordering,
 read-your-writes behavior, and generated identities remain intact.
+
+### `FAC05` Shared Declared-Application-Error Preflight Decision
+
+**Accepted:** 2026-08-06
+
+Current Convex defines public `ConvexError<TData>` with one application-owned
+`data` value, identifies it through a `Symbol.for("ConvexError")` property, and
+serializes its data at the function invocation boundary. Flarex must not copy
+that public representation in this slice. Declarative V2 already assigns safe
+operation 18 and its throw/catch rules to
+`CoreApplicationErrorV1(code, message, data?)`; changing that shape, name,
+marker, or analyzer operation would be a separately versioned authoring and
+protocol decision. A public symbol marker would also weaken the current exact
+Worker trust model by making declared-error identity forgeable by application
+code.
+
+The useful Convex alignment is architectural: one runtime owner constructs and
+recognizes the declared application error, while capability-specific invocation
+code merely propagates it. Today the mutation/internal-query and
+mutation/internal-call kernels duplicate the same code/message capture, data
+normalization handoff, frozen capture record, native `Error` construction,
+name projection, closure-owned `WeakMap`, inspection, and accessor mechanics.
+Their generated private `flarex:platform` modules repeat the same implementation
+again under profile-specific function names.
+
+`FAC05` moves those exact shared mechanics into one exact-Worker-scoped registry
+factory in Function API Core. The factory:
+
+- captures code, then message, then optional data in that exact order;
+- preserves the nonempty and 1,024-UTF-8-byte text rules and their diagnostic;
+- delegates data normalization to the selected profile's existing canonical
+  runtime-value normalizer without catching or translating its failure;
+- omits `data` when the supplied value is `undefined`, otherwise preserves the
+  normalizer's returned canonical value by identity in a frozen capture record;
+- creates the same mutable native `Error` with message and non-enumerable fixed
+  name `CoreApplicationErrorV1`;
+- recognizes only errors created by that registry through a closure-owned
+  `WeakMap`, so a matching name or user-created property cannot forge
+  catchability; and
+- delegates invalid construction/access to the profile's existing
+  `ApplicationV1Error("argumentsInvalid", detail?)` constructor so profile
+  failure identity and outer runtime classification remain unchanged.
+
+The two profile kernels retain only their canonical data-normalization adapter
+and their distinct application, terminal, contract, user-code, journal, call-
+budget, snapshot, and journal semantics. Their private platform modules become
+thin named adapters over the shared registry. The mutation/internal-query exact
+graph deliberately gains the already-versioned `flarex:function-api-core/v1`
+support module; the mutation/internal-call graph already carries it. Both graph
+consumers of the registry refresh deliberately. Because the
+point-query/internal-call graph
+also commits Function API Core, all three graph bases and derived candidate
+runtime targets refresh with the new shared-core identity even though only the
+two mutation profiles consume the registry in this slice.
+
+There is no process-global registry: each exact Worker module evaluation owns
+one registry, and separate Workers/profiles cannot recognize one another's
+errors.
+
+Rejected are replacing `CoreApplicationErrorV1` with public `ConvexError`, a
+global symbol or structural marker, changing code/message/data or analyzer
+operations, exporting a developer-facing error API, treating ordinary
+argument/result validation failures as declared errors, sharing the profile
+error classes, making arbitrary thrown values catchable, moving nested-call or
+terminal classification into the registry, swallowing data-normalization
+defects, or changing a snapshot, journal, persistence, OCC, commit, action,
+activation, route, or production owner. The temporary private platform ABI and
+its removal gate remain unchanged.
+
+The implementation gate requires Function API Core tests for capture order,
+byte bounds, omitted versus present data, frozen capture ownership, native
+error shape, registry isolation, spoof rejection, invalid access, and preserved
+normalizer failures; removal of both full profile-local capture implementations;
+the internal-query graph's support-module identity plus both refreshed graph
+bases and derived targets; existing application catch/rethrow evidence in both
+Workerd profiles; deterministic refresh of Function API Core and both runtime
+kernels; full function-runtime and backend generated builds; SAP06-A2 and
+SAP06-A3 under PGlite and genuine PostgreSQL; Effect-boundary checks; both
+mandatory exact-final reviewers; and one commit.
+
+### `FAC05` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+Function API Core now owns one exact-Worker-scoped declared-application-error
+registry factory. It preserves code-before-message-before-data capture,
+the 1,024-UTF-8-byte text bounds and diagnostics, omitted `data`, canonical
+runtime-value identity, the mutable native `Error` projection, and
+closure-owned unforgeable recognition. The two selected mutation profiles now
+retain only their existing canonical data normalizers and typed invalid-input
+adapters; their generated private platform modules are thin profile-named
+projections over the shared registry. The mutation/internal-query graph now
+commits the already-versioned Function API Core support module it imports.
+
+The deterministic generated closure is:
+
+- Function API Core
+  `dfa95f0396509503cf238268c8b4c79c3f41364acf3218bd9de699c07db03666`;
+- point-mutation internal-query kernel
+  `fdb0fa34336b5491424b6538ae283f8c34d5368628cadedd80d9264b41271ccc`;
+  and
+- point-mutation internal-call kernel
+  `7b8fddf09d35d246ab6a62f6353ae6617dc0c2f92f63510a7219c1ab16776621`.
+
+Validation passed both affected package typechecks, all 53 function-runtime
+tests, the focused generated-identity and both Workerd suites (10 tests), the
+complete backend generated build, and the workspace Effect-boundary check.
+SAP06-A2 and SAP06-A3 passed under PGlite and against a fresh PostgreSQL 18
+cluster; the PostgreSQL lanes covered two tests each. The changed operation is
+a pure synchronous private registry with no resource lifetime, cancellation,
+retry, recovery, or asynchronous failure channel, so an Effect service, Layer,
+or Effect error channel is not applicable. Profile-owned normalizer failures
+and typed `ApplicationV1Error` construction remain at their existing
+boundaries.
+
+No analyzer operation, public developer API, protocol identity, schema,
+persistence, snapshot, journal, OCC, commit, action, activation, route, or
+production authority changed. No global or structural marker, alternate
+acceptance path, or duplicate full profile-local capture implementation
+remains.
+
+Both mandatory exact-final reviewers accepted the implementation and generated
+closure. The TypeScript/Effect reviewer reported no actionable findings and
+confirmed that the synchronous Worker-scoped factory is the correct lifecycle
+and immediate-throw boundary. The code-quality reviewer found no behavioral or
+trust-boundary defect and identified one documentation-only mismatch: status
+still named `FAC05` as current and described only two refreshed graph
+identities. This final receipt and status now distinguish the two registry
+consumers from all three shared-core graph commitments.
 
 ### Sequenced Follow-On Slices
 
