@@ -14,7 +14,36 @@ fixture succeeds.
 
 ## Open Issues
 
-None.
+### `ST-CORE-007` — Construction diagnostic after a direct call loses record order
+
+- **Status:** Open; no shared-core correction is authorized by the cooking
+  simulation slice.
+- **Discovered by:** `SAC01-F2h` cooking user-code failure-atomicity expansion.
+- **Observed boundary:** Declarative V2 restart-evidence production before
+  registration or runtime dispatch.
+- **Reproduction:** In an otherwise accepted point mutation, make one direct
+  `databasePatch(...)` platform call and then execute
+  `throw new Error("injected")`. The analyzer correctly treats `new Error()` as
+  unsupported `CORE_CONSTRUCTION` syntax, but restart-evidence preparation
+  fails first with
+  `DeclarativeV2VerifierRestartRuntimeV1Error`, operation `produce`, reason
+  `corruption`, path `recordOrder`.
+- **Expected:** Diagnostic-bearing rejected source produces canonical restart
+  evidence and reports its originating typed construction diagnostic. The
+  already resolved `ST-CORE-006` establishes parser-terminal ownership for
+  canonical-rejected construction tokens, but this direct-call-before-
+  diagnostic ordering remains uncovered.
+- **Current constraint:** The failure-atomicity mutation uses the analyzer-
+  accepted `throw "injected"` form. It remains in the real multi-export patch
+  module, stages the same database write, and exercises the same executor-owned
+  user-code-failure rollback boundary. There is no fallback or alternate
+  analysis path.
+- **Owner:** Declarative V2 parse-record production and restart-sequence
+  composition. A fix requires its own focused preflight and approval.
+- **Required acceptance evidence:** A minimized direct-call-then-construction-
+  diagnostic analyzer vector, exact canonical record ordering, warm/cold
+  restart replay, and preservation of the originating typed diagnostic without
+  changing protocol identity or weakening fail-closed validation.
 
 ## Investigation Leads
 

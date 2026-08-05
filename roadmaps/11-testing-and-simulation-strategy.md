@@ -416,6 +416,16 @@ Named Flarex differences are:
   multi-row isolation evidence over existing point operations, not a multi-row
   atomic mutation, relation traversal, index scan, reference model, controlled
   scheduler, or public Test SDK.
+- `SAC01-F2h` adds user-code failure atomicity to that same cooking revision.
+  Two declared point mutations each stage a real recipe patch: one then returns
+  a value rejected by its Standard return validator and one throws from user
+  code. Both must surface the executor-owned
+  `PointMutationOccUserCodeV1Error`, execute exactly once, and leave current
+  rows, revision history, committed idempotency outcomes, commit feed, and
+  outbox unchanged. An authoritative read after both failures must recover the
+  original recipe value before the successful lifecycle continues. This is
+  application-level rollback evidence over the existing journal/OCC/commit
+  owner; it adds no alternate transaction, retry, savepoint, or failure API.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate

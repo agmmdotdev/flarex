@@ -6,6 +6,8 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
+import { PointMutationOccUserCodeV1Error } from
+  "@flarex/executor/internal/stored-attempt-authentication-v1";
 
 import {
   standardV1,
@@ -50,6 +52,10 @@ export interface CookingWorkloadProofV1 {
   readonly multipleRecipesIsolated: true;
   readonly optionalFieldOmissionRoundTrip: true;
   readonly unicodeRecordRoundTrip: true;
+  readonly invalidReturnRollsBack: true;
+  readonly thrownFailureRollsBack: true;
+  readonly failedMutationsReachedRuntime: true;
+  readonly failedMutationStateUnchanged: true;
   readonly patchReplay: true;
   readonly replaceReplay: true;
   readonly assessmentUsesCustomLogic: true;
@@ -74,6 +80,15 @@ type CookingWorkloadErrorV1 =
   | InvokeStandardApplicationPointQueryV1Error
   | StandardApplicationSystemTestInspectionV1Error
   | StandardApplicationTypedReferenceV1Error;
+
+type CookingMutationInvocationErrorV1 =
+  | InvokeStandardApplicationPointMutationV1Error
+  | StandardApplicationTypedReferenceV1Error;
+
+type CookingUserCodeFailureV1 = Extract<
+  CookingMutationInvocationErrorV1,
+  PointMutationOccUserCodeV1Error
+>;
 
 type CookingMutationAttemptResultV1 = Result.Result<
   AuthoritativeCommittedApplicationPointMutationOutcomeV1,
@@ -116,6 +131,13 @@ const COOKING_UNEXPECTED_FIELD_REQUEST_KEY =
 const COOKING_SECOND_RECIPE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:create-second",
 );
+const COOKING_INVALID_RETURN_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "sac01:cooking:patch-invalid-return",
+);
+const COOKING_THROW_AFTER_PATCH_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:patch-then-throw",
+  );
 const COOKING_PATCH_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:patch",
 );
@@ -426,6 +448,14 @@ const COOKING_PATCH_MODULE = standardV1.module("recipePatch", {
     }),
     returns: standardV1.null(),
   }),
+  patchThenReturnInvalid: standardV1.publicMutation({
+    args: standardV1.object({ id: standardV1.id("recipes") }),
+    returns: standardV1.null(),
+  }),
+  patchThenThrow: standardV1.publicMutation({
+    args: standardV1.object({ id: standardV1.id("recipes") }),
+    returns: standardV1.null(),
+  }),
 });
 const COOKING_REPLACE_MODULE = standardV1.module("recipeReplace", {
   replace: standardV1.publicMutation({
@@ -474,6 +504,10 @@ const COOKING_WORKFLOW_MODULE = standardV1.module("recipeWorkflows", {
 });
 const COOKING_CREATE = COOKING_MUTATION_MODULE.reference("create");
 const COOKING_PATCH_FUNCTION = COOKING_PATCH_MODULE.reference("patch");
+const COOKING_PATCH_THEN_RETURN_INVALID =
+  COOKING_PATCH_MODULE.reference("patchThenReturnInvalid");
+const COOKING_PATCH_THEN_THROW =
+  COOKING_PATCH_MODULE.reference("patchThenThrow");
 const COOKING_REPLACE = COOKING_REPLACE_MODULE.reference("replace");
 const COOKING_DELETE = COOKING_DELETE_MODULE.reference("remove");
 const COOKING_GET = COOKING_QUERY_MODULE.reference("get");
@@ -666,6 +700,41 @@ const runCookingWorkloadV1 = Effect.fn(
     COOKING_SECOND_RECIPE,
   );
 
+  const beforeFailedMutations = yield* client.inspectAuthoritativeState();
+  const invalidReturnResult = yield* Effect.result(client.mutation(
+    COOKING_PATCH_THEN_RETURN_INVALID,
+    { id: setup.documentId },
+    COOKING_INVALID_RETURN_REQUEST_KEY,
+  ));
+  requireUserCodeFailure(
+    invalidReturnResult,
+    "patch with invalid return value",
+  );
+  const thrownMutationResult = yield* Effect.result(client.mutation(
+    COOKING_PATCH_THEN_THROW,
+    { id: setup.documentId },
+    COOKING_THROW_AFTER_PATCH_REQUEST_KEY,
+  ));
+  requireUserCodeFailure(
+    thrownMutationResult,
+    "patch followed by a user-code throw",
+  );
+  const afterFailedMutations = yield* client.inspectAuthoritativeState();
+  requireFailedMutationRollback(
+    beforeFailedMutations,
+    afterFailedMutations,
+    2,
+  );
+  const primaryReadAfterFailedMutations = yield* client.query(
+    COOKING_GET,
+    { id: setup.documentId },
+  );
+  requireRecipeDocument(
+    primaryReadAfterFailedMutations,
+    setup.documentId,
+    COOKING_RECIPE,
+  );
+
   const patched = yield* client.mutation(
     COOKING_PATCH_FUNCTION,
     { id: setup.documentId, patch: COOKING_PATCH },
@@ -828,6 +897,10 @@ const runCookingWorkloadV1 = Effect.fn(
     multipleRecipesIsolated: true,
     optionalFieldOmissionRoundTrip: true,
     unicodeRecordRoundTrip: true,
+    invalidReturnRollsBack: true,
+    thrownFailureRollsBack: true,
+    failedMutationsReachedRuntime: true,
+    failedMutationStateUnchanged: true,
     patchReplay: true,
     replaceReplay: true,
     assessmentUsesCustomLogic: true,
@@ -904,6 +977,36 @@ function requireArgumentValidationFailure(
   }
 }
 
+function requireUserCodeFailure<Success>(
+  result: Result.Result<Success, CookingMutationInvocationErrorV1>,
+  scenario: string,
+): void {
+  const observation = Result.match(result, {
+    onFailure: failure => ({
+      rejectedAsExpected:
+        failure instanceof PointMutationOccUserCodeV1Error &&
+        hasExpectedUserCodeFailureCause(failure),
+      outcome: failureName(failure),
+    }),
+    onSuccess: () => ({
+      rejectedAsExpected: false,
+      outcome: "success",
+    }),
+  });
+  if (!observation.rejectedAsExpected) {
+    throw new Error(
+      `The cooking ${scenario} scenario produced ${observation.outcome} instead of the expected user-code failure.`,
+    );
+  }
+}
+
+function hasExpectedUserCodeFailureCause(
+  failure: CookingUserCodeFailureV1,
+): boolean {
+  return failure.cause instanceof Error &&
+    failure.cause.message === "Exact point-mutation user code failed.";
+}
+
 function matchesExpectedArgumentIssue(
   actual: ValidatorValueIssueV1,
   expected: CookingExpectedArgumentIssueV1,
@@ -959,6 +1062,36 @@ function requireNoRejectedMutationSideEffects(
   ) {
     throw new Error(
       "Rejected cooking arguments reached runtime or changed authoritative committed state.",
+    );
+  }
+}
+
+function requireFailedMutationRollback(
+  before: StandardApplicationAuthoritativeInspectionV1,
+  after: StandardApplicationAuthoritativeInspectionV1,
+  expectedRuntimeExecutions: number,
+): void {
+  if (
+    after.mutationRuntimeExecutions !==
+      before.mutationRuntimeExecutions + expectedRuntimeExecutions ||
+    after.queryRuntimeExecutions !== before.queryRuntimeExecutions ||
+    !sameCurrentRows(before.currentRows, after.currentRows) ||
+    after.currentRowCount !== before.currentRowCount ||
+    after.liveRowCount !== before.liveRowCount ||
+    after.revisionRowCount !== before.revisionRowCount ||
+    !sameStrings(before.commitSeqs, after.commitSeqs) ||
+    !sameStrings(
+      before.idempotencyOutcomeCommitSeqs,
+      after.idempotencyOutcomeCommitSeqs,
+    ) ||
+    !sameStrings(
+      before.commitFeedCommitSeqs,
+      after.commitFeedCommitSeqs,
+    ) ||
+    !sameStrings(before.outboxCommitSeqs, after.outboxCommitSeqs)
+  ) {
+    throw new Error(
+      "Failed cooking mutations exposed staged writes or committed evidence.",
     );
   }
 }
@@ -1081,7 +1214,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 6,
-    queries: 9,
+    mutations: 8,
+    queries: 10,
   },
 });
