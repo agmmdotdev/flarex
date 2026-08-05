@@ -343,6 +343,19 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
+        "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts",
+      text: `
+        import type {
+          InvalidTaskWakeSchedulerConfigurationError,
+        } from "@flarex/durable-task/internal/scheduling-v1";
+        import {
+          makeTaskSystemWakeSchedulerPartitionV1,
+        } from "./taskSystemWakeSchedulerPartitionV1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
         "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts",
       text: `
         import {
@@ -457,6 +470,12 @@ describe("Trigger compatibility boundary checker", () => {
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
         import { makeInMemoryTaskDueWorkSourceV1 } from "@flarex/durable-task/internal/scheduling-testing-v1";
       `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts",
+      text: `
+        import { makeTaskWakeSchedulerV1 } from "@flarex/durable-task/internal/scheduling-v1";
+      `,
     }]).errors).toEqual([
       `${schemaPath}:2 production source must not activate @flarex/durable-task before host admission.`,
       `${schemaPath}:3 production source must not activate @flarex/durable-task before host admission.`,
@@ -467,6 +486,7 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/persistence-postgres/src/taskSystemRunReadV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
     ]);
   });
 
@@ -523,6 +543,48 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/flarex-backend/src/taskScheduler.ts:2 production source must not activate the Task wake scheduler partition before host admission.",
       "packages/flarex-backend/src/taskSchedulerNodeNext.ts:2 production source must not activate the Task wake scheduler partition before host admission.",
       "packages/flarex-backend/src/taskSchedulerBundled.ts:2 production source must not activate the Task wake scheduler partition before host admission.",
+    ]);
+  });
+
+  it("keeps the Task wake scheduler directory production-inert", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "apps/executor/src/taskSchedulerDirectory.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerDirectoryV1 } from
+          "@flarex/persistence-postgres/internal/task-wake-scheduler-directory-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/taskSchedulerDirectory.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerDirectoryV1 } from
+          "../../persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts";
+      `,
+    }, {
+      relativePath:
+        "packages/flarex-backend/src/taskSchedulerDirectoryNodeNext.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerDirectoryV1 } from
+          "../../persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.js";
+      `,
+    }, {
+      relativePath:
+        "packages/flarex-backend/src/taskSchedulerDirectoryBundled.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerDirectoryV1 } from
+          "../../persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1";
+      `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/test/taskSystemWakeSchedulerDirectory.test.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerDirectoryV1 } from
+          "../src/taskSystemWakeSchedulerDirectoryV1.ts";
+      `,
+    }]).errors).toEqual([
+      "apps/executor/src/taskSchedulerDirectory.ts:2 production source must not activate the Task wake scheduler directory before host admission.",
+      "packages/flarex-backend/src/taskSchedulerDirectory.ts:2 production source must not activate the Task wake scheduler directory before host admission.",
+      "packages/flarex-backend/src/taskSchedulerDirectoryNodeNext.ts:2 production source must not activate the Task wake scheduler directory before host admission.",
+      "packages/flarex-backend/src/taskSchedulerDirectoryBundled.ts:2 production source must not activate the Task wake scheduler directory before host admission.",
     ]);
   });
 

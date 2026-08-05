@@ -6,8 +6,8 @@
 pins the first Trigger scheduling sources. DTE05-B completes the first
 implementation checkpoint: one scope-bound, production-inert scheduler core,
 its narrow ports, and deterministic in-memory adapters. DTE05-C1 completes
-one already-resolved trusted-scope Postgres composition. Global
-partition discovery remains DTE05-C2 and requires a separate preflight. No
+one already-resolved trusted-scope Postgres composition, and DTE05-C2 completes
+the production-inert trusted partition directory. No
 Cloudflare binding, cross-scope scheduler host, deployment configuration, or
 production activation is authorized.
 
@@ -229,15 +229,35 @@ Completion evidence on 2026-08-05:
   boundary, and all 56 script tests passed. No production package consumes the
   new persistence subpath.
 
-#### DTE05-C2: Trusted Partition Directory — Pending
+#### DTE05-C2: Trusted Partition Directory — Complete
 
-- define a scheduler-only trusted partition authority derived from located
-  Flarex scope authority;
-- discover active scopes or partitions without accepting caller-selected scope
-  IDs;
-- preserve bounded stable snapshots and non-disclosure;
-- prove bounded directory ordering, placement changes, restart, and
-  non-disclosure without reinterpreting the point-mutation scheduler owner.
+The owning preflight is
+[`preflight/27-dte05-trusted-partition-directory.md`](./preflight/27-dte05-trusted-partition-directory.md).
+
+- extract only the generic stable replacement-scope directory kernel while
+  preserving the exact point-mutation adapter contract;
+- discover bounded inert partition hints without caller-selected scope IDs;
+- freshly resolve and correlate located authority for every hint before
+  constructing a new DTE05-C1 scheduler;
+- expose no locator, database, transaction, or authority record; and
+- prove stable snapshots, placement changes, restart, and non-disclosure in
+  PGlite and genuine PostgreSQL without importing the point-mutation scheduler.
+
+Completion evidence on 2026-08-06:
+
+- the full 27-package workspace typecheck passed;
+- all 73 durable-task tests and all 11 existing executor multi-scope
+  point-mutation scheduler tests passed;
+- the 11-test C2 PGlite lane preserved the existing point-mutation directory
+  contract and proved task-directory discovery, fresh authority resolution,
+  stable high-water paging, mismatch failure, C1 settlement, and
+  reconstruction;
+- the four-test genuine-PostgreSQL C2 lane preserved duplicate-scan and bounded
+  primary-key plan proofs and completed the real task-directory flow, while the
+  two-test C1 PostgreSQL regression also passed; and
+- the 65-vector lifecycle gate, 29-entry source-map gate, Trigger boundary,
+  Standard Application boundary, and all 57 script tests passed. No production
+  package consumes the new private directory subpath.
 
 ### DTE05-D: Queue Wake Hints — Pending
 

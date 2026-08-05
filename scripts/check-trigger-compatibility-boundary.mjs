@@ -28,6 +28,8 @@ const persistencePostgresTaskSystemRunReadPath =
   "packages/persistence-postgres/src/taskSystemRunReadV1.ts";
 const persistencePostgresTaskWakeSchedulerPartitionPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
+const persistencePostgresTaskWakeSchedulerDirectoryPath =
+  "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -176,6 +178,12 @@ const admittedPersistenceTaskWakeSchedulerSymbolsBySpecifier = new Map([
     "makeTaskWakeSchedulerV1",
   ])],
 ]);
+const admittedPersistenceTaskWakeSchedulerDirectorySymbolsBySpecifier =
+  new Map([
+    ["@flarex/durable-task/internal/scheduling-v1", new Set([
+      "InvalidTaskWakeSchedulerConfigurationError",
+    ])],
+  ]);
 const durableTaskAllowedExports = Object.freeze({
   "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
   "./internal/run-creation-v1": "./src/runCreation/v1.ts",
@@ -337,11 +345,22 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         specifier !== undefined
         && isProductionSource(relativePath)
         && isTaskWakeSchedulerPartitionSpecifier(specifier, relativePath)
+        && relativePath !== persistencePostgresTaskWakeSchedulerDirectoryPath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
         ).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate the Task wake scheduler partition before host admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isTaskWakeSchedulerDirectorySpecifier(specifier, relativePath)
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task wake scheduler directory before host admission.`);
       }
       if (
         specifier !== undefined
@@ -742,6 +761,18 @@ function isTaskWakeSchedulerPartitionSpecifier(specifier, relativePath) {
     || resolved === `${targetWithoutExtension}.js`;
 }
 
+/** @param {string} specifier @param {string} relativePath */
+function isTaskWakeSchedulerDirectorySpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const targetWithoutExtension =
+    persistencePostgresTaskWakeSchedulerDirectoryPath.slice(0, -3);
+  return normalized === "@flarex/persistence-postgres/internal/task-wake-scheduler-directory-v1"
+    || resolved === persistencePostgresTaskWakeSchedulerDirectoryPath
+    || resolved === targetWithoutExtension
+    || resolved === `${targetWithoutExtension}.js`;
+}
+
 /** @param {string} specifier */
 function isDurableTaskPackageSpecifier(specifier) {
   return specifier === expectedTargetPackage || specifier.startsWith(`${expectedTargetPackage}/`);
@@ -837,6 +868,10 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     ? admittedPersistenceTaskSystemRunReadSymbolsBySpecifier.get(specifier)
     : relativePath === persistencePostgresTaskWakeSchedulerPartitionPath
     ? admittedPersistenceTaskWakeSchedulerSymbolsBySpecifier.get(specifier)
+    : relativePath === persistencePostgresTaskWakeSchedulerDirectoryPath
+    ? admittedPersistenceTaskWakeSchedulerDirectorySymbolsBySpecifier.get(
+      specifier,
+    )
     : undefined;
   if (
     admittedSymbols === undefined
