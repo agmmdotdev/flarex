@@ -39,12 +39,17 @@ import { makeCreateAndReadDefinitionV1 } from
 
 export interface CookingWorkloadProofV1 {
   readonly documentId: string;
+  readonly secondaryDocumentId: string;
   readonly richDocumentRoundTrip: true;
-  readonly rejectedInvalidMutations: 2;
+  readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
   readonly mutationReplay: true;
+  readonly secondaryMutationReplay: true;
   readonly queryReplay: true;
+  readonly multipleRecipesIsolated: true;
+  readonly optionalFieldOmissionRoundTrip: true;
+  readonly unicodeRecordRoundTrip: true;
   readonly patchReplay: true;
   readonly replaceReplay: true;
   readonly assessmentUsesCustomLogic: true;
@@ -77,7 +82,13 @@ type CookingMutationAttemptResultV1 = Result.Result<
 
 type CookingExpectedArgumentIssueV1 = Extract<
   ValidatorValueIssueV1,
-  { readonly reason: "typeMismatch" | "missingRequiredField" }
+  {
+    readonly reason:
+      | "typeMismatch"
+      | "missingRequiredField"
+      | "unexpectedField"
+      | "unionMismatch";
+  }
 >;
 
 const COOKING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
@@ -89,6 +100,21 @@ const COOKING_INVALID_AMOUNT_REQUEST_KEY =
   );
 const COOKING_MISSING_NAME_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:missing-ingredient-name",
+);
+const COOKING_INVALID_DIFFICULTY_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:invalid-difficulty",
+  );
+const COOKING_INVALID_LOCALIZED_TITLE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:invalid-localized-title",
+  );
+const COOKING_UNEXPECTED_FIELD_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:unexpected-field",
+  );
+const COOKING_SECOND_RECIPE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "sac01:cooking:create-second",
 );
 const COOKING_PATCH_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:patch",
@@ -189,6 +215,54 @@ const COOKING_RECIPE_WITH_MISSING_INGREDIENT_NAME = {
     unit: "whole",
     note: "ripe",
   }, COOKING_RECIPE.ingredients[1]],
+} as const;
+const COOKING_RECIPE_WITH_INVALID_DIFFICULTY = {
+  ...COOKING_RECIPE,
+  difficulty: "expert",
+} as const;
+const COOKING_RECIPE_WITH_INVALID_LOCALIZED_TITLE = {
+  ...COOKING_RECIPE,
+  localizedTitles: {
+    en: 42,
+  },
+} as const;
+const COOKING_RECIPE_WITH_UNEXPECTED_FIELD = {
+  ...COOKING_RECIPE,
+  internalNotes: "This field is not part of the recipe contract.",
+} as const;
+const COOKING_SECOND_RECIPE = {
+  title: "Mohinga",
+  servings: 2,
+  difficulty: "easy",
+  published: false,
+  tags: [],
+  ingredients: [{
+    name: "Rice noodles",
+    amount: 250,
+    unit: "g",
+  }, {
+    name: "Fish broth",
+    amount: 600,
+    unit: "ml",
+    note: "warm",
+  }],
+  steps: [{
+    position: 1,
+    instruction: "Warm the broth.",
+    durationMinutes: 10,
+  }, {
+    position: 2,
+    instruction: "Add noodles and serve.",
+  }],
+  nutrition: {
+    caloriesPerServing: 410,
+    vegetarian: false,
+  },
+  localizedTitles: {
+    en: "Mohinga",
+    my: "မုန့်ဟင်းခါး",
+  },
+  source: null,
 } as const;
 const COOKING_PATCH = {
   description: "A doubled batch for the freezer.",
@@ -472,6 +546,54 @@ const runCookingWorkloadV1 = Effect.fn(
       expected: "number",
     },
   );
+  const invalidDifficultyResult = yield* Effect.result(
+    client.unsafeInvokeMutation(
+      TransactionFunctionPathV1Schema.make(COOKING_CREATE.path),
+      COOKING_RECIPE_WITH_INVALID_DIFFICULTY,
+      COOKING_INVALID_DIFFICULTY_REQUEST_KEY,
+    ),
+  );
+  requireArgumentValidationFailure(
+    invalidDifficultyResult,
+    "invalid difficulty literal union",
+    {
+      reason: "unionMismatch",
+      path: "$args.difficulty",
+      memberCount: 3,
+    },
+  );
+  const invalidLocalizedTitleResult = yield* Effect.result(
+    client.unsafeInvokeMutation(
+      TransactionFunctionPathV1Schema.make(COOKING_CREATE.path),
+      COOKING_RECIPE_WITH_INVALID_LOCALIZED_TITLE,
+      COOKING_INVALID_LOCALIZED_TITLE_REQUEST_KEY,
+    ),
+  );
+  requireArgumentValidationFailure(
+    invalidLocalizedTitleResult,
+    "invalid localized-title record value",
+    {
+      reason: "typeMismatch",
+      path: "$args.localizedTitles.en",
+      expected: "string",
+    },
+  );
+  const unexpectedFieldResult = yield* Effect.result(
+    client.unsafeInvokeMutation(
+      TransactionFunctionPathV1Schema.make(COOKING_CREATE.path),
+      COOKING_RECIPE_WITH_UNEXPECTED_FIELD,
+      COOKING_UNEXPECTED_FIELD_REQUEST_KEY,
+    ),
+  );
+  requireArgumentValidationFailure(
+    unexpectedFieldResult,
+    "unexpected top-level field",
+    {
+      reason: "unexpectedField",
+      path: "$args.internalNotes",
+      field: "internalNotes",
+    },
+  );
   const missingNameResult = yield* Effect.result(client.unsafeInvokeMutation(
     TransactionFunctionPathV1Schema.make(COOKING_CREATE.path),
     COOKING_RECIPE_WITH_MISSING_INGREDIENT_NAME,
@@ -503,6 +625,47 @@ const runCookingWorkloadV1 = Effect.fn(
     ));
   }
 
+  const secondaryInserted = yield* client.mutation(
+    COOKING_CREATE,
+    COOKING_SECOND_RECIPE,
+    COOKING_SECOND_RECIPE_REQUEST_KEY,
+  );
+  if (
+    secondaryInserted.status !== "committed" ||
+    secondaryInserted.disposition !== "published" ||
+    secondaryInserted.commitSeq !== setup.commitSeq + 1n ||
+    typeof secondaryInserted.value !== "string" ||
+    secondaryInserted.value === setup.documentId
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking workload did not publish an independent second recipe.",
+    ));
+  }
+  const secondaryDocumentId = secondaryInserted.value;
+  const replayedSecondaryMutation = yield* client.mutation(
+    COOKING_CREATE,
+    COOKING_SECOND_RECIPE,
+    COOKING_SECOND_RECIPE_REQUEST_KEY,
+  );
+  if (
+    replayedSecondaryMutation.disposition !== "replayed" ||
+    replayedSecondaryMutation.commitSeq !== secondaryInserted.commitSeq ||
+    replayedSecondaryMutation.value !== secondaryDocumentId
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking workload did not replay the second recipe creation.",
+    ));
+  }
+  const secondaryRead = yield* client.query(
+    COOKING_GET,
+    { id: secondaryDocumentId },
+  );
+  requireRecipeDocument(
+    secondaryRead,
+    secondaryDocumentId,
+    COOKING_SECOND_RECIPE,
+  );
+
   const patched = yield* client.mutation(
     COOKING_PATCH_FUNCTION,
     { id: setup.documentId, patch: COOKING_PATCH },
@@ -512,7 +675,7 @@ const runCookingWorkloadV1 = Effect.fn(
     patched,
     "patch",
     "published",
-    setup.commitSeq + 1n,
+    setup.commitSeq + 2n,
   );
   const replayedPatch = yield* client.mutation(
     COOKING_PATCH_FUNCTION,
@@ -544,7 +707,7 @@ const runCookingWorkloadV1 = Effect.fn(
     replaced,
     "replace",
     "published",
-    setup.commitSeq + 2n,
+    setup.commitSeq + 3n,
   );
   const replayedReplace = yield* client.mutation(
     COOKING_REPLACE,
@@ -586,7 +749,7 @@ const runCookingWorkloadV1 = Effect.fn(
     published,
     "nested publish",
     "published",
-    setup.commitSeq + 3n,
+    setup.commitSeq + 4n,
     COOKING_PUBLISH_RECEIPT,
   );
   const replayedPublish = yield* client.mutation(
@@ -620,7 +783,7 @@ const runCookingWorkloadV1 = Effect.fn(
     deleted,
     "delete",
     "published",
-    setup.commitSeq + 4n,
+    setup.commitSeq + 5n,
   );
   const replayedDelete = yield* client.mutation(
     COOKING_DELETE,
@@ -642,15 +805,29 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking workload read a deleted recipe instead of null.",
     ));
   }
+  const secondaryReadAfterPrimaryDelete = yield* client.query(
+    COOKING_GET,
+    { id: secondaryDocumentId },
+  );
+  requireRecipeDocument(
+    secondaryReadAfterPrimaryDelete,
+    secondaryDocumentId,
+    COOKING_SECOND_RECIPE,
+  );
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
+    secondaryDocumentId,
     richDocumentRoundTrip: true,
-    rejectedInvalidMutations: 2,
+    rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
     mutationReplay: true,
+    secondaryMutationReplay: true,
     queryReplay: true,
+    multipleRecipesIsolated: true,
+    optionalFieldOmissionRoundTrip: true,
+    unicodeRecordRoundTrip: true,
     patchReplay: true,
     replaceReplay: true,
     assessmentUsesCustomLogic: true,
@@ -740,6 +917,14 @@ function matchesExpectedArgumentIssue(
       return actual.reason === "missingRequiredField" &&
         actual.path === expected.path &&
         actual.field === expected.field;
+    case "unexpectedField":
+      return actual.reason === "unexpectedField" &&
+        actual.path === expected.path &&
+        actual.field === expected.field;
+    case "unionMismatch":
+      return actual.reason === "unionMismatch" &&
+        actual.path === expected.path &&
+        actual.memberCount === expected.memberCount;
   }
 }
 
@@ -896,7 +1081,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 5,
-    queries: 7,
+    mutations: 6,
+    queries: 9,
   },
 });

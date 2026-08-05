@@ -28,11 +28,15 @@ it("runs the cooking simulation through the real Standard path", async () => {
     definitionAnalyzedRegisteredReadyActivated: true,
     workloadProof: {
       richDocumentRoundTrip: true,
-      rejectedInvalidMutations: 2,
+      rejectedInvalidMutations: 5,
       invalidArgumentsRejectedBeforeRuntime: true,
       committedStateUnchangedAfterRejections: true,
       mutationReplay: true,
+      secondaryMutationReplay: true,
       queryReplay: true,
+      multipleRecipesIsolated: true,
+      optionalFieldOmissionRoundTrip: true,
+      unicodeRecordRoundTrip: true,
       patchReplay: true,
       replaceReplay: true,
       assessmentUsesCustomLogic: true,
@@ -45,11 +49,15 @@ it("runs the cooking simulation through the real Standard path", async () => {
       pointMutationLifecycle: true,
       deletedDocumentReadsNull: true,
     },
-    mutationRuntimeExecutions: 5,
-    queryRuntimeExecutions: 7,
+    mutationRuntimeExecutions: 6,
+    queryRuntimeExecutions: 9,
     postgresVersion: null,
   });
   expect(proof.workloadProof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
+  expect(proof.workloadProof.secondaryDocumentId)
+    .toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
+  expect(proof.workloadProof.secondaryDocumentId)
+    .not.toBe(proof.workloadProof.documentId);
   expectSinglePublicationInspectionV1(
     proof.afterSetupInspection,
     "recipes",
@@ -57,23 +65,29 @@ it("runs the cooking simulation through the real Standard path", async () => {
     1,
     0,
   );
+  const currentRows = [{
+    tableName: "recipes",
+    documentId: proof.workloadProof.documentId,
+    commitSeq: "6",
+    valueState: "tombstone",
+  }, {
+    tableName: "recipes",
+    documentId: proof.workloadProof.secondaryDocumentId,
+    commitSeq: "2",
+    valueState: "live",
+  }].sort((left, right) => left.documentId < right.documentId ? -1 : 1);
   const lifecycleInspection = {
     version: 1,
-    currentRows: [{
-      tableName: "recipes",
-      documentId: proof.workloadProof.documentId,
-      commitSeq: "5",
-      valueState: "tombstone",
-    }],
-    currentRowCount: 1,
-    liveRowCount: 0,
-    revisionRowCount: 5,
-    commitSeqs: ["1", "2", "3", "4", "5"],
-    idempotencyOutcomeCommitSeqs: ["1", "2", "3", "4", "5"],
-    commitFeedCommitSeqs: ["1", "2", "3", "4", "5"],
-    outboxCommitSeqs: ["1", "2", "3", "4", "5"],
-    mutationRuntimeExecutions: 5,
-    queryRuntimeExecutions: 7,
+    currentRows,
+    currentRowCount: 2,
+    liveRowCount: 1,
+    revisionRowCount: 6,
+    commitSeqs: ["1", "2", "3", "4", "5", "6"],
+    idempotencyOutcomeCommitSeqs: ["1", "2", "3", "4", "5", "6"],
+    commitFeedCommitSeqs: ["1", "2", "3", "4", "5", "6"],
+    outboxCommitSeqs: ["1", "2", "3", "4", "5", "6"],
+    mutationRuntimeExecutions: 6,
+    queryRuntimeExecutions: 9,
   } as const;
   expect(proof.workloadProof.workloadInspection).toEqual(lifecycleInspection);
   expect(proof.finalInspection).toEqual(lifecycleInspection);

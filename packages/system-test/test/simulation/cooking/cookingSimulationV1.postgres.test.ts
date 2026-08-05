@@ -25,7 +25,7 @@ describe("cooking simulation genuine PostgreSQL environment", () => {
 });
 
 describePostgres("cooking simulation - PostgreSQL", () => {
-  it("creates, patches, replaces, deletes, and reads one recipe", async () => {
+  it("isolates two recipes while one completes its full lifecycle", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       const proof = await Effect.runPromise(runStandardApplicationSimulationV1({
         lane: makePostgresStandardApplicationSystemTestLaneV1(persistence),
@@ -35,12 +35,16 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         lane: "postgres",
         definitionAnalyzedRegisteredReadyActivated: true,
         workloadProof: {
-          rejectedInvalidMutations: 2,
+          rejectedInvalidMutations: 5,
           invalidArgumentsRejectedBeforeRuntime: true,
           committedStateUnchangedAfterRejections: true,
           richDocumentRoundTrip: true,
           mutationReplay: true,
+          secondaryMutationReplay: true,
           queryReplay: true,
+          multipleRecipesIsolated: true,
+          optionalFieldOmissionRoundTrip: true,
+          unicodeRecordRoundTrip: true,
           patchReplay: true,
           replaceReplay: true,
           assessmentUsesCustomLogic: true,
@@ -53,8 +57,8 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           pointMutationLifecycle: true,
           deletedDocumentReadsNull: true,
         },
-        mutationRuntimeExecutions: 5,
-        queryRuntimeExecutions: 7,
+        mutationRuntimeExecutions: 6,
+        queryRuntimeExecutions: 9,
       });
       expect(proof.afterSetupInspection).toMatchObject({
         currentRowCount: 1,
@@ -65,19 +69,24 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         outboxCommitSeqs: ["1"],
       });
       expect(proof.finalInspection).toMatchObject({
-        currentRows: [{
+        currentRows: expect.arrayContaining([{
           tableName: "recipes",
           documentId: proof.workloadProof.documentId,
-          commitSeq: "5",
+          commitSeq: "6",
           valueState: "tombstone",
-        }],
-        currentRowCount: 1,
-        liveRowCount: 0,
-        revisionRowCount: 5,
-        commitSeqs: ["1", "2", "3", "4", "5"],
-        idempotencyOutcomeCommitSeqs: ["1", "2", "3", "4", "5"],
-        commitFeedCommitSeqs: ["1", "2", "3", "4", "5"],
-        outboxCommitSeqs: ["1", "2", "3", "4", "5"],
+        }, {
+          tableName: "recipes",
+          documentId: proof.workloadProof.secondaryDocumentId,
+          commitSeq: "2",
+          valueState: "live",
+        }]),
+        currentRowCount: 2,
+        liveRowCount: 1,
+        revisionRowCount: 6,
+        commitSeqs: ["1", "2", "3", "4", "5", "6"],
+        idempotencyOutcomeCommitSeqs: ["1", "2", "3", "4", "5", "6"],
+        commitFeedCommitSeqs: ["1", "2", "3", "4", "5", "6"],
+        outboxCommitSeqs: ["1", "2", "3", "4", "5", "6"],
       });
       expect(proof.postgresVersion).toMatch(/^PostgreSQL \d+\.\d+\b/);
     });

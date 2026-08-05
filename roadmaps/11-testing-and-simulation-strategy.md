@@ -403,6 +403,19 @@ Named Flarex differences are:
   restart-ownership defect `ST-CORE-006`. Their evidence and authority
   boundaries live in the package ledger rather than being hidden in simulation
   glue.
+- `SAC01-F2g` broadens the cooking workload without adding a new runtime or
+  persistence owner. A second independently keyed recipe omits an optional
+  field, carries a Unicode localized-title record, and is created and replayed
+  through the same Standard point-mutation path. The original recipe then
+  completes its patch, replace, nested publication, and delete lifecycle while
+  authoritative reads prove the second row remains unchanged and live. Three
+  additional rejected creations cover a literal-union mismatch, a record-value
+  mismatch, and an unexpected top-level field; inspection must prove all five
+  invalid inputs remain pre-runtime and side-effect free. PGlite and genuine
+  PostgreSQL use the same application definition and workload. This is
+  multi-row isolation evidence over existing point operations, not a multi-row
+  atomic mutation, relation traversal, index scan, reference model, controlled
+  scheduler, or public Test SDK.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate
