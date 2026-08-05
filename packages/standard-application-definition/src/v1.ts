@@ -19,6 +19,7 @@ import {
 import { Result } from "effect";
 
 export {
+  standardValidatorV1FromExactJsonV1,
   standardV1,
   type AnyStandardFunctionContractV1,
   type InferStandardFunctionArgsV1,

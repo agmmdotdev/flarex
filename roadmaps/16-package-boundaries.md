@@ -227,7 +227,15 @@ only runtime authorities. `@flarex/system-test` consumes these mechanics for
 typed simulation definitions and references; producer-specific workload,
 fault, source, handler-context, and codegen policy remains outside the Standard
 package. The public `flarex` SDK remains a separate compatibility surface until
-roadmap 09 admits an exact adapter.
+roadmap 09 admits an exact adapter. `SAA02` admits that adapter only inside
+`flarex-dev`: `@flarex/analysis` retains SDK inspection and exporter failure
+ownership, `@flarex/declarative-program/v1` retains canonical admission,
+budgets, and first-failure policy, and
+`@flarex/standard-application-definition/v1` owns the admitted immutable
+validator metadata and defined-return function lowering. `flarex-dev` retains
+omitted-return compatibility plus schema, source, and graph policy. This does
+not reverse dependencies into the public SDK, add a package export, or create
+another validator representation.
 
 ### Hosted Runtime Topology
 

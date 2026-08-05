@@ -12,12 +12,17 @@ import {
   CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
   type CanonicalDeclarativeProgramBudgetV1,
   type CanonicalDeclarativeFunctionInputV1,
+  type CanonicalDeclarativeProgramInputV1,
   type CanonicalDeclarativeProgramV1,
   type CanonicalDeclarativeProgramV1Error,
   type CanonicalDeclarativeModuleInputV1,
 } from "@flarex/declarative-program/v1";
 import {
   prepareStandardApplicationProgramV1,
+  standardValidatorV1FromExactJsonV1,
+  standardV1,
+  type StandardFunctionArgsValidatorV1,
+  type StandardValidatorV1,
 } from "@flarex/standard-application-definition/v1";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
@@ -52,8 +57,9 @@ export type CanonicalDeclarativeProgramV1FromSdkError =
  * Compatibility adapter for the first canonical-program vertical.
  *
  * It evaluates current SDK exporters through the existing analyzer boundary,
- * rejects legacy placement/partition policy, then enters the canonical
- * program's Result decoder exactly once.
+ * rejects legacy placement/partition policy, preserves canonical admission
+ * and budget order, then reprojects the admitted value through Standard-owned
+ * metadata and function-contract lowering.
  */
 export const canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect: (
   input: LoadedSdkDeclarativeProgramV1Input,
@@ -156,10 +162,79 @@ export const canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect: (
       modules,
     };
 
-    return yield* Effect.fromResult(
+    const admitted = yield* Effect.fromResult(
       prepareStandardApplicationProgramV1(candidate, budget),
     );
+    return yield* Effect.fromResult(
+      prepareStandardApplicationProgramV1(
+        standardApplicationProgramInputFromCanonicalV1(admitted),
+        budget,
+      ),
+    );
   });
+
+function standardApplicationProgramInputFromCanonicalV1(
+  program: CanonicalDeclarativeProgramV1,
+): CanonicalDeclarativeProgramInputV1 {
+  return {
+    format: program.format,
+    version: program.version,
+    schema: {
+      tables: program.schema.tables.map((table) => {
+        const documentType = standardValidatorV1FromExactJsonV1(
+          table.definition.documentType,
+        );
+        if (documentType.json.type !== "object") {
+          throw new Error(
+            `Canonical table ${table.logicalName} lost its object validator invariant.`,
+          );
+        }
+        return {
+          logicalName: table.logicalName,
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: documentType.json,
+          },
+        };
+      }),
+      indexes: program.schema.indexes,
+    },
+    modules: program.modules.map((module) => ({
+      modulePath: module.modulePath,
+      functions: module.functions.map((fn) => {
+        const args = standardValidatorV1FromExactJsonV1(fn.argsValidator);
+        if (!isStandardFunctionArgsValidatorV1(args)) {
+          throw new Error(
+            `Canonical function ${module.modulePath}:${fn.exportName} ` +
+            "lost its object-or-any argument validator invariant.",
+          );
+        }
+        if (fn.returnsValidator === null) {
+          return Object.freeze({
+            exportName: fn.exportName,
+            kind: fn.kind,
+            visibility: fn.visibility,
+            argsValidator: args.json,
+            returnsValidator: null,
+          });
+        }
+        return standardV1.function({
+          kind: fn.kind,
+          visibility: fn.visibility,
+          args,
+          returns: standardValidatorV1FromExactJsonV1(fn.returnsValidator),
+        }).toCanonicalInput(fn.exportName);
+      }),
+    })),
+  };
+}
+
+function isStandardFunctionArgsValidatorV1(
+  validator: StandardValidatorV1<unknown, "required">,
+): validator is StandardFunctionArgsValidatorV1 {
+  return validator.json.type === "object" || validator.json.type === "any";
+}
 
 const inspectSdkSchemaMembersEffect = Effect.fn(
   "FlarexDev.inspectSdkSchemaMembers",

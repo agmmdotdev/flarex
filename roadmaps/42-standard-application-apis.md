@@ -318,6 +318,25 @@ developer-producer slice may delegate its Standard-compatible lowering to the
 same primitives, while public SDK ergonomics, generated `ctx.db`, nested-call
 contexts, and compatibility remain owned by roadmap 09.
 
+`SAA02` is implemented as the bounded developer-producer adapter for that
+later step. It does not make the public `flarex` SDK depend on the Standard
+package. The analyzer continues to own inspection of SDK validators and
+functions. After the existing schema-member, placement, function-partition,
+and exporter gates close in their current order, the unchanged raw candidate
+first enters `prepareStandardApplicationProgramV1`. That canonical admission
+retains the established name, schema, index, module, validator-budget, and
+first-failure policy. Only an admitted canonical value is reprojected through
+the Standard owned-validator constructor and shared function-contract lowering,
+then prepared again as an invariant and authority check. Rejected and
+over-budget SDK candidates never enter the new recursive ownership pass.
+SDK-only semantics that fail earlier analyzer exporters retain their typed
+analyzer failures. The SDK's omitted-return marker remains one explicit
+compatibility projection to canonical `returnsValidator: null`; it must not
+create a nullable validator, implicit `any`, second wire representation, or
+parallel function API. This preserves the existing public SDK surface and
+failure precedence while removing hand-assembled exact validator and function
+metadata from the developer producer.
+
 ### Preserve Existing Owner Types
 
 `SAP01-A` introduces no alternative schema, function, module, artifact, or

@@ -1,6 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 
 import {
+  standardValidatorV1FromExactJsonV1,
   standardV1,
   type InferStandardFunctionArgsV1,
   type InferStandardFunctionReturnV1,
@@ -97,6 +99,49 @@ describe("Standard Application typed authoring V1", () => {
 
     expect(Object.getPrototypeOf(validator.json.value)).toBeNull();
     expect(Object.hasOwn(validator.json.value, "__proto__")).toBe(true);
+  });
+
+  it("detaches and recursively freezes an already exact protocol validator", () => {
+    const fields: Record<
+      string,
+      { fieldType: ValidatorJsonV1; optional: boolean }
+    > = Object.create(null) as Record<
+      string,
+      { fieldType: ValidatorJsonV1; optional: boolean }
+    >;
+    Object.defineProperty(fields, "__proto__", {
+      enumerable: true,
+      configurable: true,
+      writable: true,
+      value: {
+        fieldType: { type: "array", value: { type: "string" } },
+        optional: false,
+      },
+    });
+    const source: ValidatorJsonV1 = { type: "object", value: fields };
+
+    const validator = standardValidatorV1FromExactJsonV1(source);
+    fields.__proto__ = {
+      fieldType: { type: "number" },
+      optional: true,
+    };
+
+    if (validator.json.type !== "object") {
+      throw new Error("Expected an owned object validator.");
+    }
+    const hostileField = validator.json.value.__proto__;
+    expect(hostileField).toEqual({
+      fieldType: { type: "array", value: { type: "string" } },
+      optional: false,
+    });
+    expect(Object.getPrototypeOf(validator.json.value)).toBeNull();
+    expect(Object.isFrozen(validator.json.value)).toBe(true);
+    expect(Object.isFrozen(hostileField)).toBe(true);
+    expect(
+      hostileField?.fieldType.type === "array" &&
+        Object.isFrozen(hostileField.fieldType),
+    ).toBe(true);
+    expect(Object.isFrozen(fields)).toBe(false);
   });
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, -0])(

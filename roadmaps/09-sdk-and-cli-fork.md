@@ -106,13 +106,18 @@ The first Standard definition package is workspace-internal and is not
 re-exported from `flarex`. Publication and semver compatibility require a
 separate consumer and release preflight.
 
-The approved Standard `SAA01` slice establishes shared pure typed
+The implemented Standard `SAA01` slice establishes shared pure typed
 validator/function-contract/reference lowering used first by system tests. A
-later developer-producer adapter should delegate every exactly compatible
-validator and function contract to that same lowering. It must retain explicit
-handling for public SDK-only compatibility semantics instead of widening the
-protocol `ValidatorJsonV1` contract or maintaining a parallel Standard wire
-representation.
+bounded `SAA02` developer-producer adapter delegates every exactly compatible
+validator and every function with a defined return contract to that same
+lowering after the existing canonical admission and budget pass succeeds. SDK
+inspection and SDK exporter failures remain analyzer-owned; canonical shape,
+budget, and first-failure policy remain canonical-program-owned. The public SDK
+package does not import the Standard package. Omitted return validators retain
+one explicit canonical `null` compatibility projection, and other public
+SDK-only semantics continue to fail through their existing owner instead of
+widening the protocol `ValidatorJsonV1` contract or maintaining a parallel
+Standard wire representation.
 
 ## Public SDK Surface
 

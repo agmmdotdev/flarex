@@ -25,6 +25,28 @@ const BUDGET = Result.getOrThrow(makeCanonicalDeclarativeProgramBudgetV1({
   maximumValidatorStringUtf8Bytes: 4_096,
 }));
 
+const IDENTIFIER_BUDGET = Result.getOrThrow(
+  makeCanonicalDeclarativeProgramBudgetV1({
+    maximumModules: 4,
+    maximumFunctions: 8,
+    maximumIdentifierUtf8Bytes: 1,
+    maximumValidatorNodes: 128,
+    maximumValidatorDepth: 16,
+    maximumValidatorStringUtf8Bytes: 4_096,
+  }),
+);
+
+const VALIDATOR_NODE_BUDGET = Result.getOrThrow(
+  makeCanonicalDeclarativeProgramBudgetV1({
+    maximumModules: 4,
+    maximumFunctions: 8,
+    maximumIdentifierUtf8Bytes: 4_096,
+    maximumValidatorNodes: 1,
+    maximumValidatorDepth: 16,
+    maximumValidatorStringUtf8Bytes: 4_096,
+  }),
+);
+
 const placeOrder = mutation({
   args: { status: v.string() },
   returns: v.null(),
@@ -105,6 +127,41 @@ describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
     );
   });
 
+  it("preserves the SDK omitted-return compatibility marker as canonical null", async () => {
+    const withoutReturnValidator = mutation({
+      args: { status: v.string() },
+      handler: async () => null,
+    });
+
+    const program = await Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: sdkSchema,
+        executionModules: {
+          orders: { withoutReturnValidator },
+        },
+      }, BUDGET),
+    );
+
+    expect(program.modules).toEqual([{
+      modulePath: "orders",
+      functions: [{
+        exportName: "withoutReturnValidator",
+        kind: "mutation",
+        visibility: "public",
+        argsValidator: {
+          type: "object",
+          value: {
+            status: {
+              fieldType: { type: "string" },
+              optional: false,
+            },
+          },
+        },
+        returnsValidator: null,
+      }],
+    }]);
+  });
+
   it("rejects partitioned SDK tables in the opt-in slice", async () => {
     const schemaDefinition = defineSchema({
       orders: definePartitionTable({ status: v.string() }),
@@ -173,6 +230,86 @@ describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
       _tag: "CanonicalDeclarativeProgramV1SdkAdapterError",
       reason: "unsupportedFunctionPartition",
       path: "modules.orders.functions.place.partition",
+    });
+  });
+
+  it("preserves function-partition rejection before exact validator narrowing", async () => {
+    const partitioned = Object.assign(mutation({
+      args: { status: v.string() },
+      handler: async () => null,
+    }), {
+      exportPartition: () => JSON.stringify({
+        type: "partitionRoot",
+        table: "orders",
+        partitionField: "_id",
+      }),
+    });
+    const schemaWithNonCanonicalLiteral = defineSchema({
+      orders: defineGlobalTable({ status: v.literal(Number.NaN) }),
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: schemaWithNonCanonicalLiteral,
+        executionModules: {
+          orders: { partitioned },
+        },
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1SdkAdapterError",
+      reason: "unsupportedFunctionPartition",
+    });
+  });
+
+  it("preserves canonical ownership of non-canonical SDK schema validators", async () => {
+    const schemaWithNonCanonicalLiteral = defineSchema({
+      orders: defineGlobalTable({ status: v.literal(Number.NaN) }),
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: schemaWithNonCanonicalLiteral,
+        executionModules: {},
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1Error",
+      reason: "invalidValidator",
+    });
+  });
+
+  it("preserves identifier-budget precedence over later invalid schema validators", async () => {
+    const schemaWithNonCanonicalLiteral = defineSchema({
+      orders: defineGlobalTable({ status: v.literal(Number.NaN) }),
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: schemaWithNonCanonicalLiteral,
+        executionModules: {},
+      }, IDENTIFIER_BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1Error",
+      reason: "budgetExceeded",
+      dimension: "identifierUtf8Bytes",
+      path: "schema.tables[0].logicalName",
+    });
+  });
+
+  it("rejects over-budget validators before Standard ownership lowering", async () => {
+    const schemaWithNestedValidator = defineSchema({
+      orders: defineGlobalTable({ status: v.string() }),
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: schemaWithNestedValidator,
+        executionModules: {},
+      }, VALIDATOR_NODE_BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1Error",
+      reason: "budgetExceeded",
+      dimension: "validatorNodes",
+      path: "schema.tables[0].definition.documentType.value.status.fieldType",
     });
   });
 
@@ -270,6 +407,25 @@ describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
         schemaDefinition: sdkSchema,
         executionModules: {
           orders: { nonFiniteReturn },
+        },
+      }, BUDGET),
+    )).rejects.toMatchObject({
+      _tag: "AnalyzerValidatorError",
+    });
+  });
+
+  it("rejects SDK-only bigint literal semantics instead of widening Standard V1", async () => {
+    const bigintLiteralReturn = mutation({
+      args: {},
+      returns: v.literal(1n),
+      handler: (): 1n => 1n,
+    });
+
+    await expect(Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: sdkSchema,
+        executionModules: {
+          orders: { bigintLiteralReturn },
         },
       }, BUDGET),
     )).rejects.toMatchObject({

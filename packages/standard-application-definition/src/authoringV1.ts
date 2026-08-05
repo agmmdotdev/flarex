@@ -46,6 +46,17 @@ export class StandardValidatorV1<
   }
 }
 
+/**
+ * Establishes owned immutable Standard metadata from an already exact
+ * protocol validator. This is not an unknown-input decoder: callers must
+ * first use the protocol or their producer-owned narrowing boundary.
+ */
+export function standardValidatorV1FromExactJsonV1(
+  json: ValidatorJsonV1,
+): StandardValidatorV1<unknown, "required"> {
+  return new StandardValidatorV1(snapshotExactValidatorJsonV1(json), "required");
+}
+
 export type InferStandardValidatorV1<Validator> =
   Validator extends StandardValidatorV1<
     infer Value,
@@ -215,6 +226,69 @@ function requiredValidatorV1<Value>(
   json: ValidatorJsonV1,
 ): StandardValidatorV1<Value, "required"> {
   return new StandardValidatorV1(json, "required");
+}
+
+function snapshotExactValidatorJsonV1(
+  json: ValidatorJsonV1,
+): ValidatorJsonV1 {
+  switch (json.type) {
+    case "null":
+    case "number":
+    case "bigint":
+    case "boolean":
+    case "string":
+    case "bytes":
+    case "any":
+      return scalarValidatorJsonV1(json.type);
+    case "id":
+      return Object.freeze({ type: "id", tableName: json.tableName });
+    case "literal":
+      return Object.freeze({ type: "literal", value: json.value });
+    case "array":
+      return Object.freeze({
+        type: "array",
+        value: snapshotExactValidatorJsonV1(json.value),
+      });
+    case "object": {
+      const value: Record<
+        string,
+        Readonly<{
+          readonly fieldType: ValidatorJsonV1;
+          readonly optional: boolean;
+        }>
+      > = Object.create(null) as Record<
+        string,
+        Readonly<{
+          readonly fieldType: ValidatorJsonV1;
+          readonly optional: boolean;
+        }>
+      >;
+      for (const [fieldName, field] of Object.entries(json.value)) {
+        Object.defineProperty(value, fieldName, {
+          enumerable: true,
+          configurable: false,
+          writable: false,
+          value: Object.freeze({
+            fieldType: snapshotExactValidatorJsonV1(field.fieldType),
+            optional: field.optional,
+          }),
+        });
+      }
+      Object.freeze(value);
+      return Object.freeze({ type: "object", value });
+    }
+    case "record":
+      return Object.freeze({
+        type: "record",
+        keys: snapshotExactValidatorJsonV1(json.keys),
+        values: snapshotExactValidatorJsonV1(json.values),
+      });
+    case "union":
+      return Object.freeze({
+        type: "union",
+        value: Object.freeze(json.value.map(snapshotExactValidatorJsonV1)),
+      });
+  }
 }
 
 function scalarValidatorJsonV1(
