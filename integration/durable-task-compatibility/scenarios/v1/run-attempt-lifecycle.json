@@ -22,7 +22,7 @@
   ],
   "effectCursorCases": [
     { "scenarioId": "start-initial-due", "priorEffectCursor": 0, "resultingEffectCursor": 4 },
-    { "scenarioId": "start-durable-retry-due", "priorEffectCursor": 20, "resultingEffectCursor": 24 },
+    { "scenarioId": "start-durable-retry-due", "priorEffectCursor": 13, "resultingEffectCursor": 17 },
     { "scenarioId": "first-heartbeat-enters-executing", "priorEffectCursor": 4, "resultingEffectCursor": 8 },
     { "scenarioId": "later-heartbeat-renews-lease", "priorEffectCursor": 8, "resultingEffectCursor": 11 },
     { "scenarioId": "active-cancellation-request", "priorEffectCursor": 11, "resultingEffectCursor": 14 },
@@ -75,7 +75,7 @@
       "input": { "databaseNowMs": 2000000001000, "retryRandomize": false },
       "initial": { "phase": "retry_waiting", "cancellation": "not_requested", "runVersion": 4, "stateVariant": "retry_due" },
       "command": { "operation": "startAttempt", "identity": "run-v4" },
-      "expected": { "kind": "receipt", "disposition": "accepted", "outcomeKind": "attempt_granted", "currentReason": null, "transition": "start_grant", "acceptedRunVersion": 5, "recordedAtMs": 2000000001000, "evidenceKinds": ["attempt_granted"], "effects": [{ "sequence": 21, "kind": "dispatch_attempt" }, { "sequence": 22, "kind": "wake_lease_expiry" }, { "sequence": 23, "kind": "publish_lifecycle_event" }, { "sequence": 24, "kind": "notify_current_state" }], "policy": null }
+      "expected": { "kind": "receipt", "disposition": "accepted", "outcomeKind": "attempt_granted", "currentReason": null, "transition": "start_grant", "acceptedRunVersion": 5, "recordedAtMs": 2000000001000, "evidenceKinds": ["attempt_granted"], "effects": [{ "sequence": 14, "kind": "dispatch_attempt" }, { "sequence": 15, "kind": "wake_lease_expiry" }, { "sequence": 16, "kind": "publish_lifecycle_event" }, { "sequence": 17, "kind": "notify_current_state" }], "policy": null }
     },
     {
       "id": "first-heartbeat-enters-executing",

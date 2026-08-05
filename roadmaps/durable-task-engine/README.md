@@ -18,9 +18,9 @@ DTE04-A3 and a substantial DTE04-B lifecycle-adapter slice: the five-table
 schema/migration and a scope-bound Drizzle lifecycle adapter now exist, with
 connected PGlite proofs, a near-complete canonical compatibility lane, and focused
 real-Postgres lock/time/concurrency proof. Of 65 canonical vectors, all remain
-covered by the pure oracle, 61 transition-derived histories execute through the
-adapter, two invalid commands remain at the decoder boundary, and two histories
-remain open for a non-transition cursor and explicit overflow-corruption setup.
+covered by the pure oracle, 62 transition-derived histories execute through the
+adapter, two invalid commands remain at the decoder boundary, and only the
+explicit overflow-corruption history remains open.
 Run creation, discovery/delivery, host integration, public API,
 scheduling, and production activation do not exist yet.
 
@@ -333,8 +333,8 @@ for their owning discussions:
      migration proofs are complete. DTE04-B's scope-bound lifecycle adapter,
      transaction/error mapping, connected PGlite matrix, and focused
      real-Postgres writer-lock/database-time proof are implemented. The
-     canonical lane executes 61 transition-derived histories through the
-     adapter and two invalid commands at the decoder boundary; two histories and
+     canonical lane executes 62 transition-derived histories through the
+     adapter and two invalid commands at the decoder boundary; one history and
      final reviewers remain before admission. Creation and runtime
      activation remain closed;
 5. `05-cloudflare-wake-and-scheduling.md`

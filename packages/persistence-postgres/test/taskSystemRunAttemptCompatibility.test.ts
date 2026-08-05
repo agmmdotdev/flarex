@@ -50,13 +50,10 @@ interface CompatibilityVectorSuiteV1 {
 const FOREIGN_SCOPE_ID = "scope_72000000-0000-4000-8000-000000000099";
 
 const DEFERRED_HISTORY_REASONS = Object.freeze({
-  "start-durable-retry-due": "non_transition_cursor",
   "effect-sequence-overflow-rejected": "explicit_corruption_setup",
 } satisfies Readonly<Record<string, CompatibilityHistoryDeferralReasonV1>>);
 
-type CompatibilityHistoryDeferralReasonV1 =
-  | "non_transition_cursor"
-  | "explicit_corruption_setup";
+type CompatibilityHistoryDeferralReasonV1 = "explicit_corruption_setup";
 
 const COMMAND_BOUNDARY_VECTOR_IDS = Object.freeze([
   "invalid-command-is-redacted",
@@ -167,7 +164,7 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
         }
       }
 
-      expect(storeVectors).toBe(61);
+      expect(storeVectors).toBe(62);
       expect(commandBoundaryVectors).toEqual(COMMAND_BOUNDARY_VECTOR_IDS);
       expect(deferredHistoryVectors).toEqual(
         Object.entries(DEFERRED_HISTORY_REASONS).map(([id, reason]) => ({
