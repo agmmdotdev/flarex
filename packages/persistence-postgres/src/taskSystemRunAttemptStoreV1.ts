@@ -181,14 +181,17 @@ const transactRunAttempt = Effect.fn(
       return yield* Effect.fromResult(snapshotReceipt(settled.value, request));
     }
 
-    const failure = Cause.findError(settled.cause);
-    if (Result.isFailure(failure)) {
-      return yield* Effect.failCause(failure.failure);
-    }
+    const transactionFailure = yield* Result.match(
+      Cause.findError(settled.cause),
+      {
+        onFailure: cause => Effect.failCause(cause),
+        onSuccess: cause => Effect.succeed(cause),
+      },
+    );
     const classified = classifyTransactionFailure(
       request.operation,
       request.runId,
-      failure.success,
+      transactionFailure,
       execution,
     );
     if (classified.kind === "retry") continue;

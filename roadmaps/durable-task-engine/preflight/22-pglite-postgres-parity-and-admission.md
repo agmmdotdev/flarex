@@ -9,10 +9,15 @@ after hidden successful read settlements, and cross-scope non-disclosure. Its
 shared creation fixture now drives deterministic exact/conflicting first-writer
 races through a real insert barrier, post-lock database time, a real committed
 transaction whose response is hidden at release, exact replay recovery, and
-run-ID collision rollback. Successful non-skipped connected read and creation
-runs are still required, and the remaining lifecycle race matrix remains open.
-Passing PGlite or merely compiling the Postgres lanes remains explicitly
-insufficient for final Roadmap 04 admission.
+run-ID collision rollback. Its lifecycle lane now uses deliberate advisory-lock
+and row-lock barriers for terminal completion versus heartbeat, lease expiry
+versus completion, and both cancellation/completion serializations. It also
+covers atomic rollback with gap-free effects, whole-transaction attempt-
+identity collision retry without an orphan candidate, and a committed
+completion whose hidden response replays without rewriting stored state.
+Successful non-skipped connected execution of the read, creation, and lifecycle
+lanes is still required. Passing PGlite or merely compiling the Postgres lanes
+remains explicitly insufficient for final Roadmap 04 admission.
 
 ## Objective
 

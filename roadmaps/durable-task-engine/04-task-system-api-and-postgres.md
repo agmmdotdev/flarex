@@ -3,8 +3,8 @@
 ## Status
 
 **Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-D are complete, and
-DTE04-E's real-Postgres read and creation parity lanes are implemented but
-still require a non-skipped connected admission run. The
+DTE04-E's real-Postgres read, creation, and lifecycle parity lanes are
+implemented but still require a non-skipped connected admission run. The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
@@ -34,10 +34,12 @@ creation lane reuses the same PGlite fixture contract and adds deterministic
 same-request and conflicting-request first-writer races, post-lock database
 time, committed-but-hidden response recovery, and run-ID collision rollback.
 Its insert barrier requires both first writers to reach the real run insert
-before either can commit. The dedicated command fails closed when its
-authenticated Postgres URL is absent; successful non-skipped read and creation
-runs remain required. The remaining lifecycle race matrix also remains open.
-Effect delivery, host, queue, and activation changes remain unauthorized.
+before either can commit. The lifecycle lane adds deliberate PostgreSQL
+barriers for its admitted race matrix, atomic rollback, whole-transaction
+retry, and lost completion-response replay. The dedicated command fails closed
+when its authenticated Postgres URL is absent; successful non-skipped read,
+creation, and lifecycle runs remain required. Effect delivery, host, queue, and
+activation changes remain unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
 run-attempt domain. Its purpose is to connect the existing scope-bound
@@ -346,8 +348,13 @@ admitted:
   hidden successful settlements, and cross-scope non-disclosure. The shared
   creation lane covers deterministic exact/conflicting first-writer races,
   post-lock database time, committed-but-hidden response replay, and run-ID
-  collision rollback. Successful non-skipped read/creation execution and the
-  remaining lifecycle race matrix are still required; and
+  collision rollback. The lifecycle lane now uses real advisory-lock and row-
+  lock barriers to prove completion/heartbeat and completion/lease-expiry
+  ordering, both cancellation/completion serializations, atomic aggregate and
+  effect rollback, gap-free effect retry, whole-transaction attempt-identity
+  collision retry, and committed-but-hidden completion replay without a new
+  write. Successful non-skipped execution of all three lanes is still required;
+  and
 - **DTE04-F — final admission:** source map/notice refresh, boundary and bundle
   checks, broad validation, reviewers, and an explicit admit/revise receipt.
 
