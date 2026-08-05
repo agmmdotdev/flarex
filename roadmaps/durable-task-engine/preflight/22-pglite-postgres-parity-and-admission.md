@@ -223,11 +223,11 @@ concrete adapter.
 - Effect boundary/type/error tests; and
 - both required reviewers against the final diff.
 
-DTE04-B currently includes the scope-bound adapter, connected PGlite lifecycle
-and error coverage, a near-complete canonical lane, and a real-Postgres
-lock/time/concurrency proof. The pure oracle covers all 65 vectors; 62
-transition-derived histories execute through the concrete adapter and two
-invalid commands execute at their decoder boundary. The history seeder consumes
+DTE04-B includes the scope-bound adapter, connected PGlite lifecycle and error
+coverage, a complete canonical lane, and a real-Postgres lock/time/concurrency
+proof. The pure oracle covers all 65 vectors; 62 transition-derived histories
+plus one explicit near-overflow setup execute through the concrete adapter and
+two invalid commands execute at their decoder boundary. The history seeder consumes
 only committed decision outputs and proves that the final transition equals the
 stored aggregate; it does not infer ledger rows from the aggregate. Canonical
 multi-attempt fixtures now derive their run, lease, and effect counters through
@@ -235,10 +235,11 @@ real starts, heartbeats, failed completions, and lease expiry. In particular, a
 late attempt-one completion reaches `stale_attempt` through lease-loss retry so
 there is no earlier completion identity to conflict with. The durable-retry
 start history now derives cursor `13` and emitted sequences `14–17` from its
-committed start, heartbeat, and failed completion. Only the explicit
-overflow-corruption history remains before the full gate and final reviewers
-can close. This
-checkpoint is not yet a DTE04-B admission receipt.
+committed start, heartbeat, and failed completion. The explicit near-overflow
+setup returns `TaskRunAttemptCounterExhaustedError` and a before/after database
+snapshot proves no run, aggregate, projection, attempt-ledger, or effect-ledger
+mutation. This checkpoint is the DTE04-B admission receipt; it does not open
+DTE04-C creation or any discovery, delivery, host, or activation work.
 
 ### DTE04-C/D
 

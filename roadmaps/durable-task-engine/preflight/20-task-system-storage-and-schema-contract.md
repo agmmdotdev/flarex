@@ -440,9 +440,9 @@ These are not Postgres representation choices. They land through the private
 `@flarex/standard-application-definition/internal/task-definition-v1` surface
 and Preflight 24. DTE04-A3 has implemented this preflight's five-table schema
 and migration checkpoint. DTE04-B now implements the scope-bound lifecycle
-adapter and a near-complete compatibility lane without widening this storage contract:
-62 transition-derived histories execute through the adapter and two invalid
-commands stay at the decoder boundary, while one history remains open before
-final admission.
+adapter and complete compatibility lane without widening this storage contract:
+62 transition-derived histories plus one explicit near-overflow setup execute
+through the adapter, while two invalid commands stay at the decoder boundary.
+No canonical lifecycle vector remains open in DTE04-B.
 Definition registration, run creation, discovery, effect delivery, and host
 activation remain closed until their own checkpoints.

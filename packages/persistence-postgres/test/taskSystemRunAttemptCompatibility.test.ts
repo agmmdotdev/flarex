@@ -49,21 +49,19 @@ interface CompatibilityVectorSuiteV1 {
 
 const FOREIGN_SCOPE_ID = "scope_72000000-0000-4000-8000-000000000099";
 
-const DEFERRED_HISTORY_REASONS = Object.freeze({
-  "effect-sequence-overflow-rejected": "explicit_corruption_setup",
-} satisfies Readonly<Record<string, CompatibilityHistoryDeferralReasonV1>>);
-
-type CompatibilityHistoryDeferralReasonV1 = "explicit_corruption_setup";
-
 const COMMAND_BOUNDARY_VECTOR_IDS = Object.freeze([
   "invalid-command-is-redacted",
   "waitpoint-completion-outside-v1",
 ]);
 
+const EXPLICIT_STORE_SETUP_VECTOR_IDS = Object.freeze([
+  "effect-sequence-overflow-rejected",
+]);
+
 const suite = decodeCompatibilityVectorSuiteV1(suiteJson);
 
 describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
-  it("executes every transition-derived vector through the adapter", async () => {
+  it("executes every store-addressable vector through the adapter", async () => {
     const raw = new PGlite();
     try {
       const persistence = await createPGlitePersistence({ db: raw });
@@ -73,12 +71,9 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
         suite.vectors,
         suite.effectCursorCases,
       );
-      let storeVectors = 0;
+      let transitionDerivedStoreVectors = 0;
       const commandBoundaryVectors: string[] = [];
-      const deferredHistoryVectors: Array<Readonly<{
-        readonly id: string;
-        readonly reason: CompatibilityHistoryDeferralReasonV1;
-      }>> = [];
+      const explicitStoreSetupVectors: string[] = [];
 
       for (const vector of suite.vectors) {
         const entry = prepared.get(vector.id);
@@ -90,24 +85,21 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
           );
           continue;
         }
-        if (entry.persistence === null) {
-          const reason = Object.entries(DEFERRED_HISTORY_REASONS)
-            .find(([id]) => id === vector.id)?.[1];
-          expect(reason, `unexpected deferred vector: ${vector.id}`).toBeDefined();
-          if (reason === undefined) {
-            throw new Error(`unexpected deferred vector: ${vector.id}`);
-          }
-          deferredHistoryVectors.push(Object.freeze({ id: vector.id, reason }));
-          expect(entry.execution.actual, vector.id).toEqual(
-            normalizeExpectedV1(vector.expected),
-          );
-          continue;
-        }
-        storeVectors += 1;
         const persisted = entry.persistence;
-        await resetCompatibilityTaskRunV1(persistence, persisted.current);
+        if (persisted === null) {
+          expect(
+            EXPLICIT_STORE_SETUP_VECTOR_IDS.includes(vector.id),
+            `unexpected non-transition store vector: ${vector.id}`,
+          ).toBe(true);
+          explicitStoreSetupVectors.push(vector.id);
+        } else {
+          transitionDerivedStoreVectors += 1;
+        }
+        const current = persisted?.current ?? entry.current;
+        await resetCompatibilityTaskRunV1(persistence, current);
         if (
-          vector.id !== "missing-run-is-unavailable"
+          persisted !== null
+          && vector.id !== "missing-run-is-unavailable"
           && vector.id !== "cross-scope-run-is-unavailable"
         ) {
           await seedCompatibilityLifecycleLedgerV1(
@@ -119,9 +111,20 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
         await arrangeStoreBoundary(
           persistence,
           vector.id,
-          persisted.current.runId,
+          current.runId,
           entry.command.runId,
         );
+        const mutationSnapshot = vector.id === "effect-sequence-overflow-rejected"
+          ? await readStoreMutationSnapshot(persistence, current.runId)
+          : null;
+        if (mutationSnapshot !== null) {
+          expect(mutationSnapshot).toMatchObject({
+            runVersion: "1",
+            requestedEffectSequence: "9223372036854775805",
+            attemptCount: "0",
+            effectCount: "0",
+          });
+        }
 
         const runReadCommitted = transactionRunnerFor(
           persistence.drizzle,
@@ -140,7 +143,7 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
           target,
         );
         const store = makeTaskSystemRunAttemptStoreV1(located, {
-          randomUuid: () => nextCompatibilityAttemptUuid(persisted.current),
+          randomUuid: () => nextCompatibilityAttemptUuid(current),
         });
         try {
           const effect = runCompatibilityCommand(entry.command, store);
@@ -150,6 +153,12 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
                 await runEffectFailure(effect),
               );
           expect(actual, vector.id).toEqual(normalizeExpectedV1(vector.expected));
+          if (mutationSnapshot !== null) {
+            expect(
+              await readStoreMutationSnapshot(persistence, current.runId),
+              `${vector.id} must not mutate the store`,
+            ).toEqual(mutationSnapshot);
+          }
         } catch (cause) {
           throw new Error(`compatibility adapter vector failed: ${vector.id}`, {
             cause,
@@ -158,25 +167,73 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
           await restoreStoreBoundary(
             persistence,
             vector.id,
-            persisted.current.runId,
+            current.runId,
             entry.command.runId,
           );
         }
       }
 
-      expect(storeVectors).toBe(62);
+      expect(transitionDerivedStoreVectors).toBe(62);
       expect(commandBoundaryVectors).toEqual(COMMAND_BOUNDARY_VECTOR_IDS);
-      expect(deferredHistoryVectors).toEqual(
-        Object.entries(DEFERRED_HISTORY_REASONS).map(([id, reason]) => ({
-          id,
-          reason,
-        })),
-      );
+      expect(explicitStoreSetupVectors).toEqual(EXPLICIT_STORE_SETUP_VECTOR_IDS);
+      expect(
+        transitionDerivedStoreVectors + explicitStoreSetupVectors.length,
+      ).toBe(63);
     } finally {
       await raw.close();
     }
   }, 120_000);
 });
+
+interface StoreMutationSnapshotV1 extends Record<string, unknown> {
+  readonly aggregateJson: string;
+  readonly aggregateByteLength: string;
+  readonly runVersion: string;
+  readonly phase: string;
+  readonly dueKind: string | null;
+  readonly dueAtMs: string | null;
+  readonly currentAttemptId: string | null;
+  readonly executionFenceBasis: string;
+  readonly currentLeaseVersion: string | null;
+  readonly currentLeaseExpiresAtMs: string | null;
+  readonly cancellationGeneration: string;
+  readonly requestedEffectSequence: string;
+  readonly attemptCount: string;
+  readonly effectCount: string;
+}
+
+async function readStoreMutationSnapshot(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  runId: string,
+): Promise<StoreMutationSnapshotV1> {
+  const result = await persistence.query<StoreMutationSnapshotV1>(`
+    select aggregate_json::text as "aggregateJson",
+      aggregate_byte_length::text as "aggregateByteLength",
+      run_version::text as "runVersion",
+      phase,
+      due_kind as "dueKind",
+      due_at_ms::text as "dueAtMs",
+      current_attempt_id as "currentAttemptId",
+      execution_fence_basis::text as "executionFenceBasis",
+      current_lease_version::text as "currentLeaseVersion",
+      current_lease_expires_at_ms::text as "currentLeaseExpiresAtMs",
+      cancellation_generation::text as "cancellationGeneration",
+      requested_effect_sequence::text as "requestedEffectSequence",
+      (select count(*)::text
+        from fx_system_durable_task_attempt_identity_v1 as attempt
+        where attempt.scope_id = run.scope_id and attempt.run_id = run.run_id
+      ) as "attemptCount",
+      (select count(*)::text
+        from fx_system_durable_task_requested_effect_v1 as effect
+        where effect.scope_id = run.scope_id and effect.run_id = run.run_id
+      ) as "effectCount"
+    from fx_system_durable_task_run_v1 as run
+    where scope_id = '${TASK_SCOPE_ID}' and run_id = '${runId}'
+  `);
+  const snapshot = result.rows[0];
+  if (snapshot === undefined) throw new Error("compatibility run snapshot missing");
+  return snapshot;
+}
 
 const runCompatibilityCommand = Effect.fn("runCompatibilityCommand")((
   command: CompatibilityLifecycleCommandV1,

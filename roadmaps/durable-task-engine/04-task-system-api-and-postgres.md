@@ -2,19 +2,19 @@
 
 ## Status
 
-**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-A3 are complete. The
+**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-B are complete. The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
 implemented. The five-table Drizzle schema, generated migration, relational
 constraints, due-work index, and PGlite/real-Postgres migration proofs are also
 implemented. DTE04-B now has a scope-bound lifecycle adapter, transaction/error
-mapping, connected PGlite lifecycle/rollback/corruption proofs, a near-complete
+mapping, connected PGlite lifecycle/rollback/corruption proofs, a complete
 canonical compatibility lane, and focused real-Postgres same-run serialization
 plus post-lock database-time proof. The pure oracle still covers all 65 vectors;
-62 transition-derived histories now execute through the concrete adapter, two
-invalid commands remain at their decoder boundary, and only the explicit
-overflow-corruption history remains open. The durable-retry start vector now
+62 transition-derived histories plus one explicit near-overflow setup execute
+through the concrete adapter, while two invalid commands remain at their decoder
+boundary. No canonical vector is deferred. The durable-retry start vector now
 uses its reachable transition-derived cursor `13` and grants effects `14–17`.
 Canonical multi-attempt histories, including OOM escalation, attempt exhaustion,
 and stale attempt/fence outcomes, now execute through the adapter. Creation,
@@ -272,16 +272,15 @@ admitted:
   generated migration, constraints, indexes, PGlite upgrade/rollback/replay
   proof, and real-Postgres migration/query-plan proof; no store adapter,
   creation, discovery, delivery, or host integration;
-- **DTE04-B — lifecycle adapter — implementation in progress:** the
+- **DTE04-B — lifecycle adapter — complete:** the
   scope-bound `TaskSystemRunAttemptStore` value, transaction/error mapping,
   aggregate-to-effect/attempt-ledger correlation, allocation-free replay and
   current paths, connected PGlite lifecycle/error matrix, and focused
   real-Postgres lock/time/concurrency proof are implemented. The reusable
-  compatibility harness now drives 62 transition-derived vectors
-  through the concrete PGlite adapter while retaining two invalid command
-  shapes at their pre-store decoder boundary. The remaining vector needs
-  explicit overflow-corruption setup
-  before the 65-vector gate and final admission review can close;
+  compatibility harness now drives 62 transition-derived vectors plus one
+  explicit near-overflow setup through the concrete PGlite adapter while
+  retaining two invalid command shapes at their pre-store decoder boundary.
+  The overflow case proves typed counter exhaustion and no database mutation;
 - **DTE04-C — creation:** closed creation contract, initial aggregate builder,
   idempotency conflict semantics, and immutable binding checks;
 - **DTE04-D — discovery and effect ledger:** bounded stable discovery plus
@@ -306,8 +305,9 @@ Roadmap 04 cannot reach **complete: admit** until all of these are true:
   owner and works from an empty database and the previous committed journal;
 - PGlite and real Postgres pass the same contract matrix, with engine-specific
   tests for locking and concurrency;
-- all 65 lifecycle vectors execute through the concrete store with the same
-  normalized receipts or a newly approved named divergence;
+- all 63 store-addressable lifecycle vectors execute through the concrete store
+  with the same normalized receipts or a newly approved named divergence, while
+  the two invalid command shapes remain at their decoder boundary;
 - cross-scope access, malformed rows, projection disagreement, counter
   exhaustion, duplicate effect insertion, transaction rollback, and stale
   authority fail closed;
