@@ -14,9 +14,100 @@ fixture succeeds.
 
 ## Open Issues
 
-None.
+### `ST-CORE-005` — Parse capacity and restart-record numeric domains diverge
+
+- **Status:** Open; no shared analyzer or restart-contract change authorized.
+- **Discovered by:** Attempting to make the `ST-CORE-004` test ceiling cover
+  the analysis owner's complete accepted parse domain.
+- **Observed boundary:** Verifier restart-evidence production after immutable
+  parse-capacity admission and before registration completes.
+- **Reproduction:** Set the authenticated Standard test command budget to
+  `1000000000000`, which is finite and covers the generated capacity of the
+  accepted 26,869-byte parse domain. Initial capacity admission succeeds, then
+  restart-evidence production fails closed with
+  `DeclarativeV2VerifierRestartRuntimeV1Error`, reason `corruption`, path
+  `record`. The restart codec retains u32-bound fields while sizing and command
+  budget capture accept larger signed-int64 values.
+- **Expected:** The advertised accepted parse domain, immutable capacity,
+  command-budget codec, and restart evidence agree on one representable numeric
+  domain, or admission rejects the unsupported budget with a precise typed
+  limit error before analysis begins.
+- **Actual:** A budget accepted by sizing can become an opaque restart-record
+  corruption. The system-test harness must remain below the narrower boundary,
+  so it cannot honestly claim coverage of every source size admitted by the
+  current generated arena bound.
+- **Resolution owner:** A separate analysis/restart protocol and compatibility
+  preflight. This simulation slice does not change sizing formulas, generated
+  identities, restart bytes, or production admission.
+- **Acceptance evidence required:** Exact boundary vectors on both sides of the
+  chosen numeric limit, warm/cold replay, interruption and rollback, generated
+  identity refresh if required, and both mandatory reviewers.
+
+## Investigation Leads
+
+### `ST-CORE-006` — Historical verified-body parser-terminal failure
+
+- **Status:** Historical observation only; not currently reproducible and not
+  an authoritative shared-core defect. No analyzer change is authorized.
+- **Discovered by:** Cooking custom-logic and nested-call simulation expansion
+  after applying the representable `ST-CORE-004` test budget.
+- **Observed boundary:** Verified parse-body restart hashing before registration
+  and runtime dispatch.
+- **Historical reproduction:** During development of `SAC01-F2f`, the
+  pre-adjustment cooking source family combined nullish coalescing,
+  `Array.prototype.reduce`, template/object construction, and thrown
+  missing-state errors with the nested Standard calls. Running
+  `pnpm --filter @flarex/system-test exec vitest run
+  test/simulation/cooking/cookingSimulationV1.pglite.test.ts` under a command
+  budget that admitted its immutable capacities reached restart-evidence
+  production and threw `Verified body token lost its parser terminal.` from
+  `advanceRestartBodyHashV1`.
+- **Evidence limitation:** The exact pre-adjustment bytes were not retained and
+  the current narrower, still application-owned cooking modules pass. The
+  current fixture therefore is not a reproduction. This issue remains an
+  investigation lead, not a closure-ready defect, until the required minimized
+  inert source vector identifies the triggering syntax.
+- **Expected:** Every body accepted by the parser retains its terminal through
+  verified-body hashing and warm/cold restart evidence, or the originating
+  unsupported syntax is rejected as a typed analysis diagnostic.
+- **Actual:** The historical development source reached an internal invariant
+  defect after parse admission, but the triggering module and syntax were not
+  isolated before the source changed.
+- **Resolution owner:** If a minimized vector reproduces the failure, a
+  separate analysis executable/restart preflight. The system-test simulation
+  must not catch, translate, minify around, or weaken an invariant failure.
+- **Acceptance evidence required:** Minimized source vector, typed failure or
+  corrected terminal ownership, warm/cold equivalence, interruption and
+  rollback, generated closure if identities change, and both mandatory
+  reviewers.
 
 ## Resolved Issues
+
+### `ST-CORE-004` — Standard simulation budget rejected ordinary user logic
+
+- **Status:** Resolved within the private system-test harness.
+- **Discovered by:** Cooking custom-logic and nested-call simulation expansion.
+- **Observed boundary:** Test-owned authenticated analyzer-command admission,
+  before application runtime dispatch.
+- **Reproduction:** Add a normally formatted 644-byte internal cooking query
+  that reads a recipe and derives ingredient, step, duration, and publication
+  facts. The old Standard preparation path rejected it with
+  `DeclarativeV2VerifierSizingV1Error`, dimension `calls`, observed
+  `667413977`, maximum `100000000`.
+- **Expected:** The general Standard simulation environment admits ordinary
+  application logic while retaining a finite fail-closed command budget.
+- **Resolution:** The test-owned Standard ceiling is now `1000000000`, which
+  admits the current realistic modules and remains within the restart
+  representation's u32 boundary. The real cooking definition, analysis,
+  registration, runtime, nested calls, OCC/commit, readback, feed, and outbox
+  path passes without minification or source splitting. This does not change
+  analyzer sizing, production admission, or claim coverage of the complete
+  generated source domain; that unresolved mismatch is `ST-CORE-005`.
+- **Resolution owner:** The private `@flarex/system-test` authenticated
+  analysis-fixture budget policy.
+- **Acceptance evidence:** Focused simulation-config and cooking PGlite tests,
+  existing analyzer budget-refusal coverage, typecheck, and both mandatory
+  reviewers.
 
 ### `ST-CORE-001` — Valid multi-export modules fail preparation
 

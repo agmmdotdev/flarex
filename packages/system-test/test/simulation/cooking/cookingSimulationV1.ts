@@ -40,6 +40,12 @@ export interface CookingWorkloadProofV1 {
   readonly queryReplay: true;
   readonly patchReplay: true;
   readonly replaceReplay: true;
+  readonly assessmentUsesCustomLogic: true;
+  readonly queryCallsInternalQuery: true;
+  readonly mutationCallsInternalQuery: true;
+  readonly mutationCallsInternalMutation: true;
+  readonly nestedMutationReplay: true;
+  readonly nestedMutationPublishesOnce: true;
   readonly deleteReplay: true;
   readonly pointMutationLifecycle: true;
   readonly deletedDocumentReadsNull: true;
@@ -79,6 +85,12 @@ const COOKING_DELETE_PATH = TransactionFunctionPathV1Schema.make(
   "recipeDelete:remove",
 );
 const COOKING_QUERY_PATH = TransactionFunctionPathV1Schema.make("recipes:get");
+const COOKING_ASSESSMENT_PATH = TransactionFunctionPathV1Schema.make(
+  "recipeViews:assessment",
+);
+const COOKING_PUBLISH_PATH = TransactionFunctionPathV1Schema.make(
+  "recipeWorkflows:publish",
+);
 const COOKING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:create",
 );
@@ -94,6 +106,9 @@ const COOKING_PATCH_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
 );
 const COOKING_REPLACE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:replace",
+);
+const COOKING_PUBLISH_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "sac01:cooking:publish",
 );
 const COOKING_DELETE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:delete",
@@ -117,6 +132,22 @@ const COOKING_FUNCTION_SOURCES = {
   )),
   get: readFileSync(new URL(
     "./functions/recipesQuery.js",
+    import.meta.url,
+  )),
+  assess: readFileSync(new URL(
+    "./functions/recipeAssessment.js",
+    import.meta.url,
+  )),
+  assessmentView: readFileSync(new URL(
+    "./functions/recipeAssessmentView.js",
+    import.meta.url,
+  )),
+  publishInternal: readFileSync(new URL(
+    "./functions/recipePublishInternal.js",
+    import.meta.url,
+  )),
+  publishWorkflow: readFileSync(new URL(
+    "./functions/recipePublishWorkflow.js",
     import.meta.url,
   )),
 } as const;
@@ -212,6 +243,125 @@ const COOKING_REPLACEMENT_RECIPE = {
     it: "Risotto ai funghi",
   },
   source: "Kitchen notebook",
+} as const;
+const COOKING_REPLACEMENT_ASSESSMENT = {
+  title: "Mushroom risotto",
+  servings: 3,
+  published: false,
+  ingredientCount: 2,
+  stepCount: 2,
+  timedMinutes: 30,
+  publishable: true,
+  headline: "Mushroom risotto serves 3",
+  effort: "long",
+} as const;
+const COOKING_PUBLISHED_ASSESSMENT = {
+  ...COOKING_REPLACEMENT_ASSESSMENT,
+  published: true,
+} as const;
+const COOKING_PUBLISH_RECEIPT = {
+  changed: true,
+  beforePublished: false,
+  afterPublished: true,
+  ingredientCount: 2,
+  timedMinutes: 30,
+} as const;
+const COOKING_ID_ARGS_VALIDATOR = {
+  type: "object",
+  value: {
+    id: {
+      optional: false,
+      fieldType: { type: "string" },
+    },
+  },
+} as const;
+const COOKING_ASSESSMENT_FIELDS = {
+  title: {
+    optional: false,
+    fieldType: { type: "string" },
+  },
+  servings: {
+    optional: false,
+    fieldType: { type: "number" },
+  },
+  published: {
+    optional: false,
+    fieldType: { type: "boolean" },
+  },
+  ingredientCount: {
+    optional: false,
+    fieldType: { type: "number" },
+  },
+  stepCount: {
+    optional: false,
+    fieldType: { type: "number" },
+  },
+  timedMinutes: {
+    optional: false,
+    fieldType: { type: "number" },
+  },
+  publishable: {
+    optional: false,
+    fieldType: { type: "boolean" },
+  },
+} as const;
+const COOKING_ASSESSMENT_RETURN_VALIDATOR = {
+  type: "union",
+  value: [{
+    type: "object",
+    value: COOKING_ASSESSMENT_FIELDS,
+  }, { type: "null" }],
+} as const;
+const COOKING_ASSESSMENT_VIEW_RETURN_VALIDATOR = {
+  type: "union",
+  value: [{
+    type: "object",
+    value: {
+      ...COOKING_ASSESSMENT_FIELDS,
+      headline: {
+        optional: false,
+        fieldType: { type: "string" },
+      },
+      effort: {
+        optional: false,
+        fieldType: {
+          type: "union",
+          value: [
+            { type: "literal", value: "short" },
+            { type: "literal", value: "long" },
+          ],
+        },
+      },
+    },
+  }, { type: "null" }],
+} as const;
+const COOKING_PUBLISH_RETURN_VALIDATOR = {
+  type: "union",
+  value: [{
+    type: "object",
+    value: {
+      changed: {
+        optional: false,
+        fieldType: { type: "boolean" },
+      },
+      beforePublished: {
+        optional: false,
+        fieldType: { type: "boolean" },
+      },
+      afterPublished: {
+        optional: false,
+        fieldType: { type: "boolean" },
+      },
+      ingredientCount: {
+        optional: false,
+        fieldType: { type: "number" },
+      },
+      timedMinutes: {
+        optional: false,
+        fieldType: { type: "number" },
+      },
+    },
+  }, { type: "null" }],
 } as const;
 
 const prepareCookingStateV1 = Effect.fn(
@@ -374,6 +524,50 @@ const runCookingWorkloadV1 = Effect.fn(
     COOKING_REPLACEMENT_RECIPE,
   );
 
+  const assessment = yield* client.invokeQuery(
+    COOKING_ASSESSMENT_PATH,
+    { id: setup.documentId },
+  );
+  requireExactObject(
+    assessment,
+    COOKING_REPLACEMENT_ASSESSMENT,
+    "custom recipe assessment",
+  );
+
+  const published = yield* client.invokeMutation(
+    COOKING_PUBLISH_PATH,
+    { id: setup.documentId },
+    COOKING_PUBLISH_REQUEST_KEY,
+  );
+  requireValueMutation(
+    published,
+    "nested publish",
+    "published",
+    setup.commitSeq + 3n,
+    COOKING_PUBLISH_RECEIPT,
+  );
+  const replayedPublish = yield* client.invokeMutation(
+    COOKING_PUBLISH_PATH,
+    { id: setup.documentId },
+    COOKING_PUBLISH_REQUEST_KEY,
+  );
+  requireValueMutation(
+    replayedPublish,
+    "nested publish replay",
+    "replayed",
+    published.commitSeq,
+    COOKING_PUBLISH_RECEIPT,
+  );
+  const publishedAssessment = yield* client.invokeQuery(
+    COOKING_ASSESSMENT_PATH,
+    { id: setup.documentId },
+  );
+  requireExactObject(
+    publishedAssessment,
+    COOKING_PUBLISHED_ASSESSMENT,
+    "persisted published recipe assessment",
+  );
+
   const deleted = yield* client.invokeMutation(
     COOKING_DELETE_PATH,
     { id: setup.documentId },
@@ -383,7 +577,7 @@ const runCookingWorkloadV1 = Effect.fn(
     deleted,
     "delete",
     "published",
-    setup.commitSeq + 3n,
+    setup.commitSeq + 4n,
   );
   const replayedDelete = yield* client.invokeMutation(
     COOKING_DELETE_PATH,
@@ -416,12 +610,37 @@ const runCookingWorkloadV1 = Effect.fn(
     queryReplay: true,
     patchReplay: true,
     replaceReplay: true,
+    assessmentUsesCustomLogic: true,
+    queryCallsInternalQuery: true,
+    mutationCallsInternalQuery: true,
+    mutationCallsInternalMutation: true,
+    nestedMutationReplay: true,
+    nestedMutationPublishesOnce: true,
     deleteReplay: true,
     pointMutationLifecycle: true,
     deletedDocumentReadsNull: true,
     workloadInspection,
   };
 });
+
+function requireValueMutation(
+  outcome: AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  scenario: string,
+  disposition: "published" | "replayed",
+  commitSeq: bigint,
+  expectedValue: Readonly<Record<string, unknown>>,
+): void {
+  if (
+    outcome.status !== "committed" ||
+    outcome.disposition !== disposition ||
+    outcome.commitSeq !== commitSeq ||
+    !sameJsonValue(outcome.value, expectedValue)
+  ) {
+    throw new Error(
+      `The cooking ${scenario} mutation did not produce the expected committed value.`,
+    );
+  }
+}
 
 function requireLifecycleMutation(
   outcome: AuthoritativeCommittedApplicationPointMutationOutcomeV1,
@@ -560,6 +779,16 @@ function requireRecipeDocument(
   }
 }
 
+function requireExactObject(
+  value: unknown,
+  expected: Readonly<Record<string, unknown>>,
+  scenario: string,
+): void {
+  if (!sameJsonValue(value, expected)) {
+    throw new Error(`The cooking workload did not produce ${scenario}.`);
+  }
+}
+
 function sameJsonValue(actual: unknown, expected: unknown): boolean {
   if (Object.is(actual, expected)) return true;
   if (Array.isArray(expected)) {
@@ -601,6 +830,51 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
         deleteArtifactPath: "recipeDelete",
         deleteSourceBytes: COOKING_FUNCTION_SOURCES.remove,
       },
+      additionalFunctionModules: [{
+        modulePath: "recipeAssessment",
+        artifactModulePath: "recipeAssessmentInternal",
+        sourceBytes: COOKING_FUNCTION_SOURCES.assess,
+        functions: [{
+          exportName: "assess",
+          kind: "query",
+          visibility: "internal",
+          argsValidator: COOKING_ID_ARGS_VALIDATOR,
+          returnsValidator: COOKING_ASSESSMENT_RETURN_VALIDATOR,
+        }],
+      }, {
+        modulePath: "recipeViews",
+        artifactModulePath: "recipeAssessmentView",
+        sourceBytes: COOKING_FUNCTION_SOURCES.assessmentView,
+        functions: [{
+          exportName: "assessment",
+          kind: "query",
+          visibility: "public",
+          argsValidator: COOKING_ID_ARGS_VALIDATOR,
+          returnsValidator: COOKING_ASSESSMENT_VIEW_RETURN_VALIDATOR,
+        }],
+      }, {
+        modulePath: "recipeMaintenance",
+        artifactModulePath: "recipePublishInternal",
+        sourceBytes: COOKING_FUNCTION_SOURCES.publishInternal,
+        functions: [{
+          exportName: "markPublished",
+          kind: "mutation",
+          visibility: "internal",
+          argsValidator: COOKING_ID_ARGS_VALIDATOR,
+          returnsValidator: COOKING_PUBLISH_RETURN_VALIDATOR,
+        }],
+      }, {
+        modulePath: "recipeWorkflows",
+        artifactModulePath: "recipePublishWorkflow",
+        sourceBytes: COOKING_FUNCTION_SOURCES.publishWorkflow,
+        functions: [{
+          exportName: "publish",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: COOKING_ID_ARGS_VALIDATOR,
+          returnsValidator: COOKING_PUBLISH_RETURN_VALIDATOR,
+        }],
+      }],
       fields: {
         title: {
           fieldType: { type: "string" },
@@ -723,7 +997,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 4,
-    queries: 5,
+    mutations: 5,
+    queries: 7,
   },
 });

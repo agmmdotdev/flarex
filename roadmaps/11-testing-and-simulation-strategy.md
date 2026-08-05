@@ -384,6 +384,24 @@ Named Flarex differences are:
   and only composes declarations, validators, graph entries, and budgets. This
   is not automatic developer-file discovery or bundler coverage. The matching
   genuine-PostgreSQL lane remains open.
+- `SAC01-F2f` extends that same cooking application with application-owned
+  derived assessment and publication workflow modules. The Standard definition
+  declares one private assessment query, one public assessment query, one
+  private publication mutation, and one public publication mutation through
+  the test-owned supplemental-function-module config. The public query calls
+  the internal query; the public mutation calls that internal query and the
+  internal mutation; and the internal mutation reads before and after its
+  staged patch through the same journal. PGlite/Workerd proves custom derived
+  values, one authoritative nested publication, exact replay without runtime
+  re-execution, persisted readback, the final tombstone, and commit/outcome/feed/
+  outbox sequences `1..5`. This reuses SAP06-A1/A2/A3 and the existing OCC/
+  commit owners; it adds no alternate transaction or child-savepoint semantics.
+  The matching genuine-PostgreSQL lane remains implemented but requires an
+  authenticated URL. The work also exposed and resolved the test-owned
+  `ST-CORE-004`, exposed the reproducible shared-boundary mismatch
+  `ST-CORE-005`, and recorded the non-reproducible historical observation
+  `ST-CORE-006`. Their evidence, limitations, and authority boundaries live in
+  the package ledger rather than being hidden in simulation glue.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate
@@ -409,13 +427,14 @@ Named Flarex differences are:
   every selected suite skipped when the database URL is absent.
 - No repository CI configuration currently shows which lanes are mandatory,
   conditional, scheduled, or release-gating.
-- `@flarex/system-test` has exposed three related open shared-core defects:
-  valid multi-export preparation failure, patch/replace formatting-dependent
-  analysis, and release finalization masking the originating typed failure with
-  `pendingExists`. Their authoritative reproductions, temporary fixture
-  constraints, owners, and acceptance requirements are recorded as
-  [`ST-CORE-001` through `ST-CORE-003`](../packages/system-test/CORE-ISSUES.md).
-  The simulations do not repair, bypass, or claim closure of them.
+- `@flarex/system-test` resolved the original analyzer arena/finalization
+  defects `ST-CORE-001` through `ST-CORE-003`. The richer cooking workload then
+  exposed the currently open, reproducible parse-capacity/restart-domain defect
+  `ST-CORE-005`. `ST-CORE-006` records a historical parser-terminal observation
+  whose exact source was not retained; it is an investigation lead rather than
+  an authoritative defect reproduction. The evidence, temporary constraints,
+  owners, limitations, and acceptance requirements remain in
+  [`CORE-ISSUES.md`](../packages/system-test/CORE-ISSUES.md).
 - The live staging H05-B proof through real cache-disabled Hyperdrive remains
   incomplete; harness and dry-run evidence do not close production activation.
 - The root integration suite uses source aliases and local workspace code for

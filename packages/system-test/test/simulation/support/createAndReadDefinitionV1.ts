@@ -4,6 +4,18 @@ import type {
 import type { ObjectValidatorJsonV1 } from
   "flarex-protocol/validator-json";
 
+type CreateAndReadFunctionInputV1 =
+  StandardApplicationDefinitionInputV1["programInput"]["modules"][number][
+    "functions"
+  ][number];
+
+export interface CreateAndReadAdditionalFunctionModuleV1 {
+  readonly modulePath: string;
+  readonly artifactModulePath: string;
+  readonly sourceBytes: Uint8Array;
+  readonly functions: ReadonlyArray<CreateAndReadFunctionInputV1>;
+}
+
 export interface CreateAndReadDefinitionInputV1 {
   readonly tableName: string;
   readonly mutationModulePath: string;
@@ -13,6 +25,8 @@ export interface CreateAndReadDefinitionInputV1 {
   readonly mutationSourceBytes: Uint8Array;
   readonly querySourceBytes: Uint8Array;
   readonly fields: ObjectValidatorJsonV1["value"];
+  readonly additionalFunctionModules?:
+    ReadonlyArray<CreateAndReadAdditionalFunctionModuleV1>;
   readonly pointMutationLifecycle?: Readonly<{
     readonly patchModulePath: string;
     readonly patchArtifactPath: string;
@@ -38,6 +52,7 @@ export function makeCreateAndReadDefinitionV1(
       ([fieldName, field]) => [fieldName, { ...field, optional: true }],
     ));
   const lifecycle = input.pointMutationLifecycle;
+  const additionalFunctionModules = input.additionalFunctionModules ?? [];
   const lifecycleProgramModules = lifecycle === undefined ? [] : [{
     modulePath: lifecycle.patchModulePath,
     functions: [{
@@ -130,11 +145,30 @@ export function makeCreateAndReadDefinitionV1(
     logicalModulePath: lifecycle.deleteModulePath,
     artifactModulePath: lifecycle.deleteArtifactPath,
   }];
-  const moduleCount = lifecycle === undefined ? 2 : 5;
+  const additionalProgramModules = additionalFunctionModules.map(module => ({
+    modulePath: module.modulePath,
+    functions: module.functions.map(fn => ({ ...fn })),
+  }));
+  const additionalGraphModules = additionalFunctionModules.map(module => ({
+    path: module.artifactModulePath,
+    roles: ["function" as const],
+    sourceBytes: new Uint8Array(module.sourceBytes),
+    sourceMapBytes: null,
+  }));
+  const additionalFunctionEntries = additionalFunctionModules.map(module => ({
+    logicalModulePath: module.modulePath,
+    artifactModulePath: module.artifactModulePath,
+  }));
+  const baseModuleCount = lifecycle === undefined ? 2 : 5;
+  const moduleCount = baseModuleCount + additionalFunctionModules.length;
+  const functionCount = baseModuleCount + additionalFunctionModules.reduce(
+    (count, module) => count + module.functions.length,
+    0,
+  );
   return {
     programBudgetInput: {
       maximumModules: moduleCount,
-      maximumFunctions: moduleCount,
+      maximumFunctions: functionCount,
       maximumIdentifierUtf8Bytes: 4_096,
       maximumValidatorNodes: 512,
       maximumValidatorDepth: 32,
@@ -169,7 +203,7 @@ export function makeCreateAndReadDefinitionV1(
           },
           returnsValidator: { type: "id", tableName: input.tableName },
         }],
-      }, ...lifecycleProgramModules, {
+      }, ...lifecycleProgramModules, ...additionalProgramModules, {
         modulePath: input.queryModulePath,
         functions: [{
           exportName: "get",
@@ -207,10 +241,14 @@ export function makeCreateAndReadDefinitionV1(
     materializationBudgetInput: {
       maximumModules: moduleCount,
       maximumEntryBindings: moduleCount,
-      maximumSourceBytes: 8_192,
+      maximumSourceBytes: additionalFunctionModules.length === 0
+        ? 8_192
+        : 16_384,
       maximumSourceMapBytes: 1_024,
-      maximumBytesMaterialized: 64_000,
-      maximumSemanticRecords: lifecycle === undefined ? 64 : 160,
+      maximumBytesMaterialized: additionalFunctionModules.length === 0
+        ? 64_000
+        : 128_000,
+      maximumSemanticRecords: moduleCount * 32,
       maximumSemanticRecordBytes: 8_000,
       maximumSemanticStreamBytes: 32_000,
     },
@@ -220,7 +258,7 @@ export function makeCreateAndReadDefinitionV1(
         roles: ["function", "execution"],
         sourceBytes: new Uint8Array(input.mutationSourceBytes),
         sourceMapBytes: null,
-      }, ...lifecycleGraphModules, {
+      }, ...lifecycleGraphModules, ...additionalGraphModules, {
         path: input.queryArtifactPath,
         roles: ["function"],
         sourceBytes: new Uint8Array(input.querySourceBytes),
@@ -229,7 +267,7 @@ export function makeCreateAndReadDefinitionV1(
       functionEntries: [{
         logicalModulePath: input.mutationModulePath,
         artifactModulePath: input.mutationArtifactPath,
-      }, ...lifecycleFunctionEntries, {
+      }, ...lifecycleFunctionEntries, ...additionalFunctionEntries, {
         logicalModulePath: input.queryModulePath,
         artifactModulePath: input.queryArtifactPath,
       }],

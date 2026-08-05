@@ -145,3 +145,64 @@ it("captures each runtime-execution expectation exactly once", () => {
     queries: 0,
   });
 });
+
+it("composes owned supplemental function modules without making them execution roots", () => {
+  const sourceBytes = new TextEncoder().encode(
+    "export function inspect() { return null; }",
+  );
+  const definition = makeCreateAndReadDefinitionV1({
+    tableName: "records",
+    mutationModulePath: "recordCommands",
+    queryModulePath: "records",
+    mutationArtifactPath: "recordMutation",
+    queryArtifactPath: "recordQuery",
+    ...makeCreateAndReadFunctionSourcesV1("records"),
+    fields: {
+      value: {
+        fieldType: { type: "string" },
+        optional: false,
+      },
+    },
+    additionalFunctionModules: [{
+      modulePath: "recordInspection",
+      artifactModulePath: "recordInspectionArtifact",
+      sourceBytes,
+      functions: [{
+        exportName: "inspect",
+        kind: "query",
+        visibility: "internal",
+        argsValidator: { type: "any" },
+        returnsValidator: { type: "null" },
+      }],
+    }],
+  });
+  sourceBytes.fill(0);
+
+  expect(definition.programBudgetInput).toMatchObject({
+    maximumModules: 3,
+    maximumFunctions: 3,
+  });
+  expect(definition.programInput.modules[1]).toEqual({
+    modulePath: "recordInspection",
+    functions: [{
+      exportName: "inspect",
+      kind: "query",
+      visibility: "internal",
+      argsValidator: { type: "any" },
+      returnsValidator: { type: "null" },
+    }],
+  });
+  expect(definition.graphInput.modules[1]).toMatchObject({
+    path: "recordInspectionArtifact",
+    roles: ["function"],
+  });
+  expect(definition.graphInput.modules[1]?.sourceBytes).not.toEqual(sourceBytes);
+  expect(new TextDecoder().decode(
+    definition.graphInput.modules[1]?.sourceBytes,
+  )).toBe("export function inspect() { return null; }");
+  expect(definition.graphInput.functionEntries[1]).toEqual({
+    logicalModulePath: "recordInspection",
+    artifactModulePath: "recordInspectionArtifact",
+  });
+  expect(definition.graphInput.executionPath).toBe("recordMutation");
+});

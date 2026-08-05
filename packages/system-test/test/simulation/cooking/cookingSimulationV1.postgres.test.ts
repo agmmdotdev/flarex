@@ -43,12 +43,18 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           queryReplay: true,
           patchReplay: true,
           replaceReplay: true,
+          assessmentUsesCustomLogic: true,
+          queryCallsInternalQuery: true,
+          mutationCallsInternalQuery: true,
+          mutationCallsInternalMutation: true,
+          nestedMutationReplay: true,
+          nestedMutationPublishesOnce: true,
           deleteReplay: true,
           pointMutationLifecycle: true,
           deletedDocumentReadsNull: true,
         },
-        mutationRuntimeExecutions: 4,
-        queryRuntimeExecutions: 5,
+        mutationRuntimeExecutions: 5,
+        queryRuntimeExecutions: 7,
       });
       expect(proof.afterSetupInspection).toMatchObject({
         currentRowCount: 1,
@@ -62,16 +68,16 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         currentRows: [{
           tableName: "recipes",
           documentId: proof.workloadProof.documentId,
-          commitSeq: "4",
+          commitSeq: "5",
           valueState: "tombstone",
         }],
         currentRowCount: 1,
         liveRowCount: 0,
-        revisionRowCount: 4,
-        commitSeqs: ["1", "2", "3", "4"],
-        idempotencyOutcomeCommitSeqs: ["1", "2", "3", "4"],
-        commitFeedCommitSeqs: ["1", "2", "3", "4"],
-        outboxCommitSeqs: ["1", "2", "3", "4"],
+        revisionRowCount: 5,
+        commitSeqs: ["1", "2", "3", "4", "5"],
+        idempotencyOutcomeCommitSeqs: ["1", "2", "3", "4", "5"],
+        commitFeedCommitSeqs: ["1", "2", "3", "4", "5"],
+        outboxCommitSeqs: ["1", "2", "3", "4", "5"],
       });
       expect(proof.postgresVersion).toMatch(/^PostgreSQL \d+\.\d+\b/);
     });

@@ -136,7 +136,10 @@ const LOCATOR = Object.freeze({
   schemaName: "public",
 });
 const MAXIMUM = 20_000_000n;
-const STANDARD_APPLICATION_COMMAND_MAXIMUM = 100_000_000n;
+// Test-owned finite ceiling for the current realistic Standard simulations.
+// The analyzer/restart representation mismatch above u32 is tracked as
+// ST-CORE-005; production admission policy is not derived from this constant.
+const STANDARD_APPLICATION_COMMAND_MAXIMUM = 1_000_000_000n;
 const OPERATION_BUDGET = Object.freeze({
   maximumCalls: 256,
   maximumRows: 256,
