@@ -322,6 +322,7 @@ describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL
       await seedAdditionalTaskSystemRunV1(
         fixture.persistence,
         collisionOwnerRunId,
+        fixture.scopeId,
       );
       await fixture.persistence.query(`
         insert into fx_system_durable_task_attempt_identity_v1 (
@@ -421,7 +422,14 @@ describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL
         throw new Error("committed completion replay was not persisted");
       }
       const replay = await completeSucceeded(fixture.layer, grant);
-      expect(replay).toEqual({ ...accepted, disposition: "idempotent" });
+      expect(replay).toEqual({
+        disposition: "idempotent",
+        observedAtMs: accepted.observedAtMs,
+        runVersion: accepted.acceptedRunVersion,
+        outcome: accepted.outcome,
+        evidence: accepted.evidence,
+        requestedEffects: accepted.requestedEffects,
+      });
       expect(await lifecycleStorageSnapshot(
         fixture.persistence,
         fixture.scopeId,

@@ -15,9 +15,9 @@ versus completion, and both cancellation/completion serializations. It also
 covers atomic rollback with gap-free effects, whole-transaction attempt-
 identity collision retry without an orphan candidate, and a committed
 completion whose hidden response replays without rewriting stored state.
-Successful non-skipped connected execution of the read, creation, and lifecycle
-lanes is still required. Passing PGlite or merely compiling the Postgres lanes
-remains explicitly insufficient for final Roadmap 04 admission.
+The fail-closed admission command passed non-skipped across the connected read,
+creation, and lifecycle lanes. DTE04-E is complete; the broader DTE04-F package,
+migration, boundary, provenance, bundle, and final-review gate remains open.
 
 ## Objective
 

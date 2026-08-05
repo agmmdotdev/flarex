@@ -2,9 +2,9 @@
 
 ## Status
 
-**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-D are complete, and
-DTE04-E's real-Postgres read, creation, and lifecycle parity lanes are
-implemented but still require a non-skipped connected admission run. The
+**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-E are complete. The
+real-Postgres read, creation, and lifecycle parity lanes passed their connected
+admission command; DTE04-F final admission remains open. The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
@@ -37,9 +37,9 @@ Its insert barrier requires both first writers to reach the real run insert
 before either can commit. The lifecycle lane adds deliberate PostgreSQL
 barriers for its admitted race matrix, atomic rollback, whole-transaction
 retry, and lost completion-response replay. The dedicated command fails closed
-when its authenticated Postgres URL is absent; successful non-skipped read,
-creation, and lifecycle runs remain required. Effect delivery, host, queue, and
-activation changes remain unauthorized.
+when its authenticated Postgres URL is absent and passes the connected read,
+creation, and lifecycle gate when a PostgreSQL URL is supplied. Effect delivery,
+host, queue, and activation changes remain unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
 run-attempt domain. Its purpose is to connect the existing scope-bound
@@ -342,7 +342,7 @@ admitted:
   boundedness, tie-order, no-write, snapshot, corruption, non-disclosure, and
   stale-authority proofs. No claim, delivery, host route, queue, or activation
   path was added;
-- **DTE04-E — real Postgres parity — active:** the executable read lane now
+- **DTE04-E — real Postgres parity — complete:** the executable read lane now
   covers bounded discovery/effect snapshots, representative normal-planner
   index checks, run-lock blocking/release, read-only uncertainty retry after
   hidden successful settlements, and cross-scope non-disclosure. The shared
@@ -353,9 +353,9 @@ admitted:
   ordering, both cancellation/completion serializations, atomic aggregate and
   effect rollback, gap-free effect retry, whole-transaction attempt-identity
   collision retry, and committed-but-hidden completion replay without a new
-  write. Successful non-skipped execution of all three lanes is still required;
-  and
-- **DTE04-F — final admission:** source map/notice refresh, boundary and bundle
+  write. The fail-closed connected command passed non-skipped across the read,
+  creation, and lifecycle lanes; and
+- **DTE04-F — final admission — active:** source map/notice refresh, boundary and bundle
   checks, broad validation, reviewers, and an explicit admit/revise receipt.
 
 Each code checkpoint is a significant schema or behavioral change and requires
