@@ -1,42 +1,23 @@
 import { PGlite } from "@electric-sql/pglite";
 import {
-  decodeTaskRunCreationRequestV1,
-  makeTaskInputReferenceV1,
-} from "@flarex/durable-task/internal/run-creation-v1";
-import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
   TaskSystemRunAttemptStore,
   decodeTaskDurationMsV1,
-  decodeTaskRetryJitterV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
-  TASK_RUNTIME_OBJECT_STORE_V1,
   decodeTaskDefinitionRuntimeBindingV1,
   decodeTaskRunCreationAuthorityReceiptV1,
-  decodeTaskRuntimeEntryFrameV1,
-  encodeTaskDefinitionRuntimeBindingPreimageV1,
   encodeTaskRunCreationAuthorityReceiptPreimageV1,
-  hashCanonicalTaskCatalogV1,
-  hashTaskDefinitionRuntimeBindingV1,
   hashTaskRunCreationAuthorityReceiptV1,
-  hashTaskRuntimeEntryFrameV1,
-  makeStandardApplicationTaskSha256V1,
-  taskRuntimeObjectKeyV1,
-  type TaskDefinitionRuntimeBindingV1,
-  type TaskDefinitionSha256V1,
-  type TaskRuntimeObjectReferenceV1,
-  type TaskRuntimeObjectRoleV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { eq } from "drizzle-orm";
-import { Effect, Layer, Result } from "effect";
+import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
   createPGlitePersistence,
 } from "../src/pglite";
-import { fxSystemDurableTaskDefinitionRevisionsV1 } from "../src/schema";
 import {
   TaskSystemRunCreationBindingError,
   TaskSystemRunCreationCorruptionError,
@@ -54,18 +35,23 @@ import {
   locatedTaskAuthorityV1,
   seedTaskSystemRunAttemptStoreV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
-
-const RUN_UUID_A = "73000000-0000-4000-8000-000000000001";
-const RUN_UUID_B = "73000000-0000-4000-8000-000000000002";
-const ATTEMPT_UUID = "73000000-0000-4000-8000-000000000003";
-const sha256 = makeStandardApplicationTaskSha256V1(input =>
-  globalThis.crypto.subtle.digest("SHA-256", input)
-);
-const leaseDurationMs = Result.getOrThrow(decodeTaskDurationMsV1(30_000));
-const immediateRetryThresholdMs = Result.getOrThrow(
-  decodeTaskDurationMsV1(5_000),
-);
-const retryJitter = Result.getOrThrow(decodeTaskRetryJitterV1(0.25));
+import {
+  TASK_SYSTEM_CREATION_ATTEMPT_UUID as ATTEMPT_UUID,
+  TASK_SYSTEM_CREATION_RUN_UUID_A as RUN_UUID_A,
+  TASK_SYSTEM_CREATION_RUN_UUID_B as RUN_UUID_B,
+  installTaskSystemCreationRuntimeBindingV1,
+  makeTaskSystemCreationAuthorityV1,
+  makeTaskSystemCreationRequestV1 as creationRequest,
+  makeTaskSystemCreationRuntimeBindingV1,
+  makeTaskSystemCreationStoreForTestV1 as creationStore,
+  taskSystemCreationCountsV1 as taskCounts,
+  taskSystemCreationDigestV1 as digest,
+  taskSystemCreationImmediateRetryThresholdMsV1 as immediateRetryThresholdMs,
+  taskSystemCreationLeaseDurationMsV1 as leaseDurationMs,
+  taskSystemCreationRetryJitterV1 as retryJitter,
+  taskSystemCreationSha256V1 as sha256,
+  taskSystemCreationSuccessV1 as success,
+} from "./taskSystemRunCreationTestSupport";
 
 describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
   it("creates the only legal initial state and interoperates with lifecycle", async () => {
@@ -369,46 +355,13 @@ async function makeFixture(raw: PGlite) {
     delete from fx_system_durable_task_run_v1
     where scope_id = '${TASK_SCOPE_ID}'
   `);
-  const runtimeBinding = await makeRuntimeBinding();
-  const bindingBytes = success(
-    encodeTaskDefinitionRuntimeBindingPreimageV1(runtimeBinding),
+  const runtimeBinding = await makeTaskSystemCreationRuntimeBindingV1();
+  const creationAuthority = makeTaskSystemCreationAuthorityV1();
+  await installTaskSystemCreationRuntimeBindingV1(
+    persistence.drizzle,
+    runtimeBinding,
+    creationAuthority,
   );
-  const bindingSha256 = await runEffect(
-    hashTaskDefinitionRuntimeBindingV1(runtimeBinding, sha256),
-  );
-  await persistence.drizzle.update(
-    fxSystemDurableTaskDefinitionRevisionsV1,
-  ).set({
-    taskId: runtimeBinding.taskId,
-    applicationRevisionId: runtimeBinding.applicationRevisionId,
-    candidateSha256: runtimeBinding.candidateSha256,
-    bindingCodecVersion: 1,
-    bindingByteLength: BigInt(bindingBytes.byteLength),
-    bindingSha256,
-    bindingBytes,
-    applicationRevisionTaskBindingSha256:
-      runtimeBinding.applicationRevisionTaskBindingSha256,
-    canonicalTaskManifestSha256:
-      runtimeBinding.canonicalTaskManifestSha256,
-    taskRuntimeEntrySha256: runtimeBinding.taskRuntimeEntrySha256,
-    taskCatalogSha256: runtimeBinding.taskCatalogSha256,
-    taskEntryRootSha256: runtimeBinding.taskEntryRootSha256,
-    taskRuntimeProjectionSha256:
-      runtimeBinding.taskRuntimeProjectionSha256,
-    taskRuntimeGroupManifestSha256:
-      runtimeBinding.taskRuntimeGroupManifestSha256,
-    taskRuntimeMaterializationSpecSha256:
-      runtimeBinding.taskRuntimeMaterializationSpecSha256,
-    packageSha256: runtimeBinding.packageSha256,
-    artifactSha256: runtimeBinding.artifactSha256,
-    sourceRootSha256: runtimeBinding.sourceRootSha256,
-    semanticRootSha256: runtimeBinding.semanticRootSha256,
-  }).where(eq(
-    fxSystemDurableTaskDefinitionRevisionsV1.taskDefinitionRevisionId,
-    success(decodeTaskRunCreationAuthorityReceiptV1(
-      creationAuthority(),
-    )).taskDefinitionRevisionId,
-  ));
   const target = createPGliteLocatedTaskSystemRunAttemptTargetV1(
     persistence,
     TASK_LOCATOR,
@@ -422,195 +375,6 @@ async function makeFixture(raw: PGlite) {
     located,
     request: creationRequest("request-a", 0x55),
     runtimeBinding,
-    creationAuthority: success(
-      decodeTaskRunCreationAuthorityReceiptV1(creationAuthority()),
-    ),
+    creationAuthority,
   };
-}
-
-function creationStore(
-  fixture: Awaited<ReturnType<typeof makeFixture>>,
-  options: Readonly<{
-    readonly randomUuid: () => string;
-    readonly runtimeBinding?: TaskDefinitionRuntimeBindingV1;
-    readonly creationAuthority?: Awaited<
-      ReturnType<typeof makeFixture>
-    >["creationAuthority"];
-  }>,
-) {
-  return makeTaskSystemRunCreationStoreV1(fixture.located, {
-    sha256,
-    runtimeBinding: options.runtimeBinding ?? fixture.runtimeBinding,
-    creationAuthority:
-      options.creationAuthority ?? fixture.creationAuthority,
-    leaseDurationMs,
-    immediateRetryThresholdMs,
-    randomUuid: options.randomUuid,
-  });
-}
-
-async function makeRuntimeBinding(): Promise<TaskDefinitionRuntimeBindingV1> {
-  const catalog = await runEffect(hashCanonicalTaskCatalogV1({
-    version: 1,
-    tasks: [{
-      version: 1,
-      taskId: "orders.process",
-      handler: {
-        logicalModulePath: "tasks/orders",
-        artifactModulePath: "tasks/orders.js",
-        exportName: "run",
-      },
-      payloadValidator: {
-        type: "object",
-        value: {
-          orderId: {
-            fieldType: { type: "string" },
-            optional: false,
-          },
-        },
-      },
-      outputValidator: null,
-      runAttemptPolicy: {
-        version: 1,
-        retry: {
-          maxAttempts: 3,
-          factor: 2,
-          minTimeoutInMs: 1_000,
-          maxTimeoutInMs: 60_000,
-          randomize: true,
-        },
-        outOfMemory: { kind: "disabled" },
-      },
-      maximumDurationInSeconds: 300,
-      computeProfile: "standard-1x",
-      queue: { kind: "default" },
-    }],
-  }, sha256));
-  const entry = success(decodeTaskRuntimeEntryFrameV1({
-    kind: "task_runtime_entry",
-    taskOrdinal: 0n,
-    taskId: catalog.entries[0]!.taskId,
-    canonicalTaskManifestSha256:
-      catalog.entries[0]!.canonicalTaskManifestSha256,
-    logicalExecutionModule: "tasks/orders",
-    artifactExecutionModule: "tasks/orders.js",
-    exportName: "run",
-    group: "durable_task",
-    projectionSha256: digest(0x50),
-  }));
-  const entrySha256 = await runEffect(
-    hashTaskRuntimeEntryFrameV1(entry, sha256),
-  );
-  return success(decodeTaskDefinitionRuntimeBindingV1({
-    version: 1,
-    applicationRevisionId: "apprev_task_store_v1",
-    candidateSha256: digest(0x31),
-    applicationRevisionTaskBindingSha256: digest(0x42),
-    taskId: catalog.entries[0]!.taskId,
-    manifest: catalog.entries[0]!.manifest,
-    canonicalTaskManifestSha256:
-      catalog.entries[0]!.canonicalTaskManifestSha256,
-    taskRuntimeEntrySha256: entrySha256,
-    taskRuntimeEntry: entry,
-    taskCatalogSha256: catalog.taskCatalogSha256,
-    taskEntryRootSha256: digest(0x43),
-    taskRuntimeProjectionSha256: digest(0x50),
-    taskRuntimeGroupManifestSha256: digest(0x51),
-    taskRuntimeMaterializationSpecSha256: digest(0x52),
-    packageSha256: digest(0x53),
-    artifactSha256: digest(0x54),
-    sourceRootSha256: digest(0x55),
-    semanticRootSha256: digest(0x56),
-    runtimeObjects: [
-      objectReference("runtime_projection_module", digest(0x57), 100n),
-      objectReference("task_runtime_projection", digest(0x50), 70n),
-      objectReference("task_runtime_entry", entrySha256, 40n),
-      objectReference("task_runtime_group_manifest", digest(0x51), 60n),
-      objectReference(
-        "task_runtime_materialization_spec",
-        digest(0x52),
-        50n,
-      ),
-    ],
-  }));
-}
-
-function creationAuthority() {
-  return {
-    version: 1,
-    applicationRevisionId: "apprev_task_store_v1",
-    activationRevision: 7n,
-    activationHeadSha256: digest(0x61),
-    readinessReceiptSha256: digest(0x62),
-    candidateSha256: digest(0x31),
-    applicationRevisionTaskBindingSha256: digest(0x42),
-    taskDefinitionRevisionId: TASK_DEFINITION_ID,
-  };
-}
-
-function creationRequest(requestKey: string, inputDigest: number) {
-  return success(decodeTaskRunCreationRequestV1({
-    version: 1,
-    requestKey,
-    taskDefinitionRevisionId: TASK_DEFINITION_ID,
-    input: success(makeTaskInputReferenceV1(digest(inputDigest), 19)),
-  }));
-}
-
-function objectReference(
-  role: TaskRuntimeObjectRoleV1,
-  sha: TaskDefinitionSha256V1,
-  byteLength: bigint,
-): TaskRuntimeObjectReferenceV1 {
-  return {
-    storeIdentity: TASK_RUNTIME_OBJECT_STORE_V1,
-    role,
-    objectKey: taskRuntimeObjectKeyV1(role, hex(sha)),
-    byteLength,
-    sha256: sha,
-  };
-}
-
-function digest(seed: number): TaskDefinitionSha256V1 {
-  return new Uint8Array(32).fill(seed) as TaskDefinitionSha256V1;
-}
-
-function hex(bytes: Uint8Array): string {
-  return Array.from(
-    bytes,
-    value => value.toString(16).padStart(2, "0"),
-  ).join("");
-}
-
-async function taskCounts(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
-) {
-  const result = await persistence.query<{
-    runs: string;
-    requests: string;
-    attempts: string;
-    effects: string;
-  }>(`
-    select
-      (select count(*)::text from fx_system_durable_task_run_v1) as runs,
-      (select count(*)::text from fx_system_durable_task_run_request_v1)
-        as requests,
-      (select count(*)::text from fx_system_durable_task_attempt_identity_v1)
-        as attempts,
-      (select count(*)::text from fx_system_durable_task_requested_effect_v1)
-        as effects
-  `);
-  const row = result.rows[0]!;
-  return {
-    runs: Number(row.runs),
-    requests: Number(row.requests),
-    attempts: Number(row.attempts),
-    effects: Number(row.effects),
-  };
-}
-
-function success<Success, Failure>(
-  result: Result.Result<Success, Failure>,
-): Success {
-  return Result.getOrThrow(result);
 }

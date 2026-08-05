@@ -3,8 +3,8 @@
 ## Status
 
 **Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-D are complete, and
-DTE04-E's real-Postgres read-parity test lane is implemented but still requires
-a non-skipped connected admission run. The
+DTE04-E's real-Postgres read and creation parity lanes are implemented but
+still require a non-skipped connected admission run. The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
@@ -30,9 +30,13 @@ corruption checks, and no claim or delivery authority. The DTE04-E read lane
 now covers connected snapshot parity, representative-cardinality normal-planner
 `EXPLAIN` evidence, run-row lock blocking and release, bounded retry after
 hidden successful read settlements, and cross-scope non-disclosure. The
-dedicated command fails closed when its authenticated Postgres URL is absent;
-a successful non-skipped connected run remains required. Creation
-uncertainty/races and the remaining lifecycle race matrix also remain open.
+creation lane reuses the same PGlite fixture contract and adds deterministic
+same-request and conflicting-request first-writer races, post-lock database
+time, committed-but-hidden response recovery, and run-ID collision rollback.
+Its insert barrier requires both first writers to reach the real run insert
+before either can commit. The dedicated command fails closed when its
+authenticated Postgres URL is absent; successful non-skipped read and creation
+runs remain required. The remaining lifecycle race matrix also remains open.
 Effect delivery, host, queue, and activation changes remain unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
@@ -339,10 +343,11 @@ admitted:
 - **DTE04-E — real Postgres parity — active:** the executable read lane now
   covers bounded discovery/effect snapshots, representative normal-planner
   index checks, run-lock blocking/release, read-only uncertainty retry after
-  hidden successful settlements, and cross-scope non-disclosure. A successful
-  non-skipped real-Postgres execution plus creation
-  uncertainty/races and the remaining lifecycle race matrix are still
-  required; and
+  hidden successful settlements, and cross-scope non-disclosure. The shared
+  creation lane covers deterministic exact/conflicting first-writer races,
+  post-lock database time, committed-but-hidden response replay, and run-ID
+  collision rollback. Successful non-skipped read/creation execution and the
+  remaining lifecycle race matrix are still required; and
 - **DTE04-F — final admission:** source map/notice refresh, boundary and bundle
   checks, broad validation, reviewers, and an explicit admit/revise receipt.
 

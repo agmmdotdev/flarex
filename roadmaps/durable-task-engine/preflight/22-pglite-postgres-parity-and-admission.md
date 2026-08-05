@@ -5,10 +5,13 @@
 **Status:** Active validation gate. DTE04-D's PGlite read matrix is complete.
 DTE04-E now has a fail-closed real-Postgres read lane for snapshot parity,
 representative normal-planner index selection, lock blocking/release, retry
-after hidden successful read settlements, and cross-scope non-disclosure. A
-successful non-skipped connected run is still required. Creation
-uncertainty/races and the remaining lifecycle race matrix also remain open.
-Passing PGlite or merely compiling the Postgres lane remains explicitly
+after hidden successful read settlements, and cross-scope non-disclosure. Its
+shared creation fixture now drives deterministic exact/conflicting first-writer
+races through a real insert barrier, post-lock database time, a real committed
+transaction whose response is hidden at release, exact replay recovery, and
+run-ID collision rollback. Successful non-skipped connected read and creation
+runs are still required, and the remaining lifecycle race matrix remains open.
+Passing PGlite or merely compiling the Postgres lanes remains explicitly
 insufficient for final Roadmap 04 admission.
 
 ## Objective
