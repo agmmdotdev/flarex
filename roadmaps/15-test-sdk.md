@@ -282,10 +282,21 @@ gate rather than an inferred property of the PGlite result.
 test-owned runner and proves the same relation-free public mutation/query
 surface with independent cooking and English-learning definitions. The runner
 remains local to persistence tests and accepts workload Effects rather than a
-public or serializable workload language. It does not yet authorize
-`flarex-test` adoption, controlled setup/inspection, identity, actions,
-scheduling, or a deterministic model simulator. Its two genuine-PostgreSQL
-cases remain explicit open acceptance evidence.
+public or serializable workload language. It does not authorize `flarex-test`
+adoption, identity, actions, scheduling, or a deterministic model simulator.
+Its two genuine-PostgreSQL cases remain explicit open acceptance evidence.
+
+`SAC01-F2b` adds lower-layer controlled setup and inspection without adopting a
+public Test SDK. Setup is mutation-only and delegates to the existing Standard
+point-mutation owner. Inspection is an immutable, scope-filtered logical
+receipt over authoritative row identities and commit/feed/outbox/runtime
+evidence; it exposes no SQL, database handle, transaction capability, physical
+locator, or document value. Callers continue to read document values through
+the Standard query API. Separate managed setup and workload scopes prevent
+escaped capabilities or detached invocations from surviving their phase. This
+closes the first lower-layer setup/inspection prerequisite while leaving SDK
+ergonomics, serializable scenarios, model scheduling, identity, and public
+adoption separately gated.
 
 Roadmap 41's completed `SAC01-P` preflight accepts a first pure definition and
 corpus seed local to backend tests only. That test fixture is not a stable
@@ -318,8 +329,11 @@ versioned executor-owned test facility with clear schema/generation semantics.
 Convex's mock can safely provide a mock database context directly. Flarex's
 accepted architecture forbids exposing database authority to user code. The
 portable API goal is controlled test setup/inspection, not the mock's physical
-implementation. A future helper must create a trusted test-only executor
-transaction with the same validation, scope, generation, and commit rules.
+implementation. The accepted private lower-layer seam performs setup through
+the existing Standard mutation owner and reads scope-filtered logical evidence
+without granting a transaction or physical database capability. A future
+public helper may adapt that seam only after its own API gate; it must preserve
+validation, scope, generation, and commit rules.
 
 ## Convex Compatibility And Flarex Divergences
 
@@ -377,8 +391,9 @@ identity, or generated-reference semantics.
   accepted PGlite/Postgres path.
 - There are no `withIdentity`, bearer-auth, trusted test identity, role/claim,
   or anonymous/authenticated variant helpers.
-- There is no safe `run`, inline query/mutation/action, seed, fixture, snapshot,
-  or authoritative state-inspection API.
+- There is no public `flarex-test` `run`, inline query/mutation/action, seed,
+  fixture, snapshot, or authoritative state-inspection API. The private F2b
+  harness capability is deliberately narrower and remains test-owner local.
 - Scheduler controls, fake time, pending-job inspection, and finish-in-progress/
   finish-all helpers are absent because scheduler semantics are incomplete.
 - `client()` resources are not tracked by the harness. Reset/dispose can leave
@@ -453,10 +468,11 @@ separate evidence lanes, not alternate test SDK semantics.
    identity variants only through the backend's explicit dev/test identity
    resolver and test anonymous, valid, malformed, expired, and unauthorized
    cases without weakening hosted auth.
-7. **Design controlled setup/inspection.** Add a trusted executor-owned test
-   transaction/fixture API before any `run(fn)`, seed, or snapshot helper. It
-   must pin scope/generation, preserve validators and commit invariants, and
-   expose no physical database handle.
+7. **Adapt controlled setup/inspection deliberately.** The private F2b seam is
+   complete: setup reuses Standard mutation authority and inspection returns
+   logical evidence only. Before any public `run(fn)`, seed, or snapshot
+   helper, design the `flarex-test` capability and lifecycle surface without
+   exposing a transaction or physical database handle.
 8. **Add scheduling only after runtime semantics exist.** Then port controlled
    time, in-progress/all scheduled function helpers, retry/failure inspection,
    and recursive scheduling tests against the real scheduler boundary.

@@ -39,6 +39,11 @@ import { makeRuntimeArtifactPublisherFixtureV1 } from
   "./runtimeArtifactPublisherFixture";
 import { makeSap05StandardPointQuerySystemLiveForTestV1 } from
   "./sap05StandardPointQueryHarness";
+import {
+  makePrivateStandardApplicationTestInspectorV1,
+  type PrivateStandardApplicationAuthoritativeInspectionV1,
+  type PrivateStandardApplicationTestInspectionV1Error,
+} from "./privateStandardApplicationTestInspectionV1";
 
 type ApplicationTestRequirementsV1 =
   | ApplicationPointMutationSystemV1
@@ -52,7 +57,7 @@ export interface PrivateStandardApplicationTestDefinitionV1 {
   readonly makeDefinitionInput: () => StandardApplicationDefinitionInputV1;
 }
 
-export interface PrivateStandardApplicationTestClientV1 {
+export interface PrivateStandardApplicationTestSetupClientV1 {
   readonly invokeMutation: (
     functionPath: TransactionFunctionPathV1,
     args: unknown,
@@ -61,6 +66,10 @@ export interface PrivateStandardApplicationTestClientV1 {
     AuthoritativeCommittedApplicationPointMutationOutcomeV1,
     InvokeStandardApplicationPointMutationV1Error
   >;
+}
+
+export interface PrivateStandardApplicationTestClientV1
+  extends PrivateStandardApplicationTestSetupClientV1 {
   readonly invokeQuery: (
     functionPath: TransactionFunctionPathV1,
     args: unknown,
@@ -68,24 +77,36 @@ export interface PrivateStandardApplicationTestClientV1 {
     CanonicalFlarexRuntimeValueV1,
     InvokeStandardApplicationPointQueryV1Error
   >;
+  readonly inspectAuthoritativeState: () => Effect.Effect<
+    PrivateStandardApplicationAuthoritativeInspectionV1,
+    PrivateStandardApplicationTestInspectionV1Error
+  >;
 }
 
-export interface PrivateStandardApplicationTestRunReceiptV1<A> {
+export interface PrivateStandardApplicationTestRunReceiptV1<Setup, A> {
   readonly version: 1;
   readonly applicationId: string;
   readonly lane: "pglite" | "postgres";
   readonly definitionAnalyzedRegisteredReadyActivated: true;
+  readonly setupProof: Setup;
+  readonly afterSetupInspection:
+    PrivateStandardApplicationAuthoritativeInspectionV1;
   readonly workloadProof: A;
+  readonly finalInspection: PrivateStandardApplicationAuthoritativeInspectionV1;
   readonly mutationRuntimeExecutions: number;
   readonly queryRuntimeExecutions: number;
   readonly postgresVersion: string | null;
 }
 
-export interface RunPrivateStandardApplicationTestV1Input<A, E> {
+export interface RunPrivateStandardApplicationTestV1Input<Setup, A, E> {
   readonly lane: Fsv06StandardPointMutationLaneV1;
   readonly definition: PrivateStandardApplicationTestDefinitionV1;
+  readonly prepareState: (
+    client: PrivateStandardApplicationTestSetupClientV1,
+  ) => Effect.Effect<Setup, E>;
   readonly runWorkload: (
     client: PrivateStandardApplicationTestClientV1,
+    setup: Setup,
   ) => Effect.Effect<A, E>;
 }
 
@@ -101,7 +122,8 @@ export class PrivateStandardApplicationTestIntegrationV1Error
 export type RunPrivateStandardApplicationTestV1Error<E> =
   | E
   | ActivateApplicationRevisionV1Error
-  | PrivateStandardApplicationTestIntegrationV1Error;
+  | PrivateStandardApplicationTestIntegrationV1Error
+  | PrivateStandardApplicationTestInspectionV1Error;
 
 /**
  * Private, test-owned composition root for one relation-free Standard
@@ -110,10 +132,10 @@ export type RunPrivateStandardApplicationTestV1Error<E> =
  */
 export const runPrivateStandardApplicationTestV1 = Effect.fn(
   "PrivateStandardApplicationTest.runV1",
-)(function* <A, E>(
-  input: RunPrivateStandardApplicationTestV1Input<A, E>,
+)(function* <Setup, A, E>(
+  input: RunPrivateStandardApplicationTestV1Input<Setup, A, E>,
 ): Effect.fn.Return<
-  PrivateStandardApplicationTestRunReceiptV1<A>,
+  PrivateStandardApplicationTestRunReceiptV1<Setup, A>,
   RunPrivateStandardApplicationTestV1Error<E>
 > {
   const artifacts = makeRuntimeArtifactPublisherFixtureV1();
@@ -161,20 +183,73 @@ export const runPrivateStandardApplicationTestV1 = Effect.fn(
     makeApplicationPointQuerySystemV1Layer(querySystem),
     makeStandardApplicationActiveRevisionReaderV1Layer(ready.context),
   );
+  const inspector = yield* makePrivateStandardApplicationTestInspectorV1({
+    applicationId: input.definition.applicationId,
+    deploymentId: ready.deploymentId,
+    persistence: input.lane.persistence,
+    getMutationRuntimeExecutions: () => mutationRuntimeExecutions,
+    getQueryRuntimeExecutions: () => queryRuntimeExecutions,
+  });
+  const runOwned = <Success, Failure>(
+    invocationScope: Scope.Closeable,
+    effect: Effect.Effect<Success, Failure>,
+  ): Effect.Effect<Success, Failure> => Effect.forkIn(
+    effect,
+    invocationScope,
+    { startImmediately: true },
+  ).pipe(Effect.flatMap(fiber =>
+    Fiber.join(fiber).pipe(Effect.ensuring(Fiber.interrupt(fiber)))
+  ));
+  const invokeApplication = <Success, Failure>(
+    invocationScope: Scope.Closeable,
+    effect: Effect.Effect<
+      Success,
+      Failure,
+      ApplicationTestRequirementsV1
+    >,
+  ): Effect.Effect<Success, Failure> => runOwned(
+    invocationScope,
+    Effect.scoped(effect.pipe(Effect.provide(applicationLayer))),
+  );
+
+  const setupProof = yield* Effect.acquireUseRelease(
+    Scope.make(),
+    invocationScope => {
+      let setupActive = true;
+      const invokeWhileSetupActive = <Success, Failure>(
+        effect: () => Effect.Effect<Success, Failure>,
+      ): Effect.Effect<Success, Failure> => Effect.suspend(() =>
+        setupActive
+          ? effect()
+          : Effect.die(new Error(
+              "The private Standard Application Test setup client is no longer active.",
+            ))
+      );
+      const setupClient = Object.freeze({
+        invokeMutation: Effect.fn(
+          "PrivateStandardApplicationTest.setupMutationV1",
+        )((functionPath, args, requestKey) => invokeWhileSetupActive(() =>
+          invokeApplication(
+            invocationScope,
+            invokeStandardApplicationPointMutationV1(
+              functionPath,
+              args,
+              requestKey,
+            ),
+          )
+        )),
+      } satisfies PrivateStandardApplicationTestSetupClientV1);
+      return Effect.suspend(() => input.prepareState(setupClient)).pipe(
+        Effect.ensuring(Effect.sync(() => { setupActive = false; })),
+      );
+    },
+    (invocationScope, exit) => Scope.close(invocationScope, exit),
+  );
+  const afterSetupInspection = yield* inspector.inspectAuthoritativeState();
+
   const workloadProof = yield* Effect.acquireUseRelease(
     Scope.make(),
     invocationScope => {
-      const invoke = <Success, Failure>(effect: Effect.Effect<
-        Success,
-        Failure,
-        ApplicationTestRequirementsV1
-      >): Effect.Effect<Success, Failure> => Effect.forkIn(
-        Effect.scoped(effect.pipe(Effect.provide(applicationLayer))),
-        invocationScope,
-        { startImmediately: true },
-      ).pipe(Effect.flatMap(fiber =>
-        Fiber.join(fiber).pipe(Effect.ensuring(Fiber.interrupt(fiber)))
-      ));
       let clientActive = true;
       const invokeWhileActive = <Success, Failure>(
         effect: () => Effect.Effect<Success, Failure>,
@@ -182,31 +257,44 @@ export const runPrivateStandardApplicationTestV1 = Effect.fn(
         clientActive
           ? effect()
           : Effect.die(new Error(
-              "The private Standard Application Test client is no longer active.",
+              "The private Standard Application Test workload client is no longer active.",
             ))
       );
-      const client: PrivateStandardApplicationTestClientV1 = {
+      const client = Object.freeze({
         invokeMutation: Effect.fn(
           "PrivateStandardApplicationTest.invokeMutationV1",
         )((functionPath, args, requestKey) => invokeWhileActive(() =>
-          invoke(invokeStandardApplicationPointMutationV1(
-            functionPath,
-            args,
-            requestKey,
-          )),
+          invokeApplication(
+            invocationScope,
+            invokeStandardApplicationPointMutationV1(
+              functionPath,
+              args,
+              requestKey,
+            ),
+          )
         )),
         invokeQuery: Effect.fn(
           "PrivateStandardApplicationTest.invokeQueryV1",
         )((functionPath, args) => invokeWhileActive(() =>
-          invoke(invokeStandardApplicationPointQueryV1(functionPath, args)),
+          invokeApplication(
+            invocationScope,
+            invokeStandardApplicationPointQueryV1(functionPath, args),
+          )
         )),
-      };
-      return Effect.suspend(() => input.runWorkload(client)).pipe(
+        inspectAuthoritativeState: Effect.fn(
+          "PrivateStandardApplicationTest.inspectWorkloadStateV1",
+        )(() => invokeWhileActive(() => runOwned(
+          invocationScope,
+          inspector.inspectAuthoritativeState(),
+        ))),
+      } satisfies PrivateStandardApplicationTestClientV1);
+      return Effect.suspend(() => input.runWorkload(client, setupProof)).pipe(
         Effect.ensuring(Effect.sync(() => { clientActive = false; })),
       );
     },
     (invocationScope, exit) => Scope.close(invocationScope, exit),
   );
+  const finalInspection = yield* inspector.inspectAuthoritativeState();
   const postgresVersion = input.lane.name === "postgres"
     ? (yield* runUninterruptibleIntegrationPromiseV1(
         "inspectPostgresVersion",
@@ -222,7 +310,10 @@ export const runPrivateStandardApplicationTestV1 = Effect.fn(
     applicationId: input.definition.applicationId,
     lane: input.lane.name,
     definitionAnalyzedRegisteredReadyActivated: true,
+    setupProof,
+    afterSetupInspection,
     workloadProof,
+    finalInspection,
     mutationRuntimeExecutions,
     queryRuntimeExecutions,
     postgresVersion,

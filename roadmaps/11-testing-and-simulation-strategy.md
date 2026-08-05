@@ -338,6 +338,15 @@ Named Flarex differences are:
   cross-application integration reuse, not a serializable history corpus,
   reference model, controlled scheduler, shrinker, or concurrent
   multi-application environment; its matching PostgreSQL cases remain open.
+- `SAC01-F2b` private controlled setup through the existing Standard mutation
+  owner and immutable logical inspection of authoritative row-pointer,
+  revision, commit-outcome, commit-feed, outbox, and runtime-execution evidence.
+  Setup and workload use separate managed scopes. The PGlite lane covers two
+  applications plus lifecycle, cancellation, typed inspection failures,
+  post-workload freshness, and exact scope/deployment-predicate auditing;
+  matching PostgreSQL cases are implemented and fail closed without a URL.
+  This exposes neither raw database authority nor document values and remains
+  an integration harness capability rather than a model simulator.
 - Effect runtime-boundary static enforcement and its own regression tests.
 
 ## Known Gaps And Limitations
@@ -361,10 +370,10 @@ Named Flarex differences are:
 - There is no browser-run Vite/WebSocket end-to-end lane, multi-browser matrix,
   SSR/Next.js lane, or reconnect/network-loss client suite.
 - There is no deterministic simulator, reference model, controlled scheduler,
-  shrinking, or generated history corpus. `SAC01-F1` and `SAC01-F2a` now
+  shrinking, or generated history corpus. `SAC01-F1` through `SAC01-F2b` now
   provide two independent real-path PGlite replay workloads through a reusable
-  composition operation, but workload policy remains code-owned and does not
-  close those simulation gaps.
+  composition operation with controlled setup and logical inspection, but
+  workload policy remains code-owned and does not close those simulation gaps.
 - Current fault coverage is hand-authored. It does not systematically explore
   crashes between commit/outbox/notify, service-binding loss, delayed/duplicate
   delivery, artifact eviction, DO restart, or recovery catch-up.

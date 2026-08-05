@@ -14,9 +14,14 @@ import { makePrivateStandardCookingDefinitionV1 } from
 import {
   type PrivateStandardApplicationTestClientV1,
   type PrivateStandardApplicationTestDefinitionV1,
+  type PrivateStandardApplicationTestSetupClientV1,
   runPrivateStandardApplicationTestV1,
   type RunPrivateStandardApplicationTestV1Error,
 } from "./privateStandardApplicationTestHarnessV1";
+import type {
+  PrivateStandardApplicationAuthoritativeInspectionV1,
+  PrivateStandardApplicationTestInspectionV1Error,
+} from "./privateStandardApplicationTestInspectionV1";
 import type { Fsv06StandardPointMutationLaneV1 } from
   "./fsv06StandardPointMutationHarness";
 
@@ -41,6 +46,12 @@ export interface PrivateStandardCookingApplicationProofV1 {
   readonly servings: 4;
   readonly mutationReplay: true;
   readonly queryReplay: true;
+  readonly controlledSetup: true;
+  readonly afterSetupInspection:
+    PrivateStandardApplicationAuthoritativeInspectionV1;
+  readonly workloadInspection:
+    PrivateStandardApplicationAuthoritativeInspectionV1;
+  readonly finalInspection: PrivateStandardApplicationAuthoritativeInspectionV1;
   readonly mutationRuntimeExecutions: 1;
   readonly queryRuntimeExecutions: 2;
   readonly postgresVersion: string | null;
@@ -50,11 +61,19 @@ interface CookingWorkloadProofV1 {
   readonly documentId: string;
   readonly mutationReplay: true;
   readonly queryReplay: true;
+  readonly workloadInspection:
+    PrivateStandardApplicationAuthoritativeInspectionV1;
+}
+
+interface CookingSetupProofV1 {
+  readonly documentId: string;
+  readonly commitSeq: bigint;
 }
 
 type CookingWorkloadErrorV1 =
   | InvokeStandardApplicationPointMutationV1Error
-  | InvokeStandardApplicationPointQueryV1Error;
+  | InvokeStandardApplicationPointQueryV1Error
+  | PrivateStandardApplicationTestInspectionV1Error;
 
 export type PrivateStandardCookingApplicationErrorV1 =
   RunPrivateStandardApplicationTestV1Error<CookingWorkloadErrorV1>;
@@ -78,6 +97,7 @@ export const runPrivateStandardCookingApplicationV1:
   const receipt = yield* runPrivateStandardApplicationTestV1({
     lane,
     definition: COOKING_DEFINITION,
+    prepareState: prepareCookingStateV1,
     runWorkload: runCookingWorkloadV1,
   });
   if (
@@ -101,29 +121,34 @@ export const runPrivateStandardCookingApplicationV1:
     servings: 4,
     mutationReplay: receipt.workloadProof.mutationReplay,
     queryReplay: receipt.workloadProof.queryReplay,
+    controlledSetup: true,
+    afterSetupInspection: receipt.afterSetupInspection,
+    workloadInspection: receipt.workloadProof.workloadInspection,
+    finalInspection: receipt.finalInspection,
     mutationRuntimeExecutions: 1,
     queryRuntimeExecutions: 2,
     postgresVersion: receipt.postgresVersion,
   };
 });
 
-const runCookingWorkloadV1 = Effect.fn(
-  "PrivateStandardApplicationTest.runCookingWorkloadV1",
+const COOKING_MUTATION_PATH = TransactionFunctionPathV1Schema.make(
+  "recipeCommands:create",
+);
+const COOKING_QUERY_PATH = TransactionFunctionPathV1Schema.make("recipes:get");
+const COOKING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "sac01:cooking:create",
+);
+const COOKING_RECIPE = { title: "Tomato soup", servings: 4 } as const;
+
+const prepareCookingStateV1 = Effect.fn(
+  "PrivateStandardApplicationTest.prepareCookingStateV1",
 )(function* (
-  client: PrivateStandardApplicationTestClientV1,
-): Effect.fn.Return<CookingWorkloadProofV1, CookingWorkloadErrorV1> {
-  const mutationPath = TransactionFunctionPathV1Schema.make(
-    "recipeCommands:create",
-  );
-  const queryPath = TransactionFunctionPathV1Schema.make("recipes:get");
-  const requestKey = TransactionRequestKeyV1Schema.make(
-    "sac01:cooking:create",
-  );
-  const recipe = { title: "Tomato soup", servings: 4 } as const;
+  client: PrivateStandardApplicationTestSetupClientV1,
+): Effect.fn.Return<CookingSetupProofV1, CookingWorkloadErrorV1> {
   const inserted = yield* client.invokeMutation(
-    mutationPath,
-    recipe,
-    requestKey,
+    COOKING_MUTATION_PATH,
+    COOKING_RECIPE,
+    COOKING_REQUEST_KEY,
   );
   if (
     inserted.status !== "committed" ||
@@ -131,35 +156,55 @@ const runCookingWorkloadV1 = Effect.fn(
     typeof inserted.value !== "string"
   ) {
     return yield* Effect.die(new Error(
-      "The cooking workload did not publish an authoritative recipe id.",
+      "The cooking setup did not publish an authoritative recipe id.",
     ));
   }
-  const documentId = inserted.value;
+  return { documentId: inserted.value, commitSeq: inserted.commitSeq };
+});
+
+const runCookingWorkloadV1 = Effect.fn(
+  "PrivateStandardApplicationTest.runCookingWorkloadV1",
+)(function* (
+  client: PrivateStandardApplicationTestClientV1,
+  setup: CookingSetupProofV1,
+): Effect.fn.Return<CookingWorkloadProofV1, CookingWorkloadErrorV1> {
   const replayedMutation = yield* client.invokeMutation(
-    mutationPath,
-    recipe,
-    requestKey,
+    COOKING_MUTATION_PATH,
+    COOKING_RECIPE,
+    COOKING_REQUEST_KEY,
   );
   if (
     replayedMutation.disposition !== "replayed" ||
-    replayedMutation.commitSeq !== inserted.commitSeq ||
-    replayedMutation.value !== documentId
+    replayedMutation.commitSeq !== setup.commitSeq ||
+    replayedMutation.value !== setup.documentId
   ) {
     return yield* Effect.die(new Error(
       "The cooking workload did not deterministically replay its mutation.",
     ));
   }
 
-  const firstRead = yield* client.invokeQuery(queryPath, { id: documentId });
-  requireRecipeDocument(firstRead, documentId);
-  const replayedRead = yield* client.invokeQuery(queryPath, { id: documentId });
-  requireRecipeDocument(replayedRead, documentId);
+  const firstRead = yield* client.invokeQuery(
+    COOKING_QUERY_PATH,
+    { id: setup.documentId },
+  );
+  requireRecipeDocument(firstRead, setup.documentId);
+  const workloadInspection = yield* client.inspectAuthoritativeState();
+  const replayedRead = yield* client.invokeQuery(
+    COOKING_QUERY_PATH,
+    { id: setup.documentId },
+  );
+  requireRecipeDocument(replayedRead, setup.documentId);
   if (JSON.stringify(firstRead) !== JSON.stringify(replayedRead)) {
     return yield* Effect.die(new Error(
       "The cooking workload did not deterministically replay its point query.",
     ));
   }
-  return { documentId, mutationReplay: true, queryReplay: true };
+  return {
+    documentId: setup.documentId,
+    mutationReplay: true,
+    queryReplay: true,
+    workloadInspection,
+  };
 });
 
 function requireRecipeDocument(value: unknown, documentId: string): void {

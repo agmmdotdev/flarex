@@ -25,7 +25,7 @@ describe("private Standard Application Test API PostgreSQL environment", () => {
   it("requires an authenticated genuine PostgreSQL URL", () => {
     expect(
       postgresUrl,
-      "Set FLAREX_POSTGRES_DATABASE_URL before accepting SAC01-F1/F2a.",
+      "Set FLAREX_POSTGRES_DATABASE_URL before accepting SAC01-F1/F2a/F2b.",
     ).not.toBeNull();
   });
 });
@@ -39,8 +39,22 @@ describePostgres("private Standard Application Test API - PostgreSQL", () => {
       expect(proof).toMatchObject({
         lane: "postgres",
         definitionAnalyzedRegisteredReadyActivated: true,
+        controlledSetup: true,
         mutationReplay: true,
         queryReplay: true,
+        mutationRuntimeExecutions: 1,
+        queryRuntimeExecutions: 2,
+      });
+      expect(proof.afterSetupInspection).toMatchObject({
+        currentRowCount: 1,
+        liveRowCount: 1,
+        revisionRowCount: 1,
+        commitSeqs: ["1"],
+        commitFeedCommitSeqs: ["1"],
+        outboxCommitSeqs: ["1"],
+      });
+      expect(proof.finalInspection).toMatchObject({
+        currentRowCount: 1,
         mutationRuntimeExecutions: 1,
         queryRuntimeExecutions: 2,
       });
@@ -59,8 +73,22 @@ describePostgres("private Standard Application Test API - PostgreSQL", () => {
         lane: "postgres",
         scenario: "english-learning-lesson-create-and-read-v1",
         definitionAnalyzedRegisteredReadyActivated: true,
+        controlledSetup: true,
         mutationReplay: true,
         queryReplay: true,
+        mutationRuntimeExecutions: 1,
+        queryRuntimeExecutions: 2,
+      });
+      expect(proof.afterSetupInspection).toMatchObject({
+        currentRowCount: 1,
+        liveRowCount: 1,
+        revisionRowCount: 1,
+        commitSeqs: ["1"],
+        commitFeedCommitSeqs: ["1"],
+        outboxCommitSeqs: ["1"],
+      });
+      expect(proof.finalInspection).toMatchObject({
+        currentRowCount: 1,
         mutationRuntimeExecutions: 1,
         queryRuntimeExecutions: 2,
       });

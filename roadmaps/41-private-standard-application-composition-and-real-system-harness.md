@@ -4,8 +4,9 @@
 
 **Status:** `SAC01-P`, `SAC01-A`, the `SAC01-B1` pure corpus foundation, and
 the first `FSV03` private real-system mutation proof are complete. The
-`SAC01-F1` and the bounded `SAC01-F2a` implementation plus PGlite fast lanes
-are complete; their named genuine-PostgreSQL acceptance lanes are implemented
+`SAC01-F1`, the bounded `SAC01-F2a`, and the private `SAC01-F2b` controlled
+setup and inspection implementation plus PGlite fast lanes are complete; their
+named genuine-PostgreSQL acceptance lanes are implemented
 but remain open until they run with an authenticated database URL and zero
 skips. A pure
 test-local definition fixture, deterministic case catalog, and replay
@@ -36,8 +37,19 @@ fail-closed when the required URL is absent. This is reusable one-application-
 per-environment composition, not a serializable workload language, concurrent
 multi-application environment, reference model, or simulator. Genuine-
 PostgreSQL acceptance, a dedicated harness package, broader
-invocation families, controlled setup/inspection, and live production
+invocation families, a serializable scenario language, and live production
 composition remain open.
+
+`SAC01-F2b` gives each run a setup-only mutation client before workload
+execution, then supplies immutable logical inspection receipts after setup and
+after the workload. Setup uses the existing Standard point-mutation owner; it
+does not write through a database handle. Inspection derives one scope-filtered
+snapshot of authoritative row pointers, revision counts, commit outcomes,
+commit feed, outbox, and runtime execution evidence without exposing SQL,
+physical locators, transaction authority, or document values. Document values
+remain observable only through the Standard query API. Setup and workload
+capabilities have separate scopes, so escaped or detached operations are
+revoked or interrupted at their phase boundary.
 
 The immediate product-engineering milestone is a private, test-owned way to
 define, compile, upload, analyze, register, and invoke real Flarex queries,
@@ -798,7 +810,8 @@ the replacement analyzer and is now closed through the accepted FSV03 chain.
 | `SAC01-E` | Execute and authoritatively read back one real point mutation | Complete through FSV06 and C07 with PGlite and genuine PostgreSQL evidence |
 | `SAC01-F1` | Compose one representative relation-free application with public mutation and query modules through one active revision | Implementation and PGlite fast lane complete in the persistence test owner; the named genuine-PostgreSQL lane is implemented and fail-closed but remains unaccepted until it runs with zero skips. The operation uses SAP04/SAP05 and the existing runtime/executor/commit/read owners, with exact mutation replay and deterministic query replay |
 | `SAC01-F2a` | Reuse one private relation-free lifecycle/invocation runner across distinct application definitions and workload operations | Complete in the persistence test owner for independent cooking and English-learning consumers in PGlite. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips. The runner accepts explicit Standard definition input and exposes only real point mutation/query operations; it is not a serializable workload DSL, model simulator, controlled setup/inspection API, public package, or multi-application shared environment |
-| `SAC01-F2+` | Add internal calls, actions, workflow mutations, controlled setup/inspection, faults, and scheduled invocations to representative workloads one capability at a time | Each capability must already have its own runtime/host/claim contract; scheduling and durable-task semantics remain separately gated |
+| `SAC01-F2b` | Add private controlled setup and logical authoritative inspection to the reusable runner | Complete in the persistence test owner with separate setup/workload scopes and PGlite ready/replay/cancellation/failure, post-workload freshness, and exact scope/deployment-predicate audit evidence. Setup delegates to SAP04/FSV06; inspection returns immutable scope-filtered logical evidence and no SQL, database handle, physical locator, document value, or mutation authority. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips |
+| `SAC01-F2+` | Add internal calls, actions, workflow mutations, faults, and scheduled invocations to representative workloads one capability at a time | Each capability must already have its own runtime/host/claim contract; scheduling and durable-task semantics remain separately gated |
 | `SAC01-G` | Extract a dedicated private corpus or system-harness package | At least two concrete consumers, an acyclic graph, explicit lifecycle owner, private exports, and same-slice deletion of test-local duplication |
 
 ### Parallel-Work Safety And Stop Conditions
