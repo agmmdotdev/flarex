@@ -2,10 +2,14 @@
 
 ## Status
 
-**Status:** Active validation gate. DTE04-D's PGlite read matrix is complete;
-DTE04-E still owns real-Postgres read parity, races, and query-plan evidence.
-Passing the PGlite lane alone remains explicitly insufficient for final
-Roadmap 04 admission.
+**Status:** Active validation gate. DTE04-D's PGlite read matrix is complete.
+DTE04-E now has a fail-closed real-Postgres read lane for snapshot parity,
+representative normal-planner index selection, lock blocking/release, retry
+after hidden successful read settlements, and cross-scope non-disclosure. A
+successful non-skipped connected run is still required. Creation
+uncertainty/races and the remaining lifecycle race matrix also remain open.
+Passing PGlite or merely compiling the Postgres lane remains explicitly
+insufficient for final Roadmap 04 admission.
 
 ## Objective
 

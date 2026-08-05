@@ -228,6 +228,7 @@ export async function seedTaskSystemRunAttemptStoreV1(
 export async function seedAdditionalTaskSystemRunV1(
   persistence: Pick<FlarexSqlClient, "query">,
   additionalRunId: string,
+  scopeId = TASK_SCOPE_ID,
 ): Promise<void> {
   const aggregate = Object.freeze({
     ...readyTaskRunAggregateV1(),
@@ -265,7 +266,7 @@ export async function seedAdditionalTaskSystemRunV1(
       ${projection.cancellationGeneration},
       ${projection.requestedEffectSequence}
     from fx_system_durable_task_run_v1
-    where scope_id = '${TASK_SCOPE_ID}' and run_id = '${TASK_RUN_ID}'
+    where scope_id = '${scopeId}' and run_id = '${TASK_RUN_ID}'
   `, [aggregateJson]);
 }
 

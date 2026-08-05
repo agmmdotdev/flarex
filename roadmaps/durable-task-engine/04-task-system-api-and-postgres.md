@@ -2,7 +2,9 @@
 
 ## Status
 
-**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-D are complete. The
+**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-D are complete, and
+DTE04-E's real-Postgres read-parity test lane is implemented but still requires
+a non-skipped connected admission run. The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
@@ -24,8 +26,14 @@ construction, and proves exact/concurrent replay, typed conflict, collision
 retry, corruption rejection, and lifecycle interoperation in PGlite. DTE04-D
 adds separate scope-bound, read-only due-discovery and requested-effect-ledger
 capabilities with stable snapshot ceilings, exact keyset/sequence cursors,
-corruption checks, and no claim or delivery authority. Real-Postgres parity,
-effect delivery, host, queue, and activation changes remain unauthorized.
+corruption checks, and no claim or delivery authority. The DTE04-E read lane
+now covers connected snapshot parity, representative-cardinality normal-planner
+`EXPLAIN` evidence, run-row lock blocking and release, bounded retry after
+hidden successful read settlements, and cross-scope non-disclosure. The
+dedicated command fails closed when its authenticated Postgres URL is absent;
+a successful non-skipped connected run remains required. Creation
+uncertainty/races and the remaining lifecycle race matrix also remain open.
+Effect delivery, host, queue, and activation changes remain unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
 run-attempt domain. Its purpose is to connect the existing scope-bound
@@ -328,8 +336,13 @@ admitted:
   boundedness, tie-order, no-write, snapshot, corruption, non-disclosure, and
   stale-authority proofs. No claim, delivery, host route, queue, or activation
   path was added;
-- **DTE04-E — real Postgres parity:** race, locking, rollback, uncertain
-  response, migration, and query-plan proof; and
+- **DTE04-E — real Postgres parity — active:** the executable read lane now
+  covers bounded discovery/effect snapshots, representative normal-planner
+  index checks, run-lock blocking/release, read-only uncertainty retry after
+  hidden successful settlements, and cross-scope non-disclosure. A successful
+  non-skipped real-Postgres execution plus creation
+  uncertainty/races and the remaining lifecycle race matrix are still
+  required; and
 - **DTE04-F — final admission:** source map/notice refresh, boundary and bundle
   checks, broad validation, reviewers, and an explicit admit/revise receipt.
 

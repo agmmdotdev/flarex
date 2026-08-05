@@ -1,5 +1,4 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
@@ -14,7 +13,6 @@ import { Effect, Layer, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
-  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
   createPostgresLocatedTaskSystemRunAttemptTargetV1,
 } from "../src/postgres";
 import {
@@ -31,8 +29,9 @@ import {
   TASK_RUN_ID,
   locatedTaskAuthorityV1,
   seedTaskSystemRunAttemptStoreV1,
-  type TaskSystemRunAttemptParentV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
+import { seedRegisteredTaskSystemParentV1 } from
+  "./taskSystemPostgresTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const runId = Result.getOrThrow(decodeTaskRunIdV1(TASK_RUN_ID));
@@ -43,7 +42,10 @@ const heartbeatOne = Result.getOrThrow(decodeTaskHeartbeatSequenceV1(1));
 describePostgres("DTE04-B scope-bound Task System lifecycle store - PostgreSQL", () => {
   it("serializes same-run writers, reads time after the lock wait, and rolls decision failure back", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
-      const parent = await seedRegisteredTaskDefinitionParent(persistence);
+      const parent = await seedRegisteredTaskSystemParentV1(
+        persistence,
+        "dte04-b:task-store-parent",
+      );
       const seeded = await seedTaskSystemRunAttemptStoreV1(persistence, {
         parent,
       });
@@ -217,38 +219,4 @@ async function runVersion(
     where scope_id = $1 and run_id = $2
   `, [scopeId, TASK_RUN_ID]);
   return result.rows[0]?.run_version ?? "missing";
-}
-
-async function seedRegisteredTaskDefinitionParent(
-  persistence: Parameters<Parameters<typeof withTemporaryPostgresPersistence>[0]>[0],
-): Promise<TaskSystemRunAttemptParentV1> {
-  const registrationTarget =
-    createPostgresLocatedApplicationRevisionRegistrationTargetV1(
-      persistence,
-      TASK_LOCATOR,
-    );
-  const registrationFixtureState = globalThis as typeof globalThis & {
-    __flarexRegistrationFixtureOnlyV1?: boolean;
-  };
-  registrationFixtureState.__flarexRegistrationFixtureOnlyV1 = true;
-  const { authenticatedRegistrationFixtureForPersistence } =
-    await import("./applicationRevisionRegistrationV1.test");
-  return runEffect(Effect.scoped(Effect.gen(function* () {
-    const fixture = yield* authenticatedRegistrationFixtureForPersistence(
-      persistence,
-      registrationTarget,
-    );
-    const registration = yield* fixture.context.register(
-      fixture.analysis,
-      "dte04-b:task-store-parent",
-    );
-    return Object.freeze({
-      scopeId: "scope_61000000-0000-0000-0000-000000000001",
-      deploymentId: "deployment_registration_v1",
-      applicationRevisionId: registration.revisionId,
-      candidateSha256Hex: encodeBytesToLowercaseHex(
-        fixture.preparation.candidateSha256,
-      ),
-    });
-  })));
 }
