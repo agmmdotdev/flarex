@@ -1787,6 +1787,26 @@ activation remain blocked until their production host composition is proven.
         unchanged; only the private analyzer implementation identity above
         refreshes.
 
+        The accepted `ST-CORE-007` correction keeps the same unsupported
+        construction boundary and does not expand the canonical Standard
+        grammar. A diagnostic-bearing function that first emits a valid direct
+        platform-call record and later encounters `new Error(...)` must retain
+        the existing `CORE_CONSTRUCTION` diagnostic through canonical restart
+        production and cold reconstruction instead of being replaced by
+        `recordOrder` corruption. The private parse-record producer and
+        restart-sequence composition must agree on the existing category order
+        without changing any record shape, ordinal identity, evidence byte,
+        grammar/table identity, or protocol version. A minimized
+        direct-call-then-construction vector, allowance-partitioned warm/cold
+        replay, and generated-identity checks close the restart-order
+        correction. A real Standard-path check exposed the separate
+        `ST-CORE-008` lifecycle trust gap: parse-module diagnostics currently
+        lack an authenticated aggregate gate before readiness and activation.
+        That cross-owner correction requires its own preflight and must not be
+        approximated by checking link-owned diagnostics or adding harness glue.
+        No alternate analyzer, permissive fallback, or newly accepted syntax is
+        introduced here.
+
         Durable command usage and restart recovery usage remain separate
         ledgers. Recovery-side `objectCalls`, page/body bytes, hashes, records,
         and manifests belong only to the bounded recovery receipt; they never

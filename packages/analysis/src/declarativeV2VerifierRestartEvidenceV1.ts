@@ -2573,6 +2573,7 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
   DeclarativeV2VerifierRestartSequenceStateV1,
   DeclarativeV2VerifierRestartEvidenceV1Error
 > {
+  return Result.gen(function* () {
   // The digest is inert comparison evidence. The later producer/rehydrator
   // must independently derive it from the exact canonical length-framed record
   // bytes before calling this transition; neither the digest nor this state
@@ -2585,19 +2586,19 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
     !isDigest(canonicalRecordSha256Input) ||
     state.terminal
   ) {
-    return Result.fail(
+    return yield* Result.fail(
       restartError("validateSequence", "invalidInput"),
     );
   }
   if (record.recordOrdinal !== state.nextRecordOrdinal) {
-    return Result.fail(
+    return yield* Result.fail(
       restartError("validateSequence", "recordOrder", {
         path: "recordOrdinal",
       }),
     );
   }
   if (record.recordOrdinal === MAX_SIGNED_INT64) {
-    return Result.fail(
+    return yield* Result.fail(
       restartError("validateSequence", "recordOrder", {
         path: "recordOrdinal",
       }),
@@ -2608,13 +2609,11 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
     (state.commandKind === "link_page" && !isLinkRecord(record)) ||
     (
       record.kind === "diagnostic_v1" &&
-      (
-        (state.commandKind === "parse_module" && record.phase === "link") ||
-        (state.commandKind === "link_page" && record.phase !== "link")
-      )
+      state.commandKind === "link_page" &&
+      record.phase !== "link"
     )
   ) {
-    return Result.fail(
+    return yield* Result.fail(
       restartError("validateSequence", "recordOrder", {
         path: "commandKind",
       }),
@@ -2639,19 +2638,19 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
     record.kind !== "parse_terminal_v1" &&
     record.kind !== "link_terminal_v1"
   ) {
-    const derived = deriveDeclarativeV2VerifierRestartRecordRootV1(
+    nextRecordRoot = yield* deriveDeclarativeV2VerifierRestartRecordRootV1(
         state.commandKind,
         record.recordOrdinal,
         state.precedingRecordsRootSha256,
         canonicalRecordSha256Input,
       );
-    if (Result.isFailure(derived)) return Result.fail(derived.failure);
-    nextRecordRoot = derived.success;
   }
   switch (record.kind) {
     case "module_identity_v1":
       if (state.nextRecordOrdinal !== 0n || state.moduleCount !== 0n) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       next.moduleOrdinal = record.moduleOrdinal;
       next.sourceSha256 = new Uint8Array(record.sourceSha256);
@@ -2660,7 +2659,7 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
       );
       {
         const value = increment(state.moduleCount);
-        if (value === undefined) return failOverflow("moduleCount");
+        if (value === undefined) return yield* failOverflow("moduleCount");
         next.moduleCount = value;
       }
       break;
@@ -2675,11 +2674,13 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
         state.diagnosticCount !== 0n ||
         record.moduleOrdinal !== state.moduleOrdinal
       ) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       {
         const value = increment(state.importCount);
-        if (value === undefined) return failOverflow("importCount");
+        if (value === undefined) return yield* failOverflow("importCount");
         next.importCount = value;
       }
       break;
@@ -2693,11 +2694,13 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
         state.diagnosticCount !== 0n ||
         record.moduleOrdinal !== state.moduleOrdinal
       ) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       {
         const value = increment(state.exportCount);
-        if (value === undefined) return failOverflow("exportCount");
+        if (value === undefined) return yield* failOverflow("exportCount");
         next.exportCount = value;
       }
       break;
@@ -2710,11 +2713,13 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
         state.diagnosticCount !== 0n ||
         record.moduleOrdinal !== state.moduleOrdinal
       ) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       {
         const value = increment(state.functionCount);
-        if (value === undefined) return failOverflow("functionCount");
+        if (value === undefined) return yield* failOverflow("functionCount");
         next.functionCount = value;
       }
       break;
@@ -2726,11 +2731,13 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
         state.diagnosticCount !== 0n ||
         record.moduleOrdinal !== state.moduleOrdinal
       ) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       {
         const value = increment(state.callCount);
-        if (value === undefined) return failOverflow("callCount");
+        if (value === undefined) return yield* failOverflow("callCount");
         next.callCount = value;
       }
       break;
@@ -2741,11 +2748,15 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
         state.diagnosticCount !== 0n ||
         record.moduleOrdinal !== state.moduleOrdinal
       ) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       {
         const value = increment(state.valueFlowCount);
-        if (value === undefined) return failOverflow("valueFlowCount");
+        if (value === undefined) {
+          return yield* failOverflow("valueFlowCount");
+        }
         next.valueFlowCount = value;
       }
       break;
@@ -2757,11 +2768,15 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
           record.moduleOrdinal !== state.moduleOrdinal
         )
       ) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       {
         const value = increment(state.diagnosticCount);
-        if (value === undefined) return failOverflow("diagnosticCount");
+        if (value === undefined) {
+          return yield* failOverflow("diagnosticCount");
+        }
         next.diagnosticCount = value;
       }
       break;
@@ -2772,11 +2787,13 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
         state.cycleCount !== 0n ||
         state.diagnosticCount !== 0n
       ) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       {
         const value = increment(state.edgeCount);
-        if (value === undefined) return failOverflow("edgeCount");
+        if (value === undefined) return yield* failOverflow("edgeCount");
         next.edgeCount = value;
       }
       break;
@@ -2786,24 +2803,27 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
         state.cycleCount !== 0n ||
         state.diagnosticCount !== 0n
       ) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       {
         const orderCount = increment(state.orderCount);
         const moduleCount = increment(state.moduleCount);
-        if (orderCount === undefined) return failOverflow("orderCount");
-        if (moduleCount === undefined) return failOverflow("moduleCount");
-        const moduleOrderRoot = deriveDeclarativeV2VerifierRestartModuleOrderRootV1(
+        if (orderCount === undefined) {
+          return yield* failOverflow("orderCount");
+        }
+        if (moduleCount === undefined) {
+          return yield* failOverflow("moduleCount");
+        }
+        next.moduleOrderRootSha256 = yield*
+          deriveDeclarativeV2VerifierRestartModuleOrderRootV1(
           record.orderOrdinal,
           state.moduleOrderRootSha256,
           canonicalRecordSha256Input,
         );
-        if (Result.isFailure(moduleOrderRoot)) {
-          return Result.fail(moduleOrderRoot.failure);
-        }
         next.orderCount = orderCount;
         next.moduleCount = moduleCount;
-        next.moduleOrderRootSha256 = moduleOrderRoot.success;
       }
       break;
     case "cycle_result_v1":
@@ -2817,11 +2837,13 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
           state.moduleOrderRootSha256,
         )
       ) {
-        return Result.fail(restartError("validateSequence", "recordOrder"));
+        return yield* Result.fail(
+          restartError("validateSequence", "recordOrder"),
+        );
       }
       {
         const value = increment(state.cycleCount);
-        if (value === undefined) return failOverflow("cycleCount");
+        if (value === undefined) return yield* failOverflow("cycleCount");
         next.cycleCount = value;
       }
       break;
@@ -2847,7 +2869,7 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
           state.precedingRecordsRootSha256,
         )
       ) {
-        return Result.fail(
+        return yield* Result.fail(
           restartError("validateSequence", "terminalMismatch"),
         );
       }
@@ -2872,7 +2894,7 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
           state.precedingRecordsRootSha256,
         )
       ) {
-        return Result.fail(
+        return yield* Result.fail(
           restartError("validateSequence", "terminalMismatch"),
         );
       }
@@ -2882,7 +2904,8 @@ export function validateDeclarativeV2VerifierRestartRecordSequenceV1(
   if (nextRecordRoot !== undefined) {
     next.precedingRecordsRootSha256 = nextRecordRoot;
   }
-  return Result.succeed(Object.freeze(next));
+  return Object.freeze(next);
+  });
 }
 
 function isParseRecord(record: DeclarativeV2VerifierRestartRecordV1): boolean {

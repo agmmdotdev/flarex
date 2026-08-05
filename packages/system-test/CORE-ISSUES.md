@@ -14,42 +14,74 @@ fixture succeeds.
 
 ## Open Issues
 
-### `ST-CORE-007` — Construction diagnostic after a direct call loses record order
+### `ST-CORE-008` — Diagnostic-bearing analysis can reach readiness and activation
 
-- **Status:** Open; no shared-core correction is authorized by the cooking
-  simulation slice.
-- **Discovered by:** `SAC01-F2h` cooking user-code failure-atomicity expansion.
-- **Observed boundary:** Declarative V2 restart-evidence production before
-  registration or runtime dispatch.
-- **Reproduction:** In an otherwise accepted point mutation, make one direct
-  `databasePatch(...)` platform call and then execute
-  `throw new Error("injected")`. The analyzer correctly treats `new Error()` as
-  unsupported `CORE_CONSTRUCTION` syntax, but restart-evidence preparation
-  fails first with
-  `DeclarativeV2VerifierRestartRuntimeV1Error`, operation `produce`, reason
-  `corruption`, path `recordOrder`.
-- **Expected:** Diagnostic-bearing rejected source produces canonical restart
-  evidence and reports its originating typed construction diagnostic. The
-  already resolved `ST-CORE-006` establishes parser-terminal ownership for
-  canonical-rejected construction tokens, but this direct-call-before-
-  diagnostic ordering remains uncovered.
-- **Current constraint:** The failure-atomicity mutation uses the analyzer-
-  accepted `throw "injected"` form. It remains in the real multi-export patch
-  module, stages the same database write, and exercises the same executor-owned
-  user-code-failure rollback boundary. There is no fallback or alternate
-  analysis path.
-- **Owner:** Declarative V2 parse-record production and restart-sequence
-  composition. A fix requires its own focused preflight and approval.
-- **Required acceptance evidence:** A minimized direct-call-then-construction-
-  diagnostic analyzer vector, exact canonical record ordering, warm/cold
-  restart replay, and preservation of the originating typed diagnostic without
-  changing protocol identity or weakening fail-closed validation.
+- **Status:** Open; the restart-order correction does not authorize changing
+  registration, readiness, or activation authority.
+- **Discovered by:** The real Standard-path acceptance check for
+  `ST-CORE-007`.
+- **Observed boundary:** The authenticated analyzer-to-registration lifecycle,
+  after canonical parse evidence and before readiness or activation.
+- **Reproduction:** A Standard mutation module makes a valid direct
+  `databaseInsert(...)` call and then contains unsupported
+  `throw new Error("injected")`. Parse restart evidence retains three
+  diagnostics, including `CORE_CONSTRUCTION`, but the current private Standard
+  system-test composition still registers, marks ready, and activates the
+  revision.
+- **Root-cause evidence:** Parse-module output manifests own module diagnostics.
+  The link result's `diagnosticCount` covers link-owned diagnostics only, and
+  the registration input carries a committed parse-pages root but no
+  authenticated aggregate diagnostic-free verdict. Checking only the link
+  count would therefore be an incomplete and misleading gate.
+- **Expected:** A diagnostic-bearing candidate remains production-inert and
+  cannot receive a verified-registration, ready, or active authority. The
+  rejection must consume authenticated parse and link evidence rather than
+  trust caller-supplied metadata or a test-harness special case.
+- **Current constraint:** No fallback, dual acceptance, permissive runtime
+  dispatch, or test-only registration check is added. Existing simulations
+  continue to use analyzer-accepted function sources.
+- **Owner:** Requires a focused preflight across the analyzer verdict,
+  registration evidence, and readiness trust owners. Any new commitment or
+  verdict identity must be explicitly designed and approved before code changes.
+- **Required acceptance evidence:** Minimized parse- and link-diagnostic
+  candidates, authenticated aggregate verdict/commitment proof, inactive
+  registration behavior as selected by the owning design, readiness and
+  activation refusal, warm/cold evidence reload, PGlite and PostgreSQL rollback
+  and concurrency coverage, and preservation of valid-candidate behavior.
 
 ## Investigation Leads
 
 None.
 
 ## Resolved Issues
+
+### `ST-CORE-007` — Construction diagnostic after a direct call lost record order
+
+- **Status:** Resolved in the Declarative V2 restart-sequence owner.
+- **Discovered by:** `SAC01-F2h` cooking user-code failure-atomicity expansion.
+- **Observed boundary:** Declarative V2 restart-evidence production before
+  registration or runtime dispatch.
+- **Root cause:** A parse-module result legitimately owns parse, value-flow,
+  and link-phase diagnostics. The executable producer and cold module builder
+  preserved that model, but the restart sequence validator incorrectly
+  rejected every link-phase diagnostic in a parse-module record stream. The
+  direct call exposed the contradiction by adding the module-owned
+  `CORE_CALL_TARGET` diagnostic after `CORE_CONSTRUCTION`.
+- **Resolution:** Parse-module restart streams admit all module-owned diagnostic
+  phases. Link-page streams remain restricted to link-phase diagnostics. The
+  unsupported `new Error(...)` construction still produces
+  `CORE_CONSTRUCTION`; no record shape, record ordinal, grammar identity,
+  protocol version, or alternate analyzer changed.
+- **Resolution owner:** Declarative V2 restart-sequence composition.
+- **Acceptance evidence:** The minimized vector pins the exact module identity,
+  import, export, function, direct-call, value-flow, three-diagnostic, and
+  terminal order. One-transition sequencing, cold reconstruction, and
+  allowance-partitioned warm/cold runtime replay preserve evidence identity and
+  diagnostic count. Full restart/executable validation, generated checks,
+  typecheck, and both mandatory exact-final reviewers close the correction.
+- **Follow-up:** The attempted real Standard rejection proof exposed the
+  separate lifecycle trust gap recorded as `ST-CORE-008`; it is not hidden by
+  this resolved restart-order defect.
 
 ### `ST-CORE-006` — Canonical-rejected tokens lacked restart terminal ownership
 

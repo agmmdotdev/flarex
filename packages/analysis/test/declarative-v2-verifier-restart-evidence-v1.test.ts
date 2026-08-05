@@ -522,7 +522,7 @@ describe("Declarative V2 verifier restart evidence V1", () => {
     }
   });
 
-  it("fails parse record gaps, duplicates, phase drift, and terminal count drift", () => {
+  it("fails parse record gaps, duplicates, and terminal count drift", () => {
     let state = Result.getOrThrow(
       initialDeclarativeV2VerifierRestartSequenceStateV1("parse_module"),
     );
@@ -570,13 +570,18 @@ describe("Declarative V2 verifier restart evidence V1", () => {
         recordSha256(records()[2]!),
       ),
     )).toBe(true);
-    expect(Result.isFailure(
+    const moduleOwnedLinkPhaseDiagnostic = {
+      ...records()[6]!,
+      recordOrdinal: 1n,
+      phase: "link" as const,
+    };
+    expect(Result.getOrThrow(
       validateDeclarativeV2VerifierRestartRecordSequenceV1(
         afterModule,
-        { ...records()[6]!, recordOrdinal: 1n, phase: "link" },
-        recordSha256({ ...records()[6]!, recordOrdinal: 1n, phase: "link" }),
+        moduleOwnedLinkPhaseDiagnostic,
+        recordSha256(moduleOwnedLinkPhaseDiagnostic),
       ),
-    )).toBe(true);
+    )).toMatchObject({ diagnosticCount: 1n });
     expect(Result.isFailure(
       validateDeclarativeV2VerifierRestartRecordSequenceV1(
         afterModule,
@@ -656,6 +661,30 @@ describe("Declarative V2 verifier restart evidence V1", () => {
         bytes(6),
       ),
     );
+    const parsePhaseDiagnostic = {
+      ...records()[6]!,
+      recordOrdinal: 0n,
+    };
+    expect(
+      validateDeclarativeV2VerifierRestartRecordSequenceV1(
+        initial,
+        parsePhaseDiagnostic,
+        recordSha256(parsePhaseDiagnostic),
+      ),
+    ).toMatchObject({
+      failure: { reason: "recordOrder", path: "commandKind" },
+    });
+    const linkPhaseDiagnostic = {
+      ...parsePhaseDiagnostic,
+      phase: "link" as const,
+    };
+    expect(Result.getOrThrow(
+      validateDeclarativeV2VerifierRestartRecordSequenceV1(
+        initial,
+        linkPhaseDiagnostic,
+        recordSha256(linkPhaseDiagnostic),
+      ),
+    )).toMatchObject({ diagnosticCount: 1n });
     const firstOrder = { ...records()[8]!, recordOrdinal: 0n };
     expect(Result.isFailure(
       validateDeclarativeV2VerifierRestartRecordSequenceV1(

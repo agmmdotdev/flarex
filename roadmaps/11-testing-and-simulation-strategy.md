@@ -457,8 +457,13 @@ Named Flarex differences are:
   `ST-CORE-005`. Minimized arrow and construction vectors then reproduced and
   resolved `ST-CORE-006`: these constructs remain typed canonical rejections,
   while their diagnostic-bearing module results now retain parser-owned
-  rejection-terminal identity through restart serialization. The evidence,
-  owners, limitations, and acceptance requirements remain in
+  rejection-terminal identity through restart serialization. `ST-CORE-007`
+  then corrected the restart sequence's contradictory rejection of a
+  module-owned link-phase diagnostic after a direct call. Its real Standard
+  acceptance check exposed open `ST-CORE-008`: diagnostic-bearing parse
+  evidence currently lacks an authenticated aggregate lifecycle gate before
+  readiness and activation. The evidence, owners, limitations, and acceptance
+  requirements remain in
   [`CORE-ISSUES.md`](../packages/system-test/CORE-ISSUES.md).
 - The live staging H05-B proof through real cache-disabled Hyperdrive remains
   incomplete; harness and dry-run evidence do not close production activation.

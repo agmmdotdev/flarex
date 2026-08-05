@@ -69,6 +69,11 @@ import {
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_ASSET_BASE64_V1,
 } from "../src/declarativeV2VerifierExecutableV1.generated";
 import {
+  initialDeclarativeV2VerifierRestartSequenceStateV1,
+  type DeclarativeV2VerifierRestartRecordV1,
+  validateDeclarativeV2VerifierRestartRecordSequenceV1,
+} from "../src/declarativeV2VerifierRestartEvidenceV1";
+import {
   closeDeclarativeV2VerifierParseCapacityV1,
   driveDeclarativeV2VerifierParseModuleTerminalV1,
   planDeclarativeV2VerifierParseCapacityV1,
@@ -292,6 +297,101 @@ describe("private verifier restart bridge", () => {
       expect(cold.evidenceSha256).toBe(module.evidenceSha256);
     },
   );
+
+  test("preserves construction diagnostics after direct-call records", () => {
+    const source =
+      'import { databasePatch } from "flarex:platform"; ' +
+      "export async function patch(_, { id }) { " +
+      'await databasePatch(id, { title: "staged" }); ' +
+      'throw new Error("injected"); }';
+    const sourceBytes = UTF8_ENCODER.encode(source);
+    const presented = Result.getOrThrow(runSource(sourceBytes, [sourceBytes]));
+    expect(presented.verified).toBe(false);
+    expect(presented.diagnostics.map(item => item.code)).toContain(
+      "CORE_CONSTRUCTION",
+    );
+    const module = runModuleResult(
+      source,
+      "functions/direct-call-then-construction.js",
+      9n,
+    );
+    const bridge = makeDeclarativeV2VerifierExecutableRestartBridgeV1();
+    const opened = Result.getOrThrow(bridge.openModuleRecords(
+      module,
+      new Uint8Array(32).fill(7),
+      budget("command_budget", sourceBytes.byteLength),
+    ));
+    const records: DeclarativeV2VerifierRestartRecordV1[] = [];
+    for (let iteration = 0; iteration < 10_000; iteration += 1) {
+      const read = Result.getOrThrow(bridge.readModuleRecord(opened, 1));
+      if (read.status === "complete") break;
+      if (read.status === "item") records.push(read.record);
+    }
+    expect(records.map(record => record.kind)).toEqual([
+      "module_identity_v1",
+      "static_import_v1",
+      "export_binding_v1",
+      "function_v1",
+      "direct_call_v1",
+      "value_flow_v1",
+      "diagnostic_v1",
+      "diagnostic_v1",
+      "diagnostic_v1",
+      "parse_terminal_v1",
+    ]);
+    expect(records.filter(record => record.kind === "diagnostic_v1").map(
+      record => ({ phase: record.phase, code: record.code }),
+    )).toEqual([
+      { phase: "parse", code: "CORE_SYNTAX" },
+      { phase: "parse", code: "CORE_CONSTRUCTION" },
+      { phase: "link", code: "CORE_CALL_TARGET" },
+    ]);
+    let sequence = Result.getOrThrow(
+      initialDeclarativeV2VerifierRestartSequenceStateV1("parse_module"),
+    );
+    for (const record of records) {
+      const sequencedRecord = record.kind === "parse_terminal_v1"
+        ? Object.freeze({
+          ...record,
+          precedingRecordsRootSha256: new Uint8Array(
+            sequence.precedingRecordsRootSha256,
+          ),
+        })
+        : record;
+      sequence = Result.getOrThrow(
+        validateDeclarativeV2VerifierRestartRecordSequenceV1(
+          sequence,
+          sequencedRecord,
+          new Uint8Array(32).fill(Number(record.recordOrdinal & 0xffn)),
+        ),
+      );
+    }
+    expect(sequence).toMatchObject({
+      terminal: true,
+      callCount: 1n,
+      valueFlowCount: 1n,
+      diagnosticCount: 3n,
+    });
+    const builder = Result.getOrThrow(bridge.createModuleBuilder(
+      budget("command_budget", sourceBytes.byteLength),
+      budget("attempt_usage", sourceBytes.byteLength),
+    ));
+    for (const record of records) {
+      Result.getOrThrow(bridge.appendModuleRecord(builder, record));
+    }
+    let cold: DeclarativeV2VerifierModuleResultV1 | undefined;
+    for (let iteration = 0; iteration < 100_000; iteration += 1) {
+      const built = Result.getOrThrow(bridge.finishModuleBuilder(builder, 1));
+      if (built.status === "complete") {
+        cold = built.result;
+        break;
+      }
+    }
+    if (cold === undefined) {
+      throw new Error("diagnostic-bearing cold module builder did not finish");
+    }
+    expect(cold.evidenceSha256).toBe(module.evidenceSha256);
+  });
 
   test("derives exact parameter and token-body identities without presentation state", () => {
     const source =

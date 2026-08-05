@@ -46,12 +46,31 @@ import {
 const encoder = new TextEncoder();
 
 describe("Declarative V2 verifier restart runtime V1", () => {
-  it("admits large aggregate budgets while producing and rehydrating pages", () => {
-    const source =
-      "export async function ready({ value } = {}, ...rest) { return value; }";
-    const module = runModule(source, "functions/restart-runtime.js", 4n);
+  it.each([{
+    label: "the existing baseline module",
+    source:
+      "export async function ready({ value } = {}, ...rest) { return value; }",
+    modulePath: "functions/restart-runtime.js",
+    handlerName: "ready",
+    diagnosticCount: 1n,
+  }, {
+    label: "a module-owned link-phase diagnostic",
+    source:
+      'import { databasePatch } from "flarex:platform"; ' +
+      "export async function patch(_, { id }) { " +
+      'await databasePatch(id, { title: "staged" }); ' +
+      'throw new Error("injected"); }',
+    modulePath: "functions/restart-runtime-diagnostic.js",
+    handlerName: "patch",
+    diagnosticCount: 3n,
+  }])(
+    "admits large aggregate budgets while producing and rehydrating $label",
+    ({ source, modulePath, handlerName, diagnosticCount }) => {
+    const module = runModule(source, modulePath, 4n);
     const maximum = budget("command_budget", 1_000_000n, {
       frameBytes: 9_223_372_036_854_775_807n,
+      canonicalBytes: 10_000_000n,
+      hashBytes: 10_000_000n,
     });
     const reservationSha256 = bytes(1);
     const authenticatedInputSha256 = bytes(2);
@@ -132,6 +151,7 @@ describe("Declarative V2 verifier restart runtime V1", () => {
     if (complete === undefined) throw new Error("producer did not complete");
     expect(pages.length).toBeGreaterThan(0);
     expect(complete.recordCount).toBeGreaterThan(1n);
+    expect(complete.diagnosticCount).toBe(diagnosticCount);
     expect(complete.finalPageSha256).toEqual(
       pages[pages.length - 1]!.manifestSha256,
     );
@@ -212,9 +232,9 @@ describe("Declarative V2 verifier restart runtime V1", () => {
     expect(coldResult.functionCount).toBe(module.functionCount);
     expect(coldResult.evidenceSha256).toBe(module.evidenceSha256);
     const access = makeDeclarativeV2VerifierResultAccessFactoryV1();
-    expect(handler(access, coldResult, "functions/restart-runtime.js", "ready"))
+    expect(handler(access, coldResult, modulePath, handlerName))
       .toBe(true);
-    expect(handler(access, coldResult, "functions/restart-runtime.js", "missing"))
+    expect(handler(access, coldResult, modulePath, "missing"))
       .toBe(false);
     coldProducerClaim = claim({
       reservationSha256,
@@ -227,12 +247,19 @@ describe("Declarative V2 verifier restart runtime V1", () => {
       maximum,
     }));
     const coldPages: DeclarativeV2VerifierRestartPageV1[] = [];
+    let coldComplete: typeof complete | undefined = undefined;
     for (let iteration = 0; iteration < 100_000; iteration += 1) {
       const stepped = Result.getOrThrow(
         runtime.stepProducer(coldProducer, 1_024),
       );
       if (stepped.status === "page") coldPages.push(stepped.page);
-      if (stepped.status === "complete") break;
+      if (stepped.status === "complete") {
+        coldComplete = stepped;
+        break;
+      }
+    }
+    if (coldComplete === undefined) {
+      throw new Error("cold producer did not complete");
     }
     expect(coldPages.map(page => page.manifestBytes)).toEqual(
       pages.map(page => page.manifestBytes),
@@ -240,6 +267,12 @@ describe("Declarative V2 verifier restart runtime V1", () => {
     expect(coldPages.map(page => page.payloadBytes)).toEqual(
       pages.map(page => page.payloadBytes),
     );
+    expect(coldComplete.recordCount).toBe(complete.recordCount);
+    expect(coldComplete.diagnosticCount).toBe(complete.diagnosticCount);
+    expect(coldComplete.diagnosticsRootSha256).toEqual(
+      complete.diagnosticsRootSha256,
+    );
+    expect(coldComplete.finalPageSha256).toEqual(complete.finalPageSha256);
     expect(DECLARATIVE_V2_VERIFIER_RESTART_RUNTIME_IDENTITY_V1).toBe(
       "flarex.declarative-v2/verifier-restart-runtime/v1",
     );
