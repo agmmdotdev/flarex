@@ -222,6 +222,7 @@ export class DeclarativeV2AnalyzerPortV1Error extends Data.TaggedError(
     | "invalidInput"
     | "identityMismatch"
     | "invalidTransition"
+    | "diagnosticsPresent"
     | "missingAuthority"
     | "staleAuthority"
     | "closed";
@@ -604,37 +605,38 @@ export function makeDeclarativeV2AnalyzerPortFactoryV1():
           transitionCount: 0,
         }) satisfies DeclarativeV2AnalyzerPendingV1;
       }
-      const stepped = stepDriver(state, allowance);
-      if (Result.isFailure(stepped)) {
-        closeDriverState(state);
-        drivers.delete(rawDriver as object);
-        return yield* stepped;
-      }
-      if (stepped.success.status === "complete") {
-        if (stepped.success.kind === "parse_module") {
+      const stepped = yield* stepDriver(state, allowance).pipe(
+        Result.mapError(error => {
+          closeDriverState(state);
+          drivers.delete(rawDriver as object);
+          return error;
+        }),
+      );
+      if (stepped.status === "complete") {
+        if (stepped.kind === "parse_module") {
           const resultAuthority =
             state.kind === "parse_module"
-              ? state.session.modules.get(stepped.success.moduleOrdinal)?.result
+              ? state.session.modules.get(stepped.moduleOrdinal)?.result
               : undefined;
           if (resultAuthority === undefined) {
             throw new Error(
               "Accepted parse completion lost its restart result authority.",
             );
           }
-          restartEvidenceResults.set(stepped.success, {
+          restartEvidenceResults.set(stepped, {
             session: state.session,
             commandKind: "parse_module",
             resultAuthority,
             claimed: false,
           });
-        } else if (stepped.success.kind === "link_page") {
+        } else if (stepped.kind === "link_page") {
           const resultAuthority = state.session.lastLinkResult;
           if (state.kind !== "link_page" || resultAuthority === undefined) {
             throw new Error(
               "Accepted link completion lost its restart result authority.",
             );
           }
-          restartEvidenceResults.set(stepped.success, {
+          restartEvidenceResults.set(stepped, {
             session: state.session,
             commandKind: "link_page",
             resultAuthority,
@@ -645,7 +647,7 @@ export function makeDeclarativeV2AnalyzerPortFactoryV1():
         finishDriver(state);
         drivers.delete(rawDriver as object);
       }
-      return stepped.success;
+      return stepped;
     });
 
   const openRestartEvidence:
@@ -962,6 +964,12 @@ function prepareDriver(
           issue("start", "identityMismatch", "completedLink.bindings"),
         );
       }
+      const diagnosticPath = sessionAnalysisDiagnosticPath(session);
+      if (diagnosticPath !== undefined) {
+        return Result.fail(
+          issue("start", "diagnosticsPresent", diagnosticPath),
+        );
+      }
       const factory = makeDeclarativeV2VerifierRegistrationFactoryV1(
         session.lastLinkFactory,
       );
@@ -984,6 +992,17 @@ function prepareDriver(
       );
     }
   }
+}
+
+function sessionAnalysisDiagnosticPath(session: SessionState): string | undefined {
+  for (const [moduleOrdinal, module] of session.modules) {
+    if (!module.result.verified || module.result.diagnosticCount !== 0n) {
+      return `analysis.modules[${moduleOrdinal}]`;
+    }
+  }
+  return session.lastLinkResult?.diagnosticCount === 0n
+    ? undefined
+    : "analysis.link";
 }
 
 function stepDriver(

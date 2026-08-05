@@ -6,6 +6,7 @@ export async function markPublished(_, { id }) {
     { id },
   );
   if (before === null) return null;
+  const { published: beforePublished } = before;
 
   await databasePatch(id, { published: true });
 
@@ -14,12 +15,17 @@ export async function markPublished(_, { id }) {
     { id },
   );
   if (after === null) return null;
+  const {
+    published: afterPublished,
+    ingredientCount,
+    timedMinutes,
+  } = after;
 
   return {
-    changed: !before.published && after.published,
-    beforePublished: before.published,
-    afterPublished: after.published,
-    ingredientCount: after.ingredientCount,
-    timedMinutes: after.timedMinutes,
+    changed: !beforePublished && afterPublished,
+    beforePublished,
+    afterPublished,
+    ingredientCount,
+    timedMinutes,
   };
 }

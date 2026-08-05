@@ -33,12 +33,12 @@ owners that this implemented slice composes.
 | --- | --- | --- |
 | `packages/flarex/src/server.ts` and `packages/flarex/src/api.ts` | `QueryCtx` already types `runQuery`; function references carry query/mutation kind plus public/internal visibility | The developer type vocabulary exists, but a structural function reference is a selector, never runtime authority |
 | `packages/analysis/src/declarativeV2VerifierV1.contract.ts` and `declarativeV2VerifierExecutableV1.contract.ts` | Core V1 defines `functionReference`, mixed-catchability `runQuery`/`runMutation`, static call targets, query-to-query permission, and query-to-mutation rejection | SAP06-A1 found that the executable admitted missing and dynamic nested-call operands despite that contract. The direct fix now requires one canonical literal `{ _path: "module:export" }` operand and direct `await` consumption; it refreshes only the private analyzer implementation identity and persists no call graph |
-| `packages/function-runtime/src/pointQuery.ts`, `pointQueryInternalCall.ts`, `pointMutationInternalQuery.ts`, and `pointMutationInternalCall.ts` | the accepted PQV-A2, SAP06-A1, and SAP06-A2 kernels remain frozen; SAP06-A3 owns the combined mutation internal-call kernel | SAP06-A3 composes query and mutation children with the mutation journal rather than PQV-A1 or a child transaction |
+| `packages/function-runtime/src/pointQuery.ts`, `pointQueryInternalCall.ts`, `pointMutationInternalQuery.ts`, and `pointMutationInternalCall.ts` | the accepted PQV-A2, SAP06-A1, and SAP06-A2 function-runtime kernels remain frozen; SAP06-A3 owns the combined mutation internal-call kernel | The approved PQV-A2 `ST-CORE-009` host/core graph refresh materializes its existing platform ABI without changing this kernel or adding nested calls; SAP06-A3 composes query and mutation children with the mutation journal rather than PQV-A1 or a child transaction |
 | `packages/flarex-protocol/src/point-query-exact-runtime.ts` | the request and syscall ABI are query-only, public-only, and contain no internal-call catalog or call budget | Existing V1 must not be silently widened |
 | `packages/flarex-backend/src/artifactRuntime/PointQueryExactRuntimeWorkerCore.ts` and `PointQueryExactRuntimeHost.ts` | the exact Worker graph registers only the selected public query and shares one PQV-A1 read capability | Internal query calls require a new private target/profile/ABI, not a legacy generated-runtime fallback |
 | `packages/persistence-postgres/src/applicationPointQuerySnapshotV1.ts` | PQV-A1 owns one Scope-revoked snapshot, active-head revalidation, retained-history check, and monotonic point-read/document-byte budgets | An inline callee can share this exact capability; opening a second snapshot would be incorrect |
 | `packages/persistence-postgres/src/applicationRevisionQueryRuntimeTargetV1.ts` | the active candidate already authenticates canonical metadata and R2 function-entry/projection evidence, but the current claim selects one public query | The stored evidence can authenticate internal query callees without schema or migration work |
-| `packages/flarex-backend/src/artifactRuntime/CandidateBoundPointQueryRuntimeTargetV1.ts`, `CandidateBoundPointQueryInternalCallRuntimeTargetV1.ts`, `CandidateBoundPointMutationInternalQueryRuntimeTargetV1.ts`, and `CandidateBoundPointMutationInternalCallRuntimeTargetV1.ts` | the earlier targets remain frozen; SAP06-A3 owns the combined ordered-catalog/R2 materialization without body duplication | SAP04 selects only the combined profile; no accepted identity is widened or retained as fallback |
+| `packages/flarex-backend/src/artifactRuntime/CandidateBoundPointQueryRuntimeTargetV1.ts`, `CandidateBoundPointQueryInternalCallRuntimeTargetV1.ts`, `CandidateBoundPointMutationInternalQueryRuntimeTargetV1.ts`, and `CandidateBoundPointMutationInternalCallRuntimeTargetV1.ts` | the earlier targets remain frozen at their current accepted identities, including PQV-A2's approved `ST-CORE-009` platform-parity graph refresh; SAP06-A3 owns the combined ordered-catalog/R2 materialization without body duplication | SAP04 selects only the combined profile; no accepted identity is widened or retained as fallback |
 | `packages/standard-application-invocation/src/querySystemV1.ts` and `v1.ts` | SAP05 now selects only the SAP06-A1 internal-call query profile and keeps active read, PQV-A1, Workerd dispatch, result validation, and Scope in one private composition | This remains query regression evidence; mutation-to-query must stay inside SAP04 rather than call SAP05 |
 | `packages/standard-application-invocation/src/systemV1.ts`, `packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts`, and `packages/executor/src/pointMutationExactRuntimeBinding.ts` | SAP04/FSV06 resolves one active selection, mints/adopts one grant and attempt, runs one exact Worker against one journal, reruns only through the accepted OCC owner, and returns one authoritative outcome | SAP06-A2 replaces only the private runtime target/profile selected inside this existing composition; it adds no invocation, grant, attempt, or outcome |
 | `packages/flarex-backend/src/artifactRuntime/PointMutationExactRuntimeWorkerCore.ts`, `packages/executor/src/pointMutationJournal.ts`, and `packages/persistence-postgres/src/sessionJournalStore.ts` | Mutation `db.get` already serializes through the exact journal capability. `readLogicalPoint` reads a live/deleted staged overlay first and reaches the pinned snapshot only when no overlay exists | This is the exact read-your-writes authority for an inline internal query. PQV-A1, SAP05, a child transaction, and a savepoint are all incorrect for SAP06-A2 |
@@ -149,8 +149,9 @@ builds an exact registry for the root plus admitted internal callees. It never
 uses the legacy `PushSourcePackage` runtime or structural registry as fallback.
 
 The SAP05 private composer moves to this new profile as the sole internal-call
-capable path. The PQV-A2 V1 identities remain frozen
-evidence and are not dual-selected at runtime.
+capable path. The currently accepted PQV-A2 V1 identities, including the
+approved `ST-CORE-009` platform-parity refresh, remain frozen evidence and are
+not dual-selected at runtime.
 
 The host retains the opaque target and the single PQV-A1 capability behind
 Scope-revoked WeakMap authority. The Worker receives only the bounded call
@@ -294,8 +295,9 @@ projection cannot materialize every authenticated internal callee.
 ## Implemented SAP06-A1 Boundary
 
 SAP05 now selects only the separate internal-call-capable target/profile/ABI.
-The accepted PQV-A2 V1 target and generated runtime identities remain unchanged
-regression evidence and are not dual-selected. The new target authenticates the
+The accepted PQV-A2 V1 target and generated runtime identities, after the
+approved `ST-CORE-009` platform-parity refresh, remain frozen regression
+evidence and are not dual-selected. The new target authenticates the
 root public query plus the canonically ordered same-candidate internal-query
 catalog from canonical function metadata, the transaction projection,
 function-group manifest, and exact R2 references. PostgreSQL stores no runtime

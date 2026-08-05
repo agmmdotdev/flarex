@@ -4,24 +4,31 @@ export async function assess(_, { id }) {
   const recipe = await databaseGet(id);
   if (recipe === null) return null;
 
-  const ingredientCount = recipe.ingredients.length;
-  const stepCount = recipe.steps.length;
+  const {
+    ingredients,
+    steps,
+    title,
+    servings,
+    published,
+  } = recipe;
+  const { length: ingredientCount } = ingredients;
+  const { length: stepCount } = steps;
   let timedMinutes = 0;
-  for (const step of recipe.steps) {
-    if (step.durationMinutes !== undefined) {
-      timedMinutes += step.durationMinutes;
+  for (const { durationMinutes } of steps) {
+    if (durationMinutes !== undefined) {
+      timedMinutes += durationMinutes;
     }
   }
 
   return {
-    title: recipe.title,
-    servings: recipe.servings,
-    published: recipe.published,
+    title,
+    servings,
+    published,
     ingredientCount,
     stepCount,
     timedMinutes,
     publishable:
-      recipe.title.length > 0 &&
+      title !== "" &&
       ingredientCount > 0 &&
       stepCount > 0,
   };

@@ -10,7 +10,10 @@ public query API.
 
 Roadmap 45 subsequently extends this accepted SAP05 composition with the
 separately versioned, private SAP06-A1 inline query-to-internal-query runtime.
-That later capability does not reopen or widen PQV-A2's frozen V1 identities.
+That later capability does not widen PQV-A2's V1 contract. The approved
+`ST-CORE-009` parity correction refreshed only PQV-A2's private generated
+Worker core and graph identity so its existing analyzer-owned syscall ABI is
+actually materialized; the corrected V1 identity is the current frozen truth.
 
 This roadmap owns one bounded, route-independent, production-inert point-query
 vertical:
@@ -169,6 +172,18 @@ lanes prove query-only execution, cold replay, hostile authority and artifact
 rejection, bounded cancellation, and no mutation publication. There is no
 schema migration, PostgreSQL body storage, route, trigger, or production
 consumer.
+
+The accepted `ST-CORE-009` correction closes one implementation-parity gap in
+that same private capability. Analyzer-approved query modules import
+`databaseGet` and `authGetUserIdentity` from `flarex:platform`; therefore the
+exact Worker graph now materializes an operation-scoped platform module and
+the generated core binds the selected root handler to its invocation context.
+The platform source and refreshed core hash participate in the existing graph
+basis and target commitment. The PQV-A2 system proof now runs the claimed
+cold-materialized Worker definition in Workerd instead of bypassing it through
+a native module import. This explicitly approved V1 identity refresh adds no
+syscall, wire field/version, schema/migration, alternate snapshot authority,
+or readiness, activation, routing, or production behavior.
 
 ## `[x] SAP05`: Invoke One Standard Application Point Query
 

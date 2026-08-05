@@ -6,16 +6,25 @@ export async function assessment(_, args) {
     args,
   );
   if (result === null) return null;
+  const {
+    title,
+    servings,
+    published,
+    ingredientCount,
+    stepCount,
+    timedMinutes,
+    publishable,
+  } = result;
 
   return {
-    title: result.title,
-    servings: result.servings,
-    published: result.published,
-    ingredientCount: result.ingredientCount,
-    stepCount: result.stepCount,
-    timedMinutes: result.timedMinutes,
-    publishable: result.publishable,
-    headline: result.title + " serves " + result.servings,
-    effort: result.timedMinutes >= 30 ? "long" : "short",
+    title,
+    servings,
+    published,
+    ingredientCount,
+    stepCount,
+    timedMinutes,
+    publishable,
+    headline: title + " serves " + servings,
+    effort: timedMinutes >= 30 ? "long" : "short",
   };
 }

@@ -14,46 +14,73 @@ fixture succeeds.
 
 ## Open Issues
 
-### `ST-CORE-008` — Diagnostic-bearing analysis can reach readiness and activation
-
-- **Status:** Open; the restart-order correction does not authorize changing
-  registration, readiness, or activation authority.
-- **Discovered by:** The real Standard-path acceptance check for
-  `ST-CORE-007`.
-- **Observed boundary:** The authenticated analyzer-to-registration lifecycle,
-  after canonical parse evidence and before readiness or activation.
-- **Reproduction:** A Standard mutation module makes a valid direct
-  `databaseInsert(...)` call and then contains unsupported
-  `throw new Error("injected")`. Parse restart evidence retains three
-  diagnostics, including `CORE_CONSTRUCTION`, but the current private Standard
-  system-test composition still registers, marks ready, and activates the
-  revision.
-- **Root-cause evidence:** Parse-module output manifests own module diagnostics.
-  The link result's `diagnosticCount` covers link-owned diagnostics only, and
-  the registration input carries a committed parse-pages root but no
-  authenticated aggregate diagnostic-free verdict. Checking only the link
-  count would therefore be an incomplete and misleading gate.
-- **Expected:** A diagnostic-bearing candidate remains production-inert and
-  cannot receive a verified-registration, ready, or active authority. The
-  rejection must consume authenticated parse and link evidence rather than
-  trust caller-supplied metadata or a test-harness special case.
-- **Current constraint:** No fallback, dual acceptance, permissive runtime
-  dispatch, or test-only registration check is added. Existing simulations
-  continue to use analyzer-accepted function sources.
-- **Owner:** Requires a focused preflight across the analyzer verdict,
-  registration evidence, and readiness trust owners. Any new commitment or
-  verdict identity must be explicitly designed and approved before code changes.
-- **Required acceptance evidence:** Minimized parse- and link-diagnostic
-  candidates, authenticated aggregate verdict/commitment proof, inactive
-  registration behavior as selected by the owning design, readiness and
-  activation refusal, warm/cold evidence reload, PGlite and PostgreSQL rollback
-  and concurrency coverage, and preservation of valid-candidate behavior.
+None.
 
 ## Investigation Leads
 
 None.
 
 ## Resolved Issues
+
+### `ST-CORE-009` — PQV-A2 omitted the analyzer-owned point-query platform module
+
+- **Status:** Resolved by the approved private PQV-A2 Worker graph and generated
+  core identity refresh.
+- **Discovered by:** Broad `ST-CORE-008` regression validation after valid
+  Standard query sources were corrected to use the analyzer-owned
+  `flarex:platform` ABI.
+- **Observed boundary:** Candidate-bound exact point-query cold materialization
+  and Workerd execution.
+- **Root cause:** The analyzer and later internal-call runtimes accepted and
+  materialized `databaseGet` and `authGetUserIdentity` from
+  `flarex:platform`, while the original PQV-A2 exact Worker graph exposed only
+  its configuration, execution bridge, and query kernel. Its test harness then
+  bypassed that real graph with a native data-URL module import and direct
+  function-runtime invocation, hiding the host/runtime mismatch.
+- **Resolution:** PQV-A2 now includes a private operation-scoped
+  `flarex:platform` module, binds the selected root handler to the exact runtime
+  invocation context, and authenticates that module and refreshed generated
+  core through the existing Worker graph basis. The system proof executes the
+  claimed cold-materialized definition in Workerd and delegates reads through
+  the retained PQV-A1 capability. No public API, protocol version, syscall,
+  schema, migration, active-reader authority, or OCC/commit owner changed.
+- **Acceptance evidence:** Exact-runtime Workerd coverage imports both
+  `databaseGet` and `authGetUserIdentity` from the platform module; the PQV-A2
+  PGlite lane executes present and missing reads through the claimed Worker
+  graph; generated-core checks and the broader Standard query/mutation
+  regressions pin the corrected identity and preserve production-inert
+  behavior.
+
+### `ST-CORE-008` — Diagnostic-bearing analysis reached readiness and activation
+
+- **Status:** Resolved in the authenticated analyzer-session registration
+  admission boundary.
+- **Discovered by:** The real Standard-path acceptance check for
+  `ST-CORE-007`.
+- **Observed boundary:** The authenticated analyzer-to-registration lifecycle,
+  after canonical parse evidence and before readiness or activation.
+- **Root cause:** Parse-module output manifests own module diagnostics while
+  the link result's `diagnosticCount` covers link-owned diagnostics only.
+  Registration authenticated the session and its exact link result, but did
+  not require every session-owned warm or cold-rehydrated module result to be
+  verified and diagnostic-free before constructing the registration driver.
+- **Resolution:** Registration admission now returns the typed private analyzer
+  reason `diagnosticsPresent` when any authenticated module result is
+  unverified or owns diagnostics, or when the authenticated link result owns
+  diagnostics. The gate executes before registration authority and reuses the
+  existing terminal registration receipt as proof that the gate passed; it
+  adds no protocol identity, persistence field, migration, readiness rule,
+  activation rule, or alternate OCC/commit owner.
+- **Simulation correction:** The create/read and rich cooking sources now use
+  analyzer-accepted destructuring rather than member dispatch that correctly
+  produced `CORE_COMPUTED_DISPATCH`. No diagnostic allowlist, fallback, or
+  permissive runtime path was added to keep the simulations green.
+- **Acceptance evidence:** Minimized parse-owned and link-owned vectors prove
+  warm refusal; authenticated restart replay proves cold module refusal. The
+  real Standard PGlite path proves that a diagnostic-bearing candidate creates
+  no application-revision, readiness-verdict, activation-revision, or
+  active-head row, while the corrected valid create/read and rich cooking
+  simulations continue through the existing runtime and persistence owners.
 
 ### `ST-CORE-007` — Construction diagnostic after a direct call lost record order
 

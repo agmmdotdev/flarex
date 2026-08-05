@@ -1,4 +1,5 @@
 import { Cause, Effect, Exit, Fiber } from "effect";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
@@ -69,6 +70,26 @@ function makeCookingDefinitionV1() {
   });
 }
 
+function makeDiagnosticCookingDefinitionV1() {
+  const definition = makeCookingDefinitionV1();
+  const source = new TextEncoder().encode(
+    'import{databaseInsert}from"flarex:platform";' +
+      'export function create(_,a){databaseInsert("recipes",a);' +
+      'throw new Error("injected")}',
+  );
+  return {
+    ...definition,
+    graphInput: {
+      ...definition.graphInput,
+      modules: definition.graphInput.modules.map(module =>
+        module.path === "recipeMutation"
+          ? { ...module, sourceBytes: source }
+          : module
+      ),
+    },
+  };
+}
+
 function testApplication(
   name: string,
 ): StandardApplicationSimulationApplicationV1 {
@@ -117,6 +138,47 @@ function defineTestSimulationV1<
 }
 
 describe("Standard Application system-test environment - PGlite", () => {
+  it("keeps diagnostic-bearing analysis outside registration, readiness, and activation", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const failure = await Effect.runPromise(Effect.flip(
+      runStandardApplicationSimulationV1({
+        lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+        simulation: defineStandardApplicationSimulationV1({
+          version: 1,
+          simulationId: "diagnostic-registration-refusal",
+          application: {
+            applicationId: "diagnostic-registration-refusal",
+            revisionName: "diagnostic-registration-refusal-v1",
+            define: makeDiagnosticCookingDefinitionV1,
+          },
+          setup: () => Effect.void,
+          workload: () => Effect.void,
+        }),
+      }),
+    ));
+
+    expect(failure).toBeInstanceOf(
+      StandardApplicationSimulationIntegrationV1Error,
+    );
+    expect(failure).toMatchObject({ phase: "prepareRevision" });
+    expect(containsErrorFacet(failure, "reason", "diagnosticsPresent")).toBe(
+      true,
+    );
+    const rows = await persistence.query<Record<string, unknown>>(`
+      select
+        (select count(*)::text from fx_system_application_revision_v1) as revision_count,
+        (select count(*)::text from fx_system_declarative_v2_verdict) as readiness_count,
+        (select count(*)::text from fx_system_declarative_v2_activation_revision) as activation_count,
+        (select count(*)::text from fx_system_declarative_v2_activation_head) as active_head_count
+    `);
+    expect(rows.rows).toEqual([{
+      revision_count: "0",
+      readiness_count: "0",
+      activation_count: "0",
+      active_head_count: "0",
+    }]);
+  }, 480_000);
+
   it("refreshes inspection after workload commits and audits scope predicates", async () => {
     const persistence = await createMigratedPGlitePersistence();
     let scopeAuditCount = 0;
@@ -546,6 +608,22 @@ describe("Standard Application system-test environment - PGlite", () => {
     });
   }, 480_000);
 });
+
+function containsErrorFacet(
+  value: unknown,
+  key: string,
+  expected: unknown,
+  seen = new Set<object>(),
+): boolean {
+  if (!isNonArrayRecord(value) || seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+  if (value[key] === expected) return true;
+  return containsErrorFacet(value.cause, key, expected, seen) ||
+    containsErrorFacet(value.failure, key, expected, seen) ||
+    containsErrorFacet(value.error, key, expected, seen);
+}
 
 const publishRecipeForInspectionV1 = Effect.fn(
   "StandardApplicationSystemTest.publishRecipeForInspectionV1",

@@ -6,7 +6,8 @@ export async function publish(_, { id }) {
     { id },
   );
   if (assessment === null) return null;
-  if (!assessment.publishable) return null;
+  const { publishable } = assessment;
+  if (!publishable) return null;
 
   return await runMutation(
     { _path: "recipeMaintenance:markPublished" },

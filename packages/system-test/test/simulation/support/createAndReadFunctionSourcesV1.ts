@@ -15,7 +15,7 @@ export function makeCreateAndReadFunctionSourcesV1(
     ),
     querySourceBytes: UTF8.encode(
       'import{databaseGet}from"flarex:platform";' +
-        "export function get(_,a){return databaseGet(a.id)}",
+        "export function get(_,{id}){return databaseGet(id)}",
     ),
   };
 }

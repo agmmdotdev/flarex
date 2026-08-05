@@ -81,6 +81,12 @@ Current implementation truth:
   attempt authority before SAP02, then correlates the exact returned analysis
   object with authenticated definition, artifact, function, validator,
   handler, analyzer, and registration evidence before inactive registration;
+- the authenticated analyzer session admits `registration_page` only after
+  every warm or cold-rehydrated parse result is verified with zero diagnostics
+  and its authenticated link result has zero diagnostics. A typed
+  `diagnosticsPresent` failure therefore prevents diagnostic-bearing analysis
+  from acquiring registration, readiness, or activation authority without a
+  new protocol identity or persistence shape;
 - registration is atomic, reloadable, request-key idempotent, database-timed,
   and remains inactive; ordinary process-local SAP02 consumers remain
   persistence-independent;

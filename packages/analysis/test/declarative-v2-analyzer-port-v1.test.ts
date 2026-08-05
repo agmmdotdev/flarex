@@ -53,6 +53,13 @@ import {
 
 const UTF8 = new TextEncoder();
 const SOURCE = "export function getThing() { return \"ok\"; }";
+const PARSE_DIAGNOSTIC_SOURCE =
+  'import{databaseInsert}from"flarex:platform";' +
+  'export function getThing(_,a){databaseInsert("recipes",a);' +
+  'throw new Error("injected")}';
+const LINK_DIAGNOSTIC_SOURCE =
+  'import { absent } from "./missing.js"; ' +
+  "export function getThing(){ return absent(); }";
 const MODULE_PATH = "functions/example.js";
 const SEMANTIC_RECORDS = Object.freeze([
   { kind: "header", version: 1 },
@@ -256,6 +263,59 @@ describe("private Declarative V2 analyzer port", () => {
       expect(Result.getOrThrow(port.close(session))).toBeUndefined();
     },
   );
+
+  test.each([
+    ["parse-owned", PARSE_DIAGNOSTIC_SOURCE, "parse"],
+    ["link-owned", LINK_DIAGNOSTIC_SOURCE, "link"],
+  ] as const)(
+    "rejects %s diagnostics before registration authority",
+    (_owner, source, expectedDiagnosticOwner) => {
+      const attempted = driveOneModuleToRegistration(source);
+      expect(attempted.parsed.kind).toBe("parse_module");
+      expect(attempted.linked.kind).toBe("link_page");
+      if (
+        attempted.parsed.kind !== "parse_module" ||
+        attempted.linked.kind !== "link_page"
+      ) {
+        throw new Error("diagnostic registration fixture did not terminate");
+      }
+      if (expectedDiagnosticOwner === "parse") {
+        expect(runModule(UTF8.encode(source))).toMatchObject({
+          verified: false,
+        });
+      } else {
+        expect(runModule(UTF8.encode(source))).toMatchObject({
+          verified: true,
+          diagnosticCount: 0n,
+        });
+        expect(attempted.linked.diagnosticCount).toBeGreaterThan(0n);
+      }
+      expect(attempted.registration).toMatchObject({
+        failure: {
+          operation: "start",
+          reason: "diagnosticsPresent",
+          path: expectedDiagnosticOwner === "parse"
+            ? "analysis.modules[0]"
+            : "analysis.link",
+        },
+      });
+      Result.getOrThrow(attempted.port.close(attempted.session));
+    },
+  );
+
+  test("rejects cold-rehydrated parse diagnostics before registration authority", () => {
+    const attempted = driveRehydratedModuleToRegistration(
+      PARSE_DIAGNOSTIC_SOURCE,
+    );
+    expect(attempted.registration).toMatchObject({
+      failure: {
+        operation: "start",
+        reason: "diagnosticsPresent",
+        path: "analysis.modules[0]",
+      },
+    });
+    Result.getOrThrow(attempted.port.close(attempted.session));
+  });
 
   test("runs source metadata through the same accepted entry", () => {
     const port = makeDeclarativeV2AnalyzerPortFactoryV1();
@@ -796,6 +856,199 @@ describe("private Declarative V2 analyzer port", () => {
   });
 });
 
+function driveOneModuleToRegistration(sourceText: string) {
+  const port = makeDeclarativeV2AnalyzerPortFactoryV1();
+  const sessionBindings = bindings();
+  const session = Result.getOrThrow(port.createSession(sessionBindings));
+  const source = UTF8.encode(sourceText);
+  const parsed = drive(
+    port,
+    Result.getOrThrow(port.start(session, {
+      kind: "parse_module",
+      reservationSha256: digest(80),
+      rangeAndPredecessorTailsSha256: digest(81),
+      predecessorReceiptSha256: null,
+      sequence: 1n,
+      moduleOrdinal: 0n,
+      totalModuleCount: 1n,
+      modulePath: artifactModulePath(MODULE_PATH),
+      source,
+      sourceSha256: digest(82),
+      commandBudget: budget("command_budget", source.byteLength, {
+        calls: 100_000_000n,
+      }),
+      currentProgress: progress("parse", 0n),
+    })),
+    1_024,
+  );
+  if (parsed.kind !== "parse_module") {
+    throw new Error("diagnostic parse command did not complete");
+  }
+  const registrationProgress = progress("registration", 2n);
+  const linkBindings = Object.freeze({
+    attemptSha256: sessionBindings.attemptSha256,
+    futureRegistrationIntentSha256: digest(83),
+    candidateSha256: sessionBindings.candidateSha256,
+    authenticatedInputSha256: sessionBindings.authenticatedInputSha256,
+    linkSequence: 2n,
+    parsePagesRootSha256: digest(84),
+    currentProgressSha256: frameSha256(registrationProgress),
+    predecessorAndTailsSha256: digest(85),
+    rangeSha256: digest(85),
+    analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+    analyzerIdentitySha256: sessionBindings.analyzerIdentitySha256,
+    verifierIdentitySha256: sessionBindings.verifierIdentitySha256,
+  });
+  const linked = drive(
+    port,
+    Result.getOrThrow(port.start(session, {
+      kind: "link_page",
+      bindings: linkBindings,
+      commandBudget: budget("command_budget", 0),
+      currentProgress: parsed.nextProgress,
+      nextProgress: registrationProgress,
+      predecessorReceiptSha256: null,
+    })),
+    1_024,
+  );
+  const semantic = semanticBytes();
+  const registration = port.start(session, {
+    kind: "registration_page",
+    input: {
+      bindings: {
+        ...linkBindings,
+        predecessorAndTailsSha256: digest(86),
+        rangeSha256: digest(86),
+        registrationReservationSha256: digest(87),
+        semanticSha256: sha256(semantic),
+      },
+      commandKind: "registration_page",
+      sequence: 3n,
+      currentProgress: registrationProgress,
+      predecessorReceiptSha256: null,
+      commandBudget: budget("command_budget", semantic.byteLength),
+      semanticBudget: semanticBudget(semantic),
+      semanticBytes: semantic,
+    },
+  });
+  return Object.freeze({ port, session, parsed, linked, registration });
+}
+
+function driveRehydratedModuleToRegistration(sourceText: string) {
+  const warm = runModule(UTF8.encode(sourceText));
+  if (warm.verified || warm.diagnosticCount === 0n) {
+    throw new Error("cold diagnostic fixture unexpectedly verified");
+  }
+  const restartClaim = restartClaimFor(warm);
+  const producerAuthority = Object.freeze({});
+  const recoveryMaximum = Object.freeze({
+    ...restartBudget(warm.usage),
+    canonicalBytes: 300_000_000n,
+    frameBytes: 10_000_000n,
+    hashBytes: 300_000_000n,
+  });
+  const runtime = makeDeclarativeV2VerifierRestartRuntimeFactoryV1({
+    claim(authority, operation) {
+      return authority === producerAuthority && operation === "produce"
+        ? Result.succeed(restartClaim)
+        : Result.fail(new Error("unexpected cold diagnostic claim") as never);
+    },
+  });
+  const produced = produceRestartPages(
+    runtime,
+    Result.getOrThrow(runtime.createProducer({
+      authority: producerAuthority,
+      maximum: recoveryMaximum,
+    })),
+  );
+  const linkProgress = progress("link", 1n);
+  const outputManifest = Object.freeze({
+    kind: "command_output_manifest",
+    reservationSha256: restartClaim.reservationSha256,
+    commandKind: "parse_module",
+    sequence: restartClaim.sequence,
+    evidenceRootSha256: produced.complete.finalPageSha256,
+    evidenceCount: produced.complete.recordCount,
+    diagnosticsRootSha256: produced.complete.diagnosticsRootSha256,
+    diagnosticCount: produced.complete.diagnosticCount,
+    nextProgressSha256: frameSha256(linkProgress),
+  } satisfies DeclarativeV2VerifierCommandOutputManifestFrameV2);
+  const settledClaim = Object.freeze({
+    ...restartClaim,
+    settledCommandUsage: produced.complete.actualUsage,
+    outputManifest,
+    outputManifestSha256: encodedFrameSha256(outputManifest),
+    receiptSha256: digest(88),
+    resultAuthority: null,
+  } satisfies DeclarativeV2VerifierRestartClaimV1);
+
+  const port = makeDeclarativeV2AnalyzerPortFactoryV1();
+  const sessionBindings = bindings();
+  const session = Result.getOrThrow(port.createSession(sessionBindings));
+  const rehydrated = Result.getOrThrow(port.rehydrate(session, {
+    claim: settledClaim,
+    source: restartPageSource(produced.pages),
+    maximum: recoveryMaximum,
+    nextProgress: linkProgress,
+  }));
+  expect(drive(port, rehydrated, 1_024)).toMatchObject({
+    kind: "rehydrate",
+    commandKind: "parse_module",
+  });
+
+  const registrationProgress = progress("registration", 2n);
+  const linkBindings = Object.freeze({
+    attemptSha256: sessionBindings.attemptSha256,
+    futureRegistrationIntentSha256: digest(89),
+    candidateSha256: sessionBindings.candidateSha256,
+    authenticatedInputSha256: sessionBindings.authenticatedInputSha256,
+    linkSequence: 2n,
+    parsePagesRootSha256: produced.complete.finalPageSha256,
+    currentProgressSha256: frameSha256(registrationProgress),
+    predecessorAndTailsSha256: digest(90),
+    rangeSha256: digest(90),
+    analyzerReleaseSha256: sessionBindings.analyzerReleaseSha256,
+    analyzerIdentitySha256: sessionBindings.analyzerIdentitySha256,
+    verifierIdentitySha256: sessionBindings.verifierIdentitySha256,
+  });
+  const linked = drive(
+    port,
+    Result.getOrThrow(port.start(session, {
+      kind: "link_page",
+      bindings: linkBindings,
+      commandBudget: budget("command_budget", 0),
+      currentProgress: linkProgress,
+      nextProgress: registrationProgress,
+      predecessorReceiptSha256: null,
+    })),
+    1_024,
+  );
+  if (linked.kind !== "link_page") {
+    throw new Error("cold diagnostic link command did not complete");
+  }
+  const semantic = semanticBytes();
+  const registration = port.start(session, {
+    kind: "registration_page",
+    input: {
+      bindings: {
+        ...linkBindings,
+        predecessorAndTailsSha256: digest(91),
+        rangeSha256: digest(91),
+        registrationReservationSha256: digest(92),
+        semanticSha256: sha256(semantic),
+      },
+      commandKind: "registration_page",
+      sequence: 3n,
+      currentProgress: registrationProgress,
+      predecessorReceiptSha256: null,
+      commandBudget: budget("command_budget", semantic.byteLength),
+      semanticBudget: semanticBudget(semantic),
+      semanticBytes: semantic,
+    },
+  });
+  return Object.freeze({ port, session, registration });
+}
+
 function drive(
   port: ReturnType<typeof makeDeclarativeV2AnalyzerPortFactoryV1>,
   driver: unknown,
@@ -963,7 +1216,9 @@ function runModule(source: Uint8Array): DeclarativeV2VerifierModuleResultV1 {
     moduleOrdinal: 0n,
     source,
     sourceSha256: digest(21),
-    commandBudget: budget("command_budget", source.byteLength),
+    commandBudget: budget("command_budget", source.byteLength, {
+      calls: 100_000_000n,
+    }),
   }, expectedBindings));
   return Result.getOrThrow(
     driveDeclarativeV2VerifierParseModuleTerminalV1(plan.claim, 1_024),

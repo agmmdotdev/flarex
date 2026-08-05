@@ -5,6 +5,7 @@ import type {
   inspectPointQueryRuntimeFailureV1,
   PointQueryRuntimeInputV1,
   PointQueryRuntimeInvocationFactoryV1,
+  PointQueryRuntimeContextV1,
 } from "@flarex/function-runtime/point-query";
 import type { PointQueryExactRuntimeResultV1 } from
   "flarex-protocol/point-query-exact-runtime";
@@ -12,6 +13,7 @@ import type { UserIdentity } from "flarex-protocol/auth";
 
 import { exactQueryRuntimeConfigurationV1 } from
   "./pointQueryExactRuntimeWorker/flarex-point-query-exact-runtime-config-v1.js";
+import { withPointQueryContextV1 } from "flarex:platform";
 
 const REQUEST_FORMAT = exactQueryRuntimeConfigurationV1.requestFormat;
 const REQUEST_VERSION = exactQueryRuntimeConfigurationV1.requestVersion;
@@ -186,10 +188,27 @@ async function resolveFunction(path: string): Promise<unknown> {
   const registry = await executionModulePromise;
   const separator = path.indexOf(":");
   if (separator <= 0 || separator !== path.lastIndexOf(":")) return undefined;
-  return Reflect.get(
+  const runtimeFunction = Reflect.get(
     Reflect.get(registry.default, path.slice(0, separator)) ?? {},
     path.slice(separator + 1),
   );
+  if (!isRecord(runtimeFunction) || runtimeFunction.isQuery !== true ||
+    runtimeFunction.isPublic !== true ||
+    typeof runtimeFunction._handler !== "function") {
+    return runtimeFunction;
+  }
+  const handler = runtimeFunction._handler;
+  return freeze({
+    isQuery: true,
+    isPublic: true,
+    _handler: (
+      context: PointQueryRuntimeContextV1,
+      argumentsValue: RuntimeObject,
+    ) => withPointQueryContextV1(
+      context,
+      () => Reflect.apply(handler, undefined, [context, argumentsValue]),
+    ),
+  });
 }
 
 function decodeRequest(

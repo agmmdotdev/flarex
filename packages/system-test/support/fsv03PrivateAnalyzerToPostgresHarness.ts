@@ -1731,10 +1731,11 @@ function pqvA1DefinitionInput(
         sourceBytes: UTF8.encode(
           (internalCall
             ? 'import{runQuery}from"flarex:platform";export async function get(_,a){return await runQuery({_path:"internal:i"},a)}'
-            : `export function get(context, args) { ` +
-            `return ${second ? "undefined" : executePointRead
-              ? "context.db.get(args.id)"
-              : "null"}; }\n`) +
+            : executePointRead
+            ? 'import{databaseGet}from"flarex:platform";' +
+              "export function get(_,{id}){return databaseGet(id)}"
+            : `export function get() { ` +
+              `return ${second ? "undefined" : "null"}; }\n`) +
             (internalCall ? "" : "export function run() {}\n"),
         ),
         sourceMapBytes: null,
@@ -1742,7 +1743,7 @@ function pqvA1DefinitionInput(
         path: "i",
         roles: ["function"] as const,
         sourceBytes: UTF8.encode(
-          'import{databaseGet}from"flarex:platform";export function i(_,a){return databaseGet(a.id)}',
+          'import{databaseGet}from"flarex:platform";export function i(_,{id}){return databaseGet(id)}',
         ),
         sourceMapBytes: null,
       }] : [])],
@@ -1825,7 +1826,7 @@ function fsv06DefinitionInput(
         sourceBytes: UTF8.encode(
           insert
             ? 'import{databaseInsert}from"flarex:platform";export async function c(_,a){try{return await databaseInsert("o",a)}catch{}}'
-            : 'import{databasePatch}from"flarex:platform";export function u(_,a){return databasePatch(a.id,a.d)}',
+            : 'import{databasePatch}from"flarex:platform";export function u(_,{id,d}){return databasePatch(id,d)}',
         ),
         sourceMapBytes: null,
       }],

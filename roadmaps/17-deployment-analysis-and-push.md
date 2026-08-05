@@ -1807,6 +1807,24 @@ activation remain blocked until their production host composition is proven.
         No alternate analyzer, permissive fallback, or newly accepted syntax is
         introduced here.
 
+        The accepted `ST-CORE-008` preflight keeps that correction inside the
+        existing authenticated analyzer-session owner. Before admitting a
+        `registration_page`, the analyzer must require every session-owned
+        parse result to be verified with zero diagnostics and the session-owned
+        link result to have zero diagnostics. Warm results come only from the
+        accepted command drivers; cold results come only from authenticated
+        restart rehydration, so caller metadata and a link-only count cannot
+        satisfy the gate. A diagnostic-bearing candidate fails with the typed
+        analyzer reason `diagnosticsPresent` before the registration driver or
+        durable application-revision transaction can start. The already-owned
+        registration terminal receipt is therefore the durable commitment that
+        the aggregate gate passed. No new protocol identity, persistence
+        column, migration, readiness rule, activation rule, OCC/commit owner,
+        or compatibility path is introduced. Acceptance requires parse-owned
+        and link-owned diagnostic vectors, warm/cold refusal, no registration,
+        readiness, or active-head rows in the real Standard path, and unchanged
+        valid-candidate behavior.
+
         Durable command usage and restart recovery usage remain separate
         ledgers. Recovery-side `objectCalls`, page/body bytes, hashes, records,
         and manifests belong only to the bounded recovery receipt; they never

@@ -1,14 +1,16 @@
-import {
-  executePointQueryV1,
-  PointQueryRuntimeReadBoundaryV1Error,
-  type PointQueryRuntimeDatabaseV1,
-  type PointQueryRuntimeInvocationFactoryV1,
-} from "@flarex/function-runtime/point-query";
 import { Cause, Effect, Exit, Fiber, Result } from "effect";
+import { Miniflare } from "miniflare";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   appDocumentIdV1FromRowIdentity,
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
+import {
+  decodePointQueryExactRuntimeResultV1Effect,
+  POINT_QUERY_EXACT_RUNTIME_FORMAT_V1,
+  POINT_QUERY_EXACT_RUNTIME_VERSION_V1,
+  type PointQueryExactRuntimeRequestV1,
+} from "flarex-protocol/point-query-exact-runtime";
 import {
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeObjectV1,
@@ -84,7 +86,7 @@ export interface PqvA2CandidateBoundQueryRuntimeProofV1 {
 }
 
 const FUNCTION_PATH = "orders:get";
-const COMPATIBILITY_DATE = "2026-08-03";
+const COMPATIBILITY_DATE = "2026-06-11";
 const SNAPSHOT_BUDGET = Object.freeze({
   maximumPointReads: 32,
   maximumDocumentBytes: 1_048_576,
@@ -176,19 +178,16 @@ export async function provePqvA2CandidateBoundQueryRuntimeV1(
     const claimed = Result.getOrThrow(
       claimCandidateBoundPointQueryRuntimeTargetV1(first.target),
     );
-    const present = yield* Effect.tryPromise({
-      try: () => executeClaimedQuery(claimed, first.target, documentId, tableId),
-      catch: cause => cause,
-    });
-    const missing = yield* Effect.tryPromise({
-      try: () => executeClaimedQuery(
-        claimed,
-        first.target,
-        missingDocumentId,
-        tableId,
-      ),
-      catch: cause => cause,
-    });
+    const present = yield* executeClaimedQuery(
+      claimed,
+      first.target,
+      documentId,
+    );
+    const missing = yield* executeClaimedQuery(
+      claimed,
+      first.target,
+      missingDocumentId,
+    );
     const replay = yield* prepareCandidateBoundPointQueryRuntimeTargetV1(
       active.selection,
       opened.capability,
@@ -461,112 +460,174 @@ function queryAuthorityPort() {
   return Object.freeze({ claim: claimApplicationRevisionQueryRuntimeTargetAuthorityV1 });
 }
 
-async function executeClaimedQuery(
+const executeClaimedQuery = Effect.fn("PqvA2.executeClaimedQuery")(function* (
   claimed: ReturnType<typeof claimCandidateBoundPointQueryRuntimeTargetV1> extends
     Result.Result<infer A, unknown> ? A : never,
   target: Parameters<typeof readCandidateBoundPointQueryDocumentV1>[0],
   documentId: string,
-  tableId: number,
 ) {
-  const source = claimed.definition.modules["orders.js"];
-  if (source === undefined) throw new Error("PQV-A2 exact query module is missing.");
-  const sourceModule: unknown = await import(
-    /* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
-  );
-  if (typeof sourceModule !== "object" || sourceModule === null ||
-    !("get" in sourceModule) || typeof sourceModule.get !== "function") {
-    throw new Error("PQV-A2 exact query export is missing.");
-  }
-  const runtimeFunction = Object.freeze({
-    isQuery: true,
-    isPublic: true,
-    _handler: sourceModule.get,
+  const normalizedArguments = yield* Effect.try({
+    try: () => normalizeFlarexValueV1({ id: documentId }),
+    catch: cause => cause,
   });
-  const factory = queryInvocationFactory(target);
-  await Effect.runPromise(
-    revalidateCandidateBoundPointQueryRuntimeTargetV1(target),
-  );
-  const argumentsValue = normalizeFlarexValueV1({ id: documentId }).value;
-  if (!isRuntimeObject(argumentsValue)) throw new Error("PQV-A2 args are invalid.");
-  const result = await executePointQueryV1({
+  if (!isRuntimeObject(normalizedArguments.value)) {
+    return yield* Effect.fail(new Error("PQV-A2 args are invalid."));
+  }
+  const request = Object.freeze({
+    format: POINT_QUERY_EXACT_RUNTIME_FORMAT_V1,
+    version: POINT_QUERY_EXACT_RUNTIME_VERSION_V1,
+    runtimeTargetSha256: claimed.runtimeTargetSha256,
+    artifact: claimed.artifact,
     function: claimed.function,
-    arguments: argumentsValue,
-    tables: Object.freeze([{ tableId, logicalName: "orders" }]),
-  }, Object.freeze({ resolve: () => runtimeFunction }), factory);
-  return Effect.runPromise(validateCandidateBoundPointQueryResultV1(target, result));
-}
-
-function queryInvocationFactory(
-  target: Parameters<typeof readCandidateBoundPointQueryDocumentV1>[0],
-): PointQueryRuntimeInvocationFactoryV1 {
-  const pending = new Set<Promise<unknown>>();
-  let failure: unknown;
-  let closed = false;
-  const get: PointQueryRuntimeDatabaseV1["get"] = documentId => {
-    if (closed) throw new PointQueryRuntimeReadBoundaryV1Error(
-      new Error("PQV-A2 read boundary is closed."),
-    );
-    const read = Effect.runPromise(readCandidateBoundPointQueryDocumentV1(
-      target,
-      { tableName: "orders", documentId },
-    )).then(result => {
-      if (!isPointReadResult(result)) {
-        throw new Error("PQV-A2 point-read result was invalid.");
-      }
-      return result.kind === "missing" ? null : result.document;
-    })
-      .catch(cause => {
-        failure ??= cause;
-        throw new PointQueryRuntimeReadBoundaryV1Error(cause);
-      });
-    pending.add(read);
-    const cleanup = () => { pending.delete(read); };
-    void read.then(cleanup, cleanup);
-    return read;
-  };
-  const unavailable = (): never => {
-    throw new Error("Forbidden point-query syscall.");
-  };
-  return Object.freeze({
-    open: () => Object.freeze({
-      context: Object.freeze({
-        auth: Object.freeze({ getUserIdentity: async () => null }),
-        db: Object.freeze({
-          get,
-          insert: unavailable,
-          patch: unavailable,
-          replace: unavailable,
-          delete: unavailable,
-          query: unavailable,
-          normalizeId: unavailable,
-          system: Object.freeze({}),
-        }),
-      }),
-      readBoundary: Object.freeze({
-        close: () => { closed = true; },
-        drain: async () => {
-          await Promise.allSettled([...pending]);
-          if (failure !== undefined) throw failure;
+    auth: Object.freeze({ kind: "anonymous" as const }),
+    arguments: normalizedArguments.value,
+    argumentSemanticBytes: normalizedArguments.semanticSizeBytes,
+    tables: claimed.tables,
+    context: Object.freeze({
+      executionId: `pqv-a2-${documentId}`,
+      randomSeed: new Uint8Array(32).fill(7),
+      executionTime: Date.UTC(2026, 5, 11),
+      snapshotCommitSeq: claimed.snapshotCommitSeq,
+    }),
+  }) satisfies PointQueryExactRuntimeRequestV1;
+  const runtime = yield* Effect.acquireRelease(
+    Effect.try({
+      try: () => new Miniflare({
+        compatibilityDate: claimed.definition.compatibilityDate,
+        modules: [
+          {
+            type: "ESModule" as const,
+            path: "pqv-a2-dispatch.js",
+            contents: pointQueryDispatchModuleSource(
+              claimed.definition.mainModule,
+            ),
+          },
+          ...Object.entries(claimed.definition.modules).map(
+            ([path, contents]) => ({
+              type: "ESModule" as const,
+              path,
+              contents,
+            }),
+          ),
+        ],
+        serviceBindings: {
+          SNAPSHOT: async (input: Request) =>
+            snapshotServiceBinding(input, target),
         },
       }),
+      catch: cause => cause,
     }),
+    runtime => Effect.promise(() => runtime.dispose()),
+  );
+  const response = yield* Effect.tryPromise({
+    try: signal => runtime.dispatchFetch("https://pqv-a2.test/", {
+      method: "POST",
+      body: JSON.stringify(serializePointQueryRequest(request)),
+      signal,
+    }),
+    catch: cause => cause,
   });
+  const envelope: unknown = yield* Effect.tryPromise({
+    try: () => response.json(),
+    catch: cause => cause,
+  });
+  if (!isNonArrayRecord(envelope) || envelope.ok !== true) {
+    return yield* Effect.fail(
+      new Error("PQV-A2 exact query Worker failed.", { cause: envelope }),
+    );
+  }
+  const result = yield* decodePointQueryExactRuntimeResultV1Effect(
+    envelope.result,
+  );
+  return yield* validateCandidateBoundPointQueryResultV1(target, result.value);
+});
+
+async function snapshotServiceBinding(
+  input: Request,
+  target: Parameters<typeof readCandidateBoundPointQueryDocumentV1>[0],
+): Promise<Response> {
+  try {
+    if (new URL(input.url).pathname === "/revalidate") {
+      await Effect.runPromise(
+        revalidateCandidateBoundPointQueryRuntimeTargetV1(target),
+      );
+      return Response.json({ ok: true, result: null });
+    }
+    const body: unknown = await input.json();
+    if (!isNonArrayRecord(body) || typeof body.tableName !== "string" ||
+      typeof body.documentId !== "string") {
+      throw new Error("PQV-A2 point-read request is invalid.");
+    }
+    const result = await Effect.runPromise(
+      readCandidateBoundPointQueryDocumentV1(target, {
+        tableName: body.tableName,
+        documentId: body.documentId,
+      }),
+    );
+    return Response.json({ ok: true, result });
+  } catch (cause) {
+    return Response.json({
+      ok: false,
+      message: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+}
+
+function pointQueryDispatchModuleSource(mainModule: string): string {
+  return `import { FlarexPointQueryExactRuntimeV1 } from ${JSON.stringify(`./${mainModule}`)};
+export default {
+  async fetch(request, env) {
+    const input = await request.json();
+    input.runtimeTargetSha256 = new Uint8Array(input.runtimeTargetSha256);
+    input.context.randomSeed = new Uint8Array(input.context.randomSeed);
+    input.context.snapshotCommitSeq = BigInt(input.context.snapshotCommitSeq);
+    const capability = {
+      revalidate: async () => {
+        const response = await env.SNAPSHOT.fetch("https://snapshot/revalidate", { method: "POST" });
+        const value = await response.json();
+        if (!value.ok) throw new Error(value.message);
+      },
+      readPointDocument: async (tableName, documentId) => {
+        const response = await env.SNAPSHOT.fetch("https://snapshot/read", {
+          method: "POST",
+          body: JSON.stringify({ tableName, documentId }),
+        });
+        const value = await response.json();
+        if (!value.ok) throw new Error(value.message);
+        return value.result;
+      },
+    };
+    try {
+      const result = await Reflect.apply(
+        FlarexPointQueryExactRuntimeV1.prototype.run,
+        {},
+        [input, capability],
+      );
+      return Response.json({ ok: true, result });
+    } catch (error) {
+      return Response.json({ ok: false, name: error?.name, message: error?.message });
+    }
+  },
+};`;
+}
+
+function serializePointQueryRequest(
+  request: PointQueryExactRuntimeRequestV1,
+) {
+  return {
+    ...request,
+    runtimeTargetSha256: Array.from(request.runtimeTargetSha256),
+    context: {
+      ...request.context,
+      randomSeed: Array.from(request.context.randomSeed),
+      snapshotCommitSeq: request.context.snapshotCommitSeq.toString(),
+    },
+  };
 }
 
 function isRuntimeObject(value: unknown): value is CanonicalFlarexRuntimeObjectV1 {
   return typeof value === "object" && value !== null && !Array.isArray(value) &&
     !(value instanceof ArrayBuffer);
-}
-function isPointReadResult(value: unknown): value is
-  | Readonly<{ readonly kind: "missing" }>
-  | Readonly<{
-      readonly kind: "present";
-      readonly document: CanonicalFlarexRuntimeObjectV1;
-    }> {
-  return typeof value === "object" && value !== null && "kind" in value &&
-    (value.kind === "missing" ||
-      (value.kind === "present" && "document" in value &&
-        isRuntimeObject(value.document)));
 }
 function requireStatus(value: CanonicalFlarexRuntimeValueV1, expected: string) {
   if (!isRuntimeObject(value) || value.status !== expected) {

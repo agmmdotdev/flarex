@@ -8,8 +8,10 @@ import { Effect } from "effect";
 
 /**
  * The exact terminal registration projection produced by the accepted
- * replacement analyzer. This alias does not introduce another analysis
- * representation or grant application-revision registration authority.
+ * replacement analyzer after its authenticated session-owned parse and link
+ * results pass the diagnostic-free registration gate. This alias does not
+ * introduce another analysis representation or grant application-revision
+ * registration authority.
  */
 export type AuthenticatedVerifiedStandardApplicationAnalysisV1 =
   DeclarativeV2AnalyzerRegistrationCompleteV1;

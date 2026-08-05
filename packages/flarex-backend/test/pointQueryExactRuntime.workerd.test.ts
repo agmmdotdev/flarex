@@ -2,10 +2,13 @@ import { Miniflare } from "miniflare";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildPointQueryExactRuntimeWorkerDefinitionV1,
   POINT_QUERY_EXACT_RUNTIME_CONFIG_MODULE_V1,
   POINT_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
+  POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1,
   POINT_QUERY_RUNTIME_KERNEL_MODULE_V1,
   pointQueryExactRuntimeExecutionBridgeSourceV1,
+  pointQueryExactRuntimePlatformSourceV1,
   pointQueryExactRuntimeWorkerConfigurationSourceV1,
 } from "../src/artifactRuntime";
 import {
@@ -17,9 +20,41 @@ import {
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
 
 describe("point-query exact runtime in workerd", () => {
+  it("reserves the analyzer-owned platform module in the exact Worker graph", () => {
+    expect(() => buildPointQueryExactRuntimeWorkerDefinitionV1({
+      artifact: {
+        runtime: "dynamic-worker",
+        artifactId: `artifact_${"b".repeat(32)}`,
+        sourcePackageHash: "b".repeat(64),
+        executionModule: "orders.js",
+      },
+      compatibilityDate: "2026-06-11",
+      runtimeTargetSha256Hex: "a".repeat(64),
+      function: {
+        path: "orders:get",
+        executionModule: "orders.js",
+        kind: "query",
+        visibility: "public",
+        argsValidator: { type: "any" },
+        returnsValidator: null,
+      },
+      snapshotCommitSeq: 7n,
+      functionPath: "orders:get",
+      artifactExecutionModule: "orders.js",
+      exportName: "get",
+      sourceModules: [{
+        path: POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1,
+        source: "export {};",
+      }],
+    })).toThrow(
+      "Source package module path flarex:platform is reserved by the candidate-bound exact point-query runtime.",
+    );
+  });
+
   it("executes the exact query handler through its read capability", async () => {
     await expect(runScenario({
-      handler: "async (context, args) => context.db.get(args.id)",
+      imports: 'import { databaseGet } from "flarex:platform";',
+      handler: "async (_context, { id }) => databaseGet(id)",
       capability: "async () => ({ kind: 'present', document: { status: 'open' } })",
     })).resolves.toEqual({
       ok: true,
@@ -32,7 +67,8 @@ describe("point-query exact runtime in workerd", () => {
     });
 
     await expect(runScenario({
-      handler: "async (context) => context.auth.getUserIdentity()",
+      imports: 'import { authGetUserIdentity } from "flarex:platform";',
+      handler: "async () => authGetUserIdentity()",
       capability: "async () => ({ kind: 'missing' })",
       auth: {
         kind: "user",
@@ -134,6 +170,7 @@ describe("point-query exact runtime in workerd", () => {
 });
 
 async function runScenario(input: Readonly<{
+  readonly imports?: string;
   readonly handler: string;
   readonly capability: string;
   readonly runtimeTargetFill?: number;
@@ -278,8 +315,13 @@ export default {
       },
       {
         type: "ESModule",
+        path: POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1,
+        contents: pointQueryExactRuntimePlatformSourceV1(),
+      },
+      {
+        type: "ESModule",
         path: "orders.js",
-        contents: `export const get = ${input.handler};`,
+        contents: `${input.imports ?? ""}\nexport const get = ${input.handler};`,
       },
     ],
   });

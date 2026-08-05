@@ -1,7 +1,7 @@
 import { databasePatch } from "flarex:platform";
 
-export async function patch(_, { id, patch }) {
-  await databasePatch(id, patch);
+export async function patch(_, { id, patch: values }) {
+  await databasePatch(id, values);
   return null;
 }
 
