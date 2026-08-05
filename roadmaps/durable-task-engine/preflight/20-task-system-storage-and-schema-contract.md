@@ -2,12 +2,12 @@
 
 ## Status
 
-**Status:** **Complete: admit DTE04-A3.** Lifecycle representation,
-run-creation, and Standard Application task-authority contracts are complete.
-This file admits exactly the five-table Drizzle schema, generated migration,
-constraints, indexes, and PGlite/real-Postgres migration proofs. It does not
-admit registration, lifecycle adapters, run creation, discovery operations,
-effect delivery, host composition, or routing.
+**Status:** **Complete: admit DTE04-A3; DTE04-B/C implemented.** Lifecycle
+representation, run-creation, and Standard Application task-authority
+contracts are complete. The admitted five-table Drizzle schema now backs the
+scope-bound lifecycle and creation capabilities. This file still does not
+admit registration, discovery operations, effect delivery, host composition,
+or routing.
 
 ## Objective
 
@@ -444,5 +444,8 @@ adapter and complete compatibility lane without widening this storage contract:
 62 transition-derived histories plus one explicit near-overflow setup execute
 through the adapter, while two invalid commands stay at the decoder boundary.
 No canonical lifecycle vector remains open in DTE04-B.
-Definition registration, run creation, discovery, effect delivery, and host
-activation remain closed until their own checkpoints.
+The separate DTE04-C capability now uses this representation for atomic initial
+run plus request-identity insertion, stable replay/conflict handling, and
+stored immutable binding/input/authority correlation. It creates no attempt or
+requested-effect row. Definition registration, discovery, effect delivery,
+host composition, and activation remain closed until their own checkpoints.

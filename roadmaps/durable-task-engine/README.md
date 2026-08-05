@@ -14,24 +14,29 @@ contract gate are also complete. DTE03-G chose **admit**, and DTE-IP01 now
 implements the private production-inert `@flarex/durable-task` package with its
 closed schemas, pure decisions, service/Layer boundary, provenance map, and
 deterministic compatibility suite. Roadmap 04 has completed DTE04-A1 through
-DTE04-B: the five-table
+DTE04-C: the five-table
 schema/migration and a scope-bound Drizzle lifecycle adapter now exist, with
 connected PGlite proofs, a complete canonical compatibility lane, and focused
 real-Postgres lock/time/concurrency proof. Of 65 canonical vectors, all remain
 covered by the pure oracle: 62 transition-derived histories plus one explicit
 near-overflow setup execute through the adapter, and two invalid commands remain
-at the decoder boundary. No canonical vector is deferred.
-Run creation, discovery/delivery, host integration, public API,
-scheduling, and production activation do not exist yet.
+at the decoder boundary. No canonical vector is deferred. DTE04-C now adds a
+scope-bound, production-inert run-creation capability with immutable Standard
+task binding/authority checks, the sole legal initial aggregate, atomic
+idempotent replay/conflict handling, captured lazy-operation configuration,
+canonical stored-authority correlation, terminal identity exhaustion, and
+connected PGlite concurrency and lifecycle-interoperation proof.
+Discovery/delivery, host integration, public
+API, scheduling, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
 this README records the shared vision, non-negotiable boundaries, target system
 shape, and proposed roadmap decomposition. Its current implementation authority
-has completed the admitted DTE-IP01 private package checkpoint, DTE04-A1
-through DTE04-A3, and the bounded DTE04-B adapter implementation described
-above. It does not authorize run creation, discovery, delivery, public APIs,
-scheduling, deployment, or production activation.
+has completed the admitted DTE-IP01 private package checkpoint and DTE04-A1
+through DTE04-C described above. It does not authorize discovery, delivery,
+public APIs, scheduling, deployment, host composition, or production
+activation.
 That checkpoint includes fail-closed legal-state decoding, owned frozen
 aggregate snapshots, and an executable compatibility harness whose inputs do
 not derive from its expected receipts.
@@ -321,7 +326,7 @@ for their owning discussions:
    - **complete: admit:** DTE03-A through DTE03-G close the lifecycle model and
      authorize only the production-inert DTE-IP01 package transplant;
 4. [`04-task-system-api-and-postgres.md`](./04-task-system-api-and-postgres.md)
-   - **active; DTE04-A1 through DTE04-B complete, DTE04-C next and closed:**
+   - **active; DTE04-A1 through DTE04-C complete, DTE04-D next and closed:**
      domain-owned persisted
      aggregate/effect envelopes and the five-phase persistence projection are
      implemented and validated; the immutable input-reference, exact creation
@@ -335,8 +340,11 @@ for their owning discussions:
      real-Postgres writer-lock/database-time proof are implemented. The
      canonical lane executes 62 transition-derived histories plus one explicit
      near-overflow setup through the adapter and two invalid commands at the
-     decoder boundary. DTE04-B is complete; creation and runtime
-     activation remain closed;
+     decoder boundary. DTE04-C adds the separate scope-bound creation
+     capability, trusted binding/authority capture, exact initial aggregate,
+     atomic creation identity, stable replay, typed conflict, run-ID collision
+     retry, and connected PGlite concurrency/lifecycle proof. Discovery,
+     delivery, host integration, and runtime activation remain closed;
 5. `05-cloudflare-wake-and-scheduling.md`
    - Queues, alarms, cron, missed-wakeup recovery, duplicate delivery, bounded
      schedulers, and fail-closed activation;

@@ -7,8 +7,11 @@ import {
 } from "../src/runCreation/CanonicalRequest.js";
 import {
   InvalidTaskRunCreationRequestError,
+  InvalidTaskRunInitialAggregateError,
   TaskRunCreationIdempotencyConflictError,
 } from "../src/runCreation/Errors.js";
+import { makeTaskRunCreationInitialAggregateV1 } from
+  "../src/runCreation/InitialAggregate.js";
 import {
   MAX_TASK_INPUT_CANONICAL_BYTES_V1,
   TASK_INPUT_OBJECT_KEY_PREFIX_V1,
@@ -23,7 +26,15 @@ import {
   decodeTaskRunCreationRequestV1,
   makeTaskInputReferenceV1,
 } from "../src/runCreation/Schema.js";
-import { DEFINITION_ID, NOW, RUN_ID } from "./support.js";
+import {
+  COMPUTE_SMALL,
+  DEFINITION_ID,
+  LEASE_DURATION,
+  NOW,
+  POLICY,
+  RUN_ID,
+  duration,
+} from "./support.js";
 
 const UTF8 = new TextDecoder();
 
@@ -295,6 +306,58 @@ describe("durable task run creation V1", () => {
     expect("scopeId" in conflict).toBe(false);
     expect("existingDigest" in conflict).toBe(false);
   });
+
+  it("constructs and owns the sole legal initial lifecycle aggregate", () => {
+    const policy = {
+      version: 1 as const,
+      retry: { ...POLICY.retry },
+      outOfMemory: { ...POLICY.outOfMemory },
+    };
+    const aggregate = success(makeTaskRunCreationInitialAggregateV1({
+      runId: RUN_ID,
+      taskDefinitionRevisionId: DEFINITION_ID,
+      createdAtMs: NOW,
+      runAttemptPolicy: policy,
+      maximumDurationMs: duration(300_000),
+      initialComputeProfile: COMPUTE_SMALL,
+      leaseDurationMs: LEASE_DURATION,
+      immediateRetryThresholdMs: duration(5_000),
+    }));
+
+    expect(aggregate).toMatchObject({
+      runId: RUN_ID,
+      taskDefinitionRevisionId: DEFINITION_ID,
+      createdAtMs: NOW,
+      runVersion: 1n,
+      phase: "ready",
+      ready: { kind: "initial", eligibleAtMs: NOW },
+      attemptHistory: { kind: "none" },
+      leaseHistory: { kind: "none" },
+      requestedEffectCursor: { kind: "none" },
+      cancellation: { kind: "not_requested", generation: 0n },
+      lastLifecycleAcceptance: null,
+      completionReplays: [],
+    });
+    expect(Object.isFrozen(aggregate)).toBe(true);
+    expect(Object.isFrozen(aggregate.boundPolicy)).toBe(true);
+    policy.retry.maxTimeoutInMs = duration(1_000);
+    expect(aggregate.boundPolicy.runAttempt.retry.maxTimeoutInMs).toBe(60_000);
+
+    expect(failure(makeTaskRunCreationInitialAggregateV1({
+      runId: RUN_ID,
+      taskDefinitionRevisionId: DEFINITION_ID,
+      createdAtMs: NOW,
+      runAttemptPolicy: POLICY,
+      maximumDurationMs: duration(300_000),
+      initialComputeProfile: COMPUTE_SMALL,
+      leaseDurationMs: duration(0),
+      immediateRetryThresholdMs: duration(5_000),
+    }))).toMatchObject({
+      _tag: "InvalidTaskRunInitialAggregateError",
+      operation: "make_initial_aggregate",
+      reason: "invalid_initial_aggregate",
+    });
+  });
 });
 
 function request(
@@ -331,6 +394,8 @@ function failure<Success, Failure>(
 }
 
 expectTypeOf<InvalidTaskRunCreationRequestError>()
+  .not.toEqualTypeOf<TaskRunCreationIdempotencyConflictError>();
+expectTypeOf<InvalidTaskRunInitialAggregateError>()
   .not.toEqualTypeOf<TaskRunCreationIdempotencyConflictError>();
 expectTypeOf<TaskInputReferenceV1>()
   .not.toEqualTypeOf<TaskRunCreationRequestV1>();

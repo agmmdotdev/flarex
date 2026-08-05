@@ -18,6 +18,10 @@ const persistencePostgresSchemaPath =
   "packages/persistence-postgres/src/schema.ts";
 const persistencePostgresTaskRunAttemptStorePath =
   "packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts";
+const persistencePostgresTaskRunCreationPath =
+  "packages/persistence-postgres/src/taskSystemRunCreationV1.ts";
+const persistencePostgresTaskSystemRunRowPath =
+  "packages/persistence-postgres/src/taskSystemRunRowV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -88,6 +92,42 @@ const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "decodeTaskDatabaseTimeMsV1",
   "decodeTaskExecutionFenceV1",
   "encodePersistedTaskRequestedEffectJsonV1",
+  "encodePersistedTaskRunAttemptAggregateJsonV1",
+  "projectTaskRunAttemptPersistenceV1",
+]);
+const admittedPersistenceTaskRunCreationSymbolsBySpecifier = new Map([
+  ["@flarex/durable-task/internal/run-creation-v1", new Set([
+    "InvalidTaskRunCreationRequestError",
+    "InvalidTaskRunInitialAggregateError",
+    "TaskInputSha256V1",
+    "TaskRunCreationAuthoritySha256V1",
+    "TaskRunCreationIdempotencyConflictError",
+    "TaskRunCreationReceiptV1",
+    "TaskRunCreationRequestKeySha256V1",
+    "TaskRunCreationRequestSha256V1",
+    "TaskRunCreationRequestV1",
+    "decodeTaskRunCreationReceiptV1",
+    "decodeTaskRunCreationRequestV1",
+    "encodeTaskRunCreationRequestKeyPreimageV1",
+    "encodeTaskRunCreationRequestPreimageV1",
+    "makeTaskRunCreationInitialAggregateV1",
+  ])],
+  ["@flarex/durable-task/internal/run-attempt-v1", new Set([
+    "TaskDatabaseTimeMsV1",
+    "TaskDurationMsV1",
+    "TaskRunIdV1",
+    "decodeTaskDatabaseTimeMsV1",
+    "decodeTaskDurationMsV1",
+    "decodeTaskRunIdV1",
+    "encodePersistedTaskRunAttemptAggregateJsonV1",
+    "projectTaskRunAttemptPersistenceV1",
+  ])],
+]);
+const admittedPersistenceTaskSystemRunRowSymbols = new Set([
+  "TaskPersistenceCodecErrorV1",
+  "TaskRunAttemptAggregateV1",
+  "TaskSystemRunAttemptCorruptionError",
+  "decodePersistedTaskRunAttemptAggregateJsonV1",
   "encodePersistedTaskRunAttemptAggregateJsonV1",
   "projectTaskRunAttemptPersistenceV1",
 ]);
@@ -715,6 +755,11 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     : relativePath === persistencePostgresTaskRunAttemptStorePath
       && specifier === "@flarex/durable-task/internal/run-attempt-v1"
     ? admittedPersistenceTaskRunAttemptStoreSymbols
+    : relativePath === persistencePostgresTaskRunCreationPath
+      ? admittedPersistenceTaskRunCreationSymbolsBySpecifier.get(specifier)
+    : relativePath === persistencePostgresTaskSystemRunRowPath
+      && specifier === "@flarex/durable-task/internal/run-attempt-v1"
+    ? admittedPersistenceTaskSystemRunRowSymbols
     : undefined;
   if (
     admittedSymbols === undefined

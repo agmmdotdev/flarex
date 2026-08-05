@@ -15,6 +15,7 @@ import {
   decodeCanonicalTaskManifestV1,
   decodeTaskDefinitionRuntimeBindingV1,
   decodeTaskIdV1,
+  decodeTaskRunCreationAuthorityReceiptPreimageV1,
   decodeTaskRunCreationAuthorityReceiptV1,
   decodeTaskRuntimeEntryFrameV1,
   encodeApplicationRevisionTaskBindingPreimageV1,
@@ -42,6 +43,7 @@ import {
 } from "../src/taskDefinition/v1";
 
 const UTF8 = new TextDecoder();
+const UTF8_ENCODER = new TextEncoder();
 const sha256 = makeStandardApplicationTaskSha256V1((input) =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
@@ -333,6 +335,15 @@ describe("Standard Application task definition V1", () => {
     expect(text).toBe(
       `{"authority":{"activationHeadSha256":"${hex(decoded.activationHeadSha256)}","activationRevision":"7","applicationRevisionId":"apprev_orders_v3","applicationRevisionTaskBindingSha256":"${hex(decoded.applicationRevisionTaskBindingSha256)}","candidateSha256":"${hex(decoded.candidateSha256)}","readinessReceiptSha256":"${hex(decoded.readinessReceiptSha256)}","taskDefinitionRevisionId":"taskdef_123e4567-e89b-42d3-a456-426614174000","version":1},"codec":"${TASK_RUN_CREATION_AUTHORITY_RECEIPT_CODEC_V1}"}`,
     );
+    expect(decodeTaskRunCreationAuthorityReceiptPreimageV1(
+      UTF8_ENCODER.encode(text),
+    )).toEqual(Result.succeed(decoded));
+    expect(failure(decodeTaskRunCreationAuthorityReceiptPreimageV1(
+      UTF8_ENCODER.encode(`${text} `),
+    ))).toMatchObject({
+      operation: "decode_creation_authority_preimage",
+      reason: "inconsistent_binding",
+    });
     const first = await Effect.runPromise(
       hashTaskRunCreationAuthorityReceiptV1(receipt, sha256),
     );

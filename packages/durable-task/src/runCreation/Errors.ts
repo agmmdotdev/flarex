@@ -32,9 +32,18 @@ export class TaskRunCreationIdempotencyConflictError extends Data.TaggedError(
   readonly reason: "request_digest_mismatch";
 }> {}
 
+export class InvalidTaskRunInitialAggregateError extends Data.TaggedError(
+  "InvalidTaskRunInitialAggregateError",
+)<{
+  readonly operation: "make_initial_aggregate";
+  readonly reason: "invalid_initial_aggregate";
+  readonly cause: unknown;
+}> {}
+
 export type TaskRunCreationErrorV1 =
   | InvalidTaskRunCreationRequestError
-  | TaskRunCreationIdempotencyConflictError;
+  | TaskRunCreationIdempotencyConflictError
+  | InvalidTaskRunInitialAggregateError;
 
 /** An impossible failure while encoding an already-decoded canonical frame. */
 export class TaskRunCreationCanonicalEncodingDefect extends Data.TaggedError(

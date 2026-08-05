@@ -1,8 +1,11 @@
 import type { Brand } from "effect";
 
 import type {
+  RunAttemptPolicyV1,
+  TaskComputeProfileRefV1,
   TaskDatabaseTimeMsV1,
   TaskDefinitionRevisionIdV1,
+  TaskDurationMsV1,
   TaskRunIdV1,
 } from "../runAttempt/Model.js";
 
@@ -75,4 +78,15 @@ export interface TaskRunCreationReceiptV1 {
   readonly requestKeySha256: TaskRunCreationRequestKeySha256V1;
   readonly requestSha256: TaskRunCreationRequestSha256V1;
   readonly creationAuthoritySha256: TaskRunCreationAuthoritySha256V1;
+}
+
+export interface TaskRunCreationInitialAggregateInputV1 {
+  readonly runId: TaskRunIdV1;
+  readonly taskDefinitionRevisionId: TaskDefinitionRevisionIdV1;
+  readonly createdAtMs: TaskDatabaseTimeMsV1;
+  readonly runAttemptPolicy: RunAttemptPolicyV1;
+  readonly maximumDurationMs: TaskDurationMsV1;
+  readonly initialComputeProfile: TaskComputeProfileRefV1;
+  readonly leaseDurationMs: TaskDurationMsV1;
+  readonly immediateRetryThresholdMs: TaskDurationMsV1;
 }

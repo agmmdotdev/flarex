@@ -1,13 +1,15 @@
 import {
   encodeBytesToLowercaseHex,
+  isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import type {
   RunAttemptPolicyV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
-import { Result } from "effect";
+import { Encoding, Result } from "effect";
 import {
   encodeCanonicalJson,
+  isJsonObjectFromUnknown,
   type Json,
 } from "flarex-protocol/json";
 
@@ -41,6 +43,7 @@ import {
 } from "./Schema.js";
 
 const UTF8 = new TextEncoder();
+const FATAL_UTF8 = new TextDecoder("utf-8", { fatal: true });
 
 export function encodeCanonicalTaskManifestPreimageV1(
   input: unknown,
@@ -172,6 +175,88 @@ export function encodeTaskRunCreationAuthorityReceiptPreimageV1(
   );
 }
 
+export function decodeTaskRunCreationAuthorityReceiptPreimageV1(
+  input: unknown,
+): Result.Result<
+  TaskRunCreationAuthorityReceiptV1,
+  InvalidStandardApplicationTaskDefinitionV1Error
+> {
+  const operation = "decode_creation_authority_preimage" as const;
+  if (
+    !isUint8Array(input)
+    || input.byteLength > MAX_TASK_DEFINITION_CANONICAL_BYTES_V1
+  ) {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(FATAL_UTF8.decode(input));
+  } catch {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  if (
+    !isJsonObjectFromUnknown(parsed)
+    || !hasExactKeys(parsed, ["authority", "codec"])
+    || parsed.codec !== TASK_RUN_CREATION_AUTHORITY_RECEIPT_CODEC_V1
+    || !isJsonObjectFromUnknown(parsed.authority)
+    || !hasExactKeys(parsed.authority, [
+      "activationHeadSha256",
+      "activationRevision",
+      "applicationRevisionId",
+      "applicationRevisionTaskBindingSha256",
+      "candidateSha256",
+      "readinessReceiptSha256",
+      "taskDefinitionRevisionId",
+      "version",
+    ])
+  ) {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  const authority = parsed.authority;
+  const activationRevision = decodeCanonicalPositiveBigInt(
+    authority.activationRevision,
+  );
+  const activationHeadSha256 = decodeCanonicalDigest(
+    authority.activationHeadSha256,
+  );
+  const readinessReceiptSha256 = decodeCanonicalDigest(
+    authority.readinessReceiptSha256,
+  );
+  const candidateSha256 = decodeCanonicalDigest(authority.candidateSha256);
+  const applicationRevisionTaskBindingSha256 = decodeCanonicalDigest(
+    authority.applicationRevisionTaskBindingSha256,
+  );
+  if (
+    activationRevision === undefined
+    || activationHeadSha256 === undefined
+    || readinessReceiptSha256 === undefined
+    || candidateSha256 === undefined
+    || applicationRevisionTaskBindingSha256 === undefined
+  ) {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  return decodeTaskRunCreationAuthorityReceiptV1({
+    version: authority.version,
+    applicationRevisionId: authority.applicationRevisionId,
+    activationRevision,
+    activationHeadSha256,
+    readinessReceiptSha256,
+    candidateSha256,
+    applicationRevisionTaskBindingSha256,
+    taskDefinitionRevisionId: authority.taskDefinitionRevisionId,
+  }).pipe(
+    Result.mapError(failure => reoperation(failure, operation)),
+    Result.flatMap(receipt =>
+      encodeTaskRunCreationAuthorityReceiptPreimageV1(receipt).pipe(
+        Result.mapError(failure => reoperation(failure, operation)),
+        Result.flatMap(canonical => bytesEqual(canonical, input)
+          ? Result.succeed(receipt)
+          : Result.fail(invalid(operation, "inconsistent_binding"))),
+      )
+    ),
+  );
+}
+
 function taskDefinitionRuntimeBindingJson(
   binding: TaskDefinitionRuntimeBindingV1,
 ): Json {
@@ -270,6 +355,46 @@ function compareUtf8(left: string, right: string): number {
     if (difference !== 0) return difference;
   }
   return leftBytes.byteLength - rightBytes.byteLength;
+}
+
+function hasExactKeys(
+  value: Readonly<Record<string, Json>>,
+  expected: ReadonlyArray<string>,
+): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.length
+    && expected.every(key => Object.hasOwn(value, key));
+}
+
+function decodeCanonicalPositiveBigInt(value: Json | undefined): bigint | undefined {
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/u.test(value)) {
+    return undefined;
+  }
+  try {
+    return BigInt(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function decodeCanonicalDigest(value: Json | undefined): Uint8Array | undefined {
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
+    return undefined;
+  }
+  const decoded = Encoding.decodeHex(value);
+  return Result.isSuccess(decoded)
+    && isUint8ArrayWithByteLength(decoded.success, 32)
+    ? decoded.success
+    : undefined;
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  let difference = 0;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    difference |= left[index]! ^ right[index]!;
+  }
+  return difference === 0;
 }
 
 function validatorJson(

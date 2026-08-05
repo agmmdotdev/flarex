@@ -123,10 +123,11 @@ Intrinsic digest classification, copying, and lowercase hexadecimal encoding
 reuse only `@flarex/utils/bytes`; the compatibility boundary admits no other
 utility subpath.
 
-The future creation service remains separate from
-`TaskSystemRunAttemptStore`. Its transaction will consume a decoded request,
-trusted Standard Application creation authority, and scope-bound store
-capability, then build the only legal initial aggregate using database time.
+The DTE04-C creation capability remains separate from
+`TaskSystemRunAttemptStore`. Its transaction consumes a decoded request,
+factory-captured trusted Standard Application creation authority, and a
+scope-bound store capability, then builds the only legal initial aggregate
+using database time.
 
 ## Admission Tests
 
@@ -172,3 +173,17 @@ Closed on 2026-08-04:
 
 This receipt does not admit DTE04-A2b, DTE04-A3, a creation service, hashing,
 object-store I/O, persistence, host composition, or activation.
+
+## DTE04-C Handoff
+
+DTE04-C now consumes this unchanged domain contract. It adds the domain-owned
+initial aggregate builder and the private Postgres creation capability, hashes
+the already-admitted key/request preimages through the injected Standard SHA
+adapter, and returns the same stable receipt on exact replay. The creation
+capability is factory-bound to a trusted immutable Standard runtime binding and
+creation-authority receipt; the receipt remains audit evidence, not a
+structurally forgeable authority capability. Object-store writes, public or
+host APIs, discovery, delivery, and activation remain outside this checkpoint.
+Stored replay evidence is decoded from its canonical frame, re-encoded, hashed,
+and correlated to the immutable definition basis rather than trusted from a
+self-consistent byte/digest pair.

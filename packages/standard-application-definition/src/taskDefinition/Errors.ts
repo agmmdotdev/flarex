@@ -16,6 +16,7 @@ export type StandardApplicationTaskDefinitionOperationV1 =
   | "decode_runtime_binding"
   | "encode_runtime_binding"
   | "decode_creation_authority"
+  | "decode_creation_authority_preimage"
   | "encode_creation_authority"
   | "hash_manifest"
   | "hash_catalog"

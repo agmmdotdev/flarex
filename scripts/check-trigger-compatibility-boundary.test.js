@@ -350,6 +350,32 @@ describe("Trigger compatibility boundary checker", () => {
     }]).errors).toEqual([]);
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemRunCreationV1.ts",
+      text: `
+        import {
+          decodeTaskRunCreationRequestV1,
+          makeTaskRunCreationInitialAggregateV1,
+          type TaskRunCreationRequestV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+        import {
+          decodeTaskRunIdV1,
+          projectTaskRunAttemptPersistenceV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemRunRowV1.ts",
+      text: `
+        import {
+          decodePersistedTaskRunAttemptAggregateJsonV1,
+          type TaskRunAttemptAggregateV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: schemaPath,
       text: `
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -360,10 +386,24 @@ describe("Trigger compatibility boundary checker", () => {
       text: `
         import type { TaskRunIdV1 } from "@flarex/durable-task/internal/run-attempt-v1";
       `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemRunCreationV1.ts",
+      text: `
+        import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemRunRowV1.ts",
+      text: `
+        import { decodeTaskRunCreationRequestV1 } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
     }]).errors).toEqual([
       `${schemaPath}:2 production source must not activate @flarex/durable-task before host admission.`,
       `${schemaPath}:3 production source must not activate @flarex/durable-task before host admission.`,
       "packages/persistence-postgres/src/postgres.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/taskSystemRunCreationV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/taskSystemRunRowV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
     ]);
   });
 

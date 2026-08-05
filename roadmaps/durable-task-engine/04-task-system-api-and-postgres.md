@@ -2,7 +2,7 @@
 
 ## Status
 
-**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-B are complete. The
+**Status:** Active. DTE-IP01 and DTE04-A1 through DTE04-C are complete. The
 storage-neutral input-reference and run-creation contract, lifecycle JSON
 envelope and pure relational projection, canonical Standard Application task
 catalog, immutable runtime binding, and creation-authority receipt are
@@ -17,8 +17,12 @@ through the concrete adapter, while two invalid commands remain at their decoder
 boundary. No canonical vector is deferred. The durable-retry start vector now
 uses its reachable transition-derived cursor `13` and grants effects `14–17`.
 Canonical multi-attempt histories, including OOM escalation, attempt exhaustion,
-and stale attempt/fence outcomes, now execute through the adapter. Creation,
-discovery, effect delivery, host, queue, and activation changes remain
+and stale attempt/fence outcomes, now execute through the adapter. DTE04-C's
+separate scope-bound creation capability constructs and persists the sole legal
+initial state, binds trusted Standard definition/authority evidence at factory
+construction, and proves exact/concurrent replay, typed conflict, collision
+retry, corruption rejection, and lifecycle interoperation in PGlite.
+Discovery, effect delivery, host, queue, and activation changes remain
 unauthorized.
 
 Roadmap 04 owns the first durable storage implementation for the admitted
@@ -31,9 +35,9 @@ The audit originally found that canonical task definition/runtime binding and
 task-input reference owners were documentation-only. DTE04-A1 therefore
 stopped after the domain-owned JSON envelope and pure lifecycle projection.
 DTE04-A2a and DTE04-A2b close those upstream contracts without inventing them
-in persistence. DTE04-A3 landed the admitted five-table physical model. The
-current DTE04-B slice adds only the private store adapter over that model and
-still enables no backend or production runtime path.
+in persistence. DTE04-A3 landed the admitted five-table physical model,
+DTE04-B added the private lifecycle adapter, and DTE04-C added the separate
+private creation capability. No backend or production runtime path is enabled.
 
 ## Outcome
 
@@ -281,8 +285,17 @@ admitted:
   explicit near-overflow setup through the concrete PGlite adapter while
   retaining two invalid command shapes at their pre-store decoder boundary.
   The overflow case proves typed counter exhaustion and no database mutation;
-- **DTE04-C — creation:** closed creation contract, initial aggregate builder,
-  idempotency conflict semantics, and immutable binding checks;
+- **DTE04-C — creation — complete:** domain-owned initial aggregate builder;
+  a scope-bound plain creation capability distinct from the lifecycle store;
+  trusted immutable Standard binding and creation-authority capture; canonical
+  request/binding/authority hashing; one database-time snapshot; atomic run and
+  request-identity insertion; stable exact replay after lifecycle progress;
+  typed request conflict; bounded run-ID retry with terminal exhaustion;
+  transaction-conflict retry; stored binding, aggregate, projection, input,
+  and canonical decoded/correlated authority-evidence checks; and a
+  connected PGlite concurrency/error/lifecycle matrix. It emits no initial
+  requested effect and adds no package export, host, route, queue, or
+  activation path;
 - **DTE04-D — discovery and effect ledger:** bounded stable discovery plus
   atomic requested-effect persistence/read contracts, without delivery;
 - **DTE04-E — real Postgres parity:** race, locking, rollback, uncertain

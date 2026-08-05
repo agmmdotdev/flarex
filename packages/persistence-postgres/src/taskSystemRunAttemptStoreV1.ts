@@ -25,7 +25,6 @@ import {
   type TaskAttemptNumberV1,
   type TaskDatabaseTimeMsV1,
   type TaskExecutionFenceV1,
-  type TaskPersistenceCodecErrorV1,
   type TaskRunAttemptAggregateV1,
   type TaskRunAttemptDecisionV1,
   type TaskRunIdV1,
@@ -37,13 +36,12 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { Cause, Effect, Exit, Result, SchemaIssue } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
-  decodeScopeClockRecordResult,
   getScopeClock,
 } from "./scopeClock";
 import {
@@ -57,10 +55,12 @@ import type {
   TrustedScopeAuthority,
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
+import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import {
-  captureScopePhysicalLocator,
-  scopePhysicalLocatorsEqual,
-} from "./scopePhysicalLocator";
+  captureTaskSystemTrustedScopeAuthorityV1,
+  requireLockedTaskSystemScopeAuthorityV1,
+} from "./taskSystemScopeAuthorityV1";
+import { decodeAndCorrelateTaskSystemRunRowV1 } from "./taskSystemRunRowV1";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "./transactionSessionActivation";
@@ -136,7 +136,7 @@ export function makeTaskSystemRunAttemptStoreV1(
   located: LocatedTrustedScopeAuthority<LocatedTaskSystemRunAttemptTargetV1>,
   options: TaskSystemRunAttemptStoreOptionsV1 = {},
 ): TaskSystemRunAttemptStoreShape {
-  const authority = captureTrustedAuthority(located.authority);
+  const authority = captureTaskSystemTrustedScopeAuthorityV1(located.authority);
   const target = located.target;
   const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
 
@@ -363,34 +363,12 @@ async function requireLockedScopeAuthority(
   operation: RunAttemptOperationV1,
   runId: TaskRunIdV1,
 ): Promise<void> {
-  if (!scopePhysicalLocatorsEqual(authority.physicalLocator, target.physicalLocator)) {
-    throw rollbackStoreError(staleAuthority(operation, runId, "physical_locator"));
-  }
-  const rows = await tx.select().from(fxSystemScopeClocks).where(
-    eq(fxSystemScopeClocks.scopeId, authority.scopeId),
-  ).limit(1).for("share");
-  const row = rows[0];
-  if (row === undefined) {
-    throw rollbackStoreError(staleAuthority(operation, runId, "deployment_binding"));
-  }
-  const clock = Result.getOrThrowWith(
-    decodeScopeClockRecordResult(row),
-    () => rollbackStoreError(
-      staleAuthority(operation, runId, "deployment_binding"),
-    ),
+  await requireLockedTaskSystemScopeAuthorityV1(
+    tx,
+    authority,
+    target,
+    mismatch => rollbackStoreError(staleAuthority(operation, runId, mismatch)),
   );
-  if (clock.scopeId !== authority.scopeId) {
-    throw rollbackStoreError(staleAuthority(operation, runId, "deployment_binding"));
-  }
-  if (clock.epoch !== authority.epoch) {
-    throw rollbackStoreError(staleAuthority(operation, runId, "epoch"));
-  }
-  if (
-    clock.storageGeneration !== authority.storageGeneration
-    || clock.storageGenerationFence !== authority.storageGenerationFence
-  ) {
-    throw rollbackStoreError(staleAuthority(operation, runId, "storage_generation"));
-  }
 }
 
 async function loadRun(
@@ -435,67 +413,13 @@ function decodeAndCorrelateRunRow(
   operation: RunAttemptOperationV1,
   runId: TaskRunIdV1,
 ): TaskRunAttemptAggregateV1 {
-  if (row.aggregateCodecVersion !== 1 || row.runId !== runId) {
+  if (row.runId !== runId) {
     throw rollbackStoreError(corruption(operation, runId, "aggregate_invalid"));
   }
-  const aggregate = Result.getOrThrowWith(
-    decodePersistedTaskRunAttemptAggregateJsonV1(row.aggregateJson),
-    issue => rollbackStoreError(corruption(
-      operation,
-      runId,
-      classifyAggregateDecodeCorruption(issue),
-    )),
+  return Result.getOrThrowWith(
+    decodeAndCorrelateTaskSystemRunRowV1(row),
+    reason => rollbackStoreError(corruption(operation, runId, reason)),
   );
-  const encoded = Result.getOrThrowWith(
-    encodePersistedTaskRunAttemptAggregateJsonV1(aggregate),
-    () => rollbackStoreError(corruption(operation, runId, "aggregate_invalid")),
-  );
-  const projection = projectTaskRunAttemptPersistenceV1(aggregate);
-  if (
-    row.aggregateByteLength !== encodedJsonByteLength(encoded)
-    || aggregate.runId !== row.runId
-    || aggregate.taskDefinitionRevisionId !== row.taskDefinitionRevisionId
-    || BigInt(aggregate.createdAtMs) !== row.createdAtMs
-    || projection.runVersion !== row.runVersion
-    || projection.phase !== row.phase
-    || projection.dueKind !== row.dueKind
-    || nullableNumberAsBigInt(projection.dueAtMs) !== row.dueAtMs
-    || projection.currentAttemptId !== row.currentAttemptId
-    || projection.executionFenceBasis !== row.executionFenceBasis
-    || projection.currentLeaseVersion !== row.currentLeaseVersion
-    || nullableNumberAsBigInt(projection.currentLeaseExpiresAtMs) !== row.currentLeaseExpiresAtMs
-    || projection.cancellationGeneration !== row.cancellationGeneration
-    || projection.requestedEffectSequence !== row.requestedEffectSequence
-  ) {
-    throw rollbackStoreError(corruption(operation, runId, "binding_reference_invalid"));
-  }
-  return aggregate;
-}
-
-function classifyAggregateDecodeCorruption(
-  error: TaskPersistenceCodecErrorV1,
-): TaskSystemRunAttemptCorruptionError["reason"] {
-  if (error.issue.kind !== "domain_value_invalid") return "aggregate_invalid";
-  const formatted = SchemaIssue.makeFormatterStandardSchemaV1()(
-    error.issue.cause.issue,
-  );
-  const paths = formatted.issues.flatMap(issue =>
-    issue.path === undefined ? [] : [issue.path]
-  );
-  if (paths.some(path => path.includes("completionReplays"))) {
-    return "completion_replay_invalid";
-  }
-  if (paths.some(path => path.includes("evidence"))) {
-    return "evidence_invalid";
-  }
-  if (paths.some(path =>
-    path.includes("requestedEffectCursor")
-    || path.includes("requestedEffects")
-    || path.includes("sequence")
-  )) {
-    return "effect_sequence_invalid";
-  }
-  return "aggregate_invalid";
 }
 
 async function correlateLifecycleLedger(
@@ -1201,19 +1125,6 @@ function persistedValueEqualAtDepth(
     }
   }
   return true;
-}
-
-function captureTrustedAuthority(authority: TrustedScopeAuthority): TrustedScopeAuthority {
-  return Object.freeze({
-    deploymentId: authority.deploymentId,
-    scopeId: authority.scopeId,
-    physicalLocator: captureScopePhysicalLocator(authority.physicalLocator),
-    storageGeneration: authority.storageGeneration,
-    storageGenerationFence: authority.storageGenerationFence,
-    epoch: authority.epoch,
-    lastCommitSeq: authority.lastCommitSeq,
-    lastOutboxSeq: authority.lastOutboxSeq,
-  });
 }
 
 function awaitLocatedTransaction<Value>(

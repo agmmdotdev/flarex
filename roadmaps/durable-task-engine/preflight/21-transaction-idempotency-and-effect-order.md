@@ -2,12 +2,12 @@
 
 ## Status
 
-**Status:** Lifecycle transaction authority and DTE04-B are complete. The
+**Status:** Lifecycle transaction authority and DTE04-B/C are complete. The
 focused PGlite and real-Postgres lock/time proofs pass. The canonical lane now
 executes 62 transition-derived histories plus one explicit near-overflow setup
-through the adapter and two invalid commands at the decoder boundary. Creation is a separate
-DTE04-C checkpoint. This file does
-not authorize creation, discovery, delivery, host composition, or activation.
+through the adapter and two invalid commands at the decoder boundary. The
+separate DTE04-C creation transaction and PGlite matrix now pass. This file
+does not authorize discovery, delivery, host composition, or activation.
 
 ## Objective
 
@@ -136,15 +136,18 @@ command. Its candidate sequence is:
    do not mutate the original run; and
 8. commit and return only a detached domain receipt.
 
-The exact conflict type and creation service owner remain blocked on the
+The exact conflict type and creation capability are now implemented from the
 task-definition, input-reference, and creation-receipt contracts listed by
-Preflight 20. They must not be squeezed into
-`TaskSystemRunAttemptStoreErrorV1` if that would misdescribe a valid caller
+Preflight 20. They remain separate from
+`TaskSystemRunAttemptStoreErrorV1`, which would misdescribe a valid caller
 conflict as storage failure.
 
-`INSERT ... ON CONFLICT DO NOTHING` followed by a scoped primary read is a
-candidate mechanic, not the contract. The final SQL must prove correct behavior
-under two simultaneous first writers and commit-response loss.
+The implemented PGlite path inserts the run before its foreign-keyed request
+identity. A recognized run/request unique collision rolls the transaction back
+and causes bounded whole-transaction re-execution, which then observes and
+returns the winner. Connected tests prove two simultaneous first writers
+converge without an orphan run. Real-Postgres race and commit-response-loss
+proof remain assigned to DTE04-E.
 
 ## Inspection Transaction
 
@@ -358,4 +361,15 @@ leaves the run row, aggregate, projections, attempt ledger, and effect ledger
 unchanged. DTE04-B has no deferred canonical vector. The Standard Application task catalog,
 task-definition runtime binding, creation-authority receipt, storage-neutral
 input reference, and exact creation request/error contracts are complete;
-their existence does not bypass the separate DTE04-C creation checkpoint.
+their DTE04-C composition now binds them to one scope-local creation
+transaction without widening the lifecycle store.
+
+DTE04-C additionally proves zero initial attempt/effect rows, exact replay
+after the lifecycle has advanced, typed non-disclosing request conflict,
+run-identity collision retry with terminal exhaustion after three candidates,
+immutable stored binding/input correlation, canonical stored-authority decode,
+digest and definition-basis correlation, factory-option capture before lazy
+execution, and stale-epoch rejection. The
+operation uses the existing located transaction runner and shared locked-scope
+authority mechanics; it introduces neither a second transaction system nor a
+runtime Effect runner inside the Drizzle callback.

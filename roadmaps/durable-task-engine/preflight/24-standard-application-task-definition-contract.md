@@ -193,9 +193,9 @@ Standard Application active claim (future issuer-owned operation)
 ```
 
 The DTE04-A2a request contains only the opaque definition-revision ID and input
-reference. `TaskIdV1` stays above that boundary. The future persistence
-transaction must verify that the supplied authority digest belongs to the same
-definition revision before inserting a run; DTE04-A2b does not implement that
+reference. `TaskIdV1` stays above that boundary. DTE04-C's persistence
+transaction verifies that the supplied authority belongs to the same definition
+revision before inserting a run; DTE04-A2b itself still does not own that
 transaction.
 
 ## Required Proofs
@@ -255,6 +255,21 @@ without emitting a failure receipt, so it is not recorded as passing. The
 focused owning-package, dependency-package, boundary, and full typecheck lanes
 above are the admission evidence for this slice. Roadmap 04 and Preflight 20
 now admit DTE04-A3 as the next code slice.
+
+## DTE04-C Handoff
+
+DTE04-C now factory-binds one private creation capability to the decoded
+`TaskDefinitionRuntimeBindingV1` and `TaskRunCreationAuthorityReceiptV1`
+provided by the trusted active-selection composition owner. Ordinary creation
+calls supply only the closed durable-task request, so they cannot select or
+replace authority evidence. The adapter re-hashes and compares the canonical
+binding bytes and every stored immutable projection before inserting or
+replaying a run. Factory inputs are decoded and captured before the lazy
+operation can execute, and stored authority frames are canonically decoded,
+re-encoded, hashed, and correlated to the stored definition basis on replay.
+This does not make the authority receipt itself a capability,
+implement active selection, or open registration, host, route, or activation
+work.
 
 ## References
 

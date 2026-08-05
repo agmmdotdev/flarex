@@ -238,12 +238,26 @@ start history now derives cursor `13` and emitted sequences `14–17` from its
 committed start, heartbeat, and failed completion. The explicit near-overflow
 setup returns `TaskRunAttemptCounterExhaustedError` and a before/after database
 snapshot proves no run, aggregate, projection, attempt-ledger, or effect-ledger
-mutation. This checkpoint is the DTE04-B admission receipt; it does not open
-DTE04-C creation or any discovery, delivery, host, or activation work.
+mutation. This remains the DTE04-B admission receipt.
 
-### DTE04-C/D
+### DTE04-C — complete
 
-- creation concurrency/idempotency/conflict matrix;
+- the domain builder round-trips the sole legal initial aggregate and rejects
+  invalid platform-bound policy;
+- the PGlite adapter proves initial run/request insertion with zero initial
+  attempt/effect rows, lifecycle inspection/start compatibility, and stable
+  replay even after lifecycle progress;
+- exact concurrent calls converge to one receipt, conflicting request reuse is
+  typed and non-disclosing, and a run-ID collision retries without leaking an
+  orphan run;
+- mismatched request/authority, mismatched stored immutable binding, corrupted
+  authority bytes, and stale scope epoch fail closed; and
+- DTE04-C adds no package export, host route, discovery, delivery, queue, or
+  activation path. Real-Postgres creation race/uncertain-response parity stays
+  assigned to DTE04-E.
+
+### DTE04-D
+
 - discovery boundedness/query-plan tests;
 - requested-effect atomicity/order tests;
 - cross-scope and stale-authority hostile cases; and
