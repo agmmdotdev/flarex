@@ -27,14 +27,17 @@ export function makeRunAttemptDueCandidateHandlerV1(
 ): TaskDueCandidateHandlerV1<
   RunAttemptLifecycleErrorV1 | TaskDueCandidateLifecycleContractError
 > {
+  const startAttempt = lifecycle.startAttempt;
+  const handleLeaseExpiry = lifecycle.handleLeaseExpiry;
+  const nextRetryJitter = jitter.nextRetryJitter;
   const handle: TaskDueCandidateHandlerV1<
     RunAttemptLifecycleErrorV1 | TaskDueCandidateLifecycleContractError
   >["handle"] =
     Effect.fn("TaskDueCandidateHandler.handle")(function* (candidate) {
       switch (candidate.kind) {
         case "start_attempt": {
-          const retryJitter = yield* jitter.nextRetryJitter(candidate.runId);
-          const receipt = yield* lifecycle.startAttempt({
+          const retryJitter = yield* nextRetryJitter(candidate.runId);
+          const receipt = yield* startAttempt({
             type: "start_attempt",
             runId: candidate.runId,
             expectedRunVersion: candidate.expectedRunVersion,
@@ -43,7 +46,7 @@ export function makeRunAttemptDueCandidateHandlerV1(
           return yield* Effect.fromResult(startHandlingReceipt(candidate, receipt));
         }
         case "handle_lease_expiry": {
-          const receipt = yield* lifecycle.handleLeaseExpiry({
+          const receipt = yield* handleLeaseExpiry({
             type: "handle_lease_expiry",
             runId: candidate.runId,
             attemptId: candidate.attemptId,

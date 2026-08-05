@@ -56,8 +56,14 @@ import {
   decodeTaskRunAttemptAggregateV1,
   encodeTaskRunAttemptAggregateV1,
 } from "../Schema.js";
-import { RunAttemptLifecycle } from "../Services/RunAttemptLifecycle.js";
-import { TaskSystemRunAttemptStore } from "../Services/TaskSystemRunAttemptStore.js";
+import {
+  RunAttemptLifecycle,
+  type RunAttemptLifecycleShape,
+} from "../Services/RunAttemptLifecycle.js";
+import {
+  TaskSystemRunAttemptStore,
+  type TaskSystemRunAttemptStoreShape,
+} from "../Services/TaskSystemRunAttemptStore.js";
 
 const MAX_COUNTER = 9_223_372_036_854_775_807n;
 const runVersion = Brand.nominal<TaskRunVersionV1>();
@@ -938,49 +944,61 @@ export function decideHandleLeaseExpiryV1(
   });
 }
 
+/**
+ * Constructs one lifecycle-free, scope-bound lifecycle value. Several scope
+ * instances may coexist, so persistence composition may use this factory
+ * without installing a process-global store service.
+ */
+export function makeRunAttemptLifecycleV1(
+  store: TaskSystemRunAttemptStoreShape,
+): RunAttemptLifecycleShape {
+  const transactRunAttempt = store.transactRunAttempt;
+  const inspectRunAttempt = store.inspectRunAttempt;
+  return RunAttemptLifecycle.of({
+    startAttempt: Effect.fn("RunAttemptLifecycle.startAttempt")(
+      (command) => transactRunAttempt({
+        operation: "start_attempt", runId: command.runId,
+        decide: (input) => decideStartAttemptV1(command, input),
+      }),
+    ),
+    heartbeatAttempt: Effect.fn("RunAttemptLifecycle.heartbeatAttempt")(
+      (command) => transactRunAttempt({
+        operation: "heartbeat_attempt", runId: command.runId,
+        decide: (input) => decideHeartbeatAttemptV1(command, input),
+      }),
+    ),
+    completeAttempt: Effect.fn("RunAttemptLifecycle.completeAttempt")(
+      (command) => transactRunAttempt({
+        operation: "complete_attempt", runId: command.runId,
+        decide: (input) => decideCompleteAttemptV1(command, input),
+      }),
+    ),
+    requestCancellation: Effect.fn("RunAttemptLifecycle.requestCancellation")(
+      (command) => transactRunAttempt({
+        operation: "request_cancellation", runId: command.runId,
+        decide: (input) => decideRequestCancellationV1(command, input),
+      }),
+    ),
+    handleLeaseExpiry: Effect.fn("RunAttemptLifecycle.handleLeaseExpiry")(
+      (command) => transactRunAttempt({
+        operation: "handle_lease_expiry", runId: command.runId,
+        decide: (input) => decideHandleLeaseExpiryV1(command, input),
+      }),
+    ),
+    inspectCurrentAttempt: Effect.fn("RunAttemptLifecycle.inspectCurrentAttempt")(
+      function* (command) {
+        const snapshot = yield* inspectRunAttempt({
+          operation: "inspect_current_attempt", runId: command.runId,
+        });
+        return projectRunAttemptInspectionV1(snapshot.observedAtMs, snapshot.current);
+      },
+    ),
+  });
+}
+
 export const RunAttemptLifecycleLive = Layer.effect(
   RunAttemptLifecycle,
   Effect.gen(function* () {
-    const store = yield* TaskSystemRunAttemptStore;
-    return RunAttemptLifecycle.of({
-      startAttempt: Effect.fn("RunAttemptLifecycle.startAttempt")(
-        (command) => store.transactRunAttempt({
-          operation: "start_attempt", runId: command.runId,
-          decide: (input) => decideStartAttemptV1(command, input),
-        }),
-      ),
-      heartbeatAttempt: Effect.fn("RunAttemptLifecycle.heartbeatAttempt")(
-        (command) => store.transactRunAttempt({
-          operation: "heartbeat_attempt", runId: command.runId,
-          decide: (input) => decideHeartbeatAttemptV1(command, input),
-        }),
-      ),
-      completeAttempt: Effect.fn("RunAttemptLifecycle.completeAttempt")(
-        (command) => store.transactRunAttempt({
-          operation: "complete_attempt", runId: command.runId,
-          decide: (input) => decideCompleteAttemptV1(command, input),
-        }),
-      ),
-      requestCancellation: Effect.fn("RunAttemptLifecycle.requestCancellation")(
-        (command) => store.transactRunAttempt({
-          operation: "request_cancellation", runId: command.runId,
-          decide: (input) => decideRequestCancellationV1(command, input),
-        }),
-      ),
-      handleLeaseExpiry: Effect.fn("RunAttemptLifecycle.handleLeaseExpiry")(
-        (command) => store.transactRunAttempt({
-          operation: "handle_lease_expiry", runId: command.runId,
-          decide: (input) => decideHandleLeaseExpiryV1(command, input),
-        }),
-      ),
-      inspectCurrentAttempt: Effect.fn("RunAttemptLifecycle.inspectCurrentAttempt")(
-        function* (command) {
-          const snapshot = yield* store.inspectRunAttempt({
-            operation: "inspect_current_attempt", runId: command.runId,
-          });
-          return projectRunAttemptInspectionV1(snapshot.observedAtMs, snapshot.current);
-        },
-      ),
-    });
+    return makeRunAttemptLifecycleV1(yield* TaskSystemRunAttemptStore);
   }),
 );

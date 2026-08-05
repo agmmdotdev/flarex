@@ -30,9 +30,10 @@ connected PGlite concurrency and lifecycle-interoperation proof. DTE04-D adds
 production-inert due-discovery and requested-effect-ledger reads with stable
 bounded snapshots, and DTE04-E proves their real-Postgres parity together with
 the creation and lifecycle race/uncertainty matrix. Roadmap 05 is now active:
-DTE05-A admits a scope-bound host-neutral scheduling boundary and DTE05-B
-completes only the production-inert standard runner plus deterministic
-in-memory adapters. Cloudflare bindings, cross-scope scheduler authority,
+DTE05-A admits a scope-bound host-neutral scheduling boundary, DTE05-B
+completes the production-inert standard runner plus deterministic in-memory
+adapters, and DTE05-C1 completes only the located-scope Postgres
+composition. Cloudflare bindings, global partition discovery,
 public APIs, compute delivery, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
@@ -40,8 +41,9 @@ task engine derived from the pinned Trigger.dev compatibility source. For now,
 this README records the shared vision, non-negotiable boundaries, target system
 shape, and proposed roadmap decomposition. Its current implementation authority
 has completed the admitted DTE-IP01 private package checkpoint and Roadmap 04
-described above. It does not authorize delivery, public APIs, scheduling,
-deployment, host composition, or production activation.
+described above. Roadmap 05 authorizes only its explicitly completed or active
+production-inert checkpoints; it does not authorize delivery, public APIs,
+deployment bindings, compute execution, or production activation.
 That checkpoint includes fail-closed legal-state decoding, owned frozen
 aggregate snapshots, and an executable compatibility harness whose inputs do
 not derive from its expected receipts.
@@ -357,10 +359,11 @@ files remain candidates:
      boundedness, and final-review admission. Delivery, host integration, and
      runtime activation remain closed;
 5. [`05-cloudflare-wake-and-scheduling.md`](./05-cloudflare-wake-and-scheduling.md)
-   - **active; DTE05-A and DTE05-B complete:** standard scope-bound
-     scheduler contracts, host-neutral bounded recovery, deterministic memory
-     adapters, then trusted partitions, Queue hints, cron repair, optional
-     alarm acceleration, and fail-closed admission;
+   - **active; DTE05-A, DTE05-B, and DTE05-C1 complete:** standard
+     scope-bound scheduler contracts, host-neutral bounded recovery,
+     deterministic memory adapters, located-scope Postgres composition, then
+     trusted partition discovery, Queue hints, cron repair, optional alarm
+     acceleration, and fail-closed admission;
 6. `06-compute-provider-and-runtime.md`
    - Worker Loader reuse, compute assignment, heartbeats, interruption,
      checkpoints, AgentOS boundary, and restricted user capabilities;

@@ -231,6 +231,7 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: "packages/durable-task/test/compatibility/runner.test.ts",
       text: 'import { spawn } from "node:child_process";',
     }]).errors).toEqual([]);
+
   });
 
   it("resolves relative generated-Prisma and compatibility-runner imports", () => {
@@ -342,6 +343,22 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
+        "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts",
+      text: `
+        import {
+          makeRunAttemptLifecycleV1,
+          type RunAttemptLifecycleErrorV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import {
+          makeRunAttemptDueCandidateHandlerV1,
+          makeTaskWakeSchedulerV1,
+          type TaskWakeSchedulerV1,
+        } from "@flarex/durable-task/internal/scheduling-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
         "packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts",
       text: `
         import {
@@ -433,6 +450,13 @@ describe("Trigger compatibility boundary checker", () => {
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
         import { MAX_TASK_SYSTEM_READ_PAGE_SIZE_V1 } from "@flarex/durable-task/internal/run-read-v1";
       `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts",
+      text: `
+        import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
+        import { makeInMemoryTaskDueWorkSourceV1 } from "@flarex/durable-task/internal/scheduling-testing-v1";
+      `,
     }]).errors).toEqual([
       `${schemaPath}:2 production source must not activate @flarex/durable-task before host admission.`,
       `${schemaPath}:3 production source must not activate @flarex/durable-task before host admission.`,
@@ -441,6 +465,8 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/persistence-postgres/src/taskSystemRunRowV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskSystemRunReadV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskSystemRunReadV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
     ]);
   });
 
@@ -457,6 +483,46 @@ describe("Trigger compatibility boundary checker", () => {
     }]).errors).toEqual([
       `${privatePath}:3 production source must not re-export admitted @flarex/durable-task bindings before host admission.`,
       `${privatePath}:4 production source must not re-export admitted @flarex/durable-task bindings before host admission.`,
+    ]);
+  });
+
+  it("keeps the Task wake scheduler partition production-inert", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "apps/executor/src/taskScheduler.ts",
+      text: `
+        import { makeTaskSystemWakeSchedulerPartitionV1 } from
+          "@flarex/persistence-postgres/internal/task-wake-scheduler-partition-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/taskScheduler.ts",
+      text: `
+        import { makeTaskSystemWakeSchedulerPartitionV1 } from
+          "../../persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/taskSchedulerNodeNext.ts",
+      text: `
+        import { makeTaskSystemWakeSchedulerPartitionV1 } from
+          "../../persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.js";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/taskSchedulerBundled.ts",
+      text: `
+        import { makeTaskSystemWakeSchedulerPartitionV1 } from
+          "../../persistence-postgres/src/taskSystemWakeSchedulerPartitionV1";
+      `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/test/taskSystemWakeSchedulerPartition.test.ts",
+      text: `
+        import { makeTaskSystemWakeSchedulerPartitionV1 } from
+          "../src/taskSystemWakeSchedulerPartitionV1.ts";
+      `,
+    }]).errors).toEqual([
+      "apps/executor/src/taskScheduler.ts:2 production source must not activate the Task wake scheduler partition before host admission.",
+      "packages/flarex-backend/src/taskScheduler.ts:2 production source must not activate the Task wake scheduler partition before host admission.",
+      "packages/flarex-backend/src/taskSchedulerNodeNext.ts:2 production source must not activate the Task wake scheduler partition before host admission.",
+      "packages/flarex-backend/src/taskSchedulerBundled.ts:2 production source must not activate the Task wake scheduler partition before host admission.",
     ]);
   });
 

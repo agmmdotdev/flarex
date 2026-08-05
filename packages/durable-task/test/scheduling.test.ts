@@ -577,6 +577,41 @@ describe("RunAttempt due-candidate handler", () => {
       reason: "disposition_outcome_mismatch",
     });
   });
+
+  it("captures lifecycle and jitter operations at construction", async () => {
+    const currentState = projectRunAttemptStateV1(readyAggregate());
+    const lifecycle = {
+      startAttempt: () => Effect.succeed({
+        disposition: "current" as const,
+        observedAtMs: NOW,
+        runVersion: RUN_VERSION_2,
+        outcome: {
+          kind: "current" as const,
+          reason: "stale_run_version" as const,
+          state: currentState,
+        },
+        evidence: [],
+        requestedEffects: [],
+      }),
+      handleLeaseExpiry: () => Effect.die("not invoked"),
+    };
+    const jitter = {
+      nextRetryJitter: () => Effect.succeed(JITTER),
+    };
+    const handler = makeRunAttemptDueCandidateHandlerV1(lifecycle, jitter);
+    lifecycle.startAttempt = () => Effect.die("mutated lifecycle method");
+    jitter.nextRetryJitter = () => Effect.die("mutated jitter method");
+
+    const receipt = await runTestEffect(
+      handler.handle(startCandidate(RUN_1, 10)),
+    );
+
+    expect(receipt).toMatchObject({
+      kind: "start_attempt",
+      disposition: "current",
+      outcomeKind: "current",
+    });
+  });
 });
 
 function startCandidate(

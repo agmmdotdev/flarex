@@ -5,10 +5,11 @@
 **Status:** Active. DTE05-A admits the host-neutral scheduling boundary and
 pins the first Trigger scheduling sources. DTE05-B completes the first
 implementation checkpoint: one scope-bound, production-inert scheduler core,
-its narrow ports, and deterministic in-memory adapters. DTE05-C is the next
-candidate and requires a separate preflight. No Cloudflare binding, cross-scope
-scheduler authority, deployment configuration, or production activation is
-authorized by the completed checkpoint.
+its narrow ports, and deterministic in-memory adapters. DTE05-C1 completes
+one already-resolved trusted-scope Postgres composition. Global
+partition discovery remains DTE05-C2 and requires a separate preflight. No
+Cloudflare binding, cross-scope scheduler host, deployment configuration, or
+production activation is authorized.
 
 Roadmap 04 remains the durable-state authority. Its due-discovery candidates
 and lifecycle transactions are sufficient to reconstruct missed work. Queue
@@ -51,8 +52,9 @@ The following pieces already exist:
 - the private scheduling subpaths now provide the scope-bound bounded runner,
   lifecycle candidate adapter, injected jitter boundary, and deterministic
   in-memory test adapters; and
-- there is no trusted cross-scope scheduler partition, Postgres scheduling
-  adapter, Cloudflare event host, or production activation.
+- the private persistence subpath now composes those owners over one located
+  trusted scope; there is no global scheduler partition, Cloudflare event
+  host, or production activation.
 
 The existing point-mutation and live-query schedulers are specialized owners.
 Their count budgets, continuations, claims, cleanup, and host boundaries are
@@ -191,7 +193,7 @@ prerequisite for the first wake scheduler.
 Completion evidence on 2026-08-05:
 
 - `@flarex/durable-task` typecheck passed;
-- all 72 package tests passed, including stable paging, bounded continuation,
+- all 73 package tests passed, including stable paging, bounded continuation,
   exact source/handler failure identity, duplicate lifecycle settlement,
   hostile adapter receipts, and immutable memory-source snapshot inputs;
 - the Trigger compatibility boundary, 65-vector lifecycle gate, 29-entry
@@ -199,15 +201,43 @@ Completion evidence on 2026-08-05:
 - all 55 focused script tests passed. No production package consumes either
   scheduling subpath.
 
-### DTE05-C: Trusted Scheduler Partition And Postgres Adapter — Pending
+### DTE05-C: Trusted Scheduler Partition And Postgres Adapter — Active
+
+The owning preflight is
+[`preflight/26-dte05-trusted-scope-scheduler-composition.md`](./preflight/26-dte05-trusted-scope-scheduler-composition.md).
+
+#### DTE05-C1: Located-Scope Postgres Composition — Complete
+
+- compose the standard scheduler from the already-admitted due source,
+  lifecycle store, and lifecycle service over one located trusted authority;
+- expose no authority, locator, database, transaction, or caller-selected
+  scope value;
+- preserve the exact source, lifecycle, and scheduler error channels;
+- prove PGlite and genuine PostgreSQL behavior; and
+- keep the package subpath private and production-inert.
+
+Completion evidence on 2026-08-05:
+
+- the durable-task and persistence packages typechecked;
+- all 73 durable-task tests passed, including construction-time lifecycle and
+  jitter capture;
+- the PGlite composition suite passed both bounded resume/no-longer-due and
+  stale-authority cases through the real Drizzle source and lifecycle store;
+- the genuine-PostgreSQL DTE04-E regression matrix passed all 15 tests and the
+  reconstructed-scheduler DTE05-C1 lane passed both acceptance tests; and
+- the 29-entry source-map gate, Trigger boundary, Standard Application
+  boundary, and all 56 script tests passed. No production package consumes the
+  new persistence subpath.
+
+#### DTE05-C2: Trusted Partition Directory — Pending
 
 - define a scheduler-only trusted partition authority derived from located
   Flarex scope authority;
 - discover active scopes or partitions without accepting caller-selected scope
   IDs;
 - preserve bounded stable snapshots and non-disclosure;
-- connect the standard source port to Drizzle; and
-- prove PGlite and real-Postgres ordering, concurrency, and restart behavior.
+- prove bounded directory ordering, placement changes, restart, and
+  non-disclosure without reinterpreting the point-mutation scheduler owner.
 
 ### DTE05-D: Queue Wake Hints — Pending
 
