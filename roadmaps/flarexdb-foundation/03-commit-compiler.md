@@ -709,14 +709,17 @@ Implementation status:
   signed-grant verification/admission, activation, exact-runtime, journal,
   same-document OCC rerun, commit, outcome, feed, and outbox owners without a
   package-root export or production caller;
-- `pnpm --filter @flarex/persistence-postgres test:c07:pglite` is the bounded
-  PGlite gate and currently passes all 79 cases across the assembled proof and
-  its finishing, replacement, rollback, fencing, retry, and recovery owners;
-- `pnpm --filter @flarex/persistence-postgres test:c07:postgres` is the matching
-  fail-closed real-Postgres gate. It defines 47 database cases, including the
-  assembled proof, genuine `40001`/`40P01`, concurrency, lost-response
-  uncertainty, rollback, fencing, and cold recovery cases, plus one explicit
-  authenticated-URL prerequisite;
+- `pnpm --filter @flarex/system-test test:c07:pglite` owns the one assembled
+  cross-owner PGlite proof, while
+  `pnpm --filter @flarex/persistence-postgres test:c07:pglite` retains the 78
+  finishing, replacement, rollback, fencing, retry, and recovery cases owned by
+  persistence. Both gates pass after the system-test extraction;
+- `pnpm --filter @flarex/system-test test:c07:postgres` and
+  `pnpm --filter @flarex/persistence-postgres test:c07:postgres` are the
+  matching fail-closed real-Postgres gates. The former owns the assembled
+  proof; the latter retains genuine `40001`/`40P01`, concurrency,
+  lost-response uncertainty, rollback, fencing, and cold recovery. Each keeps
+  an explicit authenticated-URL prerequisite;
 - the real-Postgres run exposed generated default-schema qualification in seven
   foreign keys across migrations `0036` and `0037`. Removing only that
   qualification preserves the same tables and constraints while allowing the

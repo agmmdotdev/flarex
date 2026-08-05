@@ -826,6 +826,79 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@24.13.2)(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
 
+  packages/system-test:
+    dependencies:
+      '@flarex/analysis':
+        specifier: workspace:*
+        version: link:../analysis
+      '@flarex/executor':
+        specifier: workspace:*
+        version: link:../executor
+      '@flarex/executor-http':
+        specifier: workspace:*
+        version: link:../executor-http
+      '@flarex/function-runtime':
+        specifier: workspace:*
+        version: link:../function-runtime
+      '@flarex/persistence-postgres':
+        specifier: workspace:*
+        version: link:../persistence-postgres
+      '@flarex/source-analyzer-v2':
+        specifier: workspace:*
+        version: link:../../apps/analyzer
+      '@flarex/standard-application-analysis':
+        specifier: workspace:*
+        version: link:../standard-application-analysis
+      '@flarex/standard-application-definition':
+        specifier: workspace:*
+        version: link:../standard-application-definition
+      '@flarex/standard-application-invocation':
+        specifier: workspace:*
+        version: link:../standard-application-invocation
+      '@flarex/utils':
+        specifier: workspace:*
+        version: link:../utils
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260613.1)(@electric-sql/pglite@0.3.16)(@types/pg@8.20.0)(pg@8.22.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.90
+      flarex-backend:
+        specifier: workspace:*
+        version: link:../flarex-backend
+      flarex-protocol:
+        specifier: workspace:*
+        version: link:../flarex-protocol
+      miniflare:
+        specifier: 'catalog:'
+        version: 4.20260611.0
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 4.20260613.1
+      '@electric-sql/pglite':
+        specifier: ^0.3.14
+        version: 0.3.16
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.2
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
+      '@typescript/typescript6':
+        specifier: 'catalog:'
+        version: 6.0.2
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@24.13.2)(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.1)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/utils:
     devDependencies:
       typescript:

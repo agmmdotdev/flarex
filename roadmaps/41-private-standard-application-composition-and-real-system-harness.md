@@ -4,8 +4,9 @@
 
 **Status:** `SAC01-P`, `SAC01-A`, the `SAC01-B1` pure corpus foundation, and
 the first `FSV03` private real-system mutation proof are complete. The
-`SAC01-F1`, the bounded `SAC01-F2a`, and the private `SAC01-F2b` controlled
-setup and inspection implementation plus PGlite fast lanes are complete; their
+`SAC01-F1`, the bounded `SAC01-F2a`, the private `SAC01-F2b` controlled setup
+and inspection implementation, and `SAC01-G` package extraction plus PGlite
+fast lanes are complete; their
 named genuine-PostgreSQL acceptance lanes are implemented
 but remain open until they run with an authenticated database URL and zero
 skips. A pure
@@ -36,9 +37,27 @@ part of each receipt. The matching genuine-PostgreSQL tests are deliberately
 fail-closed when the required URL is absent. This is reusable one-application-
 per-environment composition, not a serializable workload language, concurrent
 multi-application environment, reference model, or simulator. Genuine-
-PostgreSQL acceptance, a dedicated harness package, broader
-invocation families, a serializable scenario language, and live production
-composition remain open.
+PostgreSQL acceptance, broader invocation families, a serializable scenario
+language, and live production composition remain open.
+
+`SAC01-G` moves the reusable composition, logical inspector, database-lane
+constructors, typed callback-based scenario contract, and independent cooking
+and English-learning simulations into private `@flarex/system-test` subpaths.
+The package is a development/test dependency leaf; a package-boundary test
+rejects every reverse workspace dependency, package-escaping relative import,
+and undeclared external dependency in its source/test closure. The package
+composes explicit internal subpaths from the analyzer, backend, executor,
+function-runtime, invocation, and persistence owners; persistence publishes no
+test files or test-runner adapter. The production owners and their runtime,
+OCC, commit, registration, readiness, and activation authority remain
+unchanged. The superseded persistence-local general harness, simulations, and
+cross-owner integration suites are transferred to this package in the same
+slice; their named commands move with them while persistence retains only its
+storage-owner regressions. The TypeScript-AST package guard covers static,
+side-effect, dynamic, import-equals, CommonJS require, and triple-slash module
+references. This typed scenario contract is not a
+serializable history DSL, model simulator, controlled scheduler, shrinker, or
+public `flarex-test` API.
 
 `SAC01-F2b` gives each run a setup-only mutation client before workload
 execution, then supplies immutable logical inspection receipts after setup and
@@ -808,11 +827,11 @@ the replacement analyzer and is now closed through the accepted FSV03 chain.
 | `SAC01-C` | Move the owned analyzer corpus lane through the implemented Standard analysis operation | Complete through SAP02 and the accepted FSV03 analyzer/registration chain; future corpus expansion must retain its test owner |
 | `SAC01-D` | Compose verified registration and schema/catalog publication/readiness for one private application revision | Complete through FSV03, FSV04, and FSV05 without adding test-owned authority |
 | `SAC01-E` | Execute and authoritatively read back one real point mutation | Complete through FSV06 and C07 with PGlite and genuine PostgreSQL evidence |
-| `SAC01-F1` | Compose one representative relation-free application with public mutation and query modules through one active revision | Implementation and PGlite fast lane complete in the persistence test owner; the named genuine-PostgreSQL lane is implemented and fail-closed but remains unaccepted until it runs with zero skips. The operation uses SAP04/SAP05 and the existing runtime/executor/commit/read owners, with exact mutation replay and deterministic query replay |
-| `SAC01-F2a` | Reuse one private relation-free lifecycle/invocation runner across distinct application definitions and workload operations | Complete in the persistence test owner for independent cooking and English-learning consumers in PGlite. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips. The runner accepts explicit Standard definition input and exposes only real point mutation/query operations; it is not a serializable workload DSL, model simulator, controlled setup/inspection API, public package, or multi-application shared environment |
-| `SAC01-F2b` | Add private controlled setup and logical authoritative inspection to the reusable runner | Complete in the persistence test owner with separate setup/workload scopes and PGlite ready/replay/cancellation/failure, post-workload freshness, and exact scope/deployment-predicate audit evidence. Setup delegates to SAP04/FSV06; inspection returns immutable scope-filtered logical evidence and no SQL, database handle, physical locator, document value, or mutation authority. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips |
+| `SAC01-F1` | Compose one representative relation-free application with public mutation and query modules through one active revision | Implementation and PGlite fast lane complete and retained by private `@flarex/system-test`; the named genuine-PostgreSQL lane is implemented and fail-closed but remains unaccepted until it runs with zero skips. The operation uses SAP04/SAP05 and the existing runtime/executor/commit/read owners, with exact mutation replay and deterministic query replay |
+| `SAC01-F2a` | Reuse one private relation-free lifecycle/invocation runner across distinct application definitions and workload operations | Complete for independent cooking and English-learning consumers in `@flarex/system-test` with PGlite. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips. The runner accepts a typed callback-based scenario over explicit Standard definition input and real point mutation/query operations; it is not a serializable workload DSL, model simulator, public package, or multi-application shared environment |
+| `SAC01-F2b` | Add private controlled setup and logical authoritative inspection to the reusable runner | Complete in `@flarex/system-test` with separate setup/workload scopes and PGlite ready/replay/cancellation/failure, post-workload freshness, and exact scope/deployment-predicate audit evidence. Setup delegates to SAP04/FSV06; inspection returns immutable scope-filtered logical evidence and no SQL, database handle, physical locator, document value, or mutation authority. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips |
 | `SAC01-F2+` | Add internal calls, actions, workflow mutations, faults, and scheduled invocations to representative workloads one capability at a time | Each capability must already have its own runtime/host/claim contract; scheduling and durable-task semantics remain separately gated |
-| `SAC01-G` | Extract a dedicated private corpus or system-harness package | At least two concrete consumers, an acyclic graph, explicit lifecycle owner, private exports, and same-slice deletion of test-local duplication |
+| `SAC01-G` | Extract a dedicated private corpus or system-harness package | Complete as private `@flarex/system-test`: cooking and English-learning are separate consumers; the package owns setup/workload scopes and real-system composition; intentional versioned subpaths plus graph guards enforce the dependency leaf, reject source-tree escapes, and require declared owner dependencies; persistence publishes no test-support adapter; and the persistence-local general harness duplication was deleted in the same slice |
 
 ### Parallel-Work Safety And Stop Conditions
 

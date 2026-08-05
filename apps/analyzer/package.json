@@ -2,6 +2,11 @@
   "name": "@flarex/source-analyzer-v2",
   "private": true,
   "type": "module",
+  "exports": {
+    "./internal/declarative-v2-analyzer-port-v1": "./src/DeclarativeV2AnalyzerPort.ts",
+    "./internal/declarative-v2-analyzer-restart-plan-v1": "./src/PrivateDeclarativeV2AnalyzerRestartPlan.ts",
+    "./internal/private-application-revision-registration-evidence-v1": "./src/PrivateApplicationRevisionRegistrationEvidence.ts"
+  },
   "scripts": {
     "build": "pnpm typecheck && pnpm check:identity",
     "check:bundle": "tsx scripts/buildIdentity.ts check",

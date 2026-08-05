@@ -347,6 +347,17 @@ Named Flarex differences are:
   matching PostgreSQL cases are implemented and fail closed without a URL.
   This exposes neither raw database authority nor document values and remains
   an integration harness capability rather than a model simulator.
+- `SAC01-G` private `@flarex/system-test` extraction. The package owns the
+  real-system environment, typed callback-based scenario contract, logical
+  inspection, database lanes, and separate cooking and English-learning
+  simulation folders. Its PGlite/Workerd lane reuses the existing
+  FlarexDB/OCC/commit owners, and package-boundary tests reject reverse
+  dependencies, source-tree escapes, and undeclared package edges across every
+  TypeScript module-reference form. The historical FSV/SAP/PQV cross-owner
+  integration suites move with their composition harnesses; persistence keeps
+  its narrow storage regressions and publishes no test adapter. It remains
+  integration replay rather than a model simulator,
+  controlled scheduler, shrinker, generated history corpus, or public Test SDK.
 - Effect runtime-boundary static enforcement and its own regression tests.
 
 ## Known Gaps And Limitations
@@ -371,9 +382,10 @@ Named Flarex differences are:
   SSR/Next.js lane, or reconnect/network-loss client suite.
 - There is no deterministic simulator, reference model, controlled scheduler,
   shrinking, or generated history corpus. `SAC01-F1` through `SAC01-F2b` now
-  provide two independent real-path PGlite replay workloads through a reusable
-  composition operation with controlled setup and logical inspection, but
-  workload policy remains code-owned and does not close those simulation gaps.
+  provide two independent real-path PGlite replay workloads through private
+  `@flarex/system-test` composition and a typed scenario contract with
+  controlled setup and logical inspection, but workload policy remains
+  code-owned and does not close those simulation gaps.
 - Current fault coverage is hand-authored. It does not systematically explore
   crashes between commit/outbox/notify, service-binding loss, delayed/duplicate
   delivery, artifact eviction, DO restart, or recovery catch-up.
