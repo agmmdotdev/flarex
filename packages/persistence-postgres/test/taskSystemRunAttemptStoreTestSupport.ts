@@ -1,9 +1,7 @@
 import {
   encodePersistedTaskRunAttemptAggregateJsonV1,
   encodePersistedTaskRequestedEffectJsonV1,
-  decideStartAttemptV1,
   type PersistedTaskRequestedEffectV1,
-  type TaskAttemptGrantCandidateV1,
   decodeTaskDefinitionRevisionIdV1,
   projectTaskRunAttemptPersistenceV1,
   type TaskCancellationGenerationV1,
@@ -12,11 +10,13 @@ import {
   type TaskDurationMsV1,
   type TaskMaximumAttemptsV1,
   type TaskRetryFactorV1,
-  type TaskRetryJitterV1,
   type TaskRunAttemptAggregateV1,
   type TaskRunIdV1,
   type TaskRunVersionV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
+import type {
+  CompatibilityLifecycleCommitV1,
+} from "../../durable-task/test/compatibility-harness.js";
 import { Brand, Result } from "effect";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
@@ -56,7 +56,6 @@ const computeProfile = Brand.nominal<TaskComputeProfileRefV1>();
 const maximumAttempts = Brand.nominal<TaskMaximumAttemptsV1>();
 const retryFactor = Brand.nominal<TaskRetryFactorV1>();
 const runId = Brand.nominal<TaskRunIdV1>();
-const retryJitter = Brand.nominal<TaskRetryJitterV1>();
 const taskDefinitionRevisionId = Result.getOrThrow(
   decodeTaskDefinitionRevisionIdV1(TASK_DEFINITION_ID),
 );
@@ -274,63 +273,59 @@ export async function seedAdditionalTaskSystemRunV1(
 export async function seedCompatibilityLifecycleLedgerV1(
   persistence: Pick<FlarexSqlClient, "query">,
   aggregate: TaskRunAttemptAggregateV1,
+  history: readonly CompatibilityLifecycleCommitV1[],
 ): Promise<void> {
-  const attemptCount = aggregate.attemptHistory.kind === "none"
-    ? 0
-    : Number(aggregate.attemptHistory.lastAttemptNumber);
-  if (attemptCount > 1) {
-    throw new Error(
-      "multi-attempt compatibility history requires transition-derived setup",
-    );
-  }
-  if (
-    (aggregate.phase === "attempt_granted" || aggregate.phase === "executing")
-    && (
-      aggregate.currentAttempt.grantBasisRunVersion !== 1n
-      || aggregate.currentAttempt.computeProfile
-        !== aggregate.boundPolicy.initialComputeProfile
-    )
-  ) {
-    throw new Error(
-      "active compatibility history is not reconstructable from initial ready",
-    );
-  }
-
-  const effects = new Map<bigint, PersistedTaskRequestedEffectV1>();
-  if (attemptCount === 1) {
-    const start = reconstructFirstAttemptStart(aggregate);
-    const attempt = start.next.phase === "attempt_granted"
-      ? start.next.currentAttempt
-      : null;
-    if (attempt === null) {
-      throw new Error("first-attempt reconstruction did not grant an attempt");
+  const finalTransition = history.at(-1);
+  if (finalTransition === undefined) {
+    if (
+      aggregate.attemptHistory.kind !== "none"
+      || aggregate.requestedEffectCursor.kind !== "none"
+    ) {
+      throw new Error("compatibility history omitted persisted transitions");
     }
-    await persistence.query(`
-      insert into fx_system_durable_task_attempt_identity_v1 (
-        scope_id, attempt_id, run_id, attempt_number, execution_fence,
-        accepted_run_version
-      ) values (
-        '${TASK_SCOPE_ID}', '${attempt.attemptId}', '${aggregate.runId}',
-        ${attempt.attemptNumber}, ${attempt.executionFence}, ${start.next.runVersion}
-      )
-    `);
-    for (const effect of start.requestedEffects) effects.set(effect.sequence, effect);
+  } else {
+    const encodedFinal = Result.getOrThrow(
+      encodePersistedTaskRunAttemptAggregateJsonV1(finalTransition.next),
+    );
+    const encodedAggregate = Result.getOrThrow(
+      encodePersistedTaskRunAttemptAggregateJsonV1(aggregate),
+    );
+    if (JSON.stringify(encodedFinal) !== JSON.stringify(encodedAggregate)) {
+      throw new Error("compatibility history does not produce its aggregate");
+    }
   }
-
-  const acceptances = aggregate.lastLifecycleAcceptance === null
-    ? aggregate.completionReplays.map(replay => replay.accepted)
-    : [
-        aggregate.lastLifecycleAcceptance.accepted,
-        ...aggregate.completionReplays.map(replay => replay.accepted),
-      ];
-  for (const acceptance of acceptances) {
-    for (const effect of acceptance.requestedEffects) {
-      const existing = effects.get(effect.sequence);
-      if (existing !== undefined && !persistedEffectsEqual(existing, effect)) {
-        throw new Error("retained compatibility effect conflicts with history");
+  const effects = new Map<bigint, PersistedTaskRequestedEffectV1>();
+  let startCount = 0;
+  for (const transition of history) {
+    if (transition.operation === "start_attempt") {
+      if (transition.next.phase !== "attempt_granted") {
+        throw new Error("start transition did not retain its granted attempt");
+      }
+      startCount += 1;
+      const attempt = transition.next.currentAttempt;
+      await persistence.query(`
+        insert into fx_system_durable_task_attempt_identity_v1 (
+          scope_id, attempt_id, run_id, attempt_number, execution_fence,
+          accepted_run_version
+        ) values (
+          '${TASK_SCOPE_ID}', '${attempt.attemptId}', '${aggregate.runId}',
+          ${attempt.attemptNumber}, ${attempt.executionFence},
+          ${transition.next.runVersion}
+        )
+      `);
+    }
+    for (const effect of transition.requestedEffects) {
+      if (effects.has(effect.sequence)) {
+        throw new Error("compatibility history repeated an effect sequence");
       }
       effects.set(effect.sequence, effect);
     }
+  }
+  const attemptCount = aggregate.attemptHistory.kind === "none"
+    ? 0
+    : Number(aggregate.attemptHistory.lastAttemptNumber);
+  if (startCount !== attemptCount) {
+    throw new Error("compatibility history does not match its attempt counter");
   }
 
   const lastSequence = aggregate.requestedEffectCursor.kind === "none"
@@ -422,85 +417,6 @@ export async function resetCompatibilityTaskRunV1(
   } finally {
     await persistence.query("set session_replication_role = origin");
   }
-}
-
-function reconstructFirstAttemptStart(
-  aggregate: TaskRunAttemptAggregateV1,
-) {
-  const attempt = singleAttemptRef(aggregate);
-  const grantedAtMs = aggregate.phase === "attempt_granted"
-    || aggregate.phase === "executing"
-    ? aggregate.currentAttempt.grantedAtMs
-    : aggregate.createdAtMs;
-  const predecessor: TaskRunAttemptAggregateV1 = {
-    version: "flarex.task-run-attempt-aggregate.v1",
-    runId: aggregate.runId,
-    taskDefinitionRevisionId: aggregate.taskDefinitionRevisionId,
-    createdAtMs: aggregate.createdAtMs,
-    runVersion: runVersion(1n),
-    boundPolicy: aggregate.boundPolicy,
-    attemptHistory: { kind: "none" },
-    leaseHistory: { kind: "none" },
-    lastLifecycleAcceptance: null,
-    completionReplays: Object.freeze([]),
-    requestedEffectCursor: { kind: "none" },
-    phase: "ready",
-    ready: { kind: "initial", eligibleAtMs: grantedAtMs },
-    cancellation: {
-      kind: "not_requested",
-      generation: cancellationGeneration(0n),
-    },
-  };
-  const decision = Result.getOrThrow(decideStartAttemptV1({
-    type: "start_attempt",
-    runId: aggregate.runId,
-    expectedRunVersion: runVersion(1n),
-    retryJitter: retryJitter(0.25),
-  }, {
-    databaseNowMs: grantedAtMs,
-    current: predecessor,
-    attemptGrantCandidate: attempt,
-  }));
-  if (decision.kind !== "commit") {
-    throw new Error("first-attempt reconstruction did not commit");
-  }
-  return decision;
-}
-
-function singleAttemptRef(
-  aggregate: TaskRunAttemptAggregateV1,
-): TaskAttemptGrantCandidateV1 {
-  switch (aggregate.phase) {
-    case "attempt_granted":
-    case "executing":
-      return aggregate.currentAttempt;
-    case "ready":
-      if (aggregate.ready.kind === "immediate_retry") {
-        return aggregate.ready.acceptedRetry.previousAttempt;
-      }
-      break;
-    case "retry_waiting":
-      return aggregate.retry.previousAttempt;
-    case "terminal":
-      if (aggregate.terminal.attempt !== null) return aggregate.terminal.attempt;
-      break;
-  }
-  const replayAttempt = aggregate.completionReplays[0]?.attempt;
-  if (replayAttempt !== undefined) return replayAttempt;
-  throw new Error("single-attempt aggregate does not retain its attempt reference");
-}
-
-function persistedEffectsEqual(
-  left: PersistedTaskRequestedEffectV1,
-  right: PersistedTaskRequestedEffectV1,
-): boolean {
-  const encodedLeft = Result.getOrThrow(
-    encodePersistedTaskRequestedEffectJsonV1(left),
-  );
-  const encodedRight = Result.getOrThrow(
-    encodePersistedTaskRequestedEffectJsonV1(right),
-  );
-  return JSON.stringify(encodedLeft) === JSON.stringify(encodedRight);
 }
 
 function effectNotBeforeMs(effect: PersistedTaskRequestedEffectV1): string {

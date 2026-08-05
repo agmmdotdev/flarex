@@ -12,9 +12,9 @@ implemented. DTE04-B now has a scope-bound lifecycle adapter, transaction/error
 mapping, connected PGlite lifecycle/rollback/corruption proofs, a partial
 canonical compatibility lane, and focused real-Postgres same-run serialization
 plus post-lock database-time proof. The pure oracle still covers all 65 vectors;
-30 transition-reconstructable histories now execute through the concrete
-adapter, two invalid commands remain at their decoder boundary, and 33 histories
-remain open until their setup is derived from the real transition path. Creation,
+52 transition-derived histories now execute through the concrete adapter, two
+invalid commands remain at their decoder boundary, and 11 histories remain open
+for canonical multi-attempt/counter correction or explicit corruption setup. Creation,
 discovery, effect delivery, host, queue, and activation changes remain
 unauthorized.
 
@@ -274,11 +274,11 @@ admitted:
   aggregate-to-effect/attempt-ledger correlation, allocation-free replay and
   current paths, connected PGlite lifecycle/error matrix, and focused
   real-Postgres lock/time/concurrency proof are implemented. The reusable
-  compatibility harness now drives 30 transition-reconstructable vectors
+  compatibility harness now drives 52 transition-derived vectors
   through the concrete PGlite adapter while retaining two invalid command
-  shapes at their pre-store decoder boundary. The remaining 33 vectors need
-  transition-derived persisted histories before the 65-vector gate and final
-  admission review can close;
+  shapes at their pre-store decoder boundary. The remaining 11 vectors need
+  canonical multi-attempt/counter correction or explicit corruption setup
+  before the 65-vector gate and final admission review can close;
 - **DTE04-C — creation:** closed creation contract, initial aggregate builder,
   idempotency conflict semantics, and immutable binding checks;
 - **DTE04-D — discovery and effect ledger:** bounded stable discovery plus

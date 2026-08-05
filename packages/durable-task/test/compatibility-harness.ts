@@ -22,6 +22,7 @@ import type {
   TaskAttemptGrantCandidateV1,
   TaskDatabaseTimeMsV1,
   TaskExecutionFailureV1,
+  PersistedTaskRequestedEffectV1,
   RunAttemptCommandV1,
   TaskRunAttemptAggregateV1,
   TaskRunAttemptDecisionV1,
@@ -160,6 +161,18 @@ export interface PreparedCompatibilityVectorV1 {
   readonly command: CompatibilityLifecycleCommandV1 | null;
   readonly execution: ExecutedVectorV1;
   readonly boundary: "task_system_store" | "command_decoder";
+  readonly persistence: CompatibilityPersistenceStateV1 | null;
+}
+
+export interface CompatibilityLifecycleCommitV1 {
+  readonly operation: CompatibilityLifecycleCommandV1["type"];
+  readonly next: TaskRunAttemptAggregateV1;
+  readonly requestedEffects: readonly PersistedTaskRequestedEffectV1[];
+}
+
+export interface CompatibilityPersistenceStateV1 {
+  readonly current: TaskRunAttemptAggregateV1;
+  readonly history: readonly CompatibilityLifecycleCommitV1[];
 }
 
 const ATTEMPT_ID_2 = attemptId("attempt_00000000-0000-4000-8000-000000000002");
@@ -167,6 +180,11 @@ const ATTEMPT_ID_3 = attemptId("attempt_00000000-0000-4000-8000-000000000003");
 const FENCE_2 = fence(2n);
 const FENCE_3 = fence(3n);
 const MAX_COUNTER = 9_223_372_036_854_775_807n;
+
+interface MutableCompatibilityHistoryV1 {
+  readonly current: TaskRunAttemptAggregateV1;
+  readonly history: readonly CompatibilityLifecycleCommitV1[];
+}
 
 function observedAt(vector: CompatibilityVectorV1): TaskDatabaseTimeMsV1 {
   return databaseTime(vector.input.databaseNowMs);
@@ -270,9 +288,11 @@ function activeFor(vector: CompatibilityVectorV1, priorEffectCursor: bigint): Ta
       : databaseTime(now + 30_000);
   const targetLease = maximumAttempt
     ? leaseVersion(4n)
-    : vector.initial.phase === "attempt_granted"
-      ? LEASE_VERSION_1
-      : leaseVersion(2n);
+    : vector.id === "pending-cancellation-lease-expiry"
+      ? leaseVersion(3n)
+      : vector.initial.phase === "attempt_granted"
+        ? LEASE_VERSION_1
+        : leaseVersion(2n);
   const targetVersion = runVersion(BigInt(vector.initial.runVersion));
   const boundPolicy = policyFor(vector);
   const computeProfile = vector.id === "oom-target-not-different" ? COMPUTE_LARGE : COMPUTE_SMALL;
@@ -433,6 +453,267 @@ function ordinaryInitial(vector: CompatibilityVectorV1, priorEffectCursor: bigin
   }
 }
 
+function appendCompatibilityCommit<Outcome>(
+  state: MutableCompatibilityHistoryV1,
+  operation: CompatibilityLifecycleCommandV1["type"],
+  result: Result.Result<
+    TaskRunAttemptDecisionV1<Outcome>,
+    RunAttemptDecisionErrorV1
+  >,
+): MutableCompatibilityHistoryV1 {
+  const decision = committedDecision(result);
+  return appendCompatibilityDecision(state, operation, decision);
+}
+
+function appendCompatibilityDecision<Outcome>(
+  state: MutableCompatibilityHistoryV1,
+  operation: CompatibilityLifecycleCommandV1["type"],
+  decision: Extract<
+    TaskRunAttemptDecisionV1<Outcome>,
+    { readonly kind: "commit" }
+  >,
+): MutableCompatibilityHistoryV1 {
+  return {
+    current: decision.next,
+    history: Object.freeze([
+      ...state.history,
+      Object.freeze({
+        operation,
+        next: decision.next,
+        requestedEffects: decision.requestedEffects,
+      }),
+    ]),
+  };
+}
+
+function transitionReadyState(
+  vector: CompatibilityVectorV1,
+  eligibleAtMs: TaskDatabaseTimeMsV1,
+): MutableCompatibilityHistoryV1 {
+  const ready = readyAggregate();
+  if (ready.phase !== "ready") {
+    throw new Error("compatibility initial aggregate is not ready");
+  }
+  return {
+    current: {
+      ...ready,
+      createdAtMs: eligibleAtMs,
+      boundPolicy: policyFor(vector),
+      ready: { kind: "initial", eligibleAtMs },
+    },
+    history: Object.freeze([]),
+  };
+}
+
+function appendStartTransition(
+  state: MutableCompatibilityHistoryV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+): MutableCompatibilityHistoryV1 {
+  return appendCompatibilityCommit(
+    state,
+    "start_attempt",
+    decideStartAttemptV1({
+      type: "start_attempt",
+      runId: RUN_ID,
+      expectedRunVersion: state.current.runVersion,
+      retryJitter: JITTER,
+    }, {
+      databaseNowMs,
+      current: state.current,
+      attemptGrantCandidate: candidateFor(state.current),
+    }),
+  );
+}
+
+function appendHeartbeatTransition(
+  state: MutableCompatibilityHistoryV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  sequence: number,
+): MutableCompatibilityHistoryV1 {
+  if (
+    state.current.phase !== "attempt_granted"
+    && state.current.phase !== "executing"
+  ) {
+    throw new Error("compatibility heartbeat history is not active");
+  }
+  return appendCompatibilityCommit(
+    state,
+    "heartbeat_attempt",
+    decideHeartbeatAttemptV1({
+      type: "heartbeat_attempt",
+      runId: RUN_ID,
+      attemptId: state.current.currentAttempt.attemptId,
+      executionFence: state.current.currentAttempt.executionFence,
+      heartbeatSequence: heartbeatSequence(sequence),
+    }, {
+      databaseNowMs,
+      current: state.current,
+      attemptGrantCandidate: null,
+    }),
+  );
+}
+
+function appendCompletionTransition(
+  state: MutableCompatibilityHistoryV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  completion: TaskAttemptCompletionV1,
+): MutableCompatibilityHistoryV1 {
+  if (
+    state.current.phase !== "attempt_granted"
+    && state.current.phase !== "executing"
+  ) {
+    throw new Error("compatibility completion history is not active");
+  }
+  return appendCompatibilityCommit(
+    state,
+    "complete_attempt",
+    decideCompleteAttemptV1({
+      type: "complete_attempt",
+      runId: RUN_ID,
+      attemptId: state.current.currentAttempt.attemptId,
+      executionFence: state.current.currentAttempt.executionFence,
+      completion,
+    }, {
+      databaseNowMs,
+      current: state.current,
+      attemptGrantCandidate: null,
+    }),
+  );
+}
+
+function appendCancellationTransition(
+  state: MutableCompatibilityHistoryV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+): MutableCompatibilityHistoryV1 {
+  return appendCompatibilityCommit(
+    state,
+    "request_cancellation",
+    decideRequestCancellationV1({
+      type: "request_cancellation",
+      runId: RUN_ID,
+      reason: { code: "requested", message: null },
+    }, {
+      databaseNowMs,
+      current: state.current,
+      attemptGrantCandidate: null,
+    }),
+  );
+}
+
+function activeHistoryFinalHeartbeatAt(
+  vector: CompatibilityVectorV1,
+): TaskDatabaseTimeMsV1 {
+  const now = observedAt(vector);
+  if (vector.id.includes("at-lease-deadline")) {
+    return databaseTime(now - 30_000);
+  }
+  if (
+    vector.command.operation !== "handleLeaseExpiry"
+    || vector.id.includes("inactive")
+    || vector.id.includes("stale-")
+  ) {
+    return databaseTime(now - 1_000);
+  }
+  if (vector.id.includes("before-deadline")) return databaseTime(now);
+  return databaseTime(now - 30_001);
+}
+
+function transitionDerivedOrdinaryState(
+  vector: CompatibilityVectorV1,
+  priorEffectCursor: bigint,
+): CompatibilityPersistenceStateV1 | null {
+  if (vector.id === "effect-sequence-overflow-rejected") return null;
+  const targetRunVersion = BigInt(vector.initial.runVersion);
+  const now = observedAt(vector);
+  let state: MutableCompatibilityHistoryV1;
+
+  if (vector.initial.phase === "ready") {
+    state = transitionReadyState(vector, databaseTime(now - 1));
+  } else if (vector.initial.phase === "attempt_granted") {
+    const startAt = databaseTime(
+      vector.command.operation === "handleLeaseExpiry"
+        && !vector.id.includes("before-deadline")
+        ? now - 30_001
+        : now - 2_000,
+    );
+    state = appendStartTransition(transitionReadyState(vector, startAt), startAt);
+    if (targetRunVersion === 5n) {
+      state = appendHeartbeatTransition(state, databaseTime(now - 1_500), 1);
+      state = appendCompletionTransition(state, databaseTime(now - 1_000), {
+        kind: "failed",
+        failure: {
+          kind: "task_failure",
+          code: "handler_failed",
+          message: null,
+        },
+        retry: { kind: "use_bound_policy" },
+        executionDurationMs: null,
+      });
+      if (
+        state.current.phase !== "ready"
+        || state.current.ready.kind !== "immediate_retry"
+      ) return null;
+      state = appendStartTransition(state, state.current.ready.eligibleAtMs);
+    }
+  } else if (vector.initial.phase === "executing") {
+    const requested = vector.initial.cancellation === "requested";
+    const heartbeatCount = Number(targetRunVersion - (requested ? 3n : 2n));
+    if (heartbeatCount < 1 || heartbeatCount > 8) return null;
+    const finalHeartbeatAt = activeHistoryFinalHeartbeatAt(vector);
+    const startAt = databaseTime(finalHeartbeatAt - heartbeatCount - 1);
+    state = appendStartTransition(transitionReadyState(vector, startAt), startAt);
+    for (let index = 1; index <= heartbeatCount; index += 1) {
+      state = appendHeartbeatTransition(
+        state,
+        databaseTime(finalHeartbeatAt - heartbeatCount + index),
+        vector.id === "heartbeat-sequence-not-advanced" ? index + 1 : index,
+      );
+    }
+    if (requested) state = appendCancellationTransition(state, databaseTime(now - 1));
+  } else if (vector.initial.phase === "retry_waiting") {
+    const completeAt = databaseTime(
+      now - (vector.id === "start-before-eligibility" ? 5_999 : 6_000),
+    );
+    const heartbeatAt = databaseTime(completeAt - 1);
+    const startAt = databaseTime(heartbeatAt - 1);
+    state = appendStartTransition(transitionReadyState(vector, startAt), startAt);
+    state = appendHeartbeatTransition(state, heartbeatAt, 1);
+    state = appendCompletionTransition(state, completeAt, {
+      kind: "failed",
+      failure: { kind: "task_failure", code: "handler_failed", message: null },
+      retry: { kind: "override_delay", delayMs: duration(6_000) },
+      executionDurationMs: null,
+    });
+  } else if (vector.initial.phase === "terminal") {
+    const completeAt = databaseTime(now - 1);
+    const heartbeatAt = databaseTime(completeAt - 1);
+    const startAt = databaseTime(heartbeatAt - 1);
+    state = appendStartTransition(transitionReadyState(vector, startAt), startAt);
+    state = appendHeartbeatTransition(state, heartbeatAt, 1);
+    state = appendCompletionTransition(state, completeAt, {
+      kind: "succeeded",
+      result: null,
+      executionDurationMs: null,
+    });
+  } else {
+    return null;
+  }
+
+  const cursor = state.current.requestedEffectCursor.kind === "none"
+    ? 0n
+    : state.current.requestedEffectCursor.lastSequence;
+  if (
+    state.current.phase !== vector.initial.phase
+    || state.current.runVersion !== targetRunVersion
+    || cursor !== priorEffectCursor
+    || state.current.cancellation.kind !== vector.initial.cancellation
+  ) return null;
+  return Object.freeze({
+    current: state.current,
+    history: Object.freeze([...state.history]),
+  });
+}
+
 function candidateFor(current: TaskRunAttemptAggregateV1): TaskAttemptGrantCandidateV1 {
   const next = current.attemptHistory.kind === "none"
     ? 1
@@ -565,6 +846,8 @@ export function compatibilityCommandV1(
         executionFence: commandFence(vector),
         expectedLeaseVersion: vector.command.identity.includes("lease-4")
           ? leaseVersion(4n)
+          : vector.command.identity.includes("lease-3")
+            ? leaseVersion(3n)
           : vector.command.identity.includes("lease-2")
             ? leaseVersion(2n)
             : LEASE_VERSION_1,
@@ -709,54 +992,55 @@ function isMutableRecord(value: unknown): value is Record<string, unknown> {
 function normalizeDecision<Outcome extends { readonly kind: string; readonly reason?: string }>(
   result: Result.Result<TaskRunAttemptDecisionV1<Outcome>, RunAttemptDecisionErrorV1>,
 ): ExecutedVectorV1 {
-  if (Result.isFailure(result)) {
-    return { actual: errorActual(result.failure._tag, safeDecisionError(result.failure)), next: null };
-  }
-  const decision = result.success;
-  if (decision.kind === "commit") {
-    return {
-      actual: receiptActual({
-        disposition: "accepted",
-        observedAtMs: decision.evidence[0]?.recordedAtMs ?? null,
-        acceptedRunVersion: decision.next.runVersion,
-        outcome: decision.outcome,
-        evidence: decision.evidence,
-        effects: decision.requestedEffects,
-      }),
-      next: decision.next,
-    };
-  }
-  if (decision.disposition === "idempotent") {
-    return {
-      actual: receiptActual({
-        disposition: "idempotent",
-        observedAtMs: decision.replay.observedAtMs,
-        acceptedRunVersion: decision.replay.acceptedRunVersion,
-        outcome: decision.replay.outcome,
-        evidence: decision.replay.evidence,
-        effects: decision.replay.requestedEffects,
-      }),
+  return Result.match(result, {
+    onFailure: error => ({
+      actual: errorActual(error._tag, safeDecisionError(error)),
       next: null,
-    };
-  }
-  return {
-    actual: receiptActual({
-      disposition: "current",
-      observedAtMs: null,
-      acceptedRunVersion: null,
-      outcome: decision.outcome,
-      evidence: [],
-      effects: [],
     }),
-    next: null,
-  };
+    onSuccess: decision => {
+      if (decision.kind === "commit") {
+        return {
+          actual: receiptActual({
+            disposition: "accepted",
+            observedAtMs: decision.evidence[0]?.recordedAtMs ?? null,
+            acceptedRunVersion: decision.next.runVersion,
+            outcome: decision.outcome,
+            evidence: decision.evidence,
+            effects: decision.requestedEffects,
+          }),
+          next: decision.next,
+        };
+      }
+      if (decision.disposition === "idempotent") {
+        return {
+          actual: receiptActual({
+            disposition: "idempotent",
+            observedAtMs: decision.replay.observedAtMs,
+            acceptedRunVersion: decision.replay.acceptedRunVersion,
+            outcome: decision.replay.outcome,
+            evidence: decision.replay.evidence,
+            effects: decision.replay.requestedEffects,
+          }),
+          next: null,
+        };
+      }
+      return {
+        actual: receiptActual({
+          disposition: "current",
+          observedAtMs: null,
+          acceptedRunVersion: null,
+          outcome: decision.outcome,
+          evidence: [],
+          effects: [],
+        }),
+        next: null,
+      };
+    },
+  });
 }
 
-function replayState(
-  vector: CompatibilityVectorV1,
-  committed: ReadonlyMap<string, TaskRunAttemptAggregateV1>,
-): TaskRunAttemptAggregateV1 | null {
-  const source = vector.id === "duplicate-start-replays-grant" || vector.id === "delivery-resume-returns-stored-receipt"
+function replaySourceId(vector: CompatibilityVectorV1): string | null {
+  return vector.id === "duplicate-start-replays-grant" || vector.id === "delivery-resume-returns-stored-receipt"
     ? "start-initial-due"
     : vector.id === "duplicate-heartbeat-replays-renewal"
       ? "first-heartbeat-enters-executing"
@@ -769,8 +1053,15 @@ function replayState(
             : vector.id === "failure-message-only-redelivery"
               ? "never-retry-failure-terminalizes"
               : vector.id === "conflicting-completion"
-                ? "successful-first-attempt"
-                : null;
+              ? "successful-first-attempt"
+              : null;
+}
+
+function replayState(
+  vector: CompatibilityVectorV1,
+  committed: ReadonlyMap<string, TaskRunAttemptAggregateV1>,
+): TaskRunAttemptAggregateV1 | null {
+  const source = replaySourceId(vector);
   if (source === null) return null;
   const state = committed.get(source);
   if (state === undefined) throw new Error(`compatibility source ${source} was not executed before ${vector.id}`);
@@ -804,6 +1095,29 @@ function replayState(
   }));
   if (completed.kind !== "commit") throw new Error("later-attempt replay completion did not commit");
   return completed.next;
+}
+
+function replayPersistenceState(
+  vector: CompatibilityVectorV1,
+  committed: ReadonlyMap<string, CompatibilityPersistenceStateV1>,
+): CompatibilityPersistenceStateV1 | null {
+  const source = replaySourceId(vector);
+  if (source === null) return null;
+  const state = committed.get(source);
+  if (state === undefined) return null;
+  if (vector.id !== "completion-replay-after-later-attempt") return state;
+  if (state.current.phase !== "retry_waiting") return null;
+  let later: MutableCompatibilityHistoryV1 = state;
+  later = appendStartTransition(later, state.current.retry.notBeforeMs);
+  later = appendCompletionTransition(later, observedAt(vector), {
+    kind: "succeeded",
+    result: null,
+    executionDurationMs: null,
+  });
+  return Object.freeze({
+    current: later.current,
+    history: Object.freeze([...later.history]),
+  });
 }
 
 function executeSchemaOrStoreError(vector: CompatibilityVectorV1): ExecutedVectorV1 | null {
@@ -911,12 +1225,106 @@ function executeDecision(
   }
 }
 
+function executeAndRecordCompatibilityDecision<
+  Outcome extends { readonly kind: string; readonly reason?: string },
+>(
+  state: CompatibilityPersistenceStateV1,
+  operation: CompatibilityLifecycleCommandV1["type"],
+  result: Result.Result<
+    TaskRunAttemptDecisionV1<Outcome>,
+    RunAttemptDecisionErrorV1
+  >,
+): Readonly<{
+  readonly execution: ExecutedVectorV1;
+  readonly committed: CompatibilityPersistenceStateV1 | null;
+}> {
+  const execution = normalizeDecision(result);
+  const committed = Result.match(result, {
+    onFailure: () => null,
+    onSuccess: decision => decision.kind !== "commit"
+      ? null
+      : appendCompatibilityDecision(state, operation, decision),
+  });
+  return Object.freeze({ execution, committed });
+}
+
+function executePersistenceDecision(
+  vector: CompatibilityVectorV1,
+  state: CompatibilityPersistenceStateV1,
+  command: CompatibilityLifecycleCommandV1,
+) {
+  const now = observedAt(vector);
+  switch (command.type) {
+    case "start_attempt":
+      return executeAndRecordCompatibilityDecision(
+        state,
+        command.type,
+        decideStartAttemptV1(command, {
+          databaseNowMs: now,
+          current: state.current,
+          attemptGrantCandidate: candidateFor(state.current),
+        }),
+      );
+    case "heartbeat_attempt":
+      return executeAndRecordCompatibilityDecision(
+        state,
+        command.type,
+        decideHeartbeatAttemptV1(command, {
+          databaseNowMs: now,
+          current: state.current,
+          attemptGrantCandidate: null,
+        }),
+      );
+    case "complete_attempt":
+      return executeAndRecordCompatibilityDecision(
+        state,
+        command.type,
+        decideCompleteAttemptV1(command, {
+          databaseNowMs: now,
+          current: state.current,
+          attemptGrantCandidate: null,
+        }),
+      );
+    case "request_cancellation":
+      return executeAndRecordCompatibilityDecision(
+        state,
+        command.type,
+        decideRequestCancellationV1(command, {
+          databaseNowMs: now,
+          current: state.current,
+          attemptGrantCandidate: null,
+        }),
+      );
+    case "handle_lease_expiry":
+      return executeAndRecordCompatibilityDecision(
+        state,
+        command.type,
+        decideHandleLeaseExpiryV1(command, {
+          databaseNowMs: now,
+          current: state.current,
+          attemptGrantCandidate: null,
+        }),
+      );
+  }
+}
+
+function compatibilityActualEqual(
+  left: CompatibilityActualV1,
+  right: CompatibilityActualV1,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export function prepareCompatibilityVectorsV1(
   vectors: readonly CompatibilityVectorV1[],
   effectCursorCases: readonly CompatibilityEffectCursorCaseV1[],
 ): ReadonlyMap<string, PreparedCompatibilityVectorV1> {
   const results = new Map<string, PreparedCompatibilityVectorV1>();
   const committed = new Map<string, TaskRunAttemptAggregateV1>();
+  const committedPersistence = new Map<
+    string,
+    CompatibilityPersistenceStateV1
+  >();
   const priorEffectCursors = new Map(effectCursorCases.map((entry) => [entry.scenarioId, entry.priorEffectCursor]));
   if (priorEffectCursors.size !== effectCursorCases.length) throw new Error("duplicate compatibility effect cursor case");
   for (const vector of vectors) {
@@ -933,6 +1341,37 @@ export function prepareCompatibilityVectorsV1(
     if (boundary === null && command === null) {
       throw new Error(`compatibility vector ${vector.id} has no executable boundary`);
     }
+    const persistenceCandidate = command === null
+      ? null
+      : replayPersistenceState(vector, committedPersistence)
+        ?? transitionDerivedOrdinaryState(
+          vector,
+          BigInt(
+            priorEffectCursors.get(vector.id)
+              ?? defaultPriorEffectCursor(vector),
+          ),
+        );
+    let persistence = persistenceCandidate;
+    let committedPersistenceState: CompatibilityPersistenceStateV1 | null = null;
+    if (
+      persistenceCandidate !== null
+      && boundary === null
+      && command !== null
+    ) {
+      const persistenceDecision = executePersistenceDecision(
+        vector,
+        persistenceCandidate,
+        command,
+      );
+      if (!compatibilityActualEqual(
+        persistenceDecision.execution.actual,
+        normalizeExpectedV1(vector.expected),
+      )) {
+        persistence = null;
+      } else {
+        committedPersistenceState = persistenceDecision.committed;
+      }
+    }
     let executed: ExecutedVectorV1;
     if (boundary !== null) {
       executed = boundary;
@@ -947,8 +1386,12 @@ export function prepareCompatibilityVectorsV1(
       command,
       execution: executed,
       boundary: command === null ? "command_decoder" : "task_system_store",
+      persistence,
     }));
     if (executed.next !== null) committed.set(vector.id, executed.next);
+    if (committedPersistenceState !== null) {
+      committedPersistence.set(vector.id, committedPersistenceState);
+    }
   }
   return results;
 }

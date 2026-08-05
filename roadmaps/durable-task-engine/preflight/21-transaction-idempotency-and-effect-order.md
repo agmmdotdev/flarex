@@ -4,9 +4,9 @@
 
 **Status:** Lifecycle transaction authority complete and implemented by the
 first DTE04-B adapter slice. The focused PGlite and real-Postgres lock/time
-proofs pass. A partial canonical lane now executes 30 transition-reconstructable
+proofs pass. A partial canonical lane now executes 52 transition-derived
 histories through the adapter and two invalid commands at the decoder boundary;
-33 histories and final DTE04-B review remain open. Creation is a separate
+11 histories and final DTE04-B review remain open. Creation is a separate
 DTE04-C checkpoint. This file does
 not authorize creation, discovery, delivery, host composition, or activation.
 
@@ -349,10 +349,11 @@ run lock. PGlite confirms connected lifecycle commits, exact no-change replay
 without identity allocation, collision retry, rollback, aggregate/effect/
 attempt-ledger corruption, non-disclosure, and stale-authority behavior. The
 canonical lane now reuses the DTE03-F preparation/oracle logic for all 65
-vectors, sends 30 transition-reconstructable histories through the concrete
+vectors, sends 52 transition-derived histories through the concrete
 PGlite adapter, and retains the two invalid command shapes at the command-decoder
-boundary. The other 33 histories require transition-derived setup rather than
-invented ledger rows. DTE04-B still requires the full persisted-history gate and
+boundary. The other 11 histories require canonical multi-attempt/counter
+correction or explicit corruption setup rather than invented ledger rows.
+DTE04-B still requires the full persisted-history gate and
 unchanged-diff reviewers before admission. The Standard Application task catalog,
 task-definition runtime binding, creation-authority receipt, storage-neutral
 input reference, and exact creation request/error contracts are complete;

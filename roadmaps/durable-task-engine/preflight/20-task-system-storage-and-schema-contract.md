@@ -441,8 +441,8 @@ These are not Postgres representation choices. They land through the private
 and Preflight 24. DTE04-A3 has implemented this preflight's five-table schema
 and migration checkpoint. DTE04-B now implements the scope-bound lifecycle
 adapter and a partial compatibility lane without widening this storage contract:
-30 transition-reconstructable histories execute through the adapter and two
-invalid commands stay at the decoder boundary, while 33 persisted histories
-remain open before final admission.
+52 transition-derived histories execute through the adapter and two invalid
+commands stay at the decoder boundary, while 11 histories remain open before
+final admission.
 Definition registration, run creation, discovery, effect delivery, and host
 activation remain closed until their own checkpoints.

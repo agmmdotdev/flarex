@@ -49,10 +49,34 @@ interface CompatibilityVectorSuiteV1 {
 
 const FOREIGN_SCOPE_ID = "scope_72000000-0000-4000-8000-000000000099";
 
+const DEFERRED_HISTORY_REASONS = Object.freeze({
+  "start-durable-retry-due": "non_transition_cursor",
+  "attempt-limit-terminal-failure": "multi_attempt_fixture",
+  "oom-target-not-different": "multi_attempt_fixture",
+  "lease-loss-attempt-limit-terminal": "multi_attempt_fixture",
+  "heartbeat-stale-attempt": "multi_attempt_fixture",
+  "heartbeat-stale-fence": "multi_attempt_fixture",
+  "completion-stale-attempt": "multi_attempt_fixture",
+  "completion-stale-fence": "multi_attempt_fixture",
+  "lease-wake-stale-attempt": "multi_attempt_fixture",
+  "lease-wake-stale-fence": "multi_attempt_fixture",
+  "effect-sequence-overflow-rejected": "explicit_corruption_setup",
+} satisfies Readonly<Record<string, CompatibilityHistoryDeferralReasonV1>>);
+
+type CompatibilityHistoryDeferralReasonV1 =
+  | "multi_attempt_fixture"
+  | "non_transition_cursor"
+  | "explicit_corruption_setup";
+
+const COMMAND_BOUNDARY_VECTOR_IDS = Object.freeze([
+  "invalid-command-is-redacted",
+  "waitpoint-completion-outside-v1",
+]);
+
 const suite = decodeCompatibilityVectorSuiteV1(suiteJson);
 
 describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
-  it("executes every transition-reconstructable vector through the adapter", async () => {
+  it("executes every transition-derived vector through the adapter", async () => {
     const raw = new PGlite();
     try {
       const persistence = await createPGlitePersistence({ db: raw });
@@ -63,38 +87,52 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
         suite.effectCursorCases,
       );
       let storeVectors = 0;
-      let commandBoundaryVectors = 0;
-      let deferredHistoryVectors = 0;
+      const commandBoundaryVectors: string[] = [];
+      const deferredHistoryVectors: Array<Readonly<{
+        readonly id: string;
+        readonly reason: CompatibilityHistoryDeferralReasonV1;
+      }>> = [];
 
       for (const vector of suite.vectors) {
         const entry = prepared.get(vector.id);
         if (entry === undefined) throw new Error(`missing prepared ${vector.id}`);
         if (entry.command === null) {
-          commandBoundaryVectors += 1;
+          commandBoundaryVectors.push(vector.id);
           expect(entry.execution.actual, vector.id).toEqual(
             normalizeExpectedV1(vector.expected),
           );
           continue;
         }
-        if (!hasTransitionReconstructableHistory(entry.current)) {
-          deferredHistoryVectors += 1;
+        if (entry.persistence === null) {
+          const reason = Object.entries(DEFERRED_HISTORY_REASONS)
+            .find(([id]) => id === vector.id)?.[1];
+          expect(reason, `unexpected deferred vector: ${vector.id}`).toBeDefined();
+          if (reason === undefined) {
+            throw new Error(`unexpected deferred vector: ${vector.id}`);
+          }
+          deferredHistoryVectors.push(Object.freeze({ id: vector.id, reason }));
           expect(entry.execution.actual, vector.id).toEqual(
             normalizeExpectedV1(vector.expected),
           );
           continue;
         }
         storeVectors += 1;
-        await resetCompatibilityTaskRunV1(persistence, entry.current);
+        const persisted = entry.persistence;
+        await resetCompatibilityTaskRunV1(persistence, persisted.current);
         if (
           vector.id !== "missing-run-is-unavailable"
           && vector.id !== "cross-scope-run-is-unavailable"
         ) {
-          await seedCompatibilityLifecycleLedgerV1(persistence, entry.current);
+          await seedCompatibilityLifecycleLedgerV1(
+            persistence,
+            persisted.current,
+            persisted.history,
+          );
         }
         await arrangeStoreBoundary(
           persistence,
           vector.id,
-          entry.current.runId,
+          persisted.current.runId,
           entry.command.runId,
         );
 
@@ -115,7 +153,7 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
           target,
         );
         const store = makeTaskSystemRunAttemptStoreV1(located, {
-          randomUuid: () => nextCompatibilityAttemptUuid(entry.current),
+          randomUuid: () => nextCompatibilityAttemptUuid(persisted.current),
         });
         try {
           const effect = runCompatibilityCommand(entry.command, store);
@@ -133,15 +171,20 @@ describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
           await restoreStoreBoundary(
             persistence,
             vector.id,
-            entry.current.runId,
+            persisted.current.runId,
             entry.command.runId,
           );
         }
       }
 
-      expect(storeVectors).toBe(30);
-      expect(commandBoundaryVectors).toBe(2);
-      expect(deferredHistoryVectors).toBe(33);
+      expect(storeVectors).toBe(52);
+      expect(commandBoundaryVectors).toEqual(COMMAND_BOUNDARY_VECTOR_IDS);
+      expect(deferredHistoryVectors).toEqual(
+        Object.entries(DEFERRED_HISTORY_REASONS).map(([id, reason]) => ({
+          id,
+          reason,
+        })),
+      );
     } finally {
       await raw.close();
     }
@@ -282,56 +325,6 @@ function nextCompatibilityAttemptUuid(
     ? 1
     : Number(aggregate.attemptHistory.lastAttemptNumber) + 1;
   return `00000000-0000-4000-8000-${String(ordinal).padStart(12, "0")}`;
-}
-
-function hasTransitionReconstructableHistory(
-  aggregate: TaskRunAttemptAggregateV1,
-): boolean {
-  const attemptCount = aggregate.attemptHistory.kind === "none"
-    ? 0
-    : Number(aggregate.attemptHistory.lastAttemptNumber);
-  if (attemptCount > 1 || !hasCompleteReconstructableEffectHistory(aggregate)) {
-    return false;
-  }
-  if (aggregate.phase === "attempt_granted" || aggregate.phase === "executing") {
-    return aggregate.currentAttempt.grantBasisRunVersion === 1n
-      && aggregate.currentAttempt.computeProfile
-        === aggregate.boundPolicy.initialComputeProfile;
-  }
-  return true;
-}
-
-function hasCompleteReconstructableEffectHistory(
-  aggregate: TaskRunAttemptAggregateV1,
-): boolean {
-  const sequences = new Set<bigint>();
-  if (aggregate.attemptHistory.kind !== "none") {
-    sequences.add(1n);
-    sequences.add(2n);
-    sequences.add(3n);
-    sequences.add(4n);
-  }
-  const acceptances = aggregate.lastLifecycleAcceptance === null
-    ? aggregate.completionReplays.map(replay => replay.accepted)
-    : [
-        aggregate.lastLifecycleAcceptance.accepted,
-        ...aggregate.completionReplays.map(replay => replay.accepted),
-      ];
-  for (const acceptance of acceptances) {
-    for (const effect of acceptance.requestedEffects) {
-      sequences.add(effect.sequence);
-    }
-  }
-  const lastSequence = aggregate.requestedEffectCursor.kind === "none"
-    ? 0n
-    : aggregate.requestedEffectCursor.lastSequence;
-  if (BigInt(sequences.size) !== lastSequence) return false;
-  const sortedSequences = [...sequences].sort((left, right) =>
-    left < right ? -1 : left > right ? 1 : 0
-  );
-  return sortedSequences.every(
-    (sequence, index) => sequence === BigInt(index) + 1n,
-  );
 }
 
 function decodeCompatibilityVectorSuiteV1(

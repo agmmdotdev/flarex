@@ -225,12 +225,15 @@ concrete adapter.
 
 DTE04-B currently includes the scope-bound adapter, connected PGlite lifecycle
 and error coverage, a partial canonical lane, and a real-Postgres
-lock/time/concurrency proof. The pure oracle covers all 65 vectors; 30
-transition-reconstructable histories execute through the concrete adapter and
-two invalid commands execute at their decoder boundary. The remaining 33
-persisted histories must be derived through real transitions before the full
-gate and final reviewers can close. This checkpoint is not yet a DTE04-B
-admission receipt.
+lock/time/concurrency proof. The pure oracle covers all 65 vectors; 52
+transition-derived histories execute through the concrete adapter and two
+invalid commands execute at their decoder boundary. The history seeder consumes
+only committed decision outputs and proves that the final transition equals the
+stored aggregate; it does not infer ledger rows from the aggregate. Four
+canonical active-state fixtures were corrected to reachable run/lease versions.
+The remaining 11 histories need multi-attempt/counter correction or explicit
+corruption setup before the full gate and final reviewers can close. This
+checkpoint is not yet a DTE04-B admission receipt.
 
 ### DTE04-C/D
 
