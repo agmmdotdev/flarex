@@ -1,7 +1,5 @@
-import { runQuery } from "flarex:platform";
-
-export async function assessment(_, args) {
-  const result = await runQuery(
+export async function assessment(ctx, args) {
+  const result = await ctx.runQuery(
     { _path: "recipeAssessment:assess" },
     args,
   );

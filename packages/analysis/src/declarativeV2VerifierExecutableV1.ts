@@ -5569,17 +5569,17 @@ export function createDeclarativeV2VerifierEngineV1(
       }
       return undefined;
     };
-    const contextAbiIdForRoot = function* (
+    const contextLoweringForRoot = function* (
       contextToken: number,
-    ): Generator<number, number | undefined, void> {
+    ): Generator<
+      number,
+      (typeof DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1)[number] |
+        undefined,
+      void
+    > {
       if (
         contextToken < 0 ||
-        contextToken + 5 >= tokenCount ||
         at(contextToken).kind !== "identifier" ||
-        at(contextToken + 2).kind !== "identifier" ||
-        !tokenMatches(contextToken + 1, ".") ||
-        !tokenMatches(contextToken + 3, ".") ||
-        !tokenMatches(contextToken + 5, "(") ||
         contextToken > 0 &&
           (
             tokenMatches(contextToken - 1, ".") ||
@@ -5587,26 +5587,49 @@ export function createDeclarativeV2VerifierEngineV1(
             tokenMatches(contextToken - 1, "[")
           )
       ) return undefined;
-      const receiverToken = contextToken + 2;
-      const methodToken = contextToken + 4;
       for (
         const lowering of DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1
       ) {
-        if (
-          (yield* compareTokenToAscii(receiverToken, lowering.receiver)) !== 0 ||
-          (yield* compareTokenToAscii(methodToken, lowering.member)) !== 0 ||
-          (yield* directCallArgumentCount(contextToken + 5)) !==
-            lowering.argumentCount
-        ) continue;
-        const abiId = DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1.findIndex(
-          operation => operation.name === lowering.operation,
-        );
-        if (abiId < 0) {
-          throw new Error("Context-member lowering lost its ABI operation.");
+        let cursor = contextToken + 1;
+        let pathMatches = true;
+        for (const member of lowering.memberPath) {
+          yield 1;
+          if (
+            cursor + 1 >= tokenCount ||
+            !tokenMatches(cursor, ".") ||
+            (yield* compareTokenToAscii(cursor + 1, member)) !== 0
+          ) {
+            pathMatches = false;
+            break;
+          }
+          cursor += 2;
         }
-        return abiId;
+        if (!pathMatches || !tokenMatches(cursor, "(")) continue;
+        const argumentCount = yield* directCallArgumentCount(cursor);
+        let arityMatches = false;
+        for (const admitted of lowering.argumentCounts) {
+          yield 1;
+          if (argumentCount === admitted) {
+            arityMatches = true;
+            break;
+          }
+        }
+        if (arityMatches) return lowering;
       }
       return undefined;
+    };
+    const contextAbiIdForRoot = function* (
+      contextToken: number,
+    ): Generator<number, number | undefined, void> {
+      const lowering = yield* contextLoweringForRoot(contextToken);
+      if (lowering === undefined) return undefined;
+      const abiId = DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1.findIndex(
+        operation => operation.name === lowering.operation,
+      );
+      if (abiId < 0) {
+        throw new Error("Context-member lowering lost its ABI operation.");
+      }
+      return abiId;
     };
     const contextBindingUsesAreDirect = function* (
       functionIndex: number,
@@ -5643,26 +5666,43 @@ export function createDeclarativeV2VerifierEngineV1(
       functionView.setUint32(functionOffset + 32, 1, false);
       return true;
     };
-    const contextAbiIdForCall = function* (
+    const contextCallForMethod = function* (
       methodToken: number,
       functionIndex: number,
-    ): Generator<number, number | undefined, void> {
+    ): Generator<
+      number,
+      Readonly<{ readonly abiId: number; readonly contextToken: number }> |
+        undefined,
+      void
+    > {
       const contextBinding = functionContextBindingToken(functionIndex);
       if (
         contextBinding === undefined ||
-        methodToken < 4 ||
         methodToken + 1 >= tokenCount ||
         !tokenMatches(methodToken + 1, "(")
       ) return undefined;
-      const contextToken = methodToken - 4;
-      if ((yield* compareTokenSlices(contextToken, contextBinding)) !== 0) {
-        return undefined;
+      for (
+        const lowering of DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1
+      ) {
+        const contextToken = methodToken - lowering.memberPath.length * 2;
+        if (
+          contextToken < 0 ||
+          (yield* compareTokenSlices(contextToken, contextBinding)) !== 0
+        ) continue;
+        const matched = yield* contextLoweringForRoot(contextToken);
+        if (matched?.id !== lowering.id) continue;
+        if (!(yield* contextBindingUsesAreDirect(functionIndex))) {
+          return undefined;
+        }
+        const abiId = DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1.findIndex(
+          operation => operation.name === lowering.operation,
+        );
+        if (abiId < 0) {
+          throw new Error("Context-member lowering lost its ABI operation.");
+        }
+        return { abiId, contextToken };
       }
-      const abiId = yield* contextAbiIdForRoot(contextToken);
-      return abiId !== undefined &&
-          (yield* contextBindingUsesAreDirect(functionIndex))
-        ? abiId
-        : undefined;
+      return undefined;
     };
     const appendCall = (
       functionIndex: number,
@@ -5749,18 +5789,19 @@ export function createDeclarativeV2VerifierEngineV1(
         const token = at(index);
         const next = index + 1 < bodyEnd ? at(index + 1) : undefined;
         const hasCallOpen = next !== undefined && tokenIs(next, "(");
-        const contextAbiId = hasCallOpen
-          ? yield* contextAbiIdForCall(index, functionIndex)
+        const contextCall = hasCallOpen
+          ? yield* contextCallForMethod(index, functionIndex)
           : undefined;
+        const contextAbiId = contextCall?.abiId;
         const callableName = token.kind === "identifier" ||
           contextAbiId !== undefined;
         const contextMemberPunctuator = tokenMatches(index, ".") &&
           (
             index + 1 < bodyEnd &&
-              (yield* contextAbiIdForCall(index + 1, functionIndex)) !==
+              (yield* contextCallForMethod(index + 1, functionIndex)) !==
                 undefined ||
             index + 3 < bodyEnd &&
-              (yield* contextAbiIdForCall(index + 3, functionIndex)) !==
+              (yield* contextCallForMethod(index + 3, functionIndex)) !==
                 undefined
           );
         if (tokenMatches(index, "try")) tryDepth += 1;
@@ -5889,10 +5930,17 @@ export function createDeclarativeV2VerifierEngineV1(
             if (abi === undefined) {
               throw new Error("Accepted ABI lookup lost its definition.");
             }
+            const nestedCallArgumentCount =
+              abi.name === "runQuery" || abi.name === "runMutation"
+                ? yield* directCallArgumentCount(index + 1)
+                : undefined;
             if (
               (abi.name === "runQuery" || abi.name === "runMutation") &&
               !(
-                tokenMatches(index - 1, "await") &&
+                tokenMatches(
+                  (contextCall?.contextToken ?? index) - 1,
+                  "await",
+                ) &&
                 tokenMatches(index + 1, "(") &&
                 tokenMatches(index + 2, "{") &&
                 tokenMatches(index + 3, "_path") &&
@@ -5900,7 +5948,9 @@ export function createDeclarativeV2VerifierEngineV1(
                 at(index + 5).kind === "string" &&
                 tokenMatches(index + 6, "}") &&
                 (tokenMatches(index + 7, ",") ||
-                  tokenMatches(index + 7, ")"))
+                  tokenMatches(index + 7, ")")) &&
+                (nestedCallArgumentCount === 1 ||
+                  nestedCallArgumentCount === 2)
               )
             ) {
               add("CORE_CALL_TARGET", token);
@@ -10737,20 +10787,26 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
                           DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1.find(
                             candidate => candidate.operation === abi.name,
                           );
-                        const validContextTarget = lowering !== undefined &&
+                        const loweringTarget = lowering?.memberPath[
+                          lowering.memberPath.length - 1
+                        ];
+                        const validContextTarget =
+                          loweringTarget !== undefined &&
                           sourceTokenMatchesAscii(
                             reachableModule,
                             targetToken,
-                            lowering.member,
+                            loweringTarget,
                           );
                         state.stringBytes += BigInt(
-                          lowering !== undefined &&
+                          loweringTarget !== undefined &&
                               sourceTokenLength(reachableModule, targetToken) ===
-                                lowering.member.length
-                            ? lowering.member.length
+                                loweringTarget.length
+                            ? loweringTarget.length
                             : 0,
                         );
-                        if (!validContextTarget || state.reachableIndex !== 0) {
+                        if (
+                          !validContextTarget || state.reachableIndex !== 0
+                        ) {
                           state.contextBindingsValid = false;
                         }
                       }
@@ -13777,9 +13833,15 @@ export function makeDeclarativeV2VerifierExecutableRestartBridgeV1():
           ) return true;
           for (const lowering of DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1) {
             yield 1;
+            const targetMember = lowering.memberPath[
+              lowering.memberPath.length - 1
+            ];
+            if (targetMember === undefined) {
+              throw new Error("Context-member lowering lost its target member.");
+            }
             if (
               (yield* textEquals(
-                { value: lowering.member, quoted: false },
+                { value: targetMember, quoted: false },
                 { value: call.targetName, quoted: false },
               )) &&
               (yield* textEquals(

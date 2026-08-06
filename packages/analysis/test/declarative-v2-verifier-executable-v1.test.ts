@@ -36,6 +36,7 @@ import {
   DECLARATIVE_V2_CANONICAL_UTF8_BYTE_CLASSES_V1,
   DECLARATIVE_V2_CANONICAL_UTF8_STATES_V1,
   DECLARATIVE_V2_CANONICAL_UTF8_TRANSITIONS_V1,
+  DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1,
   DECLARATIVE_V2_NUMBER_TRANSITIONS_V1,
   DECLARATIVE_V2_PARSER_PRODUCTIONS_V1,
   DECLARATIVE_V2_TEMPLATE_TRANSITIONS_V1,
@@ -606,6 +607,45 @@ describe("private verifier restart bridge", () => {
       expect.objectContaining({
         flowOrdinal: 2n,
         operationName: "databaseDelete",
+      }),
+    ]);
+  });
+
+  test("restarts exact nested-context members as their existing ABI operations", () => {
+    const source =
+      "export async function invoke(ctx,args){" +
+      'const value=await ctx.runQuery({_path:"orders:readInternal"},args);' +
+      'return await ctx.runMutation({_path:"orders:mutateInternal"},{value})}';
+    const sourceBytes = UTF8_ENCODER.encode(source);
+    const module = runModuleResult(
+      source,
+      "functions/restart-context-internal-calls.js",
+      12n,
+    );
+    const bridge = makeDeclarativeV2VerifierExecutableRestartBridgeV1();
+    const opened = Result.getOrThrow(bridge.openModuleRecords(
+      module,
+      new Uint8Array(32).fill(12),
+      budget("command_budget", sourceBytes.byteLength),
+    ));
+    const records: DeclarativeV2VerifierRestartRecordV1[] = [];
+    for (let iteration = 0; iteration < 10_000; iteration += 1) {
+      const read = Result.getOrThrow(bridge.readModuleRecord(opened, 1_024));
+      if (read.status === "complete") break;
+      if (read.status === "item") records.push(read.record);
+    }
+    expect(records.filter(record => record.kind === "direct_call_v1")).toEqual([
+      expect.objectContaining({ targetKind: "abi", targetName: "runQuery" }),
+      expect.objectContaining({ targetKind: "abi", targetName: "runMutation" }),
+    ]);
+    expect(records.filter(record => record.kind === "value_flow_v1")).toEqual([
+      expect.objectContaining({
+        flowOrdinal: 0n,
+        operationName: "runQuery",
+      }),
+      expect.objectContaining({
+        flowOrdinal: 1n,
+        operationName: "runMutation",
       }),
     ]);
   });
@@ -1608,12 +1648,12 @@ describe("Declarative V2 executable verifier asset", () => {
       );
     expect(first.manifest).toMatchObject({
       assetSha256:
-        "a9a724e34a064f2c4d6db9e8b09eeb6b15c2b76eda41543a870464bea0ba975d",
-      assetByteLength: 4_858_776,
+        "f74ea3583f0ae0e81ed15f31fb048cd2795a8f4e580239703d534d66b7d98cfb",
+      assetByteLength: 4_858_936,
       contractSha256:
-        "b8b9de47e91f601edad25900227a3b6d5ee7742fffd045957c2c7361abb92c22",
+        "b95499cd02ffe25ecbf64e2c2dae0c6721980eebcdc6c3a487836edc36fb52a1",
       manifestIdentity:
-        "5cdac93e8996093752882860d6618e897a4704062a36a0488b6a432a721bcf45",
+        "3ac116306c48aa50cc4c359127f024ea772a8e4b60fe276eb42a61cf5ea7c33e",
     });
   }, 120_000);
 
@@ -2507,6 +2547,231 @@ describe("Declarative V2 streaming engine", () => {
     },
   );
 
+  test("pins one ordered context-path catalog to existing ABI operations", () => {
+    expect(DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1).toEqual([
+      {
+        id: 1,
+        memberPath: ["db", "get"],
+        operation: "databaseGet",
+        argumentCounts: [1],
+      },
+      {
+        id: 2,
+        memberPath: ["db", "insert"],
+        operation: "databaseInsert",
+        argumentCounts: [2],
+      },
+      {
+        id: 3,
+        memberPath: ["db", "patch"],
+        operation: "databasePatch",
+        argumentCounts: [2],
+      },
+      {
+        id: 4,
+        memberPath: ["db", "replace"],
+        operation: "databaseReplace",
+        argumentCounts: [2],
+      },
+      {
+        id: 5,
+        memberPath: ["db", "delete"],
+        operation: "databaseDelete",
+        argumentCounts: [1],
+      },
+      {
+        id: 6,
+        memberPath: ["runQuery"],
+        operation: "runQuery",
+        argumentCounts: [1, 2],
+      },
+      {
+        id: 7,
+        memberPath: ["runMutation"],
+        operation: "runMutation",
+        argumentCounts: [1, 2],
+      },
+    ]);
+  });
+
+  test.each([
+    [
+      "query with default arguments",
+      'ctx.runQuery({_path:"recipeAssessment:assess"})',
+      "runQuery",
+    ],
+    [
+      "query with explicit arguments",
+      'ctx.runQuery({_path:"recipeAssessment:assess"}, args)',
+      "runQuery",
+    ],
+    [
+      "mutation with default arguments",
+      'ctx.runMutation({_path:"recipeMaintenance:markPublished"})',
+      "runMutation",
+    ],
+    [
+      "mutation with explicit arguments",
+      'ctx.runMutation({_path:"recipeMaintenance:markPublished"}, args)',
+      "runMutation",
+    ],
+  ])(
+    "lowers an immediately awaited direct context %s to existing ABI evidence",
+    (_label, expression, operationName) => {
+      const source = UTF8_ENCODER.encode(
+        `export async function run(ctx, args) { return await ${expression}; }`,
+      );
+      const result = runSource(source, [source]);
+      if (Result.isFailure(result)) throw result.failure;
+      expect(
+        result.success.verified,
+        result.success.diagnostics.map(({ code }) => code).join(","),
+      ).toBe(true);
+      expect(result.success.diagnostics).toEqual([]);
+      expect(result.success.importCalls).toEqual([
+        expect.objectContaining({
+          targetKind: "abi",
+          targetName: operationName,
+        }),
+      ]);
+      expect(result.success.valueFlows).toEqual([
+        expect.objectContaining({
+          operationName,
+          capability: "nestedCall",
+          catchability: "mixed",
+        }),
+      ]);
+    },
+  );
+
+  test("keeps direct nested-context calls byte-stable at every chunk boundary", () => {
+    const source = UTF8_ENCODER.encode(
+      "export async function run(ctx, args) {" +
+        'const assessed=await ctx.runQuery({_path:"recipeAssessment:assess"},args);' +
+        'return await ctx.runMutation({_path:"recipeMaintenance:markPublished"},{assessed});}',
+    );
+    const baselineResult = runSource(source, [source]);
+    if (Result.isFailure(baselineResult)) throw baselineResult.failure;
+    expect(
+      baselineResult.success.verified,
+      baselineResult.success.diagnostics.map(({ code }) => code).join(","),
+    ).toBe(true);
+    const baseline = semanticProjection(baselineResult);
+    for (let split = 0; split <= source.byteLength; split += 1) {
+      expect(semanticProjection(runSource(source, [
+        source.slice(0, split),
+        source.slice(split),
+      ])), `split ${split}`).toEqual(baseline);
+    }
+  }, 30_000);
+
+  test.each([
+    ["missing query reference", "await ctx.runQuery()"],
+    ["dynamic query reference", "await ctx.runQuery(reference)"],
+    ["string query reference", 'await ctx.runQuery("internal:helper")'],
+    [
+      "generated-proxy query reference",
+      "await ctx.runQuery(internal.module.helper, args)",
+    ],
+    [
+      "forged query reference",
+      "await ctx.runQuery({_path:reference}, args)",
+    ],
+    [
+      "derived query reference",
+      'await ctx.runQuery({_path:"internal:helper"}[reference], args)',
+    ],
+    [
+      "query options",
+      'await ctx.runQuery({_path:"internal:helper"}, args, {})',
+    ],
+    ["spread query", "await ctx.runQuery(...args)"],
+    [
+      "dropped query",
+      'ctx.runQuery({_path:"internal:helper"}, args)',
+    ],
+    [
+      "returned query promise",
+      'return ctx.runQuery({_path:"internal:helper"}, args)',
+    ],
+    [
+      "overlapping query",
+      'await Promise.all([ctx.runQuery({_path:"internal:helper"}, args)])',
+    ],
+    ["missing mutation reference", "await ctx.runMutation()"],
+    ["dynamic mutation reference", "await ctx.runMutation(reference)"],
+    [
+      "mutation options",
+      'await ctx.runMutation({_path:"internal:helper"}, args, {})',
+    ],
+    ["spread mutation", "await ctx.runMutation(...args)"],
+    [
+      "dropped mutation",
+      'ctx.runMutation({_path:"internal:helper"}, args)',
+    ],
+  ])("rejects unsupported direct nested-context authority: %s", (
+    _label,
+    expression,
+  ) => {
+    const source = UTF8_ENCODER.encode(
+      "export async function run(ctx, reference, args, internal) {" +
+        `${expression}; return null; }`,
+    );
+    const result = runSource(source, [source]);
+    if (Result.isFailure(result)) throw result.failure;
+    expect(result.success.verified).toBe(false);
+    expect(result.success.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: expect.stringMatching(/^CORE_(COMPUTED_DISPATCH|CALL_TARGET)$/),
+      }),
+    ]));
+  });
+
+  test.each([
+    [
+      "optional nested-call context",
+      'await ctx?.runQuery({_path:"internal:helper"}, args)',
+    ],
+    [
+      "computed nested-call member",
+      'await ctx["runQuery"]({_path:"internal:helper"}, args)',
+    ],
+    [
+      "longer nested-call receiver",
+      'await wrapper.ctx.runQuery({_path:"internal:helper"}, args)',
+    ],
+    [
+      "parenthesized nested-call target",
+      'await (ctx.runQuery)({_path:"internal:helper"}, args)',
+    ],
+    [
+      "detached nested-call method",
+      'await runQuery({_path:"internal:helper"}, args)',
+      "const runQuery=ctx.runQuery;",
+    ],
+    [
+      "forwarded nested-call context",
+      "await helper(ctx, args)",
+      'async function helper(value,input){return await value.runQuery({_path:"internal:helper"},input)}',
+    ],
+  ])("rejects indirect nested-context authority: %s", (
+    _label,
+    expression,
+    prefix = "",
+  ) => {
+    const source = UTF8_ENCODER.encode(
+      `export async function run(ctx,args,wrapper){${prefix}return ${expression};}`,
+    );
+    const result = runSource(source, [source]);
+    if (Result.isFailure(result)) throw result.failure;
+    expect(result.success.verified).toBe(false);
+    expect(result.success.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: expect.stringMatching(/^CORE_(COMPUTED_DISPATCH|CALL_TARGET|HIGHER_ORDER)$/),
+      }),
+    ]));
+  });
+
   test("keeps direct context lowering byte-stable at every chunk boundary", () => {
     const source = UTF8_ENCODER.encode(
       'export async function run(applicationContext, value) {' +
@@ -3167,6 +3432,15 @@ describe("Declarative V2 streaming engine", () => {
     ["missing reference", "await runQuery()"],
     ["dynamic reference", "await runQuery(reference)"],
     ["forged reference", 'await runQuery({_path: reference})'],
+    [
+      "unsupported options",
+      'await runQuery({_path:"internal:helper"}, {}, {})',
+    ],
+    [
+      "derived reference",
+      'await runQuery({_path:"internal:helper"}[reference], {})',
+    ],
+    ["spread arguments", "await runQuery(...args)"],
     ["dropped call", 'runQuery({_path:"internal:helper"})'],
     ["direct return", 'return runQuery({_path:"internal:helper"})'],
     ["comma return", 'return runQuery({_path:"internal:helper"}), null'],
@@ -3195,6 +3469,15 @@ describe("Declarative V2 streaming engine", () => {
     ["missing reference", "await runMutation()"],
     ["dynamic reference", "await runMutation(reference)"],
     ["forged reference", "await runMutation({_path: reference})"],
+    [
+      "unsupported options",
+      'await runMutation({_path:"internal:helper"}, {}, {})',
+    ],
+    [
+      "derived reference",
+      'await runMutation({_path:"internal:helper"}[reference], {})',
+    ],
+    ["spread arguments", "await runMutation(...args)"],
     ["dropped call", 'runMutation({_path:"internal:helper"})'],
     ["direct return", 'return runMutation({_path:"internal:helper"})'],
     ["overlapping call", 'Promise.all([runMutation({_path:"internal:helper"})])'],

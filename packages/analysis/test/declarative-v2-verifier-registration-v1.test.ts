@@ -553,6 +553,88 @@ describe("private Declarative V2 registration verifier", () => {
     expect(Result.isSuccess(fixture.result)).toBe(true);
   });
 
+  test("accepts direct runQuery on a query root context", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      "export async function getThing(ctx,args){return await " +
+        'ctx.runQuery({_path:"internal:read"},args)}',
+    );
+    expect(Result.isSuccess(fixture.result)).toBe(true);
+  });
+
+  test("rejects direct runMutation from a query root context", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      "export async function getThing(ctx,args){return await " +
+        'ctx.runMutation({_path:"internal:write"},args)}',
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
+  test.each(["runQuery", "runMutation"])(
+    "accepts direct %s on a mutation root context",
+    operation => {
+      const records = SEMANTIC_RECORDS.map(record =>
+        record.kind === "function"
+          ? { ...record, functionKind: "mutation" as const }
+          : record
+      );
+      const fixture = registrationFixture(
+        1,
+        undefined,
+        false,
+        true,
+        records,
+        "functions/example.js",
+        undefined,
+        "export async function getThing(ctx,args){return await " +
+          `ctx.${operation}({_path:"internal:target"},args)}`,
+      );
+      expect(Result.isSuccess(fixture.result)).toBe(true);
+    },
+  );
+
+  test.each(["runQuery", "runMutation"])(
+    "preserves direct %s admission on an action root context",
+    operation => {
+      const records = SEMANTIC_RECORDS.map(record =>
+        record.kind === "function"
+          ? { ...record, functionKind: "action" as const }
+          : record
+      );
+      const fixture = registrationFixture(
+        1,
+        undefined,
+        false,
+        true,
+        records,
+        "functions/example.js",
+        undefined,
+        "export async function getThing(ctx,args){return await " +
+          `ctx.${operation}({_path:"internal:target"},args)}`,
+      );
+      expect(Result.isSuccess(fixture.result)).toBe(true);
+    },
+  );
+
   test("rejects database access from a declared action context", () => {
     const records = SEMANTIC_RECORDS.map(record =>
       record.kind === "function"
@@ -598,6 +680,49 @@ describe("private Declarative V2 registration verifier", () => {
         path: "handlerCapability",
       },
     });
+  });
+
+  test("tracks nested-context authority inside a reachable local helper", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      "async function helper(ctx,args){return await " +
+        'ctx.runQuery({_path:"internal:read"},args)}' +
+        "export async function getThing(ctx,args){" +
+        "return await helper(ctx,args)}",
+    );
+    expect(Result.isSuccess(fixture.result)).toBe(true);
+  });
+
+  test("tracks nested-context authority inside a reachable imported helper", () => {
+    const records = Object.freeze([
+      ...SEMANTIC_RECORDS.slice(0, 2),
+      { kind: "module", modulePath: "functions/helper.js" },
+      ...SEMANTIC_RECORDS.slice(2),
+    ]) satisfies ReadonlyArray<DeclarativeV2SemanticRecordV1>;
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      records,
+      "functions/example.js",
+      undefined,
+      'import {helper} from "./helper.js";' +
+        "export async function getThing(ctx,args){" +
+        "return await helper(ctx,args)}",
+      [{
+        modulePath: "functions/helper.js",
+        source: "export async function helper(ctx,args){return await " +
+          'ctx.runQuery({_path:"internal:read"},args)}',
+      }],
+    );
+    expect(Result.isSuccess(fixture.result)).toBe(true);
   });
 
   test("applies the complete capability matrix to legacy private ABI imports", () => {

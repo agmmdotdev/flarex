@@ -1,7 +1,5 @@
-import { runMutation, runQuery } from "flarex:platform";
-
-export async function publish(_, { id }) {
-  const assessment = await runQuery(
+export async function publish(ctx, { id }) {
+  const assessment = await ctx.runQuery(
     { _path: "recipeAssessment:assess" },
     { id },
   );
@@ -9,7 +7,7 @@ export async function publish(_, { id }) {
   const { publishable } = assessment;
   if (!publishable) return null;
 
-  return await runMutation(
+  return await ctx.runMutation(
     { _path: "recipeMaintenance:markPublished" },
     { id },
   );

@@ -22,6 +22,34 @@ None.
 
 ## Resolved Issues
 
+### `ST-CORE-012` — private nested-call admission did not own trailing arity
+
+- **Status:** Resolved in `FAC08` before normal nested-context calls were
+  admitted.
+- **Discovered by:** Comparing current Convex's newer nested-call options with
+  the existing Flarex private ABI and exact internal-call runtime signatures.
+- **Observed boundary:** Executable analyzer admission before registration and
+  unchanged Workerd nested-call execution.
+- **Reproduction:** The private `runQuery` / `runMutation` static-reference
+  check authenticated the first `{ _path: "..." }` argument but did not count
+  the complete call. A third options-like argument could therefore be verified
+  even though the selected Flarex runtime owns only a reference plus optional
+  arguments and would not apply current Convex transaction-limit or snapshot
+  options.
+- **Expected:** Analyzer evidence describes the exact runtime call shape.
+  Nested calls admit one static reference and at most one arguments value;
+  options, surplus arguments, and variable top-level spread fail closed.
+- **Resolution:** The generalized ordered context-path catalog owns admitted
+  arities for `runQuery` and `runMutation`, and the shared incremental call
+  scanner now gates both normal context calls and retained private ABI calls.
+  No options contract, callback port, snapshot, journal, sub-transaction, OCC,
+  or commit behavior was added.
+- **Acceptance evidence:** Direct and private one-/two-argument success,
+  options/surplus/spread refusal, exact static-reference and immediate-await
+  vectors, every-byte-split and restart equality, function-kind registration
+  coverage, the real cooking Workerd/PostgreSQL nested-call lane, generated
+  identity checks, broad regressions, and both mandatory exact-final reviewers.
+
 ### `ST-CORE-011` — direct context lowering did not own call arity
 
 - **Status:** Resolved in `FAC07` before the point-writer members were admitted.

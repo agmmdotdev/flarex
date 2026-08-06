@@ -1,7 +1,5 @@
-import { runQuery } from "flarex:platform";
-
 export async function markPublished(ctx, { id }) {
-  const before = await runQuery(
+  const before = await ctx.runQuery(
     { _path: "recipeAssessment:assess" },
     { id },
   );
@@ -10,7 +8,7 @@ export async function markPublished(ctx, { id }) {
 
   await ctx.db.patch(id, { published: true });
 
-  const after = await runQuery(
+  const after = await ctx.runQuery(
     { _path: "recipeAssessment:assess" },
     { id },
   );

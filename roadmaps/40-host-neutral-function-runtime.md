@@ -8,11 +8,12 @@ vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
 Function API Core direction and focused preflight recorded below are accepted,
-and `FAC01` through `FAC07` are implemented and validated. Normal root-handler
-id-only point reads and writes now lower to the existing ABI while the complete
-accepted function-kind capability matrix and exact authored arities remain
-authoritative. The next gate is the bounded `FAC08` nested-context-call
-preflight recorded below. Production routing remains deferred.
+and `FAC01` through `FAC08` are implemented and validated. Normal root-handler
+id-only point reads and writes plus direct nested query/mutation calls now lower
+to the existing ABI while the complete accepted function-kind capability
+matrix and exact authored arities remain authoritative. The next gate is the
+bounded `FAC09` private-platform-removal preflight recorded under the next
+correctness gate. Production routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -1798,6 +1799,151 @@ service or Layer. The code-quality reviewer confirmed nested-template tracking,
 top-level-spread refusal, nested-spread preservation, and unchanged runtime,
 journal, OCC, and commit ownership.
 
+### `FAC08` Direct Nested-Context-Call Preflight Decision
+
+**Accepted:** 2026-08-06
+
+Current Convex exposes `runQuery` on query and mutation contexts and
+`runMutation` only on mutation contexts. Its query calls share the caller's
+snapshot; a mutation's nested mutation runs as a sub-transaction. Current
+Convex references are typed generated `FunctionReference` values whose runtime
+identity is supplied through proxies or symbol-bearing objects, and current
+`runQuery` / `runMutation` also admit transaction-limit options. Storage,
+scheduler, metadata, component references, stale-snapshot options, and action
+callback syscalls are additional Convex authorities, not incidental context
+syntax.
+
+Flarex already owns the corresponding selected semantics. Function API Core
+constructs exact frozen positive-capability query and mutation contexts. The
+query/internal-call kernel owns same-snapshot query calls. The
+mutation/internal-call kernel owns same-journal query and mutation calls,
+ordered call frames, depth/cycle/byte budgets, child validation, pending-call
+settlement, application-error capture, terminal poisoning, and read-your-writes.
+The existing private ABI operations 41 and 42 identify those calls, and
+registration already enforces the function-kind capability matrix. FAC08 must
+reuse all of those owners without adding a callback port, sub-transaction,
+snapshot, journal, OCC, or commit implementation.
+
+The current executable analyzer's catalog hard-codes two-level
+`ctx.db.member(...)` paths. Adding special one-level branches for
+`ctx.runQuery(...)` and `ctx.runMutation(...)` would duplicate root-binding,
+alias, arity, restart, and linker policy. FAC08 instead replaces that catalog
+shape with one ordered context-member path representation. Existing point
+members become `db/get`, `db/insert`, `db/patch`, `db/replace`, and `db/delete`;
+the new entries are `runQuery` and `runMutation`. Stable lowering IDs and ABI
+operation IDs remain unchanged. Each entry owns its exact admitted arities:
+point members retain their FAC07 arity, while nested calls admit one static
+reference plus an optional argument object. Zero arguments, a third options
+argument, and top-level spread fail closed.
+
+Nested-call admission remains intentionally narrower than current Convex
+developer ergonomics. The call must be an immediate awaited context-bound
+member call whose first argument is the existing exact literal
+`{ _path: "module:export" }`. Dynamic references, strings, forged paths,
+generated proxy expressions, aliases, detached methods, optional/computed
+members, dropped promises, direct returns, overlap, and unsupported options
+remain rejected. A reachable local or imported helper may receive the context
+and make the same direct call: the completed linker already accounts for its
+ABI capability across the whole reachable graph, and the runtime object remains
+the sole authority. This is the Convex-compatible helper-composition rule and
+does not let an untrusted object manufacture runtime authority.
+
+The completed/restart evidence intentionally normalizes the legacy private
+`runQuery` / `runMutation` spelling and the new context spelling to the same
+stable ABI operation. Unlike database members such as `get`, the nested member
+name is already the canonical ABI name, so restart evidence cannot distinguish
+the two spellings. Adding a root-only context-helper rule would therefore need
+a separately approved evidence/protocol provenance field or would reject
+existing private helper calls. FAC08 does neither. It preserves whole-graph
+capability accounting and proves local and imported helper admission explicitly.
+The stricter existing database-member root rule remains unchanged. A later
+developer/internal-test API slice may make generated typed references sibling
+producers over a shared authoring primitive only after it defines how trusted
+generated reference identity is authenticated by analysis; FAC08 must not
+weaken analysis merely to accept the current runtime proxy representation.
+
+The real cooking query, mutation, and workflow-mutation consumers will switch
+from private `flarex:platform` call imports to normal `ctx.runQuery` and
+`ctx.runMutation`. Their definitions, analyzer, inactive registration, R2
+projection, immutable revision selection, Workerd execution, existing
+query/mutation kernels, executor, PostgreSQL rows, result, feed, and outbox
+remain the proof path. The unrelated remaining private point-read import is not
+removed in this slice.
+
+Context syntax itself does not own function-kind admission. The completed-link
+and registration capability matrix remains that authority, and it already
+admits `runQuery` and `runMutation` for edge actions while denying database
+access. Because context and private spellings intentionally resolve to the same
+ABI operations, FAC08 preserves that action admission and adds a regression for
+it. This does not change the edge-action callback port, independent-transaction
+semantics, uncertainty, budgets, or runtime; no action source is migrated and
+no action-specific capability is added.
+
+The implementation gate requires exact catalog/ABI parity, one- and two-
+argument lowering, static-reference and immediate-await proof, unsupported
+arity/spread/options refusal, alias/detachment refusal, local/imported-helper
+capability accounting, query-versus-mutation registration admission, restart
+identity, every-byte-split equality,
+the migrated cooking PGlite and genuine PostgreSQL lanes, generated identity
+refresh/checks, affected and broad regressions, both mandatory exact-final
+reviewers, reviewer fixes and re-review, and one commit. Database query
+builders, auth, action runtime/callback changes, public developer APIs,
+platform-module removal, schemas, persistence, activation, routing, and
+production behavior remain outside FAC08.
+
+### `FAC08` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+The executable analyzer now owns one ordered context-member-path catalog. Its
+existing point database entries retain their stable lowering IDs and exact
+arities, while stable entries 6 and 7 lower direct `ctx.runQuery` and
+`ctx.runMutation` calls onto the already-owned ABI operations 41 and 42. The
+shared incremental call scanner authenticates the complete one- or two-argument
+call, exact literal `_path` reference, immediate await, unaliased context
+binding, and direct member syntax. It rejects zero or surplus arguments,
+top-level spread, options, dynamic/generated/forged references, optional or
+computed access, detached calls, dropped promises, direct returns, and overlap.
+
+Completed-link registration remains the sole function-kind authority and
+accounts for nested calls across the complete reachable local/imported helper
+graph. Query handlers admit `runQuery` but reject `runMutation`; mutations and
+the existing action matrix retain both operations. Restart reconstruction maps
+the ordered member-path catalog to the same stable ABI flows, including the
+intentional canonical-name collision described by the preflight. No runtime,
+callback, snapshot, journal, sub-transaction, OCC, commit, action uncertainty,
+activation, routing, or production owner changed.
+
+The real cooking assessment query, internal publishing mutation, and workflow
+mutation now author nested calls through their frozen Function API contexts.
+Those sources traverse the unchanged definition, executable analyzer, inactive
+registration, R2 projection, selected runtime, executor, PostgreSQL application
+rows, result, commit feed, and outbox path. The unrelated remaining private
+`databaseGet` source and the runtime's host-private support-module imports stay
+outside this slice.
+
+The executable regenerated deterministically at
+`f74ea3583f0ae0e81ed15f31fb048cd2795a8f4e580239703d534d66b7d98cfb`
+(4,858,936 bytes), contract
+`b95499cd02ffe25ecbf64e2c2dae0c6721980eebcdc6c3a487836edc36fb52a1`,
+and manifest identity
+`3ac116306c48aa50cc4c359127f024ea772a8e4b60fe276eb42a61cf5ea7c33e`.
+The base verifier remained
+`00eb1d44298eac350d1e4dcac1d14896b13b8e0d841c8c01108c8a60fca8fc39`.
+
+Validation passed both affected typechecks, all 51 registration tests, 222
+executable-verifier tests in the broad lane plus clean focused reruns of the
+generated-identity pin and the one filesystem-cleanup-timeout case, all three
+generated checks, the complete 21-file/51-test PGlite system lane, the focused
+two-test genuine PostgreSQL 18 cooking lane, and the workspace Effect-boundary
+check. The changed analyzer operations are pure incremental state machines:
+they add no expected async failure, resource lifetime, injected service, retry,
+or recovery boundary requiring a new Effect service or Layer. Both mandatory
+exact-final reviewers reported no actionable findings. The TypeScript reviewer
+confirmed catalog/ABI/generated/restart agreement and found no Effect
+transformation candidate; the code-quality reviewer confirmed reachable-graph
+capability accounting plus unchanged runtime, journal, OCC, and commit owners.
+
 ### Sequenced Follow-On Slices
 
 After `FAC01`, continue one coherent commit at a time:
@@ -2029,17 +2175,20 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-`FAC01` through `FAC07` are complete. The next bounded gate is `FAC08`: compare
-current Convex `ctx.runQuery` and `ctx.runMutation` authoring with existing
-Flarex nested-call ABI operations 41 and 42, Function API Core contexts, and
-the real cooking internal-call consumers. The preflight must preserve exact
-static reference authority, function-kind capability admission, nested depth,
-call-frame and application-error semantics, root-handler context ownership,
-and the existing snapshot/journal boundary. It must challenge whether the
-current two-level database-member lowering catalog can represent one-level
-context calls without weakening aliases, detached methods, helper forwarding,
-or argument arity. Database query builders, auth, actions, public developer
-APIs, and synthetic platform-module removal remain outside that slice.
+`FAC01` through `FAC08` are complete. The next bounded gate is `FAC09`: audit
+the remaining user-authored `flarex:platform` imports separately from the
+runtime's host-private support-module imports. Compare the remaining cooking
+point read with the completed normal `ctx.db.get` path, then challenge whether
+the private user-call ABI can be removed without conflating it with the host
+composition module still used to inject exact contexts and application-error
+mechanics. The preflight must enumerate production, test, restart, generated,
+and compatibility consumers before approving deletion; preserve legacy vectors
+needed to prove analyzer refusal and restart parity; and forbid a parallel
+module, fallback, or dual acceptance. It must not remove or rename the host
+support boundary merely because both currently use the `flarex:platform`
+specifier. Query builders, auth context syntax, public developer APIs, schemas,
+persistence, runtime semantics, activation, routing, and production behavior
+remain outside that slice unless a new explicit preflight approves them.
 
 The public `flarex-test` real-runtime contract remains unchanged. Internal
 simulation APIs may adopt shared authoring primitives and normal `ctx.*`
