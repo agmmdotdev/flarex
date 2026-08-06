@@ -8,6 +8,9 @@ declare module "flarex:function-api-core/v1" {
   export const createFunctionRuntimeAuthV1:
     typeof import("@flarex/function-runtime/internal/function-api-core-v1")
       .createFunctionRuntimeAuthV1;
+  export const createFunctionRuntimeDatabaseContextV1:
+    typeof import("@flarex/function-runtime/internal/function-api-core-v1")
+      .createFunctionRuntimeDatabaseContextV1;
   export const createFunctionRuntimeRunQueryContextV1:
     typeof import("@flarex/function-runtime/internal/function-api-core-v1")
       .createFunctionRuntimeRunQueryContextV1;

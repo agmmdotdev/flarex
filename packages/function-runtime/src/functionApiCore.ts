@@ -17,12 +17,15 @@ export interface FunctionRuntimeAuthV1 {
 
 export type FunctionRuntimeCallableV1 = (...args: never[]) => unknown;
 
+export interface FunctionRuntimeDatabaseContextV1<Database extends object> {
+  readonly auth: Readonly<FunctionRuntimeAuthV1>;
+  readonly db: Database;
+}
+
 export interface FunctionRuntimeRunQueryContextV1<
   Database extends object,
   RunQuery extends FunctionRuntimeCallableV1,
-> {
-  readonly auth: Readonly<FunctionRuntimeAuthV1>;
-  readonly db: Database;
+> extends FunctionRuntimeDatabaseContextV1<Database> {
   readonly runQuery: RunQuery;
 }
 
@@ -227,6 +230,15 @@ export function createFunctionRuntimePointDatabaseWriterV1<
     delete: (documentId: DocumentId): Promise<void> =>
       deletePointDocument(documentId),
   });
+}
+
+export function createFunctionRuntimeDatabaseContextV1<
+  Database extends object,
+>(
+  auth: Readonly<FunctionRuntimeAuthV1>,
+  db: Database,
+): Readonly<FunctionRuntimeDatabaseContextV1<Database>> {
+  return freeze({ auth, db });
 }
 
 export function createFunctionRuntimeRunQueryContextV1<

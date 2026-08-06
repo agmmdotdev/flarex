@@ -5,6 +5,7 @@ import type { UserIdentity } from "flarex-protocol/auth";
 import {
   createFunctionRuntimeApplicationErrorRegistryV1,
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimeDatabaseContextV1,
   createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
   createMutationFunctionRuntimeContextV1,
@@ -180,7 +181,7 @@ describe("@flarex/function-runtime/function-api-core", () => {
     expect(cloneIdentity).toHaveBeenNthCalledWith(2, IDENTITY);
   });
 
-  it("constructs fresh exact frozen run-query and mutation contexts", async () => {
+  it("constructs fresh exact frozen database, run-query, and mutation contexts", async () => {
     const auth = createFunctionRuntimeAuthV1(
       Object.freeze({ kind: "anonymous" }),
       identity => identity,
@@ -193,6 +194,11 @@ describe("@flarex/function-runtime/function-api-core", () => {
     const runQuery = vi.fn(() => Promise.resolve("query"));
     const runMutation = vi.fn(() => Promise.resolve("mutation"));
 
+    const database = createFunctionRuntimeDatabaseContextV1(auth, queryDb);
+    const secondDatabase = createFunctionRuntimeDatabaseContextV1(
+      auth,
+      queryDb,
+    );
     const query = createFunctionRuntimeRunQueryContextV1(
       auth,
       queryDb,
@@ -210,6 +216,11 @@ describe("@flarex/function-runtime/function-api-core", () => {
       runMutation,
     );
 
+    expect(database).toEqual({ auth, db: queryDb });
+    expect(secondDatabase).not.toBe(database);
+    expect(secondDatabase).toEqual(database);
+    expect(database.auth).toBe(auth);
+    expect(database.db).toBe(queryDb);
     expect(query).toEqual({ auth, db: queryDb, runQuery });
     expect(mutation).toEqual({ auth, db: mutationDb, runQuery, runMutation });
     expect(secondQuery).not.toBe(query);
@@ -221,6 +232,7 @@ describe("@flarex/function-runtime/function-api-core", () => {
     expect(mutation.db).toBe(mutationDb);
     expect(mutation.runQuery).toBe(runQuery);
     expect(mutation.runMutation).toBe(runMutation);
+    expect(Object.keys(database)).toEqual(["auth", "db"]);
     expect(Object.keys(query)).toEqual(["auth", "db", "runQuery"]);
     expect(Object.keys(mutation)).toEqual([
       "auth",
@@ -228,6 +240,8 @@ describe("@flarex/function-runtime/function-api-core", () => {
       "runQuery",
       "runMutation",
     ]);
+    expect(Object.isFrozen(database)).toBe(true);
+    expect(Object.isFrozen(secondDatabase)).toBe(true);
     expect(Object.isFrozen(query)).toBe(true);
     expect(Object.isFrozen(secondQuery)).toBe(true);
     expect(Object.isFrozen(mutation)).toBe(true);

@@ -2,6 +2,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimeDatabaseContextV1,
   createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
 } from "flarex:function-api-core/v1";
@@ -1288,26 +1289,13 @@ function executionContext(
   request: DecodedExactRuntimeRequest,
   database: ExactRuntimeDatabase,
 ) {
-  return Object.freeze({
-    auth: createFunctionRuntimeAuthV1(
+  return createFunctionRuntimeDatabaseContextV1(
+    createFunctionRuntimeAuthV1(
       request.auth,
       cloneUserIdentityV1,
     ),
-    db: database,
-    runQuery: unsupported("ctx.runQuery"),
-    runMutation: unsupported("ctx.runMutation"),
-    scheduler: Object.freeze({
-      runAfter: unsupported("ctx.scheduler.runAfter"),
-      runAt: unsupported("ctx.scheduler.runAt"),
-      cancel: unsupported("ctx.scheduler.cancel"),
-    }),
-    storage: Object.freeze({
-      getUrl: unsupported("ctx.storage.getUrl"),
-      generateUploadUrl: unsupported("ctx.storage.generateUploadUrl"),
-      delete: unsupported("ctx.storage.delete"),
-      getMetadata: unsupported("ctx.storage.getMetadata"),
-    }),
-  });
+    database,
+  );
 }
 
 function cloneUserIdentityV1(identity: UserIdentity): UserIdentity {
@@ -2168,12 +2156,4 @@ function isAppDocumentId(value: unknown): value is string {
   }
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
     .test(value.slice(separator + 1));
-}
-
-function unsupported(
-  capability: string,
-): (...args: ReadonlyArray<unknown>) => never {
-  return (..._args: ReadonlyArray<unknown>) => {
-    throw new Error(`${capability} is unavailable during exact point-mutation execution.`);
-  };
 }

@@ -91,7 +91,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "ace1ad4d884abc7765e740e5942b0874323865ee127c305f92b149a35ab84116",
+      "d3da4949de85074d68d4b983dc784000496eb1702a9f0aff645b87f5a4e3e9d1",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
@@ -359,6 +359,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
         context: ExactTestContext,
         args: Readonly<Record<string, unknown>>,
       ) => {
+        expect(Object.keys(context)).toEqual(["auth", "db"]);
         expect(Object.keys(context.db)).toEqual([
           "get",
           "insert",
@@ -1410,6 +1411,7 @@ function replaceFunctionApiCoreImportForTest(source: string): string {
   const testCoreSource = FUNCTION_API_CORE_SOURCE_V1.replace(/^export /gm, "");
   const importedNames = [
     "createFunctionRuntimeAuthV1",
+    "createFunctionRuntimeDatabaseContextV1",
     "createFunctionRuntimePointDatabaseWriterV1",
     "createFunctionRuntimePointReaderV1",
   ] as const;

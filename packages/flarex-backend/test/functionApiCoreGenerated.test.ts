@@ -36,6 +36,9 @@ describe("generated function API core", () => {
       "utf8",
     ).digest("hex")).toBe(FUNCTION_API_CORE_SHA256_V1);
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
+      "createFunctionRuntimeDatabaseContextV1",
+    );
+    expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
       "createFunctionRuntimeRunQueryContextV1",
     );
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
@@ -122,9 +125,19 @@ describe("generated function API core", () => {
       POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
       POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
     ]) {
+      expect(source).toContain("createFunctionRuntimeDatabaseContextV1(");
       expect(source).not.toContain('unsupported("ctx.db.query")');
       expect(source).not.toContain('unsupported("ctx.db.normalizeId")');
       expect(source).not.toContain("system: Object.freeze({})");
+    }
+    for (const negativeCapability of [
+      'unsupported("ctx.runQuery")',
+      'unsupported("ctx.runMutation")',
+      "scheduler: Object.freeze",
+      "storage: Object.freeze",
+    ]) {
+      expect(POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1)
+        .not.toContain(negativeCapability);
     }
   });
 

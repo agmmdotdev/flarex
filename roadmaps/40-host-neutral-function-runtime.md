@@ -2679,6 +2679,122 @@ call, scheduler, and storage members. The preflight must reject a universal
 context, prove two exact consumers, and preserve query read-boundary and
 mutation journal ownership before implementation.
 
+### `FAC14` Database Context Preflight Decision
+
+**Accepted:** 2026-08-06
+
+The current checked-in Convex source at `43301bc895df12f4c60b94f0b3556d226ab1aae0`
+still constructs a reader in `database_impl.ts`, constructs a writer by reusing
+that reader, and selects each function-kind context positively in
+`registration_impl.ts`. Its current query context contains a real reader,
+auth, storage, metadata, and `runQuery`; its mutation context contains a real
+writer, auth, storage, scheduler, metadata, `runQuery`, and `runMutation`.
+Flarex should preserve that positive-capability composition style without
+pretending that the staged point profiles already own Convex's query builder,
+system-table, storage, scheduler, metadata, or nested-call capabilities.
+
+The top-level point-query Worker currently creates its admitted `{ auth, db }`
+context inline. The top-level point-mutation Worker creates the same admitted
+pair but also publishes throwing `runQuery`, `runMutation`, scheduler, and
+storage members. Those placeholders are not compatibility behavior: the
+private point-mutation profile never admitted the capabilities, its portable
+context contract exposes only `{ auth, db }`, and no generated or runtime
+consumer can use them successfully. Keeping them makes feature discovery
+depend on terminal failure and gives the two exact consumers different context
+semantics for the same admitted capability set.
+
+`FAC14` therefore introduces the private capability-neutral
+`FunctionRuntimeDatabaseContextV1` and
+`createFunctionRuntimeDatabaseContextV1`. The name deliberately does not say
+"base context": Convex-style actions do not have direct database access, so
+`{ auth, db }` cannot honestly become a universal function-context base. The
+existing run-query context extends this database-context shape, and the full
+mutation context continues to extend the run-query shape only where those
+capabilities are real. The factory returns one fresh, exact, frozen object and
+preserves the supplied auth and database objects by identity; it does not own
+their construction, lifetime, transaction, or deep immutability.
+
+Both top-level exact Workers become direct consumers. Point query retains its
+Worker-owned snapshot read boundary and exact `{ get }` reader. Point mutation
+retains its Worker-owned journal and exact
+`{ get, insert, patch, replace, delete }` writer. The remaining throwing nested
+call, scheduler, and storage members are removed rather than moved, aliased, or
+made optional. Function API Core does not acquire snapshot, journal, syscall,
+validation, settlement, or host policy.
+
+Rejected alternatives are a universal or optional-capability context, a
+function-kind-specific duplicate factory, preserving unsupported members for
+future compatibility, and naming the shared shape as a base for actions. No
+public developer API, analyzer operation, protocol/profile/syscall identity,
+schema or persistence owner, snapshot or journal policy, OCC or commit owner,
+action uncertainty, activation, routing, or production behavior changes.
+
+The implementation gate is exact authored and generated context keys, frozen
+and fresh-object proofs, absence of negative capability members in generated
+source and genuine Workerd execution, deterministic Function API Core and both
+top-level Worker identities, stable graph receipts, affected regressions,
+`check:effect-boundaries`, both mandatory exact-final reviewers, fixes and
+re-review when needed, and one intentional commit.
+
+### `FAC14` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+Function API Core now owns the private capability-neutral
+`FunctionRuntimeDatabaseContextV1` and
+`createFunctionRuntimeDatabaseContextV1`. The run-query context extends this
+exact `{ auth, db }` shape, while the full mutation context still adds real
+`runQuery` and `runMutation` capabilities only for the combined profile that
+admits them. The constructor returns a fresh frozen context and preserves the
+auth and database values by identity.
+
+The top-level point-query and point-mutation exact Workers both consume the
+new constructor. Query still supplies its exact `{ get }` reader inside the
+same snapshot read boundary. Mutation still supplies its exact
+`{ get, insert, patch, replace, delete }` writer inside the same journal. Its
+previous throwing `runQuery`, `runMutation`, scheduler, and storage members and
+the now-dead unsupported-function helper are absent. Auth cloning, validation,
+deterministic globals, pending-operation settlement, journal poisoning,
+close/drain, terminal failure classification, and RPC disposal are unchanged.
+
+The deterministic refreshed identities are:
+
+- Function API Core:
+  `0d0b9846fd167b826f862bfadc6cbbfd8a22f6844d15f1ca8ffeb7002db50972`;
+- point-query Worker core:
+  `778f50fd9b66a0e7156521231774e0246de8260c92698bcf54524aabd53dc73d`;
+  and
+- point-mutation Worker core:
+  `0b961c10481b3e98625e3bf18b1398c078c5c02f359abc063c3c6564de2176ba`.
+
+For the stable graph-basis fixtures, the shared support identity produces
+point query `ca08687ca0e2ca14940fcea28e754bdbb9c406a4df9611eb216ceb7201252314`,
+point mutation `d3da4949de85074d68d4b983dc784000496eb1702a9f0aff645b87f5a4e3e9d1`,
+query/internal-call
+`5cba43442dcd1763d7fab91c2a3f5665d61d99d209943b2e6fc93d03cd31603c`,
+mutation/internal-query
+`9cf3806cb93b337b23795650bbbcf6f57d0220de061633d38cdd49319e30467b`,
+and mutation/internal-call
+`537b7650e437e8617bc6a31f846261b633403c3c62c56f287012e30acf6865c7`.
+The three nested Worker-core and runtime-kernel byte identities remain
+unchanged; only their graph bases move because every graph commits the shared
+Function API Core identity.
+
+Validation passed the complete deterministic backend build and backend
+typecheck, function-runtime typecheck and all 59 tests, all eight affected
+generated, legacy, and genuine Workerd files with 58 tests, and the workspace
+Effect-boundary check with zero production `Effect.runSync` and 56 allowed
+production `Effect.runPromise` sites. Both mandatory exact-final reviewers
+reported no findings after independently checking type and runtime contract
+agreement, Effect applicability, positive capability composition, generated
+identity closure, snapshot and journal ownership, and test coverage.
+
+`FAC14` is closed. `FAC15` must begin with a fresh preflight over the remaining
+authored/generated runtime duplication. It should prefer one exact
+two-consumer capability and preserve all present profile, application-error,
+deterministic-global, settlement, snapshot, journal, and host boundaries rather
+than extracting a universal runtime helper.
+
 ### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction

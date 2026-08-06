@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimeDatabaseContextV1,
   createFunctionRuntimePointReaderV1,
 } from "flarex:function-api-core/v1";
 import type {
@@ -127,10 +128,7 @@ export class FlarexPointQueryExactRuntimeV1 extends WorkerEntrypoint {
             cloneUserIdentityV1,
           );
           return freeze({
-            context: freeze({
-              auth,
-              db: database,
-            }),
+            context: createFunctionRuntimeDatabaseContextV1(auth, database),
             readBoundary: freeze({
               close: () => { state.closed = true; },
               drain: async () => {
