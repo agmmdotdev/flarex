@@ -56,9 +56,8 @@ describe("Declarative V2 verifier restart runtime V1", () => {
   }, {
     label: "a module-owned link-phase diagnostic",
     source:
-      'import { databasePatch } from "flarex:platform"; ' +
-      "export async function patch(_, { id }) { " +
-      'await databasePatch(id, { title: "staged" }); ' +
+      "export async function patch(ctx, { id }) { " +
+      'await ctx.db.patch(id, { title: "staged" }); ' +
       'throw new Error("injected"); }',
     modulePath: "functions/restart-runtime-diagnostic.js",
     handlerName: "patch",

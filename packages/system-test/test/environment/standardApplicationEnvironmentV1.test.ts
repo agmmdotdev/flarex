@@ -73,8 +73,7 @@ function makeCookingDefinitionV1() {
 function makeDiagnosticCookingDefinitionV1() {
   const definition = makeCookingDefinitionV1();
   const source = new TextEncoder().encode(
-    'import{databaseInsert}from"flarex:platform";' +
-      'export function create(_,a){databaseInsert("recipes",a);' +
+    'export function create(ctx,a){ctx.db.insert("recipes",a);' +
       'throw new Error("injected")}',
   );
   return {

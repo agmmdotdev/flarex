@@ -13,7 +13,6 @@ import type { UserIdentity } from "flarex-protocol/auth";
 
 import { exactQueryRuntimeConfigurationV1 } from
   "./pointQueryExactRuntimeWorker/flarex-point-query-exact-runtime-config-v1.js";
-import { withPointQueryContextV1 } from "flarex:platform";
 
 const REQUEST_FORMAT = exactQueryRuntimeConfigurationV1.requestFormat;
 const REQUEST_VERSION = exactQueryRuntimeConfigurationV1.requestVersion;
@@ -204,10 +203,7 @@ async function resolveFunction(path: string): Promise<unknown> {
     _handler: (
       context: PointQueryRuntimeContextV1,
       argumentsValue: RuntimeObject,
-    ) => withPointQueryContextV1(
-      context,
-      () => Reflect.apply(handler, undefined, [context, argumentsValue]),
-    ),
+    ) => Reflect.apply(handler, undefined, [context, argumentsValue]),
   });
 }
 

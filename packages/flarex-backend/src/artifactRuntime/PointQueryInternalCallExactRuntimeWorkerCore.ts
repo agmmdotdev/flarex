@@ -9,7 +9,6 @@ import type {
   executePointQueryInternalCallV1,
   inspectPointQueryInternalCallRuntimeFailureV1,
   PointQueryInternalCallFrameV1,
-  PointQueryInternalCallRuntimeContextV1,
   PointQueryInternalCallRuntimeInputV1,
   PointQueryInternalCallRuntimeInvocationFactoryV1,
   PointQueryInternalCallRuntimeRunQueryV1,
@@ -20,7 +19,6 @@ import type { UserIdentity } from "flarex-protocol/auth";
 
 import { exactQueryRuntimeConfigurationV1 } from
   "./pointQueryInternalCallExactRuntimeWorker/flarex-point-query-internal-call-exact-runtime-config-v1.js";
-import { withPointQueryInternalCallContextV1 } from "flarex:platform";
 
 const REQUEST_FORMAT = exactQueryRuntimeConfigurationV1.requestFormat;
 const REQUEST_VERSION = exactQueryRuntimeConfigurationV1.requestVersion;
@@ -140,10 +138,6 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
             runQuery: PointQueryInternalCallRuntimeRunQueryV1,
           ) =>
             createQueryFunctionRuntimeContextV1(auth, database, runQuery),
-          invokeWithContext: <A>(
-            context: PointQueryInternalCallRuntimeContextV1,
-            operation: () => A | PromiseLike<A>,
-          ) => withPointQueryInternalCallContextV1(context, operation),
           readBoundary: freeze({
             close: () => { state.closed = true; },
             drain: async () => {

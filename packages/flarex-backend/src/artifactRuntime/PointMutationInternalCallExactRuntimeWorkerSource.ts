@@ -121,40 +121,16 @@ export default Object.freeze(registryV1);
 }
 
 export function pointMutationInternalCallExactRuntimePlatformSourceV1(): string {
-  return `// Private exact mutation/internal-call syscall ABI for one scoped Worker.
+  return `// Private exact mutation application-error ABI for one scoped Worker.
 import { createFunctionRuntimeApplicationErrorRegistryV1 } from "flarex:function-api-core/v1";
 import {
   capturePointMutationInternalCallCoreApplicationErrorDataV1,
   PointMutationInternalCallApplicationV1Error,
 } from "./pointMutationInternalCallExactRuntimeWorker/flarex-point-mutation-internal-call-runtime-kernel-v1.js";
-const contextsV1 = [];
 const coreApplicationErrorsV1 = createFunctionRuntimeApplicationErrorRegistryV1(
   capturePointMutationInternalCallCoreApplicationErrorDataV1,
   (detailV1) => { throw new PointMutationInternalCallApplicationV1Error("argumentsInvalid", detailV1); },
 );
-function currentV1() {
-  const contextV1 = contextsV1.at(-1);
-  if (contextV1 === undefined) throw new Error("Point-mutation syscall escaped its invocation context.");
-  return contextV1;
-}
-export async function withPointMutationInternalCallContextV1(contextV1, operationV1) {
-  contextsV1.push(contextV1);
-  try { return await operationV1(); }
-  finally {
-    if (contextsV1.pop() !== contextV1) {
-      contextsV1.length = 0;
-      throw new Error("Concurrent point-mutation syscall context is unsupported.");
-    }
-  }
-}
-export function authGetUserIdentity() { return currentV1().auth.getUserIdentity(); }
-export function databaseGet(documentIdV1) { return currentV1().db.get(documentIdV1); }
-export function databaseInsert(tableNameV1, fieldsV1) { return currentV1().db.insert(tableNameV1, fieldsV1); }
-export function databasePatch(documentIdV1, patchV1) { return currentV1().db.patch(documentIdV1, patchV1); }
-export function databaseReplace(documentIdV1, fieldsV1) { return currentV1().db.replace(documentIdV1, fieldsV1); }
-export function databaseDelete(documentIdV1) { return currentV1().db.delete(documentIdV1); }
-export function runQuery(referenceV1, argsV1) { return currentV1().runQuery(referenceV1, argsV1); }
-export function runMutation(referenceV1, argsV1) { return currentV1().runMutation(referenceV1, argsV1); }
 export function errorCreate(codeV1, messageV1, dataV1) { return coreApplicationErrorsV1.create(codeV1, messageV1, dataV1); }
 export function inspectPointMutationInternalCallCoreApplicationErrorV1(valueV1) {
   return coreApplicationErrorsV1.inspect(valueV1);

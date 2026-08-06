@@ -295,7 +295,7 @@ export async function readInternal(ctx, args) {
     }
   });
 
-  it("keeps the private platform query-to-mutation guard terminal", async () => {
+  it("does not expose mutation capability to an internal query", async () => {
     const runtimeHash = "b".repeat(64);
     const artifact = Object.freeze({
       runtime: "dynamic-worker" as const,
@@ -426,7 +426,6 @@ export default { async fetch() {
           type: "ESModule",
           path: "orders.js",
           contents: `
-import { runMutation as platformRunMutation } from "flarex:platform";
 export async function update(ctx) {
   return await ctx.runQuery({ _path: "orders:readInternal" }, {});
 }
@@ -437,12 +436,7 @@ export async function readInternal(ctx) {
   if (Object.keys(ctx.db).join(",") !== "get" || "insert" in ctx.db) {
     throw new Error("invalid internal query database shape");
   }
-  try {
-    await platformRunMutation({ _path: "orders:mutateInternal" }, {});
-  } catch {
-    return { status: "child-caught" };
-  }
-  return { status: "unreachable" };
+  return { status: "query-only" };
 }
 export function mutateInternal() {
   return { status: "unreachable" };
@@ -453,11 +447,9 @@ export function mutateInternal() {
     try {
       const response = await runtime.dispatchFetch("https://fac04.test/");
       await expect(response.json()).resolves.toEqual({
-        error: "PointMutationInternalCallExactRuntimeJournalBoundaryV1Error",
-        terminalError: "PointMutationInternalCallTerminalV1Error",
-        terminalReason: "internalTargetInvalid",
+        value: { status: "query-only" },
       });
-      expect(response.status).toBe(422);
+      expect(response.status).toBe(200);
     } finally {
       await runtime.dispose();
     }

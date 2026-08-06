@@ -32,9 +32,7 @@ describe("@flarex/function-runtime/point-mutation-internal-query", () => {
     );
     expect(result).toEqual({ status: "open" });
     expect(events).toEqual([
-      "enter:orders:update", "frame:root-execution:0:1:1:1",
-      "enter:orders:internal", "get",
-      "leave:orders:internal", "leave:orders:update", "close", "drain",
+      "frame:root-execution:0:1:1:1", "get", "close", "drain",
     ]);
   });
 
@@ -273,7 +271,6 @@ function invocation(
   drain: () => Promise<void> = async () => undefined,
 ): PointMutationInternalQueryRuntimeInvocationFactoryV1 {
   let terminal: unknown;
-  let depth = 0;
   return {
     open: () => ({
       context: {
@@ -288,20 +285,6 @@ function invocation(
           normalizeId: () => { throw new Error("normalization unavailable"); },
           system: {},
         },
-      },
-      invokeWithContext: <A>(
-        _context: PointMutationInternalQueryRuntimeContextV1,
-        operation: () => A | PromiseLike<A>,
-      ): Promise<Awaited<A>> => {
-        const label = depth === 0 ? "orders:update" : "orders:internal";
-        depth += 1;
-        events.push(`enter:${label}`);
-        const release = () => {
-          depth -= 1;
-          events.push(`leave:${label}`);
-        };
-        try { return Promise.resolve(operation()).finally(release); }
-        catch (cause) { release(); throw cause; }
       },
       journal: {
         close: () => { events.push("close"); },

@@ -45,9 +45,7 @@ describe("@flarex/function-runtime/point-mutation-internal-call", () => {
     );
     expect(result).toEqual({ status: "open" });
     expect(events).toEqual([
-      "enter:orders:update", "frame:root-execution:0:1:1:1",
-      "enter:orders:internal", "get",
-      "leave:orders:internal", "leave:orders:update", "close", "drain",
+      "frame:root-execution:0:1:1:1", "get", "close", "drain",
     ]);
   });
 
@@ -227,66 +225,6 @@ describe("@flarex/function-runtime/point-mutation-internal-call", () => {
       name: "PointMutationInternalCallTerminalV1Error",
       reason: "internalTargetInvalid",
       cause: expect.objectContaining({ message: "arbitrary child failure" }),
-    });
-  });
-
-  it("keeps the private platform query-to-mutation guard terminal", async () => {
-    const mutation = {
-      ordinal: 2,
-      path: "orders:mutateInternal",
-      kind: "mutation" as const,
-      visibility: "internal" as const,
-      argsValidator: { type: "any" as const },
-      returnsValidator: input().function.returnsValidator,
-    };
-    await expect(executePointMutationInternalCallV1(
-      input({
-        internalFunctionCatalog: [...input().internalFunctionCatalog, mutation],
-      }),
-      {
-        resolve: path => path === "orders:update"
-          ? { isMutation: true, isPublic: true, _handler: (
-              context: PointMutationInternalCallRuntimeContextV1,
-            ) => context.runQuery(INTERNAL_REFERENCE, {}) }
-          : path === "orders:internal"
-          ? { isQuery: true, isInternal: true, _handler: async (
-              context: PointMutationInternalCallRuntimeQueryContextV1,
-            ) => {
-              expect(Object.keys(context)).toEqual([
-                "auth",
-                "db",
-                "runQuery",
-              ]);
-              expect("runMutation" in context).toBe(false);
-              expect("insert" in context.db).toBe(false);
-              return { status: "caught" };
-            } }
-          : path === "orders:mutateInternal"
-          ? { isMutation: true, isInternal: true, _handler: () => ({
-              status: "unreachable",
-            }) }
-          : undefined,
-      },
-      invocation(
-        [],
-        async () => undefined,
-        () => false,
-        (platformContext, depth) => {
-          if (depth !== 1) return;
-          try {
-            void platformContext.runMutation(
-              INTERNAL_MUTATION_REFERENCE,
-              {},
-            );
-          } catch {
-            // The private platform compatibility call remains catchable at the
-            // call site, but its terminal record must survive the catch.
-          }
-        },
-      ),
-    )).rejects.toMatchObject({
-      name: "PointMutationInternalCallTerminalV1Error",
-      reason: "internalTargetInvalid",
     });
   });
 
@@ -485,13 +423,8 @@ function invocation(
   events: string[],
   drain: () => Promise<void> = async () => undefined,
   isApplicationCatchableError: (cause: unknown) => boolean = () => false,
-  inspectPlatformContext?: (
-    context: PointMutationInternalCallRuntimeContextV1,
-    depth: number,
-  ) => void,
 ): PointMutationInternalCallRuntimeInvocationFactoryV1 {
   let terminal: unknown;
-  let depth = 0;
   const auth = createFunctionRuntimeAuthV1(
     Object.freeze({ kind: "anonymous" }),
     identity => identity,
@@ -518,21 +451,6 @@ function invocation(
           runQuery,
           runMutation,
         ),
-      invokeWithContext: <A>(
-        context: PointMutationInternalCallRuntimeContextV1,
-        operation: () => A | PromiseLike<A>,
-      ): Promise<Awaited<A>> => {
-        inspectPlatformContext?.(context, depth);
-        const label = depth === 0 ? "orders:update" : "orders:internal";
-        depth += 1;
-        events.push(`enter:${label}`);
-        const release = () => {
-          depth -= 1;
-          events.push(`leave:${label}`);
-        };
-        try { return Promise.resolve(operation()).finally(release); }
-        catch (cause) { release(); throw cause; }
-      },
       journal: {
         close: () => { events.push("close"); },
         drain: async () => {

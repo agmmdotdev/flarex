@@ -8,12 +8,11 @@ vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
 Function API Core direction and focused preflight recorded below are accepted,
-and `FAC01` through `FAC08` are implemented and validated. Normal root-handler
-id-only point reads and writes plus direct nested query/mutation calls now lower
-to the existing ABI while the complete accepted function-kind capability
-matrix and exact authored arities remain authoritative. The next gate is the
-bounded `FAC09` private-platform-removal preflight recorded under the next
-correctness gate. Production routing remains deferred.
+and `FAC01` through `FAC09` are implemented and validated. `FAC09` removed the
+private auth, database, and nested-call authoring shims in favor of the normal
+Convex-style handler `ctx`; only the separately owned application-error
+registry remains a host-private mutation-runtime module while its developer-
+facing replacement is still unapproved. Production routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -2175,20 +2174,77 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-`FAC01` through `FAC08` are complete. The next bounded gate is `FAC09`: audit
-the remaining user-authored `flarex:platform` imports separately from the
-runtime's host-private support-module imports. Compare the remaining cooking
-point read with the completed normal `ctx.db.get` path, then challenge whether
-the private user-call ABI can be removed without conflating it with the host
-composition module still used to inject exact contexts and application-error
-mechanics. The preflight must enumerate production, test, restart, generated,
-and compatibility consumers before approving deletion; preserve legacy vectors
-needed to prove analyzer refusal and restart parity; and forbid a parallel
-module, fallback, or dual acceptance. It must not remove or rename the host
-support boundary merely because both currently use the `flarex:platform`
-specifier. Query builders, auth context syntax, public developer APIs, schemas,
-persistence, runtime semantics, activation, routing, and production behavior
-remain outside that slice unless a new explicit preflight approves them.
+### `FAC09` Private Platform Removal Preflight Decision
+
+Current Convex passes a positive-capability context into each registered
+handler. Developer-authored database and nested calls use `ctx.db`,
+`ctx.runQuery`, and `ctx.runMutation`; internal syscall plumbing is not an
+importable developer module. Flarex had already built the same explicit
+function-context facade, but its analyzer fixtures and generated exact Workers
+still supported a second spelling through `flarex:platform`. That specifier
+also combined two different owners: ambient auth/database/nested-call shims and
+the mutation application-error registry whose process-local `WeakMap` proves
+catchable-error provenance.
+
+FAC09 directly removes the first owner and deliberately retains the second:
+
+- `ctx.auth.getUserIdentity()`, all five admitted point database members, and
+  direct nested calls lower to their existing ABI operations with exact arity;
+- the analyzer platform catalog is an exact module-to-operation manifest, not
+  a module-wide grant, and admits no user-authored operation from the host-
+  private `flarex:platform` module;
+- query Worker graphs contain no synthetic platform module;
+- mutation-internal Worker graphs retain one error-only host module so their
+  handler constructors and host inspector share the same immutable registry;
+- portable kernels invoke handlers directly with their already-created
+  context. The removed invocation-global stack and synthetic mutation-capable
+  projection existed only for private user-call shims and owned no journal,
+  OCC, commit, or lifecycle authority; and
+- every positive application and system fixture migrates to `ctx`, while
+  explicit removed-import vectors prove fail-closed refusal.
+
+This is one replacement, not dual acceptance. It introduces no public module,
+new syscall, schema, persistence state, route, activation behavior, or
+production trigger. Application-error developer ergonomics remain a later
+preflight: current Convex uses a standalone error class rather than a context
+member, so FAC09 must not invent a context-shaped error API merely to eliminate
+the last private module spelling.
+
+### `FAC09` Implementation Receipt
+
+`FAC09` completed the direct replacement described above:
+
+- the analyzer admits the complete direct handler surface, including
+  `ctx.auth.getUserIdentity()`, and rejects every user-authored
+  `flarex:platform` operation through an exact empty operation manifest;
+- portable query and mutation kernels invoke handlers directly with their
+  owned positive-capability contexts, with no ambient invocation stack or
+  synthetic mutation-capable projection;
+- query Worker graphs no longer synthesize a platform module, while mutation-
+  internal graphs retain only the host-private shared application-error
+  registry and inspector;
+- positive production, restart, registration, and simulation fixtures use
+  `ctx.*`; removed user-call imports remain only as explicit fail-closed
+  analyzer vectors; and
+- no journal, OCC, commit, persistence, schema, activation, route, or
+  production-trigger owner changed.
+
+The committed generated analyzer executable identity is
+`f47121d2875efb784275e3c09088ff5e66bc2e5b3c472698584c078e1720b943`
+at `4,859,064` bytes. Validation covered analyzer typecheck and generated
+checks, all 522 analyzer tests, every backend generated-core
+check and typecheck, 37 focused backend producer/Workerd tests, all 52 portable
+function-runtime tests, system-test typecheck, and seven real-system PGlite
+files with 21 tests.
+
+The next bounded gate is `FAC10`: preflight a normal standalone application-
+error authoring API against current Convex `ConvexError` ergonomics without
+changing the existing immutable error payload, WeakMap provenance registry,
+catchability classification, wire ABI, or host inspection boundary. The
+preflight must prove whether a public developer API is justified and identify
+its actual package owner; it must not invent a `ctx` error member, expose the
+host-private `flarex:platform` module, add dual acceptance, or widen into query
+builders, schemas, persistence, activation, routing, or production behavior.
 
 The public `flarex-test` real-runtime contract remains unchanged. Internal
 simulation APIs may adopt shared authoring primitives and normal `ctx.*`

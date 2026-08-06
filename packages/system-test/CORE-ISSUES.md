@@ -22,6 +22,32 @@ None.
 
 ## Resolved Issues
 
+### `ST-CORE-013` — private platform admission outlived normal function context APIs
+
+- **Status:** Resolved by the approved `FAC09` direct replacement.
+- **Discovered by:** Auditing generated runtime code after direct database and
+  nested-context authoring had become available.
+- **Observed boundary:** Declarative analyzer import admission and the exact
+  query/mutation Worker composition graph.
+- **Root cause:** The analyzer allowed the entire `flarex:platform` specifier
+  and mapped any recognized ABI name, while exact Workers maintained an
+  invocation-global context stack solely to forward private auth, database,
+  and nested-call imports. The same module also owned the unrelated
+  process-local application-error registry, obscuring the removal boundary.
+- **Resolution:** Handler `ctx` is the sole auth/database/nested-call surface;
+  the direct context catalog includes the existing zero-argument auth method;
+  platform admission rejects every user-authored operation, including the
+  application-error operations whose developer-facing replacement remains a
+  later preflight; query graphs and all ambient context stacks are removed;
+  mutation-internal graphs retain only the host-private shared error registry
+  and inspector. Removed private calls fail closed during analysis. Runtime
+  context shape, journals, OCC, commit, feeds, outbox, and application rows are
+  unchanged.
+- **Acceptance evidence:** Exact import-manifest vectors, direct-context
+  capability and arity tests, every-split/restart evidence, portable runtime
+  tests, all four Workerd profiles, real system-test simulation, generated
+  identity checks, broad regressions, and both mandatory exact-final reviewers.
+
 ### `ST-CORE-012` — private nested-call admission did not own trailing arity
 
 - **Status:** Resolved in `FAC08` before normal nested-context calls were

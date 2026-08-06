@@ -1730,10 +1730,9 @@ function pqvA1DefinitionInput(
         roles: ["function", "execution"],
         sourceBytes: UTF8.encode(
           (internalCall
-            ? 'import{runQuery}from"flarex:platform";export async function get(_,a){return await runQuery({_path:"internal:i"},a)}'
+            ? 'export async function get(ctx,a){return await ctx.runQuery({_path:"internal:i"},a)}'
             : executePointRead
-            ? 'import{databaseGet}from"flarex:platform";' +
-              "export function get(_,{id}){return databaseGet(id)}"
+            ? "export function get(ctx,{id}){return ctx.db.get(id)}"
             : `export function get() { ` +
               `return ${second ? "undefined" : "null"}; }\n`) +
             (internalCall ? "" : "export function run() {}\n"),
@@ -1743,7 +1742,7 @@ function pqvA1DefinitionInput(
         path: "i",
         roles: ["function"] as const,
         sourceBytes: UTF8.encode(
-          'import{databaseGet}from"flarex:platform";export function i(_,{id}){return databaseGet(id)}',
+          'export function i(ctx,{id}){return ctx.db.get(id)}',
         ),
         sourceMapBytes: null,
       }] : [])],
@@ -1825,8 +1824,8 @@ function fsv06DefinitionInput(
         roles: ["function", "execution"],
         sourceBytes: UTF8.encode(
           insert
-            ? 'import{databaseInsert}from"flarex:platform";export async function c(_,a){try{return await databaseInsert("o",a)}catch{}}'
-            : 'import{databasePatch}from"flarex:platform";export function u(_,{id,d}){return databasePatch(id,d)}',
+            ? 'export async function c(ctx,a){try{return await ctx.db.insert("o",a)}catch{}}'
+            : 'export function u(ctx,{id,d}){return ctx.db.patch(id,d)}',
         ),
         sourceMapBytes: null,
       }],
@@ -1908,17 +1907,15 @@ function sap06A2DefinitionInput(): StandardApplicationDefinitionInputV1 {
         path: "m",
         roles: ["function", "execution"],
         sourceBytes: UTF8.encode(
-          'import {databaseDelete,runQuery} from "flarex:platform";' +
-          'export async function u(_,{i}){ await databaseDelete(i); ' +
-          'return await runQuery({_path:"q:r"},{i})}',
+          'export async function u(ctx,{i}){ await ctx.db.delete(i); ' +
+          'return await ctx.runQuery({_path:"q:r"},{i})}',
         ),
         sourceMapBytes: null,
       }, {
         path: "q",
         roles: ["function"],
         sourceBytes: UTF8.encode(
-          'import { databaseGet } from "flarex:platform"; ' +
-          'export function r(_,{i}) { return databaseGet(i); }',
+          'export function r(ctx,{i}) { return ctx.db.get(i); }',
         ),
         sourceMapBytes: null,
       }],
@@ -2012,8 +2009,7 @@ function sap06A3DefinitionInput(): StandardApplicationDefinitionInputV1 {
         path: "r",
         roles: ["function", "execution"],
         sourceBytes: UTF8.encode(
-          'import{runMutation}from"flarex:platform";' +
-          'export async function u(_,a){try{await runMutation({_path:"m:w"},a)}' +
+          'export async function u(ctx,a){try{await ctx.runMutation({_path:"m:w"},a)}' +
           'catch{}return null}',
         ),
         sourceMapBytes: null,
@@ -2021,17 +2017,15 @@ function sap06A3DefinitionInput(): StandardApplicationDefinitionInputV1 {
         path: "m",
         roles: ["function"],
         sourceBytes: UTF8.encode(
-          'import{databaseDelete,runQuery}from"flarex:platform";' +
-          'export async function w(_,{i}){await databaseDelete(i);' +
-          'await runQuery({_path:"q:r"},{i});return 42}',
+          'export async function w(ctx,{i}){await ctx.db.delete(i);' +
+          'await ctx.runQuery({_path:"q:r"},{i});return 42}',
         ),
         sourceMapBytes: null,
       }, {
         path: "q",
         roles: ["function"],
         sourceBytes: UTF8.encode(
-          'import{databaseGet}from"flarex:platform";' +
-          'export function r(_,{i}){return databaseGet(i)}',
+          'export function r(ctx,{i}){return ctx.db.get(i)}',
         ),
         sourceMapBytes: null,
       }],

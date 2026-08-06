@@ -5,10 +5,8 @@ import {
   buildPointQueryExactRuntimeWorkerDefinitionV1,
   POINT_QUERY_EXACT_RUNTIME_CONFIG_MODULE_V1,
   POINT_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
-  POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1,
   POINT_QUERY_RUNTIME_KERNEL_MODULE_V1,
   pointQueryExactRuntimeExecutionBridgeSourceV1,
-  pointQueryExactRuntimePlatformSourceV1,
   pointQueryExactRuntimeWorkerConfigurationSourceV1,
 } from "../src/artifactRuntime";
 import {
@@ -20,8 +18,8 @@ import {
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
 
 describe("point-query exact runtime in workerd", () => {
-  it("reserves the analyzer-owned platform module in the exact Worker graph", () => {
-    expect(() => buildPointQueryExactRuntimeWorkerDefinitionV1({
+  it("does not synthesize a private platform module in the exact Worker graph", () => {
+    const definition = buildPointQueryExactRuntimeWorkerDefinitionV1({
       artifact: {
         runtime: "dynamic-worker",
         artifactId: `artifact_${"b".repeat(32)}`,
@@ -42,19 +40,14 @@ describe("point-query exact runtime in workerd", () => {
       functionPath: "orders:get",
       artifactExecutionModule: "orders.js",
       exportName: "get",
-      sourceModules: [{
-        path: POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1,
-        source: "export {};",
-      }],
-    })).toThrow(
-      "Source package module path flarex:platform is reserved by the candidate-bound exact point-query runtime.",
-    );
+      sourceModules: [{ path: "orders.js", source: "export function get(){}" }],
+    });
+    expect(Object.hasOwn(definition.modules, "flarex:platform")).toBe(false);
   });
 
   it("executes the exact query handler through its read capability", async () => {
     await expect(runScenario({
-      imports: 'import { databaseGet } from "flarex:platform";',
-      handler: "async (_context, { id }) => databaseGet(id)",
+      handler: "async (context, { id }) => context.db.get(id)",
       capability: "async () => ({ kind: 'present', document: { status: 'open' } })",
     })).resolves.toEqual({
       ok: true,
@@ -67,8 +60,7 @@ describe("point-query exact runtime in workerd", () => {
     });
 
     await expect(runScenario({
-      imports: 'import { authGetUserIdentity } from "flarex:platform";',
-      handler: "async () => authGetUserIdentity()",
+      handler: "async (context) => context.auth.getUserIdentity()",
       capability: "async () => ({ kind: 'missing' })",
       auth: {
         kind: "user",
@@ -312,11 +304,6 @@ export default {
         type: "ESModule",
         path: POINT_QUERY_RUNTIME_KERNEL_MODULE_V1,
         contents: POINT_QUERY_RUNTIME_KERNEL_SOURCE_V1,
-      },
-      {
-        type: "ESModule",
-        path: POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1,
-        contents: pointQueryExactRuntimePlatformSourceV1(),
       },
       {
         type: "ESModule",

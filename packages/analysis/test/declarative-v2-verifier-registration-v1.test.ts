@@ -725,7 +725,7 @@ describe("private Declarative V2 registration verifier", () => {
     expect(Result.isSuccess(fixture.result)).toBe(true);
   });
 
-  test("applies the complete capability matrix to legacy private ABI imports", () => {
+  test("applies the complete capability matrix to direct context calls", () => {
     const fixture = registrationFixture(
       1,
       undefined,
@@ -734,8 +734,7 @@ describe("private Declarative V2 registration verifier", () => {
       SEMANTIC_RECORDS,
       "functions/example.js",
       undefined,
-      'import {databaseInsert} from "flarex:platform";' +
-        'export async function getThing(){return await databaseInsert("recipes",{})}',
+      'export async function getThing(ctx){return await ctx.db.insert("recipes",{})}',
     );
     expect(fixture.result).toMatchObject({
       failure: {
@@ -755,8 +754,7 @@ describe("private Declarative V2 registration verifier", () => {
       SEMANTIC_RECORDS,
       "functions/example.js",
       undefined,
-      'import {runMutation} from "flarex:platform";' +
-        'export async function getThing(){return await runMutation(' +
+      'export async function getThing(ctx){return await ctx.runMutation(' +
         '{_path:"internal:mutate"})}',
     );
     expect(fixture.result).toMatchObject({
@@ -777,10 +775,9 @@ describe("private Declarative V2 registration verifier", () => {
       SEMANTIC_RECORDS,
       "functions/example.js",
       undefined,
-      'import {runMutation} from "flarex:platform";' +
-        "async function helper(){return await runMutation(" +
+      "async function helper(ctx){return await ctx.runMutation(" +
         '{_path:"internal:mutate"})}' +
-        "export async function getThing(){return await helper()}",
+        "export async function getThing(ctx){return await helper(ctx)}",
     );
     expect(fixture.result).toMatchObject({
       failure: {
@@ -800,10 +797,9 @@ describe("private Declarative V2 registration verifier", () => {
       SEMANTIC_RECORDS,
       "functions/example.js",
       undefined,
-      'import {runMutation} from "flarex:platform";' +
-        "async function helper(){return await runMutation(" +
+      "async function helper(ctx){return await ctx.runMutation(" +
         '{_path:"internal:mutate"})}' +
-        'export async function getThing(){helper();return "ok"}',
+        'export async function getThing(ctx){helper(ctx);return "ok"}',
     );
     expect(fixture.result).toMatchObject({
       failure: {
@@ -829,12 +825,11 @@ describe("private Declarative V2 registration verifier", () => {
       "functions/example.js",
       undefined,
       'import {helper} from "./helper.js";' +
-        "export async function getThing(){return await helper()}",
+        "export async function getThing(ctx){return await helper(ctx)}",
       [{
         modulePath: "functions/helper.js",
-        source: 'import {runMutation} from "flarex:platform";' +
-          'function decoy(){return "ok"}' +
-          "export async function helper(){return await runMutation(" +
+        source: 'function decoy(){return "ok"}' +
+          "export async function helper(ctx){return await ctx.runMutation(" +
           '{_path:"internal:mutate"})}',
       }],
     );
@@ -862,12 +857,11 @@ describe("private Declarative V2 registration verifier", () => {
       "functions/example.js",
       undefined,
       'import {helper} from "./helper.js";' +
-        'export async function getThing(){helper();return "ok"}',
+        'export async function getThing(ctx){helper(ctx);return "ok"}',
       [{
         modulePath: "functions/helper.js",
-        source: 'import {runMutation} from "flarex:platform";' +
-          'function decoy(){return "ok"}' +
-          "export async function helper(){return await runMutation(" +
+        source: 'function decoy(){return "ok"}' +
+          "export async function helper(ctx){return await ctx.runMutation(" +
           '{_path:"internal:mutate"})}',
       }],
     );

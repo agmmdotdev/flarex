@@ -43,9 +43,7 @@ describe("@flarex/function-runtime/point-query-internal-call", () => {
     );
     expect(result).toEqual({ status: "open" });
     expect(events).toEqual([
-      "enter:orders:get", "frame:root-execution:0:1:1:1",
-      "enter:orders:internal", "get",
-      "leave:orders:internal", "leave:orders:get", "close", "drain",
+      "frame:root-execution:0:1:1:1", "get", "close", "drain",
     ]);
   });
 
@@ -223,7 +221,6 @@ function invocation(
   drain: () => Promise<void> = async () => undefined,
 ): PointQueryInternalCallRuntimeInvocationFactoryV1 {
   let terminal: unknown;
-  let depth = 0;
   const auth = createFunctionRuntimeAuthV1(
     Object.freeze({ kind: "anonymous" }),
     identity => identity,
@@ -235,20 +232,6 @@ function invocation(
     open: () => ({
       createContext: runQuery =>
         createQueryFunctionRuntimeContextV1(auth, database, runQuery),
-      invokeWithContext: <A>(
-        _context: PointQueryInternalCallRuntimeContextV1,
-        operation: () => A | PromiseLike<A>,
-      ): Promise<Awaited<A>> => {
-        const label = depth === 0 ? "orders:get" : "orders:internal";
-        depth += 1;
-        events.push(`enter:${label}`);
-        const release = () => {
-          depth -= 1;
-          events.push(`leave:${label}`);
-        };
-        try { return Promise.resolve(operation()).finally(release); }
-        catch (cause) { release(); throw cause; }
-      },
       readBoundary: {
         close: () => { events.push("close"); },
         drain: async () => {

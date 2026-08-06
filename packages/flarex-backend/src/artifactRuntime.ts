@@ -41,7 +41,6 @@ export {
   POINT_QUERY_EXACT_RUNTIME_CONFIG_MODULE_V1,
   POINT_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
   POINT_QUERY_EXACT_RUNTIME_MAIN_MODULE_V1,
-  POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1,
   POINT_QUERY_RUNTIME_KERNEL_MODULE_V1,
   pointQueryExactRuntimeWorkerGraphBasisV1,
   PointQueryExactRuntimeHostV1Error,
@@ -50,7 +49,6 @@ export {
 } from "./artifactRuntime/PointQueryExactRuntimeHost.ts";
 export {
   pointQueryExactRuntimeExecutionBridgeSourceV1,
-  pointQueryExactRuntimePlatformSourceV1,
   pointQueryExactRuntimeWorkerConfigurationSourceV1,
 } from "./artifactRuntime/PointQueryExactRuntimeWorkerSource.ts";
 export {

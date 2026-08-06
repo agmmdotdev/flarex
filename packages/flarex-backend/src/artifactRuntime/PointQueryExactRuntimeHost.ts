@@ -22,7 +22,6 @@ import {
 } from "./PointQueryRuntimeKernel.generated";
 import {
   pointQueryExactRuntimeExecutionBridgeSourceV1,
-  pointQueryExactRuntimePlatformSourceV1,
   pointQueryExactRuntimeWorkerConfigurationSourceV1,
 } from "./PointQueryExactRuntimeWorkerSource";
 
@@ -34,7 +33,6 @@ export const POINT_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1 =
   "pointQueryExactRuntimeWorker/flarex-point-query-exact-runtime-execution-v1.js";
 export const POINT_QUERY_RUNTIME_KERNEL_MODULE_V1 =
   "pointQueryExactRuntimeWorker/flarex-point-query-runtime-kernel-v1.js";
-export const POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1 = "flarex:platform";
 
 export interface PointQueryExactRuntimeWorkerDefinitionV1
   extends ExecutionArtifactWorkerDefinition {
@@ -87,8 +85,6 @@ export function pointQueryExactRuntimeWorkerGraphBasisV1(input: Readonly<{
       POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SHA256_V1],
     [POINT_QUERY_RUNTIME_KERNEL_MODULE_V1,
       POINT_QUERY_RUNTIME_KERNEL_SHA256_V1],
-    [POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1,
-      pointQueryExactRuntimePlatformSourceV1()],
     [POINT_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1, bridge],
     POINT_QUERY_EXACT_RUNTIME_ENTRYPOINT_V1,
     input.compatibilityDate,
@@ -125,10 +121,6 @@ export function buildPointQueryExactRuntimeWorkerDefinitionV1(
       Object.freeze({
         path: POINT_QUERY_RUNTIME_KERNEL_MODULE_V1,
         source: POINT_QUERY_RUNTIME_KERNEL_SOURCE_V1,
-      }),
-      Object.freeze({
-        path: POINT_QUERY_EXACT_RUNTIME_PLATFORM_MODULE_V1,
-        source: pointQueryExactRuntimePlatformSourceV1(),
       }),
     ]),
     reservedBy: "candidate-bound exact point-query runtime",

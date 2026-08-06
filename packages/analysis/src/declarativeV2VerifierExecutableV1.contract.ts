@@ -528,6 +528,12 @@ export const DECLARATIVE_V2_SAFE_ABI_LOOKUP_V1 = [
 
 export const DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1 = [
   {
+    id: 8,
+    memberPath: ["auth", "getUserIdentity"],
+    operation: "authGetUserIdentity",
+    argumentCounts: [0],
+  },
+  {
     id: 1,
     memberPath: ["db", "get"],
     operation: "databaseGet",
@@ -571,8 +577,11 @@ export const DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1 = [
   },
 ] as const;
 
-export const DECLARATIVE_V2_PLATFORM_IMPORT_ALLOWLIST_V1 = [
-  "flarex:platform",
+export const DECLARATIVE_V2_PLATFORM_IMPORT_MANIFEST_V1 = [
+  {
+    specifier: "flarex:platform",
+    operations: [],
+  },
 ] as const;
 
 /*
@@ -1221,7 +1230,7 @@ export const DECLARATIVE_V2_VERIFIER_EXECUTABLE_CONTRACT_V1 =
     abiLookup: DECLARATIVE_V2_SAFE_ABI_LOOKUP_V1,
     contextMemberAbiLowerings:
       DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1,
-    platformImportAllowlist: DECLARATIVE_V2_PLATFORM_IMPORT_ALLOWLIST_V1,
+    platformImportManifest: DECLARATIVE_V2_PLATFORM_IMPORT_MANIFEST_V1,
     canonicalGrammar: {
       terminals: DECLARATIVE_V2_CANONICAL_TERMINALS_V1,
       nonterminals: DECLARATIVE_V2_CANONICAL_NONTERMINALS_V1,

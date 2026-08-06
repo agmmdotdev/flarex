@@ -50,7 +50,7 @@ import {
   DECLARATIVE_V2_KEYWORDS_V1,
   DECLARATIVE_V2_PARSER_NONTERMINALS_V1,
   DECLARATIVE_V2_PARSER_TERMINALS_V1,
-  DECLARATIVE_V2_PLATFORM_IMPORT_ALLOWLIST_V1,
+  DECLARATIVE_V2_PLATFORM_IMPORT_MANIFEST_V1,
   DECLARATIVE_V2_PUNCTUATORS_V1,
   DECLARATIVE_V2_REGEX_GOAL_AFTER_V1,
   DECLARATIVE_V2_SAFE_ABI_LOOKUP_V1,
@@ -4929,10 +4929,39 @@ export function createDeclarativeV2VerifierEngineV1(
     const allowlistedPlatformSpecifier = function* (
       tokenIndex: number,
     ): Generator<number, boolean, void> {
-      for (const allowed of DECLARATIVE_V2_PLATFORM_IMPORT_ALLOWLIST_V1) {
-        if ((yield* compareTokenToAscii(tokenIndex, allowed, 1, 1)) === 0) {
+      for (const allowed of DECLARATIVE_V2_PLATFORM_IMPORT_MANIFEST_V1) {
+        if (
+          (yield* compareTokenToAscii(
+            tokenIndex,
+            allowed.specifier,
+            1,
+            1,
+          )) === 0
+        ) {
           return true;
         }
+      }
+      return false;
+    };
+    const allowlistedPlatformOperation = function* (
+      sourceToken: number,
+      operationToken: number,
+    ): Generator<number, boolean, void> {
+      for (const allowed of DECLARATIVE_V2_PLATFORM_IMPORT_MANIFEST_V1) {
+        if (
+          (yield* compareTokenToAscii(
+            sourceToken,
+            allowed.specifier,
+            1,
+            1,
+          )) !== 0
+        ) continue;
+        for (const operation of allowed.operations) {
+          if (
+            (yield* compareTokenToAscii(operationToken, operation)) === 0
+          ) return true;
+        }
+        return false;
       }
       return false;
     };
@@ -5036,9 +5065,14 @@ export function createDeclarativeV2VerifierEngineV1(
         importEdgeView.setUint32(offset + 12, sourceToken + 1, false);
         importEdgeView.setUint32(offset + 16, targetKind, false);
         if (targetKind === TARGET_PLATFORM) {
-          const abiId = importedStored === 0
+          const importedToken = importedStored === 0
             ? undefined
-            : yield* abiIdForToken(importedStored - 1);
+            : importedStored - 1;
+          const admitted = importedToken !== undefined &&
+            (yield* allowlistedPlatformOperation(sourceToken, importedToken));
+          const abiId = admitted
+            ? yield* abiIdForToken(importedToken)
+            : undefined;
           if (abiId === undefined) add("CORE_IMPORT_TARGET", at(sourceToken));
           else importEdgeView.setUint32(offset + 36, abiId + 1, false);
         }

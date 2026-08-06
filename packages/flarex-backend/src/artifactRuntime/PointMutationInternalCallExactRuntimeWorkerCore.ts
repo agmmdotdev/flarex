@@ -17,7 +17,6 @@ import type {
   executePointMutationInternalCallV1,
   inspectPointMutationInternalCallRuntimeFailureV1,
   PointMutationInternalCallFrameV1,
-  PointMutationInternalCallRuntimeContextV1,
   PointMutationInternalCallRuntimeInputV1,
   PointMutationInternalCallRuntimeInvocationFactoryV1,
   PointMutationInternalCallRuntimeRunMutationV1,
@@ -37,7 +36,6 @@ import {
 } from "./pointMutationInternalCallExactRuntimeWorker/flarex-point-mutation-internal-call-exact-runtime-config-v1.js";
 import {
   inspectPointMutationInternalCallCoreApplicationErrorV1,
-  withPointMutationInternalCallContextV1,
 } from "flarex:platform";
 
 const EXECUTION_MODULE = exactRuntimeConfigurationV1.executionModule;
@@ -651,13 +649,6 @@ export class FlarexPointMutationInternalCallExactRuntimeV1 extends WorkerEntrypo
                   runQuery,
                   runMutation,
                 ),
-              invokeWithContext: <A>(
-                invocationContext: PointMutationInternalCallRuntimeContextV1,
-                operation: () => A | PromiseLike<A>,
-              ) => withPointMutationInternalCallContextV1(
-                invocationContext,
-                operation,
-              ),
               journal: openedJournal,
               recordCallFrame: (_frame: PointMutationInternalCallFrameV1) => {},
               isApplicationCatchableError: (cause: unknown) =>

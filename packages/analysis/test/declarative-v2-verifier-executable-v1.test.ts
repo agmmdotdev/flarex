@@ -301,9 +301,8 @@ describe("private verifier restart bridge", () => {
 
   test("preserves construction diagnostics after direct-call records", () => {
     const source =
-      'import { databasePatch } from "flarex:platform"; ' +
-      "export async function patch(_, { id }) { " +
-      'await databasePatch(id, { title: "staged" }); ' +
+      "export async function patch(ctx, { id }) { " +
+      'await ctx.db.patch(id, { title: "staged" }); ' +
       'throw new Error("injected"); }';
     const sourceBytes = UTF8_ENCODER.encode(source);
     const presented = Result.getOrThrow(runSource(sourceBytes, [sourceBytes]));
@@ -330,7 +329,6 @@ describe("private verifier restart bridge", () => {
     }
     expect(records.map(record => record.kind)).toEqual([
       "module_identity_v1",
-      "static_import_v1",
       "export_binding_v1",
       "function_v1",
       "direct_call_v1",
@@ -1648,12 +1646,12 @@ describe("Declarative V2 executable verifier asset", () => {
       );
     expect(first.manifest).toMatchObject({
       assetSha256:
-        "f74ea3583f0ae0e81ed15f31fb048cd2795a8f4e580239703d534d66b7d98cfb",
-      assetByteLength: 4_858_936,
+        "f47121d2875efb784275e3c09088ff5e66bc2e5b3c472698584c078e1720b943",
+      assetByteLength: 4_859_064,
       contractSha256:
-        "b95499cd02ffe25ecbf64e2c2dae0c6721980eebcdc6c3a487836edc36fb52a1",
+        "89fff36b6aa0a391b51b861861a0bc608905a5ae37ac14c9f9d14a433d992a77",
       manifestIdentity:
-        "3ac116306c48aa50cc4c359127f024ea772a8e4b60fe276eb42a61cf5ea7c33e",
+        "ee51afba0ec384365e7e6021c9be0e1d992929f4e25def533a45e71ac35457d5",
     });
   }, 120_000);
 
@@ -2372,11 +2370,9 @@ describe("Declarative V2 executable verifier asset", () => {
 describe("Declarative V2 streaming engine", () => {
   const validSource = UTF8_ENCODER.encode([
     "\"use strict\";",
-    "import { valueGet, databaseGet } from \"flarex:platform\";",
     "function helper(value) { return value; }",
-    "export async function getThing(ctx, args) {",
-    "  const id = valueGet(args, \"id\");",
-    "  return await databaseGet(id);",
+    "export async function getThing(ctx, { id }) {",
+    "  return await ctx.db.get(helper(id));",
     "}",
   ].join("\n"));
 
@@ -2401,23 +2397,21 @@ describe("Declarative V2 streaming engine", () => {
         (_, index) => `databaseGet("id-${index}");`,
       ).join("\n");
       const source = UTF8_ENCODER.encode([
-        "import { databaseGet } from \"flarex:platform\";",
-        `export async function manyReads() { ${calls} return null; }`,
+        `export async function manyReads(ctx) { ${calls.replaceAll("databaseGet", "ctx.db.get")} return null; }`,
       ].join("\n"));
       const result = runSource(source, [source]);
       if (Result.isFailure(result)) throw result.failure;
       expect(result.success.valueFlows).toHaveLength(count);
       return result.success.usage.calls;
     };
+    const thirtyTwo = callsFor(32);
     const sixtyFour = callsFor(64);
-    const oneTwentyEight = callsFor(128);
-    expect(oneTwentyEight * 100n).toBeLessThan(sixtyFour * 201n);
+    expect(sixtyFour * 100n).toBeLessThan(thirtyTwo * 201n);
   });
 
   test("reports undersized evidence-index storage as typed frame exhaustion", () => {
     const source = UTF8_ENCODER.encode([
-      "import { databaseGet } from \"flarex:platform\";",
-      "export async function read() { return databaseGet(\"id\"); }",
+      "export async function read(ctx) { return ctx.db.get(\"id\"); }",
     ].join("\n"));
     const created = createDeclarativeV2VerifierEngineV1({
       modulePath: artifactModulePath("functions/undersized-evidence.js"),
@@ -2492,13 +2486,29 @@ describe("Declarative V2 streaming engine", () => {
   }, 30_000);
 
   test.each([
-    ["database read", "runtime.db.get(id)", "get", "databaseGet", "databaseRead"],
+    [
+      "auth lookup",
+      "runtime.auth.getUserIdentity()",
+      "getUserIdentity",
+      "authGetUserIdentity",
+      "auth",
+      "host",
+    ],
+    [
+      "database read",
+      "runtime.db.get(id)",
+      "get",
+      "databaseGet",
+      "databaseRead",
+      "mixed",
+    ],
     [
       "database write",
       'runtime.db.insert("recipes", value)',
       "insert",
       "databaseInsert",
       "databaseWrite",
+      "mixed",
     ],
     [
       "database patch",
@@ -2506,6 +2516,7 @@ describe("Declarative V2 streaming engine", () => {
       "patch",
       "databasePatch",
       "databaseWrite",
+      "mixed",
     ],
     [
       "database replacement",
@@ -2513,6 +2524,7 @@ describe("Declarative V2 streaming engine", () => {
       "replace",
       "databaseReplace",
       "databaseWrite",
+      "mixed",
     ],
     [
       "database deletion",
@@ -2520,10 +2532,11 @@ describe("Declarative V2 streaming engine", () => {
       "delete",
       "databaseDelete",
       "databaseWrite",
+      "mixed",
     ],
   ])(
     "lowers direct root-context %s to the existing ABI evidence",
-    (_label, expression, targetName, operationName, capability) => {
+    (_label, expression, targetName, operationName, capability, catchability) => {
       const source = UTF8_ENCODER.encode(
         `export async function run(runtime, value) { return await ${expression}; }`,
       );
@@ -2541,7 +2554,7 @@ describe("Declarative V2 streaming engine", () => {
         expect.objectContaining({
           operationName,
           capability,
-          catchability: "mixed",
+          catchability,
         }),
       ]);
     },
@@ -2549,6 +2562,12 @@ describe("Declarative V2 streaming engine", () => {
 
   test("pins one ordered context-path catalog to existing ABI operations", () => {
     expect(DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1).toEqual([
+      {
+        id: 8,
+        memberPath: ["auth", "getUserIdentity"],
+        operation: "authGetUserIdentity",
+        argumentCounts: [0],
+      },
       {
         id: 1,
         memberPath: ["db", "get"],
@@ -2814,49 +2833,62 @@ describe("Declarative V2 streaming engine", () => {
   }, 30_000);
 
   test.each([
-    ["get", "databaseGet", "ctx.db.get(id)", "databaseGet(id)"],
+    ["get", "databaseGet", "ctx.db.get(id)"],
     [
       "insert",
       "databaseInsert",
       'ctx.db.insert("recipes", value)',
-      'databaseInsert("recipes", value)',
     ],
     [
       "patch",
       "databasePatch",
       "ctx.db.patch(id, value)",
-      "databasePatch(id, value)",
     ],
     [
       "replace",
       "databaseReplace",
       "ctx.db.replace(id, value)",
-      "databaseReplace(id, value)",
     ],
-    ["delete", "databaseDelete", "ctx.db.delete(id)", "databaseDelete(id)"],
+    ["delete", "databaseDelete", "ctx.db.delete(id)"],
   ])(
-    "keeps direct context %s value-flow authority equal to the private ABI spelling",
-    (_member, operation, contextCall, privateCall) => {
+    "emits direct context %s value-flow authority without a private call shim",
+    (_member, operation, contextCall) => {
       const contextSource = UTF8_ENCODER.encode(
         `export function run(ctx, id, value) { return ${contextCall}; }`,
       );
-      const privateAbiSource = UTF8_ENCODER.encode(
-        `import {${operation}} from "flarex:platform";` +
-          `export function run(_, id, value) { return ${privateCall}; }`,
-      );
       const context = runSource(contextSource, [contextSource]);
-      const privateAbi = runSource(privateAbiSource, [privateAbiSource]);
       if (Result.isFailure(context)) throw context.failure;
-      if (Result.isFailure(privateAbi)) throw privateAbi.failure;
-      const authority = (result: DeclarativeV2VerifierModulePresentationV1) =>
-        result.valueFlows.map(({ operationName, capability, catchability }) => ({
-          operationName,
-          capability,
-          catchability,
-        }));
-      expect(authority(context.success)).toEqual(authority(privateAbi.success));
+      expect(context.success.valueFlows).toEqual([
+        expect.objectContaining({ operationName: operation }),
+      ]);
     },
   );
+
+  test.each([
+    "authGetUserIdentity",
+    "databaseGet",
+    "databaseInsert",
+    "databasePatch",
+    "databaseReplace",
+    "databaseDelete",
+    "runQuery",
+    "runMutation",
+    "errorCreate",
+    "errorCode",
+    "errorMessage",
+    "errorData",
+  ])("rejects private platform operation %s", (operation) => {
+    const source = UTF8_ENCODER.encode(
+      `import { ${operation} } from "flarex:platform"; ` +
+        `export function run() { return ${operation}(); }`,
+    );
+    const result = runSource(source, [source]);
+    if (Result.isFailure(result)) throw result.failure;
+    expect(result.success.verified).toBe(false);
+    expect(result.success.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "CORE_IMPORT_TARGET" }),
+    ]));
+  });
 
   test.each([
     ["missing get id", "ctx.db.get()"],
@@ -2983,11 +3015,10 @@ describe("Declarative V2 streaming engine", () => {
 
   test("admits the exact awaited internal-call cycle fixture for runtime rejection", () => {
     const source = UTF8_ENCODER.encode(
-      'import { databaseGet, runQuery, valueGet } from "flarex:platform"; ' +
-        'export async function i(_, a) { const id = valueGet(a, "id"); ' +
+      'export async function i(ctx, { id }) { ' +
         'if (id === "cycle") ' +
-        'return await runQuery({_path:"internal:i"}, a); ' +
-        'return await databaseGet(id); }',
+        'return await ctx.runQuery({_path:"internal:i"}, { id }); ' +
+        'return await ctx.db.get(id); }',
     );
     Result.match(runSource(source, [source]), {
       onFailure: failure => { throw failure; },
@@ -3000,9 +3031,8 @@ describe("Declarative V2 streaming engine", () => {
 
   test("admits the exact mutation-to-internal-query fixture", () => {
     const source = UTF8_ENCODER.encode(
-      'import {databaseDelete,runQuery} from "flarex:platform";' +
-        'export async function u(_,{i}){ await databaseDelete(i); ' +
-        'return await runQuery({_path:"q:r"},{i})}',
+      'export async function u(ctx,{i}){ await ctx.db.delete(i); ' +
+        'return await ctx.runQuery({_path:"q:r"},{i})}',
     );
     Result.match(runSource(source, [source]), {
       onFailure: failure => { throw failure; },
@@ -3391,25 +3421,17 @@ describe("Declarative V2 streaming engine", () => {
   });
 
   test.each([
-    "databaseGet",
-    "queryCollect",
-    "queryTake",
-    "queryFirst",
-    "queryUnique",
-    "queryPaginate",
-    "databaseInsert",
-    "databasePatch",
-    "databaseReplace",
-    "databaseDelete",
-    "runQuery",
-    "runMutation",
-  ])("permits existing mixed ABI catchability for %s", (operation) => {
-    const argumentsSource = operation === "runQuery" || operation === "runMutation"
-      ? '({_path:"internal:helper"})'
-      : "()";
+    ["databaseGet", "ctx.db.get(id)"],
+    ["databaseInsert", 'ctx.db.insert("items", {})'],
+    ["databasePatch", "ctx.db.patch(id, {})"],
+    ["databaseReplace", "ctx.db.replace(id, {})"],
+    ["databaseDelete", "ctx.db.delete(id)"],
+    ["runQuery", 'ctx.runQuery({_path:"internal:helper"})'],
+    ["runMutation", 'ctx.runMutation({_path:"internal:helper"})'],
+  ])("permits direct context mixed catchability for %s", (operation, call) => {
     const source = UTF8_ENCODER.encode(
-      `import { ${operation} } from "flarex:platform"; ` +
-        `export async function f() { try { return await ${operation}${argumentsSource}; } catch { return null; } }`,
+      `export async function f(ctx, id) { ` +
+        `try { return await ${call}; } catch { return null; } }`,
     );
     Result.match(runSource(source, [source]), {
       onFailure: (failure) => {
@@ -3449,8 +3471,9 @@ describe("Declarative V2 streaming engine", () => {
     ["overlapping call", 'Promise.all([runQuery({_path:"internal:helper"})])'],
   ])("rejects non-static internal-call authority: %s", (_label, expression) => {
     const source = UTF8_ENCODER.encode(
-      'import { runQuery } from "flarex:platform"; ' +
-        `export async function f(reference) { ${expression}; return null; }`,
+      `export async function f(ctx, reference, args) { ${
+        expression.replaceAll("runQuery", "ctx.runQuery")
+      }; return null; }`,
     );
     Result.match(runSource(source, [source]), {
       onFailure: (failure) => {
@@ -3483,8 +3506,9 @@ describe("Declarative V2 streaming engine", () => {
     ["overlapping call", 'Promise.all([runMutation({_path:"internal:helper"})])'],
   ])("rejects non-static internal-mutation authority: %s", (_label, expression) => {
     const source = UTF8_ENCODER.encode(
-      'import { runMutation } from "flarex:platform"; ' +
-        `export async function f(reference) { ${expression}; return null; }`,
+      `export async function f(ctx, reference, args) { ${
+        expression.replaceAll("runMutation", "ctx.runMutation")
+      }; return null; }`,
     );
     Result.match(runSource(source, [source]), {
       onFailure: (failure) => {
@@ -3512,7 +3536,7 @@ describe("Declarative V2 streaming engine", () => {
     ["loose equality", "export function f(x) { return x == null; }", "CORE_LOOSE_EQUALITY"],
     [
       "host catch",
-      "import { authGetUserIdentity } from \"flarex:platform\"; export async function f() { try { return await authGetUserIdentity(); } catch { return null; } }",
+      "export async function f(ctx) { try { return await ctx.auth.getUserIdentity(); } catch { return null; } }",
       "CORE_HOST_FAILURE_OBSERVATION",
     ],
     ["side-effect import", "import \"./x.js\"; export function f() {}", "CORE_SIDE_EFFECT_IMPORT"],
@@ -3523,9 +3547,9 @@ describe("Declarative V2 streaming engine", () => {
     ["backslash artifact path", "import { x } from \"./a\\\\x.js\"; export function f() { return x(); }", "CORE_IMPORT_TARGET"],
     ["malformed unary expression", "export function f() { return +; }", "CORE_SYNTAX"],
     [
-      "parameter-shadowed platform call",
+      "removed private database call",
       "import { databaseGet } from \"flarex:platform\"; export function f(databaseGet) { return databaseGet(); }",
-      "CORE_CALL_TARGET",
+      "CORE_IMPORT_TARGET",
     ],
     [
       "unknown platform import",
@@ -4356,8 +4380,7 @@ describe("Declarative V2 streaming engine", () => {
 
   test("admits exact observed engine usage and rejects every used dimension one-less", () => {
     const source = UTF8_ENCODER.encode(
-      'import { databaseGet } from "flarex:platform";\n' +
-        "export function run() { return databaseGet(); }\n",
+      'export function run(ctx) { return ctx.db.get("id"); }\n',
     );
     const baseline = runSource(source, [source]);
     expect(Result.isSuccess(baseline)).toBe(true);

@@ -110,27 +110,3 @@ for (const moduleV1 of Object.values(registryV1)) Object.freeze(moduleV1);
 export default Object.freeze(registryV1);
 `;
 }
-
-export function pointQueryInternalCallExactRuntimePlatformSourceV1(): string {
-  return `// Private exact query syscall ABI for one operation-scoped Worker.
-const contextsV1 = [];
-function currentV1() {
-  const contextV1 = contextsV1.at(-1);
-  if (contextV1 === undefined) throw new Error("Point-query syscall escaped its invocation context.");
-  return contextV1;
-}
-export async function withPointQueryInternalCallContextV1(contextV1, operationV1) {
-  contextsV1.push(contextV1);
-  try { return await operationV1(); }
-  finally {
-    if (contextsV1.pop() !== contextV1) {
-      contextsV1.length = 0;
-      throw new Error("Concurrent point-query syscall context is unsupported.");
-    }
-  }
-}
-export function authGetUserIdentity() { return currentV1().auth.getUserIdentity(); }
-export function databaseGet(documentIdV1) { return currentV1().db.get(documentIdV1); }
-export function runQuery(referenceV1, argsV1) { return currentV1().runQuery(referenceV1, argsV1); }
-`;
-}

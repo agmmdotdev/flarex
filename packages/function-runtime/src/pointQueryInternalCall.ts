@@ -93,10 +93,6 @@ export interface PointQueryInternalCallRuntimeInvocationV1 {
   readonly createContext: (
     runQuery: PointQueryInternalCallRuntimeRunQueryV1,
   ) => PointQueryInternalCallRuntimeContextV1;
-  readonly invokeWithContext: <A>(
-    context: PointQueryInternalCallRuntimeContextV1,
-    operation: () => A | PromiseLike<A>,
-  ) => Promise<Awaited<A>>;
   readonly readBoundary: PointQueryInternalCallRuntimeReadBoundaryV1;
   readonly recordCallFrame: (frame: PointQueryInternalCallFrameV1) => void;
   readonly recordTerminalFailure: (cause: unknown) => void;
@@ -401,10 +397,7 @@ export async function executePointQueryInternalCallV1(
     activeOrdinals.push(callee.ordinal);
     try {
       const childContext = contextFor(callee.ordinal);
-      const childResult = await invocation.invokeWithContext(
-        childContext,
-        () => child(childContext, captured.value),
-      );
+      const childResult = await child(childContext, captured.value);
       let normalizedChild: ReturnType<typeof normalizeFlarexValueV1>;
       try {
         normalizedChild = normalizeFlarexValueV1(
@@ -458,10 +451,7 @@ export async function executePointQueryInternalCallV1(
   let handlerFailure: Readonly<{ readonly cause: unknown }> | undefined;
   try {
     const rootContext = contextFor(input.function.ordinal);
-    handlerResult = await invocation.invokeWithContext(
-      rootContext,
-      () => handler(rootContext, input.arguments),
-    );
+    handlerResult = await handler(rootContext, input.arguments);
   } catch (cause) {
     handlerFailure = { cause };
   }

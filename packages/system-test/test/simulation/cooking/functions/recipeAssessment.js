@@ -1,7 +1,5 @@
-import { databaseGet } from "flarex:platform";
-
-export async function assess(_, { id }) {
-  const recipe = await databaseGet(id);
+export async function assess(ctx, { id }) {
+  const recipe = await ctx.db.get(id);
   if (recipe === null) return null;
 
   const {

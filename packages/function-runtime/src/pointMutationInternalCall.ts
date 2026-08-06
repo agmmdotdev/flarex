@@ -125,10 +125,6 @@ export interface PointMutationInternalCallRuntimeInvocationV1 {
     runQuery: PointMutationInternalCallRuntimeRunQueryV1,
     runMutation: PointMutationInternalCallRuntimeRunMutationV1,
   ) => PointMutationInternalCallRuntimeContextV1;
-  readonly invokeWithContext: <A>(
-    context: PointMutationInternalCallRuntimeContextV1,
-    operation: () => A | PromiseLike<A>,
-  ) => Promise<Awaited<A>>;
   readonly journal: PointMutationInternalCallRuntimeJournalBoundaryV1;
   readonly recordCallFrame: (frame: PointMutationInternalCallFrameV1) => void;
   readonly isApplicationCatchableError: (cause: unknown) => boolean;
@@ -403,45 +399,23 @@ export async function executePointMutationInternalCallV1(
     invocation.recordTerminalFailure(failure);
     throw failure;
   };
-  const readOnlyDatabase = makeReadOnlyDatabase(
-    invocation.database,
-    () => terminal("internalTargetInvalid", "Internal query context is read-only."),
-  );
   const queryContextsFor = (
     parentOrdinal: number,
-  ): Readonly<{
-    readonly handler: PointMutationInternalCallRuntimeQueryContextV1;
-    readonly platform: PointMutationInternalCallRuntimeContextV1;
-  }> => {
+  ): PointMutationInternalCallRuntimeQueryContextV1 => {
     const runQuery: PointMutationInternalCallRuntimeRunQueryV1 =
       (reference: unknown, args?: unknown) =>
         runInternal(parentOrdinal, "query", reference, args);
-    const handler = invocation.createQueryContext(runQuery);
-    const platform = Object.freeze({
-      auth: handler.auth,
-      db: readOnlyDatabase,
-      runQuery: handler.runQuery,
-      runMutation: (_reference: unknown, _args?: unknown) => terminal(
-        "internalTargetInvalid",
-        "Internal query context cannot run a mutation.",
-      ),
-    });
-    return { handler, platform };
+    return invocation.createQueryContext(runQuery);
   };
   const mutationContextsFor = (
     parentOrdinal: number,
-  ): Readonly<{
-    readonly handler: PointMutationInternalCallRuntimeContextV1;
-    readonly platform: PointMutationInternalCallRuntimeContextV1;
-  }> => {
-    const handler = invocation.createMutationContext(
+  ): PointMutationInternalCallRuntimeContextV1 =>
+    invocation.createMutationContext(
       (reference: unknown, args?: unknown) =>
         runInternal(parentOrdinal, "query", reference, args),
       (reference: unknown, args?: unknown) =>
         runInternal(parentOrdinal, "mutation", reference, args),
     );
-    return { handler, platform: handler };
-  };
   const executeInternal = async (
     parentOrdinal: number,
     expectedKind: "query" | "mutation",
@@ -515,17 +489,11 @@ export async function executePointMutationInternalCallV1(
       let childResult: unknown;
       try {
         if (child.kind === "query") {
-          const childContexts = queryContextsFor(callee.ordinal);
-          childResult = await invocation.invokeWithContext(
-            childContexts.platform,
-            () => child.handler(childContexts.handler, captured.value),
-          );
+          const childContext = queryContextsFor(callee.ordinal);
+          childResult = await child.handler(childContext, captured.value);
         } else {
-          const childContexts = mutationContextsFor(callee.ordinal);
-          childResult = await invocation.invokeWithContext(
-            childContexts.platform,
-            () => child.handler(childContexts.handler, captured.value),
-          );
+          const childContext = mutationContextsFor(callee.ordinal);
+          childResult = await child.handler(childContext, captured.value);
         }
       } catch (cause) {
         if (
@@ -592,11 +560,8 @@ export async function executePointMutationInternalCallV1(
   let handlerResult: unknown;
   let handlerFailure: Readonly<{ readonly cause: unknown }> | undefined;
   try {
-    const rootContexts = mutationContextsFor(input.function.ordinal);
-    handlerResult = await invocation.invokeWithContext(
-      rootContexts.platform,
-      () => handler(rootContexts.handler, input.arguments),
-    );
+    const rootContext = mutationContextsFor(input.function.ordinal);
+    handlerResult = await handler(rootContext, input.arguments);
   } catch (cause) {
     handlerFailure = { cause };
   }
@@ -702,19 +667,6 @@ function exactRuntimeHandler(
     throw new PointMutationInternalCallRuntimeContractV1Error("functionMetadataInvalid");
   }
   return handler.value as RuntimeQueryHandler | RuntimeMutationHandler;
-}
-
-function makeReadOnlyDatabase(
-  database: PointMutationInternalCallRuntimeDatabaseV1,
-  forbidden: () => never,
-): PointMutationInternalCallRuntimeDatabaseV1 {
-  return Object.freeze({
-    get: database.get,
-    insert: forbidden,
-    patch: forbidden,
-    replace: forbidden,
-    delete: forbidden,
-  });
 }
 
 function staticFunctionPath(reference: unknown): string | undefined {

@@ -10,7 +10,6 @@ import type {
   executePointMutationInternalQueryV1,
   inspectPointMutationInternalQueryRuntimeFailureV1,
   PointMutationInternalQueryFrameV1,
-  PointMutationInternalQueryRuntimeContextV1,
   PointMutationInternalQueryRuntimeInputV1,
   PointMutationInternalQueryRuntimeInvocationFactoryV1,
 } from "@flarex/function-runtime/point-mutation-internal-query";
@@ -28,7 +27,6 @@ import {
 } from "./pointMutationInternalQueryExactRuntimeWorker/flarex-point-mutation-internal-query-exact-runtime-config-v1.js";
 import {
   inspectPointMutationInternalQueryCoreApplicationErrorV1,
-  withPointMutationInternalQueryContextV1,
 } from "flarex:platform";
 
 const EXECUTION_MODULE = exactRuntimeConfigurationV1.executionModule;
@@ -622,13 +620,6 @@ export class FlarexPointMutationInternalQueryExactRuntimeV1 extends WorkerEntryp
             const context = executionContext(request, journalRuntime.database);
             return Object.freeze({
               context,
-              invokeWithContext: <A>(
-                invocationContext: PointMutationInternalQueryRuntimeContextV1,
-                operation: () => A | PromiseLike<A>,
-              ) => withPointMutationInternalQueryContextV1(
-                invocationContext,
-                operation,
-              ),
               journal: journalRuntime,
               recordCallFrame: (_frame: PointMutationInternalQueryFrameV1) => {},
               isCoreApplicationError:

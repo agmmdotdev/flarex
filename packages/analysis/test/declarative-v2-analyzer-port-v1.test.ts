@@ -54,8 +54,7 @@ import {
 const UTF8 = new TextEncoder();
 const SOURCE = "export function getThing() { return \"ok\"; }";
 const PARSE_DIAGNOSTIC_SOURCE =
-  'import{databaseInsert}from"flarex:platform";' +
-  'export function getThing(_,a){databaseInsert("recipes",a);' +
+  'export function getThing(ctx,a){ctx.db.insert("recipes",a);' +
   'throw new Error("injected")}';
 const LINK_DIAGNOSTIC_SOURCE =
   'import { absent } from "./missing.js"; ' +

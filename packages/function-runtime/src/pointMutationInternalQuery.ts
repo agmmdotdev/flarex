@@ -98,10 +98,6 @@ export interface PointMutationInternalQueryRuntimeJournalBoundaryV1 {
 
 export interface PointMutationInternalQueryRuntimeInvocationV1 {
   readonly context: Omit<PointMutationInternalQueryRuntimeContextV1, "runQuery">;
-  readonly invokeWithContext: <A>(
-    context: PointMutationInternalQueryRuntimeContextV1,
-    operation: () => A | PromiseLike<A>,
-  ) => Promise<Awaited<A>>;
   readonly journal: PointMutationInternalQueryRuntimeJournalBoundaryV1;
   readonly recordCallFrame: (frame: PointMutationInternalQueryFrameV1) => void;
   readonly isCoreApplicationError: (cause: unknown) => boolean;
@@ -437,10 +433,7 @@ export async function executePointMutationInternalQueryV1(
       const childContext = contextFor(callee.ordinal, readOnlyDatabase);
       let childResult: unknown;
       try {
-        childResult = await invocation.invokeWithContext(
-          childContext,
-          () => child(childContext, captured.value),
-        );
+        childResult = await child(childContext, captured.value);
       } catch (cause) {
         if (
           cause instanceof PointMutationInternalQueryApplicationV1Error ||
@@ -506,10 +499,7 @@ export async function executePointMutationInternalQueryV1(
   let handlerFailure: Readonly<{ readonly cause: unknown }> | undefined;
   try {
     const rootContext = contextFor(input.function.ordinal, invocation.context.db);
-    handlerResult = await invocation.invokeWithContext(
-      rootContext,
-      () => handler(rootContext, input.arguments),
-    );
+    handlerResult = await handler(rootContext, input.arguments);
   } catch (cause) {
     handlerFailure = { cause };
   }
