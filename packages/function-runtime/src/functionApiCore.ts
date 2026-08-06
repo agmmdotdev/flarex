@@ -49,6 +49,7 @@ export type FunctionRuntimeApplicationErrorInvalidV1 = (
 ) => never;
 
 export interface FunctionRuntimeApplicationErrorRegistryV1 {
+  readonly FlarexError: FunctionRuntimeFlarexErrorConstructorV1;
   readonly create: (
     code: unknown,
     message: unknown,
@@ -60,6 +61,19 @@ export interface FunctionRuntimeApplicationErrorRegistryV1 {
   readonly data: (
     error: unknown,
   ) => CanonicalFlarexRuntimeValueV1 | undefined;
+}
+
+export interface FunctionRuntimeFlarexErrorV1 extends Error {
+  readonly code: string;
+  readonly data?: CanonicalFlarexRuntimeValueV1;
+}
+
+export interface FunctionRuntimeFlarexErrorConstructorV1 {
+  new (
+    code: unknown,
+    message: unknown,
+    data?: unknown,
+  ): FunctionRuntimeFlarexErrorV1;
 }
 
 export type FunctionRuntimePointReadV1<DocumentId, Document> = (
@@ -260,26 +274,47 @@ export function createFunctionRuntimeApplicationErrorRegistryV1(
     const captured = capturedByError.get(value);
     return captured ?? invalid();
   };
+  const capture = (
+    code: unknown,
+    message: unknown,
+    data?: unknown,
+  ): CapturedFunctionRuntimeApplicationErrorV1 => {
+    const capturedCode = captureFunctionRuntimeApplicationErrorTextV1(
+      code,
+      "code",
+      invalid,
+    );
+    const capturedMessage = captureFunctionRuntimeApplicationErrorTextV1(
+      message,
+      "message",
+      invalid,
+    );
+    return data === undefined
+      ? freeze({ code: capturedCode, message: capturedMessage })
+      : freeze({
+          code: capturedCode,
+          message: capturedMessage,
+          data: captureData(data),
+        });
+  };
+  class FlarexError extends Error implements FunctionRuntimeFlarexErrorV1 {
+    readonly code: string;
+    declare readonly data?: CanonicalFlarexRuntimeValueV1;
+
+    constructor(code: unknown, message: unknown, data?: unknown) {
+      const captured = capture(code, message, data);
+      super(captured.message);
+      Object.defineProperty(this, "name", { value: "FlarexError" });
+      this.code = captured.code;
+      if (captured.data !== undefined) this.data = captured.data;
+      capturedByError.set(this, captured);
+    }
+  }
   return freeze({
+    FlarexError,
     create: (code: unknown, message: unknown, data?: unknown): Error => {
-      const capturedCode = captureFunctionRuntimeApplicationErrorTextV1(
-        code,
-        "code",
-        invalid,
-      );
-      const capturedMessage = captureFunctionRuntimeApplicationErrorTextV1(
-        message,
-        "message",
-        invalid,
-      );
-      const captured = data === undefined
-        ? freeze({ code: capturedCode, message: capturedMessage })
-        : freeze({
-            code: capturedCode,
-            message: capturedMessage,
-            data: captureData(data),
-          });
-      const error = new Error(capturedMessage);
+      const captured = capture(code, message, data);
+      const error = new Error(captured.message);
       Object.defineProperty(error, "name", { value: "CoreApplicationErrorV1" });
       capturedByError.set(error, captured);
       return error;

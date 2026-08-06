@@ -140,6 +140,23 @@ export {
 
 export type Value = FlarexValue;
 
+/**
+ * A declared application failure that callers may handle as ordinary function
+ * output failure. Exact Flarex runtimes replace this authoring constructor with
+ * an isolate-local constructor backed by an unforgeable provenance registry.
+ */
+export class FlarexError<Data extends Value = Value> extends Error {
+  readonly code: string;
+  declare readonly data?: Data;
+
+  constructor(code: string, message: string, data?: Data) {
+    super(message);
+    Object.defineProperty(this, "name", { value: "FlarexError" });
+    this.code = code;
+    if (data !== undefined) this.data = data;
+  }
+}
+
 export function flarexToJson(value: Value): JSONValue {
   return flarexValueToJsonV1(value, "generalValue");
 }

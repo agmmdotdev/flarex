@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
+  FlarexError,
   flarexToJson,
   jsonToFlarex,
   type JSONValue,
@@ -8,6 +9,24 @@ import {
 } from "../src/index";
 
 describe("public Flarex value facade", () => {
+  it("exposes a standalone typed application error beside Value", () => {
+    const error = new FlarexError(
+      "RECIPE_NOT_FOUND",
+      "Recipe was not found.",
+      { recipeId: "recipes:missing" },
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toBeInstanceOf(FlarexError);
+    expect(error.name).toBe("FlarexError");
+    expect(error.message).toBe("Recipe was not found.");
+    expect(error.code).toBe("RECIPE_NOT_FOUND");
+    expect(error.data).toEqual({ recipeId: "recipes:missing" });
+    expectTypeOf(error.data).toEqualTypeOf<
+      { recipeId: string } | undefined
+    >();
+  });
+
   it("exposes Convex-shaped value conversion without protocol version names", () => {
     const input = {
       id: "users:1",

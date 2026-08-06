@@ -1455,15 +1455,9 @@ adapters; their generated private platform modules are thin profile-named
 projections over the shared registry. The mutation/internal-query graph now
 commits the already-versioned Function API Core support module it imports.
 
-The deterministic generated closure is:
-
-- Function API Core
-  `dfa95f0396509503cf238268c8b4c79c3f41364acf3218bd9de699c07db03666`;
-- point-mutation internal-query kernel
-  `fdb0fa34336b5491424b6538ae283f8c34d5368628cadedd80d9264b41271ccc`;
-  and
-- point-mutation internal-call kernel
-  `7b8fddf09d35d246ab6a62f6353ae6617dc0c2f92f63510a7219c1ab16776621`.
+The checked-in generated modules and Git history own the exact closure
+identities. This living roadmap records their authority and regeneration gate,
+not a digest receipt that becomes stale after the next accepted core change.
 
 Validation passed both affected package typechecks, all 53 function-runtime
 tests, the focused generated-identity and both Workerd suites (10 tests), the
@@ -2237,14 +2231,56 @@ check and typecheck, 37 focused backend producer/Workerd tests, all 52 portable
 function-runtime tests, system-test typecheck, and seven real-system PGlite
 files with 21 tests.
 
-The next bounded gate is `FAC10`: preflight a normal standalone application-
-error authoring API against current Convex `ConvexError` ergonomics without
-changing the existing immutable error payload, WeakMap provenance registry,
-catchability classification, wire ABI, or host inspection boundary. The
-preflight must prove whether a public developer API is justified and identify
-its actual package owner; it must not invent a `ctx` error member, expose the
-host-private `flarex:platform` module, add dual acceptance, or widen into query
-builders, schemas, persistence, activation, routing, or production behavior.
+### `FAC10` Standalone Application Error Preflight Decision
+
+The public developer API is justified, but only as a standalone value-domain
+constructor. Current Convex owns `ConvexError` beside its public values API and
+lets application code write `throw new ConvexError(data)`. Its runtime later
+recognizes the error through a globally registered symbol. Flarex must copy the
+useful authoring shape without copying that forgeable recognition boundary.
+
+The accepted Flarex split is:
+
+- `flarex/values` owns `FlarexError` beside `Value` and `v`; it is not a
+  context member and does not expose a host syscall module;
+- the constructor remains explicit as
+  `new FlarexError(code, message, data?)`. Copying Convex's single-data
+  constructor would require a new hidden code and bounded-message derivation
+  protocol, while the accepted Flarex wire and catchability contract already
+  owns immutable `code`, `message`, and optional canonical `data`;
+- exact Workers own a fresh constructor per isolate. It captures and validates
+  the three accepted fields through the existing process-local `WeakMap`
+  registry, so a matching class name, public properties, global symbol, or
+  separately constructed developer-package instance cannot forge provenance;
+- the analyzer may later lower only an exact `new FlarexError(...)` binding
+  imported from `flarex/values`. Arbitrary `new`, `class`, `super`, subclassing,
+  computed construction, and user imports from `flarex:platform` remain
+  rejected; and
+- query and mutation registration may advertise this capability only after
+  every selected query and mutation runtime graph provides the exact public
+  module and shares its registry with the owning failure inspector. Actions
+  and workflow mutations remain fail-closed until their separate exact runtime
+  owners provide the same proof.
+
+`FAC10-P1` completes the first shared primitive only: the public typed
+authoring class and the isolate-local registry constructor use the same visible
+`name`, `code`, `message`, and optional `data` shape, while the registry keeps
+the accepted validation order, byte bounds, canonical data capture, and
+unforgeable identity. This is deliberately not yet analyzer or Worker
+admission. The next slice must wire the exact constructor through all selected
+query and mutation profiles as one capability before any positive application
+fixture is accepted.
+
+This decision changes no syscall, application-error wire payload, inspector
+classification, query read boundary, mutation journal, OCC, commit, schema,
+persistence, activation, route, or production behavior.
+
+The next bounded gate is `FAC10-P2`: introduce one exact analyzer-owned
+constructor lowering and wire its public module plus shared registry through
+the complete selected point-query and point-mutation runtime-profile matrix.
+Registration must reject every profile that lacks that exact module/inspector
+pair; no positive fixture may rely on ambient package loading or a public
+platform import.
 
 The public `flarex-test` real-runtime contract remains unchanged. Internal
 simulation APIs may adopt shared authoring primitives and normal `ctx.*`

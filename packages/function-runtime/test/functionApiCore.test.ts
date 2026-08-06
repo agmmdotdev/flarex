@@ -249,6 +249,7 @@ describe("@flarex/function-runtime/function-api-core", () => {
     const withData = registry.create("WITH_DATA", "with data", { source: 1 });
 
     expect(Object.keys(registry)).toEqual([
+      "FlarexError",
       "create",
       "inspect",
       "code",
@@ -278,6 +279,38 @@ describe("@flarex/function-runtime/function-api-core", () => {
     expect(registry.data(withData)).toBe(data);
     expect(captureData).toHaveBeenCalledOnce();
     expect(captureData).toHaveBeenCalledWith({ source: 1 });
+  });
+
+  it("constructs Convex-shaped public errors with registry-local provenance", () => {
+    const capturedData = Object.freeze({ reason: "declared" });
+    const first = createFunctionRuntimeApplicationErrorRegistryV1(
+      _value => capturedData,
+      (detail?: string): never => { throw new Error(detail ?? "invalid"); },
+    );
+    const second = createFunctionRuntimeApplicationErrorRegistryV1(
+      _value => null,
+      (detail?: string): never => { throw new Error(detail ?? "invalid"); },
+    );
+
+    const withoutData = new first.FlarexError("NO_DATA", "without data");
+    const withData = new first.FlarexError(
+      "WITH_DATA",
+      "with data",
+      { source: 1 },
+    );
+
+    expect(withoutData).toBeInstanceOf(Error);
+    expect(withoutData).toBeInstanceOf(first.FlarexError);
+    expect(withoutData).not.toBeInstanceOf(second.FlarexError);
+    expect(withoutData.name).toBe("FlarexError");
+    expect(withoutData.code).toBe("NO_DATA");
+    expect(Object.hasOwn(withoutData, "data")).toBe(false);
+    expect(withData.data).toBe(capturedData);
+    expect(first.inspect(withData)).toBe(true);
+    expect(second.inspect(withData)).toBe(false);
+    expect(first.code(withData)).toBe("WITH_DATA");
+    expect(first.message(withData)).toBe("with data");
+    expect(first.data(withData)).toBe(capturedData);
   });
 
   it("preserves declared-error validation order, byte bounds, and data failures", () => {
