@@ -38,12 +38,16 @@ import {
   declarativeV2VerifierCompletedLinkClaimPortV1,
   type DeclarativeV2VerifierAuthenticatedLinkBindingsV1,
   type DeclarativeV2VerifierAuthenticatedLinkFactoryV1,
+  type DeclarativeV2VerifierCompletedLinkCapabilitiesV1,
   type DeclarativeV2VerifierCompletedLinkClaimPortV1,
   type DeclarativeV2VerifierCompletedLinkClaimV1,
   type DeclarativeV2VerifierCompletedLinkLookupUsageV1,
   type DeclarativeV2VerifierCompletedLinkLookupV1,
   type DeclarativeV2VerifierLinkResultV1,
 } from "./declarativeV2VerifierExecutableV1";
+import {
+  DECLARATIVE_V2_CORE_CAPABILITY_MATRIX_V1,
+} from "./declarativeV2VerifierV1.contract";
 import {
   createDeclarativeV2VerifierRuntimeArenaV1,
   createDeclarativeV2VerifierRuntimeSha256V1,
@@ -106,6 +110,23 @@ const SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER =
         SharedArrayBuffer.prototype,
         "byteLength",
       )?.get;
+
+function handlerCapabilitiesAdmittedV1(
+  functionKind: keyof typeof FUNCTION_KIND_BYTES,
+  capabilities: DeclarativeV2VerifierCompletedLinkCapabilitiesV1,
+): boolean {
+  const admitted = DECLARATIVE_V2_CORE_CAPABILITY_MATRIX_V1.find(
+    candidate => candidate.functionKind === functionKind,
+  );
+  if (admitted === undefined) {
+    throw new Error("Declared function kind lost its capability matrix row.");
+  }
+  return (!capabilities.auth || admitted.auth) &&
+    (!capabilities.databaseRead || admitted.databaseRead) &&
+    (!capabilities.databaseWrite || admitted.databaseWrite) &&
+    (!capabilities.runQuery || admitted.runQuery) &&
+    (!capabilities.runMutation || admitted.runMutation);
+}
 
 export type DeclarativeV2VerifierRegistrationV1ErrorReason =
   | "invalidInput"
@@ -1945,7 +1966,8 @@ export function makeDeclarativeV2VerifierRegistrationFactoryV1(
             !found.success.found ||
             found.success.moduleOrdinal === null ||
             found.success.producingParseResultSha256 === null ||
-            found.success.usesRunMutation === null
+            found.success.capabilities === null ||
+            found.success.contextBindingsValid === null
           ) {
             return failTerminal(
               state,
@@ -1954,8 +1976,11 @@ export function makeDeclarativeV2VerifierRegistrationFactoryV1(
           }
           const pending = state.pendingHandler!;
           if (
-            pending.fn.functionKind === "query" &&
-            found.success.usesRunMutation
+            !found.success.contextBindingsValid ||
+            !handlerCapabilitiesAdmittedV1(
+              pending.fn.functionKind,
+              found.success.capabilities,
+            )
           ) {
             return failTerminal(
               state,

@@ -517,6 +517,53 @@ describe("private verifier restart bridge", () => {
       failure: { operation: "access", reason: "closed" },
     });
   });
+
+  test("records call and value-flow owners by stable function ordinal", () => {
+    const source =
+      "async function helper(ctx,id){return await ctx.db.get(id)}" +
+      'export async function getThing(ctx){return await helper(ctx,"recipes:1")}';
+    const sourceBytes = UTF8_ENCODER.encode(source);
+    const module = runModuleResult(
+      source,
+      "functions/restart-context-owners.js",
+      10n,
+    );
+    const bridge = makeDeclarativeV2VerifierExecutableRestartBridgeV1();
+    const opened = Result.getOrThrow(bridge.openModuleRecords(
+      module,
+      new Uint8Array(32).fill(10),
+      budget("command_budget", sourceBytes.byteLength),
+    ));
+    const records: DeclarativeV2VerifierRestartRecordV1[] = [];
+    for (let iteration = 0; iteration < 10_000; iteration += 1) {
+      const read = Result.getOrThrow(bridge.readModuleRecord(opened, 1_024));
+      if (read.status === "complete") break;
+      if (read.status === "item") records.push(read.record);
+    }
+    expect(records.filter(record => record.kind === "function_v1")).toEqual([
+      expect.objectContaining({ functionName: "getThing", functionOrdinal: 0n }),
+      expect.objectContaining({ functionName: "helper", functionOrdinal: 1n }),
+    ]);
+    expect(records.filter(record => record.kind === "direct_call_v1")).toEqual([
+      expect.objectContaining({
+        callerFunctionOrdinal: 1n,
+        targetKind: "abi",
+        targetName: "get",
+      }),
+      expect.objectContaining({
+        callerFunctionOrdinal: 0n,
+        targetKind: "local",
+        targetName: "helper",
+      }),
+    ]);
+    expect(records.filter(record => record.kind === "value_flow_v1")).toEqual([
+      expect.objectContaining({
+        flowOrdinal: 0n,
+        functionOrdinal: 1n,
+        operationName: "databaseGet",
+      }),
+    ]);
+  });
 });
 
 function generatedAsset(): Uint8Array {
@@ -1516,12 +1563,12 @@ describe("Declarative V2 executable verifier asset", () => {
       );
     expect(first.manifest).toMatchObject({
       assetSha256:
-        "2981337528312c956f878f78c3345ebe9845aa03338d4cf789e8530a09865246",
-      assetByteLength: 4_734_280,
+        "bca3781ea604438377bf61a2308d475ff413583d7d5ff189c9d15cf3b59802d1",
+      assetByteLength: 4_734_448,
       contractSha256:
-        "839003bac7ec6a43d8f9c6bd3ed20d8eea5d74ddcf1a9b4ba50b3560a94e664f",
+        "e174e8df1dbf18c77b7790286097f3bd919756c7643d58f60f239257505cc949",
       manifestIdentity:
-        "d7a9aeab8232b49317f2f575e5b050d6ed40cec4f1519ee1aa24143326734008",
+        "67598823f1709ecd13318a7d1d29cd5f1aad742b12f6711a275831e4ae3e860c",
     });
   }, 120_000);
 
@@ -2358,6 +2405,117 @@ describe("Declarative V2 streaming engine", () => {
       expect(semanticProjection(result), `split ${split}`).toEqual(baseline);
     }
   }, 30_000);
+
+  test.each([
+    ["database read", "runtime.db.get(id)", "get", "databaseGet", "databaseRead"],
+    [
+      "database write",
+      'runtime.db.insert("recipes", value)',
+      "insert",
+      "databaseInsert",
+      "databaseWrite",
+    ],
+  ])(
+    "lowers direct root-context %s to the existing ABI evidence",
+    (_label, expression, targetName, operationName, capability) => {
+      const source = UTF8_ENCODER.encode(
+        `export async function run(runtime, value) { return await ${expression}; }`,
+      );
+      const result = runSource(source, [source]);
+      if (Result.isFailure(result)) throw result.failure;
+      expect(result.success.verified).toBe(true);
+      expect(result.success.diagnostics).toEqual([]);
+      expect(result.success.importCalls).toEqual([
+        expect.objectContaining({ targetKind: "abi", targetName }),
+      ]);
+      expect(result.success.valueFlows).toEqual([
+        expect.objectContaining({
+          operationName,
+          capability,
+          catchability: "mixed",
+        }),
+      ]);
+    },
+  );
+
+  test("keeps direct context lowering byte-stable at every chunk boundary", () => {
+    const source = UTF8_ENCODER.encode(
+      'export async function run(applicationContext, value) {' +
+        'const created = await applicationContext.db.insert("recipes", value);' +
+        "return await applicationContext.db.get(created);}",
+    );
+    const baseline = semanticProjection(runSource(source, [source]));
+    for (let split = 0; split <= source.byteLength; split += 1) {
+      expect(semanticProjection(runSource(source, [
+        source.slice(0, split),
+        source.slice(split),
+      ])), `split ${split}`).toEqual(baseline);
+    }
+  }, 30_000);
+
+  test("keeps direct context value-flow authority equal to the private ABI spelling", () => {
+    const contextSource = UTF8_ENCODER.encode(
+      "export function run(ctx, id) { return ctx.db.get(id); }",
+    );
+    const privateAbiSource = UTF8_ENCODER.encode(
+      'import {databaseGet} from "flarex:platform";' +
+        "export function run(_, id) { return databaseGet(id); }",
+    );
+    const context = runSource(contextSource, [contextSource]);
+    const privateAbi = runSource(privateAbiSource, [privateAbiSource]);
+    if (Result.isFailure(context)) throw context.failure;
+    if (Result.isFailure(privateAbi)) throw privateAbi.failure;
+    const authority = (result: DeclarativeV2VerifierModulePresentationV1) =>
+      result.valueFlows.map(({ operationName, capability, catchability }) => ({
+        operationName,
+        capability,
+        catchability,
+      }));
+    expect(authority(context.success)).toEqual(authority(privateAbi.success));
+  });
+
+  test.each([
+    ["optional context", "ctx?.db.get(id)"],
+    ["optional database", "ctx.db?.get(id)"],
+    ["computed receiver", 'ctx["db"].get(id)'],
+    ["computed method", 'ctx.db["get"](id)'],
+    ["longer receiver", "wrapper.ctx.db.get(id)"],
+    ["parenthesized target", "(ctx.db.get)(id)"],
+    ["detached method", "get(id)", "const get = ctx;"],
+    ["destructured context", "ctx.db.get(id)", "", "{db}"],
+    ["reassigned context", "ctx.db.get(id)", "ctx = id;"],
+    ["shadowed context", "ctx.db.get(id)", "const ctx = id;"],
+  ])(
+    "rejects indirect or ambiguous context authority: %s",
+    (_label, expression, prefix = "", parameter = "ctx") => {
+      const source = UTF8_ENCODER.encode(
+        `export function run(${parameter}, id) { ${prefix} return ${expression}; }`,
+      );
+      const result = runSource(source, [source]);
+      if (Result.isFailure(result)) throw result.failure;
+      expect(result.success.verified).toBe(false);
+      expect(result.success.diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          code: expect.stringMatching(/^CORE_(COMPUTED_DISPATCH|CALL_TARGET)$/),
+        }),
+      ]));
+    },
+  );
+
+  test("rejects a catch binding that shadows the root context", () => {
+    const source = UTF8_ENCODER.encode(
+      "export function run(ctx, id) {" +
+        "try { return null; } catch (ctx) { return ctx.db.get(id); }}",
+    );
+    const result = runSource(source, [source]);
+    if (Result.isFailure(result)) throw result.failure;
+    expect(result.success.verified).toBe(false);
+    expect(result.success.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: expect.stringMatching(/^CORE_(COMPUTED_DISPATCH|CALL_TARGET)$/),
+      }),
+    ]));
+  });
 
   test.each([
     [

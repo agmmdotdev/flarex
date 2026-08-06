@@ -22,6 +22,36 @@ None.
 
 ## Resolved Issues
 
+### `ST-CORE-010` — registration enforced only one capability-matrix edge
+
+- **Status:** Resolved by the approved `FAC06` analyzer and registration
+  correction.
+- **Discovered by:** Preflight for the first normal `ctx.db.get` and
+  `ctx.db.insert` analyzer lowering.
+- **Observed boundary:** Completed handler reachability and Declarative V2
+  registration admission.
+- **Root cause:** The accepted capability matrix owned auth, database-read,
+  database-write, `runQuery`, and `runMutation` availability by function kind,
+  but completed handler lookup retained only `usesRunMutation`. Registration
+  therefore rejected that operation from a query without applying the
+  remaining matrix rows to reachable handlers.
+- **Resolution:** Completed handler lookup now returns the complete existing
+  capability projection and registration enforces it for both context-lowered
+  calls and private ABI imports. Context lowering admits only exact direct uses
+  of the selected handler's first parameter, and restart reconstruction retains
+  stable function ownership plus the authored-member/canonical-operation
+  association. Only the selected root handler may consume that parameter as
+  Function API context; context-shaped calls inside reachable helpers fail
+  closed at `handlerCapability`.
+- **Acceptance evidence:** Exact context-lowering, legacy-import parity,
+  every-split determinism, indirect-form refusal, query-write and
+  action-database refusal, mutation acceptance, and transitive helper refusal
+  passed. The migrated shared, cooking, and English-learning sources passed the
+  complete 21-file/51-test PGlite lane and four focused PostgreSQL 18 tests
+  through real Workerd. The
+  executable analyzer regenerated at
+  `bca3781ea604438377bf61a2308d475ff413583d7d5ff189c9d15cf3b59802d1`.
+
 ### `ST-CORE-009` — PQV-A2 omitted the analyzer-owned point-query platform module
 
 - **Status:** Resolved by the approved private PQV-A2 Worker graph and generated

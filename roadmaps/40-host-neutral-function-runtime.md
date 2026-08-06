@@ -8,10 +8,11 @@ vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
 Function API Core direction and focused preflight recorded below are accepted,
-and `FAC01` through `FAC05` are implemented and validated. The next gate is a
-fresh `FAC06` preflight for normal `ctx.*` analyzer lowering and removal of
-synthetic private-platform authoring where current evidence permits it.
-Production routing remains deferred.
+and `FAC01` through `FAC06` are implemented and validated. Normal root-handler
+`ctx.db.get` and `ctx.db.insert` authoring now lowers to the existing ABI while
+the complete accepted function-kind capability matrix remains authoritative.
+The next gate is the bounded `FAC07` preflight recorded below. Production
+routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -1490,6 +1491,173 @@ still named `FAC05` as current and described only two refreshed graph
 identities. This final receipt and status now distinguish the two registry
 consumers from all three shared-core graph commitments.
 
+### `FAC06` Direct Context Point-Access Preflight Decision
+
+**Accepted:** 2026-08-06
+
+Current Convex application source calls shared query and mutation context
+facades directly: `ctx.db.get(...)` and `ctx.db.insert(...)` are ordinary
+member calls on the context constructed by `registration_impl.ts`, while the
+database facade delegates through the installed isolate syscall bridge. Convex
+does not require application code to import an internal syscall module. Flarex
+already has the corresponding shared context/database facades and passes them
+to exact Workerd handlers, but its analyzer currently rejects every member
+access as `CORE_COMPUTED_DISPATCH`; simulations therefore still import the
+private `flarex:platform` ABI even when the runtime executes the same `ctx`
+object.
+
+`FAC06` accepts the first exact query-plus-mutation authoring pair without a
+source rewrite or a new runtime operation:
+
+- a direct call on the handler's simple first-parameter binding of the exact
+  form `<context>.db.get(...)` lowers to existing ABI operation 23,
+  `databaseGet`;
+- the corresponding exact `<context>.db.insert(...)` call lowers to existing
+  ABI operation 37, `databaseInsert`;
+- the first parameter's spelling is not authority and need not be `ctx`, but
+  it must be one plain identifier and may not have another same-spelled binding
+  anywhere in that function's conservatively analyzed scope;
+- that identifier remains a dedicated context binding: every body occurrence
+  must be the root of an exact admitted context-member call. Reassignment,
+  update, passing, returning, capture, aliasing, and catch or local rebinding
+  invalidate context lowering for the function rather than authenticating
+  authority by spelling alone;
+- registration treats that binding as context only on the selected root
+  handler, because only that function is invoked by the runtime with the
+  Function API context. A reachable local or imported helper that merely has a
+  similarly shaped first parameter is rejected at `handlerCapability` if it
+  contains a context-lowered call; helpers must receive narrower explicit
+  values until a separately proven flow-sensitive interprocedural design
+  exists;
+- both dots and the final call must be the direct static token sequence;
+  optional chaining, computed access, aliases, destructuring, detached methods,
+  parenthesized call targets, longer receiver chains, dynamic property names,
+  and user-defined lookalikes remain rejected; and
+- import-call evidence retains the authored terminal member name, while the
+  value-flow record, capability, catchability, and registration authority use
+  the unchanged canonical ABI operation.
+
+The analyzer does not transform application bytes. The exact Worker invokes
+the original function with the shared frozen context, so `ctx.db.get` and
+`ctx.db.insert` execute the same Function API Core facades already proven by
+`FAC02` through `FAC04`. The lowering is analysis evidence: it proves that the
+member call consumes an admitted safe operation. This deliberately avoids
+generating a second application module, changing R2 body ownership, or making
+the private platform module a developer API.
+
+The preflight also found a fail-closed registration gap. The accepted
+Declarative V2 capability matrix distinguishes auth, database read, database
+write, `runQuery`, and `runMutation` by declared function kind, but completed
+handler lookup currently reports only `usesRunMutation`; registration
+therefore enforces only that one query restriction. `FAC06` replaces that
+single flag with the complete existing matrix projection, accumulated across
+the reachable local/imported helper graph, and rejects any unavailable
+capability at `handlerCapability`. This introduces no capability or new
+function kind. It makes the already-versioned matrix authoritative for both
+legacy private imports and the new context spelling. Application-error and
+pure-data operations remain universally available as before.
+
+The executable analyzer contract gains an explicit two-row context-member
+lowering catalog, so its generated contract hash, asset hash, and manifest
+identity refresh rather than changing accepted syntax behind an old identity.
+The base ABI operation IDs, evidence codecs, progress/receipt protocols,
+analyzer release owner, registration rows, persistence schemas, and runtime
+target/profile identities do not change. The temporary platform import stays
+accepted for unmigrated internal evidence, and the synthetic Workerd module is
+not deleted: exact Worker cores still use its private binder/error adapter and
+other analyzer fixtures still import its ABI. There is no dual runtime path;
+both source spellings produce the same ABI evidence and use the same runtime
+facades.
+
+This slice migrates the shared create/read simulation source plus the cooking
+and English-learning create/get application files to normal context calls.
+Other database methods, auth, queries, internal calls, error construction, and
+edge actions receive later bounded lowerings after this lexical, capability,
+and real-system pair is proven. In particular, `FAC06` does not yet authorize
+the newer Convex table-plus-id overload, query-builder chains, public developer
+SDK generation, removal of `flarex:platform`, or any snapshot, journal, OCC,
+commit, action uncertainty, activation, routing, or production change.
+
+The implementation gate requires contract-vector tests for exact lowering,
+arbitrary first-parameter spelling, byte/chunk determinism, operation order,
+legacy-import parity, shadowing and every rejected indirect form; transitive
+registration tests for query write refusal and mutation acceptance plus action
+database refusal under the complete matrix; deterministic executable-analyzer
+regeneration; the shared simulation API and cooking/English-learning real
+Workerd paths under PGlite and genuine PostgreSQL; full affected analyzer,
+system-test, generated-identity, and Effect-boundary validation; both mandatory
+exact-final reviewers; removal of superseded simulation imports; and one
+commit.
+
+### `FAC06` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+The executable analyzer contract now owns two exact context-member lowerings:
+root-handler `<context>.db.get(...)` maps to existing `databaseGet`, and
+`<context>.db.insert(...)` maps to existing `databaseInsert`. The original
+application bytes execute unchanged in Workerd against the Function API Core
+query and mutation contexts. Import-call evidence retains the authored member
+name while value-flow evidence retains the canonical ABI operation,
+capability, and catchability.
+
+The analyzer admits a lowering only when every use of the handler's simple
+first-parameter binding is one of the exact direct context calls. Restart
+reconstruction rejoins the authored member and canonical operation only through
+the executable contract's explicit lowering catalog, associates calls and
+value flows by their ordered stable function ordinals, and fails closed rather
+than substituting a zero index. Completed handler lookup distinguishes the
+authored member from the canonical private ABI name and accepts that context
+origin only on the selected root handler, preventing a reachable helper's
+ordinary first argument from acquiring context authority.
+The same lookup now accumulates auth, database-read, database-write,
+`runQuery`, and `runMutation` across the entire reachable graph. Registration
+applies the existing function-kind capability matrix to both normal context
+syntax and retained private ABI imports. `ST-CORE-010` is resolved without a
+new capability, ABI ID, evidence codec, persistence field, or runtime path.
+
+The executable generated closure refreshed deterministically:
+
+- executable contract SHA-256
+  `e174e8df1dbf18c77b7790286097f3bd919756c7643d58f60f239257505cc949`;
+- executable asset SHA-256
+  `bca3781ea604438377bf61a2308d475ff413583d7d5ff189c9d15cf3b59802d1`;
+- executable manifest identity
+  `67598823f1709ecd13318a7d1d29cd5f1aad742b12f6711a275831e4ae3e860c`;
+  and
+- unchanged base verifier asset SHA-256
+  `00eb1d44298eac350d1e4dcac1d14896b13b8e0d841c8c01108c8a60fca8fc39`.
+
+Exact lowering, arbitrary context spelling, private-ABI authority parity,
+every-byte split determinism, indirect-form refusal, query-write refusal,
+context reassignment and catch-shadow refusal, mutation-write acceptance,
+action-database refusal, legacy-import enforcement, warm/cold reconstruction,
+and reachable-helper refusal passed. The full analysis lane passed 20 files and
+446 tests. The complete system-test PGlite lane passed 21 files and 51 tests,
+including the two migrated cooking and English-learning simulation tests.
+Those same cooking and English-learning paths passed four tests
+against a fresh PostgreSQL 18 database. Analyzer typecheck, system-test
+typecheck, all three generated checks, and the workspace Effect-boundary check
+passed.
+
+The changed analyzer and registration operations are pure, synchronous,
+incremental state machines with an existing `Result` failure boundary. They
+introduce no asynchronous resource lifecycle, retry, cancellation, dependency
+service, or recovery policy, so an Effect service, Layer, or Effect error
+channel is not applicable. Registration continues to translate analyzer
+failure into its existing typed terminal result.
+
+Both mandatory exact-final reviewers accepted the staged implementation with no
+actionable findings. The code-quality reviewer initially challenged a possible
+`flarex:platform` import-alias collision, then withdrew the finding after the
+executable analyzer reproduced the existing fail-closed `CORE_SYNTAX`,
+`CORE_REEXPORT`, and `CORE_CALL_TARGET` rejection: import aliases are not an
+accepted compatibility path. No implementation change was required. No
+snapshot, journal, OCC, commit, change-feed, outbox, action uncertainty,
+readiness, activation, routing, or production owner changed. The synthetic
+private platform module remains only for unmigrated operations and runtime-owned
+binder and error-adapter mechanics; this slice adds no fallback or dual runtime.
+
 ### Sequenced Follow-On Slices
 
 After `FAC01`, continue one coherent commit at a time:
@@ -1721,15 +1889,16 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-The centralized Function API Core preflight and `FAC01` implementation receipt
-above are complete. The next gate is a fresh bounded preflight for the first
-follow-on: a shared point-reader facade over the existing query point-read port.
-That preflight must prove the exact portable reader contract shared by the
-selected query and journal-backed mutation consumers, preserve their different
-snapshot and journal ownership, and reject any facade shape that widens
-database authority or changes operation order. The reader implementation, if
-the gate closes, remains one separate committed slice; mutation writer and
-internal-call composition stay later slices.
+`FAC01` through `FAC06` are complete. The next bounded gate is `FAC07`: compare
+current Convex writer authoring with the remaining already-owned Flarex point
+writer facades, then decide whether exact root-handler `ctx.db.patch`,
+`ctx.db.replace`, and `ctx.db.delete` lowerings can reuse the `FAC06` lexical,
+origin, and capability proof without changing their journal order or error
+semantics. The preflight must inspect the real cooking simulation consumers,
+reject aliases and helper-shaped context authority, and keep query-builder
+chains, auth, nested calls, actions, public developer APIs, and synthetic
+platform-module removal outside the slice. If the gate closes, implementation
+and migration remain one separate commit.
 
 The public `flarex-test` real-runtime contract remains unchanged. Internal
 simulation APIs may adopt shared authoring primitives and normal `ctx.*`

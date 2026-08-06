@@ -489,6 +489,130 @@ function registrationFixture(
 }
 
 describe("private Declarative V2 registration verifier", () => {
+  test("accepts direct database reads on a query root context", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      "export async function getThing(ctx){" +
+        'return await ctx.db.get("recipes:1")}',
+    );
+    expect(Result.isSuccess(fixture.result)).toBe(true);
+  });
+
+  test("rejects direct database writes from a declared query context", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      "export async function getThing(ctx){" +
+        'return await ctx.db.insert("recipes",{})}',
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
+  test("accepts direct database writes on a mutation root context", () => {
+    const records = SEMANTIC_RECORDS.map(record =>
+      record.kind === "function"
+        ? { ...record, functionKind: "mutation" as const }
+        : record
+    );
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      records,
+      "functions/example.js",
+      undefined,
+      "export async function getThing(runtime){" +
+        'return await runtime.db.insert("recipes",{})}',
+    );
+    expect(Result.isSuccess(fixture.result)).toBe(true);
+  });
+
+  test("rejects database access from a declared action context", () => {
+    const records = SEMANTIC_RECORDS.map(record =>
+      record.kind === "function"
+        ? { ...record, functionKind: "action" as const }
+        : record
+    );
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      records,
+      "functions/example.js",
+      undefined,
+      "export async function getThing(ctx){" +
+        'return await ctx.db.get("recipes:1")}',
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
+  test("rejects context-shaped authority inside a reachable helper", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      true,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      "async function helper(ctx,id){return await ctx.db.get(id)}" +
+        'export async function getThing(ctx){return await helper(ctx,"recipes:1")}',
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
+  test("applies the complete capability matrix to legacy private ABI imports", () => {
+    const fixture = registrationFixture(
+      1,
+      undefined,
+      false,
+      false,
+      SEMANTIC_RECORDS,
+      "functions/example.js",
+      undefined,
+      'import {databaseInsert} from "flarex:platform";' +
+        'export async function getThing(){return await databaseInsert("recipes",{})}',
+    );
+    expect(fixture.result).toMatchObject({
+      failure: {
+        operation: "step",
+        reason: "moduleMismatch",
+        path: "handlerCapability",
+      },
+    });
+  });
+
   test("rejects runMutation from a declared query handler", () => {
     const fixture = registrationFixture(
       1024,
@@ -516,7 +640,7 @@ describe("private Declarative V2 registration verifier", () => {
       1,
       undefined,
       false,
-      false,
+      true,
       SEMANTIC_RECORDS,
       "functions/example.js",
       undefined,

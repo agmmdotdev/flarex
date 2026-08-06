@@ -526,6 +526,21 @@ export const DECLARATIVE_V2_SAFE_ABI_LOOKUP_V1 = [
   "valueSpreadObject",
 ] as const;
 
+export const DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1 = [
+  {
+    id: 1,
+    receiver: "db",
+    member: "get",
+    operation: "databaseGet",
+  },
+  {
+    id: 2,
+    receiver: "db",
+    member: "insert",
+    operation: "databaseInsert",
+  },
+] as const;
+
 export const DECLARATIVE_V2_PLATFORM_IMPORT_ALLOWLIST_V1 = [
   "flarex:platform",
 ] as const;
@@ -1173,6 +1188,8 @@ export const DECLARATIVE_V2_VERIFIER_EXECUTABLE_CONTRACT_V1 =
     parserRecovery: DECLARATIVE_V2_PARSER_RECOVERY_V1,
     semanticActions: DECLARATIVE_V2_SEMANTIC_ACTIONS_V1,
     abiLookup: DECLARATIVE_V2_SAFE_ABI_LOOKUP_V1,
+    contextMemberAbiLowerings:
+      DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1,
     platformImportAllowlist: DECLARATIVE_V2_PLATFORM_IMPORT_ALLOWLIST_V1,
     canonicalGrammar: {
       terminals: DECLARATIVE_V2_CANONICAL_TERMINALS_V1,

@@ -10,12 +10,10 @@ export function makeCreateAndReadFunctionSourcesV1(
 ): CreateAndReadFunctionSourcesV1 {
   return {
     mutationSourceBytes: UTF8.encode(
-      'import{databaseInsert}from"flarex:platform";' +
-        `export function create(_,a){return databaseInsert("${tableName}",a)}`,
+      `export function create(ctx,a){return ctx.db.insert("${tableName}",a)}`,
     ),
     querySourceBytes: UTF8.encode(
-      'import{databaseGet}from"flarex:platform";' +
-        "export function get(_,{id}){return databaseGet(id)}",
+      "export function get(ctx,{id}){return ctx.db.get(id)}",
     ),
   };
 }

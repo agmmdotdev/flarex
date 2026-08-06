@@ -1,5 +1,3 @@
-import { databaseInsert } from "flarex:platform";
-
-export function create(_, args) {
-  return databaseInsert("recipes", args);
+export function create(ctx, args) {
+  return ctx.db.insert("recipes", args);
 }

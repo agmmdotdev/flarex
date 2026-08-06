@@ -46,6 +46,7 @@ import {
 } from "./declarativeV2VerifierExecutableV1.generated";
 import {
   DECLARATIVE_V2_CANONICAL_TERMINALS_V1,
+  DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1,
   DECLARATIVE_V2_KEYWORDS_V1,
   DECLARATIVE_V2_PARSER_NONTERMINALS_V1,
   DECLARATIVE_V2_PARSER_TERMINALS_V1,
@@ -4826,6 +4827,15 @@ export function createDeclarativeV2VerifierEngineV1(
       }
       return stored - 1;
     };
+    const functionContextBindingToken = (
+      index: number,
+    ): number | undefined => {
+      const stored = functionView.getUint32(
+        functionRecordOffset(index) + 28,
+        false,
+      );
+      return stored === 0 ? undefined : stored - 1;
+    };
 
     const add = (code: string, token: TokenView): void => {
       if (code === "CORE_SYNTAX") {
@@ -5299,6 +5309,21 @@ export function createDeclarativeV2VerifierEngineV1(
         parameterCount,
         false,
       );
+      const firstParameterToken = paramsStart + 1;
+      if (
+        firstParameterToken < paramsEnd &&
+        at(firstParameterToken).kind === "identifier" &&
+        (
+          firstParameterToken + 1 === paramsEnd ||
+          tokenMatches(firstParameterToken + 1, ",")
+        )
+      ) {
+        functionView.setUint32(
+          functionRecordOffset(functionIndex) + 28,
+          firstParameterToken + 1,
+          false,
+        );
+      }
       if (exported) {
         appendExport(
           isDefault ? undefined : nameToken.index,
@@ -5481,6 +5506,101 @@ export function createDeclarativeV2VerifierEngineV1(
       }
       return false;
     };
+    const contextAbiIdForRoot = function* (
+      contextToken: number,
+    ): Generator<number, number | undefined, void> {
+      if (
+        contextToken < 0 ||
+        contextToken + 5 >= tokenCount ||
+        at(contextToken).kind !== "identifier" ||
+        at(contextToken + 2).kind !== "identifier" ||
+        at(contextToken + 4).kind !== "identifier" ||
+        !tokenMatches(contextToken + 1, ".") ||
+        !tokenMatches(contextToken + 3, ".") ||
+        !tokenMatches(contextToken + 5, "(") ||
+        contextToken > 0 &&
+          (
+            tokenMatches(contextToken - 1, ".") ||
+            tokenMatches(contextToken - 1, "?.") ||
+            tokenMatches(contextToken - 1, "[")
+          )
+      ) return undefined;
+      const receiverToken = contextToken + 2;
+      const methodToken = contextToken + 4;
+      for (
+        const lowering of DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1
+      ) {
+        if (
+          (yield* compareTokenToAscii(receiverToken, lowering.receiver)) !== 0 ||
+          (yield* compareTokenToAscii(methodToken, lowering.member)) !== 0
+        ) continue;
+        const abiId = DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1.findIndex(
+          operation => operation.name === lowering.operation,
+        );
+        if (abiId < 0) {
+          throw new Error("Context-member lowering lost its ABI operation.");
+        }
+        return abiId;
+      }
+      return undefined;
+    };
+    const contextBindingUsesAreDirect = function* (
+      functionIndex: number,
+    ): Generator<number, boolean, void> {
+      const functionOffset = functionRecordOffset(functionIndex);
+      const cached = functionView.getUint32(functionOffset + 32, false);
+      if (cached !== 0) return cached === 1;
+      const contextBinding = functionContextBindingToken(functionIndex);
+      if (contextBinding === undefined) return false;
+      for (let index = 0; index < tokenCount; index += 1) {
+        yield 1;
+        if (
+          index !== contextBinding &&
+          isBinding(index, functionIndex) &&
+          (yield* compareTokenSlices(index, contextBinding)) === 0
+        ) {
+          functionView.setUint32(functionOffset + 32, 2, false);
+          return false;
+        }
+      }
+      const bodyStart = functionView.getUint32(functionOffset + 8, false);
+      const bodyEnd = functionView.getUint32(functionOffset + 12, false);
+      for (let index = bodyStart + 1; index < bodyEnd; index += 1) {
+        yield 1;
+        if (
+          at(index).kind === "identifier" &&
+          (yield* compareTokenSlices(index, contextBinding)) === 0 &&
+          (yield* contextAbiIdForRoot(index)) === undefined
+        ) {
+          functionView.setUint32(functionOffset + 32, 2, false);
+          return false;
+        }
+      }
+      functionView.setUint32(functionOffset + 32, 1, false);
+      return true;
+    };
+    const contextAbiIdForCall = function* (
+      methodToken: number,
+      functionIndex: number,
+    ): Generator<number, number | undefined, void> {
+      const contextBinding = functionContextBindingToken(functionIndex);
+      if (
+        contextBinding === undefined ||
+        methodToken < 4 ||
+        methodToken + 1 >= tokenCount ||
+        at(methodToken).kind !== "identifier" ||
+        !tokenMatches(methodToken + 1, "(")
+      ) return undefined;
+      const contextToken = methodToken - 4;
+      if ((yield* compareTokenSlices(contextToken, contextBinding)) !== 0) {
+        return undefined;
+      }
+      const abiId = yield* contextAbiIdForRoot(contextToken);
+      return abiId !== undefined &&
+          (yield* contextBindingUsesAreDirect(functionIndex))
+        ? abiId
+        : undefined;
+    };
     const appendCall = (
       functionIndex: number,
       targetToken: number,
@@ -5565,6 +5685,19 @@ export function createDeclarativeV2VerifierEngineV1(
         yield 1;
         const token = at(index);
         const next = index + 1 < bodyEnd ? at(index + 1) : undefined;
+        const contextAbiId = token.kind === "identifier" &&
+            next !== undefined && tokenIs(next, "(")
+          ? yield* contextAbiIdForCall(index, functionIndex)
+          : undefined;
+        const contextMemberPunctuator = tokenMatches(index, ".") &&
+          (
+            index + 1 < bodyEnd &&
+              (yield* contextAbiIdForCall(index + 1, functionIndex)) !==
+                undefined ||
+            index + 3 < bodyEnd &&
+              (yield* contextAbiIdForCall(index + 3, functionIndex)) !==
+                undefined
+          );
         if (tokenMatches(index, "try")) tryDepth += 1;
         if (
           tokenMatches(index, "catch") ||
@@ -5612,7 +5745,7 @@ export function createDeclarativeV2VerifierEngineV1(
             token,
           );
         } else if (
-          tokenMatches(index, ".") ||
+          tokenMatches(index, ".") && !contextMemberPunctuator ||
           tokenMatches(index, "?.") ||
           tokenMatches(index, "[") &&
             index > bodyStart + 1 &&
@@ -5657,7 +5790,10 @@ export function createDeclarativeV2VerifierEngineV1(
           const importedTarget = yield* findImportedTarget(index);
           let targetKind: number | undefined;
           let abiId: number | undefined;
-          if (localBinding) targetKind = undefined;
+          if (contextAbiId !== undefined) {
+            targetKind = TARGET_ABI;
+            abiId = contextAbiId;
+          } else if (localBinding) targetKind = undefined;
           else if (localFunction !== undefined) targetKind = TARGET_LOCAL;
           else if (importedTarget !== undefined) {
             const importOffset = importRecordOffset(importedTarget);
@@ -7294,6 +7430,14 @@ export interface DeclarativeV2VerifierCompletedLinkLookupUsageV1 {
   readonly stringBytes: bigint;
 }
 
+export interface DeclarativeV2VerifierCompletedLinkCapabilitiesV1 {
+  readonly auth: boolean;
+  readonly databaseRead: boolean;
+  readonly databaseWrite: boolean;
+  readonly runQuery: boolean;
+  readonly runMutation: boolean;
+}
+
 export type DeclarativeV2VerifierCompletedLinkLookupStepV1 =
   | Readonly<{
       readonly status: "pending";
@@ -7306,7 +7450,10 @@ export type DeclarativeV2VerifierCompletedLinkLookupStepV1 =
       readonly found: boolean;
       readonly moduleOrdinal: bigint | null;
       readonly producingParseResultSha256: Uint8Array | null;
-      readonly usesRunMutation: boolean | null;
+      readonly capabilities:
+        | DeclarativeV2VerifierCompletedLinkCapabilitiesV1
+        | null;
+      readonly contextBindingsValid: boolean | null;
       readonly usage: DeclarativeV2VerifierCompletedLinkLookupUsageV1;
     }>;
 
@@ -7929,6 +8076,20 @@ const sourceTokenLength = (
   module: DeclarativeV2VerifierOwnedModuleArenaV1,
   tokenIndex: number,
 ): number => module.tokenView.getUint32(tokenIndex * 56 + 16, false);
+
+const sourceTokenMatchesAscii = (
+  module: DeclarativeV2VerifierOwnedModuleArenaV1,
+  tokenIndex: number,
+  expected: string,
+): boolean => {
+  if (sourceTokenLength(module, tokenIndex) !== expected.length) return false;
+  for (let index = 0; index < expected.length; index += 1) {
+    if (sourceTokenByte(module, tokenIndex, index) !== expected.charCodeAt(index)) {
+      return false;
+    }
+  }
+  return true;
+};
 
 const advanceLinkerOne = (
   state: LinkerStateV1,
@@ -8780,7 +8941,12 @@ interface CompletedLinkLookupStateV1 {
   transitionCount: bigint;
   terminalCharged: boolean;
   found: boolean;
+  usesAuth: boolean;
+  usesDatabaseRead: boolean;
+  usesDatabaseWrite: boolean;
+  usesRunQuery: boolean;
   usesRunMutation: boolean;
+  contextBindingsValid: boolean;
   calls: bigint;
   exports: bigint;
   frontierEntries: bigint;
@@ -10144,7 +10310,16 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
         moduleClaim === undefined
           ? null
           : new Uint8Array(moduleClaim.producingParseResultSha256),
-      usesRunMutation: state.found ? state.usesRunMutation : null,
+      capabilities: state.found
+        ? Object.freeze({
+            auth: state.usesAuth,
+            databaseRead: state.usesDatabaseRead,
+            databaseWrite: state.usesDatabaseWrite,
+            runQuery: state.usesRunQuery,
+            runMutation: state.usesRunMutation,
+          })
+        : null,
+      contextBindingsValid: state.found ? state.contextBindingsValid : null,
       usage: lookupUsage(state),
     }) satisfies DeclarativeV2VerifierCompletedLinkLookupStepV1;
     releaseCompletedLookup(state);
@@ -10245,7 +10420,12 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
           transitionCount: 0n,
           terminalCharged: false,
           found: false,
+          usesAuth: false,
+          usesDatabaseRead: false,
+          usesDatabaseWrite: false,
+          usesRunQuery: false,
           usesRunMutation: false,
+          contextBindingsValid: true,
           calls: 1n,
           exports: 0n,
           frontierEntries: 0n,
@@ -10467,9 +10647,61 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
                   const abi = abiStored === 0
                     ? undefined
                     : DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1[abiStored - 1];
-                  if (abi?.name === "runMutation") {
-                    state.usesRunMutation = true;
-                    state.phase = "complete";
+                  if (abi !== undefined) {
+                    const targetStored =
+                      reachableModule.importEdgeView.getUint32(
+                        offset + 24,
+                        false,
+                      );
+                    if (targetStored === 0) {
+                      invalid = true;
+                    } else {
+                      const targetToken = targetStored - 1;
+                      const canonicalTarget = sourceTokenMatchesAscii(
+                        reachableModule,
+                        targetToken,
+                        abi.name,
+                      );
+                      state.stringBytes += BigInt(
+                        sourceTokenLength(reachableModule, targetToken) ===
+                            abi.name.length
+                          ? abi.name.length
+                          : 0,
+                      );
+                      if (!canonicalTarget) {
+                        const lowering =
+                          DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1.find(
+                            candidate => candidate.operation === abi.name,
+                          );
+                        const validContextTarget = lowering !== undefined &&
+                          sourceTokenMatchesAscii(
+                            reachableModule,
+                            targetToken,
+                            lowering.member,
+                          );
+                        state.stringBytes += BigInt(
+                          lowering !== undefined &&
+                              sourceTokenLength(reachableModule, targetToken) ===
+                                lowering.member.length
+                            ? lowering.member.length
+                            : 0,
+                        );
+                        if (!validContextTarget || state.reachableIndex !== 0) {
+                          state.contextBindingsValid = false;
+                        }
+                      }
+                    }
+                    if (abi.capability === "auth") {
+                      state.usesAuth = true;
+                    } else if (abi.capability === "databaseRead") {
+                      state.usesDatabaseRead = true;
+                    } else if (abi.capability === "databaseWrite") {
+                      state.usesDatabaseWrite = true;
+                    } else if (abi.name === "runQuery") {
+                      state.usesRunQuery = true;
+                    } else if (abi.name === "runMutation") {
+                      state.usesRunMutation = true;
+                    }
                   } else if (abiStored === 0) {
                     const targetStored =
                       reachableModule.importEdgeView.getUint32(
@@ -12102,7 +12334,9 @@ const restartModuleRecordAtV1 = function* (
       recordOrdinal: BigInt(state.index),
       moduleOrdinal: owned.moduleOrdinal,
       callOrdinal: BigInt(position),
-      callerFunctionOrdinal: BigInt(functionIndex),
+      callerFunctionOrdinal: BigInt(
+        owned.functionView.getUint32(functionIndex * 144 + 16, false),
+      ),
       targetKind: targetCode === 3
         ? "local"
         : targetCode === 1
@@ -12130,7 +12364,9 @@ const restartModuleRecordAtV1 = function* (
       recordOrdinal: BigInt(state.index),
       moduleOrdinal: owned.moduleOrdinal,
       flowOrdinal: BigInt(position),
-      functionOrdinal: BigInt(functionIndex),
+      functionOrdinal: BigInt(
+        owned.functionView.getUint32(functionIndex * 144 + 16, false),
+      ),
       operationName: abi.name,
       capability: abi.capability,
       catchability: abi.catchability as "application" | "mixed" | "host",
@@ -13465,6 +13701,31 @@ export function makeDeclarativeV2VerifierExecutableRestartBridgeV1():
         for (let index = 0; index < calls.length; index += 1) {
           callTokens[index] = yield* tokenIndex(calls[index]!.targetName);
         }
+        const callTargetMatchesOperation = function* (
+          call: DeclarativeV2RestartDirectCallRecordV1,
+          operationName: string,
+        ): Generator<number, boolean, void> {
+          if (
+            yield* textEquals(
+              { value: call.targetName, quoted: false },
+              { value: operationName, quoted: false },
+            )
+          ) return true;
+          for (const lowering of DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1) {
+            yield 1;
+            if (
+              (yield* textEquals(
+                { value: lowering.member, quoted: false },
+                { value: call.targetName, quoted: false },
+              )) &&
+              (yield* textEquals(
+                { value: lowering.operation, quoted: false },
+                { value: operationName, quoted: false },
+              ))
+            ) return true;
+          }
+          return false;
+        };
         const utf8ByteLengthOf = function* (
           text: BuilderTextV1,
         ): Generator<number, number, void> {
@@ -13660,17 +13921,31 @@ export function makeDeclarativeV2VerifierExecutableRestartBridgeV1():
           importEdgeView.setUint32(offset + 28, importIndex + 1, false);
           importEdgeView.setUint32(offset + 32, Number(record.callOrdinal), false);
           let flow: DeclarativeV2RestartValueFlowRecordV1 | undefined;
-          for (const candidate of flows) {
-            yield 1;
-            if (
-              candidate.functionOrdinal === record.callerFunctionOrdinal &&
-              (yield* textEquals(
-                { value: candidate.operationName, quoted: false },
-                { value: record.targetName, quoted: false },
-              ))
-            ) {
-              flow = candidate;
+          if (record.targetKind === "abi") {
+            let expectedFlowOrdinal = 0n;
+            for (const candidateCall of calls) {
+              yield 1;
+              if (
+                candidateCall.targetKind === "abi" &&
+                candidateCall.callOrdinal < record.callOrdinal
+              ) expectedFlowOrdinal += 1n;
+            }
+            for (const candidate of flows) {
+              yield 1;
+              if (candidate.flowOrdinal !== expectedFlowOrdinal) continue;
+              if (
+                candidate.functionOrdinal === record.callerFunctionOrdinal &&
+                (yield* callTargetMatchesOperation(
+                  record,
+                  candidate.operationName,
+                ))
+              ) {
+                flow = candidate;
+              }
               break;
+            }
+            if (flow === undefined) {
+              throw new Error("Owned ABI call lost its ordered value flow.");
             }
           }
           if (flow !== undefined) {
@@ -13724,6 +13999,9 @@ export function makeDeclarativeV2VerifierExecutableRestartBridgeV1():
         for (let index = 0; index < functions.length; index += 1) {
           yield 1;
           const record = functions[index]!;
+          if (record.functionOrdinal !== BigInt(index)) {
+            throw new Error("Owned function lost its stable ordinal.");
+          }
           const offset = index * 144;
           functionView.setUint32(offset, functionTokens[index]! + 1, false);
           functionView.setUint32(offset + 4, record.async ? 1 : 0, false);
@@ -13758,21 +14036,27 @@ export function makeDeclarativeV2VerifierExecutableRestartBridgeV1():
         for (let index = 0; index < flows.length; index += 1) {
           const flow = flows[index]!;
           let callIndex = -1;
+          let abiOrdinal = 0n;
           for (let candidateIndex = 0; candidateIndex < calls.length; candidateIndex += 1) {
             yield 1;
             const call = calls[candidateIndex]!;
+            if (call.targetKind !== "abi") continue;
+            if (abiOrdinal !== flow.flowOrdinal) {
+              abiOrdinal += 1n;
+              continue;
+            }
             if (
               call.callerFunctionOrdinal === flow.functionOrdinal &&
-              (yield* textEquals(
-                { value: call.targetName, quoted: false },
-                { value: flow.operationName, quoted: false },
-              ))
+              (yield* callTargetMatchesOperation(call, flow.operationName))
             ) {
               callIndex = candidateIndex;
-              break;
             }
+            break;
           }
-          evidenceIndexView.setUint32(index * 4, imports.length + Math.max(0, callIndex), false);
+          if (callIndex < 0) {
+            throw new Error("Owned value flow lost its ordered ABI call.");
+          }
+          evidenceIndexView.setUint32(index * 4, imports.length + callIndex, false);
         }
         for (let index = 0; index < diagnostics.length; index += 1) {
           yield 1;
