@@ -22,6 +22,43 @@ None.
 
 ## Resolved Issues
 
+### `ST-CORE-011` — direct context lowering did not own call arity
+
+- **Status:** Resolved in `FAC07` before the point-writer members were admitted.
+- **Discovered by:** Comparing the proposed `ctx.db.patch`, `replace`, and
+  `delete` lowering with the current Convex writer overloads and the existing
+  id-derived Flarex Function API Core facade.
+- **Observed boundary:** Executable analyzer admission before registration and
+  unchanged Workerd source execution.
+- **Reproduction:** The `FAC06` lowering catalog identifies only receiver,
+  member, and ABI operation. JavaScript permits surplus arguments, so a source
+  such as `ctx.db.patch("recipes", id, value)` could be classified as the
+  id-only Flarex operation even though current Convex treats it as a distinct
+  table-plus-id overload. The Flarex facade would receive `"recipes"` as the
+  document ID and `id` as the patch value while silently ignoring `value`.
+- **Expected:** Each admitted context member has an exact authored call shape.
+  Unsupported Convex overloads and surplus arguments fail during analysis,
+  before registration or runtime execution.
+- **Related grammar gap:** `delete` was admitted only as a unary keyword, not
+  as the ECMAScript `IdentifierName` in `ctx.db.delete(...)`. `FAC07` must add
+  only that postfix production; semantic member-authority checks remain closed.
+- **Resolution:** The versioned context-member lowering catalog now owns exact
+  argument counts for all five point members. Its incremental scanner counts
+  only top-level arguments while preserving nested structures, nested template
+  substitutions, comma expressions inside template substitutions, and trailing
+  commas. Top-level spread is refused because its runtime arity is not statically
+  exact; nested array and object spread remains part of one argument. The
+  canonical grammar admits `.delete` as an ECMAScript property name, while
+  semantic member authority still rejects every non-context use. Runtime,
+  journal, OCC, and commit owners remain unchanged.
+- **Acceptance evidence:** Exact-arity lowering and nested/trailing argument
+  vectors for all five admitted point members, template-substitution comma and
+  every-byte-split vectors, explicit top-level-spread and three-argument writer-
+  overload refusal, non-context `.delete` refusal, deterministic restart and
+  generated identity, the 471-test analysis corpus, 51 PGlite system tests, the
+  full cooking Workerd path against PostgreSQL 18.3, and both mandatory
+  exact-final reviewers.
+
 ### `ST-CORE-010` — registration enforced only one capability-matrix edge
 
 - **Status:** Resolved by the approved `FAC06` analyzer and registration

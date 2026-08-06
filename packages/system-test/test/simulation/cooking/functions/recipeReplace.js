@@ -1,6 +1,4 @@
-import { databaseReplace } from "flarex:platform";
-
-export async function replace(_, { id, fields }) {
-  await databaseReplace(id, fields);
+export async function replace(ctx, { id, fields }) {
+  await ctx.db.replace(id, fields);
   return null;
 }

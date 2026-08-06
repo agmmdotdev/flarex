@@ -8,11 +8,11 @@ vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
 Function API Core direction and focused preflight recorded below are accepted,
-and `FAC01` through `FAC06` are implemented and validated. Normal root-handler
-`ctx.db.get` and `ctx.db.insert` authoring now lowers to the existing ABI while
-the complete accepted function-kind capability matrix remains authoritative.
-The next gate is the bounded `FAC07` preflight recorded below. Production
-routing remains deferred.
+and `FAC01` through `FAC07` are implemented and validated. Normal root-handler
+id-only point reads and writes now lower to the existing ABI while the complete
+accepted function-kind capability matrix and exact authored arities remain
+authoritative. The next gate is the bounded `FAC08` nested-context-call
+preflight recorded below. Production routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -1658,6 +1658,146 @@ readiness, activation, routing, or production owner changed. The synthetic
 private platform module remains only for unmigrated operations and runtime-owned
 binder and error-adapter mechanics; this slice adds no fallback or dual runtime.
 
+### `FAC07` Direct Context Point-Writer Completion Preflight Decision
+
+**Accepted:** 2026-08-06
+
+Current Convex `GenericDatabaseWriter` exposes `ctx.db.patch`, `replace`, and
+`delete` in both id-only and newer table-plus-id forms. Its implementation maps
+those operations to shallow-merge, replacement, and removal syscalls. Flarex
+already owns the corresponding semantics end to end: ABI operations 38 through
+40, the centralized `@flarex/function-runtime` mutation database facade, exact
+runtime document capture and validation, ordered journal operations, OCC and
+commit execution, change-feed publication, and outbox behavior. The cooking
+simulation still imports those three private ABI functions only because the
+executable analyzer did not yet recognize their ordinary context spelling.
+
+`FAC07` therefore completes the existing id-only point-writer authoring surface
+without adding a runtime operation or changing a transaction owner:
+
+- exact root-handler `<context>.db.patch(id, value)` lowers to
+  `databasePatch`;
+- exact root-handler `<context>.db.replace(id, value)` lowers to
+  `databaseReplace`; and
+- exact root-handler `<context>.db.delete(id)` lowers to `databaseDelete`.
+
+The original source continues to execute unchanged in Workerd against the
+central Function API Core context. The `FAC06` simple-first-parameter,
+direct-lexical-use, stable function-ordinal, complete capability-matrix, and
+root-only authority rules remain the sole admission model. A reachable helper
+does not gain context authority merely because its first argument is named
+`ctx`, and query or action registration cannot admit the database-write
+capability.
+
+The preflight found one fail-closed correction required before adding these
+members. JavaScript ignores surplus call arguments, while current Convex admits
+table-plus-id writer overloads that the Flarex facade does not implement. A
+three-argument `ctx.db.patch("recipes", id, value)` must not lower and then be
+misread as the id-only `(id, value)` call. The versioned context-lowering
+catalog will therefore own exact argument counts for all five admitted point
+members, including the existing `get` and `insert` entries. The analyzer counts
+top-level arguments while respecting nested parentheses, arrays, objects, and
+trailing commas; a different count remains an ordinary rejected source shape.
+This is a grammar admission guard, not a new public type or ABI version.
+
+The canonical grammar also currently classifies `delete` only as a unary
+keyword, although ECMAScript permits it as an `IdentifierName` after `.`. The
+smallest correction adds the exact `PostfixExpression . delete` production.
+That makes `ctx.db.delete(...)` syntactically representable but grants no
+general member authority: the existing semantic validator still rejects every
+non-catalog or indirect dot access as `CORE_COMPUTED_DISPATCH`.
+
+This slice does not authorize the current Convex table-plus-id overloads,
+`db.table(...)`, query-builder chains, auth or nested-call lowering, helper
+context forwarding, public developer SDK generation, removal of the private
+platform module, or any snapshot, journal, OCC, commit, action uncertainty,
+activation, routing, or production change. Supporting a second table spelling
+would first require a separate facade and table-identity preflight rather than
+relying on JavaScript argument permissiveness.
+
+The implementation gate requires exact lowering and private-ABI parity vectors
+for all three operations; one-, two-, nested-, and trailing-comma arity proof;
+explicit table-overload and surplus-argument refusal; mutation acceptance plus
+query, action, and reachable-helper refusal; deterministic generated-executable
+refresh; migration of every cooking point-writer source import; real cooking
+definition, analyzer, registration, Workerd, PostgreSQL application-row,
+result, commit-feed, and outbox proof under PGlite and genuine PostgreSQL; full
+affected validation; both mandatory exact-final reviewers; and one commit.
+
+### `FAC07` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+The executable contract now owns five exact, arity-bearing context lowerings.
+The three new entries map root-handler `ctx.db.patch`, `replace`, and `delete`
+to existing ABI operations 38, 39, and 40. The original application source is
+not rewritten: Workerd executes it against the centralized Function API Core
+mutation database, which continues to delegate into the existing validation,
+journal, OCC, and commit owners. Direct-call restart evidence retains authored
+member names while value-flow evidence retains the canonical ABI operations.
+
+The context call scanner now counts top-level arguments without flattening
+nested calls, arrays, objects, or template substitutions, and admits trailing
+commas without counting an empty extra argument. Commas inside `${...}` remain
+inside their template argument, including across every source-byte split.
+Top-level spread is refused because it does not have a statically exact runtime
+arity; nested array and object spread remains part of one argument. Every
+admitted point member therefore has an exact authored arity. Missing/surplus
+arguments and the unsupported current Convex table-plus-id writer overloads
+remain rejected source shapes. The canonical grammar gained only
+`PostfixExpression . delete`; an explicit non-context `value.delete(id)` vector
+proves that the semantic member-authority guard still rejects the newly
+parseable shape.
+
+Every cooking patch, replacement, deletion, rollback, and internal-publication
+write now uses `ctx.db` directly. The real Standard definition, analyzer,
+inactive registration, immutable revision selection, Workerd runtime, existing
+executor/C07 commit path, PostgreSQL application rows, result, commit feed, and
+outbox remain the execution path. No compatibility wrapper, source transform,
+fallback, or parallel database implementation was added.
+
+The executable closure refreshed deterministically:
+
+- executable contract SHA-256
+  `b8b9de47e91f601edad25900227a3b6d5ee7742fffd045957c2c7361abb92c22`;
+- executable asset SHA-256
+  `a9a724e34a064f2c4d6db9e8b09eeb6b15c2b76eda41543a870464bea0ba975d`;
+- executable asset size `4,858,776` bytes;
+- executable manifest identity
+  `5cdac93e8996093752882860d6618e897a4704062a36a0488b6a432a721bcf45`;
+  and
+- unchanged base verifier asset SHA-256
+  `00eb1d44298eac350d1e4dcac1d14896b13b8e0d841c8c01108c8a60fca8fc39`.
+
+Exact lowering, nested/trailing/template argument counting, top-level-spread
+and unsupported-overload refusal, private-ABI parity, non-context `.delete`
+refusal, restart operation identity, query-write refusal, mutation acceptance,
+and the inherited action and reachable-helper gates passed. Analysis typecheck
+passed. The isolated full analysis lane passed 470 of 471 tests; its sole miss
+was a pre-existing evidence byte-split test exceeding its fixed five-second
+timeout, and that exact test passed in 3.68 seconds with a 30-second focused
+allowance. All five timeout-only tests from an earlier contended run also passed
+serially (89/89). System-test typecheck and the complete PGlite lane passed 21
+files and 51 tests. The focused cooking lane passed one PGlite test and two
+tests against PostgreSQL 18.3, including the full six-commit point lifecycle and
+failure rollback proof. All three generated checks and the workspace
+Effect-boundary check passed.
+
+The changed analyzer helpers are pure incremental token/state operations and
+registration continues to use its existing typed `Result` boundary. No async
+resource, cancellation, retry, service, Layer, or new failure translation was
+introduced, so an additional Effect abstraction is not applicable. Initial
+mandatory review found two bounded exact-arity defects: template-substitution
+commas were treated as argument separators, and top-level spread could bypass
+static arity. Both were corrected with focused and every-byte-split regressions;
+both mandatory final re-reviews accepted the corrected exact staged snapshot
+with no actionable findings. The TypeScript/Effect reviewer assessed 15
+materially changed operations, recommended no Effect transformation, and
+confirmed that these pure incremental scanner operations do not require a
+service or Layer. The code-quality reviewer confirmed nested-template tracking,
+top-level-spread refusal, nested-spread preservation, and unchanged runtime,
+journal, OCC, and commit ownership.
+
 ### Sequenced Follow-On Slices
 
 After `FAC01`, continue one coherent commit at a time:
@@ -1889,16 +2029,17 @@ active verified runtime projection
 
 ## Next Correctness Gate
 
-`FAC01` through `FAC06` are complete. The next bounded gate is `FAC07`: compare
-current Convex writer authoring with the remaining already-owned Flarex point
-writer facades, then decide whether exact root-handler `ctx.db.patch`,
-`ctx.db.replace`, and `ctx.db.delete` lowerings can reuse the `FAC06` lexical,
-origin, and capability proof without changing their journal order or error
-semantics. The preflight must inspect the real cooking simulation consumers,
-reject aliases and helper-shaped context authority, and keep query-builder
-chains, auth, nested calls, actions, public developer APIs, and synthetic
-platform-module removal outside the slice. If the gate closes, implementation
-and migration remain one separate commit.
+`FAC01` through `FAC07` are complete. The next bounded gate is `FAC08`: compare
+current Convex `ctx.runQuery` and `ctx.runMutation` authoring with existing
+Flarex nested-call ABI operations 41 and 42, Function API Core contexts, and
+the real cooking internal-call consumers. The preflight must preserve exact
+static reference authority, function-kind capability admission, nested depth,
+call-frame and application-error semantics, root-handler context ownership,
+and the existing snapshot/journal boundary. It must challenge whether the
+current two-level database-member lowering catalog can represent one-level
+context calls without weakening aliases, detached methods, helper forwarding,
+or argument arity. Database query builders, auth, actions, public developer
+APIs, and synthetic platform-module removal remain outside that slice.
 
 The public `flarex-test` real-runtime contract remains unchanged. Internal
 simulation APIs may adopt shared authoring primitives and normal `ctx.*`

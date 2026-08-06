@@ -532,12 +532,35 @@ export const DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1 = [
     receiver: "db",
     member: "get",
     operation: "databaseGet",
+    argumentCount: 1,
   },
   {
     id: 2,
     receiver: "db",
     member: "insert",
     operation: "databaseInsert",
+    argumentCount: 2,
+  },
+  {
+    id: 3,
+    receiver: "db",
+    member: "patch",
+    operation: "databasePatch",
+    argumentCount: 2,
+  },
+  {
+    id: 4,
+    receiver: "db",
+    member: "replace",
+    operation: "databaseReplace",
+    argumentCount: 2,
+  },
+  {
+    id: 5,
+    receiver: "db",
+    member: "delete",
+    operation: "databaseDelete",
+    argumentCount: 1,
   },
 ] as const;
 
@@ -944,6 +967,7 @@ const DECLARATIVE_V2_CANONICAL_PRODUCTION_SOURCE_V1 = [
   ["UpdateExpression", ["PostfixExpression"], 8],
   ["PostfixExpression", ["PrimaryExpression"], 8],
   ["PostfixExpression", ["PostfixExpression", ".", "identifier"], 10],
+  ["PostfixExpression", ["PostfixExpression", ".", "delete"], 10],
   ["PostfixExpression", ["PostfixExpression", "?.", "identifier"], 10],
   ["PostfixExpression", ["PostfixExpression", "[", "Expression", "]"], 10],
   ["PostfixExpression", ["PostfixExpression", "?.", "[", "Expression", "]"], 10],

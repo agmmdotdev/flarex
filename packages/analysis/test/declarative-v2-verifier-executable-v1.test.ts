@@ -564,6 +564,51 @@ describe("private verifier restart bridge", () => {
       }),
     ]);
   });
+
+  test("restarts exact point-writer context members as their existing ABI operations", () => {
+    const source =
+      "export async function mutate(ctx,id,value){" +
+      "await ctx.db.patch(id,value);" +
+      "await ctx.db.replace(id,value);" +
+      "return await ctx.db.delete(id)}";
+    const sourceBytes = UTF8_ENCODER.encode(source);
+    const module = runModuleResult(
+      source,
+      "functions/restart-context-writers.js",
+      11n,
+    );
+    const bridge = makeDeclarativeV2VerifierExecutableRestartBridgeV1();
+    const opened = Result.getOrThrow(bridge.openModuleRecords(
+      module,
+      new Uint8Array(32).fill(11),
+      budget("command_budget", sourceBytes.byteLength),
+    ));
+    const records: DeclarativeV2VerifierRestartRecordV1[] = [];
+    for (let iteration = 0; iteration < 10_000; iteration += 1) {
+      const read = Result.getOrThrow(bridge.readModuleRecord(opened, 1_024));
+      if (read.status === "complete") break;
+      if (read.status === "item") records.push(read.record);
+    }
+    expect(records.filter(record => record.kind === "direct_call_v1")).toEqual([
+      expect.objectContaining({ targetKind: "abi", targetName: "patch" }),
+      expect.objectContaining({ targetKind: "abi", targetName: "replace" }),
+      expect.objectContaining({ targetKind: "abi", targetName: "delete" }),
+    ]);
+    expect(records.filter(record => record.kind === "value_flow_v1")).toEqual([
+      expect.objectContaining({
+        flowOrdinal: 0n,
+        operationName: "databasePatch",
+      }),
+      expect.objectContaining({
+        flowOrdinal: 1n,
+        operationName: "databaseReplace",
+      }),
+      expect.objectContaining({
+        flowOrdinal: 2n,
+        operationName: "databaseDelete",
+      }),
+    ]);
+  });
 });
 
 function generatedAsset(): Uint8Array {
@@ -1563,12 +1608,12 @@ describe("Declarative V2 executable verifier asset", () => {
       );
     expect(first.manifest).toMatchObject({
       assetSha256:
-        "bca3781ea604438377bf61a2308d475ff413583d7d5ff189c9d15cf3b59802d1",
-      assetByteLength: 4_734_448,
+        "a9a724e34a064f2c4d6db9e8b09eeb6b15c2b76eda41543a870464bea0ba975d",
+      assetByteLength: 4_858_776,
       contractSha256:
-        "e174e8df1dbf18c77b7790286097f3bd919756c7643d58f60f239257505cc949",
+        "b8b9de47e91f601edad25900227a3b6d5ee7742fffd045957c2c7361abb92c22",
       manifestIdentity:
-        "67598823f1709ecd13318a7d1d29cd5f1aad742b12f6711a275831e4ae3e860c",
+        "5cdac93e8996093752882860d6618e897a4704062a36a0488b6a432a721bcf45",
     });
   }, 120_000);
 
@@ -1708,13 +1753,13 @@ describe("Declarative V2 executable verifier asset", () => {
       gotos: compiled.gotos.length,
       recovery: compiled.recovery.length,
     }).toEqual({
-      productions: 225,
-      rhsSymbols: 490,
-      items: 150_405,
-      states: 4_901,
-      actions: 92_094,
-      shifts: 32_038,
-      reductions: 60_055,
+      productions: 226,
+      rhsSymbols: 493,
+      items: 156_138,
+      states: 4_950,
+      actions: 93_662,
+      shifts: 32_087,
+      reductions: 61_574,
       accepts: 1,
       gotos: 21_090,
       recovery: 1,
@@ -2415,6 +2460,27 @@ describe("Declarative V2 streaming engine", () => {
       "databaseInsert",
       "databaseWrite",
     ],
+    [
+      "database patch",
+      "runtime.db.patch(value, { nested: [value, { ready: true }] },)",
+      "patch",
+      "databasePatch",
+      "databaseWrite",
+    ],
+    [
+      "database replacement",
+      "runtime.db.replace(value, { nested: { value } })",
+      "replace",
+      "databaseReplace",
+      "databaseWrite",
+    ],
+    [
+      "database deletion",
+      "runtime.db.delete(value)",
+      "delete",
+      "databaseDelete",
+      "databaseWrite",
+    ],
   ])(
     "lowers direct root-context %s to the existing ABI evidence",
     (_label, expression, targetName, operationName, capability) => {
@@ -2423,7 +2489,10 @@ describe("Declarative V2 streaming engine", () => {
       );
       const result = runSource(source, [source]);
       if (Result.isFailure(result)) throw result.failure;
-      expect(result.success.verified).toBe(true);
+      expect(
+        result.success.verified,
+        result.success.diagnostics.map(({ code }) => code).join(","),
+      ).toBe(true);
       expect(result.success.diagnostics).toEqual([]);
       expect(result.success.importCalls).toEqual([
         expect.objectContaining({ targetKind: "abi", targetName }),
@@ -2453,25 +2522,105 @@ describe("Declarative V2 streaming engine", () => {
     }
   }, 30_000);
 
-  test("keeps direct context value-flow authority equal to the private ABI spelling", () => {
-    const contextSource = UTF8_ENCODER.encode(
-      "export function run(ctx, id) { return ctx.db.get(id); }",
+  test("keeps template-substitution commas inside direct call arguments", () => {
+    const source = UTF8_ENCODER.encode(
+      "export async function run(ctx, id, prefix, value) {" +
+        "const found = await ctx.db.get(`${prefix,id}`);" +
+        "await ctx.db.patch(id, `${prefix,value}`);" +
+        "return found;}",
     );
-    const privateAbiSource = UTF8_ENCODER.encode(
-      'import {databaseGet} from "flarex:platform";' +
-        "export function run(_, id) { return databaseGet(id); }",
+    const baselineResult = runSource(source, [source]);
+    if (Result.isFailure(baselineResult)) throw baselineResult.failure;
+    expect(
+      baselineResult.success.verified,
+      baselineResult.success.diagnostics.map(({ code }) => code).join(","),
+    ).toBe(true);
+    expect(baselineResult.success.importCalls).toEqual([
+      expect.objectContaining({ targetKind: "abi", targetName: "get" }),
+      expect.objectContaining({ targetKind: "abi", targetName: "patch" }),
+    ]);
+    const baseline = semanticProjection(baselineResult);
+    for (let split = 0; split <= source.byteLength; split += 1) {
+      expect(semanticProjection(runSource(source, [
+        source.slice(0, split),
+        source.slice(split),
+      ])), `split ${split}`).toEqual(baseline);
+    }
+  }, 30_000);
+
+  test.each([
+    ["get", "databaseGet", "ctx.db.get(id)", "databaseGet(id)"],
+    [
+      "insert",
+      "databaseInsert",
+      'ctx.db.insert("recipes", value)',
+      'databaseInsert("recipes", value)',
+    ],
+    [
+      "patch",
+      "databasePatch",
+      "ctx.db.patch(id, value)",
+      "databasePatch(id, value)",
+    ],
+    [
+      "replace",
+      "databaseReplace",
+      "ctx.db.replace(id, value)",
+      "databaseReplace(id, value)",
+    ],
+    ["delete", "databaseDelete", "ctx.db.delete(id)", "databaseDelete(id)"],
+  ])(
+    "keeps direct context %s value-flow authority equal to the private ABI spelling",
+    (_member, operation, contextCall, privateCall) => {
+      const contextSource = UTF8_ENCODER.encode(
+        `export function run(ctx, id, value) { return ${contextCall}; }`,
+      );
+      const privateAbiSource = UTF8_ENCODER.encode(
+        `import {${operation}} from "flarex:platform";` +
+          `export function run(_, id, value) { return ${privateCall}; }`,
+      );
+      const context = runSource(contextSource, [contextSource]);
+      const privateAbi = runSource(privateAbiSource, [privateAbiSource]);
+      if (Result.isFailure(context)) throw context.failure;
+      if (Result.isFailure(privateAbi)) throw privateAbi.failure;
+      const authority = (result: DeclarativeV2VerifierModulePresentationV1) =>
+        result.valueFlows.map(({ operationName, capability, catchability }) => ({
+          operationName,
+          capability,
+          catchability,
+        }));
+      expect(authority(context.success)).toEqual(authority(privateAbi.success));
+    },
+  );
+
+  test.each([
+    ["missing get id", "ctx.db.get()"],
+    ["surplus get argument", "ctx.db.get(id, value)"],
+    ["surplus insert argument", 'ctx.db.insert("recipes", value, id)'],
+    [
+      "Convex table-plus-id patch overload",
+      'ctx.db.patch("recipes", id, value)',
+    ],
+    [
+      "Convex table-plus-id replace overload",
+      'ctx.db.replace("recipes", id, value)',
+    ],
+    ["Convex table-plus-id delete overload", 'ctx.db.delete("recipes", id)'],
+    ["spread delete", "ctx.db.delete(...args)"],
+    ["spread patch value", "ctx.db.patch(id, ...args)"],
+    ["spread replace id", "ctx.db.replace(...args, value)"],
+  ])("rejects unsupported direct context arity: %s", (_label, expression) => {
+    const source = UTF8_ENCODER.encode(
+      `export function run(ctx, id, value, args) { return ${expression}; }`,
     );
-    const context = runSource(contextSource, [contextSource]);
-    const privateAbi = runSource(privateAbiSource, [privateAbiSource]);
-    if (Result.isFailure(context)) throw context.failure;
-    if (Result.isFailure(privateAbi)) throw privateAbi.failure;
-    const authority = (result: DeclarativeV2VerifierModulePresentationV1) =>
-      result.valueFlows.map(({ operationName, capability, catchability }) => ({
-        operationName,
-        capability,
-        catchability,
-      }));
-    expect(authority(context.success)).toEqual(authority(privateAbi.success));
+    const result = runSource(source, [source]);
+    if (Result.isFailure(result)) throw result.failure;
+    expect(result.success.verified).toBe(false);
+    expect(result.success.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: expect.stringMatching(/^CORE_(COMPUTED_DISPATCH|CALL_TARGET)$/),
+      }),
+    ]));
   });
 
   test.each([
@@ -2479,6 +2628,7 @@ describe("Declarative V2 streaming engine", () => {
     ["optional database", "ctx.db?.get(id)"],
     ["computed receiver", 'ctx["db"].get(id)'],
     ["computed method", 'ctx.db["get"](id)'],
+    ["unowned delete member", "value.delete(id)"],
     ["longer receiver", "wrapper.ctx.db.get(id)"],
     ["parenthesized target", "(ctx.db.get)(id)"],
     ["detached method", "get(id)", "const get = ctx;"],

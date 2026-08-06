@@ -5506,6 +5506,69 @@ export function createDeclarativeV2VerifierEngineV1(
       }
       return false;
     };
+    const directCallArgumentCount = function* (
+      openToken: number,
+    ): Generator<number, number | undefined, void> {
+      if (!tokenMatches(openToken, "(")) return undefined;
+      let parenthesisDepth = 1;
+      let bracketDepth = 0;
+      let braceDepth = 0;
+      let templateSubstitutionDepth = 0;
+      let separators = 0;
+      let sawArgumentToken = false;
+      let trailingSeparator = false;
+      for (let index = openToken + 1; index < tokenCount; index += 1) {
+        yield 1;
+        const atTopLevel = parenthesisDepth === 1 &&
+          bracketDepth === 0 && braceDepth === 0 &&
+          templateSubstitutionDepth === 0;
+        if (atTopLevel && tokenMatches(index, ")")) {
+          return sawArgumentToken
+            ? separators + (trailingSeparator ? 0 : 1)
+            : 0;
+        }
+        if (atTopLevel && tokenMatches(index, "...")) return undefined;
+        if (atTopLevel && tokenMatches(index, ",")) {
+          separators += 1;
+          trailingSeparator = true;
+          continue;
+        }
+        if (atTopLevel) {
+          sawArgumentToken = true;
+          trailingSeparator = false;
+        }
+        if (tokenMatches(index, "(")) parenthesisDepth += 1;
+        else if (tokenMatches(index, ")")) {
+          parenthesisDepth -= 1;
+          if (parenthesisDepth < 1) return undefined;
+        } else if (tokenMatches(index, "[")) bracketDepth += 1;
+        else if (tokenMatches(index, "]")) {
+          bracketDepth -= 1;
+          if (bracketDepth < 0) return undefined;
+        } else if (tokenMatches(index, "{")) braceDepth += 1;
+        else if (tokenMatches(index, "}")) {
+          braceDepth -= 1;
+          if (braceDepth < 0) return undefined;
+        }
+        const token = at(index);
+        if (token.kind === "template") {
+          const length = tokenTextByteLength(index);
+          const first = tokenTextByteAt(index, 0);
+          const last = tokenTextByteAt(index, length - 1);
+          const penultimate = tokenTextByteAt(index, length - 2);
+          if (
+            (first === 0x60 || first === 0x7d) &&
+            penultimate === 0x24 && last === 0x7b
+          ) {
+            if (first === 0x60) templateSubstitutionDepth += 1;
+          } else if (first === 0x7d && last === 0x60) {
+            templateSubstitutionDepth -= 1;
+            if (templateSubstitutionDepth < 0) return undefined;
+          }
+        }
+      }
+      return undefined;
+    };
     const contextAbiIdForRoot = function* (
       contextToken: number,
     ): Generator<number, number | undefined, void> {
@@ -5514,7 +5577,6 @@ export function createDeclarativeV2VerifierEngineV1(
         contextToken + 5 >= tokenCount ||
         at(contextToken).kind !== "identifier" ||
         at(contextToken + 2).kind !== "identifier" ||
-        at(contextToken + 4).kind !== "identifier" ||
         !tokenMatches(contextToken + 1, ".") ||
         !tokenMatches(contextToken + 3, ".") ||
         !tokenMatches(contextToken + 5, "(") ||
@@ -5532,7 +5594,9 @@ export function createDeclarativeV2VerifierEngineV1(
       ) {
         if (
           (yield* compareTokenToAscii(receiverToken, lowering.receiver)) !== 0 ||
-          (yield* compareTokenToAscii(methodToken, lowering.member)) !== 0
+          (yield* compareTokenToAscii(methodToken, lowering.member)) !== 0 ||
+          (yield* directCallArgumentCount(contextToken + 5)) !==
+            lowering.argumentCount
         ) continue;
         const abiId = DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1.findIndex(
           operation => operation.name === lowering.operation,
@@ -5588,7 +5652,6 @@ export function createDeclarativeV2VerifierEngineV1(
         contextBinding === undefined ||
         methodToken < 4 ||
         methodToken + 1 >= tokenCount ||
-        at(methodToken).kind !== "identifier" ||
         !tokenMatches(methodToken + 1, "(")
       ) return undefined;
       const contextToken = methodToken - 4;
@@ -5685,10 +5748,12 @@ export function createDeclarativeV2VerifierEngineV1(
         yield 1;
         const token = at(index);
         const next = index + 1 < bodyEnd ? at(index + 1) : undefined;
-        const contextAbiId = token.kind === "identifier" &&
-            next !== undefined && tokenIs(next, "(")
+        const hasCallOpen = next !== undefined && tokenIs(next, "(");
+        const contextAbiId = hasCallOpen
           ? yield* contextAbiIdForCall(index, functionIndex)
           : undefined;
+        const callableName = token.kind === "identifier" ||
+          contextAbiId !== undefined;
         const contextMemberPunctuator = tokenMatches(index, ".") &&
           (
             index + 1 < bodyEnd &&
@@ -5781,9 +5846,8 @@ export function createDeclarativeV2VerifierEngineV1(
         }
 
         if (
-          token.kind === "identifier" &&
-          next !== undefined &&
-          tokenIs(next, "(")
+          callableName &&
+          hasCallOpen
         ) {
           const localBinding = yield* isShadowedBinding(index, functionIndex);
           const localFunction = yield* findLocalFunction(index);

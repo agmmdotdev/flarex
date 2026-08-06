@@ -1,6 +1,6 @@
-import { databasePatch, runQuery } from "flarex:platform";
+import { runQuery } from "flarex:platform";
 
-export async function markPublished(_, { id }) {
+export async function markPublished(ctx, { id }) {
   const before = await runQuery(
     { _path: "recipeAssessment:assess" },
     { id },
@@ -8,7 +8,7 @@ export async function markPublished(_, { id }) {
   if (before === null) return null;
   const { published: beforePublished } = before;
 
-  await databasePatch(id, { published: true });
+  await ctx.db.patch(id, { published: true });
 
   const after = await runQuery(
     { _path: "recipeAssessment:assess" },

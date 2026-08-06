@@ -504,7 +504,12 @@ describe("private Declarative V2 registration verifier", () => {
     expect(Result.isSuccess(fixture.result)).toBe(true);
   });
 
-  test("rejects direct database writes from a declared query context", () => {
+  test.each([
+    ['ctx.db.insert("recipes",{})'],
+    ['ctx.db.patch("recipes:1",{})'],
+    ['ctx.db.replace("recipes:1",{})'],
+    ['ctx.db.delete("recipes:1")'],
+  ])("rejects direct database write %s from a declared query context", expression => {
     const fixture = registrationFixture(
       1,
       undefined,
@@ -513,8 +518,7 @@ describe("private Declarative V2 registration verifier", () => {
       SEMANTIC_RECORDS,
       "functions/example.js",
       undefined,
-      "export async function getThing(ctx){" +
-        'return await ctx.db.insert("recipes",{})}',
+      `export async function getThing(ctx){return await ${expression}}`,
     );
     expect(fixture.result).toMatchObject({
       failure: {
@@ -525,7 +529,12 @@ describe("private Declarative V2 registration verifier", () => {
     });
   });
 
-  test("accepts direct database writes on a mutation root context", () => {
+  test.each([
+    ['ctx.db.insert("recipes",{})'],
+    ['ctx.db.patch("recipes:1",{})'],
+    ['ctx.db.replace("recipes:1",{})'],
+    ['ctx.db.delete("recipes:1")'],
+  ])("accepts direct database write %s on a mutation root context", expression => {
     const records = SEMANTIC_RECORDS.map(record =>
       record.kind === "function"
         ? { ...record, functionKind: "mutation" as const }
@@ -539,8 +548,7 @@ describe("private Declarative V2 registration verifier", () => {
       records,
       "functions/example.js",
       undefined,
-      "export async function getThing(runtime){" +
-        'return await runtime.db.insert("recipes",{})}',
+      `export async function getThing(ctx){return await ${expression}}`,
     );
     expect(Result.isSuccess(fixture.result)).toBe(true);
   });

@@ -1,17 +1,15 @@
-import { databasePatch } from "flarex:platform";
-
-export async function patch(_, { id, patch: values }) {
-  await databasePatch(id, values);
+export async function patch(ctx, { id, patch: values }) {
+  await ctx.db.patch(id, values);
   return null;
 }
 
-export async function patchThenReturnInvalid(_, { id }) {
-  await databasePatch(id, { title: "This value must roll back." });
+export async function patchThenReturnInvalid(ctx, { id }) {
+  await ctx.db.patch(id, { title: "This value must roll back." });
   return "not-null";
 }
 
-export async function patchThenThrow(_, { id }) {
-  await databasePatch(id, { title: "This throw must roll back." });
+export async function patchThenThrow(ctx, { id }) {
+  await ctx.db.patch(id, { title: "This throw must roll back." });
   throw "Injected cooking mutation failure.";
 }
 

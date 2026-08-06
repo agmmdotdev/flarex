@@ -1,6 +1,4 @@
-import { databaseDelete } from "flarex:platform";
-
-export async function remove(_, { id }) {
-  await databaseDelete(id);
+export async function remove(ctx, { id }) {
+  await ctx.db.delete(id);
   return null;
 }
