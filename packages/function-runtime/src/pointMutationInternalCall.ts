@@ -16,7 +16,7 @@ import type {
   FunctionRuntimeMutationContextV1,
   FunctionRuntimePointDatabaseWriterV1,
   FunctionRuntimePointReaderV1,
-  FunctionRuntimeQueryContextV1,
+  FunctionRuntimeRunQueryContextV1,
 } from "./functionApiCore";
 
 export type PointMutationInternalCallRuntimeArgsValidatorV1 =
@@ -99,7 +99,7 @@ export type PointMutationInternalCallRuntimeRunMutationV1 = (
 ) => Promise<CanonicalFlarexRuntimeValueV1>;
 
 export interface PointMutationInternalCallRuntimeQueryContextV1
-  extends FunctionRuntimeQueryContextV1<
+  extends FunctionRuntimeRunQueryContextV1<
     PointMutationInternalCallRuntimeQueryDatabaseV1,
     PointMutationInternalCallRuntimeRunQueryV1
   > {}

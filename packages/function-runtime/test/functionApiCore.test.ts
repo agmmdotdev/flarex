@@ -8,7 +8,7 @@ import {
   createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
   createMutationFunctionRuntimeContextV1,
-  createQueryFunctionRuntimeContextV1,
+  createFunctionRuntimeRunQueryContextV1,
 } from "../src/functionApiCore";
 
 const IDENTITY = Object.freeze({
@@ -180,7 +180,7 @@ describe("@flarex/function-runtime/function-api-core", () => {
     expect(cloneIdentity).toHaveBeenNthCalledWith(2, IDENTITY);
   });
 
-  it("constructs fresh exact frozen query and mutation contexts", async () => {
+  it("constructs fresh exact frozen run-query and mutation contexts", async () => {
     const auth = createFunctionRuntimeAuthV1(
       Object.freeze({ kind: "anonymous" }),
       identity => identity,
@@ -193,12 +193,12 @@ describe("@flarex/function-runtime/function-api-core", () => {
     const runQuery = vi.fn(() => Promise.resolve("query"));
     const runMutation = vi.fn(() => Promise.resolve("mutation"));
 
-    const query = createQueryFunctionRuntimeContextV1(
+    const query = createFunctionRuntimeRunQueryContextV1(
       auth,
       queryDb,
       runQuery,
     );
-    const secondQuery = createQueryFunctionRuntimeContextV1(
+    const secondQuery = createFunctionRuntimeRunQueryContextV1(
       auth,
       queryDb,
       runQuery,

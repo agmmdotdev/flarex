@@ -176,6 +176,12 @@ export default { async fetch() {
           contents: `
 import { FlarexError } from "flarex/values";
 export async function update(ctx) {
+  if (Object.keys(ctx).join(",") !== "auth,db,runQuery" || !Object.isFrozen(ctx)) {
+    throw new Error("mutation context shape mismatch");
+  }
+  if (Object.keys(ctx.db).join(",") !== "get,insert,patch,replace,delete" || !Object.isFrozen(ctx.db)) {
+    throw new Error("mutation database shape mismatch");
+  }
   try {
     await ctx.runQuery({ _path: "orders:readInternal" }, {});
   } catch (error) {
@@ -187,6 +193,12 @@ export async function update(ctx) {
   return await ctx.runQuery({ _path: "orders:readInternal" }, { id });
 }
 export async function readInternal(ctx, args) {
+  if (Object.keys(ctx).join(",") !== "auth,db,runQuery" || !Object.isFrozen(ctx)) {
+    throw new Error("query context shape mismatch");
+  }
+  if (Object.keys(ctx.db).join(",") !== "get" || !Object.isFrozen(ctx.db)) {
+    throw new Error("query database shape mismatch");
+  }
   if (args.id === undefined) throw new FlarexError("DECLARED", "declared child", { reason: "test" });
   return await ctx.db.get(args.id);
 }`,

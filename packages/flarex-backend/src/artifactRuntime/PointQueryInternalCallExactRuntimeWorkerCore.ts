@@ -2,7 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
   createFunctionRuntimePointReaderV1,
-  createQueryFunctionRuntimeContextV1,
+  createFunctionRuntimeRunQueryContextV1,
 } from "flarex:function-api-core/v1";
 import type {
   capturePointQueryInternalCallRuntimeArgumentsV1,
@@ -138,7 +138,7 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
           createContext: (
             runQuery: PointQueryInternalCallRuntimeRunQueryV1,
           ) =>
-            createQueryFunctionRuntimeContextV1(auth, database, runQuery),
+            createFunctionRuntimeRunQueryContextV1(auth, database, runQuery),
           readBoundary: freeze({
             close: () => { state.closed = true; },
             drain: async () => {

@@ -1,4 +1,3 @@
-import type { UserIdentity } from "flarex-protocol/auth";
 import type {
   CanonicalFlarexRuntimeObjectV1,
   CanonicalFlarexRuntimeValueV1,
@@ -13,6 +12,11 @@ import {
   requireValidatorAdmission,
   validateValue,
 } from "./pointMutationInternalQueryPrimitives";
+import type {
+  FunctionRuntimePointDatabaseWriterV1,
+  FunctionRuntimePointReaderV1,
+  FunctionRuntimeRunQueryContextV1,
+} from "./functionApiCore";
 
 export type PointMutationInternalQueryRuntimeArgsValidatorV1 =
   | ObjectValidatorJsonV1
@@ -67,29 +71,38 @@ export interface CapturedPointMutationInternalQueryRuntimeArgumentsV1 {
   readonly semanticSizeBytes: number;
 }
 
-export interface PointMutationInternalQueryRuntimeDatabaseV1 {
-  readonly get: (
-    documentId: string,
-  ) => Promise<CanonicalFlarexRuntimeObjectV1 | null>;
-  readonly insert: (tableName: string, fields: unknown) => Promise<string>;
-  readonly patch: (documentId: string, patch: unknown) => Promise<void>;
-  readonly replace: (documentId: string, fields: unknown) => Promise<void>;
-  readonly delete: (documentId: string) => Promise<void>;
-  readonly query: (...args: ReadonlyArray<unknown>) => never;
-  readonly normalizeId: (...args: ReadonlyArray<unknown>) => never;
-  readonly system: Readonly<Record<string, never>>;
-}
+export interface PointMutationInternalQueryRuntimeQueryDatabaseV1
+  extends FunctionRuntimePointReaderV1<
+    string,
+    CanonicalFlarexRuntimeObjectV1
+  > {}
 
-export interface PointMutationInternalQueryRuntimeContextV1 {
-  readonly auth: Readonly<{
-    readonly getUserIdentity: () => Promise<UserIdentity | null>;
-  }>;
-  readonly db: PointMutationInternalQueryRuntimeDatabaseV1;
-  readonly runQuery: (
-    reference: unknown,
-    args?: unknown,
-  ) => Promise<CanonicalFlarexRuntimeValueV1>;
-}
+export interface PointMutationInternalQueryRuntimeDatabaseV1
+  extends FunctionRuntimePointDatabaseWriterV1<
+    string,
+    CanonicalFlarexRuntimeObjectV1,
+    string,
+    unknown,
+    unknown,
+    unknown
+  > {}
+
+export type PointMutationInternalQueryRuntimeRunQueryV1 = (
+  reference: unknown,
+  args?: unknown,
+) => Promise<CanonicalFlarexRuntimeValueV1>;
+
+export interface PointMutationInternalQueryRuntimeQueryContextV1
+  extends FunctionRuntimeRunQueryContextV1<
+    PointMutationInternalQueryRuntimeQueryDatabaseV1,
+    PointMutationInternalQueryRuntimeRunQueryV1
+  > {}
+
+export interface PointMutationInternalQueryRuntimeContextV1
+  extends FunctionRuntimeRunQueryContextV1<
+    PointMutationInternalQueryRuntimeDatabaseV1,
+    PointMutationInternalQueryRuntimeRunQueryV1
+  > {}
 
 export interface PointMutationInternalQueryRuntimeJournalBoundaryV1 {
   readonly close: () => void;
@@ -97,7 +110,12 @@ export interface PointMutationInternalQueryRuntimeJournalBoundaryV1 {
 }
 
 export interface PointMutationInternalQueryRuntimeInvocationV1 {
-  readonly context: Omit<PointMutationInternalQueryRuntimeContextV1, "runQuery">;
+  readonly createQueryContext: (
+    runQuery: PointMutationInternalQueryRuntimeRunQueryV1,
+  ) => PointMutationInternalQueryRuntimeQueryContextV1;
+  readonly createMutationContext: (
+    runQuery: PointMutationInternalQueryRuntimeRunQueryV1,
+  ) => PointMutationInternalQueryRuntimeContextV1;
   readonly journal: PointMutationInternalQueryRuntimeJournalBoundaryV1;
   readonly recordCallFrame: (frame: PointMutationInternalQueryFrameV1) => void;
   readonly isCoreApplicationError: (cause: unknown) => boolean;
@@ -242,8 +260,13 @@ export function inspectPointMutationInternalQueryRuntimeFailureV1(
     : undefined;
 }
 
-type RuntimeHandler = (
+type RuntimeMutationHandler = (
   context: PointMutationInternalQueryRuntimeContextV1,
+  argumentsValue: CanonicalFlarexRuntimeObjectV1,
+) => unknown | PromiseLike<unknown>;
+
+type RuntimeQueryHandler = (
+  context: PointMutationInternalQueryRuntimeQueryContextV1,
   argumentsValue: CanonicalFlarexRuntimeObjectV1,
 ) => unknown | PromiseLike<unknown>;
 
@@ -359,20 +382,20 @@ export async function executePointMutationInternalQueryV1(
     invocation.recordTerminalFailure(failure);
     throw failure;
   };
-  const readOnlyDatabase = makeReadOnlyDatabase(
-    invocation.context.db,
-    () => terminal("internalTargetInvalid", "Internal query context is read-only."),
-  );
-  const contextFor = (
+  const queryContextFor = (
     parentOrdinal: number,
-    database: PointMutationInternalQueryRuntimeDatabaseV1,
-  ):
-    PointMutationInternalQueryRuntimeContextV1 => Object.freeze({
-      ...invocation.context,
-      db: database,
-      runQuery: (reference: unknown, args?: unknown) =>
+  ): PointMutationInternalQueryRuntimeQueryContextV1 =>
+    invocation.createQueryContext(
+      (reference: unknown, args?: unknown) =>
         runInternal(parentOrdinal, reference, args),
-    });
+    );
+  const mutationContextFor = (
+    parentOrdinal: number,
+  ): PointMutationInternalQueryRuntimeContextV1 =>
+    invocation.createMutationContext(
+      (reference: unknown, args?: unknown) =>
+        runInternal(parentOrdinal, reference, args),
+    );
   const executeInternal = async (
     parentOrdinal: number,
     reference: unknown,
@@ -425,12 +448,12 @@ export async function executePointMutationInternalQueryV1(
     try { candidate = await registry.resolve(callee.path); }
     catch (cause) { return terminal("internalTargetInvalid", cause); }
     if (candidate === undefined) return terminal("internalTargetInvalid");
-    let child: RuntimeHandler;
+    let child: RuntimeQueryHandler;
     try { child = exactRuntimeHandler(candidate, "query", "internal"); }
     catch (cause) { return terminal("internalTargetInvalid", cause); }
     activeOrdinals.push(callee.ordinal);
     try {
-      const childContext = contextFor(callee.ordinal, readOnlyDatabase);
+      const childContext = queryContextFor(callee.ordinal);
       let childResult: unknown;
       try {
         childResult = await child(childContext, captured.value);
@@ -498,7 +521,7 @@ export async function executePointMutationInternalQueryV1(
   let handlerResult: unknown;
   let handlerFailure: Readonly<{ readonly cause: unknown }> | undefined;
   try {
-    const rootContext = contextFor(input.function.ordinal, invocation.context.db);
+    const rootContext = mutationContextFor(input.function.ordinal);
     handlerResult = await handler(rootContext, input.arguments);
   } catch (cause) {
     handlerFailure = { cause };
@@ -575,9 +598,19 @@ function validatorIssue(
 
 function exactRuntimeHandler(
   value: unknown,
+  kind: "mutation",
+  visibility: "public",
+): RuntimeMutationHandler;
+function exactRuntimeHandler(
+  value: unknown,
+  kind: "query",
+  visibility: "internal",
+): RuntimeQueryHandler;
+function exactRuntimeHandler(
+  value: unknown,
   kind: "mutation" | "query",
   visibility: "public" | "internal",
-): RuntimeHandler {
+): RuntimeMutationHandler | RuntimeQueryHandler {
   if (!isPlainRecord(value)) {
     throw new PointMutationInternalQueryRuntimeContractV1Error("functionMetadataInvalid");
   }
@@ -597,23 +630,7 @@ function exactRuntimeHandler(
   ) {
     throw new PointMutationInternalQueryRuntimeContractV1Error("functionMetadataInvalid");
   }
-  return handler.value as RuntimeHandler;
-}
-
-function makeReadOnlyDatabase(
-  database: PointMutationInternalQueryRuntimeDatabaseV1,
-  forbidden: () => never,
-): PointMutationInternalQueryRuntimeDatabaseV1 {
-  return Object.freeze({
-    get: database.get,
-    insert: forbidden,
-    patch: forbidden,
-    replace: forbidden,
-    delete: forbidden,
-    query: forbidden,
-    normalizeId: forbidden,
-    system: Object.freeze({}),
-  });
+  return handler.value as RuntimeMutationHandler | RuntimeQueryHandler;
 }
 
 function staticFunctionPath(reference: unknown): string | undefined {

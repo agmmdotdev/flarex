@@ -15,7 +15,7 @@ import { validateValidatorValueIssueV1 } from
   "flarex-protocol/internal/validator-engine-core";
 import type {
   FunctionRuntimePointReaderV1,
-  FunctionRuntimeQueryContextV1,
+  FunctionRuntimeRunQueryContextV1,
 } from "./functionApiCore";
 
 export type PointQueryInternalCallRuntimeArgsValidatorV1 =
@@ -79,7 +79,7 @@ export type PointQueryInternalCallRuntimeRunQueryV1 = (
 ) => Promise<CanonicalFlarexRuntimeValueV1>;
 
 export interface PointQueryInternalCallRuntimeContextV1
-  extends FunctionRuntimeQueryContextV1<
+  extends FunctionRuntimeRunQueryContextV1<
     PointQueryInternalCallRuntimeDatabaseV1,
     PointQueryInternalCallRuntimeRunQueryV1
   > {}

@@ -36,10 +36,13 @@ describe("generated function API core", () => {
       "utf8",
     ).digest("hex")).toBe(FUNCTION_API_CORE_SHA256_V1);
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
-      "createQueryFunctionRuntimeContextV1",
+      "createFunctionRuntimeRunQueryContextV1",
     );
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
       "createMutationFunctionRuntimeContextV1",
+    );
+    expect(FUNCTION_API_CORE_SOURCE_V1).not.toContain(
+      "createQueryFunctionRuntimeContextV1",
     );
     expect(FUNCTION_API_CORE_SOURCE_V1).not.toContain(
       "createQueryFunctionRuntimeBaseContextV1",
@@ -122,6 +125,31 @@ describe("generated function API core", () => {
       expect(source).not.toContain('unsupported("ctx.db.query")');
       expect(source).not.toContain('unsupported("ctx.db.normalizeId")');
       expect(source).not.toContain("system: Object.freeze({})");
+    }
+  });
+
+  it("uses positive run-query contexts in all exact nested-call runtimes", () => {
+    for (const source of [
+      POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+      POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+      POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+    ]) {
+      expect(source).toContain("createFunctionRuntimeRunQueryContextV1(");
+      expect(source).not.toContain("createQueryFunctionRuntimeContextV1");
+    }
+    expect(POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1)
+      .toContain("createFunctionRuntimePointReaderV1(");
+    expect(POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1)
+      .toContain("createFunctionRuntimePointDatabaseWriterV1(");
+    for (const negativeCapability of [
+      'unsupported("ctx.db.query")',
+      'unsupported("ctx.db.normalizeId")',
+      'unsupported("ctx.runMutation")',
+      "scheduler: Object.freeze",
+      "storage: Object.freeze",
+    ]) {
+      expect(POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1)
+        .not.toContain(negativeCapability);
     }
   });
 

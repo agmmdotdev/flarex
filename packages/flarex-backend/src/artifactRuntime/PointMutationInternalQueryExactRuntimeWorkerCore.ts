@@ -2,6 +2,9 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimePointDatabaseWriterV1,
+  createFunctionRuntimePointReaderV1,
+  createFunctionRuntimeRunQueryContextV1,
 } from "flarex:function-api-core/v1";
 import type {
   UserIdentity,
@@ -15,6 +18,7 @@ import type {
   PointMutationInternalQueryFrameV1,
   PointMutationInternalQueryRuntimeInputV1,
   PointMutationInternalQueryRuntimeInvocationFactoryV1,
+  PointMutationInternalQueryRuntimeRunQueryV1,
 } from "@flarex/function-runtime/point-mutation-internal-query";
 import type {
   CanonicalFlarexRuntimeObjectV1,
@@ -214,12 +218,10 @@ interface ExactRuntimeDatabase {
   readonly patch: (documentId: string, patch: unknown) => Promise<void>;
   readonly replace: (documentId: string, fields: unknown) => Promise<void>;
   readonly delete: (documentId: string) => Promise<void>;
-  readonly query: (...args: ReadonlyArray<unknown>) => never;
-  readonly normalizeId: (...args: ReadonlyArray<unknown>) => never;
-  readonly system: Readonly<Record<string, never>>;
 }
 
 interface ExactRuntimeJournal {
+  readonly reader: Pick<ExactRuntimeDatabase, "get">;
   readonly database: ExactRuntimeDatabase;
   readonly close: () => void;
   readonly drain: () => Promise<void>;
@@ -616,18 +618,37 @@ export class FlarexPointMutationInternalQueryExactRuntimeV1 extends WorkerEntryp
       const invocations: PointMutationInternalQueryRuntimeInvocationFactoryV1 =
         Object.freeze({
           open: () => {
-            journalRuntime = databaseForJournal(
+            const openedJournal = databaseForJournal(
               request.tables,
               admittedCapability,
             );
-            const context = executionContext(request, journalRuntime.database);
+            journalRuntime = openedJournal;
+            const auth = createFunctionRuntimeAuthV1(
+              request.auth,
+              cloneUserIdentityV1,
+            );
             return Object.freeze({
-              context,
-              journal: journalRuntime,
+              createQueryContext: (
+                runQuery: PointMutationInternalQueryRuntimeRunQueryV1,
+              ) =>
+                createFunctionRuntimeRunQueryContextV1(
+                  auth,
+                  openedJournal.reader,
+                  runQuery,
+                ),
+              createMutationContext: (
+                runQuery: PointMutationInternalQueryRuntimeRunQueryV1,
+              ) =>
+                createFunctionRuntimeRunQueryContextV1(
+                  auth,
+                  openedJournal.database,
+                  runQuery,
+                ),
+              journal: openedJournal,
               recordCallFrame: (_frame: PointMutationInternalQueryFrameV1) => {},
               isCoreApplicationError: inspectCoreApplicationErrorV1,
               recordTerminalFailure: (cause: unknown) => {
-                journalRuntime!.poison(cause);
+                openedJournal.poison(cause);
               },
             });
           },
@@ -1332,32 +1353,6 @@ function isTableJournalCapability(
   );
 }
 
-function executionContext(
-  request: DecodedExactRuntimeRequest,
-  database: ExactRuntimeDatabase,
-) {
-  return Object.freeze({
-    auth: createFunctionRuntimeAuthV1(
-      request.auth,
-      cloneUserIdentityV1,
-    ),
-    db: database,
-    runQuery: unsupported("ctx.runQuery"),
-    runMutation: unsupported("ctx.runMutation"),
-    scheduler: Object.freeze({
-      runAfter: unsupported("ctx.scheduler.runAfter"),
-      runAt: unsupported("ctx.scheduler.runAt"),
-      cancel: unsupported("ctx.scheduler.cancel"),
-    }),
-    storage: Object.freeze({
-      getUrl: unsupported("ctx.storage.getUrl"),
-      generateUploadUrl: unsupported("ctx.storage.generateUploadUrl"),
-      delete: unsupported("ctx.storage.delete"),
-      getMetadata: unsupported("ctx.storage.getMetadata"),
-    }),
-  });
-}
-
 function cloneUserIdentityV1(identity: UserIdentity): UserIdentity {
   return nativeStructuredClone(identity);
 }
@@ -1573,49 +1568,52 @@ function databaseForJournal(
     );
     return execution;
   }
-  const database = Object.freeze({
-    get: (documentId: string) =>
+  const pointReader = createFunctionRuntimePointReaderV1(
+    (documentId: string) =>
       trackCallerPromise(run(
         tableNameForDocumentId(documentId),
         { kind: "get", documentId },
       ).then((outcome) =>
         outcome.kind === "missing" ? null : outcome.document
       )),
-    insert: (tableName: string, fields: unknown) => {
-      const capturedFields = captureDeveloperFields(fields, "insert fields");
-      return trackCallerPromise(run(
-        requireTableName(tableName),
-        { kind: "insert", fields: capturedFields },
-      ).then((outcome) => outcome.documentId));
-    },
-    patch: (documentId: string, patch: unknown) =>
-      trackCallerPromise(run(
-        tableNameForDocumentId(documentId),
-        {
-          kind: "patch",
-          documentId,
-          patch: capturePatch(patch),
-        },
-      ).then(() => undefined)),
-    replace: (documentId: string, fields: unknown) =>
-      trackCallerPromise(run(
-        tableNameForDocumentId(documentId),
-        {
-          kind: "replace",
-          documentId,
-          fields: captureDeveloperFields(fields, "replacement fields"),
-        },
-      ).then(() => undefined)),
-    delete: (documentId: string) =>
-      trackCallerPromise(run(
-        tableNameForDocumentId(documentId),
-        { kind: "delete", documentId },
-      ).then(() => undefined)),
-    query: unsupported("ctx.db.query"),
-    normalizeId: unsupported("ctx.db.normalizeId"),
-    system: Object.freeze({}),
-  });
+  );
+  const database = createFunctionRuntimePointDatabaseWriterV1(
+    pointReader,
+    freeze({
+      insertPointDocument: (tableName: string, fields: unknown) => {
+        const capturedFields = captureDeveloperFields(fields, "insert fields");
+        return trackCallerPromise(run(
+          requireTableName(tableName),
+          { kind: "insert", fields: capturedFields },
+        ).then((outcome) => outcome.documentId));
+      },
+      patchPointDocument: (documentId: string, patch: unknown) =>
+        trackCallerPromise(run(
+          tableNameForDocumentId(documentId),
+          {
+            kind: "patch",
+            documentId,
+            patch: capturePatch(patch),
+          },
+        ).then(() => undefined)),
+      replacePointDocument: (documentId: string, fields: unknown) =>
+        trackCallerPromise(run(
+          tableNameForDocumentId(documentId),
+          {
+            kind: "replace",
+            documentId,
+            fields: captureDeveloperFields(fields, "replacement fields"),
+          },
+        ).then(() => undefined)),
+      deletePointDocument: (documentId: string) =>
+        trackCallerPromise(run(
+          tableNameForDocumentId(documentId),
+          { kind: "delete", documentId },
+        ).then(() => undefined)),
+    }),
+  );
   return Object.freeze({
+    reader: pointReader,
     database,
     close: () => {
       acceptingOperations = false;
@@ -2218,12 +2216,4 @@ function isAppDocumentId(value: unknown): value is string {
   }
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
     .test(value.slice(separator + 1));
-}
-
-function unsupported(
-  capability: string,
-): (...args: ReadonlyArray<unknown>) => never {
-  return (..._args: ReadonlyArray<unknown>) => {
-    throw new Error(`${capability} is unavailable during exact point-mutation execution.`);
-  };
 }

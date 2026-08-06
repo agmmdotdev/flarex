@@ -12,7 +12,7 @@ import {
 import {
   createFunctionRuntimeAuthV1,
   createMutationFunctionRuntimeContextV1,
-  createQueryFunctionRuntimeContextV1,
+  createFunctionRuntimeRunQueryContextV1,
 } from "../src/functionApiCore";
 
 const DOCUMENT_ID = "7:00000000-0000-0000-0000-000000000001";
@@ -487,7 +487,7 @@ function invocation(
     open: () => ({
       database,
       createQueryContext: runQuery =>
-        createQueryFunctionRuntimeContextV1(auth, reader, runQuery),
+        createFunctionRuntimeRunQueryContextV1(auth, reader, runQuery),
       createMutationContext: (runQuery, runMutation) =>
         createMutationFunctionRuntimeContextV1(
           auth,

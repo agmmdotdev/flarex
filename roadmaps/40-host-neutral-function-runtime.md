@@ -2527,6 +2527,158 @@ the mutation-shaped throwing child-query database and broad base context as one
 positive-capability migration, not merely reuse the reader/writer factories
 while preserving negative facade members.
 
+### `FAC13` Run-Query Context And Mutation-Internal-Query Preflight Decision
+
+**Accepted:** 2026-08-06
+
+The current checked-in Convex source at `43301bc895df12f4c60b94f0b3556d226ab1aae0`
+still constructs the complete reader once in `database_impl.ts`, constructs the
+writer by reusing that reader, and selects positive query and mutation contexts
+in `registration_impl.ts`. A query receives a reader plus `runQuery`; a mutation
+receives a writer plus `runQuery` and `runMutation`. This remains useful
+composition guidance. Convex's full query builder, system-table reader,
+normalization, storage, scheduler, metadata, overloads, global syscall bridge,
+and nested-call transaction behavior remain outside this Flarex slice.
+
+The older Flarex mutation-with-internal-query profile still violates that
+positive-capability shape in two connected places. Its exact Worker constructs
+a broad base context containing throwing `runQuery`, `runMutation`, scheduler,
+and storage members and a mutation database containing throwing scan and
+normalization members. Its portable kernel then creates a child-query database
+by retaining the mutation shape and replacing every write with a terminal
+throw. The root mutation consequently sees a broad context that advertises
+features the profile never admitted, while a child query discovers read-only
+status only by calling a write-shaped placeholder.
+
+The existing shared context primitive also needs one direct private correction
+before it can own this profile cleanly. `FunctionRuntimeQueryContextV1` and
+`createQueryFunctionRuntimeContextV1` describe the structural capability
+`{ auth, db, runQuery }`, but their names claim the function kind is a query.
+Using that factory for the mutation root would be semantically false; adding an
+identical mutation-query factory would duplicate core logic; and using the full
+mutation factory with a throwing `runMutation` would preserve the rejected
+negative-capability design.
+
+`FAC13` therefore directly replaces those private query-kind names with the
+capability-neutral `FunctionRuntimeRunQueryContextV1` and
+`createFunctionRuntimeRunQueryContextV1`. The full
+`FunctionRuntimeMutationContextV1` continues to extend that shape with a real
+`runMutation`, and its existing constructor remains the owner for profiles that
+actually admit mutation calls. The query/internal-call and combined
+mutation/internal-call exact consumers move to the renamed primitive in the
+same generated closure; no parallel old/new private API or compatibility alias
+is retained.
+
+The mutation-with-internal-query kernel receives only two context constructors
+from its invocation owner; it does not receive a redundant raw database port.
+The Worker-owned closures retain the exact child reader and root writer. The
+kernel creates child contexts only through the shared run-query context
+primitive with `{ get }`, and creates the root context through the same
+primitive with `{ get, insert, patch, replace, delete }`. Both contexts expose
+exactly `{ auth, db, runQuery }`; neither exposes `runMutation`, scheduler,
+storage, scan, normalization, or system-table placeholders because this staged
+profile does not admit those capabilities. The exact Worker composes the child reader
+and root writer through the already accepted point-reader/point-writer
+factories and retains all table validation, field capture, read-your-writes,
+journal sequencing, poisoning, close/drain, deterministic globals, and RPC
+disposal locally.
+
+Rejected alternatives are preserving the broad base context, wrapping a
+mutation database in throwing child-write members, adding a second structurally
+identical context factory, weakening the combined profile to this restricted
+shape, or moving snapshot/journal/nested-call policy into Function API Core.
+The generated-identity changes are limited to the private Function API Core and
+the exact Workers that consume the renamed context primitive or the completed
+FAC13 profile. No analyzer operation, public protocol/profile/syscall ABI,
+schema or persistence owner, query snapshot, mutation journal, OCC or commit
+owner, action uncertainty, activation, routing, or production behavior changes.
+
+The implementation gate is exact portable database and context types, no
+negative capability members, authored/generated Worker agreement, exact frozen
+context and database key proofs in unit and genuine Workerd tests, unchanged
+nested-query budgets and terminal/application/journal behavior, deterministic
+generated identities and graph receipts, affected package regressions,
+`check:effect-boundaries`, both mandatory exact-final reviewers, fixes and
+re-review when needed, and one intentional commit.
+
+### `FAC13` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+Function API Core now owns the capability-neutral
+`FunctionRuntimeRunQueryContextV1` and
+`createFunctionRuntimeRunQueryContextV1`. The former query-kind names were
+removed directly from source, declarations, generated source, and every exact
+consumer; there is no compatibility alias or dual private API. The full
+mutation context still composes that primitive with a real `runMutation` only
+for the combined profile that admits it.
+
+The mutation-with-internal-query kernel now asks its invocation owner only for
+exact child-query and root-mutation context constructors. It no longer receives
+a redundant raw database and no longer manufactures a mutation-shaped
+read-only facade. The exact Worker closes those constructors over one shared
+auth facade, the journal's exact `{ get }` reader, and its exact
+`{ get, insert, patch, replace, delete }` writer. The root and every child see
+exactly frozen `{ auth, db, runQuery }` contexts. The broad scheduler, storage,
+`runMutation`, scan, normalization, system-table, and throwing child-write
+members are absent.
+
+The journal still owns table and document validation, field capture,
+read-your-writes, operation serialization, syscall sequence assignment,
+application-error catchability, first-failure poisoning, close/drain, and RPC
+disposal. The portable kernel still owns catalog admission, nested-call and
+byte budgets, cycle detection, call frames, dropped-call settlement, result
+validation, and terminal failure classification. Unit and genuine Workerd
+tests prove exact root/child context and database keys, freezing, successful
+insert-then-child-read behavior, and terminal classification when hostile
+untyped child code attempts a missing write.
+
+The deterministic refreshed generated identities are:
+
+- Function API Core:
+  `234a1f5249fd9b19c5a6f353ea336f2cab50c73859c6fb553b203437c1dd4fac`;
+- query/internal-call runtime kernel:
+  `a380e76e28f9ac53f3024b334d8b6d01e50c5b99664f7babdb4b6007cbe6c711`;
+- query/internal-call Worker core:
+  `b6e238c90f049ea31551dbc8b77e0cf8f3bfab6f1599993bb81a10e34a050f66`;
+- mutation/internal-query runtime kernel:
+  `b7d390516434fb843588f1ef4dbaef9481ed52d141d574948c67a7cb1c926bbc`;
+- mutation/internal-query Worker core:
+  `418658caa2aecc82f999e7085492cfebe1598e9333442644703d265e59157a8d`;
+- mutation/internal-call runtime kernel:
+  `b0b87b9e83cf3aad7cc7282748751645bf19e317d90664e3dc586bc39f54189b`;
+  and
+- mutation/internal-call Worker core:
+  `c5cfc6f29770e96b01f5ea01eee5ff1ec1df32f4b73ea8b7ca9a805a1b3e5940`.
+
+For the stable graph-basis fixtures, the shared support identity produces
+query `9234f79e2ffd03cbebcc39e7588be23006694a5acd4621d6bf79989984ae7d94`,
+mutation `ace1ad4d884abc7765e740e5942b0874323865ee127c305f92b149a35ab84116`,
+query/internal-call
+`3ca61f0849dec3b19d63e2cbcf0c494192c4728422a77a651becdcac7a978b70`,
+mutation/internal-query
+`b0bd2db9ea244349e9af7806db199277263ea638977bc03fb87ec0bbb6af4fa4`,
+and mutation/internal-call
+`b363debeb2a3bb00173e22adb6410d3211e9f934faeefcca0232bf3e85a5f02b`.
+The top-level Worker-core bytes did not change; their graph bases changed only
+because those graphs commit the directly replaced shared support module.
+
+Validation passed the complete deterministic backend build and backend
+typecheck, function-runtime typecheck and all 59 tests, all seven affected
+generated, legacy, and genuine Workerd files with 57 tests, and the workspace
+Effect-boundary check. Both mandatory exact-final reviewers reported no
+findings after independently checking the capability split, private direct
+replacement, generated agreement, journal and terminal behavior, and test
+coverage.
+
+`FAC13` is closed. `FAC14` must begin with a fresh current-Convex preflight for
+the top-level `{ auth, db }` context shared by point query and point mutation.
+The likely bounded capability is one exact base-context primitive used by both
+Workers, with removal of the point-mutation Worker's remaining throwing nested
+call, scheduler, and storage members. The preflight must reject a universal
+context, prove two exact consumers, and preserve query read-boundary and
+mutation journal ownership before implementation.
+
 ### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction

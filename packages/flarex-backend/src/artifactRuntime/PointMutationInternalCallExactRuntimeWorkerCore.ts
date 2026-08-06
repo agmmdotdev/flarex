@@ -5,7 +5,7 @@ import {
   createFunctionRuntimePointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
   createMutationFunctionRuntimeContextV1,
-  createQueryFunctionRuntimeContextV1,
+  createFunctionRuntimeRunQueryContextV1,
 } from "flarex:function-api-core/v1";
 import type {
   UserIdentity,
@@ -634,7 +634,7 @@ export class FlarexPointMutationInternalCallExactRuntimeV1 extends WorkerEntrypo
               createQueryContext: (
                 runQuery: PointMutationInternalCallRuntimeRunQueryV1,
               ) =>
-                createQueryFunctionRuntimeContextV1(
+                createFunctionRuntimeRunQueryContextV1(
                   auth,
                   openedJournal.reader,
                   runQuery,

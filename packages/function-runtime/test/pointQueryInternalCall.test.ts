@@ -11,7 +11,7 @@ import {
 } from "../src/pointQueryInternalCall";
 import {
   createFunctionRuntimeAuthV1,
-  createQueryFunctionRuntimeContextV1,
+  createFunctionRuntimeRunQueryContextV1,
 } from "../src/functionApiCore";
 
 const DOCUMENT_ID = "7:00000000-0000-0000-0000-000000000001";
@@ -252,7 +252,7 @@ function invocation(
   return {
     open: () => ({
       createContext: runQuery =>
-        createQueryFunctionRuntimeContextV1(auth, database, runQuery),
+        createFunctionRuntimeRunQueryContextV1(auth, database, runQuery),
       readBoundary: {
         close: () => { events.push("close"); },
         drain: async () => {

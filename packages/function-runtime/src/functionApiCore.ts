@@ -17,7 +17,7 @@ export interface FunctionRuntimeAuthV1 {
 
 export type FunctionRuntimeCallableV1 = (...args: never[]) => unknown;
 
-export interface FunctionRuntimeQueryContextV1<
+export interface FunctionRuntimeRunQueryContextV1<
   Database extends object,
   RunQuery extends FunctionRuntimeCallableV1,
 > {
@@ -30,7 +30,7 @@ export interface FunctionRuntimeMutationContextV1<
   Database extends object,
   RunQuery extends FunctionRuntimeCallableV1,
   RunMutation extends FunctionRuntimeCallableV1,
-> extends FunctionRuntimeQueryContextV1<Database, RunQuery> {
+> extends FunctionRuntimeRunQueryContextV1<Database, RunQuery> {
   readonly runMutation: RunMutation;
 }
 
@@ -229,14 +229,14 @@ export function createFunctionRuntimePointDatabaseWriterV1<
   });
 }
 
-export function createQueryFunctionRuntimeContextV1<
+export function createFunctionRuntimeRunQueryContextV1<
   Database extends object,
   RunQuery extends FunctionRuntimeCallableV1,
 >(
   auth: Readonly<FunctionRuntimeAuthV1>,
   db: Database,
   runQuery: RunQuery,
-): Readonly<FunctionRuntimeQueryContextV1<Database, RunQuery>> {
+): Readonly<FunctionRuntimeRunQueryContextV1<Database, RunQuery>> {
   return freeze({ auth, db, runQuery });
 }
 

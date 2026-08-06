@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createFunctionRuntimePointDatabaseWriterV1,
+  createFunctionRuntimePointReaderV1,
+  createFunctionRuntimeRunQueryContextV1,
+} from "../src/functionApiCore";
+
+import {
   executePointMutationInternalQueryV1,
   PointMutationInternalQueryApplicationV1Error,
   PointMutationInternalQueryTerminalV1Error,
   type PointMutationInternalQueryRuntimeContextV1,
   type PointMutationInternalQueryRuntimeInputV1,
   type PointMutationInternalQueryRuntimeInvocationFactoryV1,
+  type PointMutationInternalQueryRuntimeQueryContextV1,
 } from "../src/pointMutationInternalQuery";
 
 const DOCUMENT_ID = "7:00000000-0000-0000-0000-000000000001";
@@ -23,10 +30,26 @@ describe("@flarex/function-runtime/point-mutation-internal-query", () => {
         } },
       }] }),
       registry({
-        root: async context => await context.runQuery(INTERNAL_REFERENCE, {
-          id: DOCUMENT_ID,
-        }),
-        internal: async context => await context.db.get(DOCUMENT_ID),
+        root: async context => {
+          expect(Object.keys(context)).toEqual(["auth", "db", "runQuery"]);
+          expect(Object.keys(context.db)).toEqual([
+            "get",
+            "insert",
+            "patch",
+            "replace",
+            "delete",
+          ]);
+          expect(Object.isFrozen(context)).toBe(true);
+          return await context.runQuery(INTERNAL_REFERENCE, {
+            id: DOCUMENT_ID,
+          });
+        },
+        internal: async context => {
+          expect(Object.keys(context)).toEqual(["auth", "db", "runQuery"]);
+          expect(Object.keys(context.db)).toEqual(["get"]);
+          expect(Object.isFrozen(context)).toBe(true);
+          return await context.db.get(DOCUMENT_ID);
+        },
       }),
       invocation(events),
     );
@@ -104,6 +127,27 @@ describe("@flarex/function-runtime/point-mutation-internal-query", () => {
       reason: "internalTargetInvalid",
       cause: expect.objectContaining({ message: "arbitrary child failure" }),
     });
+
+    await expect(executePointMutationInternalQueryV1(
+      input(),
+      registry({
+        root: async context => {
+          try { return await context.runQuery(INTERNAL_REFERENCE, {}); }
+          catch { return { status: "caught" }; }
+        },
+        internal: context => Reflect.apply(
+          Reflect.get(context.db, "insert") as (
+            ...args: ReadonlyArray<unknown>
+          ) => unknown,
+          context.db,
+          ["orders", { status: "forbidden" }],
+        ),
+      }),
+      invocation([]),
+    )).rejects.toMatchObject({
+      name: "PointMutationInternalQueryTerminalV1Error",
+      reason: "internalTargetInvalid",
+    });
   });
 
   it("allows sequential repeats but rejects recursion and cumulative call overflow", async () => {
@@ -152,7 +196,9 @@ describe("@flarex/function-runtime/point-mutation-internal-query", () => {
       returnsValidator: input().function.returnsValidator,
     }));
     const handlers = new Map<string, (
-      context: PointMutationInternalQueryRuntimeContextV1,
+      context:
+        | PointMutationInternalQueryRuntimeContextV1
+        | PointMutationInternalQueryRuntimeQueryContextV1,
     ) => unknown | PromiseLike<unknown>>();
     handlers.set("orders:update", context =>
       context.runQuery({ _path: "orders:q1" }, {}));
@@ -276,7 +322,7 @@ function input(
 
 function registry(handlers: Readonly<{
   root: (context: PointMutationInternalQueryRuntimeContextV1) => unknown | PromiseLike<unknown>;
-  internal: (context: PointMutationInternalQueryRuntimeContextV1) => unknown | PromiseLike<unknown>;
+  internal: (context: PointMutationInternalQueryRuntimeQueryContextV1) => unknown | PromiseLike<unknown>;
 }>) {
   return {
     resolve: (path: string) => path === "orders:update"
@@ -293,36 +339,45 @@ function invocation(
 ): PointMutationInternalQueryRuntimeInvocationFactoryV1 {
   let terminal: unknown;
   return {
-    open: () => ({
-      context: {
-        auth: { getUserIdentity: async () => null },
-        db: {
-          get: async () => { events.push("get"); return { status: "open" }; },
-          insert: () => { throw new Error("writes unavailable"); },
-          patch: () => { throw new Error("writes unavailable"); },
-          replace: () => { throw new Error("writes unavailable"); },
-          delete: () => { throw new Error("writes unavailable"); },
-          query: () => { throw new Error("scans unavailable"); },
-          normalizeId: () => { throw new Error("normalization unavailable"); },
-          system: {},
+    open: () => {
+      const auth = Object.freeze({ getUserIdentity: async () => null });
+      const reader = createFunctionRuntimePointReaderV1(
+        async () => {
+          events.push("get");
+          return { status: "open" };
         },
-      },
-      journal: {
-        close: () => { events.push("close"); },
-        drain: async () => {
-          events.push("drain");
-          await drain();
-          if (terminal !== undefined) throw terminal;
+      );
+      const database = createFunctionRuntimePointDatabaseWriterV1(
+        reader,
+        Object.freeze({
+          insertPointDocument: async () => "unexpected",
+          patchPointDocument: async () => undefined,
+          replacePointDocument: async () => undefined,
+          deletePointDocument: async () => undefined,
+        }),
+      );
+      return {
+        createQueryContext: runQuery =>
+          createFunctionRuntimeRunQueryContextV1(auth, reader, runQuery),
+        createMutationContext: runQuery =>
+          createFunctionRuntimeRunQueryContextV1(auth, database, runQuery),
+        journal: {
+          close: () => { events.push("close"); },
+          drain: async () => {
+            events.push("drain");
+            await drain();
+            if (terminal !== undefined) throw terminal;
+          },
         },
-      },
-      recordCallFrame: frame => {
-        events.push(
-          `frame:${frame.rootExecutionId}:${frame.parentOrdinal}:` +
-            `${frame.calleeOrdinal}:${frame.sequence}:${frame.depth}`,
-        );
-      },
-      isCoreApplicationError: () => false,
-      recordTerminalFailure: cause => { terminal ??= cause; },
-    }),
+        recordCallFrame: frame => {
+          events.push(
+            `frame:${frame.rootExecutionId}:${frame.parentOrdinal}:` +
+              `${frame.calleeOrdinal}:${frame.sequence}:${frame.depth}`,
+          );
+        },
+        isCoreApplicationError: () => false,
+        recordTerminalFailure: cause => { terminal ??= cause; },
+      };
+    },
   };
 }

@@ -8,9 +8,9 @@ declare module "flarex:function-api-core/v1" {
   export const createFunctionRuntimeAuthV1:
     typeof import("@flarex/function-runtime/internal/function-api-core-v1")
       .createFunctionRuntimeAuthV1;
-  export const createQueryFunctionRuntimeContextV1:
+  export const createFunctionRuntimeRunQueryContextV1:
     typeof import("@flarex/function-runtime/internal/function-api-core-v1")
-      .createQueryFunctionRuntimeContextV1;
+      .createFunctionRuntimeRunQueryContextV1;
   export const createMutationFunctionRuntimeContextV1:
     typeof import("@flarex/function-runtime/internal/function-api-core-v1")
       .createMutationFunctionRuntimeContextV1;
