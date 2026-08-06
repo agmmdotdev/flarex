@@ -40,9 +40,6 @@ export interface PointMutationRuntimeDatabaseV1 {
   readonly patch: (documentId: string, patch: unknown) => Promise<void>;
   readonly replace: (documentId: string, fields: unknown) => Promise<void>;
   readonly delete: (documentId: string) => Promise<void>;
-  readonly query: (...args: ReadonlyArray<unknown>) => never;
-  readonly normalizeId: (...args: ReadonlyArray<unknown>) => never;
-  readonly system: Readonly<Record<string, never>>;
 }
 
 export interface PointMutationRuntimeContextV1 {

@@ -88,6 +88,14 @@ describe("point-query exact runtime in workerd", () => {
     });
 
     await expect(runScenario({
+      handler: "async (context) => Object.keys(context.db)",
+      capability: "async () => ({ kind: 'missing' })",
+    })).resolves.toMatchObject({
+      ok: true,
+      result: { value: ["get"] },
+    });
+
+    await expect(runScenario({
       handler: "async (context) => context.auth.getUserIdentity()",
       capability: "async () => ({ kind: 'missing' })",
     })).resolves.toMatchObject({

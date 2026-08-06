@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimePointReaderV1,
 } from "flarex:function-api-core/v1";
 import type {
   capturePointQueryRuntimeArgumentsV1,
@@ -103,8 +104,8 @@ export class FlarexPointQueryExactRuntimeV1 extends WorkerEntrypoint {
         pending: Set<Promise<unknown>>;
         failure?: unknown;
       } = { closed: false, pending: new Set() };
-      const database = freeze({
-        get: (documentId: string) => {
+      const database = createFunctionRuntimePointReaderV1(
+        (documentId: string) => {
           if (state.closed) throw readBoundaryError(new Error("Query read boundary is closed."));
           const pending = Promise.resolve().then(() => {
             const tableName = tableNameForDocument(request.tables, documentId);
@@ -118,14 +119,7 @@ export class FlarexPointQueryExactRuntimeV1 extends WorkerEntrypoint {
           void pending.then(cleanup, cleanup);
           return pending;
         },
-        insert: unavailableWrite,
-        patch: unavailableWrite,
-        replace: unavailableWrite,
-        delete: unavailableWrite,
-        query: unavailableOperation,
-        normalizeId: unavailableOperation,
-        system: freeze({}),
-      });
+      );
       const invocations: PointQueryRuntimeInvocationFactoryV1 = freeze({
         open: () => {
           const auth = createFunctionRuntimeAuthV1(
@@ -437,9 +431,6 @@ function tableNameForDocument(
   return separator > 0 && table !== undefined ? table.logicalName : null;
 }
 
-function unavailableWrite(): never {
-  throw new Error("Writes are unavailable in exact point-query runtime.");
-}
 function unavailableOperation(): never {
   throw new Error("Operation is unavailable in exact point-query runtime.");
 }

@@ -2,6 +2,8 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimePointDatabaseWriterV1,
+  createFunctionRuntimePointReaderV1,
 } from "flarex:function-api-core/v1";
 import type {
   UserIdentity,
@@ -206,9 +208,6 @@ interface ExactRuntimeDatabase {
   readonly patch: (documentId: string, patch: unknown) => Promise<void>;
   readonly replace: (documentId: string, fields: unknown) => Promise<void>;
   readonly delete: (documentId: string) => Promise<void>;
-  readonly query: (...args: ReadonlyArray<unknown>) => never;
-  readonly normalizeId: (...args: ReadonlyArray<unknown>) => never;
-  readonly system: Readonly<Record<string, never>>;
 }
 
 interface ExactRuntimeJournal {
@@ -1526,48 +1525,50 @@ function databaseForJournal(
     );
     return execution;
   }
-  const database = Object.freeze({
-    get: (documentId: string) =>
+  const pointReader = createFunctionRuntimePointReaderV1(
+    (documentId: string) =>
       trackCallerPromise(run(
         tableNameForDocumentId(documentId),
         { kind: "get", documentId },
       ).then((outcome) =>
         outcome.kind === "missing" ? null : outcome.document
       )),
-    insert: (tableName: string, fields: unknown) => {
-      const capturedFields = captureDeveloperFields(fields, "insert fields");
-      return trackCallerPromise(run(
-        requireTableName(tableName),
-        { kind: "insert", fields: capturedFields },
-      ).then((outcome) => outcome.documentId));
-    },
-    patch: (documentId: string, patch: unknown) =>
-      trackCallerPromise(run(
-        tableNameForDocumentId(documentId),
-        {
-          kind: "patch",
-          documentId,
-          patch: capturePatch(patch),
-        },
-      ).then(() => undefined)),
-    replace: (documentId: string, fields: unknown) =>
-      trackCallerPromise(run(
-        tableNameForDocumentId(documentId),
-        {
-          kind: "replace",
-          documentId,
-          fields: captureDeveloperFields(fields, "replacement fields"),
-        },
-      ).then(() => undefined)),
-    delete: (documentId: string) =>
-      trackCallerPromise(run(
-        tableNameForDocumentId(documentId),
-        { kind: "delete", documentId },
-      ).then(() => undefined)),
-    query: unsupported("ctx.db.query"),
-    normalizeId: unsupported("ctx.db.normalizeId"),
-    system: Object.freeze({}),
-  });
+  );
+  const database = createFunctionRuntimePointDatabaseWriterV1(
+    pointReader,
+    Object.freeze({
+      insertPointDocument: (tableName: string, fields: unknown) => {
+        const capturedFields = captureDeveloperFields(fields, "insert fields");
+        return trackCallerPromise(run(
+          requireTableName(tableName),
+          { kind: "insert", fields: capturedFields },
+        ).then((outcome) => outcome.documentId));
+      },
+      patchPointDocument: (documentId: string, patch: unknown) =>
+        trackCallerPromise(run(
+          tableNameForDocumentId(documentId),
+          {
+            kind: "patch",
+            documentId,
+            patch: capturePatch(patch),
+          },
+        ).then(() => undefined)),
+      replacePointDocument: (documentId: string, fields: unknown) =>
+        trackCallerPromise(run(
+          tableNameForDocumentId(documentId),
+          {
+            kind: "replace",
+            documentId,
+            fields: captureDeveloperFields(fields, "replacement fields"),
+          },
+        ).then(() => undefined)),
+      deletePointDocument: (documentId: string) =>
+        trackCallerPromise(run(
+          tableNameForDocumentId(documentId),
+          { kind: "delete", documentId },
+        ).then(() => undefined)),
+    }),
+  );
   return Object.freeze({
     database,
     close: () => {

@@ -49,7 +49,7 @@ describe("@flarex/function-runtime/point-query", () => {
     )).rejects.toBeInstanceOf(PointQueryRuntimeUserCodeV1Error);
   });
 
-  it("keeps caught host read failures terminal and denies writes", async () => {
+  it("keeps caught host read failures terminal and exposes no writes", async () => {
     const hostFailure = new Error("database unavailable");
     await expect(executePointQueryV1(
       input({ function: { ...input().function, returnsValidator: null } }),
@@ -65,7 +65,14 @@ describe("@flarex/function-runtime/point-query", () => {
 
     await expect(executePointQueryV1(
       input({ function: { ...input().function, returnsValidator: null } }),
-      { resolve: () => queryFunction(context => context.db.insert({})) },
+      { resolve: () => queryFunction(context => {
+        expect(Object.keys(context.db)).toEqual(["get"]);
+        return Reflect.apply(
+          Reflect.get(context.db, "insert") as (...args: unknown[]) => unknown,
+          context.db,
+          [{}],
+        );
+      }) },
       invocation([]),
     )).rejects.toBeInstanceOf(PointQueryRuntimeUserCodeV1Error);
   });
@@ -125,13 +132,6 @@ function invocation(
         auth: { getUserIdentity: async () => null },
         db: {
           get: async () => { events.push("get"); return { status: "open" }; },
-          insert: () => { throw new Error("writes unavailable"); },
-          patch: () => { throw new Error("writes unavailable"); },
-          replace: () => { throw new Error("writes unavailable"); },
-          delete: () => { throw new Error("writes unavailable"); },
-          query: () => { throw new Error("index scans unavailable"); },
-          normalizeId: () => { throw new Error("normalization unavailable"); },
-          system: {},
         },
       },
       readBoundary: {

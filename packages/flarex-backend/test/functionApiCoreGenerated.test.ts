@@ -105,6 +105,26 @@ describe("generated function API core", () => {
     expect(source).not.toContain("getUserIdentity: async");
   });
 
+  it("uses the shared point database facades in both top-level runtimes", () => {
+    expect(POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1).toContain(
+      "createFunctionRuntimePointReaderV1(",
+    );
+    expect(POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1).toContain(
+      "createFunctionRuntimePointReaderV1(",
+    );
+    expect(POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1).toContain(
+      "createFunctionRuntimePointDatabaseWriterV1(",
+    );
+    for (const source of [
+      POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+      POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+    ]) {
+      expect(source).not.toContain('unsupported("ctx.db.query")');
+      expect(source).not.toContain('unsupported("ctx.db.normalizeId")');
+      expect(source).not.toContain("system: Object.freeze({})");
+    }
+  });
+
   it.each([
     {
       profile: "query-internal-call",

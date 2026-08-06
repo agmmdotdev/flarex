@@ -91,7 +91,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "3d98715458c39c7af9910f851358f384144606676bc1bd7c1ce9e16a0896ea7a",
+      "97a8aec600cd3d5a683b82ffc53b0d25a0def7e00a946a90fb29465d904cba81",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
@@ -359,6 +359,13 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
         context: ExactTestContext,
         args: Readonly<Record<string, unknown>>,
       ) => {
+        expect(Object.keys(context.db)).toEqual([
+          "get",
+          "insert",
+          "patch",
+          "replace",
+          "delete",
+        ]);
         const identity = await context.auth.getUserIdentity();
         return context.db.insert("orders", {
           status: args.status,
@@ -434,13 +441,6 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
             patch: async () => undefined,
             replace: async () => undefined,
             delete: async () => undefined,
-            query: () => {
-              throw new Error("query unavailable");
-            },
-            normalizeId: () => {
-              throw new Error("normalizeId unavailable");
-            },
-            system: Object.freeze({}),
           },
         },
         journal: {
@@ -521,13 +521,6 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
               delete: async () => {
                 throw journalFailure;
               },
-              query: () => {
-                throw new Error("query unavailable");
-              },
-              normalizeId: () => {
-                throw new Error("normalizeId unavailable");
-              },
-              system: Object.freeze({}),
             },
           },
           journal: {
@@ -1415,11 +1408,15 @@ return {
 
 function replaceFunctionApiCoreImportForTest(source: string): string {
   const testCoreSource = FUNCTION_API_CORE_SOURCE_V1.replace(/^export /gm, "");
-  const importSource =
-    'import { createFunctionRuntimeAuthV1 } from "flarex:function-api-core/v1";';
-  const replacement = `const { createFunctionRuntimeAuthV1 } = (() => {
+  const importedNames = [
+    "createFunctionRuntimeAuthV1",
+    "createFunctionRuntimePointDatabaseWriterV1",
+    "createFunctionRuntimePointReaderV1",
+  ] as const;
+  const importSource = `import { ${importedNames.join(", ")} } from "flarex:function-api-core/v1";`;
+  const replacement = `const { ${importedNames.join(", ")} } = (() => {
 ${testCoreSource}
-return { createFunctionRuntimeAuthV1 };
+return { ${importedNames.join(", ")} };
 })();`;
   const replaced = source.replace(importSource, replacement);
   if (replaced === source) {

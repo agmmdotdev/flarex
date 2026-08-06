@@ -2425,6 +2425,108 @@ shared runtime primitive with at least two exact consumers. It must preserve
 the positive-capability context decision and must not use placeholder removal
 or public test-harness shortcuts as incidental centralization work.
 
+### `FAC12` Top-Level Point Database-Facade Completion Preflight Decision
+
+Current Convex still keeps database facade construction in one shared runtime
+owner. `setupReader()` constructs the complete admitted reader and delegates
+its operations to the syscall bridge. `setupWriter()` calls `setupReader()`,
+preserves the reader methods, and adds the four write methods. Query and
+mutation registration then select those shared facades rather than rebuilding
+database methods per function profile. The useful rule is composition and
+positive capability; Convex's table overloads, query builder, system reader,
+normalization syscall, validation codec, and global bridge are not authority
+for Flarex features that have not been implemented.
+
+Flarex Function API Core already owns the narrower accepted equivalent:
+`createFunctionRuntimePointReaderV1` returns exactly frozen `{ get }`, while
+`createFunctionRuntimePointDatabaseWriterV1` composes that reader with exact
+`insert`, `patch`, `replace`, and `delete` ports. The query/internal-call and
+mutation/internal-call profiles consume those facades. The top-level point-
+query and top-level point-mutation Workers still rebuild the same admitted
+methods locally and advertise `query`, `normalizeId`, `system`, and, for the
+query, write members that only throw. Those members have no analyzer admission
+or host capability and contradict the positive-capability decision already
+proved by `FAC02` and `FAC03`.
+
+`FAC12` directly migrates those two top-level profiles to the existing shared
+point database facade. The query Worker supplies its unchanged snapshot/read-
+boundary adapter to the shared reader and exposes only `get`. The mutation
+Worker supplies its unchanged journal-owned read and four write adapters to
+the shared reader/writer composition and exposes exactly `get`, `insert`,
+`patch`, `replace`, and `delete`. The adapters retain all document/table
+validation, field capture, promise tracking, sequencing, failure poisoning,
+close/drain, and RPC disposal. Function API Core receives no snapshot,
+journal, tables, transaction, R2, PostgreSQL, binding, OCC, or commit authority.
+
+The mutation-with-internal-query profile is deliberately not folded into this
+database-only slice. Its kernel currently creates a mutation-shaped throwing
+database for child queries and spreads a legacy broad base context before
+attaching `runQuery`. Replacing that representation correctly requires one
+coherent exact context-profile migration, not another wrapper around negative
+capabilities. That is the next candidate preflight after FAC12. This boundary
+is based on ownership, not compatibility preservation for the removed top-
+level placeholders: top-level unsupported database members are removed now,
+with no fallback or dual facade.
+
+The implementation gate is exact portable database types, Function API Core
+use in both authored and generated Workers, exact-key and frozen-facade tests,
+genuine Workerd query and mutation proofs, unchanged synchronous validation and
+promise/journal behavior through the complete legacy mutation harness,
+deterministic regenerated identities and graph receipts, complete affected
+package regressions, the workspace Effect-boundary check, both mandatory exact-
+final reviewers, and one commit. No analyzer operation, protocol identity,
+schema, snapshot/journal owner, OCC/commit behavior, action uncertainty,
+activation, routing, or production behavior changes.
+
+### `FAC12` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+The top-level point-query Worker now supplies its existing snapshot-backed read
+adapter to `createFunctionRuntimePointReaderV1` and exposes exactly frozen
+`{ get }`. The top-level point-mutation Worker composes the same reader with
+its four existing journal-owned write adapters through
+`createFunctionRuntimePointDatabaseWriterV1` and exposes exactly frozen
+`{ get, insert, patch, replace, delete }`. Their portable runtime database
+types now express those exact positive capabilities. The removed query write,
+scan, normalization, and empty system members had no host authority or analyzer
+admission, and no compatibility facade remains.
+
+All validation, capture, promise tracking, journal serialization, syscall
+sequencing, first-failure poisoning, close/drain, and RPC-disposal code remains
+in the exact Workers. The shared facade continues to delegate synchronously
+and returns each adapter promise unchanged. The legacy in-process mutation
+harness now injects all three selected exports from the canonical generated
+Function API Core closure, so its complete behavioral suite traverses the same
+facade rather than a copied test implementation.
+
+The deterministic refreshed identities are:
+
+- top-level point-query runtime kernel:
+  `f490ce3f2d819b29e17c4ecb29c4dc0af4707096d0ec9ce2efef81096971fa65`;
+- top-level point-query Worker core:
+  `5c758ac3ac498447e6bd6923de324c21bd4dde1564ec8d703a01cee51f20f70e`;
+- top-level point-mutation runtime kernel:
+  `3b05bb96ecba10987b525cf52d18de4861b805834896a4117fb1e590f8090980`;
+- top-level point-mutation Worker core:
+  `0c8570577cba4f22683ce28bc1e5c4d5a127b7c39d32289bc046c34497ef7049`;
+  and
+- top-level point-mutation graph-basis SHA-256:
+  `97a8aec600cd3d5a683b82ffc53b0d25a0def7e00a946a90fb29465d904cba81`.
+
+Validation passed all 59 function-runtime tests and its typecheck, the complete
+backend generated build and typecheck, all seven selected generated, legacy,
+and genuine Workerd files with 56 tests, and the workspace Effect-boundary
+check. Workerd proves exact database key order for both profiles; the legacy
+mutation suite preserves its 21 journal, validation, deterministic-runtime,
+failure, and promise-settlement tests.
+
+`FAC12` is closed. `FAC13` must begin with a fresh current-Convex preflight for
+the mutation-with-internal-query profile's context composition. It must replace
+the mutation-shaped throwing child-query database and broad base context as one
+positive-capability migration, not merely reuse the reader/writer factories
+while preserving negative facade members.
+
 ### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction

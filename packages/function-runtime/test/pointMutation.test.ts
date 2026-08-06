@@ -73,13 +73,6 @@ function invocation(
           patch: async () => undefined,
           replace: async () => undefined,
           delete: async () => undefined,
-          query: () => {
-            throw new Error("query unavailable");
-          },
-          normalizeId: () => {
-            throw new Error("normalizeId unavailable");
-          },
-          system: Object.freeze({}),
         }),
       }),
       journal: Object.freeze({

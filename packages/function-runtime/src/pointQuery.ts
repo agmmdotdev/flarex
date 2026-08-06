@@ -47,13 +47,6 @@ export interface PointQueryRuntimeDatabaseV1 {
   readonly get: (
     documentId: string,
   ) => Promise<CanonicalFlarexRuntimeObjectV1 | null>;
-  readonly insert: (...args: ReadonlyArray<unknown>) => never;
-  readonly patch: (...args: ReadonlyArray<unknown>) => never;
-  readonly replace: (...args: ReadonlyArray<unknown>) => never;
-  readonly delete: (...args: ReadonlyArray<unknown>) => never;
-  readonly query: (...args: ReadonlyArray<unknown>) => never;
-  readonly normalizeId: (...args: ReadonlyArray<unknown>) => never;
-  readonly system: Readonly<Record<string, never>>;
 }
 
 export interface PointQueryRuntimeContextV1 {
