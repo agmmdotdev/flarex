@@ -129,6 +129,25 @@ describe("point-query exact runtime in workerd", () => {
     });
 
     await expect(runScenario({
+      imports:
+        "globalThis.structuredClone = value => ({ ...value, role: 'forged' });",
+      handler: "async (context) => { const user = await context.auth.getUserIdentity(); if (user?.subject !== 'user-tamper' || user.role !== 'admin') throw new Error('auth identity was forged'); return null; }",
+      capability: "async () => ({ kind: 'missing' })",
+      auth: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "token-tamper",
+          subject: "user-tamper",
+          issuer: "https://auth.example.com",
+          role: "admin",
+        },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      result: { value: null },
+    });
+
+    await expect(runScenario({
       handler: "async (context) => { const first = await context.auth.getUserIdentity(); first.role = 'changed'; const second = await context.auth.getUserIdentity(); return { same: first === second, firstRole: first.role, secondRole: second.role }; }",
       capability: "async () => ({ kind: 'missing' })",
       auth: {

@@ -2,14 +2,11 @@ import type { UserIdentity } from "flarex-protocol/auth";
 import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 
 const freeze = Object.freeze;
+const clone = globalThis.structuredClone;
 
 export type FunctionRuntimeAuthProjectionV1 =
   | Readonly<{ readonly kind: "anonymous" }>
   | Readonly<{ readonly kind: "user"; readonly user: UserIdentity }>;
-
-export type FunctionRuntimeIdentityCloneV1 = (
-  identity: UserIdentity,
-) => UserIdentity;
 
 export interface FunctionRuntimeAuthV1 {
   readonly getUserIdentity: () => Promise<UserIdentity | null>;
@@ -168,13 +165,12 @@ export interface FunctionRuntimePointDatabaseWriterV1<
 
 export function createFunctionRuntimeAuthV1(
   projection: FunctionRuntimeAuthProjectionV1,
-  cloneIdentity: FunctionRuntimeIdentityCloneV1,
 ): Readonly<FunctionRuntimeAuthV1> {
   return freeze({
     getUserIdentity: async (): Promise<UserIdentity | null> =>
       projection.kind === "anonymous"
         ? null
-        : cloneIdentity(projection.user),
+        : clone(projection.user),
   });
 }
 

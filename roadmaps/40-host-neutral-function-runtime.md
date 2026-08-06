@@ -2795,6 +2795,140 @@ two-consumer capability and preserve all present profile, application-error,
 deterministic-global, settlement, snapshot, journal, and host boundaries rather
 than extracting a universal runtime helper.
 
+### `FAC15` Auth Identity Snapshot Preflight Decision
+
+**Accepted:** 2026-08-06
+
+The current checked-in Convex source at `43301bc895df12f4c60b94f0b3556d226ab1aae0`
+still owns `getUserIdentity()` inside the shared `setupAuth()` facade in
+`authentication_impl.ts`, then supplies that facade positively to query,
+mutation, and action contexts in `registration_impl.ts`. Its syscall bridge
+owns identity acquisition. Flarex differs because its exact Worker has already
+validated and captured an authenticated projection before invoking user code,
+but the user-facing behavior should still be owned by one shared auth facade
+rather than by a host callback repeated in every function profile.
+
+Function API Core already owns `createFunctionRuntimeAuthV1`, including the
+anonymous result, asynchronous method shape, frozen facade, and rule that every
+user call receives a fresh identity. It nevertheless requires a
+`FunctionRuntimeIdentityCloneV1` callback. All five admitted point-runtime
+Workers satisfy that private port with the same one-line
+`nativeStructuredClone` wrapper. No consumer supplies a different policy, no
+test implementation represents a supported alternate runtime, and the port
+does not express host authority. It only leaks one implementation detail of
+the facade back into every generated Worker.
+
+`FAC15` therefore removes the clone-port type and callback directly. Function
+API Core captures the platform `structuredClone` intrinsic at its own module
+evaluation and uses it whenever a validated user projection is returned. ES
+module dependencies evaluate before the importing exact Worker calls
+`installExactGlobals`, so the shared module captures the same native Workerd
+intrinsic that each Worker previously captured. Exact Workers still own
+request decoding, identity validation, semantic byte limits, canonical JSON
+admission, and the trusted frozen projection; the shared facade owns only a
+fresh detached return snapshot.
+
+The connected trust audit also found that the two query Workers used the live
+global `structuredClone` while copying custom claims into that trusted
+projection after the dynamically imported application module had evaluated.
+Application top-level code can replace this writable global before request
+capture. `FAC15` captures `nativeStructuredClone` in those two Workers before
+either dynamic application import is initiated, then uses it specifically for
+auth admission and custom-claim copies. That intrinsic is distinct from the
+clone captured by Function API Core: Workers own trusted request capture,
+while the shared facade owns the fresh user-visible result. A genuine Workerd
+tamper regression must prove the admitted claims cannot be rewritten by
+application module evaluation.
+
+The clone remains per `getUserIdentity()` call. Returned identities are not
+recursively frozen: they are user values, and existing query and mutation
+behavior permits one result to be mutated while proving that the trusted
+projection and the next result remain unchanged. `structuredClone` failure is
+still a defect after admission, just as it was through the old native callback;
+it is not converted into an Effect failure, application error, or terminal host
+classification. The factory remains a pure synchronous facade constructor
+whose method preserves the existing Promise boundary.
+
+Rejected alternatives are retaining the unvarying callback as dependency
+injection, hand-copying only known identity fields and thereby aliasing or
+dropping custom JSON claims, recursively freezing user results, using global
+`structuredClone` at call time after exact-global installation, moving auth
+request validation into Function API Core, or widening this point-runtime
+slice into the separately owned edge-action graph. No public developer API,
+analyzer operation, protocol/profile/syscall identity, schema or persistence
+owner, snapshot or journal policy, OCC or commit owner, action uncertainty,
+activation, routing, or production behavior changes.
+
+The implementation gate is direct removal of the private clone-port API and
+all five duplicate Worker wrappers, exact anonymous and per-call ownership
+tests including nested custom claims, authored/generated agreement, genuine
+Workerd parity for top-level and nested profiles, deterministic support and
+Worker identities plus graph receipts, affected regressions,
+`check:effect-boundaries`, both mandatory exact-final reviewers, fixes and
+re-review when needed, and one intentional commit.
+
+### `FAC15` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+Function API Core now owns the platform clone used by the private auth facade.
+`FunctionRuntimeIdentityCloneV1` and the five identical Worker-local
+`cloneUserIdentityV1` adapters are removed. Anonymous identity behavior is
+unchanged, while each authenticated `getUserIdentity()` call returns a newly
+detached, user-mutable snapshot. Nested custom claims are detached from the
+trusted projection and from later calls.
+
+The trust correction found during review is also closed. Both query Workers
+capture the native clone before initiating their dynamic application import
+and use that captured intrinsic while admitting custom claims. Generated-source
+tests pin this ordering for both profiles, and a genuine Workerd case lets
+application top-level code overwrite `globalThis.structuredClone` while proving
+that the admitted subject and custom role cannot be forged.
+
+The final generated source identities are:
+
+- Function API Core:
+  `ec57ff2a52924cf0ea731c3c40c12fb5d06af2a46f7fdc5586e6744c6c7e877a`;
+- point query:
+  `a9d5360037503f64e747d1fb3f01c7d2cc44c9b575f442f9c1a70eab13629056`;
+- point query/internal call:
+  `9efc961a3e5bbe104ca7da9fc13412a58a82ac924139e906751fe8ea7f2da706`;
+- point mutation:
+  `06aa94b4dda7fe4188715c6392b7591bca3e900377490a351a8c0a8e6a67e817`;
+- point mutation/internal query:
+  `e33785c2f2c841a10889dc577b6eb22defee065f0fa3fc092a6c89e152b8fe73`;
+- point mutation/internal call:
+  `a5f5bc6ef95a18c93ef4b362e243653bba8784e652deb584d162fa0a63acc939`.
+
+Their final representative graph-basis SHA-256 receipts are point query
+`0148a4ba0e6f21d27971d9f2c27b7b248595f60c275d7b13ba31424112683442`,
+point mutation
+`d27d77a2c54b30fd9a73a4ff1e8bb7c097a257a1e07141bc38f3b7cc64435e15`,
+point query/internal call
+`372f56d6c52067b9db39655564c902ac11c3cc7ce0db8ee4bb4ccfe2271af04b`,
+point mutation/internal query
+`dc0b865f96c73db3409739bb56ca77715dc6fd2665c5076a1ac6c88403c8359c`,
+and point mutation/internal call
+`168cf186d773b8051fd6e6566620b638ce072ba5a6a5fb789abdb7c23b0706c2`.
+
+Validation passed for all six deterministic generated-source checks, Function
+API Core typecheck and 7 files / 59 tests, backend typecheck and the affected 8
+files / 59 tests including all five point-runtime Workerd profiles, scoped
+`git diff --check`, and `check:effect-boundaries` with zero production
+`Effect.runSync` and 56 allowed `Effect.runPromise` sites. The TypeScript/API
+reviewer reported no findings. The systems-quality reviewer first found the
+application-import ordering defect above, then reported no findings on the
+corrected exact-final diff and confirmed that snapshot, journal, OCC, commit,
+action, activation, and routing ownership remain unchanged.
+
+`FAC15` is closed. `FAC16` must begin with a fresh current-runtime and
+current-Convex preflight over every remaining captured platform intrinsic and
+the ordering of dynamic application imports. The observed `Date`, `Math`,
+property-reflection, and freeze captures are hypotheses, not an authorized
+bulk move: select the smallest coherent deterministic-global trust boundary,
+prove which application top-level mutations are observable in genuine Workerd,
+and avoid changing deterministic time/random policy or widening into actions.
+
 ### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction

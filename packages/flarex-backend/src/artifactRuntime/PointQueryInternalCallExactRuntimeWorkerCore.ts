@@ -37,6 +37,7 @@ const CONFIGURED_SNAPSHOT_COMMIT_SEQ =
   exactQueryRuntimeConfigurationV1.snapshotCommitSeq;
 const MODULE_TIME = exactQueryRuntimeConfigurationV1.moduleEvaluationTime;
 const RANDOM_SEED_BYTES = exactQueryRuntimeConfigurationV1.randomSeedBytes;
+const nativeStructuredClone = globalThis.structuredClone;
 const executionModulePromise = import(
   "./pointQueryInternalCallExactRuntimeWorker/flarex-point-query-internal-call-exact-runtime-execution-v1.js"
 );
@@ -52,7 +53,6 @@ const runtimeKernelPromise = import(runtimeKernelModulePath) as Promise<Readonly
 
 const nativeDate = globalThis.Date;
 const nativeMath = globalThis.Math;
-const nativeStructuredClone = globalThis.structuredClone;
 const defineProperty = Object.defineProperty;
 const getPrototypeOf = Object.getPrototypeOf;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
@@ -131,7 +131,6 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
       );
       const auth = createFunctionRuntimeAuthV1(
         request.auth,
-        cloneUserIdentityV1,
       );
       const invocations: PointQueryInternalCallRuntimeInvocationFactoryV1 = freeze({
         open: () => freeze({
@@ -212,10 +211,6 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
       }
     }
   }
-}
-
-function cloneUserIdentityV1(identity: UserIdentity): UserIdentity {
-  return nativeStructuredClone(identity);
 }
 
 async function resolveFunction(path: string): Promise<unknown> {
@@ -354,7 +349,7 @@ function captureUserIdentity(
       : !isJsonValue(value, new WeakSet())) {
       throw namedError("PointQueryInternalCallExactRuntimeInvalidRequestV1Error", input);
     }
-    output[key] = structuredClone(value);
+    output[key] = nativeStructuredClone(value);
   }
   return deepFreeze(output) as UserIdentity;
 }

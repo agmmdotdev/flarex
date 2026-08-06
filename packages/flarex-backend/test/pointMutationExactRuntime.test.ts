@@ -91,7 +91,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "d3da4949de85074d68d4b983dc784000496eb1702a9f0aff645b87f5a4e3e9d1",
+      "d27d77a2c54b30fd9a73a4ff1e8bb7c097a257a1e07141bc38f3b7cc64435e15",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);

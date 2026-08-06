@@ -20,15 +20,12 @@ const IDENTITY = Object.freeze({
 }) satisfies UserIdentity;
 
 describe("@flarex/function-runtime/function-api-core", () => {
-  it("returns null for anonymous auth without invoking the clone port", async () => {
-    const cloneIdentity = vi.fn<(identity: UserIdentity) => UserIdentity>();
+  it("returns null from an exact frozen anonymous auth facade", async () => {
     const auth = createFunctionRuntimeAuthV1(
       Object.freeze({ kind: "anonymous" }),
-      cloneIdentity,
     );
 
     await expect(auth.getUserIdentity()).resolves.toBeNull();
-    expect(cloneIdentity).not.toHaveBeenCalled();
     expect(Object.isFrozen(auth)).toBe(true);
     expect(Object.keys(auth)).toEqual(["getUserIdentity"]);
   });
@@ -160,31 +157,38 @@ describe("@flarex/function-runtime/function-api-core", () => {
     for (const invoke of invocations) expect(invoke).toThrow(failure);
   });
 
-  it("returns a fresh owned identity from the trusted clone port on every call", async () => {
-    const cloneIdentity = vi.fn((identity: UserIdentity): UserIdentity => ({
-      ...identity,
-    }));
-    const auth = createFunctionRuntimeAuthV1(
-      Object.freeze({ kind: "user", user: IDENTITY }),
-      cloneIdentity,
-    );
+  it("returns a fresh deeply detached identity on every call", async () => {
+    const projection = Object.freeze({
+      kind: "user" as const,
+      user: Object.freeze({
+        ...IDENTITY,
+        custom: Object.freeze({
+          roles: Object.freeze(["reader", "writer"]),
+        }),
+      }) satisfies UserIdentity,
+    });
+    const auth = createFunctionRuntimeAuthV1(projection);
 
     const first = await auth.getUserIdentity();
+    if (first === null) throw new Error("Expected authenticated identity.");
+    const firstCustom = first.custom as { roles: string[] };
+    firstCustom.roles[0] = "changed";
     const second = await auth.getUserIdentity();
 
-    expect(first).toEqual(IDENTITY);
-    expect(second).toEqual(IDENTITY);
-    expect(first).not.toBe(IDENTITY);
-    expect(second).not.toBe(IDENTITY);
+    expect(second).toEqual(projection.user);
+    expect(first).not.toBe(projection.user);
+    expect(second).not.toBe(projection.user);
     expect(second).not.toBe(first);
-    expect(cloneIdentity).toHaveBeenNthCalledWith(1, IDENTITY);
-    expect(cloneIdentity).toHaveBeenNthCalledWith(2, IDENTITY);
+    expect(firstCustom.roles).toEqual(["changed", "writer"]);
+    expect(second?.custom).toEqual({ roles: ["reader", "writer"] });
+    expect((second?.custom as { roles: string[] }).roles)
+      .not.toBe(projection.user.custom.roles);
+    expect(projection.user.custom.roles).toEqual(["reader", "writer"]);
   });
 
   it("constructs fresh exact frozen database, run-query, and mutation contexts", async () => {
     const auth = createFunctionRuntimeAuthV1(
       Object.freeze({ kind: "anonymous" }),
-      identity => identity,
     );
     const queryDb = Object.freeze({ get: vi.fn() });
     const mutationDb = Object.freeze({

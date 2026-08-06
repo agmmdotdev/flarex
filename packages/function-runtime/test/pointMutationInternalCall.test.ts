@@ -471,7 +471,6 @@ function invocation(
   let terminal: unknown;
   const auth = createFunctionRuntimeAuthV1(
     Object.freeze({ kind: "anonymous" }),
-    identity => identity,
   );
   const reader = {
     get: async () => { events.push("get"); return { status: "open" }; },

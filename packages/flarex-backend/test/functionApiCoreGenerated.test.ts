@@ -39,6 +39,9 @@ describe("generated function API core", () => {
       "createFunctionRuntimeDatabaseContextV1",
     );
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
+      "const clone = globalThis.structuredClone",
+    );
+    expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
       "createFunctionRuntimeRunQueryContextV1",
     );
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
@@ -109,6 +112,7 @@ describe("generated function API core", () => {
   ) => {
     expect(source).toContain("createFunctionRuntimeAuthV1(");
     expect(source).not.toContain("getUserIdentity: async");
+    expect(source).not.toContain("cloneUserIdentityV1");
   });
 
   it("uses the shared point database facades in both top-level runtimes", () => {
@@ -138,6 +142,27 @@ describe("generated function API core", () => {
     ]) {
       expect(POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1)
         .not.toContain(negativeCapability);
+    }
+  });
+
+  it("captures query auth claims through an evaluation-time intrinsic", () => {
+    for (const source of [
+      POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+      POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
+    ]) {
+      const cloneCaptureIndex = source.indexOf(
+        "const nativeStructuredClone = globalThis.structuredClone",
+      );
+      const executionImportIndex = source.indexOf(
+        "const executionModulePromise = import(",
+      );
+      expect(source).toContain(
+        "const nativeStructuredClone = globalThis.structuredClone",
+      );
+      expect(cloneCaptureIndex).toBeGreaterThanOrEqual(0);
+      expect(executionImportIndex).toBeGreaterThan(cloneCaptureIndex);
+      expect(source).toContain("output[key] = nativeStructuredClone(value)");
+      expect(source).not.toContain("output[key] = structuredClone(value)");
     }
   });
 

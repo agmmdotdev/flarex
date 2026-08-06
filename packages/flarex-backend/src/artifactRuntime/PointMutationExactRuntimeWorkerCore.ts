@@ -1292,14 +1292,9 @@ function executionContext(
   return createFunctionRuntimeDatabaseContextV1(
     createFunctionRuntimeAuthV1(
       request.auth,
-      cloneUserIdentityV1,
     ),
     database,
   );
-}
-
-function cloneUserIdentityV1(identity: UserIdentity): UserIdentity {
-  return nativeStructuredClone(identity);
 }
 
 function isUserIdentity(value: unknown): value is UserIdentity {

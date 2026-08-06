@@ -244,7 +244,6 @@ function invocation(
   let terminal: unknown;
   const auth = createFunctionRuntimeAuthV1(
     Object.freeze({ kind: "anonymous" }),
-    identity => identity,
   );
   const database = {
     get: async () => { events.push("get"); return { status: "open" }; },

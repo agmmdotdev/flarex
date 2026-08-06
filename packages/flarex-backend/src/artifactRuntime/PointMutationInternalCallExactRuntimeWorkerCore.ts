@@ -627,7 +627,6 @@ export class FlarexPointMutationInternalCallExactRuntimeV1 extends WorkerEntrypo
             journalRuntime = openedJournal;
             const auth = createFunctionRuntimeAuthV1(
               request.auth,
-              cloneUserIdentityV1,
             );
             return Object.freeze({
               database: openedJournal.database,
@@ -1359,10 +1358,6 @@ function isTableJournalCapability(
     "runPointOperation" in value &&
     typeof value.runPointOperation === "function"
   );
-}
-
-function cloneUserIdentityV1(identity: UserIdentity): UserIdentity {
-  return nativeStructuredClone(identity);
 }
 
 function isUserIdentity(value: unknown): value is UserIdentity {
