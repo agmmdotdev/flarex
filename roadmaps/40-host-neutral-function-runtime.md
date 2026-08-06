@@ -2337,6 +2337,94 @@ handlers, but their end-to-end lane must continue through the actual analyzer,
 R2 materialization, Workerd runtime, executor, and Postgres owners. A faster
 in-process semantic lane is complementary evidence and must be named as such.
 
+### `FAC11` Shared Auth-Facade Completion Preflight Decision
+
+The next shared primitive is the already accepted
+`createFunctionRuntimeAuthV1`, not a new base or universal context. Current
+Convex keeps `setupAuth(requestId)` as one small public-context facade and has
+that facade delegate `getUserIdentity` to the host-owned
+`1.0/getUserIdentity` async syscall. Query and mutation registration each
+compose that same facade beside their own exact database, storage, scheduler,
+metadata, and nested-call capabilities. The Rust isolate dispatcher retains
+the identity authority. This is the useful Convex boundary to copy: centralize
+the developer-visible facade, but do not move authentication or execution
+identity authority into the facade.
+
+Flarex already owns the equivalent split. Each exact Worker validates and
+captures its authenticated request projection before application execution,
+while Function API Core owns a frozen `getUserIdentity` facade parameterized
+by an explicit identity-clone port. The internal-call query and mutation
+profiles already use it. The top-level point-query, top-level point-mutation,
+and mutation-with-internal-query profiles still reconstruct the same facade
+locally. They are three real consumers spanning query and mutation execution,
+and every corresponding Worker graph already includes the single generated
+Function API Core module.
+
+`FAC11` therefore completes adoption of that existing facade in those three
+profiles. It preserves each profile's current context shape and allocation
+boundary, uses the Worker's captured native structured-clone capability, and
+retains fresh identity ownership on every `getUserIdentity` call. Request
+decoding remains the authority for anonymous versus authenticated identity;
+the shared facade receives only that decoded projection and cannot verify,
+mint, refresh, or widen it.
+
+A generic `create*BaseContext` or context with optional capabilities is
+explicitly rejected. `FAC04` removed those shapes in favor of exact positive-
+capability contexts, and the older point profiles' unsupported scheduler,
+storage, and nested-call placeholders are separate profile-migration debt.
+Changing or deleting those keys would alter runtime compatibility rather than
+centralize auth, so it is not part of this slice. No action, workflow mutation,
+public test harness, analyzer operation, protocol identity, persistence,
+journal, OCC, commit, activation, routing, or production owner changes.
+
+The acceptance gate is generated-source identity for all three refreshed
+Workers, one-core-module graph evidence across all five selected query and
+mutation profiles, direct Workerd proof of anonymous and authenticated identity
+semantics including fresh clones, complete function-runtime regression, backend
+generated checks and typecheck, and both exact-final reviewers.
+
+### `FAC11` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+All five selected query and mutation exact runtimes now construct
+`ctx.auth` through the one generated Function API Core facade. The three newly
+migrated Workers retain their previous profile-specific context keys and create
+the facade at the same invocation-open boundary. Their request decoders still
+own identity admission, and each facade call clones the captured authenticated
+projection through the Worker's native structured-clone port. Anonymous calls
+return `null`; repeated authenticated calls return detached identities.
+
+The refreshed exact Worker core identities are:
+
+- top-level point query:
+  `03006aad7080e7df2560f056aa90b2e35183e2e7eb87f73403fa0d27da6011c5`;
+- top-level point mutation:
+  `5ab7af3db695cbdf7e2f9553bd794e26a3d77c5ea05a6d7364f94fa2ea8e6206`;
+  and
+- point mutation with internal query:
+  `b6142217a62a741b345e370bc839a7a8ef53b05271c9356cea6b27807486eb84`.
+
+The final regression set includes a canonical generated-core injection in the
+older in-process mutation harness. It evaluates the checked-in Function API
+Core source in an isolated test closure rather than copying the facade, so its
+21 journal, failure, validation, deterministic-runtime, and identity tests
+continue to exercise the generated Worker. The changed mutation graph-basis
+digest receipt was refreshed to the exact new graph.
+
+Validation passed all generated backend build checks and backend typecheck,
+function-runtime typecheck and all 59 tests, all six selected generated/Workerd
+files with 34 tests, the complete 21-test point-mutation exact-runtime suite,
+and the workspace Effect-boundary check. No analyzer, application-error,
+protocol, query read-boundary, mutation journal, OCC, commit, schema,
+persistence, activation, routing, or production behavior changed.
+
+`FAC11` is closed. The next implementation turn must begin with a fresh
+`FAC12` preflight against current Convex source and select one further concrete
+shared runtime primitive with at least two exact consumers. It must preserve
+the positive-capability context decision and must not use placeholder removal
+or public test-harness shortcuts as incidental centralization work.
+
 ### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction

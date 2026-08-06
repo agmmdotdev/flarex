@@ -248,6 +248,48 @@ export default {};`,
     });
   });
 
+  it("uses the shared auth facade and returns a fresh identity per call", async () => {
+    await expect(runContractFailureScenario({
+      path: "orders:complete",
+      functionSource: `{
+        isMutation: true,
+        isPublic: true,
+        _handler: async (context) => {
+          const first = await context.auth.getUserIdentity();
+          first.role = "changed";
+          const second = await context.auth.getUserIdentity();
+          return {
+            same: first === second,
+            firstRole: first.role,
+            secondRole: second.role,
+          };
+        },
+      }`,
+      auth: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "token-clone",
+          subject: "user-clone",
+          issuer: "https://auth.example.com",
+          role: "admin",
+        },
+      },
+      argumentsValue: {},
+      argsValidator: { type: "object", value: {} },
+    })).resolves.toEqual({
+      name: "success",
+      result: {
+        format: "flarex.point-mutation-exact-runtime-result",
+        version: 1,
+        value: {
+          same: false,
+          firstRole: "changed",
+          secondRole: "admin",
+        },
+      },
+    });
+  });
+
   it("executes the exact analyzer-admitted caught FlarexError source", async () => {
     await expect(runContractFailureScenario({
       path: "orders:complete",
@@ -273,6 +315,7 @@ async function runContractFailureScenario(
     readonly functionSource: string;
     readonly executionImports?: string;
     readonly applicationModuleSource?: string;
+    readonly auth?: unknown;
     readonly argumentsValue: Readonly<Record<string, unknown>>;
     readonly argsValidator: unknown;
   }>,
@@ -303,7 +346,9 @@ async function runContractFailureScenario(
       argsValidator: scenario.argsValidator,
       returnsValidator: null,
     },
-    auth: { kind: "anonymous" },
+    auth: scenario.auth === undefined
+      ? { kind: "anonymous" }
+      : scenario.auth,
     arguments: scenario.argumentsValue,
     argumentArraySemanticBytes:
       requirePointMutationArgumentSemanticSizeV1(

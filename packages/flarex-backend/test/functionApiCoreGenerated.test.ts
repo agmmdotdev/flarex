@@ -11,6 +11,16 @@ import {
   FUNCTION_API_CORE_SHA256_V1,
   FUNCTION_API_CORE_SOURCE_V1,
 } from "../src/artifactRuntime/FunctionApiCore.generated";
+import { POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1 } from
+  "../src/artifactRuntime/PointMutationExactRuntimeWorkerCore.generated";
+import { POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1 } from
+  "../src/artifactRuntime/PointMutationInternalCallExactRuntimeWorkerCore.generated";
+import { POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1 } from
+  "../src/artifactRuntime/PointMutationInternalQueryExactRuntimeWorkerCore.generated";
+import { POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1 } from
+  "../src/artifactRuntime/PointQueryExactRuntimeWorkerCore.generated";
+import { POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1 } from
+  "../src/artifactRuntime/PointQueryInternalCallExactRuntimeWorkerCore.generated";
 import { pointMutationInternalCallExactRuntimeWorkerGraphBasisV1 } from
   "../src/artifactRuntime/PointMutationInternalCallExactRuntimeHost";
 import { pointMutationInternalQueryExactRuntimeWorkerGraphBasisV1 } from
@@ -79,6 +89,20 @@ describe("generated function API core", () => {
     expect(queryBasis).toContain(supportIdentity);
     expect(mutationBasis).toContain(supportIdentity);
     expect(mutationInternalQueryBasis).toContain(supportIdentity);
+  });
+
+  it.each([
+    ["query", POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1],
+    ["query-internal-call", POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1],
+    ["mutation", POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1],
+    ["mutation-internal-query", POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1],
+    ["mutation-internal-call", POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1],
+  ] as const)("uses the shared auth facade in the %s exact runtime", (
+    _profile,
+    source,
+  ) => {
+    expect(source).toContain("createFunctionRuntimeAuthV1(");
+    expect(source).not.toContain("getUserIdentity: async");
   });
 
   it.each([

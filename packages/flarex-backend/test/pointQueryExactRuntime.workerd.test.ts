@@ -90,6 +90,14 @@ describe("point-query exact runtime in workerd", () => {
     await expect(runScenario({
       handler: "async (context) => context.auth.getUserIdentity()",
       capability: "async () => ({ kind: 'missing' })",
+    })).resolves.toMatchObject({
+      ok: true,
+      result: { value: null },
+    });
+
+    await expect(runScenario({
+      handler: "async (context) => context.auth.getUserIdentity()",
+      capability: "async () => ({ kind: 'missing' })",
       auth: {
         kind: "user",
         user: {
@@ -102,6 +110,29 @@ describe("point-query exact runtime in workerd", () => {
     })).resolves.toMatchObject({
       ok: true,
       result: { value: { subject: "user-1", role: "admin" } },
+    });
+
+    await expect(runScenario({
+      handler: "async (context) => { const first = await context.auth.getUserIdentity(); first.role = 'changed'; const second = await context.auth.getUserIdentity(); return { same: first === second, firstRole: first.role, secondRole: second.role }; }",
+      capability: "async () => ({ kind: 'missing' })",
+      auth: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "token-clone",
+          subject: "user-clone",
+          issuer: "https://auth.example.com",
+          role: "admin",
+        },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      result: {
+        value: {
+          same: false,
+          firstRole: "changed",
+          secondRole: "admin",
+        },
+      },
     });
 
     await expect(runScenario({

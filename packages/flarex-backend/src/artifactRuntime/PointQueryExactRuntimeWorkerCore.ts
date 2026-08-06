@@ -1,4 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import {
+  createFunctionRuntimeAuthV1,
+} from "flarex:function-api-core/v1";
 import type {
   capturePointQueryRuntimeArgumentsV1,
   executePointQueryV1,
@@ -42,6 +45,7 @@ const runtimeKernelPromise = import(runtimeKernelModulePath) as Promise<Readonly
 
 const nativeDate = globalThis.Date;
 const nativeMath = globalThis.Math;
+const nativeStructuredClone = globalThis.structuredClone;
 const defineProperty = Object.defineProperty;
 const getPrototypeOf = Object.getPrototypeOf;
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
@@ -123,24 +127,26 @@ export class FlarexPointQueryExactRuntimeV1 extends WorkerEntrypoint {
         system: freeze({}),
       });
       const invocations: PointQueryRuntimeInvocationFactoryV1 = freeze({
-        open: () => freeze({
-          context: freeze({
-            auth: freeze({
-              getUserIdentity: async () => request.auth.kind === "anonymous"
-                ? null
-                : structuredClone(request.auth.user),
+        open: () => {
+          const auth = createFunctionRuntimeAuthV1(
+            request.auth,
+            cloneUserIdentityV1,
+          );
+          return freeze({
+            context: freeze({
+              auth,
+              db: database,
             }),
-            db: database,
-          }),
-          readBoundary: freeze({
-            close: () => { state.closed = true; },
-            drain: async () => {
-              await Promise.allSettled([...state.pending]);
-              if (state.failure !== undefined) throw state.failure;
-            },
-          }),
-          isCoreApplicationError: inspectCoreApplicationErrorV1,
-        }),
+            readBoundary: freeze({
+              close: () => { state.closed = true; },
+              drain: async () => {
+                await Promise.allSettled([...state.pending]);
+                if (state.failure !== undefined) throw state.failure;
+              },
+            }),
+            isCoreApplicationError: inspectCoreApplicationErrorV1,
+          });
+        },
       });
       const runtimeInput: PointQueryRuntimeInputV1 = freeze({
         function: request.function,
@@ -183,6 +189,10 @@ export class FlarexPointQueryExactRuntimeV1 extends WorkerEntrypoint {
       }
     }
   }
+}
+
+function cloneUserIdentityV1(identity: UserIdentity): UserIdentity {
+  return nativeStructuredClone(identity);
 }
 
 async function resolveFunction(path: string): Promise<unknown> {

@@ -59,6 +59,7 @@ import {
 } from "../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
 import {
   FUNCTION_API_CORE_MODULE_V1,
+  FUNCTION_API_CORE_SOURCE_V1,
 } from "../src/artifactRuntime/FunctionApiCore.generated";
 import {
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
@@ -90,7 +91,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "5bdf64a4dfd5cf5feb2989afc2417fb889c89159efd3127e1af416085d98f88b",
+      "3d98715458c39c7af9910f851358f384144606676bc1bd7c1ce9e16a0896ea7a",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
@@ -1373,7 +1374,10 @@ function executableGeneratedSource(
     'import { WorkerEntrypoint } from "cloudflare:workers";',
     "class WorkerEntrypoint {}",
   );
-  const withTestApplicationErrorInspector = withoutWorkerImport.replace(
+  const withTestFunctionApiCore = replaceFunctionApiCoreImportForTest(
+    withoutWorkerImport,
+  );
+  const withTestApplicationErrorInspector = withTestFunctionApiCore.replace(
     'import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";',
     "const inspectCoreApplicationErrorV1 = () => false;",
   );
@@ -1409,6 +1413,21 @@ return {
   );
 }
 
+function replaceFunctionApiCoreImportForTest(source: string): string {
+  const testCoreSource = FUNCTION_API_CORE_SOURCE_V1.replace(/^export /gm, "");
+  const importSource =
+    'import { createFunctionRuntimeAuthV1 } from "flarex:function-api-core/v1";';
+  const replacement = `const { createFunctionRuntimeAuthV1 } = (() => {
+${testCoreSource}
+return { createFunctionRuntimeAuthV1 };
+})();`;
+  const replaced = source.replace(importSource, replacement);
+  if (replaced === source) {
+    throw new Error("Generated exact runtime is missing the Function API Core import.");
+  }
+  return replaced;
+}
+
 function testExactRuntimeWorkerSource(): string {
   return pointMutationExactRuntimeWorkerSource({
     executionModule: "_flarex/execution.js",
@@ -1427,8 +1446,8 @@ function runGeneratedRuntimeInFreshProcess(seedByte: number): Readonly<{
   readonly sequences: readonly string[];
   readonly capturedInsertStatus: string;
 }> {
-  const source = replaceRuntimeKernelImportForTest(
-    testExactRuntimeWorkerSource(),
+  const source = replaceFunctionApiCoreImportForTest(
+    replaceRuntimeKernelImportForTest(testExactRuntimeWorkerSource()),
   )
     .replace(
       'import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";',

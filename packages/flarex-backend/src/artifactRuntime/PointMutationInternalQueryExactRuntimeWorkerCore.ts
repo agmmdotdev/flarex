@@ -1,5 +1,8 @@
 // Authored exact point-mutation runtime core. Built to an embedded JS artifact.
 import { WorkerEntrypoint } from "cloudflare:workers";
+import {
+  createFunctionRuntimeAuthV1,
+} from "flarex:function-api-core/v1";
 import type {
   UserIdentity,
 } from "flarex-protocol/auth";
@@ -1334,11 +1337,10 @@ function executionContext(
   database: ExactRuntimeDatabase,
 ) {
   return Object.freeze({
-    auth: Object.freeze({
-      getUserIdentity: async () => request.auth.kind === "anonymous"
-        ? null
-        : nativeStructuredClone(request.auth.user),
-    }),
+    auth: createFunctionRuntimeAuthV1(
+      request.auth,
+      cloneUserIdentityV1,
+    ),
     db: database,
     runQuery: unsupported("ctx.runQuery"),
     runMutation: unsupported("ctx.runMutation"),
@@ -1354,6 +1356,10 @@ function executionContext(
       getMetadata: unsupported("ctx.storage.getMetadata"),
     }),
   });
+}
+
+function cloneUserIdentityV1(identity: UserIdentity): UserIdentity {
+  return nativeStructuredClone(identity);
 }
 
 function isUserIdentity(value: unknown): value is UserIdentity {
