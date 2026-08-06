@@ -33,19 +33,6 @@ const CONFIGURED_SNAPSHOT_COMMIT_SEQ =
 const MODULE_TIME = exactQueryRuntimeConfigurationV1.moduleEvaluationTime;
 const RANDOM_SEED_BYTES = exactQueryRuntimeConfigurationV1.randomSeedBytes;
 const nativeStructuredClone = globalThis.structuredClone;
-const executionModulePromise = import(
-  "./pointQueryExactRuntimeWorker/flarex-point-query-exact-runtime-execution-v1.js"
-);
-const runtimeKernelModulePath =
-  "./pointQueryExactRuntimeWorker/flarex-point-query-runtime-kernel-v1.js";
-const runtimeKernelPromise = import(runtimeKernelModulePath) as Promise<Readonly<{
-  readonly capturePointQueryRuntimeArgumentsV1:
-    typeof capturePointQueryRuntimeArgumentsV1;
-  readonly executePointQueryV1: typeof executePointQueryV1;
-  readonly inspectPointQueryRuntimeFailureV1:
-    typeof inspectPointQueryRuntimeFailureV1;
-}>>;
-
 const nativeDate = globalThis.Date;
 const nativeMath = globalThis.Math;
 const defineProperty = Object.defineProperty;
@@ -73,6 +60,18 @@ interface QueryReadCapability {
 }
 
 installExactGlobals();
+const executionModulePromise = import(
+  "./pointQueryExactRuntimeWorker/flarex-point-query-exact-runtime-execution-v1.js"
+);
+const runtimeKernelModulePath =
+  "./pointQueryExactRuntimeWorker/flarex-point-query-runtime-kernel-v1.js";
+const runtimeKernelPromise = import(runtimeKernelModulePath) as Promise<Readonly<{
+  readonly capturePointQueryRuntimeArgumentsV1:
+    typeof capturePointQueryRuntimeArgumentsV1;
+  readonly executePointQueryV1: typeof executePointQueryV1;
+  readonly inspectPointQueryRuntimeFailureV1:
+    typeof inspectPointQueryRuntimeFailureV1;
+}>>;
 
 export class FlarexPointQueryExactRuntimeV1 extends WorkerEntrypoint {
   async run(

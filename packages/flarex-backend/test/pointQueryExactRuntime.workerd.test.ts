@@ -148,6 +148,22 @@ describe("point-query exact runtime in workerd", () => {
     });
 
     await expect(runScenario({
+      imports:
+        "const importTimeV1 = Date.now(); const importRandomV1 = Math.random();",
+      handler:
+        "async () => ({ importTime: importTimeV1, importRandom: importRandomV1 })",
+      capability: "async () => ({ kind: 'missing' })",
+    })).resolves.toMatchObject({
+      ok: true,
+      result: {
+        value: {
+          importTime: Date.UTC(2026, 5, 11),
+          importRandom: 0.5,
+        },
+      },
+    });
+
+    await expect(runScenario({
       handler: "async (context) => { const first = await context.auth.getUserIdentity(); first.role = 'changed'; const second = await context.auth.getUserIdentity(); return { same: first === second, firstRole: first.role, secondRole: second.role }; }",
       capability: "async () => ({ kind: 'missing' })",
       auth: {

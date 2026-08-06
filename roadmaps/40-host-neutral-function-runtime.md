@@ -2929,6 +2929,126 @@ bulk move: select the smallest coherent deterministic-global trust boundary,
 prove which application top-level mutations are observable in genuine Workerd,
 and avoid changing deterministic time/random policy or widening into actions.
 
+### `FAC16` Query Module-Evaluation Boundary Preflight Decision
+
+**Accepted:** 2026-08-06
+
+The current checked-in Convex source at
+`84fbb0e70b4e857913673871cb847ad11a55f3d5` establishes the UDF global surface
+before loading user modules. `udf_runtime.rs` evaluates the bundled setup module
+while creating the default V8 snapshot, and `setup.ts` explicitly installs
+`Date` plus deterministic `Math.random` before other bundled libraries can
+retain the original references. Convex's current UDF phase then owns the
+separate import-time policy: time and randomness either come from admitted
+preloaded values or fail as `NoDateDuringImport` and `NoRandomDuringImport`.
+The reusable principle is setup-before-user-evaluation, not the exact
+import-time value policy.
+
+Flarex's three point-mutation Workers already follow that principle for their
+explicit dynamic imports. They capture their native platform intrinsics, call
+`installExactRuntimeIntrinsics()`, and only then initiate the dynamic execution
+bridge and runtime-kernel import expressions. The two point-query Workers do not. Their
+`executionModulePromise` and `runtimeKernelPromise` are initiated before the
+native `Date`, `Math`, object-reflection, construction, and freeze references
+are captured and before `installExactGlobals()` runs. The execution bridge has
+static imports of the admitted application modules, so application top-level
+evaluation can run across that gap. FAC15's genuine Workerd finding already
+proved this scheduling is observable when application code replaced
+`globalThis.structuredClone` before the later query-Worker statements ran.
+
+`FAC16` therefore changes only the two query profiles: capture every intrinsic
+they already own, initialize their module-time state, install their existing
+exact global surface, and then initiate both dynamic imports. This preserves
+Flarex's already committed import-time policy—compatibility-date `Date.now()`
+and the fixed initial `Math.random()` value—rather than adopting Convex's
+current failure policy without a protocol decision. Request admission still
+replaces those initial values with the request execution time and seeded RNG
+before the handler runs.
+
+The query exact-global implementation remains a backend/Workerd host concern;
+it does not move into host-neutral Function API Core merely because two Workers
+repeat it. This slice also does not claim parity with the more comprehensive
+mutation hardening. Freezing native prototypes, closing inherited `Math`
+mutation, expanding unavailable globals, extracting a backend support module,
+or unifying query and mutation global installers each changes a larger runtime
+surface and requires subsequent evidence. The explicit runtime-kernel import
+expression stays beside the execution-bridge import for coherent source order,
+but the private application-error platform also imports that trusted kernel
+statically. `FAC16` therefore does not claim setup precedes trusted support
+module evaluation; its trust claim is specifically that no admitted application
+module starts evaluation before the host installs its exact globals.
+
+Rejected alternatives are moving only `Date` and `Math` constants while still
+letting user modules evaluate before setup, silently changing import-time time
+or random behavior, moving host policy into `@flarex/function-runtime`,
+rewriting all five Workers when the mutation profiles are already ordered,
+or widening into edge-action globals. No developer API, analyzer operation,
+protocol/profile/syscall identity, schema or persistence owner, snapshot or
+journal policy, OCC or commit owner, action uncertainty, activation, routing,
+or production behavior changes.
+
+The implementation gate is authored/generated ordering agreement for both
+query profiles, a genuine Workerd proof that application import-time `Date`
+and `Math.random` observe the configured exact globals, unchanged invocation
+time/seed behavior, refreshed query Worker and graph identities, affected
+regressions, `check:effect-boundaries`, both mandatory exact-final reviewers,
+fixes and re-review when needed, and one intentional commit.
+
+### `FAC16` Implementation Receipt
+
+**Completed:** 2026-08-06
+
+Both point-query Worker cores now capture their existing native platform
+references and run `installExactGlobals()` before initiating the dynamic
+execution-bridge import. The explicit runtime-kernel import expression moves
+with it for coherent authored/generated ordering, without changing the trusted
+static support graph described above. The application bridge remains the sole
+dynamic path from these Worker cores into admitted user modules.
+
+The genuine Workerd regression captures `Date.now()` and `Math.random()` at
+application module top level and proves they equal the configured compatibility
+date and fixed `0.5` import-time value. Existing scenarios continue to prove
+that request admission installs the request execution time and seeded RNG
+before handler execution, and the FAC15 hostile `structuredClone` replacement
+still cannot forge admitted auth claims. Generated-source assertions pin all
+eight existing native captures before setup and setup before both explicit
+dynamic import expressions in both query profiles.
+
+The final generated query Worker identities are:
+
+- point query:
+  `22d9263a09f5447b9747904e8977da909f52b8c03830437dfdeb96f28854e771`;
+- point query/internal call:
+  `ba023a3c810c424400f67fecd30721c530f22390c221f10c5e6da343a08f41ca`.
+
+Their final representative graph-basis SHA-256 receipts are point query
+`189fa2c681560045a54ae185139be416ad70fb8d2c4443561ebea08ce4eec5e1`
+and point query/internal call
+`24f0743021925d3c7536062bf2301ddd6a8007625c2c617e8e9c9cf1362014ee`.
+Function API Core, all mutation Worker sources, and their graph identities are
+unchanged.
+
+Validation passed for both deterministic generated-source checks, backend
+build and typecheck, the focused 3 files / 25 tests, the affected 8 files / 59
+tests including all five point-runtime Workerd profiles, scoped
+`git diff --check`, and `check:effect-boundaries` with zero production
+`Effect.runSync` and 56 allowed `Effect.runPromise` sites. Both mandatory
+exact-final reviewers reported no findings after independently checking ESM
+evaluation order, the limited trusted-static-module claim, configured
+import-time and request-time behavior, generated agreement, Effect
+applicability, and unchanged transaction and lifecycle owners.
+
+`FAC16` is closed. `FAC17` must begin with a fresh preflight over the two query
+profiles' post-install intrinsic integrity. In particular, their frozen `Math`
+facade currently inherits from the captured but mutable native `Math`, while
+request RNG setup later calls `Math.imul`; application code may be able to
+rewrite that inherited operation after setup. The preflight must reproduce or
+reject that hypothesis in genuine Workerd, compare the more comprehensive
+mutation installer and current Convex isolation, then decide whether the
+smallest correct boundary is query-local hardening or one backend-owned shared
+exact-global support module. It must not move Workerd host policy into Function
+API Core or widen into action behavior.
+
 ### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction

@@ -145,22 +145,34 @@ describe("generated function API core", () => {
     }
   });
 
-  it("captures query auth claims through an evaluation-time intrinsic", () => {
+  it("installs query globals before loading dynamic modules", () => {
     for (const source of [
       POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
       POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
     ]) {
-      const cloneCaptureIndex = source.indexOf(
-        "const nativeStructuredClone = globalThis.structuredClone",
-      );
+      const globalsInstallIndex = source.indexOf("installExactGlobals();");
       const executionImportIndex = source.indexOf(
         "const executionModulePromise = import(",
       );
-      expect(source).toContain(
-        "const nativeStructuredClone = globalThis.structuredClone",
+      const kernelImportIndex = source.indexOf(
+        "const runtimeKernelPromise = import(",
       );
-      expect(cloneCaptureIndex).toBeGreaterThanOrEqual(0);
-      expect(executionImportIndex).toBeGreaterThan(cloneCaptureIndex);
+      for (const capture of [
+        "const nativeStructuredClone = globalThis.structuredClone",
+        "const nativeDate = globalThis.Date",
+        "const nativeMath = globalThis.Math",
+        "const defineProperty = Object.defineProperty",
+        "const getPrototypeOf = Object.getPrototypeOf",
+        "const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor",
+        "const reflectConstruct = Reflect.construct",
+        "const freeze = Object.freeze",
+      ]) {
+        const captureIndex = source.indexOf(capture);
+        expect(captureIndex).toBeGreaterThanOrEqual(0);
+        expect(globalsInstallIndex).toBeGreaterThan(captureIndex);
+      }
+      expect(executionImportIndex).toBeGreaterThan(globalsInstallIndex);
+      expect(kernelImportIndex).toBeGreaterThan(globalsInstallIndex);
       expect(source).toContain("output[key] = nativeStructuredClone(value)");
       expect(source).not.toContain("output[key] = structuredClone(value)");
     }
