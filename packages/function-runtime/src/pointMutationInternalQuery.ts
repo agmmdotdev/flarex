@@ -533,6 +533,9 @@ export async function executePointMutationInternalQueryV1(
     if (inspected?.kind === "journalBoundary" || inspected?.kind === "terminal") {
       throw handlerFailure.cause;
     }
+    if (invocation.isCoreApplicationError(handlerFailure.cause)) {
+      throw handlerFailure.cause;
+    }
     throw new PointMutationInternalQueryRuntimeUserCodeV1Error(handlerFailure.cause);
   }
 

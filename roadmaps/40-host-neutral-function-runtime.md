@@ -2252,7 +2252,7 @@ The accepted Flarex split is:
   the three accepted fields through the existing process-local `WeakMap`
   registry, so a matching class name, public properties, global symbol, or
   separately constructed developer-package instance cannot forge provenance;
-- the analyzer may later lower only an exact `new FlarexError(...)` binding
+- the analyzer lowers only an exact `new FlarexError(...)` binding
   imported from `flarex/values`. Arbitrary `new`, `class`, `super`, subclassing,
   computed construction, and user imports from `flarex:platform` remain
   rejected; and
@@ -2262,25 +2262,74 @@ The accepted Flarex split is:
   and workflow mutations remain fail-closed until their separate exact runtime
   owners provide the same proof.
 
-`FAC10-P1` completes the first shared primitive only: the public typed
+`FAC10-P1` completed the first shared primitive only: the public typed
 authoring class and the isolate-local registry constructor use the same visible
 `name`, `code`, `message`, and optional `data` shape, while the registry keeps
 the accepted validation order, byte bounds, canonical data capture, and
 unforgeable identity. This is deliberately not yet analyzer or Worker
-admission. The next slice must wire the exact constructor through all selected
-query and mutation profiles as one capability before any positive application
-fixture is accepted.
+admission.
+
+`FAC10-P2` completes that admission as one capability. The executable analyzer
+maps only the unaliased named `FlarexError` import from `flarex/values`, used
+with `new` and exactly two or three arguments, onto the existing `errorCreate`
+ABI operation. Calling it without `new`, aliasing or shadowing it, supplying a
+different arity, or constructing an unrelated identifier remains rejected in
+both warm analysis and cold reconstruction. A catch binding may use the exact
+fail-closed guard `if (!(error instanceof FlarexError)) { throw error; }` and
+then read only its direct `code`, `message`, or `data` field inside that same
+catch block before any reassignment or nested catch; those exact reads lower to
+the existing `errorCode`,
+`errorMessage`, and `errorData` ABI operations. Unguarded field reads,
+non-exiting or non-dominating checks, scope escape, reassignment, unrelated
+`instanceof` targets, arbitrary members, aliases, and nested data property
+dispatch remain rejected. Assignment, compound assignment, update, `delete`,
+destructuring-assignment, and bare loop-target positions are never classified
+as application-error field reads; destructuring and loop writes to the narrowed
+catch binding also invalidate the proof. One conformance source is consumed by
+both the authoritative analyzer proof and a genuine Workerd execution proof.
+Every exact `flarex/values` import in the handler module's recursively reachable
+static artifact-import graph asserts the application-error capability even when
+its imported function is never called. Callable reachability remains the
+separate authority for operation capabilities. Registration therefore rejects
+unsupported runtime profiles before ECMAScript module instantiation. It
+advertises the capability for query and mutation functions only; workflow
+mutations and actions remain fail closed.
+
+Every selected point-runtime graph now carries exactly one generated Function
+API Core, one canonical host-private
+`_flarex/application-error-platform-v1.js` registry module, and the public
+`flarex/values` facade. That matrix covers top-level point query, point query
+with internal calls, top-level point mutation, point mutation with internal
+query, and point mutation with internal query plus mutation calls. The
+host-private module exports only the constructor and provenance inspector; the
+former private create/read compatibility functions were removed once their
+last test consumer moved to the public constructor. Application modules remain
+at their authenticated root paths while `_flarex/execution.js` remains only
+the generated registry bridge, preventing a nested bare-module alias from
+creating a second registry.
+
+The portable runtimes preserve boundary ownership: query application errors
+are rethrown only after the read boundary closes and drains, mutation
+application errors only after the journal closes and drains, and an owned
+read/journal failure still wins. The exact Worker then preserves the original
+registered error rather than projecting ordinary user-code failure. No name,
+property, `instanceof`, or global-symbol fallback was added.
+The internal-call mutation runtime retains its broader authenticated
+document-validation predicate only for child-call catchability; root settlement
+uses the exact registry inspector, so a document-validation failure keeps its
+pre-existing user-code boundary instead of escaping as a registered error.
 
 This decision changes no syscall, application-error wire payload, inspector
 classification, query read boundary, mutation journal, OCC, commit, schema,
 persistence, activation, route, or production behavior.
 
-The next bounded gate is `FAC10-P2`: introduce one exact analyzer-owned
-constructor lowering and wire its public module plus shared registry through
-the complete selected point-query and point-mutation runtime-profile matrix.
-Registration must reject every profile that lacks that exact module/inspector
-pair; no positive fixture may rely on ambient package loading or a public
-platform import.
+`FAC10` is closed. The next implementation turn must begin with a fresh
+`FAC11` preflight against current Convex source and choose one concrete shared
+context/runtime primitive with at least two real exact-runtime consumers. It
+must not turn the public `flarex-test` harness into an in-process substitute,
+admit action or workflow-mutation application errors, or widen any persistence,
+OCC, commit, activation, routing, or production owner merely to continue the
+centralization program.
 
 The public `flarex-test` real-runtime contract remains unchanged. Internal
 simulation APIs may adopt shared authoring primitives and normal `ctx.*`

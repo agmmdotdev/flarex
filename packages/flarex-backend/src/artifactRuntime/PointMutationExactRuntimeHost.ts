@@ -22,6 +22,16 @@ import {
   type ExecutionArtifactWorkerDefinition,
 } from "./HostKit.ts";
 import {
+  APPLICATION_ERROR_PLATFORM_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+  applicationErrorPlatformSourceV1,
+} from "./ApplicationErrorExactRuntimeWorkerSource.ts";
+import {
+  FUNCTION_API_CORE_MODULE_V1,
+  FUNCTION_API_CORE_SOURCE_V1,
+} from "./FunctionApiCore.generated.ts";
+import {
   pointMutationExactRuntimeWorkerConfigurationSource,
   pointMutationExactRuntimeWorkerExecutionBridgeSource,
 } from "./PointMutationExactRuntimeWorkerSource.ts";
@@ -42,6 +52,13 @@ export const POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1 =
   "pointMutationExactRuntimeWorker/flarex-point-mutation-exact-runtime-execution-v1.js";
 export const POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1 =
   "pointMutationExactRuntimeWorker/flarex-point-mutation-runtime-kernel-v1.js";
+
+const pointMutationApplicationErrorPlatformSourceV1 = (): string =>
+  applicationErrorPlatformSourceV1({
+    runtimeKernelModulePath: `../${POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1}`,
+    captureExportName: "capturePointMutationCoreApplicationErrorDataV1",
+    invalid: { kind: "nativeError" },
+  });
 
 export type PointMutationExactRuntimeWorkerEnvV1 = Readonly<
   Record<PropertyKey, never>
@@ -235,6 +252,18 @@ function pointMutationExactRuntimeSupportModulesV1(
     Object.freeze({
       path: POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
       source: POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1,
+    }),
+    Object.freeze({
+      path: FUNCTION_API_CORE_MODULE_V1,
+      source: FUNCTION_API_CORE_SOURCE_V1,
+    }),
+    Object.freeze({
+      path: APPLICATION_ERROR_PLATFORM_MODULE_V1,
+      source: pointMutationApplicationErrorPlatformSourceV1(),
+    }),
+    Object.freeze({
+      path: APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+      source: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
     }),
   ]);
 }

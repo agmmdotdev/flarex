@@ -125,15 +125,15 @@ describe("Declarative V2 verifier Core V1 asset", () => {
       GENERATED_DECLARATIVE_V2_VERIFIER_MANIFEST_V1,
     );
     expect(first.manifest.assetSha256).toBe(
-      "00eb1d44298eac350d1e4dcac1d14896b13b8e0d841c8c01108c8a60fca8fc39",
+      "aa273b007ef4982fd4400ffe6e818234617b0915416d2db6a1bfba664950f6a4",
     );
     expect(first.manifest.specificationSha256).toBe(
-      "de3de99e65449e9ab0d84a85541a2bf20fc65cf290204852c5032e7dd866e3e9",
+      "5ad45c691d0cb7fe517cb9d7ea65b74ae79c8b3b830305ffd271de5f29fe0534",
     );
     expect(first.manifest.manifestIdentity).toBe(
-      "4969b46aa3ebcb82f95d2578b4424515b755d7792304b2a0ffe8f25340cbee30",
+      "99dbc354e7f46b392f78efb72d0e2da8a4f3a0bf41ff6201249b0a2ecf51210d",
     );
-    expect(first.manifest.assetByteLength).toBe(83_584);
+    expect(first.manifest.assetByteLength).toBe(83_784);
   });
 
   test("binds every generation identity input", async () => {

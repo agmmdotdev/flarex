@@ -71,6 +71,7 @@ export interface PointQueryRuntimeReadBoundaryV1 {
 export interface PointQueryRuntimeInvocationV1 {
   readonly context: PointQueryRuntimeContextV1;
   readonly readBoundary: PointQueryRuntimeReadBoundaryV1;
+  readonly isCoreApplicationError: (cause: unknown) => boolean;
 }
 
 export interface PointQueryRuntimeInvocationFactoryV1 {
@@ -182,6 +183,12 @@ export function capturePointQueryRuntimeArgumentsV1(
   });
 }
 
+export function capturePointQueryCoreApplicationErrorDataV1(
+  data: unknown,
+): CanonicalFlarexRuntimeValueV1 {
+  return normalizeFlarexValueV1(data).value;
+}
+
 export async function executePointQueryV1(
   input: PointQueryRuntimeInputV1,
   registry: PointQueryFunctionRegistryV1,
@@ -246,6 +253,9 @@ export async function executePointQueryV1(
   if (handlerFailure !== undefined) {
     const inspected = inspectPointQueryRuntimeFailureV1(handlerFailure.cause);
     if (inspected?.kind === "readBoundary") throw handlerFailure.cause;
+    if (invocation.isCoreApplicationError(handlerFailure.cause)) {
+      throw handlerFailure.cause;
+    }
     throw new PointQueryRuntimeUserCodeV1Error(handlerFailure.cause);
   }
 

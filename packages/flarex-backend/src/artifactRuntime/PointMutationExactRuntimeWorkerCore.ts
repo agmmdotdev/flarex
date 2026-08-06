@@ -20,6 +20,7 @@ import type {
   ObjectValidatorJsonV1,
   ValidatorJsonV1,
 } from "flarex-protocol/validator-json";
+import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";
 
 import {
   exactRuntimeConfigurationV1,
@@ -599,6 +600,7 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
             return Object.freeze({
               context: executionContext(request, journalRuntime.database),
               journal: journalRuntime,
+              isCoreApplicationError: inspectCoreApplicationErrorV1,
             });
           },
         });
@@ -1709,8 +1711,7 @@ async function resolveFunction(path: string): Promise<unknown> {
   const exportName = separator === -1 ? "default" : path.slice(separator + 1);
   const executionModule = await executionModulePromise;
   const module = executionModule.default?.[moduleName];
-  const fn = module?.[exportName];
-  return fn;
+  return module?.[exportName];
 }
 
 function normalizeValue(

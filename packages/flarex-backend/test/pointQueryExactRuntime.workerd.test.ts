@@ -15,10 +15,20 @@ import {
 import {
   POINT_QUERY_RUNTIME_KERNEL_SOURCE_V1,
 } from "../src/artifactRuntime/PointQueryRuntimeKernel.generated";
+import {
+  APPLICATION_ERROR_PLATFORM_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+  applicationErrorPlatformSourceV1,
+} from "../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
+import {
+  FUNCTION_API_CORE_MODULE_V1,
+  FUNCTION_API_CORE_SOURCE_V1,
+} from "../src/artifactRuntime/FunctionApiCore.generated";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
 
 describe("point-query exact runtime in workerd", () => {
-  it("does not synthesize a private platform module in the exact Worker graph", () => {
+  it("installs one private error registry behind the public values facade", () => {
     const definition = buildPointQueryExactRuntimeWorkerDefinitionV1({
       artifact: {
         runtime: "dynamic-worker",
@@ -42,7 +52,25 @@ describe("point-query exact runtime in workerd", () => {
       exportName: "get",
       sourceModules: [{ path: "orders.js", source: "export function get(){}" }],
     });
-    expect(Object.hasOwn(definition.modules, "flarex:platform")).toBe(false);
+    expect(Object.hasOwn(definition.modules, APPLICATION_ERROR_PLATFORM_MODULE_V1))
+      .toBe(true);
+    expect(Object.hasOwn(definition.modules, APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1))
+      .toBe(true);
+    expect(Object.hasOwn(definition.modules, FUNCTION_API_CORE_MODULE_V1))
+      .toBe(true);
+  });
+
+  it("constructs the public FlarexError in the exact Worker registry", async () => {
+    await expect(runScenario({
+      imports: 'import { FlarexError } from "flarex/values";',
+      handler: 'async () => { throw new FlarexError("CLOSED", "closed"); }',
+      capability: "async () => ({ kind: 'missing' })",
+    })).resolves.toMatchObject({
+      ok: false,
+      name: "FlarexError",
+      message: "closed",
+      readAttempts: 0,
+    });
   });
 
   it("executes the exact query handler through its read capability", async () => {
@@ -304,6 +332,25 @@ export default {
         type: "ESModule",
         path: POINT_QUERY_RUNTIME_KERNEL_MODULE_V1,
         contents: POINT_QUERY_RUNTIME_KERNEL_SOURCE_V1,
+      },
+      {
+        type: "ESModule",
+        path: FUNCTION_API_CORE_MODULE_V1,
+        contents: FUNCTION_API_CORE_SOURCE_V1,
+      },
+      {
+        type: "ESModule",
+        path: APPLICATION_ERROR_PLATFORM_MODULE_V1,
+        contents: applicationErrorPlatformSourceV1({
+          runtimeKernelModulePath: `../${POINT_QUERY_RUNTIME_KERNEL_MODULE_V1}`,
+          captureExportName: "capturePointQueryCoreApplicationErrorDataV1",
+          invalid: { kind: "nativeError" },
+        }),
+      },
+      {
+        type: "ESModule",
+        path: APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+        contents: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
       },
       {
         type: "ESModule",

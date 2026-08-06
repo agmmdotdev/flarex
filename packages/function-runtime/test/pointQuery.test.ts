@@ -69,6 +69,24 @@ describe("@flarex/function-runtime/point-query", () => {
       invocation([]),
     )).rejects.toBeInstanceOf(PointQueryRuntimeUserCodeV1Error);
   });
+
+  it("rethrows a declared application error only after settling reads", async () => {
+    const events: string[] = [];
+    const applicationError = Object.freeze({ kind: "applicationError" });
+    const base = invocation(events);
+    const execution = executePointQueryV1(
+      input(),
+      { resolve: () => queryFunction(() => { throw applicationError; }) },
+      {
+        open: () => ({
+          ...base.open(),
+          isCoreApplicationError: cause => cause === applicationError,
+        }),
+      },
+    );
+    await expect(execution).rejects.toBe(applicationError);
+    expect(events).toEqual(["close", "drain"]);
+  });
 });
 
 function input(
@@ -120,6 +138,7 @@ function invocation(
         close: () => { events.push("close"); },
         drain: async () => { events.push("drain"); await drain(); },
       },
+      isCoreApplicationError: () => false,
     }),
   };
 }

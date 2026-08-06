@@ -20,6 +20,10 @@ import {
   FUNCTION_API_CORE_MODULE_V1,
   FUNCTION_API_CORE_SOURCE_V1,
 } from "../src/artifactRuntime/FunctionApiCore.generated";
+import {
+  APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+} from "../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
 import { requirePointMutationArgumentSemanticSizeV1 } from
   "flarex-protocol/point-mutation-start";
 import {
@@ -213,9 +217,14 @@ export default { async fetch() {
         },
         {
           type: "ESModule",
+          path: APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+          contents: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+        },
+        {
+          type: "ESModule",
           path: "orders.js",
           contents: `
-import { errorCode, errorCreate, errorData, errorMessage } from "flarex:platform";
+import { FlarexError } from "flarex/values";
 export async function update(ctx) {
   if (Object.keys(ctx).join(",") !== "auth,db,runQuery,runMutation" || "scheduler" in ctx || "storage" in ctx) {
     throw new Error("invalid mutation context shape");
@@ -228,10 +237,10 @@ export async function update(ctx) {
   try {
     await ctx.runMutation({ _path: "orders:mutateInternal" }, {});
   } catch (error) {
-    if (errorCode(error) !== "DECLARED" || errorMessage(error) !== "declared child" || errorData(error).reason !== "test") {
+    if (!(error instanceof FlarexError) || error.code !== "DECLARED" || error.message !== "declared child" || error.data === null) {
       throw error;
     }
-    id = errorData(error).id;
+    id = error.data;
   }
   try {
     await ctx.runMutation({ _path: "orders:mutateInternal" }, { invalid: true });
@@ -249,7 +258,7 @@ export async function mutateInternal(ctx, args) {
   await ctx.db.replace(id, { status: "open" });
   const temporaryId = await ctx.db.insert("orders", { status: "temporary" });
   await ctx.db.delete(temporaryId);
-  throw errorCreate("DECLARED", "declared child", { reason: "test", id });
+  throw new FlarexError("DECLARED", "declared child", id);
 }
 export async function readInternal(ctx, args) {
   if (Object.keys(ctx).join(",") !== "auth,db,runQuery" || "runMutation" in ctx || "scheduler" in ctx || "storage" in ctx) {

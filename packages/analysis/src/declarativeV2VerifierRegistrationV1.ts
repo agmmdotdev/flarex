@@ -125,7 +125,8 @@ function handlerCapabilitiesAdmittedV1(
     (!capabilities.databaseRead || admitted.databaseRead) &&
     (!capabilities.databaseWrite || admitted.databaseWrite) &&
     (!capabilities.runQuery || admitted.runQuery) &&
-    (!capabilities.runMutation || admitted.runMutation);
+    (!capabilities.runMutation || admitted.runMutation) &&
+    (!capabilities.applicationError || admitted.applicationError);
 }
 
 export type DeclarativeV2VerifierRegistrationV1ErrorReason =

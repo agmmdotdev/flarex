@@ -584,6 +584,31 @@ export const DECLARATIVE_V2_PLATFORM_IMPORT_MANIFEST_V1 = [
   },
 ] as const;
 
+export const DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1 = [
+  {
+    id: 1,
+    specifier: "flarex/values",
+    importedName: "FlarexError",
+    operation: "errorCreate",
+    argumentCounts: [2, 3],
+  },
+] as const;
+
+export const DECLARATIVE_V2_APPLICATION_ERROR_MEMBER_ABI_LOWERINGS_V1 = [
+  { id: 1, memberName: "code", operation: "errorCode" },
+  { id: 2, memberName: "message", operation: "errorMessage" },
+  { id: 3, memberName: "data", operation: "errorData" },
+] as const;
+
+export const DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1 =
+  'import { FlarexError } from "flarex/values"; ' +
+  "export function getThing() { " +
+  'try { throw new FlarexError("ORDER_CLOSED", "Order is closed.", null); } ' +
+  "catch (error) { " +
+  "if (!(error instanceof FlarexError)) { throw error; } " +
+  "return [error.code, error.message, error.data]; " +
+  "} }";
+
 /*
  * R2a canonical grammar source.
  *
@@ -695,6 +720,8 @@ export const DECLARATIVE_V2_CANONICAL_TERMINALS_V1 = [
     id: 96,
     name: "forBindingStart",
   },
+  { id: 97, name: "new" },
+  { id: 98, name: "instanceof" },
 ] as const;
 
 export const DECLARATIVE_V2_CANONICAL_NONTERMINALS_V1 = [
@@ -956,6 +983,7 @@ const DECLARATIVE_V2_CANONICAL_PRODUCTION_SOURCE_V1 = [
   ["RelationalExpression", ["RelationalExpression", ">", "ShiftExpression"], 8],
   ["RelationalExpression", ["RelationalExpression", "<=", "ShiftExpression"], 8],
   ["RelationalExpression", ["RelationalExpression", ">=", "ShiftExpression"], 8],
+  ["RelationalExpression", ["RelationalExpression", "instanceof", "ShiftExpression"], 8],
   ["ShiftExpression", ["AdditiveExpression"], 8],
   ["ShiftExpression", ["ShiftExpression", "<<", "AdditiveExpression"], 8],
   ["ShiftExpression", ["ShiftExpression", ">>", "AdditiveExpression"], 8],
@@ -999,6 +1027,7 @@ const DECLARATIVE_V2_CANONICAL_PRODUCTION_SOURCE_V1 = [
   ["PrimaryExpression", ["false"], 8],
   ["PrimaryExpression", ["null"], 8],
   ["PrimaryExpression", ["undefined"], 8],
+  ["PrimaryExpression", ["new", "identifier", "(", "ArgumentsOpt", ")"], 9],
   ["PrimaryExpression", ["ArrayLiteral"], 8],
   ["PrimaryExpression", ["ObjectLiteral"], 8],
   ["PrimaryExpression", ["TemplateLiteral"], 11],
@@ -1230,6 +1259,9 @@ export const DECLARATIVE_V2_VERIFIER_EXECUTABLE_CONTRACT_V1 =
     abiLookup: DECLARATIVE_V2_SAFE_ABI_LOOKUP_V1,
     contextMemberAbiLowerings:
       DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1,
+    constructorAbiLowerings: DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1,
+    applicationErrorMemberAbiLowerings:
+      DECLARATIVE_V2_APPLICATION_ERROR_MEMBER_ABI_LOWERINGS_V1,
     platformImportManifest: DECLARATIVE_V2_PLATFORM_IMPORT_MANIFEST_V1,
     canonicalGrammar: {
       terminals: DECLARATIVE_V2_CANONICAL_TERMINALS_V1,

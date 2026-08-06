@@ -689,6 +689,7 @@ export type {
   DeclarativeV2ArtifactModulePathValidatorV1,
 } from "./declarativeV2ArtifactModulePathV1";
 export {
+  DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1,
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_CONTRACT_V1,
   DECLARATIVE_V2_VERIFIER_EXECUTABLE_TABLE_IDENTITY_V1,
 } from "./declarativeV2VerifierExecutableV1.contract";

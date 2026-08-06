@@ -14,6 +14,9 @@ import {
 import { MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 } from
   "flarex-protocol/point-mutation-start";
 
+import { applicationErrorPlatformSourceV1 } from
+  "./ApplicationErrorExactRuntimeWorkerSource";
+
 export interface PointMutationInternalCallExactRuntimeWorkerSourceOptionsV1 {
   readonly moduleTime: number;
   readonly runtimeTargetSha256Hex: string;
@@ -121,22 +124,15 @@ export default Object.freeze(registryV1);
 }
 
 export function pointMutationInternalCallExactRuntimePlatformSourceV1(): string {
-  return `// Private exact mutation application-error ABI for one scoped Worker.
-import { createFunctionRuntimeApplicationErrorRegistryV1 } from "flarex:function-api-core/v1";
-import {
-  capturePointMutationInternalCallCoreApplicationErrorDataV1,
-  PointMutationInternalCallApplicationV1Error,
-} from "./pointMutationInternalCallExactRuntimeWorker/flarex-point-mutation-internal-call-runtime-kernel-v1.js";
-const coreApplicationErrorsV1 = createFunctionRuntimeApplicationErrorRegistryV1(
-  capturePointMutationInternalCallCoreApplicationErrorDataV1,
-  (detailV1) => { throw new PointMutationInternalCallApplicationV1Error("argumentsInvalid", detailV1); },
-);
-export function errorCreate(codeV1, messageV1, dataV1) { return coreApplicationErrorsV1.create(codeV1, messageV1, dataV1); }
-export function inspectPointMutationInternalCallCoreApplicationErrorV1(valueV1) {
-  return coreApplicationErrorsV1.inspect(valueV1);
-}
-export function errorCode(errorV1) { return coreApplicationErrorsV1.code(errorV1); }
-export function errorMessage(errorV1) { return coreApplicationErrorsV1.message(errorV1); }
-export function errorData(errorV1) { return coreApplicationErrorsV1.data(errorV1); }
-`;
+  return applicationErrorPlatformSourceV1({
+    runtimeKernelModulePath:
+      "../pointMutationInternalCallExactRuntimeWorker/flarex-point-mutation-internal-call-runtime-kernel-v1.js",
+    captureExportName:
+      "capturePointMutationInternalCallCoreApplicationErrorDataV1",
+    invalid: {
+      kind: "profileApplicationError",
+      exportName: "PointMutationInternalCallApplicationV1Error",
+      reason: "argumentsInvalid",
+    },
+  });
 }

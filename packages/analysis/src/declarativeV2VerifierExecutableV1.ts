@@ -45,7 +45,9 @@ import {
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1,
 } from "./declarativeV2VerifierExecutableV1.generated";
 import {
+  DECLARATIVE_V2_APPLICATION_ERROR_MEMBER_ABI_LOWERINGS_V1,
   DECLARATIVE_V2_CANONICAL_TERMINALS_V1,
+  DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1,
   DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1,
   DECLARATIVE_V2_KEYWORDS_V1,
   DECLARATIVE_V2_PARSER_NONTERMINALS_V1,
@@ -4941,12 +4943,30 @@ export function createDeclarativeV2VerifierEngineV1(
           return true;
         }
       }
+      for (const lowering of DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1) {
+        if (
+          (yield* compareTokenToAscii(
+            tokenIndex,
+            lowering.specifier,
+            1,
+            1,
+          )) === 0
+        ) {
+          return true;
+        }
+      }
       return false;
     };
-    const allowlistedPlatformOperation = function* (
+    const abiIdForName = (name: string): number | undefined => {
+      const index = DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1.findIndex(
+        definition => definition.name === name,
+      );
+      return index < 0 ? undefined : index;
+    };
+    const abiIdForPlatformImport = function* (
       sourceToken: number,
       operationToken: number,
-    ): Generator<number, boolean, void> {
+    ): Generator<number, number | undefined, void> {
       for (const allowed of DECLARATIVE_V2_PLATFORM_IMPORT_MANIFEST_V1) {
         if (
           (yield* compareTokenToAscii(
@@ -4959,11 +4979,27 @@ export function createDeclarativeV2VerifierEngineV1(
         for (const operation of allowed.operations) {
           if (
             (yield* compareTokenToAscii(operationToken, operation)) === 0
-          ) return true;
+          ) return yield* abiIdForToken(operationToken);
         }
-        return false;
+        return undefined;
       }
-      return false;
+      for (const lowering of DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1) {
+        if (
+          (yield* compareTokenToAscii(
+            sourceToken,
+            lowering.specifier,
+            1,
+            1,
+          )) === 0 &&
+          (yield* compareTokenToAscii(
+            operationToken,
+            lowering.importedName,
+          )) === 0
+        ) {
+          return abiIdForName(lowering.operation);
+        }
+      }
+      return undefined;
     };
     const abiIdForToken = function* (
       tokenIndex: number,
@@ -5068,11 +5104,9 @@ export function createDeclarativeV2VerifierEngineV1(
           const importedToken = importedStored === 0
             ? undefined
             : importedStored - 1;
-          const admitted = importedToken !== undefined &&
-            (yield* allowlistedPlatformOperation(sourceToken, importedToken));
-          const abiId = admitted
-            ? yield* abiIdForToken(importedToken)
-            : undefined;
+          const abiId = importedToken === undefined
+            ? undefined
+            : yield* abiIdForPlatformImport(sourceToken, importedToken);
           if (abiId === undefined) add("CORE_IMPORT_TARGET", at(sourceToken));
           else importEdgeView.setUint32(offset + 36, abiId + 1, false);
         }
@@ -5525,6 +5559,38 @@ export function createDeclarativeV2VerifierEngineV1(
       }
       return undefined;
     };
+    const constructorLoweringForImport = function* (
+      importIndex: number,
+    ): Generator<
+      number,
+      typeof DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1[number] | undefined,
+      void
+    > {
+      const importedStored = importEdgeView.getUint32(
+        importRecordOffset(importIndex) + 4,
+        false,
+      );
+      if (importedStored === 0) return undefined;
+      const importedToken = importedStored - 1;
+      const sourceToken = importToken(importIndex, 12);
+      for (const lowering of DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1) {
+        if (
+          (yield* compareTokenToAscii(
+            sourceToken,
+            lowering.specifier,
+            1,
+            1,
+          )) === 0 &&
+          (yield* compareTokenToAscii(
+            importedToken,
+            lowering.importedName,
+          )) === 0
+        ) {
+          return lowering;
+        }
+      }
+      return undefined;
+    };
     const isShadowedBinding = function* (
       targetToken: number,
       functionIndex: number,
@@ -5539,6 +5605,241 @@ export function createDeclarativeV2VerifierEngineV1(
         }
       }
       return false;
+    };
+    const isCanonicalApplicationErrorConstructor = function* (
+      targetToken: number,
+      functionIndex: number,
+    ): Generator<number, boolean, void> {
+      const importedTarget = yield* findImportedTarget(targetToken);
+      return importedTarget !== undefined &&
+        (yield* constructorLoweringForImport(importedTarget)) !== undefined &&
+        !(yield* isShadowedBinding(targetToken, functionIndex));
+    };
+    const exactApplicationErrorGuardAt = function* (
+      instanceofToken: number,
+      functionIndex: number,
+      bodyStart: number,
+    ): Generator<
+      number,
+      Readonly<{
+        readonly bindingToken: number;
+        readonly guardEnd: number;
+        readonly catchClose: number;
+      }> | undefined,
+      void
+    > {
+      const catchToken = instanceofToken - 10;
+      if (
+        catchToken <= bodyStart ||
+        instanceofToken + 8 >= tokenCount ||
+        !tokenMatches(catchToken, "catch") ||
+        !tokenMatches(catchToken + 1, "(") ||
+        at(catchToken + 2).kind !== "identifier" ||
+        !tokenMatches(catchToken + 3, ")") ||
+        !tokenMatches(catchToken + 4, "{") ||
+        !tokenMatches(catchToken + 5, "if") ||
+        !tokenMatches(catchToken + 6, "(") ||
+        !tokenMatches(catchToken + 7, "!") ||
+        !tokenMatches(catchToken + 8, "(") ||
+        at(catchToken + 9).kind !== "identifier" ||
+        !tokenMatches(instanceofToken, "instanceof") ||
+        !tokenMatches(catchToken + 12, ")") ||
+        !tokenMatches(catchToken + 13, ")") ||
+        !tokenMatches(catchToken + 14, "{") ||
+        !tokenMatches(catchToken + 15, "throw") ||
+        at(catchToken + 16).kind !== "identifier" ||
+        !tokenMatches(catchToken + 17, ";") ||
+        !tokenMatches(catchToken + 18, "}") ||
+        (yield* compareTokenSlices(
+          catchToken + 2,
+          catchToken + 9,
+        )) !== 0 ||
+        (yield* compareTokenSlices(
+          catchToken + 2,
+          catchToken + 16,
+        )) !== 0 ||
+        !(yield* isCanonicalApplicationErrorConstructor(
+          catchToken + 11,
+          functionIndex,
+        ))
+      ) return undefined;
+      const catchClose = yield* findBalanced(catchToken + 4, "{", "}");
+      return catchClose === undefined
+        ? undefined
+        : Object.freeze({
+          bindingToken: catchToken + 2,
+          guardEnd: catchToken + 19,
+          catchClose,
+        });
+    };
+    const applicationErrorWriteOperators = [
+      "=", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=",
+      ">>>=", "&=", "|=", "^=", "&&=", "||=", "??=", "++", "--",
+    ] as const;
+    const tokenIsApplicationErrorWriteTail = (token: number): boolean =>
+      applicationErrorWriteOperators.some(operator =>
+        tokenMatches(token, operator)
+      ) || tokenMatches(token, "of") || tokenMatches(token, "in");
+    const expandApplicationErrorParenthesizedSpan = function* (
+      initialStart: number,
+      initialEnd: number,
+      scanStart: number,
+      scanEnd: number,
+    ): Generator<
+      number,
+      Readonly<{ readonly start: number; readonly end: number }>,
+      void
+    > {
+      let start = initialStart;
+      let end = initialEnd;
+      while (
+        start > scanStart &&
+        end + 1 < scanEnd &&
+        tokenMatches(start - 1, "(")
+      ) {
+        yield 1;
+        const close = yield* findBalanced(start - 1, "(", ")");
+        if (close !== end + 1) break;
+        start -= 1;
+        end += 1;
+      }
+      return Object.freeze({ start, end });
+    };
+    const isInsideStructuredApplicationErrorWriteTarget = function* (
+      targetStart: number,
+      targetEnd: number,
+      scanStart: number,
+      scanEnd: number,
+    ): Generator<number, boolean, void> {
+      for (let open = scanStart; open < targetStart; open += 1) {
+        yield 1;
+        const openToken = tokenMatches(open, "[")
+          ? "["
+          : tokenMatches(open, "{")
+          ? "{"
+          : undefined;
+        if (openToken === undefined) continue;
+        const close = yield* findBalanced(
+          open,
+          openToken,
+          openToken === "[" ? "]" : "}",
+        );
+        const container = close === undefined
+          ? undefined
+          : yield* expandApplicationErrorParenthesizedSpan(
+            open,
+            close,
+            scanStart,
+            scanEnd,
+          );
+        if (
+          close !== undefined &&
+          targetEnd < close &&
+          container !== undefined &&
+          container.end + 1 < scanEnd &&
+          tokenIsApplicationErrorWriteTail(container.end + 1)
+        ) return true;
+      }
+      return false;
+    };
+    const catchBindingWasReassigned = function* (
+      bindingToken: number,
+      startToken: number,
+      endToken: number,
+      functionIndex: number,
+    ): Generator<number, boolean, void> {
+      for (let index = startToken; index < endToken; index += 1) {
+        yield 1;
+        if (tokenMatches(index, "catch")) return true;
+        if (
+          at(index).kind === "identifier" &&
+          (yield* compareTokenSlices(bindingToken, index)) === 0
+        ) {
+          const target = yield* expandApplicationErrorParenthesizedSpan(
+            index,
+            index,
+            startToken,
+            endToken,
+          );
+          if (
+            isBinding(index, functionIndex) ||
+            tokenIsApplicationErrorWriteTail(target.end + 1) ||
+            applicationErrorWriteOperators.some(operator =>
+              tokenMatches(target.start - 1, operator)
+            ) ||
+            (yield* isInsideStructuredApplicationErrorWriteTarget(
+              target.start,
+              target.end,
+              startToken,
+              endToken,
+            ))
+          ) return true;
+        }
+      }
+      return false;
+    };
+    const applicationErrorMemberLoweringAt = function* (
+      dotToken: number,
+      functionIndex: number,
+      bodyStart: number,
+    ): Generator<
+      number,
+      typeof DECLARATIVE_V2_APPLICATION_ERROR_MEMBER_ABI_LOWERINGS_V1[number] |
+        undefined,
+      void
+    > {
+      if (
+        dotToken <= bodyStart + 1 ||
+        dotToken + 1 >= tokenCount ||
+        !tokenMatches(dotToken, ".") ||
+        at(dotToken - 1).kind !== "identifier"
+      ) return undefined;
+      const lowering = DECLARATIVE_V2_APPLICATION_ERROR_MEMBER_ABI_LOWERINGS_V1
+        .find(candidate => tokenMatches(dotToken + 1, candidate.memberName));
+      if (lowering === undefined) return undefined;
+      const target = yield* expandApplicationErrorParenthesizedSpan(
+        dotToken - 1,
+        dotToken + 1,
+        bodyStart + 1,
+        tokenCount,
+      );
+      if (
+        tokenIsApplicationErrorWriteTail(target.end + 1) ||
+        tokenMatches(target.start - 1, "++") ||
+        tokenMatches(target.start - 1, "--") ||
+        tokenMatches(target.start - 1, "delete") ||
+        (yield* isInsideStructuredApplicationErrorWriteTarget(
+          target.start,
+          target.end,
+          bodyStart + 1,
+          tokenCount,
+        ))
+      ) return undefined;
+      for (let index = bodyStart + 1; index < dotToken; index += 1) {
+        yield 1;
+        if (!tokenMatches(index, "instanceof")) continue;
+        const guard = yield* exactApplicationErrorGuardAt(
+          index,
+          functionIndex,
+          bodyStart,
+        );
+        if (
+          guard !== undefined &&
+          dotToken >= guard.guardEnd &&
+          dotToken < guard.catchClose &&
+          (yield* compareTokenSlices(
+            guard.bindingToken,
+            dotToken - 1,
+          )) === 0 &&
+          !(yield* catchBindingWasReassigned(
+            guard.bindingToken,
+            guard.guardEnd,
+            dotToken,
+            functionIndex,
+          ))
+        ) return lowering;
+      }
+      return undefined;
     };
     const directCallArgumentCount = function* (
       openToken: number,
@@ -5838,6 +6139,13 @@ export function createDeclarativeV2VerifierEngineV1(
               (yield* contextCallForMethod(index + 3, functionIndex)) !==
                 undefined
           );
+        const applicationErrorMemberLowering = tokenMatches(index, ".")
+          ? yield* applicationErrorMemberLoweringAt(
+            index,
+            functionIndex,
+            bodyStart,
+          )
+          : undefined;
         if (tokenMatches(index, "try")) tryDepth += 1;
         if (
           tokenMatches(index, "catch") ||
@@ -5851,7 +6159,41 @@ export function createDeclarativeV2VerifierEngineV1(
           }
         }
         if (
-          tokenMatches(index, "new") ||
+          tokenMatches(index, "new")
+        ) {
+          const constructorToken = index + 1;
+          const importedConstructor = constructorToken < bodyEnd &&
+              at(constructorToken).kind === "identifier"
+            ? yield* findImportedTarget(constructorToken)
+            : undefined;
+          const lowering = importedConstructor === undefined
+            ? undefined
+            : yield* constructorLoweringForImport(importedConstructor);
+          const argumentCount = lowering === undefined
+            ? undefined
+            : yield* directCallArgumentCount(constructorToken + 1);
+          const shadowed = lowering === undefined
+            ? false
+            : yield* isShadowedBinding(constructorToken, functionIndex);
+          if (
+            lowering === undefined ||
+            shadowed ||
+            argumentCount === undefined ||
+            !lowering.argumentCounts.some(count => count === argumentCount)
+          ) {
+            add("CORE_CONSTRUCTION", token);
+          }
+        } else if (tokenMatches(index, "instanceof")) {
+          if (
+            (yield* exactApplicationErrorGuardAt(
+              index,
+              functionIndex,
+              bodyStart,
+            )) === undefined
+          ) {
+            add("CORE_CONSTRUCTION", token);
+          }
+        } else if (
           tokenMatches(index, "class") ||
           tokenMatches(index, "super")
         ) {
@@ -5885,7 +6227,9 @@ export function createDeclarativeV2VerifierEngineV1(
             token,
           );
         } else if (
-          tokenMatches(index, ".") && !contextMemberPunctuator ||
+          tokenMatches(index, ".") &&
+            !contextMemberPunctuator &&
+            applicationErrorMemberLowering === undefined ||
           tokenMatches(index, "?.") ||
           tokenMatches(index, "[") &&
             index > bodyStart + 1 &&
@@ -5920,6 +6264,22 @@ export function createDeclarativeV2VerifierEngineV1(
           add("CORE_UNSAFE_COERCION", token);
         }
 
+        if (applicationErrorMemberLowering !== undefined) {
+          const abiId = abiIdForName(applicationErrorMemberLowering.operation);
+          if (abiId === undefined) {
+            throw new Error(
+              "Application-error member lowering lost its ABI operation.",
+            );
+          }
+          appendCall(
+            functionIndex,
+            index + 1,
+            TARGET_ABI,
+            undefined,
+            abiId,
+          );
+        }
+
         if (
           callableName &&
           hasCallOpen
@@ -5947,6 +6307,22 @@ export function createDeclarativeV2VerifierEngineV1(
                 abiId !== undefined
               ? TARGET_ABI
               : importedKind;
+          }
+          const constructorLowering = importedTarget === undefined
+            ? undefined
+            : yield* constructorLoweringForImport(importedTarget);
+          if (constructorLowering !== undefined) {
+            const argumentCount = yield* directCallArgumentCount(index + 1);
+            if (
+              !tokenMatches(index - 1, "new") ||
+              argumentCount === undefined ||
+              !constructorLowering.argumentCounts.some(
+                count => count === argumentCount,
+              )
+            ) {
+              add("CORE_CALL_TARGET", token);
+              continue;
+            }
           }
           if (targetKind === undefined) {
             add("CORE_CALL_TARGET", token);
@@ -7584,6 +7960,7 @@ export interface DeclarativeV2VerifierCompletedLinkCapabilitiesV1 {
   readonly databaseWrite: boolean;
   readonly runQuery: boolean;
   readonly runMutation: boolean;
+  readonly applicationError: boolean;
 }
 
 export type DeclarativeV2VerifierCompletedLinkLookupStepV1 =
@@ -8235,6 +8612,28 @@ const sourceTokenMatchesAscii = (
     if (sourceTokenByte(module, tokenIndex, index) !== expected.charCodeAt(index)) {
       return false;
     }
+  }
+  return true;
+};
+
+const sourceStringTokenMatchesAscii = (
+  module: DeclarativeV2VerifierOwnedModuleArenaV1,
+  tokenIndex: number,
+  expected: string,
+): boolean => {
+  if (sourceTokenLength(module, tokenIndex) !== expected.length + 2) {
+    return false;
+  }
+  const quote = sourceTokenByte(module, tokenIndex, 0);
+  if (
+    (quote !== 0x22 && quote !== 0x27) ||
+    sourceTokenByte(module, tokenIndex, expected.length + 1) !== quote
+  ) return false;
+  for (let index = 0; index < expected.length; index += 1) {
+    if (
+      sourceTokenByte(module, tokenIndex, index + 1) !==
+        expected.charCodeAt(index)
+    ) return false;
   }
   return true;
 };
@@ -9070,6 +9469,7 @@ interface CompletedLinkLookupStateV1 {
     | "compareExport"
     | "findFunction"
     | "compareFunction"
+    | "scanReachableImports"
     | "scanReachableCalls"
     | "findLocalTarget"
     | "compareLocalTarget"
@@ -9077,6 +9477,7 @@ interface CompletedLinkLookupStateV1 {
   moduleIndex: number;
   exportIndex: number;
   functionIndex: number;
+  importIndex: number;
   callIndex: number;
   localToken: number;
   targetToken: number;
@@ -9084,6 +9485,9 @@ interface CompletedLinkLookupStateV1 {
   readonly reachableModuleIndexes: number[];
   readonly reachableFunctionIndexes: number[];
   readonly reachableVisited: Map<number, Set<number>>;
+  readonly staticModuleIndexes: number[];
+  readonly staticModuleVisited: Set<number>;
+  staticModuleIndex: number;
   reachableIndex: number;
   byteIndex: number;
   transitionCount: bigint;
@@ -9094,6 +9498,7 @@ interface CompletedLinkLookupStateV1 {
   usesDatabaseWrite: boolean;
   usesRunQuery: boolean;
   usesRunMutation: boolean;
+  usesApplicationError: boolean;
   contextBindingsValid: boolean;
   calls: bigint;
   exports: bigint;
@@ -10415,6 +10820,8 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
     state.reachableModuleIndexes.splice(0);
     state.reachableFunctionIndexes.splice(0);
     state.reachableVisited.clear();
+    state.staticModuleIndexes.splice(0);
+    state.staticModuleVisited.clear();
     const claim = state.claim;
     state.claim = undefined;
     if (claim?.activeLookup !== undefined) claim.activeLookup = undefined;
@@ -10465,6 +10872,7 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
             databaseWrite: state.usesDatabaseWrite,
             runQuery: state.usesRunQuery,
             runMutation: state.usesRunMutation,
+            applicationError: state.usesApplicationError,
           })
         : null,
       contextBindingsValid: state.found ? state.contextBindingsValid : null,
@@ -10556,6 +10964,7 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
           moduleIndex: 0,
           exportIndex: 0,
           functionIndex: 0,
+          importIndex: 0,
           callIndex: 0,
           localToken: -1,
           targetToken: -1,
@@ -10563,6 +10972,9 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
           reachableModuleIndexes: [],
           reachableFunctionIndexes: [],
           reachableVisited: new Map(),
+          staticModuleIndexes: [],
+          staticModuleVisited: new Set(),
+          staticModuleIndex: 0,
           reachableIndex: 0,
           byteIndex: 0,
           transitionCount: 0n,
@@ -10573,6 +10985,7 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
           usesDatabaseWrite: false,
           usesRunQuery: false,
           usesRunMutation: false,
+          usesApplicationError: false,
           contextBindingsValid: true,
           calls: 1n,
           exports: 0n,
@@ -10744,9 +11157,13 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
               );
               state.reachableModuleIndexes.push(state.moduleIndex);
               state.reachableFunctionIndexes.push(state.functionIndex);
+              state.staticModuleIndexes.push(state.moduleIndex);
+              state.staticModuleVisited.add(state.moduleIndex);
+              state.staticModuleIndex = 0;
               state.reachableIndex = 0;
+              state.importIndex = 0;
               state.callIndex = 0;
-              state.phase = "scanReachableCalls";
+              state.phase = "scanReachableImports";
             } else {
               state.stringBytes += 1n;
               if (
@@ -10762,6 +11179,108 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
                 state.byteIndex = 0;
               } else {
                 state.byteIndex += 1;
+              }
+            }
+          } else if (state.phase === "scanReachableImports") {
+            if (state.staticModuleIndex >= state.staticModuleIndexes.length) {
+              state.reachableIndex = 0;
+              state.callIndex = 0;
+              state.phase = "scanReachableCalls";
+            } else {
+              const staticModuleIndex =
+                state.staticModuleIndexes[state.staticModuleIndex]!;
+              const staticModule = claim.modules[staticModuleIndex];
+              if (staticModule === undefined) {
+                invalid = true;
+              } else if (state.importIndex >= staticModule.importCount) {
+                state.staticModuleIndex += 1;
+                state.importIndex = 0;
+              } else {
+                state.frontierEntries += 1n;
+                const offset = state.importIndex * 64;
+                const currentImportIndex = state.importIndex;
+                state.importIndex += 1;
+                const importedStored =
+                  staticModule.importEdgeView.getUint32(
+                    offset + 4,
+                    false,
+                  );
+                const sourceStored = staticModule.importEdgeView.getUint32(
+                  offset + 12,
+                  false,
+                );
+                let importsApplicationError = false;
+                if (importedStored !== 0 && sourceStored !== 0) {
+                  for (
+                    const lowering of
+                      DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1
+                  ) {
+                    const importedMatches = sourceTokenMatchesAscii(
+                      staticModule,
+                      importedStored - 1,
+                      lowering.importedName,
+                    );
+                    if (!importedMatches) continue;
+                    state.stringBytes += BigInt(lowering.importedName.length);
+                    const sourceMatches = sourceStringTokenMatchesAscii(
+                      staticModule,
+                      sourceStored - 1,
+                      lowering.specifier,
+                    );
+                    if (!sourceMatches) continue;
+                    state.stringBytes += BigInt(lowering.specifier.length + 2);
+                    importsApplicationError = true;
+                    break;
+                  }
+                }
+                if (importsApplicationError) {
+                  state.usesApplicationError = true;
+                }
+                const linker: LinkerStateV1 | undefined = claim.linker;
+                const linkerModuleOffset = staticModuleIndex * 64;
+                const linkerImportStart = linker?.moduleView.getUint32(
+                  linkerModuleOffset + 16,
+                  false,
+                );
+                const linkerImportCount = linker?.moduleView.getUint32(
+                  linkerModuleOffset + 20,
+                  false,
+                );
+                if (
+                  linker === undefined ||
+                  linkerImportStart === undefined ||
+                  linkerImportCount === undefined ||
+                  currentImportIndex >= linkerImportCount
+                ) {
+                  invalid = true;
+                } else {
+                  const linkerImportOffset =
+                    (linkerImportStart + currentImportIndex) * 64;
+                  if (
+                    linker.importEdgeView.getUint32(
+                      linkerImportOffset + 16,
+                      false,
+                    ) === COMPLETED_LINK_TARGET_ARTIFACT_V1
+                  ) {
+                    const resolvedModuleStored: number =
+                      linker.importEdgeView.getUint32(
+                        linkerImportOffset + 20,
+                        false,
+                      );
+                    const resolvedModuleIndex = resolvedModuleStored - 1;
+                    if (
+                      resolvedModuleStored === 0 ||
+                      claim.modules[resolvedModuleIndex] === undefined
+                    ) {
+                      invalid = true;
+                    } else if (
+                      !state.staticModuleVisited.has(resolvedModuleIndex)
+                    ) {
+                      state.staticModuleVisited.add(resolvedModuleIndex);
+                      state.staticModuleIndexes.push(resolvedModuleIndex);
+                    }
+                  }
+                }
               }
             }
           } else if (state.phase === "scanReachableCalls") {
@@ -10817,6 +11336,25 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
                           : 0,
                       );
                       if (!canonicalTarget) {
+                        const constructorLowering =
+                          DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1.find(
+                            candidate => candidate.operation === abi.name,
+                          );
+                        const constructorTarget = constructorLowering?.importedName;
+                        const validConstructorTarget =
+                          constructorTarget !== undefined &&
+                          sourceTokenMatchesAscii(
+                            reachableModule,
+                            targetToken,
+                            constructorTarget,
+                          );
+                        state.stringBytes += BigInt(
+                          constructorTarget !== undefined &&
+                              sourceTokenLength(reachableModule, targetToken) ===
+                                constructorTarget.length
+                            ? constructorTarget.length
+                            : 0,
+                        );
                         const lowering =
                           DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1.find(
                             candidate => candidate.operation === abi.name,
@@ -10838,8 +11376,29 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
                             ? loweringTarget.length
                             : 0,
                         );
+                        const applicationErrorMemberLowering =
+                          DECLARATIVE_V2_APPLICATION_ERROR_MEMBER_ABI_LOWERINGS_V1
+                            .find(candidate => candidate.operation === abi.name);
+                        const applicationErrorMemberTarget =
+                          applicationErrorMemberLowering?.memberName;
+                        const validApplicationErrorMemberTarget =
+                          applicationErrorMemberTarget !== undefined &&
+                          sourceTokenMatchesAscii(
+                            reachableModule,
+                            targetToken,
+                            applicationErrorMemberTarget,
+                          );
+                        state.stringBytes += BigInt(
+                          applicationErrorMemberTarget !== undefined &&
+                              sourceTokenLength(reachableModule, targetToken) ===
+                                applicationErrorMemberTarget.length
+                            ? applicationErrorMemberTarget.length
+                            : 0,
+                        );
                         if (
-                          !validContextTarget || state.reachableIndex !== 0
+                          !validConstructorTarget &&
+                          !validApplicationErrorMemberTarget &&
+                          (!validContextTarget || state.reachableIndex !== 0)
                         ) {
                           state.contextBindingsValid = false;
                         }
@@ -10855,6 +11414,8 @@ export function makeDeclarativeV2VerifierAuthenticatedLinkFactoryV1(
                       state.usesRunQuery = true;
                     } else if (abi.name === "runMutation") {
                       state.usesRunMutation = true;
+                    } else if (abi.capability === "applicationError") {
+                      state.usesApplicationError = true;
                     }
                   } else if (abiStored === 0) {
                     const targetStored =
@@ -13876,6 +14437,35 @@ export function makeDeclarativeV2VerifierExecutableRestartBridgeV1():
             if (
               (yield* textEquals(
                 { value: targetMember, quoted: false },
+                { value: call.targetName, quoted: false },
+              )) &&
+              (yield* textEquals(
+                { value: lowering.operation, quoted: false },
+                { value: operationName, quoted: false },
+              ))
+            ) return true;
+          }
+          for (const lowering of DECLARATIVE_V2_CONSTRUCTOR_ABI_LOWERINGS_V1) {
+            yield 1;
+            if (
+              (yield* textEquals(
+                { value: lowering.importedName, quoted: false },
+                { value: call.targetName, quoted: false },
+              )) &&
+              (yield* textEquals(
+                { value: lowering.operation, quoted: false },
+                { value: operationName, quoted: false },
+              ))
+            ) return true;
+          }
+          for (
+            const lowering of
+              DECLARATIVE_V2_APPLICATION_ERROR_MEMBER_ABI_LOWERINGS_V1
+          ) {
+            yield 1;
+            if (
+              (yield* textEquals(
+                { value: lowering.memberName, quoted: false },
                 { value: call.targetName, quoted: false },
               )) &&
               (yield* textEquals(

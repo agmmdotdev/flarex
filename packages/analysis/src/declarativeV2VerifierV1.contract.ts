@@ -441,6 +441,7 @@ export const DECLARATIVE_V2_CORE_CAPABILITY_MATRIX_V1 = [
     databaseWrite: false,
     runQuery: true,
     runMutation: false,
+    applicationError: true,
   },
   {
     id: 2,
@@ -450,6 +451,7 @@ export const DECLARATIVE_V2_CORE_CAPABILITY_MATRIX_V1 = [
     databaseWrite: true,
     runQuery: true,
     runMutation: true,
+    applicationError: true,
   },
   {
     id: 3,
@@ -459,6 +461,7 @@ export const DECLARATIVE_V2_CORE_CAPABILITY_MATRIX_V1 = [
     databaseWrite: true,
     runQuery: true,
     runMutation: true,
+    applicationError: false,
   },
   {
     id: 4,
@@ -468,6 +471,7 @@ export const DECLARATIVE_V2_CORE_CAPABILITY_MATRIX_V1 = [
     databaseWrite: false,
     runQuery: true,
     runMutation: true,
+    applicationError: false,
   },
 ] as const;
 

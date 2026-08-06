@@ -13,6 +13,12 @@ import {
   type ExecutionArtifactWorkerDefinition,
 } from "./HostKit";
 import {
+  APPLICATION_ERROR_PLATFORM_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+  applicationErrorPlatformSourceV1,
+} from "./ApplicationErrorExactRuntimeWorkerSource";
+import {
   FUNCTION_API_CORE_MODULE_V1,
   FUNCTION_API_CORE_SHA256_V1,
   FUNCTION_API_CORE_SOURCE_V1,
@@ -38,6 +44,14 @@ export const POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1 
   "pointQueryInternalCallExactRuntimeWorker/flarex-point-query-internal-call-exact-runtime-execution-v1.js";
 export const POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_MODULE_V1 =
   "pointQueryInternalCallExactRuntimeWorker/flarex-point-query-internal-call-runtime-kernel-v1.js";
+
+const pointQueryInternalCallApplicationErrorPlatformSourceV1 = (): string =>
+  applicationErrorPlatformSourceV1({
+    runtimeKernelModulePath: `../${POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_MODULE_V1}`,
+    captureExportName:
+      "capturePointQueryInternalCallCoreApplicationErrorDataV1",
+    invalid: { kind: "nativeError" },
+  });
 
 export interface PointQueryInternalCallExactRuntimeWorkerDefinitionV1
   extends ExecutionArtifactWorkerDefinition {
@@ -106,6 +120,10 @@ export function pointQueryInternalCallExactRuntimeWorkerGraphBasisV1(input: Read
     [POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_MODULE_V1,
       POINT_QUERY_INTERNAL_CALL_RUNTIME_KERNEL_SHA256_V1],
     [FUNCTION_API_CORE_MODULE_V1, FUNCTION_API_CORE_SHA256_V1],
+    [APPLICATION_ERROR_PLATFORM_MODULE_V1,
+      pointQueryInternalCallApplicationErrorPlatformSourceV1()],
+    [APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+      APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1],
     [POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1, bridge],
     POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_ENTRYPOINT_V1,
     input.compatibilityDate,
@@ -151,6 +169,14 @@ export function buildPointQueryInternalCallExactRuntimeWorkerDefinitionV1(
       Object.freeze({
         path: FUNCTION_API_CORE_MODULE_V1,
         source: FUNCTION_API_CORE_SOURCE_V1,
+      }),
+      Object.freeze({
+        path: APPLICATION_ERROR_PLATFORM_MODULE_V1,
+        source: pointQueryInternalCallApplicationErrorPlatformSourceV1(),
+      }),
+      Object.freeze({
+        path: APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+        source: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
       }),
     ]),
     reservedBy: "candidate-bound exact internal-call point-query runtime",

@@ -174,6 +174,27 @@ describe("@flarex/function-runtime/point-query-internal-call", () => {
     )).rejects.toMatchObject({ reason: "functionMetadataInvalid" });
     expect(opened).toBe(false);
   });
+
+  it("rethrows a declared root application error after settling reads", async () => {
+    const events: string[] = [];
+    const applicationError = Object.freeze({ kind: "applicationError" });
+    const base = invocation(events);
+    const execution = executePointQueryInternalCallV1(
+      input(),
+      registry({
+        root: () => { throw applicationError; },
+        internal: () => null,
+      }),
+      {
+        open: () => ({
+          ...base.open(),
+          isCoreApplicationError: cause => cause === applicationError,
+        }),
+      },
+    );
+    await expect(execution).rejects.toBe(applicationError);
+    expect(events).toEqual(["close", "drain"]);
+  });
 });
 
 function input(
@@ -247,6 +268,7 @@ function invocation(
         );
       },
       recordTerminalFailure: cause => { terminal ??= cause; },
+      isCoreApplicationError: () => false,
     }),
   };
 }

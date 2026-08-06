@@ -13,6 +13,11 @@ import {
   type ExecutionArtifactWorkerDefinition,
 } from "./HostKit";
 import {
+  APPLICATION_ERROR_PLATFORM_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+} from "./ApplicationErrorExactRuntimeWorkerSource";
+import {
   FUNCTION_API_CORE_MODULE_V1,
   FUNCTION_API_CORE_SHA256_V1,
   FUNCTION_API_CORE_SOURCE_V1,
@@ -39,7 +44,8 @@ export const POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE
   "pointMutationInternalQueryExactRuntimeWorker/flarex-point-mutation-internal-query-exact-runtime-execution-v1.js";
 export const POINT_MUTATION_INTERNAL_QUERY_RUNTIME_KERNEL_MODULE_V1 =
   "pointMutationInternalQueryExactRuntimeWorker/flarex-point-mutation-internal-query-runtime-kernel-v1.js";
-export const POINT_MUTATION_INTERNAL_QUERY_PLATFORM_MODULE_V1 = "flarex:platform";
+export const POINT_MUTATION_INTERNAL_QUERY_PLATFORM_MODULE_V1 =
+  APPLICATION_ERROR_PLATFORM_MODULE_V1;
 
 export interface PointMutationInternalQueryExactRuntimeWorkerDefinitionV1
   extends ExecutionArtifactWorkerDefinition {
@@ -109,6 +115,8 @@ export function pointMutationInternalQueryExactRuntimeWorkerGraphBasisV1(input: 
     [FUNCTION_API_CORE_MODULE_V1, FUNCTION_API_CORE_SHA256_V1],
     [POINT_MUTATION_INTERNAL_QUERY_PLATFORM_MODULE_V1,
       pointMutationInternalQueryExactRuntimePlatformSourceV1()],
+    [APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+      APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1],
     [POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1, bridge],
     POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_ENTRYPOINT_V1,
     input.compatibilityDate,
@@ -157,6 +165,10 @@ export function buildPointMutationInternalQueryExactRuntimeWorkerDefinitionV1(
       Object.freeze({
         path: POINT_MUTATION_INTERNAL_QUERY_PLATFORM_MODULE_V1,
         source: pointMutationInternalQueryExactRuntimePlatformSourceV1(),
+      }),
+      Object.freeze({
+        path: APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+        source: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
       }),
     ]),
     reservedBy: "candidate-bound exact mutation/internal-query runtime",

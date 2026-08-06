@@ -35,8 +35,8 @@ import {
   exactRuntimeConfigurationV1,
 } from "./pointMutationInternalCallExactRuntimeWorker/flarex-point-mutation-internal-call-exact-runtime-config-v1.js";
 import {
-  inspectPointMutationInternalCallCoreApplicationErrorV1,
-} from "flarex:platform";
+  inspectCoreApplicationErrorV1,
+} from "./_flarex/application-error-platform-v1.js";
 
 const EXECUTION_MODULE = exactRuntimeConfigurationV1.executionModule;
 const MODULE_TIME = exactRuntimeConfigurationV1.moduleEvaluationTime;
@@ -652,8 +652,9 @@ export class FlarexPointMutationInternalCallExactRuntimeV1 extends WorkerEntrypo
               journal: openedJournal,
               recordCallFrame: (_frame: PointMutationInternalCallFrameV1) => {},
               isApplicationCatchableError: (cause: unknown) =>
-                inspectPointMutationInternalCallCoreApplicationErrorV1(cause) ||
+                inspectCoreApplicationErrorV1(cause) ||
                 isApplicationDocumentValidationFailure(cause),
+              isCoreApplicationError: inspectCoreApplicationErrorV1,
               recordTerminalFailure: (cause: unknown) => {
                 openedJournal.poison(cause);
               },

@@ -89,6 +89,7 @@ function invocation(
           await drain();
         },
       }),
+      isCoreApplicationError: () => false,
     }),
   });
 }
@@ -244,6 +245,24 @@ describe("@flarex/function-runtime/point-mutation", () => {
       name: "PointMutationRuntimeJournalBoundaryV1Error",
       cause: journalFailure,
     });
+  });
+
+  it("rethrows a declared application error only after settling the journal", async () => {
+    const events: string[] = [];
+    const applicationError = Object.freeze({ kind: "applicationError" });
+    const base = invocation(events);
+    const execution = executePointMutationV1(
+      input(),
+      { resolve: () => runtimeFunction(() => { throw applicationError; }) },
+      {
+        open: () => Object.freeze({
+          ...base.open(),
+          isCoreApplicationError: (cause: unknown) => cause === applicationError,
+        }),
+      },
+    );
+    await expect(execution).rejects.toBe(applicationError);
+    expect(events).toEqual(["close", "drain"]);
   });
 
   it("drains after close fails and preserves the first journal failure", async () => {

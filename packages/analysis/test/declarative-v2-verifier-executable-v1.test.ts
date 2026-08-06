@@ -29,6 +29,7 @@ import {
   type DeclarativeV2ArtifactModulePathHandleV1,
 } from "../src/declarativeV2ArtifactModulePathV1";
 import {
+  DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1,
   DECLARATIVE_V2_CANONICAL_NONTERMINALS_V1,
   DECLARATIVE_V2_CANONICAL_PRECEDENCE_V1,
   DECLARATIVE_V2_CANONICAL_PRODUCTIONS_V1,
@@ -239,10 +240,10 @@ describe("private verifier restart bridge", () => {
       "new expression",
       "export function f(){return new Error();}",
       "CORE_CONSTRUCTION",
-      "c9f6be2ea35dee2f252c5a156d5741942ec1675d5770b2166119a8d193b8b6cc",
+      "b09c875d21d8a33a1d584cc272f44ba1a6e1edc9ed85741f6107d86d2a5343c3",
     ],
   ])(
-    "retains parser-owned rejection terminals for %s bodies",
+    "retains rejection terminals for %s bodies",
     (_label, source, diagnostic, expectedBodySha256) => {
       const sourceBytes = UTF8_ENCODER.encode(source);
       const presented = Result.getOrThrow(runSource(sourceBytes, [sourceBytes]));
@@ -335,13 +336,11 @@ describe("private verifier restart bridge", () => {
       "value_flow_v1",
       "diagnostic_v1",
       "diagnostic_v1",
-      "diagnostic_v1",
       "parse_terminal_v1",
     ]);
     expect(records.filter(record => record.kind === "diagnostic_v1").map(
       record => ({ phase: record.phase, code: record.code }),
     )).toEqual([
-      { phase: "parse", code: "CORE_SYNTAX" },
       { phase: "parse", code: "CORE_CONSTRUCTION" },
       { phase: "link", code: "CORE_CALL_TARGET" },
     ]);
@@ -369,7 +368,7 @@ describe("private verifier restart bridge", () => {
       terminal: true,
       callCount: 1n,
       valueFlowCount: 1n,
-      diagnosticCount: 3n,
+      diagnosticCount: 2n,
     });
     const builder = Result.getOrThrow(bridge.createModuleBuilder(
       budget("command_budget", sourceBytes.byteLength),
@@ -1646,12 +1645,12 @@ describe("Declarative V2 executable verifier asset", () => {
       );
     expect(first.manifest).toMatchObject({
       assetSha256:
-        "f47121d2875efb784275e3c09088ff5e66bc2e5b3c472698584c078e1720b943",
-      assetByteLength: 4_859_064,
+        "82678aea0d2ce3342a8b38ee86e7f09c6035297a6000d191904fbb6d634240de",
+      assetByteLength: 5_287_328,
       contractSha256:
-        "89fff36b6aa0a391b51b861861a0bc608905a5ae37ac14c9f9d14a433d992a77",
+        "72a8edaab3363f3e18f96c4dd44e47dc523815d653a9c490f4f2666511d3123b",
       manifestIdentity:
-        "ee51afba0ec384365e7e6021c9be0e1d992929f4e25def533a45e71ac35457d5",
+        "4928c58d7e71f60fa473f2df12088081d8b3b35f095574c0af93c83ec65c3d3c",
     });
   }, 120_000);
 
@@ -1791,15 +1790,15 @@ describe("Declarative V2 executable verifier asset", () => {
       gotos: compiled.gotos.length,
       recovery: compiled.recovery.length,
     }).toEqual({
-      productions: 226,
-      rhsSymbols: 493,
-      items: 156_138,
-      states: 4_950,
-      actions: 93_662,
-      shifts: 32_087,
-      reductions: 61_574,
+      productions: 228,
+      rhsSymbols: 501,
+      items: 172_112,
+      states: 5_237,
+      actions: 100_863,
+      shifts: 35_305,
+      reductions: 65_557,
       accepts: 1,
-      gotos: 21_090,
+      gotos: 22_546,
       recovery: 1,
     });
     expect(
@@ -1977,6 +1976,20 @@ describe("Declarative V2 executable verifier asset", () => {
         "function",
         "identifier",
         "(",
+        ")",
+        "{",
+        "expressionStatementStart",
+        "new",
+        "identifier",
+        "(",
+        ")",
+        ";",
+        "}",
+      ],
+      [
+        "function",
+        "identifier",
+        "(",
         "identifier",
         ")",
         "{",
@@ -2083,20 +2096,6 @@ describe("Declarative V2 executable verifier asset", () => {
         "identifier",
         "??",
         "identifier",
-        ";",
-        "}",
-      ],
-      [
-        "function",
-        "identifier",
-        "(",
-        ")",
-        "{",
-        "expressionStatementStart",
-        "new",
-        "identifier",
-        "(",
-        ")",
         ";",
         "}",
       ],
@@ -2743,6 +2742,248 @@ describe("Declarative V2 streaming engine", () => {
       expect.objectContaining({
         code: expect.stringMatching(/^CORE_(COMPUTED_DISPATCH|CALL_TARGET)$/),
       }),
+    ]));
+  });
+
+  test.each([2, 3])(
+    "lowers canonical public FlarexError construction with %s arguments",
+    argumentCount => {
+      const argumentsSource = argumentCount === 2
+        ? '"ORDER_CLOSED", "Order is closed."'
+        : '"ORDER_CLOSED", "Order is closed.", { orderId: "orders:1" }';
+      const source = UTF8_ENCODER.encode(
+        'import { FlarexError } from "flarex/values"; ' +
+          `export function run() { throw new FlarexError(${argumentsSource}); }`,
+      );
+      const result = runSource(source, [source]);
+      if (Result.isFailure(result)) throw result.failure;
+      expect(result.success.diagnostics).toEqual([]);
+      expect(result.success.verified).toBe(true);
+      expect(result.success.valueFlows).toEqual([
+        expect.objectContaining({ operationName: "errorCreate" }),
+      ]);
+    },
+  );
+
+  test("admits exact caught FlarexError discrimination and public field reads", () => {
+    const source = UTF8_ENCODER.encode(
+      DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1,
+    );
+    const result = runSource(source, [source]);
+    if (Result.isFailure(result)) throw result.failure;
+    expect(result.success.diagnostics).toEqual([]);
+    expect(result.success.verified).toBe(true);
+    expect(result.success.valueFlows.map(flow => flow.operationName)).toEqual([
+      "errorCreate",
+      "errorCode",
+      "errorMessage",
+      "errorData",
+    ]);
+  });
+
+  test.each([
+    [
+      "field read without exact narrowing",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "unrelated instanceof target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "return error instanceof Error; } }",
+      "CORE_CONSTRUCTION",
+    ],
+    [
+      "non-exiting positive guard",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (error instanceof FlarexError) {} return error.code; } }",
+      "CORE_CONSTRUCTION",
+    ],
+    [
+      "same-spelling binding after the catch scope",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run(error) { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } } " +
+        "return error.code; }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "reassigned catch binding",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "error = null; return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "application error member used as an assignment target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        'error.code = "FORGED"; return error.code; } }',
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "application error member used as a compound assignment target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        'error.code += "FORGED"; return error.code; } }',
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "application error member used as an update target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "error.code++; return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "application error member used as a delete target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "delete error.code; return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "parenthesized application error member used as an assignment target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        '(error.code) = "FORGED"; return error.code; } }',
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "parenthesized application error member used as a postfix target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "(error.code)++; return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "parenthesized application error member used as a prefix target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "++(error.code); return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "parenthesized application error member used as a delete target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "delete (error.code); return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "parenthesized catch binding used as an assignment target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "((error)) = null; return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "parenthesized destructuring target contains the catch binding",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "([error]) = [null]; return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "catch binding used as a bare for-of target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "for (error of [null]) {} return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "catch binding used in a destructuring assignment target",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "[error] = [null]; return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+    [
+      "nested catch after narrowing",
+      'import { FlarexError } from "flarex/values"; ' +
+        "export function run() { try { throw null; } catch (error) { " +
+        "if (!(error instanceof FlarexError)) { throw error; } " +
+        "try {} catch (other) {} return error.code; } }",
+      "CORE_COMPUTED_DISPATCH",
+    ],
+  ])("rejects non-canonical FlarexError inspection: %s", (
+    _label,
+    sourceText,
+    diagnostic,
+  ) => {
+    const source = UTF8_ENCODER.encode(sourceText);
+    const result = runSource(source, [source]);
+    if (Result.isFailure(result)) throw result.failure;
+    expect(result.success.verified).toBe(false);
+    expect(result.success.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: diagnostic }),
+    ]));
+  });
+
+  test.each([
+    [
+      "calling without new",
+      'import { FlarexError } from "flarex/values"; ' +
+        'export function run() { return FlarexError("CODE", "message"); }',
+      "CORE_CALL_TARGET",
+    ],
+    [
+      "one constructor argument",
+      'import { FlarexError } from "flarex/values"; ' +
+        'export function run() { throw new FlarexError("CODE"); }',
+      "CORE_CONSTRUCTION",
+    ],
+    [
+      "four constructor arguments",
+      'import { FlarexError } from "flarex/values"; ' +
+        'export function run() { throw new FlarexError("C", "m", {}, null); }',
+      "CORE_CONSTRUCTION",
+    ],
+    [
+      "aliased constructor import",
+      'import { FlarexError as ErrorAlias } from "flarex/values"; ' +
+        'export function run() { throw new ErrorAlias("CODE", "message"); }',
+      "CORE_REEXPORT",
+    ],
+    [
+      "host-private graph module import",
+      'import { FlarexError } from "_flarex/application-error-platform-v1.js"; ' +
+        'export function run() { throw new FlarexError("CODE", "message"); }',
+      "CORE_IMPORT_TARGET",
+    ],
+    [
+      "unrelated constructor",
+      'export function run() { throw new Error("message"); }',
+      "CORE_CONSTRUCTION",
+    ],
+  ])("rejects non-canonical FlarexError construction: %s", (
+    _label,
+    sourceText,
+    diagnostic,
+  ) => {
+    const source = UTF8_ENCODER.encode(sourceText);
+    const result = runSource(source, [source]);
+    if (Result.isFailure(result)) throw result.failure;
+    expect(result.success.verified).toBe(false);
+    expect(result.success.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: diagnostic }),
     ]));
   });
 

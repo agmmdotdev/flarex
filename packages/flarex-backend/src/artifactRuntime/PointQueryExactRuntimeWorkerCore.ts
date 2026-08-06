@@ -10,6 +10,7 @@ import type {
 import type { PointQueryExactRuntimeResultV1 } from
   "flarex-protocol/point-query-exact-runtime";
 import type { UserIdentity } from "flarex-protocol/auth";
+import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";
 
 import { exactQueryRuntimeConfigurationV1 } from
   "./pointQueryExactRuntimeWorker/flarex-point-query-exact-runtime-config-v1.js";
@@ -138,6 +139,7 @@ export class FlarexPointQueryExactRuntimeV1 extends WorkerEntrypoint {
               if (state.failure !== undefined) throw state.failure;
             },
           }),
+          isCoreApplicationError: inspectCoreApplicationErrorV1,
         }),
       });
       const runtimeInput: PointQueryRuntimeInputV1 = freeze({

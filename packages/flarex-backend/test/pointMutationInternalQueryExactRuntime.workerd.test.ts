@@ -6,6 +6,10 @@ import {
   FUNCTION_API_CORE_SOURCE_V1,
 } from "../src/artifactRuntime/FunctionApiCore.generated";
 import {
+  APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+} from "../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
+import {
   POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_CONFIG_MODULE_V1,
   POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
   POINT_MUTATION_INTERNAL_QUERY_PLATFORM_MODULE_V1,
@@ -163,14 +167,19 @@ export default { async fetch() {
         },
         {
           type: "ESModule",
+          path: APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+          contents: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+        },
+        {
+          type: "ESModule",
           path: "orders.js",
           contents: `
-import { errorCode, errorCreate, errorData, errorMessage } from "flarex:platform";
+import { FlarexError } from "flarex/values";
 export async function update(ctx) {
   try {
     await ctx.runQuery({ _path: "orders:readInternal" }, {});
   } catch (error) {
-    if (errorCode(error) !== "DECLARED" || errorMessage(error) !== "declared child" || errorData(error).reason !== "test") {
+    if (!(error instanceof FlarexError) || error.code !== "DECLARED" || error.message !== "declared child" || error.data.reason !== "test") {
       throw error;
     }
   }
@@ -178,7 +187,7 @@ export async function update(ctx) {
   return await ctx.runQuery({ _path: "orders:readInternal" }, { id });
 }
 export async function readInternal(ctx, args) {
-  if (args.id === undefined) throw errorCreate("DECLARED", "declared child", { reason: "test" });
+  if (args.id === undefined) throw new FlarexError("DECLARED", "declared child", { reason: "test" });
   return await ctx.db.get(args.id);
 }`,
         },

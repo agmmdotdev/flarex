@@ -23,6 +23,9 @@ import {
   type DeclarativeV2ArtifactModulePathHandleV1,
 } from "../src/declarativeV2ArtifactModulePathV1";
 import {
+  DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1,
+} from "../src/declarativeV2VerifierExecutableV1.contract";
+import {
   createDeclarativeV2VerifierEngineV1,
   DeclarativeV2VerifierExecutableV1Error,
   GENERATED_DECLARATIVE_V2_VERIFIER_EXECUTABLE_MANIFEST_V1,
@@ -744,6 +747,186 @@ describe("private Declarative V2 registration verifier", () => {
       },
     });
   });
+
+  test.each(["query", "mutation"] as const)(
+    "admits public FlarexError construction for a %s handler",
+    functionKind => {
+      const records = SEMANTIC_RECORDS.map(record =>
+        record.kind === "function"
+          ? { ...record, functionKind }
+          : record
+      );
+      const fixture = registrationFixture(
+        1,
+        undefined,
+        false,
+        true,
+        records,
+        "functions/example.js",
+        undefined,
+        'import { FlarexError } from "flarex/values";' +
+          "export function getThing(){throw new " +
+          'FlarexError("ORDER_CLOSED","Order is closed.")}',
+      );
+      expect(Result.isSuccess(fixture.result)).toBe(true);
+    },
+  );
+
+  test.each(["query", "mutation"] as const)(
+    "registers the exact caught FlarexError conformance source for a %s handler",
+    functionKind => {
+      const records = SEMANTIC_RECORDS.map(record =>
+        record.kind === "function"
+          ? { ...record, functionKind }
+          : record
+      );
+      const fixture = registrationFixture(
+        1,
+        undefined,
+        false,
+        true,
+        records,
+        "functions/example.js",
+        undefined,
+        DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1,
+      );
+      expect(Result.isSuccess(fixture.result)).toBe(true);
+    },
+  );
+
+  test.each(["action", "workflowMutation"] as const)(
+    "rejects public FlarexError construction for an unsupported %s profile",
+    functionKind => {
+      const records = SEMANTIC_RECORDS.map(record =>
+        record.kind === "function"
+          ? { ...record, functionKind }
+          : record
+      );
+      const fixture = registrationFixture(
+        1,
+        undefined,
+        false,
+        true,
+        records,
+        "functions/example.js",
+        undefined,
+        'import { FlarexError } from "flarex/values";' +
+          "export function getThing(){throw new " +
+          'FlarexError("ORDER_CLOSED","Order is closed.")}',
+      );
+      expect(fixture.result).toMatchObject({
+        failure: {
+          operation: "step",
+          reason: "moduleMismatch",
+          path: "handlerCapability",
+        },
+      });
+    },
+  );
+
+  test.each([
+    [
+      "unused import",
+      'import { FlarexError } from "flarex/values";' +
+        "export function getThing(){return null}",
+    ],
+    [
+      "discrimination-only import",
+      'import { FlarexError } from "flarex/values";' +
+        "export function getThing(){try{throw null}catch(error){" +
+        "if(!(error instanceof FlarexError)){throw error;}return null}}",
+    ],
+  ])(
+    "rejects an unsupported profile with a %s",
+    (_label, source) => {
+      for (const functionKind of ["action", "workflowMutation"] as const) {
+        const records = SEMANTIC_RECORDS.map(record =>
+          record.kind === "function"
+            ? { ...record, functionKind }
+            : record
+        );
+        const fixture = registrationFixture(
+          1,
+          undefined,
+          false,
+          true,
+          records,
+          "functions/example.js",
+          undefined,
+          source,
+        );
+        expect(fixture.result).toMatchObject({
+          failure: {
+            operation: "step",
+            reason: "moduleMismatch",
+            path: "handlerCapability",
+          },
+        });
+      }
+    },
+  );
+
+  test.each([false, true])(
+    "rejects an unsupported profile when an uncalled static module imports FlarexError (cold=%s)",
+    coldModule => {
+      const records = Object.freeze([
+        ...SEMANTIC_RECORDS.slice(0, 2),
+        { kind: "module", modulePath: "functions/helper.js" },
+        ...SEMANTIC_RECORDS.slice(2).map(record =>
+          record.kind === "function"
+            ? { ...record, functionKind: "action" as const }
+            : record
+        ),
+      ]) satisfies ReadonlyArray<DeclarativeV2SemanticRecordV1>;
+      const fixture = registrationFixture(
+        1,
+        undefined,
+        false,
+        coldModule,
+        records,
+        "functions/example.js",
+        undefined,
+        'import { helper } from "./helper.js";' +
+          "export function getThing(){return null}",
+        [{
+          modulePath: "functions/helper.js",
+          source: 'import { FlarexError } from "flarex/values";' +
+            "export function helper(){return null}",
+        }],
+      );
+      expect(fixture.result).toMatchObject({
+        failure: {
+          operation: "step",
+          reason: "moduleMismatch",
+          path: "handlerCapability",
+        },
+      });
+    },
+  );
+
+  test.each([
+    ["member assignment", 'error.code = "FORGED";'],
+    ["destructuring assignment", "[error] = [null];"],
+    ["for-of target", "for (error of [null]) {}"],
+    ["parenthesized member assignment", '(error.code) = "FORGED";'],
+    ["parenthesized member update", "++(error.code);"],
+    ["parenthesized member delete", "delete (error.code);"],
+    ["parenthesized catch assignment", "((error)) = null;"],
+    ["parenthesized destructuring assignment", "([error]) = [null];"],
+  ])(
+    "preserves rejection of an application-error %s across cold reconstruction",
+    (_label, statement) => {
+      const source = 'import { FlarexError } from "flarex/values";' +
+        "export function getThing(){try{throw null}catch(error){" +
+        "if(!(error instanceof FlarexError)){throw error;}" +
+        `${statement}return error.code;}}`;
+      const warm = runModule("functions/example.js", source);
+      const cold = reconstructColdModule(warm);
+      for (const module of [warm, cold]) {
+        expect(module.verified).toBe(false);
+      }
+    },
+  );
 
   test("rejects runMutation from a declared query handler", () => {
     const fixture = registrationFixture(

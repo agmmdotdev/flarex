@@ -224,6 +224,27 @@ describe("@flarex/function-runtime/point-mutation-internal-query", () => {
     )).rejects.toMatchObject({ reason: "functionMetadataInvalid" });
     expect(opened).toBe(false);
   });
+
+  it("rethrows a declared root application error after settling the journal", async () => {
+    const events: string[] = [];
+    const applicationError = Object.freeze({ kind: "applicationError" });
+    const base = invocation(events);
+    const execution = executePointMutationInternalQueryV1(
+      input(),
+      registry({
+        root: () => { throw applicationError; },
+        internal: () => null,
+      }),
+      {
+        open: () => ({
+          ...base.open(),
+          isCoreApplicationError: cause => cause === applicationError,
+        }),
+      },
+    );
+    await expect(execution).rejects.toBe(applicationError);
+    expect(events).toEqual(["close", "drain"]);
+  });
 });
 
 function input(

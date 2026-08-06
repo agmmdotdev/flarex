@@ -60,6 +60,7 @@ export interface PointMutationRuntimeJournalV1 {
 export interface PointMutationRuntimeInvocationV1 {
   readonly context: PointMutationRuntimeContextV1;
   readonly journal: PointMutationRuntimeJournalV1;
+  readonly isCoreApplicationError: (cause: unknown) => boolean;
 }
 
 export interface PointMutationRuntimeInvocationFactoryV1 {
@@ -289,6 +290,9 @@ export async function executePointMutationV1(
   }
   if (journalFailure !== undefined) throw journalFailure;
   if (handlerFailure !== undefined) {
+    if (invocation.isCoreApplicationError(handlerFailure.cause)) {
+      throw handlerFailure.cause;
+    }
     throw new PointMutationRuntimeUserCodeV1Error(handlerFailure.cause);
   }
 
@@ -315,6 +319,17 @@ export async function executePointMutationV1(
     }
   }
   return normalized;
+}
+
+export function capturePointMutationCoreApplicationErrorDataV1(
+  data: unknown,
+): CanonicalFlarexRuntimeValueV1 {
+  return normalizeRuntimeValue(
+    data,
+    "$applicationError.data",
+    0,
+    new WeakSet(),
+  ).value;
 }
 
 function exactPublicMutationHandler(value: unknown): MutationHandler {

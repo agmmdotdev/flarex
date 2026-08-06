@@ -1,5 +1,8 @@
 import { Miniflare } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1,
+} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
 
 import {
   POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
@@ -15,9 +18,26 @@ import {
   POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1,
 } from "../src/artifactRuntime/PointMutationRuntimeKernel.generated";
 import {
+  APPLICATION_ERROR_PLATFORM_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+  applicationErrorPlatformSourceV1,
+} from "../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
+import {
+  FUNCTION_API_CORE_MODULE_V1,
+  FUNCTION_API_CORE_SOURCE_V1,
+} from "../src/artifactRuntime/FunctionApiCore.generated";
+import {
   requirePointMutationArgumentSemanticSizeV1,
 } from "flarex-protocol/point-mutation-start";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
+
+const POINT_MUTATION_APPLICATION_ERROR_PLATFORM_SOURCE_V1 =
+  applicationErrorPlatformSourceV1({
+    runtimeKernelModulePath: `../${POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1}`,
+    captureExportName: "capturePointMutationCoreApplicationErrorDataV1",
+    invalid: { kind: "nativeError" },
+  });
 
 describe("point mutation exact-runtime workerd globals", () => {
   let runtime: Miniflare;
@@ -95,6 +115,21 @@ export default {
           type: "ESModule",
           path: POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1,
           contents: POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1,
+        },
+        {
+          type: "ESModule",
+          path: FUNCTION_API_CORE_MODULE_V1,
+          contents: FUNCTION_API_CORE_SOURCE_V1,
+        },
+        {
+          type: "ESModule",
+          path: APPLICATION_ERROR_PLATFORM_MODULE_V1,
+          contents: POINT_MUTATION_APPLICATION_ERROR_PLATFORM_SOURCE_V1,
+        },
+        {
+          type: "ESModule",
+          path: APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+          contents: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
         },
         {
           type: "ESModule",
@@ -195,12 +230,49 @@ export default {};`,
       });
     },
   );
+
+  it("propagates the public FlarexError after the mutation journal settles", async () => {
+    await expect(runContractFailureScenario({
+      path: "orders:complete",
+      executionImports: 'import { FlarexError } from "flarex/values";',
+      functionSource: `{
+        isMutation: true,
+        isPublic: true,
+        _handler: () => { throw new FlarexError("CLOSED", "closed"); },
+      }`,
+      argumentsValue: {},
+      argsValidator: { type: "object", value: {} },
+    })).resolves.toMatchObject({
+      name: "FlarexError",
+      message: "closed",
+    });
+  });
+
+  it("executes the exact analyzer-admitted caught FlarexError source", async () => {
+    await expect(runContractFailureScenario({
+      path: "orders:complete",
+      functionSource: "",
+      applicationModuleSource:
+        DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1,
+      argumentsValue: {},
+      argsValidator: { type: "object", value: {} },
+    })).resolves.toEqual({
+      name: "success",
+      result: {
+        format: "flarex.point-mutation-exact-runtime-result",
+        version: 1,
+        value: ["ORDER_CLOSED", "Order is closed.", null],
+      },
+    });
+  });
 });
 
 async function runContractFailureScenario(
   scenario: Readonly<{
     readonly path: string;
     readonly functionSource: string;
+    readonly executionImports?: string;
+    readonly applicationModuleSource?: string;
     readonly argumentsValue: Readonly<Record<string, unknown>>;
     readonly argsValidator: unknown;
   }>,
@@ -258,7 +330,7 @@ export default {
     const input = ${serializedRequest};
     input.context.randomSeed = new Uint8Array(input.context.randomSeed);
     try {
-      await Reflect.apply(
+      const result = await Reflect.apply(
         FlarexPointMutationExactRuntimeV1.prototype.run,
         {},
         [input, {
@@ -267,7 +339,7 @@ export default {
           },
         }],
       );
-      return Response.json({ name: "unexpected success" });
+      return Response.json({ name: "success", result });
     } catch (error) {
       return Response.json({
         name: error?.name,
@@ -297,12 +369,39 @@ export default {
       },
       {
         type: "ESModule",
+        path: FUNCTION_API_CORE_MODULE_V1,
+        contents: FUNCTION_API_CORE_SOURCE_V1,
+      },
+      {
+        type: "ESModule",
+        path: APPLICATION_ERROR_PLATFORM_MODULE_V1,
+        contents: POINT_MUTATION_APPLICATION_ERROR_PLATFORM_SOURCE_V1,
+      },
+      {
+        type: "ESModule",
+        path: APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+        contents: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1,
+      },
+      {
+        type: "ESModule",
         path: "_flarex/execution.js",
-        contents: `export default {
+        contents: `import { ${scenario.applicationModuleSource === undefined
+          ? "complete"
+          : "getThing"} } from "../orders.js";
+export default {
   orders: {
-    complete: ${scenario.functionSource},
+    complete: ${scenario.applicationModuleSource === undefined
+      ? "complete"
+      : "{ isMutation: true, isPublic: true, _handler: getThing }"},
   },
 };`,
+      },
+      {
+        type: "ESModule",
+        path: "orders.js",
+        contents: scenario.applicationModuleSource ??
+          `${scenario.executionImports ?? ""}
+export const complete = ${scenario.functionSource};`,
       },
     ],
   });

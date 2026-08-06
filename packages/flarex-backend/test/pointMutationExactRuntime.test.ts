@@ -54,6 +54,13 @@ import {
   pointMutationExactRuntimeWorkerGraphBasisV1,
 } from "../src/artifactRuntime/PointMutationExactRuntimeHost";
 import {
+  APPLICATION_ERROR_PLATFORM_MODULE_V1,
+  APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+} from "../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
+import {
+  FUNCTION_API_CORE_MODULE_V1,
+} from "../src/artifactRuntime/FunctionApiCore.generated";
+import {
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SHA256_V1,
   POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
 } from "../src/artifactRuntime/PointMutationExactRuntimeWorkerCore.generated";
@@ -83,7 +90,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "5247051639a78f83ba5e4444f0f065a51451b48d0d7b460a734cbece7baa4a9c",
+      "5bdf64a4dfd5cf5feb2989afc2417fb889c89159efd3127e1af416085d98f88b",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
@@ -441,6 +448,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
             inProcessLifecycle.push("drain");
           },
         },
+        isCoreApplicationError: () => false,
       }),
     };
     const inProcess = await executePointMutationV1(
@@ -528,6 +536,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
               throw journalFailure;
             },
           },
+          isCoreApplicationError: () => false,
         }),
       };
     await expect(executePointMutationV1(
@@ -1104,6 +1113,9 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     });
     expect(Object.keys(definition.modules).sort()).toEqual([
       "_flarex/execution.js",
+      APPLICATION_ERROR_PLATFORM_MODULE_V1,
+      APPLICATION_ERROR_PUBLIC_VALUES_MODULE_V1,
+      FUNCTION_API_CORE_MODULE_V1,
       POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,
       POINT_MUTATION_EXACT_RUNTIME_EXECUTION_BRIDGE_MODULE_V1,
       POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,
@@ -1361,7 +1373,11 @@ function executableGeneratedSource(
     'import { WorkerEntrypoint } from "cloudflare:workers";',
     "class WorkerEntrypoint {}",
   );
-  const withTestModule = withoutWorkerImport.replace(
+  const withTestApplicationErrorInspector = withoutWorkerImport.replace(
+    'import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";',
+    "const inspectCoreApplicationErrorV1 = () => false;",
+  );
+  const withTestModule = withTestApplicationErrorInspector.replace(
     /const executionModulePromise = import\([^;]+;/,
     'const executionModulePromise = Promise.resolve({ default: { orders: { complete: functionValue } } });',
   );
@@ -1414,6 +1430,10 @@ function runGeneratedRuntimeInFreshProcess(seedByte: number): Readonly<{
   const source = replaceRuntimeKernelImportForTest(
     testExactRuntimeWorkerSource(),
   )
+    .replace(
+      'import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";',
+      "const inspectCoreApplicationErrorV1 = () => false;",
+    )
     .replace(
       'import { WorkerEntrypoint } from "cloudflare:workers";',
       `const nativeGlobalPrototype = Object.getPrototypeOf(globalThis);

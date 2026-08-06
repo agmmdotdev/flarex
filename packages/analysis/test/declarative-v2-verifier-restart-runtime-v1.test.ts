@@ -61,7 +61,7 @@ describe("Declarative V2 verifier restart runtime V1", () => {
       'throw new Error("injected"); }',
     modulePath: "functions/restart-runtime-diagnostic.js",
     handlerName: "patch",
-    diagnosticCount: 3n,
+    diagnosticCount: 2n,
   }])(
     "admits large aggregate budgets while producing and rehydrating $label",
     ({ source, modulePath, handlerName, diagnosticCount }) => {

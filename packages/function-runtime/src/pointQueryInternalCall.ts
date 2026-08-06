@@ -95,6 +95,7 @@ export interface PointQueryInternalCallRuntimeInvocationV1 {
   ) => PointQueryInternalCallRuntimeContextV1;
   readonly readBoundary: PointQueryInternalCallRuntimeReadBoundaryV1;
   readonly recordCallFrame: (frame: PointQueryInternalCallFrameV1) => void;
+  readonly isCoreApplicationError: (cause: unknown) => boolean;
   readonly recordTerminalFailure: (cause: unknown) => void;
 }
 
@@ -246,6 +247,12 @@ export function capturePointQueryInternalCallRuntimeArgumentsV1(
     value: normalized.value,
     semanticSizeBytes: normalized.semanticSizeBytes,
   });
+}
+
+export function capturePointQueryInternalCallCoreApplicationErrorDataV1(
+  data: unknown,
+): CanonicalFlarexRuntimeValueV1 {
+  return normalizeFlarexValueV1(data).value;
 }
 
 export async function executePointQueryInternalCallV1(
@@ -483,6 +490,9 @@ export async function executePointQueryInternalCallV1(
   if (handlerFailure !== undefined) {
     const inspected = inspectPointQueryInternalCallRuntimeFailureV1(handlerFailure.cause);
     if (inspected?.kind === "readBoundary" || inspected?.kind === "terminal") {
+      throw handlerFailure.cause;
+    }
+    if (invocation.isCoreApplicationError(handlerFailure.cause)) {
       throw handlerFailure.cause;
     }
     throw new PointQueryInternalCallRuntimeUserCodeV1Error(handlerFailure.cause);

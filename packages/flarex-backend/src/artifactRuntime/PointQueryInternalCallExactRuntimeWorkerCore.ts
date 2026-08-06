@@ -16,6 +16,7 @@ import type {
 import type { PointQueryInternalCallExactRuntimeResultV1 } from
   "flarex-protocol/point-query-internal-call-exact-runtime";
 import type { UserIdentity } from "flarex-protocol/auth";
+import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";
 
 import { exactQueryRuntimeConfigurationV1 } from
   "./pointQueryInternalCallExactRuntimeWorker/flarex-point-query-internal-call-exact-runtime-config-v1.js";
@@ -149,6 +150,7 @@ export class FlarexPointQueryInternalCallExactRuntimeV1 extends WorkerEntrypoint
             state.callFrames.push(frame);
           },
           recordTerminalFailure: (cause: unknown) => { state.failure ??= cause; },
+          isCoreApplicationError: inspectCoreApplicationErrorV1,
         }),
       });
       const runtimeInput: PointQueryInternalCallRuntimeInputV1 = freeze({

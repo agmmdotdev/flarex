@@ -375,6 +375,48 @@ describe("@flarex/function-runtime/point-mutation-internal-call", () => {
     )).rejects.toMatchObject({ reason: "functionMetadataInvalid" });
     expect(opened).toBe(false);
   });
+
+  it("rethrows a declared root application error after settling the journal", async () => {
+    const events: string[] = [];
+    const applicationError = Object.freeze({ kind: "applicationError" });
+    const execution = executePointMutationInternalCallV1(
+      input(),
+      registry({
+        root: () => { throw applicationError; },
+        internal: () => null,
+      }),
+      invocation(
+        events,
+        async () => undefined,
+        cause => cause === applicationError,
+      ),
+    );
+    await expect(execution).rejects.toBe(applicationError);
+    expect(events).toEqual(["close", "drain"]);
+  });
+
+  it("keeps a catchable non-core root failure inside the user-code boundary", async () => {
+    const events: string[] = [];
+    const validationFailure = new Error("authenticated document validation");
+    const execution = executePointMutationInternalCallV1(
+      input(),
+      registry({
+        root: () => { throw validationFailure; },
+        internal: () => null,
+      }),
+      invocation(
+        events,
+        async () => undefined,
+        cause => cause === validationFailure,
+        () => false,
+      ),
+    );
+    await expect(execution).rejects.toMatchObject({
+      name: "PointMutationInternalCallRuntimeUserCodeV1Error",
+      cause: validationFailure,
+    });
+    expect(events).toEqual(["close", "drain"]);
+  });
 });
 
 function input(
@@ -423,6 +465,8 @@ function invocation(
   events: string[],
   drain: () => Promise<void> = async () => undefined,
   isApplicationCatchableError: (cause: unknown) => boolean = () => false,
+  isCoreApplicationError: (cause: unknown) => boolean =
+    isApplicationCatchableError,
 ): PointMutationInternalCallRuntimeInvocationFactoryV1 {
   let terminal: unknown;
   const auth = createFunctionRuntimeAuthV1(
@@ -466,6 +510,7 @@ function invocation(
         );
       },
       isApplicationCatchableError,
+      isCoreApplicationError,
       recordTerminalFailure: cause => {
         events.push("terminal");
         terminal ??= cause;

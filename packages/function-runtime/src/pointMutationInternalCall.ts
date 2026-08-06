@@ -128,6 +128,7 @@ export interface PointMutationInternalCallRuntimeInvocationV1 {
   readonly journal: PointMutationInternalCallRuntimeJournalBoundaryV1;
   readonly recordCallFrame: (frame: PointMutationInternalCallFrameV1) => void;
   readonly isApplicationCatchableError: (cause: unknown) => boolean;
+  readonly isCoreApplicationError: (cause: unknown) => boolean;
   readonly recordTerminalFailure: (cause: unknown) => void;
 }
 
@@ -593,6 +594,9 @@ export async function executePointMutationInternalCallV1(
   if (handlerFailure !== undefined) {
     const inspected = inspectPointMutationInternalCallRuntimeFailureV1(handlerFailure.cause);
     if (inspected?.kind === "journalBoundary" || inspected?.kind === "terminal") {
+      throw handlerFailure.cause;
+    }
+    if (invocation.isCoreApplicationError(handlerFailure.cause)) {
       throw handlerFailure.cause;
     }
     throw new PointMutationInternalCallRuntimeUserCodeV1Error(handlerFailure.cause);
