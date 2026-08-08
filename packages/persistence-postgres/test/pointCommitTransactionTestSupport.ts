@@ -117,14 +117,11 @@ async function pointCommitCommandForLifecycleFromStoredAttemptV1(
   );
   const materialIntents = entries.flatMap((entry) =>
     entry.rowIntent === null ? [] : [entry.rowIntent]
-  );
-  if (materialIntents.length > 1) {
-    throw new Error("O06 point proof supports at most one net row intent.");
-  }
+  ).sort(compareDependencies);
   return Object.freeze({
     ...scalar,
     dependencies,
-    rowIntent: materialIntents[0] ?? null,
+    rowIntents: Object.freeze(materialIntents),
   } satisfies PointCommitTransactionCommandV1);
 }
 

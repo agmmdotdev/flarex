@@ -45,6 +45,9 @@ import { makeCreateAndReadDefinitionV1 } from
 export interface CookingWorkloadProofV1 {
   readonly documentId: string;
   readonly secondaryDocumentId: string;
+  readonly racePrimaryDocumentId: string;
+  readonly raceCompetitorDocumentId: string;
+  readonly pantryDocumentId: string;
   readonly richDocumentRoundTrip: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
@@ -73,6 +76,11 @@ export interface CookingWorkloadProofV1 {
   readonly deleteReplay: true;
   readonly pointMutationLifecycle: true;
   readonly deletedDocumentReadsNull: true;
+  readonly pantryConflictReran: true;
+  readonly singleStockReservationCommitted: true;
+  readonly stockNeverNegative: true;
+  readonly losingReservationWritesRolledBack: true;
+  readonly competitorReservationReplay: true;
   readonly workloadInspection: StandardApplicationAuthoritativeInspectionV1;
 }
 
@@ -104,6 +112,11 @@ type CookingApplicationFailureV1 = Extract<
 type CookingMutationAttemptResultV1 = Result.Result<
   AuthoritativeCommittedApplicationPointMutationOutcomeV1,
   InvokeStandardApplicationPointMutationV1Error
+>;
+
+type CookingTypedMutationResultV1 = Result.Result<
+  AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  CookingMutationInvocationErrorV1
 >;
 
 type CookingExpectedArgumentIssueV1 = Extract<
@@ -165,6 +178,16 @@ const COOKING_REJECTED_PUBLISH_REQUEST_KEY =
 const COOKING_DELETE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:delete",
 );
+const COOKING_RACE_PRIMARY_CREATE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make("sac01:cooking:race-primary-create");
+const COOKING_RACE_COMPETITOR_CREATE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make("sac01:cooking:race-competitor-create");
+const COOKING_PANTRY_CREATE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make("sac01:cooking:pantry-create");
+const COOKING_RACE_PRIMARY_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make("sac01:cooking:race-primary");
+const COOKING_RACE_COMPETITOR_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make("sac01:cooking:race-competitor");
 const COOKING_FUNCTION_SOURCES = {
   create: readFileSync(new URL(
     "./functions/recipeCreate.js",
@@ -200,6 +223,18 @@ const COOKING_FUNCTION_SOURCES = {
   )),
   publishWorkflow: readFileSync(new URL(
     "./functions/recipePublishWorkflow.js",
+    import.meta.url,
+  )),
+  pantryCreate: readFileSync(new URL(
+    "./functions/pantryCreate.js",
+    import.meta.url,
+  )),
+  pantryQuery: readFileSync(new URL(
+    "./functions/pantryQuery.js",
+    import.meta.url,
+  )),
+  pantryReservation: readFileSync(new URL(
+    "./functions/pantryReservation.js",
     import.meta.url,
   )),
 } as const;
@@ -337,6 +372,26 @@ const COOKING_REPLACEMENT_RECIPE = {
   },
   source: "Kitchen notebook",
 } as const;
+const COOKING_RACE_PRIMARY_RECIPE = {
+  ...COOKING_REPLACEMENT_RECIPE,
+  title: "Pantry race primary",
+  localizedTitles: { en: "Pantry race primary" },
+  source: "Concurrency fixture",
+} as const;
+const COOKING_RACE_COMPETITOR_RECIPE = {
+  ...COOKING_REPLACEMENT_RECIPE,
+  title: "Pantry race competitor",
+  localizedTitles: { en: "Pantry race competitor" },
+  source: "Concurrency fixture",
+} as const;
+const COOKING_PANTRY_STOCK = {
+  ingredient: "shared-stock",
+  available: 1,
+} as const;
+const COOKING_DEPLETED_PANTRY_STOCK = {
+  ingredient: "shared-stock",
+  available: 0,
+} as const;
 const COOKING_REPLACEMENT_ASSESSMENT = {
   title: "Mushroom risotto",
   servings: 3,
@@ -396,6 +451,15 @@ const COOKING_DOCUMENT = standardV1.object({
   _creationTime: standardV1.number(),
   ...COOKING_FIELDS,
 });
+const COOKING_PANTRY_FIELDS = {
+  ingredient: standardV1.string(),
+  available: standardV1.number(),
+} as const;
+const COOKING_PANTRY_DOCUMENT = standardV1.object({
+  _id: standardV1.id("pantryStock"),
+  _creationTime: standardV1.number(),
+  ...COOKING_PANTRY_FIELDS,
+});
 const COOKING_ID_ARGS = standardV1.object({ id: standardV1.string() });
 const COOKING_ASSESSMENT_FIELDS = {
   title: standardV1.string(),
@@ -424,6 +488,13 @@ const COOKING_PUBLISH_RECEIPT_VALIDATOR = standardV1.nullable(
     afterPublished: standardV1.boolean(),
     ingredientCount: standardV1.number(),
     timedMinutes: standardV1.number(),
+  }),
+);
+const COOKING_RESERVATION_RECEIPT_VALIDATOR = standardV1.nullable(
+  standardV1.object({
+    pantryId: standardV1.id("pantryStock"),
+    recipeId: standardV1.id("recipes"),
+    remainingStock: standardV1.number(),
   }),
 );
 const COOKING_MUTATION_MODULE = standardV1.module("recipeCommands", {
@@ -510,6 +581,27 @@ const COOKING_WORKFLOW_MODULE = standardV1.module("recipeWorkflows", {
     returns: COOKING_PUBLISH_RECEIPT_VALIDATOR,
   }),
 });
+const COOKING_PANTRY_COMMAND_MODULE = standardV1.module("pantryCommands", {
+  create: standardV1.publicMutation({
+    args: standardV1.object(COOKING_PANTRY_FIELDS),
+    returns: standardV1.id("pantryStock"),
+  }),
+});
+const COOKING_PANTRY_QUERY_MODULE = standardV1.module("pantry", {
+  get: standardV1.publicQuery({
+    args: standardV1.object({ id: standardV1.id("pantryStock") }),
+    returns: standardV1.nullable(COOKING_PANTRY_DOCUMENT),
+  }),
+});
+const COOKING_RESERVATION_MODULE = standardV1.module("pantryReservation", {
+  reserveAndPublish: standardV1.publicMutation({
+    args: standardV1.object({
+      pantryId: standardV1.id("pantryStock"),
+      recipeId: standardV1.id("recipes"),
+    }),
+    returns: COOKING_RESERVATION_RECEIPT_VALIDATOR,
+  }),
+});
 const COOKING_CREATE = COOKING_MUTATION_MODULE.reference("create");
 const COOKING_PATCH_FUNCTION = COOKING_PATCH_MODULE.reference("patch");
 const COOKING_PATCH_THEN_RETURN_INVALID =
@@ -522,6 +614,11 @@ const COOKING_GET = COOKING_QUERY_MODULE.reference("get");
 const COOKING_ASSESSMENT_FUNCTION =
   COOKING_ASSESSMENT_VIEW_MODULE.reference("assessment");
 const COOKING_PUBLISH = COOKING_WORKFLOW_MODULE.reference("publish");
+const COOKING_PANTRY_CREATE =
+  COOKING_PANTRY_COMMAND_MODULE.reference("create");
+const COOKING_PANTRY_GET = COOKING_PANTRY_QUERY_MODULE.reference("get");
+const COOKING_RESERVE_AND_PUBLISH =
+  COOKING_RESERVATION_MODULE.reference("reserveAndPublish");
 
 const prepareCookingStateV1 = Effect.fn(
   "SystemTestCookingSimulation.setupV1",
@@ -918,10 +1015,147 @@ const runCookingWorkloadV1 = Effect.fn(
     secondaryDocumentId,
     COOKING_SECOND_RECIPE,
   );
+
+  const racePrimaryInserted = yield* client.mutation(
+    COOKING_CREATE,
+    COOKING_RACE_PRIMARY_RECIPE,
+    COOKING_RACE_PRIMARY_CREATE_REQUEST_KEY,
+  );
+  const racePrimaryDocumentId = requireCreatedDocumentId(
+    racePrimaryInserted,
+    "race primary recipe",
+    setup.commitSeq + 6n,
+    [setup.documentId, secondaryDocumentId],
+  );
+  const raceCompetitorInserted = yield* client.mutation(
+    COOKING_CREATE,
+    COOKING_RACE_COMPETITOR_RECIPE,
+    COOKING_RACE_COMPETITOR_CREATE_REQUEST_KEY,
+  );
+  const raceCompetitorDocumentId = requireCreatedDocumentId(
+    raceCompetitorInserted,
+    "race competitor recipe",
+    setup.commitSeq + 7n,
+    [setup.documentId, secondaryDocumentId, racePrimaryDocumentId],
+  );
+  const pantryInserted = yield* client.mutation(
+    COOKING_PANTRY_CREATE,
+    COOKING_PANTRY_STOCK,
+    COOKING_PANTRY_CREATE_REQUEST_KEY,
+  );
+  const pantryDocumentId = requireCreatedDocumentId(
+    pantryInserted,
+    "shared pantry stock",
+    setup.commitSeq + 8n,
+    [
+      setup.documentId,
+      secondaryDocumentId,
+      racePrimaryDocumentId,
+      raceCompetitorDocumentId,
+    ],
+  );
+  const beforePantryRace = yield* client.inspectAuthoritativeState();
+  let competitorReservation: CookingTypedMutationResultV1 | undefined;
+  yield* client.scheduleAfterNextMutationRuntime(() =>
+    Effect.result(client.mutation(
+      COOKING_RESERVE_AND_PUBLISH,
+      {
+        pantryId: pantryDocumentId,
+        recipeId: raceCompetitorDocumentId,
+      },
+      COOKING_RACE_COMPETITOR_REQUEST_KEY,
+    )).pipe(
+      Effect.tap(result => Effect.sync(() => {
+        competitorReservation = result;
+      })),
+      Effect.asVoid,
+    )
+  );
+  const primaryReservation = yield* Effect.result(client.mutation(
+    COOKING_RESERVE_AND_PUBLISH,
+    {
+      pantryId: pantryDocumentId,
+      recipeId: racePrimaryDocumentId,
+    },
+    COOKING_RACE_PRIMARY_REQUEST_KEY,
+  ));
+  if (competitorReservation === undefined) {
+    return yield* Effect.die(new Error(
+      "The cooking pantry competitor did not settle during the interleaving.",
+    ));
+  }
+  const publishedCompetitorReservation = requireSuccessfulMutationResult(
+    competitorReservation,
+    "pantry competitor reservation",
+  );
+  requireInsufficientStockFailure(primaryReservation, pantryDocumentId);
+  const competitorReceipt = {
+    pantryId: pantryDocumentId,
+    recipeId: raceCompetitorDocumentId,
+    remainingStock: 0,
+  } as const;
+  requireValueMutation(
+    publishedCompetitorReservation,
+    "pantry competitor reservation",
+    "published",
+    setup.commitSeq + 9n,
+    competitorReceipt,
+  );
+  const replayedCompetitorReservation = yield* client.mutation(
+    COOKING_RESERVE_AND_PUBLISH,
+    {
+      pantryId: pantryDocumentId,
+      recipeId: raceCompetitorDocumentId,
+    },
+    COOKING_RACE_COMPETITOR_REQUEST_KEY,
+  );
+  requireValueMutation(
+    replayedCompetitorReservation,
+    "pantry competitor reservation replay",
+    "replayed",
+    publishedCompetitorReservation.commitSeq,
+    competitorReceipt,
+  );
+  const racePrimaryRead = yield* client.query(
+    COOKING_GET,
+    { id: racePrimaryDocumentId },
+  );
+  requireRecipeDocument(
+    racePrimaryRead,
+    racePrimaryDocumentId,
+    COOKING_RACE_PRIMARY_RECIPE,
+  );
+  const raceCompetitorRead = yield* client.query(
+    COOKING_GET,
+    { id: raceCompetitorDocumentId },
+  );
+  requireRecipeDocument(
+    raceCompetitorRead,
+    raceCompetitorDocumentId,
+    { ...COOKING_RACE_COMPETITOR_RECIPE, published: true },
+  );
+  const pantryRead = yield* client.query(
+    COOKING_PANTRY_GET,
+    { id: pantryDocumentId },
+  );
+  requirePantryDocument(
+    pantryRead,
+    pantryDocumentId,
+    COOKING_DEPLETED_PANTRY_STOCK,
+  );
+  const afterPantryRace = yield* client.inspectAuthoritativeState();
+  requirePantryRaceInspection(
+    beforePantryRace,
+    afterPantryRace,
+    String(publishedCompetitorReservation.commitSeq),
+  );
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
     secondaryDocumentId,
+    racePrimaryDocumentId,
+    raceCompetitorDocumentId,
+    pantryDocumentId,
     richDocumentRoundTrip: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
@@ -950,6 +1184,11 @@ const runCookingWorkloadV1 = Effect.fn(
     deleteReplay: true,
     pointMutationLifecycle: true,
     deletedDocumentReadsNull: true,
+    pantryConflictReran: true,
+    singleStockReservationCommitted: true,
+    stockNeverNegative: true,
+    losingReservationWritesRolledBack: true,
+    competitorReservationReplay: true,
     workloadInspection,
   };
 });
@@ -971,6 +1210,40 @@ function requireValueMutation(
       `The cooking ${scenario} mutation did not produce the expected committed value.`,
     );
   }
+}
+
+function requireCreatedDocumentId(
+  outcome: AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  scenario: string,
+  commitSeq: bigint,
+  excludedIds: readonly string[],
+): string {
+  if (
+    outcome.status !== "committed" ||
+    outcome.disposition !== "published" ||
+    outcome.commitSeq !== commitSeq ||
+    typeof outcome.value !== "string" ||
+    excludedIds.includes(outcome.value)
+  ) {
+    throw new Error(
+      `The cooking ${scenario} did not publish one fresh document id.`,
+    );
+  }
+  return outcome.value;
+}
+
+function requireSuccessfulMutationResult(
+  result: CookingTypedMutationResultV1,
+  scenario: string,
+): AuthoritativeCommittedApplicationPointMutationOutcomeV1 {
+  return Result.match(result, {
+    onFailure: failure => {
+      throw new Error(
+        `The cooking ${scenario} failed with ${failureName(failure)}.`,
+      );
+    },
+    onSuccess: outcome => outcome,
+  });
 }
 
 function requireLifecycleMutation(
@@ -1057,6 +1330,35 @@ function requireApplicationFailure<Success>(
   if (!observation.rejectedAsExpected) {
     throw new Error(
       `The cooking incomplete-recipe publication produced ${observation.outcome} instead of the expected application error.`,
+    );
+  }
+}
+
+function requireInsufficientStockFailure<Success>(
+  result: Result.Result<Success, CookingMutationInvocationErrorV1>,
+  pantryId: string,
+): void {
+  const observation = Result.match(result, {
+    onFailure: failure => ({
+      rejectedAsExpected:
+        failure instanceof PointMutationOccApplicationErrorV1 &&
+        failure.code === "INSUFFICIENT_STOCK" &&
+        failure.message === "Pantry stock is insufficient." &&
+        sameJsonValue(failure.data, {
+          pantryId,
+          requested: 1,
+          available: 0,
+        }),
+      outcome: failureName(failure),
+    }),
+    onSuccess: () => ({
+      rejectedAsExpected: false,
+      outcome: "success",
+    }),
+  });
+  if (!observation.rejectedAsExpected) {
+    throw new Error(
+      `The cooking pantry race produced ${observation.outcome} instead of the expected insufficient-stock error.`,
     );
   }
 }
@@ -1191,6 +1493,40 @@ function sameStrings(
     left.every((value, index) => right[index] === value);
 }
 
+function requirePantryRaceInspection(
+  before: StandardApplicationAuthoritativeInspectionV1,
+  after: StandardApplicationAuthoritativeInspectionV1,
+  competitorCommitSeq: string,
+): void {
+  if (
+    after.currentRowCount !== before.currentRowCount ||
+    after.liveRowCount !== before.liveRowCount ||
+    after.revisionRowCount !== before.revisionRowCount + 2 ||
+    after.mutationRuntimeExecutions !== before.mutationRuntimeExecutions + 3 ||
+    after.queryRuntimeExecutions !== before.queryRuntimeExecutions + 3 ||
+    !sameStrings(
+      after.commitSeqs,
+      [...before.commitSeqs, competitorCommitSeq],
+    ) ||
+    !sameStrings(
+      after.idempotencyOutcomeCommitSeqs,
+      [...before.idempotencyOutcomeCommitSeqs, competitorCommitSeq],
+    ) ||
+    !sameStrings(
+      after.commitFeedCommitSeqs,
+      [...before.commitFeedCommitSeqs, competitorCommitSeq, competitorCommitSeq],
+    ) ||
+    !sameStrings(
+      after.outboxCommitSeqs,
+      [...before.outboxCommitSeqs, competitorCommitSeq],
+    )
+  ) {
+    throw new Error(
+      "The cooking pantry race violated OCC, rollback, or publication evidence.",
+    );
+  }
+}
+
 function requireRecipeDocument(
   value: unknown,
   documentId: string,
@@ -1209,6 +1545,28 @@ function requireRecipeDocument(
   ) {
     throw new Error(
       "The cooking workload did not read the authoritative recipe document.",
+    );
+  }
+}
+
+function requirePantryDocument(
+  value: unknown,
+  documentId: string,
+  expected: Readonly<Record<string, unknown>>,
+): void {
+  if (
+    !isNonArrayRecord(value) ||
+    value._id !== documentId ||
+    typeof value._creationTime !== "number" ||
+    !Number.isFinite(value._creationTime) ||
+    Object.keys(value).length !== Object.keys(expected).length + 2 ||
+    !Object.entries(expected).every(
+      ([fieldName, fieldValue]) => Object.hasOwn(value, fieldName) &&
+        sameJsonValue(value[fieldName], fieldValue),
+    )
+  ) {
+    throw new Error(
+      "The cooking workload did not read the authoritative pantry document.",
     );
   }
 }
@@ -1280,6 +1638,22 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
         module: COOKING_WORKFLOW_MODULE,
         artifactModulePath: "recipePublishWorkflow",
         sourceBytes: COOKING_FUNCTION_SOURCES.publishWorkflow,
+      }, {
+        module: COOKING_PANTRY_COMMAND_MODULE,
+        artifactModulePath: "pantryCreate",
+        sourceBytes: COOKING_FUNCTION_SOURCES.pantryCreate,
+      }, {
+        module: COOKING_PANTRY_QUERY_MODULE,
+        artifactModulePath: "pantryQuery",
+        sourceBytes: COOKING_FUNCTION_SOURCES.pantryQuery,
+      }, {
+        module: COOKING_RESERVATION_MODULE,
+        artifactModulePath: "pantryReservation",
+        sourceBytes: COOKING_FUNCTION_SOURCES.pantryReservation,
+      }],
+      additionalTables: [{
+        logicalName: "pantryStock",
+        fields: COOKING_PANTRY_FIELDS,
       }],
       fields: COOKING_FIELDS,
     }),
@@ -1287,7 +1661,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 9,
-    queries: 11,
+    mutations: 15,
+    queries: 14,
   },
 });

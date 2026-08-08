@@ -12,6 +12,7 @@ import {
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
+  MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   type LogicalReadDependencyV1,
 } from "flarex-protocol/commit-protocol";
 
@@ -30,13 +31,13 @@ export class InvalidVerifiedCommitInputV1Error extends Data.TaggedError(
 
 export type UnsupportedPointCommitPlanV1Issue =
   | {
-      readonly reason: "multipleMaterialRows";
-      readonly maximum: 1;
-      readonly observed: number;
-    }
-  | {
       readonly reason: "developerIndexMaintenance";
       readonly tableId: CatalogTableId;
+    }
+  | {
+      readonly reason: "materialRowLimitExceeded";
+      readonly maximum: number;
+      readonly observed: number;
     }
   | { readonly reason: "unsupportedReadDependency" }
   | { readonly reason: "unsupportedPointState" };
@@ -90,7 +91,7 @@ export interface PreparedPointCommitStateV1 {
   readonly authorityPins: VerifiedCommitInputStateV1["authorityPins"];
   readonly sealIdentity: VerifiedCommitInputStateV1["sealIdentity"];
   readonly dependencies: ReadonlyArray<PreparedPointDependencyV1>;
-  readonly rowIntent: PreparedPointRowIntentV1 | null;
+  readonly rowIntents: ReadonlyArray<PreparedPointRowIntentV1>;
   readonly successfulResult: Readonly<VerifiedSuccessfulResultV1>;
 }
 
@@ -134,29 +135,27 @@ export function planPointCommitStateV1(
     candidates.sort(comparePointCandidates);
     materialCandidates.sort(comparePointCandidates);
 
-    if (materialCandidates.length > 1) {
+    if (materialCandidates.length > MAX_POINT_COMMIT_MATERIAL_ROWS_V1) {
       return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({
         issue: {
-          reason: "multipleMaterialRows",
-          maximum: 1,
+          reason: "materialRowLimitExceeded",
+          maximum: MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
           observed: materialCandidates.length,
         },
       }));
     }
 
-    const materialCandidate = materialCandidates[0];
-    if (
-      materialCandidate !== undefined &&
-      source.schemaManifest.indexBindings.indexes.some(
+    for (const materialCandidate of materialCandidates) {
+      if (source.schemaManifest.indexBindings.indexes.some(
         (index) => index.tableId === materialCandidate.point.tableId,
-      )
-    ) {
-      return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({
-        issue: {
-          reason: "developerIndexMaintenance",
-          tableId: materialCandidate.point.tableId,
-        },
-      }));
+      )) {
+        return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({
+          issue: {
+            reason: "developerIndexMaintenance",
+            tableId: materialCandidate.point.tableId,
+          },
+        }));
+      }
     }
 
     const dependencies = Object.freeze(
@@ -166,9 +165,9 @@ export function planPointCommitStateV1(
       authorityPins: captureAuthorityPins(source.authorityPins),
       sealIdentity: captureSealIdentity(source.sealIdentity),
       dependencies,
-      rowIntent: materialCandidate === undefined
-        ? null
-        : captureRowIntent(materialCandidate),
+      rowIntents: Object.freeze(
+        materialCandidates.map(captureRowIntent),
+      ),
       successfulResult: captureSuccessfulResult(source.successfulResult),
     } satisfies PreparedPointCommitStateV1);
   });

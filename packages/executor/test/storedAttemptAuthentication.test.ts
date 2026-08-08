@@ -46,6 +46,7 @@ import {
   CommitReadDocumentsV1Schema,
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
+  MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
@@ -3705,14 +3706,15 @@ describe("C04A stored-attempt authentication", () => {
     if (normalCommand === undefined) {
       throw new Error("Missing normal C05-B publication command.");
     }
+    const normalRowIntent = normalCommand.rowIntents[0];
     if (
-      normalCommand.rowIntent === null ||
-      normalCommand.rowIntent.kind !== "live" ||
-      !isCanonicalFlarexRuntimeObjectV1(normalCommand.rowIntent.value)
+      normalCommand.rowIntents.length !== 1 ||
+      normalRowIntent?.kind !== "live" ||
+      !isCanonicalFlarexRuntimeObjectV1(normalRowIntent.value)
     ) {
       throw new Error("Expected a live normal-path C05-B row intent.");
     }
-    const nested = normalCommand.rowIntent.value.nested;
+    const nested = normalRowIntent.value.nested;
     if (!isCanonicalFlarexRuntimeObjectV1(nested)) {
       throw new Error("Expected a nested normal-path document object.");
     }
@@ -4116,7 +4118,7 @@ describe("C04A stored-attempt authentication", () => {
     const unchangedPlan = requirePlanSuccess(planPointCommitStateV1(
       await plannerSourceForTest([unchanged]),
     ));
-    expect(unchangedPlan.rowIntent).toBeNull();
+    expect(unchangedPlan.rowIntents).toEqual([]);
     expect(unchangedPlan.dependencies).toEqual([{
       documentId: unchangedId,
       tableId: decodeCatalogTableId(1),
@@ -4133,21 +4135,23 @@ describe("C04A stored-attempt authentication", () => {
     });
     const liveSource = await plannerSourceForTest([live]);
     const livePlan = requirePlanSuccess(planPointCommitStateV1(liveSource));
-    expect(livePlan.rowIntent).toMatchObject({
+    expect(livePlan.rowIntents).toHaveLength(1);
+    expect(livePlan.rowIntents[0]).toMatchObject({
       kind: "live",
       documentId: liveId,
       dependency: live.dependency,
       creationTime: live.creationTime,
       semanticSizeBytes: live.semanticSizeBytes,
     });
-    if (livePlan.rowIntent?.kind !== "live") {
+    const liveIntent = livePlan.rowIntents[0];
+    if (liveIntent?.kind !== "live") {
       throw new Error("Expected one live logical intent.");
     }
-    const originalLiveBytes = livePlan.rowIntent.canonicalBytes;
+    const originalLiveBytes = liveIntent.canonicalBytes;
     live.canonicalBytes.fill(0);
-    livePlan.rowIntent.canonicalBytes.fill(0);
+    liveIntent.canonicalBytes.fill(0);
     livePlan.sealIdentity.journalSha256.fill(0);
-    expect(livePlan.rowIntent.canonicalBytes).toEqual(originalLiveBytes);
+    expect(liveIntent.canonicalBytes).toEqual(originalLiveBytes);
     expect(livePlan.sealIdentity.journalSha256).not.toEqual(
       new Uint8Array(32),
     );
@@ -4162,14 +4166,14 @@ describe("C04A stored-attempt authentication", () => {
     const deletedPlan = requirePlanSuccess(planPointCommitStateV1(
       await plannerSourceForTest([deleted]),
     ));
-    expect(deletedPlan.rowIntent).toEqual({
+    expect(deletedPlan.rowIntents).toEqual([{
       kind: "deleted",
       documentId: deletedId,
       tableId: decodeCatalogTableId(1),
       rowId: decodeAppDocumentIdentityV1(deletedId).rowId,
       dependency: deleted.dependency,
-    });
-    expect(Object.hasOwn(deletedPlan.rowIntent ?? {}, "creationTime")).toBe(
+    }]);
+    expect(Object.hasOwn(deletedPlan.rowIntents[0] ?? {}, "creationTime")).toBe(
       false,
     );
   });
@@ -4185,7 +4189,7 @@ describe("C04A stored-attempt authentication", () => {
     const noOpPlan = requirePlanSuccess(planPointCommitStateV1(
       await plannerSourceForTest([insertedThenDeleted]),
     ));
-    expect(noOpPlan.rowIntent).toBeNull();
+    expect(noOpPlan.rowIntents).toEqual([]);
     expect(noOpPlan.dependencies).toEqual([{
       documentId: insertedThenDeletedId,
       tableId: decodeCatalogTableId(1),
@@ -4202,7 +4206,8 @@ describe("C04A stored-attempt authentication", () => {
     ));
     expect(combinedPlan.dependencies.map(({ documentId }) => documentId))
       .toEqual([insertedThenDeletedId, liveId]);
-    expect(combinedPlan.rowIntent).toMatchObject({
+    expect(combinedPlan.rowIntents).toHaveLength(1);
+    expect(combinedPlan.rowIntents[0]).toMatchObject({
       kind: "live",
       documentId: liveId,
       dependency: live.dependency,
@@ -4264,23 +4269,23 @@ describe("C04A stored-attempt authentication", () => {
       tableTwoHigh.documentId,
       tableTen.documentId,
     ]);
-    expect(plan.rowIntent).toBeNull();
+    expect(plan.rowIntents).toEqual([]);
   });
 
-  it("fails typed for multiple material rows, indexed writes, and future shapes", async () => {
+  it("orders multiple material rows and fails typed for indexed writes and future shapes", async () => {
     const firstLive = await livePlannerPoint(decodeAppDocumentIdV1(
       "1:00000000-0000-4000-8000-000000000021",
     ));
     const secondLive = await livePlannerPoint(decodeAppDocumentIdV1(
       "1:00000000-0000-4000-8000-000000000022",
     ));
-    const multipleFailure = requirePlanFailure(planPointCommitStateV1(
+    const multiplePlan = requirePlanSuccess(planPointCommitStateV1(
       await plannerSourceForTest([firstLive, secondLive]),
     ));
-    expect(multipleFailure).toBeInstanceOf(UnsupportedPointCommitPlanV1Error);
-    expect(multipleFailure).toMatchObject({
-      issue: { reason: "multipleMaterialRows", maximum: 1, observed: 2 },
-    });
+    expect(multiplePlan.rowIntents.map(({ documentId }) => documentId)).toEqual([
+      firstLive.documentId,
+      secondLive.documentId,
+    ]);
 
     const developerIndex = {
       logicalIndexId: 1,
@@ -4366,6 +4371,32 @@ describe("C04A stored-attempt authentication", () => {
     expect(laterDependencyReads).toBe(0);
   });
 
+  it("enforces the dedicated material-row ceiling at the planner boundary", async () => {
+    const points = await Promise.all(Array.from(
+      { length: MAX_POINT_COMMIT_MATERIAL_ROWS_V1 + 1 },
+      (_, index) => livePlannerPoint(decodeAppDocumentIdV1(
+        `1:00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`,
+      )),
+    ));
+    const atLimit = requirePlanSuccess(planPointCommitStateV1(
+      await plannerSourceForTest(points.slice(0, MAX_POINT_COMMIT_MATERIAL_ROWS_V1)),
+    ));
+    expect(atLimit.rowIntents).toHaveLength(
+      MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+    );
+
+    const overLimit = requirePlanFailure(planPointCommitStateV1(
+      await plannerSourceForTest(points),
+    ));
+    expect(overLimit).toMatchObject({
+      issue: {
+        reason: "materialRowLimitExceeded",
+        maximum: MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+        observed: MAX_POINT_COMMIT_MATERIAL_ROWS_V1 + 1,
+      },
+    });
+  });
+
   it("reconstructs equivalent logical state and owned evidence bytes", async () => {
     const documentId = decodeAppDocumentIdV1(
       "1:00000000-0000-4000-8000-000000000031",
@@ -4380,11 +4411,13 @@ describe("C04A stored-attempt authentication", () => {
     ));
 
     expect(first).toEqual(second);
-    if (first.rowIntent?.kind !== "live" || second.rowIntent?.kind !== "live") {
+    const firstIntent = first.rowIntents[0];
+    const secondIntent = second.rowIntents[0];
+    if (firstIntent?.kind !== "live" || secondIntent?.kind !== "live") {
       throw new Error("Expected reconstructed live logical intents.");
     }
-    expect(first.rowIntent.canonicalBytes).toEqual(
-      second.rowIntent.canonicalBytes,
+    expect(firstIntent.canonicalBytes).toEqual(
+      secondIntent.canonicalBytes,
     );
     expect(first.successfulResult.canonicalBytes).toEqual(
       second.successfulResult.canonicalBytes,

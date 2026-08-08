@@ -141,8 +141,8 @@ PointCommitPlannerV1 (introduced by C04C1)
   same-factory database-free logical point/dependency lowering
              |
 PreparedPointCommitV1 (introduced by C04C1)
-  internal immutable dependencies, successful result, and at most one final
-  logical row intent; no SQL or publication authority
+  internal immutable dependencies, successful result, and O09-A-bounded
+  canonically ordered final logical row intents; no SQL or publication authority
              |
 O06 point-commit transaction kernel
   same-factory unwrapping, closed persistence command, current authority locks,
@@ -184,7 +184,8 @@ catalog/policy, logical operations, and final row bodies.
 `PreparedPointCommitV1` is the private C04C1 non-serializable capability. It
 never arrives over `/invoke/*` and contains only the authenticated authority and
 seal link, successful result, every logical point dependency, and at most one
-net material logical row intent. It contains no physical table or column name,
+net material logical row intent before O09-A, and now carries O09-A's bounded
+canonically ordered material intent collection. It contains no physical table or column name,
 allocated commit/outbox sequence, generated outbox ID, database timestamp,
 transaction handle, SQL lock fact, change atom, or outbox template. O06 adapts
 the authenticated logical evidence into a detached closed command and derives
@@ -493,17 +494,19 @@ Outcome:
 - Consume only a genuine same-factory `VerifiedCommitInputV1` and perform zero
   database, catalog, clock, transaction, or metadata I/O.
 - Preserve every protocol-owned `LogicalReadDependencyV1`, order logical
-  evidence by numeric table ID then row bytes, and retain at most one net
-  material logical row intent. Live intent carries the already-verified
+  evidence by numeric table ID then row bytes, and retain the O09-A-bounded net
+  material logical row intents in that same canonical order. Live intent carries the already-verified
   complete final document. Delete of a snapshot-present row carries logical
   delete identity/dependency, while insert followed by delete retains its
   qualified-missing dependency and collapses to no row intent. A deleted point
   with a tombstone dependency is impossible behind authenticated C04A/B input
   and remains a defect rather than a physical delete or ordinary no-op.
 - Return private process-local `PreparedPointCommitV1`. Identical authenticated
-  inputs reconstruct equivalent logical state and contained bytes. More than
-  one material row, future/non-point shapes, and material writes requiring a
-  declared developer index fail typed before any later SQL transaction opens.
+  inputs reconstruct equivalent logical state and contained bytes. O09-A admits
+  multiple material point rows within the dedicated 128-row operational
+  ceiling (separate from the 4,096 point-dependency bound); future/
+  non-point shapes and material writes requiring a declared developer index
+  still fail typed before any later SQL transaction opens.
 - Include no physical names, O05 persistence dependency, current head,
   predecessor sequence, SQL lock fact, commit sequence/time, physical revision/
   current operation, change atom, outbox template, or publication identity.
@@ -514,8 +517,8 @@ Do not introduce this gate unless the frozen S08/S09-A/S09-B/O06/O07-B first-
 consumer contracts prove that a distinct physical/change/outbox lowering
 capability is useful. O06 already owns the reusable authority locks,
 revalidation, O05 adaptation, and tentative revision/current lowering. O07-B owns
-sequence/time allocation and durable publication; O09 owns multi-row/unique
-ordering.
+  sequence/time allocation and durable publication; O09-A now owns multi-row
+  point ordering while O09-B retains unique/developer-index ordering.
 
 ### [x] C05-A — Enter Finishing And Mint The Private Continuation
 

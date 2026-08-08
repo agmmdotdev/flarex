@@ -329,8 +329,8 @@ describe("O08-A exact-attempt replacement", () => {
 
   it("keeps malformed authoritative row-head scalars as corruption without replacement", async () => {
     const current = await prepareAttempt("invalid_row_head", true);
-    const intent = current.transactionCommand.rowIntent;
-    if (intent === null || intent.kind !== "live") {
+    const intent = current.transactionCommand.rowIntents[0];
+    if (intent?.kind !== "live") {
       throw new Error("Expected one live row intent.");
     }
     await persistence.exec(`
@@ -731,8 +731,8 @@ describe("O08-A exact-attempt replacement", () => {
   async function commitCompetingPointRow(
     command: PointCommitTransactionCommandV1,
   ): Promise<void> {
-    const intent = command.rowIntent;
-    if (intent === null || intent.kind !== "live") {
+    const intent = command.rowIntents[0];
+    if (intent?.kind !== "live") {
       throw new Error("O08-A conflict fixture requires one live intent.");
     }
     const clock = await persistence.getScopeClock(command.authorityPins.scopeId);

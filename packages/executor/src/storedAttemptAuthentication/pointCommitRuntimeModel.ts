@@ -128,31 +128,9 @@ export function rebaseFinishingPreparedPointCommitState(
       dependency: Object.freeze(structuredClone(dependency.dependency)),
     }),
   ));
-  const sourceIntent = state.plan.rowIntent;
-  const rowIntent = sourceIntent === null
-    ? null
-    : sourceIntent.kind === "deleted"
-      ? Object.freeze({
-          documentId: sourceIntent.documentId,
-          tableId: sourceIntent.tableId,
-          rowId: sourceIntent.rowId,
-          dependency: Object.freeze(structuredClone(sourceIntent.dependency)),
-          kind: "deleted" as const,
-        })
-      : Object.freeze({
-          documentId: sourceIntent.documentId,
-          tableId: sourceIntent.tableId,
-          rowId: sourceIntent.rowId,
-          dependency: Object.freeze(structuredClone(sourceIntent.dependency)),
-          kind: "live" as const,
-          creationTime: sourceIntent.creationTime,
-          value: normalizeFlarexValueV1(
-            sourceIntent.value,
-            "appDocument",
-          ).value,
-          canonicalBytes: copyBytes(sourceIntent.canonicalBytes),
-          semanticSizeBytes: sourceIntent.semanticSizeBytes,
-        });
+  const rowIntents = Object.freeze(
+    state.plan.rowIntents.map(capturePreparedPointRowIntent),
+  );
   const successfulResult = state.plan.successfulResult;
   const plan = Object.freeze({
     authorityPins: Object.freeze({
@@ -167,7 +145,7 @@ export function rebaseFinishingPreparedPointCommitState(
       resultSha256: copyBytes(seal.resultSha256),
     }),
     dependencies,
-    rowIntent,
+    rowIntents,
     successfulResult: Object.freeze({
       valueCodecVersion: successfulResult.valueCodecVersion,
       value: structuredClone(successfulResult.value),
@@ -282,38 +260,13 @@ export function capturePointCommitTransactionCommand(
 ): PointCommitTransactionCommandV1 {
   const scalar = capturePointCommitAttemptScalarCommand(state);
   const dependencies = capturePointCommitDependencies(state);
-  const rowIntent = state.plan.rowIntent === null
-    ? null
-    : state.plan.rowIntent.kind === "deleted"
-      ? Object.freeze({
-          documentId: state.plan.rowIntent.documentId,
-          tableId: state.plan.rowIntent.tableId,
-          rowId: state.plan.rowIntent.rowId,
-          dependency: Object.freeze(structuredClone(
-            state.plan.rowIntent.dependency,
-          )),
-          kind: "deleted" as const,
-        })
-      : Object.freeze({
-          documentId: state.plan.rowIntent.documentId,
-          tableId: state.plan.rowIntent.tableId,
-          rowId: state.plan.rowIntent.rowId,
-          dependency: Object.freeze(structuredClone(
-            state.plan.rowIntent.dependency,
-          )),
-          kind: "live" as const,
-          creationTime: state.plan.rowIntent.creationTime,
-          value: normalizeFlarexValueV1(
-            state.plan.rowIntent.value,
-            "appDocument",
-          ).value,
-          canonicalBytes: copyBytes(state.plan.rowIntent.canonicalBytes),
-          semanticSizeBytes: state.plan.rowIntent.semanticSizeBytes,
-        });
+  const rowIntents = Object.freeze(
+    state.plan.rowIntents.map(capturePointCommitRowIntent),
+  );
   return Object.freeze({
     ...scalar,
     dependencies,
-    rowIntent,
+    rowIntents,
   } satisfies PointCommitTransactionCommandV1);
 }
 
@@ -438,7 +391,7 @@ export function pointCommitPublicationCommandsEqual(
     | "session"
     | "sealIdentity"
     | "dependencies"
-    | "rowIntent"
+    | "rowIntents"
     | "successfulResult"
   > extends never ? true : never = true;
   void commandFieldsAreExhaustive;
@@ -464,7 +417,7 @@ export function pointCommitPublicationCommandsEqual(
       !pointCommitDependenciesEqual(leftDependency, rightDependency)
     ) return false;
   }
-  return pointCommitRowIntentsEqual(left.rowIntent, right.rowIntent) &&
+  return pointCommitRowIntentsEqual(left.rowIntents, right.rowIntents) &&
     pointCommitSuccessfulResultsEqual(
       left.successfulResult,
       right.successfulResult,
@@ -523,10 +476,26 @@ function pointCommitDependenciesEqual(
 }
 
 function pointCommitRowIntentsEqual(
-  left: PointCommitRowIntentV1 | null,
-  right: PointCommitRowIntentV1 | null,
+  left: ReadonlyArray<PointCommitRowIntentV1>,
+  right: ReadonlyArray<PointCommitRowIntentV1>,
 ): boolean {
-  if (left === null || right === null) return left === right;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const leftIntent = left[index];
+    const rightIntent = right[index];
+    if (
+      leftIntent === undefined ||
+      rightIntent === undefined ||
+      !pointCommitRowIntentEqual(leftIntent, rightIntent)
+    ) return false;
+  }
+  return true;
+}
+
+function pointCommitRowIntentEqual(
+  left: PointCommitRowIntentV1,
+  right: PointCommitRowIntentV1,
+): boolean {
   if (
     left.kind !== right.kind ||
     !pointCommitDependenciesEqual(left, right)
@@ -550,6 +519,36 @@ function pointCommitRowIntentsEqual(
       flarexValueToJsonV1(left.value, "appDocument"),
       flarexValueToJsonV1(right.value, "appDocument"),
     );
+}
+
+function capturePreparedPointRowIntent(
+  source: PreparedPointCommitStateV1["rowIntents"][number],
+): PreparedPointCommitStateV1["rowIntents"][number] {
+  return source.kind === "deleted"
+    ? Object.freeze({
+        documentId: source.documentId,
+        tableId: source.tableId,
+        rowId: source.rowId,
+        dependency: Object.freeze(structuredClone(source.dependency)),
+        kind: "deleted" as const,
+      })
+    : Object.freeze({
+        documentId: source.documentId,
+        tableId: source.tableId,
+        rowId: source.rowId,
+        dependency: Object.freeze(structuredClone(source.dependency)),
+        kind: "live" as const,
+        creationTime: source.creationTime,
+        value: normalizeFlarexValueV1(source.value, "appDocument").value,
+        canonicalBytes: copyBytes(source.canonicalBytes),
+        semanticSizeBytes: source.semanticSizeBytes,
+      });
+}
+
+function capturePointCommitRowIntent(
+  source: PreparedPointCommitStateV1["rowIntents"][number],
+): PointCommitRowIntentV1 {
+  return capturePreparedPointRowIntent(source);
 }
 
 function pointCommitSuccessfulResultsEqual(

@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Random, Result, Schema } from "effect";
 import {
   canonicalizeAppDocumentV1,
@@ -20,6 +20,7 @@ import {
   CanonicalSuccessfulResultBytesV1Schema,
   CommitEnvelopeV1Schema,
   CommitSyscallSequenceV1Schema,
+  MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
@@ -4194,6 +4195,156 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
+  it("publishes mixed multi-row sidecars atomically and rolls them back together", async () => {
+    let insertedDocumentId: string | null = null;
+    let intrinsicWrites = 0;
+    const prepared = await prepareO07BScenario(
+      "o09a_multi_row_atomicity",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Expected the O09-A seeded delete document.");
+        }
+        await expect(runPointOperation(current.store, table, {
+          kind: "delete",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+        })).resolves.toMatchObject({
+          kind: "completed",
+          outcome: { kind: "unit" },
+        });
+        const inserted = await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+          fields: { name: "replacement" },
+        });
+        if (
+          inserted.kind !== "completed" ||
+          inserted.outcome.kind !== "inserted"
+        ) {
+          throw new Error("Expected an O09-A inserted document.");
+        }
+        insertedDocumentId = inserted.outcome.documentId;
+      },
+      async (current) => ({
+        ...await enableIntrinsicIndexForO06(current),
+        afterTransactionStep: (event) => {
+          if (event.step === "intrinsicIndexEntryWritten") {
+            intrinsicWrites += 1;
+            if (intrinsicWrites === 2) {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+          }
+          return Promise.resolve();
+        },
+      }),
+      true,
+    );
+    if (
+      prepared.current.seededDocumentId === null ||
+      insertedDocumentId === null
+    ) {
+      throw new Error("Expected both O09-A mixed-transition document IDs.");
+    }
+    const before = await intrinsicIndexState(prepared.scopeUuid);
+    expect(before).toEqual({
+      revisions: [{
+        tableId: "1",
+        rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
+        commitSeq: "1",
+        isTombstone: false,
+      }],
+      current: [{
+        tableId: "1",
+        rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
+        commitSeq: "1",
+      }],
+    });
+    expect(await runFailure(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    )).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(intrinsicWrites).toBe(2);
+    expect(await intrinsicIndexState(prepared.scopeUuid)).toEqual(before);
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "1",
+      current_rows: "1",
+      commit_headers: "0",
+      commit_changes: "0",
+      outcomes: "0",
+      wakes: "0",
+      last_commit_seq: "1",
+      last_outbox_seq: "0",
+    });
+
+    const recovered = createO07BAuthentication(
+      prepared.current,
+      prepared.proofOptions,
+    );
+    const published = await runEffect(recovered.resumePointCommit({
+      deploymentId: prepared.current.anchor.deploymentId,
+      scopeId: prepared.current.anchor.scopeId,
+      sessionId: prepared.current.anchor.sessionId,
+      attemptFence: prepared.current.anchor.attemptFence.toString(),
+    }));
+    expect(published).toMatchObject({
+      kind: "published",
+      token: { scopeUuid: prepared.scopeUuid, commitSeq: 2n },
+    });
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "3",
+      current_rows: "2",
+      commit_headers: "1",
+      commit_changes: "2",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "2",
+      last_outbox_seq: "1",
+    });
+    const expectedRevisions = [{
+      tableId: "1",
+      rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
+      commitSeq: "1",
+      isTombstone: false,
+    }, {
+      tableId: "1",
+      rowIdHex: pointRowIdHex(prepared.current.seededDocumentId),
+      commitSeq: "2",
+      isTombstone: true,
+    }, {
+      tableId: "1",
+      rowIdHex: pointRowIdHex(insertedDocumentId),
+      commitSeq: "2",
+      isTombstone: false,
+    }].sort(compareIntrinsicIndexRows);
+    expect(await intrinsicIndexState(prepared.scopeUuid)).toEqual({
+      revisions: expectedRevisions,
+      current: [{
+        tableId: "1",
+        rowIdHex: pointRowIdHex(insertedDocumentId),
+        commitSeq: "2",
+      }],
+    });
+    const changes = await persistence.drizzle.select({
+      changeOrdinal: fxSystemCommitAppRowChanges.changeOrdinal,
+      rowId: fxSystemCommitAppRowChanges.rowId,
+    }).from(fxSystemCommitAppRowChanges).where(eq(
+      fxSystemCommitAppRowChanges.scopeUuid,
+      prepared.scopeUuid,
+    )).orderBy(asc(fxSystemCommitAppRowChanges.changeOrdinal));
+    const expectedRowIds = [
+      pointRowIdHex(prepared.current.seededDocumentId),
+      pointRowIdHex(insertedDocumentId),
+    ].sort();
+    expect(changes.map(({ changeOrdinal, rowId }) => ({
+      changeOrdinal,
+      rowIdHex: Buffer.from(rowId).toString("hex"),
+    }))).toEqual(expectedRowIds.map((rowIdHex, changeOrdinal) => ({
+      changeOrdinal,
+      rowIdHex,
+    })));
+  });
+
   it("reports exact request-key evidence reuse before stale session checks", async () => {
     const prepared = await prepareO07BScenario("o07b_reuse_conflict");
     await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
@@ -4351,7 +4502,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }).prove(noMaterial.command),
     );
     expect(noMaterial.command.dependencies).toHaveLength(1);
-    expect(noMaterial.command.rowIntent).toBeNull();
+    expect(noMaterial.command.rowIntents).toEqual([]);
     expect(noMaterialSteps).not.toContain("tentativeRowWritten");
     expect(noMaterialSteps.at(-1)).toBe("beforeRollback");
   });
@@ -4585,16 +4736,47 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       reason: "commandInvalid",
     });
 
-    const rowIntent = prepared.command.rowIntent;
-    if (rowIntent === null || rowIntent.kind !== "live") {
+    const rowIntent = prepared.command.rowIntents[0];
+    if (rowIntent?.kind !== "live") {
       throw new Error("Expected one live captured row intent.");
     }
+    const duplicateRowIntents = Object.freeze({
+      ...prepared.command,
+      rowIntents: Object.freeze([rowIntent, rowIntent]),
+    });
+    await expect(
+      runFailure(proof.prove(duplicateRowIntents)),
+    ).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+    const oversizedRowIntents = Object.freeze({
+      ...prepared.command,
+      rowIntents: Object.freeze(Array.from(
+        { length: MAX_POINT_COMMIT_MATERIAL_ROWS_V1 + 1 },
+        () => rowIntent,
+      )),
+    });
+    await expect(
+      runFailure(proof.prove(oversizedRowIntents)),
+    ).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+    const sparseRowIntents = new Array(1);
+    await expect(runFailure(proof.prove(Object.freeze({
+      ...prepared.command,
+      rowIntents: Object.freeze(sparseRowIntents),
+    })))).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
     const invalidCanonicalValue = Object.freeze({
       ...prepared.command,
-      rowIntent: Object.freeze({
+      rowIntents: Object.freeze([Object.freeze({
         ...rowIntent,
         value: Object.freeze({ invalid: 1n << 70n }),
-      }),
+      })]),
     }) as PointCommitTransactionCommandV1;
     await expect(
       runFailure(proof.prove(invalidCanonicalValue)),
@@ -4605,10 +4787,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
     const invalidCanonicalBytes = Object.freeze({
       ...prepared.command,
-      rowIntent: Object.freeze({
+      rowIntents: Object.freeze([Object.freeze({
         ...rowIntent,
         canonicalBytes: Object.create(Uint8Array.prototype) as Uint8Array,
-      }),
+      })]),
     });
     await expect(
       runFailure(proof.prove(invalidCanonicalBytes)),
@@ -5604,12 +5786,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       current: Awaited<ReturnType<typeof c04b2Scenario>>,
       table: PinnedPointTableV1,
     ) => Promise<void>,
-    options: PointCommitTransactionProofOptionsV1 = {},
+    options:
+      | PointCommitTransactionProofOptionsV1
+      | ((current: Awaited<ReturnType<typeof c04b2Scenario>>) =>
+        Promise<PointCommitTransactionProofOptionsV1>) = {},
+    seedRow = false,
   ) {
     const running = await prepareO07BRunningScenario(
       label,
       operation,
       options,
+      undefined,
+      seedRow,
     );
     const plan = await runEffect(
       running.authentication.enterPointCommitFinishing(running.runningPlan),
@@ -5626,15 +5814,22 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       current: Awaited<ReturnType<typeof c04b2Scenario>>,
       table: PinnedPointTableV1,
     ) => Promise<void>,
-    options: PointCommitTransactionProofOptionsV1 = {},
+    options:
+      | PointCommitTransactionProofOptionsV1
+      | ((current: Awaited<ReturnType<typeof c04b2Scenario>>) =>
+        Promise<PointCommitTransactionProofOptionsV1>) = {},
     publisherPorts: PointMutationSessionAuthorityResolutionPortsV1 =
       resolutionPorts(persistence),
+    seedRow = false,
   ) {
-    const current = await c04b2Scenario(label);
+    const current = await c04b2Scenario(label, {}, seedRow);
     const table = await runEffect(
       current.store.resolvePointTableEffect(current.attempt, "users"),
     );
     await operation?.(current, table);
+    const proofOptions = typeof options === "function"
+      ? await options(current)
+      : options;
     const envelope = await seal(current);
     const loadedAttempt = await runEffect(current.loading.load({
       deploymentId: current.anchor.deploymentId,
@@ -5644,7 +5839,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     }));
     const authentication = createO07BAuthentication(
       current,
-      options,
+      proofOptions,
       publisherPorts,
     );
     const authority = await runEffect(
@@ -5666,6 +5861,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     return Object.freeze({
       current,
       authentication,
+      proofOptions,
       runningPlan,
       scopeUuid: projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
     });
@@ -6096,8 +6292,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   async function commitCompetingPointRow(
     command: PointCommitTransactionCommandV1,
   ): Promise<void> {
-    const intent = command.rowIntent;
-    if (intent === null || intent.kind !== "live") {
+    const intent = command.rowIntents[0];
+    if (intent?.kind !== "live") {
       throw new Error("O06 conflict fixture requires a live row intent.");
     }
     await commitCompetingLiveIntent(
@@ -6114,7 +6310,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     scopeUuid: PointCommitTransactionCommandV1["sealIdentity"]["scopeUuid"],
     intent: Pick<
       Extract<
-        NonNullable<PointCommitTransactionCommandV1["rowIntent"]>,
+        PointCommitTransactionCommandV1["rowIntents"][number],
         { readonly kind: "live" }
       >,
       "tableId" | "rowId" | "creationTime" | "value"
@@ -6276,6 +6472,82 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const row = result.rows[0];
     if (row === undefined) throw new Error("Missing O06 durable state.");
     return row;
+  }
+
+  async function intrinsicIndexState(scopeUuid: string) {
+    const revisions = await persistence.query<{
+      table_id: string;
+      row_id_hex: string;
+      commit_seq: string;
+      is_tombstone: boolean;
+    }>(
+      `select table_id::text, encode(row_id, 'hex') as row_id_hex,
+         commit_seq::text, is_tombstone
+       from fx_app_index_entry_rev
+       where scope_uuid = $1
+       order by table_id, row_id, commit_seq`,
+      [scopeUuid],
+    );
+    const current = await persistence.query<{
+      table_id: string;
+      row_id_hex: string;
+      commit_seq: string;
+    }>(
+      `select revision.table_id::text,
+         encode(current_entry.row_id, 'hex') as row_id_hex,
+         current_entry.commit_seq::text
+       from fx_app_index_entry_current as current_entry
+       join fx_app_index_entry_rev as revision
+         on revision.scope_uuid = current_entry.scope_uuid
+        and revision.index_definition_id = current_entry.index_definition_id
+        and revision.encoded_key = current_entry.encoded_key
+        and revision.row_id = current_entry.row_id
+        and revision.commit_seq = current_entry.commit_seq
+       where current_entry.scope_uuid = $1
+       order by revision.table_id, current_entry.row_id`,
+      [scopeUuid],
+    );
+    return {
+      revisions: revisions.rows.map((row) => ({
+        tableId: row.table_id,
+        rowIdHex: row.row_id_hex,
+        commitSeq: row.commit_seq,
+        isTombstone: row.is_tombstone,
+      })),
+      current: current.rows.map((row) => ({
+        tableId: row.table_id,
+        rowIdHex: row.row_id_hex,
+        commitSeq: row.commit_seq,
+      })),
+    } as const;
+  }
+
+  function pointRowIdHex(documentId: string): string {
+    return documentId.slice(documentId.indexOf(":") + 1).replaceAll("-", "");
+  }
+
+  function compareIntrinsicIndexRows(
+    left: Readonly<{
+      readonly tableId: string;
+      readonly rowIdHex: string;
+      readonly commitSeq: string;
+    }>,
+    right: Readonly<{
+      readonly tableId: string;
+      readonly rowIdHex: string;
+      readonly commitSeq: string;
+    }>,
+  ): number {
+    const identityOrder = left.tableId.localeCompare(right.tableId) ||
+      left.rowIdHex.localeCompare(right.rowIdHex);
+    if (identityOrder !== 0) return identityOrder;
+    const leftCommitSeq = BigInt(left.commitSeq);
+    const rightCommitSeq = BigInt(right.commitSeq);
+    return leftCommitSeq < rightCommitSeq
+      ? -1
+      : leftCommitSeq > rightCommitSeq
+        ? 1
+        : 0;
   }
 
   async function o07bTerminalState(

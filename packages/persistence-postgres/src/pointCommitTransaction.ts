@@ -33,6 +33,7 @@ import {
 import {
   CanonicalSuccessfulResultBytesV1Schema,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSuccessfulResultV1Effect,
   type CommitFinalSyscallSequenceV1,
@@ -333,7 +334,7 @@ export type PointCommitRowIntentV1 =
 export interface PointCommitTransactionCommandV1
   extends PointCommitAttemptScalarCommandV1 {
   readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
-  readonly rowIntent: PointCommitRowIntentV1 | null;
+  readonly rowIntents: ReadonlyArray<PointCommitRowIntentV1>;
 }
 
 /**
@@ -832,9 +833,9 @@ interface PreparedPointCommitTransactionCommandV1
   extends PreparedPointCommitAttemptScalarCommandV1,
     Omit<
       PointCommitTransactionCommandV1,
-      keyof PointCommitAttemptScalarCommandV1 | "rowIntent"
+      keyof PointCommitAttemptScalarCommandV1 | "rowIntents"
     > {
-  readonly rowIntent: PreparedPointCommitRowIntentV1 | null;
+  readonly rowIntents: ReadonlyArray<PreparedPointCommitRowIntentV1>;
 }
 
 interface PreparedPointCommitPublicationCommandV1
@@ -905,43 +906,51 @@ const resolvePointCommitAuthority = Effect.fn(
     scopeClockTargets: ports.scopeSessionTargets,
   }).pipe(Effect.catch(routeAuthorityResolutionFailure)));
 
-const prepareIntrinsicIndexDefinition = Effect.fn(
-  "PointCommitTransaction.prepareIntrinsicIndexDefinition",
+const prepareIntrinsicIndexDefinitions = Effect.fn(
+  "PointCommitTransaction.prepareIntrinsicIndexDefinitions",
 )(function* (
   command: PreparedPointCommitTransactionCommandV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Effect.fn.Return<
-  LocatedAppIndexDefinitionV1 | null,
+  ReadonlyArray<LocatedAppIndexDefinitionV1>,
   | ReadAppIndexDefinitionError
   | PointCommitIntrinsicIndexDefinitionUnavailableV1Error
   | PointCommitCorruptionV1Error
 > {
-  const intent = command.rowIntent;
   const port = options.intrinsicCreationTimeIndexes;
-  if (intent === null || port === undefined) return null;
-  const definition = yield* port.locate({
-    deploymentId: command.authorityPins.deploymentId,
-    scopeId: command.authorityPins.scopeId,
-    tableId: intent.tableId,
-  });
-  if (definition === null) {
-    return yield* Effect.fail(
-      new PointCommitIntrinsicIndexDefinitionUnavailableV1Error({
-        deploymentId: command.authorityPins.deploymentId,
-        scopeId: command.authorityPins.scopeId,
-        tableId: intent.tableId,
-      }),
-    );
+  if (command.rowIntents.length === 0 || port === undefined) {
+    return Object.freeze([]);
   }
-  if (
-    definition.scopeId !== command.authorityPins.scopeId ||
-    definition.deploymentId !== command.authorityPins.deploymentId ||
-    definition.access.kind !== "by_creation_time" ||
-    definition.access.tableId !== intent.tableId
-  ) {
-    return yield* Effect.fail(corruption("intrinsicIndexBuildInvalid"));
+  const definitions: LocatedAppIndexDefinitionV1[] = [];
+  let previousTableId: CatalogTableId | undefined;
+  for (const intent of command.rowIntents) {
+    if (intent.tableId === previousTableId) continue;
+    previousTableId = intent.tableId;
+    const definition = yield* port.locate({
+      deploymentId: command.authorityPins.deploymentId,
+      scopeId: command.authorityPins.scopeId,
+      tableId: intent.tableId,
+    });
+    if (definition === null) {
+      return yield* Effect.fail(
+        new PointCommitIntrinsicIndexDefinitionUnavailableV1Error({
+          deploymentId: command.authorityPins.deploymentId,
+          scopeId: command.authorityPins.scopeId,
+          tableId: intent.tableId,
+        }),
+      );
+    }
+    if (
+      definition.scopeId !== command.authorityPins.scopeId ||
+      definition.deploymentId !== command.authorityPins.deploymentId ||
+      definition.access.kind !== "by_creation_time" ||
+      definition.access.tableId !== intent.tableId
+    ) {
+      return yield* Effect.fail(corruption("intrinsicIndexBuildInvalid"));
+    }
+    definitions.push(definition);
   }
-  return definition;
+  return Object.freeze(definitions);
 });
 
 export function createPointCommitFinishingTransitionPortV1(
@@ -1026,16 +1035,15 @@ export function createPointMutationAttemptReplacementPortV1(
         "executionClaimOwnerGenerationFailed",
       ),
     });
-    const decodedOwner = decodeTransactionExecutionClaimOwnerV1(
-      generatedOwner,
-    );
-    if (Result.isFailure(decodedOwner)) {
-      return yield* Effect.fail(
+    const decodedOwner = yield* Effect.fromResult(
+      decodeTransactionExecutionClaimOwnerV1(generatedOwner),
+    ).pipe(
+      Effect.mapError(() =>
         new PointMutationAttemptReplacementConfigurationV1Error(
           "executionClaimOwnerInvalid",
-        ),
-      );
-    }
+        )
+      ),
+    );
     const located = yield* resolvePointCommitAuthority(
       command.authorityPins.deploymentId,
       ports,
@@ -1064,7 +1072,7 @@ export function createPointMutationAttemptReplacementPortV1(
         command,
         options,
         proofOptions,
-        decodedOwner.success,
+        decodedOwner,
         executionClaimDurationMilliseconds,
       ),
       catch: mapPointMutationAttemptReplacementTransactionFailure,
@@ -1101,7 +1109,7 @@ export function createPointCommitRollbackProofPortV1(
         "readCommittedCapabilityMissing",
       ));
     }
-    const intrinsicDefinition = yield* prepareIntrinsicIndexDefinition(
+    const intrinsicDefinitions = yield* prepareIntrinsicIndexDefinitions(
       command,
       options,
     );
@@ -1110,7 +1118,7 @@ export function createPointCommitRollbackProofPortV1(
         target,
         located.authority,
         command,
-        intrinsicDefinition,
+        intrinsicDefinitions,
         options,
       ),
       catch: mapTransactionFailure,
@@ -1166,7 +1174,7 @@ export function createPointCommitPublisherPortV1(
       return yield* Effect.fail(preliminaryFailure);
     }
 
-    const intrinsicDefinition = yield* prepareIntrinsicIndexDefinition(
+    const intrinsicDefinitions = yield* prepareIntrinsicIndexDefinitions(
       command,
       options,
     );
@@ -1176,7 +1184,7 @@ export function createPointCommitPublisherPortV1(
         target,
         located.authority,
         command,
-        intrinsicDefinition,
+        intrinsicDefinitions,
         options,
       ),
     );
@@ -1283,37 +1291,31 @@ const preparePointCommitCommand = Effect.fn(
   const captured = yield* Effect.fromResult(
     capturePointCommitCommandResult(input),
   );
-  if (captured.rowIntent === null) {
-    return Object.freeze({ ...captured, rowIntent: null });
-  }
-  if (captured.rowIntent.kind === "deleted") {
-    return Object.freeze({
-      ...captured,
-      rowIntent: captured.rowIntent,
-    });
-  }
-  const rowIntent = captured.rowIntent;
-  const document = yield* Effect.tryPromise({
-    try: () => canonicalizeFlarexValueV1(
-      rowIntent.value,
-      "appDocument",
-    ),
-    catch: (cause): unknown => cause,
-  }).pipe(Effect.catch((cause: unknown) =>
-    cause instanceof FlarexValueCodecV1Error
-      ? Effect.fail(corruption("commandInvalid"))
-      : Effect.die(cause)
-  ));
-  if (
-    !bytesEqual(document.canonicalBytes, rowIntent.canonicalBytes) ||
-    document.semanticSizeBytes !== rowIntent.semanticSizeBytes ||
-    !isCanonicalDocumentForIntent(document, rowIntent)
-  ) {
-    return yield* Effect.fail(corruption("commandInvalid"));
-  }
-  return Object.freeze({
-    ...captured,
-    rowIntent: Object.freeze({
+  const rowIntents: PreparedPointCommitRowIntentV1[] = [];
+  for (const rowIntent of captured.rowIntents) {
+    if (rowIntent.kind === "deleted") {
+      rowIntents.push(rowIntent);
+      continue;
+    }
+    const document = yield* Effect.tryPromise({
+      try: () => canonicalizeFlarexValueV1(
+        rowIntent.value,
+        "appDocument",
+      ),
+      catch: (cause): unknown => cause,
+    }).pipe(Effect.catch((cause: unknown) =>
+      cause instanceof FlarexValueCodecV1Error
+        ? Effect.fail(corruption("commandInvalid"))
+        : Effect.die(cause)
+    ));
+    if (
+      !bytesEqual(document.canonicalBytes, rowIntent.canonicalBytes) ||
+      document.semanticSizeBytes !== rowIntent.semanticSizeBytes ||
+      !isCanonicalDocumentForIntent(document, rowIntent)
+    ) {
+      return yield* Effect.fail(corruption("commandInvalid"));
+    }
+    rowIntents.push(Object.freeze({
       documentId: rowIntent.documentId,
       tableId: rowIntent.tableId,
       rowId: rowIntent.rowId,
@@ -1321,7 +1323,11 @@ const preparePointCommitCommand = Effect.fn(
       kind: "live",
       creationTime: rowIntent.creationTime,
       document,
-    } satisfies PreparedLivePointCommitRowIntentV1),
+    } satisfies PreparedLivePointCommitRowIntentV1));
+  }
+  return Object.freeze({
+    ...captured,
+    rowIntents: Object.freeze(rowIntents),
   });
 });
 
@@ -1471,20 +1477,20 @@ function capturePointCommitCommandResult(
       input.dependencies,
       sealIdentity.pointDependencyCount,
     );
-    const rowIntent = input.rowIntent === null
-      ? null
-      : yield* captureRowIntentResult(input.rowIntent);
-    if (rowIntent !== null && !dependencies.some(
-      (dependency) => pointDependenciesEqual(dependency, rowIntent),
-    )) {
-      return yield* Result.fail(corruption("commandInvalid"));
+    const rowIntents = yield* captureRowIntentsResult(input.rowIntents);
+    for (const rowIntent of rowIntents) {
+      if (!dependencies.some(
+        (dependency) => pointDependenciesEqual(dependency, rowIntent),
+      )) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
     }
     return Object.freeze({
       authorityPins,
       session,
       sealIdentity,
       dependencies,
-      rowIntent,
+      rowIntents,
     });
   });
 }
@@ -1750,33 +1756,32 @@ function requireCommandAuthorityConsistencyResult(
   session: Readonly<PointCommitSessionScalarsV1>,
   seal: Readonly<PointCommitSealIdentityV1>,
 ): Result.Result<void, PointCommitCorruptionV1Error> {
-  const projection = projectScopeIdUuidV1Result(pins.scopeId).pipe(
-    Result.mapError(() => corruption("commandInvalid")),
-  );
-  if (Result.isFailure(projection)) return Result.fail(projection.failure);
-  const projectedScopeUuid = projection.success.scopeUuid;
-  if (
-    seal.scopeUuid !== projectedScopeUuid ||
-    seal.sessionUpdatedAtMilliseconds !== session.updatedAtMilliseconds ||
-    seal.leaseExpiresAtMilliseconds > session.hardExpiresAtMilliseconds ||
-    pins.storageGeneration !== session.storageGeneration ||
-    pins.storageGenerationFence !== session.storageGenerationFence ||
-    pins.packageId !== session.packageId ||
-    pins.artifactRuntime !== session.artifactRuntime ||
-    pins.artifactId !== session.artifactId ||
-    pins.sourcePackageHash !== session.sourcePackageHash ||
-    pins.executionModule !== session.executionModule ||
-    pins.functionPath !== session.functionPath ||
-    pins.functionKind !== session.functionKind ||
-    pins.schemaVersionId !== session.schemaVersionId ||
-    pins.policyVersion !== session.policyVersion ||
-    pins.authorizationRevocationEpoch !==
-      session.authorizationRevocationEpoch ||
-    pins.requestKey !== session.requestKey
-  ) {
-    return Result.fail(corruption("commandInvalid"));
-  }
-  return Result.succeed(undefined);
+  return Result.gen(function* () {
+    const projectedScopeUuid = (yield* projectScopeIdUuidV1Result(
+      pins.scopeId,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")))).scopeUuid;
+    if (
+      seal.scopeUuid !== projectedScopeUuid ||
+      seal.sessionUpdatedAtMilliseconds !== session.updatedAtMilliseconds ||
+      seal.leaseExpiresAtMilliseconds > session.hardExpiresAtMilliseconds ||
+      pins.storageGeneration !== session.storageGeneration ||
+      pins.storageGenerationFence !== session.storageGenerationFence ||
+      pins.packageId !== session.packageId ||
+      pins.artifactRuntime !== session.artifactRuntime ||
+      pins.artifactId !== session.artifactId ||
+      pins.sourcePackageHash !== session.sourcePackageHash ||
+      pins.executionModule !== session.executionModule ||
+      pins.functionPath !== session.functionPath ||
+      pins.functionKind !== session.functionKind ||
+      pins.schemaVersionId !== session.schemaVersionId ||
+      pins.policyVersion !== session.policyVersion ||
+      pins.authorizationRevocationEpoch !==
+        session.authorizationRevocationEpoch ||
+      pins.requestKey !== session.requestKey
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+  });
 }
 
 function capturePointDependencyResult(
@@ -1942,6 +1947,36 @@ function captureRowIntentResult(
       canonicalBytes,
       semanticSizeBytes: input.semanticSizeBytes,
     });
+  });
+}
+
+function captureRowIntentsResult(
+  input: ReadonlyArray<PointCommitRowIntentV1>,
+): Result.Result<
+  ReadonlyArray<Readonly<PointCommitRowIntentV1>>,
+  PointCommitCorruptionV1Error
+> {
+  if (
+    !Array.isArray(input) ||
+    input.length > MAX_POINT_COMMIT_MATERIAL_ROWS_V1
+  ) {
+    return Result.fail(corruption("commandInvalid"));
+  }
+  return Result.gen(function* () {
+    const captured: Readonly<PointCommitRowIntentV1>[] = [];
+    for (let index = 0; index < input.length; index += 1) {
+      if (!Object.hasOwn(input, index)) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
+      const intent = input[index];
+      if (intent === undefined) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
+      captured.push(yield* captureRowIntentResult(intent));
+    }
+    const rowIntents = Object.freeze(captured);
+    yield* requireCanonicalDependencyOrderResult(rowIntents);
+    return rowIntents;
   });
 }
 
@@ -2201,44 +2236,44 @@ async function runPointMutationAttemptReplacement(
     const replacementFence = TransactionAttemptFenceSchema.make(
       command.authorityPins.attemptFence + 1n,
     );
-    const freshFacetResult = buildFreshTransactionAttemptFacetV1({
-      scopeUuid: clock.scopeUuid,
-      sessionId: command.authorityPins.sessionId,
-      attemptFence: replacementFence,
-      snapshotEpochUuid: clock.epochUuid,
-      snapshotCommitSeq: clock.record.lastCommitSeq,
-      databaseNowMilliseconds: mutationTimeMilliseconds,
-      authorizationGrantExpiresAtMilliseconds:
-        session.authorizationGrantExpiresAtMilliseconds,
-      hardExpiresAtMilliseconds: session.hardExpiresAtMilliseconds,
-      leaseDurationMilliseconds: options.leaseDurationMilliseconds,
-    });
-    if (Result.isFailure(freshFacetResult)) {
-      if (freshFacetResult.failure === "authorityExpired") {
-        throw stale("expired");
-      }
-      throw replacementCorruption("freshLeaseInvalid");
-    }
-    const freshFacet = freshFacetResult.success;
-    const freshExecutionClaim = deriveTransactionExecutionClaimV1({
-      scopeUuid: clock.scopeUuid,
-      sessionId: command.authorityPins.sessionId,
-      attemptFence: replacementFence,
-      claimFence: 1n,
-      claimOwner: executionClaimOwner,
-      databaseNow: new Date(mutationTimeMilliseconds),
-      durationMilliseconds: executionClaimDurationMilliseconds,
-      leaseExpiresAt: freshFacet.leaseExpiresAt,
-      authorizationGrantExpiresAt: new Date(
-        session.authorizationGrantExpiresAtMilliseconds,
-      ),
-      hardExpiresAt: new Date(session.hardExpiresAtMilliseconds),
-    });
-    if (Result.isFailure(freshExecutionClaim)) {
-      throw freshExecutionClaim.failure === "authorityExpired"
-        ? stale("expired")
-        : replacementCorruption("freshLeaseInvalid");
-    }
+    const freshFacet = projectPointCommitTransactionResult(
+      buildFreshTransactionAttemptFacetV1({
+        scopeUuid: clock.scopeUuid,
+        sessionId: command.authorityPins.sessionId,
+        attemptFence: replacementFence,
+        snapshotEpochUuid: clock.epochUuid,
+        snapshotCommitSeq: clock.record.lastCommitSeq,
+        databaseNowMilliseconds: mutationTimeMilliseconds,
+        authorizationGrantExpiresAtMilliseconds:
+          session.authorizationGrantExpiresAtMilliseconds,
+        hardExpiresAtMilliseconds: session.hardExpiresAtMilliseconds,
+        leaseDurationMilliseconds: options.leaseDurationMilliseconds,
+      }).pipe(Result.mapError((reason) =>
+        reason === "authorityExpired"
+          ? stale("expired")
+          : replacementCorruption("freshLeaseInvalid")
+      )),
+    );
+    const freshExecutionClaim = projectPointCommitTransactionResult(
+      deriveTransactionExecutionClaimV1({
+        scopeUuid: clock.scopeUuid,
+        sessionId: command.authorityPins.sessionId,
+        attemptFence: replacementFence,
+        claimFence: 1n,
+        claimOwner: executionClaimOwner,
+        databaseNow: new Date(mutationTimeMilliseconds),
+        durationMilliseconds: executionClaimDurationMilliseconds,
+        leaseExpiresAt: freshFacet.leaseExpiresAt,
+        authorizationGrantExpiresAt: new Date(
+          session.authorizationGrantExpiresAtMilliseconds,
+        ),
+        hardExpiresAt: new Date(session.hardExpiresAtMilliseconds),
+      }).pipe(Result.mapError((reason) =>
+        reason === "authorityExpired"
+          ? stale("expired")
+          : replacementCorruption("freshLeaseInvalid")
+      )),
+    );
 
     const retrying = tx.update(fxSystemTransactionSessions).set({
       lifecycle: "retrying",
@@ -2374,7 +2409,7 @@ async function runPointMutationAttemptReplacement(
     await emitReplacementStep(options, command, "journalRootInserted");
 
     const claimInsert = tx.insert(fxSystemTransactionExecutionClaims)
-      .values(freshExecutionClaim.success)
+      .values(freshExecutionClaim)
       .returning({
         attemptFence: fxSystemTransactionExecutionClaims.attemptFence,
       });
@@ -2421,11 +2456,11 @@ async function runPointMutationAttemptReplacement(
       command,
       replacementFence,
       Object.freeze({
-        claimOwner: freshExecutionClaim.success.claimOwner,
-        claimFence: freshExecutionClaim.success.claimFence,
-        claimedAt: freshExecutionClaim.success.claimedAt.toISOString(),
+        claimOwner: freshExecutionClaim.claimOwner,
+        claimFence: freshExecutionClaim.claimFence,
+        claimedAt: freshExecutionClaim.claimedAt.toISOString(),
         claimExpiresAt:
-          freshExecutionClaim.success.claimExpiresAt.toISOString(),
+          freshExecutionClaim.claimExpiresAt.toISOString(),
       }),
     );
   });
@@ -2513,23 +2548,23 @@ async function observeReplacedPointMutationAttempt(
   ) {
     throw replacementCorruption("replacementConvergenceInvalid");
   }
-  const expectedFacetResult = buildFreshTransactionAttemptFacetV1({
-    scopeUuid: clock.scopeUuid,
-    sessionId: command.authorityPins.sessionId,
-    attemptFence: expectedFence,
-    snapshotEpochUuid: lease.snapshotEpochUuid,
-    snapshotCommitSeq: lease.snapshotCommitSeq,
-    databaseNowMilliseconds: session.updatedAtMilliseconds,
-    authorizationGrantExpiresAtMilliseconds:
-      session.authorizationGrantExpiresAtMilliseconds,
-    hardExpiresAtMilliseconds: session.hardExpiresAtMilliseconds,
-    leaseDurationMilliseconds:
-      leaseExpiresAtMilliseconds - session.updatedAtMilliseconds,
-  });
-  if (Result.isFailure(expectedFacetResult)) {
-    throw replacementCorruption("replacementConvergenceInvalid");
-  }
-  const expectedFacet = expectedFacetResult.success;
+  const expectedFacet = projectPointCommitTransactionResult(
+    buildFreshTransactionAttemptFacetV1({
+      scopeUuid: clock.scopeUuid,
+      sessionId: command.authorityPins.sessionId,
+      attemptFence: expectedFence,
+      snapshotEpochUuid: lease.snapshotEpochUuid,
+      snapshotCommitSeq: lease.snapshotCommitSeq,
+      databaseNowMilliseconds: session.updatedAtMilliseconds,
+      authorizationGrantExpiresAtMilliseconds:
+        session.authorizationGrantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds: session.hardExpiresAtMilliseconds,
+      leaseDurationMilliseconds:
+        leaseExpiresAtMilliseconds - session.updatedAtMilliseconds,
+    }).pipe(Result.mapError(() =>
+      replacementCorruption("replacementConvergenceInvalid")
+    )),
+  );
   if (
     leaseExpiresAtMilliseconds !==
       finiteDateMilliseconds(expectedFacet.leaseExpiresAt)
@@ -2909,7 +2944,7 @@ async function runRollbackProof(
   target: LocatedReadCommittedAttemptTargetV1,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitTransactionCommandV1,
-  intrinsicDefinition: LocatedAppIndexDefinitionV1 | null,
+  intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitWouldCommitV1> {
   try {
@@ -2918,7 +2953,7 @@ async function runRollbackProof(
         tx,
         preliminaryAuthority,
         command,
-        intrinsicDefinition,
+        intrinsicDefinitions,
         options,
         "rollbackProof",
       );
@@ -2943,7 +2978,7 @@ async function runPointCommitPublication(
   target: LocatedPointCommitPublicationTargetV1,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitPublicationCommandV1,
-  intrinsicDefinition: LocatedAppIndexDefinitionV1 | null,
+  intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitPublicationDecisionV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
@@ -2951,7 +2986,7 @@ async function runPointCommitPublication(
       tx,
       preliminaryAuthority,
       command,
-      intrinsicDefinition,
+      intrinsicDefinitions,
       options,
       "publish",
     );
@@ -2987,7 +3022,7 @@ async function runPointCommitTransactionKernel(
   tx: AppRowTransaction,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitTransactionCommandV1,
-  intrinsicDefinition: LocatedAppIndexDefinitionV1 | null,
+  intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
   mode: PointCommitTransactionModeV1,
 ): Promise<PointCommitKernelResultV1> {
@@ -3004,13 +3039,13 @@ async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(
     requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
   );
-  const intrinsicBuild = await lockPointCommitIntrinsicIndexBuild(
+  const intrinsicBuilds = await lockPointCommitIntrinsicIndexBuilds(
     tx,
     clock,
-    intrinsicDefinition,
+    intrinsicDefinitions,
     command,
   );
-  if (intrinsicBuild !== null) {
+  if (intrinsicBuilds.length > 0) {
     await emitTransactionStep(options, command, "intrinsicIndexBuildLocked");
   }
 
@@ -3046,7 +3081,7 @@ async function runPointCommitTransactionKernel(
   );
   await emitTransactionStep(options, command, "dependenciesValidated");
 
-  if (mode === "rollbackProof" && command.rowIntent === null) {
+  if (mode === "rollbackProof" && command.rowIntents.length === 0) {
     return Object.freeze({
       kind: "ready",
       clock,
@@ -3074,21 +3109,37 @@ async function runPointCommitTransactionKernel(
       preWriteDatabaseNowMilliseconds,
     ),
   );
-  const rowIntent = command.rowIntent;
-  if (rowIntent !== null) {
+  let intrinsicBuildIndex = 0;
+  for (const rowIntent of command.rowIntents) {
     const rowRevision = await lowerTentativePointCommitRow(
       tx,
       clock.record.epoch,
       allocation.commitSeq,
       command,
       loadedHeads,
+      rowIntent,
     );
     await emitTransactionStep(options, command, "tentativeRowWritten");
-    if (intrinsicBuild !== null && intrinsicDefinition !== null) {
+    let intrinsic: LockedPointCommitIntrinsicIndexV1 | undefined =
+      intrinsicBuilds[intrinsicBuildIndex];
+    while (
+      intrinsic !== undefined &&
+      intrinsic.definition.access.tableId < rowIntent.tableId
+    ) {
+      intrinsicBuildIndex += 1;
+      intrinsic = intrinsicBuilds[intrinsicBuildIndex];
+    }
+    if (
+      intrinsic !== undefined &&
+      intrinsic.definition.access.tableId !== rowIntent.tableId
+    ) {
+      intrinsic = undefined;
+    }
+    if (intrinsic !== undefined) {
       const changed = await lowerTentativePointCommitIntrinsicIndex(
         tx,
-        intrinsicBuild,
-        intrinsicDefinition,
+        intrinsic.build,
+        intrinsic.definition,
         rowRevision,
       );
       if (changed) {
@@ -3098,11 +3149,10 @@ async function runPointCommitTransactionKernel(
           "intrinsicIndexEntryWritten",
         );
       }
-      await resetPointCommitIntrinsicIndexValidation(
-        tx,
-        intrinsicBuild,
-      );
     }
+  }
+  for (const intrinsic of intrinsicBuilds) {
+    await resetPointCommitIntrinsicIndexValidation(tx, intrinsic.build);
   }
   return Object.freeze({
     kind: "ready",
@@ -4069,7 +4119,7 @@ async function publishPointCommitInTransaction(
   const epochUuid = kernel.clock.epochUuid;
   const commitSeq = kernel.commitSeq;
   const outboxSeq = kernel.outboxSeq;
-  const changeCount = command.rowIntent === null ? 0 : 1;
+  const changeCount = command.rowIntents.length;
 
   const header = await sqlCall("writeCommitHeader", () =>
     tx.insert(fxSystemCommits).values({
@@ -4084,14 +4134,17 @@ async function publishPointCommitInTransaction(
   );
   await emitTransactionStep(options, command, "commitHeaderWritten");
 
-  const rowIntent = command.rowIntent;
-  if (rowIntent !== null) {
+  for (let ordinal = 0; ordinal < command.rowIntents.length; ordinal += 1) {
+    const rowIntent = command.rowIntents[ordinal];
+    if (rowIntent === undefined) {
+      throw corruption("publicationInvariantInvalid");
+    }
     const change = await sqlCall("writeCommitChange", () =>
       tx.insert(fxSystemCommitAppRowChanges).values({
         scopeUuid,
         epochUuid,
         commitSeq,
-        changeOrdinal: 0,
+        changeOrdinal: ordinal,
         tableId: rowIntent.tableId,
         rowId: appRowIdHexV1ToBytes(rowIntent.rowId),
       }).returning({ commitSeq: fxSystemCommitAppRowChanges.commitSeq }));
@@ -4308,43 +4361,51 @@ function adaptPointDependency(
   }
 }
 
-async function lockPointCommitIntrinsicIndexBuild(
+interface LockedPointCommitIntrinsicIndexV1 {
+  readonly definition: LocatedAppIndexDefinitionV1;
+  readonly build: IndexBuildStateRecord;
+}
+
+async function lockPointCommitIntrinsicIndexBuilds(
   tx: AppRowTransaction,
   clock: LockedPointCommitClockV1,
-  definition: LocatedAppIndexDefinitionV1 | null,
+  definitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   command: PreparedPointCommitTransactionCommandV1,
-): Promise<IndexBuildStateRecord | null> {
-  if (definition === null) return null;
-  const rows = await sqlCall("lockIntrinsicIndexBuild", () =>
-    tx.select().from(fxSystemIndexBuildStates).where(and(
-      eq(
-        fxSystemIndexBuildStates.scopeId,
+): Promise<ReadonlyArray<LockedPointCommitIntrinsicIndexV1>> {
+  const locked: LockedPointCommitIntrinsicIndexV1[] = [];
+  for (const definition of definitions) {
+    const rows = await sqlCall("lockIntrinsicIndexBuild", () =>
+      tx.select().from(fxSystemIndexBuildStates).where(and(
+        eq(
+          fxSystemIndexBuildStates.scopeId,
+          command.authorityPins.scopeId,
+        ),
+        eq(
+          fxSystemIndexBuildStates.indexDefinitionId,
+          definition.indexDefinitionId,
+        ),
+      )).limit(1).for("update"));
+    const row = rows[0];
+    if (row === undefined) continue;
+    const state = projectPointCommitTransactionResult(
+      decodeIndexBuildStateRowResult(
+        row,
         command.authorityPins.scopeId,
-      ),
-      eq(
-        fxSystemIndexBuildStates.indexDefinitionId,
         definition.indexDefinitionId,
-      ),
-    )).limit(1).for("update"));
-  const row = rows[0];
-  if (row === undefined) return null;
-  const state = projectPointCommitTransactionResult(
-    decodeIndexBuildStateRowResult(
-      row,
-      command.authorityPins.scopeId,
-      definition.indexDefinitionId,
-    ).pipe(Result.mapError(() => corruption("intrinsicIndexBuildInvalid"))),
-  );
-  if (
-    state.storageGeneration !== clock.record.storageGeneration ||
-    state.storageGenerationFence !== clock.record.storageGenerationFence ||
-    state.epoch !== clock.record.epoch ||
-    state.startCommitSeq > clock.record.lastCommitSeq ||
-    state.lifecycle === "retiring"
-  ) {
-    throw corruption("intrinsicIndexBuildInvalid");
+      ).pipe(Result.mapError(() => corruption("intrinsicIndexBuildInvalid"))),
+    );
+    if (
+      state.storageGeneration !== clock.record.storageGeneration ||
+      state.storageGenerationFence !== clock.record.storageGenerationFence ||
+      state.epoch !== clock.record.epoch ||
+      state.startCommitSeq > clock.record.lastCommitSeq ||
+      state.lifecycle === "retiring"
+    ) {
+      throw corruption("intrinsicIndexBuildInvalid");
+    }
+    locked.push(Object.freeze({ definition, build: state }));
   }
-  return state;
+  return Object.freeze(locked);
 }
 
 async function lowerTentativePointCommitIntrinsicIndex(
@@ -4472,6 +4533,7 @@ async function lowerTentativePointCommitRow(
   tentativeCommitSeq: CommitSeq,
   command: PreparedPointCommitTransactionCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  intent: PreparedPointCommitRowIntentV1,
 ): Promise<AppendPreparedAppRowRevisionV1Input> {
   const input = projectPointCommitTransactionResult(
     prepareTentativePointCommitRowResult(
@@ -4479,6 +4541,7 @@ async function lowerTentativePointCommitRow(
       tentativeCommitSeq,
       command,
       heads,
+      intent,
     ),
   );
   const written = await sqlCall("writeTentativeRow", () =>
@@ -4492,14 +4555,11 @@ function prepareTentativePointCommitRowResult(
   tentativeCommitSeq: CommitSeq,
   command: PreparedPointCommitTransactionCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  intent: PreparedPointCommitRowIntentV1,
 ): Result.Result<
   AppendPreparedAppRowRevisionV1Input,
   PointCommitCorruptionV1Error
 > {
-  const intent = command.rowIntent;
-  if (intent === null) {
-    return Result.fail(corruption("rowTransitionInvalid"));
-  }
   const index = command.dependencies.findIndex(
     (dependency) => pointDependenciesEqual(dependency, intent),
   );

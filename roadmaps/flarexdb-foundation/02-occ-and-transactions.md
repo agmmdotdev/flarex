@@ -1544,24 +1544,74 @@ Exit gate:
   retried;
 - real-Postgres serialization and deadlock tests pass.
 
-### [ ] O09 — Add Multi-Row Atomicity And Unique Conflicts
+### [~] O09 — Add Multi-Row Atomicity And Unique Conflicts
+
+#### [~] O09-A — Admit bounded multi-material-row point commits
+
+`SAC01-F2j-P` exposed the current C04C1 limit through a real Standard
+application mutation: an atomic pantry decrement plus recipe publication is
+rejected with `multipleMaterialRows`. The user approved the existing O09 owner
+to close that exact capability boundary. O09-A is the first implementation
+slice and remains inside the current point planner, O06 transaction kernel,
+O07-B publisher, and O08 OCC-rerun owners.
 
 Outcome:
 
-- Expand the prepared plan to multiple rows with deterministic lock/write
-  ordering and same-row write coalescing.
+- replace the private single `rowIntent` plan/command shape with a bounded,
+  canonically ordered `rowIntents` collection derived only from already
+  verified point evidence;
+- cap that collection at 128 net material rows independently of the 4,096
+  point-read dependency ceiling while row, intrinsic-sidecar, and feed writes
+  remain serialized under the scope clock; raising this ceiling requires
+  batching plus measured PostgreSQL lock-hold evidence;
+- use the existing canonical `(tableId, rowId)` dependency order for every
+  tentative row write, intrinsic creation-time sidecar update, and commit-feed
+  change ordinal;
+- retain one commit sequence, one result, one commit header, and one wake
+  outbox record for the whole mutation;
+- validate every dependency before any write and roll back every row and
+  sidecar together on conflict, failure, interruption, uncertainty, or the
+  rollback-proof path; and
+- prove two-row insert/update/delete combinations, same-row coalescing from
+  the existing verified journal, deterministic ordering, OCC conflict/rerun,
+  feed ordering, idempotent outcome resolution, exact/plus-one resource bounds,
+  same-table and cross-table intrinsic-sidecar success/rollback, and atomic
+  PGlite and genuine-PostgreSQL publication.
+
+O09-A does not add unique claims, developer-index maintenance, range or
+relation dependencies, schema/DDL, a second OCC or commit path, a public API,
+or production routing. The remaining unique-claim and developer-index work
+stays in O09-B and keeps the overall O09 gate open.
+
+Exit gate:
+
+- the cooking pantry race commits both application rows or neither, the loser
+  reruns through the existing O08 owner and returns the application-level
+  insufficient-stock result, and commit feed/outbox evidence is exact;
+- focused planner and persistence tests cover zero, one, and multiple material
+  rows, the 128-row ceiling, canonical order, malformed/duplicate command
+  rejection, mixed live/delete sidecars, fault after the second sidecar,
+  rollback, stale authority, and concurrent conflict on PGlite and real
+  PostgreSQL; and
+- both mandatory reviewers approve the exact final diff after focused and
+  package-level validation.
+
+#### [ ] O09-B — Add unique conflicts and developer-index ordering
+
+Outcome:
+
 - Validate and publish unique claims in the same transaction.
 - Translate database constraint races into stable typed conflicts/errors.
 
 Exit gate:
 
-- all-or-nothing multi-row writes, competing unique claims, delete/reuse,
-  deterministic ordering, and sidecar rollback pass on PGlite and real
-  Postgres;
+- competing unique claims, delete/reuse, deterministic ordering, and sidecar
+  rollback pass on PGlite and real Postgres;
 - Payload and Medusa behavior remains excluded.
 
-C04C1 rejects more than one material logical row. O09, not C04C1, owns the
-first accepted multi-row and unique-lock/write ordering contract.
+C04C1 historically rejected more than one material logical row. O09-A owns the
+first accepted multi-row point contract; O09-B retains unique-lock/write and
+developer-index ordering.
 
 ### [ ] O10 — Prove One Exact Indexed Dependency
 

@@ -1122,8 +1122,9 @@ The remaining compiler gates are:
    and produce private same-factory `VerifiedCommitInputV1` without I/O.
 6. `C04C1` (complete): build the same-factory database-free
    deterministic logical point planner and private process-local
-   `PreparedPointCommitV1`, preserving every protocol dependency and at most
-   one material logical row intent.
+   `PreparedPointCommitV1`, preserving every protocol dependency. O09-A later
+   extended its private plan to a bounded canonically ordered collection of
+   material logical row intents without adding another commit owner.
    `C04C2` remains conditional on S08/S09-A/S09-B/O06/O07-B proving that a
    separate physical/change/outbox lowering capability is useful.
 7. `C05-A` (complete): enter exact finishing under scalar locks and mint the

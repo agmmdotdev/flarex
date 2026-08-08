@@ -14,6 +14,38 @@ fixture succeeds.
 
 ## Open Issues
 
+### `ST-CORE-016` — the point commit planner admitted only one material row
+
+- **Status:** Resolved in the approved O09-A implementation diff; PGlite core
+  and real Standard cooking proofs pass. Genuine-PostgreSQL acceptance remains
+  pending only because `FLAREX_POSTGRES_DATABASE_URL` is absent in this run.
+- **Reproduction:** A real Standard cooking mutation reads one shared
+  `pantryStock` row and one recipe, stages a pantry decrement and a recipe
+  publication patch, then runs through Workerd and the existing journal/OCC
+  path. PGlite reaches commit planning and returns
+  `UnsupportedPointCommitPlanV1Error` with
+  `{ reason: "multipleMaterialRows", maximum: 1, observed: 2 }`.
+- **Expected for the proposed scenario:** Two recipes contend for one pantry
+  unit; one two-row mutation commits, the competing attempt reruns through OCC
+  and returns `INSUFFICIENT_STOCK`, and no invalid partial publication or
+  negative inventory is observable.
+- **Actual before O09-A:** `planPointCommitStateV1` explicitly rejected more
+  than one net material row before commit. The deterministic competitor
+  therefore could not commit its pantry and recipe writes atomically.
+- **Owner and trust boundary:** Executor point commit planning and its existing
+  transaction/OCC/commit and persistence contracts. Supporting multiple
+  material rows would change a transaction/consistency owner and requires a
+  separately approved implementation-bearing preflight with ordering,
+  conflict, rollback, feed, outbox, budget, and PostgreSQL concurrency proof.
+- **Current disposition:** The user separately approved O09-A. The existing
+  planner, O06/O07-B transaction, O08 rerun, feed, outcome, and outbox owners
+  now carry a canonical intent collection capped at 128 net rows. The cooking
+  race proves the original two-row invariant and cross-table intrinsic-sidecar
+  publication on PGlite without simulation-local commit logic; focused
+  persistence proof faults after the second intrinsic write and verifies exact
+  mixed live/delete rollback. O09-B unique/developer-index work remains out of
+  scope.
+
 ### `ST-CORE-015` — root query application errors lack a structured host projection
 
 - **Status:** Open; identified by the query-parity audit performed while

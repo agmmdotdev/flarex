@@ -434,7 +434,9 @@ types and ports are introduced by the gates that first consume them.
     remain Wave 4 decisions.
 20. `C04C1` (complete): database-free deterministic logical point
     planning that introduces private `PreparedPointCommitV1`, preserves every
-    protocol dependency, and carries at most one final logical row intent.
+    protocol dependency, and originally carried at most one final logical row
+    intent. O09-A extends that same private plan to bounded canonically ordered
+    material row intents without creating another OCC or commit owner.
     `C04C2` is not an automatic follow-up: it remains conditional until the
     S08/S09-A/S09-B/O06/O07-B consumers prove a separate physical/change/outbox
     lowering capability useful.

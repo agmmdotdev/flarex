@@ -17,6 +17,11 @@ export interface CreateAndReadAdditionalFunctionModuleV1 {
   readonly sourceBytes: Uint8Array;
 }
 
+export interface CreateAndReadAdditionalTableV1 {
+  readonly logicalName: string;
+  readonly fields: StandardValidatorRecordV1;
+}
+
 export interface CreateAndReadDefinitionInputV1<
   Fields extends StandardValidatorRecordV1,
 > {
@@ -28,6 +33,8 @@ export interface CreateAndReadDefinitionInputV1<
   readonly mutationSourceBytes: Uint8Array;
   readonly querySourceBytes: Uint8Array;
   readonly fields: Fields;
+  readonly additionalTables?:
+    ReadonlyArray<CreateAndReadAdditionalTableV1>;
   readonly additionalFunctionModules?:
     ReadonlyArray<CreateAndReadAdditionalFunctionModuleV1>;
   readonly pointMutationLifecycle?: Readonly<{
@@ -81,6 +88,7 @@ export function makeCreateAndReadDefinitionV1<
   input: CreateAndReadDefinitionInputV1<Fields>,
 ): StandardApplicationDefinitionInputV1 {
   const documentValidator = standardV1.object(input.fields);
+  const additionalTables = input.additionalTables ?? [];
   const lifecycle = input.pointMutationLifecycle;
   const additionalFunctionModules = input.additionalFunctionModules ?? [];
   const lifecycleProgramModules = lifecycle === undefined ? [] : [
@@ -158,7 +166,14 @@ export function makeCreateAndReadDefinitionV1<
             definitionVersion: 1,
             documentType: documentValidator.json,
           },
-        }],
+        }, ...additionalTables.map(table => ({
+          logicalName: table.logicalName,
+          definition: {
+            kind: "appDocument" as const,
+            definitionVersion: 1 as const,
+            documentType: standardV1.object(table.fields).json,
+          },
+        }))],
         indexes: [],
       },
       modules: programModules,

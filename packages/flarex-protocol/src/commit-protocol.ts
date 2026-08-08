@@ -84,6 +84,14 @@ export const COMMIT_ENVELOPE_FORMAT_V1 = "flarex.commit-envelope";
 export const MAX_COMMIT_READ_DOCUMENTS_V1 = 32_000;
 export const MAX_COMMIT_READ_SEMANTIC_BYTES_V1 = 1 << 24;
 export const MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 = 4_096;
+/**
+ * Operational ceiling for net application-row revisions lowered by the
+ * current point-commit transaction owner. Unlike point reads, every material
+ * row currently requires serialized row, intrinsic-index, and commit-feed
+ * work while the scope clock is locked. Keep this bound deliberately smaller
+ * until those phases are batched and load-tested at a higher fan-out.
+ */
+export const MAX_POINT_COMMIT_MATERIAL_ROWS_V1 = 128;
 export const MAX_COMMIT_WRITE_OPERATIONS_V1 = 16_000;
 export const MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1 = 1 << 24;
 export const MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 = 1 << 24;

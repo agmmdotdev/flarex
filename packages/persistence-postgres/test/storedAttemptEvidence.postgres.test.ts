@@ -3853,8 +3853,8 @@ async function commitCompetingPointRow(
   persistence: PostgresFlarexPersistence,
   command: PointCommitTransactionCommandV1,
 ): Promise<void> {
-  const intent = command.rowIntent;
-  if (intent === null || intent.kind !== "live") {
+  const intent = command.rowIntents[0];
+  if (intent?.kind !== "live") {
     throw new Error("O08-B1 competing writer requires a live intent.");
   }
   const clock = await persistence.getScopeClock(command.authorityPins.scopeId);

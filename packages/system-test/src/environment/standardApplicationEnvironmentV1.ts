@@ -47,7 +47,7 @@ import {
 } from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
 import {
   type Fsv06StandardPointMutationLaneV1 as PersistenceStandardApplicationSystemTestLaneV1,
-  makeFsv06StandardPointMutationSystemLiveForTestV1,
+  makeFsv06StandardPointMutationSystemTestCompositionV1,
 } from "../../support/fsv06StandardPointMutationHarness";
 import { prepareFsv05ReadyRevisionFixtureEffectV1 } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
@@ -129,6 +129,14 @@ export interface StandardApplicationSystemTestClientV1
     StandardApplicationAuthoritativeInspectionV1,
     StandardApplicationSystemTestInspectionV1Error
   >;
+  /**
+   * Test-only deterministic OCC interleaving. The scheduled operation runs
+   * once after the next mutation runtime attempt and before that attempt can
+   * commit. The existing mutation owner remains the sole retry authority.
+   */
+  readonly scheduleAfterNextMutationRuntime: (
+    operation: () => Effect.Effect<void, never>,
+  ) => Effect.Effect<void, never>;
 }
 
 export type StandardApplicationTypedMutationOutcomeV1<Value> = Omit<
@@ -237,12 +245,14 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
   let mutationRuntimeExecutions = 0;
   let queryRuntimeExecutions = 0;
   let queryExecutionSequence = 0;
-  const mutationSystem = makeFsv06StandardPointMutationSystemLiveForTestV1(
+  const mutationComposition =
+    makeFsv06StandardPointMutationSystemTestCompositionV1(
     input.lane,
     ready.deploymentId,
     artifacts,
     () => { mutationRuntimeExecutions += 1; },
   );
+  const mutationSystem = mutationComposition.system;
   const querySystem = makeSap05StandardPointQuerySystemLiveForTestV1(
     ready,
     artifacts,
@@ -454,9 +464,20 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
           invocationScope,
           inspector.inspectAuthoritativeState(),
         ))),
+        scheduleAfterNextMutationRuntime: Effect.fn(
+          "StandardApplicationSystemTest.scheduleAfterNextMutationRuntimeV1",
+        )(operation => invokeWhileActive(() => Effect.sync(() => {
+          mutationComposition.armAfterNextRuntime(operation());
+        }))),
       } satisfies StandardApplicationSystemTestClientV1);
       return Effect.suspend(() => simulation.workload(client, setupProof)).pipe(
-        Effect.ensuring(Effect.sync(() => { clientActive = false; })),
+        Effect.tap(() => Effect.sync(
+          mutationComposition.requireNoPendingInterleaving,
+        )),
+        Effect.ensuring(Effect.sync(() => {
+          mutationComposition.clearPendingInterleaving();
+          clientActive = false;
+        })),
       );
     },
     (invocationScope, exit) => Scope.close(invocationScope, exit),

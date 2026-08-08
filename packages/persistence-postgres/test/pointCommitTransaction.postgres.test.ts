@@ -4,8 +4,17 @@ import { eq } from "drizzle-orm";
 import { Effect, Exit, Fiber, Result } from "effect";
 import type { PoolClient } from "pg";
 import {
+  decodeAppCreationTimeV1,
+} from "flarex-protocol/app-document";
+import {
+  appDocumentIdV1FromRowIdentity,
   appRowIdHexV1ToBytes,
+  decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
+import {
+  decodeCatalogIndexDefinitionId,
+  decodeCatalogTableId,
+} from "flarex-protocol/catalog";
 import {
   CommitSyscallSequenceV1Schema,
   canonicalizeSessionJournalV1Effect,
@@ -34,6 +43,12 @@ import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "../src/appRows";
 import {
+  buildIntrinsicCreationTimeIndexV1Effect,
+  createIntrinsicCreationTimeIndexDefinitionPortV1,
+} from "../src/intrinsicCreationTimeIndexBuildV1";
+import { reconcilePublishedIndexBuildsV1Effect } from
+  "../src/indexBuildReconciliation";
+import {
   createPointCommitFinishingTransitionPortV1,
   createPointMutationAttemptReplacementPortV1,
   createPointCommitPublisherPortV1,
@@ -60,6 +75,7 @@ import {
 } from "../src/postgresLocatedReadCommitted";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
+  createPostgresLocatedIndexBuildReconciliationTargetV1,
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
@@ -472,6 +488,155 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         zero.command.sealIdentity.scopeUuid,
         zero.anchor.sessionId,
       )).toMatchObject({ change_count: 0, lifecycle: "committed" });
+    });
+  }, 120_000);
+
+  it("publishes mixed multi-row sidecars and rolls every row back on failure", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96410000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "publish_multi_row",
+      );
+      const attempt = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "publish_multi_row",
+        "mixed",
+      );
+      expect(attempt.command.rowIntents).toHaveLength(2);
+      const deletedIntent = attempt.command.rowIntents.find(
+        (intent) => intent.kind === "deleted",
+      );
+      const liveIntent = attempt.command.rowIntents.find(
+        (intent) => intent.kind === "live",
+      );
+      if (deletedIntent === undefined || liveIntent === undefined) {
+        throw new Error("Expected PostgreSQL O09-A mixed row intents.");
+      }
+      const intrinsicOptions = await enableIntrinsicIndexForPostgres(
+        persistence,
+        scope,
+      );
+      const beforeSidecars = await intrinsicIndexState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      );
+      expect(beforeSidecars).toEqual({
+        revisions: [{
+          tableId: "1",
+          rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
+          commitSeq: "1",
+          isTombstone: false,
+        }],
+        current: [{
+          tableId: "1",
+          rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
+          commitSeq: "1",
+        }],
+      });
+      let intrinsicWrites = 0;
+      const failure = await runFailure(createPublisher(persistence, {
+        ...intrinsicOptions,
+        afterTransactionStep: (event) => {
+          if (event.step === "intrinsicIndexEntryWritten") {
+            intrinsicWrites += 1;
+            if (intrinsicWrites === 2) {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+          }
+          return Promise.resolve();
+        },
+      }).publish(attempt.publicationCommand));
+      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+      expect(intrinsicWrites).toBe(2);
+      expect(await intrinsicIndexState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toEqual(beforeSidecars);
+      expect(await durableState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toEqual({
+        revisions: "1",
+        current_rows: "1",
+        commit_headers: "0",
+        commit_changes: "0",
+        outcomes: "0",
+        wakes: "0",
+        last_commit_seq: "1",
+        last_outbox_seq: "0",
+      });
+
+      await expect(runEffect(
+        createPublisher(persistence, intrinsicOptions).publish(
+          attempt.publicationCommand,
+        ),
+      )).resolves.toMatchObject({
+        kind: "published",
+        token: { commitSeq: 2n },
+      });
+      expect(await durableState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toEqual({
+        revisions: "3",
+        current_rows: "2",
+        commit_headers: "1",
+        commit_changes: "2",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "2",
+        last_outbox_seq: "1",
+      });
+      expect(await intrinsicIndexState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toEqual({
+        revisions: [{
+          tableId: "1",
+          rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
+          commitSeq: "1",
+          isTombstone: false,
+        }, {
+          tableId: "1",
+          rowIdHex: deletedIntent.rowId.replaceAll("-", ""),
+          commitSeq: "2",
+          isTombstone: true,
+        }, {
+          tableId: "1",
+          rowIdHex: liveIntent.rowId.replaceAll("-", ""),
+          commitSeq: "2",
+          isTombstone: false,
+        }].sort(compareIntrinsicIndexRows),
+        current: [{
+          tableId: "1",
+          rowIdHex: liveIntent.rowId.replaceAll("-", ""),
+          commitSeq: "2",
+        }],
+      });
+      const changes = await persistence.query<{
+        change_ordinal: number;
+        row_id_hex: string;
+      }>(
+        `
+          select change_ordinal, encode(row_id, 'hex') as row_id_hex
+          from fx_system_commit_app_row_change
+          where scope_uuid = $1
+          order by change_ordinal
+        `,
+        [attempt.command.sealIdentity.scopeUuid],
+      );
+      expect(changes.rows).toEqual(
+        attempt.command.rowIntents.map((intent, changeOrdinal) => ({
+          change_ordinal: changeOrdinal,
+          row_id_hex: intent.rowId.replaceAll("-", ""),
+        })),
+      );
     });
   }, 120_000);
 
@@ -1492,6 +1657,7 @@ interface ScopeScenario {
     typeof CatalogSchemaVersionIdSchema.make
   >;
   readonly ports: PointMutationSessionAuthorityResolutionPortsV1;
+  readonly physicalLocator: SharedDatabaseScopePhysicalLocator;
 }
 
 interface PreparedAttempt {
@@ -1538,6 +1704,7 @@ async function createScope(
     scopeId,
     schemaVersionId,
     ports: resolutionPorts(persistence),
+    physicalLocator: locator,
   });
 }
 
@@ -1546,8 +1713,11 @@ async function createAttempt(
   randomUuid: () => string,
   scope: ScopeScenario,
   label: string,
-  materialWrite = true,
+  materialWrite: boolean | number | "mixed" = true,
 ): Promise<PreparedAttempt> {
+  const seededDocumentId = materialWrite === "mixed"
+    ? await seedCommittedUser(persistence, scope)
+    : null;
   const activation = await activatePointMutationSession(
     createPointMutationSessionActivationPersistenceV1(
       scope.ports,
@@ -1583,15 +1753,39 @@ async function createAttempt(
       schemaVersionId: scope.schemaVersionId,
     }),
   );
-  if (materialWrite) {
+  const materialWriteCount = typeof materialWrite === "number"
+    ? materialWrite
+    : materialWrite === true
+      ? 1
+      : 0;
+  if (materialWriteCount > 0 || materialWrite === "mixed") {
     const table = await runEffect(
       store.resolvePointTableEffect(attempt, "users"),
     );
-    await runPointOperation(store, table, {
-      kind: "insert",
-      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-      fields: { name: label },
-    });
+    if (materialWrite === "mixed") {
+      if (seededDocumentId === null) {
+        throw new Error("Missing PostgreSQL O09-A seeded document.");
+      }
+      await runPointOperation(store, table, {
+        kind: "delete",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        documentId: seededDocumentId,
+      });
+    }
+    for (let index = 0; index < materialWriteCount; index += 1) {
+      await runPointOperation(store, table, {
+        kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
+        fields: { name: `${label}_${index}` },
+      });
+    }
+    if (materialWrite === "mixed") {
+      await runPointOperation(store, table, {
+        kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+        fields: { name: `${label}_replacement` },
+      });
+    }
   }
   const prepared = await prepareSeal(store, attempt);
   const journal = await runEffect(
@@ -1646,6 +1840,91 @@ async function createAttempt(
         sha256Hex: result.evidence.sha256Hex,
       }),
     }),
+  });
+}
+
+async function seedCommittedUser(
+  persistence: PostgresFlarexPersistence,
+  scope: ScopeScenario,
+): Promise<ReturnType<typeof appDocumentIdV1FromRowIdentity>> {
+  const tableId = decodeCatalogTableId(1);
+  const rowId = decodeAppRowIdHexV1("11".repeat(16));
+  const creationTime = decodeAppCreationTimeV1(1);
+  const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+  const clock = await persistence.getScopeClock(scope.scopeId);
+  if (clock === null) throw new Error("Missing PostgreSQL O09-A scope clock.");
+  const document = await canonicalizeFlarexValueV1({
+    _id: documentId,
+    _creationTime: creationTime,
+    name: "seeded",
+  }, "appDocument");
+  await persistence.drizzle.transaction(async (tx) => {
+    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+      kind: "live",
+      scopeId: scope.scopeId,
+      tableId,
+      rowId,
+      writeEpoch: clock.epoch,
+      commitSeq: CommitSeqSchema.make(1n),
+      prevCommitSeq: null,
+      schemaVersionId: scope.schemaVersionId,
+      creationTime,
+      value: {
+        codecVersion: document.codecVersion,
+        valueJson: document.valueJson,
+        canonicalBytes: document.canonicalBytes,
+        sha256: document.sha256,
+      },
+    });
+    await tx.update(fxSystemScopeClocks).set({
+      lastCommitSeq: CommitSeqSchema.make(1n),
+    }).where(eq(fxSystemScopeClocks.scopeId, scope.scopeId));
+  });
+  return documentId;
+}
+
+async function enableIntrinsicIndexForPostgres(
+  persistence: PostgresFlarexPersistence,
+  scope: ScopeScenario,
+): Promise<Pick<
+  PointCommitTransactionProofOptionsV1,
+  "intrinsicCreationTimeIndexes"
+>> {
+  const target = createPostgresLocatedIndexBuildReconciliationTargetV1(
+    persistence,
+    scope.physicalLocator,
+  );
+  const ports = {
+    controlDb: persistence.drizzle,
+    authority: {
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: (deploymentId: string) =>
+          persistence.getScopeMetadataByDeploymentId(deploymentId),
+      },
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => null,
+      },
+      scopeClockTargets: { resolve: async () => target },
+    },
+  } as const;
+  await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
+    deploymentId: scope.deploymentId,
+    schemaVersionId: scope.schemaVersionId,
+  }));
+  for (let step = 0; step < 8; step += 1) {
+    const advanced = await runEffect(buildIntrinsicCreationTimeIndexV1Effect(
+      ports,
+      {
+        deploymentId: scope.deploymentId,
+        indexDefinitionId: decodeCatalogIndexDefinitionId(1),
+        pageSize: 8,
+      },
+    ));
+    if (advanced.lifecycle === "enabled") break;
+  }
+  return Object.freeze({
+    intrinsicCreationTimeIndexes:
+      createIntrinsicCreationTimeIndexDefinitionPortV1(persistence.drizzle),
   });
 }
 
@@ -1990,8 +2269,8 @@ async function commitCompetingPointRow(
   locked: ReturnType<typeof deferredSignal>,
   release: ReturnType<typeof deferredSignal>,
 ): Promise<void> {
-  const intent = command.rowIntent;
-  if (intent === null || intent.kind !== "live") {
+  const intent = command.rowIntents[0];
+  if (intent?.kind !== "live") {
     throw new Error("O06 competing writer requires a live intent.");
   }
   const clock = await persistence.getScopeClock(command.authorityPins.scopeId);
@@ -2093,6 +2372,81 @@ async function durableState(
   const row = result.rows[0];
   if (row === undefined) throw new Error("Missing O06 durable state.");
   return row;
+}
+
+async function intrinsicIndexState(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+) {
+  const revisions = await persistence.query<{
+    table_id: string;
+    row_id_hex: string;
+    commit_seq: string;
+    is_tombstone: boolean;
+  }>(
+    `select table_id::text, encode(row_id, 'hex') as row_id_hex,
+       commit_seq::text, is_tombstone
+     from fx_app_index_entry_rev
+     where scope_uuid = $1
+     order by table_id, row_id, commit_seq`,
+    [scopeUuid],
+  );
+  const current = await persistence.query<{
+    table_id: string;
+    row_id_hex: string;
+    commit_seq: string;
+  }>(
+    `select revision.table_id::text,
+       encode(current_entry.row_id, 'hex') as row_id_hex,
+       current_entry.commit_seq::text
+     from fx_app_index_entry_current as current_entry
+     join fx_app_index_entry_rev as revision
+       on revision.scope_uuid = current_entry.scope_uuid
+      and revision.index_definition_id = current_entry.index_definition_id
+      and revision.encoded_key = current_entry.encoded_key
+      and revision.row_id = current_entry.row_id
+      and revision.commit_seq = current_entry.commit_seq
+     where current_entry.scope_uuid = $1
+     order by revision.table_id, current_entry.row_id`,
+    [scopeUuid],
+  );
+  return {
+    revisions: revisions.rows.map((row) => ({
+      tableId: row.table_id,
+      rowIdHex: row.row_id_hex,
+      commitSeq: row.commit_seq,
+      isTombstone: row.is_tombstone,
+    })),
+    current: current.rows.map((row) => ({
+      tableId: row.table_id,
+      rowIdHex: row.row_id_hex,
+      commitSeq: row.commit_seq,
+    })),
+  } as const;
+}
+
+function compareIntrinsicIndexRows(
+  left: Readonly<{
+    readonly tableId: string;
+    readonly rowIdHex: string;
+    readonly commitSeq: string;
+  }>,
+  right: Readonly<{
+    readonly tableId: string;
+    readonly rowIdHex: string;
+    readonly commitSeq: string;
+  }>,
+): number {
+  const identityOrder = left.tableId.localeCompare(right.tableId) ||
+    left.rowIdHex.localeCompare(right.rowIdHex);
+  if (identityOrder !== 0) return identityOrder;
+  const leftCommitSeq = BigInt(left.commitSeq);
+  const rightCommitSeq = BigInt(right.commitSeq);
+  return leftCommitSeq < rightCommitSeq
+    ? -1
+    : leftCommitSeq > rightCommitSeq
+      ? 1
+      : 0;
 }
 
 async function replacementState(

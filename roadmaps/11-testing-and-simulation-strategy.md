@@ -440,6 +440,23 @@ Named Flarex differences are:
   persistence, activation, or routing owner. The parity audit records the
   separate open root-query projection gap as `ST-CORE-015` rather than hiding
   it in test glue.
+- `SAC01-F2j` proves one deterministic cooking concurrency history over
+  the existing Standard mutation and OCC owners. The private system-test
+  client can safely expose the mutation harness's existing one-shot
+  post-runtime/pre-commit interleaving point without exposing persistence,
+  journals, commit capabilities, or retry control. The application mutation
+  stages both a pantry decrement and recipe publication. Its preflight exposed
+  the former singleton material-row planner limit as `ST-CORE-016`; the user
+  approved bounded O09-A to extend the existing planner and transaction rather
+  than adding test glue or another commit path. The PGlite Workerd proof now
+  shows one competitor committing both rows, the original attempt conflicting
+  and rerunning through O08, the rerun returning `INSUFFICIENT_STOCK`, no
+  negative inventory or partial recipe publication, exact two-row commit-feed
+  evidence, one outcome/outbox record, and replay without another runtime or
+  commit. Genuine-PostgreSQL execution remains an acceptance receipt and is
+  not inferred while `FLAREX_POSTGRES_DATABASE_URL` is absent. No scheduler,
+  model checker, retry API, alternate OCC/commit path, or production behavior
+  is authorized by this slice.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate

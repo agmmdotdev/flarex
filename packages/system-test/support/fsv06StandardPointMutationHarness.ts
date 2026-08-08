@@ -957,23 +957,52 @@ export async function proveSap06A3MutationInternalCallV1(
   });
 }
 
-/** Test-only default composition used by representative multi-function apps. */
-export function makeFsv06StandardPointMutationSystemLiveForTestV1(
+export interface Fsv06StandardPointMutationSystemTestCompositionV1 {
+  readonly system: ApplicationPointMutationSystemLiveV1;
+  readonly armAfterNextRuntime: (operation: Effect.Effect<void, never>) => void;
+  readonly requireNoPendingInterleaving: () => void;
+  readonly clearPendingInterleaving: () => void;
+}
+
+/** Test-only composition used by representative multi-function apps. */
+export function makeFsv06StandardPointMutationSystemTestCompositionV1(
   lane: Fsv06StandardPointMutationLaneV1,
   deploymentId: string,
   artifacts: ReturnType<typeof makeMemoryRuntimeArtifactStoreV1>,
   onRuntimeExecution: () => void,
-): ApplicationPointMutationSystemLiveV1 {
-  return systemLive(
+): Fsv06StandardPointMutationSystemTestCompositionV1 {
+  const proofController: Fsv06CompositionProofControllerV1 = {
+    loseCommitResponseAtBeforeCommit: false,
+    loseCommitResponseAfterSettlement: false,
+  };
+  const system = systemLive(
     lane,
     TransactionGrantDeploymentIdV1Schema.make(deploymentId),
     artifacts,
-    {
-      loseCommitResponseAtBeforeCommit: false,
-      loseCommitResponseAfterSettlement: false,
-    },
+    proofController,
     onRuntimeExecution,
   );
+  return Object.freeze({
+    system,
+    armAfterNextRuntime: (operation: Effect.Effect<void, never>) => {
+      if (proofController.afterRuntimeOnce !== undefined) {
+        throw new Error(
+          "The Standard mutation test interleaver already has pending work.",
+        );
+      }
+      proofController.afterRuntimeOnce = () => Effect.runPromise(operation);
+    },
+    requireNoPendingInterleaving: () => {
+      if (proofController.afterRuntimeOnce !== undefined) {
+        throw new Error(
+          "The Standard mutation test interleaving was not consumed.",
+        );
+      }
+    },
+    clearPendingInterleaving: () => {
+      delete proofController.afterRuntimeOnce;
+    },
+  });
 }
 
 function systemLive(
