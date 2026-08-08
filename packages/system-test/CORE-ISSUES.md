@@ -14,7 +14,54 @@ fixture succeeds.
 
 ## Open Issues
 
-None.
+### `ST-CORE-014` — root application-error evidence is lost at the mutation host boundary
+
+- **Status:** Open; a shared versioned protocol and executor decision is
+  required before the cooking simulation can claim end-to-end structured
+  application-error coverage.
+- **Discovered by:** Preflighting the next cooking simulation slice: reject an
+  invalid recipe transition with public `FlarexError` code, message, and
+  canonical data, then prove the attempted mutation has no authoritative side
+  effects.
+- **Observed boundary:** The exact point-mutation Worker result after journal
+  settlement, through the private host response protocol and executor
+  classification used by the Standard mutation path.
+- **Reproduction:** A root mutation handler throws
+  `new FlarexError("RECIPE_INVALID", "Recipe cannot be published", data)`.
+  Exact Workerd coverage proves the runtime recognizes and rethrows the public
+  `FlarexError`, including its application-owned fields. The V1 host response
+  can represent only `{ kind: "failure", reason: "userCodeFailed" }`.
+  `classifyHostResponseV1` consequently creates
+  `PointMutationOccUserCodeV1Error` with a fresh generic cause whose message is
+  `Exact point-mutation user code failed.`; the application code, message, and
+  data are no longer observable by the Standard caller.
+- **Expected:** The Standard mutation invocation boundary distinguishes a
+  declared application error from an unexpected user-code defect and preserves
+  a bounded canonical code/message/data value after journal settlement. The
+  error evidence must remain non-authoritative and must not weaken rollback,
+  OCC, commit, receipt, or redaction boundaries.
+- **Actual:** Declared application errors and ordinary thrown user-code failures
+  collapse to the same reason-only host response and generic executor cause.
+  The cooking simulation can prove rollback for the generic category, but
+  cannot prove that the public application-error contract survives end to end.
+- **Owner and trust boundary:** The versioned point-mutation exact-runtime host
+  response protocol, the Worker host adapter that projects the settled failure,
+  the executor's `PointMutationOccUserCodeV1Error` classification, and the
+  Standard invocation error projection. The point-query path must be audited
+  for the same developer-visible contract before claiming query/mutation
+  parity; that audit does not authorize changing its owner.
+- **Current disposition:** Blocked pending explicit approval for a focused
+  protocol preflight and implementation slice. Do not hide the gap with an
+  application-specific result wrapper, a test-only error side channel, a
+  fallback, string matching, or an assertion that blesses the generic loss.
+- **Required decision and evidence:** Define whether the existing V1 identity
+  can evolve compatibly or needs a new versioned failure envelope; bound and
+  canonically validate code, message, and data; distinguish application error,
+  user defect, invalid host response, and corruption; preserve redaction and
+  journal-settlement order; and prove protocol vectors, exact Workerd behavior,
+  executor projection, PGlite and genuine-PostgreSQL rollback/no-side-effect
+  behavior, compatibility handling, generated refreshes, and both mandatory
+  exact-final reviews.
 
 ## Investigation Leads
 
