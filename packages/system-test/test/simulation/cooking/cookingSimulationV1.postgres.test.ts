@@ -49,6 +49,9 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           thrownFailureRollsBack: true,
           failedMutationsReachedRuntime: true,
           failedMutationStateUnchanged: true,
+          applicationInvariantRejected: true,
+          applicationErrorPreserved: true,
+          applicationInvariantFailureStateUnchanged: true,
           patchReplay: true,
           replaceReplay: true,
           assessmentUsesCustomLogic: true,
@@ -61,8 +64,8 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           pointMutationLifecycle: true,
           deletedDocumentReadsNull: true,
         },
-        mutationRuntimeExecutions: 8,
-        queryRuntimeExecutions: 10,
+        mutationRuntimeExecutions: 9,
+        queryRuntimeExecutions: 11,
       });
       expect(proof.afterSetupInspection).toMatchObject({
         currentRowCount: 1,

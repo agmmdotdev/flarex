@@ -8,6 +8,10 @@ import {
   POINT_MUTATION_EXACT_RUNTIME_VERSION_V1,
 } from "flarex-protocol/point-mutation-exact-runtime";
 import {
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+} from "flarex-protocol/point-mutation-exact-runtime-host";
+import {
   MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1,
 } from "flarex-protocol/point-mutation-start";
 import {
@@ -36,6 +40,8 @@ export const exactRuntimeConfigurationV1 = Object.freeze({
   requestVersion: ${POINT_MUTATION_EXACT_RUNTIME_VERSION_V1},
   resultFormat: ${JSON.stringify(POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1)},
   resultVersion: ${POINT_MUTATION_EXACT_RUNTIME_RESULT_VERSION_V1},
+  hostResponseFormat: ${JSON.stringify(POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2)},
+  hostResponseVersion: ${POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2},
   maxContextTextBytes: ${MAX_POINT_MUTATION_EXACT_RUNTIME_CONTEXT_TEXT_BYTES_V1},
   maxAuthSemanticBytes: ${MAX_POINT_MUTATION_EXACT_RUNTIME_AUTH_SEMANTIC_BYTES_V1},
   randomSeedBytes: ${POINT_MUTATION_EXACT_RUNTIME_RANDOM_SEED_BYTES_V1},

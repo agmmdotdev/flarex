@@ -14,60 +14,55 @@ fixture succeeds.
 
 ## Open Issues
 
-### `ST-CORE-014` — root application-error evidence is lost at the mutation host boundary
+### `ST-CORE-015` — root query application errors lack a structured host projection
 
-- **Status:** Open; a shared versioned protocol and executor decision is
-  required before the cooking simulation can claim end-to-end structured
-  application-error coverage.
-- **Discovered by:** Preflighting the next cooking simulation slice: reject an
-  invalid recipe transition with public `FlarexError` code, message, and
-  canonical data, then prove the attempted mutation has no authoritative side
-  effects.
-- **Observed boundary:** The exact point-mutation Worker result after journal
-  settlement, through the private host response protocol and executor
-  classification used by the Standard mutation path.
-- **Reproduction:** A root mutation handler throws
-  `new FlarexError("RECIPE_INVALID", "Recipe cannot be published", data)`.
-  Exact Workerd coverage proves the runtime recognizes and rethrows the public
-  `FlarexError`, including its application-owned fields. The V1 host response
-  can represent only `{ kind: "failure", reason: "userCodeFailed" }`.
-  `classifyHostResponseV1` consequently creates
-  `PointMutationOccUserCodeV1Error` with a fresh generic cause whose message is
-  `Exact point-mutation user code failed.`; the application code, message, and
-  data are no longer observable by the Standard caller.
-- **Expected:** The Standard mutation invocation boundary distinguishes a
-  declared application error from an unexpected user-code defect and preserves
-  a bounded canonical code/message/data value after journal settlement. The
-  error evidence must remain non-authoritative and must not weaken rollback,
-  OCC, commit, receipt, or redaction boundaries.
-- **Actual:** Declared application errors and ordinary thrown user-code failures
-  collapse to the same reason-only host response and generic executor cause.
-  The cooking simulation can prove rollback for the generic category, but
-  cannot prove that the public application-error contract survives end to end.
-- **Owner and trust boundary:** The versioned point-mutation exact-runtime host
-  response protocol, the Worker host adapter that projects the settled failure,
-  the executor's `PointMutationOccUserCodeV1Error` classification, and the
-  Standard invocation error projection. The point-query path must be audited
-  for the same developer-visible contract before claiming query/mutation
-  parity; that audit does not authorize changing its owner.
-- **Current disposition:** Blocked pending explicit approval for a focused
-  protocol preflight and implementation slice. Do not hide the gap with an
-  application-specific result wrapper, a test-only error side channel, a
-  fallback, string matching, or an assertion that blesses the generic loss.
-- **Required decision and evidence:** Define whether the existing V1 identity
-  can evolve compatibly or needs a new versioned failure envelope; bound and
-  canonically validate code, message, and data; distinguish application error,
-  user defect, invalid host response, and corruption; preserve redaction and
-  journal-settlement order; and prove protocol vectors, exact Workerd behavior,
-  executor projection, PGlite and genuine-PostgreSQL rollback/no-side-effect
-  behavior, compatibility handling, generated refreshes, and both mandatory
-  exact-final reviews.
+- **Status:** Open; identified by the query-parity audit performed while
+  resolving `ST-CORE-014`. No query owner was changed in that mutation slice.
+- **Observed boundary:** The Standard point-query route-independent dispatcher
+  receives the exact query Worker's settled failure through a host-owned
+  envelope containing only `name` and `message`.
+- **Reproduction:** A root query can throw an authenticated public
+  `FlarexError` after its read boundary settles. The current Workerd dispatcher
+  serializes only `error.name` and `error.message`; its classifier recognizes
+  exact-runtime infrastructure names but not application-error provenance or
+  canonical `data`, so the failure becomes an unknown Worker defect.
+- **Expected:** Query invocation should preserve the same bounded canonical
+  application code/message/data contract as mutation without weakening read
+  revalidation, cleanup precedence, or defect redaction.
+- **Owner and trust boundary:** Point-query host response/projection and the
+  Standard query dispatcher. Mutation Host Response V2 is evidence for the
+  desired distinction, not authority to reuse its transaction or protocol
+  owner mechanically.
+- **Current disposition:** Requires a separate query-specific preflight. Do not
+  add name matching, a test-only side channel, or mutation/query dual fallback.
 
 ## Investigation Leads
 
 None.
 
 ## Resolved Issues
+
+### `ST-CORE-014` — root application-error evidence was lost at the mutation host boundary
+
+- **Status:** Resolved by the approved application-error transport slice.
+- **Root cause:** Host Response V1 collapsed authenticated application errors
+  and ordinary user defects into `userCodeFailed`, after which the executor
+  created a generic redacted cause.
+- **Resolution:** Host Response V2 directly replaces V1 and adds a strict
+  `applicationError` variant with bounded code/message and canonical Flarex
+  data. The exact Worker projects only errors authenticated by its private
+  WeakMap-backed registry, after the journal closes and drains. The artifact
+  host validates the V2 response, and the executor exposes the distinct typed
+  `PointMutationOccApplicationErrorV1`; generic user failures remain redacted.
+- **Acceptance evidence:** Protocol skew/corruption vectors, exact Workerd
+  construction, artifact-host forwarding, executor classification, and the
+  real cooking Standard path. The cooking invariant rejects an incomplete
+  recipe with exact code/message/data and PGlite inspection proves no current
+  row, revision, idempotency outcome, commit, feed, or outbox change. The
+  genuine-PostgreSQL lane uses the same workload and remains environment-gated.
+- **Non-goals:** No journal, OCC, commit, schema, persistence, activation,
+  routing, or production owner changed. The query audit opened `ST-CORE-015`
+  rather than widening this mutation correction.
 
 ### `ST-CORE-013` — private platform admission outlived normal function context APIs
 

@@ -36,6 +36,7 @@ const POINT_MUTATION_APPLICATION_ERROR_PLATFORM_SOURCE_V1 =
   applicationErrorPlatformSourceV1({
     runtimeKernelModulePath: `../${POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1}`,
     captureExportName: "capturePointMutationCoreApplicationErrorDataV1",
+    captureProjectionExportName: "captureCoreApplicationErrorV1",
     invalid: { kind: "nativeError" },
   });
 
@@ -238,13 +239,17 @@ export default {};`,
       functionSource: `{
         isMutation: true,
         isPublic: true,
-        _handler: () => { throw new FlarexError("CLOSED", "closed"); },
+        _handler: () => { throw new FlarexError("CLOSED", "closed", { orderId: "order-1" }); },
       }`,
       argumentsValue: {},
       argsValidator: { type: "object", value: {} },
     })).resolves.toMatchObject({
-      name: "FlarexError",
-      message: "closed",
+      name: "applicationError",
+      error: {
+        code: "CLOSED",
+        message: "closed",
+        data: { orderId: "order-1" },
+      },
     });
   });
 
@@ -408,7 +413,9 @@ export default {
           },
         }],
       );
-      return Response.json({ name: "success", result });
+      return result.kind === "applicationError"
+        ? Response.json({ name: "applicationError", error: result.error })
+        : Response.json({ name: "success", result: result.result });
     } catch (error) {
       return Response.json({
         name: error?.name,

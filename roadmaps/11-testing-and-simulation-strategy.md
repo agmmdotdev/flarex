@@ -426,14 +426,20 @@ Named Flarex differences are:
   original recipe value before the successful lifecycle continues. This is
   application-level rollback evidence over the existing journal/OCC/commit
   owner; it adds no alternate transaction, retry, savepoint, or failure API.
-- The next cooking-domain invariant slice is preflighted but intentionally not
-  implemented. A root handler can construct a public `FlarexError` and the
-  exact Workerd runtime preserves its application-owned code, message, and
-  canonical data, but the V1 point-mutation host envelope reduces every such
-  failure to `userCodeFailed`; the executor then exposes only a fresh generic
-  cause. `ST-CORE-014` records the reproduction, owner boundary, prohibited
-  test-local workarounds, and required acceptance evidence. This simulation
-  roadmap does not authorize the shared protocol/executor change.
+- `SAC01-F2i` resolves `ST-CORE-014` and adds the first cooking-domain
+  invariant with developer-visible structured failure. Point-mutation Host
+  Response V2 directly replaces V1, preserves only authenticated and bounded
+  `FlarexError` code/message/canonical data after journal settlement, and maps
+  it to the executor-owned `PointMutationOccApplicationErrorV1`; generic user
+  defects remain redacted. An incomplete but schema-valid second recipe calls
+  an internal assessment query, fails publication with
+  `RECIPE_NOT_PUBLISHABLE`, and is read back unchanged. Logical inspection
+  proves the failed runtime added no row revision, committed idempotency
+  outcome, commit, feed change, or outbox item before the successful lifecycle
+  continues. This adds no alternate runtime, journal, OCC, commit, schema,
+  persistence, activation, or routing owner. The parity audit records the
+  separate open root-query projection gap as `ST-CORE-015` rather than hiding
+  it in test glue.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate
@@ -473,13 +479,10 @@ Named Flarex differences are:
   readiness and activation. The evidence, owners, limitations, and acceptance
   requirements remain in
   [`CORE-ISSUES.md`](../packages/system-test/CORE-ISSUES.md).
-- The proposed cooking application-invariant coverage is blocked by open
-  `ST-CORE-014`: root `FlarexError` evidence is preserved within Workerd but
-  lost by the reason-only point-mutation host response and generic executor
-  projection. The simulation must not compensate with a result wrapper,
-  fallback, or weaker generic-error assertion. A separately approved versioned
-  protocol/executor slice is required before the cooking workload can claim
-  structured application-error behavior end to end.
+- Root query application-error parity remains open as `ST-CORE-015`. The query
+  Workerd dispatcher currently projects only failure name/message and cannot
+  preserve authenticated application data; mutation Host Response V2 does not
+  authorize a query-specific protocol or dispatcher change.
 - The live staging H05-B proof through real cache-disabled Hyperdrive remains
   incomplete; harness and dry-run evidence do not close production activation.
 - The root integration suite uses source aliases and local workspace code for

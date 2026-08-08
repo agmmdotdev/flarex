@@ -10,6 +10,9 @@ import type {
   UserIdentity,
 } from "flarex-protocol/auth";
 import type {
+  PointMutationExactRuntimeHostResponseV2,
+} from "flarex-protocol/point-mutation-exact-runtime-host";
+import type {
   PointMutationExactRuntimeResultV1,
 } from "flarex-protocol/point-mutation-exact-runtime";
 import type {
@@ -26,7 +29,10 @@ import type {
   ObjectValidatorJsonV1,
   ValidatorJsonV1,
 } from "flarex-protocol/validator-json";
-import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";
+import {
+  captureCoreApplicationErrorV1,
+  inspectCoreApplicationErrorV1,
+} from "./_flarex/application-error-platform-v1.js";
 
 import {
   exactRuntimeConfigurationV1,
@@ -40,6 +46,8 @@ const REQUEST_FORMAT = exactRuntimeConfigurationV1.requestFormat;
 const REQUEST_VERSION = exactRuntimeConfigurationV1.requestVersion;
 const RESULT_FORMAT = exactRuntimeConfigurationV1.resultFormat;
 const RESULT_VERSION = exactRuntimeConfigurationV1.resultVersion;
+const HOST_RESPONSE_FORMAT = exactRuntimeConfigurationV1.hostResponseFormat;
+const HOST_RESPONSE_VERSION = exactRuntimeConfigurationV1.hostResponseVersion;
 const MAX_CONTEXT_TEXT_BYTES =
   exactRuntimeConfigurationV1.maxContextTextBytes;
 const MAX_AUTH_SEMANTIC_BYTES =
@@ -571,7 +579,7 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
   async run(
     input: unknown,
     journal: unknown,
-  ): Promise<PointMutationExactRuntimeResultV1> {
+  ): Promise<PointMutationExactRuntimeHostResponseV2> {
     let journalRuntime: ExactRuntimeJournal | undefined;
     let capability: JournalCapability | undefined;
     let settledFailure:
@@ -615,6 +623,15 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
           invocations,
         );
       } catch (cause) {
+        const applicationError = captureCoreApplicationErrorV1(cause);
+        if (applicationError !== null) {
+          return Object.freeze({
+            format: HOST_RESPONSE_FORMAT,
+            version: HOST_RESPONSE_VERSION,
+            kind: "applicationError",
+            error: applicationError,
+          });
+        }
         const runtimeFailure =
           kernel.inspectPointMutationRuntimeFailureV1(cause);
         if (runtimeFailure?.kind === "userCode") {
@@ -630,10 +647,17 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
         }
         throw cause;
       }
+      const exactRuntimeResult: PointMutationExactRuntimeResultV1 =
+        Object.freeze({
+          format: RESULT_FORMAT,
+          version: RESULT_VERSION,
+          value: result,
+        });
       return Object.freeze({
-        format: RESULT_FORMAT,
-        version: RESULT_VERSION,
-        value: result,
+        format: HOST_RESPONSE_FORMAT,
+        version: HOST_RESPONSE_VERSION,
+        kind: "success",
+        result: exactRuntimeResult,
       });
     } catch (cause) {
       settledFailure = { cause };

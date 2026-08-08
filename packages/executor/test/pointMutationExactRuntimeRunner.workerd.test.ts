@@ -83,6 +83,13 @@ describe("point-mutation exact-runtime executor runner in workerd", () => {
       kind: "failure",
       tag: "PointMutationOccUserCodeV1Error",
     });
+    expect(await scenario("/application-error")).toEqual({
+      kind: "failure",
+      tag: "PointMutationOccApplicationErrorV1",
+      code: "recipe-not-publishable",
+      message: "Recipe is not publishable.",
+      data: { recipeId: "recipe-1", missing: ["photo"] },
+    });
     expect(await scenario("/host-failure")).toEqual({
       kind: "failure",
       tag: "PointMutationExactRuntimeRunnerHostV1Error",

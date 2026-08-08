@@ -18,6 +18,7 @@ export type ApplicationErrorInvalidProjectionV1 =
 export interface ApplicationErrorPlatformSourceV1Input {
   readonly runtimeKernelModulePath: string;
   readonly captureExportName: string;
+  readonly captureProjectionExportName?: string;
   readonly invalid: ApplicationErrorInvalidProjectionV1;
 }
 
@@ -30,6 +31,24 @@ export function applicationErrorPlatformSourceV1(
   const invalidProjection = input.invalid.kind === "profileApplicationError"
     ? `throw new ${input.invalid.exportName}(${JSON.stringify(input.invalid.reason)}, detailV1);`
     : `const errorV1 = new Error(detailV1 ?? "Invalid FlarexError construction.");\n    Object.defineProperty(errorV1, "name", { value: "FlarexErrorConstructionV1Error" });\n    throw errorV1;`;
+  const captureProjection = input.captureProjectionExportName === undefined
+    ? ""
+    : `
+export function ${input.captureProjectionExportName}(valueV1) {
+  if (!coreApplicationErrorsV1.inspect(valueV1)) return null;
+  const dataV1 = coreApplicationErrorsV1.data(valueV1);
+  return dataV1 === undefined
+    ? Object.freeze({
+        code: coreApplicationErrorsV1.code(valueV1),
+        message: coreApplicationErrorsV1.message(valueV1),
+      })
+    : Object.freeze({
+        code: coreApplicationErrorsV1.code(valueV1),
+        message: coreApplicationErrorsV1.message(valueV1),
+        data: dataV1,
+      });
+}
+`;
   return `// Host-private application-error registry for one exact Worker.
 import { createFunctionRuntimeApplicationErrorRegistryV1 } from "../flarex:function-api-core/v1";
 import {
@@ -45,5 +64,6 @@ export const FlarexError = coreApplicationErrorsV1.FlarexError;
 export function inspectCoreApplicationErrorV1(valueV1) {
   return coreApplicationErrorsV1.inspect(valueV1);
 }
+${captureProjection}
 `;
 }

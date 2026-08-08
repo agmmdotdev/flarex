@@ -57,6 +57,7 @@ const pointMutationApplicationErrorPlatformSourceV1 = (): string =>
   applicationErrorPlatformSourceV1({
     runtimeKernelModulePath: `../${POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1}`,
     captureExportName: "capturePointMutationCoreApplicationErrorDataV1",
+    captureProjectionExportName: "captureCoreApplicationErrorV1",
     invalid: { kind: "nativeError" },
   });
 

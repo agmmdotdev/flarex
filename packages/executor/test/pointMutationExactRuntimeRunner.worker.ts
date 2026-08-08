@@ -9,9 +9,9 @@ import {
   requirePointMutationArgumentSemanticSizeV1,
 } from "flarex-protocol/point-mutation-start";
 import {
-  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
-  type PointMutationExactRuntimeHostFailureReasonV1,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+  type PointMutationExactRuntimeHostFailureReasonV2,
 } from "flarex-protocol/point-mutation-exact-runtime-host";
 import {
   CatalogSchemaVersionIdSchema,
@@ -59,6 +59,9 @@ import {
 import type {
   PointMutationOccBoundJournalV1,
   PointMutationOccRuntimeNeutralRunnerInputV1,
+} from "../src/storedAttemptAuthentication";
+import {
+  PointMutationOccApplicationErrorV1,
 } from "../src/storedAttemptAuthentication";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
@@ -140,6 +143,8 @@ export default {
         return Response.json(await trustedDevScenario());
       case "/user-failure":
         return Response.json(await failureScenario("userCodeFailed"));
+      case "/application-error":
+        return Response.json(await applicationErrorScenario());
       case "/host-failure":
         return Response.json(await failureScenario("workerLoadFailed"));
       case "/invalid-response":
@@ -200,7 +205,7 @@ async function trustedDevScenario() {
 }
 
 async function failureScenario(
-  reason: PointMutationExactRuntimeHostFailureReasonV1,
+  reason: PointMutationExactRuntimeHostFailureReasonV2,
 ) {
   const input = await makeInput({ kind: "anonymous" });
   const exit = await Effect.runPromiseExit(
@@ -213,8 +218,8 @@ async function invalidResponseScenario() {
   let disposed = 0;
   const input = await makeInput({ kind: "anonymous" });
   const invalid = disposableResponse({
-    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
     kind: "success",
     result: {
       format: "flarex.point-mutation-exact-runtime-result",
@@ -229,6 +234,23 @@ async function invalidResponseScenario() {
     makeRunner(bindingFrom(async () => invalid)).run(input),
   );
   return { disposed, outcome: summarizeExit(exit) };
+}
+
+async function applicationErrorScenario() {
+  const input = await makeInput({ kind: "anonymous" });
+  const exit = await Effect.runPromiseExit(
+    makeRunner(bindingFrom(async () => ({
+      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+      version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+      kind: "applicationError",
+      error: {
+        code: "recipe-not-publishable",
+        message: "Recipe is not publishable.",
+        data: { recipeId: "recipe-1", missing: ["photo"] },
+      },
+    }))).run(input),
+  );
+  return summarizeExit(exit);
 }
 
 async function rejectionScenario(expectedTransport: boolean) {
@@ -455,8 +477,8 @@ function inertJournal(): PointMutationOccBoundJournalV1 {
 
 function successResponse(value: unknown) {
   return {
-    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
     kind: "success",
     result: {
       format: "flarex.point-mutation-exact-runtime-result",
@@ -467,11 +489,11 @@ function successResponse(value: unknown) {
 }
 
 function failureResponse(
-  reason: PointMutationExactRuntimeHostFailureReasonV1,
+  reason: PointMutationExactRuntimeHostFailureReasonV2,
 ) {
   return {
-    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
     kind: "failure",
     reason,
   };
@@ -496,6 +518,15 @@ function summarizeExit(exit: Exit.Exit<unknown, unknown>) {
       tag: errorTag(error),
       reason: error instanceof PointMutationExactRuntimeRunnerHostV1Error
         ? error.reason
+        : undefined,
+      code: error instanceof PointMutationOccApplicationErrorV1
+        ? error.code
+        : undefined,
+      message: error instanceof PointMutationOccApplicationErrorV1
+        ? error.message
+        : undefined,
+      data: error instanceof PointMutationOccApplicationErrorV1
+        ? error.data
         : undefined,
     };
   }

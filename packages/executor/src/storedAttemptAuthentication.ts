@@ -231,6 +231,7 @@ import {
   makeStoredPointMutationCrashRedispatchOperationsV1,
 } from "./storedAttemptAuthentication/crashRedispatchOperations";
 import {
+  PointMutationOccApplicationErrorV1,
   PointMutationOccUserCodeV1Error,
   makeExactPointMutationExecutionOperationsV1,
   type PointMutationAuthenticatedAttemptExecutionV1Error,
@@ -381,6 +382,7 @@ export interface PointCommitKnownSettledSqlRetryFailureV1 {
 }
 
 export {
+  PointMutationOccApplicationErrorV1,
   PointMutationOccExecutionContextV1Error,
   PointMutationOccUserCodeV1Error,
 } from "./storedAttemptAuthentication/exactPointMutationExecutionOperations";
@@ -429,6 +431,7 @@ export interface PointMutationOccExecutionContextFactoryV1 {
 }
 
 export type PointMutationOccRuntimeNeutralRunnerV1Error =
+  | PointMutationOccApplicationErrorV1
   | PointMutationOccUserCodeV1Error
   | PointMutationJournalBoundaryV1Error
   | PointMutationJournalResultRejectedV1Error

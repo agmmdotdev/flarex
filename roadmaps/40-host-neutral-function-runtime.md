@@ -3440,6 +3440,34 @@ scheduling, search, action effects, broader query/database features, or a live
 in-process developer harness require their own preflight and owning roadmap.
 Production routing remains deferred.
 
+### Post-`FAC21` Mutation Application-Error Transport Correction
+
+The completion audit remains closed at the Function API Core ownership
+boundary. A later cooking-application simulation exposed a narrower host
+transport defect: the point-mutation Dynamic Worker authenticated a public
+`FlarexError`, but its private host response collapsed that application-owned
+failure into the generic redacted `userCodeFailed` result before the executor
+could preserve the code, message, and optional canonical data.
+
+The private point-mutation host response therefore directly advances to V2.
+It retains the existing V1 exact-runtime success result, adds a bounded
+canonical `applicationError` result, and retains the typed infrastructure
+failure result. The generated Worker captures an application error only from
+the Function API Core's private provenance registry and only after journal
+close/drain settlement. The artifact host strictly validates that structured
+response, and the existing executor exposes a distinct typed application-error
+failure. Arbitrary thrown values still become the redacted generic user-code
+failure. This correction adds no public developer API, compatibility path,
+dual acceptance, persistence, OCC, commit, routing, activation, or production
+owner and does not reopen core extraction.
+
+The same claim is not yet valid for point queries. Their current Workerd
+dispatcher serializes only an error name and message, so it cannot preserve the
+authenticated application-error data and provenance needed for the same
+transport. That separate boundary is recorded as `ST-CORE-015` in
+`packages/system-test/CORE-ISSUES.md`; query transport must receive its own
+preflight rather than copying the mutation correction speculatively.
+
 ### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction

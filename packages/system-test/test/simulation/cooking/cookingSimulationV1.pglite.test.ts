@@ -41,6 +41,9 @@ it("runs the cooking simulation through the real Standard path", async () => {
       thrownFailureRollsBack: true,
       failedMutationsReachedRuntime: true,
       failedMutationStateUnchanged: true,
+      applicationInvariantRejected: true,
+      applicationErrorPreserved: true,
+      applicationInvariantFailureStateUnchanged: true,
       patchReplay: true,
       replaceReplay: true,
       assessmentUsesCustomLogic: true,
@@ -53,8 +56,8 @@ it("runs the cooking simulation through the real Standard path", async () => {
       pointMutationLifecycle: true,
       deletedDocumentReadsNull: true,
     },
-    mutationRuntimeExecutions: 8,
-    queryRuntimeExecutions: 10,
+    mutationRuntimeExecutions: 9,
+    queryRuntimeExecutions: 11,
     postgresVersion: null,
   });
   expect(proof.workloadProof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
@@ -90,8 +93,8 @@ it("runs the cooking simulation through the real Standard path", async () => {
     idempotencyOutcomeCommitSeqs: ["1", "2", "3", "4", "5", "6"],
     commitFeedCommitSeqs: ["1", "2", "3", "4", "5", "6"],
     outboxCommitSeqs: ["1", "2", "3", "4", "5", "6"],
-    mutationRuntimeExecutions: 8,
-    queryRuntimeExecutions: 10,
+    mutationRuntimeExecutions: 9,
+    queryRuntimeExecutions: 11,
   } as const;
   expect(proof.workloadProof.workloadInspection).toEqual(lifecycleInspection);
   expect(proof.finalInspection).toEqual(lifecycleInspection);

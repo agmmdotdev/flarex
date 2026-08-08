@@ -16,6 +16,8 @@ export const exactRuntimeConfigurationV1 = Object.freeze({
   requestVersion: 1,
   resultFormat: "flarex.point-mutation-exact-runtime-result",
   resultVersion: 1,
+  hostResponseFormat: "flarex.point-mutation-exact-runtime-host-response",
+  hostResponseVersion: 2,
   maxContextTextBytes: 512,
   maxAuthSemanticBytes: 64 * 1_024,
   randomSeedBytes: 32,

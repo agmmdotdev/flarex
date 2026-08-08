@@ -20,9 +20,9 @@ import {
   type PointMutationExactRuntimeRequestV1,
 } from "flarex-protocol/point-mutation-exact-runtime";
 import {
-  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
-  type PointMutationExactRuntimeHostResponseV1,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+  type PointMutationExactRuntimeHostResponseV2,
 } from "flarex-protocol/point-mutation-exact-runtime-host";
 import {
   makeGrantRetentionPolicyV1Result,
@@ -79,12 +79,16 @@ import { makeMemoryRuntimeArtifactStoreV1 } from
 
 type Persistence = PGliteFlarexPersistence | PostgresFlarexPersistence;
 type PointMutationSuccessV1 = Extract<
-  PointMutationExactRuntimeHostResponseV1,
+  PointMutationExactRuntimeHostResponseV2,
   Readonly<{ readonly kind: "success" }>
 >;
 type PointMutationFailureV1 = Extract<
-  PointMutationExactRuntimeHostResponseV1,
+  PointMutationExactRuntimeHostResponseV2,
   Readonly<{ readonly kind: "failure" }>
+>;
+type PointMutationApplicationErrorV2 = Extract<
+  PointMutationExactRuntimeHostResponseV2,
+  Readonly<{ readonly kind: "applicationError" }>
 >;
 
 const NOW = Date.now();
@@ -1171,6 +1175,7 @@ function testRuntimeDispatcher(
             const envelope = await response.json() as Readonly<{
               readonly ok: boolean;
               readonly result?: PointMutationSuccessV1["result"];
+              readonly applicationError?: PointMutationApplicationErrorV2["error"];
               readonly reason?: PointMutationFailureV1["reason"];
               readonly name?: string;
               readonly message?: string;
@@ -1182,23 +1187,32 @@ function testRuntimeDispatcher(
               delete proofController.afterRuntimeOnce;
               await afterRuntime();
             }
-            return envelope.ok && envelope.result !== undefined
-              ? disposableResponse({
-                  format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-                  version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+            if (envelope.ok && envelope.result !== undefined) {
+              return disposableResponse({
+                  format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+                  version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
                   kind: "success",
                   result: envelope.result,
-                })
-              : disposableResponse({
-                  format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-                  version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+                });
+            }
+            if (envelope.applicationError !== undefined) {
+              return disposableResponse({
+                format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+                version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+                kind: "applicationError",
+                error: envelope.applicationError,
+              });
+            }
+            return disposableResponse({
+                  format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+                  version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
                   kind: "failure",
                   reason: envelope.reason ?? "userCodeFailed",
                 });
           } catch (cause) {
             return disposableResponse({
-              format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-              version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+              format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+              version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
               kind: "failure",
               reason: "userCodeFailed",
             });
@@ -1213,6 +1227,7 @@ function testRuntimeDispatcher(
 
 export function pointMutationWorkerdDispatchModuleSourceForTest(): string {
   return `import { FlarexPointMutationInternalCallExactRuntimeV1 } from "./${POINT_MUTATION_INTERNAL_CALL_EXACT_RUNTIME_MAIN_MODULE_V1}";
+import { captureCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";
 const encode = value => JSON.stringify(value, (_key, member) =>
   typeof member === "bigint" ? member.toString() : member);
 export default {
@@ -1251,6 +1266,10 @@ export default {
       );
       return Response.json({ ok: true, result });
     } catch (error) {
+      const applicationError = captureCoreApplicationErrorV1(error);
+      if (applicationError !== null) {
+        return Response.json({ ok: false, applicationError });
+      }
       const reason = error?.name === "PointMutationInternalCallExactRuntimeJournalBoundaryV1Error"
         ? "journalBoundaryFailed"
         : "userCodeFailed";
@@ -1334,8 +1353,8 @@ function transactionBlock(): TransactionBlockV1 {
 }
 
 function disposableResponse(
-  response: PointMutationExactRuntimeHostResponseV1,
-): PointMutationExactRuntimeHostResponseV1 & Disposable {
+  response: PointMutationExactRuntimeHostResponseV2,
+): PointMutationExactRuntimeHostResponseV2 & Disposable {
   return Object.freeze({ ...response, [Symbol.dispose]: () => undefined });
 }
 

@@ -25,6 +25,9 @@ import {
   TransactionRequestKeyV1Schema,
   type TransactionAttemptFence,
 } from "flarex-protocol/transaction-session";
+import type {
+  CanonicalFlarexRuntimeValueV1,
+} from "flarex-protocol/value";
 
 import type {
   PointMutationExecutionScopeV1,
@@ -106,12 +109,21 @@ export class PointMutationOccUserCodeV1Error extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+export class PointMutationOccApplicationErrorV1 extends Data.TaggedError(
+  "PointMutationOccApplicationErrorV1",
+)<{
+  readonly code: string;
+  readonly message: string;
+  readonly data?: CanonicalFlarexRuntimeValueV1;
+}> {}
+
 export type PointMutationAuthenticatedAttemptExecutionV1Error =
   | PointMutationOccExecutionEvidencePersistenceV1Error
   | PointMutationOccExecutionNotRunnableV1Error
   | PointMutationOccExecutionAuthorityMismatchV1Error
   | PointMutationOccExecutionAuthorityCorruptionV1Error
   | PointMutationOccExecutionContextV1Error
+  | PointMutationOccApplicationErrorV1
   | PointMutationOccUserCodeV1Error
   | PointMutationJournalBoundaryV1Error
   | PointMutationJournalResultRejectedV1Error

@@ -6,7 +6,10 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
-import { PointMutationOccUserCodeV1Error } from
+import {
+  PointMutationOccApplicationErrorV1,
+  PointMutationOccUserCodeV1Error,
+} from
   "@flarex/executor/internal/stored-attempt-authentication-v1";
 
 import {
@@ -56,6 +59,9 @@ export interface CookingWorkloadProofV1 {
   readonly thrownFailureRollsBack: true;
   readonly failedMutationsReachedRuntime: true;
   readonly failedMutationStateUnchanged: true;
+  readonly applicationInvariantRejected: true;
+  readonly applicationErrorPreserved: true;
+  readonly applicationInvariantFailureStateUnchanged: true;
   readonly patchReplay: true;
   readonly replaceReplay: true;
   readonly assessmentUsesCustomLogic: true;
@@ -88,6 +94,11 @@ type CookingMutationInvocationErrorV1 =
 type CookingUserCodeFailureV1 = Extract<
   CookingMutationInvocationErrorV1,
   PointMutationOccUserCodeV1Error
+>;
+
+type CookingApplicationFailureV1 = Extract<
+  CookingMutationInvocationErrorV1,
+  PointMutationOccApplicationErrorV1
 >;
 
 type CookingMutationAttemptResultV1 = Result.Result<
@@ -147,6 +158,10 @@ const COOKING_REPLACE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
 const COOKING_PUBLISH_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:publish",
 );
+const COOKING_REJECTED_PUBLISH_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:publish-incomplete",
+  );
 const COOKING_DELETE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:delete",
 );
@@ -268,14 +283,7 @@ const COOKING_SECOND_RECIPE = {
     unit: "ml",
     note: "warm",
   }],
-  steps: [{
-    position: 1,
-    instruction: "Warm the broth.",
-    durationMinutes: 10,
-  }, {
-    position: 2,
-    instruction: "Add noodles and serve.",
-  }],
+  steps: [],
   nutrition: {
     caloriesPerServing: 410,
     vegetarian: false,
@@ -700,6 +708,33 @@ const runCookingWorkloadV1 = Effect.fn(
     COOKING_SECOND_RECIPE,
   );
 
+  const beforeApplicationInvariant =
+    yield* client.inspectAuthoritativeState();
+  const rejectedPublish = yield* Effect.result(client.mutation(
+    COOKING_PUBLISH,
+    { id: secondaryDocumentId },
+    COOKING_REJECTED_PUBLISH_REQUEST_KEY,
+  ));
+  requireApplicationFailure(
+    rejectedPublish,
+    secondaryDocumentId,
+  );
+  const afterApplicationInvariant = yield* client.inspectAuthoritativeState();
+  requireFailedMutationRollback(
+    beforeApplicationInvariant,
+    afterApplicationInvariant,
+    1,
+  );
+  const secondaryReadAfterRejectedPublish = yield* client.query(
+    COOKING_GET,
+    { id: secondaryDocumentId },
+  );
+  requireRecipeDocument(
+    secondaryReadAfterRejectedPublish,
+    secondaryDocumentId,
+    COOKING_SECOND_RECIPE,
+  );
+
   const beforeFailedMutations = yield* client.inspectAuthoritativeState();
   const invalidReturnResult = yield* Effect.result(client.mutation(
     COOKING_PATCH_THEN_RETURN_INVALID,
@@ -901,6 +936,9 @@ const runCookingWorkloadV1 = Effect.fn(
     thrownFailureRollsBack: true,
     failedMutationsReachedRuntime: true,
     failedMutationStateUnchanged: true,
+    applicationInvariantRejected: true,
+    applicationErrorPreserved: true,
+    applicationInvariantFailureStateUnchanged: true,
     patchReplay: true,
     replaceReplay: true,
     assessmentUsesCustomLogic: true,
@@ -998,6 +1036,41 @@ function requireUserCodeFailure<Success>(
       `The cooking ${scenario} scenario produced ${observation.outcome} instead of the expected user-code failure.`,
     );
   }
+}
+
+function requireApplicationFailure<Success>(
+  result: Result.Result<Success, CookingMutationInvocationErrorV1>,
+  recipeId: string,
+): void {
+  const observation = Result.match(result, {
+    onFailure: failure => ({
+      rejectedAsExpected:
+        failure instanceof PointMutationOccApplicationErrorV1 &&
+        hasExpectedApplicationFailure(failure, recipeId),
+      outcome: failureName(failure),
+    }),
+    onSuccess: () => ({
+      rejectedAsExpected: false,
+      outcome: "success",
+    }),
+  });
+  if (!observation.rejectedAsExpected) {
+    throw new Error(
+      `The cooking incomplete-recipe publication produced ${observation.outcome} instead of the expected application error.`,
+    );
+  }
+}
+
+function hasExpectedApplicationFailure(
+  failure: CookingApplicationFailureV1,
+  recipeId: string,
+): boolean {
+  return failure.code === "RECIPE_NOT_PUBLISHABLE" &&
+    failure.message === "Recipe cannot be published." &&
+    sameJsonValue(failure.data, {
+      recipeId,
+      violations: ["steps-required"],
+    });
 }
 
 function hasExpectedUserCodeFailureCause(
@@ -1214,7 +1287,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 8,
-    queries: 10,
+    mutations: 9,
+    queries: 11,
   },
 });

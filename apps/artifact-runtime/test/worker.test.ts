@@ -28,7 +28,8 @@ import {
 } from "flarex-protocol/point-mutation-exact-runtime";
 import {
   POINT_MUTATION_EXACT_RUNTIME_ARTIFACT_HOST_ENTRYPOINT_V1,
-  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
 } from "flarex-protocol/point-mutation-exact-runtime-host";
 import {
   requirePointMutationArgumentSemanticSizeV1,
@@ -68,8 +69,8 @@ describe("artifact runtime exact point-mutation RPC host", () => {
       { format: "invalid" },
       exactRuntimeJournalStub(journalDispose),
     )).resolves.toEqual({
-      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-      version: 1,
+      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+      version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
       kind: "failure",
       reason: "invalidRequest",
     });
@@ -96,9 +97,14 @@ describe("artifact runtime exact point-mutation RPC host", () => {
     const loader = new FakeExactRuntimeWorkerLoader(async (input, received) => {
       calls.push({ input, journal: received });
       return Object.defineProperty({
-        format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
-        version: 1,
-        value: { inserted: "1:new" },
+        format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+        version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+        kind: "success",
+        result: {
+          format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+          version: 1,
+          value: { inserted: "1:new" },
+        },
       }, Symbol.dispose, {
         value: resultDispose,
         enumerable: false,
@@ -114,8 +120,8 @@ describe("artifact runtime exact point-mutation RPC host", () => {
       request,
       journal,
     )).resolves.toEqual({
-      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-      version: 1,
+      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+      version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
       kind: "success",
       result: {
         format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
@@ -143,6 +149,40 @@ describe("artifact runtime exact point-mutation RPC host", () => {
       exactRuntimeJournalStub(vi.fn()),
     );
     expect(loader.loaded).toHaveLength(2);
+  });
+
+  it("forwards a validated application error without converting it to a host failure", async () => {
+    const sourcePackage = executableMutationSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(
+      sourcePackage,
+    );
+    const request = await exactRuntimeRequest(ref);
+    const loader = new FakeExactRuntimeWorkerLoader(async () => ({
+      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+      version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+      kind: "applicationError",
+      error: {
+        code: "RECIPE_NOT_PUBLISHABLE",
+        message: "Recipe cannot be published.",
+        data: { recipeId: "recipe-1", violations: ["missing-photo"] },
+      },
+    }));
+
+    await expect(runPointMutationExactRuntimeArtifactHostV1(
+      { ARTIFACTS: bucket, LOADER: loader },
+      request,
+      exactRuntimeJournalStub(vi.fn()),
+    )).resolves.toEqual({
+      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+      version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+      kind: "applicationError",
+      error: {
+        code: "RECIPE_NOT_PUBLISHABLE",
+        message: "Recipe cannot be published.",
+        data: { recipeId: "recipe-1", violations: ["missing-photo"] },
+      },
+    });
   });
 
   it("bounds expected host and Dynamic Worker failures without catching defects", async () => {

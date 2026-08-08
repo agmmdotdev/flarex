@@ -11,16 +11,15 @@ import {
 } from "flarex-backend/artifact-store";
 import {
   decodePointMutationExactRuntimeRequestV1Effect,
-  decodePointMutationExactRuntimeResultV1Effect,
   POINT_MUTATION_EXACT_RUNTIME_ENTRYPOINT_V1,
   type PointMutationExactRuntimeRequestV1,
-  type PointMutationExactRuntimeResultV1,
 } from "flarex-protocol/point-mutation-exact-runtime";
 import {
-  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
-  type PointMutationExactRuntimeHostFailureReasonV1,
-  type PointMutationExactRuntimeHostResponseV1,
+  decodePointMutationExactRuntimeHostResponseV2Effect,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+  type PointMutationExactRuntimeHostFailureReasonV2,
+  type PointMutationExactRuntimeHostResponseV2,
 } from "flarex-protocol/point-mutation-exact-runtime-host";
 
 const DEFAULT_EXACT_RUNTIME_COMPATIBILITY_DATE = "2026-06-14";
@@ -61,14 +60,14 @@ type ArtifactHostExpectedError =
   | PointMutationExactRuntimeHostV1Error
   | Readonly<{
       readonly _tag: "ArtifactHostExpectedError";
-      readonly reason: PointMutationExactRuntimeHostFailureReasonV1;
+      readonly reason: PointMutationExactRuntimeHostFailureReasonV2;
     }>;
 
 export async function runPointMutationExactRuntimeArtifactHostV1(
   env: PointMutationExactRuntimeArtifactHostEnvV1,
   input: unknown,
   journal: ExactRuntimeJournalRpcStubV1,
-): Promise<PointMutationExactRuntimeHostResponseV1> {
+): Promise<PointMutationExactRuntimeHostResponseV2> {
   return await Effect.runPromise(
     pointMutationExactRuntimeArtifactHostEffect(env, input, journal).pipe(
       Effect.catch((error: ArtifactHostExpectedError) =>
@@ -84,7 +83,7 @@ export class FlarexPointMutationExactRuntimeArtifactHostV1
   run(
     input: unknown,
     journal: ExactRuntimeJournalRpcStubV1,
-  ): Promise<PointMutationExactRuntimeHostResponseV1> {
+  ): Promise<PointMutationExactRuntimeHostResponseV2> {
     return runPointMutationExactRuntimeArtifactHostV1(
       this.env,
       input,
@@ -100,7 +99,7 @@ const pointMutationExactRuntimeArtifactHostEffect = Effect.fn(
   input: unknown,
   journal: ExactRuntimeJournalRpcStubV1,
 ): Effect.fn.Return<
-  PointMutationExactRuntimeHostResponseV1,
+  PointMutationExactRuntimeHostResponseV2,
   ArtifactHostExpectedError
 > {
   const request = yield* decodePointMutationExactRuntimeRequestV1Effect(
@@ -128,7 +127,7 @@ const pointMutationExactRuntimeArtifactHostEffect = Effect.fn(
     },
     catch: () => expectedError("workerLoadFailed"),
   });
-  const decodedResult = yield* Effect.acquireUseRelease(
+  const response = yield* Effect.acquireUseRelease(
     Effect.succeed(entrypoint),
     (stub) =>
       Effect.acquireUseRelease(
@@ -144,16 +143,21 @@ const pointMutationExactRuntimeArtifactHostEffect = Effect.fn(
           }),
         ),
         (rpcResult) =>
-          decodePointMutationExactRuntimeResultV1Effect(
+          decodePointMutationExactRuntimeHostResponseV2Effect(
             detachRpcResultObject(rpcResult),
           ).pipe(
             Effect.mapError(() => expectedError("invalidResult")),
+            Effect.flatMap((response) =>
+              response.kind === "failure"
+                ? Effect.fail(expectedError("invalidResult"))
+                : Effect.succeed(response)
+            ),
           ),
         (rpcResult) => disposeRpcValueEffect(rpcResult),
       ),
     (stub) => disposeRpcStubEffect(stub),
   );
-  return successResponse(decodedResult);
+  return response;
 });
 
 function workerCode(
@@ -169,7 +173,7 @@ function workerCode(
 }
 
 function expectedError(
-  reason: PointMutationExactRuntimeHostFailureReasonV1,
+  reason: PointMutationExactRuntimeHostFailureReasonV2,
 ): ArtifactHostExpectedError {
   return Object.freeze({
     _tag: "ArtifactHostExpectedError",
@@ -179,7 +183,7 @@ function expectedError(
 
 function reasonForExpectedError(
   error: ArtifactHostExpectedError,
-): PointMutationExactRuntimeHostFailureReasonV1 {
+): PointMutationExactRuntimeHostFailureReasonV2 {
   if (error._tag === "PointMutationExactRuntimeHostV1Error") {
     return error.issue.reason;
   }
@@ -188,7 +192,7 @@ function reasonForExpectedError(
 
 function dynamicWorkerFailureReason(
   cause: unknown,
-): PointMutationExactRuntimeHostFailureReasonV1 | undefined {
+): PointMutationExactRuntimeHostFailureReasonV2 | undefined {
   if (!isErrorLike(cause)) return undefined;
   switch (cause.name) {
     case "PointMutationExactRuntimeUserCodeV1Error":
@@ -212,23 +216,12 @@ function isErrorLike(
     typeof Reflect.get(value, "name") === "string";
 }
 
-function successResponse(
-  result: PointMutationExactRuntimeResultV1,
-): PointMutationExactRuntimeHostResponseV1 {
-  return Object.freeze({
-    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
-    kind: "success",
-    result,
-  });
-}
-
 function failureResponse(
-  reason: PointMutationExactRuntimeHostFailureReasonV1,
-): PointMutationExactRuntimeHostResponseV1 {
+  reason: PointMutationExactRuntimeHostFailureReasonV2,
+): PointMutationExactRuntimeHostResponseV2 {
   return Object.freeze({
-    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
     kind: "failure",
     reason,
   });

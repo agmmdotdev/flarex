@@ -9,9 +9,9 @@ import {
   type PointMutationExactRuntimeRequestV1,
 } from "flarex-protocol/point-mutation-exact-runtime";
 import {
-  decodePointMutationExactRuntimeHostResponseV1Effect,
-  type PointMutationExactRuntimeHostFailureReasonV1,
-  type PointMutationExactRuntimeHostResponseV1,
+  decodePointMutationExactRuntimeHostResponseV2Effect,
+  type PointMutationExactRuntimeHostFailureReasonV2,
+  type PointMutationExactRuntimeHostResponseV2,
 } from "flarex-protocol/point-mutation-exact-runtime-host";
 import type {
   TransactionGrantInertAuthV1,
@@ -28,6 +28,7 @@ import type {
   PointMutationOccRuntimeNeutralRunnerV1,
 } from "./storedAttemptAuthentication";
 import {
+  PointMutationOccApplicationErrorV1,
   PointMutationOccUserCodeV1Error,
 } from "./storedAttemptAuthentication/exactPointMutationExecutionOperations";
 
@@ -36,7 +37,7 @@ export type PointMutationExactRuntimeRunnerHostV1ErrorReason =
   | "transportFailed"
   | "invalidHostResponse"
   | Exclude<
-    PointMutationExactRuntimeHostFailureReasonV1,
+    PointMutationExactRuntimeHostFailureReasonV2,
     "userCodeFailed"
   >;
 
@@ -48,6 +49,7 @@ export class PointMutationExactRuntimeRunnerHostV1Error
 
 type PointMutationExactRuntimeCallV1Error =
   | PointMutationExactRuntimeRunnerHostV1Error
+  | PointMutationOccApplicationErrorV1
   | PointMutationOccUserCodeV1Error;
 
 type PointMutationExactRuntimeRunnerV1Error =
@@ -216,7 +218,9 @@ const callArtifactHostV1 = Effect.fn(
   journal: PointMutationJournalRpcParentTargetV1,
 ): Effect.fn.Return<
   unknown,
-  PointMutationExactRuntimeRunnerHostV1Error | PointMutationOccUserCodeV1Error
+  | PointMutationExactRuntimeRunnerHostV1Error
+  | PointMutationOccApplicationErrorV1
+  | PointMutationOccUserCodeV1Error
 > {
   return yield* Effect.acquireUseRelease(
     Effect.tryPromise({
@@ -240,19 +244,19 @@ const callArtifactHostV1 = Effect.fn(
       ),
     ),
     (rawResponse) =>
-      decodeOwnedHostResponseV1(rawResponse).pipe(
-        Effect.flatMap(classifyHostResponseV1),
+      decodeOwnedHostResponseV2(rawResponse).pipe(
+        Effect.flatMap(classifyHostResponseV2),
       ),
     disposeRpcValueEffect,
   );
 });
 
-const decodeOwnedHostResponseV1 = Effect.fn(
+const decodeOwnedHostResponseV2 = Effect.fn(
   "PointMutationExactRuntimeRunner.decodeHostResponse",
 )(function* (
   rawResponse: unknown,
 ): Effect.fn.Return<
-  PointMutationExactRuntimeHostResponseV1,
+  PointMutationExactRuntimeHostResponseV2,
   PointMutationExactRuntimeRunnerHostV1Error
 > {
   const detached = yield* Effect.try({
@@ -263,7 +267,7 @@ const decodeOwnedHostResponseV1 = Effect.fn(
         cause,
       }),
   });
-  return yield* decodePointMutationExactRuntimeHostResponseV1Effect(
+  return yield* decodePointMutationExactRuntimeHostResponseV2Effect(
     detached,
   ).pipe(
     Effect.mapError((cause) =>
@@ -275,14 +279,32 @@ const decodeOwnedHostResponseV1 = Effect.fn(
   );
 });
 
-function classifyHostResponseV1(
-  response: PointMutationExactRuntimeHostResponseV1,
+function classifyHostResponseV2(
+  response: PointMutationExactRuntimeHostResponseV2,
 ): Effect.Effect<
   unknown,
-  PointMutationExactRuntimeRunnerHostV1Error | PointMutationOccUserCodeV1Error
+  | PointMutationExactRuntimeRunnerHostV1Error
+  | PointMutationOccApplicationErrorV1
+  | PointMutationOccUserCodeV1Error
 > {
   if (response.kind === "success") {
     return Effect.succeed(response.result.value);
+  }
+  if (response.kind === "applicationError") {
+    return Effect.fail(
+      new PointMutationOccApplicationErrorV1(
+        response.error.data !== undefined
+          ? {
+            code: response.error.code,
+            message: response.error.message,
+            data: response.error.data,
+          }
+          : {
+            code: response.error.code,
+            message: response.error.message,
+          },
+      ),
+    );
   }
   if (response.reason === "userCodeFailed") {
     return Effect.fail(

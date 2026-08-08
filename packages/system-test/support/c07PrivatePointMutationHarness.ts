@@ -20,9 +20,9 @@ import {
   type PointMutationExactRuntimeRequestV1,
 } from "flarex-protocol/point-mutation-exact-runtime";
 import {
-  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
-  type PointMutationExactRuntimeHostResponseV1,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+  type PointMutationExactRuntimeHostResponseV2,
 } from "flarex-protocol/point-mutation-exact-runtime-host";
 import {
   CatalogSchemaVersionIdSchema,
@@ -1071,10 +1071,10 @@ function appTable(
 
 function exactRuntimeSuccessResponse(
   dispose: () => void,
-): PointMutationExactRuntimeHostResponseV1 & Disposable {
+): PointMutationExactRuntimeHostResponseV2 & Disposable {
   return {
-    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V1,
-    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V1,
+    format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+    version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
     kind: "success",
     result: {
       format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,

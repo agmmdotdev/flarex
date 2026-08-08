@@ -129,6 +129,7 @@ export function pointMutationInternalCallExactRuntimePlatformSourceV1(): string 
       "../pointMutationInternalCallExactRuntimeWorker/flarex-point-mutation-internal-call-runtime-kernel-v1.js",
     captureExportName:
       "capturePointMutationInternalCallCoreApplicationErrorDataV1",
+    captureProjectionExportName: "captureCoreApplicationErrorV1",
     invalid: {
       kind: "profileApplicationError",
       exportName: "PointMutationInternalCallApplicationV1Error",

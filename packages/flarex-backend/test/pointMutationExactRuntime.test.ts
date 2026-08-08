@@ -32,6 +32,10 @@ import {
 import {
   requirePointMutationArgumentSemanticSizeV1,
 } from "flarex-protocol/point-mutation-start";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+} from "flarex-protocol/point-mutation-exact-runtime-host";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
@@ -91,7 +95,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "fa883683b11221b65602ae514090d279f695b1687332731743a1f731a69bb373",
+      "577996df87bd42abd6762e86c7894f6d21e461039624a04c4960db09910c17e0",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
@@ -234,9 +238,14 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     };
 
     await expect(runtime.run(request, journal)).resolves.toEqual({
-      format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
-      version: 1,
-      value: { ok: true },
+      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+      version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+      kind: "success",
+      result: {
+        format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+        version: 1,
+        value: { ok: true },
+      },
     });
     expect(handler).toHaveBeenCalledOnce();
     expect(tableResolutionCount).toBe(1);
@@ -304,9 +313,14 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
         },
       }),
     })).resolves.toEqual({
-      format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
-      version: 1,
-      value: insertedOrderId,
+      format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+      version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+      kind: "success",
+      result: {
+        format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+        version: 1,
+        value: insertedOrderId,
+      },
     });
     expect(caught).toEqual([
       APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
@@ -463,7 +477,10 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
       invocations,
     );
 
-    expect(generated).toMatchObject({ value: inProcess });
+    expect(generated).toMatchObject({
+      kind: "success",
+      result: { value: inProcess },
+    });
     expect(generatedOperations).toMatchObject([
       {
         kind: "insert",
@@ -680,7 +697,8 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
         throw new Error("journal must not open");
       },
     })).resolves.toMatchObject({
-      value: null,
+      kind: "success",
+      result: { value: null },
     });
   });
 
@@ -738,7 +756,8 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
       }),
       [Symbol.dispose]: parentDispose,
     })).resolves.toMatchObject({
-      value: null,
+      kind: "success",
+      result: { value: null },
     });
     expect(tableDispose).toHaveBeenCalledOnce();
     expect(parentDispose).toHaveBeenCalledOnce();
@@ -792,43 +811,46 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     expect(replay).toEqual(first);
     expect(first).toMatchObject({
       first: {
-        value: {
-          firstNow: 100,
-          secondNow: 100,
-          dateNow: 100,
-          performanceNow: 0,
-          cryptoRandomBlocked: true,
-          cryptoSubtleBlocked: true,
-          cachesBlocked: true,
-          datePrototypeConstructorNow: 100,
-          cryptoPrototypeNull: true,
-          subtlePrototypeNull: true,
-          cachesPrototypeNull: true,
-          defaultCachePrototypeNull: true,
-          performancePrototypeNull: true,
-          timersBlocked: true,
-          abortTimeoutBlocked: true,
-          inheritedTimerBlocked: true,
-          messageChannelBlocked: true,
-          webAssemblyAsyncBlocked: true,
-          fetchBlocked: true,
-          implicitIntlTimeBlocked: true,
-          explicitIntlTime: true,
-          tamperBlocked: true,
-          got: {
-            _id: orderId,
-            _creationTime: 100,
-            status: "open",
+        kind: "success",
+        result: {
+          value: {
+            firstNow: 100,
+            secondNow: 100,
+            dateNow: 100,
+            performanceNow: 0,
+            cryptoRandomBlocked: true,
+            cryptoSubtleBlocked: true,
+            cachesBlocked: true,
+            datePrototypeConstructorNow: 100,
+            cryptoPrototypeNull: true,
+            subtlePrototypeNull: true,
+            cachesPrototypeNull: true,
+            defaultCachePrototypeNull: true,
+            performancePrototypeNull: true,
+            timersBlocked: true,
+            abortTimeoutBlocked: true,
+            inheritedTimerBlocked: true,
+            messageChannelBlocked: true,
+            webAssemblyAsyncBlocked: true,
+            fetchBlocked: true,
+            implicitIntlTimeBlocked: true,
+            explicitIntlTime: true,
+            tamperBlocked: true,
+            got: {
+              _id: orderId,
+              _creationTime: 100,
+              status: "open",
+            },
+            inserted: insertedOrderId,
           },
-          inserted: insertedOrderId,
         },
       },
       secondFailure: "Error",
       sequences: ["1", "2"],
       capturedInsertStatus: "new",
     });
-    expect(differentSeed.first.value.randomValues).not.toEqual(
-      first.first.value.randomValues,
+    expect(differentSeed.first.result.value.randomValues).not.toEqual(
+      first.first.result.value.randomValues,
     );
   });
 
@@ -1372,8 +1394,9 @@ function executableGeneratedSource(
     withoutWorkerImport,
   );
   const withTestApplicationErrorInspector = withTestFunctionApiCore.replace(
-    'import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";',
-    "const inspectCoreApplicationErrorV1 = () => false;",
+    'import { captureCoreApplicationErrorV1, inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";',
+    `const captureCoreApplicationErrorV1 = () => null;
+const inspectCoreApplicationErrorV1 = () => false;`,
   );
   const withTestModule = withTestApplicationErrorInspector.replace(
     /const executionModulePromise = import\([^;]+;/,
@@ -1471,8 +1494,10 @@ function testExactRuntimeWorkerSource(): string {
 
 function runGeneratedRuntimeInFreshProcess(seedByte: number): Readonly<{
   readonly first: Readonly<{
-    readonly value: Readonly<{
-      readonly randomValues: readonly number[];
+    readonly result: Readonly<{
+      readonly value: Readonly<{
+        readonly randomValues: readonly number[];
+      }>;
     }>;
   }>;
   readonly secondFailure: string;
@@ -1483,8 +1508,9 @@ function runGeneratedRuntimeInFreshProcess(seedByte: number): Readonly<{
     replaceRuntimeKernelImportForTest(testExactRuntimeWorkerSource()),
   )
     .replace(
-      'import { inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";',
-      "const inspectCoreApplicationErrorV1 = () => false;",
+      'import { captureCoreApplicationErrorV1, inspectCoreApplicationErrorV1 } from "./_flarex/application-error-platform-v1.js";',
+      `const captureCoreApplicationErrorV1 = () => null;
+const inspectCoreApplicationErrorV1 = () => false;`,
     )
     .replace(
       'import { WorkerEntrypoint } from "cloudflare:workers";',
