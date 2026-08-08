@@ -151,7 +151,7 @@ describe("point-query exact runtime in workerd", () => {
       imports:
         "const importTimeV1 = Date.now(); const importRandomV1 = Math.random();",
       handler:
-        "async () => ({ importTime: importTimeV1, importRandom: importRandomV1 })",
+        "async () => ({ importTime: importTimeV1, importRandom: importRandomV1, requestRandoms: [Math.random(), Math.random()] })",
       capability: "async () => ({ kind: 'missing' })",
     })).resolves.toMatchObject({
       ok: true,
@@ -159,6 +159,24 @@ describe("point-query exact runtime in workerd", () => {
         value: {
           importTime: Date.UTC(2026, 5, 11),
           importRandom: 0.5,
+          requestRandoms: [0.7361277788877487, 0.07420442742295563],
+        },
+      },
+    });
+
+    await expect(runScenario({
+      imports:
+        "let mathMutationBlockedV1 = false; try { Math.imul = () => 0; } catch { mathMutationBlockedV1 = true; } const mathSurfaceV1 = { frozen: Object.isFrozen(Math), hasOwnImul: Object.hasOwn(Math, 'imul'), inheritedRandomType: typeof Object.getPrototypeOf(Math)?.random, mutationBlocked: mathMutationBlockedV1 };",
+      handler: "async () => mathSurfaceV1",
+      capability: "async () => ({ kind: 'missing' })",
+    })).resolves.toMatchObject({
+      ok: true,
+      result: {
+        value: {
+          frozen: true,
+          hasOwnImul: true,
+          inheritedRandomType: "undefined",
+          mutationBlocked: true,
         },
       },
     });

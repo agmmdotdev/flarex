@@ -145,7 +145,7 @@ describe("generated function API core", () => {
     }
   });
 
-  it("installs query globals before loading dynamic modules", () => {
+  it("installs immutable owned query globals before loading dynamic modules", () => {
     for (const source of [
       POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
       POINT_QUERY_INTERNAL_CALL_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
@@ -175,6 +175,10 @@ describe("generated function API core", () => {
       expect(kernelImportIndex).toBeGreaterThan(globalsInstallIndex);
       expect(source).toContain("output[key] = nativeStructuredClone(value)");
       expect(source).not.toContain("output[key] = structuredClone(value)");
+      expect(source).toContain('defineProperty(nativeMath, "random", {');
+      expect(source).toContain("value: () => deterministicRandom()");
+      expect(source).toContain("value: freeze(nativeMath)");
+      expect(source).not.toContain("Object.create(nativeMath)");
     }
   });
 

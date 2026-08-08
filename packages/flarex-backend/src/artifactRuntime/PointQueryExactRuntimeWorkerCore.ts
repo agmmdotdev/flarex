@@ -456,10 +456,14 @@ function installExactGlobals(): void {
   ExactRuntimeDate.prototype = nativeDate.prototype;
   defineProperty(ExactRuntimeDate, "now", { value: () => deterministicTime });
   defineProperty(globalThis, "Date", { value: ExactRuntimeDate });
+  defineProperty(nativeMath, "random", {
+    value: () => deterministicRandom(),
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
   defineProperty(globalThis, "Math", {
-    value: freeze(Object.assign(Object.create(nativeMath), {
-      random: () => deterministicRandom(),
-    })),
+    value: freeze(nativeMath),
   });
   defineProperty(globalThis, "crypto", {
     value: freeze({

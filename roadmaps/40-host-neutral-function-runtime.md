@@ -3049,6 +3049,103 @@ smallest correct boundary is query-local hardening or one backend-owned shared
 exact-global support module. It must not move Workerd host policy into Function
 API Core or widen into action behavior.
 
+### `FAC17` Preflight Decision
+
+**Accepted:** 2026-08-08
+
+The genuine Workerd preflight rejected the current query `Math` facade. At
+application module evaluation time the facade is frozen, but `Math.imul` is an
+inherited property and `Object.getPrototypeOf(Math).random` is the original
+native random function. The latter is a direct nondeterministic-runtime escape;
+the mutable captured prototype is also the authority later consulted by
+`randomFromSeed` through the global `Math.imul` lookup. This is an intrinsic
+ownership defect in both exact-query Worker cores, not a Function API Core or
+database-context defect.
+
+The current exact-mutation Workers already use the correct local ownership
+shape: redefine `random` on the captured native `Math` with an immutable
+descriptor, install that object as the exact global, and freeze it. Current
+Convex likewise patches the actual global `Math.random`; its deterministic RNG
+is host-operated rather than implemented by user-reachable JavaScript
+intrinsics. `FAC17` therefore adopts the existing mutation pattern for both
+query profiles. It deliberately preserves Flarex's current import-time fixed
+`0.5` policy and request-time seeded RNG behavior rather than importing a new
+Convex syscall or changing compatibility semantics.
+
+A backend-shared installer extraction is rejected for this slice. The two
+query cores own separate module-local deterministic clock and RNG state, and a
+new stateful support module would add import-order and isolate-lifecycle
+authority merely to remove a small duplication. The correction remains in the
+two query Worker cores and their generated closure. It does not move Workerd
+host policy into `@flarex/function-runtime`, widen the exact-global catalog,
+touch actions, or alter snapshots, journals, OCC, commit, activation, routing,
+or production behavior. The operation is synchronous module-evaluation host
+setup with invariant violations only, so an Effect wrapper or service/Layer is
+not the semantic owner.
+
+The implementation gate is authored/generated agreement for both query
+profiles, a genuine Workerd proof that `Math` owns `imul`, exposes no inherited
+native `random`, is frozen, and rejects reassignment, unchanged import-time and
+request-time RNG results, refreshed query Worker and graph identities, affected
+regressions, `check:effect-boundaries`, both mandatory exact-final reviewers,
+fixes and re-review when needed, and one intentional commit.
+
+### `FAC17` Implementation Receipt
+
+**Completed:** 2026-08-08
+
+Both exact-query Worker cores now redefine `random` directly on their captured
+native `Math` with the standard non-enumerable, non-configurable, non-writable
+descriptor, install that owned object as the exact global, and freeze it before
+the application execution bridge is loaded. The prototype facade and its
+reachable original native `random` are gone. The existing import-time fixed
+`0.5` policy and request-time seeded generator remain unchanged.
+
+The genuine Workerd regression first reproduced the rejected facade as a
+frozen object with inherited `imul` and a reachable inherited native `random`.
+It now proves the corrected `Math` owns `imul`, has no inherited `random`, is
+frozen, and rejects reassignment. The same scenario separately pins the module
+evaluation value to `0.5` and the first two post-admission values for its fixed
+seed to `0.7361277788877487` and `0.07420442742295563`. Generated-source checks
+pin the immutable native-`Math` installation and reject reintroduction of
+`Object.create(nativeMath)` in either query profile.
+
+The final generated query Worker identities are:
+
+- point query:
+  `1ed141b367114eba7c46916bfb19d4d3b3fe3f29b941988f42685229f6d2649f`;
+- point query/internal call:
+  `6b0eeeeda70190700f0f0955739af750e8e0c467ed3de82611a4e2d7c96d42ed`.
+
+Their final representative graph-basis SHA-256 receipts are point query
+`fd5d9a7685db3b9e5f5434206951223ad470572e5c0be464c851f6f3cd272a6c`
+and point query/internal call
+`d7c7689bc849dd449aaa9c667c9678edbdf98e5acdfa19a440e065ea4a81c43d`.
+The fixture was cross-checked by substituting the prior generated identities
+and reproducing the accepted `FAC16` graph receipts. Function API Core, query
+and mutation runtime kernels, mutation and action Worker sources, and their
+identities are unchanged.
+
+Validation passed for both deterministic generated-source checks, backend
+build and typecheck, the focused generated and two-query Workerd suite, the
+affected 8 files / 59 tests, scoped `git diff --check`, and
+`check:effect-boundaries` with zero production `Effect.runSync` and 56 allowed
+`Effect.runPromise` sites. The code-quality reviewer identified the missing
+exact post-admission RNG assertion; after it was added, both mandatory
+exact-final reviewers independently reported no findings and confirmed the
+seeded values, generated-source/source-map agreement, immutable ownership, and
+plain-TypeScript Effect applicability decision.
+
+`FAC17` is closed. `FAC18` must begin with a fresh preflight over the two query
+profiles' `Date` constructor and prototype integrity. In particular,
+`ExactRuntimeDate.prototype` aliases the captured native prototype while the
+constructor itself is not comprehensively hardened. The preflight must
+reproduce or reject an application-visible mutation or native escape in
+genuine Workerd, compare the exact-mutation installer and current Convex
+isolation, and decide the smallest query-owned correction without automatically
+expanding into the mutation intrinsic catalog, a shared stateful installer,
+actions, or Function API Core.
+
 ### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction
