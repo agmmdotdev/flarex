@@ -91,7 +91,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "d27d77a2c54b30fd9a73a4ff1e8bb7c097a257a1e07141bc38f3b7cc64435e15",
+      "63073fc00832097c5bb410153ecd42356554f05d2ddc1aaf97dc1a9d815d8419",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
@@ -1390,21 +1390,55 @@ function executableGeneratedSource(
 }
 
 function replaceRuntimeKernelImportForTest(source: string): string {
-  const kernelSource = POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1.replace(
-    /^export /gm,
-    "",
+  const kernel = executableRuntimeKernelForTest(
+    POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1,
   );
   return source.replace(
     `const runtimeKernelModulePath = "./pointMutationExactRuntimeWorker/flarex-point-mutation-runtime-kernel-v1.js";
 const runtimeKernelPromise = import(runtimeKernelModulePath).then(decodeRuntimeKernelModule);`,
-    `const runtimeKernelPromise = Promise.resolve((() => {
-${kernelSource}
+    () => `const runtimeKernelPromise = Promise.resolve((() => {
+${kernel.source}
 return {
-  executePointMutationV1,
-  inspectPointMutationRuntimeFailureV1,
+  executePointMutationV1: ${kernel.executePointMutationLocal},
+  inspectPointMutationRuntimeFailureV1: ${kernel.inspectFailureLocal},
 };
 })());`,
   );
+}
+
+function executableRuntimeKernelForTest(source: string): Readonly<{
+  readonly source: string;
+  readonly executePointMutationLocal: string;
+  readonly inspectFailureLocal: string;
+}> {
+  const exportMatch = /export\s*\{([\s\S]*?)\};/u.exec(source);
+  if (exportMatch === null || exportMatch[1] === undefined) {
+    throw new Error("Generated point-mutation kernel is missing its export list.");
+  }
+  const bindings = new Map<string, string>();
+  for (const entry of exportMatch[1].split(",")) {
+    const match = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?\s*$/u
+      .exec(entry);
+    if (match === null || match[1] === undefined) {
+      throw new Error("Generated point-mutation kernel has an invalid export.");
+    }
+    bindings.set(match[2] ?? match[1], match[1]);
+  }
+  const executePointMutationLocal = bindings.get("executePointMutationV1");
+  const inspectFailureLocal = bindings.get(
+    "inspectPointMutationRuntimeFailureV1",
+  );
+  if (
+    executePointMutationLocal === undefined ||
+    inspectFailureLocal === undefined
+  ) {
+    throw new Error("Generated point-mutation kernel exports are incomplete.");
+  }
+  return Object.freeze({
+    source: source.replace(exportMatch[0], ""),
+    executePointMutationLocal,
+    inspectFailureLocal,
+  });
 }
 
 function replaceFunctionApiCoreImportForTest(source: string): string {
@@ -1420,7 +1454,7 @@ function replaceFunctionApiCoreImportForTest(source: string): string {
 ${testCoreSource}
 return { ${importedNames.join(", ")} };
 })();`;
-  const replaced = source.replace(importSource, replacement);
+  const replaced = source.replace(importSource, () => replacement);
   if (replaced === source) {
     throw new Error("Generated exact runtime is missing the Function API Core import.");
   }

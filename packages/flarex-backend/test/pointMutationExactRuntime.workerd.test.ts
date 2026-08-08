@@ -294,6 +294,26 @@ export default {};`,
     });
   });
 
+  it("uses the protocol-owned runtime value semantics in generated Workerd code", async () => {
+    await expect(runContractFailureScenario({
+      path: "orders:complete",
+      functionSource: `{
+        isMutation: true,
+        isPublic: true,
+        _handler: () => ({ kept: "value", omitted: undefined }),
+      }`,
+      argumentsValue: {},
+      argsValidator: { type: "object", value: {} },
+    })).resolves.toEqual({
+      name: "success",
+      result: {
+        format: "flarex.point-mutation-exact-runtime-result",
+        version: 1,
+        value: { kept: "value" },
+      },
+    });
+  });
+
   it("executes the exact analyzer-admitted caught FlarexError source", async () => {
     await expect(runContractFailureScenario({
       path: "orders:complete",

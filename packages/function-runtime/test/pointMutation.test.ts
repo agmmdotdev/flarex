@@ -117,13 +117,23 @@ describe("@flarex/function-runtime/point-mutation", () => {
 
   it("rejects invalid arguments before opening an invocation", async () => {
     const open = vi.fn();
-    await expect(executePointMutationV1(
+    const failure = await executePointMutationV1(
       input({ arguments: Object.freeze({ status: 42 }) }),
       { resolve: () => runtimeFunction(() => null) },
       { open },
-    )).rejects.toMatchObject({
+    ).then(() => undefined, (cause: unknown) => cause);
+    expect(failure).toMatchObject({
       name: "PointMutationRuntimeContractV1Error",
       reason: "argumentsInvalid",
+    });
+    expect(inspectPointMutationRuntimeFailureV1(failure)).toEqual({
+      kind: "contract",
+      reason: "argumentsInvalid",
+      cause: {
+        reason: "typeMismatch",
+        path: "$arguments.status",
+        expected: "string",
+      },
     });
     expect(open).not.toHaveBeenCalled();
   });
@@ -140,7 +150,7 @@ describe("@flarex/function-runtime/point-mutation", () => {
       validator = { type: "array", value: validator };
     }
     const resolve = vi.fn();
-    await expect(executePointMutationV1(
+    const failure = await executePointMutationV1(
       input({
         function: Object.freeze({
           ...input().function,
@@ -149,11 +159,38 @@ describe("@flarex/function-runtime/point-mutation", () => {
       }),
       { resolve },
       invocation([]),
-    )).rejects.toMatchObject({
+    ).then(() => undefined, (cause: unknown) => cause);
+    expect(failure).toMatchObject({
       name: "PointMutationRuntimeContractV1Error",
       reason: "validatorProjectionInvalid",
     });
+    expect(inspectPointMutationRuntimeFailureV1(failure)).toEqual({
+      kind: "contract",
+      reason: "validatorProjectionInvalid",
+      cause: { reason: "tooDeep" },
+    });
     expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("matches Convex-style undefined object-field omission", async () => {
+    const result = await executePointMutationV1(
+      input({
+        function: Object.freeze({
+          ...input().function,
+          returnsValidator: { type: "any" as const },
+        }),
+      }),
+      {
+        resolve: () => runtimeFunction(() => ({
+          kept: "value",
+          omitted: undefined,
+        })),
+      },
+      invocation([]),
+    );
+
+    expect(result).toEqual({ kept: "value" });
+    expect(Object.keys(result as object)).toEqual(["kept"]);
   });
 
   it("validates return IDs with the verified table projection", async () => {

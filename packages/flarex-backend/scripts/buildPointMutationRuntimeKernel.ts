@@ -2,23 +2,23 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { transformWithOxc } from "vite";
+import { build } from "vite";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
-const KERNEL_PATH = path.join(
+const ENTRY = path.join(
   PACKAGE_ROOT,
   "..",
   "function-runtime",
   "src",
   "pointMutation.ts",
 );
-const VIRTUAL_KERNEL_FILENAME = "pointMutation.ts";
 const GENERATED_PATH = path.join(
   PACKAGE_ROOT,
   "src",
   "artifactRuntime",
   "PointMutationRuntimeKernel.generated.ts",
 );
+const MAX_POINT_MUTATION_RUNTIME_KERNEL_BYTES = 4 * 1024 * 1024;
 
 interface KernelBuildReceipt {
   readonly source: string;
@@ -88,24 +88,44 @@ async function buildTwice(): Promise<KernelBuildReceipt> {
 }
 
 async function buildOnce(): Promise<KernelBuildReceipt> {
-  const input = (await readFile(KERNEL_PATH, "utf8")).replace(/\r\n?/g, "\n");
-  const result = await transformWithOxc(input, VIRTUAL_KERNEL_FILENAME, {
-    sourcemap: true,
+  const output = await build({
+    configFile: false,
+    logLevel: "silent",
+    build: {
+      write: false,
+      target: "es2022",
+      minify: "esbuild",
+      sourcemap: "inline",
+      lib: { entry: ENTRY, formats: ["es"], fileName: () => "kernel.js" },
+      rollupOptions: { treeshake: true },
+    },
   });
-  if (result.map === undefined || result.map === null) {
-    throw new Error("Point-mutation runtime kernel build omitted its source map.");
+  if (!Array.isArray(output) || output.length !== 1 ||
+    !Array.isArray(output[0].output)) {
+    throw new Error(
+      "Point-mutation runtime kernel build returned an invalid result.",
+    );
   }
-  if (/^\s*import\s/m.test(result.code)) {
+  const emitted = output[0].output;
+  if (emitted.length !== 1 || emitted[0]?.type !== "chunk") {
+    throw new Error(
+      "Point-mutation runtime kernel build must emit exactly one JavaScript chunk.",
+    );
+  }
+  const chunk = emitted[0];
+  if (chunk.imports.length !== 0 || chunk.dynamicImports.length !== 0) {
     throw new Error(
       "Point-mutation runtime kernel must not retain runtime imports.",
     );
   }
-  const inlineSourceMap = Buffer.from(
-    JSON.stringify(result.map),
-    "utf8",
-  ).toString("base64");
-  const source =
-    `${result.code}//# sourceMappingURL=data:application/json;base64,${inlineSourceMap}\n`;
+  const source = chunk.code.replace(/\r\n?/g, "\n");
+  const sourceBytes = Buffer.byteLength(source, "utf8");
+  if (sourceBytes > MAX_POINT_MUTATION_RUNTIME_KERNEL_BYTES) {
+    throw new Error(
+      `Point-mutation runtime kernel is ${sourceBytes} bytes and exceeds the ` +
+        `${MAX_POINT_MUTATION_RUNTIME_KERNEL_BYTES}-byte target ceiling.`,
+    );
+  }
   return Object.freeze({
     source,
     sha256: createHash("sha256").update(source, "utf8").digest("hex"),

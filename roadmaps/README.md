@@ -116,7 +116,7 @@ consumers.
 | Decision record | Classification | Purpose |
 | --- | --- | --- |
 | [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md) | Accepted direction; preflight required | Standard versioned contract chain between developer definitions, direct fixtures, artifact generation, analysis, verification, and runtime projection without making SDK objects downstream authority. |
-| [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md) | Accepted direction; preflight required | Shared user-code execution semantics with Cloudflare Dynamic Worker and in-process adapters while preserving executor and FlarexDB authority and retaining platform evidence. |
+| [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md) | FAC01-FAC19 complete; FAC20 preflight required | Shared user-code execution semantics with Cloudflare Dynamic Worker and in-process adapters while preserving executor and FlarexDB authority and retaining platform evidence. |
 | [`durable-task-engine/README.md`](./durable-task-engine/README.md) | DTE04-A1 complete; Roadmap 04 active | Aggregate/effect JSON envelopes and the lifecycle projection are implemented; READ COMMITTED locking, database-clock, retry, and discovery decisions are closed for later checkpoints, while missing canonical task-definition and input-reference owners still block DDL, run creation, and concrete adapters. |
 
 ## Foundation Execution And Deferred Contracts

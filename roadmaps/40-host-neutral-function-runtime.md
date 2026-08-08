@@ -8,11 +8,14 @@ vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
 Function API Core direction and focused preflight recorded below are accepted,
-and `FAC01` through `FAC09` are implemented and validated. `FAC09` removed the
-private auth, database, and nested-call authoring shims in favor of the normal
-Convex-style handler `ctx`; only the separately owned application-error
-registry remains a host-private mutation-runtime module while its developer-
-facing replacement is still unapproved. Production routing remains deferred.
+and `FAC01` through `FAC19` are implemented and validated. The five exact point
+profiles use normal Convex-style handler `ctx` facades, the public
+`FlarexError` constructor is analyzer/runtime-owned, and the top-level query
+and mutation kernels share the protocol validator and runtime-value semantics.
+The separately owned application-error provenance registry remains a
+host-private mutation-runtime module. Two internal-mutation kernels still use
+one copied runtime-value/validator primitive pending the resource-aware
+`FAC20` preflight. Production routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -3249,6 +3252,71 @@ from generated closure that correctly remains host-owned. If the audit proves
 all approved Function API Core requirements and validation gates are closed,
 it must reconcile the roadmap and run the full completion audit before the
 active goal can be marked complete.
+
+### `FAC19` Runtime-Value And Validator-Core Audit Decision
+
+**Accepted:** 2026-08-08
+
+The completion audit found that the accepted context and host boundaries are
+closed, but the portable runtime semantics are not yet fully centralized. All
+five exact point profiles consume the one Function API Core for auth, point
+reader/writer facades, positive-capability contexts, nested calls, and
+application-error provenance. Candidate configuration and module references
+remain correctly generated; snapshot and journal adapters, request decoding,
+Workerd exact-global policy, RPC disposal, and the private application-error
+platform remain correctly host-owned. The older generic HostKit and its
+throwing scheduler/storage placeholders belong to a separate supported legacy
+profile and are not authority for an incidental removal in this roadmap.
+
+The audit found two executable copies. Both query kernels already used the
+protocol-owned `validatorJsonAdmissionIssueV1`,
+`validateValidatorValueIssueV1`, and `normalizeFlarexValueV1`. `FAC19` removed
+the top-level mutation copy after replacing its single-file Oxc transform with
+a bounded self-contained bundle. The two internal-mutation kernels still share
+one copied primitive module; that remaining duplication is the `FAC20` target.
+
+Current Convex at `84fbb0e70b4e857913673871cb847ad11a55f3d5`
+continues to share value conversion, argument validation, database setup, and
+registration context construction across query and mutation while retaining
+the isolate syscall bridge and exact function-kind composition in their own
+owners. `FAC19` copies that ownership style, not Convex's syscall transport or
+unimplemented database capabilities.
+
+`FAC19` migrated the top-level mutation kernel to the
+same protocol-owned admission, validator, and runtime-value semantics already
+used by top-level query. Its deterministic builder uses the same Vite
+library-bundle pattern as query. The builder requires exactly one emitted
+JavaScript chunk, no retained static or dynamic imports, an inline source map,
+byte-identical repeat builds, and the existing four-MiB ceiling, so the
+generated Worker remains a bounded self-contained module. The
+copied top-level engines are deleted. First-failure order remains arguments
+admission before returns admission; table-aware ID authority remains the same;
+and journal, handler-settlement, and failure-wrapper order remain unchanged.
+The migration preserves the existing Convex-compatible omission of `undefined`
+object fields from mutation results and application-error data while making
+that behavior share the protocol and query owner. Private typed failure
+inspection now carries the protocol issue detail instead of a weaker local
+`{ path, reason }` copy.
+
+The generated closure now has the already accepted query-kernel shape because
+`flarex-protocol/value` also carries typed codec/evidence surfaces. The top-
+level mutation remains within its four-MiB target budget and preserves cold
+Workerd load and real-system dispatch. `FAC20` must begin
+with a fresh size and ownership preflight before migrating the two internal
+mutation kernels. It should prefer an Effect-free protocol runtime-value core
+if that can preserve the public codec's exact semantics and error ownership;
+it must not copy a third engine or silently spend the larger closure in two
+more profiles.
+
+The resulting capability changes no analyzer, public protocol identity, schema,
+R2, snapshot, journal, transaction, OCC, commit, action uncertainty,
+activation, routing, or production owner. `FAC19` is complete. `FAC20` must
+begin with the resource and ownership preflight recorded above. It must decide
+an Effect-free canonical runtime-value core before migrating the two internal-
+mutation kernels, preserve the public value codec and error contract exactly,
+prove query and mutation parity, delete the remaining copied primitive only
+after both consumers migrate, and retain all snapshot, journal, nested-call,
+OCC, commit, and host boundaries.
 
 ### Superseded Post-Extraction Decision Context
 
