@@ -8,7 +8,8 @@ vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
 Function API Core direction and focused preflight recorded below are accepted,
-and `FAC01` through `FAC20` are implemented and validated. The five exact point
+and `FAC01` through `FAC21` are implemented and validated. This roadmap is
+closed. The five exact point
 profiles use normal Convex-style handler `ctx` facades, the public
 `FlarexError` constructor is analyzer/runtime-owned, and the top-level query
 and mutation kernels share one Effect-free protocol validator and runtime-value
@@ -3371,6 +3372,73 @@ consumer, distinguish correct host-owned closure from missing shared semantics,
 and either close this roadmap or name one smallest implementation-bearing gap.
 It must not use the audit to extract Workerd globals, syscall transports,
 persistence adapters, or the edge-action uncertainty owner.
+
+### `FAC21` Completion Audit Decision
+
+**Completed:** 2026-08-08
+
+The requirement-by-requirement audit closes this roadmap. All five exact point
+profiles consume the shared Function API Core and point-runtime semantics for
+auth, reader/writer facades, positive-capability contexts, ordinary `ctx.*`
+handler calls, nested-call policy, application-error provenance, validator
+admission, value validation, result normalization, and failure settlement.
+Their generated kernels are deterministic, self-contained selections of those
+owned implementations rather than separately authored runtime engines.
+
+The remaining generated and host code has a different authority and is not a
+missing core extraction:
+
+- candidate configuration, exact application registries, authenticated R2
+  references, support identities, and graph digests remain candidate-bound;
+- request/RPC decoding, one-shot admission, exact-global installation,
+  module-loading order, service-binding disposal, and resource enforcement
+  remain Workerd-host behavior;
+- query close/drain and snapshot tracking remain query-host behavior;
+- mutation field, patch, and journal-document capture remain beside the
+  journal adapter because their validation and failure order determines
+  sequencing, application-error catchability, and poisoning;
+- `flarex:platform` remains only the analyzer-owned reserved private ABI and
+  generated compatibility module, while authored simulation handlers use the
+  ordinary context surface; and
+- edge-action callback transactions, outbound effects, and uncertainty remain
+  with the separately admitted action profile.
+
+Moving any of those concerns into `@flarex/function-runtime` would invert the
+narrow host-port boundary rather than reduce a second semantic owner. The
+package continues to depend only on `flarex-protocol`; it receives no Drizzle,
+PostgreSQL, R2, transaction, service-binding, activation, routing, OCC, or
+commit capability. The developer authoring primitives remain owned by
+`@flarex/standard-application-definition/v1`, and the private system-test API
+remains a sibling producer over those primitives rather than a developer-API
+foundation or second database implementation.
+
+Current Convex main at
+`7caed949ca762430835d019f2ff2686abd0c84b0` still centralizes value conversion,
+database facade construction, and query/mutation/action context composition
+while retaining its syscall and isolate setup in separate host owners. Flarex
+therefore retains the accepted Convex-shaped ownership split without copying
+Convex's global syscall transport or advertising capabilities that its exact
+profiles do not admit.
+
+The audit also corrected one stale FSV03 in-process fixture adapter. That
+fixture does not construct core application errors, so it now explicitly
+supplies the required always-false classifier instead of relying on an
+incomplete invocation shape. No runtime assertion or production path changed.
+
+Fresh completion evidence passed the function-runtime typecheck and 7 files /
+60 tests; protocol typecheck and 61 files / 481 tests; Standard Application
+Definition typecheck and 3 files / 27 tests; the complete deterministic backend
+generated-source build and typecheck; 7 generated/Workerd files / 40 tests
+covering Function API Core, all five point profiles, and edge action; and 6
+real-system PGlite files / 7 tests covering candidate dispatch and every exact
+point profile. The final system-test typecheck, broad backend regressions,
+Effect-boundary check, and scoped diff checks also pass.
+
+No further implementation-bearing capability has two proven consumers and an
+authority-preserving adapter plan inside this roadmap. Future storage,
+scheduling, search, action effects, broader query/database features, or a live
+in-process developer harness require their own preflight and owning roadmap.
+Production routing remains deferred.
 
 ### Superseded Post-Extraction Decision Context
 

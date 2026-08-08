@@ -1192,6 +1192,7 @@ function pointMutationRuntimeBinding(
               close: () => undefined,
               drain: async () => undefined,
             },
+            isCoreApplicationError: () => false,
           }),
         },
       );
