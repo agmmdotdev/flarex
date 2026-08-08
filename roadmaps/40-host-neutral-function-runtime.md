@@ -3146,6 +3146,110 @@ isolation, and decide the smallest query-owned correction without automatically
 expanding into the mutation intrinsic catalog, a shared stateful installer,
 actions, or Function API Core.
 
+### `FAC18` Preflight Decision
+
+**Accepted:** 2026-08-08
+
+The genuine Workerd preflight rejected the current exact-query `Date` wrapper.
+At application module evaluation, `new Date().constructor` is the captured
+native constructor rather than the installed exact constructor, so calling its
+`now()` returned the Workerd wall clock instead of the configured compatibility
+time. The exact wrapper and shared prototype were mutable, the prototype's
+constructor link could be replaced, and the standard `Date.parse` and
+`Date.UTC` statics were absent. The constructor link is therefore a direct
+nondeterministic-runtime escape; the missing statics are a separate Convex API
+compatibility defect.
+
+Current Convex replaces the global constructor, restores `now`, `parse`, and
+`UTC`, aliases the original prototype, and points that prototype's constructor
+back to the exact wrapper. The exact-mutation Workers additionally freeze the
+original constructor, shared prototype, exact wrapper, and the wider intrinsic
+catalog. `FAC18` adopts the Convex-shaped constructor/static surface with
+Flarex's immutable critical descriptors and freezes only the exact wrapper. It
+deliberately leaves the shared native `Date.prototype` otherwise unfrozen:
+locking its constructor property closes the native escape, while freezing all
+prototype methods would be a broader query compatibility policy copied from
+mutation without evidence that this slice requires it.
+
+The correction remains duplicated in the two query Worker cores. A shared
+stateful installer is rejected for the same module-state and import-order
+reasons recorded by `FAC17`, and moving host intrinsic policy into Function API
+Core would invert package authority. The slice does not change the configured
+clock, request RNG, analyzer, snapshot, journal, OCC, commit, action,
+activation, routing, or production owners. This remains synchronous
+module-evaluation host setup with no recoverable failure or injected Effect
+service requirement.
+
+The implementation gate is authored/generated agreement for both query
+profiles; a genuine Workerd proof that instances expose the exact constructor,
+the constructor path observes deterministic time, the exact wrapper is frozen,
+the constructor link rejects reassignment, `parse` and `UTC` are present, and
+the non-critical shared prototype remains otherwise unfrozen; unchanged FAC16
+and FAC17 import/request time and RNG proofs; refreshed query Worker and graph
+identities; affected regressions; `check:effect-boundaries`; both mandatory
+exact-final reviewers; fixes and re-review when needed; and one intentional
+commit.
+
+### `FAC18` Implementation Receipt
+
+**Completed:** 2026-08-08
+
+Both exact-query Worker cores now point the captured native `Date.prototype`
+constructor back to `ExactRuntimeDate` with an immutable descriptor, install
+immutable `now`, `parse`, and `UTC` statics, freeze the exact wrapper, and then
+install it before either dynamic application-support import. The original
+native constructor is no longer reachable through a constructed date, while
+the non-critical native prototype methods remain deliberately unfrozen.
+
+The genuine Workerd preflight first reproduced the rejected surface:
+`new Date().constructor` was the native constructor, its `now()` returned the
+Workerd wall clock, the exact wrapper and prototype were mutable, the
+constructor link accepted replacement, and `parse`/`UTC` were absent. The
+final regression proves exact constructor identity, configured compatibility
+time through that constructor path, a frozen wrapper, immutable constructor
+link, restored statics, and an otherwise unfrozen shared prototype. Existing
+FAC16 and FAC17 assertions continue to pin module-evaluation time, import-time
+`0.5`, the exact two-value request-seeded RNG sequence, and immutable owned
+`Math`.
+
+The final generated query Worker identities are:
+
+- point query:
+  `efe2439e8cd74e69a993c7050a0f1ba354ece7175b605daae8f0ef2e219df8fd`;
+- point query/internal call:
+  `c6f07a7a0816004e55c85b0913d764702752ee797cca53b79b636e03be3e8600`.
+
+Their final representative graph-basis SHA-256 receipts are point query
+`e47cdb1a0d04f222a1aae78ca3a47f7ffe76c75ca5f8c1aea39641b42fe324db`
+and point query/internal call
+`dab19c11ede6547fdf74e820588c609dd68d7cc54fa06d1f57f4f1ae3b8f20c0`.
+Substituting the prior generated identities reproduces both accepted `FAC17`
+graph receipts. Function API Core, all runtime kernels, mutation and action
+Worker sources, and their identities are unchanged.
+
+Validation passed for both deterministic generated-source checks, backend
+build and typecheck, the focused 3 files / 25 tests, the affected 8 files / 59
+tests, scoped `git diff --check`, and `check:effect-boundaries` with zero
+production `Effect.runSync` and 56 allowed `Effect.runPromise` sites. Both
+mandatory exact-final reviewers independently reported no findings after
+checking descriptor and prototype semantics, generated source/source-map
+agreement, current Convex compatibility, the deliberate non-freezing boundary,
+test sufficiency, and the plain-TypeScript Effect applicability decision.
+
+`FAC18` is closed. `FAC19` must begin with a requirement-by-requirement
+completion audit of this roadmap and the accepted Function API Core objective.
+It must inventory the remaining authored/generated query-plus-mutation
+duplication against current code and current Convex, classify each item by
+Function API Core, host/runtime, protocol, persistence, or compatibility
+authority, and identify the next smallest implementation-bearing capability
+only if two real consumers and an authority-preserving adapter plan exist. It
+must not extract Workerd exact-global policy merely because the two query cores
+repeat it, and it must distinguish an actually missing shared runtime semantic
+from generated closure that correctly remains host-owned. If the audit proves
+all approved Function API Core requirements and validation gates are closed,
+it must reconcile the roadmap and run the full completion audit before the
+active goal can be marked complete.
+
 ### Superseded Post-Extraction Decision Context
 
 The approved exact public point-mutation extraction and its post-extraction

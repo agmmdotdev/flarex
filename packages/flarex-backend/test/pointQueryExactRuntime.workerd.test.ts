@@ -182,6 +182,26 @@ describe("point-query exact runtime in workerd", () => {
     });
 
     await expect(runScenario({
+      imports:
+        "const dateConstructorOwnedV1 = new Date().constructor === Date; const constructorNowV1 = new Date().constructor.now(); let datePrototypeMutationBlockedV1 = false; try { Date.prototype.constructor = function Date() {}; } catch { datePrototypeMutationBlockedV1 = true; } const dateSurfaceV1 = { constructorNow: constructorNowV1, constructorOwned: dateConstructorOwnedV1, constructorFrozen: Object.isFrozen(Date), parseType: typeof Date.parse, prototypeFrozen: Object.isFrozen(Date.prototype), prototypeMutationBlocked: datePrototypeMutationBlockedV1, utcType: typeof Date.UTC };",
+      handler: "async () => dateSurfaceV1",
+      capability: "async () => ({ kind: 'missing' })",
+    })).resolves.toMatchObject({
+      ok: true,
+      result: {
+        value: {
+          constructorNow: Date.UTC(2026, 5, 11),
+          constructorOwned: true,
+          constructorFrozen: true,
+          parseType: "function",
+          prototypeFrozen: false,
+          prototypeMutationBlocked: true,
+          utcType: "function",
+        },
+      },
+    });
+
+    await expect(runScenario({
       handler: "async (context) => { const first = await context.auth.getUserIdentity(); first.role = 'changed'; const second = await context.auth.getUserIdentity(); return { same: first === second, firstRole: first.role, secondRole: second.role }; }",
       capability: "async () => ({ kind: 'missing' })",
       auth: {

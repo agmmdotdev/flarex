@@ -179,6 +179,13 @@ describe("generated function API core", () => {
       expect(source).toContain("value: () => deterministicRandom()");
       expect(source).toContain("value: freeze(nativeMath)");
       expect(source).not.toContain("Object.create(nativeMath)");
+      expect(source).toContain(
+        'defineProperty(nativeDate.prototype, "constructor", {',
+      );
+      expect(source).toContain('defineProperty(ExactRuntimeDate, "parse", {');
+      expect(source).toContain('defineProperty(ExactRuntimeDate, "UTC", {');
+      expect(source).toContain("value: freeze(ExactRuntimeDate)");
+      expect(source).not.toContain("freeze(nativeDate.prototype)");
     }
   });
 

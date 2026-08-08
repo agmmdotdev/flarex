@@ -481,8 +481,31 @@ function ExactRuntimeDate(...args: ReadonlyArray<unknown>): string | Date {
 
 function installExactGlobals(): void {
   ExactRuntimeDate.prototype = nativeDate.prototype;
-  defineProperty(ExactRuntimeDate, "now", { value: () => deterministicTime });
-  defineProperty(globalThis, "Date", { value: ExactRuntimeDate });
+  defineProperty(nativeDate.prototype, "constructor", {
+    value: ExactRuntimeDate,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  defineProperty(ExactRuntimeDate, "now", {
+    value: () => deterministicTime,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  defineProperty(ExactRuntimeDate, "parse", {
+    value: nativeDate.parse,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  defineProperty(ExactRuntimeDate, "UTC", {
+    value: nativeDate.UTC,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  defineProperty(globalThis, "Date", { value: freeze(ExactRuntimeDate) });
   defineProperty(nativeMath, "random", {
     value: () => deterministicRandom(),
     enumerable: false,
