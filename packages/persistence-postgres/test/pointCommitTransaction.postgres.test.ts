@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { eq } from "drizzle-orm";
@@ -17,6 +18,7 @@ import {
 } from "flarex-protocol/catalog";
 import {
   CommitSyscallSequenceV1Schema,
+  MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
@@ -639,6 +641,351 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       );
     });
   }, 120_000);
+
+  it("keeps the exact material-row ceiling operable and rejects plus one", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96420000");
+      const profile: Array<Readonly<{
+        rowCount: number;
+        preCommitKernelMilliseconds: number;
+        settlementInclusiveMilliseconds: number;
+        publicationMilliseconds: number;
+      }>> = [];
+
+      for (const rowCount of [1, 8, 32, 64, 127, 128] as const) {
+        const label = `material_profile_${rowCount}`;
+        const scope = await createScope(persistence, randomUuid, label);
+        const attempt = await createAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          label,
+          rowCount,
+        );
+        const intrinsicOptions = await enableIntrinsicIndexForPostgres(
+          persistence,
+          scope,
+        );
+        let clockLockedAt: number | undefined;
+        let beforeCommitAt: number | undefined;
+        const publicationStartedAt = performance.now();
+        const published = await runEffect(createPublisher(persistence, {
+          ...intrinsicOptions,
+          afterTransactionStep: (event) => {
+            if (event.step === "clockLocked") {
+              clockLockedAt = performance.now();
+            } else if (event.step === "beforeCommit") {
+              beforeCommitAt = performance.now();
+            }
+            return Promise.resolve();
+          },
+        }).publish(attempt.publicationCommand));
+        const publicationSettledAt = performance.now();
+        const publicationMilliseconds = publicationSettledAt - publicationStartedAt;
+        if (clockLockedAt === undefined || beforeCommitAt === undefined) {
+          throw new Error("Missing O09-A PostgreSQL lock-window evidence.");
+        }
+        const preCommitKernelMilliseconds = beforeCommitAt - clockLockedAt;
+        const settlementInclusiveMilliseconds = publicationSettledAt - clockLockedAt;
+        profile.push(Object.freeze({
+          rowCount,
+          preCommitKernelMilliseconds,
+          settlementInclusiveMilliseconds,
+          publicationMilliseconds,
+        }));
+        expect(published).toMatchObject({
+          kind: "published",
+          token: { commitSeq: 1n },
+        });
+        expect(settlementInclusiveMilliseconds).toBeLessThan(30_000);
+        expect(await durableState(
+          persistence,
+          attempt.command.sealIdentity.scopeUuid,
+        )).toEqual({
+          revisions: rowCount.toString(),
+          current_rows: rowCount.toString(),
+          commit_headers: "1",
+          commit_changes: rowCount.toString(),
+          outcomes: "1",
+          wakes: "1",
+          last_commit_seq: "1",
+          last_outbox_seq: "1",
+        });
+        const expectedSidecars = attempt.command.rowIntents.map((intent) => ({
+          tableId: intent.tableId.toString(),
+          rowIdHex: intent.rowId.replaceAll("-", ""),
+          commitSeq: "1",
+          isTombstone: false,
+        })).sort(compareIntrinsicIndexRows);
+        expect(await intrinsicIndexState(
+          persistence,
+          attempt.command.sealIdentity.scopeUuid,
+        )).toEqual({
+          revisions: expectedSidecars,
+          current: expectedSidecars.map(({ isTombstone: _, ...row }) => row),
+        });
+      }
+
+      const rejectedScope = await createScope(
+        persistence,
+        randomUuid,
+        "material_profile_rejected",
+      );
+      const atLimit = await createAttempt(
+        persistence,
+        randomUuid,
+        rejectedScope,
+        "material_profile_rejected",
+        MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+      );
+      const firstIntent = atLimit.publicationCommand.rowIntents[0];
+      if (firstIntent === undefined) {
+        throw new Error("Missing O09-A at-limit row intent.");
+      }
+      const oversized = Object.freeze({
+        ...atLimit.publicationCommand,
+        rowIntents: Object.freeze([
+          ...atLimit.publicationCommand.rowIntents,
+          firstIntent,
+        ]),
+      });
+      await expect(runFailure(
+        createPublisher(persistence).publish(oversized),
+      )).resolves.toMatchObject({
+        _tag: "PointCommitCorruptionV1Error",
+        reason: "commandInvalid",
+      });
+      expect(await durableState(
+        persistence,
+        atLimit.command.sealIdentity.scopeUuid,
+      )).toEqual(emptyDurableState());
+
+      if (process.env.FLAREX_PRINT_POINT_COMMIT_PROFILE === "1") {
+        console.info("O09-A PostgreSQL material-row profile", profile);
+      }
+    });
+  }, 480_000);
+
+  it("keeps concurrent at-limit commits bounded to their scope", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96430000");
+      const contendedScope = await createScope(
+        persistence,
+        randomUuid,
+        "material_contention",
+      );
+      const independentScope = await createScope(
+        persistence,
+        randomUuid,
+        "material_independent",
+      );
+      const contendedIntrinsic = await enableIntrinsicIndexForPostgres(
+        persistence,
+        contendedScope,
+      );
+      const independentIntrinsic = await enableIntrinsicIndexForPostgres(
+        persistence,
+        independentScope,
+      );
+      const attempts: Array<PreparedAttempt> = [];
+      for (let index = 0; index < 8; index += 1) {
+        attempts.push(await createAttempt(
+          persistence,
+          randomUuid,
+          contendedScope,
+          `material_contention_${index}`,
+          MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+        ));
+      }
+      const independent = await createAttempt(
+        persistence,
+        randomUuid,
+        independentScope,
+        "material_independent",
+        MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+      );
+      const preCommitKernelMilliseconds = new Array<number | undefined>(
+        attempts.length,
+      );
+      const settlementInclusiveMilliseconds = new Array<number | undefined>(
+        attempts.length,
+      );
+      const publicationStartedAt = performance.now();
+      const contendedPublications = attempts.map((attempt, index) => {
+        let clockLockedAt: number | undefined;
+        return runEffect(createPublisher(persistence, {
+          ...contendedIntrinsic,
+          afterTransactionStep: (event) => {
+            if (event.step === "clockLocked") {
+              clockLockedAt = performance.now();
+            } else if (event.step === "beforeCommit") {
+              if (clockLockedAt === undefined) {
+                throw new Error("Missing contended O09-A clock-lock evidence.");
+              }
+              preCommitKernelMilliseconds[index] =
+                performance.now() - clockLockedAt;
+            }
+            return Promise.resolve();
+          },
+        }).publish(attempt.publicationCommand)).then((result) => {
+          if (clockLockedAt === undefined) {
+            throw new Error("Missing settled O09-A clock-lock evidence.");
+          }
+          settlementInclusiveMilliseconds[index] =
+            performance.now() - clockLockedAt;
+          return result;
+        });
+      });
+      const independentStartedAt = performance.now();
+      const independentPublication = runEffect(createPublisher(persistence, {
+        ...independentIntrinsic,
+      }).publish(independent.publicationCommand)).then((result) => Object.freeze({
+        result,
+        elapsedMilliseconds: performance.now() - independentStartedAt,
+      }));
+      const [contendedResults, independentResult] = await Promise.all([
+        Promise.all(contendedPublications),
+        independentPublication,
+      ]);
+      const contendedElapsedMilliseconds = performance.now() - publicationStartedAt;
+      if (preCommitKernelMilliseconds.some((value) =>
+        typeof value !== "number" || !Number.isFinite(value)
+      ) || settlementInclusiveMilliseconds.some((value) =>
+        typeof value !== "number" || !Number.isFinite(value)
+      )) {
+        throw new Error("Incomplete contended O09-A lock-window evidence.");
+      }
+      const sortedPreCommitKernel = preCommitKernelMilliseconds
+        .map((value) => {
+          if (value === undefined) {
+            throw new Error("Missing contended O09-A pre-commit observation.");
+          }
+          return value;
+        })
+        .sort((left, right) => left - right);
+      const sortedSettlementInclusive = settlementInclusiveMilliseconds
+        .map((value) => {
+          if (value === undefined) {
+            throw new Error("Missing contended O09-A settlement observation.");
+          }
+          return value;
+        })
+        .sort((left, right) => left - right);
+      const preCommitP99 = percentileNearestRank(sortedPreCommitKernel, 0.99);
+      const settlementP50 = percentileNearestRank(
+        sortedSettlementInclusive,
+        0.5,
+      );
+      const settlementP95 = percentileNearestRank(
+        sortedSettlementInclusive,
+        0.95,
+      );
+      const settlementP99 = percentileNearestRank(
+        sortedSettlementInclusive,
+        0.99,
+      );
+
+      expect(contendedResults).toHaveLength(8);
+      expect(contendedResults.every((result) => result.kind === "published")).toBe(true);
+      expect(independentResult.result).toMatchObject({ kind: "published" });
+      expect(settlementP50).toBeLessThan(30_000);
+      expect(settlementP95).toBeLessThan(30_000);
+      expect(settlementP99).toBeLessThan(30_000);
+      expect(contendedElapsedMilliseconds).toBeLessThan(120_000);
+      expect(independentResult.elapsedMilliseconds).toBeLessThan(
+        contendedElapsedMilliseconds,
+      );
+      const firstContendedAttempt = attempts[0];
+      if (firstContendedAttempt === undefined) {
+        throw new Error("Missing first contended O09-A attempt.");
+      }
+      expect(await durableState(
+        persistence,
+        firstContendedAttempt.command.sealIdentity.scopeUuid,
+      )).toEqual({
+        revisions: (8 * MAX_POINT_COMMIT_MATERIAL_ROWS_V1).toString(),
+        current_rows: (8 * MAX_POINT_COMMIT_MATERIAL_ROWS_V1).toString(),
+        commit_headers: "8",
+        commit_changes: (8 * MAX_POINT_COMMIT_MATERIAL_ROWS_V1).toString(),
+        outcomes: "8",
+        wakes: "8",
+        last_commit_seq: "8",
+        last_outbox_seq: "8",
+      });
+      const expectedContendedSidecars = contendedResults.flatMap(
+        (result, attemptIndex) => {
+          if (result.kind !== "published") {
+            throw new Error("Expected a published contended O09-A outcome.");
+          }
+          const attempt = attempts[attemptIndex];
+          if (attempt === undefined) {
+            throw new Error("Missing contended O09-A sidecar attempt.");
+          }
+          return attempt.command.rowIntents.map((intent) => ({
+            tableId: intent.tableId.toString(),
+            rowIdHex: intent.rowId.replaceAll("-", ""),
+            commitSeq: result.token.commitSeq.toString(),
+            isTombstone: false,
+          }));
+        },
+      ).sort(compareIntrinsicIndexRows);
+      expect(await intrinsicIndexState(
+        persistence,
+        firstContendedAttempt.command.sealIdentity.scopeUuid,
+      )).toEqual({
+        revisions: expectedContendedSidecars,
+        current: expectedContendedSidecars.map(
+          ({ isTombstone: _, ...row }) => row,
+        ),
+      });
+      expect(await durableState(
+        persistence,
+        independent.command.sealIdentity.scopeUuid,
+      )).toEqual({
+        revisions: MAX_POINT_COMMIT_MATERIAL_ROWS_V1.toString(),
+        current_rows: MAX_POINT_COMMIT_MATERIAL_ROWS_V1.toString(),
+        commit_headers: "1",
+        commit_changes: MAX_POINT_COMMIT_MATERIAL_ROWS_V1.toString(),
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+      if (independentResult.result.kind !== "published") {
+        throw new Error("Expected a published independent O09-A outcome.");
+      }
+      const expectedIndependentSidecars = independent.command.rowIntents.map(
+        (intent) => ({
+          tableId: intent.tableId.toString(),
+          rowIdHex: intent.rowId.replaceAll("-", ""),
+          commitSeq: independentResult.result.token.commitSeq.toString(),
+          isTombstone: false,
+        }),
+      ).sort(compareIntrinsicIndexRows);
+      expect(await intrinsicIndexState(
+        persistence,
+        independent.command.sealIdentity.scopeUuid,
+      )).toEqual({
+        revisions: expectedIndependentSidecars,
+        current: expectedIndependentSidecars.map(
+          ({ isTombstone: _, ...row }) => row,
+        ),
+      });
+
+      if (process.env.FLAREX_PRINT_POINT_COMMIT_PROFILE === "1") {
+        console.info("O09-A PostgreSQL contention profile", {
+          rowCountPerCommit: MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+          writers: attempts.length,
+          preCommitP99,
+          settlementP50,
+          settlementP95,
+          settlementP99,
+          contendedElapsedMilliseconds,
+          independentElapsedMilliseconds: independentResult.elapsedMilliseconds,
+        });
+      }
+    });
+  }, 480_000);
 
   it("linearizes concurrent duplicates into one publisher and one replay", async () => {
     await withPostgresPersistence(async (persistence) => {
@@ -2181,6 +2528,24 @@ function emptyDurableState() {
     last_commit_seq: "0",
     last_outbox_seq: "0",
   } as const;
+}
+
+function percentileNearestRank(
+  sortedValues: ReadonlyArray<number>,
+  percentile: number,
+): number {
+  if (sortedValues.length === 0) {
+    throw new Error("Cannot calculate a percentile from no observations.");
+  }
+  const index = Math.min(
+    sortedValues.length - 1,
+    Math.max(0, Math.ceil(percentile * sortedValues.length) - 1),
+  );
+  const value = sortedValues[index];
+  if (value === undefined) {
+    throw new Error("Missing percentile observation.");
+  }
+  return value;
 }
 
 function createReplacementPort(

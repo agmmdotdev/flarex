@@ -16,9 +16,10 @@ fixture succeeds.
 
 ### `ST-CORE-016` — the point commit planner admitted only one material row
 
-- **Status:** Resolved in the approved O09-A implementation diff; PGlite core
-  and real Standard cooking proofs pass. Genuine-PostgreSQL acceptance remains
-  pending only because `FLAREX_POSTGRES_DATABASE_URL` is absent in this run.
+- **Status:** Resolved and accepted. PGlite core and real Standard cooking
+  proofs pass; the matching PostgreSQL 18.3 point-commit and Standard cooking
+  lanes pass with the 128-row ceiling, plus-one refusal, sidecar rollback, and
+  same-scope/independent-scope contention evidence.
 - **Reproduction:** A real Standard cooking mutation reads one shared
   `pantryStock` row and one recipe, stages a pantry decrement and a recipe
   publication patch, then runs through Workerd and the existing journal/OCC
@@ -41,10 +42,10 @@ fixture succeeds.
   planner, O06/O07-B transaction, O08 rerun, feed, outcome, and outbox owners
   now carry a canonical intent collection capped at 128 net rows. The cooking
   race proves the original two-row invariant and cross-table intrinsic-sidecar
-  publication on PGlite without simulation-local commit logic; focused
-  persistence proof faults after the second intrinsic write and verifies exact
-  mixed live/delete rollback. O09-B unique/developer-index work remains out of
-  scope.
+  publication on PGlite and PostgreSQL without simulation-local commit logic;
+  focused persistence proof faults after the second intrinsic write and
+  verifies exact mixed live/delete rollback. O09-B unique/developer-index work
+  remains out of scope.
 
 ### `ST-CORE-015` — root query application errors lack a structured host projection
 

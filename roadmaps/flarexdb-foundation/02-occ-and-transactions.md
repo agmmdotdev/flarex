@@ -1546,7 +1546,7 @@ Exit gate:
 
 ### [~] O09 — Add Multi-Row Atomicity And Unique Conflicts
 
-#### [~] O09-A — Admit bounded multi-material-row point commits
+#### [x] O09-A — Admit bounded multi-material-row point commits
 
 `SAC01-F2j-P` exposed the current C04C1 limit through a real Standard
 application mutation: an atomic pantry decrement plus recipe publication is
@@ -1595,6 +1595,20 @@ Exit gate:
   PostgreSQL; and
 - both mandatory reviewers approve the exact final diff after focused and
   package-level validation.
+
+Durable acceptance includes:
+
+- a genuine-PostgreSQL point-commit lane covering mixed live/delete intrinsic
+  sidecars, rollback, same-scope serialization, independent-scope progress,
+  `40001`, `40P01`, interruption, uncertain decisions, and replay;
+- the genuine-PostgreSQL Standard cooking race through the real OCC rerun,
+  application-result, feed, outcome, and outbox owners;
+- exact 1/8/32/64/127/128-row application, intrinsic-sidecar, feed, outcome,
+  outbox, and scope-head assertions plus fail-closed 129-row refusal; and
+- eight concurrent same-scope at-limit commits alongside an independent-scope
+  at-limit commit, with settlement-inclusive 30-second per-commit and
+  120-second aggregate contention budgets. Exact run timings and environment
+  receipts belong in the task or commit report rather than this living roadmap.
 
 #### [ ] O09-B — Add unique conflicts and developer-index ordering
 

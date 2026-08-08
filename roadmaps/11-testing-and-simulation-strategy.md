@@ -453,8 +453,9 @@ Named Flarex differences are:
   and rerunning through O08, the rerun returning `INSUFFICIENT_STOCK`, no
   negative inventory or partial recipe publication, exact two-row commit-feed
   evidence, one outcome/outbox record, and replay without another runtime or
-  commit. Genuine-PostgreSQL execution remains an acceptance receipt and is
-  not inferred while `FLAREX_POSTGRES_DATABASE_URL` is absent. No scheduler,
+  commit. The genuine-PostgreSQL lane is accepted, and the direct point-commit
+  suite retains its 128-row ceiling, exact intrinsic-sidecar assertions, and
+  settlement-bounded eight-writer contention profile. No scheduler,
   model checker, retry API, alternate OCC/commit path, or production behavior
   is authorized by this slice.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
