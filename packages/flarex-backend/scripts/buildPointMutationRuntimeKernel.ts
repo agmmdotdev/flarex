@@ -1,8 +1,12 @@
-import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { build } from "vite";
+
+import {
+  buildRuntimeKernelTwice,
+  renderRuntimeKernelModule,
+  type RuntimeKernelBuildReceipt,
+} from "./runtimeKernelBuilder";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ENTRY = path.join(
@@ -18,12 +22,6 @@ const GENERATED_PATH = path.join(
   "artifactRuntime",
   "PointMutationRuntimeKernel.generated.ts",
 );
-const MAX_POINT_MUTATION_RUNTIME_KERNEL_BYTES = 4 * 1024 * 1024;
-
-interface KernelBuildReceipt {
-  readonly source: string;
-  readonly sha256: string;
-}
 
 if (
   process.argv[1] !== undefined &&
@@ -31,132 +29,52 @@ if (
 ) {
   const mode = process.argv[2];
   if (mode !== "update" && mode !== "check") {
-    throw new Error(
-      "Usage: buildPointMutationRuntimeKernel.ts <update|check>",
-    );
+    throw new Error("Usage: buildPointMutationRuntimeKernel.ts <update|check>");
   }
   const receipt = mode === "update"
     ? await updatePointMutationRuntimeKernel()
     : await checkPointMutationRuntimeKernel();
   console.log(
     `Verified point-mutation runtime kernel ${receipt.sha256} ` +
-      "with two byte-identical clean builds.",
+      `(${receipt.sourceBytes} bytes) with two byte-identical clean builds.`,
   );
 }
 
 export async function updatePointMutationRuntimeKernel(): Promise<
-  KernelBuildReceipt
+  RuntimeKernelBuildReceipt
 > {
-  const receipt = await buildTwice();
-  await writeFile(GENERATED_PATH, renderGeneratedModule(receipt), "utf8");
+  const receipt = await buildKernel();
+  await writeFile(GENERATED_PATH, render(receipt), "utf8");
   return receipt;
 }
 
 export async function checkPointMutationRuntimeKernel(): Promise<
-  KernelBuildReceipt
+  RuntimeKernelBuildReceipt
 > {
-  const expected = await buildTwice();
-  const generatedUrl =
-    `${pathToFileURL(GENERATED_PATH).href}?check=${Date.now()}`;
-  const generated: unknown = await import(generatedUrl);
-  if (!isGeneratedKernelModule(generated)) {
-    throw new Error(
-      "Generated point-mutation runtime kernel module has an invalid shape.",
-    );
-  }
-  if (
-    generated.POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1 !== expected.source ||
-    generated.POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1 !== expected.sha256
-  ) {
+  const receipt = await buildKernel();
+  const current = await readFile(GENERATED_PATH, "utf8");
+  if (current !== render(receipt)) {
     throw new Error(
       "Generated point-mutation runtime kernel is stale; run " +
         "`pnpm point-mutation-runtime-kernel:update` in packages/flarex-backend.",
     );
   }
-  return expected;
+  return receipt;
 }
 
-async function buildTwice(): Promise<KernelBuildReceipt> {
-  const first = await buildOnce();
-  const second = await buildOnce();
-  if (first.source !== second.source || first.sha256 !== second.sha256) {
-    throw new Error(
-      "Point-mutation runtime kernel builds are not byte-for-byte stable.",
-    );
-  }
-  return first;
-}
-
-async function buildOnce(): Promise<KernelBuildReceipt> {
-  const output = await build({
-    configFile: false,
-    logLevel: "silent",
-    build: {
-      write: false,
-      target: "es2022",
-      minify: "esbuild",
-      sourcemap: "inline",
-      lib: { entry: ENTRY, formats: ["es"], fileName: () => "kernel.js" },
-      rollupOptions: { treeshake: true },
-    },
-  });
-  if (!Array.isArray(output) || output.length !== 1 ||
-    !Array.isArray(output[0].output)) {
-    throw new Error(
-      "Point-mutation runtime kernel build returned an invalid result.",
-    );
-  }
-  const emitted = output[0].output;
-  if (emitted.length !== 1 || emitted[0]?.type !== "chunk") {
-    throw new Error(
-      "Point-mutation runtime kernel build must emit exactly one JavaScript chunk.",
-    );
-  }
-  const chunk = emitted[0];
-  if (chunk.imports.length !== 0 || chunk.dynamicImports.length !== 0) {
-    throw new Error(
-      "Point-mutation runtime kernel must not retain runtime imports.",
-    );
-  }
-  const source = chunk.code.replace(/\r\n?/g, "\n");
-  const sourceBytes = Buffer.byteLength(source, "utf8");
-  if (sourceBytes > MAX_POINT_MUTATION_RUNTIME_KERNEL_BYTES) {
-    throw new Error(
-      `Point-mutation runtime kernel is ${sourceBytes} bytes and exceeds the ` +
-        `${MAX_POINT_MUTATION_RUNTIME_KERNEL_BYTES}-byte target ceiling.`,
-    );
-  }
-  return Object.freeze({
-    source,
-    sha256: createHash("sha256").update(source, "utf8").digest("hex"),
+function buildKernel(): Promise<RuntimeKernelBuildReceipt> {
+  return buildRuntimeKernelTwice({
+    entry: ENTRY,
+    label: "Point-mutation runtime kernel",
+    minify: "esbuild",
   });
 }
 
-function isGeneratedKernelModule(value: unknown): value is Readonly<{
-  readonly POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1: string;
-  readonly POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1: string;
-}> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1" in value &&
-    typeof value.POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1 === "string" &&
-    "POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1" in value &&
-    typeof value.POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1 === "string"
-  );
-}
-
-function renderGeneratedModule(receipt: KernelBuildReceipt): string {
-  const sourceLines = receipt.source.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-  const renderedLines = sourceLines.map((line) => `  ${JSON.stringify(line)},`);
-  return [
-    "// Generated by scripts/buildPointMutationRuntimeKernel.ts. Do not edit by hand.",
-    "export const POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1 = [",
-    ...renderedLines,
-    '].join("");',
-    "",
-    "export const POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1 =",
-    `  ${JSON.stringify(receipt.sha256)};`,
-    "",
-  ].join("\n");
+function render(receipt: RuntimeKernelBuildReceipt): string {
+  return renderRuntimeKernelModule({
+    generatedBy: "scripts/buildPointMutationRuntimeKernel.ts",
+    receipt,
+    sourceExport: "POINT_MUTATION_RUNTIME_KERNEL_SOURCE_V1",
+    sha256Export: "POINT_MUTATION_RUNTIME_KERNEL_SHA256_V1",
+  });
 }

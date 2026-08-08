@@ -1,8 +1,8 @@
 import {
   isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
-} from "./value";
-import type { ValidatorJsonV1 } from "./validator-json";
+} from "./value-runtime-core";
+import type { ValidatorJsonV1 } from "./validator-json-core";
 
 export type ValidatorValueExpectedV1 =
   | "null" | "number" | "bigint" | "boolean" | "string"

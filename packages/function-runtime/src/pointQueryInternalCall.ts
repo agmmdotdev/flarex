@@ -3,20 +3,19 @@ import type {
   CanonicalFlarexRuntimeValueV1,
 } from "flarex-protocol/value";
 import {
-  isCanonicalFlarexRuntimeObjectV1,
-  normalizeFlarexValueV1,
-} from "flarex-protocol/value";
-import {
-  validatorJsonAdmissionIssueV1,
   type ObjectValidatorJsonV1,
   type ValidatorJsonV1,
 } from "flarex-protocol/validator-json";
-import { validateValidatorValueIssueV1 } from
-  "flarex-protocol/internal/validator-engine-core";
 import type {
   FunctionRuntimePointReaderV1,
   FunctionRuntimeRunQueryContextV1,
 } from "./functionApiCore";
+import {
+  isPointRuntimeObjectV1,
+  normalizePointRuntimeValueV1,
+  pointRuntimeValidatorAdmissionIssueV1,
+  validatePointRuntimeValueIssueV1,
+} from "./pointRuntimeCore";
 
 export type PointQueryInternalCallRuntimeArgsValidatorV1 =
   | ObjectValidatorJsonV1
@@ -234,13 +233,13 @@ type QueryHandler = (
 export function capturePointQueryInternalCallRuntimeArgumentsV1(
   input: unknown,
 ): CapturedPointQueryInternalCallRuntimeArgumentsV1 {
-  let normalized: ReturnType<typeof normalizeFlarexValueV1>;
+  let normalized: ReturnType<typeof normalizePointRuntimeValueV1>;
   try {
-    normalized = normalizeFlarexValueV1(input);
+    normalized = normalizePointRuntimeValueV1(input);
   } catch (cause) {
     throw new PointQueryInternalCallRuntimeContractV1Error("argumentsInvalid", cause);
   }
-  if (!isCanonicalFlarexRuntimeObjectV1(normalized.value)) {
+  if (!isPointRuntimeObjectV1(normalized.value)) {
     throw new PointQueryInternalCallRuntimeContractV1Error("argumentsInvalid");
   }
   return Object.freeze({
@@ -252,7 +251,7 @@ export function capturePointQueryInternalCallRuntimeArgumentsV1(
 export function capturePointQueryInternalCallCoreApplicationErrorDataV1(
   data: unknown,
 ): CanonicalFlarexRuntimeValueV1 {
-  return normalizeFlarexValueV1(data).value;
+  return normalizePointRuntimeValueV1(data).value;
 }
 
 export async function executePointQueryInternalCallV1(
@@ -261,12 +260,12 @@ export async function executePointQueryInternalCallV1(
   invocations: PointQueryInternalCallRuntimeInvocationFactoryV1,
 ): Promise<CanonicalFlarexRuntimeValueV1> {
   const tableIdsByName = tableIdsByLogicalName(input.tables);
-  const argsAdmission = validatorJsonAdmissionIssueV1(
+  const argsAdmission = pointRuntimeValidatorAdmissionIssueV1(
     input.function.argsValidator,
   );
   const returnsAdmission = input.function.returnsValidator === null
     ? undefined
-    : validatorJsonAdmissionIssueV1(input.function.returnsValidator);
+    : pointRuntimeValidatorAdmissionIssueV1(input.function.returnsValidator);
   if (argsAdmission !== undefined || returnsAdmission !== undefined ||
     input.function.visibility !== "public" ||
     typeof input.executionId !== "string" || input.executionId.length === 0 ||
@@ -281,10 +280,10 @@ export async function executePointQueryInternalCallV1(
   let previousOrdinal = -1;
   let previousPath = "";
   for (const candidate of input.internalQueryCatalog) {
-    const candidateArgs = validatorJsonAdmissionIssueV1(candidate.argsValidator);
+    const candidateArgs = pointRuntimeValidatorAdmissionIssueV1(candidate.argsValidator);
     const candidateReturns = candidate.returnsValidator === null
       ? undefined
-      : validatorJsonAdmissionIssueV1(candidate.returnsValidator);
+      : pointRuntimeValidatorAdmissionIssueV1(candidate.returnsValidator);
     if (candidate.kind !== "query" || candidate.visibility !== "internal" ||
       !Number.isSafeInteger(candidate.ordinal) || candidate.ordinal < 0 ||
       candidate.path.length === 0 || catalog.has(candidate.path) ||
@@ -405,9 +404,9 @@ export async function executePointQueryInternalCallV1(
     try {
       const childContext = contextFor(callee.ordinal);
       const childResult = await child(childContext, captured.value);
-      let normalizedChild: ReturnType<typeof normalizeFlarexValueV1>;
+      let normalizedChild: ReturnType<typeof normalizePointRuntimeValueV1>;
       try {
-        normalizedChild = normalizeFlarexValueV1(
+        normalizedChild = normalizePointRuntimeValueV1(
           childResult === undefined ? null : childResult,
         );
       } catch (cause) {
@@ -500,7 +499,7 @@ export async function executePointQueryInternalCallV1(
 
   let normalized: CanonicalFlarexRuntimeValueV1;
   try {
-    normalized = normalizeFlarexValueV1(
+    normalized = normalizePointRuntimeValueV1(
       handlerResult === undefined ? null : handlerResult,
     ).value;
   } catch (cause) {
@@ -526,23 +525,12 @@ function validatorIssue(
   path: string,
   tableIdsByName: ReadonlyMap<string, number>,
 ) {
-  return validateValidatorValueIssueV1(validator, value, {
+  return validatePointRuntimeValueIssueV1(
+    validator,
+    value,
     path,
-    idPolicy: {
-      mode: "tableAware",
-      check: (tableName, documentId) => {
-        const tableId = tableIdsByName.get(tableName);
-        if (tableId === undefined) return "unavailable";
-        const separator = documentId.indexOf(":");
-        return separator > 0 && separator === documentId.lastIndexOf(":") &&
-            documentId.slice(0, separator) === String(tableId) &&
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-              .test(documentId.slice(separator + 1))
-          ? "valid"
-          : "invalid";
-      },
-    },
-  });
+    tableIdsByName,
+  );
 }
 
 function exactQueryHandler(

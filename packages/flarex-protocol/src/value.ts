@@ -16,6 +16,43 @@ import {
   type Json,
   type JsonObject,
 } from "./json";
+import {
+  canonicalFlarexRuntimeValueToJsonV1,
+  FLAREX_APP_DOCUMENT_LIMITS_V1,
+  FLAREX_GENERAL_VALUE_LIMITS_V1,
+  FlarexValueRuntimeCoreV1Error,
+  isCanonicalFlarexRuntimeObjectV1,
+  MAX_FLAREX_INT64_V1,
+  MAX_FLAREX_VALUE_OBJECT_FIELD_BYTES_V1,
+  normalizeFlarexRuntimeValueV1,
+  type CanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeValueV1,
+  type FlarexValue,
+  type FlarexValueCodecV1Issue,
+  type FlarexValueLimitsV1,
+  type FlarexValueProfileV1,
+} from "./value-runtime-core";
+
+export {
+  FLAREX_APP_DOCUMENT_LIMITS_V1,
+  FLAREX_GENERAL_VALUE_LIMITS_V1,
+  isCanonicalFlarexRuntimeObjectV1,
+  MAX_FLAREX_APP_DOCUMENT_NESTING_V1,
+  MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1,
+  MAX_FLAREX_INT64_V1,
+  MAX_FLAREX_VALUE_ARRAY_ITEMS_V1,
+  MAX_FLAREX_VALUE_NESTING_V1,
+  MAX_FLAREX_VALUE_OBJECT_FIELD_BYTES_V1,
+  MAX_FLAREX_VALUE_OBJECT_FIELDS_V1,
+  MAX_FLAREX_VALUE_SEMANTIC_BYTES_V1,
+  MIN_FLAREX_INT64_V1,
+  type CanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeValueV1,
+  type FlarexValue,
+  type FlarexValueCodecV1Issue,
+  type FlarexValueLimitsV1,
+  type FlarexValueProfileV1,
+} from "./value-runtime-core";
 
 /**
  * The JavaScript value domain accepted at Flarex API boundaries.
@@ -23,91 +60,6 @@ import {
  * Undefined object properties are omitted from the logical value, matching
  * Convex. Undefined is not valid at the top level or in arrays.
  */
-export type FlarexValue =
-  | null
-  | bigint
-  | number
-  | boolean
-  | string
-  | ArrayBuffer
-  | ReadonlyArray<FlarexValue>
-  | { readonly [key: string]: FlarexValue | undefined };
-
-/** The object member of an already-canonical Flarex runtime value. */
-export type CanonicalFlarexRuntimeObjectV1 = {
-  readonly [key: string]: CanonicalFlarexRuntimeValueV1;
-};
-
-/** A defensively copied logical value with no retained undefined fields. */
-export type CanonicalFlarexRuntimeValueV1 =
-  | null
-  | bigint
-  | number
-  | boolean
-  | string
-  | ArrayBuffer
-  | ReadonlyArray<CanonicalFlarexRuntimeValueV1>
-  | CanonicalFlarexRuntimeObjectV1;
-
-/**
- * Discriminates the object member of the canonical value union.
- * This does not validate unknown input or establish canonicality.
- */
-export function isCanonicalFlarexRuntimeObjectV1(
-  value: CanonicalFlarexRuntimeValueV1,
-): value is CanonicalFlarexRuntimeObjectV1 {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    !(value instanceof ArrayBuffer)
-  );
-}
-
-export const MIN_FLAREX_INT64_V1 = -(1n << 63n);
-export const MAX_FLAREX_INT64_V1 = (1n << 63n) - 1n;
-export const MAX_FLAREX_VALUE_SEMANTIC_BYTES_V1 = 1 << 25;
-export const MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1 = 1 << 20;
-export const MAX_FLAREX_VALUE_NESTING_V1 = 64;
-export const MAX_FLAREX_APP_DOCUMENT_NESTING_V1 = 16;
-export const MAX_FLAREX_VALUE_ARRAY_ITEMS_V1 = 8_192;
-export const MAX_FLAREX_VALUE_OBJECT_FIELDS_V1 = 1_024;
-export const MAX_FLAREX_VALUE_OBJECT_FIELD_BYTES_V1 = 1_024;
-
-export type FlarexValueProfileV1 = "generalValue" | "appDocument";
-
-export interface FlarexValueLimitsV1 {
-  readonly profile: FlarexValueProfileV1;
-  readonly maxSemanticBytes: number;
-  readonly maxNesting: number;
-  readonly maxArrayItems: number;
-  readonly maxObjectFields: number;
-  readonly requireDocumentObject: boolean;
-}
-
-export const FLAREX_GENERAL_VALUE_LIMITS_V1 = Object.freeze({
-  profile: "generalValue",
-  maxSemanticBytes: MAX_FLAREX_VALUE_SEMANTIC_BYTES_V1,
-  maxNesting: MAX_FLAREX_VALUE_NESTING_V1,
-  maxArrayItems: MAX_FLAREX_VALUE_ARRAY_ITEMS_V1,
-  maxObjectFields: MAX_FLAREX_VALUE_OBJECT_FIELDS_V1,
-  requireDocumentObject: false,
-} satisfies FlarexValueLimitsV1);
-
-/**
- * This profile must be applied to the complete logical document, including
- * trusted system fields. S05-B intentionally does not guess their later S06
- * representation or subtract a hard-coded allowance from the limit.
- */
-export const FLAREX_APP_DOCUMENT_LIMITS_V1 = Object.freeze({
-  profile: "appDocument",
-  maxSemanticBytes: MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1,
-  maxNesting: MAX_FLAREX_APP_DOCUMENT_NESTING_V1,
-  maxArrayItems: MAX_FLAREX_VALUE_ARRAY_ITEMS_V1,
-  maxObjectFields: MAX_FLAREX_VALUE_OBJECT_FIELDS_V1,
-  requireDocumentObject: true,
-} satisfies FlarexValueLimitsV1);
-
 export const FlarexValueCodecVersionSchema = Schema.Literal(1).pipe(
   Schema.brand("FlarexDB/ValueCodecVersion"),
 );
@@ -168,64 +120,6 @@ export interface CanonicalFlarexValueV1 extends NormalizedFlarexValueV1 {
   readonly canonicalBytes: CanonicalFlarexValueBytesV1;
   readonly sha256: FlarexValueSha256V1;
 }
-
-export type FlarexValueCodecV1Issue =
-  | {
-      readonly reason: "unsupportedValue";
-      readonly path: string;
-      readonly detail: string;
-    }
-  | {
-      readonly reason: "invalidContainer";
-      readonly path: string;
-      readonly detail: string;
-    }
-  | {
-      readonly reason: "cyclicValue";
-      readonly path: string;
-    }
-  | {
-      readonly reason: "nestingTooDeep";
-      readonly path: string;
-      readonly profile: FlarexValueProfileV1;
-      readonly observed: number;
-      readonly maximum: number;
-    }
-  | {
-      readonly reason: "valueTooLarge";
-      readonly path: string;
-      readonly profile: FlarexValueProfileV1;
-      readonly observedBytes: number;
-      readonly maximumBytes: number;
-    }
-  | {
-      readonly reason: "arrayTooLong";
-      readonly path: string;
-      readonly observed: number;
-      readonly maximum: number;
-    }
-  | {
-      readonly reason: "objectTooLarge";
-      readonly path: string;
-      readonly observed: number;
-      readonly maximum: number;
-    }
-  | {
-      readonly reason: "invalidObjectField";
-      readonly path: string;
-      readonly field: string;
-      readonly detail: string;
-    }
-  | {
-      readonly reason: "invalidTaggedValue";
-      readonly path: string;
-      readonly tag: string;
-      readonly detail: string;
-    }
-  | {
-      readonly reason: "appDocumentRoot";
-      readonly path: string;
-    };
 
 export class FlarexValueCodecV1Error extends Data.TaggedError(
   "FlarexValueCodecV1Error",
@@ -289,21 +183,21 @@ export function normalizeFlarexValueV1(
   value: unknown,
   profile: FlarexValueProfileV1 = "generalValue",
 ): NormalizedFlarexValueV1 {
-  const limits = limitsForProfile(profile);
-  const node = normalizeRuntimeNode(
-    value,
-    "$",
-    0,
-    { limits, ancestors: new WeakSet() },
-  );
-  assertProfileRoot(node.value, limits);
-  return Object.freeze({
-    profile,
-    value: node.value,
-    valueJson: node.json,
-    semanticSizeBytes: node.semanticSizeBytes,
-    nestingDepth: node.nestingDepth,
-  } satisfies NormalizedFlarexValueV1);
+  try {
+    const normalized = normalizeFlarexRuntimeValueV1(value, profile);
+    return Object.freeze({
+      profile: normalized.profile,
+      value: normalized.value,
+      valueJson: canonicalFlarexRuntimeValueToJsonV1(normalized.value),
+      semanticSizeBytes: normalized.semanticSizeBytes,
+      nestingDepth: normalized.nestingDepth,
+    } satisfies NormalizedFlarexValueV1);
+  } catch (cause) {
+    if (cause instanceof FlarexValueRuntimeCoreV1Error) {
+      throw new FlarexValueCodecV1Error({ issue: cause.issue });
+    }
+    throw cause;
+  }
 }
 
 export function flarexValueToJsonV1(
@@ -519,162 +413,6 @@ async function canonicalizeNormalizedValue(
   } satisfies CanonicalFlarexValueV1);
 }
 
-function normalizeRuntimeNode(
-  value: unknown,
-  path: string,
-  parentNesting: number,
-  context: CodecContext,
-): NormalizedNode {
-  if (value === null) return primitiveNode(null, null, 1, path, context);
-  if (typeof value === "boolean") {
-    return primitiveNode(value, value, 1, path, context);
-  }
-  if (typeof value === "number") {
-    const json = isSpecialFloat(value)
-      ? taggedJson("$float", encodeFloat64(value))
-      : value;
-    return primitiveNode(value, json, 9, path, context);
-  }
-  if (typeof value === "bigint") {
-    if (value < MIN_FLAREX_INT64_V1 || value > MAX_FLAREX_INT64_V1) {
-      throw unsupported(path, "bigint must fit in a signed 64-bit integer");
-    }
-    return primitiveNode(
-      value,
-      taggedJson("$integer", encodeInt64(value)),
-      9,
-      path,
-      context,
-    );
-  }
-  if (typeof value === "string") {
-    return normalizeRuntimeString(value, path, context);
-  }
-  if (value instanceof ArrayBuffer) {
-    const bytes = new Uint8Array(value);
-    const semanticSizeBytes = 2 + bytes.byteLength;
-    assertSemanticSize(semanticSizeBytes, path, context.limits);
-    const copied = value.slice(0);
-    return Object.freeze({
-      value: copied,
-      json: taggedJson("$bytes", encodeBase64(new Uint8Array(copied))),
-      semanticSizeBytes,
-      nestingDepth: 0,
-    } satisfies NormalizedNode);
-  }
-  if (isUnknownArray(value)) {
-    return normalizeRuntimeArray(value, path, parentNesting, context);
-  }
-  if (typeof value === "object") {
-    return normalizeRuntimeObject(value, path, parentNesting, context);
-  }
-  throw unsupported(path, `unsupported JavaScript type ${typeof value}`);
-}
-
-function normalizeRuntimeString(
-  value: string,
-  path: string,
-  context: CodecContext,
-): NormalizedNode {
-  assertWellFormedUnicode(value, path);
-  if (value.length > context.limits.maxSemanticBytes) {
-    assertSemanticSize(value.length + 2, path, context.limits);
-  }
-  const bytes = TEXT_ENCODER.encode(value);
-  const semanticSizeBytes = 2 + bytes.byteLength;
-  assertSemanticSize(semanticSizeBytes, path, context.limits);
-  const json = value.includes(NUL)
-    ? taggedJson("$string", encodeBase64(bytes))
-    : value;
-  return Object.freeze({
-    value,
-    json,
-    semanticSizeBytes,
-    nestingDepth: 0,
-  } satisfies NormalizedNode);
-}
-
-function normalizeRuntimeArray(
-  value: ReadonlyArray<unknown>,
-  path: string,
-  parentNesting: number,
-  context: CodecContext,
-): NormalizedNode {
-  validateArrayShape(value, path);
-  assertArrayLength(value.length, path, context.limits);
-  const nesting = parentNesting + 1;
-  assertNesting(nesting, path, context.limits);
-  return withAncestor(value, path, context, () => {
-    const normalizedValues: CanonicalFlarexRuntimeValueV1[] = [];
-    const jsonValues: Json[] = [];
-    let semanticSizeBytes = 2;
-    let childDepth = 0;
-    for (let index = 0; index < value.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-      if (descriptor === undefined || !("value" in descriptor)) {
-        throw invalidContainer(path, "array must be dense and contain only data properties");
-      }
-      const child = normalizeRuntimeNode(
-        descriptor.value,
-        `${path}[${index}]`,
-        nesting,
-        context,
-      );
-      semanticSizeBytes += child.semanticSizeBytes;
-      assertSemanticSize(semanticSizeBytes, path, context.limits);
-      childDepth = Math.max(childDepth, child.nestingDepth);
-      normalizedValues.push(child.value);
-      jsonValues.push(child.json);
-    }
-    return Object.freeze({
-      value: Object.freeze(normalizedValues),
-      json: Object.freeze(jsonValues),
-      semanticSizeBytes,
-      nestingDepth: 1 + childDepth,
-    } satisfies NormalizedNode);
-  });
-}
-
-function normalizeRuntimeObject(
-  value: object,
-  path: string,
-  parentNesting: number,
-  context: CodecContext,
-): NormalizedNode {
-  validatePlainObject(value, path);
-  const descriptors = enumerableDataProperties(value, path);
-  const defined = descriptors.filter((entry) => entry.value !== undefined);
-  assertObjectFieldCount(defined.length, path, context.limits);
-  const nesting = parentNesting + 1;
-  assertNesting(nesting, path, context.limits);
-  return withAncestor(value, path, context, () => {
-    const normalizedObject: Record<string, CanonicalFlarexRuntimeValueV1> = {};
-    const jsonObject: Record<string, Json> = {};
-    let semanticSizeBytes = 2;
-    let childDepth = 0;
-    for (const entry of defined.sort(compareDataProperties)) {
-      validateObjectField(entry.key, path);
-      const child = normalizeRuntimeNode(
-        entry.value,
-        propertyPath(path, entry.key),
-        nesting,
-        context,
-      );
-      semanticSizeBytes += entry.key.length + 1 + child.semanticSizeBytes;
-      assertSemanticSize(semanticSizeBytes, path, context.limits);
-      childDepth = Math.max(childDepth, child.nestingDepth);
-      defineFrozenProperty(normalizedObject, entry.key, child.value);
-      defineFrozenProperty(jsonObject, entry.key, child.json);
-    }
-    return Object.freeze({
-      value: Object.freeze(normalizedObject),
-      json: Object.freeze(jsonObject),
-      semanticSizeBytes,
-      nestingDepth: 1 + childDepth,
-    } satisfies NormalizedNode);
-  });
-}
-
 function normalizeJsonNode(
   value: unknown,
   path: string,
@@ -696,7 +434,7 @@ function normalizeJsonNode(
     if (value.includes(NUL)) {
       throw unsupported(path, "NUL-containing string must use the canonical $string tag");
     }
-    return normalizeRuntimeString(value, path, context);
+    return normalizeJsonString(value, path, context);
   }
   if (isUnknownArray(value)) {
     return normalizeJsonArray(value, path, parentNesting, context);
@@ -705,6 +443,24 @@ function normalizeJsonNode(
     return normalizeJsonObject(value, path, parentNesting, context);
   }
   throw unsupported(path, "expected a canonical tagged JSON value");
+}
+
+function normalizeJsonString(
+  value: string,
+  path: string,
+  context: CodecContext,
+): NormalizedNode {
+  if (value.length > context.limits.maxSemanticBytes) {
+    assertSemanticSize(value.length + 2, path, context.limits);
+  }
+  const semanticSizeBytes = 2 + TEXT_ENCODER.encode(value).byteLength;
+  assertSemanticSize(semanticSizeBytes, path, context.limits);
+  return Object.freeze({
+    value,
+    json: value,
+    semanticSizeBytes,
+    nestingDepth: 0,
+  } satisfies NormalizedNode);
 }
 
 function normalizeJsonArray(

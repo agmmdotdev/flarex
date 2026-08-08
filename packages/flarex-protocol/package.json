@@ -43,6 +43,8 @@
     "./internal/candidate-bound-mutation-internal-query-runtime-target-v1": "./src/candidate-bound-mutation-internal-query-runtime-target-v1.ts",
     "./internal/candidate-bound-mutation-internal-call-runtime-target-v1": "./src/candidate-bound-mutation-internal-call-runtime-target-v1.ts",
     "./internal/validator-engine-core": "./src/validator-engine-core.ts",
+    "./internal/validator-json-core": "./src/validator-json-core.ts",
+    "./internal/value-runtime-core": "./src/value-runtime-core.ts",
     "./invoke": "./src/invoke.ts",
     "./index-definition": "./src/index-definition.ts",
     "./index-build-state": "./src/index-build-state.ts",

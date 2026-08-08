@@ -6,17 +6,17 @@ import type {
   ObjectValidatorJsonV1,
   ValidatorJsonV1,
 } from "flarex-protocol/validator-json";
-import {
-  isRuntimeObject,
-  normalizeRuntimeValue,
-  requireValidatorAdmission,
-  validateValue,
-} from "./pointMutationInternalQueryPrimitives";
 import type {
   FunctionRuntimePointDatabaseWriterV1,
   FunctionRuntimePointReaderV1,
   FunctionRuntimeRunQueryContextV1,
 } from "./functionApiCore";
+import {
+  isPointRuntimeObjectV1,
+  normalizePointRuntimeValueV1,
+  requirePointRuntimeValidatorAdmissionV1,
+  validatePointRuntimeValueIssueV1,
+} from "./pointRuntimeCore";
 
 export type PointMutationInternalQueryRuntimeArgsValidatorV1 =
   | ObjectValidatorJsonV1
@@ -125,11 +125,9 @@ export interface PointMutationInternalQueryRuntimeInvocationV1 {
 export function capturePointMutationInternalQueryCoreApplicationErrorDataV1(
   data: unknown,
 ): CanonicalFlarexRuntimeValueV1 {
-  return normalizeRuntimeValue(
+  return normalizePointRuntimeValueV1(
     data,
     "$applicationError.data",
-    0,
-    new WeakSet(),
   ).value;
 }
 
@@ -273,18 +271,18 @@ type RuntimeQueryHandler = (
 export function capturePointMutationInternalQueryRuntimeArgumentsV1(
   input: unknown,
 ): CapturedPointMutationInternalQueryRuntimeArgumentsV1 {
-  let normalized: ReturnType<typeof normalizeRuntimeValue>;
+  let normalized: ReturnType<typeof normalizePointRuntimeValueV1>;
   try {
-    normalized = normalizeRuntimeValue(input, "$arguments", 0, new WeakSet());
+    normalized = normalizePointRuntimeValueV1(input, "$arguments");
   } catch (cause) {
     throw new PointMutationInternalQueryRuntimeContractV1Error("argumentsInvalid", cause);
   }
-  if (!isRuntimeObject(normalized.value)) {
+  if (!isPointRuntimeObjectV1(normalized.value)) {
     throw new PointMutationInternalQueryRuntimeContractV1Error("argumentsInvalid");
   }
   return Object.freeze({
     value: normalized.value,
-    semanticSizeBytes: normalized.semanticBytes,
+    semanticSizeBytes: normalized.semanticSizeBytes,
   });
 }
 
@@ -296,9 +294,9 @@ export async function executePointMutationInternalQueryV1(
   const tableIdsByName = tableIdsByLogicalName(input.tables);
   let validatorAdmissionFailure: unknown;
   try {
-    requireValidatorAdmission(input.function.argsValidator);
+    requirePointRuntimeValidatorAdmissionV1(input.function.argsValidator);
     if (input.function.returnsValidator !== null) {
-      requireValidatorAdmission(input.function.returnsValidator);
+      requirePointRuntimeValidatorAdmissionV1(input.function.returnsValidator);
     }
   } catch (cause) {
     validatorAdmissionFailure = cause;
@@ -319,9 +317,9 @@ export async function executePointMutationInternalQueryV1(
   for (const candidate of input.internalQueryCatalog) {
     let candidateAdmissionFailure: unknown;
     try {
-      requireValidatorAdmission(candidate.argsValidator);
+      requirePointRuntimeValidatorAdmissionV1(candidate.argsValidator);
       if (candidate.returnsValidator !== null) {
-        requireValidatorAdmission(candidate.returnsValidator);
+        requirePointRuntimeValidatorAdmissionV1(candidate.returnsValidator);
       }
     } catch (cause) {
       candidateAdmissionFailure = cause;
@@ -466,13 +464,11 @@ export async function executePointMutationInternalQueryV1(
         }
         return terminal("internalTargetInvalid", cause);
       }
-      let normalizedChild: ReturnType<typeof normalizeRuntimeValue>;
+      let normalizedChild: ReturnType<typeof normalizePointRuntimeValueV1>;
       try {
-        normalizedChild = normalizeRuntimeValue(
+        normalizedChild = normalizePointRuntimeValueV1(
           childResult === undefined ? null : childResult,
           "$internal.result",
-          0,
-          new WeakSet(),
         );
       } catch (cause) {
         throw new PointMutationInternalQueryApplicationV1Error(
@@ -480,7 +476,7 @@ export async function executePointMutationInternalQueryV1(
           cause,
         );
       }
-      resultBytes += normalizedChild.semanticBytes;
+      resultBytes += normalizedChild.semanticSizeBytes;
       if (!Number.isSafeInteger(resultBytes) ||
         resultBytes > input.callBudget.maximumResultBytes) {
         return terminal("callBudgetExceeded");
@@ -564,11 +560,9 @@ export async function executePointMutationInternalQueryV1(
 
   let normalized: CanonicalFlarexRuntimeValueV1;
   try {
-    normalized = normalizeRuntimeValue(
+    normalized = normalizePointRuntimeValueV1(
       handlerResult === undefined ? null : handlerResult,
       "$result",
-      0,
-      new WeakSet(),
     ).value;
   } catch (cause) {
     throw new PointMutationInternalQueryRuntimeUserCodeV1Error(cause);
@@ -593,7 +587,12 @@ function validatorIssue(
   path: string,
   tableIdsByName: ReadonlyMap<string, number>,
 ) {
-  return validateValue(validator, value, path, tableIdsByName);
+  return validatePointRuntimeValueIssueV1(
+    validator,
+    value,
+    path,
+    tableIdsByName,
+  );
 }
 
 function exactRuntimeHandler(

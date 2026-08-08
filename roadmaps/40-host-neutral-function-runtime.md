@@ -8,14 +8,14 @@ vertical, and host-neutral exact public point-mutation extraction are
 implemented and validated. Later private point-query, internal-call, and edge-
 action verticals proved additional concrete consumers. The centralized
 Function API Core direction and focused preflight recorded below are accepted,
-and `FAC01` through `FAC19` are implemented and validated. The five exact point
+and `FAC01` through `FAC20` are implemented and validated. The five exact point
 profiles use normal Convex-style handler `ctx` facades, the public
 `FlarexError` constructor is analyzer/runtime-owned, and the top-level query
-and mutation kernels share the protocol validator and runtime-value semantics.
+and mutation kernels share one Effect-free protocol validator and runtime-value
+core through one function-runtime point-semantics facade.
 The separately owned application-error provenance registry remains a
-host-private mutation-runtime module. Two internal-mutation kernels still use
-one copied runtime-value/validator primitive pending the resource-aware
-`FAC20` preflight. Production routing remains deferred.
+host-private mutation-runtime module. The copied internal-mutation primitive is
+removed. Production routing remains deferred.
 
 This record owns the proposed portable user-code execution semantics shared by:
 
@@ -3275,7 +3275,7 @@ the top-level mutation copy after replacing its single-file Oxc transform with
 a bounded self-contained bundle. The two internal-mutation kernels still share
 one copied primitive module; that remaining duplication is the `FAC20` target.
 
-Current Convex at `84fbb0e70b4e857913673871cb847ad11a55f3d5`
+Current Convex at `7caed949ca762430835d019f2ff2686abd0c84b0`
 continues to share value conversion, argument validation, database setup, and
 registration context construction across query and mutation while retaining
 the isolate syscall bridge and exact function-kind composition in their own
@@ -3317,6 +3317,60 @@ mutation kernels, preserve the public value codec and error contract exactly,
 prove query and mutation parity, delete the remaining copied primitive only
 after both consumers migrate, and retain all snapshot, journal, nested-call,
 OCC, commit, and host boundaries.
+
+### `FAC20` Effect-Free Point Runtime Semantics Decision
+
+**Accepted:** 2026-08-08
+
+The resource and ownership preflight rejected both remaining alternatives.
+Bundling the public Effect and Schema surface into the two small internal-
+mutation kernels would have spent a multi-megabyte closure in order to reuse a
+pure recursive algorithm. Retaining the copied primitive would have left value
+limits, first-failure order, property ownership, validator admission, table-
+aware ID validation, and typed issue detail under two authorities. Neither is
+an acceptable long-term Function API Core boundary.
+
+The protocol now owns an Effect-free runtime-value core. It owns the canonical
+runtime types, profiles and limits, defensive normalization and recursive
+freezing, undefined-object-field omission, canonical runtime-to-JSON
+projection, and the exact Value Codec V1 issue union. The public Value Codec V1
+surface remains the authority for its existing Effect `Data.TaggedError`,
+Schema brands, canonical evidence, bytes, and digest operations. Its runtime-
+value entry point catches only the private core error and translates its exact
+issue into the existing public error. Unexpected causes remain defects rather
+than ordinary codec failures.
+
+Validator JSON follows the same ownership split. Its pure structural types,
+resource-admission algorithm, and limits live in one Effect-free protocol
+core; the public module retains the recursive Schema codecs and compatibility
+exports. The pure validator engine depends only on the pure value and validator
+cores. A function-runtime point-semantics facade is the sole composition owner
+for the five exact point profiles: it supplies value capture, object
+discrimination, validator admission, table-aware document-ID policy, and value
+validation without exposing persistence, snapshot, journal, or syscall hosts.
+
+All five exact point query and mutation profiles consume that facade. The
+copied internal-mutation value and validator primitive is deleted. Their
+profile-specific error classification, call budgets, terminal propagation,
+journal or read-boundary ownership, handler contexts, and nested-call policies
+remain local. Edge action remains a separate action profile; only its generated
+closure identity is refreshed because it imports the public protocol modules.
+No action-uncertainty or action-host behavior moves into the point core.
+
+The five generated point kernels now share one tooling-owned build gate. Each
+build must be byte-identical across two clean builds, emit exactly one
+JavaScript chunk, retain no static or dynamic imports, and remain below the
+existing four-MiB target ceiling. Minification remains profile-specific, so the
+gate does not change runtime source semantics merely to make files look alike.
+
+`FAC20` changes no analyzer identity, public protocol version, schema, R2,
+snapshot, journal, transaction, OCC, commit, action uncertainty, activation,
+routing, or production owner. `FAC21` is the roadmap completion audit. It must
+recheck every accepted Function API Core requirement and current generated
+consumer, distinguish correct host-owned closure from missing shared semantics,
+and either close this roadmap or name one smallest implementation-bearing gap.
+It must not use the audit to extract Workerd globals, syscall transports,
+persistence adapters, or the edge-action uncertainty owner.
 
 ### Superseded Post-Extraction Decision Context
 

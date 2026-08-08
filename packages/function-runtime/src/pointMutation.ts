@@ -1,16 +1,17 @@
 import type { UserIdentity } from "flarex-protocol/auth";
-import {
+import type {
   CanonicalFlarexRuntimeObjectV1,
   CanonicalFlarexRuntimeValueV1,
-  normalizeFlarexValueV1,
 } from "flarex-protocol/value";
 import {
   ObjectValidatorJsonV1,
   ValidatorJsonV1,
-  validatorJsonAdmissionIssueV1,
 } from "flarex-protocol/validator-json";
-import { validateValidatorValueIssueV1 } from
-  "flarex-protocol/internal/validator-engine-core";
+import {
+  normalizePointRuntimeValueV1,
+  pointRuntimeValidatorAdmissionIssueV1,
+  validatePointRuntimeValueIssueV1,
+} from "./pointRuntimeCore";
 
 export type PointMutationRuntimeArgsValidatorV1 =
   | ObjectValidatorJsonV1
@@ -193,11 +194,11 @@ export async function executePointMutationV1(
   invocations: PointMutationRuntimeInvocationFactoryV1,
 ): Promise<CanonicalFlarexRuntimeValueV1> {
   const tableIdsByName = tableIdsByLogicalName(input.tables);
-  const admissionIssue = validatorJsonAdmissionIssueV1(
+  const admissionIssue = pointRuntimeValidatorAdmissionIssueV1(
     input.function.argsValidator,
   ) ?? (input.function.returnsValidator === null
     ? undefined
-    : validatorJsonAdmissionIssueV1(input.function.returnsValidator));
+    : pointRuntimeValidatorAdmissionIssueV1(input.function.returnsValidator));
   if (admissionIssue !== undefined) {
     throw new PointMutationRuntimeContractV1Error(
       "validatorProjectionInvalid",
@@ -262,7 +263,7 @@ export async function executePointMutationV1(
 
   let normalized: CanonicalFlarexRuntimeValueV1;
   try {
-    normalized = normalizeFlarexValueV1(
+    normalized = normalizePointRuntimeValueV1(
       handlerResult === undefined ? null : handlerResult,
     ).value;
   } catch (cause) {
@@ -285,7 +286,7 @@ export async function executePointMutationV1(
 export function capturePointMutationCoreApplicationErrorDataV1(
   data: unknown,
 ): CanonicalFlarexRuntimeValueV1 {
-  return normalizeFlarexValueV1(data).value;
+  return normalizePointRuntimeValueV1(data).value;
 }
 
 function exactPublicMutationHandler(value: unknown): MutationHandler {
@@ -326,23 +327,12 @@ function validatorIssue(
   path: string,
   tableIdsByName: ReadonlyMap<string, number>,
 ) {
-  return validateValidatorValueIssueV1(validator, value, {
+  return validatePointRuntimeValueIssueV1(
+    validator,
+    value,
     path,
-    idPolicy: {
-      mode: "tableAware",
-      check: (tableName, documentId) => {
-        const tableId = tableIdsByName.get(tableName);
-        if (tableId === undefined) return "unavailable";
-        const separator = documentId.indexOf(":");
-        return separator > 0 && separator === documentId.lastIndexOf(":") &&
-            documentId.slice(0, separator) === String(tableId) &&
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-              .test(documentId.slice(separator + 1))
-          ? "valid"
-          : "invalid";
-      },
-    },
-  });
+    tableIdsByName,
+  );
 }
 
 function tableIdsByLogicalName(
