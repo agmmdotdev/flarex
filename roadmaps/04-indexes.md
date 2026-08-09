@@ -1,5 +1,37 @@
 # Indexes
 
+## Bind Immutable Unique-Constraint Definitions Without Enforcing Them
+
+`C08-B0` establishes the production-inert authority that later unique
+lowering needs. The first generation accepts only ordered, non-localized app
+field paths plus an explicit sparse policy. It commits the exact Ordered Index
+V1 component codec identity/version into canonical bytes and SHA-256 evidence.
+Localized constraints remain unrepresentable and therefore fail closed until
+their locale owner is designed.
+
+Migration `0047` adds three compact control relations with no user-code or
+artifact bodies: one stable deployment/table/descriptor identity, immutable
+physical generations, and schema-version bindings. This separation is
+intentional. A logical constraint can keep its identity while a later schema
+version changes ordered fields or sparse policy, and old/new physical
+generations can coexist during a future reconciliation gate. S11 claim IDs are
+now the exact physical definition IDs rather than a parallel local brand.
+
+The private repository prepares canonical evidence outside SQL, mints an
+opaque process-local token, locks the existing deployment catalog lane, checks
+the real schema/table parents, allocates IDs only inside the caller's
+transaction, and treats exact replay as idempotent. It creates no claim,
+backfill/build/readiness row, active head, route, or commit hook. `C08-B1`
+still owns reconciliation/backfill/validation and readiness evidence;
+`C08-B2` still owns point-commit lowering through S11; `O09-B` still owns
+contention/stress acceptance.
+
+Focused PGlite coverage proves canonical replay, changed-generation
+coexistence, conflicting binding refusal, forged-token refusal, migration
+replay, and three-table rollback. The genuine PostgreSQL suite contains exact
+concurrent replay and rollback proofs and runs when
+`FLAREX_POSTGRES_DATABASE_URL` is supplied.
+
 ## Build And Maintain Relation-Free Intrinsic And Developer Indexes
 
 What changed:

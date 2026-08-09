@@ -1,25 +1,33 @@
 import { Data, Result } from "effect";
 import {
-  ORDERED_INDEX_KEY_CODEC_VERSION_V1,
+  CatalogUniqueConstraintDefinitionIdSchema,
+  MAX_CATALOG_UNIQUE_CONSTRAINT_DEFINITION_ID,
+  type CatalogUniqueConstraintDefinitionId,
+} from "flarex-protocol/catalog";
+import {
   encodeOrderedIndexComponentsV1,
   orderedIndexKeyBytesHexV1ToBytes,
   type OrderedIndexComponentV1,
   type OrderedIndexKeyCodecVersion,
   type OrderedIndexKeyHexV1,
 } from "flarex-protocol/ordered-index";
+import {
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+  APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  MAX_APP_UNIQUE_KEY_COMPONENTS_V1,
+} from "flarex-protocol/app-unique-constraint-definition";
 
-export const APP_UNIQUE_KEY_CODEC_IDENTITY_V1 =
-  "flarex.unique-key/ordered-index-components/v1" as const;
-export const APP_UNIQUE_KEY_CODEC_VERSION_V1: OrderedIndexKeyCodecVersion =
-  ORDERED_INDEX_KEY_CODEC_VERSION_V1;
-export const MAX_APP_UNIQUE_CONSTRAINT_ID_V1 = 2_147_483_647;
-export const MAX_APP_UNIQUE_KEY_COMPONENTS_V1 = 15;
+export {
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+  APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  MAX_APP_UNIQUE_KEY_COMPONENTS_V1,
+};
+export const MAX_APP_UNIQUE_CONSTRAINT_ID_V1 =
+  MAX_CATALOG_UNIQUE_CONSTRAINT_DEFINITION_ID;
 export const MAX_APP_UNIQUE_LOCALE_KEY_BYTES_V1 = 63;
 
-declare const AppUniqueConstraintIdV1Brand: unique symbol;
-export type AppUniqueConstraintIdV1 = number & {
-  readonly [AppUniqueConstraintIdV1Brand]: true;
-};
+/** S11 claims are owned by the exact immutable physical definition. */
+export type AppUniqueConstraintIdV1 = CatalogUniqueConstraintDefinitionId;
 
 export interface AppUniqueKeyProjectionV1 {
   readonly sparse: boolean;
@@ -63,7 +71,7 @@ export function decodeAppUniqueConstraintIdV1Result(
 > {
   return typeof value === "number" && Number.isSafeInteger(value) &&
       value >= 1 && value <= MAX_APP_UNIQUE_CONSTRAINT_ID_V1
-    ? Result.succeed(value as AppUniqueConstraintIdV1)
+    ? Result.succeed(CatalogUniqueConstraintDefinitionIdSchema.make(value))
     : Result.fail(new InvalidAppUniqueKeyContractV1Error({
       field: "constraintId",
       detail: "expected a positive signed-32-bit integer",

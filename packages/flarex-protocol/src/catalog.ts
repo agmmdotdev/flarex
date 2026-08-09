@@ -3,6 +3,8 @@ import { Schema } from "effect";
 export const MAX_CATALOG_TABLE_ID = 2_147_483_647;
 export const MAX_CATALOG_INDEX_ID = 2_147_483_647;
 export const MAX_CATALOG_INDEX_DEFINITION_ID = 2_147_483_647;
+export const MAX_CATALOG_UNIQUE_CONSTRAINT_ID = 2_147_483_647;
+export const MAX_CATALOG_UNIQUE_CONSTRAINT_DEFINITION_ID = 2_147_483_647;
 
 export const CatalogTableIdSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: MAX_CATALOG_TABLE_ID }),
@@ -46,6 +48,37 @@ export type CatalogIndexDefinitionId =
 export const decodeCatalogIndexDefinitionId = Schema.decodeUnknownSync(
   CatalogIndexDefinitionIdSchema,
 );
+
+/** Stable deployment-scoped identity for one logical unique constraint. */
+export const CatalogUniqueConstraintIdSchema = Schema.Int.check(
+  Schema.isBetween({
+    minimum: 1,
+    maximum: MAX_CATALOG_UNIQUE_CONSTRAINT_ID,
+  }),
+).pipe(Schema.brand("FlarexDB/CatalogUniqueConstraintId"));
+export type CatalogUniqueConstraintId =
+  typeof CatalogUniqueConstraintIdSchema.Type;
+export const decodeCatalogUniqueConstraintId = Schema.decodeUnknownSync(
+  CatalogUniqueConstraintIdSchema,
+);
+
+/**
+ * Deployment-scoped identity for one immutable unique-key specification.
+ *
+ * A logical constraint keeps its stable ID when a later schema version changes
+ * its ordered fields or sparse policy. Each such physical generation receives
+ * a distinct definition ID so claims can remain tied to exact semantics.
+ */
+export const CatalogUniqueConstraintDefinitionIdSchema = Schema.Int.check(
+  Schema.isBetween({
+    minimum: 1,
+    maximum: MAX_CATALOG_UNIQUE_CONSTRAINT_DEFINITION_ID,
+  }),
+).pipe(Schema.brand("FlarexDB/CatalogUniqueConstraintDefinitionId"));
+export type CatalogUniqueConstraintDefinitionId =
+  typeof CatalogUniqueConstraintDefinitionIdSchema.Type;
+export const decodeCatalogUniqueConstraintDefinitionId =
+  Schema.decodeUnknownSync(CatalogUniqueConstraintDefinitionIdSchema);
 
 export const CatalogTableNamespaceSchema = Schema.Union([
   Schema.Literal("app"),

@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./app-document": "./src/app-document.ts",
     "./app-document-id": "./src/app-document-id.ts",
+    "./app-unique-constraint-definition": "./src/app-unique-constraint-definition.ts",
     "./auth-headers": "./src/auth-headers.ts",
     "./artifact-runtime": "./src/artifact-runtime.ts",
     "./app-schema-catalog": "./src/app-schema-catalog.ts",

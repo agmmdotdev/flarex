@@ -724,15 +724,21 @@ Dynamic Worker binding baseline before selecting it.
    private planner authority, a 256-entry-revision ceiling, deterministic key
    moves, build invalidation, and PGlite/PostgreSQL rollback proof. It adds no
    unique claim or query authority.
-6. `C08-B`: lower pinned unique constraints through the existing S11 owner.
-7. `O09-B`: prove unique conflicts and complete sidecar contention/rollback.
-8. `R01`: relation identity and semantics.
-9. `R02`: stable relation IDs, immutable semantic definitions, and reusable
+6. `C08-B0` (implemented; live PostgreSQL acceptance pending): canonical
+   non-localized unique definitions, stable logical IDs, immutable physical
+   definition IDs, and schema-version bindings. It is production-inert and
+   stores no code/artifact bodies.
+7. `C08-B1`: reconcile/backfill/validate exact bound definitions and produce
+   invalidatable readiness evidence.
+8. `C08-B2`: lower pinned unique constraints through the existing S11 owner.
+9. `O09-B`: prove unique conflicts and complete sidecar contention/rollback.
+10. `R01`: relation identity and semantics.
+11. `R02`: stable relation IDs, immutable semantic definitions, and reusable
    physical edge definitions.
-10. `S12`: stable current edge occurrences; edge history remains deferred.
-11. `C09`: lower stable edge occurrences.
-12. `O10`: one exact indexed dependency and phantom-conflict proof.
-13. `O10-R`: one exact relation adjacency dependency, snapshot-registration
+12. `S12`: stable current edge occurrences; edge history remains deferred.
+13. `C09`: lower stable edge occurrences.
+14. `O10`: one exact indexed dependency and phantom-conflict proof.
+15. `O10-R`: one exact relation adjacency dependency, snapshot-registration
     race, read-your-writes, and phantom-conflict proof. SQL/PGQ remains later
     and optional.
 

@@ -844,8 +844,15 @@ missing-path lowering, key movement, mixed unchanged/material dependency
 ordering, oversized-key refusal, fault after the second sidecar write, exact
 rollback/retry, pre-transaction ceiling refusal, and action-derived ceiling
 rollback.
-This does not complete general C08: unique lowering and O09 contention remain
-open.
+`C08-B0` is implemented and locally validated but awaits a live genuine-
+PostgreSQL acceptance receipt. It supplies a canonical non-localized unique physical specification,
+stable logical constraint identity, immutable physical definition identity,
+and exact schema-version binding. Migration `0047` stores only this compact
+authority and canonical commitments; it does not store user code or artifact
+bodies. The S11 claim identity is the physical definition ID. No claim,
+backfill, readiness, activation, or point-commit behavior is introduced.
+This does not complete general C08: `C08-B1` reconciliation/backfill and
+readiness evidence, `C08-B2` unique lowering, and O09 contention remain open.
 
 Outcome:
 
