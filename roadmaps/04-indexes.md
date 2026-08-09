@@ -40,10 +40,27 @@ Current scope-epoch authority is authenticated separately from each retained
 row revision's historical write-epoch UUID, so an ordinary epoch rotation does
 not orphan unchanged rows or rewrite their claim lineage.
 
-`C08-B1` remains incomplete by design. The next checkpoint must perform an
-exact bounded validation pass over both current rows and S11 claim-only rows,
-reset that pass when a relevant point commit changes data behind its cursor,
-and only then advance the same row to `enabled`. A later exact gate must bind
+The third private `C08-B1` checkpoint now performs an exact page-bounded
+validation pass over the union of current rows and S11 claim-only rows. Each
+candidate is lowered from canonical current-row evidence and checked through
+an S11 transaction primitive that authenticates exact claim identity and
+lineage without mutating claim ownership. Bounded owner-index range probes
+reject any claim outside the definition's exact locale and table dimensions.
+Missing, unexpected, mismatched, or corrupt claims fail closed. Every material
+point commit resets all validating schema-version builds for its scope inside
+the existing scope-clock transaction, independent of the optional B2 locator,
+so old-schema commits, prospective builds, sparse rows, and omitted rows cannot
+escape a clean complete pass. A primary-key-ordered cap-plus-one selection
+bounds the complete per-scope build directory to 32 rows and fails the entire
+commit closed above that ceiling; only non-null validating cursors from that
+locked snapshot are rewritten. The reconciliation writer applies the same
+bounded directory admission before inserting a missing row, so it rejects row
+33 atomically rather than creating a durable write-denial state. Validation faults roll
+back the page and cursor;
+point-commit faults roll back the cursor reset together with application-row,
+claim, commit-feed, and outbox publication evidence.
+
+`C08-B1` remains production-inert. A later exact gate must bind
 planner/readiness eligibility to both the enabled set digest and the
 unforgeable B2 point-commit maintenance capability. No activation, active
 reader, route, trigger, alternate OCC/commit owner, or production behavior is
@@ -56,10 +73,19 @@ corepack pnpm --filter @flarex/persistence-postgres test:c08-b1a:pglite
 FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-b1a:postgres
 corepack pnpm --filter @flarex/persistence-postgres test:c08-b1b:pglite
 FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-b1b:postgres
+corepack pnpm --filter @flarex/persistence-postgres test:c08-b1c:pglite
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-b1c:postgres
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check
 ```
+
+The focused B1C PGlite lane passes 94 tests. Its genuine-PostgreSQL cases are
+implemented, but a fresh isolated PostgreSQL 18 run currently stops during
+migration `0047` before reaching B1C behavior because of the already-recorded
+migration-isolation defect below. This checkpoint does not claim a live
+PostgreSQL acceptance receipt until that separate owner is corrected and the
+lane is rerun.
 
 ### Recorded PostgreSQL Migration-Isolation Defect
 

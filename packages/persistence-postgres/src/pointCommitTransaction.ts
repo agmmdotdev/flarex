@@ -123,6 +123,10 @@ import {
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
 import {
+  AppUniqueConstraintSetBuildIntegrationV1Error,
+  resetAppUniqueConstraintSetValidationInTransactionEffect,
+} from "./appUniqueConstraintSetBuildV1";
+import {
   applyAppUniqueKeyMutationInTransactionEffect,
   AppUniqueKeyConflictError,
   AppUniqueKeyHashError,
@@ -580,6 +584,7 @@ export type PointCommitCorruptionReasonV1 =
   | "developerIndexBuildInvalid"
   | "developerIndexTransitionInvalid"
   | "uniqueConstraintDefinitionInvalid"
+  | "uniqueConstraintBuildInvalid"
   | "uniqueKeyTransitionInvalid"
   | "successfulResultInvalid"
   | "committedOutcomeMissing"
@@ -673,6 +678,7 @@ export type PointCommitSqlOperationV1 =
   | "loadUniqueKeyOwners"
   | "resetIntrinsicIndexValidation"
   | "resetDeveloperIndexValidation"
+  | "resetUniqueConstraintValidation"
   | "writeTentativeRow"
   | "writeIntrinsicIndexEntry"
   | "writeDeveloperIndexEntry"
@@ -876,6 +882,7 @@ export type PointCommitTransactionProofStepV1 =
   | "intrinsicIndexEntryWritten"
   | "developerIndexEntryWritten"
   | "uniqueKeyWritten"
+  | "uniqueConstraintValidationReset"
   | "outcomeRechecked"
   | "commitHeaderWritten"
   | "commitChangeWritten"
@@ -3535,6 +3542,16 @@ async function runPointCommitTransactionKernel(
     uniqueKeyActions,
     options,
   );
+  if (command.rowIntents.length > 0) {
+    const reset = await resetPointCommitUniqueConstraintValidation(tx, command);
+    if (reset) {
+      await emitTransactionStep(
+        options,
+        command,
+        "uniqueConstraintValidationReset",
+      );
+    }
+  }
   for (const developer of developerBuilds) {
     await resetPointCommitDeveloperIndexValidation(tx, developer.build);
   }
@@ -3543,6 +3560,28 @@ async function runPointCommitTransactionKernel(
     clock,
     ...allocation,
   });
+}
+
+async function resetPointCommitUniqueConstraintValidation(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+): Promise<boolean> {
+  const settled = await Effect.runPromise(Effect.result(
+    resetAppUniqueConstraintSetValidationInTransactionEffect(tx, {
+      scopeId: command.authorityPins.scopeId,
+    }),
+  ));
+  const result = projectPointCommitTransactionResult(
+    settled.pipe(Result.mapError((failure) =>
+      failure instanceof AppUniqueConstraintSetBuildIntegrationV1Error
+        ? new PointCommitSqlFailureMarkerV1(
+            "resetUniqueConstraintValidation",
+            failure.cause,
+          )
+        : corruption("uniqueConstraintBuildInvalid")
+    )),
+  );
+  return result.status === "reset";
 }
 
 function requirePointCommitReadyForPublicationResult(

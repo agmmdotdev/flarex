@@ -142,13 +142,16 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       expect(settlements.some((value) => value.claimed === 1)).toBe(true);
       expect(settlements.filter((value) =>
         value.lifecycle === "validating"
-      )).toHaveLength(3);
+      )).toHaveLength(2);
+      expect(settlements.filter((value) =>
+        value.lifecycle === "enabled"
+      )).toHaveLength(1);
       const build = await persistence.query<{ lifecycle: string }>(
         `select lifecycle from fx_system_unique_constraint_set_build
           where scope_id = $1 and schema_version_id = $2`,
         [fixture.scopeId, fixture.schemaVersionId],
       );
-      expect(build.rows).toEqual([{ lifecycle: "validating" }]);
+      expect(build.rows).toEqual([{ lifecycle: "enabled" }]);
       const claims = await persistence.query<{
         row_id_hex: string;
         commit_seq: string;

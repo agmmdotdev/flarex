@@ -217,6 +217,8 @@ import {
   ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
   prepareAppUniqueConstraintDefinitionBindingV1Effect,
 } from "../src/appUniqueConstraintDefinitions";
+import { MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 } from
+  "../src/appUniqueConstraintSetBuildV1";
 import {
   applyAppUniqueKeyMutationInTransactionEffect,
   AppUniqueKeyConflictError,
@@ -4738,6 +4740,202 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     }]);
   });
 
+  it("resets validating unique-set progress in point commit and rolls it back with the commit", async () => {
+    const reset = await prepareO07BScenario(
+      "c08b1c_unique_validation_reset",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "behind-validation-cursor" },
+        });
+      },
+      async (current) => {
+        await insertValidatingUniqueSetBuild(current);
+        await insertValidatingUniqueSetBuild(
+          current,
+          `${current.schemaVersionId}_candidate`,
+        );
+        return {};
+      },
+    );
+    expect(await uniqueSetBuildCursors(reset.current)).toEqual([
+      {
+        schemaVersionId: reset.current.schemaVersionId,
+        lifecycle: "validating",
+        cursorDefinitionId: 1,
+        cursorRowHex: "ff".repeat(16),
+      },
+      {
+        schemaVersionId: `${reset.current.schemaVersionId}_candidate`,
+        lifecycle: "validating",
+        cursorDefinitionId: 1,
+        cursorRowHex: "ff".repeat(16),
+      },
+    ]);
+    await runEffect(reset.authentication.publishPointCommit(reset.plan));
+    expect(await uniqueSetBuildCursors(reset.current)).toEqual([
+      {
+        schemaVersionId: reset.current.schemaVersionId,
+        lifecycle: "validating",
+        cursorDefinitionId: null,
+        cursorRowHex: null,
+      },
+      {
+        schemaVersionId: `${reset.current.schemaVersionId}_candidate`,
+        lifecycle: "validating",
+        cursorDefinitionId: null,
+        cursorRowHex: null,
+      },
+    ]);
+
+    const rolledBack = await prepareO07BScenario(
+      "c08b1c_unique_validation_reset_rollback",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "rollback-validation-reset" },
+        });
+      },
+      async (current) => {
+        const unique = await prepareUniqueConstraintForO06(current);
+        await insertValidatingUniqueSetBuild(current);
+        return {
+          ...unique,
+          afterTransactionStep: (event) => {
+            if (event.step === "uniqueConstraintValidationReset") {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+            return Promise.resolve();
+          },
+        };
+      },
+    );
+    expect(await runFailure(
+      rolledBack.authentication.publishPointCommit(rolledBack.plan),
+    )).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(await uniqueSetBuildCursor(rolledBack.current)).toEqual({
+      lifecycle: "validating",
+      cursorDefinitionId: 1,
+      cursorRowHex: "ff".repeat(16),
+    });
+    expect(await o06DurableState(rolledBack.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      outcomes: "0",
+      last_commit_seq: "0",
+    });
+  });
+
+  it("fails closed before commit when the scope build directory ceiling is exceeded", async () => {
+    const prepared = await prepareO07BScenario(
+      "c08b1c_unique_validation_reset_ceiling",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "validation-reset-ceiling" },
+        });
+      },
+      async (current) => {
+        for (
+          let ordinal = 0;
+          ordinal <= MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1;
+          ordinal += 1
+        ) {
+          await insertValidatingUniqueSetBuild(
+            current,
+            `${current.schemaVersionId}_candidate_${ordinal}`,
+          );
+        }
+        await persistence.query(
+          `update fx_system_unique_constraint_set_build
+              set lifecycle = 'enabled', cursor_definition_id = null,
+                  cursor_row_id = null
+            where scope_id = $1 and schema_version_id <> $2`,
+          [
+            current.anchor.scopeId,
+            `${current.schemaVersionId}_candidate_${
+              MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1
+            }`,
+          ],
+        );
+        return {};
+      },
+    );
+    expect(await runFailure(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    )).toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "uniqueConstraintBuildInvalid",
+    });
+    const cursors = await uniqueSetBuildCursors(prepared.current);
+    expect(cursors).toHaveLength(
+      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 + 1,
+    );
+    expect(cursors.filter((row) => row.cursorRowHex === null)).toHaveLength(
+      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+    );
+    expect(cursors.filter((row) =>
+      row.cursorRowHex === "ff".repeat(16)
+    )).toHaveLength(1);
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      outcomes: "0",
+      last_commit_seq: "0",
+    });
+  });
+
+  it("publishes at the exact scope build directory ceiling", async () => {
+    const prepared = await prepareO07BScenario(
+      "c08b1c_unique_validation_reset_exact_ceiling",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "validation-reset-exact-ceiling" },
+        });
+      },
+      async (current) => {
+        for (
+          let ordinal = 0;
+          ordinal < MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1;
+          ordinal += 1
+        ) {
+          await insertValidatingUniqueSetBuild(
+            current,
+            `${current.schemaVersionId}_history_${ordinal}`,
+          );
+        }
+        await persistence.query(
+          `update fx_system_unique_constraint_set_build
+              set lifecycle = 'enabled', cursor_definition_id = null,
+                  cursor_row_id = null
+            where scope_id = $1`,
+          [current.anchor.scopeId],
+        );
+        return {};
+      },
+    );
+    await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
+    expect(await uniqueSetBuildCursors(prepared.current)).toHaveLength(
+      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+    );
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "1",
+      current_rows: "1",
+      commit_headers: "1",
+      outcomes: "1",
+      last_commit_seq: "1",
+    });
+  });
+
   it("rejects structurally copied unique locator authority before transaction", async () => {
     const prepared = await prepareO07BScenario(
       "c08b2_forged_unique_definition",
@@ -6687,6 +6885,72 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       );
     }
     return Object.freeze({ uniqueConstraints });
+  }
+
+  async function insertValidatingUniqueSetBuild(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    schemaVersionId: string = current.schemaVersionId,
+  ) {
+    const clock = await persistence.getScopeClock(current.anchor.scopeId);
+    if (clock === null) throw new Error("Missing C08-B1C scope clock.");
+    await persistence.query(
+      `insert into fx_system_unique_constraint_set_build
+        (scope_id, schema_version_id, set_codec_version, definition_count,
+         definition_set_sha256, storage_generation,
+         storage_generation_fence, epoch, start_commit_seq, lifecycle,
+         cursor_codec_version, cursor_definition_id, cursor_row_id,
+         attempt_fence)
+       values ($1, $2, 1, 1, decode(repeat('ab', 32), 'hex'),
+               'flarexdb_v1', $3, $4, $5, 'validating', 1, 1,
+               decode(repeat('ff', 16), 'hex'), 1)`,
+      [
+        current.anchor.scopeId,
+        schemaVersionId,
+        clock.storageGenerationFence.toString(),
+        clock.epoch,
+        clock.lastCommitSeq.toString(),
+      ],
+    );
+  }
+
+  async function uniqueSetBuildCursor(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+  ) {
+    const result = await persistence.query<{
+      lifecycle: string;
+      cursorDefinitionId: number | null;
+      cursorRowHex: string | null;
+    }>(
+      `select lifecycle,
+              cursor_definition_id "cursorDefinitionId",
+              encode(cursor_row_id, 'hex') "cursorRowHex"
+         from fx_system_unique_constraint_set_build
+        where scope_id = $1 and schema_version_id = $2`,
+      [current.anchor.scopeId, current.schemaVersionId],
+    );
+    const row = result.rows[0];
+    if (row === undefined) throw new Error("Missing C08-B1C build row.");
+    return row;
+  }
+
+  async function uniqueSetBuildCursors(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+  ) {
+    const result = await persistence.query<{
+      schemaVersionId: string;
+      lifecycle: string;
+      cursorDefinitionId: number | null;
+      cursorRowHex: string | null;
+    }>(
+      `select schema_version_id "schemaVersionId", lifecycle,
+              cursor_definition_id "cursorDefinitionId",
+              encode(cursor_row_id, 'hex') "cursorRowHex"
+         from fx_system_unique_constraint_set_build
+        where scope_id = $1
+        order by schema_version_id asc`,
+      [current.anchor.scopeId],
+    );
+    return result.rows;
   }
 
   async function seedSecondUniqueUser(

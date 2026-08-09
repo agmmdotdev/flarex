@@ -28,6 +28,9 @@ import {
 } from "../src/appUniqueConstraintDefinitions";
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
+  AppUniqueConstraintSetBuildStateV1Error,
+  AppUniqueConstraintSetBuildDirectoryV1Error,
+  MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
   advanceAppUniqueConstraintSetBackfillV1Effect,
   createLocatedAppUniqueConstraintSetBuildTargetV1,
   reconcileAppUniqueConstraintSetBuildV1Effect,
@@ -185,6 +188,45 @@ describe("C08-B1 closed unique-set build foundation", () => {
     }]);
   });
 
+  it("rejects build row 33 before creation at the scope directory ceiling", async () => {
+    const fixture = await closedFixture("build_directory_ceiling");
+    for (
+      let ordinal = 0;
+      ordinal < MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1;
+      ordinal += 1
+    ) {
+      await fixture.persistence.query(
+        `insert into fx_system_unique_constraint_set_build
+          (scope_id, schema_version_id, set_codec_version, definition_count,
+           definition_set_sha256, storage_generation,
+           storage_generation_fence, epoch, start_commit_seq, lifecycle,
+           cursor_codec_version, cursor_definition_id, cursor_row_id,
+           attempt_fence)
+         values ($1, $2, 1, 0, decode(repeat('ab', 32), 'hex'),
+                 'flarexdb_v1', 1, $3, 0, 'enabled', 1, null, null, 1)`,
+        [fixture.scopeId, `schema_history_${ordinal}`, fixture.epoch],
+      );
+    }
+    const failure = await runEffectFailure(
+      reconcileAppUniqueConstraintSetBuildV1Effect(
+        ports(fixture),
+        input(fixture),
+      ),
+    );
+    expect(failure).toBeInstanceOf(
+      AppUniqueConstraintSetBuildDirectoryV1Error,
+    );
+    expect(failure).toMatchObject({
+      _tag: "AppUniqueConstraintSetBuildDirectoryV1Error",
+      reason: "tooManyBuildRows",
+      maximumBuilds: MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+    });
+    expect(await buildRows(fixture)).toEqual([]);
+    expect(await buildDirectoryCount(fixture)).toBe(
+      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+    );
+  });
+
   it("rolls back an injected target fault and resumes deterministically", async () => {
     const fixture = await closedFixture("rollback");
     const failure = await runEffectFailure(
@@ -226,7 +268,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
     });
   });
 
-  it("backfills bounded pages, follows current rows past the frontier, and stops at validating", async () => {
+  it("backfills bounded pages, follows current rows, and validates to enabled", async () => {
     const fixture = await closedFixture("backfill");
     const rowA = rowId(1);
     const rowB = rowId(2);
@@ -273,8 +315,17 @@ describe("C08-B1 closed unique-set build foundation", () => {
       { row_id_hex: rowB, commit_seq: "2" },
     ]);
     await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
-      status: "replayed",
+      status: "advanced",
       lifecycle: "validating",
+      scanned: 1,
+      cursorRowId: rowA,
+    });
+    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+      status: "advanced",
+      lifecycle: "enabled",
+      scanned: 1,
+      cursorDefinitionId: null,
+      cursorRowId: null,
     });
   });
 
@@ -406,6 +457,192 @@ describe("C08-B1 closed unique-set build foundation", () => {
     }]);
   });
 
+  it("fails closed on missing and claim-only S11 ownership", async () => {
+    const missing = await closedFixture("validation_missing");
+    const missingRow = rowId(8);
+    await appendLiveRow(missing, missingRow, 1n, null, {
+      tenantId: "tenant-a",
+      email: "missing@example.com",
+    });
+    await setClockCommit(missing, 1n);
+    await advanceToValidating(missing, 16);
+    await missing.persistence.query(
+      "delete from fx_app_unique_key where scope_uuid = $1::uuid",
+      [missing.scopeId.slice("scope_".length)],
+    );
+    const missingFailure = await runEffectFailure(
+      advanceAppUniqueConstraintSetBackfillV1Effect(
+        ports(missing),
+        { ...input(missing), pageSize: 16 },
+      ),
+    );
+    expect(missingFailure).toBeInstanceOf(
+      AppUniqueConstraintSetBuildStateV1Error,
+    );
+    expect(missingFailure).toMatchObject({
+      reason: "validationMismatch",
+      cause: { reason: "missingClaim" },
+    });
+    expect(await buildRows(missing)).toMatchObject([{
+      lifecycle: "validating",
+      cursor_definition_id: null,
+      cursor_row_hex: null,
+    }]);
+
+    const claimOnly = await closedFixture("validation_claim_only");
+    const claimOnlyRow = rowId(9);
+    await appendLiveRow(claimOnly, claimOnlyRow, 1n, null, {
+      tenantId: "tenant-a",
+      email: "claim-only@example.com",
+    });
+    await setClockCommit(claimOnly, 1n);
+    await advanceToValidating(claimOnly, 16);
+    await claimOnly.persistence.query(
+      "delete from fx_app_row_current where scope_uuid = $1::uuid",
+      [claimOnly.scopeId.slice("scope_".length)],
+    );
+    const claimOnlyFailure = await runEffectFailure(
+      advanceAppUniqueConstraintSetBackfillV1Effect(
+        ports(claimOnly),
+        { ...input(claimOnly), pageSize: 16 },
+      ),
+    );
+    expect(claimOnlyFailure).toMatchObject({
+      _tag: "AppUniqueConstraintSetBuildStateV1Error",
+      reason: "validationMismatch",
+      cause: { reason: "unexpectedClaim" },
+    });
+  });
+
+  it("rejects claim-only rows outside the definition locale and table", async () => {
+    const wrongLocale = await closedFixture("validation_wrong_locale");
+    const localeRow = rowId(12);
+    await appendLiveRow(wrongLocale, localeRow, 1n, null, {
+      tenantId: "tenant-a",
+      email: "wrong-locale@example.com",
+    });
+    await setClockCommit(wrongLocale, 1n);
+    await advanceToValidating(wrongLocale, 16);
+    await wrongLocale.persistence.query(
+      "update fx_app_unique_key set locale_key = 'en'",
+    );
+    await wrongLocale.persistence.query(
+      "delete from fx_app_row_current where scope_uuid = $1::uuid",
+      [wrongLocale.scopeId.slice("scope_".length)],
+    );
+    expect(await runEffectFailure(
+      advanceAppUniqueConstraintSetBackfillV1Effect(
+        ports(wrongLocale),
+        { ...input(wrongLocale), pageSize: 16 },
+      ),
+    )).toMatchObject({
+      _tag: "AppUniqueConstraintSetBuildStateV1Error",
+      reason: "validationMismatch",
+      cause: { reason: "claimIdentityMismatch" },
+    });
+
+    const wrongTable = await closedFixture("validation_wrong_table");
+    const tableRow = rowId(13);
+    await appendLiveRow(wrongTable, tableRow, 1n, null, {
+      tenantId: "tenant-a",
+      email: "wrong-table@example.com",
+    });
+    await setClockCommit(wrongTable, 1n);
+    await advanceToValidating(wrongTable, 16);
+    const scopeUuid = wrongTable.scopeId.slice("scope_".length);
+    await wrongTable.persistence.query(
+      `insert into fx_app_row_rev
+        (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
+         write_epoch_uuid, schema_version_id, creation_time,
+         value_codec_version, is_tombstone, value_json, value_bytes,
+         value_sha256)
+       select scope_uuid, table_id + 1, row_id, commit_seq, prev_commit_seq,
+              write_epoch_uuid, schema_version_id, creation_time,
+              value_codec_version, is_tombstone, value_json, value_bytes,
+              value_sha256
+         from fx_app_row_rev
+        where scope_uuid = $1::uuid and row_id = decode($2, 'hex')`,
+      [scopeUuid, tableRow],
+    );
+    await wrongTable.persistence.query(
+      `update fx_app_unique_key set table_id = table_id + 1
+        where scope_uuid = $1::uuid and row_id = decode($2, 'hex')`,
+      [scopeUuid, tableRow],
+    );
+    await wrongTable.persistence.query(
+      `delete from fx_app_row_current
+        where scope_uuid = $1::uuid and row_id = decode($2, 'hex')`,
+      [scopeUuid, tableRow],
+    );
+    expect(await runEffectFailure(
+      advanceAppUniqueConstraintSetBackfillV1Effect(
+        ports(wrongTable),
+        { ...input(wrongTable), pageSize: 16 },
+      ),
+    )).toMatchObject({
+      _tag: "AppUniqueConstraintSetBuildStateV1Error",
+      reason: "validationMismatch",
+      cause: { reason: "claimIdentityMismatch" },
+    });
+  });
+
+  it("rolls back validation progress and enable faults before deterministic replay", async () => {
+    const fixture = await closedFixture("validation_rollback");
+    for (const [value, email] of [[10, "a@example.com"], [11, "b@example.com"]] as const) {
+      await appendLiveRow(fixture, rowId(value), 1n, null, {
+        tenantId: "tenant-a",
+        email,
+      });
+    }
+    await setClockCommit(fixture, 1n);
+    await advanceToValidating(fixture, 16);
+    const rowFault = await runEffectFailure(
+      advanceAppUniqueConstraintSetBackfillV1Effect(
+        ports(fixture),
+        { ...input(fixture), pageSize: 1 },
+        {
+          faultAfter: (point) => {
+            if (point === "afterValidationRow") throw new Error("row fault");
+          },
+        },
+      ),
+    );
+    expect(rowFault).toBeInstanceOf(
+      AppUniqueConstraintSetBuildIntegrationV1Error,
+    );
+    expect(await buildRows(fixture)).toMatchObject([{
+      lifecycle: "validating",
+      cursor_row_hex: null,
+    }]);
+
+    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+      lifecycle: "validating",
+      cursorRowId: rowId(10),
+    });
+    const enableFault = await runEffectFailure(
+      advanceAppUniqueConstraintSetBackfillV1Effect(
+        ports(fixture),
+        { ...input(fixture), pageSize: 1 },
+        {
+          faultAfter: (point) => {
+            if (point === "beforeEnable") throw new Error("enable fault");
+          },
+        },
+      ),
+    );
+    expect(enableFault).toBeInstanceOf(
+      AppUniqueConstraintSetBuildIntegrationV1Error,
+    );
+    expect(await buildRows(fixture)).toMatchObject([{
+      lifecycle: "validating",
+      cursor_row_hex: rowId(10),
+    }]);
+    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+      lifecycle: "enabled",
+      cursorRowId: null,
+    });
+  });
+
   it("settles empty and sparse-omitted sets without minting claims", async () => {
     const empty = await fixtureFor("empty_backfill");
     await closeSet(empty);
@@ -416,6 +653,10 @@ describe("C08-B1 closed unique-set build foundation", () => {
       lifecycle: "validating",
       scanned: 0,
       claimed: 0,
+    });
+    await expect(advanceBackfill(empty, 16)).resolves.toMatchObject({
+      lifecycle: "enabled",
+      scanned: 0,
     });
 
     const sparse = await fixtureFor("sparse_backfill");
@@ -439,6 +680,10 @@ describe("C08-B1 closed unique-set build foundation", () => {
       claimed: 0,
     });
     expect(await uniqueClaims(sparse)).toEqual([]);
+    await expect(advanceBackfill(sparse, 16)).resolves.toMatchObject({
+      lifecycle: "enabled",
+      scanned: 1,
+    });
   });
 });
 
@@ -608,6 +853,15 @@ function advanceBackfill(fixture: Fixture, pageSize: number) {
   ));
 }
 
+async function advanceToValidating(fixture: Fixture, pageSize: number) {
+  await reconcile(fixture);
+  for (let step = 0; step < 128; step += 1) {
+    const advanced = await advanceBackfill(fixture, pageSize);
+    if (advanced.lifecycle === "validating") return advanced;
+  }
+  throw new Error("Unique-set fixture did not reach validating.");
+}
+
 async function appendLiveRow(
   fixture: Fixture,
   rowId: AppRowIdHexV1,
@@ -711,6 +965,15 @@ function buildRows(fixture: Fixture) {
       where scope_id = $1 and schema_version_id = $2`,
     [fixture.scopeId, fixture.schemaVersionId],
   ).then((result) => result.rows);
+}
+
+function buildDirectoryCount(fixture: Fixture) {
+  return fixture.persistence.query<{ count: number }>(
+    `select count(*)::int count
+       from fx_system_unique_constraint_set_build
+      where scope_id = $1`,
+    [fixture.scopeId],
+  ).then((result) => result.rows[0]?.count ?? -1);
 }
 
 function appTable(logicalName: string): SchemaManifestAppTableDeclarationInputV1 {

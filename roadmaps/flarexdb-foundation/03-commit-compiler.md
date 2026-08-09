@@ -883,15 +883,36 @@ and roll back the page plus cursor. Current rows newer than the accepted start
 frontier are used, preventing stale candidate resurrection. No new table,
 migration, claim owner, OCC lane, or commit owner is introduced.
 
-General C08 therefore remains incomplete. The next `C08-B1` checkpoint must
-validate current S11 claims and claim-only rows in bounded target transactions
-and prove point-commit invalidation/restart under concurrent commits before the
-row may become `enabled`. A later exact gate must
+The final private `C08-B1` build checkpoint now validates the bounded union of
+current application rows and S11 claim-only rows in target transactions.
+Canonical current-row evidence determines the exact expected claim or absence;
+S11 authenticates the stored owner identity and lineage without taking over or
+repairing it. Bounded owner-index range probes reject wrong-locale and
+wrong-table claims; other missing, unexpected, mismatched, or corrupt claims
+also fail closed. Every material point commit resets all validating
+schema-version build cursors for its scope inside the existing scope-clock
+transaction, independent of the optional B2 locator. Thus current/old-schema
+commits, prospective builds, sparse rows, and omitted rows cannot escape the
+clean complete pass required to advance one row to `enabled`. A
+primary-key-ordered cap-plus-one selection bounds the complete per-scope build
+directory to 32 rows and fails the entire commit closed above the ceiling; only
+non-null validating cursors from that locked snapshot are rewritten. The
+reconciliation writer checks the same bounded directory before insertion and
+atomically rejects row 33, while point commits remain writable at exactly 32.
+PGlite proves
+bounded progress, claim-only and malformed-dimension rejection, no-port and
+cross-schema reset, directory admission and exact-ceiling behavior,
+invalidation-ceiling rollback, fault rollback, and replay. Genuine
+PostgreSQL scenarios are implemented, but local execution remains blocked
+before their test bodies by the separately recorded migration `0047`
+temporary-schema isolation defect.
+
+General C08 remains production-inert. A later exact gate must
 bind planner/readiness eligibility to the enabled set digest and the
 unforgeable B2 maintenance capability. `O09-B` contention/stress acceptance
 also remains open. Local PGlite functional, migration, rollback, swap, and
-ceiling proofs pass; genuine-PostgreSQL scenarios are present but their local
-live receipts await `FLAREX_POSTGRES_DATABASE_URL`.
+ceiling proofs pass; no activation, active-reader, routing, or production
+eligibility is introduced by this checkpoint.
 
 Outcome:
 

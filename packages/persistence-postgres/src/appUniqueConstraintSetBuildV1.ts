@@ -2,7 +2,7 @@ import { bytesEqual, isUint8Array } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Result, Schema } from "effect";
 import {
   appRowIdHexV1FromBytesResult,
@@ -44,6 +44,8 @@ import {
 import {
   ensureAppUniqueKeyBackfillClaimInTransactionEffect,
   type EnsureAppUniqueKeyBackfillClaimV1Error,
+  validateAppUniqueKeyClaimInTransactionEffect,
+  type ValidateAppUniqueKeyClaimV1Error,
 } from "./appUniqueKeys";
 import {
   readAppUniqueConstraintSetClosureV1Effect,
@@ -72,7 +74,11 @@ import {
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
-import { fxSystemUniqueConstraintSetBuilds } from "./schema";
+import {
+  fxAppRowCurrent,
+  fxAppUniqueKeys,
+  fxSystemUniqueConstraintSetBuilds,
+} from "./schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -120,6 +126,113 @@ export function createLocatedAppUniqueConstraintSetBuildTargetV1(
   });
 }
 
+export interface ResetAppUniqueConstraintSetValidationV1Input {
+  readonly scopeId: ScopeId;
+}
+
+export const MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 = 32;
+
+export type ResetAppUniqueConstraintSetValidationV1Result = Readonly<{
+  readonly status: "reset" | "unchanged";
+}>;
+
+export class AppUniqueConstraintSetBuildDirectoryV1Error
+  extends Data.TaggedError(
+    "AppUniqueConstraintSetBuildDirectoryV1Error",
+  )<{
+    readonly scopeId: ScopeId;
+    readonly reason: "tooManyBuildRows" | "concurrentStateChange";
+    readonly maximumBuilds: number;
+  }> {}
+
+/**
+ * Same-transaction invalidation hook for the existing point-commit owner.
+ * Reset only moves a validating cursor backward to the start of its pass; it
+ * cannot create, advance, enable, or otherwise confer build authority.
+ */
+export const resetAppUniqueConstraintSetValidationInTransactionEffect =
+  Effect.fn("AppUniqueConstraintSetBuild.resetValidationInTransaction")(
+    function* (
+      tx: AppRowTransaction,
+      input: ResetAppUniqueConstraintSetValidationV1Input,
+    ): Effect.fn.Return<
+      ResetAppUniqueConstraintSetValidationV1Result,
+      AppUniqueConstraintSetBuildIntegrationV1Error |
+        AppUniqueConstraintSetBuildDirectoryV1Error
+    > {
+      const targets = yield* loadBuildDirectoryForUpdate(tx, input.scopeId);
+      if (targets.length > MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1) {
+        return yield* Effect.fail(
+          new AppUniqueConstraintSetBuildDirectoryV1Error({
+            scopeId: input.scopeId,
+            reason: "tooManyBuildRows",
+            maximumBuilds: MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+          }),
+        );
+      }
+      const resetTargets = targets.filter((target) =>
+        target.lifecycle === "validating" &&
+        target.cursorDefinitionId !== null
+      );
+      if (resetTargets.length === 0) {
+        return Object.freeze({ status: "unchanged" });
+      }
+      const updated = yield* queryEffect(
+        tx.update(fxSystemUniqueConstraintSetBuilds).set({
+          cursorDefinitionId: null,
+          cursorRowId: null,
+          updatedAt: sql`clock_timestamp()`,
+        }).where(and(
+          eq(fxSystemUniqueConstraintSetBuilds.scopeId, input.scopeId),
+          eq(fxSystemUniqueConstraintSetBuilds.lifecycle, "validating"),
+          isNotNull(
+            fxSystemUniqueConstraintSetBuilds.cursorDefinitionId,
+          ),
+          inArray(
+            fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+            resetTargets.map((target) => target.schemaVersionId),
+          ),
+        )).returning({
+          schemaVersionId: fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+        }),
+      );
+      if (updated.length !== resetTargets.length) {
+        return yield* Effect.fail(
+          new AppUniqueConstraintSetBuildDirectoryV1Error({
+            scopeId: input.scopeId,
+            reason: "concurrentStateChange",
+            maximumBuilds: MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+          }),
+        );
+      }
+      return Object.freeze({
+        status: "reset" as const,
+      });
+    },
+  );
+
+const loadBuildDirectoryForUpdate = Effect.fn(
+  "AppUniqueConstraintSetBuild.loadBuildDirectoryForUpdate",
+)(function* (
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+) {
+  return yield* queryEffect(
+    tx.select({
+      schemaVersionId: fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+      lifecycle: fxSystemUniqueConstraintSetBuilds.lifecycle,
+      cursorDefinitionId:
+        fxSystemUniqueConstraintSetBuilds.cursorDefinitionId,
+    }).from(fxSystemUniqueConstraintSetBuilds).where(
+      eq(fxSystemUniqueConstraintSetBuilds.scopeId, scopeId),
+    ).orderBy(
+      fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+    ).limit(
+      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 + 1,
+    ).for("update"),
+  );
+});
+
 export interface AppUniqueConstraintSetBuildPortsV1 {
   readonly controlDb: FlarexMetadataDatabase;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
@@ -131,7 +244,10 @@ export type AppUniqueConstraintSetBuildFaultPointV1 =
   | "afterBuildInsert"
   | "afterStaleBuildRedeclare"
   | "afterBackfillClaim"
-  | "afterBackfillLifecycleTransition";
+  | "afterBackfillLifecycleTransition"
+  | "afterValidationRow"
+  | "beforeEnable"
+  | "afterValidationLifecycleTransition";
 
 export interface AppUniqueConstraintSetBuildOptionsV1 {
   readonly faultAfter?: (
@@ -206,7 +322,8 @@ export class AppUniqueConstraintSetBuildStateV1Error
       | "buildMissing"
       | "definitionAuthorityMismatch"
       | "backfillCursorInvalid"
-      | "loweringInvalid";
+      | "loweringInvalid"
+      | "validationMismatch";
     readonly cause?: unknown;
   }> {}
 
@@ -228,6 +345,7 @@ export class AppUniqueConstraintSetBuildDecisionUncertainV1Error
 
 export type ReconcileAppUniqueConstraintSetBuildV1Error =
   | InvalidAppUniqueConstraintSetBuildInputV1Error
+  | AppUniqueConstraintSetBuildDirectoryV1Error
   | AppUniqueConstraintSetBuildStaleAuthorityV1Error
   | AppUniqueConstraintSetBuildStateV1Error
   | AppUniqueConstraintSetBuildIntegrationV1Error
@@ -246,6 +364,7 @@ export type AdvanceAppUniqueConstraintSetBackfillV1Error =
   | ReadAppUniqueConstraintDefinitionV1Error
   | ReadAppRowError
   | EnsureAppUniqueKeyBackfillClaimV1Error
+  | ValidateAppUniqueKeyClaimV1Error
   | LockScopeClockForUpdateError
   | TrustedScopeAuthorityError;
 
@@ -644,7 +763,7 @@ const advanceBackfillInTransaction = Effect.fn(
   ));
   switch (state.lifecycle) {
     case "declared":
-      yield* transitionBackfillLifecycle(
+      yield* transitionBuildLifecycle(
         tx,
         authority,
         snapshot,
@@ -653,6 +772,7 @@ const advanceBackfillInTransaction = Effect.fn(
         null,
         null,
         options,
+        "afterBackfillLifecycleTransition",
       );
       return backfillResult(
         authority,
@@ -668,7 +788,7 @@ const advanceBackfillInTransaction = Effect.fn(
         null,
       );
     case "building":
-      yield* transitionBackfillLifecycle(
+      yield* transitionBuildLifecycle(
         tx,
         authority,
         snapshot,
@@ -677,6 +797,7 @@ const advanceBackfillInTransaction = Effect.fn(
         null,
         null,
         options,
+        "afterBackfillLifecycleTransition",
       );
       return backfillResult(
         authority,
@@ -702,24 +823,15 @@ const advanceBackfillInTransaction = Effect.fn(
         options,
       );
     case "validating":
-      {
-        const cursorRowId = yield* Effect.fromResult(
-          decodeCursorRowIdResult(state, authority, snapshot),
-        );
-      return backfillResult(
+      return yield* validateUniqueSetPage(
+        tx,
         authority,
         snapshot,
         state,
-        "replayed",
-        "validating",
-        0,
-        0,
-        0,
-        0,
-        state.cursorDefinitionId,
-        cursorRowId,
+        definitions,
+        pageSize,
+        options,
       );
-      }
     case "enabled":
       return backfillResult(
         authority,
@@ -737,10 +849,292 @@ const advanceBackfillInTransaction = Effect.fn(
   }
 });
 
+const validateUniqueSetPage = Effect.fn(
+  "AppUniqueConstraintSetBuild.validatePage",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  state: BuildState,
+  definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  pageSize: number,
+  options: AppUniqueConstraintSetBuildOptionsV1,
+) {
+  const cursorRowId = yield* Effect.fromResult(
+    decodeCursorRowIdResult(state, authority, snapshot),
+  );
+  if ((state.cursorDefinitionId === null) !== (cursorRowId === null)) {
+    return yield* Effect.fail(stateError(
+      authority,
+      snapshot,
+      "backfillCursorInvalid",
+    ));
+  }
+  const definitionById = new Map(
+    definitions.map((definition) => [
+      definition.uniqueConstraintDefinitionId,
+      definition,
+    ] as const),
+  );
+  if (
+    state.cursorDefinitionId !== null &&
+    !definitionById.has(state.cursorDefinitionId)
+  ) {
+    return yield* Effect.fail(stateError(
+      authority,
+      snapshot,
+      "backfillCursorInvalid",
+    ));
+  }
+  yield* ensureValidationClaimDimensions(
+    tx,
+    authority,
+    snapshot,
+    definitions,
+  );
+  const candidates = yield* loadValidationCandidates(
+    tx,
+    authority,
+    snapshot,
+    definitions,
+    state,
+    cursorRowId,
+    pageSize,
+  );
+  const page = candidates.slice(0, pageSize);
+  let lastDefinitionId = state.cursorDefinitionId;
+  let lastRowId = cursorRowId;
+  for (const candidate of page) {
+    lastDefinitionId = candidate.definition.uniqueConstraintDefinitionId;
+    lastRowId = candidate.rowId;
+    const current = yield* readCurrentAppRowInTransactionEffect(tx, {
+      scopeId: authority.scopeId,
+      tableId: candidate.definition.tableId,
+      rowId: candidate.rowId,
+    });
+    const expected = current.kind === "live"
+      ? yield* lowerValidationExpectation(
+          authority,
+          snapshot,
+          candidate.definition,
+          current,
+        )
+      : null;
+    const validated = yield* validateAppUniqueKeyClaimInTransactionEffect(
+      tx,
+      {
+        scopeId: authority.scopeId,
+        constraintId:
+          candidate.definition.uniqueConstraintDefinitionId,
+        tableId: candidate.definition.tableId,
+        rowId: candidate.rowId,
+        authorityEpoch: authority.epoch,
+        expected,
+      },
+    );
+    if (validated.status === "mismatched") {
+      return yield* Effect.fail(stateError(
+        authority,
+        snapshot,
+        "validationMismatch",
+        validated,
+      ));
+    }
+    yield* runFault(options, "afterValidationRow");
+  }
+  const done = candidates.length <= pageSize;
+  if (!done) {
+    yield* transitionBuildLifecycle(
+      tx,
+      authority,
+      snapshot,
+      state,
+      "validating",
+      lastDefinitionId,
+      lastRowId,
+      options,
+      "afterValidationLifecycleTransition",
+    );
+    return backfillResult(
+      authority,
+      snapshot,
+      state,
+      "advanced",
+      "validating",
+      page.length,
+      0,
+      0,
+      0,
+      lastDefinitionId,
+      lastRowId,
+    );
+  }
+  yield* runFault(options, "beforeEnable");
+  yield* transitionBuildLifecycle(
+    tx,
+    authority,
+    snapshot,
+    state,
+    "enabled",
+    null,
+    null,
+    options,
+    "afterValidationLifecycleTransition",
+  );
+  return backfillResult(
+    authority,
+    snapshot,
+    state,
+    "advanced",
+    "enabled",
+    page.length,
+    0,
+    0,
+    0,
+    null,
+    null,
+  );
+});
+
+function lowerValidationExpectation(
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  definition: LocatedAppUniqueConstraintDefinitionV1,
+  current: Extract<AppRowReadResultV1, { readonly kind: "live" }>,
+) {
+  return Effect.fromResult(
+    lowerCanonicalAppUniqueConstraintV1Result(
+      definition,
+      current.document,
+    ).pipe(
+      Result.mapError((cause) => stateError(
+        authority,
+        snapshot,
+        "loweringInvalid",
+        cause,
+      )),
+      Result.map((lowered) => lowered.canonical.kind === "claim"
+        ? Object.freeze({
+            schemaVersionId: current.schemaVersionId,
+            parentWriteEpochUuid: current.writeEpochUuid,
+            commitSeq: current.commitSeq,
+            claim: lowered.projection,
+          })
+        : null),
+    ),
+  );
+}
+
 interface BackfillCandidateV1 {
   readonly definition: LocatedAppUniqueConstraintDefinitionV1;
   readonly rowId: AppRowIdHexV1;
 }
+
+const ensureValidationClaimDimensions = Effect.fn(
+  "AppUniqueConstraintSetBuild.ensureValidationClaimDimensions",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+): Effect.fn.Return<
+  void,
+  AppUniqueConstraintSetBuildIntegrationV1Error |
+    AppUniqueConstraintSetBuildStateV1Error
+> {
+  if (definitions.length === 0) return;
+  const scopeUuid = yield* Effect.fromResult(
+    projectScopeIdUuidV1Result(authority.scopeId).pipe(
+      Result.mapError((cause) => stateError(
+        authority,
+        snapshot,
+        "storedStateInvalid",
+        cause,
+      )),
+    ),
+  );
+  const definitionValues = sql.join(
+    definitions.map((definition) => sql`(
+      ${definition.uniqueConstraintDefinitionId}::integer,
+      ${definition.tableId}::integer
+    )`),
+    sql`, `,
+  );
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => tx.execute(sql`
+      with definition(definition_id, table_id) as (
+        values ${definitionValues}
+      )
+      select definition.definition_id
+      from definition
+      cross join lateral (
+        (
+          select 1 as invalid
+          from fx_app_unique_key as claim
+          where claim.scope_uuid = ${scopeUuid.scopeUuid}
+            and claim.constraint_id = definition.definition_id
+            and claim.locale_key > ''
+          order by claim.locale_key asc, claim.table_id asc, claim.row_id asc
+          limit 1
+        )
+        union all
+        (
+          select 1 as invalid
+          from fx_app_unique_key as claim
+          where claim.scope_uuid = ${scopeUuid.scopeUuid}
+            and claim.constraint_id = definition.definition_id
+            and claim.locale_key = ''
+            and claim.table_id < definition.table_id
+          order by claim.table_id desc, claim.row_id desc
+          limit 1
+        )
+        union all
+        (
+          select 1 as invalid
+          from fx_app_unique_key as claim
+          where claim.scope_uuid = ${scopeUuid.scopeUuid}
+            and claim.constraint_id = definition.definition_id
+            and claim.locale_key = ''
+            and claim.table_id > definition.table_id
+          order by claim.table_id asc, claim.row_id asc
+          limit 1
+        )
+        limit 1
+      ) as invalid_claim
+      limit 1
+    `),
+    catch: (cause) => new AppUniqueConstraintSetBuildIntegrationV1Error({
+      phase: "targetTransaction",
+      retryable: true,
+      cause,
+    }),
+  }));
+  const invalidDriverResult = stateError(
+    authority,
+    snapshot,
+    "storedStateInvalid",
+  );
+  const rows = yield* Effect.try({
+    try: () => rowsFromDriverExecuteResult(result, () => {
+      throw invalidDriverResult;
+    }),
+    catch: (cause) => cause === invalidDriverResult
+      ? invalidDriverResult
+      : new AppUniqueConstraintSetBuildIntegrationV1Error({
+        phase: "targetTransaction",
+        retryable: true,
+        cause,
+      }),
+  });
+  if (rows.length > 0) {
+    return yield* Effect.fail(stateError(
+      authority,
+      snapshot,
+      "validationMismatch",
+      Object.freeze({ reason: "claimIdentityMismatch" as const }),
+    ));
+  }
+});
 
 const backfillUniqueSetPage = Effect.fn(
   "AppUniqueConstraintSetBuild.backfillPage",
@@ -854,7 +1248,7 @@ const backfillUniqueSetPage = Effect.fn(
   const lifecycle = done ? "validating" as const : "backfilling" as const;
   const nextDefinitionId = done ? null : lastDefinitionId;
   const nextRowId = done ? null : lastRowId;
-  yield* transitionBackfillLifecycle(
+  yield* transitionBuildLifecycle(
     tx,
     authority,
     snapshot,
@@ -863,6 +1257,7 @@ const backfillUniqueSetPage = Effect.fn(
     nextDefinitionId,
     nextRowId,
     options,
+    "afterBackfillLifecycleTransition",
   );
   return backfillResult(
     authority,
@@ -877,6 +1272,175 @@ const backfillUniqueSetPage = Effect.fn(
     nextDefinitionId,
     nextRowId,
   );
+});
+
+const loadValidationCandidates = Effect.fn(
+  "AppUniqueConstraintSetBuild.loadValidationCandidates",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  state: BuildState,
+  cursorRowId: AppRowIdHexV1 | null,
+  pageSize: number,
+): Effect.fn.Return<
+  ReadonlyArray<BackfillCandidateV1>,
+  AppUniqueConstraintSetBuildIntegrationV1Error |
+    AppUniqueConstraintSetBuildStateV1Error
+> {
+  if (definitions.length === 0) return Object.freeze([]);
+  const scopeUuid = yield* Effect.fromResult(
+    projectScopeIdUuidV1Result(authority.scopeId).pipe(
+      Result.mapError((cause) => stateError(
+        authority,
+        snapshot,
+        "storedStateInvalid",
+        cause,
+      )),
+    ),
+  );
+  const definitionValues = sql.join(
+    definitions.map((definition) => sql`(
+      ${definition.uniqueConstraintDefinitionId}::integer,
+      ${definition.tableId}::integer
+    )`),
+    sql`, `,
+  );
+  const currentAfterCursor = state.cursorDefinitionId === null ||
+      cursorRowId === null
+    ? sql`true`
+    : sql`(
+        definition.definition_id > ${state.cursorDefinitionId}
+        or (
+          definition.definition_id = ${state.cursorDefinitionId}
+          and current_row.row_id > ${appRowIdHexV1ToBytes(cursorRowId)}::bytea
+        )
+      )`;
+  const claimAfterCursor = state.cursorDefinitionId === null ||
+      cursorRowId === null
+    ? sql`true`
+    : sql`(
+        definition.definition_id > ${state.cursorDefinitionId}
+        or (
+          definition.definition_id = ${state.cursorDefinitionId}
+          and claim.row_id > ${appRowIdHexV1ToBytes(cursorRowId)}::bytea
+        )
+      )`;
+  const statement = sql`
+    with definition(definition_id, table_id) as (
+      values ${definitionValues}
+    )
+    select
+      definition.definition_id as "definitionId",
+      candidate.row_id as "rowId"
+    from definition
+    cross join lateral (
+      select identity.row_id
+      from (
+        (
+          select current_row.row_id
+          from fx_app_row_current as current_row
+          where current_row.scope_uuid = ${scopeUuid.scopeUuid}
+            and current_row.table_id = definition.table_id
+            and ${currentAfterCursor}
+          order by current_row.row_id asc
+          limit ${pageSize + 1}
+        )
+        union
+        (
+          select claim.row_id
+          from fx_app_unique_key as claim
+          where claim.scope_uuid = ${scopeUuid.scopeUuid}
+            and claim.constraint_id = definition.definition_id
+            and claim.locale_key = ''
+            and claim.table_id = definition.table_id
+            and ${claimAfterCursor}
+          order by claim.row_id asc
+          limit ${pageSize + 1}
+        )
+      ) as identity
+      order by identity.row_id asc
+      limit ${pageSize + 1}
+    ) as candidate
+    order by definition.definition_id asc, candidate.row_id asc
+    limit ${pageSize + 1}
+  `;
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => tx.execute(statement),
+    catch: (cause) => new AppUniqueConstraintSetBuildIntegrationV1Error({
+      phase: "targetTransaction",
+      retryable: true,
+      cause,
+    }),
+  }));
+  const invalidDriverResult = stateError(
+    authority,
+    snapshot,
+    "storedStateInvalid",
+  );
+  const rawRows = yield* Effect.try({
+    try: () => rowsFromDriverExecuteResult(result, () => {
+      throw invalidDriverResult;
+    }),
+    catch: (cause) => cause === invalidDriverResult
+      ? invalidDriverResult
+      : new AppUniqueConstraintSetBuildIntegrationV1Error({
+          phase: "targetTransaction",
+          retryable: true,
+          cause,
+        }),
+  });
+  const candidates: BackfillCandidateV1[] = [];
+  let previousDefinitionId: CatalogUniqueConstraintDefinitionId | null = null;
+  let previousRowId: AppRowIdHexV1 | null = null;
+  for (const raw of rawRows) {
+    if (!isNonArrayRecord(raw) ||
+        !Number.isSafeInteger(raw.definitionId) ||
+        !isUint8Array(raw.rowId)) {
+      return yield* Effect.fail(stateError(
+        authority,
+        snapshot,
+        "storedStateInvalid",
+      ));
+    }
+    const definition = definitions.find((candidate) =>
+      candidate.uniqueConstraintDefinitionId === raw.definitionId
+    );
+    if (definition === undefined) {
+      return yield* Effect.fail(stateError(
+        authority,
+        snapshot,
+        "definitionAuthorityMismatch",
+      ));
+    }
+    const rowId = yield* Effect.fromResult(
+      appRowIdHexV1FromBytesResult(raw.rowId).pipe(
+        Result.mapError((cause) => stateError(
+          authority,
+          snapshot,
+          "storedStateInvalid",
+          cause,
+        )),
+      ),
+    );
+    if (
+      previousDefinitionId !== null &&
+      (definition.uniqueConstraintDefinitionId < previousDefinitionId ||
+        (definition.uniqueConstraintDefinitionId === previousDefinitionId &&
+          previousRowId !== null && rowId <= previousRowId))
+    ) {
+      return yield* Effect.fail(stateError(
+        authority,
+        snapshot,
+        "storedStateInvalid",
+      ));
+    }
+    previousDefinitionId = definition.uniqueConstraintDefinitionId;
+    previousRowId = rowId;
+    candidates.push(Object.freeze({ definition, rowId }));
+  }
+  return Object.freeze(candidates);
 });
 
 const loadBackfillCandidates = Effect.fn(
@@ -1023,17 +1587,20 @@ const loadBackfillCandidates = Effect.fn(
   return Object.freeze(candidates);
 });
 
-const transitionBackfillLifecycle = Effect.fn(
-  "AppUniqueConstraintSetBuild.transitionBackfillLifecycle",
+const transitionBuildLifecycle = Effect.fn(
+  "AppUniqueConstraintSetBuild.transitionLifecycle",
 )(function* (
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
   snapshot: BuildSnapshot,
   state: BuildState,
-  lifecycle: "building" | "backfilling" | "validating",
+  lifecycle: "building" | "backfilling" | "validating" | "enabled",
   cursorDefinitionId: CatalogUniqueConstraintDefinitionId | null,
   cursorRowId: AppRowIdHexV1 | null,
   options: AppUniqueConstraintSetBuildOptionsV1,
+  faultPoint:
+    | "afterBackfillLifecycleTransition"
+    | "afterValidationLifecycleTransition",
 ) {
   const updated = yield* queryEffect(
     tx.update(fxSystemUniqueConstraintSetBuilds).set({
@@ -1063,7 +1630,7 @@ const transitionBackfillLifecycle = Effect.fn(
       "concurrentStateChange",
     ));
   }
-  yield* runFault(options, "afterBackfillLifecycleTransition");
+  yield* runFault(options, faultPoint);
 });
 
 function decodeCursorRowIdResult(
@@ -1136,6 +1703,19 @@ const reconcileInTransaction = Effect.fn(
   );
   const existingRow = rows[0];
   if (existingRow === undefined) {
+    const directory = yield* loadBuildDirectoryForUpdate(
+      tx,
+      authority.scopeId,
+    );
+    if (directory.length >= MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1) {
+      return yield* Effect.fail(
+        new AppUniqueConstraintSetBuildDirectoryV1Error({
+          scopeId: authority.scopeId,
+          reason: "tooManyBuildRows",
+          maximumBuilds: MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+        }),
+      );
+    }
     const initialAttemptFence =
       AppUniqueConstraintSetBuildAttemptFenceV1Schema.make(1n);
     const inserted = yield* queryEffect(
