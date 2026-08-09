@@ -1,8 +1,9 @@
-import { Client } from "pg";
+import { Client, type PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 
 import {
   classifyPostgresLocatedReadCommittedSettlementV1,
+  createPostgresLocatedReadCommittedTransactionRunnerV1,
   createPostgresClientLocatedReadCommittedTransactionRunnerV1,
 } from "../src/postgresLocatedReadCommitted";
 import {
@@ -114,6 +115,55 @@ describe("Postgres located READ COMMITTED settlement provenance", () => {
         cause: configurationCause,
       },
     });
+  });
+});
+
+describe("pooled located READ COMMITTED connection errors", () => {
+  it("observes a checked-out fatal error, preserves it, and discards before returning", async () => {
+    const events: string[] = [];
+    const callbackCause = new Error("query rejected after termination");
+    const connectionCause = Object.assign(
+      new Error("terminating connection due to transaction timeout"),
+      { code: "25P04" },
+    );
+    let discard: Error | boolean | undefined;
+    const client = fakePoolClient(events, (cause) => {
+      discard = cause;
+      events.push("release");
+    });
+    const run = createPostgresLocatedReadCommittedTransactionRunnerV1({
+      connect: (callback) => {
+        callback(undefined, client);
+        expect(client.listenerCount("error")).toBe(1);
+      },
+    });
+
+    await expect(run(async () => {
+      events.push("callback");
+      expect(client.emit("error", connectionCause)).toBe(true);
+      throw callbackCause;
+    })).rejects.toMatchObject({
+      issue: {
+        kind: "callbackCleanupFailed",
+        callbackCause,
+        transactionCause: {
+          connectionCause,
+          settlementCause: callbackCause,
+        },
+      },
+    });
+    expect(discard).toMatchObject({
+      connectionCause,
+      settlementCause: callbackCause,
+    });
+    expect(events).toEqual([
+      "begin",
+      "set transaction isolation level read committed",
+      "callback",
+      "rollback",
+      "release",
+    ]);
+    expect(client.listenerCount("error")).toBe(0);
   });
 });
 
@@ -389,6 +439,7 @@ function fakeClient(
     },
     release: {
       configurable: true,
+      writable: true,
       value: () => {
         throw new Error("The connected runner must not release its Client.");
       },
@@ -417,6 +468,13 @@ function fakeClient(
     },
   });
   return client;
+}
+
+function fakePoolClient(
+  events: string[],
+  release: (error?: Error | boolean) => void,
+): PoolClient {
+  return Object.assign(fakeClient(events), { release });
 }
 
 function queryText(query: unknown): string {

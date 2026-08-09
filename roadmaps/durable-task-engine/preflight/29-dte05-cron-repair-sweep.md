@@ -132,8 +132,9 @@ semantics, including a deliberately stalled-transaction test.
   checkpoint, restart, and high-water fairness in genuine PostgreSQL; and
 - keep the point-mutation checkpoint as evidence, not as Task authority.
 
-E2C retains the connected genuine-Postgres concurrency, recovery, fairness,
-and hard database-timeout proof. E2A/E2B alone do not satisfy this stage.
+E2C now completes the connected genuine-Postgres concurrency, recovery,
+fairness, and hard database-timeout proof. E2A/E2B alone did not satisfy this
+stage; the full E2 gate is completed by Preflights 31 and 32.
 
 ### DTE05-E3: Cloudflare scheduled host and activation gate
 

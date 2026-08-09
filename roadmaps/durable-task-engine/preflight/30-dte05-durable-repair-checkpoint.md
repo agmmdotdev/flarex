@@ -10,13 +10,13 @@ binding, deployment, or activation.
 
 **E2A implementation status:** Complete on 2026-08-09.
 
-**E2B implementation status:** Complete on 2026-08-09. DTE05-E2 remains
-active. E2C1 is tracked by
+**E2B implementation status:** Complete on 2026-08-09. E2C1 is tracked by
 [`31-dte05-connected-repair-runner.md`](./31-dte05-connected-repair-runner.md).
 
-DTE05-E2 remains active after this slice. E2C1 owns the connected runner,
-duplicate-host, expiry, crash/restart, and high-water fairness proofs; E2C2 owns
-the database-timeout proof.
+**E2 implementation status:** Complete on 2026-08-10. E2C1 owns the connected
+runner, duplicate-host, expiry, crash/restart, and high-water fairness proofs;
+E2C2 completes the database-timeout and connection-disposition proof under
+[`32-dte05-postgres-deadline-policy.md`](./32-dte05-postgres-deadline-policy.md).
 
 ## Why E2 Is Split
 

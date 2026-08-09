@@ -9,8 +9,11 @@ takeover are proved in PGlite and genuine PostgreSQL. The corrected E1
 continuation now also proves exact high-water restart. The slice remains
 production-inert.
 
-DTE05-E2C2 retains database-owned statement, lock, and transaction timeout
-policy plus a deliberately stalled-transaction proof. DTE05-E3 retains the
+DTE05-E2C2 is admitted separately by
+[`32-dte05-postgres-deadline-policy.md`](./32-dte05-postgres-deadline-policy.md):
+database-owned statement, lock, and transaction limits on a dedicated Task
+repair pool plus deliberately stalled-transaction proof. That checkpoint is
+complete as of 2026-08-10. DTE05-E3 retains the
 scheduled Worker host, Wrangler Cron Trigger, deployment, and activation.
 
 ## Why E2C Is Split
@@ -21,9 +24,9 @@ operation that never settles. An Effect timeout cannot safely manufacture a
 known transaction outcome while a database command remains in flight.
 
 E2C1 therefore proves the complete ordinary settlement path and crash/restart
-window without claiming a hard wall-time bound. E2C2 must configure and prove
-database/connection-owned deadlines at the located transaction owner before a
-scheduled host can be admitted.
+window without claiming a hard wall-time bound. E2C2 now configures and proves
+database/connection-owned deadlines at the located transaction owner; a
+scheduled host still requires E3's separate admission.
 
 ## Admitted E2C1 Contract
 
@@ -66,15 +69,14 @@ E2C1 must prove:
 - no application, Worker entrypoint, scheduled handler, binding, or deployment
   imports the new private runner.
 
-## Deferred E2C2 Timeout Gate
+## Admitted E2C2 Timeout Gate
 
-E2C2 must be owned by the connected PostgreSQL transaction/connection layer.
-It must establish bounded statement and lock waits, a supported whole-
-transaction or connection-abort policy, poisoned-connection quarantine, and
-settlement classification after cancellation. A real test must deliberately
-stall a transaction past its configured deadline and prove that the runner
-returns only after the database/driver outcome and connection disposition are
-known.
+E2C2 is owned by the connected PostgreSQL transaction/connection layer and its
+exact implementation and proof contract is recorded in Preflight 32. The
+database settings must exist from connection startup, remain confined to a
+dedicated Task repair pool, and preserve the existing located transaction
+owner's settlement and quarantine behavior. The gate is complete on
+PostgreSQL 18.3.
 
 ## Resolved E1 Continuation Defect
 
@@ -110,7 +112,7 @@ decodable when the new field is absent; after that expected partition settles,
 the old cycle closes and a later run starts a fresh snapshot. Focused tests
 prove that an inserted earlier scope is deferred while a later scope from the
 original snapshot still runs. The E2C1 high-water restart gate is therefore
-complete; database-owned hard timeout proof remains exclusively E2C2.
+complete; database-owned hard timeout proof is completed separately by E2C2.
 
 Completion evidence on 2026-08-09:
 

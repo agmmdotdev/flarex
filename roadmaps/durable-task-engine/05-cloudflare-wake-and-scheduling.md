@@ -310,15 +310,18 @@ host:
   directory and a host-neutral bounded sweep with fresh resolution, aggregate
   receipts, count limits, cooperative time reserves, typed-failure isolation,
   and operation-local continuation;
-- **DTE05-E2 — active; E2A/E2B and E2C1 complete:** E2A adds
+- **DTE05-E2 — complete, production-inert:** E2A adds
   the canonical continuation codec and distinct Task-owned scheduler row; E2B
   adds the private fenced
   claim/checkpoint protocol; E2C1 adds the private connected one-sweep runner
   and proves static reconstruction in PGlite plus duplicate-host exclusion and
   expiry takeover in PGlite and genuine PostgreSQL. The corrected E1
   continuation also proves exact active-partition resume under the original
-  directory high-water snapshot. E2C2 retains database-owned hard-timeout
-  proof; and
+  directory high-water snapshot. E2C2 adds a dedicated-pool PostgreSQL startup
+  deadline policy and genuine PostgreSQL 18 proofs for bounded acquisition,
+  lock and statement cancellation, rollback/reuse, whole-transaction session
+  termination,
+  checked-out-client error evidence, quarantine, and replacement; and
 - **DTE05-E3 — pending and Roadmap-06-gated:** reuse/generalize the existing
   scheduled-event host, then admit the Worker scheduled handler and Wrangler
   cron binding through their own deployment gate.
@@ -345,6 +348,22 @@ Completion evidence on 2026-08-09:
   Standard Application boundary, and all 59 script tests passed; and
 - both required reviewers accepted the final diff. No host, binding, migration,
   scheduled handler, or deployment configuration was added.
+
+E2C2 completion evidence on 2026-08-10:
+
+- all 41 focused policy/checkpoint PGlite tests and 12 located-connection tests
+  pass;
+- all five genuine-PostgreSQL 18.3 acceptance checks pass, covering exact
+  startup settings, bounded saturated-pool acquisition, blocked-lock rollback,
+  long-statement cancellation and reuse, and whole-transaction `25P04`
+  termination with discard and replacement;
+- all three E2C1 genuine-PostgreSQL connected-runner regressions and all 34
+  executor connected-runner/core tests pass;
+- persistence-postgres typecheck and the Effect runtime boundary check pass;
+- both required reviewers accepted the final diff with no remaining findings;
+  and
+- no Worker, scheduled handler, binding, deployment, or activation path was
+  added.
 
 ### DTE05-F: Optional Durable Object Alarm Acceleration — Pending
 

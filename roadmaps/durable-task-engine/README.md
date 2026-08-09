@@ -45,7 +45,12 @@ The E1 continuation correction proves exact directory high-water restart by
 persisting a correlated continuing cursor or exact exhausted high-water marker
 after an active candidate and freshly re-resolving that exact candidate before
 resuming its inner due cursor.
-Database-owned hard timeouts remain E2C2. Cloudflare bindings, a
+E2C2 now completes DTE05-E2 with a production-inert, dedicated-pool PostgreSQL
+deadline policy, database-owned lock/statement/whole-transaction limits,
+checked-out-client termination evidence and quarantine, and genuine
+PostgreSQL 18 proof. Its exact contract is recorded in
+[`preflight/32-dte05-postgres-deadline-policy.md`](./preflight/32-dte05-postgres-deadline-policy.md).
+Cloudflare bindings, a
 scheduled Worker host, public APIs, compute delivery,
 and production activation do not exist yet.
 
