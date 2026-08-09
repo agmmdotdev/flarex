@@ -30,12 +30,16 @@ const persistencePostgresTaskWakeSchedulerPartitionPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
 const persistencePostgresTaskWakeSchedulerDirectoryPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts";
+const persistencePostgresTaskWakeSchedulerRepairDirectoryPath =
+  "packages/persistence-postgres/src/taskSystemWakeSchedulerRepairDirectoryV1.ts";
 const persistencePostgresTaskWakeSchedulerResolverPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerResolverV1.ts";
 const persistencePostgresTaskWakeSchedulerCompositionPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerCompositionV1.ts";
 const executorTaskQueueWakePath =
   "packages/executor/src/taskQueueWakeV1.ts";
+const executorTaskRepairSweepPath =
+  "packages/executor/src/taskRepairSweepV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -363,6 +367,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isProductionSource(relativePath)
         && isTaskWakeSchedulerPartitionSpecifier(specifier, relativePath)
         && relativePath !== persistencePostgresTaskWakeSchedulerDirectoryPath
+        && relativePath !== persistencePostgresTaskWakeSchedulerRepairDirectoryPath
         && relativePath !== persistencePostgresTaskWakeSchedulerResolverPath
         && relativePath !== persistencePostgresTaskWakeSchedulerCompositionPath
       ) {
@@ -374,7 +379,29 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       if (
         specifier !== undefined
         && isProductionSource(relativePath)
+        && isTaskWakeSchedulerRepairDirectorySpecifier(specifier, relativePath)
+        && relativePath !== executorTaskRepairSweepPath
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not consume the Task repair scheduler directory outside the admitted repair sweep.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isTaskRepairSweepSpecifier(specifier, relativePath)
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task repair sweep before scheduled-host admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
         && isTaskWakeSchedulerDirectorySpecifier(specifier, relativePath)
+        && relativePath !== persistencePostgresTaskWakeSchedulerRepairDirectoryPath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -814,6 +841,18 @@ function isTaskWakeSchedulerDirectorySpecifier(specifier, relativePath) {
 }
 
 /** @param {string} specifier @param {string} relativePath */
+function isTaskWakeSchedulerRepairDirectorySpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const targetWithoutExtension =
+    persistencePostgresTaskWakeSchedulerRepairDirectoryPath.slice(0, -3);
+  return normalized === "@flarex/persistence-postgres/internal/task-wake-scheduler-repair-directory-v1"
+    || resolved === persistencePostgresTaskWakeSchedulerRepairDirectoryPath
+    || resolved === targetWithoutExtension
+    || resolved === `${targetWithoutExtension}.js`;
+}
+
+/** @param {string} specifier @param {string} relativePath */
 function isTaskWakeSchedulerResolverSpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
@@ -832,6 +871,17 @@ function isTaskQueueWakeAdapterSpecifier(specifier, relativePath) {
   const targetWithoutExtension = executorTaskQueueWakePath.slice(0, -3);
   return normalized === "@flarex/executor/internal/task-queue-wake-v1"
     || resolved === executorTaskQueueWakePath
+    || resolved === targetWithoutExtension
+    || resolved === `${targetWithoutExtension}.js`;
+}
+
+/** @param {string} specifier @param {string} relativePath */
+function isTaskRepairSweepSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const targetWithoutExtension = executorTaskRepairSweepPath.slice(0, -3);
+  return normalized === "@flarex/executor/internal/task-repair-sweep-v1"
+    || resolved === executorTaskRepairSweepPath
     || resolved === targetWithoutExtension
     || resolved === `${targetWithoutExtension}.js`;
 }

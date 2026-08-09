@@ -25,6 +25,9 @@ import {
   TaskSystemWakeSchedulerDirectoryScopeError,
   type TaskSystemWakeSchedulerDirectoryOptionsV1,
 } from "../src/taskSystemWakeSchedulerDirectoryV1";
+import {
+  createTaskSystemWakeSchedulerRepairDirectoryV1,
+} from "../src/taskSystemWakeSchedulerRepairDirectoryV1";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   TASK_LOCATOR,
@@ -162,6 +165,96 @@ describe("DTE05-C2 trusted Task scheduler directory - PGlite", () => {
       });
     });
   });
+
+  it("isolates one repair candidate failure and preserves the next cursor", async () => {
+    await withFixture(async ({ persistence }) => {
+      const staleScope = scopeIdAt(20);
+      const currentScope = scopeIdAt(21);
+      const healthyScope = scopeIdAt(22);
+      const staleDeployment = deploymentIdFor(staleScope);
+      await insertIdleScope(persistence, staleScope, staleDeployment);
+      await insertScopeClock(persistence, currentScope);
+      await insertIdleScope(persistence, healthyScope);
+
+      const repairDirectory = createTaskSystemWakeSchedulerRepairDirectoryV1(
+        persistence.drizzle,
+        directoryOptions(persistence, attemptUuidSequence(701), {
+          getScopeMetadataByDeploymentId: async (deploymentId) => {
+            const metadata = await requireScopeMetadata(
+              persistence,
+              deploymentId,
+            );
+            return deploymentId === staleDeployment
+              ? Object.freeze({ ...metadata, scopeId: currentScope })
+              : metadata;
+          },
+        }),
+      );
+
+      const failedPage = await runEffect(repairDirectory.discoverEffect({
+        limit: 1,
+      }));
+      expect(failedPage.items).toEqual([
+        expect.objectContaining({
+          kind: "failed",
+          deploymentId: staleDeployment,
+          scopeId: staleScope,
+          reason: "candidate_scope_mismatch",
+        }),
+      ]);
+      expect(failedPage.continuation).not.toBeNull();
+
+      const healthyPage = await runEffect(repairDirectory.discoverEffect({
+        limit: 1,
+        continuation: failedPage.continuation,
+      }));
+      expect(healthyPage.items).toEqual([
+        expect.objectContaining({
+          kind: "ready",
+          deploymentId: deploymentIdFor(healthyScope),
+          scopeId: healthyScope,
+        }),
+      ]);
+      expect(healthyPage.continuation).toBeNull();
+      expect(healthyPage.items[0]).not.toHaveProperty("physicalLocator");
+      expect(healthyPage.items[0]).not.toHaveProperty("authority");
+    });
+  });
+
+  it("preserves repair continuation across a filtered legacy scope", async () => {
+    await withFixture(async ({ persistence }) => {
+      await insertLegacyScopeId(
+        persistence,
+        "scope_81000000-0000-0000-0000-000000000001x",
+        "before_replacement",
+      );
+      const healthyScope = scopeIdAt(30);
+      await insertIdleScope(persistence, healthyScope);
+      const repairDirectory = createTaskSystemWakeSchedulerRepairDirectoryV1(
+        persistence.drizzle,
+        directoryOptions(persistence, attemptUuidSequence(801)),
+      );
+
+      const filtered = await runEffect(repairDirectory.discoverEffect({
+        limit: 1,
+      }));
+      expect(filtered.items).toEqual([]);
+      expect(filtered.continuation).not.toBeNull();
+
+      const healthy = await runEffect(repairDirectory.discoverEffect({
+        limit: 1,
+        continuation: filtered.continuation,
+      }));
+      expect(healthy.items).toEqual([
+        expect.objectContaining({
+          kind: "ready",
+          deploymentId: deploymentIdFor(healthyScope),
+          scopeId: healthyScope,
+        }),
+      ]);
+      expect(healthy.continuation).toBeNull();
+    });
+  });
 });
 
 function makeDirectory(
@@ -262,6 +355,26 @@ async function insertScopeClock(
     insert into fx_system_scope_clock (scope_id, storage_generation, epoch)
     values ($1, 'flarexdb_v1', $2)
   `, [scopeId, `epoch_${scopeId.slice(6)}`]);
+}
+
+async function insertLegacyScopeId(
+  persistence: PGliteFlarexPersistence,
+  scopeId: string,
+  suffix: string,
+): Promise<void> {
+  const deploymentId = `deployment_legacy_task_repair_${suffix}`;
+  await persistence.insertDeploymentMetadata({
+    deploymentId,
+    projectId: `project_${deploymentId}`,
+  });
+  await persistence.query(`
+    insert into fx_control_scope (
+      id,
+      deployment_id,
+      isolation_kind,
+      physical_locator_json
+    ) values ($1, $2, 'shared_database', $3::jsonb)
+  `, [scopeId, deploymentId, JSON.stringify(TASK_LOCATOR)]);
 }
 
 async function requireScopeMetadata(

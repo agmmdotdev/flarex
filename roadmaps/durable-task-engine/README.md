@@ -35,9 +35,10 @@ completes the production-inert standard runner plus deterministic in-memory
 adapters, DTE05-C1 completes only the located-scope Postgres composition, and
 DTE05-C2 completes the production-inert trusted partition directory.
 DTE05-D completes the private, unwired Queue wake-hint adapter and fresh
-partition resolver. Cloudflare bindings, a cross-scope scheduler or repair
-host, public APIs, compute delivery, and production activation do not exist
-yet.
+partition resolver. DTE05-E1 now adds only a private host-neutral repair sweep
+and repair-tolerant trusted directory. Its continuation is not yet persisted;
+Cloudflare bindings, a scheduled Worker host, public APIs, compute delivery,
+and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,

@@ -654,6 +654,44 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the unwired repair sweep over its tolerant directory", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/executor/src/taskRepairSweepV1.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerRepairDirectoryV1 } from
+          "@flarex/persistence-postgres/internal/task-wake-scheduler-repair-directory-v1";
+      `,
+    }, {
+      relativePath: "apps/executor/src/taskRepairDirectory.ts",
+      text: `
+        import { createTaskSystemWakeSchedulerRepairDirectoryV1 } from
+          "../../../packages/persistence-postgres/src/taskSystemWakeSchedulerRepairDirectoryV1.js";
+      `,
+    }, {
+      relativePath: "apps/executor/src/worker.ts",
+      text: `
+        import { createTaskRepairSweepV1 } from
+          "@flarex/executor/internal/task-repair-sweep-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/taskRepairSweep.ts",
+      text: `
+        import { createTaskRepairSweepV1 } from
+          "../../executor/src/taskRepairSweepV1.ts";
+      `,
+    }, {
+      relativePath: "packages/executor/test/taskRepairSweepV1.test.ts",
+      text: `
+        import { createTaskRepairSweepV1 } from
+          "../src/taskRepairSweepV1.ts";
+      `,
+    }]).errors).toEqual([
+      "apps/executor/src/taskRepairDirectory.ts:2 production source must not consume the Task repair scheduler directory outside the admitted repair sweep.",
+      "apps/executor/src/worker.ts:2 production source must not activate the Task repair sweep before scheduled-host admission.",
+      "packages/flarex-backend/src/taskRepairSweep.ts:2 production source must not activate the Task repair sweep before scheduled-host admission.",
+    ]);
+  });
+
   it("rejects file, link, and workspace path aliases to durable-task before host admission", () => {
     for (const reference of [
       "file:../../packages/durable-task",

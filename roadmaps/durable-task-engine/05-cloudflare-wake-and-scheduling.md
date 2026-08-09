@@ -10,7 +10,10 @@ one already-resolved trusted-scope Postgres composition, and DTE05-C2 completes
 the production-inert trusted partition directory. DTE05-D completes the
 private, unwired Queue wake-hint publisher/consumer and fresh partition
 resolver. No Cloudflare binding, cross-scope scheduler host, deployment
-configuration, or production activation is authorized.
+configuration, or production activation is authorized. DTE05-E1 now admits an
+unwired host-neutral repair sweep and repair-tolerant directory; DTE05-E2 and
+DTE05-E3 remain required before a durable or Cloudflare-hosted cron repair
+system exists.
 
 Roadmap 04 remains the durable-state authority. Its due-discovery candidates
 and lifecycle transactions are sufficient to reconstruct missed work. Queue
@@ -295,13 +298,47 @@ Completion evidence on 2026-08-06:
   findings. No Worker entrypoint or Wrangler file imports or activates the
   private Queue adapter.
 
-### DTE05-E: Cron Repair Sweep — Pending
+### DTE05-E: Cron Repair Sweep — Active
+
+The owning preflight is
+[`preflight/29-dte05-cron-repair-sweep.md`](./preflight/29-dte05-cron-repair-sweep.md).
+
+DTE05-E is split so the portable repair semantics cannot silently activate a
+host:
+
+- **DTE05-E1 — complete, production-inert:** add a repair-tolerant trusted
+  directory and a host-neutral bounded sweep with fresh resolution, aggregate
+  receipts, count limits, cooperative time reserves, typed-failure isolation,
+  and operation-local continuation;
+- **DTE05-E2 — pending:** add the Task-owned continuation codec and durable
+  claim/checkpoint protocol with genuine-Postgres restart, concurrency, and
+  fairness proof; and
+- **DTE05-E3 — pending and Roadmap-06-gated:** reuse/generalize the existing
+  scheduled-event host, then admit the Worker scheduled handler and Wrangler
+  cron binding through their own deployment gate.
 
 - add a bounded scheduled host over trusted scheduler partitions;
 - persist or reconstruct continuation without making it authority;
 - enforce count, time, and settlement reserves; and
 - prove recovery after lost messages, exhausted delivery retries, and host
   restart.
+
+E1 alone does not satisfy those four full-host outcomes. Its returned
+continuation is not durable, and no production source imports its private
+subpath.
+
+Completion evidence on 2026-08-09:
+
+- the final executor typecheck and all 14 focused repair-sweep tests passed;
+- the focused persistence typecheck and all five repair-directory PGlite tests
+  passed, while the C1/C2 PGlite regressions passed all 2 and 13 tests;
+- the full executor regression passed 358 active tests with five existing
+  skips before the final receipt-validation-only correction, followed by the
+  green focused final lane;
+- the 65-vector lifecycle gate, 29-entry source-map gate, Trigger boundary,
+  Standard Application boundary, and all 59 script tests passed; and
+- both required reviewers accepted the final diff. No host, binding, migration,
+  scheduled handler, or deployment configuration was added.
 
 ### DTE05-F: Optional Durable Object Alarm Acceleration — Pending
 
