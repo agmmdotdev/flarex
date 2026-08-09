@@ -1,5 +1,51 @@
 # Indexes
 
+## Close The Unique Definition Set Before Building It
+
+The first `C08-B1` foundation is implemented privately and remains
+production-inert. A canonical protocol value commits the complete ordered set
+of schema-version unique definitions by logical identity, physical definition,
+stable table, and physical-spec digest. The control catalog closes that exact
+set once per schema version under the existing deployment lock. After closure,
+exact definition replays remain idempotent but any late or changed binding
+fails closed. PostgreSQL stores only this compact authority and its digest, not
+application code or artifact bodies.
+
+Migration `0049` adds one immutable control closure and one target-native build
+row per `(scope, schemaVersion)`. It deliberately does not create one build row
+per constraint. Reconciliation resolves the existing trusted scope authority,
+locks the existing scope clock, pins the storage-generation fence, epoch, and
+start commit frontier, and creates or re-declares a replay-safe attempt fence.
+The row reserves the bounded lifecycle and cursor state that the backfill owner
+will advance; this checkpoint does not run a backfill or make the set eligible.
+
+PGlite proves canonical vectors, closure replay, late-binding refusal,
+changed-after-prepare rejection, transaction rollback, absent-before-closure,
+build replay, stale-fence redeclaration, injected fault recovery, fresh
+migration, atomic upgrade rollback, and migration replay. A genuine PostgreSQL
+concurrency/rollback/fence suite is present and runs when
+`FLAREX_POSTGRES_DATABASE_URL` is supplied; the local live receipt remains
+pending because credentials were not available to this run.
+
+`C08-B1` is still incomplete. The next checkpoint must perform bounded
+frontier-aware backfill through the existing S11 claim owner, validate every
+current required claim, invalidate or restart safely under concurrent commits,
+and advance the same build row through its lifecycle. A later exact gate must
+bind planner/readiness eligibility to both the enabled set digest and the
+unforgeable B2 point-commit maintenance capability. No activation, active
+reader, route, trigger, alternate OCC/commit owner, or production behavior is
+authorized by this foundation.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres test:c08-b1a:pglite
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-b1a:postgres
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Maintain Unique Claims In The Existing Point Commit
 
 `C08-B2` now supplies the production-inert lowering and transaction mechanics

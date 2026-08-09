@@ -863,13 +863,23 @@ pre-B1 convergence state. The first generation caps one commit at 32
 definition/row transitions and 64 S11 actions. It changes no commit/OCC owner,
 schema, migration, readiness, activation, or query authority.
 
-This does not complete general C08: `C08-B1` must close the exact required
-definition set, reconcile/backfill and validate current claims, persist
-invalidatable build/readiness evidence, and bind future planner/activation
-eligibility to the exact maintenance capability. `O09-B` contention/stress
-acceptance also remains open. Local PGlite functional, fault, swap, and ceiling
-proofs pass; the genuine-PostgreSQL scenario is present but its local live
-receipt awaits `FLAREX_POSTGRES_DATABASE_URL`.
+The first private `C08-B1` foundation now closes the exact schema-version
+definition set and reconciles one target-native, scope-clock-fenced build row
+for that set. Migration `0049` stores the compact canonical set commitment,
+scope generation/epoch/frontier pins, lifecycle cursor, and replay-safe attempt
+fence. Exact binding replay remains allowed after closure while late or changed
+bindings fail closed. This is build authority only: no backfill, validation,
+enabled verdict, planner eligibility, readiness, activation, or routing is
+introduced.
+
+General C08 therefore remains incomplete. The next `C08-B1` checkpoint must
+backfill and validate current S11 claims in bounded target transactions and
+prove invalidation/restart under concurrent commits. A later exact gate must
+bind planner/readiness eligibility to the enabled set digest and the
+unforgeable B2 maintenance capability. `O09-B` contention/stress acceptance
+also remains open. Local PGlite functional, migration, rollback, swap, and
+ceiling proofs pass; genuine-PostgreSQL scenarios are present but their local
+live receipts await `FLAREX_POSTGRES_DATABASE_URL`.
 
 Outcome:
 

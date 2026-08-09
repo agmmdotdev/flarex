@@ -58,6 +58,7 @@ describe("createPGlitePersistence", () => {
       "fx_app_unique_key",
       "fx_control_index",
       "fx_control_index_definition",
+      "fx_control_schema_unique_constraint_set",
       "fx_control_schema_version",
       "fx_control_schema_version_index_binding",
       "fx_control_schema_version_unique_constraint_binding",
@@ -102,6 +103,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_tx_journal_point",
       "fx_system_tx_journal_write_event",
       "fx_system_tx_session",
+      "fx_system_unique_constraint_set_build",
       "indexes",
       "invoke_session_document_reads",
       "invoke_session_document_writes",
@@ -1170,7 +1172,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "49" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "50" }]);
     } finally {
       try {
         await db.close();
@@ -1364,7 +1366,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "49" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "50" }]);
     } finally {
       try {
         await db.close();
@@ -1475,7 +1477,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "49" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "50" }]);
     } finally {
       try {
         await db.close();
@@ -1994,7 +1996,7 @@ describe("createPGlitePersistence", () => {
       const currentReceipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(currentReceipts.rows).toEqual([{ count: "49" }]);
+      expect(currentReceipts.rows).toEqual([{ count: "50" }]);
     } finally {
       try {
         await db.close();
@@ -2093,7 +2095,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "49" }]);
+      expect(receipts.rows).toEqual([{ count: "50" }]);
     } finally {
       try {
         await db.close();
@@ -2194,7 +2196,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "49" }]);
+      expect(receipts.rows).toEqual([{ count: "50" }]);
     } finally {
       try {
         await db.close();
@@ -2312,7 +2314,7 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "49" }]);
+      expect(receipts.rows).toEqual([{ count: "50" }]);
     } finally {
       try {
         await db.close();
@@ -2405,7 +2407,7 @@ describe("createPGlitePersistence", () => {
         revision_column: "1",
         attempt_target: "fx_system_declarative_v2_verifier_attempt_v2",
         revision_target: "fx_system_application_revision_v1",
-        receipts: "49",
+        receipts: "50",
       }]);
     } finally {
       try {
@@ -2480,6 +2482,108 @@ describe("createPGlitePersistence", () => {
         rows: "1",
         revision_column: "0",
         receipts: "43",
+      }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
+  it("upgrades 0049 atomically and replays the unique-set build authority", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-c08-b1a-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournalPath = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const copiedMigrationPath = resolve(
+      migrationsFolder,
+      "0049_friendly_runaways.sql",
+    );
+    const db = new PGlite();
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const journalText = await readFile(currentJournalPath, "utf8");
+      const parsed: unknown = JSON.parse(journalText);
+      if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+        throw new Error("Expected a Drizzle migration journal.");
+      }
+      await writeFile(copiedJournalPath, `${JSON.stringify({
+        ...parsed,
+        entries: parsed.entries.filter((entry) =>
+          isNonArrayRecord(entry) &&
+          typeof entry.idx === "number" &&
+          entry.idx < 49
+        ),
+      }, null, 2)}\n`, "utf8");
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      const absent = await previous.query<{ count: string }>(`
+        select count(*)::text as count
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name in (
+            'fx_control_schema_unique_constraint_set',
+            'fx_system_unique_constraint_set_build'
+          )
+      `);
+      expect(absent.rows).toEqual([{ count: "0" }]);
+
+      await writeFile(copiedJournalPath, journalText, "utf8");
+      const migrationText = await readFile(copiedMigrationPath, "utf8");
+      await writeFile(
+        copiedMigrationPath,
+        `${migrationText}\n--> statement-breakpoint\nselect * from fx_c08_b1a_deliberate_missing_table;\n`,
+        "utf8",
+      );
+      const failing = await createPGlitePersistence({ db, migrationsFolder });
+      await expect(failing.migrate()).rejects.toThrow(
+        /fx_c08_b1a_deliberate_missing_table/,
+      );
+      const rolledBack = await failing.query<{
+        table_count: string;
+        receipts: string;
+      }>(`
+        select
+          (select count(*)::text from information_schema.tables
+            where table_schema = current_schema()
+              and table_name in (
+                'fx_control_schema_unique_constraint_set',
+                'fx_system_unique_constraint_set_build'
+              )) as table_count,
+          (select count(*)::text from drizzle.__drizzle_migrations) as receipts
+      `);
+      expect(rolledBack.rows).toEqual([{
+        table_count: "0",
+        receipts: "49",
+      }]);
+
+      await writeFile(copiedMigrationPath, migrationText, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await current.migrate();
+      await current.migrate();
+      const installed = await current.query<{
+        table_count: string;
+        receipts: string;
+      }>(`
+        select
+          (select count(*)::text from information_schema.tables
+            where table_schema = current_schema()
+              and table_name in (
+                'fx_control_schema_unique_constraint_set',
+                'fx_system_unique_constraint_set_build'
+              )) as table_count,
+          (select count(*)::text from drizzle.__drizzle_migrations) as receipts
+      `);
+      expect(installed.rows).toEqual([{
+        table_count: "2",
+        receipts: "50",
       }]);
     } finally {
       try {

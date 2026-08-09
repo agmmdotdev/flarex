@@ -76,6 +76,12 @@ import {
   type AppUniqueConstraintPhysicalSpecCodecVersion,
   type AppUniqueConstraintPhysicalSpecV1,
 } from "flarex-protocol/app-unique-constraint-definition";
+import type {
+  AppUniqueConstraintSetBuildAttemptFenceV1,
+  AppUniqueConstraintSetBuildCursorCodecVersionV1,
+  AppUniqueConstraintSetBuildLifecycleV1,
+  AppUniqueConstraintSetCodecVersionV1,
+} from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import {
   MAX_CANONICAL_APP_INDEX_PHYSICAL_SPEC_BYTES_V1,
   type AppIndexPhysicalSpecCodecVersion,
@@ -824,6 +830,63 @@ export const fxControlSchemaVersionUniqueConstraintBindings = pgTable(
     check(
       "fx_control_schema_unique_constraint_binding_required_check",
       sql`${table.requiredForActivation} is true`,
+    ),
+  ],
+);
+
+/** Immutable closure of one schema version's complete unique definition set. */
+export const fxControlSchemaVersionUniqueConstraintSets = pgTable(
+  "fx_control_schema_unique_constraint_set",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    setCodecVersion: integer("set_codec_version")
+      .$type<AppUniqueConstraintSetCodecVersionV1>()
+      .notNull(),
+    definitionCount: integer("definition_count").notNull(),
+    definitionSetSha256: bytea("definition_set_sha256").notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_control_schema_unique_set_pk",
+      columns: [table.deploymentId, table.schemaVersionId],
+    }),
+    foreignKey({
+      name: "fx_control_schema_unique_set_schema_fk",
+      columns: [table.deploymentId, table.schemaVersionId],
+      foreignColumns: [
+        fxControlSchemaVersions.deploymentId,
+        fxControlSchemaVersions.schemaVersionId,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_control_schema_unique_set_deployment_check",
+      nonBlankText(table.deploymentId),
+    ),
+    check(
+      "fx_control_schema_unique_set_schema_check",
+      nonBlankText(table.schemaVersionId),
+    ),
+    check(
+      "fx_control_schema_unique_set_codec_check",
+      sql`${table.setCodecVersion} = 1`,
+    ),
+    check(
+      "fx_control_schema_unique_set_count_check",
+      sql`${table.definitionCount} between 0 and 256`,
+    ),
+    check(
+      "fx_control_schema_unique_set_digest_check",
+      sql`octet_length(${table.definitionSetSha256}) = 32`,
+    ),
+    check(
+      "fx_control_schema_unique_set_closed_at_check",
+      sql`isfinite(${table.closedAt})`,
     ),
   ],
 );
@@ -3127,6 +3190,101 @@ export const fxSystemIndexBuildStates = pgTable(
     check(
       "fx_system_index_build_timestamp_order_check",
       sql`${table.updatedAt} >= ${table.createdAt}`,
+    ),
+  ],
+);
+
+/** One fenced build/readiness row for a schema version's closed unique set. */
+export const fxSystemUniqueConstraintSetBuilds = pgTable(
+  "fx_system_unique_constraint_set_build",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    setCodecVersion: integer("set_codec_version")
+      .$type<AppUniqueConstraintSetCodecVersionV1>()
+      .notNull(),
+    definitionCount: integer("definition_count").notNull(),
+    definitionSetSha256: bytea("definition_set_sha256").notNull(),
+    storageGeneration: text("storage_generation")
+      .$type<FlarexDbV1StorageGeneration>()
+      .notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    }).$type<StorageGenerationFence>().notNull(),
+    epoch: text("epoch").$type<ScopeEpoch>().notNull(),
+    startCommitSeq: bigint("start_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    lifecycle: text("lifecycle")
+      .$type<AppUniqueConstraintSetBuildLifecycleV1>()
+      .notNull(),
+    cursorCodecVersion: integer("cursor_codec_version")
+      .$type<AppUniqueConstraintSetBuildCursorCodecVersionV1>()
+      .notNull(),
+    cursorDefinitionId: integer("cursor_definition_id")
+      .$type<CatalogUniqueConstraintDefinitionId>(),
+    cursorRowId: bytea("cursor_row_id"),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<AppUniqueConstraintSetBuildAttemptFenceV1>()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_unique_set_build_pk",
+      columns: [table.scopeId, table.schemaVersionId],
+    }),
+    foreignKey({
+      name: "fx_system_unique_set_build_scope_fk",
+      columns: [table.scopeId],
+      foreignColumns: [fxSystemScopeClocks.scopeId],
+    }).onDelete("restrict"),
+    check("fx_system_unique_set_build_scope_check", nonBlankText(table.scopeId)),
+    check(
+      "fx_system_unique_set_build_schema_check",
+      nonBlankText(table.schemaVersionId),
+    ),
+    check(
+      "fx_system_unique_set_build_identity_check",
+      sql`${table.setCodecVersion} = 1
+        and ${table.definitionCount} between 0 and 256
+        and octet_length(${table.definitionSetSha256}) = 32`,
+    ),
+    check(
+      "fx_system_unique_set_build_clock_check",
+      sql`${table.storageGeneration} = 'flarexdb_v1'
+        and ${table.storageGenerationFence} >= 1
+        and ${nonBlankText(table.epoch)}
+        and ${table.startCommitSeq} >= 0`,
+    ),
+    check(
+      "fx_system_unique_set_build_lifecycle_check",
+      sql`${table.lifecycle} in ('declared', 'building', 'backfilling', 'validating', 'enabled')`,
+    ),
+    check(
+      "fx_system_unique_set_build_cursor_check",
+      sql`${table.cursorCodecVersion} = 1
+        and (${table.cursorDefinitionId} is null or ${table.cursorDefinitionId} between 1 and 2147483647)
+        and (${table.cursorRowId} is null or octet_length(${table.cursorRowId}) = 16)
+        and (${table.cursorDefinitionId} is not null or ${table.cursorRowId} is null)
+        and (${table.lifecycle} not in ('declared', 'building', 'enabled')
+          or (${table.cursorDefinitionId} is null and ${table.cursorRowId} is null))`,
+    ),
+    check(
+      "fx_system_unique_set_build_attempt_check",
+      sql`${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_unique_set_build_time_check",
+      sql`isfinite(${table.createdAt}) and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}`,
     ),
   ],
 );
@@ -5845,6 +6003,7 @@ export const flarexSchema = {
   fxControlIndexes,
   fxControlSchemaVersionIndexBindings,
   fxControlSchemaVersionUniqueConstraintBindings,
+  fxControlSchemaVersionUniqueConstraintSets,
   fxControlSchemaVersions,
   fxControlTables,
   fxControlUniqueConstraintDefinitions,
@@ -5867,6 +6026,7 @@ export const flarexSchema = {
   fxSystemDurableTaskRunRequestsV1,
   fxSystemDurableTaskRunsV1,
   fxSystemIndexBuildStates,
+  fxSystemUniqueConstraintSetBuilds,
   fxSystemExternalEffectAttemptsV1,
   fxSystemSnapshotLeases,
   fxSystemScopeClocks,

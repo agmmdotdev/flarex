@@ -23,6 +23,10 @@ import {
   createLocatedIndexBuildReconciliationTargetV1,
   type LocatedIndexBuildReconciliationTargetV1,
 } from "./indexBuildReconciliation";
+import {
+  createLocatedAppUniqueConstraintSetBuildTargetV1,
+  type LocatedAppUniqueConstraintSetBuildTargetV1,
+} from "./appUniqueConstraintSetBuildV1";
 import type { FlarexPersistence } from "./index";
 import {
   createSharedScopeAuthorityBootstrapper,
@@ -211,6 +215,17 @@ export function createPostgresLocatedIndexBuildReconciliationTargetV1(
   physicalLocator: ScopePhysicalLocator,
 ): LocatedIndexBuildReconciliationTargetV1 {
   return createLocatedIndexBuildReconciliationTargetV1(
+    persistence.drizzle,
+    physicalLocator,
+    createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
+  );
+}
+
+export function createPostgresLocatedAppUniqueConstraintSetBuildTargetV1(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedAppUniqueConstraintSetBuildTargetV1 {
+  return createLocatedAppUniqueConstraintSetBuildTargetV1(
     persistence.drizzle,
     physicalLocator,
     createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),

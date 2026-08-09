@@ -32,6 +32,8 @@ import {
   type SchemaManifestAppIndexDescriptor,
 } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
+import type { AppUniqueConstraintSetMemberV1 } from
+  "flarex-protocol/internal/app-unique-constraint-set-v1";
 
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -41,6 +43,7 @@ import {
 } from "./schemaManifestTableBindings";
 import {
   fxControlSchemaVersionUniqueConstraintBindings,
+  fxControlSchemaVersionUniqueConstraintSets,
   fxControlSchemaVersions,
   fxControlScopes,
   fxControlTables,
@@ -205,6 +208,13 @@ export class AppSchemaVersionUniqueConstraintBindingConflictError extends Data.T
   readonly requestedDefinitionId: CatalogUniqueConstraintDefinitionId | null;
 }> {}
 
+export class AppSchemaVersionUniqueConstraintSetClosedError extends Data.TaggedError(
+  "AppSchemaVersionUniqueConstraintSetClosedError",
+)<{
+  readonly deploymentId: string;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+}> {}
+
 export type PrepareAppUniqueConstraintDefinitionBindingV1Error =
   | InvalidAppUniqueConstraintDefinitionInputError
   | AppUniqueConstraintCatalogParentError
@@ -219,12 +229,88 @@ export type EnsureAppUniqueConstraintDefinitionBindingV1Error =
   | AppUniqueConstraintCatalogPersistenceError
   | AppUniqueConstraintCatalogIdExhaustedError
   | AppSchemaVersionUniqueConstraintBindingConflictError
+  | AppSchemaVersionUniqueConstraintSetClosedError
   | SchemaManifestTableBindingPersistenceError
   | StableTableCatalogDeploymentNotFoundError;
 
 export type ReadAppUniqueConstraintDefinitionV1Error =
   | AppUniqueConstraintCatalogCorruptionError
   | AppUniqueConstraintCatalogPersistenceError;
+
+/** Verified canonical members of one schema version's current binding set. */
+export const listAppUniqueConstraintDefinitionSetMembersV1Effect = Effect.fn(
+  "AppUniqueConstraintDefinitions.listSetMembers",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+  maximumDefinitions: number,
+): Effect.fn.Return<
+  ReadonlyArray<AppUniqueConstraintSetMemberV1>,
+  ReadAppUniqueConstraintDefinitionV1Error
+> {
+  const rows = yield* queryEffect("listSchemaDefinitionSet", () =>
+    db.select({
+      definition: fxControlUniqueConstraintDefinitions,
+      binding: fxControlSchemaVersionUniqueConstraintBindings,
+    }).from(fxControlSchemaVersionUniqueConstraintBindings)
+      .innerJoin(fxControlUniqueConstraintDefinitions, and(
+        eq(
+          fxControlUniqueConstraintDefinitions.deploymentId,
+          fxControlSchemaVersionUniqueConstraintBindings.deploymentId,
+        ),
+        eq(
+          fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId,
+          fxControlSchemaVersionUniqueConstraintBindings
+            .uniqueConstraintDefinitionId,
+        ),
+        eq(
+          fxControlUniqueConstraintDefinitions.logicalUniqueConstraintId,
+          fxControlSchemaVersionUniqueConstraintBindings
+            .logicalUniqueConstraintId,
+        ),
+      ))
+      .where(and(
+        eq(
+          fxControlSchemaVersionUniqueConstraintBindings.deploymentId,
+          deploymentId,
+        ),
+        eq(
+          fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId,
+          schemaVersionId,
+        ),
+      ))
+      .orderBy(
+        fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId,
+      )
+      .limit(maximumDefinitions + 1));
+  if (rows.length > maximumDefinitions) {
+    return yield* Effect.fail(corruption("unique definition set exceeds limit"));
+  }
+  const members: AppUniqueConstraintSetMemberV1[] = [];
+  for (const row of rows) {
+    const definition = yield* decodeDefinitionRow(row.definition);
+    const binding = yield* decodeBindingRow(row.binding);
+    if (
+      definition.deploymentId !== deploymentId ||
+      binding.deploymentId !== deploymentId ||
+      binding.schemaVersionId !== schemaVersionId ||
+      binding.logicalUniqueConstraintId !==
+        definition.logicalUniqueConstraintId ||
+      binding.uniqueConstraintDefinitionId !==
+        definition.uniqueConstraintDefinitionId
+    ) {
+      return yield* Effect.fail(corruption("unique definition binding mismatch"));
+    }
+    members.push(Object.freeze({
+      logicalUniqueConstraintId: definition.logicalUniqueConstraintId,
+      uniqueConstraintDefinitionId: definition.uniqueConstraintDefinitionId,
+      tableId: definition.tableId,
+      physicalSpecSha256Hex: definition.physicalSpecSha256Hex,
+    }));
+  }
+  return Object.freeze(members);
+});
 
 /**
  * Package-private C08-B2 locator for the exact touched-table unique definition
@@ -381,6 +467,43 @@ export const ensureAppUniqueConstraintDefinitionBindingV1InTransaction =
       }
       yield* lockSchemaManifestBindingDeploymentEffect(tx, state.deploymentId);
       yield* verifyParentsEffect(tx, state);
+
+      const closed = yield* readSetClosureEffect(tx, state);
+      if (closed) {
+        const identity = yield* readLogicalIdentityEffect(tx, state);
+        if (identity !== null) {
+          const existingDefinition = yield* findDefinitionEffect(
+            tx,
+            state,
+            identity.logicalUniqueConstraintId,
+          );
+          const existingBinding = yield* readBindingEffect(
+            tx,
+            state,
+            identity.logicalUniqueConstraintId,
+          );
+          if (
+            existingDefinition !== null &&
+            existingBinding?.uniqueConstraintDefinitionId ===
+              existingDefinition.uniqueConstraintDefinitionId
+          ) {
+            return Object.freeze({
+              identityStatus: "existing" as const,
+              definitionStatus: "existing" as const,
+              bindingStatus: "existing" as const,
+              identity,
+              definition: existingDefinition,
+              binding: existingBinding,
+            });
+          }
+        }
+        return yield* Effect.fail(
+          new AppSchemaVersionUniqueConstraintSetClosedError({
+            deploymentId: state.deploymentId,
+            schemaVersionId: state.schemaVersionId,
+          }),
+        );
+      }
 
       const ensuredIdentity = yield* ensureLogicalIdentityEffect(tx, state);
       const existingDefinition = yield* findDefinitionEffect(
@@ -588,6 +711,41 @@ function ensureLogicalIdentityEffect(
     }
     return Object.freeze({ status: "created" as const, identity: yield* decodeIdentityRow(row) });
   });
+}
+
+function readLogicalIdentityEffect(
+  tx: StableTableCatalogTransaction,
+  state: PreparedState,
+) {
+  return Effect.gen(function* () {
+    const rows = yield* queryEffect("readLogicalIdentity", () =>
+      tx.select().from(fxControlUniqueConstraints).where(and(
+        eq(fxControlUniqueConstraints.deploymentId, state.deploymentId),
+        eq(fxControlUniqueConstraints.tableId, state.tableId),
+        eq(fxControlUniqueConstraints.descriptor, state.descriptor),
+      )).limit(1));
+    return rows[0] === undefined ? null : yield* decodeIdentityRow(rows[0]);
+  });
+}
+
+function readSetClosureEffect(
+  tx: StableTableCatalogTransaction,
+  state: PreparedState,
+) {
+  return queryEffect("readUniqueConstraintSetClosure", () =>
+    tx.select({
+      schemaVersionId: fxControlSchemaVersionUniqueConstraintSets
+        .schemaVersionId,
+    }).from(fxControlSchemaVersionUniqueConstraintSets).where(and(
+      eq(
+        fxControlSchemaVersionUniqueConstraintSets.deploymentId,
+        state.deploymentId,
+      ),
+      eq(
+        fxControlSchemaVersionUniqueConstraintSets.schemaVersionId,
+        state.schemaVersionId,
+      ),
+    )).limit(1)).pipe(Effect.map((rows) => rows.length === 1));
 }
 
 function findDefinitionEffect(
