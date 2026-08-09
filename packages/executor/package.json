@@ -19,6 +19,7 @@
     "./internal/stored-attempt-authentication-v1": "./src/storedAttemptAuthentication.ts",
     "./internal/task-queue-wake-v1": "./src/taskQueueWakeV1.ts",
     "./internal/task-repair-sweep-v1": "./src/taskRepairSweepV1.ts",
+    "./internal/task-repair-sweep-continuation-codec-v1": "./src/taskRepairSweepContinuationCodecV1.ts",
     "./transaction-grant": "./src/transactionGrant.ts"
   },
   "scripts": {
@@ -27,6 +28,7 @@
     "test": "vitest run",
     "test:dte05-d": "vitest run test/taskQueueWakeV1.test.ts --testTimeout=120000",
     "test:dte05-e1": "vitest run test/taskRepairSweepV1.test.ts --testTimeout=120000",
+    "test:dte05-e2a": "vitest run test/taskRepairSweepContinuationCodecV1.test.ts --testTimeout=120000",
     "test:postgres": "vitest run test/postgresRetry.test.ts test/deploymentAuthority.postgres.test.ts test/transactionGrantVerifier.test.ts"
   },
   "dependencies": {

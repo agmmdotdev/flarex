@@ -81,6 +81,27 @@ const decodeInputResult = Schema.decodeUnknownResult(
   ReplacementScopeDirectoryInputSchema,
   { onExcessProperty: "error" },
 );
+const decodeReplacementScopeDirectoryContinuationShapeV1 =
+  Schema.decodeUnknownResult(
+    ReplacementScopeDirectoryContinuationSchema,
+    { onExcessProperty: "error" },
+  );
+
+export function decodeReplacementScopeDirectoryContinuationV1(
+  input: unknown,
+): Result.Result<
+  ReplacementScopeDirectoryContinuationV1,
+  ReplacementScopeDirectoryInputReasonV1
+> {
+  return decodeReplacementScopeDirectoryContinuationShapeV1(input).pipe(
+    Result.mapError(() => "invalidInput" as const),
+    Result.flatMap((continuation) =>
+      continuation.lastScopeId <= continuation.highWaterScopeId
+        ? Result.succeed(continuation)
+        : Result.fail("continuationOrderingInvalid" as const)
+    ),
+  );
+}
 const decodeReplacementScopeIdResult = Schema.decodeUnknownResult(
   ReplacementScopeIdV1Schema,
 );

@@ -337,6 +337,13 @@
       "when": 1786271612097,
       "tag": "0047_nifty_whistler",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786274286294,
+      "tag": "0048_late_blazing_skull",
+      "breakpoints": true
     }
   ]
 }

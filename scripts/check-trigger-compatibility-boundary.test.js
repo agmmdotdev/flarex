@@ -656,10 +656,26 @@ describe("Trigger compatibility boundary checker", () => {
 
   it("admits only the unwired repair sweep over its tolerant directory", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/persistence-postgres/src/taskSystemWakeSchedulerRepairDirectoryV1.ts",
+      text: `
+        import { decodeTaskDueDiscoveryRequestV1 } from
+          "@flarex/durable-task/internal/run-read-v1";
+      `,
+    }, {
       relativePath: "packages/executor/src/taskRepairSweepV1.ts",
       text: `
         import { createTaskSystemWakeSchedulerRepairDirectoryV1 } from
           "@flarex/persistence-postgres/internal/task-wake-scheduler-repair-directory-v1";
+      `,
+    }, {
+      relativePath:
+        "packages/executor/src/taskRepairSweepContinuationCodecV1.ts",
+      text: `
+        import { decodeTaskSystemWakeSchedulerRepairDueCursorV1 } from
+          "@flarex/persistence-postgres/internal/task-wake-scheduler-repair-directory-v1";
+        import type { TaskRepairSweepContinuationV1 } from
+          "./taskRepairSweepV1";
       `,
     }, {
       relativePath: "apps/executor/src/taskRepairDirectory.ts",

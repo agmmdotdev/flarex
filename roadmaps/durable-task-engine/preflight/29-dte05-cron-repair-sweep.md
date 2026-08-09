@@ -120,6 +120,9 @@ semantics, including a deliberately stalled-transaction test.
 
 ### DTE05-E2: Durable repair checkpoint
 
+- E2A is admitted separately by
+  [`30-dte05-durable-repair-checkpoint.md`](./30-dte05-durable-repair-checkpoint.md):
+  canonical continuation evidence plus the inert Task-owned scheduler row;
 - define and version the continuation codec;
 - add a Task-owned scheduler claim, lease, renew/checkpoint/release protocol;
 - preserve confirmed-rollback versus uncertain-failure semantics;
@@ -128,6 +131,10 @@ semantics, including a deliberately stalled-transaction test.
 - prove duplicate hosts, claim expiry, crash between transition and
   checkpoint, restart, and high-water fairness in genuine PostgreSQL; and
 - keep the point-mutation checkpoint as evidence, not as Task authority.
+
+E2B retains the transaction protocol and E2C retains genuine-Postgres
+concurrency, recovery, fairness, and hard database-timeout proof. E2A alone
+does not satisfy this stage.
 
 ### DTE05-E3: Cloudflare scheduled host and activation gate
 

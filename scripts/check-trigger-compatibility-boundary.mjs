@@ -40,6 +40,8 @@ const executorTaskQueueWakePath =
   "packages/executor/src/taskQueueWakeV1.ts";
 const executorTaskRepairSweepPath =
   "packages/executor/src/taskRepairSweepV1.ts";
+const executorTaskRepairSweepContinuationCodecPath =
+  "packages/executor/src/taskRepairSweepContinuationCodecV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -195,6 +197,12 @@ const admittedPersistenceTaskWakeSchedulerDirectorySymbolsBySpecifier =
   new Map([
     ["@flarex/durable-task/internal/scheduling-v1", new Set([
       "InvalidTaskWakeSchedulerConfigurationError",
+    ])],
+  ]);
+const admittedPersistenceTaskWakeSchedulerRepairDirectorySymbolsBySpecifier =
+  new Map([
+    ["@flarex/durable-task/internal/run-read-v1", new Set([
+      "decodeTaskDueDiscoveryRequestV1",
     ])],
   ]);
 const admittedPersistenceTaskWakeSchedulerResolverSymbolsBySpecifier =
@@ -381,6 +389,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isProductionSource(relativePath)
         && isTaskWakeSchedulerRepairDirectorySpecifier(specifier, relativePath)
         && relativePath !== executorTaskRepairSweepPath
+        && relativePath !== executorTaskRepairSweepContinuationCodecPath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -391,6 +400,10 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         specifier !== undefined
         && isProductionSource(relativePath)
         && isTaskRepairSweepSpecifier(specifier, relativePath)
+        && !(
+          relativePath === executorTaskRepairSweepContinuationCodecPath
+          && isTypeOnlyImportDeclaration(node)
+        )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -828,6 +841,13 @@ function isTaskWakeSchedulerPartitionSpecifier(specifier, relativePath) {
     || resolved === `${targetWithoutExtension}.js`;
 }
 
+/** @param {ts.Node} node */
+function isTypeOnlyImportDeclaration(node) {
+  return ts.isImportDeclaration(node)
+    && node.importClause !== undefined
+    && node.importClause.isTypeOnly;
+}
+
 /** @param {string} specifier @param {string} relativePath */
 function isTaskWakeSchedulerDirectorySpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
@@ -983,6 +1003,10 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     ? admittedPersistenceTaskWakeSchedulerSymbolsBySpecifier.get(specifier)
     : relativePath === persistencePostgresTaskWakeSchedulerDirectoryPath
     ? admittedPersistenceTaskWakeSchedulerDirectorySymbolsBySpecifier.get(
+      specifier,
+    )
+    : relativePath === persistencePostgresTaskWakeSchedulerRepairDirectoryPath
+    ? admittedPersistenceTaskWakeSchedulerRepairDirectorySymbolsBySpecifier.get(
       specifier,
     )
     : relativePath === persistencePostgresTaskWakeSchedulerResolverPath

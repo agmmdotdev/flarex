@@ -1,9 +1,13 @@
+import {
+  decodeTaskDueDiscoveryRequestV1,
+} from "@flarex/durable-task/internal/run-read-v1";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { Effect, Result } from "effect";
+import { Data, Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
   createReplacementScopeDirectoryDiscoveryV1,
+  decodeReplacementScopeDirectoryContinuationV1,
   type ReplacementScopeDirectoryCandidateV1,
   type ReplacementScopeDirectoryContinuationV1,
 } from "./replacementScopeDirectoryDiscoveryV1";
@@ -27,6 +31,70 @@ import {
 
 export type TaskSystemWakeSchedulerRepairDirectoryContinuationV1 =
   ReplacementScopeDirectoryContinuationV1;
+
+type TaskSystemWakeSchedulerRepairDueKindV1 = Parameters<
+  TaskSystemWakeSchedulerPartitionV1["run"]
+>[0]["dueKind"];
+
+export type TaskSystemWakeSchedulerRepairDueCursorV1 = NonNullable<
+  Parameters<TaskSystemWakeSchedulerPartitionV1["run"]>[0]["cursor"]
+>;
+
+export class TaskSystemWakeSchedulerRepairContinuationInputErrorV1
+  extends Data.TaggedError(
+    "TaskSystemWakeSchedulerRepairContinuationInputErrorV1",
+  )<{
+    readonly field: "directory" | "cursor";
+    readonly cause: unknown;
+  }> {}
+
+export function decodeTaskSystemWakeSchedulerRepairDirectoryContinuationV1(
+  input: unknown,
+): Result.Result<
+  TaskSystemWakeSchedulerRepairDirectoryContinuationV1,
+  TaskSystemWakeSchedulerRepairContinuationInputErrorV1
+> {
+  return decodeReplacementScopeDirectoryContinuationV1(input).pipe(
+    Result.mapError((cause) =>
+      new TaskSystemWakeSchedulerRepairContinuationInputErrorV1({
+        field: "directory",
+        cause,
+      })
+    ),
+  );
+}
+
+export function decodeTaskSystemWakeSchedulerRepairDueCursorV1(
+  dueKind: TaskSystemWakeSchedulerRepairDueKindV1,
+  input: unknown,
+): Result.Result<
+  TaskSystemWakeSchedulerRepairDueCursorV1,
+  TaskSystemWakeSchedulerRepairContinuationInputErrorV1
+> {
+  return decodeTaskDueDiscoveryRequestV1({
+    version: 1,
+    dueKind,
+    pageSize: 1,
+    cursor: input,
+  }).pipe(
+    Result.mapError((cause) =>
+      new TaskSystemWakeSchedulerRepairContinuationInputErrorV1({
+        field: "cursor",
+        cause,
+      })
+    ),
+    Result.flatMap((request) =>
+      request.cursor === null
+        ? Result.fail(
+          new TaskSystemWakeSchedulerRepairContinuationInputErrorV1({
+            field: "cursor",
+            cause: "missing decoded cursor",
+          }),
+        )
+        : Result.succeed(request.cursor)
+    ),
+  );
+}
 
 export type TaskSystemWakeSchedulerRepairDirectoryCandidateFailureReasonV1 =
   | "authority_unavailable"

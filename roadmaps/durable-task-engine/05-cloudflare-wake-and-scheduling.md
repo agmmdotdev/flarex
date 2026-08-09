@@ -310,9 +310,10 @@ host:
   directory and a host-neutral bounded sweep with fresh resolution, aggregate
   receipts, count limits, cooperative time reserves, typed-failure isolation,
   and operation-local continuation;
-- **DTE05-E2 — pending:** add the Task-owned continuation codec and durable
-  claim/checkpoint protocol with genuine-Postgres restart, concurrency, and
-  fairness proof; and
+- **DTE05-E2 — active; E2A complete:** E2A adds the canonical continuation
+  codec and distinct inert Task-owned scheduler row; E2B still owns the durable
+  claim/checkpoint protocol and E2C still owns genuine-Postgres restart,
+  concurrency, fairness, and hard database-timeout proof; and
 - **DTE05-E3 — pending and Roadmap-06-gated:** reuse/generalize the existing
   scheduled-event host, then admit the Worker scheduled handler and Wrangler
   cron binding through their own deployment gate.
