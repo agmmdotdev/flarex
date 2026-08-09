@@ -8,6 +8,11 @@ import {
   decodeAppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+  APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  decodeAppUniqueConstraintPhysicalSpecV1,
+} from "flarex-protocol/app-unique-constraint-definition";
+import {
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1ToBytes,
   decodeAppRowIdHexV1,
@@ -25,6 +30,7 @@ import {
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
+  SchemaManifestAppIndexDescriptorSchema,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import {
@@ -58,6 +64,13 @@ import {
   createAppDeveloperIndexDefinitionPortV1,
 } from
   "../src/appDeveloperIndexCommitV1";
+import { createAppUniqueConstraintDefinitionPortV1 } from
+  "../src/appUniqueConstraintCommitV1";
+import {
+  ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
+  prepareAppUniqueConstraintDefinitionBindingV1Effect,
+} from "../src/appUniqueConstraintDefinitions";
+import { AppUniqueKeyConflictError } from "../src/appUniqueKeys";
 import { reconcilePublishedIndexBuildsV1Effect } from
   "../src/indexBuildReconciliation";
 import {
@@ -809,6 +822,123 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       expect(afterDelete.revisions).toHaveLength(5);
       expect(afterDelete.revisions.filter((row) => row.isTombstone)).toHaveLength(2);
       expect(afterDelete.current).toEqual([]);
+    });
+  }, 120_000);
+
+  it("maintains unique claims and atomically rejects PostgreSQL conflicts", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96418800");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "unique_key_move",
+      );
+      const uniqueOptions = await prepareUniqueConstraintForPostgres(
+        persistence,
+        scope,
+      );
+      const inserted = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "unique_key_insert",
+      );
+      await runEffect(createPublisher(persistence, uniqueOptions).publish(
+        inserted.publicationCommand,
+      ));
+      const insertIntent = inserted.command.rowIntents[0];
+      if (insertIntent?.kind !== "live") {
+        throw new Error("Expected a PostgreSQL C08-B2 insert intent.");
+      }
+      const beforeMove = await uniqueKeyState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      expect(beforeMove).toMatchObject([{ commitSeq: "1" }]);
+
+      const moved = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "unique_key_move",
+        {
+          kind: "patch",
+          documentId: insertIntent.documentId,
+          name: "moved_unique_name",
+        },
+      );
+      let uniqueWrites = 0;
+      const failure = await runFailure(createPublisher(persistence, {
+        ...uniqueOptions,
+        afterTransactionStep: (event) => {
+          if (event.step === "uniqueKeyWritten") {
+            uniqueWrites += 1;
+            if (uniqueWrites === 2) {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+          }
+          return Promise.resolve();
+        },
+      }).publish(moved.publicationCommand));
+      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+      expect(uniqueWrites).toBe(2);
+      expect(await uniqueKeyState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      )).toEqual(beforeMove);
+
+      await runEffect(createPublisher(persistence, uniqueOptions).publish(
+        moved.publicationCommand,
+      ));
+      const afterMove = await uniqueKeyState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      expect(afterMove).toMatchObject([{ commitSeq: "2" }]);
+      expect(afterMove[0]?.encodedKeyHex).not.toBe(
+        beforeMove[0]?.encodedKeyHex,
+      );
+
+      const conflictScope = await createScope(
+        persistence,
+        randomUuid,
+        "unique_key_conflict",
+      );
+      const conflictOptions = await prepareUniqueConstraintForPostgres(
+        persistence,
+        conflictScope,
+      );
+      const conflict = await createAttempt(
+        persistence,
+        randomUuid,
+        conflictScope,
+        "unique_key_conflict",
+        "duplicate",
+      );
+      expect(await runFailure(
+        createPublisher(persistence, conflictOptions).publish(
+          conflict.publicationCommand,
+        ),
+      )).toBeInstanceOf(AppUniqueKeyConflictError);
+      expect(await uniqueKeyState(
+        persistence,
+        conflict.command.sealIdentity.scopeUuid,
+      )).toEqual([]);
+      expect(await durableState(
+        persistence,
+        conflict.command.sealIdentity.scopeUuid,
+      )).toEqual({
+        revisions: "0",
+        current_rows: "0",
+        commit_headers: "0",
+        commit_changes: "0",
+        outcomes: "0",
+        wakes: "0",
+        last_commit_seq: "0",
+        last_outbox_seq: "0",
+      });
     });
   }, 120_000);
 
@@ -2363,6 +2493,7 @@ async function createAttempt(
     | boolean
     | number
     | "mixed"
+    | "duplicate"
     | Readonly<{
       readonly kind: "patch" | "delete";
       readonly documentId: ReturnType<typeof appDocumentIdV1FromRowIdentity>;
@@ -2418,6 +2549,8 @@ async function createAttempt(
     ? materialWrite
     : materialWrite === true
       ? 1
+      : materialWrite === "duplicate"
+        ? 2
       : 0;
   if (
     materialWriteCount > 0 || materialWrite === "mixed" ||
@@ -2440,7 +2573,11 @@ async function createAttempt(
       await runPointOperation(store, table, {
         kind: "insert",
         syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
-        fields: { name: `${label}_${index}` },
+        fields: {
+          name: materialWrite === "duplicate"
+            ? `${label}_duplicate`
+            : `${label}_${index}`,
+        },
       });
     }
     if (materialWrite === "mixed") {
@@ -2646,6 +2783,47 @@ async function prepareDeveloperIndexForPostgres(
   }));
   return Object.freeze({
     developerIndexes: createAppDeveloperIndexDefinitionPortV1(
+      persistence.drizzle,
+    ),
+  });
+}
+
+async function prepareUniqueConstraintForPostgres(
+  persistence: PostgresFlarexPersistence,
+  scope: ScopeScenario,
+): Promise<Required<Pick<
+  PointCommitTransactionProofOptionsV1,
+  "uniqueConstraints"
+>>> {
+  const prepared = await runEffect(
+    prepareAppUniqueConstraintDefinitionBindingV1Effect(
+      persistence.drizzle,
+      {
+        deploymentId: scope.deploymentId,
+        schemaVersionId: scope.schemaVersionId,
+        tableId: decodeCatalogTableId(1),
+        descriptor: SchemaManifestAppIndexDescriptorSchema.make(
+          "unique_name",
+        ),
+        physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+          kind: "appUniqueConstraint",
+          specVersion: 1,
+          orderedFields: ["name"],
+          sparse: false,
+          localePolicy: { kind: "none" },
+          keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+          keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+        }),
+      },
+    ),
+  );
+  await persistence.drizzle.transaction((tx) =>
+    runEffect(
+      ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
+    )
+  );
+  return Object.freeze({
+    uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(
       persistence.drizzle,
     ),
   });
@@ -3212,6 +3390,33 @@ async function developerIndexState(
       commitSeq: row.commit_seq,
     }))),
   });
+}
+
+async function uniqueKeyState(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+) {
+  const rows = await persistence.query<{
+    constraint_id: string;
+    encoded_key_hex: string;
+    row_id_hex: string;
+    commit_seq: string;
+  }>(
+    `select constraint_id::text,
+       encode(encoded_key, 'hex') as encoded_key_hex,
+       encode(row_id, 'hex') as row_id_hex,
+       commit_seq::text
+     from fx_app_unique_key
+     where scope_uuid = $1
+     order by constraint_id, encoded_key, row_id`,
+    [scopeUuid],
+  );
+  return Object.freeze(rows.rows.map((row) => Object.freeze({
+    constraintId: row.constraint_id,
+    encodedKeyHex: row.encoded_key_hex,
+    rowIdHex: row.row_id_hex,
+    commitSeq: row.commit_seq,
+  })));
 }
 
 function compareIntrinsicIndexRows(

@@ -1,5 +1,60 @@
 # Indexes
 
+## Maintain Unique Claims In The Existing Point Commit
+
+`C08-B2` now supplies the production-inert lowering and transaction mechanics
+that `C08-B1` needs before it can safely reconcile or declare a unique build
+ready. A private control-catalog port locates only opaque, process-local
+definitions bound to the pinned schema version and touched tables. Point commit
+captures that port once, validates the exact scope/deployment/schema identity,
+and lowers verified prior/final application documents through the shared
+Ordered Index V1 field-path primitive and the existing S11 canonical-key owner.
+
+The existing scope-clock point-commit transaction remains the sole commit
+owner. It writes application revisions first, then performs a deterministic
+three-phase unique plan: release every changed/deleted prior claim, advance
+same-key claims, then acquire every inserted/moved claim. This permits atomic
+multi-row key swaps without weakening collision checks. Existing claims must
+match the exact prior row commit and canonical key. A missing claim is accepted
+only for pre-B1 online convergence; B1 must backfill and validate the complete
+required set before readiness. S11 still owns scope/epoch fencing, parent-row
+lineage, canonical digest-collision verification, exclusive claim acquisition,
+and typed conflicts.
+
+Because S11 currently performs one transaction-local mutation per action,
+this first generation caps one commit at 32 definition/row transitions and 64
+release/advance/claim actions, materially below the general material-row
+ceiling. Exact owner positions are loaded set-wise; no Cartesian table/row
+lookup is used. PGlite proves insert, duplicate conflict with full rollback,
+same-key advance, move, delete, sparse omission, two-row key swap, capability
+capture/anti-forgery, oversized-key refusal, fault after the second unique
+write, retry, and the transition ceiling. The genuine-PostgreSQL suite contains insert, move,
+second-write rollback/retry, and duplicate-conflict atomicity scenarios and
+runs when `FLAREX_POSTGRES_DATABASE_URL` is supplied; the local live receipt is
+still pending because that environment is unavailable here.
+
+This checkpoint is deliberately not production composition. Unique
+requirements are not yet an authenticated Standard schema-manifest planning
+facet, and the lower O07/C07 lane remains available without the private port.
+`C08-B1` must close the exact schema-version definition set, reconcile/backfill
+all existing rows through these lowering rules, validate current S11 ownership,
+persist invalidatable build/readiness evidence, and make any future activation
+or planner eligibility depend on the exact point-commit capability. No
+readiness, activation, active reader, route, trigger, query authority, alternate
+OCC/commit owner, schema change, or migration is added here. `O09-B` still owns
+real contention/stress acceptance beyond these bounded functional proofs.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres test:c08-b2:pglite
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-b2:postgres
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Bind Immutable Unique-Constraint Definitions Without Enforcing Them
 
 `C08-B0` establishes the production-inert authority that later unique
@@ -21,10 +76,11 @@ The private repository prepares canonical evidence outside SQL, mints an
 opaque process-local token, locks the existing deployment catalog lane, checks
 the real schema/table parents, allocates IDs only inside the caller's
 transaction, and treats exact replay as idempotent. It creates no claim,
-backfill/build/readiness row, active head, route, or commit hook. `C08-B1`
-still owns reconciliation/backfill/validation and readiness evidence;
-`C08-B2` still owns point-commit lowering through S11; `O09-B` still owns
-contention/stress acceptance.
+backfill/build/readiness row, active head, route, or commit hook. `C08-B2` now
+owns the private point-commit lowering mechanics through S11. `C08-B1` still
+owns reconciliation/backfill/validation, invalidatable readiness evidence, and
+the closed required-definition gate; `O09-B` still owns contention/stress
+acceptance.
 
 Focused PGlite coverage proves canonical replay, changed-generation
 coexistence, conflicting binding refusal, forged-token refusal, migration
@@ -80,10 +136,10 @@ What changed:
 
 Known limitations and follow-up:
 
-- Intrinsic and developer-index maintenance are now implemented for the
-  relation-free Standard application path. Unique lowering/contention,
-  relations, index queries, and phantom OCC remain with the still-open C08-B,
-  O09-B, C09, and O10 owners.
+- Intrinsic and developer-index maintenance are implemented for the
+  relation-free Standard application path. Unique lowering mechanics are now
+  implemented privately in C08-B2, while B1 readiness/backfill, O09-B unique
+  contention, relations, index queries, and phantom OCC remain open.
 - Enabled is physical build evidence only. S03-D4 readiness, activation,
   active-reader authority, SAP04, routing, and production triggers remain
   separate unopened gates.
@@ -137,12 +193,13 @@ commit, OCC, or activation owners.
 
 Known limitations and follow-up:
 
-- S11 now owns private target-native unique claims; S03-D3 still owns build
+- S11 owns private target-native unique claims; S03-D3 still owns build
   reconciliation; C08-I1 owns intrinsic creation-time population and
-  maintenance; C08-A owns developer-index final-row lowering inside the
-  existing commit; C08-B still owns unique lowering; O09-B owns unique
-  contention and complete sidecar contention/rollback integration; and O10
-  owns indexed dependencies and phantom validation.
+  maintenance; C08-A owns developer-index final-row lowering; C08-B2 owns
+  private unique final-row lowering inside the existing commit; C08-B1 still
+  owns unique reconciliation/readiness; O09-B owns unique contention and
+  complete sidecar contention/rollback integration; and O10 owns indexed
+  dependencies and phantom validation.
 - No readiness, active-reader selection, routing, production trigger, legacy
   removal, or package-root mutation API is added.
 

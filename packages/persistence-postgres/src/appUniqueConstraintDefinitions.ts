@@ -1,7 +1,7 @@
 import { bytesEqual, isUint8Array } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import {
   CatalogTableIdSchema,
@@ -31,6 +31,7 @@ import {
   type CatalogSchemaVersionId,
   type SchemaManifestAppIndexDescriptor,
 } from "flarex-protocol/schema-manifest";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -41,6 +42,7 @@ import {
 import {
   fxControlSchemaVersionUniqueConstraintBindings,
   fxControlSchemaVersions,
+  fxControlScopes,
   fxControlTables,
   fxControlUniqueConstraintDefinitions,
   fxControlUniqueConstraints,
@@ -131,6 +133,26 @@ export interface AppUniqueConstraintDefinitionRecordV1 {
   readonly createdAt: Date;
 }
 
+const locatedDefinitionBrand: unique symbol = Symbol(
+  "FlarexDB/LocatedAppUniqueConstraintDefinitionV1",
+);
+
+export interface LocatedAppUniqueConstraintDefinitionV1
+  extends AppUniqueConstraintDefinitionRecordV1 {
+  readonly scopeId: ScopeId;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly [locatedDefinitionBrand]: true;
+}
+
+const locatedDefinitions = new WeakSet<object>();
+
+export function isLocatedAppUniqueConstraintDefinitionV1(
+  value: unknown,
+): value is LocatedAppUniqueConstraintDefinitionV1 {
+  return typeof value === "object" && value !== null &&
+    locatedDefinitions.has(value);
+}
+
 export interface AppSchemaVersionUniqueConstraintBindingRecordV1 {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
@@ -199,6 +221,92 @@ export type EnsureAppUniqueConstraintDefinitionBindingV1Error =
   | AppSchemaVersionUniqueConstraintBindingConflictError
   | SchemaManifestTableBindingPersistenceError
   | StableTableCatalogDeploymentNotFoundError;
+
+export type ReadAppUniqueConstraintDefinitionV1Error =
+  | AppUniqueConstraintCatalogCorruptionError
+  | AppUniqueConstraintCatalogPersistenceError;
+
+/**
+ * Package-private C08-B2 locator for the exact touched-table unique definition
+ * set of one pinned schema. Returned definitions are opaque process-local
+ * capabilities; the immutable catalog evidence remains the source of truth.
+ */
+export const locateAppUniqueConstraintDefinitionsForSchemaEffect = Effect.fn(
+  "AppUniqueConstraintDefinitions.locateForSchema",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  scopeId: ScopeId,
+  schemaVersionId: CatalogSchemaVersionId,
+  tableIds: ReadonlyArray<CatalogTableId>,
+  maximumDefinitions: number,
+): Effect.fn.Return<
+  ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1> | null,
+  ReadAppUniqueConstraintDefinitionV1Error
+> {
+  const scopeRows = yield* queryEffect("readScopeDeployment", () =>
+    db.select({ deploymentId: fxControlScopes.deploymentId })
+      .from(fxControlScopes)
+      .where(eq(fxControlScopes.scopeId, scopeId))
+      .limit(1));
+  if (scopeRows[0]?.deploymentId !== deploymentId) return null;
+  if (tableIds.length === 0) return Object.freeze([]);
+
+  const rows = yield* queryEffect("listSchemaDefinitions", () =>
+    db.select({
+      definition: fxControlUniqueConstraintDefinitions,
+      binding: fxControlSchemaVersionUniqueConstraintBindings,
+    }).from(fxControlSchemaVersionUniqueConstraintBindings)
+      .innerJoin(fxControlUniqueConstraintDefinitions, and(
+        eq(
+          fxControlUniqueConstraintDefinitions.deploymentId,
+          fxControlSchemaVersionUniqueConstraintBindings.deploymentId,
+        ),
+        eq(
+          fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId,
+          fxControlSchemaVersionUniqueConstraintBindings
+            .uniqueConstraintDefinitionId,
+        ),
+        eq(
+          fxControlUniqueConstraintDefinitions.logicalUniqueConstraintId,
+          fxControlSchemaVersionUniqueConstraintBindings
+            .logicalUniqueConstraintId,
+        ),
+      ))
+      .where(and(
+        eq(
+          fxControlSchemaVersionUniqueConstraintBindings.deploymentId,
+          deploymentId,
+        ),
+        eq(
+          fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId,
+          schemaVersionId,
+        ),
+        inArray(fxControlUniqueConstraintDefinitions.tableId, tableIds),
+      ))
+      .orderBy(
+        fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId,
+      )
+      .limit(maximumDefinitions + 1));
+  if (rows.length > maximumDefinitions) return null;
+
+  const located: LocatedAppUniqueConstraintDefinitionV1[] = [];
+  for (const row of rows) {
+    const definition = yield* decodeDefinitionRow(row.definition);
+    const binding = yield* decodeBindingRow(row.binding);
+    if (
+      definition.deploymentId !== deploymentId ||
+      binding.deploymentId !== deploymentId ||
+      binding.schemaVersionId !== schemaVersionId ||
+      binding.logicalUniqueConstraintId !==
+        definition.logicalUniqueConstraintId ||
+      binding.uniqueConstraintDefinitionId !==
+        definition.uniqueConstraintDefinitionId
+    ) return null;
+    located.push(markLocatedDefinition(scopeId, schemaVersionId, definition));
+  }
+  return Object.freeze(located);
+});
 
 export const prepareAppUniqueConstraintDefinitionBindingV1Effect = Effect.fn(
   "AppUniqueConstraintDefinitions.prepareBinding",
@@ -616,7 +724,7 @@ function decodeIdentityRow(row: typeof fxControlUniqueConstraints.$inferSelect) 
 
 function decodeDefinitionRow(
   row: typeof fxControlUniqueConstraintDefinitions.$inferSelect,
-  expected: CanonicalAppUniqueConstraintPhysicalSpecV1,
+  expected?: CanonicalAppUniqueConstraintPhysicalSpecV1,
 ) {
   return Effect.gen(function* () {
     const uniqueConstraintDefinitionId = yield* Effect.fromResult(
@@ -651,8 +759,9 @@ function decodeDefinitionRow(
       row.physicalSpecCodecVersion !== canonical.codecVersion ||
       !bytesEqual(row.physicalSpecBytes, expectedBytes) ||
       !bytesEqual(row.physicalSpecSha256, expectedSha) ||
-      canonical.sha256Hex !== expected.sha256Hex ||
-      canonical.canonicalBytesHex !== expected.canonicalBytesHex
+      (expected !== undefined &&
+        (canonical.sha256Hex !== expected.sha256Hex ||
+          canonical.canonicalBytesHex !== expected.canonicalBytesHex))
     ) {
       return yield* Effect.fail(corruption("physical evidence mismatch"));
     }
@@ -670,6 +779,27 @@ function decodeDefinitionRow(
       createdAt,
     } satisfies AppUniqueConstraintDefinitionRecordV1);
   });
+}
+
+function markLocatedDefinition(
+  scopeId: ScopeId,
+  schemaVersionId: CatalogSchemaVersionId,
+  definition: AppUniqueConstraintDefinitionRecordV1,
+): LocatedAppUniqueConstraintDefinitionV1 {
+  const located = {
+    ...definition,
+    scopeId,
+    schemaVersionId,
+  } as LocatedAppUniqueConstraintDefinitionV1;
+  Object.defineProperty(located, locatedDefinitionBrand, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  const frozen = Object.freeze(located);
+  locatedDefinitions.add(frozen);
+  return frozen;
 }
 
 function decodeBindingRow(

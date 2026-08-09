@@ -28,6 +28,7 @@ import {
 } from "flarex-protocol/app-document-id";
 import {
   type CatalogIndexDefinitionId,
+  type CatalogUniqueConstraintDefinitionId,
   CatalogTableIdSchema,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
@@ -112,6 +113,28 @@ import {
   type LocateAppDeveloperIndexDefinitionsV1Error,
 } from "./appDeveloperIndexCommitV1";
 import {
+  hasAppUniqueConstraintDefinitionAuthorityV1,
+  lowerCanonicalAppUniqueConstraintV1Result,
+  type AppUniqueConstraintDefinitionPortV1,
+} from "./appUniqueConstraintCommitV1";
+import {
+  isLocatedAppUniqueConstraintDefinitionV1,
+  type LocatedAppUniqueConstraintDefinitionV1,
+  type ReadAppUniqueConstraintDefinitionV1Error,
+} from "./appUniqueConstraintDefinitions";
+import {
+  applyAppUniqueKeyMutationInTransactionEffect,
+  AppUniqueKeyConflictError,
+  AppUniqueKeyHashError,
+  AppUniqueKeyPersistenceError,
+  CanonicalAppUniqueKeyHashCollisionError,
+  type ApplyAppUniqueKeyMutationV1Input,
+} from "./appUniqueKeys";
+import {
+  type AppUniqueKeyProjectionV1,
+  type CanonicalAppUniqueKeyV1,
+} from "./appUniqueKeyContract";
+import {
   appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
   isAppendAppIndexEntryRevisionV1Error,
   type AppendAppIndexEntryRevisionV1Error,
@@ -178,6 +201,7 @@ import {
   fxAppRowCurrent,
   fxAppRowRevisions,
   fxAppIndexEntryRevisions,
+  fxAppUniqueKeys,
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemIdempotency,
@@ -555,6 +579,8 @@ export type PointCommitCorruptionReasonV1 =
   | "intrinsicIndexTransitionInvalid"
   | "developerIndexBuildInvalid"
   | "developerIndexTransitionInvalid"
+  | "uniqueConstraintDefinitionInvalid"
+  | "uniqueKeyTransitionInvalid"
   | "successfulResultInvalid"
   | "committedOutcomeMissing"
   | "publishedOutcomeInvalid"
@@ -593,6 +619,13 @@ export class PointCommitIntrinsicIndexDefinitionUnavailableV1Error
   }> {}
 
 export const MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 = 256;
+/**
+ * S11 currently performs one bounded transaction-local transition per action.
+ * Keep this materially below the general material-row ceiling until that owner
+ * has a set-based mutation primitive and corresponding contention evidence.
+ */
+export const MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 = 32;
+export const MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1 = 64;
 
 export class PointCommitDeveloperIndexMaintenanceUnavailableV1Error
   extends Data.TaggedError(
@@ -604,6 +637,20 @@ export class PointCommitDeveloperIndexMaintenanceUnavailableV1Error
       | "entryKeyLimitExceeded";
     readonly observed?: number;
     readonly maximum?: number;
+  }> {}
+
+export class PointCommitUniqueConstraintMaintenanceUnavailableV1Error
+  extends Data.TaggedError(
+    "PointCommitUniqueConstraintMaintenanceUnavailableV1Error",
+  )<{
+    readonly reason:
+      | "definitionPortInvalid"
+      | "definitionSetUnavailable"
+      | "mutationLimitExceeded"
+      | "keyInvalid";
+    readonly observed?: number;
+    readonly maximum?: number;
+    readonly cause?: unknown;
   }> {}
 
 export type PointCommitSqlOperationV1 =
@@ -621,12 +668,15 @@ export type PointCommitSqlOperationV1 =
   | "lockIntrinsicIndexBuild"
   | "lockDeveloperIndexBuilds"
   | "loadDeveloperIndexDocuments"
+  | "loadUniqueKeyDocuments"
   | "loadDeveloperIndexEntryHeads"
+  | "loadUniqueKeyOwners"
   | "resetIntrinsicIndexValidation"
   | "resetDeveloperIndexValidation"
   | "writeTentativeRow"
   | "writeIntrinsicIndexEntry"
   | "writeDeveloperIndexEntry"
+  | "writeUniqueKey"
   | "recheckOutcome"
   | "writeCommitHeader"
   | "writeCommitChange"
@@ -694,9 +744,14 @@ export type PointCommitRollbackProofV1Error =
   | PointCommitSqlErrorV1
   | PointCommitIntrinsicIndexDefinitionUnavailableV1Error
   | PointCommitDeveloperIndexMaintenanceUnavailableV1Error
+  | PointCommitUniqueConstraintMaintenanceUnavailableV1Error
   | LocateAppDeveloperIndexDefinitionsV1Error
+  | ReadAppUniqueConstraintDefinitionV1Error
   | ReadAppIndexDefinitionError
-  | AppendAppIndexEntryRevisionV1Error;
+  | AppendAppIndexEntryRevisionV1Error
+  | AppUniqueKeyConflictError
+  | AppUniqueKeyHashError
+  | CanonicalAppUniqueKeyHashCollisionError;
 
 export interface PointCommitRollbackProofPortV1 {
   readonly prove: (
@@ -709,6 +764,7 @@ export interface PointCommitRollbackProofPortV1 {
 }
 
 const pointCommitDeveloperIndexMaintenancePortsV1 = new WeakSet<object>();
+const pointCommitUniqueConstraintMaintenancePortsV1 = new WeakSet<object>();
 
 /**
  * Process-local private capability check. Only point-commit ports constructed
@@ -728,6 +784,24 @@ function registerPointCommitDeveloperIndexMaintenanceV1<T extends object>(
 ): T {
   if (developerIndexes !== undefined) {
     pointCommitDeveloperIndexMaintenancePortsV1.add(port);
+  }
+  return port;
+}
+
+/** Exact private C08-B2 composition authority; structural copies fail closed. */
+export function hasPointCommitUniqueConstraintMaintenanceV1(
+  value: unknown,
+): boolean {
+  return typeof value === "object" && value !== null &&
+    pointCommitUniqueConstraintMaintenancePortsV1.has(value);
+}
+
+function registerPointCommitUniqueConstraintMaintenanceV1<T extends object>(
+  port: T,
+  uniqueConstraints: AppUniqueConstraintDefinitionPortV1 | undefined,
+): T {
+  if (hasAppUniqueConstraintDefinitionAuthorityV1(uniqueConstraints)) {
+    pointCommitUniqueConstraintMaintenancePortsV1.add(port);
   }
   return port;
 }
@@ -801,6 +875,7 @@ export type PointCommitTransactionProofStepV1 =
   | "tentativeRowWritten"
   | "intrinsicIndexEntryWritten"
   | "developerIndexEntryWritten"
+  | "uniqueKeyWritten"
   | "outcomeRechecked"
   | "commitHeaderWritten"
   | "commitChangeWritten"
@@ -823,6 +898,8 @@ export interface PointCommitTransactionProofOptionsV1 {
     IntrinsicCreationTimeIndexDefinitionPortV1;
   /** Private C08-A composition; absence preserves the lower O07 proof lane. */
   readonly developerIndexes?: AppDeveloperIndexDefinitionPortV1;
+  /** Private C08-B2 composition; absence preserves the lower proof lane. */
+  readonly uniqueConstraints?: AppUniqueConstraintDefinitionPortV1;
   readonly afterTransactionStep?: (
     event: Readonly<{
       readonly scopeId: ReplacementScopeIdV1;
@@ -843,6 +920,7 @@ function capturePointCommitTransactionProofOptionsV1(
 ): PointCommitTransactionProofOptionsV1 {
   const intrinsicCreationTimeIndexes = options.intrinsicCreationTimeIndexes;
   const developerIndexes = options.developerIndexes;
+  const uniqueConstraints = options.uniqueConstraints;
   const afterTransactionStep = options.afterTransactionStep;
   const observeQuery = options.observeQuery;
   return Object.freeze({
@@ -850,6 +928,7 @@ function capturePointCommitTransactionProofOptionsV1(
       ? {}
       : { intrinsicCreationTimeIndexes }),
     ...(developerIndexes === undefined ? {} : { developerIndexes }),
+    ...(uniqueConstraints === undefined ? {} : { uniqueConstraints }),
     ...(afterTransactionStep === undefined ? {} : { afterTransactionStep }),
     ...(observeQuery === undefined ? {} : { observeQuery }),
   });
@@ -1098,6 +1177,75 @@ const prepareDeveloperIndexDefinitions = Effect.fn(
   return definitions;
 });
 
+const prepareUniqueConstraintDefinitions = Effect.fn(
+  "PointCommitTransaction.prepareUniqueConstraintDefinitions",
+)(function* (
+  command: PreparedPointCommitTransactionCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Effect.fn.Return<
+  ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  | ReadAppUniqueConstraintDefinitionV1Error
+  | PointCommitUniqueConstraintMaintenanceUnavailableV1Error
+  | PointCommitCorruptionV1Error
+> {
+  const port = options.uniqueConstraints;
+  if (command.rowIntents.length === 0 || port === undefined) {
+    return Object.freeze([]);
+  }
+  if (!hasAppUniqueConstraintDefinitionAuthorityV1(port)) {
+    return yield* Effect.fail(
+      new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({
+        reason: "definitionPortInvalid",
+      }),
+    );
+  }
+  const definitions = yield* port.locate({
+    deploymentId: command.authorityPins.deploymentId,
+    scopeId: command.authorityPins.scopeId,
+    schemaVersionId: command.authorityPins.schemaVersionId,
+    tableIds: Object.freeze([
+      ...new Set(command.rowIntents.map((intent) => intent.tableId)),
+    ]),
+    maximumDefinitions: MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1,
+  });
+  if (definitions === null) {
+    return yield* Effect.fail(
+      new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({
+        reason: "definitionSetUnavailable",
+      }),
+    );
+  }
+  let mutationCount = 0;
+  let previousDefinitionId = 0;
+  for (const definition of definitions) {
+    if (
+      !isLocatedAppUniqueConstraintDefinitionV1(definition) ||
+      definition.scopeId !== command.authorityPins.scopeId ||
+      definition.deploymentId !== command.authorityPins.deploymentId ||
+      definition.schemaVersionId !== command.authorityPins.schemaVersionId ||
+      definition.uniqueConstraintDefinitionId <= previousDefinitionId
+    ) {
+      return yield* Effect.fail(
+        corruption("uniqueConstraintDefinitionInvalid"),
+      );
+    }
+    previousDefinitionId = definition.uniqueConstraintDefinitionId;
+    for (const intent of command.rowIntents) {
+      if (intent.tableId === definition.tableId) mutationCount += 1;
+    }
+  }
+  if (mutationCount > MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1) {
+    return yield* Effect.fail(
+      new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({
+        reason: "mutationLimitExceeded",
+        observed: mutationCount,
+        maximum: MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1,
+      }),
+    );
+  }
+  return definitions;
+});
+
 export function createPointCommitFinishingTransitionPortV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointCommitTransactionProofOptionsV1 = {},
@@ -1263,6 +1411,10 @@ export function createPointCommitRollbackProofPortV1(
       command,
       capturedOptions,
     );
+    const uniqueDefinitions = yield* prepareUniqueConstraintDefinitions(
+      command,
+      capturedOptions,
+    );
     return yield* Effect.uninterruptible(Effect.tryPromise({
       try: () => runRollbackProof(
         target,
@@ -1270,15 +1422,19 @@ export function createPointCommitRollbackProofPortV1(
         command,
         intrinsicDefinitions,
         developerDefinitions,
+        uniqueDefinitions,
         capturedOptions,
       ),
       catch: mapTransactionFailure,
     }));
   });
 
-  return registerPointCommitDeveloperIndexMaintenanceV1(
-    Object.freeze({ prove }),
-    capturedOptions.developerIndexes,
+  return registerPointCommitUniqueConstraintMaintenanceV1(
+    registerPointCommitDeveloperIndexMaintenanceV1(
+      Object.freeze({ prove }),
+      capturedOptions.developerIndexes,
+    ),
+    capturedOptions.uniqueConstraints,
   );
 }
 
@@ -1337,6 +1493,10 @@ export function createPointCommitPublisherPortV1(
       command,
       capturedOptions,
     );
+    const uniqueDefinitions = yield* prepareUniqueConstraintDefinitions(
+      command,
+      capturedOptions,
+    );
 
     const runPublication = awaitPointCommitPublicationSettlement(
       runPointCommitPublication(
@@ -1345,6 +1505,7 @@ export function createPointCommitPublisherPortV1(
         command,
         intrinsicDefinitions,
         developerDefinitions,
+        uniqueDefinitions,
         capturedOptions,
       ),
     );
@@ -1411,11 +1572,14 @@ export function createPointCommitPublisherPortV1(
     return yield* resolveOutcome(target, input);
   });
 
-  return registerPointCommitDeveloperIndexMaintenanceV1(Object.freeze({
-    ...rollback,
-    publish,
-    [RESOLVE_POINT_COMMIT_OUTCOME_V1]: resolvePointCommitOutcome,
-  }), capturedOptions.developerIndexes);
+  return registerPointCommitUniqueConstraintMaintenanceV1(
+    registerPointCommitDeveloperIndexMaintenanceV1(Object.freeze({
+      ...rollback,
+      publish,
+      [RESOLVE_POINT_COMMIT_OUTCOME_V1]: resolvePointCommitOutcome,
+    }), capturedOptions.developerIndexes),
+    capturedOptions.uniqueConstraints,
+  );
 }
 
 function awaitPointCommitPublicationSettlement(
@@ -3116,6 +3280,7 @@ async function runRollbackProof(
   command: PreparedPointCommitTransactionCommandV1,
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitWouldCommitV1> {
   try {
@@ -3126,6 +3291,7 @@ async function runRollbackProof(
         command,
         intrinsicDefinitions,
         developerDefinitions,
+        uniqueDefinitions,
         options,
         "rollbackProof",
       );
@@ -3152,6 +3318,7 @@ async function runPointCommitPublication(
   command: PreparedPointCommitPublicationCommandV1,
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitPublicationDecisionV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
@@ -3161,6 +3328,7 @@ async function runPointCommitPublication(
       command,
       intrinsicDefinitions,
       developerDefinitions,
+      uniqueDefinitions,
       options,
       "publish",
     );
@@ -3198,6 +3366,7 @@ async function runPointCommitTransactionKernel(
   command: PreparedPointCommitTransactionCommandV1,
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
   mode: PointCommitTransactionModeV1,
 ): Promise<PointCommitKernelResultV1> {
@@ -3299,6 +3468,12 @@ async function runPointCommitTransactionKernel(
     loadedHeads,
     developerBuilds,
   );
+  const uniqueKeyActions = await preparePointCommitUniqueKeyActions(
+    tx,
+    command,
+    loadedHeads,
+    uniqueDefinitions,
+  );
   let intrinsicBuildIndex = 0;
   for (const rowIntent of command.rowIntents) {
     const rowRevision = await lowerTentativePointCommitRow(
@@ -3350,6 +3525,14 @@ async function runPointCommitTransactionKernel(
     allocation.commitSeq,
     clock.record.epoch,
     developerIndexActions,
+    options,
+  );
+  await writePointCommitUniqueKeyActions(
+    tx,
+    command,
+    allocation.commitSeq,
+    clock.record.epoch,
+    uniqueKeyActions,
     options,
   );
   for (const developer of developerBuilds) {
@@ -4597,6 +4780,38 @@ interface PointCommitDeveloperIndexDocumentRequestV1 {
   readonly creationTime: AppCreationTimeV1;
 }
 
+interface PointCommitUniqueKeyPlanV1 {
+  readonly definition: LocatedAppUniqueConstraintDefinitionV1;
+  readonly rowId: AppRowIdHexV1;
+  readonly rowPrevCommitSeq: CommitSeq | null;
+  readonly previousProjection: AppUniqueKeyProjectionV1 | null;
+  readonly previousCanonical: CanonicalAppUniqueKeyV1 | null;
+  readonly nextProjection: AppUniqueKeyProjectionV1 | null;
+  readonly nextCanonical: CanonicalAppUniqueKeyV1 | null;
+}
+
+interface PointCommitUniqueKeyOwnerV1 {
+  readonly commitSeq: CommitSeq;
+  readonly encodedKey: OrderedIndexKeyHexV1;
+}
+
+interface PointCommitUniqueKeyOwnerPositionV1 {
+  readonly definitionId: CatalogUniqueConstraintDefinitionId;
+  readonly tableId: CatalogTableId;
+  readonly rowId: AppRowIdHexV1;
+}
+
+interface PointCommitUniqueKeyActionV1 {
+  readonly phase: "release" | "advance" | "claim";
+  readonly definition: LocatedAppUniqueConstraintDefinitionV1;
+  readonly rowId: AppRowIdHexV1;
+  readonly rowPrevCommitSeq: CommitSeq | null;
+  readonly previousClaimCommitSeq: CommitSeq | null;
+  readonly previous: AppUniqueKeyProjectionV1 | null;
+  readonly next: AppUniqueKeyProjectionV1 | null;
+  readonly sortKey: OrderedIndexKeyHexV1;
+}
+
 async function lockPointCommitDeveloperIndexBuilds(
   tx: AppRowTransaction,
   clock: LockedPointCommitClockV1,
@@ -4801,6 +5016,303 @@ async function preparePointCommitDeveloperIndexActions(
   return Object.freeze(actions);
 }
 
+async function preparePointCommitUniqueKeyActions(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+): Promise<ReadonlyArray<PointCommitUniqueKeyActionV1>> {
+  if (definitions.length === 0) return Object.freeze([]);
+  const headsByDocumentId = new Map<AppDocumentIdV1, LoadedPointCommitHeadV1>();
+  for (let index = 0; index < command.dependencies.length; index += 1) {
+    const dependency = command.dependencies[index];
+    const loaded = loadedHeads[index];
+    if (
+      dependency === undefined || loaded === undefined ||
+      headsByDocumentId.has(dependency.documentId)
+    ) throw corruption("uniqueKeyTransitionInvalid");
+    headsByDocumentId.set(dependency.documentId, loaded);
+  }
+  const priorDocuments = await loadPointCommitUniqueKeyDocuments(
+    tx,
+    command,
+    headsByDocumentId,
+    definitions,
+  );
+  const plans: PointCommitUniqueKeyPlanV1[] = [];
+  for (const definition of definitions) {
+    for (const intent of command.rowIntents) {
+      if (intent.tableId !== definition.tableId) continue;
+      const loaded = headsByDocumentId.get(intent.documentId);
+      if (loaded === undefined) throw corruption("uniqueKeyTransitionInvalid");
+      const priorDocument = priorDocuments.get(intent.documentId) ?? null;
+      if (loaded.head.kind === "live" && priorDocument === null) {
+        throw corruption("uniqueKeyTransitionInvalid");
+      }
+      const previous = loaded.head.kind === "live" && priorDocument !== null
+        ? lowerPointCommitUniqueKey(definition, priorDocument)
+        : null;
+      const next = intent.kind === "live"
+        ? lowerPointCommitUniqueKey(definition, intent.document)
+        : null;
+      plans.push(Object.freeze({
+        definition,
+        rowId: intent.rowId,
+        rowPrevCommitSeq: loaded.head.kind === "live"
+          ? loaded.head.revisionCommitSeq
+          : null,
+        previousProjection: previous?.projection ?? null,
+        previousCanonical: previous?.canonical ?? null,
+        nextProjection: next?.projection ?? null,
+        nextCanonical: next?.canonical ?? null,
+      }));
+    }
+  }
+  const owners = await loadPointCommitUniqueKeyOwners(tx, command, plans);
+  const actions: PointCommitUniqueKeyActionV1[] = [];
+  for (const plan of plans) {
+    const owner = owners.get(uniqueKeyOwnerPosition(
+      plan.definition.uniqueConstraintDefinitionId,
+      plan.definition.tableId,
+      plan.rowId,
+    )) ?? null;
+    const previousClaim = plan.previousCanonical?.kind === "claim"
+      ? plan.previousCanonical
+      : null;
+    const nextClaim = plan.nextCanonical?.kind === "claim"
+      ? plan.nextCanonical
+      : null;
+    if (owner !== null) {
+      if (
+        plan.rowPrevCommitSeq === null ||
+        owner.commitSeq !== plan.rowPrevCommitSeq ||
+        previousClaim === null ||
+        owner.encodedKey !== previousClaim.encodedKey
+      ) throw corruption("uniqueKeyTransitionInvalid");
+      if (
+        nextClaim !== null &&
+        nextClaim.encodedKey === previousClaim.encodedKey
+      ) {
+        actions.push(uniqueKeyAction(
+          "advance",
+          plan,
+          owner.commitSeq,
+          plan.previousProjection,
+          plan.nextProjection,
+          previousClaim.encodedKey,
+        ));
+        continue;
+      }
+      actions.push(uniqueKeyAction(
+        "release",
+        plan,
+        owner.commitSeq,
+        plan.previousProjection,
+        null,
+        previousClaim.encodedKey,
+      ));
+    }
+    if (nextClaim !== null) {
+      actions.push(uniqueKeyAction(
+        "claim",
+        plan,
+        null,
+        null,
+        plan.nextProjection,
+        nextClaim.encodedKey,
+      ));
+    }
+  }
+  if (actions.length > MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1) {
+    throw new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({
+      reason: "mutationLimitExceeded",
+      observed: actions.length,
+      maximum: MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1,
+    });
+  }
+  actions.sort(comparePointCommitUniqueKeyActions);
+  return Object.freeze(actions);
+}
+
+function lowerPointCommitUniqueKey(
+  definition: LocatedAppUniqueConstraintDefinitionV1,
+  document: CanonicalFlarexValueV1,
+): Readonly<{
+  readonly projection: AppUniqueKeyProjectionV1;
+  readonly canonical: CanonicalAppUniqueKeyV1;
+}> {
+  return projectPointCommitTransactionResult(
+    lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(
+      Result.mapError((cause) =>
+        new PointCommitUniqueConstraintMaintenanceUnavailableV1Error({
+          reason: "keyInvalid",
+          cause,
+        })
+      ),
+    ),
+  );
+}
+
+async function loadPointCommitUniqueKeyOwners(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  plans: ReadonlyArray<PointCommitUniqueKeyPlanV1>,
+): Promise<ReadonlyMap<string, PointCommitUniqueKeyOwnerV1>> {
+  if (plans.length === 0) return new Map();
+  const scopeUuid = projectPointCommitTransactionResult(
+    projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
+      Result.mapError(() => corruption("uniqueKeyTransitionInvalid")),
+    ),
+  ).scopeUuid;
+  const positions = uniquePointCommitUniqueKeyOwnerPositions(plans);
+  const values = sql.join(positions.map((position, ordinal) => sql`
+    (
+      ${ordinal}::integer,
+      ${position.definitionId}::integer,
+      ${position.tableId}::integer,
+      ${appRowIdHexV1ToBytes(position.rowId)}::bytea
+    )
+  `), sql`, `);
+  const statement = sql`
+    with requested(ordinal, constraint_id, table_id, row_id) as (
+      values ${values}
+    )
+    select
+      requested.ordinal::text as "ordinalText",
+      current_key.locale_key as "localeKey",
+      current_key.encoded_key as "encodedKey",
+      current_key.commit_seq::text as "commitSeqText"
+    from requested
+    left join fx_app_unique_key as current_key
+      on current_key.scope_uuid = ${scopeUuid}
+      and current_key.constraint_id = requested.constraint_id
+      and current_key.table_id = requested.table_id
+      and current_key.row_id = requested.row_id
+    order by requested.ordinal asc
+  `;
+  const result = await sqlCall("loadUniqueKeyOwners", () =>
+    tx.execute(statement));
+  const rows = rowsFromDriverExecuteResult(result, () => {
+    throw corruption("uniqueKeyTransitionInvalid");
+  });
+  if (rows.length !== positions.length) {
+    throw corruption("uniqueKeyTransitionInvalid");
+  }
+  const owners = new Map<string, PointCommitUniqueKeyOwnerV1>();
+  for (let ordinal = 0; ordinal < positions.length; ordinal += 1) {
+    const row = rows[ordinal];
+    const position = positions[ordinal];
+    if (!isNonArrayRecord(row) || position === undefined) {
+      throw corruption("uniqueKeyTransitionInvalid");
+    }
+    const decodedOrdinal = projectPointCommitTransactionResult(
+      parseNonNegativeIntegerTextResult(row.ordinalText).pipe(
+        Result.mapError(() => corruption("uniqueKeyTransitionInvalid")),
+      ),
+    );
+    if (decodedOrdinal !== ordinal) {
+      throw corruption("uniqueKeyTransitionInvalid");
+    }
+    if (
+      row.localeKey === null &&
+      row.encodedKey === null &&
+      row.commitSeqText === null
+    ) continue;
+    if (
+      row.localeKey !== "" ||
+      !isUint8Array(row.encodedKey) ||
+      typeof row.commitSeqText !== "string"
+    ) throw corruption("uniqueKeyTransitionInvalid");
+    const commitSeq = projectPointCommitTransactionResult(
+      parseNullableCommitSeqTextResult(row.commitSeqText).pipe(
+        Result.mapError(() => corruption("uniqueKeyTransitionInvalid")),
+        Result.filterOrFail(
+          (value): value is CommitSeq => value !== null,
+          () => corruption("uniqueKeyTransitionInvalid"),
+        ),
+      ),
+    );
+    const ownerPosition = uniqueKeyOwnerPosition(
+      position.definitionId,
+      position.tableId,
+      position.rowId,
+    );
+    if (owners.has(ownerPosition)) {
+      throw corruption("uniqueKeyTransitionInvalid");
+    }
+    owners.set(ownerPosition, Object.freeze({
+      commitSeq,
+      encodedKey: encodeBytesToLowercaseHex(row.encodedKey) as
+        OrderedIndexKeyHexV1,
+    }));
+  }
+  return owners;
+}
+
+function uniquePointCommitUniqueKeyOwnerPositions(
+  plans: ReadonlyArray<PointCommitUniqueKeyPlanV1>,
+): ReadonlyArray<PointCommitUniqueKeyOwnerPositionV1> {
+  const positions = new Map<string, PointCommitUniqueKeyOwnerPositionV1>();
+  for (const plan of plans) {
+    const position = Object.freeze({
+      definitionId: plan.definition.uniqueConstraintDefinitionId,
+      tableId: plan.definition.tableId,
+      rowId: plan.rowId,
+    } satisfies PointCommitUniqueKeyOwnerPositionV1);
+    positions.set(uniqueKeyOwnerPosition(
+      position.definitionId,
+      position.tableId,
+      position.rowId,
+    ), position);
+  }
+  return Object.freeze([...positions.values()].sort((left, right) =>
+    left.definitionId - right.definitionId ||
+    left.tableId - right.tableId ||
+    left.rowId.localeCompare(right.rowId)
+  ));
+}
+
+function uniqueKeyAction(
+  phase: PointCommitUniqueKeyActionV1["phase"],
+  plan: PointCommitUniqueKeyPlanV1,
+  previousClaimCommitSeq: CommitSeq | null,
+  previous: AppUniqueKeyProjectionV1 | null,
+  next: AppUniqueKeyProjectionV1 | null,
+  sortKey: OrderedIndexKeyHexV1,
+): PointCommitUniqueKeyActionV1 {
+  return Object.freeze({
+    phase,
+    definition: plan.definition,
+    rowId: plan.rowId,
+    rowPrevCommitSeq: plan.rowPrevCommitSeq,
+    previousClaimCommitSeq,
+    previous,
+    next,
+    sortKey,
+  });
+}
+
+function uniqueKeyOwnerPosition(
+  definitionId: CatalogUniqueConstraintDefinitionId,
+  tableId: CatalogTableId,
+  rowId: AppRowIdHexV1,
+): string {
+  return `${definitionId}:${tableId}:${rowId}`;
+}
+
+function comparePointCommitUniqueKeyActions(
+  left: PointCommitUniqueKeyActionV1,
+  right: PointCommitUniqueKeyActionV1,
+): number {
+  const phaseRank = (phase: PointCommitUniqueKeyActionV1["phase"]) =>
+    phase === "release" ? 0 : phase === "advance" ? 1 : 2;
+  return phaseRank(left.phase) - phaseRank(right.phase) ||
+    left.definition.uniqueConstraintDefinitionId -
+      right.definition.uniqueConstraintDefinitionId ||
+    left.sortKey.localeCompare(right.sortKey) ||
+    left.rowId.localeCompare(right.rowId);
+}
+
 async function loadPointCommitDeveloperIndexDocuments(
   tx: AppRowTransaction,
   command: PreparedPointCommitTransactionCommandV1,
@@ -4810,20 +5322,63 @@ async function loadPointCommitDeveloperIndexDocuments(
   >,
   builds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
 ): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
-  if (builds.length === 0) return new Map();
-  const indexedTableIds = new Set(
-    builds.map((build) => build.definition.access.tableId),
+  return loadPointCommitDocumentsForTables(
+    tx,
+    command,
+    loadedHeadsByDocumentId,
+    new Set(builds.map((build) => build.definition.access.tableId)),
+    "loadDeveloperIndexDocuments",
+    "developerIndexTransitionInvalid",
   );
+}
+
+async function loadPointCommitUniqueKeyDocuments(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  loadedHeadsByDocumentId: ReadonlyMap<
+    AppDocumentIdV1,
+    LoadedPointCommitHeadV1
+  >,
+  definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
+  return loadPointCommitDocumentsForTables(
+    tx,
+    command,
+    loadedHeadsByDocumentId,
+    new Set(definitions.map((definition) => definition.tableId)),
+    "loadUniqueKeyDocuments",
+    "uniqueKeyTransitionInvalid",
+  );
+}
+
+async function loadPointCommitDocumentsForTables(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  loadedHeadsByDocumentId: ReadonlyMap<
+    AppDocumentIdV1,
+    LoadedPointCommitHeadV1
+  >,
+  indexedTableIds: ReadonlySet<CatalogTableId>,
+  operation: Extract<
+    PointCommitSqlOperationV1,
+    "loadDeveloperIndexDocuments" | "loadUniqueKeyDocuments"
+  >,
+  corruptionReason: Extract<
+    PointCommitCorruptionReasonV1,
+    "developerIndexTransitionInvalid" | "uniqueKeyTransitionInvalid"
+  >,
+): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
+  if (indexedTableIds.size === 0) return new Map();
   const requests: PointCommitDeveloperIndexDocumentRequestV1[] = [];
   for (const intent of command.rowIntents) {
     if (!indexedTableIds.has(intent.tableId)) continue;
     const loaded = loadedHeadsByDocumentId.get(intent.documentId);
     if (loaded === undefined) {
-      throw corruption("developerIndexTransitionInvalid");
+      throw corruption(corruptionReason);
     }
     if (loaded.head.kind !== "live") continue;
     if (loaded.creationTime === null) {
-      throw corruption("developerIndexTransitionInvalid");
+      throw corruption(corruptionReason);
     }
     requests.push(Object.freeze({
       documentId: intent.documentId,
@@ -4836,7 +5391,7 @@ async function loadPointCommitDeveloperIndexDocuments(
   if (requests.length === 0) return new Map();
   const scopeUuid = projectPointCommitTransactionResult(
     projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
-      Result.mapError(() => corruption("developerIndexTransitionInvalid")),
+      Result.mapError(() => corruption(corruptionReason)),
     ),
   ).scopeUuid;
   const values = sql.join(requests.map((request, ordinal) => sql`
@@ -4867,14 +5422,14 @@ async function loadPointCommitDeveloperIndexDocuments(
     order by requested.ordinal asc
   `;
   const result = await sqlCall(
-    "loadDeveloperIndexDocuments",
+    operation,
     () => tx.execute(statement),
   );
   const rows = rowsFromDriverExecuteResult(result, () => {
-    throw corruption("developerIndexTransitionInvalid");
+    throw corruption(corruptionReason);
   });
   if (rows.length !== requests.length) {
-    throw corruption("developerIndexTransitionInvalid");
+    throw corruption(corruptionReason);
   }
   const documents = new Map<AppDocumentIdV1, CanonicalFlarexValueV1>();
   for (let ordinal = 0; ordinal < requests.length; ordinal += 1) {
@@ -4890,7 +5445,7 @@ async function loadPointCommitDeveloperIndexDocuments(
       !isUint8Array(raw.valueBytes) ||
       !isUint8ArrayWithByteLength(raw.valueSha256, 32)
     ) {
-      throw corruption("developerIndexTransitionInvalid");
+      throw corruption(corruptionReason);
     }
     let document: CanonicalFlarexValueV1;
     try {
@@ -4904,7 +5459,7 @@ async function loadPointCommitDeveloperIndexDocuments(
         cause instanceof FlarexValueEvidenceV1Error ||
         cause instanceof FlarexValueCodecV1Error
       ) {
-        throw corruption("developerIndexTransitionInvalid");
+        throw corruption(corruptionReason);
       }
       throw cause;
     }
@@ -4913,7 +5468,7 @@ async function loadPointCommitDeveloperIndexDocuments(
       request.documentId,
       request.creationTime,
     )) {
-      throw corruption("developerIndexTransitionInvalid");
+      throw corruption(corruptionReason);
     }
     documents.set(request.documentId, document);
   }
@@ -5123,6 +5678,59 @@ async function writePointCommitDeveloperIndexActions(
       "developerIndexEntryWritten",
     );
   }
+}
+
+async function writePointCommitUniqueKeyActions(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  commitSeq: CommitSeq,
+  writeEpoch: ScopeEpoch,
+  actions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<void> {
+  for (const action of actions) {
+    const input: ApplyAppUniqueKeyMutationV1Input = Object.freeze({
+      scopeId: command.authorityPins.scopeId,
+      constraintId: action.definition.uniqueConstraintDefinitionId,
+      tableId: action.definition.tableId,
+      rowId: action.rowId,
+      writeEpoch,
+      commitSeq,
+      rowPrevCommitSeq: action.rowPrevCommitSeq,
+      previousClaimCommitSeq: action.previousClaimCommitSeq,
+      previous: action.previous,
+      next: action.next,
+    });
+    const settled = await runPointCommitUniqueKeyMutation(tx, input);
+    projectPointCommitTransactionResult(
+      settled.pipe(Result.mapError(mapPointCommitUniqueKeyFailure)),
+    );
+    await emitTransactionStep(options, command, "uniqueKeyWritten");
+  }
+}
+
+/** The single audited Effect runtime bridge for C07's Promise transaction. */
+function runPointCommitUniqueKeyMutation(
+  tx: AppRowTransaction,
+  input: ApplyAppUniqueKeyMutationV1Input,
+) {
+  return Effect.runPromise(Effect.result(
+    applyAppUniqueKeyMutationInTransactionEffect(tx, input),
+  ));
+}
+
+function mapPointCommitUniqueKeyFailure(
+  failure: unknown,
+): unknown {
+  if (
+    failure instanceof AppUniqueKeyConflictError ||
+    failure instanceof AppUniqueKeyHashError ||
+    failure instanceof CanonicalAppUniqueKeyHashCollisionError
+  ) return failure;
+  if (failure instanceof AppUniqueKeyPersistenceError) {
+    return new PointCommitSqlFailureMarkerV1("writeUniqueKey", failure.cause);
+  }
+  return corruption("uniqueKeyTransitionInvalid");
 }
 
 async function resetPointCommitDeveloperIndexValidation(
@@ -5827,6 +6435,10 @@ function mapTransactionFailure(
     cause instanceof PointCommitSqlErrorV1 ||
     cause instanceof PointCommitIntrinsicIndexDefinitionUnavailableV1Error ||
     cause instanceof PointCommitDeveloperIndexMaintenanceUnavailableV1Error ||
+    cause instanceof PointCommitUniqueConstraintMaintenanceUnavailableV1Error ||
+    cause instanceof AppUniqueKeyConflictError ||
+    cause instanceof AppUniqueKeyHashError ||
+    cause instanceof CanonicalAppUniqueKeyHashCollisionError ||
     isAppendAppIndexEntryRevisionV1Error(cause)
   ) {
     return cause;

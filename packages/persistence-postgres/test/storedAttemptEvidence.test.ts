@@ -7,6 +7,11 @@ import {
   decodeAppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+  APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  decodeAppUniqueConstraintPhysicalSpecV1,
+} from "flarex-protocol/app-unique-constraint-definition";
+import {
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1ToBytes,
   decodeAppDocumentIdentityV1,
@@ -66,6 +71,7 @@ import {
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
+  SchemaManifestAppIndexDescriptorSchema,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import {
@@ -204,6 +210,18 @@ import {
   lowerAppDeveloperIndexKeyV1,
 } from "../src/appDeveloperIndexCommitV1";
 import {
+  createAppUniqueConstraintDefinitionPortV1,
+  lowerAppUniqueConstraintProjectionV1Result,
+} from "../src/appUniqueConstraintCommitV1";
+import {
+  ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
+  prepareAppUniqueConstraintDefinitionBindingV1Effect,
+} from "../src/appUniqueConstraintDefinitions";
+import {
+  applyAppUniqueKeyMutationInTransactionEffect,
+  AppUniqueKeyConflictError,
+} from "../src/appUniqueKeys";
+import {
   createSessionJournalStorePersistenceV1,
   type PinnedPointTableV1,
   type SessionJournalAttemptV1,
@@ -262,6 +280,7 @@ import {
   createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
   createPointMutationAttemptReplacementPortV1,
+  hasPointCommitUniqueConstraintMaintenanceV1,
   PointCommitConflictV1Error,
   PointCommitConfirmedPreDecisionRollbackV1Error,
   PointCommitCorruptionV1Error,
@@ -4669,6 +4688,374 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
+  it("captures the exact unique-maintenance capability and claims inserts", async () => {
+    let optionReads = 0;
+    let insertedDocumentId: string | null = null;
+    const prepared = await prepareO07BScenario(
+      "c08b2_unique_insert",
+      async (current, table) => {
+        const result = await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "claimed" },
+        });
+        if (result.kind !== "completed" || result.outcome.kind !== "inserted") {
+          throw new Error("Expected a C08-B2 inserted document.");
+        }
+        insertedDocumentId = result.outcome.documentId;
+      },
+      async (current) => {
+        const { uniqueConstraints } = await prepareUniqueConstraintForO06(
+          current,
+        );
+        return {
+          get uniqueConstraints() {
+            optionReads += 1;
+            return uniqueConstraints;
+          },
+        };
+      },
+    );
+    expect(optionReads).toBe(1);
+    const exactPort = createPointCommitPublisherPortV1(
+      resolutionPorts(persistence),
+      prepared.proofOptions,
+    );
+    expect(hasPointCommitUniqueConstraintMaintenanceV1(exactPort)).toBe(true);
+    expect(hasPointCommitUniqueConstraintMaintenanceV1({ ...exactPort })).toBe(
+      false,
+    );
+    expect(optionReads).toBe(2);
+
+    await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
+    expect(optionReads).toBe(2);
+    if (insertedDocumentId === null) {
+      throw new Error("Missing the C08-B2 inserted document ID.");
+    }
+    expect(await uniqueKeyState(prepared.scopeUuid)).toMatchObject([{
+      rowIdHex: pointRowIdHex(insertedDocumentId),
+      commitSeq: "1",
+    }]);
+  });
+
+  it("rejects structurally copied unique locator authority before transaction", async () => {
+    const prepared = await prepareO07BScenario(
+      "c08b2_forged_unique_definition",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "forged-definition" },
+        });
+      },
+      async (current) => {
+        const exact = await prepareUniqueConstraintForO06(current);
+        const definitions = await runEffect(exact.uniqueConstraints.locate({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+          schemaVersionId: current.schemaVersionId,
+          tableIds: Object.freeze([decodeCatalogTableId(1)]),
+          maximumDefinitions: 32,
+        }));
+        if (definitions === null) {
+          throw new Error("Missing exact C08-B2 definitions.");
+        }
+        const copied = Object.freeze(definitions.map((definition) =>
+          Object.freeze({ ...definition })
+        ));
+        return Object.freeze({
+          uniqueConstraints: Object.freeze({
+            locate: () => Effect.succeed(copied),
+          }),
+        });
+      },
+    );
+    await expect(runEffect(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    )).rejects.toMatchObject({
+      reason: "definitionPortInvalid",
+    });
+    expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      outcomes: "0",
+      last_commit_seq: "0",
+    });
+  });
+
+  it("rejects duplicate unique claims and rolls back every commit write", async () => {
+    const prepared = await prepareO07BScenario(
+      "c08b2_unique_conflict",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "duplicate" },
+        });
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+          fields: { name: "duplicate" },
+        });
+      },
+      (current) => prepareUniqueConstraintForO06(current),
+    );
+
+    expect(await runFailure(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    )).toBeInstanceOf(AppUniqueKeyConflictError);
+    expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      commit_changes: "0",
+      outcomes: "0",
+      wakes: "0",
+      last_commit_seq: "0",
+    });
+  });
+
+  it("rolls back a moved unique claim and resumes the exact transition", async () => {
+    let uniqueWrites = 0;
+    const prepared = await prepareO07BScenario(
+      "c08b2_unique_move_rollback",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Expected a seeded C08-B2 document.");
+        }
+        await runPointOperation(current.store, table, {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+          patch: { name: "moved" },
+        });
+      },
+      async (current) => ({
+        ...await prepareUniqueConstraintForO06(current, true),
+        afterTransactionStep: (event) => {
+          if (event.step === "uniqueKeyWritten") {
+            uniqueWrites += 1;
+            if (uniqueWrites === 2) {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+          }
+          return Promise.resolve();
+        },
+      }),
+      true,
+    );
+    const before = await uniqueKeyState(prepared.scopeUuid);
+    expect(before).toMatchObject([{ commitSeq: "1" }]);
+
+    expect(await runFailure(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    )).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(uniqueWrites).toBe(2);
+    expect(await uniqueKeyState(prepared.scopeUuid)).toEqual(before);
+
+    const recovered = createO07BAuthentication(
+      prepared.current,
+      prepared.proofOptions,
+    );
+    await runEffect(recovered.resumePointCommit({
+      deploymentId: prepared.current.anchor.deploymentId,
+      scopeId: prepared.current.anchor.scopeId,
+      sessionId: prepared.current.anchor.sessionId,
+      attemptFence: prepared.current.anchor.attemptFence.toString(),
+    }));
+    const after = await uniqueKeyState(prepared.scopeUuid);
+    expect(after).toMatchObject([{ commitSeq: "2" }]);
+    expect(after[0]?.encodedKeyHex).not.toBe(before[0]?.encodedKeyHex);
+  });
+
+  it("advances same-key claims, releases deletes, and omits sparse keys", async () => {
+    const sameKey = await prepareO07BScenario(
+      "c08b2_unique_same_key",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Expected a seeded same-key C08-B2 document.");
+        }
+        await runPointOperation(current.store, table, {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+          patch: { category: "non-unique-change" },
+        });
+      },
+      (current) => prepareUniqueConstraintForO06(current, true),
+      true,
+    );
+    const sameKeyBefore = await uniqueKeyState(sameKey.scopeUuid);
+    await runEffect(sameKey.authentication.publishPointCommit(sameKey.plan));
+    const sameKeyAfter = await uniqueKeyState(sameKey.scopeUuid);
+    expect(sameKeyAfter).toMatchObject([{ commitSeq: "2" }]);
+    expect(sameKeyAfter[0]?.encodedKeyHex).toBe(
+      sameKeyBefore[0]?.encodedKeyHex,
+    );
+
+    const deleted = await prepareO07BScenario(
+      "c08b2_unique_delete",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Expected a seeded delete C08-B2 document.");
+        }
+        await runPointOperation(current.store, table, {
+          kind: "delete",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+        });
+      },
+      (current) => prepareUniqueConstraintForO06(current, true),
+      true,
+    );
+    await runEffect(deleted.authentication.publishPointCommit(deleted.plan));
+    expect(await uniqueKeyState(deleted.scopeUuid)).toEqual([]);
+
+    const sparse = await prepareO07BScenario(
+      "c08b2_unique_sparse",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { category: "without-name" },
+        });
+      },
+      (current) => prepareUniqueConstraintForO06(current, false, true),
+    );
+    await runEffect(sparse.authentication.publishPointCommit(sparse.plan));
+    expect(await uniqueKeyState(sparse.scopeUuid)).toEqual([]);
+    expect(await o06DurableState(sparse.scopeUuid)).toMatchObject({
+      revisions: "1",
+      current_rows: "1",
+      commit_headers: "1",
+      outcomes: "1",
+    });
+  });
+
+  it("releases before claiming so two rows can swap unique keys", async () => {
+    let secondDocumentId: ReturnType<
+      typeof appDocumentIdV1FromRowIdentity
+    > | null = null;
+    let uniqueOptions: Required<Pick<
+      PointCommitTransactionProofOptionsV1,
+      "uniqueConstraints"
+    >> | null = null;
+    const prepared = await prepareO07BScenario(
+      "c08b2_unique_swap",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Expected the first seeded C08-B2 swap document.");
+        }
+        uniqueOptions = await prepareUniqueConstraintForO06(current, true);
+        secondDocumentId = await seedSecondUniqueUser(
+          current,
+          uniqueOptions.uniqueConstraints,
+        );
+        await runPointOperation(current.store, table, {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+          patch: { name: "other" },
+        });
+        await runPointOperation(current.store, table, {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+          documentId: secondDocumentId,
+          patch: { name: "seeded" },
+        });
+      },
+      async () => {
+        if (uniqueOptions === null) {
+          throw new Error("Missing the C08-B2 swap capability.");
+        }
+        return uniqueOptions;
+      },
+      true,
+    );
+    if (
+      prepared.current.seededDocumentId === null ||
+      secondDocumentId === null
+    ) throw new Error("Missing C08-B2 swap document identities.");
+    const before = await uniqueKeyState(prepared.scopeUuid);
+    expect(before).toHaveLength(2);
+    const beforeByRow = new Map(before.map((row) => [
+      row.rowIdHex,
+      row.encodedKeyHex,
+    ]));
+
+    await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
+    const after = await uniqueKeyState(prepared.scopeUuid);
+    expect(after).toHaveLength(2);
+    expect(after.every((row) => row.commitSeq === "2")).toBe(true);
+    const firstRowId = pointRowIdHex(prepared.current.seededDocumentId);
+    const secondRowId = pointRowIdHex(secondDocumentId);
+    expect(after.find((row) => row.rowIdHex === firstRowId)?.encodedKeyHex).toBe(
+      beforeByRow.get(secondRowId),
+    );
+    expect(after.find((row) => row.rowIdHex === secondRowId)?.encodedKeyHex).toBe(
+      beforeByRow.get(firstRowId),
+    );
+  });
+
+  it("refuses oversized unique keys and fan-out above the private ceiling", async () => {
+    const oversized = await prepareO07BScenario(
+      "c08b2_unique_oversized_key",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "x".repeat(3_000) },
+        });
+      },
+      (current) => prepareUniqueConstraintForO06(current),
+    );
+    await expect(runEffect(
+      oversized.authentication.publishPointCommit(oversized.plan),
+    )).rejects.toMatchObject({ reason: "keyInvalid" });
+    expect(await uniqueKeyState(oversized.scopeUuid)).toEqual([]);
+    expect(await o06DurableState(oversized.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      outcomes: "0",
+      last_commit_seq: "0",
+    });
+
+    const prepared = await prepareO07BScenario(
+      "c08b2_unique_ceiling",
+      async (current, table) => {
+        for (let index = 0; index < 33; index += 1) {
+          await runPointOperation(current.store, table, {
+            kind: "insert",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
+            fields: { name: `unique-${index}` },
+          });
+        }
+      },
+      (current) => prepareUniqueConstraintForO06(current),
+    );
+    await expect(runEffect(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    )).rejects.toMatchObject({
+      reason: "mutationLimitExceeded",
+      observed: 33,
+      maximum: 32,
+    });
+    expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      outcomes: "0",
+      last_commit_seq: "0",
+    });
+  });
+
   it("reports exact request-key evidence reuse before stale session checks", async () => {
     const prepared = await prepareO07BScenario("o07b_reuse_conflict");
     await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
@@ -6213,6 +6600,162 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     return Object.freeze({ developerIndexes });
   }
 
+  async function prepareUniqueConstraintForO06(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    seedExistingRow = false,
+    sparse = false,
+  ): Promise<Required<Pick<
+    PointCommitTransactionProofOptionsV1,
+    "uniqueConstraints"
+  >>> {
+    const tableId = decodeCatalogTableId(1);
+    const prepared = await runEffect(
+      prepareAppUniqueConstraintDefinitionBindingV1Effect(
+        persistence.drizzle,
+        {
+          deploymentId: current.anchor.deploymentId,
+          schemaVersionId: current.schemaVersionId,
+          tableId,
+          descriptor: SchemaManifestAppIndexDescriptorSchema.make(
+            "unique_name",
+          ),
+          physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+            kind: "appUniqueConstraint",
+            specVersion: 1,
+            orderedFields: ["name"],
+            sparse,
+            localePolicy: { kind: "none" },
+            keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+            keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+          }),
+        },
+      ),
+    );
+    await persistence.drizzle.transaction((tx) =>
+      runEffect(
+        ensureAppUniqueConstraintDefinitionBindingV1InTransaction(
+          tx,
+          prepared,
+        ),
+      )
+    );
+    const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
+      persistence.drizzle,
+    );
+    if (seedExistingRow) {
+      if (current.seededDocumentId === null) {
+        throw new Error("Missing C08-B2 seeded unique document.");
+      }
+      const definitions = await runEffect(uniqueConstraints.locate({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        schemaVersionId: current.schemaVersionId,
+        tableIds: Object.freeze([tableId]),
+        maximumDefinitions: 32,
+      }));
+      const definition = definitions?.[0];
+      if (definitions?.length !== 1 || definition === undefined) {
+        throw new Error("Missing C08-B2 unique definition.");
+      }
+      const rowId = decodeAppRowIdHexV1("11".repeat(16));
+      const creationTime = decodeAppCreationTimeV1(1);
+      const document = await canonicalizeAppDocumentV1({
+        tableId,
+        rowId,
+        creationTime,
+        fields: { name: "seeded" },
+      });
+      const clock = await persistence.getScopeClock(current.anchor.scopeId);
+      if (clock === null) {
+        throw new Error("Missing C08-B2 seeded scope clock.");
+      }
+      await persistence.drizzle.transaction((tx) =>
+        runEffect(applyAppUniqueKeyMutationInTransactionEffect(tx, {
+          scopeId: current.anchor.scopeId,
+          constraintId: definition.uniqueConstraintDefinitionId,
+          tableId,
+          rowId,
+          writeEpoch: clock.epoch,
+          commitSeq: CommitSeqSchema.make(1n),
+          rowPrevCommitSeq: null,
+          previousClaimCommitSeq: null,
+          previous: null,
+          next: Result.getOrThrow(
+            lowerAppUniqueConstraintProjectionV1Result(definition, document),
+          ),
+        }))
+      );
+    }
+    return Object.freeze({ uniqueConstraints });
+  }
+
+  async function seedSecondUniqueUser(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    uniqueConstraints: NonNullable<
+      PointCommitTransactionProofOptionsV1["uniqueConstraints"]
+    >,
+  ) {
+    const tableId = decodeCatalogTableId(1);
+    const rowId = decodeAppRowIdHexV1("22".repeat(16));
+    const creationTime = decodeAppCreationTimeV1(2);
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+    const definitions = await runEffect(uniqueConstraints.locate({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      schemaVersionId: current.schemaVersionId,
+      tableIds: Object.freeze([tableId]),
+      maximumDefinitions: 32,
+    }));
+    const definition = definitions?.[0];
+    if (definitions?.length !== 1 || definition === undefined) {
+      throw new Error("Missing the second C08-B2 unique definition.");
+    }
+    const document = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId,
+      creationTime,
+      fields: { name: "other" },
+    });
+    const clock = await persistence.getScopeClock(current.anchor.scopeId);
+    if (clock === null || clock.lastCommitSeq !== 1n) {
+      throw new Error("Missing the second C08-B2 seed authority.");
+    }
+    await persistence.drizzle.transaction(async (tx) => {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: current.anchor.scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq: CommitSeqSchema.make(1n),
+        prevCommitSeq: null,
+        schemaVersionId: current.schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+      await runEffect(applyAppUniqueKeyMutationInTransactionEffect(tx, {
+        scopeId: current.anchor.scopeId,
+        constraintId: definition.uniqueConstraintDefinitionId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq: CommitSeqSchema.make(1n),
+        rowPrevCommitSeq: null,
+        previousClaimCommitSeq: null,
+        previous: null,
+        next: Result.getOrThrow(
+          lowerAppUniqueConstraintProjectionV1Result(definition, document),
+        ),
+      }));
+    });
+    return documentId;
+  }
+
   async function prepareO07BScenario(
     label: string,
     operation?: (
@@ -7011,6 +7554,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         commitSeq: row.commit_seq,
       }))),
     });
+  }
+
+  async function uniqueKeyState(scopeUuid: string) {
+    const rows = await persistence.query<{
+      constraint_id: string;
+      encoded_key_hex: string;
+      row_id_hex: string;
+      commit_seq: string;
+    }>(
+      `select constraint_id::text,
+         encode(encoded_key, 'hex') as encoded_key_hex,
+         encode(row_id, 'hex') as row_id_hex,
+         commit_seq::text
+       from fx_app_unique_key
+       where scope_uuid = $1
+       order by constraint_id, encoded_key, row_id`,
+      [scopeUuid],
+    );
+    return Object.freeze(rows.rows.map((row) => Object.freeze({
+      constraintId: row.constraint_id,
+      encodedKeyHex: row.encoded_key_hex,
+      rowIdHex: row.row_id_hex,
+      commitSeq: row.commit_seq,
+    })));
   }
 
   function pointRowIdHex(documentId: string): string {

@@ -728,9 +728,15 @@ Dynamic Worker binding baseline before selecting it.
    non-localized unique definitions, stable logical IDs, immutable physical
    definition IDs, and schema-version bindings. It is production-inert and
    stores no code/artifact bodies.
-7. `C08-B1`: reconcile/backfill/validate exact bound definitions and produce
-   invalidatable readiness evidence.
-8. `C08-B2`: lower pinned unique constraints through the existing S11 owner.
+7. `C08-B2` (implemented privately; live PostgreSQL receipt pending): lower
+   pinned unique constraints through the existing S11 owner inside point
+   commit, with release-before-claim swaps, exact prior lineage, sparse
+   omission, and a 32-transition/64-action ceiling. It remains production-
+   inert and does not itself confer planner, readiness, or activation authority.
+8. `C08-B1`: close the exact required definition set, reconcile/backfill and
+   validate S11 claims through B2's lowering rules, produce invalidatable
+   readiness evidence, and bind future eligibility to the exact maintenance
+   capability.
 9. `O09-B`: prove unique conflicts and complete sidecar contention/rollback.
 10. `R01`: relation identity and semantics.
 11. `R02`: stable relation IDs, immutable semantic definitions, and reusable

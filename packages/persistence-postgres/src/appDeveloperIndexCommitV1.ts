@@ -8,10 +8,8 @@ import {
 } from "flarex-protocol/catalog";
 import {
   encodeAppOrderedIndexKeyV1,
-  ORDERED_INDEX_MISSING_V1,
   OrderedIndexKeyTooLargeError,
   orderedIndexCreationTimeV1,
-  orderedIndexValueFromFlarexValueV1,
   type OrderedIndexComponentV1,
   type OrderedIndexKeyHexV1,
 } from "flarex-protocol/ordered-index";
@@ -21,8 +19,6 @@ import type {
 } from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 import {
-  isCanonicalFlarexRuntimeObjectV1,
-  type CanonicalFlarexRuntimeValueV1,
   type CanonicalFlarexValueV1,
 } from "flarex-protocol/value";
 
@@ -33,6 +29,8 @@ import {
   type ReadAppSchemaVersionIndexBindingError,
 } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { lowerAppDocumentOrderedFieldValuesV1 } from
+  "./appDocumentOrderedFieldValuesV1";
 
 export interface LocateAppDeveloperIndexDefinitionsV1Input {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
@@ -87,20 +85,22 @@ export function lowerAppDeveloperIndexKeyV1(
     if (definition.access.kind !== "developer") {
       throw new TypeError("Expected a located developer index definition.");
     }
-    const root = document.value;
-    if (!isCanonicalFlarexRuntimeObjectV1(root)) {
-      throw new TypeError("Expected a canonical application document object.");
-    }
     const values: OrderedIndexComponentV1[] = [];
+    const documentFields = definition.physicalSpec.orderedFields.filter(
+      (field): field is Extract<typeof field, { readonly kind: "documentPath" }> =>
+        field.kind === "documentPath",
+    );
+    const loweredDocumentValues = lowerAppDocumentOrderedFieldValuesV1(
+      document,
+      documentFields.map((field) => field.path),
+    );
+    let documentFieldIndex = 0;
     for (const field of definition.physicalSpec.orderedFields) {
       switch (field.kind) {
-        case "documentPath": {
-          const value = readCanonicalDocumentPath(root, field.path);
-          values.push(value === MISSING_DOCUMENT_PATH
-            ? ORDERED_INDEX_MISSING_V1
-            : orderedIndexValueFromFlarexValueV1(value));
+        case "documentPath":
+          values.push(loweredDocumentValues[documentFieldIndex]!);
+          documentFieldIndex += 1;
           break;
-        }
         case "systemCreationTime":
           values.push(orderedIndexCreationTimeV1(creationTime));
           break;
@@ -116,25 +116,4 @@ export function lowerAppDeveloperIndexKeyV1(
     }
     throw cause;
   }
-}
-
-const MISSING_DOCUMENT_PATH: unique symbol = Symbol(
-  "FlarexDB/MissingDeveloperIndexDocumentPath",
-);
-
-function readCanonicalDocumentPath(
-  root: Readonly<Record<string, CanonicalFlarexRuntimeValueV1>>,
-  path: string,
-): CanonicalFlarexRuntimeValueV1 | typeof MISSING_DOCUMENT_PATH {
-  let current: CanonicalFlarexRuntimeValueV1 = root;
-  for (const segment of path.split(".")) {
-    if (
-      !isCanonicalFlarexRuntimeObjectV1(current) ||
-      !Object.hasOwn(current, segment)
-    ) {
-      return MISSING_DOCUMENT_PATH;
-    }
-    current = current[segment]!;
-  }
-  return current;
 }

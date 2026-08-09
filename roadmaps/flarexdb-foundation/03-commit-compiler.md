@@ -851,8 +851,25 @@ and exact schema-version binding. Migration `0047` stores only this compact
 authority and canonical commitments; it does not store user code or artifact
 bodies. The S11 claim identity is the physical definition ID. No claim,
 backfill, readiness, activation, or point-commit behavior is introduced.
-This does not complete general C08: `C08-B1` reconciliation/backfill and
-readiness evidence, `C08-B2` unique lowering, and O09 contention remain open.
+
+`C08-B2` is now implemented as a private, production-inert point-commit
+capability. Before the existing transaction it locates opaque definitions for
+the pinned schema and touched tables. Inside the existing scope-clock lane it
+derives prior/final unique projections from verified application documents and
+uses S11 for deterministic release, same-key advance, and claim actions. All
+releases precede claims, so a bounded multi-row key swap is atomic. Existing
+claims must match prior row/key lineage; a missing claim remains an accepted
+pre-B1 convergence state. The first generation caps one commit at 32
+definition/row transitions and 64 S11 actions. It changes no commit/OCC owner,
+schema, migration, readiness, activation, or query authority.
+
+This does not complete general C08: `C08-B1` must close the exact required
+definition set, reconcile/backfill and validate current claims, persist
+invalidatable build/readiness evidence, and bind future planner/activation
+eligibility to the exact maintenance capability. `O09-B` contention/stress
+acceptance also remains open. Local PGlite functional, fault, swap, and ceiling
+proofs pass; the genuine-PostgreSQL scenario is present but its local live
+receipt awaits `FLAREX_POSTGRES_DATABASE_URL`.
 
 Outcome:
 
@@ -864,9 +881,9 @@ Outcome:
 
 Exit gate:
 
-- insert/update/delete/key-move, sparse/localized uniqueness, collision
-  verification, deterministic lowering, and single-transaction publication
-  tests pass;
+- insert/update/delete/key-move, sparse non-localized uniqueness, unsupported
+  locale refusal, collision verification, deterministic lowering, and
+  single-transaction publication tests pass;
 - tables declaring unsupported sidecar features remain inactive until O09
   closes real-Postgres contention, multi-row atomicity, and rollback.
 
