@@ -1,7 +1,21 @@
 import { sql } from "drizzle-orm";
-import { Cause, Effect, Exit } from "effect";
-import type { ScopeId } from "flarex-protocol/storage-authority";
+import { Cause, Effect, Exit, Result } from "effect";
+import {
+  replacementScopeIdV1FromUuid,
+  type ScopeId,
+} from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
+
+import {
+  createTaskRepairSchedulerRunV1,
+  type TaskRepairSchedulerCheckpointPortV1,
+} from "../../executor/src/taskRepairSchedulerRunV1";
+import {
+  createTaskRepairSweepV1,
+  type TaskRepairSweepDirectoryItemV1,
+  type TaskRepairSweepDirectoryV1,
+  type TaskRepairSweepSchedulerV1,
+} from "../../executor/src/taskRepairSweepV1";
 
 import type { AppRowTransaction } from "../src/appRows";
 import {
@@ -14,7 +28,15 @@ import {
   TaskRepairSchedulerInputV1Error,
   TaskRepairSchedulerStaleV1Error,
   createTaskRepairSchedulerCheckpointV1,
+  isTaskRepairSchedulerAcquireConfirmedRollbackV1Error,
+  isTaskRepairSchedulerCheckpointConfirmedRollbackV1Error,
+  isTaskRepairSchedulerReleaseConfirmedRollbackV1Error,
+  type TaskRepairSchedulerAcquireV1Error,
+  type TaskRepairSchedulerCheckpointV1Error,
   type TaskRepairSchedulerCheckpointV1,
+  type TaskRepairSchedulerConfigurationV1Error,
+  type TaskRepairSchedulerReleaseV1Error,
+  type TaskRepairSchedulerRunV1,
 } from "../src/taskRepairSchedulerCheckpointV1";
 import { TASK_REPAIR_SCHEDULER_KEY_V1 } from
   "../src/taskRepairSchedulerModelV1";
@@ -39,6 +61,60 @@ const OWNER_ONE = "79000000-0000-4000-8000-000000000001";
 const OWNER_TWO = "79000000-0000-4000-8000-000000000002";
 
 describe("DTE05-E2B Task repair scheduler checkpoint protocol", () => {
+  it("connects the canonical sweep and resumes its persisted partition cursor after reconstruction", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const firstRequests: TaskRepairRequest[] = [];
+    const first = connectedRunner(
+      repository(persistence, [OWNER_ONE]),
+      repairDirectory((request) => {
+        firstRequests.push(request);
+        return Effect.succeed(repairReceipt(
+          request,
+          repairCursor(
+            request.dueKind,
+            "run_79000000-0000-4000-8000-000000000011",
+          ),
+        ));
+      }),
+    );
+
+    const firstResult = await runEffect(first.runEffect());
+    expect(firstResult).toMatchObject({
+      kind: "completed",
+      reason: "sweep_completed",
+      sweep: { stopReason: "scheduler_budget" },
+    });
+    expect(firstRequests).toEqual([{
+      dueKind: "start_attempt",
+      cursor: null,
+    }]);
+
+    const resumedRequests: TaskRepairRequest[] = [];
+    const restarted = connectedRunner(
+      repository(persistence, [OWNER_TWO]),
+      repairDirectory((request) => {
+        resumedRequests.push(request);
+        return Effect.succeed(repairReceipt(request, null));
+      }),
+    );
+    await expect(runEffect(restarted.runEffect())).resolves.toMatchObject({
+      kind: "completed",
+      reason: "sweep_completed",
+    });
+    expect(resumedRequests).toEqual([{
+      dueKind: "start_attempt",
+      cursor: repairCursor(
+        "start_attempt",
+        "run_79000000-0000-4000-8000-000000000011",
+      ),
+    }]);
+    expect((await taskRows(persistence))[0]).toMatchObject({
+      scheduler_state: "idle",
+      run_fence: 2,
+      continuation_bytes: expect.any(Uint8Array),
+    });
+  });
+
   it("acquires, checkpoints owned evidence, renews, releases, and reloads only the Task row", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const first = repository(persistence, [OWNER_ONE]);
@@ -195,6 +271,105 @@ function repository(
   return createTaskRepairSchedulerCheckpointV1(locatedTarget(persistence), {
     claimDurationMilliseconds: 60_000,
     randomUuid: () => owners[index++] ?? OWNER_TWO,
+  });
+}
+
+type TaskRepairDirectory = TaskRepairSweepDirectoryV1<never, never>;
+type TaskRepairItem = TaskRepairSweepDirectoryItemV1<never>;
+type TaskRepairScheduler = TaskRepairSweepSchedulerV1<never>;
+type TaskRepairRequest = Parameters<TaskRepairScheduler["run"]>[0];
+type TaskRepairReceipt = Effect.Success<ReturnType<TaskRepairScheduler["run"]>>;
+type TaskRepairCursor = NonNullable<TaskRepairRequest["cursor"]>;
+
+function connectedRunner(
+  checkpoint: TaskRepairSchedulerCheckpointV1,
+  directory: TaskRepairDirectory,
+) {
+  const sweep = Result.getOrThrow(createTaskRepairSweepV1(directory, {
+    maximumDirectoryPages: 1,
+    maximumSchedulerRuns: 1,
+    maximumTaskPages: 1,
+    maximumCandidates: 1,
+    maximumRunMilliseconds: 10_000,
+    maximumOperationMilliseconds: 5_000,
+    settlementReserveMilliseconds: 1_000,
+  }));
+  return Result.getOrThrow(createTaskRepairSchedulerRunV1(
+    taskCheckpointPort(checkpoint),
+    sweep,
+  ));
+}
+
+function taskCheckpointPort(
+  checkpoint: TaskRepairSchedulerCheckpointV1,
+): TaskRepairSchedulerCheckpointPortV1<
+  TaskRepairSchedulerRunV1,
+  TaskRepairSchedulerConfigurationV1Error,
+  TaskRepairSchedulerAcquireV1Error,
+  TaskRepairSchedulerCheckpointV1Error,
+  TaskRepairSchedulerReleaseV1Error,
+  TaskRepairSchedulerConfirmedRollbackV1Error,
+  TaskRepairSchedulerConfirmedRollbackV1Error,
+  TaskRepairSchedulerConfirmedRollbackV1Error
+> {
+  return Object.freeze({
+    ...checkpoint,
+    isAcquireConfirmedRollback:
+      isTaskRepairSchedulerAcquireConfirmedRollbackV1Error,
+    isCheckpointConfirmedRollback:
+      isTaskRepairSchedulerCheckpointConfirmedRollbackV1Error,
+    isReleaseConfirmedRollback:
+      isTaskRepairSchedulerReleaseConfirmedRollbackV1Error,
+  });
+}
+
+function repairDirectory(
+  run: TaskRepairScheduler["run"],
+): TaskRepairDirectory {
+  const item = Object.freeze({
+    kind: "ready" as const,
+    deploymentId: "deployment_connected",
+    scopeId: replacementScopeIdV1FromUuid(
+      "79000000-0000-0000-0000-000000000010",
+    ),
+    maximumPagesPerRun: 1,
+    maximumCandidatesPerRun: 1,
+    scheduler: Object.freeze({ run }),
+  }) satisfies Extract<TaskRepairItem, { readonly kind: "ready" }>;
+  return Object.freeze({
+    discoverEffect: () => Effect.succeed(Object.freeze({
+      items: Object.freeze([item]),
+      continuation: null,
+    })),
+  });
+}
+
+function repairReceipt(
+  request: TaskRepairRequest,
+  continuation: TaskRepairCursor | null,
+): TaskRepairReceipt {
+  return Object.freeze({
+    version: "flarex.task-wake-scheduler-run-receipt.v1",
+    dueKind: request.dueKind,
+    throughMs: 1 as TaskRepairReceipt["throughMs"],
+    stopReason: continuation === null ? "source_exhausted" : "page_budget",
+    pagesRead: 1,
+    candidatesHandled: 0,
+    handled: Object.freeze([]),
+    continuation,
+  });
+}
+
+function repairCursor(
+  dueKind: TaskRepairRequest["dueKind"],
+  runId: string,
+): TaskRepairCursor {
+  return Object.freeze({
+    version: 1,
+    dueKind,
+    throughMs: 1 as TaskRepairCursor["throughMs"],
+    dueAtMs: 1 as TaskRepairCursor["dueAtMs"],
+    runId: runId as TaskRepairCursor["runId"],
   });
 }
 

@@ -152,6 +152,10 @@ export interface TaskRepairSweepReceiptV1 {
 
 export interface TaskRepairSweepV1<DirectoryFailure =
   TaskSystemWakeSchedulerRepairDirectoryErrorV1> {
+  readonly configuration: Readonly<{
+    readonly maximumRunMilliseconds: number;
+    readonly settlementReserveMilliseconds: number;
+  }>;
   readonly runEffect: (
     continuation: TaskRepairSweepContinuationV1 | null,
   ) => Effect.Effect<
@@ -378,7 +382,13 @@ export function createTaskRepairSweepV1<DirectoryFailure, SchedulerFailure>(
       }
     });
 
-    return Object.freeze({ runEffect });
+    return Object.freeze({
+      configuration: Object.freeze({
+        maximumRunMilliseconds: policy.maximumRunMilliseconds,
+        settlementReserveMilliseconds: policy.settlementReserveMilliseconds,
+      }),
+      runEffect,
+    });
   });
 }
 

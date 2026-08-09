@@ -310,10 +310,15 @@ host:
   directory and a host-neutral bounded sweep with fresh resolution, aggregate
   receipts, count limits, cooperative time reserves, typed-failure isolation,
   and operation-local continuation;
-- **DTE05-E2 — active; E2A/E2B complete:** E2A adds the canonical continuation
-  codec and distinct Task-owned scheduler row; E2B adds the private fenced
-  claim/checkpoint protocol, while E2C still owns connected genuine-Postgres
-  restart, concurrency, fairness, and hard database-timeout proof; and
+- **DTE05-E2 — active; E2A/E2B complete and E2C1 partially proved:** E2A adds
+  the canonical continuation codec and distinct Task-owned scheduler row; E2B
+  adds the private fenced
+  claim/checkpoint protocol; E2C1 adds the private connected one-sweep runner
+  and proves static reconstruction, duplicate-host exclusion, and expiry
+  takeover in PGlite and genuine PostgreSQL. Its exact high-water restart gate
+  remains blocked by the E1 continuation defect recorded in
+  [`preflight/31-dte05-connected-repair-runner.md`](./preflight/31-dte05-connected-repair-runner.md),
+  while E2C2 retains database-owned hard-timeout proof; and
 - **DTE05-E3 — pending and Roadmap-06-gated:** reuse/generalize the existing
   scheduled-event host, then admit the Worker scheduled handler and Wrangler
   cron binding through their own deployment gate.

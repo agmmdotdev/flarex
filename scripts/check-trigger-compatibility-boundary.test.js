@@ -678,10 +678,22 @@ describe("Trigger compatibility boundary checker", () => {
           "./taskRepairSweepV1";
       `,
     }, {
+      relativePath: "packages/executor/src/taskRepairSchedulerRunV1.ts",
+      text: `
+        import { createTaskRepairSweepV1 } from
+          "./taskRepairSweepV1";
+      `,
+    }, {
       relativePath: "apps/executor/src/taskRepairDirectory.ts",
       text: `
         import { createTaskSystemWakeSchedulerRepairDirectoryV1 } from
           "../../../packages/persistence-postgres/src/taskSystemWakeSchedulerRepairDirectoryV1.js";
+      `,
+    }, {
+      relativePath: "apps/executor/src/taskRepairScheduler.ts",
+      text: `
+        import { createTaskRepairSchedulerRunV1 } from
+          "@flarex/executor/internal/task-repair-scheduler-run-v1";
       `,
     }, {
       relativePath: "apps/executor/src/worker.ts",
@@ -703,6 +715,7 @@ describe("Trigger compatibility boundary checker", () => {
       `,
     }]).errors).toEqual([
       "apps/executor/src/taskRepairDirectory.ts:2 production source must not consume the Task repair scheduler directory outside the admitted repair sweep.",
+      "apps/executor/src/taskRepairScheduler.ts:2 production source must not activate the connected Task repair runner before scheduled-host admission.",
       "apps/executor/src/worker.ts:2 production source must not activate the Task repair sweep before scheduled-host admission.",
       "packages/flarex-backend/src/taskRepairSweep.ts:2 production source must not activate the Task repair sweep before scheduled-host admission.",
     ]);

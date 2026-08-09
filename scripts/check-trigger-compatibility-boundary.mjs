@@ -42,6 +42,8 @@ const executorTaskRepairSweepPath =
   "packages/executor/src/taskRepairSweepV1.ts";
 const executorTaskRepairSweepContinuationCodecPath =
   "packages/executor/src/taskRepairSweepContinuationCodecV1.ts";
+const executorTaskRepairSchedulerRunPath =
+  "packages/executor/src/taskRepairSchedulerRunV1.ts";
 const standardApplicationTaskDefinitionSourcePrefix =
   "packages/standard-application-definition/src/taskDefinition/";
 const standardApplicationTaskDefinitionDurableTaskSpecifier =
@@ -400,6 +402,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         specifier !== undefined
         && isProductionSource(relativePath)
         && isTaskRepairSweepSpecifier(specifier, relativePath)
+        && relativePath !== executorTaskRepairSchedulerRunPath
         && !(
           relativePath === executorTaskRepairSweepContinuationCodecPath
           && isTypeOnlyImportDeclaration(node)
@@ -409,6 +412,16 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
           node.getStart(sourceFile),
         ).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate the Task repair sweep before scheduled-host admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isTaskRepairSchedulerRunSpecifier(specifier, relativePath)
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the connected Task repair runner before scheduled-host admission.`);
       }
       if (
         specifier !== undefined
@@ -902,6 +915,17 @@ function isTaskRepairSweepSpecifier(specifier, relativePath) {
   const targetWithoutExtension = executorTaskRepairSweepPath.slice(0, -3);
   return normalized === "@flarex/executor/internal/task-repair-sweep-v1"
     || resolved === executorTaskRepairSweepPath
+    || resolved === targetWithoutExtension
+    || resolved === `${targetWithoutExtension}.js`;
+}
+
+/** @param {string} specifier @param {string} relativePath */
+function isTaskRepairSchedulerRunSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const targetWithoutExtension = executorTaskRepairSchedulerRunPath.slice(0, -3);
+  return normalized === "@flarex/executor/internal/task-repair-scheduler-run-v1"
+    || resolved === executorTaskRepairSchedulerRunPath
     || resolved === targetWithoutExtension
     || resolved === `${targetWithoutExtension}.js`;
 }

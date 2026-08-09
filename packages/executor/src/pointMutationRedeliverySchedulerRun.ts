@@ -1,11 +1,9 @@
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import {
-  Cause,
   Clock,
   Data,
   Duration,
   Effect,
-  Exit,
   Result,
 } from "effect";
 
@@ -24,6 +22,11 @@ import {
 import type {
   PointMutationRedeliverySchedulerHostRunV1,
 } from "./pointMutationRedeliverySchedulerHostContract";
+import {
+  retrySchedulerCheckpointOnceOnConfirmedRollbackV1,
+  runWithSchedulerCheckpointCleanupV1,
+  type SchedulerCheckpointCleanupStateV1,
+} from "./schedulerCheckpointRunMechanicsV1";
 
 export interface PointMutationRedeliverySchedulerAcquireNotDueV1 {
   readonly kind: "notDue";
@@ -198,10 +201,9 @@ interface CapturedRunPolicyV1 extends PointMutationRedeliverySchedulerRunOptions
   readonly settlementReserveNanoseconds: bigint;
 }
 
-interface AcquiredLifecycleStateV1<Run> {
-  readonly run: Run;
+interface AcquiredLifecycleStateV1<Run>
+  extends SchedulerCheckpointCleanupStateV1<Run> {
   leaseDeadline: bigint;
-  cleanupAllowed: boolean;
 }
 
 const MAX_RUN_COUNT_V1 = 100;
@@ -256,7 +258,7 @@ export function createPointMutationRedeliverySchedulerRunV1<
     )(function* () {
       const startedAt = yield* Clock.currentTimeNanos;
       const deadline = startedAt + policy.maximumRunNanoseconds;
-      const acquired = yield* retryOnceOnConfirmedRollback(
+      const acquired = yield* retrySchedulerCheckpointOnceOnConfirmedRollbackV1(
         checkpoint.acquireEffect,
         checkpoint.isAcquireConfirmedRollback,
         () => retryAdmissionEffect(deadline, policy),
@@ -392,30 +394,17 @@ function runAcquiredWithCleanup<
   >,
   never
 > {
-  return Effect.uninterruptibleMask((restore) =>
-    Effect.gen(function* () {
-      const exit = yield* Effect.exit(restore(runAcquired(
-        checkpoint,
-        multiScope,
-        policy,
-        deadline,
-        state,
-        persistedContinuation,
-      )));
-      if (Exit.isSuccess(exit)) return exit.value;
-      if (!state.cleanupAllowed) return yield* Effect.failCause(exit.cause);
-
-      state.cleanupAllowed = false;
-      // Cleanup is permitted because the last scheduler observation still
-      // proves ownership, but it is never itself a retry continuation for the
-      // failed body. One release attempt preserves that distinction.
-      const cleanupExit = yield* Effect.exit(
-        checkpoint.releaseEffect(state.run),
-      );
-      return yield* Exit.isSuccess(cleanupExit)
-        ? Effect.failCause(exit.cause)
-        : Effect.failCause(Cause.combine(exit.cause, cleanupExit.cause));
-    })
+  return runWithSchedulerCheckpointCleanupV1(
+    state,
+    runAcquired(
+      checkpoint,
+      multiScope,
+      policy,
+      deadline,
+      state,
+      persistedContinuation,
+    ),
+    (run) => checkpoint.releaseEffect(run),
   );
 }
 
@@ -546,7 +535,7 @@ function runAcquired<
           batch.continuation,
         );
       state.cleanupAllowed = false;
-      yield* retryOnceOnConfirmedRollback(
+      yield* retrySchedulerCheckpointOnceOnConfirmedRollbackV1(
         () => checkpoint.checkpointEffect(state.run, encoded),
         checkpoint.isCheckpointConfirmedRollback,
         () => retryAdmissionEffect(deadline, policy, state.leaseDeadline),
@@ -615,7 +604,7 @@ function runAcquired<
 
       const renewalStartedAt = yield* Clock.currentTimeNanos;
       state.cleanupAllowed = false;
-      yield* retryOnceOnConfirmedRollback(
+      yield* retrySchedulerCheckpointOnceOnConfirmedRollbackV1(
         () => checkpoint.renewEffect(state.run),
         checkpoint.isRenewConfirmedRollback,
         () => retryAdmissionEffect(deadline, policy, state.leaseDeadline),
@@ -645,19 +634,6 @@ function runAcquired<
       }
     }
   });
-}
-
-function retryOnceOnConfirmedRollback<A, E, Rollback extends E>(
-  operation: () => Effect.Effect<A, E, never>,
-  isConfirmedRollback: (error: E) => error is Rollback,
-  retryAdmitted: () => Effect.Effect<boolean, never, never>,
-): Effect.Effect<A, E, never> {
-  return operation().pipe(Effect.catch((error) => {
-    if (!isConfirmedRollback(error)) return Effect.fail(error);
-    return retryAdmitted().pipe(Effect.flatMap((admitted) =>
-      admitted ? operation() : Effect.fail(error)
-    ));
-  }));
 }
 
 function releaseKnownRun<
@@ -693,7 +669,7 @@ function releaseKnownRun<
   never
 > {
   state.cleanupAllowed = false;
-  return retryOnceOnConfirmedRollback(
+  return retrySchedulerCheckpointOnceOnConfirmedRollbackV1(
     () => checkpoint.releaseEffect(state.run),
     checkpoint.isReleaseConfirmedRollback,
     () => retryAdmissionEffect(deadline, policy, state.leaseDeadline),

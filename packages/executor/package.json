@@ -20,6 +20,7 @@
     "./internal/task-queue-wake-v1": "./src/taskQueueWakeV1.ts",
     "./internal/task-repair-sweep-v1": "./src/taskRepairSweepV1.ts",
     "./internal/task-repair-sweep-continuation-codec-v1": "./src/taskRepairSweepContinuationCodecV1.ts",
+    "./internal/task-repair-scheduler-run-v1": "./src/taskRepairSchedulerRunV1.ts",
     "./transaction-grant": "./src/transactionGrant.ts"
   },
   "scripts": {
@@ -29,6 +30,7 @@
     "test:dte05-d": "vitest run test/taskQueueWakeV1.test.ts --testTimeout=120000",
     "test:dte05-e1": "vitest run test/taskRepairSweepV1.test.ts --testTimeout=120000",
     "test:dte05-e2a": "vitest run test/taskRepairSweepContinuationCodecV1.test.ts --testTimeout=120000",
+    "test:dte05-e2c1": "vitest run test/pointMutationRedeliverySchedulerRun.test.ts test/taskRepairSchedulerRunV1.test.ts --testTimeout=120000",
     "test:postgres": "vitest run test/postgresRetry.test.ts test/deploymentAuthority.postgres.test.ts test/transactionGrantVerifier.test.ts"
   },
   "dependencies": {

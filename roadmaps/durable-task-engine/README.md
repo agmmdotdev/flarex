@@ -38,8 +38,13 @@ DTE05-D completes the private, unwired Queue wake-hint adapter and fresh
 partition resolver. DTE05-E1 adds a private host-neutral repair sweep and
 repair-tolerant trusted directory. DTE05-E2A completes its canonical
 continuation evidence and distinct Task-owned scheduler row, and DTE05-E2B
-completes the private fenced claim/checkpoint transaction protocol. The
-connected restart/concurrency proof remains E2C. Cloudflare bindings, a
+completes the private fenced claim/checkpoint transaction protocol. The E2C1
+connected runner now proves canonical static restart, duplicate-host
+exclusion, and expiry takeover in PGlite and genuine PostgreSQL. Its exact
+directory high-water restart gate is blocked by the recorded E1 continuation
+defect in
+[`preflight/31-dte05-connected-repair-runner.md`](./preflight/31-dte05-connected-repair-runner.md);
+database-owned hard timeouts remain E2C2. Cloudflare bindings, a
 scheduled Worker host, public APIs, compute delivery,
 and production activation do not exist yet.
 
