@@ -1132,6 +1132,88 @@ export const locateAppCreationTimeIndexDefinitionForTableEffect = Effect.fn(
     : null;
 });
 
+/**
+ * Package-private C08 locator for the touched-table developer-index requirement
+ * set of one pinned schema version. The deployment check and cap-plus-one join
+ * happen before the application commit transaction; the returned opaque
+ * capabilities are still revalidated against their locked build rows by that
+ * transaction owner.
+ */
+export const locateAppDeveloperIndexDefinitionsForSchemaEffect = Effect.fn(
+  "AppIndexDefinitions.locateDeveloperDefinitionsForSchema",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  scopeId: ScopeId,
+  schemaVersionId: CatalogSchemaVersionId,
+  tableIds: ReadonlyArray<CatalogTableId>,
+  maximumDefinitions: number,
+): Effect.fn.Return<
+  ReadonlyArray<LocatedAppIndexDefinitionV1> | null,
+  ReadAppIndexDefinitionError | ReadAppSchemaVersionIndexBindingError
+> {
+  const scopeRows = yield* Effect.tryPromise({
+    try: () => db
+      .select({ deploymentId: fxControlScopes.deploymentId })
+      .from(fxControlScopes)
+      .where(eq(fxControlScopes.scopeId, scopeId))
+      .limit(1),
+    catch: (cause) => new AppIndexDefinitionReadPersistenceError(
+      "listRequiredSet",
+      cause,
+    ),
+  });
+  if (scopeRows[0]?.deploymentId !== deploymentId) return null;
+
+  if (tableIds.length === 0) return Object.freeze([]);
+  const rows = yield* readDefinitionRowsEffect(
+    db.select({ definition: fxControlIndexDefinitions })
+      .from(fxControlSchemaVersionIndexBindings)
+      .innerJoin(fxControlIndexDefinitions, and(
+        eq(
+          fxControlIndexDefinitions.deploymentId,
+          fxControlSchemaVersionIndexBindings.deploymentId,
+        ),
+        eq(
+          fxControlIndexDefinitions.indexDefinitionId,
+          fxControlSchemaVersionIndexBindings.indexDefinitionId,
+        ),
+        eq(
+          fxControlIndexDefinitions.logicalIndexId,
+          fxControlSchemaVersionIndexBindings.logicalIndexId,
+        ),
+      ))
+      .where(and(
+        eq(fxControlSchemaVersionIndexBindings.deploymentId, deploymentId),
+        eq(
+          fxControlSchemaVersionIndexBindings.schemaVersionId,
+          schemaVersionId,
+        ),
+        eq(fxControlIndexDefinitions.accessKind, "developer"),
+        inArray(fxControlIndexDefinitions.tableId, tableIds),
+      ))
+      .orderBy(fxControlIndexDefinitions.indexDefinitionId)
+      .limit(maximumDefinitions + 1),
+    (cause) => new AppIndexDefinitionReadPersistenceError(
+      "listRequiredSet",
+      cause,
+    ),
+  );
+  const definitions = yield* Effect.all(
+    rows.map((row) => decodeStoredDefinitionEffect(row.definition)),
+    { concurrency: 1 },
+  );
+  const located: LocatedAppIndexDefinitionV1[] = [];
+  for (const definition of definitions) {
+    if (definition.access.kind !== "developer") return null;
+    located.push(markLocatedAppIndexDefinition(scopeId, definition));
+  }
+  located.sort((left, right) =>
+    left.indexDefinitionId - right.indexDefinitionId
+  );
+  return Object.freeze(located);
+});
+
 function markLocatedAppIndexDefinition(
   scopeId: ScopeId,
   definition: AppIndexDefinitionRecord,

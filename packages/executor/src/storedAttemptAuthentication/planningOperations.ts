@@ -108,6 +108,7 @@ export interface StoredPointCommitPlanningOperationDependenciesV1 {
   readonly base: StoredAttemptAuthenticationV1;
   readonly configuration: StoredCommitAuthorityAuthenticationConfigV1;
   readonly grantKernel: TransactionGrantVerificationKernelV1;
+  readonly developerIndexMaintenance: boolean;
   readonly authenticatedStates: StoredPointMutationCapabilityVaultV1[
     "authenticatedStates"
   ];
@@ -129,6 +130,7 @@ export function makeStoredPointCommitPlanningOperationsV1(
     base,
     configuration,
     grantKernel,
+    developerIndexMaintenance,
     authenticatedStates,
     commitAuthorityStates,
     verifiedCommitInputStates,
@@ -232,7 +234,14 @@ export function makeStoredPointCommitPlanningOperationsV1(
           }));
         }
         const planned = yield* Effect.fromResult(
-          planPointCommitStateV1(state.input),
+          planPointCommitStateV1(
+            state.input,
+            !developerIndexMaintenance
+              ? {}
+              : {
+                developerIndexMaintenance: "c08-a-v1",
+              },
+          ),
         );
         const handle = makePreparedPointCommitHandleV1();
         preparedPointCommitStates.set(handle, Object.freeze({

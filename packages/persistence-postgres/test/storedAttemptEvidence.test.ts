@@ -14,8 +14,16 @@ import {
 } from "flarex-protocol/app-document-id";
 import {
   decodeCatalogIndexDefinitionId,
+  decodeCatalogIndexId,
   decodeCatalogTableId,
 } from "flarex-protocol/catalog";
+import {
+  decodeOrderedIndexRowIdHexV1,
+  encodeAppOrderedIndexKeyV1,
+  ORDERED_INDEX_MISSING_V1,
+  orderedIndexCreationTimeV1,
+  orderedIndexValueFromFlarexValueV1,
+} from "flarex-protocol/ordered-index";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
   CommitEnvelopeV1Schema,
@@ -188,6 +196,13 @@ import {
 } from "../src/pointMutationRedeliverySchedulerCheckpoint";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import {
+  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+} from "../src/appIndexEntries";
+import {
+  createAppDeveloperIndexDefinitionPortV1,
+  lowerAppDeveloperIndexKeyV1,
+} from "../src/appDeveloperIndexCommitV1";
 import {
   createSessionJournalStorePersistenceV1,
   type PinnedPointTableV1,
@@ -4345,6 +4360,315 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     })));
   });
 
+  it("maintains developer-index insert, key move, delete, and atomic rollback", async () => {
+    let insertedDocumentId: string | null = null;
+    const inserted = await prepareO07BScenario(
+      "c08a_developer_index_insert",
+      async (current, table) => {
+        const result = await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "inserted" },
+        });
+        if (result.kind !== "completed" || result.outcome.kind !== "inserted") {
+          throw new Error("Expected a C08-A inserted document.");
+        }
+        insertedDocumentId = result.outcome.documentId;
+      },
+      (current) => prepareDeveloperIndexForO06(current),
+      false,
+      true,
+    );
+    await runEffect(
+      inserted.authentication.publishPointCommit(inserted.plan),
+    );
+    if (insertedDocumentId === null) {
+      throw new Error("Missing C08-A inserted document ID.");
+    }
+    const insertedIndexState = await developerIndexState(inserted.scopeUuid);
+    expect(insertedIndexState).toMatchObject({
+      revisions: [{ commitSeq: "1", isTombstone: false }],
+      current: [{ commitSeq: "1" }],
+    });
+    const insertedRow = await persistence.query<{ creation_time: string }>(
+      `select creation_time::text
+       from fx_app_row_rev
+       where scope_uuid = $1 and table_id = 1 and row_id = decode($2, 'hex')
+       order by commit_seq desc limit 1`,
+      [inserted.scopeUuid, pointRowIdHex(insertedDocumentId)],
+    );
+    const insertedCreationTime = decodeAppCreationTimeV1(
+      Number(insertedRow.rows[0]?.creation_time),
+    );
+    const insertedDefinitions = await runEffect(
+      createAppDeveloperIndexDefinitionPortV1(persistence.drizzle).locate({
+        deploymentId: inserted.current.anchor.deploymentId,
+        scopeId: inserted.current.anchor.scopeId,
+        schemaVersionId: inserted.current.schemaVersionId,
+        tableIds: Object.freeze([decodeCatalogTableId(1)]),
+        maximumDefinitions: 256,
+      }),
+    );
+    const insertedDefinition = insertedDefinitions?.[0];
+    if (insertedDefinition === undefined) {
+      throw new Error("Missing C08-A inserted developer definition.");
+    }
+    expect(insertedIndexState.current[0]?.encodedKeyHex).toBe(
+      encodeAppOrderedIndexKeyV1({
+        spec: insertedDefinition.physicalSpec,
+        values: Object.freeze([
+          orderedIndexValueFromFlarexValueV1("inserted"),
+          ORDERED_INDEX_MISSING_V1,
+          orderedIndexCreationTimeV1(insertedCreationTime),
+        ]),
+      }),
+    );
+
+    let developerWrites = 0;
+    const moved = await prepareO07BScenario(
+      "c08a_developer_index_move",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Expected a C08-A seeded move document.");
+        }
+        const unrelatedDocumentId = appDocumentIdV1FromRowIdentity({
+          tableId: decodeCatalogTableId(1),
+          rowId: decodeAppRowIdHexV1("00".repeat(16)),
+        });
+        await expect(runPointOperation(current.store, table, {
+          kind: "get",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: unrelatedDocumentId,
+        })).resolves.toMatchObject({
+          kind: "completed",
+          outcome: { kind: "missing" },
+        });
+        await expect(runPointOperation(current.store, table, {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+          documentId: current.seededDocumentId,
+          patch: { name: "moved" },
+        })).resolves.toMatchObject({
+          kind: "completed",
+          outcome: { kind: "unit" },
+        });
+      },
+      async (current) => ({
+        ...await prepareDeveloperIndexForO06(current, true),
+        afterTransactionStep: (event) => {
+          if (event.step === "developerIndexEntryWritten") {
+            developerWrites += 1;
+            if (developerWrites === 2) {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+          }
+          return Promise.resolve();
+        },
+      }),
+      true,
+      true,
+    );
+    const beforeMove = await developerIndexState(moved.scopeUuid);
+    expect(beforeMove).toMatchObject({
+      revisions: [{ commitSeq: "1", isTombstone: false }],
+      current: [{ commitSeq: "1" }],
+    });
+    expect(await runFailure(
+      moved.authentication.publishPointCommit(moved.plan),
+    )).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(developerWrites).toBe(2);
+    expect(await developerIndexState(moved.scopeUuid)).toEqual(beforeMove);
+
+    const recovered = createO07BAuthentication(
+      moved.current,
+      moved.proofOptions,
+    );
+    await runEffect(recovered.resumePointCommit({
+      deploymentId: moved.current.anchor.deploymentId,
+      scopeId: moved.current.anchor.scopeId,
+      sessionId: moved.current.anchor.sessionId,
+      attemptFence: moved.current.anchor.attemptFence.toString(),
+    }));
+    const afterMove = await developerIndexState(moved.scopeUuid);
+    expect(afterMove.revisions).toHaveLength(3);
+    expect(afterMove.revisions.filter((row) => row.isTombstone)).toHaveLength(1);
+    expect(afterMove.current).toHaveLength(1);
+    expect(afterMove.current[0]?.commitSeq).toBe("2");
+    expect(afterMove.current[0]?.encodedKeyHex).not.toBe(
+      beforeMove.current[0]?.encodedKeyHex,
+    );
+
+    const deleted = await prepareO07BScenario(
+      "c08a_developer_index_delete",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Expected a C08-A seeded delete document.");
+        }
+        await expect(runPointOperation(current.store, table, {
+          kind: "delete",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+        })).resolves.toMatchObject({
+          kind: "completed",
+          outcome: { kind: "unit" },
+        });
+      },
+      (current) => prepareDeveloperIndexForO06(current, true),
+      true,
+      true,
+    );
+    await runEffect(deleted.authentication.publishPointCommit(deleted.plan));
+    const afterDelete = await developerIndexState(deleted.scopeUuid);
+    expect(afterDelete.revisions).toHaveLength(2);
+    expect(afterDelete.revisions.filter((row) => row.isTombstone)).toHaveLength(1);
+    expect(afterDelete.current).toEqual([]);
+  });
+
+  it("derives indexed planning from the exact publisher and keeps same-key updates linear", async () => {
+    await expect(prepareO07BScenario(
+      "c08a_unfaceted_publisher",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "unfaceted" },
+        });
+      },
+      {},
+      false,
+      true,
+    )).rejects.toMatchObject({
+      issue: { reason: "developerIndexMaintenance", tableId: 1 },
+    });
+
+    let developerIndexOptionReads = 0;
+    const captured = await prepareO07BScenario(
+      "c08a_captured_publisher_options",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "captured" },
+        });
+      },
+      async (current) => {
+        const { developerIndexes } = await prepareDeveloperIndexForO06(current);
+        if (developerIndexes === undefined) {
+          throw new Error("Missing captured C08-A developer-index locator.");
+        }
+        const unavailableDeveloperIndexes = Object.freeze({
+          locate: () => Effect.succeed(null),
+        });
+        return {
+          get developerIndexes() {
+            developerIndexOptionReads += 1;
+            return developerIndexOptionReads <= 2
+              ? developerIndexes
+              : unavailableDeveloperIndexes;
+          },
+        };
+      },
+      false,
+      true,
+    );
+    expect(developerIndexOptionReads).toBe(1);
+    await runEffect(captured.authentication.publishPointCommit(captured.plan));
+    expect(developerIndexOptionReads).toBe(1);
+    expect(await developerIndexState(captured.scopeUuid)).toMatchObject({
+      revisions: [{ commitSeq: "1", isTombstone: false }],
+      current: [{ commitSeq: "1" }],
+    });
+
+    const sameKey = await prepareO07BScenario(
+      "c08a_developer_index_same_key",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Expected a seeded C08-A same-key document.");
+        }
+        await runPointOperation(current.store, table, {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+          patch: { category: "non-indexed-change" },
+        });
+      },
+      (current) => prepareDeveloperIndexForO06(current, true),
+      true,
+      true,
+    );
+    const before = await developerIndexState(sameKey.scopeUuid);
+    await runEffect(sameKey.authentication.publishPointCommit(sameKey.plan));
+    const after = await developerIndexState(sameKey.scopeUuid);
+    expect(after.revisions).toHaveLength(2);
+    expect(after.revisions.filter((row) => row.isTombstone)).toEqual([]);
+    expect(after.current).toHaveLength(1);
+    expect(after.current[0]).toMatchObject({
+      encodedKeyHex: before.current[0]?.encodedKeyHex,
+      commitSeq: "2",
+    });
+  });
+
+  it("refuses oversized developer keys and PGlite fan-out before durable writes", async () => {
+    const oversized = await prepareO07BScenario(
+      "c08a_developer_index_oversized_key",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "x".repeat(3_000) },
+        });
+      },
+      (current) => prepareDeveloperIndexForO06(current),
+      false,
+      true,
+    );
+    await expect(runEffect(
+      oversized.authentication.publishPointCommit(oversized.plan),
+    )).rejects.toMatchObject({
+      reason: "entryKeyLimitExceeded",
+      maximum: 2_048,
+    });
+    expect(await o06DurableState(oversized.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      outcomes: "0",
+      last_commit_seq: "0",
+    });
+
+    const ceiling = await prepareO07BScenario(
+      "c08a_developer_index_pglite_ceiling",
+      async (current, table) => {
+        for (let index = 0; index < 86; index += 1) {
+          await runPointOperation(current.store, table, {
+            kind: "insert",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
+            fields: { name: `name-${index}` },
+          });
+        }
+      },
+      (current) => prepareDeveloperIndexForO06(current),
+      false,
+      3,
+    );
+    await expect(runEffect(
+      ceiling.authentication.publishPointCommit(ceiling.plan),
+    )).rejects.toMatchObject({
+      reason: "entryRevisionLimitExceeded",
+      observed: 258,
+      maximum: 256,
+    });
+    expect(await o06DurableState(ceiling.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      outcomes: "0",
+      last_commit_seq: "0",
+    });
+  });
+
   it("reports exact request-key evidence reuse before stale session checks", async () => {
     const prepared = await prepareO07BScenario("o07b_reuse_conflict");
     await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
@@ -5388,6 +5712,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ok: { optional: false, fieldType: { type: "boolean" } },
       },
     },
+    developerIndex: boolean | number = false,
   ) {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       `deployment_stored_attempt_${label}`,
@@ -5408,12 +5733,26 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
     await setFlarexActivationClock(persistence, scopeId);
     const usersTable = appTable("users");
+    const developerIndexCount = developerIndex === true
+      ? 1
+      : developerIndex === false
+        ? 0
+        : developerIndex;
+    const developerIndexFields = [
+      ["name", "profile.alias"],
+      ["alias"],
+      ["category"],
+    ] as const;
     await persistence.publishAppSchemaV1({
       deploymentId,
       schemaVersionId,
       version: CatalogSchemaVersionSchema.make(1),
       tables: [usersTable],
-      indexes: [],
+      indexes: Array.from({ length: developerIndexCount }, (_, index) => ({
+          tableLogicalName: "users",
+          descriptor: `byDeveloperField${index}`,
+          fields: developerIndexFields[index] ?? ["name"],
+        })),
     });
     const seededDocumentId = seedRow
       ? await seedCommittedUser(scopeId, schemaVersionId)
@@ -5456,7 +5795,17 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         indexBindings: {
           kind: "indexBindings",
           sectionVersion: 1,
-          indexes: [],
+          indexes: Array.from({ length: developerIndexCount }, (_, index) => ({
+              logicalIndexId: decodeCatalogIndexId(index + 1),
+              tableId: 1,
+              namespace: "app",
+              descriptor: `byDeveloperField${index}`,
+              spec: {
+                kind: "developerOrdered",
+                specVersion: 1,
+                fields: [...(developerIndexFields[index] ?? ["name"])],
+              },
+            })),
         },
       },
     });
@@ -5608,12 +5957,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ok: { optional: false, fieldType: { type: "boolean" } },
       },
     },
+    developerIndex: boolean | number = false,
   ) {
     const current = await c04b2ActivatedInitialScenario(
       label,
       loaderOptions,
       seedRow,
       returnsValidator,
+      developerIndex,
     );
     const executionScope = await runEffect(Effect.fromResult(
       current.executionClaims.admission.admit(
@@ -5780,6 +6131,88 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   }
 
+  async function prepareDeveloperIndexForO06(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    seedExistingRow = false,
+  ): Promise<Pick<
+    PointCommitTransactionProofOptionsV1,
+    "developerIndexes"
+  >> {
+    const target = createPGliteLocatedIndexBuildReconciliationTargetV1(
+      persistence,
+      sharedLocator,
+    );
+    await runEffect(reconcilePublishedIndexBuildsV1Effect({
+      controlDb: persistence.drizzle,
+      authority: {
+        scopeMetadata: {
+          getScopeMetadataByDeploymentId: (deploymentId: string) =>
+            persistence.getScopeMetadataByDeploymentId(deploymentId),
+        },
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => null,
+        },
+        scopeClockTargets: { resolve: async () => target },
+      },
+    }, {
+      deploymentId: current.anchor.deploymentId,
+      schemaVersionId: current.schemaVersionId,
+    }));
+    const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
+      persistence.drizzle,
+    );
+    if (seedExistingRow) {
+      if (current.seededDocumentId === null) {
+        throw new Error("Missing C08-A seeded developer-index document.");
+      }
+      const definitions = await runEffect(developerIndexes.locate({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        schemaVersionId: current.schemaVersionId,
+        tableIds: Object.freeze([decodeCatalogTableId(1)]),
+        maximumDefinitions: 256,
+      }));
+      const definition = definitions?.[0];
+      if (definitions?.length !== 1 || definition === undefined) {
+        throw new Error("Missing C08-A developer-index definition.");
+      }
+      const rowId = decodeAppRowIdHexV1("11".repeat(16));
+      const creationTime = decodeAppCreationTimeV1(1);
+      const document = await canonicalizeAppDocumentV1({
+        tableId: decodeCatalogTableId(1),
+        rowId,
+        creationTime,
+        fields: { name: "seeded" },
+      });
+      const clock = await persistence.getScopeClock(current.anchor.scopeId);
+      if (clock === null) {
+        throw new Error("Missing C08-A seeded scope clock.");
+      }
+      await persistence.drizzle.transaction(async (tx) => {
+        Result.getOrThrow(
+          await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+            tx,
+            {
+              kind: "live",
+              scopeId: current.anchor.scopeId,
+              definition,
+              encodedKey: Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
+                definition,
+                document,
+                creationTime,
+              )),
+              rowId: decodeOrderedIndexRowIdHexV1(rowId),
+              writeEpoch: clock.epoch,
+              commitSeq: CommitSeqSchema.make(1n),
+              prevCommitSeq: null,
+            },
+          ),
+        );
+      });
+    }
+    return Object.freeze({ developerIndexes });
+  }
+
   async function prepareO07BScenario(
     label: string,
     operation?: (
@@ -5791,6 +6224,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       | ((current: Awaited<ReturnType<typeof c04b2Scenario>>) =>
         Promise<PointCommitTransactionProofOptionsV1>) = {},
     seedRow = false,
+    developerIndex: boolean | number = false,
   ) {
     const running = await prepareO07BRunningScenario(
       label,
@@ -5798,6 +6232,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       options,
       undefined,
       seedRow,
+      developerIndex,
     );
     const plan = await runEffect(
       running.authentication.enterPointCommitFinishing(running.runningPlan),
@@ -5821,8 +6256,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     publisherPorts: PointMutationSessionAuthorityResolutionPortsV1 =
       resolutionPorts(persistence),
     seedRow = false,
+    developerIndex: boolean | number = false,
   ) {
-    const current = await c04b2Scenario(label, {}, seedRow);
+    const current = await c04b2Scenario(
+      label,
+      {},
+      seedRow,
+      undefined,
+      developerIndex,
+    );
     const table = await runEffect(
       current.store.resolvePointTableEffect(current.attempt, "users"),
     );
@@ -6522,6 +6964,55 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     } as const;
   }
 
+  async function developerIndexState(scopeUuid: string) {
+    const revisions = await persistence.query<{
+      index_definition_id: string;
+      encoded_key_hex: string;
+      row_id_hex: string;
+      commit_seq: string;
+      is_tombstone: boolean;
+    }>(
+      `select index_definition_id::text,
+         encode(encoded_key, 'hex') as encoded_key_hex,
+         encode(row_id, 'hex') as row_id_hex,
+         commit_seq::text, is_tombstone
+       from fx_app_index_entry_rev
+       where scope_uuid = $1
+       order by index_definition_id, encoded_key, row_id, commit_seq`,
+      [scopeUuid],
+    );
+    const current = await persistence.query<{
+      index_definition_id: string;
+      encoded_key_hex: string;
+      row_id_hex: string;
+      commit_seq: string;
+    }>(
+      `select index_definition_id::text,
+         encode(encoded_key, 'hex') as encoded_key_hex,
+         encode(row_id, 'hex') as row_id_hex,
+         commit_seq::text
+       from fx_app_index_entry_current
+       where scope_uuid = $1
+       order by index_definition_id, encoded_key, row_id`,
+      [scopeUuid],
+    );
+    return Object.freeze({
+      revisions: Object.freeze(revisions.rows.map((row) => Object.freeze({
+        indexDefinitionId: row.index_definition_id,
+        encodedKeyHex: row.encoded_key_hex,
+        rowIdHex: row.row_id_hex,
+        commitSeq: row.commit_seq,
+        isTombstone: row.is_tombstone,
+      }))),
+      current: Object.freeze(current.rows.map((row) => Object.freeze({
+        indexDefinitionId: row.index_definition_id,
+        encodedKeyHex: row.encoded_key_hex,
+        rowIdHex: row.row_id_hex,
+        commitSeq: row.commit_seq,
+      }))),
+    });
+  }
+
   function pointRowIdHex(documentId: string): string {
     return documentId.slice(documentId.indexOf(":") + 1).replaceAll("-", "");
   }
@@ -7001,6 +7492,26 @@ function appTable(
         value: {
           name: {
             fieldType: { type: "string" },
+            optional: true,
+          },
+          alias: {
+            fieldType: { type: "string" },
+            optional: true,
+          },
+          category: {
+            fieldType: { type: "string" },
+            optional: true,
+          },
+          profile: {
+            fieldType: {
+              type: "object",
+              value: {
+                alias: {
+                  fieldType: { type: "string" },
+                  optional: true,
+                },
+              },
+            },
             optional: true,
           },
         },

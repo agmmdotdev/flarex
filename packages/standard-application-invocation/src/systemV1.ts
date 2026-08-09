@@ -54,6 +54,8 @@ import {
   "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
 import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/intrinsic-creation-time-index-build-v1";
+import type { AppDeveloperIndexDefinitionPortV1 } from
+  "@flarex/persistence-postgres/internal/app-developer-index-commit-v1";
 import { createStoredAttemptEvidenceLoaderV1 } from
   "@flarex/persistence-postgres/internal/stored-attempt-evidence-v1";
 import { createStoredCommitAuthorityEvidenceLoaderV1 } from
@@ -176,6 +178,7 @@ export interface ApplicationPointMutationSystemLiveV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly intrinsicCreationTimeIndexes:
     IntrinsicCreationTimeIndexDefinitionPortV1;
+  readonly developerIndexes: AppDeveloperIndexDefinitionPortV1;
   readonly sessionAuthority: PointMutationSessionAuthorityResolutionPortsV1;
   readonly currentEpochAuthority: CurrentScopeAuthorizationEpochResolutionPorts;
   readonly grantRetentionPolicy: GrantRetentionPolicyV1;
@@ -380,6 +383,7 @@ function makeInvoke(
     live.sessionAuthority,
     {
       intrinsicCreationTimeIndexes: live.intrinsicCreationTimeIndexes,
+      developerIndexes: live.developerIndexes,
       ...(live.pointCommitProofAfterTransactionStep === undefined
         ? {}
         : {

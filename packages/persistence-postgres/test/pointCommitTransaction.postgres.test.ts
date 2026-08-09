@@ -28,6 +28,12 @@ import {
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import {
+  encodeAppOrderedIndexKeyV1,
+  ORDERED_INDEX_MISSING_V1,
+  orderedIndexCreationTimeV1,
+  orderedIndexValueFromFlarexValueV1,
+} from "flarex-protocol/ordered-index";
+import {
   CommitSeqSchema,
   decodeReplacementScopeIdV1,
   projectScopeEpochUuidV1,
@@ -48,6 +54,10 @@ import {
   buildIntrinsicCreationTimeIndexV1Effect,
   createIntrinsicCreationTimeIndexDefinitionPortV1,
 } from "../src/intrinsicCreationTimeIndexBuildV1";
+import {
+  createAppDeveloperIndexDefinitionPortV1,
+} from
+  "../src/appDeveloperIndexCommitV1";
 import { reconcilePublishedIndexBuildsV1Effect } from
   "../src/indexBuildReconciliation";
 import {
@@ -59,6 +69,7 @@ import {
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
   PointCommitDecisionUncertainV1Error,
+  PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
   PointCommitSqlErrorV1,
   PointCommitStaleAuthorityV1Error,
   PointMutationAttemptReplacementCommittedOutcomeV1Error,
@@ -639,6 +650,280 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           row_id_hex: intent.rowId.replaceAll("-", ""),
         })),
       );
+    });
+  }, 120_000);
+
+  it("maintains developer-index key moves and rolls both entry changes back", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96418000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "developer_index_move",
+        true,
+      );
+      const developerOptions = await prepareDeveloperIndexForPostgres(
+        persistence,
+        scope,
+      );
+      const inserted = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_index_insert",
+      );
+      await runEffect(
+        createPublisher(persistence, developerOptions).publish(
+          inserted.publicationCommand,
+        ),
+      );
+      const insertIntent = inserted.command.rowIntents[0];
+      if (insertIntent?.kind !== "live") {
+        throw new Error("Expected a developer-index insert intent.");
+      }
+      const documentId = insertIntent.documentId;
+      const beforeMove = await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      expect(beforeMove.revisions).toHaveLength(1);
+      expect(beforeMove.current).toHaveLength(1);
+      const developerIndexes = developerOptions.developerIndexes;
+      if (developerIndexes === undefined) {
+        throw new Error("Missing PostgreSQL C08-A definition locator.");
+      }
+      const definitions = await runEffect(
+        developerIndexes.locate({
+          deploymentId: scope.deploymentId,
+          scopeId: scope.scopeId,
+          schemaVersionId: scope.schemaVersionId,
+          tableIds: Object.freeze([decodeCatalogTableId(1)]),
+          maximumDefinitions: 256,
+        }),
+      );
+      const definition = definitions?.[0];
+      if (definition === undefined) {
+        throw new Error("Missing PostgreSQL C08-A developer definition.");
+      }
+      expect(beforeMove.current[0]?.encodedKeyHex).toBe(
+        encodeAppOrderedIndexKeyV1({
+          spec: definition.physicalSpec,
+          values: Object.freeze([
+            orderedIndexValueFromFlarexValueV1("developer_index_insert_0"),
+            ORDERED_INDEX_MISSING_V1,
+            orderedIndexCreationTimeV1(insertIntent.creationTime),
+          ]),
+        }),
+      );
+
+      const moved = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_index_move",
+        { kind: "patch", documentId, name: "moved_name" },
+      );
+      let developerWrites = 0;
+      const failure = await runFailure(createPublisher(persistence, {
+        ...developerOptions,
+        afterTransactionStep: (event) => {
+          if (event.step === "developerIndexEntryWritten") {
+            developerWrites += 1;
+            if (developerWrites === 2) {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+          }
+          return Promise.resolve();
+        },
+      }).publish(moved.publicationCommand));
+      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+      expect(developerWrites).toBe(2);
+      expect(await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      )).toEqual(beforeMove);
+
+      await runEffect(
+        createPublisher(persistence, developerOptions).publish(
+          moved.publicationCommand,
+        ),
+      );
+      const afterMove = await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      expect(afterMove.revisions).toHaveLength(3);
+      expect(afterMove.revisions.filter((row) => row.isTombstone)).toHaveLength(1);
+      expect(afterMove.current).toHaveLength(1);
+      expect(afterMove.current[0]?.commitSeq).toBe("2");
+      expect(afterMove.current[0]?.encodedKeyHex).not.toBe(
+        beforeMove.current[0]?.encodedKeyHex,
+      );
+
+      const sameKey = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_index_same_key",
+        {
+          kind: "patch",
+          documentId,
+          patch: { category: "non-indexed-change" },
+        },
+      );
+      await runEffect(
+        createPublisher(persistence, developerOptions).publish(
+          sameKey.publicationCommand,
+        ),
+      );
+      const afterSameKey = await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      expect(afterSameKey.revisions).toHaveLength(4);
+      expect(afterSameKey.revisions.filter((row) => row.isTombstone)).toHaveLength(1);
+      expect(afterSameKey.current).toHaveLength(1);
+      expect(afterSameKey.current[0]).toMatchObject({
+        encodedKeyHex: afterMove.current[0]?.encodedKeyHex,
+        commitSeq: "3",
+      });
+
+      const deleted = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_index_delete",
+        { kind: "delete", documentId },
+      );
+      await runEffect(
+        createPublisher(persistence, developerOptions).publish(
+          deleted.publicationCommand,
+        ),
+      );
+      const afterDelete = await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      expect(afterDelete.revisions).toHaveLength(5);
+      expect(afterDelete.revisions.filter((row) => row.isTombstone)).toHaveLength(2);
+      expect(afterDelete.current).toEqual([]);
+    });
+  }, 120_000);
+
+  it("rejects developer-index entry fan-out above the private commit ceiling", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96419000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "developer_index_ceiling",
+        3,
+      );
+      const developerOptions = await prepareDeveloperIndexForPostgres(
+        persistence,
+        scope,
+      );
+      const attempt = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_index_ceiling",
+        86,
+      );
+      const failure = await runFailure(
+        createPublisher(persistence, developerOptions).publish(
+          attempt.publicationCommand,
+        ),
+      );
+      expect(failure).toBeInstanceOf(
+        PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
+      );
+      expect(failure).toMatchObject({
+        reason: "entryRevisionLimitExceeded",
+        observed: 258,
+        maximum: 256,
+      });
+      expect(await durableState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toEqual({
+        revisions: "0",
+        current_rows: "0",
+        commit_headers: "0",
+        commit_changes: "0",
+        outcomes: "0",
+        wakes: "0",
+        last_commit_seq: "0",
+        last_outbox_seq: "0",
+      });
+    });
+  }, 120_000);
+
+  it("rolls back action-derived developer-index fan-out above the ceiling", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96419800");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "developer_index_action_ceiling",
+        2,
+      );
+      const developerOptions = await prepareDeveloperIndexForPostgres(
+        persistence,
+        scope,
+      );
+      const inserted = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_index_action_seed",
+        65,
+      );
+      await runEffect(createPublisher(persistence, developerOptions).publish(
+        inserted.publicationCommand,
+      ));
+      const documentIds = inserted.command.rowIntents.map((intent) =>
+        intent.documentId
+      );
+      const before = await durableState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      const beforeIndexes = await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      expect(beforeIndexes.revisions).toHaveLength(130);
+      const moved = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_index_action_move",
+        { kind: "bulkPatch", documentIds },
+      );
+      const failure = await runFailure(
+        createPublisher(persistence, developerOptions).publish(
+          moved.publicationCommand,
+        ),
+      );
+      expect(failure).toBeInstanceOf(
+        PointCommitDeveloperIndexMaintenanceUnavailableV1Error,
+      );
+      expect(failure).toMatchObject({
+        reason: "entryRevisionLimitExceeded",
+        observed: 260,
+        maximum: 256,
+      });
+      expect(await durableState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      )).toEqual(before);
+      expect(await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      )).toEqual(beforeIndexes);
     });
   }, 120_000);
 
@@ -2018,6 +2303,7 @@ async function createScope(
   persistence: PostgresFlarexPersistence,
   randomUuid: () => string,
   label: string,
+  developerIndex: boolean | number = false,
 ): Promise<ScopeScenario> {
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     `deployment_o06_postgres_${label}`,
@@ -2039,12 +2325,25 @@ async function createScope(
   });
   const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
   await setFlarexActivationClock(persistence, scopeId);
+  const developerIndexCount = developerIndex === true
+    ? 1
+    : developerIndex === false
+      ? 0
+      : developerIndex;
   await persistence.publishAppSchemaV1({
     deploymentId,
     schemaVersionId,
     version: CatalogSchemaVersionSchema.make(1),
     tables: [appTable("users")],
-    indexes: [],
+    indexes: Array.from({ length: developerIndexCount }, (_, index) => ({
+        tableLogicalName: "users",
+        descriptor: `byName${index}`,
+        fields: [
+          ["name", "profile.alias"],
+          ["alias"],
+          ["category"],
+        ][index] ?? ["name"],
+      })),
   });
   return Object.freeze({
     deploymentId,
@@ -2060,7 +2359,22 @@ async function createAttempt(
   randomUuid: () => string,
   scope: ScopeScenario,
   label: string,
-  materialWrite: boolean | number | "mixed" = true,
+  materialWrite:
+    | boolean
+    | number
+    | "mixed"
+    | Readonly<{
+      readonly kind: "patch" | "delete";
+      readonly documentId: ReturnType<typeof appDocumentIdV1FromRowIdentity>;
+      readonly name?: string;
+      readonly patch?: Readonly<Record<string, string>>;
+    }>
+    | Readonly<{
+      readonly kind: "bulkPatch";
+      readonly documentIds: ReadonlyArray<
+        ReturnType<typeof appDocumentIdV1FromRowIdentity>
+      >;
+    }> = true,
 ): Promise<PreparedAttempt> {
   const seededDocumentId = materialWrite === "mixed"
     ? await seedCommittedUser(persistence, scope)
@@ -2105,7 +2419,10 @@ async function createAttempt(
     : materialWrite === true
       ? 1
       : 0;
-  if (materialWriteCount > 0 || materialWrite === "mixed") {
+  if (
+    materialWriteCount > 0 || materialWrite === "mixed" ||
+    typeof materialWrite === "object"
+  ) {
     const table = await runEffect(
       store.resolvePointTableEffect(attempt, "users"),
     );
@@ -2132,6 +2449,34 @@ async function createAttempt(
         syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
         fields: { name: `${label}_replacement` },
       });
+    }
+    if (typeof materialWrite === "object" && materialWrite.kind === "bulkPatch") {
+      for (let index = 0; index < materialWrite.documentIds.length; index += 1) {
+        const documentId = materialWrite.documentIds[index];
+        if (documentId === undefined) throw new Error("Missing bulk-patch document ID.");
+        await runPointOperation(store, table, {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)),
+          documentId,
+          patch: {
+            name: `${label}_name_${index}`,
+            alias: `${label}_alias_${index}`,
+          },
+        });
+      }
+    } else if (typeof materialWrite === "object") {
+      await runPointOperation(store, table, materialWrite.kind === "patch"
+        ? {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: materialWrite.documentId,
+          patch: materialWrite.patch ?? { name: materialWrite.name },
+        }
+        : {
+          kind: "delete",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: materialWrite.documentId,
+        });
     }
   }
   const prepared = await prepareSeal(store, attempt);
@@ -2272,6 +2617,37 @@ async function enableIntrinsicIndexForPostgres(
   return Object.freeze({
     intrinsicCreationTimeIndexes:
       createIntrinsicCreationTimeIndexDefinitionPortV1(persistence.drizzle),
+  });
+}
+
+async function prepareDeveloperIndexForPostgres(
+  persistence: PostgresFlarexPersistence,
+  scope: ScopeScenario,
+): Promise<Pick<PointCommitTransactionProofOptionsV1, "developerIndexes">> {
+  const target = createPostgresLocatedIndexBuildReconciliationTargetV1(
+    persistence,
+    scope.physicalLocator,
+  );
+  await runEffect(reconcilePublishedIndexBuildsV1Effect({
+    controlDb: persistence.drizzle,
+    authority: {
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: (deploymentId: string) =>
+          persistence.getScopeMetadataByDeploymentId(deploymentId),
+      },
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => null,
+      },
+      scopeClockTargets: { resolve: async () => target },
+    },
+  }, {
+    deploymentId: scope.deploymentId,
+    schemaVersionId: scope.schemaVersionId,
+  }));
+  return Object.freeze({
+    developerIndexes: createAppDeveloperIndexDefinitionPortV1(
+      persistence.drizzle,
+    ),
   });
 }
 
@@ -2790,6 +3166,54 @@ async function intrinsicIndexState(
   } as const;
 }
 
+async function developerIndexState(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+) {
+  const revisions = await persistence.query<{
+    index_definition_id: string;
+    encoded_key_hex: string;
+    row_id_hex: string;
+    commit_seq: string;
+    is_tombstone: boolean;
+  }>(
+    `select index_definition_id::text, encode(encoded_key, 'hex') as encoded_key_hex,
+       encode(row_id, 'hex') as row_id_hex, commit_seq::text, is_tombstone
+     from fx_app_index_entry_rev
+     where scope_uuid = $1
+     order by index_definition_id, encoded_key, row_id, commit_seq`,
+    [scopeUuid],
+  );
+  const current = await persistence.query<{
+    index_definition_id: string;
+    encoded_key_hex: string;
+    row_id_hex: string;
+    commit_seq: string;
+  }>(
+    `select index_definition_id::text, encode(encoded_key, 'hex') as encoded_key_hex,
+       encode(row_id, 'hex') as row_id_hex, commit_seq::text
+     from fx_app_index_entry_current
+     where scope_uuid = $1
+     order by index_definition_id, encoded_key, row_id`,
+    [scopeUuid],
+  );
+  return Object.freeze({
+    revisions: Object.freeze(revisions.rows.map((row) => Object.freeze({
+      indexDefinitionId: row.index_definition_id,
+      encodedKeyHex: row.encoded_key_hex,
+      rowIdHex: row.row_id_hex,
+      commitSeq: row.commit_seq,
+      isTombstone: row.is_tombstone,
+    }))),
+    current: Object.freeze(current.rows.map((row) => Object.freeze({
+      indexDefinitionId: row.index_definition_id,
+      encodedKeyHex: row.encoded_key_hex,
+      rowIdHex: row.row_id_hex,
+      commitSeq: row.commit_seq,
+    }))),
+  });
+}
+
 function compareIntrinsicIndexRows(
   left: Readonly<{
     readonly tableId: string;
@@ -3019,6 +3443,26 @@ function appTable(
         value: {
           name: {
             fieldType: { type: "string" },
+            optional: true,
+          },
+          alias: {
+            fieldType: { type: "string" },
+            optional: true,
+          },
+          category: {
+            fieldType: { type: "string" },
+            optional: true,
+          },
+          profile: {
+            fieldType: {
+              type: "object",
+              value: {
+                alias: {
+                  fieldType: { type: "string" },
+                  optional: true,
+                },
+              },
+            },
             optional: true,
           },
         },

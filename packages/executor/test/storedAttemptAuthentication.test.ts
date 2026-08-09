@@ -4272,7 +4272,7 @@ describe("C04A stored-attempt authentication", () => {
     expect(plan.rowIntents).toEqual([]);
   });
 
-  it("orders multiple material rows and fails typed for indexed writes and future shapes", async () => {
+  it("orders multiple material rows, accepts indexed writes, and rejects future shapes", async () => {
     const firstLive = await livePlannerPoint(decodeAppDocumentIdV1(
       "1:00000000-0000-4000-8000-000000000021",
     ));
@@ -4298,11 +4298,24 @@ describe("C04A stored-attempt authentication", () => {
         fields: ["name"],
       },
     };
+    const indexedSource = await plannerSourceForTest(
+      [firstLive],
+      [developerIndex],
+    );
     const indexedFailure = requirePlanFailure(planPointCommitStateV1(
-      await plannerSourceForTest([firstLive], [developerIndex]),
+      indexedSource,
     ));
     expect(indexedFailure).toMatchObject({
       issue: { reason: "developerIndexMaintenance", tableId: 1 },
+    });
+    const indexedPlan = requirePlanSuccess(planPointCommitStateV1(
+      indexedSource,
+      { developerIndexMaintenance: "c08-a-v1" },
+    ));
+    expect(indexedPlan.rowIntents).toHaveLength(1);
+    expect(indexedPlan.rowIntents[0]).toMatchObject({
+      kind: "live",
+      documentId: firstLive.documentId,
     });
     const indexedRead = unchangedPlannerPoint(firstLive.documentId);
     expect(Result.isSuccess(planPointCommitStateV1(

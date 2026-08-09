@@ -1,5 +1,6 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import {
+  hasPointCommitDeveloperIndexMaintenanceV1,
   RESOLVE_POINT_COMMIT_OUTCOME_V1,
   type PointCommitFinishingTransitionPortV1,
   type PointCommitOutcomeResolutionPortV1,
@@ -88,6 +89,12 @@ export function isPointCommitPublisherPortV1(
 ): value is PointCommitPublisherPortV1 {
   return isPointCommitRollbackProofPortV1(value) &&
     typeof Reflect.get(value, "publish") === "function";
+}
+
+export function supportsPointCommitDeveloperIndexMaintenanceV1(
+  value: unknown,
+): boolean {
+  return hasPointCommitDeveloperIndexMaintenanceV1(value);
 }
 
 export function isPointCommitOutcomeResolutionPortV1(

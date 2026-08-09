@@ -1578,10 +1578,11 @@ Outcome:
   same-table and cross-table intrinsic-sidecar success/rollback, and atomic
   PGlite and genuine-PostgreSQL publication.
 
-O09-A does not add unique claims, developer-index maintenance, range or
-relation dependencies, schema/DDL, a second OCC or commit path, a public API,
-or production routing. The remaining unique-claim and developer-index work
-stays in O09-B and keeps the overall O09 gate open.
+O09-A did not add unique claims, developer-index maintenance, range or relation
+dependencies, schema/DDL, a second OCC or commit path, a public API, or
+production routing. Developer-index maintenance subsequently completed under
+the separate C08-A owner. Unique claims and the remaining complete sidecar
+contention proof stay in O09-B and keep the overall O09 gate open.
 
 Exit gate:
 
@@ -1610,12 +1611,14 @@ Durable acceptance includes:
   120-second aggregate contention budgets. Exact run timings and environment
   receipts belong in the task or commit report rather than this living roadmap.
 
-#### [ ] O09-B — Add unique conflicts and developer-index ordering
+#### [ ] O09-B — Add unique conflicts and complete sidecar contention proof
 
 Outcome:
 
 - Validate and publish unique claims in the same transaction.
 - Translate database constraint races into stable typed conflicts/errors.
+- Preserve C08-A's deterministic developer-index actions while proving their
+  interaction with ordered unique-claim acquisition, rollback, and contention.
 
 Exit gate:
 
@@ -1624,8 +1627,9 @@ Exit gate:
 - Payload and Medusa behavior remains excluded.
 
 C04C1 historically rejected more than one material logical row. O09-A owns the
-first accepted multi-row point contract; O09-B retains unique-lock/write and
-developer-index ordering.
+first accepted multi-row point contract; C08-A now owns bounded deterministic
+developer-index ordering, while O09-B retains unique-lock/write ordering and
+the complete contention proof across both sidecar kinds.
 
 ### [ ] O10 — Prove One Exact Indexed Dependency
 

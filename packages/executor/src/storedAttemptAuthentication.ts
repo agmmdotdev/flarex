@@ -144,6 +144,7 @@ import {
   isPointMutationSessionAttemptTerminalizationV1,
   isStoredOccExecutionEvidenceLoaderV1,
   requireStoredPointMutationCapabilityDependencyV1,
+  supportsPointCommitDeveloperIndexMaintenanceV1,
   type StoredPointMutationCapabilityStageV1,
 } from "./storedAttemptAuthentication/capabilityRuntimeConstruction";
 import {
@@ -1416,10 +1417,23 @@ function createStoredPointMutationCapabilityRuntimeV1(
     });
   }
 
+  const pointCommitDescriptor = Object.getOwnPropertyDescriptor(
+    commitAuthority,
+    "pointCommit",
+  );
+  const planningPointCommitCandidate: unknown = pointCommitDescriptor !== undefined &&
+      "value" in pointCommitDescriptor
+    ? pointCommitDescriptor.value
+    : undefined;
+
   const planning = makeStoredPointCommitPlanningOperationsV1({
     base,
     configuration: commitAuthority,
     grantKernel,
+    developerIndexMaintenance:
+      supportsPointCommitDeveloperIndexMaintenanceV1(
+        planningPointCommitCandidate,
+      ),
     authenticatedStates,
     commitAuthorityStates,
     verifiedCommitInputStates,

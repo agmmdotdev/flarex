@@ -11,7 +11,7 @@ import {
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 
 import {
@@ -27,6 +27,7 @@ import {
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
+  type CatalogIndexDefinitionId,
   CatalogTableIdSchema,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
@@ -44,7 +45,11 @@ import {
 import {
   encodeAppOrderedIndexKeyV1,
   orderedIndexCreationTimeV1,
+  orderedIndexKeyBytesHexV1ToBytes,
+  orderedIndexRowIdHexV1ToBytes,
   orderedIndexRowIdHexV1FromBytesResult,
+  type OrderedIndexKeyHexV1,
+  type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import {
@@ -92,13 +97,20 @@ import {
   FLAREX_VALUE_CODEC_VERSION_V1,
   FlarexValueSha256V1Schema,
   FlarexValueCodecV1Error,
+  FlarexValueEvidenceV1Error,
   canonicalizeFlarexValueV1,
+  decodeCanonicalFlarexValueEvidenceV1,
   isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
   type CanonicalFlarexValueV1,
   type FlarexValueCodecVersion,
 } from "flarex-protocol/value";
 
+import {
+  lowerAppDeveloperIndexKeyV1,
+  type AppDeveloperIndexDefinitionPortV1,
+  type LocateAppDeveloperIndexDefinitionsV1Error,
+} from "./appDeveloperIndexCommitV1";
 import {
   appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
   isAppendAppIndexEntryRevisionV1Error,
@@ -541,6 +553,8 @@ export type PointCommitCorruptionReasonV1 =
   | "rowWriteInvalid"
   | "intrinsicIndexBuildInvalid"
   | "intrinsicIndexTransitionInvalid"
+  | "developerIndexBuildInvalid"
+  | "developerIndexTransitionInvalid"
   | "successfulResultInvalid"
   | "committedOutcomeMissing"
   | "publishedOutcomeInvalid"
@@ -578,6 +592,20 @@ export class PointCommitIntrinsicIndexDefinitionUnavailableV1Error
     readonly tableId: CatalogTableId;
   }> {}
 
+export const MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 = 256;
+
+export class PointCommitDeveloperIndexMaintenanceUnavailableV1Error
+  extends Data.TaggedError(
+    "PointCommitDeveloperIndexMaintenanceUnavailableV1Error",
+  )<{
+    readonly reason:
+      | "definitionSetUnavailable"
+      | "entryRevisionLimitExceeded"
+      | "entryKeyLimitExceeded";
+    readonly observed?: number;
+    readonly maximum?: number;
+  }> {}
+
 export type PointCommitSqlOperationV1 =
   | "resolveAuthority"
   | "beginOrRollback"
@@ -591,9 +619,14 @@ export type PointCommitSqlOperationV1 =
   | "deleteExecutionClaim"
   | "loadRowHeads"
   | "lockIntrinsicIndexBuild"
+  | "lockDeveloperIndexBuilds"
+  | "loadDeveloperIndexDocuments"
+  | "loadDeveloperIndexEntryHeads"
   | "resetIntrinsicIndexValidation"
+  | "resetDeveloperIndexValidation"
   | "writeTentativeRow"
   | "writeIntrinsicIndexEntry"
+  | "writeDeveloperIndexEntry"
   | "recheckOutcome"
   | "writeCommitHeader"
   | "writeCommitChange"
@@ -660,6 +693,8 @@ export type PointCommitRollbackProofV1Error =
   | PointCommitResourceExhaustionV1Error
   | PointCommitSqlErrorV1
   | PointCommitIntrinsicIndexDefinitionUnavailableV1Error
+  | PointCommitDeveloperIndexMaintenanceUnavailableV1Error
+  | LocateAppDeveloperIndexDefinitionsV1Error
   | ReadAppIndexDefinitionError
   | AppendAppIndexEntryRevisionV1Error;
 
@@ -671,6 +706,30 @@ export interface PointCommitRollbackProofPortV1 {
     PointCommitRollbackProofV1Error,
     never
   >;
+}
+
+const pointCommitDeveloperIndexMaintenancePortsV1 = new WeakSet<object>();
+
+/**
+ * Process-local private capability check. Only point-commit ports constructed
+ * with the C08-A definition locator are registered; structural lookalikes and
+ * copied ports cannot acquire this authority.
+ */
+export function hasPointCommitDeveloperIndexMaintenanceV1(
+  value: unknown,
+): boolean {
+  return typeof value === "object" && value !== null &&
+    pointCommitDeveloperIndexMaintenancePortsV1.has(value);
+}
+
+function registerPointCommitDeveloperIndexMaintenanceV1<T extends object>(
+  port: T,
+  developerIndexes: AppDeveloperIndexDefinitionPortV1 | undefined,
+): T {
+  if (developerIndexes !== undefined) {
+    pointCommitDeveloperIndexMaintenancePortsV1.add(port);
+  }
+  return port;
 }
 
 export type PointCommitPublicationV1Error =
@@ -738,8 +797,10 @@ export type PointCommitTransactionProofStepV1 =
   | "sessionEnteredFinishing"
   | "dependenciesValidated"
   | "intrinsicIndexBuildLocked"
+  | "developerIndexBuildLocked"
   | "tentativeRowWritten"
   | "intrinsicIndexEntryWritten"
+  | "developerIndexEntryWritten"
   | "outcomeRechecked"
   | "commitHeaderWritten"
   | "commitChangeWritten"
@@ -760,6 +821,8 @@ export interface PointCommitTransactionProofOptionsV1 {
    */
   readonly intrinsicCreationTimeIndexes?:
     IntrinsicCreationTimeIndexDefinitionPortV1;
+  /** Private C08-A composition; absence preserves the lower O07 proof lane. */
+  readonly developerIndexes?: AppDeveloperIndexDefinitionPortV1;
   readonly afterTransactionStep?: (
     event: Readonly<{
       readonly scopeId: ReplacementScopeIdV1;
@@ -773,6 +836,23 @@ export interface PointCommitTransactionProofOptionsV1 {
       readonly params: ReadonlyArray<unknown>;
     }>,
   ) => void;
+}
+
+function capturePointCommitTransactionProofOptionsV1(
+  options: PointCommitTransactionProofOptionsV1,
+): PointCommitTransactionProofOptionsV1 {
+  const intrinsicCreationTimeIndexes = options.intrinsicCreationTimeIndexes;
+  const developerIndexes = options.developerIndexes;
+  const afterTransactionStep = options.afterTransactionStep;
+  const observeQuery = options.observeQuery;
+  return Object.freeze({
+    ...(intrinsicCreationTimeIndexes === undefined
+      ? {}
+      : { intrinsicCreationTimeIndexes }),
+    ...(developerIndexes === undefined ? {} : { developerIndexes }),
+    ...(afterTransactionStep === undefined ? {} : { afterTransactionStep }),
+    ...(observeQuery === undefined ? {} : { observeQuery }),
+  });
 }
 
 export type PointMutationAttemptReplacementProofStepV1 =
@@ -953,6 +1033,71 @@ const prepareIntrinsicIndexDefinitions = Effect.fn(
   return Object.freeze(definitions);
 });
 
+const prepareDeveloperIndexDefinitions = Effect.fn(
+  "PointCommitTransaction.prepareDeveloperIndexDefinitions",
+)(function* (
+  command: PreparedPointCommitTransactionCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Effect.fn.Return<
+  ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  | LocateAppDeveloperIndexDefinitionsV1Error
+  | PointCommitDeveloperIndexMaintenanceUnavailableV1Error
+  | PointCommitCorruptionV1Error
+> {
+  const port = options.developerIndexes;
+  if (command.rowIntents.length === 0 || port === undefined) {
+    return Object.freeze([]);
+  }
+  const definitions = yield* port.locate({
+    deploymentId: command.authorityPins.deploymentId,
+    scopeId: command.authorityPins.scopeId,
+    schemaVersionId: command.authorityPins.schemaVersionId,
+    tableIds: Object.freeze([
+      ...new Set(command.rowIntents.map((intent) => intent.tableId)),
+    ]),
+    maximumDefinitions:
+      MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
+  });
+  if (definitions === null) {
+    return yield* Effect.fail(
+      new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
+        reason: "definitionSetUnavailable",
+      }),
+    );
+  }
+  let minimumEntryRevisionCount = 0;
+  let previousDefinitionId = 0;
+  for (const definition of definitions) {
+    if (
+      definition.scopeId !== command.authorityPins.scopeId ||
+      definition.deploymentId !== command.authorityPins.deploymentId ||
+      definition.access.kind !== "developer" ||
+      definition.indexDefinitionId <= previousDefinitionId
+    ) {
+      return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
+    }
+    previousDefinitionId = definition.indexDefinitionId;
+    for (const intent of command.rowIntents) {
+      if (intent.tableId === definition.access.tableId) {
+        minimumEntryRevisionCount += 1;
+      }
+    }
+  }
+  if (
+    minimumEntryRevisionCount >
+      MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1
+  ) {
+    return yield* Effect.fail(
+      new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
+        reason: "entryRevisionLimitExceeded",
+        observed: minimumEntryRevisionCount,
+        maximum: MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
+      }),
+    );
+  }
+  return definitions;
+});
+
 export function createPointCommitFinishingTransitionPortV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointCommitTransactionProofOptionsV1 = {},
@@ -1086,6 +1231,7 @@ export function createPointCommitRollbackProofPortV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointCommitTransactionProofOptionsV1 = {},
 ): PointCommitRollbackProofPortV1 {
+  const capturedOptions = capturePointCommitTransactionProofOptionsV1(options);
   const prove: PointCommitRollbackProofPortV1["prove"] = Effect.fn(
     "PointCommitTransaction.proveRollback",
   )(function* (input) {
@@ -1111,7 +1257,11 @@ export function createPointCommitRollbackProofPortV1(
     }
     const intrinsicDefinitions = yield* prepareIntrinsicIndexDefinitions(
       command,
-      options,
+      capturedOptions,
+    );
+    const developerDefinitions = yield* prepareDeveloperIndexDefinitions(
+      command,
+      capturedOptions,
     );
     return yield* Effect.uninterruptible(Effect.tryPromise({
       try: () => runRollbackProof(
@@ -1119,20 +1269,25 @@ export function createPointCommitRollbackProofPortV1(
         located.authority,
         command,
         intrinsicDefinitions,
-        options,
+        developerDefinitions,
+        capturedOptions,
       ),
       catch: mapTransactionFailure,
     }));
   });
 
-  return Object.freeze({ prove });
+  return registerPointCommitDeveloperIndexMaintenanceV1(
+    Object.freeze({ prove }),
+    capturedOptions.developerIndexes,
+  );
 }
 
 export function createPointCommitPublisherPortV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointCommitTransactionProofOptionsV1 = {},
 ): PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1 {
-  const rollback = createPointCommitRollbackProofPortV1(ports, options);
+  const capturedOptions = capturePointCommitTransactionProofOptionsV1(options);
+  const rollback = createPointCommitRollbackProofPortV1(ports, capturedOptions);
 
   const resolveOutcome = Effect.fn(
     "PointCommitTransaction.resolveCommittedOutcome",
@@ -1176,7 +1331,11 @@ export function createPointCommitPublisherPortV1(
 
     const intrinsicDefinitions = yield* prepareIntrinsicIndexDefinitions(
       command,
-      options,
+      capturedOptions,
+    );
+    const developerDefinitions = yield* prepareDeveloperIndexDefinitions(
+      command,
+      capturedOptions,
     );
 
     const runPublication = awaitPointCommitPublicationSettlement(
@@ -1185,7 +1344,8 @@ export function createPointCommitPublisherPortV1(
         located.authority,
         command,
         intrinsicDefinitions,
-        options,
+        developerDefinitions,
+        capturedOptions,
       ),
     );
     const decision: PointCommitPublicationRunDecisionV1 = yield*
@@ -1251,11 +1411,11 @@ export function createPointCommitPublisherPortV1(
     return yield* resolveOutcome(target, input);
   });
 
-  return Object.freeze({
+  return registerPointCommitDeveloperIndexMaintenanceV1(Object.freeze({
     ...rollback,
     publish,
     [RESOLVE_POINT_COMMIT_OUTCOME_V1]: resolvePointCommitOutcome,
-  });
+  }), capturedOptions.developerIndexes);
 }
 
 function awaitPointCommitPublicationSettlement(
@@ -2051,6 +2211,16 @@ function isCanonicalDocumentForIntent(
   if (!isCanonicalFlarexRuntimeObjectV1(value)) return false;
   return value._id === intent.documentId &&
     value._creationTime === intent.creationTime;
+}
+
+function isCanonicalDocumentForLoadedHead(
+  document: CanonicalFlarexValueV1,
+  documentId: AppDocumentIdV1,
+  creationTime: AppCreationTimeV1,
+): boolean {
+  const value = document.value;
+  return isCanonicalFlarexRuntimeObjectV1(value) &&
+    value._id === documentId && value._creationTime === creationTime;
 }
 
 interface LockedPointCommitClockV1 {
@@ -2945,6 +3115,7 @@ async function runRollbackProof(
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitTransactionCommandV1,
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitWouldCommitV1> {
   try {
@@ -2954,6 +3125,7 @@ async function runRollbackProof(
         preliminaryAuthority,
         command,
         intrinsicDefinitions,
+        developerDefinitions,
         options,
         "rollbackProof",
       );
@@ -2979,6 +3151,7 @@ async function runPointCommitPublication(
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitPublicationCommandV1,
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitPublicationDecisionV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
@@ -2987,6 +3160,7 @@ async function runPointCommitPublication(
       preliminaryAuthority,
       command,
       intrinsicDefinitions,
+      developerDefinitions,
       options,
       "publish",
     );
@@ -3023,6 +3197,7 @@ async function runPointCommitTransactionKernel(
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitTransactionCommandV1,
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   options: PointCommitTransactionProofOptionsV1,
   mode: PointCommitTransactionModeV1,
 ): Promise<PointCommitKernelResultV1> {
@@ -3047,6 +3222,15 @@ async function runPointCommitTransactionKernel(
   );
   if (intrinsicBuilds.length > 0) {
     await emitTransactionStep(options, command, "intrinsicIndexBuildLocked");
+  }
+  const developerBuilds = await lockPointCommitDeveloperIndexBuilds(
+    tx,
+    clock,
+    developerDefinitions,
+    command,
+  );
+  if (developerBuilds.length > 0) {
+    await emitTransactionStep(options, command, "developerIndexBuildLocked");
   }
 
   const session = await lockPointCommitSession(
@@ -3109,6 +3293,12 @@ async function runPointCommitTransactionKernel(
       preWriteDatabaseNowMilliseconds,
     ),
   );
+  const developerIndexActions = await preparePointCommitDeveloperIndexActions(
+    tx,
+    command,
+    loadedHeads,
+    developerBuilds,
+  );
   let intrinsicBuildIndex = 0;
   for (const rowIntent of command.rowIntents) {
     const rowRevision = await lowerTentativePointCommitRow(
@@ -3153,6 +3343,17 @@ async function runPointCommitTransactionKernel(
   }
   for (const intrinsic of intrinsicBuilds) {
     await resetPointCommitIntrinsicIndexValidation(tx, intrinsic.build);
+  }
+  await writePointCommitDeveloperIndexActions(
+    tx,
+    command,
+    allocation.commitSeq,
+    clock.record.epoch,
+    developerIndexActions,
+    options,
+  );
+  for (const developer of developerBuilds) {
+    await resetPointCommitDeveloperIndexValidation(tx, developer.build);
   }
   return Object.freeze({
     kind: "ready",
@@ -4361,6 +4562,596 @@ function adaptPointDependency(
   }
 }
 
+interface LockedPointCommitDeveloperIndexV1 {
+  readonly definition: LocatedAppIndexDefinitionV1;
+  readonly build: IndexBuildStateRecord;
+}
+
+interface PointCommitDeveloperIndexEntryHeadV1 {
+  readonly commitSeq: CommitSeq | null;
+  readonly isTombstone: boolean | null;
+}
+
+interface PointCommitDeveloperIndexEntryActionV1 {
+  readonly kind: "live" | "tombstone";
+  readonly definition: LocatedAppIndexDefinitionV1;
+  readonly encodedKey: OrderedIndexKeyHexV1;
+  readonly rowId: OrderedIndexRowIdHexV1;
+  readonly prevCommitSeq: CommitSeq | null;
+}
+
+interface PointCommitDeveloperIndexRowPlanV1 {
+  readonly definition: LocatedAppIndexDefinitionV1;
+  readonly build: IndexBuildStateRecord;
+  readonly rowId: OrderedIndexRowIdHexV1;
+  readonly priorCommitSeq: CommitSeq | null;
+  readonly priorKey: OrderedIndexKeyHexV1 | null;
+  readonly finalKey: OrderedIndexKeyHexV1 | null;
+}
+
+interface PointCommitDeveloperIndexDocumentRequestV1 {
+  readonly documentId: AppDocumentIdV1;
+  readonly tableId: CatalogTableId;
+  readonly rowId: AppRowIdHexV1;
+  readonly commitSeq: CommitSeq;
+  readonly creationTime: AppCreationTimeV1;
+}
+
+async function lockPointCommitDeveloperIndexBuilds(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  definitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
+  command: PreparedPointCommitTransactionCommandV1,
+): Promise<ReadonlyArray<LockedPointCommitDeveloperIndexV1>> {
+  if (definitions.length === 0) return Object.freeze([]);
+  const rows = await sqlCall("lockDeveloperIndexBuilds", () =>
+    tx.select().from(fxSystemIndexBuildStates).where(and(
+      eq(fxSystemIndexBuildStates.scopeId, command.authorityPins.scopeId),
+      inArray(
+        fxSystemIndexBuildStates.indexDefinitionId,
+        definitions.map((definition) => definition.indexDefinitionId),
+      ),
+    )).orderBy(fxSystemIndexBuildStates.indexDefinitionId).for("update"));
+  if (rows.length !== definitions.length) {
+    throw corruption("developerIndexBuildInvalid");
+  }
+  const locked: LockedPointCommitDeveloperIndexV1[] = [];
+  for (let index = 0; index < definitions.length; index += 1) {
+    const definition = definitions[index];
+    const row = rows[index];
+    if (definition === undefined || row === undefined) {
+      throw corruption("developerIndexBuildInvalid");
+    }
+    const state = projectPointCommitTransactionResult(
+      decodeIndexBuildStateRowResult(
+        row,
+        command.authorityPins.scopeId,
+        definition.indexDefinitionId,
+      ).pipe(Result.mapError(() => corruption("developerIndexBuildInvalid"))),
+    );
+    if (
+      definition.access.kind !== "developer" ||
+      state.indexDefinitionId !== definition.indexDefinitionId ||
+      state.storageGeneration !== clock.record.storageGeneration ||
+      state.storageGenerationFence !== clock.record.storageGenerationFence ||
+      state.epoch !== clock.record.epoch ||
+      state.startCommitSeq > clock.record.lastCommitSeq ||
+      state.lifecycle === "retiring"
+    ) {
+      throw corruption("developerIndexBuildInvalid");
+    }
+    locked.push(Object.freeze({ definition, build: state }));
+  }
+  return Object.freeze(locked);
+}
+
+async function preparePointCommitDeveloperIndexActions(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  builds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
+): Promise<ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>> {
+  const plans: PointCommitDeveloperIndexRowPlanV1[] = [];
+  const loadedHeadsByDocumentId = new Map<AppDocumentIdV1, LoadedPointCommitHeadV1>();
+  for (let index = 0; index < command.dependencies.length; index += 1) {
+    const dependency = command.dependencies[index];
+    const loaded = loadedHeads[index];
+    if (dependency === undefined || loaded === undefined) {
+      throw corruption("developerIndexTransitionInvalid");
+    }
+    if (loadedHeadsByDocumentId.has(dependency.documentId)) {
+      throw corruption("developerIndexTransitionInvalid");
+    }
+    loadedHeadsByDocumentId.set(dependency.documentId, loaded);
+  }
+  const priorDocuments = await loadPointCommitDeveloperIndexDocuments(
+    tx,
+    command,
+    loadedHeadsByDocumentId,
+    builds,
+  );
+  for (const locked of builds) {
+    for (const intent of command.rowIntents) {
+      const loaded = loadedHeadsByDocumentId.get(intent.documentId);
+      if (
+        loaded === undefined ||
+        intent.tableId !== locked.definition.access.tableId
+      ) {
+        continue;
+      }
+      const rowId = projectPointCommitTransactionResult(
+        orderedIndexRowIdHexV1FromBytesResult(
+          appRowIdHexV1ToBytes(intent.rowId),
+        ).pipe(Result.mapError(() =>
+          corruption("developerIndexTransitionInvalid")
+        )),
+      );
+      const priorDocument = priorDocuments.get(intent.documentId) ?? null;
+      if (
+        loaded.head.kind === "live" &&
+        (priorDocument === null || loaded.creationTime === null)
+      ) {
+        throw corruption("developerIndexTransitionInvalid");
+      }
+      const priorKey = loaded.head.kind === "live" &&
+          priorDocument !== null && loaded.creationTime !== null
+        ? lowerDeveloperIndexKey(
+          locked.definition,
+          priorDocument,
+          loaded.creationTime,
+        )
+        : null;
+      const finalKey = intent.kind === "live"
+        ? lowerDeveloperIndexKey(
+          locked.definition,
+          intent.document,
+          intent.creationTime,
+        )
+        : null;
+      plans.push(Object.freeze({
+        definition: locked.definition,
+        build: locked.build,
+        rowId,
+        priorCommitSeq: loaded.head.kind === "live"
+          ? loaded.head.revisionCommitSeq
+          : null,
+        priorKey,
+        finalKey,
+      }));
+    }
+  }
+  const positions = uniqueDeveloperIndexPositions(plans);
+  const heads = await loadPointCommitDeveloperIndexEntryHeads(
+    tx,
+    command,
+    positions,
+  );
+  const actions: PointCommitDeveloperIndexEntryActionV1[] = [];
+  for (const plan of plans) {
+    const priorHead = plan.priorKey === null
+      ? null
+      : heads.get(developerIndexPositionKey(
+        plan.definition.indexDefinitionId,
+        plan.priorKey,
+        plan.rowId,
+      )) ?? null;
+    const finalHead = plan.finalKey === null
+      ? null
+      : heads.get(developerIndexPositionKey(
+        plan.definition.indexDefinitionId,
+        plan.finalKey,
+        plan.rowId,
+      )) ?? null;
+    const sameKey = plan.priorKey !== null &&
+      plan.priorKey === plan.finalKey;
+    if (plan.priorKey !== null) {
+      if (
+        priorHead?.commitSeq !== null &&
+        priorHead?.commitSeq !== undefined &&
+        (priorHead.isTombstone ||
+          priorHead.commitSeq !== plan.priorCommitSeq)
+      ) {
+        throw corruption("developerIndexTransitionInvalid");
+      }
+      if (
+        (priorHead === null || priorHead.commitSeq === null) &&
+        plan.build.lifecycle === "enabled"
+      ) {
+        throw corruption("developerIndexTransitionInvalid");
+      }
+      if (sameKey) {
+        actions.push(Object.freeze({
+          kind: "live",
+          definition: plan.definition,
+          encodedKey: plan.priorKey,
+          rowId: plan.rowId,
+          prevCommitSeq: priorHead?.commitSeq ?? null,
+        }));
+      } else if (priorHead !== null && priorHead.commitSeq !== null) {
+        actions.push(Object.freeze({
+          kind: "tombstone",
+          definition: plan.definition,
+          encodedKey: plan.priorKey,
+          rowId: plan.rowId,
+          prevCommitSeq: priorHead.commitSeq,
+        }));
+      }
+    }
+    if (plan.finalKey !== null && !sameKey) {
+      if (finalHead?.commitSeq !== null && finalHead?.isTombstone === false) {
+        throw corruption("developerIndexTransitionInvalid");
+      }
+      actions.push(Object.freeze({
+        kind: "live",
+        definition: plan.definition,
+        encodedKey: plan.finalKey,
+        rowId: plan.rowId,
+        prevCommitSeq: finalHead?.commitSeq ?? null,
+      }));
+    }
+  }
+  if (actions.length > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1) {
+    throw new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
+      reason: "entryRevisionLimitExceeded",
+      observed: actions.length,
+      maximum: MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
+    });
+  }
+  actions.sort(compareDeveloperIndexEntryActions);
+  return Object.freeze(actions);
+}
+
+async function loadPointCommitDeveloperIndexDocuments(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  loadedHeadsByDocumentId: ReadonlyMap<
+    AppDocumentIdV1,
+    LoadedPointCommitHeadV1
+  >,
+  builds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
+): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
+  if (builds.length === 0) return new Map();
+  const indexedTableIds = new Set(
+    builds.map((build) => build.definition.access.tableId),
+  );
+  const requests: PointCommitDeveloperIndexDocumentRequestV1[] = [];
+  for (const intent of command.rowIntents) {
+    if (!indexedTableIds.has(intent.tableId)) continue;
+    const loaded = loadedHeadsByDocumentId.get(intent.documentId);
+    if (loaded === undefined) {
+      throw corruption("developerIndexTransitionInvalid");
+    }
+    if (loaded.head.kind !== "live") continue;
+    if (loaded.creationTime === null) {
+      throw corruption("developerIndexTransitionInvalid");
+    }
+    requests.push(Object.freeze({
+      documentId: intent.documentId,
+      tableId: intent.tableId,
+      rowId: intent.rowId,
+      commitSeq: loaded.head.revisionCommitSeq,
+      creationTime: loaded.creationTime,
+    }));
+  }
+  if (requests.length === 0) return new Map();
+  const scopeUuid = projectPointCommitTransactionResult(
+    projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
+      Result.mapError(() => corruption("developerIndexTransitionInvalid")),
+    ),
+  ).scopeUuid;
+  const values = sql.join(requests.map((request, ordinal) => sql`
+    (
+      ${ordinal}::integer,
+      ${request.tableId}::integer,
+      ${appRowIdHexV1ToBytes(request.rowId)}::bytea,
+      ${request.commitSeq}::bigint
+    )
+  `), sql`, `);
+  const statement = sql`
+    with requested(ordinal, table_id, row_id, commit_seq) as (
+      values ${values}
+    )
+    select
+      requested.ordinal::text as "ordinalText",
+      revision.is_tombstone as "isTombstone",
+      revision.creation_time::text as "creationTimeText",
+      revision.value_codec_version as "valueCodecVersion",
+      revision.value_bytes as "valueBytes",
+      revision.value_sha256 as "valueSha256"
+    from requested
+    left join fx_app_row_rev as revision
+      on revision.scope_uuid = ${scopeUuid}
+      and revision.table_id = requested.table_id
+      and revision.row_id = requested.row_id
+      and revision.commit_seq = requested.commit_seq
+    order by requested.ordinal asc
+  `;
+  const result = await sqlCall(
+    "loadDeveloperIndexDocuments",
+    () => tx.execute(statement),
+  );
+  const rows = rowsFromDriverExecuteResult(result, () => {
+    throw corruption("developerIndexTransitionInvalid");
+  });
+  if (rows.length !== requests.length) {
+    throw corruption("developerIndexTransitionInvalid");
+  }
+  const documents = new Map<AppDocumentIdV1, CanonicalFlarexValueV1>();
+  for (let ordinal = 0; ordinal < requests.length; ordinal += 1) {
+    const raw = rows[ordinal];
+    const request = requests[ordinal];
+    if (
+      !isNonArrayRecord(raw) ||
+      request === undefined ||
+      raw.ordinalText !== String(ordinal) ||
+      raw.isTombstone !== false ||
+      raw.creationTimeText !== String(request.creationTime) ||
+      raw.valueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
+      !isUint8Array(raw.valueBytes) ||
+      !isUint8ArrayWithByteLength(raw.valueSha256, 32)
+    ) {
+      throw corruption("developerIndexTransitionInvalid");
+    }
+    let document: CanonicalFlarexValueV1;
+    try {
+      document = await decodeCanonicalFlarexValueEvidenceV1({
+        profile: "appDocument",
+        canonicalBytes: raw.valueBytes,
+        sha256: raw.valueSha256,
+      });
+    } catch (cause) {
+      if (
+        cause instanceof FlarexValueEvidenceV1Error ||
+        cause instanceof FlarexValueCodecV1Error
+      ) {
+        throw corruption("developerIndexTransitionInvalid");
+      }
+      throw cause;
+    }
+    if (!isCanonicalDocumentForLoadedHead(
+      document,
+      request.documentId,
+      request.creationTime,
+    )) {
+      throw corruption("developerIndexTransitionInvalid");
+    }
+    documents.set(request.documentId, document);
+  }
+  return documents;
+}
+
+function lowerDeveloperIndexKey(
+  definition: LocatedAppIndexDefinitionV1,
+  document: CanonicalFlarexValueV1,
+  creationTime: AppCreationTimeV1,
+): OrderedIndexKeyHexV1 {
+  return projectPointCommitTransactionResult(
+    lowerAppDeveloperIndexKeyV1(
+      definition,
+      document,
+      creationTime,
+    ).pipe(Result.mapError((cause) =>
+      new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
+        reason: "entryKeyLimitExceeded",
+        observed: cause.observedBytes,
+        maximum: cause.maximumBytes,
+      })
+    )),
+  );
+}
+
+interface PointCommitDeveloperIndexPositionV1 {
+  readonly definitionId: CatalogIndexDefinitionId;
+  readonly encodedKey: OrderedIndexKeyHexV1;
+  readonly rowId: OrderedIndexRowIdHexV1;
+}
+
+function uniqueDeveloperIndexPositions(
+  plans: ReadonlyArray<PointCommitDeveloperIndexRowPlanV1>,
+): ReadonlyArray<PointCommitDeveloperIndexPositionV1> {
+  const positions = new Map<string, PointCommitDeveloperIndexPositionV1>();
+  for (const plan of plans) {
+    for (const encodedKey of [plan.priorKey, plan.finalKey]) {
+      if (encodedKey === null) continue;
+      const key = developerIndexPositionKey(
+        plan.definition.indexDefinitionId,
+        encodedKey,
+        plan.rowId,
+      );
+      positions.set(key, Object.freeze({
+        definitionId: plan.definition.indexDefinitionId,
+        encodedKey,
+        rowId: plan.rowId,
+      }));
+    }
+  }
+  return Object.freeze([...positions.values()].sort((left, right) =>
+    left.definitionId - right.definitionId ||
+    left.encodedKey.localeCompare(right.encodedKey) ||
+    left.rowId.localeCompare(right.rowId)
+  ));
+}
+
+async function loadPointCommitDeveloperIndexEntryHeads(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  positions: ReadonlyArray<PointCommitDeveloperIndexPositionV1>,
+): Promise<ReadonlyMap<string, PointCommitDeveloperIndexEntryHeadV1>> {
+  if (positions.length === 0) return new Map();
+  const scopeUuid = projectPointCommitTransactionResult(
+    projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
+      Result.mapError(() => corruption("developerIndexTransitionInvalid")),
+    ),
+  ).scopeUuid;
+  const values = sql.join(positions.map((position, ordinal) => sql`
+    (
+      ${ordinal}::integer,
+      ${position.definitionId}::integer,
+      ${orderedIndexKeyBytesHexV1ToBytes(position.encodedKey)}::bytea,
+      ${orderedIndexRowIdHexV1ToBytes(position.rowId)}::bytea
+    )
+  `), sql`, `);
+  const statement = sql`
+    with requested(ordinal, index_definition_id, encoded_key, row_id) as (
+      values ${values}
+    )
+    select
+      requested.ordinal::text as "ordinalText",
+      current_entry.commit_seq::text as "currentCommitSeqText",
+      latest.commit_seq::text as "latestCommitSeqText",
+      latest.is_tombstone as "latestIsTombstone"
+    from requested
+    left join fx_app_index_entry_current as current_entry
+      on current_entry.scope_uuid = ${scopeUuid}
+      and current_entry.index_definition_id = requested.index_definition_id
+      and current_entry.encoded_key = requested.encoded_key
+      and current_entry.row_id = requested.row_id
+    left join lateral (
+      select revision.commit_seq, revision.is_tombstone
+      from fx_app_index_entry_rev as revision
+      where revision.scope_uuid = ${scopeUuid}
+        and revision.index_definition_id = requested.index_definition_id
+        and revision.encoded_key = requested.encoded_key
+        and revision.row_id = requested.row_id
+      order by revision.commit_seq desc
+      limit 1
+    ) as latest on true
+    order by requested.ordinal asc
+  `;
+  const result = await sqlCall(
+    "loadDeveloperIndexEntryHeads",
+    () => tx.execute(statement),
+  );
+  const rows = rowsFromDriverExecuteResult(result, () => {
+    throw corruption("developerIndexTransitionInvalid");
+  });
+  if (rows.length !== positions.length) {
+    throw corruption("developerIndexTransitionInvalid");
+  }
+  const heads = new Map<string, PointCommitDeveloperIndexEntryHeadV1>();
+  for (let ordinal = 0; ordinal < positions.length; ordinal += 1) {
+    const raw = rows[ordinal];
+    const position = positions[ordinal];
+    if (!isNonArrayRecord(raw) || position === undefined) {
+      throw corruption("developerIndexTransitionInvalid");
+    }
+    const decodedOrdinal = projectPointCommitTransactionResult(
+      parseNonNegativeIntegerTextResult(raw.ordinalText).pipe(
+        Result.mapError(() => corruption("developerIndexTransitionInvalid")),
+      ),
+    );
+    const currentCommitSeq = projectPointCommitTransactionResult(
+      parseNullableCommitSeqTextResult(raw.currentCommitSeqText).pipe(
+        Result.mapError(() => corruption("developerIndexTransitionInvalid")),
+      ),
+    );
+    const latestCommitSeq = projectPointCommitTransactionResult(
+      parseNullableCommitSeqTextResult(raw.latestCommitSeqText).pipe(
+        Result.mapError(() => corruption("developerIndexTransitionInvalid")),
+      ),
+    );
+    if (
+      decodedOrdinal !== ordinal ||
+      (latestCommitSeq === null
+        ? raw.latestIsTombstone !== null || currentCommitSeq !== null
+        : typeof raw.latestIsTombstone !== "boolean" ||
+          (raw.latestIsTombstone
+            ? currentCommitSeq !== null
+            : currentCommitSeq !== latestCommitSeq))
+    ) {
+      throw corruption("developerIndexTransitionInvalid");
+    }
+    heads.set(
+      developerIndexPositionKey(
+        position.definitionId,
+        position.encodedKey,
+        position.rowId,
+      ),
+      Object.freeze({
+        commitSeq: latestCommitSeq,
+        isTombstone: latestCommitSeq === null
+          ? null
+          : raw.latestIsTombstone as boolean,
+      }),
+    );
+  }
+  return heads;
+}
+
+function developerIndexPositionKey(
+  definitionId: CatalogIndexDefinitionId,
+  encodedKey: OrderedIndexKeyHexV1,
+  rowId: OrderedIndexRowIdHexV1,
+): string {
+  return `${definitionId}:${encodedKey}:${rowId}`;
+}
+
+function compareDeveloperIndexEntryActions(
+  left: PointCommitDeveloperIndexEntryActionV1,
+  right: PointCommitDeveloperIndexEntryActionV1,
+): number {
+  return left.definition.indexDefinitionId - right.definition.indexDefinitionId ||
+    left.encodedKey.localeCompare(right.encodedKey) ||
+    left.rowId.localeCompare(right.rowId) ||
+    (left.kind === right.kind ? 0 : left.kind === "tombstone" ? -1 : 1);
+}
+
+async function writePointCommitDeveloperIndexActions(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  commitSeq: CommitSeq,
+  writeEpoch: ScopeEpoch,
+  actions: ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<void> {
+  for (const action of actions) {
+    const appended = await sqlCall("writeDeveloperIndexEntry", () =>
+      appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(tx, {
+        kind: action.kind,
+        scopeId: command.authorityPins.scopeId,
+        definition: action.definition,
+        encodedKey: action.encodedKey,
+        rowId: action.rowId,
+        writeEpoch,
+        commitSeq,
+        prevCommitSeq: action.prevCommitSeq,
+      }));
+    projectPointCommitTransactionResult(appended);
+    await emitTransactionStep(
+      options,
+      command,
+      "developerIndexEntryWritten",
+    );
+  }
+}
+
+async function resetPointCommitDeveloperIndexValidation(
+  tx: AppRowTransaction,
+  build: IndexBuildStateRecord,
+): Promise<void> {
+  if (build.lifecycle !== "validating") return;
+  const updated = await sqlCall("resetDeveloperIndexValidation", () =>
+    tx.update(fxSystemIndexBuildStates).set({
+      backfillCursorRowId: null,
+      updatedAt: sql`clock_timestamp()`,
+    }).where(and(
+      eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
+      eq(fxSystemIndexBuildStates.indexDefinitionId, build.indexDefinitionId),
+      eq(
+        fxSystemIndexBuildStates.storageGenerationFence,
+        build.storageGenerationFence,
+      ),
+      eq(fxSystemIndexBuildStates.epoch, build.epoch),
+      eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
+      eq(fxSystemIndexBuildStates.lifecycle, "validating"),
+    )).returning({
+      indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId,
+    }));
+  if (updated.length !== 1) {
+    throw corruption("developerIndexBuildInvalid");
+  }
+}
+
 interface LockedPointCommitIntrinsicIndexV1 {
   readonly definition: LocatedAppIndexDefinitionV1;
   readonly build: IndexBuildStateRecord;
@@ -5035,6 +5826,7 @@ function mapTransactionFailure(
     cause instanceof PointCommitResourceExhaustionV1Error ||
     cause instanceof PointCommitSqlErrorV1 ||
     cause instanceof PointCommitIntrinsicIndexDefinitionUnavailableV1Error ||
+    cause instanceof PointCommitDeveloperIndexMaintenanceUnavailableV1Error ||
     isAppendAppIndexEntryRevisionV1Error(cause)
   ) {
     return cause;

@@ -505,8 +505,10 @@ Outcome:
   inputs reconstruct equivalent logical state and contained bytes. O09-A admits
   multiple material point rows within the dedicated 128-row operational
   ceiling (separate from the 4,096 point-dependency bound); future/
-  non-point shapes and material writes requiring a declared developer index
-  still fail typed before any later SQL transaction opens.
+  non-point shapes still fail typed before any later SQL transaction opens.
+  Material writes requiring a declared developer index remain fail closed
+  unless the owning composition explicitly supplies the private C08-A
+  maintenance capability; that capability changes no logical plan shape.
 - Include no physical names, O05 persistence dependency, current head,
   predecessor sequence, SQL lock fact, commit sequence/time, physical revision/
   current operation, change atom, outbox template, or publication identity.
@@ -518,7 +520,8 @@ consumer contracts prove that a distinct physical/change/outbox lowering
 capability is useful. O06 already owns the reusable authority locks,
 revalidation, O05 adaptation, and tentative revision/current lowering. O07-B owns
   sequence/time allocation and durable publication; O09-A now owns multi-row
-  point ordering while O09-B retains unique/developer-index ordering.
+  point ordering, C08-A owns bounded deterministic developer-index actions,
+  and O09-B retains unique ordering plus complete sidecar contention proof.
 
 ### [x] C05-A — Enter Finishing And Mint The Private Continuation
 
@@ -807,8 +810,8 @@ Exit gate:
 
 ### [ ] C08 — Lower Index And Unique Sidecars
 
-`C08-I1` is complete for the first relation-free Standard application. The
-existing O07-B transaction now maintains only the required intrinsic
+`C08-I1` and `C08-A` are complete for the current relation-free Standard
+application path. The existing O07-B transaction maintains the required intrinsic
 `by_creation_time` sidecar for every material final-row transition (insert,
 patch, replace, and delete). The same bounded private capability advances the
 existing C4 build row through declared, building, backfilling, validating, and
@@ -820,9 +823,29 @@ complete pass required for enablement. Migration `0042` adds only the
 non-unique `(scope_uuid, index_definition_id, row_id)` supporting index needed
 by that bounded validation query; it changes no C4 lifecycle row or S10 entry
 semantics, and populated-data plus genuine-PostgreSQL planner proof pins the
-access path. This does not
-complete general C08: developer-index lowering, unique lowering, key movement,
-and O09 contention remain open.
+access path.
+
+`C08-A` directly replaces C04C1's former developer-index rejection only for a
+private capability minted by the exact point-commit port that owns maintenance;
+an independent host literal cannot enable planning. Before the transaction, a
+cap-plus-one control-catalog join follows the pinned schema's immutable foreign-
+key-backed bindings directly to definitions owned by touched tables. Inside the existing
+scope-clock transaction, O07-B batch-locks those exact C4 build rows, decodes
+and verifies prior canonical row evidence, lowers prior and final keys through
+the existing Ordered Index V1 physical spec, and appends the existing S10
+revision/current chains. Same-key updates advance one live chain; key movement
+tombstones the prior key and publishes the new key; deletion tombstones the
+prior key. Actions are deterministic and capped at 256 entry revisions per
+commit, enabled builds require exact prior sidecar lineage, and validating
+builds are invalidated in the same transaction. No schema, migration, active
+reader, query authority, alternate OCC/commit owner, or unique claim was added.
+PGlite and genuine PostgreSQL prove insert, same-key update, delete, dotted
+missing-path lowering, key movement, mixed unchanged/material dependency
+ordering, oversized-key refusal, fault after the second sidecar write, exact
+rollback/retry, pre-transaction ceiling refusal, and action-derived ceiling
+rollback.
+This does not complete general C08: unique lowering and O09 contention remain
+open.
 
 Outcome:
 

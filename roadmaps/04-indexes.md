@@ -1,6 +1,6 @@
 # Indexes
 
-## Build And Maintain Relation-Free Intrinsic Creation-Time Indexes
+## Build And Maintain Relation-Free Intrinsic And Developer Indexes
 
 What changed:
 
@@ -32,13 +32,26 @@ What changed:
   predicate/order uses the index with the normal planner configuration. No
   lease, unbounded application materialization, or parallel builder authority
   was added.
+- `C08-A` adds the first real consumer of published developer definitions. A
+  private pre-transaction adapter verifies the pinned schema's immutable
+  bindings and locates only definitions for touched tables. The existing O07-B
+  transaction then batch-locks their C4 build rows, verifies prior canonical
+  app-row evidence, lowers prior/final Ordered Index V1 keys, and appends the
+  existing S10 chains. Inserts and same-key updates publish live revisions,
+  moves tombstone the prior key and publish the new key, and deletes tombstone
+  the prior key. Entry actions are canonically ordered and capped at 256 per
+  commit. Enabled builds require exact prior lineage; validating builds are
+  invalidated in the same transaction. The planner retains its former typed
+  rejection unless the exact point-commit port was constructed with the
+  private C08-A maintenance dependency; structural copies and host literals do
+  not confer that authority.
 
 Known limitations and follow-up:
 
-- This capability supports only the intrinsic creation-time definition needed
-  by the first relation-free Standard application. Developer-index lowering,
-  unique lowering/contention, relations, index queries, and phantom OCC remain
-  with the still-open general C08, O09, C09, and O10 owners.
+- Intrinsic and developer-index maintenance are now implemented for the
+  relation-free Standard application path. Unique lowering/contention,
+  relations, index queries, and phantom OCC remain with the still-open C08-B,
+  O09-B, C09, and O10 owners.
 - Enabled is physical build evidence only. S03-D4 readiness, activation,
   active-reader authority, SAP04, routing, and production triggers remain
   separate unopened gates.
@@ -48,6 +61,9 @@ Verification:
 ```sh
 corepack pnpm --filter @flarex/persistence-postgres test:c08-i1:pglite
 FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-i1:postgres
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/storedAttemptEvidence.test.ts --no-file-parallelism --testTimeout=180000
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pointCommitTransaction.postgres.test.ts --no-file-parallelism --testTimeout=180000
+corepack pnpm --filter @flarex/executor exec vitest run test/storedAttemptAuthentication.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres test:pglite:migrations
 corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres build
@@ -90,11 +106,11 @@ commit, OCC, or activation owners.
 Known limitations and follow-up:
 
 - S11 now owns private target-native unique claims; S03-D3 still owns build
-  reconciliation; C08-I1 now owns intrinsic creation-time population and
-  maintenance, while general C08 still owns lowering developer-index and unique
-  final-row facts inside the existing commit; O09 owns unique contention and
-  multi-row rollback integration; and O10 owns indexed dependencies and
-  phantom validation.
+  reconciliation; C08-I1 owns intrinsic creation-time population and
+  maintenance; C08-A owns developer-index final-row lowering inside the
+  existing commit; C08-B still owns unique lowering; O09-B owns unique
+  contention and complete sidecar contention/rollback integration; and O10
+  owns indexed dependencies and phantom validation.
 - No readiness, active-reader selection, routing, production trigger, legacy
   removal, or package-root mutation API is added.
 

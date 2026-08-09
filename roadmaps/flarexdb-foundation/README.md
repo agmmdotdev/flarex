@@ -719,15 +719,20 @@ Dynamic Worker binding baseline before selecting it.
    O07-B and build it through the existing C4 lifecycle for the first
    relation-free Standard application. It adds no developer-index or unique
    lowering and no query authority.
-5. `R01`: relation identity and semantics.
-6. `R02`: stable relation IDs, immutable semantic definitions, and reusable
+5. `C08-A` (complete): lower pinned developer indexes from exact prior/final
+   rows into the existing S10 chains inside O07-B, with point-commit-port-owned
+   private planner authority, a 256-entry-revision ceiling, deterministic key
+   moves, build invalidation, and PGlite/PostgreSQL rollback proof. It adds no
+   unique claim or query authority.
+6. `C08-B`: lower pinned unique constraints through the existing S11 owner.
+7. `O09-B`: prove unique conflicts and complete sidecar contention/rollback.
+8. `R01`: relation identity and semantics.
+9. `R02`: stable relation IDs, immutable semantic definitions, and reusable
    physical edge definitions.
-7. `S12`: stable current edge occurrences; edge history remains deferred.
-8. Remaining `C08`: developer-index and unique sidecar lowering.
-9. `C09`: lower stable edge occurrences.
-10. `O09`: multi-row atomicity and unique conflicts.
-11. `O10`: one exact indexed dependency and phantom-conflict proof.
-12. `O10-R`: one exact relation adjacency dependency, snapshot-registration
+10. `S12`: stable current edge occurrences; edge history remains deferred.
+11. `C09`: lower stable edge occurrences.
+12. `O10`: one exact indexed dependency and phantom-conflict proof.
+13. `O10-R`: one exact relation adjacency dependency, snapshot-registration
     race, read-your-writes, and phantom-conflict proof. SQL/PGQ remains later
     and optional.
 
@@ -828,8 +833,8 @@ same-commit maintenance evidence without changing S10 logical storage, C4
 lifecycle schema, or O07-B commit authority. Migration `0042` adds only the
 non-unique scope/definition/row supporting index used by bounded resumable
 validation, with populated-data upgrade and genuine-PostgreSQL planner proof.
-General developer-index/unique lowering and relation
-work remain open; the first relation-free vertical has completed S03-D4
+Developer-index lowering is now complete in C08-A; unique lowering and relation
+work remain open. The first relation-free vertical has completed S03-D4
 without treating those later capabilities as readiness prerequisites.
 S03-D4, under the scope-clock-first order, now exclusively owns the canonical
 V2-attempt and revision-bound readiness receipt before S04 activation CAS.

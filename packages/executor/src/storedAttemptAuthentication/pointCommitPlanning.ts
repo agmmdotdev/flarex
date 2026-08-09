@@ -101,8 +101,13 @@ interface OrderedPointCandidateV1 {
   readonly rowBytes: Uint8Array;
 }
 
+export interface PointCommitPlannerCapabilitiesV1 {
+  readonly developerIndexMaintenance?: "c08-a-v1";
+}
+
 export function planPointCommitStateV1(
   source: VerifiedCommitInputStateV1,
+  capabilities: PointCommitPlannerCapabilitiesV1 = {},
 ): Result.Result<
   PreparedPointCommitStateV1,
   UnsupportedPointCommitPlanV1Error
@@ -145,16 +150,18 @@ export function planPointCommitStateV1(
       }));
     }
 
-    for (const materialCandidate of materialCandidates) {
-      if (source.schemaManifest.indexBindings.indexes.some(
-        (index) => index.tableId === materialCandidate.point.tableId,
-      )) {
-        return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({
-          issue: {
-            reason: "developerIndexMaintenance",
-            tableId: materialCandidate.point.tableId,
-          },
-        }));
+    if (capabilities.developerIndexMaintenance !== "c08-a-v1") {
+      for (const materialCandidate of materialCandidates) {
+        if (source.schemaManifest.indexBindings.indexes.some(
+          (index) => index.tableId === materialCandidate.point.tableId,
+        )) {
+          return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({
+            issue: {
+              reason: "developerIndexMaintenance",
+              tableId: materialCandidate.point.tableId,
+            },
+          }));
+        }
       }
     }
 
