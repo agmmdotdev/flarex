@@ -280,7 +280,7 @@ class SchedulerStatementFailureV1 extends Error {
     readonly operation: SchedulerOperationV1,
     readonly cause: unknown,
   ) {
-    super("Point-mutation redelivery scheduler SQL statement failed.", {
+    super("Fenced singleton scheduler SQL statement failed.", {
       cause,
     });
   }
@@ -317,9 +317,53 @@ type TransactionAcquireResultV1 =
   | Readonly<{ readonly kind: "busy"; readonly claimExpiresAt: Date }>
   | TransactionAcquiredV1;
 
+/**
+ * Package-internal physical policy for the shared fenced singleton scheduler
+ * engine. A policy selects storage only; it does not make one scheduler's run
+ * handle, errors, or continuation evidence authoritative for another.
+ */
+export interface FencedSingletonSchedulerStoragePolicyV1 {
+  readonly operationNamePrefix:
+    | "PointMutationRedeliverySchedulerCheckpoint"
+    | "TaskRepairSchedulerCheckpoint";
+  readonly tableName:
+    | "fx_system_point_mutation_redelivery_scheduler"
+    | "fx_system_durable_task_repair_scheduler_v1";
+  readonly schedulerKey: string;
+  readonly continuationCodecVersion: 1;
+  readonly maximumContinuationBytes: number;
+}
+
+const POINT_MUTATION_REDELIVERY_STORAGE_POLICY_V1 = Object.freeze({
+  operationNamePrefix: "PointMutationRedeliverySchedulerCheckpoint",
+  tableName: "fx_system_point_mutation_redelivery_scheduler",
+  schedulerKey: POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1,
+  continuationCodecVersion:
+    POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_CODEC_V1,
+  maximumContinuationBytes:
+    MAX_POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_BYTES_V1,
+}) satisfies FencedSingletonSchedulerStoragePolicyV1;
+
 export function createPointMutationRedeliverySchedulerCheckpointV1(
   target: LocatedReadCommittedAttemptTargetV1,
   options: PointMutationRedeliverySchedulerCheckpointOptionsV1,
+): PointMutationRedeliverySchedulerCheckpointV1 {
+  return createFencedSingletonSchedulerCheckpointEngineV1(
+    target,
+    options,
+    POINT_MUTATION_REDELIVERY_STORAGE_POLICY_V1,
+  );
+}
+
+/**
+ * Package-internal mechanics shared only by separately owned singleton
+ * schedulers. Callers must wrap this point-named compatibility surface with
+ * their own opaque handle and error family before exposing it to a domain.
+ */
+export function createFencedSingletonSchedulerCheckpointEngineV1(
+  target: LocatedReadCommittedAttemptTargetV1,
+  options: PointMutationRedeliverySchedulerCheckpointOptionsV1,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): PointMutationRedeliverySchedulerCheckpointV1 {
   const configuration = captureConfiguration(options);
   const runs = new WeakMap<object, MutableRunStateV1>();
@@ -328,7 +372,7 @@ export function createPointMutationRedeliverySchedulerCheckpointV1(
   const acquireEffect: PointMutationRedeliverySchedulerCheckpointV1[
     "acquireEffect"
   ] = Effect.fn(
-    "PointMutationRedeliverySchedulerCheckpoint.acquire",
+    `${storage.operationNamePrefix}.acquire`,
   )(function* () {
     const config = yield* Effect.fromResult(configuration);
     const owner = randomUuid();
@@ -339,7 +383,7 @@ export function createPointMutationRedeliverySchedulerCheckpointV1(
       });
     }
     const transaction = target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
-      acquireTransaction(tx, owner, config.claimDurationMilliseconds)
+      acquireTransaction(tx, owner, config.claimDurationMilliseconds, storage)
     );
     const result = yield* awaitSettlement(
       transaction,
@@ -347,7 +391,10 @@ export function createPointMutationRedeliverySchedulerCheckpointV1(
     );
     if (result.kind !== "acquired") return captureNonAcquired(result);
 
-    const continuation = yield* captureReloadedContinuationEffect(result);
+    const continuation = yield* captureReloadedContinuationEffect(
+      result,
+      storage,
+    );
     const expiresAtMilliseconds = finiteDateMilliseconds(result.claimExpiresAt);
     if (expiresAtMilliseconds === undefined) {
       return yield* corruption("acquire", "rowInvalid");
@@ -378,13 +425,13 @@ export function createPointMutationRedeliverySchedulerCheckpointV1(
   const renewEffect: PointMutationRedeliverySchedulerCheckpointV1[
     "renewEffect"
   ] = Effect.fn(
-    "PointMutationRedeliverySchedulerCheckpoint.renew",
+    `${storage.operationNamePrefix}.renew`,
   )(function* (run: PointMutationRedeliverySchedulerRunV1) {
     const config = yield* Effect.fromResult(configuration);
     return yield* withRunOperation(runs, run, "renew", null, (state) =>
       Effect.gen(function* () {
         const transaction = target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
-          renewTransaction(tx, state, config.claimDurationMilliseconds)
+          renewTransaction(tx, state, config.claimDurationMilliseconds, storage)
         );
         const result = yield* awaitRunSettlement(
           state,
@@ -413,14 +460,17 @@ export function createPointMutationRedeliverySchedulerCheckpointV1(
   const checkpointEffect: PointMutationRedeliverySchedulerCheckpointV1[
     "checkpointEffect"
   ] = Effect.fn(
-    "PointMutationRedeliverySchedulerCheckpoint.checkpoint",
+    `${storage.operationNamePrefix}.checkpoint`,
   )(function* (
     run: PointMutationRedeliverySchedulerRunV1,
     continuation:
       | PointMutationRedeliverySchedulerContinuationEvidenceV1
       | null,
   ) {
-    const captured = yield* captureCheckpointEvidenceEffect(continuation);
+    const captured = yield* captureCheckpointEvidenceEffect(
+      continuation,
+      storage,
+    );
     const commandDigest = captured === null ? null : captured.sha256;
     return yield* withRunOperation(
       runs,
@@ -437,7 +487,7 @@ export function createPointMutationRedeliverySchedulerCheckpointV1(
           });
         }
         const transaction = target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
-          checkpointTransaction(tx, state, captured)
+          checkpointTransaction(tx, state, captured, storage)
         );
         const result = yield* awaitRunSettlement(
           state,
@@ -462,12 +512,12 @@ export function createPointMutationRedeliverySchedulerCheckpointV1(
   const releaseEffect: PointMutationRedeliverySchedulerCheckpointV1[
     "releaseEffect"
   ] = Effect.fn(
-    "PointMutationRedeliverySchedulerCheckpoint.release",
+    `${storage.operationNamePrefix}.release`,
   )(function* (run: PointMutationRedeliverySchedulerRunV1) {
     return yield* withRunOperation(runs, run, "release", null, (state) =>
       Effect.gen(function* () {
         const transaction = target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
-          releaseTransaction(tx, state)
+          releaseTransaction(tx, state, storage)
         );
         const result = yield* awaitRunSettlement(
           state,
@@ -513,8 +563,9 @@ async function acquireTransaction(
   tx: AppRowTransaction,
   owner: string,
   claimDurationMilliseconds: number,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): Promise<TransactionAcquireResultV1> {
-  const row = await lockSchedulerRow(tx, "acquire", true);
+  const row = await lockSchedulerRow(tx, "acquire", true, storage);
   const now = finiteDateMilliseconds(row.databaseNow);
   const nextRunAt = finiteDateMilliseconds(row.nextRunAt);
   const claimExpiresAt = row.claimExpiresAt === null
@@ -549,8 +600,9 @@ async function acquireTransaction(
     undefined,
     claimDurationMilliseconds,
   );
+  const table = sql.raw(storage.tableName);
   const rows = await executeRows(tx, "acquire", sql`
-    update fx_system_point_mutation_redelivery_scheduler
+    update ${table}
     set
       scheduler_state = 'claimed',
       run_fence = ${nextFence},
@@ -559,7 +611,7 @@ async function acquireTransaction(
       claimed_at = ${row.databaseNow},
       claim_expires_at = ${nextExpiry},
       updated_at = ${row.databaseNow}
-    where scheduler_key = ${POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1}
+    where scheduler_key = ${storage.schedulerKey}
     returning claim_expires_at
   `);
   if (rows.length !== 1) throw corruption("acquire", "singletonMissing");
@@ -582,18 +634,20 @@ async function renewTransaction(
   tx: AppRowTransaction,
   state: MutableRunStateV1,
   claimDurationMilliseconds: number,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): Promise<Readonly<{ readonly claimExpiresAt: Date }>> {
-  const row = await lockSchedulerRow(tx, "renew", false);
+  const row = await lockSchedulerRow(tx, "renew", false, storage);
   const current = requireCurrentRun(row, state, "renew");
   const nextExpiry = deriveClaimExpiry(
     current.databaseNowMilliseconds,
     current.claimExpiresAtMilliseconds,
     claimDurationMilliseconds,
   );
+  const table = sql.raw(storage.tableName);
   const rows = await executeRows(tx, "renew", sql`
-    update fx_system_point_mutation_redelivery_scheduler
+    update ${table}
     set claim_expires_at = ${nextExpiry}, updated_at = ${row.databaseNow}
-    where scheduler_key = ${POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1}
+    where scheduler_key = ${storage.schedulerKey}
       and scheduler_state = 'claimed'
       and run_owner = ${state.owner}::uuid
       and run_fence = ${state.runFence}
@@ -607,8 +661,9 @@ async function checkpointTransaction(
   tx: AppRowTransaction,
   state: MutableRunStateV1,
   continuation: CapturedCheckpointV1 | null,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): Promise<Readonly<{ readonly checkpointSequence: bigint }>> {
-  const row = await lockSchedulerRow(tx, "checkpoint", false);
+  const row = await lockSchedulerRow(tx, "checkpoint", false, storage);
   requireCurrentRun(row, state, "checkpoint");
   if (row.checkpointSequence === MAX_PERSISTED_SIGNED_INT64_V1) {
     throw new PointMutationRedeliverySchedulerResourceExhaustedV1Error({
@@ -625,19 +680,20 @@ async function checkpointTransaction(
     throw stale("checkpoint", "checkpointChanged");
   }
   const nextSequence = state.checkpointSequence + 1n;
+  const table = sql.raw(storage.tableName);
   const rows = await executeRows(tx, "checkpoint", sql`
-    update fx_system_point_mutation_redelivery_scheduler
+    update ${table}
     set
       checkpoint_sequence = ${nextSequence},
       continuation_codec_version = ${
         continuation === null
           ? null
-          : POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_CODEC_V1
+          : storage.continuationCodecVersion
       },
       continuation_bytes = ${continuation?.canonicalBytes ?? null},
       continuation_sha256 = ${continuation?.sha256 ?? null},
       updated_at = ${row.databaseNow}
-    where scheduler_key = ${POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1}
+    where scheduler_key = ${storage.schedulerKey}
       and scheduler_state = 'claimed'
       and run_owner = ${state.owner}::uuid
       and run_fence = ${state.runFence}
@@ -652,8 +708,9 @@ async function checkpointTransaction(
 async function releaseTransaction(
   tx: AppRowTransaction,
   state: MutableRunStateV1,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): Promise<Readonly<{ readonly nextRunAt: Date }>> {
-  const row = await lockSchedulerRow(tx, "release", false);
+  const row = await lockSchedulerRow(tx, "release", false, storage);
   requireCurrentRun(row, state, "release");
   if (
     row.checkpointSequence !== state.checkpointSequence ||
@@ -661,8 +718,9 @@ async function releaseTransaction(
   ) {
     throw stale("release", "checkpointChanged");
   }
+  const table = sql.raw(storage.tableName);
   const rows = await executeRows(tx, "release", sql`
-    update fx_system_point_mutation_redelivery_scheduler
+    update ${table}
     set
       scheduler_state = 'idle',
       run_owner = null,
@@ -670,7 +728,7 @@ async function releaseTransaction(
       claim_expires_at = null,
       next_run_at = ${row.databaseNow},
       updated_at = ${row.databaseNow}
-    where scheduler_key = ${POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1}
+    where scheduler_key = ${storage.schedulerKey}
       and scheduler_state = 'claimed'
       and run_owner = ${state.owner}::uuid
       and run_fence = ${state.runFence}
@@ -686,7 +744,9 @@ async function lockSchedulerRow(
   tx: AppRowTransaction,
   operation: SchedulerOperationV1,
   includeContinuationBytes: boolean,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): Promise<LockedSchedulerRowV1> {
+  const table = sql.raw(storage.tableName);
   const rows = await executeRows(tx, operation, sql`
     with scheduler_context as materialized (
       select clock_timestamp() as database_now
@@ -723,8 +783,8 @@ async function lockSchedulerRow(
             and claim_expires_at <= scheduler_context.database_now
           )
         )
-        and continuation_codec_version = ${POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_CODEC_V1}
-        and octet_length(continuation_bytes) between 1 and ${MAX_POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_BYTES_V1}
+        and continuation_codec_version = ${storage.continuationCodecVersion}
+        and octet_length(continuation_bytes) between 1 and ${storage.maximumContinuationBytes}
         and octet_length(continuation_sha256) = 32
       then 1 else 0 end as continuation_bytes_selected,
       case
@@ -740,27 +800,28 @@ async function lockSchedulerRow(
               and claim_expires_at <= scheduler_context.database_now
             )
           )
-          and continuation_codec_version = ${POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_CODEC_V1}
-          and octet_length(continuation_bytes) between 1 and ${MAX_POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_BYTES_V1}
+          and continuation_codec_version = ${storage.continuationCodecVersion}
+          and octet_length(continuation_bytes) between 1 and ${storage.maximumContinuationBytes}
           and octet_length(continuation_sha256) = 32
         then continuation_bytes
         else null
       end as continuation_bytes,
       floor(extract(epoch from scheduler_context.database_now) * 1000)::bigint::text
         as database_now_milliseconds_text
-    from fx_system_point_mutation_redelivery_scheduler
+    from ${table}
     cross join scheduler_context
-    where scheduler_key = ${POINT_MUTATION_REDELIVERY_SCHEDULER_KEY_V1}
-    for update of fx_system_point_mutation_redelivery_scheduler
+    where scheduler_key = ${storage.schedulerKey}
+    for update of ${table}
   `);
   if (rows.length === 0) throw corruption(operation, "singletonMissing");
   if (rows.length !== 1) throw corruption(operation, "singletonDuplicated");
-  return captureLockedRow(rows[0], operation);
+  return captureLockedRow(rows[0], operation, storage);
 }
 
 function captureLockedRow(
   raw: unknown,
   operation: SchedulerOperationV1,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): LockedSchedulerRowV1 {
   if (!isNonArrayRecord(raw)) {
     throw corruption(operation, "rowInvalid");
@@ -813,11 +874,11 @@ function captureLockedRow(
   const continuationAbsent = continuationCodecVersion === null &&
     continuationSize === null && continuationSha256 === null;
   const continuationPresent = continuationCodecVersion ===
-      POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_CODEC_V1 &&
+      storage.continuationCodecVersion &&
     typeof continuationSize === "number" &&
     Number.isSafeInteger(continuationSize) && continuationSize >= 1 &&
     continuationSize <=
-      MAX_POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_BYTES_V1 &&
+      storage.maximumContinuationBytes &&
     isUint8Array(continuationSha256) && continuationSha256.byteLength === 32;
   if (!continuationAbsent && !continuationPresent) {
     throw corruption(operation, "continuationInvalid");
@@ -859,7 +920,7 @@ function captureLockedRow(
     nextRunAt,
     continuationCodecVersion: continuationAbsent
       ? null
-      : POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_CODEC_V1,
+      : storage.continuationCodecVersion,
     continuationSize: continuationAbsent ? null : continuationSize,
     continuationSha256: capturedContinuationSha256,
     continuationBytesSelected,
@@ -1112,9 +1173,7 @@ function mapReleaseTransactionFailure(
   return failure;
 }
 
-const withRunOperation = Effect.fn(
-  "PointMutationRedeliverySchedulerCheckpoint.withRunOperation",
-)(function* <Value, Failure, Requirements>(
+const withRunOperation = Effect.fn(function* <Value, Failure, Requirements>(
   runs: WeakMap<object, MutableRunStateV1>,
   run: PointMutationRedeliverySchedulerRunV1,
   operation: "renew" | "checkpoint" | "release",
@@ -1195,6 +1254,7 @@ interface CapturedCheckpointV1 {
 
 function captureCheckpointEvidenceEffect(
   input: PointMutationRedeliverySchedulerContinuationEvidenceV1 | null,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): Effect.Effect<
   CapturedCheckpointV1 | null,
   | PointMutationRedeliverySchedulerInputV1Error
@@ -1211,11 +1271,10 @@ function captureCheckpointEvidenceEffect(
   const canonicalBytesInput = Reflect.get(input, "canonicalBytes");
   const sha256Input = Reflect.get(input, "sha256");
   if (
-    codecVersion !==
-      POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_CODEC_V1 ||
+    codecVersion !== storage.continuationCodecVersion ||
     !isUint8Array(canonicalBytesInput) || canonicalBytesInput.byteLength < 1 ||
     canonicalBytesInput.byteLength >
-      MAX_POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_BYTES_V1 ||
+      storage.maximumContinuationBytes ||
     !isUint8Array(sha256Input) || sha256Input.byteLength !== 32
   ) {
     return Effect.fail(new PointMutationRedeliverySchedulerInputV1Error({
@@ -1239,6 +1298,7 @@ function captureCheckpointEvidenceEffect(
 
 function captureReloadedContinuationEffect(
   result: TransactionAcquiredV1,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): Effect.Effect<
   PointMutationRedeliverySchedulerContinuationEvidenceV1 | null,
   | PointMutationRedeliverySchedulerCorruptionV1Error
@@ -1251,8 +1311,7 @@ function captureReloadedContinuationEffect(
     return Effect.succeed(null);
   }
   if (
-    result.continuationCodecVersion !==
-      POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_CODEC_V1 ||
+    result.continuationCodecVersion !== storage.continuationCodecVersion ||
     result.continuationBytes === null || result.continuationSha256 === null
   ) {
     return Effect.fail(corruption("acquire", "continuationInvalid"));
@@ -1262,7 +1321,7 @@ function captureReloadedContinuationEffect(
   return sha256Effect(bytes, "acquire").pipe(
     Effect.flatMap((observed) =>
       bytesEqual(observed, expected)
-        ? Effect.succeed(captureContinuationEvidence(bytes, expected))
+        ? Effect.succeed(captureContinuationEvidence(bytes, expected, storage))
         : Effect.fail(corruption("acquire", "continuationDigestMismatch"))
     ),
   );
@@ -1284,12 +1343,12 @@ function sha256Effect(
 function captureContinuationEvidence(
   bytes: Uint8Array,
   sha256: Uint8Array,
+  storage: FencedSingletonSchedulerStoragePolicyV1,
 ): PointMutationRedeliverySchedulerContinuationEvidenceV1 {
   const ownedBytes = new Uint8Array(bytes);
   const ownedSha256 = new Uint8Array(sha256);
   return Object.freeze({
-    codecVersion:
-      POINT_MUTATION_REDELIVERY_SCHEDULER_CONTINUATION_CODEC_V1,
+    codecVersion: storage.continuationCodecVersion,
     get canonicalBytes() {
       return new Uint8Array(ownedBytes);
     },

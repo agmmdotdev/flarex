@@ -2,17 +2,20 @@
 
 ## Status
 
-**Decision:** Admit DTE05-E2A only. This checkpoint adds the canonical Task
-repair-sweep continuation codec and a distinct, inert Task-owned scheduler row.
-It does not yet admit a claim, lease, checkpoint transaction, scheduled host,
-Cloudflare binding, deployment, or activation.
+**Decision:** Admit DTE05-E2A and E2B. E2A adds the canonical Task repair-sweep
+continuation codec and distinct Task-owned scheduler row. E2B adds the private,
+production-inert fenced acquire/renew/checkpoint/release transaction protocol.
+It does not admit the connected repair runner, a scheduled host, Cloudflare
+binding, deployment, or activation.
 
-**E2A implementation status:** Complete on 2026-08-09. DTE05-E2 remains
-active because E2B and E2C are still pending.
+**E2A implementation status:** Complete on 2026-08-09.
 
-DTE05-E2 remains active after this slice. E2B owns the claim/renew/checkpoint/
-release transaction protocol. E2C owns genuine-Postgres duplicate-host,
-expiry, crash/restart, high-water fairness, and hard database-timeout proof.
+**E2B implementation status:** Complete on 2026-08-09. DTE05-E2 remains
+active because E2C is still pending.
+
+DTE05-E2 remains active after this slice. E2C owns genuine-Postgres
+duplicate-host, expiry, crash/restart, high-water fairness, connected repair
+runner composition, and hard database-timeout proof.
 
 ## Why E2 Is Split
 
@@ -69,6 +72,37 @@ sequences, invalid/infinite timestamps, unsupported codec versions, oversized
 continuations, and invalid digest lengths. The migration inserts one idle row
 with no continuation. E2A exposes no repository that can mutate it.
 
+## Admitted E2B Contract
+
+`@flarex/persistence-postgres/internal/task-repair-scheduler-checkpoint-v1`
+owns one private repository over the E2A singleton row.
+
+- acquire locks the singleton, reads the database clock once, returns `notDue`
+  or `busy` without mutation, and otherwise advances the lifetime fence before
+  minting a process-local Task repair run handle;
+- renew, checkpoint, and release accept only the exact handle minted by that
+  repository instance and serialize same-handle operations;
+- every mutation correlates owner UUID and run fence, while checkpoint and
+  release additionally correlate the checkpoint sequence and continuation
+  digest;
+- continuation inputs are byte- and digest-validated, defensively captured,
+  and written atomically; a checkpoint never authorizes a Task lifecycle
+  transition or a trusted scope;
+- database timestamps govern due, busy, expiry, renewal, and release decisions;
+  no application clock participates in lease authority;
+- a confirmed statement rollback permits exactly one retry of the identical
+  command, while a changed retry, second rollback, stale state, uncertainty,
+  or a defect/interruption after transaction dispatch closes the process-local
+  run; pre-dispatch validation failure or interruption grants no database
+  decision and does not close an otherwise current run; and
+- decision-uncertain failures remain distinct from confirmed rollback so a
+  caller cannot safely assume whether the database committed.
+
+The shared fenced singleton engine is reused with an immutable physical
+storage policy. The Task wrapper mints its own handle, exposes its own errors,
+and selects only `fx_system_durable_task_repair_scheduler_v1`; it cannot mutate
+or present the point-mutation scheduler as Task authority.
+
 ## Reuse And Ownership
 
 The point-mutation checkpoint is implementation evidence only. E2A reuses the
@@ -101,12 +135,7 @@ E2A must prove:
 - no import from an app, Worker entrypoint, Wrangler file, scheduled handler,
   or deployment configuration.
 
-## Deferred E2B And E2C Work
-
-E2B must add a Task-specific opaque run handle and fenced transaction protocol
-for acquire, renew, checkpoint, and release. It must distinguish confirmed
-rollback from an uncertain database decision and must never treat a
-continuation write as run-transition authority.
+## Deferred E2C Work
 
 E2C must prove the connected protocol in genuine PostgreSQL with duplicate
 hosts, claim expiry/takeover, stale-owner rejection, crash after lifecycle
@@ -115,13 +144,31 @@ high-water fairness. It must also establish database-owned statement, lock,
 and transaction timeout behavior and deliberately stall a transaction. Effect
 interruption alone is not accepted as a hard wall-time proof.
 
+## E2B Validation Gate
+
+E2B must prove:
+
+- the Task repository mutates only the Task scheduler row while preserving all
+  existing point-mutation checkpoint behavior;
+- handles are opaque, repository-local, and permanently closed after release,
+  stale authority, uncertainty, invalid retry order, or defect/interruption
+  after transaction dispatch;
+- acquire/renew/checkpoint/release use database time and fenced correlations;
+- input and reloaded continuation bytes/digests are ownership-isolated;
+- a confirmed rollback permits only one identical retry, while database
+  uncertainty remains a distinct typed failure;
+- unexpected callback causes remain defects; and
+- no app, Worker, scheduled handler, binding, or deployment imports the private
+  protocol.
+
 ## Stop Boundary
 
-DTE05-E2A does not authorize:
+DTE05-E2A/E2B do not authorize:
 
 - copying or casting the point-mutation checkpoint as Task state;
 - a public persistence API or executor-root export;
-- acquiring, renewing, checkpointing, or releasing the new row;
+- treating a Task repair run handle as tenant, scope, lifecycle, or execution
+  authority;
 - trusting the persisted scope or deployment spelling as current authority;
 - changing Task lifecycle, Queue, requested-effect, OCC, commit, or outbox
   owners;
@@ -149,3 +196,10 @@ DTE05-E2A does not authorize:
 - both required project reviewers accepted the final staged diff with no
   findings. No app, Worker entrypoint, scheduled handler, Wrangler file,
   runtime bridge, or deployment configuration imports or activates E2A.
+
+E2B additionally proves five focused Task protocol scenarios plus all 17
+existing point-mutation checkpoint regressions in PGlite: Task-only
+acquire/renew/checkpoint/release and restart reload, process-local handle and
+stale-state rejection, exact confirmed-rollback retry policy, committed-but-
+uncertain settlement closure, and defect preservation. The point-mutation row
+remains unchanged while the Task protocol advances its separate row.
