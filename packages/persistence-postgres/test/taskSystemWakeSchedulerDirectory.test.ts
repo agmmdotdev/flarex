@@ -203,6 +203,13 @@ describe("DTE05-C2 trusted Task scheduler directory - PGlite", () => {
         }),
       ]);
       expect(failedPage.continuation).not.toBeNull();
+      await expect(runEffect(repairDirectory.resolveEffect(Object.freeze({
+        deploymentId: staleDeployment,
+        scopeId: staleScope,
+      })))).resolves.toMatchObject({
+        kind: "failed",
+        reason: "candidate_scope_mismatch",
+      });
 
       const healthyPage = await runEffect(repairDirectory.discoverEffect({
         limit: 1,
@@ -218,6 +225,14 @@ describe("DTE05-C2 trusted Task scheduler directory - PGlite", () => {
       expect(healthyPage.continuation).toBeNull();
       expect(healthyPage.items[0]).not.toHaveProperty("physicalLocator");
       expect(healthyPage.items[0]).not.toHaveProperty("authority");
+      await expect(runEffect(repairDirectory.resolveEffect(Object.freeze({
+        deploymentId: deploymentIdFor(healthyScope),
+        scopeId: healthyScope,
+      })))).resolves.toMatchObject({
+        kind: "ready",
+        deploymentId: deploymentIdFor(healthyScope),
+        scopeId: healthyScope,
+      });
     });
   });
 

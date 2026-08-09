@@ -341,6 +341,15 @@ function repairDirectory(
       items: Object.freeze([item]),
       continuation: null,
     })),
+    resolveEffect: (
+      candidate: Parameters<TaskRepairDirectory["resolveEffect"]>[0],
+    ) => {
+      expect(candidate).toEqual({
+        deploymentId: item.deploymentId,
+        scopeId: item.scopeId,
+      });
+      return Effect.succeed(item);
+    },
   });
 }
 

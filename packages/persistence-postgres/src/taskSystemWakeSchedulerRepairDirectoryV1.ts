@@ -137,6 +137,12 @@ export interface TaskSystemWakeSchedulerRepairDirectoryV1 {
     TaskSystemWakeSchedulerRepairDirectoryPageV1,
     TaskSystemWakeSchedulerRepairDirectoryErrorV1
   >;
+  readonly resolveEffect: (
+    candidate: Readonly<{
+      readonly deploymentId: string;
+      readonly scopeId: ReplacementScopeDirectoryCandidateV1["scopeId"];
+    }>,
+  ) => Effect.Effect<TaskSystemWakeSchedulerRepairDirectoryItemV1>;
 }
 
 /**
@@ -181,6 +187,37 @@ export function createTaskSystemWakeSchedulerRepairDirectoryV1(
         })),
   });
 
+  const resolveCandidateEffect = Effect.fn(
+    "TaskSystemWakeSchedulerRepairDirectory.resolveCandidate",
+  )(function* (candidate: ReplacementScopeDirectoryCandidateV1) {
+    return yield* resolveLocatedTrustedScopeAuthorityEffect(
+      candidate.deploymentId,
+      authority,
+    ).pipe(Effect.match({
+      onFailure: () => failed(candidate, "authority_unavailable"),
+      onSuccess: (located) => {
+        if (located.authority.scopeId !== candidate.scopeId) {
+          return failed(candidate, "candidate_scope_mismatch");
+        }
+        return makeTaskSystemWakeSchedulerPartitionV1(
+          located,
+          partition,
+        ).pipe(Result.match({
+          onFailure: () =>
+            failed(candidate, "scheduler_configuration_invalid"),
+          onSuccess: (scheduler) => Object.freeze({
+            kind: "ready" as const,
+            deploymentId: candidate.deploymentId,
+            scopeId: candidate.scopeId,
+            maximumPagesPerRun: partition.scheduler.maximumPages,
+            maximumCandidatesPerRun: partition.scheduler.maximumCandidates,
+            scheduler,
+          }),
+        }));
+      },
+    }));
+  });
+
   const discoverEffect: TaskSystemWakeSchedulerRepairDirectoryV1[
     "discoverEffect"
   ] = Effect.fn("TaskSystemWakeSchedulerRepairDirectory.discover")(
@@ -188,36 +225,7 @@ export function createTaskSystemWakeSchedulerRepairDirectoryV1(
       const page = yield* directory.discoverEffect(input);
       const items: TaskSystemWakeSchedulerRepairDirectoryItemV1[] = [];
       for (const candidate of page.candidates) {
-        const located = yield* Effect.result(
-          resolveLocatedTrustedScopeAuthorityEffect(
-            candidate.deploymentId,
-            authority,
-          ),
-        );
-        if (Result.isFailure(located)) {
-          items.push(failed(candidate, "authority_unavailable"));
-          continue;
-        }
-        if (located.success.authority.scopeId !== candidate.scopeId) {
-          items.push(failed(candidate, "candidate_scope_mismatch"));
-          continue;
-        }
-        const scheduler = makeTaskSystemWakeSchedulerPartitionV1(
-          located.success,
-          partition,
-        );
-        if (Result.isFailure(scheduler)) {
-          items.push(failed(candidate, "scheduler_configuration_invalid"));
-          continue;
-        }
-        items.push(Object.freeze({
-          kind: "ready",
-          deploymentId: candidate.deploymentId,
-          scopeId: candidate.scopeId,
-          maximumPagesPerRun: partition.scheduler.maximumPages,
-          maximumCandidatesPerRun: partition.scheduler.maximumCandidates,
-          scheduler: scheduler.success,
-        }));
+        items.push(yield* resolveCandidateEffect(candidate));
       }
       return Object.freeze({
         items: Object.freeze(items),
@@ -226,7 +234,18 @@ export function createTaskSystemWakeSchedulerRepairDirectoryV1(
     },
   );
 
-  return Object.freeze({ discoverEffect });
+  const resolveEffect: TaskSystemWakeSchedulerRepairDirectoryV1[
+    "resolveEffect"
+  ] = Effect.fn("TaskSystemWakeSchedulerRepairDirectory.resolve")(
+    function* (candidate) {
+      return yield* resolveCandidateEffect(Object.freeze({
+        deploymentId: candidate.deploymentId,
+        scopeId: candidate.scopeId,
+      }));
+    },
+  );
+
+  return Object.freeze({ discoverEffect, resolveEffect });
 }
 
 function failed(

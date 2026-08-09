@@ -61,6 +61,25 @@ corepack pnpm check:effect-boundaries
 git diff --check
 ```
 
+### Recorded PostgreSQL Migration-Isolation Defect
+
+During DTE05 final validation on 2026-08-09, the standard genuine-PostgreSQL
+temporary-schema helper failed before reaching scheduler-directory behavior.
+Migration `0047_nifty_whistler.sql` creates the unique-constraint binding tables
+on the helper's active search path but hardcodes its foreign-key parents as
+`public.fx_control_schema_version` and
+`public.fx_control_unique_constraint_definition`. A fresh disposable
+PostgreSQL 18 cluster therefore fails with SQLSTATE `42P01` because those parent
+tables exist in the isolated schema rather than `public`.
+
+Expected behavior is replay-safe migration inside the helper-owned temporary
+schema. Actual behavior crosses that isolation boundary through the hardcoded
+schema qualification. This is a C08-B0 migration-owner defect, not scheduling
+authority. Its disposition is **recorded; correction not authorized by the
+DTE05 continuation slice**. The focused E2C1 PostgreSQL lane remains green;
+broader C2 PostgreSQL migration proof remains blocked until this owner is
+separately corrected and the affected lanes are rerun.
+
 ## Maintain Unique Claims In The Existing Point Commit
 
 `C08-B2` now supplies the production-inert lowering and transaction mechanics

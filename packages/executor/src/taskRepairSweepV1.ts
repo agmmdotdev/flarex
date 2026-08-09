@@ -14,6 +14,8 @@ type SchedulerRequestV1 = Parameters<ReadyPartitionV1["scheduler"]["run"]>[0];
 type DueKindV1 = SchedulerRequestV1["dueKind"];
 type DueCursorV1 = NonNullable<SchedulerRequestV1["cursor"]>;
 type RepairScopeIdV1 = ReadyPartitionV1["scopeId"];
+type DirectoryHighWaterScopeIdV1 =
+  TaskSystemWakeSchedulerRepairDirectoryContinuationV1["highWaterScopeId"];
 type SchedulerReceiptV1 = Effect.Success<
   ReturnType<ReadyPartitionV1["scheduler"]["run"]>
 >;
@@ -53,6 +55,15 @@ export interface TaskRepairSweepDirectoryV1<
     }>,
     DirectoryFailure
   >;
+  readonly resolveEffect: (
+    candidate: Readonly<{
+      readonly deploymentId: string;
+      readonly scopeId: RepairScopeIdV1;
+    }>,
+  ) => Effect.Effect<
+    TaskRepairSweepDirectoryItemV1<SchedulerFailure>,
+    DirectoryFailure
+  >;
 }
 
 export type TaskRepairSweepDirectoryStateV1 =
@@ -63,17 +74,30 @@ export type TaskRepairSweepDirectoryStateV1 =
         TaskSystemWakeSchedulerRepairDirectoryContinuationV1;
     }>;
 
+export type TaskRepairSweepDirectoryAfterV1 =
+  | Extract<TaskRepairSweepDirectoryStateV1, { readonly kind: "continuing" }>
+  | Readonly<{
+      readonly kind: "exhausted";
+      readonly highWaterScopeId: DirectoryHighWaterScopeIdV1;
+    }>;
+
 export interface TaskRepairSweepPartitionStateV1 {
   readonly expectedDeploymentId: string;
   readonly expectedScopeId: RepairScopeIdV1;
   readonly dueKind: DueKindV1;
   readonly cursor: DueCursorV1 | null;
+  /**
+   * Directory position after this active candidate. Missing is accepted only
+   * for pre-E2C1 private evidence; that legacy cycle closes after the expected
+   * partition so a later fresh cycle can safely rebuild its snapshot.
+   */
+  readonly directoryAfter?: TaskRepairSweepDirectoryAfterV1;
 }
 
 /**
  * Private operation-local continuation. It is not a wire or storage codec and
- * grants no authority; a resume always rediscovers and freshly resolves the
- * current directory candidate before using its inner cursor.
+ * grants no authority; an active-partition resume freshly resolves its exact
+ * persisted candidate before using the inner cursor.
  */
 export interface TaskRepairSweepContinuationV1 {
   readonly version: "flarex.task-repair-sweep-continuation.v1";
@@ -97,7 +121,7 @@ export class TaskRepairSweepConfigurationV1Error extends Data.TaggedError(
 
 export class TaskRepairSweepDirectoryContractV1Error extends Data.TaggedError(
   "TaskRepairSweepDirectoryContractV1Error",
-)<{ readonly reason: "item_overflow" }> {}
+)<{ readonly reason: "item_overflow" | "resolved_item_mismatch" }> {}
 
 export class TaskRepairSweepSchedulerContractV1Error extends Data.TaggedError(
   "TaskRepairSweepSchedulerContractV1Error",
@@ -117,7 +141,10 @@ export class TaskRepairSweepSchedulerContractV1Error extends Data.TaggedError(
 
 export class TaskRepairSweepOperationTimeoutV1Error extends Data.TaggedError(
   "TaskRepairSweepOperationTimeoutV1Error",
-)<{ readonly operation: "directory"; readonly budgetNanoseconds: bigint }> {}
+)<{
+  readonly operation: "directory" | "resolve";
+  readonly budgetNanoseconds: bigint;
+}> {}
 
 export type TaskRepairSweepErrorV1<
   DirectoryFailure = TaskSystemWakeSchedulerRepairDirectoryErrorV1,
@@ -201,11 +228,17 @@ export function createTaskRepairSweepV1<DirectoryFailure, SchedulerFailure>(
   return Result.map(capturePolicy(options), (policy) => {
     const directoryOwner = directory;
     const discoverMethod = directoryOwner.discoverEffect;
+    const resolveMethod = directoryOwner.resolveEffect;
     const discover: TaskRepairSweepDirectoryV1<
       DirectoryFailure,
       SchedulerFailure
     >["discoverEffect"] = (input) =>
       discoverMethod.call(directoryOwner, input);
+    const resolve: TaskRepairSweepDirectoryV1<
+      DirectoryFailure,
+      SchedulerFailure
+    >["resolveEffect"] = (candidate) =>
+      resolveMethod.call(directoryOwner, candidate);
 
     const runEffect: TaskRepairSweepV1<DirectoryFailure>["runEffect"] = Effect.fn(
       "TaskRepairSweep.run",
@@ -233,61 +266,104 @@ export function createTaskRepairSweepV1<DirectoryFailure, SchedulerFailure>(
         ) {
           return completed("scheduler_budget", counters, state);
         }
-        if (counters.directoryPagesRead >= policy.maximumDirectoryPages) {
-          return completed("directory_budget", counters, state);
-        }
-        const directoryBudget = yield* operationBudget(deadline, policy);
-        if (directoryBudget === null) {
-          return completed(
-            hasStarted(counters) ? "time_budget" : "no_time_to_start",
-            counters,
-            state,
-          );
-        }
-
-        const page = yield* discover({
-          limit: 1,
-          ...(state.directory.kind === "continuing"
-            ? { continuation: state.directory.continuation }
-            : {}),
-        }).pipe(Effect.timeoutOrElse({
-          duration: Duration.nanos(directoryBudget),
-          orElse: () => Effect.fail(
-            new TaskRepairSweepOperationTimeoutV1Error({
-              operation: "directory",
-              budgetNanoseconds: directoryBudget,
-            }),
-          ),
-        }));
-        counters.directoryPagesRead += 1;
-        if (page.items.length > 1) {
-          return yield* new TaskRepairSweepDirectoryContractV1Error({
-            reason: "item_overflow",
-          });
-        }
-        const item = page.items[0];
-        if (item === undefined) {
-          const next = advanceDirectory(page.continuation);
-          if (next !== null) {
+        let ready: RepairReadyItemV1<SchedulerFailure>;
+        let partition: TaskRepairSweepPartitionStateV1;
+        if (state.partition !== null) {
+          const resolveBudget = yield* operationBudget(deadline, policy);
+          if (resolveBudget === null) {
+            return completed(
+              hasStarted(counters) ? "time_budget" : "no_time_to_start",
+              counters,
+              state,
+            );
+          }
+          const item = captureDirectoryItem(yield* resolve(Object.freeze({
+            deploymentId: state.partition.expectedDeploymentId,
+            scopeId: state.partition.expectedScopeId,
+          })).pipe(Effect.timeoutOrElse({
+            duration: Duration.nanos(resolveBudget),
+            orElse: () => Effect.fail(
+              new TaskRepairSweepOperationTimeoutV1Error({
+                operation: "resolve",
+                budgetNanoseconds: resolveBudget,
+              }),
+            ),
+          })));
+          counters.partitionVisits += 1;
+          if (
+            item.deploymentId !== state.partition.expectedDeploymentId
+            || item.scopeId !== state.partition.expectedScopeId
+          ) {
+            return yield* new TaskRepairSweepDirectoryContractV1Error({
+              reason: "resolved_item_mismatch",
+            });
+          }
+          if (item.kind === "failed") {
+            counters.partitionsFailed += 1;
+            const next = afterPartition(state.partition);
+            if (next === null) {
+              return completed("cycle_exhausted", counters, null);
+            }
             state = next;
             continue;
           }
-          return completed("cycle_exhausted", counters, null);
-        }
-
-        counters.partitionVisits += 1;
-        if (item.kind === "failed") {
-          counters.partitionsFailed += 1;
-          const next = advanceDirectory(page.continuation);
-          if (next === null) {
+          ready = item;
+          partition = state.partition;
+        } else {
+          if (counters.directoryPagesRead >= policy.maximumDirectoryPages) {
+            return completed("directory_budget", counters, state);
+          }
+          const directoryBudget = yield* operationBudget(deadline, policy);
+          if (directoryBudget === null) {
+            return completed(
+              hasStarted(counters) ? "time_budget" : "no_time_to_start",
+              counters,
+              state,
+            );
+          }
+          const page = yield* discover({
+            limit: 1,
+            ...(state.directory.kind === "continuing"
+              ? { continuation: state.directory.continuation }
+              : {}),
+          }).pipe(Effect.timeoutOrElse({
+            duration: Duration.nanos(directoryBudget),
+            orElse: () => Effect.fail(
+              new TaskRepairSweepOperationTimeoutV1Error({
+                operation: "directory",
+                budgetNanoseconds: directoryBudget,
+              }),
+            ),
+          }));
+          counters.directoryPagesRead += 1;
+          if (page.items.length > 1) {
+            return yield* new TaskRepairSweepDirectoryContractV1Error({
+              reason: "item_overflow",
+            });
+          }
+          const suppliedItem = page.items[0];
+          if (suppliedItem === undefined) {
+            const next = advanceDirectory(page.continuation);
+            if (next !== null) {
+              state = next;
+              continue;
+            }
             return completed("cycle_exhausted", counters, null);
           }
-          state = next;
-          continue;
+          const item = captureDirectoryItem(suppliedItem);
+          counters.partitionVisits += 1;
+          if (item.kind === "failed") {
+            counters.partitionsFailed += 1;
+            const next = advanceDirectory(page.continuation);
+            if (next === null) {
+              return completed("cycle_exhausted", counters, null);
+            }
+            state = next;
+            continue;
+          }
+          ready = item;
+          partition = freshPartitionState(ready, page.continuation);
         }
-
-        const ready = captureReadyItem(item);
-        const partition = currentPartitionState(state.partition, ready);
         yield* validateReadyPartitionPolicy(ready, policy);
         if (counters.schedulerRuns >= policy.maximumSchedulerRuns) {
           return completed(
@@ -340,7 +416,7 @@ export function createTaskRepairSweepV1<DirectoryFailure, SchedulerFailure>(
           counters.taskPagesCharged += ready.maximumPagesPerRun;
           counters.candidatesCharged += ready.maximumCandidatesPerRun;
           counters.partitionsFailed += 1;
-          const next = advanceDirectory(page.continuation);
+          const next = afterPartition(partition);
           if (next === null) {
             return completed("cycle_exhausted", counters, null);
           }
@@ -371,10 +447,13 @@ export function createTaskRepairSweepV1<DirectoryFailure, SchedulerFailure>(
             expectedScopeId: ready.scopeId,
             dueKind: "handle_lease_expiry",
             cursor: null,
+            ...(partition.directoryAfter === undefined ? {} : {
+              directoryAfter: partition.directoryAfter,
+            }),
           }));
           continue;
         }
-        const next = advanceDirectory(page.continuation);
+        const next = afterPartition(partition);
         if (next === null) {
           return completed("cycle_exhausted", counters, null);
         }
@@ -564,11 +643,16 @@ function validateReadyPartitionPolicy<SchedulerFailure>(
   return Effect.void;
 }
 
-function captureReadyItem<SchedulerFailure>(
-  item: RepairReadyItemV1<SchedulerFailure>,
-): RepairReadyItemV1<SchedulerFailure> {
+function captureDirectoryItem<SchedulerFailure>(
+  item: TaskRepairSweepDirectoryItemV1<SchedulerFailure>,
+): TaskRepairSweepDirectoryItemV1<SchedulerFailure> {
+  const kind = item.kind;
   const deploymentId = item.deploymentId;
   const scopeId = item.scopeId;
+  if (kind === "failed") {
+    const reason = item.reason;
+    return Object.freeze({ kind, deploymentId, scopeId, reason });
+  }
   const maximumPagesPerRun = item.maximumPagesPerRun;
   const maximumCandidatesPerRun = item.maximumCandidatesPerRun;
   const schedulerOwner = item.scheduler;
@@ -578,7 +662,7 @@ function captureReadyItem<SchedulerFailure>(
       runMethod.call(schedulerOwner, request),
   });
   return Object.freeze({
-    kind: "ready",
+    kind,
     deploymentId,
     scopeId,
     maximumPagesPerRun,
@@ -587,23 +671,21 @@ function captureReadyItem<SchedulerFailure>(
   });
 }
 
-function currentPartitionState(
-  persisted: TaskRepairSweepPartitionStateV1 | null,
+function freshPartitionState(
   item: Readonly<{
     readonly deploymentId: string;
     readonly scopeId: RepairScopeIdV1;
   }>,
+  directoryContinuation:
+    TaskSystemWakeSchedulerRepairDirectoryContinuationV1 | null,
 ): TaskRepairSweepPartitionStateV1 {
-  return persisted !== null
-      && persisted.expectedDeploymentId === item.deploymentId
-      && persisted.expectedScopeId === item.scopeId
-    ? persisted
-    : Object.freeze({
-      expectedDeploymentId: item.deploymentId,
-      expectedScopeId: item.scopeId,
-      dueKind: "start_attempt",
-      cursor: null,
-    });
+  return Object.freeze({
+    expectedDeploymentId: item.deploymentId,
+    expectedScopeId: item.scopeId,
+    dueKind: "start_attempt",
+    cursor: null,
+    directoryAfter: directoryStateAfter(directoryContinuation, item.scopeId),
+  });
 }
 
 function freshContinuation(): TaskRepairSweepContinuationV1 {
@@ -629,6 +711,34 @@ function advanceDirectory(
     });
 }
 
+function afterPartition(
+  partition: TaskRepairSweepPartitionStateV1,
+): TaskRepairSweepContinuationV1 | null {
+  const directoryAfter = partition.directoryAfter;
+  return directoryAfter === undefined || directoryAfter.kind === "exhausted"
+    ? null
+    : Object.freeze({
+      version: "flarex.task-repair-sweep-continuation.v1",
+      directory: captureDirectoryState(directoryAfter),
+      partition: null,
+    });
+}
+
+function directoryStateAfter(
+  continuation: TaskSystemWakeSchedulerRepairDirectoryContinuationV1 | null,
+  terminalScopeId: RepairScopeIdV1,
+): TaskRepairSweepDirectoryAfterV1 {
+  return continuation === null
+    ? Object.freeze({
+      kind: "exhausted",
+      highWaterScopeId: terminalScopeId,
+    })
+    : Object.freeze({
+      kind: "continuing",
+      continuation: captureDirectoryContinuation(continuation),
+    });
+}
+
 function withPartition(
   directory: TaskRepairSweepDirectoryStateV1,
   partition: TaskRepairSweepPartitionStateV1,
@@ -643,27 +753,53 @@ function withPartition(
 function captureContinuation(
   continuation: TaskRepairSweepContinuationV1,
 ): TaskRepairSweepContinuationV1 {
+  const partition = continuation.partition;
   return Object.freeze({
     version: continuation.version,
-    directory: continuation.directory.kind === "unstarted"
-      ? Object.freeze({ kind: "unstarted" })
-      : Object.freeze({
-        kind: "continuing",
-        continuation: captureDirectoryContinuation(
-          continuation.directory.continuation,
-        ),
-      }),
-    partition: continuation.partition === null
-      ? null
-      : Object.freeze({
-        expectedDeploymentId: continuation.partition.expectedDeploymentId,
-        expectedScopeId: continuation.partition.expectedScopeId,
-        dueKind: continuation.partition.dueKind,
-        cursor: continuation.partition.cursor === null
-          ? null
-          : captureDueCursor(continuation.partition.cursor),
-      }),
+    directory: captureDirectoryState(continuation.directory),
+    partition: partition === null ? null : capturePartitionState(partition),
   });
+}
+
+function capturePartitionState(
+  partition: TaskRepairSweepPartitionStateV1,
+): TaskRepairSweepPartitionStateV1 {
+  const cursor = partition.cursor;
+  const directoryAfter = partition.directoryAfter;
+  return Object.freeze({
+    expectedDeploymentId: partition.expectedDeploymentId,
+    expectedScopeId: partition.expectedScopeId,
+    dueKind: partition.dueKind,
+    cursor: cursor === null ? null : captureDueCursor(cursor),
+    ...(directoryAfter === undefined ? {} : {
+      directoryAfter: captureDirectoryAfter(directoryAfter),
+    }),
+  });
+}
+
+function captureDirectoryState(
+  directory: TaskRepairSweepDirectoryStateV1,
+): TaskRepairSweepDirectoryStateV1 {
+  return directory.kind === "unstarted"
+    ? Object.freeze({ kind: "unstarted" })
+    : Object.freeze({
+      kind: "continuing",
+      continuation: captureDirectoryContinuation(directory.continuation),
+    });
+}
+
+function captureDirectoryAfter(
+  directory: TaskRepairSweepDirectoryAfterV1,
+): TaskRepairSweepDirectoryAfterV1 {
+  return directory.kind === "exhausted"
+    ? Object.freeze({
+      kind: "exhausted",
+      highWaterScopeId: directory.highWaterScopeId,
+    })
+    : Object.freeze({
+      kind: "continuing",
+      continuation: captureDirectoryContinuation(directory.continuation),
+    });
 }
 
 function captureDirectoryContinuation(

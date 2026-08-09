@@ -1,11 +1,13 @@
-import { replacementScopeIdV1FromUuid } from
-  "flarex-protocol/storage-authority";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Cause, Data, Effect, Exit, Result } from "effect";
 import { TestClock } from "effect/testing";
+import { replacementScopeIdV1FromUuid } from
+  "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
 import {
   createTaskRepairSweepV1,
+  TaskRepairSweepDirectoryContractV1Error,
   TaskRepairSweepOperationTimeoutV1Error,
   type TaskRepairSweepDirectoryItemV1,
   type TaskRepairSweepDirectoryV1,
@@ -42,6 +44,16 @@ const NEXT = Object.freeze({
   ),
 });
 
+const HIGH_WATER_NEXT = Object.freeze({
+  codecVersion: 1 as const,
+  highWaterScopeId: replacementScopeIdV1FromUuid(
+    "92000000-0000-0000-0000-000000000003",
+  ),
+  lastScopeId: replacementScopeIdV1FromUuid(
+    "92000000-0000-0000-0000-000000000002",
+  ),
+});
+
 describe("DTE05-E1 inert Task repair sweep", () => {
   it("runs start-attempt before lease-expiry and exhausts one fresh cycle", async () => {
     const observed: TestRequest[] = [];
@@ -66,7 +78,8 @@ describe("DTE05-E1 inert Task repair sweep", () => {
       confirmedCandidatesHandled: 0,
       continuation: null,
     });
-    expect(directory.calls()).toBe(2);
+    expect(directory.calls()).toBe(1);
+    expect(directory.resolutions()).toBe(1);
   });
 
   it("preserves a scheduler method receiver through ready-item capture", async () => {
@@ -91,7 +104,69 @@ describe("DTE05-E1 inert Task repair sweep", () => {
     expect(receiver.calls).toBe(2);
   });
 
-  it("rediscovers current authority before resuming an inner cursor", async () => {
+  it("executes the same owned resolution snapshot that passed identity validation", async () => {
+    let correctCalls = 0;
+    let wrongCalls = 0;
+    let startCalls = 0;
+    let deploymentReads = 0;
+    let scopeReads = 0;
+    const correctScheduler = scheduler((request) => {
+      correctCalls += 1;
+      return Effect.succeed(receipt(
+        request,
+        request.dueKind === "start_attempt" && startCalls++ === 0
+          ? dueCursor(request.dueKind, "run_owned_resolution")
+          : null,
+      ));
+    });
+    const wrongScheduler = scheduler((request) => {
+      wrongCalls += 1;
+      return Effect.succeed(receipt(request, null));
+    });
+    const expected = readyItem("owned_resolution", correctScheduler);
+    const wrong = readyItem("wrong_resolution", wrongScheduler);
+    const changing: Extract<TestItem, { readonly kind: "ready" }> = {
+      get kind() {
+        return "ready" as const;
+      },
+      get deploymentId() {
+        deploymentReads += 1;
+        return deploymentReads === 1
+          ? expected.deploymentId
+          : wrong.deploymentId;
+      },
+      get scopeId() {
+        scopeReads += 1;
+        return scopeReads === 1 ? expected.scopeId : wrong.scopeId;
+      },
+      get maximumPagesPerRun() {
+        return 1;
+      },
+      get maximumCandidatesPerRun() {
+        return 1;
+      },
+      get scheduler() {
+        return deploymentReads === 1 ? correctScheduler : wrongScheduler;
+      },
+    };
+    const discovered = repeatingDirectory(expected, null);
+    const directory: TestDirectory = Object.freeze({
+      discoverEffect: discovered.discoverEffect,
+      resolveEffect: () => Effect.succeed(changing),
+    });
+    const operation = runner(directory, { maximumSchedulerRuns: 1 });
+
+    const first = await runEffect(operation.runEffect(null));
+    const second = await runEffect(operation.runEffect(first.continuation));
+
+    expect(second.continuation?.partition?.dueKind).toBe("handle_lease_expiry");
+    expect(deploymentReads).toBe(1);
+    expect(scopeReads).toBe(1);
+    expect(correctCalls).toBe(2);
+    expect(wrongCalls).toBe(0);
+  });
+
+  it("freshly resolves current authority before resuming an inner cursor", async () => {
     const cursor = dueCursor("start_attempt", "run_resume");
     const observed: TestRequest[] = [];
     let startCalls = 0;
@@ -120,7 +195,242 @@ describe("DTE05-E1 inert Task repair sweep", () => {
     expect(third.stopReason).toBe("cycle_exhausted");
     expect(observed).toHaveLength(3);
     expect(observed[1]?.cursor).toEqual(cursor);
-    expect(directory.calls()).toBe(3);
+    expect(directory.calls()).toBe(1);
+    expect(directory.resolutions()).toBe(2);
+  });
+
+  it("finishes the original snapshot while ignoring a newly earlier scope", async () => {
+    const cursor = dueCursor("start_attempt", "run_high_water");
+    let startCalls = 0;
+    let discoveryCalls = 0;
+    let resolutionCalls = 0;
+    let earlierCalls = 0;
+    let laterCalls = 0;
+    const snapshotted = readyItem("snapshotted", scheduler((request) => {
+      if (request.dueKind === "start_attempt" && startCalls++ === 0) {
+        return Effect.succeed(receipt(request, cursor));
+      }
+      return Effect.succeed(receipt(request, null));
+    }));
+    const newlyEarlier = Object.freeze({
+      ...readyItem("newly_earlier", scheduler((request) => {
+        earlierCalls += 1;
+        return Effect.succeed(receipt(request, null));
+      })),
+      scopeId: replacementScopeIdV1FromUuid(
+        "92000000-0000-0000-0000-000000000001",
+      ),
+    });
+    const originalLater = Object.freeze({
+      ...readyItem("original_later", scheduler((request) => {
+        laterCalls += 1;
+        return Effect.succeed(receipt(request, null));
+      })),
+      scopeId: replacementScopeIdV1FromUuid(
+        "92000000-0000-0000-0000-000000000003",
+      ),
+    });
+    let inserted = false;
+    const directory: TestDirectory = Object.freeze({
+      discoverEffect: (input: unknown) => {
+        discoveryCalls += 1;
+        const continuation = isNonArrayRecord(input)
+          ? input.continuation
+          : undefined;
+        if (continuation !== undefined) {
+          expect(continuation).toEqual(HIGH_WATER_NEXT);
+          return Effect.succeed(page([originalLater], null));
+        }
+        return Effect.succeed(page(
+          [inserted ? newlyEarlier : snapshotted],
+          inserted ? null : HIGH_WATER_NEXT,
+        ));
+      },
+      resolveEffect: (
+        candidate: Parameters<TestDirectory["resolveEffect"]>[0],
+      ) => {
+        resolutionCalls += 1;
+        const item = candidate.deploymentId === snapshotted.deploymentId
+          ? snapshotted
+          : originalLater;
+        expect(candidate).toEqual({
+          deploymentId: item.deploymentId,
+          scopeId: item.scopeId,
+        });
+        return Effect.succeed(item);
+      },
+    });
+    const operation = runner(directory, { maximumSchedulerRuns: 1 });
+
+    const first = await runEffect(operation.runEffect(null));
+    inserted = true;
+    const second = await runEffect(operation.runEffect(first.continuation));
+    const third = await runEffect(operation.runEffect(second.continuation));
+    const fourth = await runEffect(operation.runEffect(third.continuation));
+    const fifth = await runEffect(operation.runEffect(fourth.continuation));
+
+    expect(first.continuation?.partition).toMatchObject({
+      expectedDeploymentId: snapshotted.deploymentId,
+      cursor,
+      directoryAfter: {
+        kind: "continuing",
+        continuation: HIGH_WATER_NEXT,
+      },
+    });
+    expect(second.continuation?.partition).toMatchObject({
+      expectedDeploymentId: snapshotted.deploymentId,
+      dueKind: "handle_lease_expiry",
+      directoryAfter: {
+        kind: "continuing",
+        continuation: HIGH_WATER_NEXT,
+      },
+    });
+    expect(third).toMatchObject({
+      stopReason: "scheduler_budget",
+      continuation: {
+        directory: { kind: "continuing", continuation: HIGH_WATER_NEXT },
+        partition: {
+          expectedDeploymentId: originalLater.deploymentId,
+          dueKind: "start_attempt",
+          directoryAfter: {
+            kind: "exhausted",
+            highWaterScopeId: originalLater.scopeId,
+          },
+        },
+      },
+    });
+    expect(fourth.continuation?.partition).toMatchObject({
+      expectedDeploymentId: originalLater.deploymentId,
+      dueKind: "handle_lease_expiry",
+      directoryAfter: {
+        kind: "exhausted",
+        highWaterScopeId: originalLater.scopeId,
+      },
+    });
+    expect(fifth).toMatchObject({
+      stopReason: "cycle_exhausted",
+      continuation: null,
+    });
+    expect(discoveryCalls).toBe(2);
+    expect(resolutionCalls).toBe(4);
+    expect(earlierCalls).toBe(0);
+    expect(laterCalls).toBe(2);
+  });
+
+  it("preserves the repair-directory receiver during exact resolution", async () => {
+    interface ReceiverDirectory extends TestDirectory {
+      readonly ready: TestItem;
+      resolutionCalls: number;
+    }
+    let startCalls = 0;
+    const ready = readyItem("directory_receiver", scheduler((request) =>
+      Effect.succeed(receipt(
+        request,
+        request.dueKind === "start_attempt" && startCalls++ === 0
+          ? dueCursor(request.dueKind, "run_directory_receiver")
+          : null,
+      ))
+    ));
+    const directory: ReceiverDirectory = {
+      ready,
+      resolutionCalls: 0,
+      discoverEffect() {
+        return Effect.succeed(page([this.ready], null));
+      },
+      resolveEffect() {
+        this.resolutionCalls += 1;
+        return Effect.succeed(this.ready);
+      },
+    };
+    const operation = runner(directory, { maximumSchedulerRuns: 1 });
+
+    const first = await runEffect(operation.runEffect(null));
+    const second = await runEffect(operation.runEffect(first.continuation));
+
+    expect(second.continuation?.partition?.dueKind).toBe("handle_lease_expiry");
+    expect(directory.resolutionCalls).toBe(1);
+  });
+
+  it("rejects a resolved item that does not match the persisted identity", async () => {
+    const expected = readyItem("expected", scheduler((request) =>
+      Effect.succeed(receipt(
+        request,
+        dueCursor(request.dueKind, "run_resolved_mismatch"),
+      ))
+    ));
+    const wrong = readyItem("wrong", scheduler((request) =>
+      Effect.succeed(receipt(request, null))
+    ));
+    const discovered = repeatingDirectory(expected, null);
+    const directory: TestDirectory = Object.freeze({
+      discoverEffect: discovered.discoverEffect,
+      resolveEffect: () => Effect.succeed(wrong),
+    });
+    const operation = runner(directory, { maximumSchedulerRuns: 1 });
+    const first = await runEffect(operation.runEffect(null));
+
+    const failure = await runEffectFailure(
+      operation.runEffect(first.continuation),
+    );
+
+    expect(failure).toBeInstanceOf(TaskRepairSweepDirectoryContractV1Error);
+    expect(failure).toMatchObject({ reason: "resolved_item_mismatch" });
+  });
+
+  it("isolates a failed exact re-resolution and advances the original snapshot", async () => {
+    const expected = Object.freeze({
+      ...readyItem("authority_lost", scheduler((request) =>
+        Effect.succeed(receipt(
+          request,
+          dueCursor(request.dueKind, "run_authority_lost"),
+        ))
+      )),
+      scopeId: NEXT.lastScopeId,
+    });
+    let healthyCalls = 0;
+    const healthy = readyItem("after_authority_loss", scheduler((request) => {
+      healthyCalls += 1;
+      return Effect.succeed(receipt(request, null));
+    }));
+    const failedResolution = Object.freeze({
+      kind: "failed" as const,
+      deploymentId: expected.deploymentId,
+      scopeId: expected.scopeId,
+      reason: "authority_unavailable" as const,
+    });
+    let discoveryCalls = 0;
+    const directory: TestDirectory = Object.freeze({
+      discoverEffect: () => Effect.succeed(
+        discoveryCalls++ === 0
+          ? page([expected], NEXT)
+          : page([healthy], null),
+      ),
+      resolveEffect: (
+        candidate: Parameters<TestDirectory["resolveEffect"]>[0],
+      ) =>
+        candidate.deploymentId === expected.deploymentId
+          ? Effect.succeed(failedResolution)
+          : Effect.succeed(healthy),
+    });
+    const operation = runner(directory, { maximumSchedulerRuns: 1 });
+
+    const first = await runEffect(operation.runEffect(null));
+    const second = await runEffect(operation.runEffect(first.continuation));
+    const third = await runEffect(operation.runEffect(second.continuation));
+
+    expect(second).toMatchObject({
+      stopReason: "scheduler_budget",
+      partitionsFailed: 1,
+      continuation: {
+        partition: {
+          expectedDeploymentId: healthy.deploymentId,
+          dueKind: "handle_lease_expiry",
+        },
+      },
+    });
+    expect(third.stopReason).toBe("cycle_exhausted");
+    expect(discoveryCalls).toBe(2);
+    expect(healthyCalls).toBe(2);
   });
 
   it("advances past a failed candidate instead of starving a later scope", async () => {
@@ -192,9 +502,12 @@ describe("DTE05-E1 inert Task repair sweep", () => {
 
   it("retains an unknown-progress charge and resumes the blocked next scope", async () => {
     let healthyCalls = 0;
-    const failing = readyItem("failing", scheduler(() =>
-      Effect.fail(new TestSchedulerError({ reason: "transient" }))
-    ));
+    const failing = Object.freeze({
+      ...readyItem("failing", scheduler(() =>
+        Effect.fail(new TestSchedulerError({ reason: "transient" }))
+      )),
+      scopeId: NEXT.lastScopeId,
+    });
     const healthy = readyItem("after_failure", scheduler((request) => {
       healthyCalls += 1;
       return Effect.succeed(receipt(request, null));
@@ -271,6 +584,7 @@ describe("DTE05-E1 inert Task repair sweep", () => {
       discoverEffect: () => TestClock.adjust("100 millis").pipe(
         Effect.andThen(Effect.succeed(page([ready], null))),
       ),
+      resolveEffect: () => Effect.succeed(ready),
     });
     const operation = runner(directory, {
       maximumRunMilliseconds: 100,
@@ -285,6 +599,43 @@ describe("DTE05-E1 inert Task repair sweep", () => {
     expect(failure).toBeInstanceOf(TaskRepairSweepOperationTimeoutV1Error);
     expect(failure).toMatchObject({
       operation: "directory",
+      budgetNanoseconds: 90_000_000n,
+    });
+  });
+
+  it("bounds fresh partition resolution before resuming its cursor", async () => {
+    const ready = readyItem("resolve_timed", scheduler((request) =>
+      Effect.succeed(receipt(
+        request,
+        dueCursor(request.dueKind, "run_resolve_timed"),
+      ))
+    ));
+    const discovered = repeatingDirectory(ready, null);
+    const directory: TestDirectory = Object.freeze({
+      discoverEffect: discovered.discoverEffect,
+      resolveEffect: () => TestClock.adjust("100 millis").pipe(
+        Effect.andThen(Effect.succeed(ready)),
+      ),
+    });
+    const operation = runner(directory, {
+      maximumSchedulerRuns: 1,
+      maximumRunMilliseconds: 100,
+      maximumOperationMilliseconds: 90,
+      settlementReserveMilliseconds: 10,
+    });
+    const first = await runEffect(operation.runEffect(null).pipe(
+      Effect.provide(TestClock.layer()),
+    ));
+
+    const failure = await runEffectFailure(
+      operation.runEffect(first.continuation).pipe(
+        Effect.provide(TestClock.layer()),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(TaskRepairSweepOperationTimeoutV1Error);
+    expect(failure).toMatchObject({
+      operation: "resolve",
       budgetNanoseconds: 90_000_000n,
     });
   });
@@ -305,7 +656,7 @@ describe("DTE05-E1 inert Task repair sweep", () => {
 
     expect(result).toMatchObject({
       stopReason: "cycle_exhausted",
-      directoryPagesRead: 3,
+      directoryPagesRead: 2,
       schedulerRuns: 2,
       continuation: null,
     });
@@ -499,14 +850,28 @@ function dueCursor(dueKind: TestRequest["dueKind"], runId: string): TestCursor {
 function repeatingDirectory(
   item: TestItem,
   continuation: typeof NEXT | null,
-): TestDirectory & Readonly<{ readonly calls: () => number }> {
+): TestDirectory & Readonly<{
+  readonly calls: () => number;
+  readonly resolutions: () => number;
+}> {
   let calls = 0;
+  let resolutions = 0;
   return Object.freeze({
     discoverEffect: () => {
       calls += 1;
       return Effect.succeed(page([item], continuation));
     },
+    resolveEffect: (
+      candidate: Parameters<TestDirectory["resolveEffect"]>[0],
+    ) => {
+      resolutions += 1;
+      return item.deploymentId === candidate.deploymentId
+          && item.scopeId === candidate.scopeId
+        ? Effect.succeed(item)
+        : Effect.fail(new TestDirectoryError({ reason: "sql" }));
+    },
     calls: () => calls,
+    resolutions: () => resolutions,
   });
 }
 
@@ -514,12 +879,24 @@ function sequencedDirectory(
   pages: ReadonlyArray<Effect.Success<ReturnType<TestDirectory["discoverEffect"]>>>,
 ): TestDirectory {
   let index = 0;
+  const items = pages.flatMap((directoryPage) => directoryPage.items);
   return Object.freeze({
     discoverEffect: () => {
       const current = pages[index++];
       return current === undefined
         ? Effect.fail(new TestDirectoryError({ reason: "sql" }))
         : Effect.succeed(current);
+    },
+    resolveEffect: (
+      candidate: Parameters<TestDirectory["resolveEffect"]>[0],
+    ) => {
+      const item = items.find((candidateItem) =>
+        candidateItem.deploymentId === candidate.deploymentId
+        && candidateItem.scopeId === candidate.scopeId
+      );
+      return item === undefined
+        ? Effect.fail(new TestDirectoryError({ reason: "sql" }))
+        : Effect.succeed(item);
     },
   });
 }

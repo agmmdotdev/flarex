@@ -4,9 +4,10 @@
 
 **Decision:** Admit DTE05-E2C1 only. This checkpoint connects the E1 Task
 repair sweep and E2A continuation codec to the E2B fenced checkpoint protocol.
-Static reconstruction, duplicate-host exclusion, and expiry takeover are
-proved in PGlite and genuine PostgreSQL. The high-water restart gate remains
-blocked as recorded below. The slice remains production-inert.
+Static reconstruction is proved in PGlite; duplicate-host exclusion and expiry
+takeover are proved in PGlite and genuine PostgreSQL. The corrected E1
+continuation now also proves exact high-water restart. The slice remains
+production-inert.
 
 DTE05-E2C2 retains database-owned statement, lock, and transaction timeout
 policy plus a deliberately stalled-transaction proof. DTE05-E3 retains the
@@ -75,7 +76,7 @@ stall a transaction past its configured deadline and prove that the runner
 returns only after the database/driver outcome and connection disposition are
 known.
 
-## Discovered E1 Ownership Blocker
+## Resolved E1 Continuation Defect
 
 E2C1 restart analysis exposed a defect in the existing E1 continuation owner.
 When a partition scheduler returns an inner due cursor, `TaskRepairSweepV1`
@@ -93,12 +94,36 @@ Reproduction:
    and the current E1 policy silently starts A instead of resuming B.
 
 Expected behavior is exact resume of B under the original directory high-water
-snapshot. Actual behavior can abandon B's inner cursor and admit post-snapshot
-work. This is owned by the E1 sweep/directory continuation contract, not by the
-E2C checkpoint runner. Its disposition is **recorded, correction not yet
-authorized**. E2C1 may prove static reconstruction and fenced checkpoint
-composition, but its high-water restart gate remains blocked until the E1 owner
-is separately approved for correction.
+snapshot. The approved E1-local correction now records the directory position
+after B beside B's active partition state, as either a correlated continuing
+cursor or an exact exhausted high-water marker. Resume does not restart
+discovery:
+it freshly resolves B's exact deployment/scope identity through the
+repair-directory owner, rejects a mismatched result, resumes B's inner due
+cursor, and advances to the recorded post-B directory position only after B is
+finished or isolated as failed.
+
+This keeps the shared replacement-scope directory cursor unchanged, preserves
+fresh trusted-authority resolution, and prevents both cursor abandonment and
+post-snapshot admission. Private pre-correction continuation evidence remains
+decodable when the new field is absent; after that expected partition settles,
+the old cycle closes and a later run starts a fresh snapshot. Focused tests
+prove that an inserted earlier scope is deferred while a later scope from the
+original snapshot still runs. The E2C1 high-water restart gate is therefore
+complete; database-owned hard timeout proof remains exclusively E2C2.
+
+Completion evidence on 2026-08-09:
+
+- the 20-test E1 sweep lane proves exact original-snapshot advancement,
+  repair-directory and scheduler receiver preservation, mismatched-resolution
+  rejection, filtered pages, bounded accounting, and timeout classification;
+- all six canonical continuation-codec tests and all 34 connected-runner/core
+  tests pass, including pre-correction evidence compatibility and reconstructed
+  inner-cursor resume through fresh exact candidate resolution;
+- the 11-test PGlite repair-directory/checkpoint regression lane passes; and
+- a disposable genuine-PostgreSQL 18 cluster passes all three E2C1 connected
+  claim, duplicate-host, crash, expiry, and takeover tests, then is stopped and
+  moved to the Recycle Bin.
 
 ## Stop Boundary
 

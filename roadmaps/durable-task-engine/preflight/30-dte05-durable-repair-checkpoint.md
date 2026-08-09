@@ -51,8 +51,10 @@ storage representation of `TaskRepairSweepContinuationV1`.
   while defects and interruption remain outside the typed error channel.
 
 The persisted continuation still grants no tenant, scope, locator, database,
-or execution authority. Every resume must rediscover the directory candidate
-and freshly resolve current trusted scope authority as E1 requires.
+or execution authority. An active-partition resume must freshly resolve the
+exact persisted deployment/scope candidate through the repair directory before
+resuming its inner due cursor. The persisted directory position determines
+only where the original bounded snapshot continues after that partition.
 
 ### Task-owned scheduler row
 
