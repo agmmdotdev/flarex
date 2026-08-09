@@ -863,18 +863,30 @@ pre-B1 convergence state. The first generation caps one commit at 32
 definition/row transitions and 64 S11 actions. It changes no commit/OCC owner,
 schema, migration, readiness, activation, or query authority.
 
-The first private `C08-B1` foundation now closes the exact schema-version
+The first private `C08-B1` foundation closes the exact schema-version
 definition set and reconciles one target-native, scope-clock-fenced build row
 for that set. Migration `0049` stores the compact canonical set commitment,
 scope generation/epoch/frontier pins, lifecycle cursor, and replay-safe attempt
 fence. Exact binding replay remains allowed after closure while late or changed
 bindings fail closed. This is build authority only: no backfill, validation,
 enabled verdict, planner eligibility, readiness, activation, or routing is
-introduced.
+introduced by that foundation.
+
+The next private `C08-B1` checkpoint now advances that same row through bounded
+backfill and stops at `validating`. A set-based ordered frontier scan is capped
+at 16 definition/row candidates per transaction. Every candidate is re-read
+through canonical current-row evidence before the shared C08 lowering owner
+and a dedicated S11 reconciliation primitive either acquire an absent claim or
+authenticate an exact replay. Duplicate ownership, contradictory lineage,
+oversized/invalid lowering, storage corruption, and injected faults fail closed
+and roll back the page plus cursor. Current rows newer than the accepted start
+frontier are used, preventing stale candidate resurrection. No new table,
+migration, claim owner, OCC lane, or commit owner is introduced.
 
 General C08 therefore remains incomplete. The next `C08-B1` checkpoint must
-backfill and validate current S11 claims in bounded target transactions and
-prove invalidation/restart under concurrent commits. A later exact gate must
+validate current S11 claims and claim-only rows in bounded target transactions
+and prove point-commit invalidation/restart under concurrent commits before the
+row may become `enabled`. A later exact gate must
 bind planner/readiness eligibility to the enabled set digest and the
 unforgeable B2 maintenance capability. `O09-B` contention/stress acceptance
 also remains open. Local PGlite functional, migration, rollback, swap, and

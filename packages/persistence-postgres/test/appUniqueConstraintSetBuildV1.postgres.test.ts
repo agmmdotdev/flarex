@@ -3,13 +3,17 @@ import {
   APP_UNIQUE_KEY_CODEC_VERSION_V1,
   decodeAppUniqueConstraintPhysicalSpecV1,
 } from "flarex-protocol/app-unique-constraint-definition";
+import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from
+  "flarex-protocol/app-document";
+import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
   SchemaManifestAppIndexDescriptorSchema,
 } from "flarex-protocol/schema-manifest";
-import { ScopeEpochSchema, ScopeIdSchema } from
+import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema } from
   "flarex-protocol/storage-authority";
+import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -18,12 +22,15 @@ import {
 } from "../src/appUniqueConstraintDefinitions";
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
+  advanceAppUniqueConstraintSetBackfillV1Effect,
   reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../src/appUniqueConstraintSetBuildV1";
 import {
   closeAppUniqueConstraintSetV1InTransactionEffect,
   prepareAppUniqueConstraintSetClosureV1Effect,
 } from "../src/appUniqueConstraintSetClosureV1";
+import { appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult } from
+  "../src/appRows";
 import {
   createPostgresLocatedAppUniqueConstraintSetBuildTargetV1,
   type PostgresFlarexPersistence,
@@ -108,11 +115,60 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       });
     });
   }, 120_000);
+
+  it("serializes concurrent bounded backfill pages and publishes exact current claims", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const fixture = await fixtureFor(persistence);
+      const prepared = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
+        persistence.drizzle,
+        fixture.input,
+      ));
+      await persistence.drizzle.transaction((tx) => runEffect(
+        closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared),
+      ));
+      await appendLiveRow(fixture, "73000000000040008000000000000001", "a@example.com");
+      await appendLiveRow(fixture, "73000000000040008000000000000002", "b@example.com");
+      await persistence.query(
+        "update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1",
+        [fixture.scopeId],
+      );
+      await reconcile(fixture);
+      await advanceBackfill(fixture, 1);
+      await advanceBackfill(fixture, 1);
+      const settlements = await Promise.all(Array.from(
+        { length: 4 },
+        () => advanceBackfill(fixture, 1),
+      ));
+      expect(settlements.some((value) => value.claimed === 1)).toBe(true);
+      expect(settlements.filter((value) =>
+        value.lifecycle === "validating"
+      )).toHaveLength(3);
+      const build = await persistence.query<{ lifecycle: string }>(
+        `select lifecycle from fx_system_unique_constraint_set_build
+          where scope_id = $1 and schema_version_id = $2`,
+        [fixture.scopeId, fixture.schemaVersionId],
+      );
+      expect(build.rows).toEqual([{ lifecycle: "validating" }]);
+      const claims = await persistence.query<{
+        row_id_hex: string;
+        commit_seq: string;
+      }>(
+        `select encode(row_id, 'hex') row_id_hex, commit_seq::text
+           from fx_app_unique_key order by row_id asc`,
+      );
+      expect(claims.rows).toEqual([
+        { row_id_hex: "73000000000040008000000000000001", commit_seq: "1" },
+        { row_id_hex: "73000000000040008000000000000002", commit_seq: "1" },
+      ]);
+    });
+  }, 120_000);
 });
 
 async function fixtureFor(persistence: PostgresFlarexPersistence) {
   const deploymentId = "deployment_unique_set_pg";
-  const scopeId = ScopeIdSchema.make("scope_unique_set_pg");
+  const scopeId = ScopeIdSchema.make(
+    "scope_74000000-0000-4000-8000-000000000001",
+  );
   const schemaVersionId = CatalogSchemaVersionIdSchema.make(
     "schema_unique_set_pg",
   );
@@ -130,7 +186,9 @@ async function fixtureFor(persistence: PostgresFlarexPersistence) {
       (scope_id, storage_generation, storage_generation_fence,
        last_commit_seq, last_outbox_seq, epoch)
      values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
-    [scopeId, ScopeEpochSchema.make("epoch_unique_set_pg")],
+    [scopeId, ScopeEpochSchema.make(
+      "epoch_75000000-0000-4000-8000-000000000001",
+    )],
   );
   const published = await persistence.publishAppSchemaV1({
     deploymentId,
@@ -194,7 +252,17 @@ async function fixtureFor(persistence: PostgresFlarexPersistence) {
       scopeClockTargets: { resolve: async () => target },
     },
   } as const;
-  return Object.freeze({ persistence, scopeId, input, ports });
+  return Object.freeze({
+    persistence,
+    scopeId,
+    epoch: ScopeEpochSchema.make(
+      "epoch_75000000-0000-4000-8000-000000000001",
+    ),
+    schemaVersionId,
+    tableId: table.tableId,
+    input,
+    ports,
+  });
 }
 
 function reconcile(fixture: Awaited<ReturnType<typeof fixtureFor>>) {
@@ -202,6 +270,50 @@ function reconcile(fixture: Awaited<ReturnType<typeof fixtureFor>>) {
     fixture.ports,
     fixture.input,
   ));
+}
+
+function advanceBackfill(
+  fixture: Awaited<ReturnType<typeof fixtureFor>>,
+  pageSize: number,
+) {
+  return runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(
+    fixture.ports,
+    { ...fixture.input, pageSize },
+  ));
+}
+
+async function appendLiveRow(
+  fixture: Awaited<ReturnType<typeof fixtureFor>>,
+  rowIdText: string,
+  email: string,
+) {
+  const rowId = decodeAppRowIdHexV1(rowIdText);
+  const creationTime = decodeAppCreationTimeV1(1_750_000_000_000);
+  const document = await canonicalizeAppDocumentV1({
+    tableId: fixture.tableId,
+    rowId,
+    creationTime,
+    fields: { email },
+  });
+  await fixture.persistence.drizzle.transaction(async (tx) => {
+    Result.getOrThrow(
+      await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
+        tx,
+        {
+          kind: "live",
+          scopeId: fixture.scopeId,
+          tableId: fixture.tableId,
+          rowId,
+          writeEpoch: fixture.epoch,
+          commitSeq: CommitSeqSchema.make(1n),
+          prevCommitSeq: null,
+          schemaVersionId: fixture.schemaVersionId,
+          creationTime,
+          document,
+        },
+      ),
+    );
+  });
 }
 
 async function buildCount(

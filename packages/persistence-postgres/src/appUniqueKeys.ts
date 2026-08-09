@@ -88,6 +88,23 @@ export interface ApplyAppUniqueKeyMutationV1Result {
   readonly claim: AppUniqueKeyClaimV1 | null;
 }
 
+export interface EnsureAppUniqueKeyBackfillClaimV1Input {
+  readonly scopeId: ScopeId;
+  readonly constraintId: AppUniqueConstraintIdV1;
+  readonly tableId: CatalogTableId;
+  readonly rowId: AppRowIdHexV1;
+  readonly authorityEpoch: ScopeEpoch;
+  readonly parentWriteEpochUuid: ScopeEpochUuidV1;
+  readonly commitSeq: CommitSeq;
+  readonly rowPrevCommitSeq: CommitSeq | null;
+  readonly claim: AppUniqueKeyProjectionV1;
+}
+
+export interface EnsureAppUniqueKeyBackfillClaimV1Result {
+  readonly status: "claimed" | "replayed";
+  readonly claim: AppUniqueKeyClaimV1;
+}
+
 export type InvalidAppUniqueKeyMutationV1Issue =
   | "invalidScopeId"
   | "invalidConstraintId"
@@ -189,6 +206,20 @@ export class AppUniqueKeyPreviousClaimMismatchError extends Error {
   }
 }
 
+export class AppUniqueKeyBackfillClaimMismatchError extends Error {
+  readonly _tag = "AppUniqueKeyBackfillClaimMismatchError" as const;
+
+  constructor(
+    readonly constraintId: AppUniqueConstraintIdV1,
+    readonly rowId: AppRowIdHexV1,
+  ) {
+    super(
+      `Backfilled app unique-key ownership does not match ${constraintId}/${rowId}.`,
+    );
+    this.name = "AppUniqueKeyBackfillClaimMismatchError";
+  }
+}
+
 export class AppUniqueKeyHashError extends Error {
   readonly _tag = "AppUniqueKeyHashError" as const;
 
@@ -223,6 +254,17 @@ export type ApplyAppUniqueKeyMutationV1Error =
   | AppUniqueKeyConflictError
   | CanonicalAppUniqueKeyHashCollisionError
   | AppUniqueKeyPreviousClaimMismatchError
+  | AppUniqueKeyHashError
+  | AppUniqueKeyStorageCorruptionError
+  | AppUniqueKeyPersistenceError;
+
+export type EnsureAppUniqueKeyBackfillClaimV1Error =
+  | InvalidAppUniqueKeyMutationV1Error
+  | AppUniqueKeyScopeAuthorityUnavailableError
+  | AppUniqueKeyParentRevisionError
+  | AppUniqueKeyConflictError
+  | CanonicalAppUniqueKeyHashCollisionError
+  | AppUniqueKeyBackfillClaimMismatchError
   | AppUniqueKeyHashError
   | AppUniqueKeyStorageCorruptionError
   | AppUniqueKeyPersistenceError;
@@ -310,69 +352,11 @@ export const applyAppUniqueKeyMutationInTransactionEffect = Effect.fn(
   input: ApplyAppUniqueKeyMutationV1Input,
   sha256: AppUniqueKeySha256V1 = liveSha256,
 ) {
-  const captured = yield* Effect.fromResult(decodeMutationInputResult(input));
-  const scope = yield* persistenceEffect(() => tx.select({
-    scopeUuid: fxSystemScopeClocks.scopeUuid,
-    epoch: fxSystemScopeClocks.epoch,
-  }).from(fxSystemScopeClocks).where(
-    eq(fxSystemScopeClocks.scopeId, captured.scopeId),
-  ).limit(1));
-  const authority = scope[0];
-  if (authority === undefined) {
-    return yield* Effect.fail(new AppUniqueKeyScopeAuthorityUnavailableError(
-      captured.scopeId,
-      "missing",
-    ));
-  }
-  const scopeUuid = yield* Effect.fromResult(
-    decodeScopeUuidResult(authority.scopeUuid).pipe(
-      Result.flatMap((value) => value === captured.expectedScopeUuid
-        ? Result.succeed(value)
-        : Result.fail(new AppUniqueKeyScopeAuthorityUnavailableError(
-          captured.scopeId,
-          "identityMismatch",
-        ))),
-      Result.mapError((error) =>
-        error instanceof AppUniqueKeyScopeAuthorityUnavailableError
-          ? error
-          : new AppUniqueKeyScopeAuthorityUnavailableError(
-            captured.scopeId,
-            "identityMismatch",
-          )
-      ),
-    ),
-  );
-  if (authority.epoch !== captured.writeEpoch) {
-    return yield* Effect.fail(new AppUniqueKeyScopeAuthorityUnavailableError(
-      captured.scopeId,
-      "staleEpoch",
-    ));
-  }
-  const previous = captured.previous === null
-    ? null
-    : yield* hashClaimEffect(captured.previous, sha256);
-  const next = captured.next === null
-    ? null
-    : yield* hashClaimEffect(captured.next, sha256);
-  const mutation: DecodedMutationV1 = Object.freeze({
-    ...captured,
-    scopeUuid,
-    previous,
-    next,
-  });
-  const parent = yield* requireParentRevisionEffect(
+  const { mutation, parent } = yield* prepareMutationEffect(
     tx,
-    mutation,
+    input,
+    sha256,
   );
-  if (mutation.next !== null && parent.isTombstone) {
-    return yield* Effect.fail(new AppUniqueKeyParentRevisionError(
-      mutation.scopeId,
-      mutation.tableId,
-      mutation.rowId,
-      mutation.commitSeq,
-      "tombstonedClaim",
-    ));
-  }
 
   let nextStoredRow: StoredClaimRow | null = null;
   if (mutation.next !== null) {
@@ -531,6 +515,203 @@ export const applyAppUniqueKeyMutationInTransactionEffect = Effect.fn(
     mutation,
     parent.schemaVersionId,
   );
+});
+
+/**
+ * Transaction-only S11 reconciliation primitive for a bounded C08 backfill.
+ * It authenticates the current parent revision exactly, claims an absent slot,
+ * and treats only an identical current claim as replay. It never advances or
+ * releases ownership; normal point-commit mutation remains the sole online
+ * transition owner.
+ */
+export const ensureAppUniqueKeyBackfillClaimInTransactionEffect = Effect.fn(
+  "AppUniqueKeys.ensureBackfillClaimInTransaction",
+)(function* (
+  tx: AppUniqueKeyTransaction,
+  input: EnsureAppUniqueKeyBackfillClaimV1Input,
+  sha256: AppUniqueKeySha256V1 = liveSha256,
+): Effect.fn.Return<
+  EnsureAppUniqueKeyBackfillClaimV1Result,
+  EnsureAppUniqueKeyBackfillClaimV1Error
+> {
+  const { mutation, parent } = yield* prepareMutationEffect(
+    tx,
+    {
+      scopeId: input.scopeId,
+      constraintId: input.constraintId,
+      tableId: input.tableId,
+      rowId: input.rowId,
+      writeEpoch: input.authorityEpoch,
+      commitSeq: input.commitSeq,
+      rowPrevCommitSeq: input.rowPrevCommitSeq,
+      previousClaimCommitSeq: null,
+      previous: null,
+      next: input.claim,
+    },
+    sha256,
+    yield* Effect.fromResult(
+      decodeScopeEpochUuidResult(input.parentWriteEpochUuid).pipe(
+        Result.mapError((cause) => new InvalidAppUniqueKeyMutationV1Error(
+          "invalidWriteEpoch",
+          cause,
+        )),
+      ),
+    ),
+  );
+  const claim = mutation.next;
+  if (claim === null) {
+    return yield* Effect.fail(new InvalidAppUniqueKeyMutationV1Error(
+      "invalidNextKey",
+    ));
+  }
+  const storedSlot = yield* readClaimSlotForUpdateEffect(tx, mutation, claim);
+  if (storedSlot !== null) {
+    yield* Effect.fromResult(compareStoredKeyResult(
+      storedSlot,
+      claim,
+      mutation.constraintId,
+    ));
+    const decoded = yield* Effect.fromResult(decodeStoredClaimResult(
+      mutation.scopeId,
+      storedSlot,
+      claim,
+    ));
+    if (
+      decoded.tableId !== mutation.tableId ||
+      decoded.rowId !== mutation.rowId
+    ) {
+      return yield* Effect.fail(new AppUniqueKeyConflictError(
+        mutation.constraintId,
+        claim.localeKey,
+        decoded.tableId,
+        decoded.rowId,
+      ));
+    }
+    if (
+      decoded.schemaVersionId !== parent.schemaVersionId ||
+      decoded.writeEpochUuid !== mutation.writeEpochUuid ||
+      decoded.commitSeq !== mutation.commitSeq
+    ) {
+      return yield* Effect.fail(new AppUniqueKeyBackfillClaimMismatchError(
+        mutation.constraintId,
+        mutation.rowId,
+      ));
+    }
+    return Object.freeze({ status: "replayed", claim: decoded });
+  }
+
+  const ownerRows = yield* persistenceEffect(() =>
+    tx.select().from(fxAppUniqueKeys).where(and(
+      eq(fxAppUniqueKeys.scopeUuid, mutation.scopeUuid),
+      eq(fxAppUniqueKeys.constraintId, mutation.constraintId),
+      eq(fxAppUniqueKeys.localeKey, claim.localeKey),
+      eq(fxAppUniqueKeys.tableId, mutation.tableId),
+      eq(fxAppUniqueKeys.rowId, mutation.rowIdBytes),
+    )).limit(2).for("update")
+  );
+  if (ownerRows.length > 1) {
+    return yield* Effect.fail(corruption("one owner has multiple current claims"));
+  }
+  if (ownerRows[0] !== undefined) {
+    return yield* Effect.fail(new AppUniqueKeyBackfillClaimMismatchError(
+      mutation.constraintId,
+      mutation.rowId,
+    ));
+  }
+
+  yield* persistenceEffect(() => tx.insert(fxAppUniqueKeys).values({
+    scopeUuid: mutation.scopeUuid,
+    constraintId: mutation.constraintId,
+    localeKey: claim.localeKey,
+    canonicalKeySha256: claim.canonicalKeySha256,
+    keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+    encodedKey: claim.canonicalKeyBytes,
+    tableId: mutation.tableId,
+    rowId: mutation.rowIdBytes,
+    schemaVersionId: parent.schemaVersionId,
+    writeEpochUuid: mutation.writeEpochUuid,
+    commitSeq: mutation.commitSeq,
+  }));
+  return Object.freeze({
+    status: "claimed",
+    claim: projectMutation(
+      "claimed",
+      mutation,
+      parent.schemaVersionId,
+    ).claim!,
+  });
+});
+
+const prepareMutationEffect = Effect.fn(
+  "AppUniqueKeys.prepareMutation",
+)(function* (
+  tx: AppUniqueKeyTransaction,
+  input: ApplyAppUniqueKeyMutationV1Input,
+  sha256: AppUniqueKeySha256V1,
+  parentWriteEpochUuid?: ScopeEpochUuidV1,
+) {
+  const captured = yield* Effect.fromResult(decodeMutationInputResult(input));
+  const scope = yield* persistenceEffect(() => tx.select({
+    scopeUuid: fxSystemScopeClocks.scopeUuid,
+    epoch: fxSystemScopeClocks.epoch,
+  }).from(fxSystemScopeClocks).where(
+    eq(fxSystemScopeClocks.scopeId, captured.scopeId),
+  ).limit(1));
+  const authority = scope[0];
+  if (authority === undefined) {
+    return yield* Effect.fail(new AppUniqueKeyScopeAuthorityUnavailableError(
+      captured.scopeId,
+      "missing",
+    ));
+  }
+  const scopeUuid = yield* Effect.fromResult(
+    decodeScopeUuidResult(authority.scopeUuid).pipe(
+      Result.flatMap((value) => value === captured.expectedScopeUuid
+        ? Result.succeed(value)
+        : Result.fail(new AppUniqueKeyScopeAuthorityUnavailableError(
+          captured.scopeId,
+          "identityMismatch",
+        ))),
+      Result.mapError((error) =>
+        error instanceof AppUniqueKeyScopeAuthorityUnavailableError
+          ? error
+          : new AppUniqueKeyScopeAuthorityUnavailableError(
+            captured.scopeId,
+            "identityMismatch",
+          )
+      ),
+    ),
+  );
+  if (authority.epoch !== captured.writeEpoch) {
+    return yield* Effect.fail(new AppUniqueKeyScopeAuthorityUnavailableError(
+      captured.scopeId,
+      "staleEpoch",
+    ));
+  }
+  const previous = captured.previous === null
+    ? null
+    : yield* hashClaimEffect(captured.previous, sha256);
+  const next = captured.next === null
+    ? null
+    : yield* hashClaimEffect(captured.next, sha256);
+  const mutation: DecodedMutationV1 = Object.freeze({
+    ...captured,
+    scopeUuid,
+    writeEpochUuid: parentWriteEpochUuid ?? captured.writeEpochUuid,
+    previous,
+    next,
+  });
+  const parent = yield* requireParentRevisionEffect(tx, mutation);
+  if (mutation.next !== null && parent.isTombstone) {
+    return yield* Effect.fail(new AppUniqueKeyParentRevisionError(
+      mutation.scopeId,
+      mutation.tableId,
+      mutation.rowId,
+      mutation.commitSeq,
+      "tombstonedClaim",
+    ));
+  }
+  return Object.freeze({ mutation, parent });
 });
 
 function decodeMutationInputResult(

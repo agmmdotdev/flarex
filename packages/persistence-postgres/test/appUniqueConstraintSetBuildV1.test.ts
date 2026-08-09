@@ -1,4 +1,10 @@
 import {
+  canonicalizeAppDocumentV1,
+  decodeAppCreationTimeV1,
+} from "flarex-protocol/app-document";
+import { decodeAppRowIdHexV1, type AppRowIdHexV1 } from
+  "flarex-protocol/app-document-id";
+import {
   APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
   APP_UNIQUE_KEY_CODEC_VERSION_V1,
   decodeAppUniqueConstraintPhysicalSpecV1,
@@ -10,8 +16,9 @@ import {
   SchemaManifestAppIndexDescriptorSchema,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { ScopeEpochSchema, ScopeIdSchema } from
+import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema } from
   "flarex-protocol/storage-authority";
+import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -21,6 +28,7 @@ import {
 } from "../src/appUniqueConstraintDefinitions";
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
+  advanceAppUniqueConstraintSetBackfillV1Effect,
   createLocatedAppUniqueConstraintSetBuildTargetV1,
   reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../src/appUniqueConstraintSetBuildV1";
@@ -30,6 +38,9 @@ import {
   prepareAppUniqueConstraintSetClosureV1Effect,
   readAppUniqueConstraintSetClosureV1Effect,
 } from "../src/appUniqueConstraintSetClosureV1";
+import {
+  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+} from "../src/appRows";
 import { createPGlitePersistence } from "../src/pglite";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -39,6 +50,7 @@ const LOCATOR = Object.freeze({
   databaseKey: "primary",
   schemaName: "public",
 } as const satisfies ScopePhysicalLocator);
+let fixtureOrdinal = 0;
 
 describe("C08-B1 closed unique-set build foundation", () => {
   it("closes the exact set, replays it, and refuses late bindings", async () => {
@@ -213,6 +225,221 @@ describe("C08-B1 closed unique-set build foundation", () => {
       members: [{ logicalUniqueConstraintId: 1 }],
     });
   });
+
+  it("backfills bounded pages, follows current rows past the frontier, and stops at validating", async () => {
+    const fixture = await closedFixture("backfill");
+    const rowA = rowId(1);
+    const rowB = rowId(2);
+    await appendLiveRow(fixture, rowA, 1n, null, {
+      tenantId: "tenant-a",
+      email: "a@example.com",
+    });
+    await appendLiveRow(fixture, rowB, 1n, null, {
+      tenantId: "tenant-a",
+      email: "old@example.com",
+    });
+    await setClockCommit(fixture, 1n);
+    await reconcile(fixture);
+    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+      lifecycle: "building",
+      scanned: 0,
+    });
+    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+      lifecycle: "backfilling",
+      scanned: 0,
+    });
+    const first = await advanceBackfill(fixture, 1);
+    expect(first).toMatchObject({
+      lifecycle: "backfilling",
+      scanned: 1,
+      claimed: 1,
+    });
+
+    await appendLiveRow(fixture, rowB, 2n, 1n, {
+      tenantId: "tenant-a",
+      email: "new@example.com",
+    });
+    await setClockCommit(fixture, 2n);
+    const second = await advanceBackfill(fixture, 1);
+    expect(second).toMatchObject({
+      lifecycle: "validating",
+      scanned: 1,
+      claimed: 1,
+      cursorDefinitionId: null,
+      cursorRowId: null,
+    });
+    expect(await uniqueClaims(fixture)).toMatchObject([
+      { row_id_hex: rowA, commit_seq: "1" },
+      { row_id_hex: rowB, commit_seq: "2" },
+    ]);
+    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+      status: "replayed",
+      lifecycle: "validating",
+    });
+  });
+
+  it("replays exact claims after a cold cursor restart", async () => {
+    const fixture = await closedFixture("replay");
+    const rowA = rowId(3);
+    await appendLiveRow(fixture, rowA, 1n, null, {
+      tenantId: "tenant-a",
+      email: "replay@example.com",
+    });
+    await setClockCommit(fixture, 1n);
+    await reconcile(fixture);
+    await advanceBackfill(fixture, 1);
+    await advanceBackfill(fixture, 1);
+    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+      lifecycle: "validating",
+      claimed: 1,
+    });
+    await fixture.persistence.query(
+      `update fx_system_unique_constraint_set_build
+          set lifecycle = 'backfilling', cursor_definition_id = null,
+              cursor_row_id = null
+        where scope_id = $1 and schema_version_id = $2`,
+      [fixture.scopeId, fixture.schemaVersionId],
+    );
+    await expect(advanceBackfill(fixture, 1)).resolves.toMatchObject({
+      lifecycle: "validating",
+      claimed: 0,
+      replayed: 1,
+    });
+    expect(await uniqueClaims(fixture)).toHaveLength(1);
+  });
+
+  it("rolls back the whole page on a duplicate key or injected post-claim fault", async () => {
+    const fixture = await closedFixture("conflict");
+    const rowA = rowId(4);
+    const rowB = rowId(5);
+    for (const row of [rowA, rowB]) {
+      await appendLiveRow(fixture, row, 1n, null, {
+        tenantId: "tenant-a",
+        email: "duplicate@example.com",
+      });
+    }
+    await setClockCommit(fixture, 1n);
+    await reconcile(fixture);
+    await advanceBackfill(fixture, 16);
+    await advanceBackfill(fixture, 16);
+    await expect(advanceBackfill(fixture, 16)).rejects.toMatchObject({
+      _tag: "AppUniqueKeyConflictError",
+    });
+    expect(await uniqueClaims(fixture)).toEqual([]);
+    expect(await buildRows(fixture)).toMatchObject([{
+      lifecycle: "backfilling",
+      cursor_definition_id: null,
+      cursor_row_hex: null,
+    }]);
+
+    await appendLiveRow(fixture, rowB, 2n, 1n, {
+      tenantId: "tenant-a",
+      email: "distinct@example.com",
+    });
+    await setClockCommit(fixture, 2n);
+    const failure = await runEffectFailure(
+      advanceAppUniqueConstraintSetBackfillV1Effect(
+        ports(fixture),
+        { ...input(fixture), pageSize: 16 },
+        {
+          faultAfter: (point) => {
+            if (point === "afterBackfillClaim") throw new Error("fault");
+          },
+        },
+      ),
+    );
+    expect(failure).toBeInstanceOf(
+      AppUniqueConstraintSetBuildIntegrationV1Error,
+    );
+    expect(await uniqueClaims(fixture)).toEqual([]);
+    await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({
+      lifecycle: "validating",
+      claimed: 2,
+      omitted: 0,
+    });
+  });
+
+  it("authenticates current scope authority while preserving a pre-rotation row epoch", async () => {
+    const fixture = await closedFixture("epoch_rotation");
+    const oldEpochRow = rowId(7);
+    await appendLiveRow(fixture, oldEpochRow, 1n, null, {
+      tenantId: "tenant-a",
+      email: "old-epoch@example.com",
+    });
+    await fixture.persistence.query(
+      `update fx_system_scope_clock
+          set epoch = $2, last_commit_seq = 1
+        where scope_id = $1`,
+      [
+        fixture.scopeId,
+        ScopeEpochSchema.make(
+          "epoch_76000000-0000-4000-8000-000000000001",
+        ),
+      ],
+    );
+    await reconcile(fixture);
+    await advanceBackfill(fixture, 16);
+    await advanceBackfill(fixture, 16);
+    await expect(advanceBackfill(fixture, 16)).resolves.toMatchObject({
+      lifecycle: "validating",
+      claimed: 1,
+    });
+    const lineage = await fixture.persistence.query<{
+      same_parent_epoch: boolean;
+      differs_from_current_epoch: boolean;
+    }>(
+      `select
+         claim.write_epoch_uuid = revision.write_epoch_uuid same_parent_epoch,
+         claim.write_epoch_uuid <> clock.epoch_uuid differs_from_current_epoch
+       from fx_app_unique_key claim
+       inner join fx_app_row_rev revision
+         on revision.scope_uuid = claim.scope_uuid
+        and revision.table_id = claim.table_id
+        and revision.row_id = claim.row_id
+        and revision.commit_seq = claim.commit_seq
+       inner join fx_system_scope_clock clock
+         on clock.scope_uuid = claim.scope_uuid`,
+    );
+    expect(lineage.rows).toEqual([{
+      same_parent_epoch: true,
+      differs_from_current_epoch: true,
+    }]);
+  });
+
+  it("settles empty and sparse-omitted sets without minting claims", async () => {
+    const empty = await fixtureFor("empty_backfill");
+    await closeSet(empty);
+    await reconcile(empty);
+    await advanceBackfill(empty, 16);
+    await advanceBackfill(empty, 16);
+    await expect(advanceBackfill(empty, 16)).resolves.toMatchObject({
+      lifecycle: "validating",
+      scanned: 0,
+      claimed: 0,
+    });
+
+    const sparse = await fixtureFor("sparse_backfill");
+    await ensureBinding(
+      sparse,
+      await prepareBinding(sparse, "by_email", true),
+    );
+    await closeSet(sparse);
+    const sparseRow = rowId(6);
+    await appendDocument(sparse, sparseRow, 1n, null, {
+      tenantId: "tenant-a",
+    });
+    await setClockCommit(sparse, 1n);
+    await reconcile(sparse);
+    await advanceBackfill(sparse, 16);
+    await advanceBackfill(sparse, 16);
+    await expect(advanceBackfill(sparse, 16)).resolves.toMatchObject({
+      lifecycle: "validating",
+      scanned: 1,
+      omitted: 1,
+      claimed: 0,
+    });
+    expect(await uniqueClaims(sparse)).toEqual([]);
+  });
 });
 
 type Persistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
@@ -221,6 +448,7 @@ interface Fixture {
   readonly persistence: Persistence;
   readonly deploymentId: string;
   readonly scopeId: ReturnType<typeof ScopeIdSchema.make>;
+  readonly epoch: ReturnType<typeof ScopeEpochSchema.make>;
   readonly schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>;
   readonly tableId: ReturnType<typeof CatalogTableIdSchema.make>;
   readonly target: ReturnType<
@@ -231,10 +459,17 @@ interface Fixture {
 async function fixtureFor(suffix: string): Promise<Fixture> {
   const persistence = await createPGlitePersistence();
   await persistence.migrate();
+  fixtureOrdinal += 1;
+  const fixtureSuffix = fixtureOrdinal.toString(16).padStart(12, "0");
   const deploymentId = `deployment_unique_set_${suffix}`;
-  const scopeId = ScopeIdSchema.make(`scope_unique_set_${suffix}`);
+  const scopeId = ScopeIdSchema.make(
+    `scope_71000000-0000-4000-8000-${fixtureSuffix}`,
+  );
   const schemaVersionId = CatalogSchemaVersionIdSchema.make(
     `schema_unique_set_${suffix}`,
+  );
+  const epoch = ScopeEpochSchema.make(
+    `epoch_72000000-0000-4000-8000-${fixtureSuffix}`,
   );
   await persistence.insertDeploymentMetadata({
     deploymentId,
@@ -250,7 +485,7 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
       (scope_id, storage_generation, storage_generation_fence,
        last_commit_seq, last_outbox_seq, epoch)
      values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
-    [scopeId, ScopeEpochSchema.make(`epoch_unique_set_${suffix}`)],
+    [scopeId, epoch],
   );
   const published = await persistence.publishAppSchemaV1({
     deploymentId,
@@ -265,6 +500,7 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     persistence,
     deploymentId,
     scopeId,
+    epoch,
     schemaVersionId,
     tableId: table.tableId,
     target: createLocatedAppUniqueConstraintSetBuildTargetV1(
@@ -280,6 +516,11 @@ async function closedFixture(suffix: string): Promise<Fixture> {
     fixture,
     await prepareBinding(fixture, "by_email", false),
   );
+  await closeSet(fixture);
+  return fixture;
+}
+
+async function closeSet(fixture: Fixture) {
   const prepared = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
     fixture.persistence.drizzle,
     input(fixture),
@@ -287,7 +528,6 @@ async function closedFixture(suffix: string): Promise<Fixture> {
   await fixture.persistence.drizzle.transaction((tx) =>
     runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared))
   );
-  return fixture;
 }
 
 function prepareBinding(
@@ -359,6 +599,88 @@ function reconcile(fixture: Fixture) {
     ports(fixture),
     input(fixture),
   ));
+}
+
+function advanceBackfill(fixture: Fixture, pageSize: number) {
+  return runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(
+    ports(fixture),
+    { ...input(fixture), pageSize },
+  ));
+}
+
+async function appendLiveRow(
+  fixture: Fixture,
+  rowId: AppRowIdHexV1,
+  commitSeq: bigint,
+  prevCommitSeq: bigint | null,
+  fields: Readonly<{ tenantId: string; email: string }>,
+) {
+  return appendDocument(
+    fixture,
+    rowId,
+    commitSeq,
+    prevCommitSeq,
+    fields,
+  );
+}
+
+async function appendDocument(
+  fixture: Fixture,
+  rowId: AppRowIdHexV1,
+  commitSeq: bigint,
+  prevCommitSeq: bigint | null,
+  fields: Readonly<Record<string, string>>,
+) {
+  const creationTime = decodeAppCreationTimeV1(1_750_000_000_000);
+  const document = await canonicalizeAppDocumentV1({
+    tableId: fixture.tableId,
+    rowId,
+    creationTime,
+    fields,
+  });
+  await fixture.persistence.drizzle.transaction(async (tx) => {
+    Result.getOrThrow(
+      await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
+        tx,
+        {
+          kind: "live",
+          scopeId: fixture.scopeId,
+          tableId: fixture.tableId,
+          rowId,
+          writeEpoch: fixture.epoch,
+          commitSeq: CommitSeqSchema.make(commitSeq),
+          prevCommitSeq: prevCommitSeq === null
+            ? null
+            : CommitSeqSchema.make(prevCommitSeq),
+          schemaVersionId: fixture.schemaVersionId,
+          creationTime,
+          document,
+        },
+      ),
+    );
+  });
+}
+
+async function setClockCommit(fixture: Fixture, commitSeq: bigint) {
+  await fixture.persistence.query(
+    `update fx_system_scope_clock set last_commit_seq = $2 where scope_id = $1`,
+    [fixture.scopeId, commitSeq.toString()],
+  );
+}
+
+function rowId(value: number): AppRowIdHexV1 {
+  return decodeAppRowIdHexV1(value.toString(16).padStart(32, "0"));
+}
+
+function uniqueClaims(fixture: Fixture) {
+  return fixture.persistence.query<{
+    row_id_hex: string;
+    commit_seq: string;
+  }>(
+    `select encode(row_id, 'hex') row_id_hex, commit_seq::text
+       from fx_app_unique_key
+      order by row_id asc`,
+  ).then((result) => result.rows);
 }
 
 function closureCount(fixture: Fixture) {

@@ -27,20 +27,35 @@ concurrency/rollback/fence suite is present and runs when
 `FLAREX_POSTGRES_DATABASE_URL` is supplied; the local live receipt remains
 pending because credentials were not available to this run.
 
-`C08-B1` is still incomplete. The next checkpoint must perform bounded
-frontier-aware backfill through the existing S11 claim owner, validate every
-current required claim, invalidate or restart safely under concurrent commits,
-and advance the same build row through its lifecycle. A later exact gate must
-bind planner/readiness eligibility to both the enabled set digest and the
+The second private `C08-B1` checkpoint now performs page-bounded,
+frontier-aware backfill through a dedicated replay-safe S11 transaction
+primitive. One set-based `(definitionId,rowId)` scan finds immutable candidates
+at the accepted start frontier; every candidate is re-read through the current
+canonical app-row owner before lowering, so a later update or deletion cannot
+be resurrected. Exact current claims replay, absent claims are acquired, and a
+duplicate owner, contradictory lineage, lowering failure, or injected fault
+rolls back both the page and its cursor. The existing single build row advances
+through `declared`, `building`, and `backfilling` and stops at `validating`.
+Current scope-epoch authority is authenticated separately from each retained
+row revision's historical write-epoch UUID, so an ordinary epoch rotation does
+not orphan unchanged rows or rewrite their claim lineage.
+
+`C08-B1` remains incomplete by design. The next checkpoint must perform an
+exact bounded validation pass over both current rows and S11 claim-only rows,
+reset that pass when a relevant point commit changes data behind its cursor,
+and only then advance the same row to `enabled`. A later exact gate must bind
+planner/readiness eligibility to both the enabled set digest and the
 unforgeable B2 point-commit maintenance capability. No activation, active
 reader, route, trigger, alternate OCC/commit owner, or production behavior is
-authorized by this foundation.
+authorized by these foundations.
 
 Verification:
 
 ```sh
 corepack pnpm --filter @flarex/persistence-postgres test:c08-b1a:pglite
 FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-b1a:postgres
+corepack pnpm --filter @flarex/persistence-postgres test:c08-b1b:pglite
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-b1b:postgres
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check
