@@ -4,12 +4,16 @@
 
 **Status:** Active roadmap. DTE06-A's docs-only source/contract preflight and
 DTE06-B's private host-neutral provider domain are complete and
-production-inert. Their contract and implementation receipt live in
+production-inert. DTE06-C0 now completes the docs-only durable-delivery schema
+and transaction preflight; DTE06-C1 implementation remains pending explicit
+approval. Their contracts and implementation receipt live in
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
+The C0 schema/transaction decision is recorded in
+[`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
 The provider port and deterministic in-memory conformance adapter now exist;
 no requested-effect delivery operation, database checkpoint, task runtime
 route, Worker binding, deployment configuration, or production activation is
-admitted. DTE06-C and later checkpoints require separate approval.
+admitted. DTE06-C1 and later checkpoints require separate approval.
 
 Roadmaps 01 through 05 already establish first-class task definitions,
 scope-bound durable run state, fenced attempts, requested effects, Queue wake
@@ -371,16 +375,25 @@ semantic-conflict rejection, cancellation generations, accepted-but-unknown
 recovery, receiver preservation, hostile input rejection, and interruption and
 timeout behavior without claiming Task lifecycle acknowledgement.
 
-### DTE06-C: Dispatch Preparation And Durable Checkpoint — Pending
+### DTE06-C: Dispatch Preparation And Durable Checkpoint — Preflight Complete
 
-- preflight and add only the operation-specific dispatch/cancellation delivery
-  schema and transaction protocol;
+- DTE06-C0 fixes the operation-specific dispatch/cancellation delivery schema,
+  prepared execution subject, fenced transaction protocol, uncertainty rules,
+  and bounded discovery contract without changing code;
+- DTE06-C1 will add canonical delivery evidence and the two Task-owned tables;
+- DTE06-C2 will add the scope-bound fenced transaction repository;
+- DTE06-C3 will add bounded connected delivery against only the deterministic
+  provider;
 - freshly correlate scope, effect, run, attempt, fence, lease, cancellation,
   definition, runtime binding, and input reference;
 - prove claim exclusion, expiry takeover, uncertain replay, fairness,
   corruption rejection, and lifecycle-current dominance in PGlite and genuine
   PostgreSQL; and
 - keep provider execution mocked and production-inert.
+
+Only C0 is complete. C1 requires explicit approval; C2 and C3 require their
+preceding receipts and separate admission. The exact contract is
+[`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
 
 ### DTE06-D: Worker Loader Task Runtime Adapter — Pending
 
@@ -463,8 +476,7 @@ Roadmap 06 does not authorize:
 
 ## Stop Boundary
 
-DTE06-B stops at the host-neutral provider contract and deterministic testing
-adapter. DTE06-C requires a separate schema/transaction preflight and explicit
-approval. This roadmap does not authorize effect-ledger delivery, database or
-application changes, Worker/runtime wiring, routes, bindings, deployment, or
-production activation.
+DTE06-C0 stops at the docs-only schema/transaction preflight. DTE06-C1 requires
+explicit approval. This roadmap does not authorize effect-ledger delivery,
+database or application changes, Worker/runtime wiring, routes, bindings,
+deployment, or production activation.

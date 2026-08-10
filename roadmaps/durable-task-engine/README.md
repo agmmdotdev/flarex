@@ -53,11 +53,16 @@ PostgreSQL 18 proof. Its exact contract is recorded in
 DTE06-A records the ComputeProvider/runtime foundation, and DTE06-B now
 completes the private production-inert provider-neutral Effect contract,
 strict dispatch/cancellation codecs and receipt correlation, plus the
-deterministic in-memory conformance adapter. The exact Worker Loader reuse
+deterministic in-memory conformance adapter. DTE06-C0 now completes the
+docs-only operation-specific delivery schema, prepared-execution, fenced
+transaction, uncertainty, and bounded-discovery preflight; C1 implementation
+still requires explicit approval. The exact Worker Loader reuse
 boundary, operation-specific delivery ownership, and in-memory-before-
 Cloudflare adapter order remain fixed. Their contract and receipt are recorded in
 [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md) and
-[`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
+[`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md),
+with the C0 decision in
+[`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
 The provider is not wired to any host. Dispatch checkpointing, Cloudflare task
 bindings, a scheduled Worker host, public APIs, compute delivery, and
 production activation do not exist yet.

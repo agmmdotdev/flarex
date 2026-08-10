@@ -264,7 +264,9 @@ the completion gates.
 The following are intentionally not fixed by DTE06-A and require their owning
 checkpoint:
 
-- dispatch checkpoint table shape, claim deadlines, retry ceilings, and GC;
+- dispatch checkpoint table shape, claim deadlines, retry ceilings, and GC
+  (subsequently closed by
+  [`34-dte06-durable-compute-delivery.md`](./34-dte06-durable-compute-delivery.md));
 - whether the deployable artifact-runtime Worker uses a distinct private route
   or Workers RPC after current platform evidence is inspected;
 - exact task runtime module entrypoint and context fields;
@@ -295,9 +297,11 @@ Neither DTE06-F nor DTE05-E3 automatically activates production scheduling.
 
 ## Stop Boundary
 
-DTE06-B does not authorize:
+DTE06-B did not authorize:
 
-- implementing DTE06-C without its own preflight and explicit approval;
+- implementing DTE06-C without its own preflight and explicit approval; C0 is
+  now complete, while C1 still requires explicit approval under
+  [`34-dte06-durable-compute-delivery.md`](./34-dte06-durable-compute-delivery.md);
 - changing the current action/query/mutation runtime behavior;
 - adding a generic effect-delivery engine;
 - adding or changing Task, application, OCC, commit, journal, outbox, or feed
