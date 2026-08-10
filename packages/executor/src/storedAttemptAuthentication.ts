@@ -145,6 +145,8 @@ import {
   isStoredOccExecutionEvidenceLoaderV1,
   requireStoredPointMutationCapabilityDependencyV1,
   supportsPointCommitDeveloperIndexMaintenanceV1,
+  supportsPointCommitUniqueConstraintEligibilityV1,
+  supportsPointCommitUniqueConstraintMaintenanceV1,
   type StoredPointMutationCapabilityStageV1,
 } from "./storedAttemptAuthentication/capabilityRuntimeConstruction";
 import {
@@ -175,6 +177,7 @@ import type {
 } from "./storedAttemptAuthentication/commitInputVerification";
 import {
   InvalidVerifiedCommitInputV1Error,
+  PointCommitUniqueConstraintEligibilityV1Error,
   UnsupportedPointCommitPlanV1Error,
 } from "./storedAttemptAuthentication/pointCommitPlanning";
 import {
@@ -307,6 +310,7 @@ export type {
 export {
   InvalidVerifiedCommitInputV1Error,
   PointCommitPlannerInvariantV1Defect,
+  PointCommitUniqueConstraintEligibilityV1Error,
   UnsupportedPointCommitPlanV1Error,
 } from "./storedAttemptAuthentication/pointCommitPlanning";
 
@@ -795,6 +799,7 @@ export interface StoredCommitInputVerificationV1
 
 export type PointCommitPlanningV1Error =
   | InvalidVerifiedCommitInputV1Error
+  | PointCommitUniqueConstraintEligibilityV1Error
   | UnsupportedPointCommitPlanV1Error;
 
 export interface StoredPointCommitPlanningV1
@@ -1434,6 +1439,15 @@ function createStoredPointMutationCapabilityRuntimeV1(
       supportsPointCommitDeveloperIndexMaintenanceV1(
         planningPointCommitCandidate,
       ),
+    uniqueConstraintMaintenance:
+      supportsPointCommitUniqueConstraintMaintenanceV1(
+        planningPointCommitCandidate,
+      ),
+    uniqueConstraintEligibility:
+      supportsPointCommitUniqueConstraintEligibilityV1(
+        planningPointCommitCandidate,
+      ),
+    pointCommitCandidate: planningPointCommitCandidate,
     authenticatedStates,
     commitAuthorityStates,
     verifiedCommitInputStates,
@@ -1445,8 +1459,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
     planPointCommit,
   } = planning;
   if (stage === "planning") return planning;
-  const pointCommitCandidate: unknown =
-    "pointCommit" in commitAuthority ? commitAuthority.pointCommit : undefined;
+  const pointCommitCandidate = planningPointCommitCandidate;
   const pointCommit:
     | PointCommitRollbackProofPortV1
     | PointCommitPublisherPortV1

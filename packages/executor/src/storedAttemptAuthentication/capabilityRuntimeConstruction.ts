@@ -1,6 +1,8 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   hasPointCommitDeveloperIndexMaintenanceV1,
+  hasPointCommitUniqueConstraintEligibilityV1,
+  hasPointCommitUniqueConstraintMaintenanceV1,
   RESOLVE_POINT_COMMIT_OUTCOME_V1,
   type PointCommitFinishingTransitionPortV1,
   type PointCommitOutcomeResolutionPortV1,
@@ -95,6 +97,18 @@ export function supportsPointCommitDeveloperIndexMaintenanceV1(
   value: unknown,
 ): boolean {
   return hasPointCommitDeveloperIndexMaintenanceV1(value);
+}
+
+export function supportsPointCommitUniqueConstraintMaintenanceV1(
+  value: unknown,
+): boolean {
+  return hasPointCommitUniqueConstraintMaintenanceV1(value);
+}
+
+export function supportsPointCommitUniqueConstraintEligibilityV1(
+  value: unknown,
+): boolean {
+  return hasPointCommitUniqueConstraintEligibilityV1(value);
 }
 
 export function isPointCommitOutcomeResolutionPortV1(

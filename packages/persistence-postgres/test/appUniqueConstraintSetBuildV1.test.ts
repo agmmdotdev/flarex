@@ -22,6 +22,9 @@ import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  createAppUniqueConstraintDefinitionPortV1,
+} from "../src/appUniqueConstraintCommitV1";
+import {
   AppSchemaVersionUniqueConstraintSetClosedError,
   ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
   prepareAppUniqueConstraintDefinitionBindingV1Effect,
@@ -32,7 +35,10 @@ import {
   AppUniqueConstraintSetBuildDirectoryV1Error,
   MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
   advanceAppUniqueConstraintSetBackfillV1Effect,
+  createAppUniqueConstraintSetEligibilityPortV1,
   createLocatedAppUniqueConstraintSetBuildTargetV1,
+  hasAppUniqueConstraintSetEligibilityEvidenceV1,
+  loadAppUniqueConstraintSetEligibilityV1Effect,
   reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../src/appUniqueConstraintSetBuildV1";
 import {
@@ -56,6 +62,178 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("C08-B1 closed unique-set build foundation", () => {
+  it("mints exact eligibility only for the current enabled closed set", async () => {
+    const absent = await fixtureFor("eligibility_absent");
+    const absentDefinitions = createAppUniqueConstraintDefinitionPortV1(
+      absent.persistence.drizzle,
+    );
+    const absentPort = createAppUniqueConstraintSetEligibilityPortV1(
+      ports(absent),
+      absentDefinitions,
+    );
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      absentPort,
+      eligibilityInput(absent),
+    ))).resolves.toEqual({
+      status: "not_ready",
+      reason: "setNotClosed",
+      blocksAllTables: true,
+      tableIds: [],
+    });
+    await closeSet(absent);
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      absentPort,
+      eligibilityInput(absent),
+    ))).resolves.toEqual({ status: "not_required", tableIds: [] });
+
+    const lateBinding = await fixtureFor("eligibility_late_binding");
+    const lateDefinitions = createAppUniqueConstraintDefinitionPortV1(
+      lateBinding.persistence.drizzle,
+    );
+    const latePort = createAppUniqueConstraintSetEligibilityPortV1(
+      ports(lateBinding),
+      lateDefinitions,
+    );
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      latePort,
+      eligibilityInput(lateBinding),
+    ))).resolves.toMatchObject({
+      status: "not_ready",
+      reason: "setNotClosed",
+      blocksAllTables: true,
+    });
+    await ensureBinding(
+      lateBinding,
+      await prepareBinding(lateBinding, "by_email", false),
+    );
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      latePort,
+      eligibilityInput(lateBinding),
+    ))).resolves.toMatchObject({
+      status: "not_ready",
+      reason: "setNotClosed",
+      blocksAllTables: true,
+      tableIds: [],
+    });
+
+    const fixture = await fixtureFor("eligibility");
+    await ensureBinding(
+      fixture,
+      await prepareBinding(fixture, "by_email", false),
+    );
+    const definitions = createAppUniqueConstraintDefinitionPortV1(
+      fixture.persistence.drizzle,
+    );
+    const port = createAppUniqueConstraintSetEligibilityPortV1(
+      ports(fixture),
+      definitions,
+    );
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      port,
+      eligibilityInput(fixture),
+    ))).resolves.toMatchObject({
+      status: "not_ready",
+      reason: "setNotClosed",
+      blocksAllTables: true,
+      tableIds: [],
+    });
+    await closeSet(fixture);
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      port,
+      eligibilityInput(fixture),
+    ))).resolves.toMatchObject({
+      status: "not_ready",
+      reason: "buildMissing",
+    });
+    await reconcile(fixture);
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      port,
+      eligibilityInput(fixture),
+    ))).resolves.toMatchObject({
+      status: "not_ready",
+      reason: "buildNotEnabled",
+      lifecycle: "declared",
+    });
+    await advanceBackfill(fixture, 16);
+    await advanceBackfill(fixture, 16);
+    await advanceBackfill(fixture, 16);
+    await advanceBackfill(fixture, 16);
+    const eligible = await runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      port,
+      eligibilityInput(fixture),
+    ));
+    expect(eligible).toMatchObject({
+      status: "eligible",
+      evidence: {
+        scopeId: fixture.scopeId,
+        schemaVersionId: fixture.schemaVersionId,
+        definitionCount: 1,
+        tableIds: [fixture.tableId],
+        storageGenerationFence: 1n,
+        epoch: fixture.epoch,
+      },
+    });
+    if (eligible.status !== "eligible") {
+      throw new Error("Expected exact unique-set eligibility evidence.");
+    }
+    expect(hasAppUniqueConstraintSetEligibilityEvidenceV1(
+      eligible.evidence,
+    )).toBe(true);
+    expect(eligible.evidence.definitionSetSha256Hex).toMatch(/^[0-9a-f]{64}$/u);
+    expect("definitionSetSha256" in eligible.evidence).toBe(false);
+    expect(hasAppUniqueConstraintSetEligibilityEvidenceV1({
+      ...eligible.evidence,
+    })).toBe(false);
+    const exactPorts = ports(fixture);
+    let controlDbReads = 0;
+    let authorityReads = 0;
+    const capturedPort = createAppUniqueConstraintSetEligibilityPortV1({
+      get controlDb() {
+        controlDbReads += 1;
+        return controlDbReads === 1
+          ? fixture.persistence.drizzle
+          : absent.persistence.drizzle;
+      },
+      get authority() {
+        authorityReads += 1;
+        return exactPorts.authority;
+      },
+    }, definitions);
+    expect(controlDbReads).toBe(1);
+    expect(authorityReads).toBe(1);
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      capturedPort,
+      eligibilityInput(fixture),
+    ))).resolves.toMatchObject({ status: "eligible" });
+    const mismatchedCatalogPort = createAppUniqueConstraintSetEligibilityPortV1(
+      ports(fixture),
+      absentDefinitions,
+    );
+    await expect(runEffectFailure(loadAppUniqueConstraintSetEligibilityV1Effect(
+      mismatchedCatalogPort,
+      eligibilityInput(fixture),
+    ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
+
+    await fixture.persistence.query(
+      `update fx_system_scope_clock
+          set storage_generation_fence = 2, epoch = $2
+        where scope_id = $1`,
+      [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_eligibility_2")],
+    );
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      port,
+      eligibilityInput(fixture),
+    ))).resolves.toMatchObject({
+      status: "not_ready",
+      reason: "buildStale",
+    });
+    const copiedPort = Object.freeze({ ...port });
+    await expect(runEffectFailure(loadAppUniqueConstraintSetEligibilityV1Effect(
+      copiedPort,
+      eligibilityInput(fixture),
+    ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
+  });
+
   it("closes the exact set, replays it, and refuses late bindings", async () => {
     const fixture = await fixtureFor("closure");
     const first = await prepareBinding(fixture, "by_email", false);
@@ -836,6 +1014,13 @@ function input(fixture: Fixture) {
   return Object.freeze({
     deploymentId: fixture.deploymentId,
     schemaVersionId: fixture.schemaVersionId,
+  });
+}
+
+function eligibilityInput(fixture: Fixture) {
+  return Object.freeze({
+    ...input(fixture),
+    scopeId: fixture.scopeId,
   });
 }
 

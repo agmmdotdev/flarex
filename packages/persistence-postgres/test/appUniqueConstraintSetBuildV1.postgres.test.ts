@@ -17,12 +17,17 @@ import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  createAppUniqueConstraintDefinitionPortV1,
+} from "../src/appUniqueConstraintCommitV1";
+import {
   ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
   prepareAppUniqueConstraintDefinitionBindingV1Effect,
 } from "../src/appUniqueConstraintDefinitions";
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
   advanceAppUniqueConstraintSetBackfillV1Effect,
+  createAppUniqueConstraintSetEligibilityPortV1,
+  loadAppUniqueConstraintSetEligibilityV1Effect,
   reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../src/appUniqueConstraintSetBuildV1";
 import {
@@ -119,6 +124,19 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   it("serializes concurrent bounded backfill pages and publishes exact current claims", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const fixture = await fixtureFor(persistence);
+      const eligibility = createAppUniqueConstraintSetEligibilityPortV1(
+        fixture.ports,
+        createAppUniqueConstraintDefinitionPortV1(persistence.drizzle),
+      );
+      await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        eligibility,
+        { ...fixture.input, scopeId: fixture.scopeId },
+      ))).resolves.toMatchObject({
+        status: "not_ready",
+        reason: "setNotClosed",
+        blocksAllTables: true,
+        tableIds: [],
+      });
       const prepared = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
         persistence.drizzle,
         fixture.input,
@@ -152,6 +170,17 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
         [fixture.scopeId, fixture.schemaVersionId],
       );
       expect(build.rows).toEqual([{ lifecycle: "enabled" }]);
+      await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+        eligibility,
+        { ...fixture.input, scopeId: fixture.scopeId },
+      ))).resolves.toMatchObject({
+        status: "eligible",
+        evidence: {
+          definitionCount: 1,
+          tableIds: [fixture.tableId],
+          storageGenerationFence: 1n,
+        },
+      });
       const claims = await persistence.query<{
         row_id_hex: string;
         commit_seq: string;

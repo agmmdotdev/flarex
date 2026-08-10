@@ -201,7 +201,10 @@ import {
   type PointMutationRedeliverySchedulerRunV1,
 } from "../src/pointMutationRedeliverySchedulerCheckpoint";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
-import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import type {
+  ScopePhysicalLocator,
+  SharedDatabaseScopePhysicalLocator,
+} from "../src/scopeMetadataTypes";
 import {
   appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
 } from "../src/appIndexEntries";
@@ -217,8 +220,17 @@ import {
   ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
   prepareAppUniqueConstraintDefinitionBindingV1Effect,
 } from "../src/appUniqueConstraintDefinitions";
-import { MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 } from
-  "../src/appUniqueConstraintSetBuildV1";
+import {
+  MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+  advanceAppUniqueConstraintSetBackfillV1Effect,
+  createAppUniqueConstraintSetEligibilityPortV1,
+  createLocatedAppUniqueConstraintSetBuildTargetV1,
+  reconcileAppUniqueConstraintSetBuildV1Effect,
+} from "../src/appUniqueConstraintSetBuildV1";
+import {
+  closeAppUniqueConstraintSetV1InTransactionEffect,
+  prepareAppUniqueConstraintSetClosureV1Effect,
+} from "../src/appUniqueConstraintSetClosureV1";
 import {
   applyAppUniqueKeyMutationInTransactionEffect,
   AppUniqueKeyConflictError,
@@ -282,6 +294,7 @@ import {
   createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
   createPointMutationAttemptReplacementPortV1,
+  hasPointCommitUniqueConstraintEligibilityV1,
   hasPointCommitUniqueConstraintMaintenanceV1,
   PointCommitConflictV1Error,
   PointCommitConfirmedPreDecisionRollbackV1Error,
@@ -4692,6 +4705,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
   it("captures the exact unique-maintenance capability and claims inserts", async () => {
     let optionReads = 0;
+    let eligibilityOptionReads = 0;
     let insertedDocumentId: string | null = null;
     const prepared = await prepareO07BScenario(
       "c08b2_unique_insert",
@@ -4707,30 +4721,42 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         insertedDocumentId = result.outcome.documentId;
       },
       async (current) => {
-        const { uniqueConstraints } = await prepareUniqueConstraintForO06(
-          current,
-        );
+        const {
+          uniqueConstraints,
+          uniqueConstraintEligibility,
+        } = await prepareUniqueConstraintForO06(current);
         return {
           get uniqueConstraints() {
             optionReads += 1;
             return uniqueConstraints;
           },
+          get uniqueConstraintEligibility() {
+            eligibilityOptionReads += 1;
+            return uniqueConstraintEligibility;
+          },
         };
       },
     );
     expect(optionReads).toBe(1);
+    expect(eligibilityOptionReads).toBe(1);
     const exactPort = createPointCommitPublisherPortV1(
       resolutionPorts(persistence),
       prepared.proofOptions,
     );
     expect(hasPointCommitUniqueConstraintMaintenanceV1(exactPort)).toBe(true);
+    expect(hasPointCommitUniqueConstraintEligibilityV1(exactPort)).toBe(true);
     expect(hasPointCommitUniqueConstraintMaintenanceV1({ ...exactPort })).toBe(
       false,
     );
+    expect(hasPointCommitUniqueConstraintEligibilityV1({ ...exactPort })).toBe(
+      false,
+    );
     expect(optionReads).toBe(2);
+    expect(eligibilityOptionReads).toBe(2);
 
     await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
     expect(optionReads).toBe(2);
+    expect(eligibilityOptionReads).toBe(2);
     if (insertedDocumentId === null) {
       throw new Error("Missing the C08-B2 inserted document ID.");
     }
@@ -4738,6 +4764,57 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       rowIdHex: pointRowIdHex(insertedDocumentId),
       commitSeq: "1",
     }]);
+  });
+
+  it("rejects a B2-only point-commit composition before durable writes", async () => {
+    let currentScopeUuid: string | null = null;
+    await expect(prepareO07BScenario(
+      "c08b1_unique_eligibility_missing",
+      async (current, table) => {
+        currentScopeUuid = projectScopeIdUuidV1(
+          current.anchor.scopeId,
+        ).scopeUuid;
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "missing-eligibility" },
+        });
+      },
+      async (current) => {
+        const prepared = await prepareUniqueConstraintForO06(current);
+        return Object.freeze({
+          uniqueConstraints: prepared.uniqueConstraints,
+        });
+      },
+    )).rejects.toMatchObject({
+      issue: { reason: "uniqueConstraintEligibilityUnavailable", tableId: 1 },
+    });
+    if (currentScopeUuid === null) {
+      throw new Error("Missing the B2-only test scope.");
+    }
+    expect(await o06DurableState(currentScopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      outcomes: "0",
+      last_commit_seq: "0",
+    });
+  });
+
+  it("does not load unique eligibility for a plan without material rows", async () => {
+    const noMaterial = await prepareO07BScenario(
+      "c08b1_unique_eligibility_no_material",
+      undefined,
+      (current) => prepareUniqueConstraintForO06(
+        current,
+        false,
+        false,
+        true,
+      ),
+    );
+    await expect(runEffect(
+      noMaterial.authentication.publishPointCommit(noMaterial.plan),
+    )).resolves.toMatchObject({ kind: "published" });
   });
 
   it("resets validating unique-set progress in point commit and rolls it back with the commit", async () => {
@@ -4799,10 +4876,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         });
       },
       async (current) => {
-        const unique = await prepareUniqueConstraintForO06(current);
         await insertValidatingUniqueSetBuild(current);
         return {
-          ...unique,
           afterTransactionStep: (event) => {
             if (event.step === "uniqueConstraintValidationReset") {
               throw new PointCommitCorruptionV1Error({
@@ -6802,9 +6877,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     current: Awaited<ReturnType<typeof c04b2Scenario>>,
     seedExistingRow = false,
     sparse = false,
+    eligibilityAuthorityUnavailable = false,
   ): Promise<Required<Pick<
     PointCommitTransactionProofOptionsV1,
-    "uniqueConstraints"
+    "uniqueConstraints" | "uniqueConstraintEligibility"
   >>> {
     const tableId = decodeCatalogTableId(1);
     const prepared = await runEffect(
@@ -6884,7 +6960,81 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         }))
       );
     }
-    return Object.freeze({ uniqueConstraints });
+    const buildPorts = {
+      controlDb: persistence.drizzle,
+      authority: {
+        scopeMetadata: persistence,
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => {
+            throw new Error("Shared placement must not read split receipts.");
+          },
+        },
+        scopeClockTargets: {
+          resolve: async (physicalLocator: ScopePhysicalLocator) =>
+            createLocatedAppUniqueConstraintSetBuildTargetV1(
+              persistence.drizzle,
+              physicalLocator,
+            ),
+        },
+      },
+    } as const;
+    const closure = await runEffect(
+      prepareAppUniqueConstraintSetClosureV1Effect(
+        persistence.drizzle,
+        {
+          deploymentId: current.anchor.deploymentId,
+          schemaVersionId: current.schemaVersionId,
+        },
+      ),
+    );
+    await persistence.drizzle.transaction((tx) =>
+      runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure))
+    );
+    await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
+      buildPorts,
+      {
+        deploymentId: current.anchor.deploymentId,
+        schemaVersionId: current.schemaVersionId,
+      },
+    ));
+    let enabled = false;
+    for (let step = 0; step < 16; step += 1) {
+      const advanced = await runEffect(
+        advanceAppUniqueConstraintSetBackfillV1Effect(
+          buildPorts,
+          {
+            deploymentId: current.anchor.deploymentId,
+            schemaVersionId: current.schemaVersionId,
+            pageSize: 16,
+          },
+        ),
+      );
+      if (advanced.lifecycle === "enabled") {
+        enabled = true;
+        break;
+      }
+    }
+    if (!enabled) throw new Error("C08-B1 eligibility build did not enable.");
+    const eligibilityPorts = eligibilityAuthorityUnavailable
+      ? Object.freeze({
+          controlDb: buildPorts.controlDb,
+          authority: Object.freeze({
+            scopeMetadata: Object.freeze({
+              getScopeMetadataByDeploymentId: async () => null,
+            }),
+            provisioningReceipts: buildPorts.authority.provisioningReceipts,
+            scopeClockTargets: buildPorts.authority.scopeClockTargets,
+          }),
+        })
+      : buildPorts;
+    return Object.freeze({
+      uniqueConstraints,
+      uniqueConstraintEligibility:
+        createAppUniqueConstraintSetEligibilityPortV1(
+          eligibilityPorts,
+          uniqueConstraints,
+        ),
+    });
   }
 
   async function insertValidatingUniqueSetBuild(
@@ -6902,7 +7052,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
          attempt_fence)
        values ($1, $2, 1, 1, decode(repeat('ab', 32), 'hex'),
                'flarexdb_v1', $3, $4, $5, 'validating', 1, 1,
-               decode(repeat('ff', 16), 'hex'), 1)`,
+               decode(repeat('ff', 16), 'hex'), 1)
+       on conflict (scope_id, schema_version_id) do update
+         set lifecycle = 'validating', cursor_definition_id = 1,
+             cursor_row_id = decode(repeat('ff', 16), 'hex')`,
       [
         current.anchor.scopeId,
         schemaVersionId,

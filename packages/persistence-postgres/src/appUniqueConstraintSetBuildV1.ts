@@ -1,4 +1,4 @@
-import { bytesEqual, isUint8Array } from "@flarex/utils/bytes";
+import { bytesEqual, copyBytes, isUint8Array } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
@@ -20,6 +20,7 @@ import {
 import {
   APP_UNIQUE_CONSTRAINT_SET_BUILD_CURSOR_CODEC_VERSION_V1,
   APP_UNIQUE_CONSTRAINT_SET_CODEC_VERSION_V1,
+  MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
   AppUniqueConstraintSetBuildAttemptFenceV1Schema,
   MAX_APP_UNIQUE_CONSTRAINT_SET_BUILD_ATTEMPT_FENCE_V1,
   appUniqueConstraintSetSha256HexV1ToBytes,
@@ -34,8 +35,11 @@ import {
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 
-import { lowerCanonicalAppUniqueConstraintV1Result } from
-  "./appUniqueConstraintCommitV1";
+import {
+  hasAppUniqueConstraintDefinitionAuthorityForControlDbV1,
+  lowerCanonicalAppUniqueConstraintV1Result,
+  type AppUniqueConstraintDefinitionPortV1,
+} from "./appUniqueConstraintCommitV1";
 import {
   locateAppUniqueConstraintDefinitionsForSchemaEffect,
   type LocatedAppUniqueConstraintDefinitionV1,
@@ -239,6 +243,190 @@ export interface AppUniqueConstraintSetBuildPortsV1 {
     LocatedAppUniqueConstraintSetBuildTargetV1
   >;
 }
+
+const eligibilityPortBrand: unique symbol = Symbol(
+  "FlarexDB/AppUniqueConstraintSetEligibilityPortV1",
+);
+const eligibilityEvidenceBrand: unique symbol = Symbol(
+  "FlarexDB/AppUniqueConstraintSetEligibilityEvidenceV1",
+);
+
+/** Private, process-local C08-B1 eligibility authority. */
+export interface AppUniqueConstraintSetEligibilityPortV1 {
+  readonly [eligibilityPortBrand]: true;
+}
+
+export interface AppUniqueConstraintSetEligibilityInputV1 {
+  readonly deploymentId: string;
+  readonly scopeId: ScopeId;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+}
+
+export interface AppUniqueConstraintSetEligibilityEvidenceV1 {
+  readonly deploymentId: string;
+  readonly scopeId: ScopeId;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly definitionCount: number;
+  readonly definitionSetSha256Hex: AppUniqueConstraintSetSha256HexV1;
+  readonly tableIds: ReadonlyArray<CatalogTableId>;
+  readonly storageGeneration: TrustedScopeAuthority["storageGeneration"];
+  readonly storageGenerationFence: StorageGenerationFence;
+  readonly epoch: TrustedScopeAuthority["epoch"];
+  readonly startCommitSeq: CommitSeq;
+  readonly attemptFence: AppUniqueConstraintSetBuildAttemptFenceV1;
+  readonly [eligibilityEvidenceBrand]: true;
+}
+
+export type AppUniqueConstraintSetEligibilityResultV1 =
+  | Readonly<{
+      readonly status: "not_required";
+      readonly tableIds: readonly [];
+    }>
+  | Readonly<{
+      readonly status: "not_ready";
+      readonly reason:
+        | "setNotClosed"
+        | "buildMissing"
+        | "buildNotEnabled"
+        | "buildStale";
+      readonly blocksAllTables: boolean;
+      readonly tableIds: ReadonlyArray<CatalogTableId>;
+      readonly lifecycle?: BuildState["lifecycle"];
+    }>
+  | Readonly<{
+      readonly status: "eligible";
+      readonly evidence: AppUniqueConstraintSetEligibilityEvidenceV1;
+    }>;
+
+export class AppUniqueConstraintSetEligibilityV1Error
+  extends Data.TaggedError("AppUniqueConstraintSetEligibilityV1Error")<{
+    readonly reason: "invalidPort" | "scopeMismatch" | "targetTransaction";
+    readonly retryable: boolean;
+    readonly cause?: unknown;
+  }> {}
+
+export type LoadAppUniqueConstraintSetEligibilityV1Error =
+  | AppUniqueConstraintSetEligibilityV1Error
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+  | AppUniqueConstraintSetBuildStateV1Error
+  | ReadAppUniqueConstraintSetClosureV1Error
+  | ReadAppUniqueConstraintDefinitionV1Error
+  | LockScopeClockForUpdateError
+  | TrustedScopeAuthorityError;
+
+const eligibilityPortStates = new WeakMap<
+  AppUniqueConstraintSetEligibilityPortV1,
+  Readonly<{
+    readonly ports: AppUniqueConstraintSetBuildPortsV1;
+    readonly uniqueConstraints: AppUniqueConstraintDefinitionPortV1;
+  }>
+>();
+const eligibilityEvidence = new WeakSet<object>();
+
+export function createAppUniqueConstraintSetEligibilityPortV1(
+  ports: AppUniqueConstraintSetBuildPortsV1,
+  uniqueConstraints: AppUniqueConstraintDefinitionPortV1,
+): AppUniqueConstraintSetEligibilityPortV1 {
+  const controlDb = ports.controlDb;
+  const authority = ports.authority;
+  const port = Object.freeze({
+    [eligibilityPortBrand]: true as const,
+  });
+  if (
+    hasAppUniqueConstraintDefinitionAuthorityForControlDbV1(
+      uniqueConstraints,
+      controlDb,
+    )
+  ) {
+    eligibilityPortStates.set(port, Object.freeze({
+      ports: Object.freeze({
+        controlDb,
+        authority,
+      }),
+      uniqueConstraints,
+    }));
+  }
+  return port;
+}
+
+export function hasAppUniqueConstraintSetEligibilityForDefinitionPortV1(
+  eligibility: unknown,
+  uniqueConstraints: unknown,
+): eligibility is AppUniqueConstraintSetEligibilityPortV1 {
+  if (typeof eligibility !== "object" || eligibility === null) return false;
+  const state = eligibilityPortStates.get(
+    eligibility as AppUniqueConstraintSetEligibilityPortV1,
+  );
+  return state !== undefined && state.uniqueConstraints === uniqueConstraints;
+}
+
+export function hasAppUniqueConstraintSetEligibilityPortV1(
+  value: unknown,
+): value is AppUniqueConstraintSetEligibilityPortV1 {
+  return typeof value === "object" && value !== null &&
+    eligibilityPortStates.has(value as AppUniqueConstraintSetEligibilityPortV1);
+}
+
+export function hasAppUniqueConstraintSetEligibilityEvidenceV1(
+  value: unknown,
+): value is AppUniqueConstraintSetEligibilityEvidenceV1 {
+  return typeof value === "object" && value !== null &&
+    eligibilityEvidence.has(value);
+}
+
+export const loadAppUniqueConstraintSetEligibilityV1Effect = Effect.fn(
+  "AppUniqueConstraintSetBuild.loadEligibility",
+)(function* (
+  port: AppUniqueConstraintSetEligibilityPortV1,
+  input: AppUniqueConstraintSetEligibilityInputV1,
+): Effect.fn.Return<
+  AppUniqueConstraintSetEligibilityResultV1,
+  LoadAppUniqueConstraintSetEligibilityV1Error
+> {
+  const state = eligibilityPortStates.get(port);
+  if (state === undefined) {
+    return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({
+      reason: "invalidPort",
+      retryable: false,
+    }));
+  }
+  const ports = state.ports;
+  const closure = yield* readAppUniqueConstraintSetClosureV1Effect(
+    ports.controlDb,
+    input.deploymentId,
+    input.schemaVersionId,
+  );
+  if (closure === null) {
+    return Object.freeze({
+      status: "not_ready" as const,
+      reason: "setNotClosed" as const,
+      blocksAllTables: true,
+      tableIds: [] as const,
+    });
+  }
+  if (closure.members.length === 0) {
+    return Object.freeze({ status: "not_required" as const, tableIds: [] as const });
+  }
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+    input.deploymentId,
+    ports.authority,
+  );
+  if (located.authority.scopeId !== input.scopeId) {
+    return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({
+      reason: "scopeMismatch",
+      retryable: false,
+    }));
+  }
+  const snapshot = buildSnapshot(input, closure);
+  const tableIds = uniqueConstraintTableIds(closure);
+  return yield* runEligibilityTransaction(
+    located.target,
+    located.authority,
+    snapshot,
+    tableIds,
+  );
+});
 
 export type AppUniqueConstraintSetBuildFaultPointV1 =
   | "afterBuildInsert"
@@ -566,6 +754,150 @@ function definitionsMatchClosure(
       definition.physicalSpecSha256Hex === member.physicalSpecSha256Hex;
   });
 }
+
+function uniqueConstraintTableIds(
+  closure: LocatedAppUniqueConstraintSetClosureV1,
+): ReadonlyArray<CatalogTableId> {
+  return Object.freeze([...new Set(
+    closure.members.map((member) => member.tableId),
+  )].sort((left, right) => left - right));
+}
+
+const runEligibilityTransaction = Effect.fn(
+  "AppUniqueConstraintSetBuild.runEligibilityTransaction",
+)(function* (
+  target: LocatedAppUniqueConstraintSetBuildTargetV1,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  tableIds: ReadonlyArray<CatalogTableId>,
+): Effect.fn.Return<
+  AppUniqueConstraintSetEligibilityResultV1,
+  | AppUniqueConstraintSetEligibilityV1Error
+  | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | AppUniqueConstraintSetBuildStateV1Error
+  | LockScopeClockForUpdateError
+> {
+  const started = startLocatedEffectTransaction(
+    target,
+    "C08-B1 unique-set eligibility inspection rolled back.",
+    (tx) => inspectEligibilityInTransaction(
+      tx,
+      authority,
+      snapshot,
+      tableIds,
+    ),
+  );
+  const settled = yield* awaitTransactionExit(started.promise);
+  if (Exit.isSuccess(settled)) return settled.value;
+  const failure = Cause.findErrorOption(settled.cause);
+  if (failure._tag === "None") return yield* Effect.die(settled.cause);
+  const cause = failure.value;
+  const callbackCause = started.callbackCause();
+  if (
+    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    cause.issue.kind === "callbackRolledBack" &&
+    cause.issue.callbackCause === started.rollbackSignal &&
+    callbackCause !== undefined
+  ) return yield* Effect.failCause(callbackCause);
+  if (
+    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    cause.issue.kind === "callbackCleanupFailed" &&
+    callbackCause !== undefined
+  ) return yield* Effect.failCause(Cause.combine(
+    callbackCause,
+    Cause.die(new AppUniqueConstraintSetEligibilityV1Error({
+      reason: "targetTransaction",
+      retryable: false,
+      cause,
+    })),
+  ));
+  return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({
+    reason: "targetTransaction",
+    retryable: cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+      cause.issue.kind !== "decisionUncertain",
+    cause,
+  }));
+});
+
+const inspectEligibilityInTransaction = Effect.fn(
+  "AppUniqueConstraintSetBuild.inspectEligibilityInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  tableIds: ReadonlyArray<CatalogTableId>,
+): Effect.fn.Return<
+  AppUniqueConstraintSetEligibilityResultV1,
+  | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | AppUniqueConstraintSetBuildStateV1Error
+  | LockScopeClockForUpdateError
+> {
+  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+    tx,
+    authority.scopeId,
+  );
+  yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+  const rows = yield* queryEffect(
+    tx.select().from(fxSystemUniqueConstraintSetBuilds).where(and(
+      eq(fxSystemUniqueConstraintSetBuilds.scopeId, authority.scopeId),
+      eq(
+        fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+        snapshot.schemaVersionId,
+      ),
+    )).limit(1).for("share"),
+  );
+  const row = rows[0];
+  if (row === undefined) {
+    return Object.freeze({
+      status: "not_ready" as const,
+      reason: "buildMissing" as const,
+      blocksAllTables: false,
+      tableIds,
+    });
+  }
+  const state = yield* decodeBuildStateEffect(
+    authority,
+    snapshot,
+    row,
+    clock.lastCommitSeq,
+  );
+  if (!buildAuthorityIsCurrent(state, clock)) {
+    return Object.freeze({
+      status: "not_ready" as const,
+      reason: "buildStale" as const,
+      blocksAllTables: false,
+      tableIds,
+      lifecycle: state.lifecycle,
+    });
+  }
+  if (state.lifecycle !== "enabled") {
+    return Object.freeze({
+      status: "not_ready" as const,
+      reason: "buildNotEnabled" as const,
+      blocksAllTables: false,
+      tableIds,
+      lifecycle: state.lifecycle,
+    });
+  }
+  const evidence = Object.freeze({
+    deploymentId: snapshot.deploymentId,
+    scopeId: authority.scopeId,
+    schemaVersionId: snapshot.schemaVersionId,
+    definitionCount: snapshot.definitionCount,
+    definitionSetSha256Hex: snapshot.definitionSetSha256Hex,
+    tableIds,
+    storageGeneration: authority.storageGeneration,
+    storageGenerationFence: state.storageGenerationFence,
+    epoch: authority.epoch,
+    startCommitSeq: state.startCommitSeq,
+    attemptFence: state.attemptFence,
+    [eligibilityEvidenceBrand]: true as const,
+  } satisfies AppUniqueConstraintSetEligibilityEvidenceV1);
+  eligibilityEvidence.add(evidence);
+  return Object.freeze({ status: "eligible" as const, evidence });
+});
 
 const runReconciliationTransaction = Effect.fn(
   "AppUniqueConstraintSetBuild.runTransaction",

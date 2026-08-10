@@ -907,11 +907,32 @@ PostgreSQL scenarios are implemented, but local execution remains blocked
 before their test bodies by the separately recorded migration `0047`
 temporary-schema isolation defect.
 
-General C08 remains production-inert. A later exact gate must
-bind planner/readiness eligibility to the enabled set digest and the
-unforgeable B2 maintenance capability. `O09-B` contention/stress acceptance
-also remains open. Local PGlite functional, migration, rollback, swap, and
-ceiling proofs pass; no activation, active-reader, routing, or production
+General C08 remains production-inert. The private B1 planner-eligibility gate is
+an opaque facet of the exact B2 point-commit port, not a new public manifest or
+planner authority. It authenticates the already-closed set and enabled target
+build, carries only the set digest, table membership, and scope-clock pins into
+the pure stored-attempt planner, and makes B2-only or unready composition fail
+closed before point-commit SQL. A schema version with no unique bindings keeps
+the lower planner path only after that exact empty set is closed; every missing
+closure blocks all material planning. The focused PGlite lane passes 97 tests
+and the pure executor planner lane passes 61 tests, covering exact-facet
+anti-forgery, one-time factory capture, same-object planner/executor
+composition, no-material eligibility laziness, missing-facet and unclosed-set
+refusal, closed-set/build lifecycle and scope-clock staleness, affected-table
+refusal, and eligible planning. The
+genuine-PostgreSQL eligibility scenario is implemented; the local command
+skips without `FLAREX_POSTGRES_DATABASE_URL`, and the latest fresh isolated
+receipt is still blocked before its test body by the recorded `0047`
+temporary-schema isolation defect.
+
+FSV04 root folding remains a separate checkpoint because its stored-readiness
+replay is also consumed by activation. That checkpoint must revalidate the same
+exact facet under the existing readiness transaction and preserve the prior
+`indexReadinessRootSha256` formula when no unique bindings exist; it may not
+accept the receipt's own root as proof or widen activation incidentally. A
+binding without closure, enabled build, or the exact B2 facet remains
+ineligible. `O09-B` contention/stress acceptance also remains open. No
+activation, active-reader, routing, alternate commit owner, or production
 eligibility is introduced by this checkpoint.
 
 Outcome:

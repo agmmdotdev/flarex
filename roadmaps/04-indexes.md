@@ -60,11 +60,29 @@ back the page and cursor;
 point-commit faults roll back the cursor reset together with application-row,
 claim, commit-feed, and outbox publication evidence.
 
-`C08-B1` remains production-inert. A later exact gate must bind
-planner/readiness eligibility to both the enabled set digest and the
-unforgeable B2 point-commit maintenance capability. No activation, active
-reader, route, trigger, alternate OCC/commit owner, or production behavior is
-authorized by these foundations.
+`C08-B1` remains production-inert. Its private planner-eligibility gate must not
+invent a second schema authority or widen the public schema-manifest protocol.
+The selected shape is one opaque process-local eligibility facet owned by the
+exact B2 point-commit port. It reads the already-closed control set, verifies
+the target-native build against the current scope clock, and returns only the
+authenticated set digest, table membership, and build pins. The stored-attempt
+planner may consume that snapshot without catalog I/O and must reject a B2
+maintenance port that lacks the facet or a set that is not enabled. An exact
+closed schema-version set with no unique bindings keeps the lower planner path,
+while any missing closure or B2
+composition with a binding but no closed set, enabled build, or exact facet
+fails closed before point-commit SQL.
+
+Revision-readiness folding is the next separately reviewed checkpoint. It must
+revalidate the same evidence in the existing target transaction and include it
+in the existing `indexReadinessRootSha256`; it must not mint a second receipt
+or root identity. The preflight found that changing this root also affects the
+stored-readiness replay used by activation, so B1 planner work must not silently
+teach that activation validator a weaker or circular compatibility path. The
+readiness checkpoint must carry the same exact facet through stored replay or
+stop for the activation owner before changing the formula. No activation,
+active reader, route,
+trigger, alternate OCC/commit owner, or production behavior is authorized.
 
 Verification:
 
@@ -75,17 +93,27 @@ corepack pnpm --filter @flarex/persistence-postgres test:c08-b1b:pglite
 FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-b1b:postgres
 corepack pnpm --filter @flarex/persistence-postgres test:c08-b1c:pglite
 FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:c08-b1c:postgres
+corepack pnpm --filter @flarex/executor exec vitest run test/storedAttemptAuthentication.test.ts --no-file-parallelism --testTimeout=180000
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check
 ```
 
-The focused B1C PGlite lane passes 94 tests. Its genuine-PostgreSQL cases are
-implemented, but a fresh isolated PostgreSQL 18 run currently stops during
-migration `0047` before reaching B1C behavior because of the already-recorded
-migration-isolation defect below. This checkpoint does not claim a live
-PostgreSQL acceptance receipt until that separate owner is corrected and the
-lane is rerun.
+The focused B1C-plus-eligibility PGlite lane passes 97 tests, and the pure
+stored-attempt planner lane passes 61 tests. It proves exact capability
+anti-forgery, one-time option capture, closed-empty lower-lane preservation,
+unclosed-set global refusal, same-object planner/executor composition,
+no-material eligibility laziness,
+B2-without-eligibility refusal, closed-set/build lifecycle and scope-clock
+staleness rejection, affected-table refusal, and eligible planning before any
+point-commit SQL. Its genuine-PostgreSQL cases are implemented; the local
+command skips without `FLAREX_POSTGRES_DATABASE_URL`, while the latest fresh
+isolated PostgreSQL 18 receipt stops during migration `0047` before reaching
+B1C behavior because of the already-recorded migration-isolation defect below.
+This checkpoint does not claim a live PostgreSQL acceptance receipt until that
+separate owner is corrected and the lane is rerun.
 
 ### Recorded PostgreSQL Migration-Isolation Defect
 
@@ -139,16 +167,16 @@ second-write rollback/retry, and duplicate-conflict atomicity scenarios and
 runs when `FLAREX_POSTGRES_DATABASE_URL` is supplied; the local live receipt is
 still pending because that environment is unavailable here.
 
-This checkpoint is deliberately not production composition. Unique
-requirements are not yet an authenticated Standard schema-manifest planning
-facet, and the lower O07/C07 lane remains available without the private port.
-`C08-B1` must close the exact schema-version definition set, reconcile/backfill
-all existing rows through these lowering rules, validate current S11 ownership,
-persist invalidatable build/readiness evidence, and make any future activation
-or planner eligibility depend on the exact point-commit capability. No
-readiness, activation, active reader, route, trigger, query authority, alternate
-OCC/commit owner, schema change, or migration is added here. `O09-B` still owns
-real contention/stress acceptance beyond these bounded functional proofs.
+This checkpoint is deliberately not production composition. The subsequent
+private B1 checkpoints close the exact schema-version definition set,
+reconcile/backfill all existing rows, validate current S11 ownership, persist
+invalidatable build evidence, and bind planner eligibility to the exact B2
+point-commit capability. They do not widen the public Standard schema manifest.
+The lower O07/C07 lane remains available when B2 is absent or the exact closed
+schema-version set has no unique bindings. No revision readiness, activation, active
+reader, route, trigger, query authority, alternate OCC/commit owner, schema
+change, or migration is added here. `O09-B` still owns real contention/stress
+acceptance beyond these bounded functional proofs.
 
 Verification:
 

@@ -1,6 +1,12 @@
 import { copyBytes } from "@flarex/utils/bytes";
 import { Data, Effect } from "effect";
 
+import {
+  loadPointCommitUniqueConstraintEligibilityV1Effect,
+  type AppUniqueConstraintSetEligibilityResultV1,
+  type LoadPointCommitUniqueConstraintEligibilityV1Error,
+} from "@flarex/persistence-postgres/point-commit-transaction";
+
 import type { PointMutationTargetFunctionMetadataV1 } from
   "flarex-protocol/point-mutation-start";
 
@@ -46,7 +52,9 @@ import {
 } from "./capabilityState";
 import {
   InvalidVerifiedCommitInputV1Error,
+  PointCommitUniqueConstraintEligibilityV1Error,
   planPointCommitStateV1,
+  type PointCommitPlannerCapabilitiesV1,
   type PreparedPointCommitStateV1,
 } from "./pointCommitPlanning";
 import type { AuthenticatedStoredAttemptV1 } from
@@ -109,6 +117,9 @@ export interface StoredPointCommitPlanningOperationDependenciesV1 {
   readonly configuration: StoredCommitAuthorityAuthenticationConfigV1;
   readonly grantKernel: TransactionGrantVerificationKernelV1;
   readonly developerIndexMaintenance: boolean;
+  readonly uniqueConstraintMaintenance: boolean;
+  readonly uniqueConstraintEligibility: boolean;
+  readonly pointCommitCandidate: unknown;
   readonly authenticatedStates: StoredPointMutationCapabilityVaultV1[
     "authenticatedStates"
   ];
@@ -131,6 +142,9 @@ export function makeStoredPointCommitPlanningOperationsV1(
     configuration,
     grantKernel,
     developerIndexMaintenance,
+    uniqueConstraintMaintenance,
+    uniqueConstraintEligibility,
+    pointCommitCandidate,
     authenticatedStates,
     commitAuthorityStates,
     verifiedCommitInputStates,
@@ -233,16 +247,50 @@ export function makeStoredPointCommitPlanningOperationsV1(
             reason: "notSameFactory",
           }));
         }
-        const planned = yield* Effect.fromResult(
-          planPointCommitStateV1(
-            state.input,
-            !developerIndexMaintenance
-              ? {}
-              : {
-                developerIndexMaintenance: "c08-a-v1",
-              },
-          ),
-        );
+        const baseCapabilities: PointCommitPlannerCapabilitiesV1 = Object.freeze({
+          ...(developerIndexMaintenance
+            ? { developerIndexMaintenance: "c08-a-v1" as const }
+            : {}),
+        });
+        let planned: PreparedPointCommitStateV1;
+        if (!uniqueConstraintMaintenance) {
+          planned = yield* Effect.fromResult(
+            planPointCommitStateV1(state.input, baseCapabilities),
+          );
+        } else {
+          const eligibilityIndependentPlan = yield* Effect.fromResult(
+            planPointCommitStateV1(state.input, Object.freeze({
+              ...baseCapabilities,
+              uniqueConstraints: Object.freeze({
+                status: "eligible" as const,
+                tableIds: [] as const,
+              }),
+            })),
+          );
+          if (eligibilityIndependentPlan.rowIntents.length === 0) {
+            planned = eligibilityIndependentPlan;
+          } else {
+            const uniqueConstraints = !uniqueConstraintEligibility
+              ? Object.freeze({ status: "unavailable" as const })
+              : yield* loadPointCommitUniqueConstraintEligibilityV1Effect(
+                pointCommitCandidate,
+                Object.freeze({
+                  deploymentId: state.input.authorityPins.deploymentId,
+                  scopeId: state.input.authorityPins.scopeId,
+                  schemaVersionId: state.input.authorityPins.schemaVersionId,
+                }),
+              ).pipe(
+                Effect.map(mapUniqueConstraintEligibilityForPlanning),
+                Effect.mapError(mapUniqueConstraintEligibilityFailure),
+              );
+            planned = yield* Effect.fromResult(
+              planPointCommitStateV1(state.input, Object.freeze({
+                ...baseCapabilities,
+                uniqueConstraints,
+              })),
+            );
+          }
+        }
         const handle = makePreparedPointCommitHandleV1();
         preparedPointCommitStates.set(handle, Object.freeze({
           plan: planned,
@@ -312,6 +360,42 @@ export function makeStoredPointCommitPlanningOperationsV1(
           serializePreparedPointCommitStateForTest(rightState.plan);
     },
   } satisfies StoredPointCommitPlanningV1);
+}
+
+function mapUniqueConstraintEligibilityForPlanning(
+  result: AppUniqueConstraintSetEligibilityResultV1,
+): NonNullable<PointCommitPlannerCapabilitiesV1["uniqueConstraints"]> {
+  switch (result.status) {
+    case "not_required":
+      return Object.freeze({ status: "not_required" });
+    case "not_ready":
+      return Object.freeze({
+        status: "not_ready",
+        reason: result.reason,
+        blocksAllTables: result.blocksAllTables,
+        tableIds: Object.freeze([...result.tableIds]),
+      });
+    case "eligible":
+      return Object.freeze({
+        status: "eligible",
+        tableIds: Object.freeze([...result.evidence.tableIds]),
+      });
+  }
+}
+
+function mapUniqueConstraintEligibilityFailure(
+  cause: LoadPointCommitUniqueConstraintEligibilityV1Error,
+): PointCommitUniqueConstraintEligibilityV1Error {
+  const retryable = "retryable" in cause
+    ? cause.retryable === true
+    : cause._tag === "AppUniqueConstraintSetClosurePersistenceV1Error" ||
+      cause._tag === "AppUniqueConstraintCatalogPersistenceError" ||
+      cause._tag === "TrustedScopeAuthorityPortError" ||
+      cause._tag === "ScopeAuthorizationRevocationEpochPersistenceError";
+  return new PointCommitUniqueConstraintEligibilityV1Error({
+    retryable,
+    cause,
+  });
 }
 
 export function makeFinishingPreparedPointCommitHandleV1():

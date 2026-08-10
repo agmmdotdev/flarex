@@ -514,6 +514,111 @@ describe("C04A stored-attempt authentication", () => {
     expect(publicationReads).toBe(0);
   });
 
+  it("rejects an accessor point-commit port without invoking it", async () => {
+    const current = await commitAuthorityFixture();
+    let pointCommitReads = 0;
+    const configuration = Object.defineProperty(
+      {
+        evidenceLoader: {
+          loadEffect: () => Effect.succeed({
+            kind: "loaded" as const,
+            evidence: current.commitEvidence,
+          }),
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+        },
+      },
+      "pointCommit",
+      {
+        get: () => {
+          pointCommitReads += 1;
+          throw new Error("point commit accessor must not run");
+        },
+      },
+    );
+
+    expect(() => Reflect.apply(
+      createStoredPointCommitRollbackProofV1,
+      undefined,
+      [
+        { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
+        configuration,
+        TEST_EXECUTION_CLAIMS,
+      ],
+    )).toThrow(expect.objectContaining({
+      missing: "pointCommitRollbackProof",
+    }));
+    expect(pointCommitReads).toBe(0);
+  });
+
+  it("reuses the exact data-property point-commit port after capture", async () => {
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("captured-point-commit"),
+      returnsValidator: { type: "string" },
+    });
+    let firstProofs = 0;
+    let replacementProofs = 0;
+    const firstPointCommit: PointCommitRollbackProofPortV1 = Object.freeze({
+      prove: () => Effect.sync(() => {
+        firstProofs += 1;
+        return Object.freeze({ kind: "wouldCommit" as const });
+      }),
+    });
+    const replacementPointCommit: PointCommitRollbackProofPortV1 =
+      Object.freeze({
+        prove: () => Effect.sync(() => {
+          replacementProofs += 1;
+          return Object.freeze({ kind: "wouldCommit" as const });
+        }),
+      });
+    const target = {
+      evidenceLoader: {
+        loadEffect: () => Effect.succeed({
+          kind: "loaded" as const,
+          evidence: current.commitEvidence,
+        }),
+      },
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit: firstPointCommit,
+    };
+    const configuration = new Proxy(target, {
+      getOwnPropertyDescriptor: (owned, property) => {
+        const descriptor = Reflect.getOwnPropertyDescriptor(owned, property);
+        if (property === "pointCommit") {
+          owned.pointCommit = replacementPointCommit;
+        }
+        return descriptor;
+      },
+    });
+    const authentication = createStoredPointCommitRollbackProofV1(
+      { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
+      configuration,
+      TEST_EXECUTION_CLAIMS,
+    );
+    const authority = await deriveAuthority(authentication);
+    const stored = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(current.fixture.envelope),
+    ));
+    const commitAuthority = await runEffect(
+      authentication.authenticateCommitAuthority(stored),
+    );
+    const verified = await runEffect(
+      authentication.verifyCommitInput(commitAuthority),
+    );
+    const prepared = await runEffect(authentication.planPointCommit(verified));
+    await expect(runEffect(
+      authentication.provePointCommitRollback(prepared),
+    )).resolves.toEqual({ kind: "wouldCommit" });
+    expect(firstProofs).toBe(1);
+    expect(replacementProofs).toBe(0);
+  });
+
   it("does not inspect recovery while constructing finishing transition", async () => {
     const current = await commitAuthorityFixture();
     let recoveryReads = 0;
@@ -4273,6 +4378,8 @@ describe("C04A stored-attempt authentication", () => {
   });
 
   it("orders multiple material rows, accepts indexed writes, and rejects future shapes", async () => {
+    const tableOne = decodeCatalogTableId(1);
+    const tableTwo = decodeCatalogTableId(2);
     const firstLive = await livePlannerPoint(decodeAppDocumentIdV1(
       "1:00000000-0000-4000-8000-000000000021",
     ));
@@ -4286,6 +4393,66 @@ describe("C04A stored-attempt authentication", () => {
       firstLive.documentId,
       secondLive.documentId,
     ]);
+    expect(requirePlanFailure(planPointCommitStateV1(
+      await plannerSourceForTest([firstLive]),
+      { uniqueConstraints: { status: "unavailable" } },
+    ))).toMatchObject({
+      issue: {
+        reason: "uniqueConstraintEligibilityUnavailable",
+        tableId: 1,
+      },
+    });
+    expect(requirePlanFailure(planPointCommitStateV1(
+      await plannerSourceForTest([firstLive]),
+      {
+        uniqueConstraints: {
+          status: "not_ready",
+          reason: "buildNotEnabled",
+          blocksAllTables: false,
+          tableIds: [tableOne],
+        },
+      },
+    ))).toMatchObject({
+      issue: {
+        reason: "uniqueConstraintSetNotReady",
+        tableId: 1,
+        eligibilityReason: "buildNotEnabled",
+      },
+    });
+    expect(Result.isSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([firstLive]),
+      {
+        uniqueConstraints: {
+          status: "not_ready",
+          reason: "buildMissing",
+          blocksAllTables: false,
+          tableIds: [tableTwo],
+        },
+      },
+    ))).toBe(true);
+    expect(requirePlanFailure(planPointCommitStateV1(
+      await plannerSourceForTest([firstLive]),
+      {
+        uniqueConstraints: {
+          status: "not_ready",
+          reason: "setNotClosed",
+          blocksAllTables: true,
+          tableIds: [],
+        },
+      },
+    ))).toMatchObject({
+      issue: {
+        reason: "uniqueConstraintSetNotReady",
+        tableId: 1,
+        eligibilityReason: "setNotClosed",
+      },
+    });
+    expect(Result.isSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([firstLive]),
+      {
+        uniqueConstraints: { status: "eligible", tableIds: [tableOne] },
+      },
+    ))).toBe(true);
 
     const developerIndex = {
       logicalIndexId: 1,

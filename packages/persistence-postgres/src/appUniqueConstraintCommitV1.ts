@@ -42,7 +42,10 @@ export interface AppUniqueConstraintDefinitionPortV1 {
   >;
 }
 
-const appUniqueConstraintDefinitionPortsV1 = new WeakSet<object>();
+const appUniqueConstraintDefinitionPortsV1 = new WeakMap<
+  object,
+  FlarexMetadataDatabase
+>();
 
 /** Process-local authority check; structural locator copies fail closed. */
 export function hasAppUniqueConstraintDefinitionAuthorityV1(
@@ -50,6 +53,15 @@ export function hasAppUniqueConstraintDefinitionAuthorityV1(
 ): value is AppUniqueConstraintDefinitionPortV1 {
   return typeof value === "object" && value !== null &&
     appUniqueConstraintDefinitionPortsV1.has(value);
+}
+
+/** Exact composition check for owners that must share one control catalog. */
+export function hasAppUniqueConstraintDefinitionAuthorityForControlDbV1(
+  value: unknown,
+  controlDb: FlarexMetadataDatabase,
+): value is AppUniqueConstraintDefinitionPortV1 {
+  return typeof value === "object" && value !== null &&
+    appUniqueConstraintDefinitionPortsV1.get(value) === controlDb;
 }
 
 /** Control-catalog adapter for C08-B2's private point-commit composition. */
@@ -69,7 +81,7 @@ export function createAppUniqueConstraintDefinitionPortV1(
         ),
     ),
   });
-  appUniqueConstraintDefinitionPortsV1.add(port);
+  appUniqueConstraintDefinitionPortsV1.set(port, controlDb);
   return port;
 }
 

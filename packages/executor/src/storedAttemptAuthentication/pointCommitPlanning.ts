@@ -39,6 +39,19 @@ export type UnsupportedPointCommitPlanV1Issue =
       readonly maximum: number;
       readonly observed: number;
     }
+  | {
+      readonly reason: "uniqueConstraintEligibilityUnavailable";
+      readonly tableId: CatalogTableId;
+    }
+  | {
+      readonly reason: "uniqueConstraintSetNotReady";
+      readonly tableId: CatalogTableId;
+      readonly eligibilityReason:
+        | "setNotClosed"
+        | "buildMissing"
+        | "buildNotEnabled"
+        | "buildStale";
+    }
   | { readonly reason: "unsupportedReadDependency" }
   | { readonly reason: "unsupportedPointState" };
 
@@ -47,6 +60,12 @@ export class UnsupportedPointCommitPlanV1Error extends Data.TaggedError(
 )<{
   readonly issue: UnsupportedPointCommitPlanV1Issue;
 }> {}
+
+export class PointCommitUniqueConstraintEligibilityV1Error
+  extends Data.TaggedError("PointCommitUniqueConstraintEligibilityV1Error")<{
+    readonly retryable: boolean;
+    readonly cause: unknown;
+  }> {}
 
 export type PointCommitPlannerInvariantV1DefectReason =
   | "deletedPointWithTombstoneDependency"
@@ -103,6 +122,23 @@ interface OrderedPointCandidateV1 {
 
 export interface PointCommitPlannerCapabilitiesV1 {
   readonly developerIndexMaintenance?: "c08-a-v1";
+  readonly uniqueConstraints?:
+    | Readonly<{ readonly status: "unavailable" }>
+    | Readonly<{ readonly status: "not_required" }>
+    | Readonly<{
+        readonly status: "not_ready";
+        readonly reason:
+          | "setNotClosed"
+        | "buildMissing"
+        | "buildNotEnabled"
+        | "buildStale";
+        readonly blocksAllTables: boolean;
+        readonly tableIds: ReadonlyArray<CatalogTableId>;
+      }>
+    | Readonly<{
+        readonly status: "eligible";
+        readonly tableIds: ReadonlyArray<CatalogTableId>;
+      }>;
 }
 
 export function planPointCommitStateV1(
@@ -162,6 +198,36 @@ export function planPointCommitStateV1(
             },
           }));
         }
+      }
+    }
+
+    if (capabilities.uniqueConstraints?.status === "unavailable") {
+      const first = materialCandidates[0];
+      if (first !== undefined) {
+        return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({
+          issue: {
+            reason: "uniqueConstraintEligibilityUnavailable",
+            tableId: first.point.tableId,
+          },
+        }));
+      }
+    }
+    if (capabilities.uniqueConstraints?.status === "not_ready") {
+      const blocked = materialCandidates.find((candidate) =>
+        capabilities.uniqueConstraints?.status === "not_ready" &&
+        (capabilities.uniqueConstraints.blocksAllTables ||
+          capabilities.uniqueConstraints.tableIds.includes(
+            candidate.point.tableId,
+          ))
+      );
+      if (blocked !== undefined) {
+        return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({
+          issue: {
+            reason: "uniqueConstraintSetNotReady",
+            tableId: blocked.point.tableId,
+            eligibilityReason: capabilities.uniqueConstraints.reason,
+          },
+        }));
       }
     }
 

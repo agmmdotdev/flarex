@@ -123,8 +123,15 @@ import {
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
 import {
+  hasAppUniqueConstraintSetEligibilityPortV1,
+  hasAppUniqueConstraintSetEligibilityForDefinitionPortV1,
+  loadAppUniqueConstraintSetEligibilityV1Effect,
   AppUniqueConstraintSetBuildIntegrationV1Error,
   resetAppUniqueConstraintSetValidationInTransactionEffect,
+  type AppUniqueConstraintSetEligibilityInputV1,
+  type AppUniqueConstraintSetEligibilityPortV1,
+  type AppUniqueConstraintSetEligibilityResultV1,
+  type LoadAppUniqueConstraintSetEligibilityV1Error,
 } from "./appUniqueConstraintSetBuildV1";
 import {
   applyAppUniqueKeyMutationInTransactionEffect,
@@ -256,6 +263,9 @@ export type {
   CommittedPointOutcomeResolutionV1,
   ResolveCommittedPointOutcomeInputV1,
 } from "./committedPointOutcome";
+export type {
+  AppUniqueConstraintSetEligibilityResultV1,
+} from "./appUniqueConstraintSetBuildV1";
 
 const MAX_SIGNED_COMMIT_SEQ = MAX_PERSISTED_SIGNED_INT64_V1;
 const MAX_SIGNED_COMMIT_SEQ_TEXT_LENGTH =
@@ -771,6 +781,10 @@ export interface PointCommitRollbackProofPortV1 {
 
 const pointCommitDeveloperIndexMaintenancePortsV1 = new WeakSet<object>();
 const pointCommitUniqueConstraintMaintenancePortsV1 = new WeakSet<object>();
+const pointCommitUniqueConstraintEligibilityPortsV1 = new WeakMap<
+  object,
+  AppUniqueConstraintSetEligibilityPortV1
+>();
 
 /**
  * Process-local private capability check. Only point-commit ports constructed
@@ -809,6 +823,66 @@ function registerPointCommitUniqueConstraintMaintenanceV1<T extends object>(
   if (hasAppUniqueConstraintDefinitionAuthorityV1(uniqueConstraints)) {
     pointCommitUniqueConstraintMaintenancePortsV1.add(port);
   }
+  return port;
+}
+
+/** Exact private C08-B1 composition; structural copies fail closed. */
+export function hasPointCommitUniqueConstraintEligibilityV1(
+  value: unknown,
+): boolean {
+  return typeof value === "object" && value !== null &&
+    pointCommitUniqueConstraintEligibilityPortsV1.has(value);
+}
+
+export class PointCommitUniqueConstraintEligibilityUnavailableV1Error
+  extends Data.TaggedError(
+    "PointCommitUniqueConstraintEligibilityUnavailableV1Error",
+  )<{
+    readonly reason: "notSameFactory";
+  }> {}
+
+export type LoadPointCommitUniqueConstraintEligibilityV1Error =
+  | PointCommitUniqueConstraintEligibilityUnavailableV1Error
+  | LoadAppUniqueConstraintSetEligibilityV1Error;
+
+export const loadPointCommitUniqueConstraintEligibilityV1Effect = Effect.fn(
+  "PointCommitTransaction.loadUniqueConstraintEligibility",
+)(function* (
+  value: unknown,
+  input: AppUniqueConstraintSetEligibilityInputV1,
+): Effect.fn.Return<
+  AppUniqueConstraintSetEligibilityResultV1,
+  LoadPointCommitUniqueConstraintEligibilityV1Error
+> {
+  const eligibility = typeof value === "object" && value !== null
+    ? pointCommitUniqueConstraintEligibilityPortsV1.get(value)
+    : undefined;
+  if (eligibility === undefined) {
+    return yield* Effect.fail(
+      new PointCommitUniqueConstraintEligibilityUnavailableV1Error({
+        reason: "notSameFactory",
+      }),
+    );
+  }
+  return yield* loadAppUniqueConstraintSetEligibilityV1Effect(
+    eligibility,
+    input,
+  );
+});
+
+function registerPointCommitUniqueConstraintEligibilityV1<T extends object>(
+  port: T,
+  uniqueConstraints: AppUniqueConstraintDefinitionPortV1 | undefined,
+  eligibility: AppUniqueConstraintSetEligibilityPortV1 | undefined,
+): T {
+  if (
+    hasAppUniqueConstraintDefinitionAuthorityV1(uniqueConstraints) &&
+    hasAppUniqueConstraintSetEligibilityPortV1(eligibility) &&
+    hasAppUniqueConstraintSetEligibilityForDefinitionPortV1(
+      eligibility,
+      uniqueConstraints,
+    )
+  ) pointCommitUniqueConstraintEligibilityPortsV1.set(port, eligibility);
   return port;
 }
 
@@ -907,6 +981,11 @@ export interface PointCommitTransactionProofOptionsV1 {
   readonly developerIndexes?: AppDeveloperIndexDefinitionPortV1;
   /** Private C08-B2 composition; absence preserves the lower proof lane. */
   readonly uniqueConstraints?: AppUniqueConstraintDefinitionPortV1;
+  /**
+   * Private C08-B1 eligibility facet. It is effective only when composed with
+   * the exact B2 definition owner on this same point-commit port.
+   */
+  readonly uniqueConstraintEligibility?: AppUniqueConstraintSetEligibilityPortV1;
   readonly afterTransactionStep?: (
     event: Readonly<{
       readonly scopeId: ReplacementScopeIdV1;
@@ -928,6 +1007,7 @@ function capturePointCommitTransactionProofOptionsV1(
   const intrinsicCreationTimeIndexes = options.intrinsicCreationTimeIndexes;
   const developerIndexes = options.developerIndexes;
   const uniqueConstraints = options.uniqueConstraints;
+  const uniqueConstraintEligibility = options.uniqueConstraintEligibility;
   const afterTransactionStep = options.afterTransactionStep;
   const observeQuery = options.observeQuery;
   return Object.freeze({
@@ -936,6 +1016,9 @@ function capturePointCommitTransactionProofOptionsV1(
       : { intrinsicCreationTimeIndexes }),
     ...(developerIndexes === undefined ? {} : { developerIndexes }),
     ...(uniqueConstraints === undefined ? {} : { uniqueConstraints }),
+    ...(uniqueConstraintEligibility === undefined
+      ? {}
+      : { uniqueConstraintEligibility }),
     ...(afterTransactionStep === undefined ? {} : { afterTransactionStep }),
     ...(observeQuery === undefined ? {} : { observeQuery }),
   });
@@ -1436,12 +1519,16 @@ export function createPointCommitRollbackProofPortV1(
     }));
   });
 
-  return registerPointCommitUniqueConstraintMaintenanceV1(
-    registerPointCommitDeveloperIndexMaintenanceV1(
-      Object.freeze({ prove }),
-      capturedOptions.developerIndexes,
+  return registerPointCommitUniqueConstraintEligibilityV1(
+    registerPointCommitUniqueConstraintMaintenanceV1(
+      registerPointCommitDeveloperIndexMaintenanceV1(
+        Object.freeze({ prove }),
+        capturedOptions.developerIndexes,
+      ),
+      capturedOptions.uniqueConstraints,
     ),
     capturedOptions.uniqueConstraints,
+    capturedOptions.uniqueConstraintEligibility,
   );
 }
 
@@ -1579,13 +1666,17 @@ export function createPointCommitPublisherPortV1(
     return yield* resolveOutcome(target, input);
   });
 
-  return registerPointCommitUniqueConstraintMaintenanceV1(
-    registerPointCommitDeveloperIndexMaintenanceV1(Object.freeze({
-      ...rollback,
-      publish,
-      [RESOLVE_POINT_COMMIT_OUTCOME_V1]: resolvePointCommitOutcome,
-    }), capturedOptions.developerIndexes),
+  return registerPointCommitUniqueConstraintEligibilityV1(
+    registerPointCommitUniqueConstraintMaintenanceV1(
+      registerPointCommitDeveloperIndexMaintenanceV1(Object.freeze({
+        ...rollback,
+        publish,
+        [RESOLVE_POINT_COMMIT_OUTCOME_V1]: resolvePointCommitOutcome,
+      }), capturedOptions.developerIndexes),
+      capturedOptions.uniqueConstraints,
+    ),
     capturedOptions.uniqueConstraints,
+    capturedOptions.uniqueConstraintEligibility,
   );
 }
 
