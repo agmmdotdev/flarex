@@ -16,14 +16,10 @@ import {
   encodePersistedTaskRequestedEffectJsonV1,
   encodePersistedTaskRunAttemptAggregateJsonV1,
   projectTaskRunAttemptPersistenceV1,
-  type PersistedTaskRequestedEffectV1,
   type RunAttemptDecisionErrorV1,
   type RunAttemptOperationV1,
-  type TaskAttemptIdV1,
   type TaskAttemptGrantCandidateV1,
-  type TaskAttemptNumberV1,
   type TaskDatabaseTimeMsV1,
-  type TaskExecutionFenceV1,
   type TaskRunAttemptAggregateV1,
   type TaskRunAttemptDecisionV1,
   type TaskRunIdV1,
@@ -33,8 +29,7 @@ import {
   type TaskSystemRunAttemptTransactionReceiptV1,
   type TaskSystemRunAttemptTransactionV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
-import { isNonArrayRecord } from "@flarex/utils/records";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Result } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
@@ -61,9 +56,11 @@ import {
 } from "./taskSystemScopeAuthorityV1";
 import { decodeAndCorrelateTaskSystemRunRowV1 } from "./taskSystemRunRowV1";
 import {
-  decodeAndCorrelateTaskSystemRequestedEffectRowV1,
-  taskSystemRequestedEffectNotBeforeMsV1,
-} from "./taskSystemRequestedEffectRowV1";
+  correlateTaskSystemLifecycleLedgerV1,
+  taskSystemPersistedValueEqualV1 as persistedValueEqual,
+} from "./taskSystemLifecycleLedgerCorrelationV1";
+import { taskSystemRequestedEffectNotBeforeMsV1 } from
+  "./taskSystemRequestedEffectRowV1";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "./transactionSessionActivation";
@@ -86,24 +83,12 @@ const MAX_TRANSACTION_EXECUTIONS = 3;
 const ATTEMPT_IDENTITY_PRIMARY_KEY = "fx_task_attempt_identity_v1_pk";
 
 type TaskRunRow = typeof fxSystemDurableTaskRunsV1.$inferSelect;
-type TaskAttemptIdentityRow =
-  typeof fxSystemDurableTaskAttemptIdentitiesV1.$inferSelect;
-type TaskRequestedEffectRow =
-  typeof fxSystemDurableTaskRequestedEffectsV1.$inferSelect;
-
 export type ReadTaskSystemDatabaseNowV1 = (
   tx: AppRowTransaction,
   scopeId: ScopeId,
   operation: RunAttemptOperationV1,
   runId: TaskRunIdV1,
 ) => Promise<TaskDatabaseTimeMsV1>;
-
-interface ExpectedAttemptIdentityV1 {
-  readonly attemptId: TaskAttemptIdV1;
-  readonly attemptNumber: TaskAttemptNumberV1;
-  readonly executionFence: TaskExecutionFenceV1;
-  readonly acceptedRunVersion: bigint | null;
-}
 
 export interface LocatedTaskSystemRunAttemptTargetV1
   extends LocatedReadCommittedAttemptTargetV1 {
@@ -435,252 +420,13 @@ async function correlateLifecycleLedger(
   runId: TaskRunIdV1,
   aggregate: TaskRunAttemptAggregateV1,
 ): Promise<void> {
-  await correlateRequestedEffects(tx, scopeId, operation, runId, aggregate);
-  await correlateAttemptIdentities(tx, scopeId, operation, runId, aggregate);
-}
-
-async function correlateRequestedEffects(
-  tx: AppRowTransaction,
-  scopeId: ScopeId,
-  operation: RunAttemptOperationV1,
-  runId: TaskRunIdV1,
-  aggregate: TaskRunAttemptAggregateV1,
-): Promise<void> {
-  const expected = new Map<
-    TaskRequestedEffectRow["sequence"],
-    PersistedTaskRequestedEffectV1
-  >();
-  const acceptances = aggregate.lastLifecycleAcceptance === null
-    ? aggregate.completionReplays.map(replay => replay.accepted)
-    : [
-        aggregate.lastLifecycleAcceptance.accepted,
-        ...aggregate.completionReplays.map(replay => replay.accepted),
-      ];
-  for (const acceptance of acceptances) {
-    for (const effect of acceptance.requestedEffects) {
-      const existing = expected.get(effect.sequence);
-      if (existing !== undefined && !persistedValueEqual(existing, effect)) {
-        throw rollbackStoreError(corruption(operation, runId, "effect_sequence_invalid"));
-      }
-      expected.set(effect.sequence, effect);
-    }
-  }
-  if (expected.size === 0) return;
-
-  const rows = await tx.select().from(fxSystemDurableTaskRequestedEffectsV1)
-    .where(and(
-      eq(fxSystemDurableTaskRequestedEffectsV1.scopeId, scopeId),
-      eq(fxSystemDurableTaskRequestedEffectsV1.runId, runId),
-      inArray(
-        fxSystemDurableTaskRequestedEffectsV1.sequence,
-        [...expected.keys()],
-      ),
-    ));
-  if (rows.length !== expected.size) {
-    throw rollbackStoreError(corruption(operation, runId, "effect_sequence_invalid"));
-  }
-  for (const row of rows) {
-    const effect = expected.get(row.sequence);
-    if (effect === undefined || !requestedEffectRowMatches(row, effect)) {
-      throw rollbackStoreError(corruption(operation, runId, "effect_sequence_invalid"));
-    }
-  }
-}
-
-function requestedEffectRowMatches(
-  row: TaskRequestedEffectRow,
-  expected: PersistedTaskRequestedEffectV1,
-): boolean {
-  return decodeAndCorrelateTaskSystemRequestedEffectRowV1(row).pipe(
-    Result.map(decoded => persistedValueEqual(decoded, expected)),
-    Result.getOrElse(() => false),
+  await correlateTaskSystemLifecycleLedgerV1(
+    tx,
+    scopeId,
+    runId,
+    aggregate,
+    reason => rollbackStoreError(corruption(operation, runId, reason)),
   );
-}
-
-async function correlateAttemptIdentities(
-  tx: AppRowTransaction,
-  scopeId: ScopeId,
-  operation: RunAttemptOperationV1,
-  runId: TaskRunIdV1,
-  aggregate: TaskRunAttemptAggregateV1,
-): Promise<void> {
-  const expected = collectExpectedAttemptIdentities(aggregate, operation, runId);
-  const rows = await tx.select().from(fxSystemDurableTaskAttemptIdentitiesV1)
-    .where(and(
-      eq(fxSystemDurableTaskAttemptIdentitiesV1.scopeId, scopeId),
-      eq(fxSystemDurableTaskAttemptIdentitiesV1.runId, runId),
-    )).orderBy(fxSystemDurableTaskAttemptIdentitiesV1.attemptNumber);
-  const expectedCount = aggregate.attemptHistory.kind === "none"
-    ? 0
-    : aggregate.attemptHistory.lastAttemptNumber;
-  if (rows.length !== expectedCount) {
-    throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
-  }
-  const identitiesById = new Map<TaskAttemptIdV1, TaskAttemptIdentityRow>();
-  let previousFence = 0n;
-  let previousAcceptedRunVersion = 0n;
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index];
-    if (
-      row === undefined
-      || row.attemptNumber !== index + 1
-      || row.executionFence !== previousFence + 1n
-      || row.acceptedRunVersion <= previousAcceptedRunVersion
-      || row.acceptedRunVersion > aggregate.runVersion
-      || identitiesById.has(row.attemptId)
-    ) {
-      throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
-    }
-    identitiesById.set(row.attemptId, row);
-    previousFence = row.executionFence;
-    previousAcceptedRunVersion = row.acceptedRunVersion;
-  }
-  for (const identity of expected.values()) {
-    const row = identitiesById.get(identity.attemptId);
-    if (
-      row === undefined
-      || !attemptIdentityRowMatches(row, identity, aggregate.runVersion)
-    ) {
-      throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
-    }
-  }
-
-  const dispatchRows = await tx.select().from(fxSystemDurableTaskRequestedEffectsV1)
-    .where(and(
-      eq(fxSystemDurableTaskRequestedEffectsV1.scopeId, scopeId),
-      eq(fxSystemDurableTaskRequestedEffectsV1.runId, runId),
-      eq(fxSystemDurableTaskRequestedEffectsV1.kind, "dispatch_attempt"),
-    )).orderBy(fxSystemDurableTaskRequestedEffectsV1.sequence)
-    .limit(expectedCount + 1);
-  if (dispatchRows.length !== rows.length) {
-    throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
-  }
-  const dispatchedAttemptIds = new Set<TaskAttemptIdV1>();
-  const effectCursor = aggregate.requestedEffectCursor.kind === "none"
-    ? 0n
-    : aggregate.requestedEffectCursor.lastSequence;
-  let previousDispatchSequence = 0n;
-  for (let index = 0; index < dispatchRows.length; index += 1) {
-    const dispatchRow = dispatchRows[index];
-    const orderedIdentity = rows[index];
-    if (
-      dispatchRow === undefined
-      || orderedIdentity === undefined
-      || dispatchRow.sequence <= previousDispatchSequence
-      || dispatchRow.sequence > effectCursor
-    ) {
-      throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
-    }
-    const decoded = Result.getOrThrowWith(
-      decodeAndCorrelateTaskSystemRequestedEffectRowV1(dispatchRow),
-      () => rollbackStoreError(
-        corruption(operation, runId, "acceptance_invalid"),
-      ),
-    );
-    if (
-      decoded.effect.kind !== "dispatch_attempt"
-      || !requestedEffectRowMatches(dispatchRow, decoded)
-      || decoded.effect.taskDefinitionRevisionId
-        !== aggregate.taskDefinitionRevisionId
-    ) {
-      throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
-    }
-    const attempt = decoded.effect.attempt;
-    const identity = identitiesById.get(attempt.attemptId);
-    if (
-      identity === undefined
-      || identity !== orderedIdentity
-      || dispatchedAttemptIds.has(attempt.attemptId)
-      || identity.attemptNumber !== attempt.attemptNumber
-      || identity.executionFence !== attempt.executionFence
-      || identity.acceptedRunVersion
-        !== decoded.effect.acceptedRunVersion
-    ) {
-      throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
-    }
-    dispatchedAttemptIds.add(attempt.attemptId);
-    previousDispatchSequence = dispatchRow.sequence;
-  }
-}
-
-function collectExpectedAttemptIdentities(
-  aggregate: TaskRunAttemptAggregateV1,
-  operation: RunAttemptOperationV1,
-  runId: TaskRunIdV1,
-): ReadonlyMap<TaskAttemptIdV1, ExpectedAttemptIdentityV1> {
-  const expected = new Map<TaskAttemptIdV1, ExpectedAttemptIdentityV1>();
-
-  const add = (
-    attempt: Readonly<{
-      readonly attemptId: TaskAttemptIdV1;
-      readonly attemptNumber: TaskAttemptNumberV1;
-      readonly executionFence: TaskExecutionFenceV1;
-    }>,
-    acceptedRunVersion: bigint | null = null,
-  ) => {
-    const existing = expected.get(attempt.attemptId);
-    if (
-      existing !== undefined
-      && (
-        existing.attemptNumber !== attempt.attemptNumber
-        || existing.executionFence !== attempt.executionFence
-        || (
-          existing.acceptedRunVersion !== null
-          && acceptedRunVersion !== null
-          && existing.acceptedRunVersion !== acceptedRunVersion
-        )
-      )
-    ) {
-      throw rollbackStoreError(corruption(operation, runId, "acceptance_invalid"));
-    }
-    expected.set(attempt.attemptId, Object.freeze({
-      attemptId: attempt.attemptId,
-      attemptNumber: attempt.attemptNumber,
-      executionFence: attempt.executionFence,
-      acceptedRunVersion: existing?.acceptedRunVersion ?? acceptedRunVersion,
-    }));
-  };
-
-  switch (aggregate.phase) {
-    case "attempt_granted":
-    case "executing":
-      add(
-        aggregate.currentAttempt,
-        aggregate.currentAttempt.grantBasisRunVersion + 1n,
-      );
-      break;
-    case "ready":
-      if (aggregate.ready.kind === "immediate_retry") {
-        add(aggregate.ready.acceptedRetry.previousAttempt);
-      }
-      break;
-    case "retry_waiting":
-      add(aggregate.retry.previousAttempt);
-      break;
-    case "terminal":
-      if (aggregate.terminal.attempt !== null) add(aggregate.terminal.attempt);
-      break;
-  }
-  for (const replay of aggregate.completionReplays) {
-    add(replay.attempt);
-  }
-  return expected;
-}
-
-function attemptIdentityRowMatches(
-  row: TaskAttemptIdentityRow,
-  expected: ExpectedAttemptIdentityV1,
-  currentRunVersion: bigint,
-): boolean {
-  return row.attemptId === expected.attemptId
-    && row.attemptNumber === expected.attemptNumber
-    && row.executionFence === expected.executionFence
-    && row.acceptedRunVersion > 0n
-    && row.acceptedRunVersion <= currentRunVersion
-    && (
-      expected.acceptedRunVersion === null
-      || row.acceptedRunVersion === expected.acceptedRunVersion
-    );
 }
 
 function allocateAttemptCandidate(
@@ -1068,49 +814,6 @@ function freezeOwned(value: unknown): void {
     freezeOwned(child);
   }
   Object.freeze(value);
-}
-
-function persistedValueEqual(left: unknown, right: unknown): boolean {
-  return persistedValueEqualAtDepth(left, right, 0);
-}
-
-function persistedValueEqualAtDepth(
-  left: unknown,
-  right: unknown,
-  depth: number,
-): boolean {
-  if (Object.is(left, right)) return true;
-  if (depth > 256 || left === null || right === null) return false;
-  if (left instanceof Uint8Array && right instanceof Uint8Array) {
-    if (left.byteLength !== right.byteLength) return false;
-    for (let index = 0; index < left.byteLength; index += 1) {
-      if (left[index] !== right[index]) return false;
-    }
-    return true;
-  }
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
-      return false;
-    }
-    for (let index = 0; index < left.length; index += 1) {
-      if (!persistedValueEqualAtDepth(left[index], right[index], depth + 1)) return false;
-    }
-    return true;
-  }
-  if (!isNonArrayRecord(left) || !isNonArrayRecord(right)) return false;
-  const leftRecord = left;
-  const rightRecord = right;
-  const leftKeys = Object.keys(leftRecord).sort();
-  const rightKeys = Object.keys(rightRecord).sort();
-  if (leftKeys.length !== rightKeys.length) return false;
-  for (let index = 0; index < leftKeys.length; index += 1) {
-    const key = leftKeys[index];
-    if (key === undefined || key !== rightKeys[index]) return false;
-    if (!persistedValueEqualAtDepth(leftRecord[key], rightRecord[key], depth + 1)) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function awaitLocatedTransaction<Value>(

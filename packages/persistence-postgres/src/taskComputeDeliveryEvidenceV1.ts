@@ -153,21 +153,27 @@ interface DeliveryEvidenceCodecOptions<
   readonly encodeValue: DomainEncoder<Value>;
 }
 
-const dispatchRequestCodec = makeDeliveryEvidenceCodec({
+const dispatchRequestCodecOptions = Object.freeze({
   encodeOperation: "encode_dispatch_request",
   decodeOperation: "decode_dispatch_request",
   validateValue: validateTaskComputeDispatchRequestV1,
   decodeValue: decodeTaskComputeDispatchRequestV1,
   encodeValue: encodeTaskComputeDispatchRequestV1,
 });
+const dispatchRequestCodec = makeDeliveryEvidenceCodec(
+  dispatchRequestCodecOptions,
+);
 
-const dispatchAcceptanceCodec = makeDeliveryEvidenceCodec({
+const dispatchAcceptanceCodecOptions = Object.freeze({
   encodeOperation: "encode_dispatch_acceptance",
   decodeOperation: "decode_dispatch_acceptance",
   validateValue: validateTaskComputeDispatchAcceptanceV1,
   decodeValue: decodeTaskComputeDispatchAcceptanceV1,
   encodeValue: encodeTaskComputeDispatchAcceptanceV1,
 });
+const dispatchAcceptanceCodec = makeDeliveryEvidenceCodec(
+  dispatchAcceptanceCodecOptions,
+);
 
 const cancellationRequestCodec = makeDeliveryEvidenceCodec({
   encodeOperation: "encode_cancellation_request",
@@ -204,6 +210,47 @@ export const encodeTaskComputeCancellationReceiptEvidenceV1 =
   cancellationReceiptCodec.encode;
 export const decodeTaskComputeCancellationReceiptEvidenceV1 =
   cancellationReceiptCodec.decode;
+
+/** Canonical bytes for persistence-owned transaction preparation. */
+export function encodeTaskComputeDispatchRequestCanonicalBytesV1(
+  input: unknown,
+): Result.Result<
+  Uint8Array,
+  TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_request">
+> {
+  return validateTaskComputeDispatchRequestV1(input).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      "encode_dispatch_request",
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap((value) => encodeCanonicalDomainBytesResult(
+      value,
+      dispatchRequestCodecOptions,
+      "encode_dispatch_request",
+    )),
+  );
+}
+
+export function encodeTaskComputeDispatchAcceptanceCanonicalBytesV1(
+  input: unknown,
+): Result.Result<
+  Uint8Array,
+  TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_acceptance">
+> {
+  return validateTaskComputeDispatchAcceptanceV1(input).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      "encode_dispatch_acceptance",
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap((value) => encodeCanonicalDomainBytesResult(
+      value,
+      dispatchAcceptanceCodecOptions,
+      "encode_dispatch_acceptance",
+    )),
+  );
+}
 
 export function decodeTaskComputePreparedExecutionV1(
   input: unknown,
@@ -324,10 +371,12 @@ function makeDeliveryEvidenceCodec<
         )),
       ),
     );
-    const canonicalBytes = yield* encodeCanonicalDomainBytes(
-      value,
-      options,
-      options.encodeOperation,
+    const canonicalBytes = yield* Effect.fromResult(
+      encodeCanonicalDomainBytesResult(
+        value,
+        options,
+        options.encodeOperation,
+      ),
     );
     const sha256 = yield* hashEvidence(canonicalBytes, options.encodeOperation);
     return captureEvidence(canonicalBytes, sha256);
@@ -364,10 +413,12 @@ function makeDeliveryEvidenceCodec<
         )),
       ),
     );
-    const canonicalBytes = yield* encodeCanonicalDomainBytes(
-      value,
-      options,
-      options.decodeOperation,
+    const canonicalBytes = yield* Effect.fromResult(
+      encodeCanonicalDomainBytesResult(
+        value,
+        options,
+        options.decodeOperation,
+      ),
     );
     if (!bytesEqual(canonicalBytes, evidence.canonicalBytes)) {
       return yield* Effect.fail(evidenceFailure(
@@ -381,7 +432,7 @@ function makeDeliveryEvidenceCodec<
   return Object.freeze({ encode, decode });
 }
 
-function encodeCanonicalDomainBytes<
+function encodeCanonicalDomainBytesResult<
   Value,
   EncodeOperation extends TaskComputeDeliveryEvidenceOperationV1,
   DecodeOperation extends TaskComputeDeliveryEvidenceOperationV1,
@@ -394,43 +445,43 @@ function encodeCanonicalDomainBytes<
     DecodeOperation
   >,
   operation: Operation,
-): Effect.Effect<Uint8Array, TaskComputeDeliveryEvidenceV1Error<Operation>> {
-  return Effect.gen(function* () {
-    const encoded = yield* Effect.fromResult(
-      options.encodeValue(value).pipe(
-        Result.mapError((cause) => evidenceFailure(
+): Result.Result<Uint8Array, TaskComputeDeliveryEvidenceV1Error<Operation>> {
+  return options.encodeValue(value).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      operation,
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap((encoded) => {
+      if (!isJsonObjectFromUnknown(encoded)) {
+        return Result.fail(evidenceFailure(operation, "invalid_input"));
+      }
+      let canonicalText: string;
+      try {
+        canonicalText = encodeCanonicalJson(encoded, (cause) => {
+          throw cause;
+        });
+      } catch (cause) {
+        return Result.fail(evidenceFailure(
           operation,
           "invalid_input",
           { cause },
-        )),
-      ),
-    );
-    if (!isJsonObjectFromUnknown(encoded)) {
-      return yield* Effect.fail(evidenceFailure(operation, "invalid_input"));
-    }
-    const canonicalText = yield* Effect.try({
-      try: () => encodeCanonicalJson(encoded, cause => {
-        throw cause;
-      }),
-      catch: (cause) => evidenceFailure(
-        operation,
-        "invalid_input",
-        { cause },
-      ),
-    });
-    const canonicalBytes = UTF8_ENCODER.encode(canonicalText);
-    if (
-      canonicalBytes.byteLength < 1 ||
-      canonicalBytes.byteLength > MAX_TASK_COMPUTE_DELIVERY_EVIDENCE_BYTES_V1
-    ) {
-      return yield* Effect.fail(evidenceFailure(
-        operation,
-        "size_exceeded",
-        { observedBytes: canonicalBytes.byteLength },
-      ));
-    }
-    return canonicalBytes;
-  });
+        ));
+      }
+      const canonicalBytes = UTF8_ENCODER.encode(canonicalText);
+      if (
+        canonicalBytes.byteLength < 1 ||
+        canonicalBytes.byteLength > MAX_TASK_COMPUTE_DELIVERY_EVIDENCE_BYTES_V1
+      ) {
+        return Result.fail(evidenceFailure(
+          operation,
+          "size_exceeded",
+          { observedBytes: canonicalBytes.byteLength },
+        ));
+      }
+      return Result.succeed(canonicalBytes);
+    }),
+  );
 }
 
 function captureEvidenceResult<

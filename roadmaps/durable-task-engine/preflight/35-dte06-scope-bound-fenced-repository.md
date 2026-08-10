@@ -14,6 +14,16 @@ immutable runtime-binding commitment decoded from the durable canonical
 definition bytes. No fallback, schema widening, or process-local binding
 injection was introduced. C2 implementation may proceed.
 
+**Implementation progress:** C2's first internal seam now extracts the exact
+full requested-effect and attempt-identity ledger correlation from the DTE04
+run-attempt store into one package-owned helper with caller-supplied corruption
+mapping. The existing store and C2 therefore share lifecycle evidence mechanics
+without sharing error authority. C1 also exposes pure canonical dispatch and
+acceptance byte encoders for use inside the future transaction callback, while
+its Effect APIs continue to own hashing and public evidence snapshots. No C2
+claim transaction, handle, cancellation path, or completion gate is satisfied
+by this progress alone.
+
 This admission changes no runtime code by itself. DTE06-C1 commit `201d85b4`
 is the required storage prerequisite. DTE06-C3 connected discovery and provider
 composition, every real provider or Cloudflare adapter, Worker/Queue/cron host

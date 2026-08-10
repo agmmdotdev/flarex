@@ -32,6 +32,8 @@ import {
   encodeTaskComputeCancellationReceiptEvidenceV1,
   encodeTaskComputeCancellationRequestEvidenceV1,
   encodeTaskComputeDispatchAcceptanceEvidenceV1,
+  encodeTaskComputeDispatchAcceptanceCanonicalBytesV1,
+  encodeTaskComputeDispatchRequestCanonicalBytesV1,
   encodeTaskComputeDispatchRequestEvidenceV1,
   encodeTaskComputeProfileStorageBytesV1,
 } from "../src/taskComputeDeliveryEvidenceV1";
@@ -58,6 +60,16 @@ describe("DTE06-C1 compute delivery evidence", () => {
       .toEqualTypeOf<Effect.Effect<
         TaskComputeDeliveryEvidenceV1,
         TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_request">
+      >>();
+    expectTypeOf(encodeTaskComputeDispatchRequestCanonicalBytesV1({}))
+      .toEqualTypeOf<Result.Result<
+        Uint8Array,
+        TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_request">
+      >>();
+    expectTypeOf(encodeTaskComputeDispatchAcceptanceCanonicalBytesV1({}))
+      .toEqualTypeOf<Result.Result<
+        Uint8Array,
+        TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_acceptance">
       >>();
     expectTypeOf(decodeTaskComputeCancellationReceiptEvidenceV1({}))
       .toEqualTypeOf<Effect.Effect<
@@ -140,6 +152,19 @@ describe("DTE06-C1 compute delivery evidence", () => {
       expect(first.sha256).toEqual(second.sha256);
       expect(await Effect.runPromise(item.decode(first))).toEqual(item.value);
     }
+
+    const dispatchEvidence = await Effect.runPromise(
+      encodeTaskComputeDispatchRequestEvidenceV1(request),
+    );
+    expect(success(
+      encodeTaskComputeDispatchRequestCanonicalBytesV1(request),
+    )).toEqual(dispatchEvidence.canonicalBytes);
+    const acceptanceEvidence = await Effect.runPromise(
+      encodeTaskComputeDispatchAcceptanceEvidenceV1(acceptance),
+    );
+    expect(success(
+      encodeTaskComputeDispatchAcceptanceCanonicalBytesV1(acceptance),
+    )).toEqual(acceptanceEvidence.canonicalBytes);
   });
 
   it("owns byte evidence and rejects hostile evidence records without reading getters", async () => {
