@@ -36,8 +36,21 @@ covers live-claim exclusion, fenced reacquisition, handle closure, expired-
 delivery takeover, exact accepted replay, retry admission, terminal exhaustion,
 safe transport projection, uncertain-outcome rejection, and final-attempt
 uncertain replay beyond the known-failure retry ceiling. All cancellation
-operations, broader hostile settlement/corruption coverage, and the ordinary-
-role genuine-PostgreSQL lane remain required before C2 completion.
+operations are now implemented behind the same private repository: acquisition
+locks and correlates the linked dispatch checkpoint before the cancellation
+checkpoint, persists `waiting_dispatch` without inventing provider evidence,
+derives the exact cancellation request only from accepted dispatch evidence,
+and owns initial/retry/uncertain-replay fencing, start accounting, renewal,
+pre-delivery release, canonical receipt settlement, and safe known-failure
+projection. A delivered receipt is cleanup evidence only and never
+acknowledges Task cancellation. The focused PGlite proof now also covers
+waiting-to-ready promotion, fenced cancellation reacquisition, exact receipt
+replay while Task cancellation remains requested, started terminal-race
+cleanup, lifecycle supersession across waiting/live-prestart/future-retry
+availability, known-failure exhaustion, uncertain-outcome rejection, and
+final-attempt uncertain replay beyond the known-failure ceiling. Broader hostile
+settlement/corruption coverage and the ordinary-role genuine-PostgreSQL lane
+remain required before C2 completion.
 
 This admission changes no runtime code by itself. DTE06-C1 commit `201d85b4`
 is the required storage prerequisite. DTE06-C3 connected discovery and provider
@@ -397,7 +410,8 @@ row `delivering`; the claim expires and exact takeover/replay recovers it.
 | future retry or live foreign claim | acquire | `not_due` or `busy` |
 | `delivered` | acquire | return the exact stored correlated receipt |
 | `rejected`, `obsolete`, or `quarantined` | acquire | exact `closed` result |
-| unstarted lower/superseded generation | acquire | set/return `obsolete`; no provider call |
+| lower/superseded generation with no prior start | acquire | lifecycle obsoletion dominates waiting/live-claim/not-due availability; set/return `obsolete`, or return the same logical result without a row when the dispatch FK does not yet exist; no provider call |
+| lower/superseded generation in `retry_wait` after a definite started attempt | acquire | lifecycle obsoletion dominates `not_due`; settle as `rejected/lifecycle_obsolete` while preserving the attempt count and start timestamp required by C1 evidence |
 | started lower/superseded generation | acquire | uncertain replay remains legal only to recover exact cleanup evidence; it grants no Task acknowledgement |
 | current claimed handle | start, renew, known failure, or pre-start release | same fenced rules as dispatch with cancellation-specific types |
 | current `delivering` handle | record cancellation delivery | validate identity, execution reference, and generation; store exact receipt, set `delivered`, settle, and release claim atomically |

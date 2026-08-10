@@ -1,16 +1,22 @@
 import { PGlite } from "@electric-sql/pglite";
 import {
+  TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1,
   TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+  TaskComputeCancellationRejectedError,
+  TaskComputeCancellationTransportError,
+  TaskComputeCancellationUncertainError,
   TaskComputeDispatchRejectedError,
   TaskComputeDispatchTransportError,
   TaskComputeDispatchUncertainError,
   validateTaskComputeDispatchAcceptanceV1,
+  validateTaskComputeCancellationReceiptV1,
   validateTaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
   TaskSystemRunAttemptStore,
+  decodeTaskCancellationGenerationV1,
   decodeTaskRunVersionV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { Effect, Exit, Layer, Result } from "effect";
@@ -29,6 +35,13 @@ import {
   type TaskComputeDeliveryRepositoryErrorV1,
   type TaskComputeDeliveryRepositoryOptionsV1,
   type TaskComputeDeliveryRepositoryV1,
+  type TaskComputeCancellationAcquireResultV1,
+  type TaskComputeCancellationClaimReleasedV1,
+  type TaskComputeCancellationClaimRenewedV1,
+  type TaskComputeCancellationDeliveryStartedV1,
+  type TaskComputeCancellationKnownFailureRecordedV1,
+  type TaskComputeCancellationKnownFailureV1,
+  type TaskComputeCancellationReceiptRecordedV1,
   type TaskComputeDispatchAcquireResultV1,
   type TaskComputeDispatchClaimReleasedV1,
   type TaskComputeDispatchClaimRenewedV1,
@@ -60,6 +73,9 @@ import {
 const CLAIM_OWNER_A = "73000000-0000-4000-8000-000000000001";
 const CLAIM_OWNER_B = "73000000-0000-4000-8000-000000000002";
 const runVersionOne = success(decodeTaskRunVersionV1("1"));
+const cancellationGenerationOne = success(
+  decodeTaskCancellationGenerationV1("1"),
+);
 
 describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
   it("exposes an exact typed error channel for each operation", () => {
@@ -97,6 +113,41 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       TaskComputeDispatchKnownFailureRecordedV1,
       TaskComputeDeliveryRepositoryErrorV1<"record_dispatch_known_failure">
     >>();
+    expectTypeOf<ReturnType<TaskComputeDeliveryRepositoryV1["acquireCancellation"]>>()
+      .toEqualTypeOf<Effect.Effect<
+        TaskComputeCancellationAcquireResultV1,
+        TaskComputeDeliveryRepositoryErrorV1<"acquire_cancellation">
+      >>();
+    expectTypeOf<ReturnType<
+      TaskComputeDeliveryRepositoryV1["markCancellationDeliveryStarted"]
+    >>().toEqualTypeOf<Effect.Effect<
+      TaskComputeCancellationDeliveryStartedV1,
+      TaskComputeDeliveryRepositoryErrorV1<"mark_cancellation_delivery_started">
+    >>();
+    expectTypeOf<ReturnType<
+      TaskComputeDeliveryRepositoryV1["renewCancellationClaim"]
+    >>().toEqualTypeOf<Effect.Effect<
+      TaskComputeCancellationClaimRenewedV1,
+      TaskComputeDeliveryRepositoryErrorV1<"renew_cancellation_claim">
+    >>();
+    expectTypeOf<ReturnType<
+      TaskComputeDeliveryRepositoryV1["releaseCancellationBeforeDelivery"]
+    >>().toEqualTypeOf<Effect.Effect<
+      TaskComputeCancellationClaimReleasedV1,
+      TaskComputeDeliveryRepositoryErrorV1<"release_cancellation_before_delivery">
+    >>();
+    expectTypeOf<ReturnType<
+      TaskComputeDeliveryRepositoryV1["recordCancellationReceipt"]
+    >>().toEqualTypeOf<Effect.Effect<
+      TaskComputeCancellationReceiptRecordedV1,
+      TaskComputeDeliveryRepositoryErrorV1<"record_cancellation_receipt">
+    >>();
+    expectTypeOf<ReturnType<
+      TaskComputeDeliveryRepositoryV1["recordCancellationKnownFailure"]
+    >>().toEqualTypeOf<Effect.Effect<
+      TaskComputeCancellationKnownFailureRecordedV1,
+      TaskComputeDeliveryRepositoryErrorV1<"record_cancellation_known_failure">
+    >>();
     expectTypeOf<Extract<
       TaskComputeDeliveryRepositoryErrorV1<"acquire_dispatch">,
       { readonly _tag: "TaskComputeDeliveryRepositoryStaleClaimV1Error" }
@@ -115,6 +166,14 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
     >>().toEqualTypeOf<never>();
     expectTypeOf<Extract<
       TaskComputeDeliveryRepositoryErrorV1<"record_dispatch_known_failure">,
+      { readonly _tag: "TaskComputeDeliveryRepositoryResourceExhaustedV1Error" }
+    >>().toEqualTypeOf<never>();
+    expectTypeOf<Extract<
+      TaskComputeDeliveryRepositoryErrorV1<"acquire_cancellation">,
+      { readonly _tag: "TaskComputeDeliveryRepositoryStaleClaimV1Error" }
+    >>().toEqualTypeOf<never>();
+    expectTypeOf<Extract<
+      TaskComputeDeliveryRepositoryErrorV1<"record_cancellation_receipt">,
       { readonly _tag: "TaskComputeDeliveryRepositoryResourceExhaustedV1Error" }
     >>().toEqualTypeOf<never>();
   });
@@ -777,7 +836,597 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       ))).toMatchObject({ kind: "dispatch_accepted", acceptance });
     });
   });
+
+  it("waits for dispatch acceptance, then fences cancellation start, renew, release, and reacquire", async () => {
+    await withFixture(async (fixture) => {
+      const firstRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      const dispatch = await runEffect(firstRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (dispatch.kind !== "claimed") throw new Error("dispatch was not claimed");
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      expect(await runEffect(firstRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).toEqual({ kind: "waiting_dispatch" });
+      expect(await readCancellationClaim(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toEqual({
+        claim_owner: null,
+        claim_fence: "0",
+        delivery_state: "waiting_dispatch",
+        delivery_attempt_count: "0",
+      });
+
+      await runEffect(
+        firstRepository.markDispatchDeliveryStarted(dispatch.handle),
+      );
+      const acceptance = success(validateTaskComputeDispatchAcceptanceV1({
+        version: TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+        kind: "accepted",
+        identity: dispatch.prepared.dispatchRequest.identity,
+        execution: {
+          provider: "test-provider",
+          providerVersion: "v1",
+          executionId: "cancellation-execution-1",
+        },
+      }));
+      await runEffect(firstRepository.recordDispatchAcceptance(
+        dispatch.handle,
+        acceptance,
+      ));
+      const first = await runEffect(firstRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (first.kind !== "claimed") {
+        throw new Error("cancellation was not claimed after dispatch acceptance");
+      }
+      expect(first).toMatchObject({
+        deliveryMode: "initial",
+        request: {
+          identity: {
+            runId: fixture.runId,
+            requestedEffectSequence: fixture.dispatchSequence,
+          },
+          execution: acceptance.execution,
+          cancellationGeneration: 1n,
+        },
+      });
+      expect((await runEffect(
+        firstRepository.renewCancellationClaim(first.handle),
+      )).kind).toBe("claim_renewed");
+      expect(await runEffect(
+        firstRepository.releaseCancellationBeforeDelivery(first.handle),
+      )).toEqual({ kind: "claim_released" });
+      expect(await runEffectFailure(
+        firstRepository.renewCancellationClaim(first.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+
+      const secondRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+      );
+      const second = await runEffect(secondRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (second.kind !== "claimed") {
+        throw new Error("released cancellation was not reacquired");
+      }
+      const started = await runEffect(
+        secondRepository.markCancellationDeliveryStarted(second.handle),
+      );
+      expect(started).toMatchObject({
+        kind: "delivery_started",
+        deliveryAttemptCount: 1n,
+      });
+      expect(await runEffectFailure(
+        secondRepository.markCancellationDeliveryStarted(second.handle),
+      )).toBeInstanceOf(TaskComputeDeliveryRepositoryStaleClaimV1Error);
+      expect(await readCancellationClaim(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toEqual({
+        claim_owner: CLAIM_OWNER_B,
+        claim_fence: "2",
+        delivery_state: "delivering",
+        delivery_attempt_count: "1",
+      });
+    });
+  });
+
+  it("records and exactly replays a cancellation receipt without acknowledging Task cancellation", async () => {
+    await withFixture(async (fixture) => {
+      const cancellationRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      await acceptFixtureDispatch(fixture, cancellationRepository);
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const acquired = await runEffect(cancellationRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (acquired.kind !== "claimed") {
+        throw new Error("cancellation was not claimed");
+      }
+      await runEffect(
+        cancellationRepository.markCancellationDeliveryStarted(acquired.handle),
+      );
+      const receipt = cancellationReceipt(acquired.request);
+      expect(await runEffect(cancellationRepository.recordCancellationReceipt(
+        acquired.handle,
+        receipt,
+      ))).toEqual({
+        kind: "cancellation_delivered",
+        receipt,
+        disposition: "current",
+      });
+      expect(await runEffectFailure(
+        cancellationRepository.renewCancellationClaim(acquired.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(await runEffect(cancellationRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).toEqual({
+        kind: "delivered",
+        receipt,
+        disposition: "current",
+      });
+
+      const inspection = await inspectFixtureAttempt(fixture);
+      expect(inspection.state).toMatchObject({
+        phase: "attempt_granted",
+        cancellation: { kind: "requested", generation: 1n },
+      });
+      expect(await readCancellationSettlement(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toMatchObject({
+        delivery_state: "delivered",
+        claim_owner: null,
+        reason_code: null,
+        receipt_codec_version: 1,
+      });
+    });
+  });
+
+  it("settles a started terminal race as cleanup-only without reopening Task authority", async () => {
+    await withFixture(async (fixture) => {
+      const firstRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      await acceptFixtureDispatch(fixture, firstRepository);
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const first = await runEffect(firstRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (first.kind !== "claimed") throw new Error("cancellation was not claimed");
+      await runEffect(
+        firstRepository.markCancellationDeliveryStarted(first.handle),
+      );
+      await fixture.persistence.query(`
+        update fx_system_durable_task_compute_cancellation_v1
+        set claimed_at = clock_timestamp() - interval '2 minutes',
+            claim_expires_at = clock_timestamp() - interval '1 minute'
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, fixture.runId, cancellationSequence]);
+      await acknowledgeFixtureCancellation(fixture);
+
+      const recoveryRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+      );
+      const replay = await runEffect(recoveryRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (replay.kind !== "claimed") {
+        throw new Error("started cancellation race was not recoverable");
+      }
+      expect(replay.deliveryMode).toBe("uncertain_replay");
+      expect((await runEffect(
+        recoveryRepository.markCancellationDeliveryStarted(replay.handle),
+      )).deliveryAttemptCount).toBe(2n);
+      const receipt = cancellationReceipt(replay.request);
+      expect(await runEffect(recoveryRepository.recordCancellationReceipt(
+        replay.handle,
+        receipt,
+      ))).toEqual({
+        kind: "cancellation_delivered",
+        receipt,
+        disposition: "cleanup_only",
+      });
+      expect((await inspectFixtureAttempt(fixture)).state).toMatchObject({
+        phase: "terminal",
+        terminal: { kind: "cancelled", resolution: "acknowledged" },
+      });
+    });
+  });
+
+  it("makes lifecycle supersession dominate waiting, live prestart, and future retry availability", async () => {
+    await withFixture(async (fixture) => {
+      const firstRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      const dispatch = await runEffect(firstRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (dispatch.kind !== "claimed") throw new Error("dispatch was not claimed");
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      expect((await runEffect(firstRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).kind).toBe("waiting_dispatch");
+      await acknowledgeFixtureCancellation(fixture);
+
+      expect(await runEffect(repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+      ).acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).toEqual({
+        kind: "closed",
+        state: "obsolete",
+        reason: "lifecycle_obsolete",
+      });
+    });
+
+    await withFixture(async (fixture) => {
+      const firstRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      await acceptFixtureDispatch(fixture, firstRepository);
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const claimed = await runEffect(firstRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (claimed.kind !== "claimed") throw new Error("cancellation was not claimed");
+      await acknowledgeFixtureCancellation(fixture);
+
+      expect(await runEffect(repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+      ).acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).toEqual({
+        kind: "closed",
+        state: "obsolete",
+        reason: "lifecycle_obsolete",
+      });
+      expect(await runEffectFailure(
+        firstRepository.renewCancellationClaim(claimed.handle),
+      )).toBeInstanceOf(TaskComputeDeliveryRepositoryStaleClaimV1Error);
+    });
+
+    await withFixture(async (fixture) => {
+      const firstRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      await acceptFixtureDispatch(fixture, firstRepository);
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const claimed = await runEffect(firstRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (claimed.kind !== "claimed") throw new Error("cancellation was not claimed");
+      await runEffect(
+        firstRepository.markCancellationDeliveryStarted(claimed.handle),
+      );
+      await runEffect(firstRepository.recordCancellationKnownFailure(
+        claimed.handle,
+        new TaskComputeCancellationTransportError({
+          operation: "request_cancellation",
+          retryable: true,
+          cause: "definite transport failure",
+        }),
+      ));
+      await acknowledgeFixtureCancellation(fixture);
+
+      expect(await runEffect(repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+      ).acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).toEqual({
+        kind: "closed",
+        state: "rejected",
+        reason: "lifecycle_obsolete",
+      });
+      expect(await readCancellationSettlement(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toMatchObject({
+        delivery_state: "rejected",
+        claim_owner: null,
+        reason_code: "lifecycle_obsolete",
+      });
+    });
+  });
+
+  it("records only known cancellation failures and closes at the retry ceiling", async () => {
+    await withFixture(async (fixture) => {
+      const firstRepository = repositoryWithPolicy(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+        2,
+        [1],
+      );
+      await acceptFixtureDispatch(fixture, firstRepository);
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const first = await runEffect(firstRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (first.kind !== "claimed") throw new Error("cancellation was not claimed");
+      await runEffect(
+        firstRepository.markCancellationDeliveryStarted(first.handle),
+      );
+      const uncertain = new TaskComputeCancellationUncertainError({
+        operation: "request_cancellation",
+        identity: first.request.identity,
+        cause: "unknown settlement",
+      });
+      expect(await runEffectFailure(
+        firstRepository.recordCancellationKnownFailure(
+          first.handle,
+          uncertain as unknown as TaskComputeCancellationKnownFailureV1,
+        ),
+      )).toMatchObject({ reason: "invalid_known_failure" });
+      expect((await runEffect(
+        firstRepository.renewCancellationClaim(first.handle),
+      )).kind).toBe("claim_renewed");
+
+      expect(await runEffect(firstRepository.recordCancellationKnownFailure(
+        first.handle,
+        new TaskComputeCancellationRejectedError({
+          operation: "request_cancellation",
+          reason: "execution_not_found",
+          retryable: true,
+        }),
+      ))).toMatchObject({
+        kind: "retry_scheduled",
+        reason: "provider_execution_not_found",
+      });
+      await fixture.persistence.query(`
+        update fx_system_durable_task_compute_cancellation_v1
+        set delivery_started_at = created_at,
+            next_attempt_at = created_at + interval '1 millisecond'
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, fixture.runId, cancellationSequence]);
+
+      const secondRepository = repositoryWithPolicy(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+        2,
+        [1],
+      );
+      const second = await runEffect(secondRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (second.kind !== "claimed") throw new Error("retry was not claimed");
+      expect((await runEffect(
+        secondRepository.markCancellationDeliveryStarted(second.handle),
+      )).deliveryAttemptCount).toBe(2n);
+      expect(await runEffect(secondRepository.recordCancellationKnownFailure(
+        second.handle,
+        new TaskComputeCancellationTransportError({
+          operation: "request_cancellation",
+          retryable: true,
+          cause: Object.freeze({ secret: "must not persist" }),
+        }),
+      ))).toEqual({
+        kind: "cancellation_rejected",
+        reason: "delivery_attempts_exhausted",
+      });
+      expect(await runEffect(secondRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).toEqual({
+        kind: "closed",
+        state: "rejected",
+        reason: "delivery_attempts_exhausted",
+      });
+    });
+  });
+
+  it("replays final-attempt uncertain cancellation beyond the known-failure ceiling", async () => {
+    await withFixture(async (fixture) => {
+      const firstRepository = repositoryWithPolicy(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+        2,
+        [1],
+      );
+      await acceptFixtureDispatch(fixture, firstRepository);
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const first = await runEffect(firstRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (first.kind !== "claimed") throw new Error("cancellation was not claimed");
+      await runEffect(
+        firstRepository.markCancellationDeliveryStarted(first.handle),
+      );
+      await runEffect(firstRepository.recordCancellationKnownFailure(
+        first.handle,
+        new TaskComputeCancellationTransportError({
+          operation: "request_cancellation",
+          retryable: true,
+          cause: "definite transport failure",
+        }),
+      ));
+      await fixture.persistence.query(`
+        update fx_system_durable_task_compute_cancellation_v1
+        set delivery_started_at = created_at,
+            next_attempt_at = created_at + interval '1 millisecond'
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, fixture.runId, cancellationSequence]);
+
+      const secondRepository = repositoryWithPolicy(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+        2,
+        [1],
+      );
+      const second = await runEffect(secondRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (second.kind !== "claimed") throw new Error("retry was not claimed");
+      expect((await runEffect(
+        secondRepository.markCancellationDeliveryStarted(second.handle),
+      )).deliveryAttemptCount).toBe(2n);
+      await fixture.persistence.query(`
+        update fx_system_durable_task_compute_cancellation_v1
+        set claimed_at = clock_timestamp() - interval '2 minutes',
+            claim_expires_at = clock_timestamp() - interval '1 minute'
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, fixture.runId, cancellationSequence]);
+
+      const recoveryRepository = repositoryWithPolicy(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+        2,
+        [1],
+      );
+      const replay = await runEffect(recoveryRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (replay.kind !== "claimed") throw new Error("uncertain replay not claimed");
+      expect(replay.deliveryMode).toBe("uncertain_replay");
+      expect((await runEffect(
+        recoveryRepository.markCancellationDeliveryStarted(replay.handle),
+      )).deliveryAttemptCount).toBe(3n);
+      const receipt = cancellationReceipt(replay.request);
+      expect(await runEffect(recoveryRepository.recordCancellationReceipt(
+        replay.handle,
+        receipt,
+      ))).toMatchObject({ kind: "cancellation_delivered", receipt });
+    });
+  });
 });
+
+async function acceptFixtureDispatch(
+  fixture: Awaited<ReturnType<typeof makeFixture>>,
+  deliveryRepository: TaskComputeDeliveryRepositoryV1,
+) {
+  const acquired = await runEffect(deliveryRepository.acquireDispatch({
+    runId: fixture.runId,
+    requestedEffectSequence: fixture.dispatchSequence,
+  }));
+  if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+  await runEffect(
+    deliveryRepository.markDispatchDeliveryStarted(acquired.handle),
+  );
+  const acceptance = success(validateTaskComputeDispatchAcceptanceV1({
+    version: TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+    kind: "accepted",
+    identity: acquired.prepared.dispatchRequest.identity,
+    execution: {
+      provider: "test-provider",
+      providerVersion: "v1",
+      executionId: "cancellation-execution-1",
+    },
+  }));
+  await runEffect(deliveryRepository.recordDispatchAcceptance(
+    acquired.handle,
+    acceptance,
+  ));
+  return acceptance;
+}
+
+async function requestFixtureCancellation(
+  fixture: Awaited<ReturnType<typeof makeFixture>>,
+) {
+  const result = await runEffect(Effect.gen(function* () {
+    const lifecycle = yield* RunAttemptLifecycle;
+    return yield* lifecycle.requestCancellation({
+      type: "request_cancellation",
+      runId: fixture.runId,
+      reason: { code: "requested", message: null },
+    });
+  }).pipe(Effect.provide(fixture.lifecycleLayer)));
+  const cancellation = result.requestedEffects.find(
+    (item) => item.effect.kind === "request_execution_cancellation",
+  );
+  if (cancellation === undefined) {
+    throw new Error("cancellation effect was not emitted");
+  }
+  return cancellation.sequence;
+}
+
+function inspectFixtureAttempt(
+  fixture: Awaited<ReturnType<typeof makeFixture>>,
+) {
+  return runEffect(Effect.gen(function* () {
+    const lifecycle = yield* RunAttemptLifecycle;
+    return yield* lifecycle.inspectCurrentAttempt({
+      type: "inspect_current_attempt",
+      runId: fixture.runId,
+    });
+  }).pipe(Effect.provide(fixture.lifecycleLayer)));
+}
+
+async function acknowledgeFixtureCancellation(
+  fixture: Awaited<ReturnType<typeof makeFixture>>,
+) {
+  await runEffect(Effect.gen(function* () {
+    const lifecycle = yield* RunAttemptLifecycle;
+    return yield* lifecycle.completeAttempt({
+      type: "complete_attempt",
+      runId: fixture.runId,
+      attemptId: fixture.attemptGrant.attempt.attemptId,
+      executionFence: fixture.attemptGrant.attempt.executionFence,
+      completion: {
+        kind: "cancellation_acknowledged",
+        cancellationGeneration: cancellationGenerationOne,
+        executionDurationMs: null,
+      },
+    });
+  }).pipe(Effect.provide(fixture.lifecycleLayer)));
+}
+
+function cancellationReceipt(
+  request: Extract<
+    TaskComputeCancellationAcquireResultV1,
+    { readonly kind: "claimed" }
+  >["request"],
+) {
+  return success(validateTaskComputeCancellationReceiptV1({
+    version: TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1,
+    kind: "interruption_requested",
+    identity: request.identity,
+    execution: request.execution,
+    cancellationGeneration: request.cancellationGeneration,
+  }));
+}
 
 async function readClaim(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
@@ -785,7 +1434,7 @@ async function readClaim(
   dispatchSequence: bigint,
 ) {
   const stored = await persistence.query<{
-    claim_owner: string;
+    claim_owner: string | null;
     claim_fence: string;
     delivery_state: string;
     delivery_attempt_count: string;
@@ -816,6 +1465,46 @@ async function readSettlement(
     where scope_id = $1 and run_id = $2
       and requested_effect_sequence = $3
   `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+  return stored.rows[0];
+}
+
+async function readCancellationClaim(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  runId: string,
+  cancellationSequence: bigint,
+) {
+  const stored = await persistence.query<{
+    claim_owner: string | null;
+    claim_fence: string;
+    delivery_state: string;
+    delivery_attempt_count: string;
+  }>(`
+    select claim_owner::text, claim_fence::text, delivery_state,
+           delivery_attempt_count::text
+    from fx_system_durable_task_compute_cancellation_v1
+    where scope_id = $1 and run_id = $2
+      and requested_effect_sequence = $3
+  `, [TASK_SCOPE_ID, runId, cancellationSequence]);
+  return stored.rows[0];
+}
+
+async function readCancellationSettlement(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  runId: string,
+  cancellationSequence: bigint,
+) {
+  const stored = await persistence.query<{
+    delivery_state: string;
+    claim_owner: string | null;
+    reason_code: string | null;
+    receipt_codec_version: number | null;
+  }>(`
+    select delivery_state, claim_owner::text, reason_code,
+           receipt_codec_version
+    from fx_system_durable_task_compute_cancellation_v1
+    where scope_id = $1 and run_id = $2
+      and requested_effect_sequence = $3
+  `, [TASK_SCOPE_ID, runId, cancellationSequence]);
   return stored.rows[0];
 }
 
@@ -908,6 +1597,9 @@ async function makeFixture(raw: PGlite) {
     (item) => item.effect.kind === "dispatch_attempt",
   );
   if (dispatch === undefined) throw new Error("dispatch effect was not emitted");
+  if (started.outcome.kind !== "attempt_granted") {
+    throw new Error("attempt was not granted");
+  }
   const deliveryTarget = createLocatedTaskComputeDeliveryTargetV1(
     persistence.drizzle,
     TASK_LOCATOR,
@@ -921,6 +1613,8 @@ async function makeFixture(raw: PGlite) {
     deliveryLocated,
     runId: created.runId,
     dispatchSequence: dispatch.sequence,
+    lifecycleLayer,
+    attemptGrant: started.outcome.grant,
   });
 }
 

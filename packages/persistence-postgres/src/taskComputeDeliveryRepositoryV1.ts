@@ -1,10 +1,17 @@
 import {
   TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
+  TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1,
   TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
+  TaskComputeCancellationRejectedError,
+  TaskComputeCancellationTransportError,
   TaskComputeDispatchRejectedError,
   TaskComputeDispatchTransportError,
+  type TaskComputeCancellationReceiptV1,
+  type TaskComputeCancellationRequestV1,
   type TaskComputeDispatchAcceptanceV1,
   type TaskComputeDispatchRequestV1,
+  validateTaskComputeCancellationReceiptV1,
+  validateTaskComputeCancellationRequestV1,
   validateTaskComputeDispatchAcceptanceV1,
   validateTaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
@@ -41,6 +48,7 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import { getScopeClock } from "./scopeClock";
 import {
   fxSystemDurableTaskComputeDispatchesV1,
+  fxSystemDurableTaskComputeCancellationsV1,
   fxSystemDurableTaskDefinitionRevisionsV1,
   fxSystemDurableTaskRequestedEffectsV1,
   fxSystemDurableTaskRunsV1,
@@ -55,9 +63,15 @@ import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import {
   decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
   decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
+  decodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1,
+  decodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1,
   decodeTaskComputeProfileStorageBytesV1,
   encodeTaskComputeDispatchAcceptanceCanonicalBytesV1,
   encodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
+  encodeTaskComputeCancellationReceiptCanonicalBytesV1,
+  encodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1,
+  encodeTaskComputeCancellationRequestCanonicalBytesV1,
+  encodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1,
   encodeTaskComputeDispatchRequestCanonicalBytesV1,
   encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   encodeTaskComputeProfileStorageBytesV1,
@@ -65,6 +79,7 @@ import {
   TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
   TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
   TaskComputeDeliveryEvidenceV1Error,
+  type TaskComputeDeliveryEvidenceV1,
   type TaskComputePreparedExecutionV1,
 } from "./taskComputeDeliveryEvidenceV1";
 import {
@@ -103,6 +118,8 @@ const decodeReplacementScopeIdResult = Schema.decodeUnknownResult(
 
 type DispatchRow =
   typeof fxSystemDurableTaskComputeDispatchesV1.$inferSelect;
+type CancellationRow =
+  typeof fxSystemDurableTaskComputeCancellationsV1.$inferSelect;
 type DefinitionRow =
   typeof fxSystemDurableTaskDefinitionRevisionsV1.$inferSelect;
 type RequestedEffectRow =
@@ -135,10 +152,16 @@ export type TaskComputeDeliveryRepositoryOperationV1 =
   | "renew_dispatch_claim"
   | "release_dispatch_before_delivery"
   | "record_dispatch_acceptance"
-  | "record_dispatch_known_failure";
+  | "record_dispatch_known_failure"
+  | "acquire_cancellation"
+  | "mark_cancellation_delivery_started"
+  | "renew_cancellation_claim"
+  | "release_cancellation_before_delivery"
+  | "record_cancellation_receipt"
+  | "record_cancellation_known_failure";
 type TaskComputeDeliveryRepositoryHandleOperationV1 = Exclude<
   TaskComputeDeliveryRepositoryOperationV1,
-  "acquire_dispatch"
+  "acquire_dispatch" | "acquire_cancellation"
 >;
 interface TaskComputeDeliveryRepositoryEvidenceOperationByOperationV1 {
   readonly acquire_dispatch:
@@ -153,6 +176,34 @@ interface TaskComputeDeliveryRepositoryEvidenceOperationByOperationV1 {
     | "encode_dispatch_acceptance"
     | "decode_dispatch_acceptance";
   readonly record_dispatch_known_failure: "decode_dispatch_request";
+  readonly acquire_cancellation:
+    | "decode_dispatch_request"
+    | "decode_dispatch_acceptance"
+    | "encode_cancellation_request"
+    | "decode_cancellation_request"
+    | "decode_cancellation_receipt";
+  readonly mark_cancellation_delivery_started:
+    | "decode_dispatch_request"
+    | "decode_dispatch_acceptance"
+    | "decode_cancellation_request";
+  readonly renew_cancellation_claim:
+    | "decode_dispatch_request"
+    | "decode_dispatch_acceptance"
+    | "decode_cancellation_request";
+  readonly release_cancellation_before_delivery:
+    | "decode_dispatch_request"
+    | "decode_dispatch_acceptance"
+    | "decode_cancellation_request";
+  readonly record_cancellation_receipt:
+    | "decode_dispatch_request"
+    | "decode_dispatch_acceptance"
+    | "decode_cancellation_request"
+    | "encode_cancellation_receipt"
+    | "decode_cancellation_receipt";
+  readonly record_cancellation_known_failure:
+    | "decode_dispatch_request"
+    | "decode_dispatch_acceptance"
+    | "decode_cancellation_request";
 }
 interface TaskComputeDeliveryRepositoryInputReasonByOperationV1 {
   readonly acquire_dispatch: "invalid_request" | "claim_owner_invalid";
@@ -169,6 +220,23 @@ interface TaskComputeDeliveryRepositoryInputReasonByOperationV1 {
     | "closed_handle"
     | "invalid_known_failure"
     | "known_failure_correlation_mismatch";
+  readonly acquire_cancellation: "invalid_request" | "claim_owner_invalid";
+  readonly mark_cancellation_delivery_started:
+    | "invalid_handle"
+    | "closed_handle";
+  readonly renew_cancellation_claim: "invalid_handle" | "closed_handle";
+  readonly release_cancellation_before_delivery:
+    | "invalid_handle"
+    | "closed_handle";
+  readonly record_cancellation_receipt:
+    | "invalid_handle"
+    | "closed_handle"
+    | "invalid_receipt"
+    | "receipt_correlation_mismatch";
+  readonly record_cancellation_known_failure:
+    | "invalid_handle"
+    | "closed_handle"
+    | "invalid_known_failure";
 }
 interface TaskComputeDeliveryRepositoryStaleErrorByOperationV1 {
   readonly acquire_dispatch: never;
@@ -190,6 +258,25 @@ interface TaskComputeDeliveryRepositoryStaleErrorByOperationV1 {
     TaskComputeDeliveryRepositoryStaleClaimV1Error<
       "record_dispatch_known_failure"
     >;
+  readonly acquire_cancellation: never;
+  readonly mark_cancellation_delivery_started:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "mark_cancellation_delivery_started"
+    >;
+  readonly renew_cancellation_claim:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<"renew_cancellation_claim">;
+  readonly release_cancellation_before_delivery:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "release_cancellation_before_delivery"
+    >;
+  readonly record_cancellation_receipt:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "record_cancellation_receipt"
+    >;
+  readonly record_cancellation_known_failure:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "record_cancellation_known_failure"
+    >;
 }
 interface TaskComputeDeliveryRepositoryResourceErrorByOperationV1 {
   readonly acquire_dispatch:
@@ -202,6 +289,18 @@ interface TaskComputeDeliveryRepositoryResourceErrorByOperationV1 {
   readonly release_dispatch_before_delivery: never;
   readonly record_dispatch_acceptance: never;
   readonly record_dispatch_known_failure: never;
+  readonly acquire_cancellation:
+    TaskComputeDeliveryRepositoryResourceExhaustedV1Error<
+      "acquire_cancellation"
+    >;
+  readonly mark_cancellation_delivery_started:
+    TaskComputeDeliveryRepositoryResourceExhaustedV1Error<
+      "mark_cancellation_delivery_started"
+    >;
+  readonly renew_cancellation_claim: never;
+  readonly release_cancellation_before_delivery: never;
+  readonly record_cancellation_receipt: never;
+  readonly record_cancellation_known_failure: never;
 }
 type TaskComputeDeliveryRepositoryEvidenceOperationV1<
   Operation extends TaskComputeDeliveryRepositoryOperationV1,
@@ -291,15 +390,23 @@ export class TaskComputeDeliveryRepositoryCorruptionV1Error<
   }> {}
 
 export class TaskComputeDeliveryRepositoryResourceExhaustedV1Error<
-  Operation extends "acquire_dispatch" | "mark_dispatch_delivery_started" =
-    "acquire_dispatch" | "mark_dispatch_delivery_started",
+  Operation extends
+    | "acquire_dispatch"
+    | "mark_dispatch_delivery_started"
+    | "acquire_cancellation"
+    | "mark_cancellation_delivery_started" =
+      | "acquire_dispatch"
+      | "mark_dispatch_delivery_started"
+      | "acquire_cancellation"
+      | "mark_cancellation_delivery_started",
 >
   extends Data.TaggedError(
     "TaskComputeDeliveryRepositoryResourceExhaustedV1Error",
   )<{
     readonly operation: Operation;
     readonly runId: TaskRunIdV1;
-    readonly dimension: Operation extends "acquire_dispatch"
+    readonly dimension: Operation extends
+      "acquire_dispatch" | "acquire_cancellation"
       ? "claim_fence"
       : "delivery_attempt_count";
     readonly observed: bigint;
@@ -389,6 +496,13 @@ export interface TaskComputeDispatchClaimHandleV1 {
   readonly [TASK_COMPUTE_DISPATCH_CLAIM_HANDLE_V1]: true;
 }
 
+const TASK_COMPUTE_CANCELLATION_CLAIM_HANDLE_V1: unique symbol = Symbol(
+  "FlarexDB/taskComputeCancellationClaimHandleV1",
+);
+export interface TaskComputeCancellationClaimHandleV1 {
+  readonly [TASK_COMPUTE_CANCELLATION_CLAIM_HANDLE_V1]: true;
+}
+
 export interface TaskComputeDispatchAcquireRequestV1 {
   readonly runId: TaskRunIdV1;
   readonly requestedEffectSequence: TaskRequestedEffectSequenceV1;
@@ -463,6 +577,79 @@ export type TaskComputeDispatchKnownFailureRecordedV1 =
       >;
     }>;
 
+export type TaskComputeCancellationClosedReasonV1 =
+  | "lifecycle_obsolete"
+  | "checkpoint_corrupt"
+  | "provider_disabled"
+  | "provider_execution_not_found"
+  | "provider_execution_mismatch"
+  | "provider_transport"
+  | "delivery_attempts_exhausted";
+
+export type TaskComputeCancellationAcquireResultV1 =
+  | Readonly<{
+      readonly kind: "claimed";
+      readonly request: TaskComputeCancellationRequestV1;
+      readonly handle: TaskComputeCancellationClaimHandleV1;
+      readonly deliveryMode: TaskComputeDeliveryModeV1;
+      readonly claimExpiresAt: Date;
+    }>
+  | Readonly<{ readonly kind: "waiting_dispatch" }>
+  | Readonly<{ readonly kind: "busy"; readonly claimExpiresAt: Date }>
+  | Readonly<{ readonly kind: "not_due"; readonly nextAttemptAt: Date }>
+  | Readonly<{
+      readonly kind: "delivered";
+      readonly receipt: TaskComputeCancellationReceiptV1;
+      readonly disposition: TaskComputeDeliveryLifecycleDispositionV1;
+    }>
+  | Readonly<{
+      readonly kind: "closed";
+      readonly state: TaskComputeDispatchClosedStateV1;
+      readonly reason: TaskComputeCancellationClosedReasonV1;
+    }>;
+
+export interface TaskComputeCancellationDeliveryStartedV1 {
+  readonly kind: "delivery_started";
+  readonly deliveryAttemptCount: bigint;
+  readonly deliveryStartedAt: Date;
+}
+
+export interface TaskComputeCancellationClaimRenewedV1 {
+  readonly kind: "claim_renewed";
+  readonly claimExpiresAt: Date;
+}
+
+export interface TaskComputeCancellationClaimReleasedV1 {
+  readonly kind: "claim_released";
+}
+
+export interface TaskComputeCancellationReceiptRecordedV1 {
+  readonly kind: "cancellation_delivered";
+  readonly receipt: TaskComputeCancellationReceiptV1;
+  readonly disposition: TaskComputeDeliveryLifecycleDispositionV1;
+}
+
+export type TaskComputeCancellationKnownFailureV1 =
+  | TaskComputeCancellationRejectedError
+  | TaskComputeCancellationTransportError;
+
+export type TaskComputeCancellationKnownFailureRecordedV1 =
+  | Readonly<{
+      readonly kind: "retry_scheduled";
+      readonly reason: Exclude<
+        TaskComputeCancellationClosedReasonV1,
+        "lifecycle_obsolete" | "checkpoint_corrupt" | "delivery_attempts_exhausted"
+      >;
+      readonly nextAttemptAt: Date;
+    }>
+  | Readonly<{
+      readonly kind: "cancellation_rejected";
+      readonly reason: Exclude<
+        TaskComputeCancellationClosedReasonV1,
+        "lifecycle_obsolete" | "checkpoint_corrupt"
+      >;
+    }>;
+
 export interface TaskComputeDeliveryRepositoryV1 {
   readonly acquireDispatch: (
     request: TaskComputeDispatchAcquireRequestV1,
@@ -501,6 +688,44 @@ export interface TaskComputeDeliveryRepositoryV1 {
   ) => Effect.Effect<
     TaskComputeDispatchKnownFailureRecordedV1,
     TaskComputeDeliveryRepositoryErrorV1<"record_dispatch_known_failure">
+  >;
+  readonly acquireCancellation: (
+    request: TaskComputeDispatchAcquireRequestV1,
+  ) => Effect.Effect<
+    TaskComputeCancellationAcquireResultV1,
+    TaskComputeDeliveryRepositoryErrorV1<"acquire_cancellation">
+  >;
+  readonly markCancellationDeliveryStarted: (
+    handle: TaskComputeCancellationClaimHandleV1,
+  ) => Effect.Effect<
+    TaskComputeCancellationDeliveryStartedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"mark_cancellation_delivery_started">
+  >;
+  readonly renewCancellationClaim: (
+    handle: TaskComputeCancellationClaimHandleV1,
+  ) => Effect.Effect<
+    TaskComputeCancellationClaimRenewedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"renew_cancellation_claim">
+  >;
+  readonly releaseCancellationBeforeDelivery: (
+    handle: TaskComputeCancellationClaimHandleV1,
+  ) => Effect.Effect<
+    TaskComputeCancellationClaimReleasedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"release_cancellation_before_delivery">
+  >;
+  readonly recordCancellationReceipt: (
+    handle: TaskComputeCancellationClaimHandleV1,
+    receipt: TaskComputeCancellationReceiptV1,
+  ) => Effect.Effect<
+    TaskComputeCancellationReceiptRecordedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"record_cancellation_receipt">
+  >;
+  readonly recordCancellationKnownFailure: (
+    handle: TaskComputeCancellationClaimHandleV1,
+    failure: TaskComputeCancellationKnownFailureV1,
+  ) => Effect.Effect<
+    TaskComputeCancellationKnownFailureRecordedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"record_cancellation_known_failure">
   >;
 }
 
@@ -543,8 +768,22 @@ type CapturedKnownDispatchFailureV1 =
       readonly retryable: boolean;
     }>;
 
+type CapturedKnownCancellationFailureV1 =
+  | Readonly<{
+      readonly kind: "rejected";
+      readonly reason:
+        | "provider_disabled"
+        | "execution_not_found"
+        | "execution_mismatch";
+      readonly retryable: boolean;
+    }>
+  | Readonly<{
+      readonly kind: "transport";
+      readonly retryable: boolean;
+    }>;
+
 interface MutableHandleStateV1 {
-  readonly operation: "dispatch";
+  readonly operation: "dispatch" | "cancellation";
   readonly runId: TaskRunIdV1;
   readonly requestedEffectSequence: TaskRequestedEffectSequenceV1;
   readonly claimOwner: string;
@@ -566,6 +805,23 @@ interface TransactionClaimedV1 {
 type TransactionAcquireResultV1 =
   | TransactionClaimedV1
   | Exclude<TaskComputeDispatchAcquireResultV1, { readonly kind: "claimed" }>;
+
+interface TransactionCancellationClaimedV1 {
+  readonly kind: "claimed";
+  readonly request: TaskComputeCancellationRequestV1;
+  readonly deliveryMode: TaskComputeDeliveryModeV1;
+  readonly claimOwner: string;
+  readonly claimFence: bigint;
+  readonly claimExpiresAt: Date;
+  readonly requestedEffectSequence: TaskRequestedEffectSequenceV1;
+}
+
+type TransactionCancellationAcquireResultV1 =
+  | TransactionCancellationClaimedV1
+  | Exclude<
+      TaskComputeCancellationAcquireResultV1,
+      { readonly kind: "claimed" }
+    >;
 
 export function createLocatedTaskComputeDeliveryTargetV1(
   db: FlarexMetadataDatabase,
@@ -610,12 +866,19 @@ function makeRepository(
   configuration: CapturedConfigurationV1,
 ): TaskComputeDeliveryRepositoryV1 {
   const handles = new WeakMap<object, MutableHandleStateV1>();
+  const cancellationHandles = new WeakMap<object, MutableHandleStateV1>();
 
   const acquireDispatch: TaskComputeDeliveryRepositoryV1["acquireDispatch"] =
     Effect.fn("TaskComputeDeliveryRepository.acquireDispatch")(
       function* (request) {
-        const captured = yield* Effect.fromResult(captureAcquireRequest(request));
-        const claimOwner = yield* allocateClaimOwner(configuration.randomUuid);
+        const captured = yield* Effect.fromResult(captureAcquireRequest(
+          request,
+          "acquire_dispatch",
+        ));
+        const claimOwner = yield* allocateClaimOwner(
+          "acquire_dispatch",
+          configuration.randomUuid,
+        );
         for (let execution = 1; execution <= 2; execution += 1) {
           const transaction = target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
             acquireDispatchTransaction(
@@ -823,6 +1086,225 @@ function makeRepository(
     },
   );
 
+  const acquireCancellation: TaskComputeDeliveryRepositoryV1[
+    "acquireCancellation"
+  ] = Effect.fn("TaskComputeDeliveryRepository.acquireCancellation")(
+    function* (request) {
+      const captured = yield* Effect.fromResult(captureAcquireRequest(
+        request,
+        "acquire_cancellation",
+      ));
+      const claimOwner = yield* allocateClaimOwner(
+        "acquire_cancellation",
+        configuration.randomUuid,
+      );
+      for (let execution = 1; execution <= 2; execution += 1) {
+        const transaction = target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+          acquireCancellationTransaction(
+            tx,
+            authority,
+            replacementScopeId,
+            target,
+            configuration,
+            captured,
+            claimOwner,
+          )
+        );
+        const settled = yield* Effect.exit(awaitSettlement(transaction));
+        if (Exit.isSuccess(settled)) {
+          return settled.value.kind === "claimed"
+            ? mintCancellationClaim(cancellationHandles, settled.value)
+            : captureCancellationAcquireOutcome(settled.value);
+        }
+        const failure = Cause.findError(settled.cause);
+        if (Result.isFailure(failure)) {
+          return yield* Effect.failCause(failure.failure);
+        }
+        const classified = classifyTransactionFailure(
+          "acquire_cancellation",
+          failure.success,
+          execution,
+        );
+        if (classified.kind === "retry") continue;
+        if (classified.kind === "failure") return yield* classified.error;
+        return yield* Effect.die(classified.cause);
+      }
+      return yield* new TaskComputeDeliveryRepositoryConfirmedRollbackV1Error({
+        operation: "acquire_cancellation",
+        cause: new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+          kind: "callbackRolledBack",
+          callbackCause: "retry_exhausted",
+        })),
+      });
+    },
+  );
+
+  const markCancellationDeliveryStarted: TaskComputeDeliveryRepositoryV1[
+    "markCancellationDeliveryStarted"
+  ] = Effect.fn("TaskComputeDeliveryRepository.markCancellationDeliveryStarted")(
+    (handle) => withHandleOperation(
+      cancellationHandles,
+      handle,
+      "mark_cancellation_delivery_started",
+      (state) => state.phase === "delivering"
+        ? Effect.fail(staleClaim(
+            "mark_cancellation_delivery_started",
+            state.runId,
+            "state_mismatch",
+          ))
+        : runClaimOperation(
+            state,
+            "mark_cancellation_delivery_started",
+            () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+              markCancellationDeliveryStartedTransaction(
+                tx,
+                authority,
+                replacementScopeId,
+                target,
+                configuration,
+                state,
+              )
+            ),
+          ).pipe(
+            Effect.tap(() => Effect.sync(() => {
+              state.phase = "delivering";
+            })),
+          ),
+    ),
+  );
+
+  const renewCancellationClaim: TaskComputeDeliveryRepositoryV1[
+    "renewCancellationClaim"
+  ] = Effect.fn("TaskComputeDeliveryRepository.renewCancellationClaim")(
+    (handle) => withHandleOperation(
+      cancellationHandles,
+      handle,
+      "renew_cancellation_claim",
+      (state) => runClaimOperation(
+        state,
+        "renew_cancellation_claim",
+        () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+          renewCancellationClaimTransaction(
+            tx,
+            authority,
+            replacementScopeId,
+            target,
+            configuration,
+            state,
+          )
+        ),
+      ),
+    ),
+  );
+
+  const releaseCancellationBeforeDelivery: TaskComputeDeliveryRepositoryV1[
+    "releaseCancellationBeforeDelivery"
+  ] = Effect.fn("TaskComputeDeliveryRepository.releaseCancellationBeforeDelivery")(
+    (handle) => withHandleOperation(
+      cancellationHandles,
+      handle,
+      "release_cancellation_before_delivery",
+      (state) => state.phase === "delivering"
+        ? Effect.fail(staleClaim(
+            "release_cancellation_before_delivery",
+            state.runId,
+            "state_mismatch",
+          ))
+        : runClaimOperation(
+            state,
+            "release_cancellation_before_delivery",
+            () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+              releaseCancellationBeforeDeliveryTransaction(
+                tx,
+                authority,
+                replacementScopeId,
+                target,
+                configuration,
+                state,
+              )
+            ),
+          ).pipe(
+            Effect.tap(() => Effect.sync(() => closeHandle(state))),
+          ),
+    ),
+  );
+
+  const recordCancellationReceipt: TaskComputeDeliveryRepositoryV1[
+    "recordCancellationReceipt"
+  ] = Effect.fn("TaskComputeDeliveryRepository.recordCancellationReceipt")(
+    function* (handle, receipt) {
+      const captured = yield* Effect.fromResult(
+        captureCancellationReceipt(receipt),
+      );
+      return yield* withHandleOperation(
+        cancellationHandles,
+        handle,
+        "record_cancellation_receipt",
+        (state) => state.phase !== "delivering"
+          ? Effect.fail(staleClaim(
+              "record_cancellation_receipt",
+              state.runId,
+              "state_mismatch",
+            ))
+          : runClaimOperation(
+              state,
+              "record_cancellation_receipt",
+              () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+                recordCancellationReceiptTransaction(
+                  tx,
+                  authority,
+                  replacementScopeId,
+                  target,
+                  configuration,
+                  state,
+                  captured,
+                )
+              ),
+            ).pipe(
+              Effect.tap(() => Effect.sync(() => closeHandle(state))),
+            ),
+      );
+    },
+  );
+
+  const recordCancellationKnownFailure: TaskComputeDeliveryRepositoryV1[
+    "recordCancellationKnownFailure"
+  ] = Effect.fn("TaskComputeDeliveryRepository.recordCancellationKnownFailure")(
+    function* (handle, failure) {
+      const captured = yield* Effect.fromResult(
+        captureKnownCancellationFailure(failure),
+      );
+      return yield* withHandleOperation(
+        cancellationHandles,
+        handle,
+        "record_cancellation_known_failure",
+        (state) => state.phase !== "delivering"
+          ? Effect.fail(staleClaim(
+              "record_cancellation_known_failure",
+              state.runId,
+              "state_mismatch",
+            ))
+          : runClaimOperation(
+              state,
+              "record_cancellation_known_failure",
+              () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+                recordCancellationKnownFailureTransaction(
+                  tx,
+                  authority,
+                  replacementScopeId,
+                  target,
+                  configuration,
+                  state,
+                  captured,
+                )
+              ),
+            ).pipe(
+              Effect.tap(() => Effect.sync(() => closeHandle(state))),
+            ),
+      );
+    },
+  );
+
   return Object.freeze({
     acquireDispatch,
     markDispatchDeliveryStarted,
@@ -830,6 +1312,12 @@ function makeRepository(
     releaseDispatchBeforeDelivery,
     recordDispatchAcceptance,
     recordDispatchKnownFailure,
+    acquireCancellation,
+    markCancellationDeliveryStarted,
+    renewCancellationClaim,
+    releaseCancellationBeforeDelivery,
+    recordCancellationReceipt,
+    recordCancellationKnownFailure,
   });
 }
 
@@ -1498,6 +1986,855 @@ async function recordDispatchKnownFailureTransaction(
   return Object.freeze({ kind: "dispatch_rejected", reason: terminalReason });
 }
 
+async function acquireCancellationTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  request: CapturedAcquireRequestV1,
+  claimOwner: string,
+): Promise<TransactionCancellationAcquireResultV1> {
+  const operation = "acquire_cancellation" as const;
+  await statement(operation, () => requireLockedTaskSystemScopeAuthorityV1(
+    tx,
+    authority,
+    target,
+    (mismatch) => rollback(new TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error({
+      operation,
+      runId: request.runId,
+      authority: mismatch,
+    })),
+  ));
+  const runRows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskRunsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRunsV1.scopeId, authority.scopeId),
+    eq(fxSystemDurableTaskRunsV1.runId, request.runId),
+  )).limit(1).for("update"));
+  const runRow = runRows[0];
+  if (runRow === undefined) {
+    throw rollback(new TaskComputeDeliveryRepositoryUnavailableV1Error({
+      operation,
+      runId: request.runId,
+      reason: "run_unavailable",
+    }));
+  }
+  const aggregate = decodeRun(runRow, operation, request.runId);
+  await statement(operation, () => correlateTaskSystemLifecycleLedgerV1(
+    tx,
+    authority.scopeId,
+    request.runId,
+    aggregate,
+    (reason) => rollback(corruption(operation, request.runId, reason)),
+  ));
+  const cancellationEffect = decodeCancellationEffect(
+    await loadRequestedEffect(
+      tx,
+      authority.scopeId,
+      request,
+      operation,
+    ),
+    request,
+    operation,
+  );
+  const dispatchEffect = await loadLinkedDispatchEffect(
+    tx,
+    authority.scopeId,
+    cancellationEffect,
+    operation,
+  );
+  await loadImmutablePreparation(
+    tx,
+    authority.scopeId,
+    runRow,
+    dispatchEffect,
+    operation,
+  );
+  const expectedDispatchRequest = buildDispatchRequest(
+    replacementScopeId,
+    aggregate,
+    dispatchEffect,
+    operation,
+  );
+  const lifecycleCurrent = cancellationLifecycleIsCurrent(
+    aggregate,
+    cancellationEffect,
+  );
+  const dispatchCheckpoint = await loadDispatchCheckpoint(
+    tx,
+    authority.scopeId,
+    Object.freeze({
+      runId: request.runId,
+      requestedEffectSequence: dispatchEffect.sequence,
+    }),
+    operation,
+  );
+  if (dispatchCheckpoint === null) {
+    return lifecycleCurrent
+      ? Object.freeze({ kind: "waiting_dispatch" })
+      : lifecycleObsoleteCancellationResult();
+  }
+  const storedDispatchRequest = await decodeAndCorrelateDispatchCheckpoint(
+    dispatchCheckpoint,
+    expectedDispatchRequest,
+    dispatchEffect.effect.acceptedRunVersion,
+    operation,
+    request.runId,
+  );
+  const acceptance = dispatchCheckpoint.deliveryState === "accepted"
+    ? await decodeStoredAcceptance(dispatchCheckpoint, operation, request.runId)
+    : null;
+  if (
+    acceptance !== null
+    && !taskSystemPersistedValueEqualV1(
+      acceptance.identity,
+      storedDispatchRequest.identity,
+    )
+  ) throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+  const expectedCancellationRequest = acceptance === null
+    ? null
+    : buildCancellationRequest(
+        cancellationEffect,
+        acceptance,
+        operation,
+      );
+  const databaseTime = await readDatabaseTime(
+    tx,
+    authority.scopeId,
+    configuration.claimDurationMilliseconds,
+    operation,
+    request.runId,
+  );
+  let checkpoint = await loadCancellationCheckpoint(
+    tx,
+    authority.scopeId,
+    request,
+    operation,
+  );
+  if (checkpoint === null) {
+    if (acceptance === null) {
+      const inserted = await statement(operation, () => tx.insert(
+        fxSystemDurableTaskComputeCancellationsV1,
+      ).values({
+        scopeId: authority.scopeId,
+        runId: request.runId,
+        requestedEffectSequence: request.requestedEffectSequence,
+        acceptedRunVersion: cancellationEffect.effect.acceptedRunVersion,
+        dispatchRequestedEffectSequence: dispatchEffect.sequence,
+        attemptId: cancellationEffect.effect.attemptId,
+        executionFence: cancellationEffect.effect.executionFence,
+        cancellationGeneration:
+          cancellationEffect.effect.cancellationGeneration,
+        deliveryState: lifecycleCurrent ? "waiting_dispatch" : "obsolete",
+        claimFence: 0n,
+        deliveryAttemptCount: 0n,
+        reasonCode: lifecycleCurrent ? null : "lifecycle_obsolete",
+        settledAt: lifecycleCurrent ? null : databaseTime.now,
+        createdAt: databaseTime.now,
+        updatedAt: databaseTime.now,
+      }).returning());
+      if (inserted[0] === undefined) {
+        throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+      }
+      return lifecycleCurrent
+        ? Object.freeze({ kind: "waiting_dispatch" })
+        : cancellationClosedResult(inserted[0], operation, request.runId);
+    }
+    if (expectedCancellationRequest === null) {
+      throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+    }
+    const evidence = await encodeCancellationRequestEvidence(
+      expectedCancellationRequest,
+      operation,
+      request.runId,
+    );
+    const inserted = await statement(operation, () => tx.insert(
+      fxSystemDurableTaskComputeCancellationsV1,
+    ).values({
+      scopeId: authority.scopeId,
+      runId: request.runId,
+      requestedEffectSequence: request.requestedEffectSequence,
+      acceptedRunVersion: cancellationEffect.effect.acceptedRunVersion,
+      dispatchRequestedEffectSequence: dispatchEffect.sequence,
+      attemptId: cancellationEffect.effect.attemptId,
+      executionFence: cancellationEffect.effect.executionFence,
+      cancellationGeneration: cancellationEffect.effect.cancellationGeneration,
+      requestCodecVersion: evidence.codecVersion,
+      requestByteLength: BigInt(evidence.byteLength),
+      requestSha256: evidence.sha256,
+      requestBytes: evidence.canonicalBytes,
+      deliveryState: lifecycleCurrent ? "prepared" : "obsolete",
+      claimOwner: lifecycleCurrent ? claimOwner : null,
+      claimFence: lifecycleCurrent ? 1n : 0n,
+      claimedAt: lifecycleCurrent ? databaseTime.now : null,
+      claimExpiresAt: lifecycleCurrent ? databaseTime.claimExpiresAt : null,
+      deliveryAttemptCount: 0n,
+      reasonCode: lifecycleCurrent ? null : "lifecycle_obsolete",
+      settledAt: lifecycleCurrent ? null : databaseTime.now,
+      createdAt: databaseTime.now,
+      updatedAt: databaseTime.now,
+    }).returning());
+    checkpoint = inserted[0] ?? null;
+    if (checkpoint === null) {
+      throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+    }
+    return lifecycleCurrent
+      ? claimedCancellationTransactionResult(
+          checkpoint,
+          expectedCancellationRequest,
+          "initial",
+          claimOwner,
+          databaseTime.claimExpiresAt,
+          operation,
+        )
+      : cancellationClosedResult(checkpoint, operation, request.runId);
+  }
+  const storedCancellationRequest = await decodeAndCorrelateCancellationCheckpoint(
+    checkpoint,
+    cancellationEffect,
+    dispatchEffect.sequence,
+    expectedCancellationRequest,
+    operation,
+    request.runId,
+  );
+  if (checkpoint.deliveryState === "delivered") {
+    if (storedCancellationRequest === null) {
+      throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+    }
+    const receipt = await decodeStoredCancellationReceipt(
+      checkpoint,
+      operation,
+      request.runId,
+    );
+    if (!cancellationReceiptMatchesRequest(receipt, storedCancellationRequest)) {
+      throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+    }
+    return Object.freeze({
+      kind: "delivered",
+      receipt,
+      disposition: lifecycleCurrent ? "current" : "cleanup_only",
+    });
+  }
+  if (
+    checkpoint.deliveryState === "rejected"
+    || checkpoint.deliveryState === "obsolete"
+    || checkpoint.deliveryState === "quarantined"
+  ) return cancellationClosedResult(checkpoint, operation, request.runId);
+  if (!lifecycleCurrent && checkpoint.deliveryState !== "delivering") {
+    return settleLifecycleObsoleteCancellationCheckpoint(
+      tx,
+      authority.scopeId,
+      request,
+      checkpoint,
+      databaseTime.now,
+      operation,
+    );
+  }
+  if (
+    checkpoint.claimOwner !== null
+    && checkpoint.claimExpiresAt !== null
+    && checkpoint.claimExpiresAt.getTime() > databaseTime.now.getTime()
+  ) {
+    return Object.freeze({
+      kind: "busy",
+      claimExpiresAt: ownedDate(
+        checkpoint.claimExpiresAt,
+        operation,
+        request.runId,
+      ),
+    });
+  }
+  if (checkpoint.deliveryState === "waiting_dispatch") {
+    if (expectedCancellationRequest === null) {
+      return Object.freeze({ kind: "waiting_dispatch" });
+    }
+    const evidence = await encodeCancellationRequestEvidence(
+      expectedCancellationRequest,
+      operation,
+      request.runId,
+    );
+    const prepared = await statement(operation, () => tx.update(
+      fxSystemDurableTaskComputeCancellationsV1,
+    ).set({
+      requestCodecVersion: evidence.codecVersion,
+      requestByteLength: BigInt(evidence.byteLength),
+      requestSha256: evidence.sha256,
+      requestBytes: evidence.canonicalBytes,
+      deliveryState: "prepared",
+      claimOwner,
+      claimFence: 1n,
+      claimedAt: databaseTime.now,
+      claimExpiresAt: databaseTime.claimExpiresAt,
+      updatedAt: databaseTime.now,
+    }).where(cancellationPrimaryKey(authority.scopeId, request)).returning());
+    if (prepared[0] === undefined) {
+      throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+    }
+    return claimedCancellationTransactionResult(
+      prepared[0],
+      expectedCancellationRequest,
+      "initial",
+      claimOwner,
+      databaseTime.claimExpiresAt,
+      operation,
+    );
+  }
+  if (storedCancellationRequest === null) {
+    throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+  }
+  if (
+    checkpoint.deliveryState === "retry_wait"
+    && checkpoint.nextAttemptAt !== null
+    && checkpoint.nextAttemptAt.getTime() > databaseTime.now.getTime()
+  ) {
+    return Object.freeze({
+      kind: "not_due",
+      nextAttemptAt: ownedDate(
+        checkpoint.nextAttemptAt,
+        operation,
+        request.runId,
+      ),
+    });
+  }
+  if (checkpoint.claimFence >= POSTGRES_SIGNED_BIGINT_MAX) {
+    throw rollback(new TaskComputeDeliveryRepositoryResourceExhaustedV1Error({
+      operation,
+      runId: request.runId,
+      dimension: "claim_fence",
+      observed: checkpoint.claimFence,
+      maximum: POSTGRES_SIGNED_BIGINT_MAX,
+    }));
+  }
+  const deliveryMode: TaskComputeDeliveryModeV1 =
+    checkpoint.deliveryState === "delivering"
+      ? "uncertain_replay"
+      : checkpoint.deliveryState === "retry_wait"
+      ? "retry"
+      : "initial";
+  const claimed = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    claimOwner,
+    claimFence: checkpoint.claimFence + 1n,
+    claimedAt: databaseTime.now,
+    claimExpiresAt: databaseTime.claimExpiresAt,
+    updatedAt: databaseTime.now,
+  }).where(cancellationPrimaryKey(authority.scopeId, request)).returning());
+  if (claimed[0] === undefined) {
+    throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+  }
+  return claimedCancellationTransactionResult(
+    claimed[0],
+    storedCancellationRequest,
+    deliveryMode,
+    claimOwner,
+    databaseTime.claimExpiresAt,
+    operation,
+  );
+}
+
+interface CorrelatedCancellationHandleContextV1 {
+  readonly checkpoint: CancellationRow;
+  readonly request: TaskComputeCancellationRequestV1;
+  readonly databaseTime: Readonly<{
+    readonly now: Date;
+    readonly claimExpiresAt: Date;
+  }>;
+  readonly lifecycleCurrent: boolean;
+}
+
+async function markCancellationDeliveryStartedTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+): Promise<TaskComputeCancellationDeliveryStartedV1> {
+  const operation = "mark_cancellation_delivery_started" as const;
+  const context = await loadCorrelatedCancellationHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentCancellationClaim(context, state, operation);
+  if (
+    context.checkpoint.deliveryState !== "prepared"
+    && context.checkpoint.deliveryState !== "retry_wait"
+    && context.checkpoint.deliveryState !== "delivering"
+  ) throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  if (
+    context.checkpoint.deliveryState !== "delivering"
+    && !context.lifecycleCurrent
+  ) throw rollback(staleClaim(operation, state.runId, "lifecycle_obsolete"));
+  const countBefore = context.checkpoint.deliveryAttemptCount;
+  const maximum = context.checkpoint.deliveryState === "delivering"
+    ? POSTGRES_SIGNED_BIGINT_MAX
+    : BigInt(configuration.maximumDeliveryAttempts);
+  if (countBefore >= maximum) {
+    throw rollback(new TaskComputeDeliveryRepositoryResourceExhaustedV1Error({
+      operation,
+      runId: state.runId,
+      dimension: "delivery_attempt_count",
+      observed: countBefore,
+      maximum,
+    }));
+  }
+  const deliveryAttemptCount = countBefore + 1n;
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    deliveryState: "delivering",
+    deliveryAttemptCount,
+    deliveryStartedAt: context.databaseTime.now,
+    nextAttemptAt: null,
+    reasonCode: null,
+    updatedAt: context.databaseTime.now,
+  }).where(cancellationClaimKey(authority.scopeId, state)).returning());
+  const row = updated[0];
+  if (
+    row === undefined
+    || row.deliveryState !== "delivering"
+    || row.deliveryAttemptCount !== deliveryAttemptCount
+    || row.deliveryStartedAt === null
+  ) throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  return Object.freeze({
+    kind: "delivery_started",
+    deliveryAttemptCount,
+    deliveryStartedAt: ownedDate(row.deliveryStartedAt, operation, state.runId),
+  });
+}
+
+async function renewCancellationClaimTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+): Promise<TaskComputeCancellationClaimRenewedV1> {
+  const operation = "renew_cancellation_claim" as const;
+  const context = await loadCorrelatedCancellationHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentCancellationClaim(context, state, operation);
+  if (
+    context.checkpoint.deliveryState !== "prepared"
+    && context.checkpoint.deliveryState !== "retry_wait"
+    && context.checkpoint.deliveryState !== "delivering"
+  ) throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  if (
+    context.checkpoint.deliveryState !== "delivering"
+    && !context.lifecycleCurrent
+  ) throw rollback(staleClaim(operation, state.runId, "lifecycle_obsolete"));
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    claimedAt: context.databaseTime.now,
+    claimExpiresAt: context.databaseTime.claimExpiresAt,
+    updatedAt: context.databaseTime.now,
+  }).where(cancellationClaimKey(authority.scopeId, state)).returning({
+    claimExpiresAt: fxSystemDurableTaskComputeCancellationsV1.claimExpiresAt,
+  }));
+  const claimExpiresAt = updated[0]?.claimExpiresAt;
+  if (claimExpiresAt === null || claimExpiresAt === undefined) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  return Object.freeze({
+    kind: "claim_renewed",
+    claimExpiresAt: ownedDate(claimExpiresAt, operation, state.runId),
+  });
+}
+
+async function releaseCancellationBeforeDeliveryTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+): Promise<TaskComputeCancellationClaimReleasedV1> {
+  const operation = "release_cancellation_before_delivery" as const;
+  const context = await loadCorrelatedCancellationHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentCancellationClaim(context, state, operation);
+  if (
+    context.checkpoint.deliveryState !== "prepared"
+    && context.checkpoint.deliveryState !== "retry_wait"
+  ) throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  if (!context.lifecycleCurrent) {
+    throw rollback(staleClaim(operation, state.runId, "lifecycle_obsolete"));
+  }
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    claimOwner: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    updatedAt: context.databaseTime.now,
+  }).where(cancellationClaimKey(authority.scopeId, state)).returning({
+    claimOwner: fxSystemDurableTaskComputeCancellationsV1.claimOwner,
+  }));
+  if (updated[0]?.claimOwner !== null) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  return Object.freeze({ kind: "claim_released" });
+}
+
+async function recordCancellationReceiptTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+  receipt: TaskComputeCancellationReceiptV1,
+): Promise<TaskComputeCancellationReceiptRecordedV1> {
+  const operation = "record_cancellation_receipt" as const;
+  const context = await loadCorrelatedCancellationHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentCancellationClaim(context, state, operation);
+  if (context.checkpoint.deliveryState !== "delivering") {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  if (!cancellationReceiptMatchesRequest(receipt, context.request)) {
+    throw rollback(repositoryInputFailure(
+      operation,
+      "receipt_correlation_mismatch",
+    ));
+  }
+  const evidence = await encodeCancellationReceiptEvidence(
+    receipt,
+    operation,
+    state.runId,
+  );
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    deliveryState: "delivered",
+    claimOwner: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    nextAttemptAt: null,
+    reasonCode: null,
+    receiptCodecVersion: evidence.codecVersion,
+    receiptByteLength: BigInt(evidence.byteLength),
+    receiptSha256: evidence.sha256,
+    receiptBytes: evidence.canonicalBytes,
+    settledAt: context.databaseTime.now,
+    updatedAt: context.databaseTime.now,
+  }).where(cancellationClaimKey(authority.scopeId, state)).returning());
+  const row = updated[0];
+  if (row === undefined || row.deliveryState !== "delivered") {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  const storedReceipt = await decodeStoredCancellationReceipt(
+    row,
+    operation,
+    state.runId,
+  );
+  if (!taskSystemPersistedValueEqualV1(storedReceipt, receipt)) {
+    throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+  }
+  return Object.freeze({
+    kind: "cancellation_delivered",
+    receipt: storedReceipt,
+    disposition: context.lifecycleCurrent ? "current" : "cleanup_only",
+  });
+}
+
+async function recordCancellationKnownFailureTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+  failure: CapturedKnownCancellationFailureV1,
+): Promise<TaskComputeCancellationKnownFailureRecordedV1> {
+  const operation = "record_cancellation_known_failure" as const;
+  const context = await loadCorrelatedCancellationHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentCancellationClaim(context, state, operation);
+  if (context.checkpoint.deliveryState !== "delivering") {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  const providerReason = cancellationFailureReason(failure);
+  const attemptCount = context.checkpoint.deliveryAttemptCount;
+  if (attemptCount < 1n) {
+    throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+  }
+  const shouldRetry = failure.retryable
+    && attemptCount < BigInt(configuration.maximumDeliveryAttempts);
+  if (shouldRetry) {
+    const delay = configuration.retryDelayMilliseconds[Number(attemptCount - 1n)];
+    const startedAt = context.checkpoint.deliveryStartedAt;
+    if (delay === undefined || startedAt === null) {
+      throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+    }
+    const nextMilliseconds = Math.max(
+      context.databaseTime.now.getTime(),
+      startedAt.getTime(),
+    ) + delay;
+    const nextAttemptAt = Number.isSafeInteger(nextMilliseconds)
+      ? copyFiniteDate(new Date(nextMilliseconds))
+      : undefined;
+    if (
+      nextAttemptAt === undefined
+      || nextAttemptAt.getTime() <= startedAt.getTime()
+    ) throw rollback(corruption(operation, state.runId, "database_clock_invalid"));
+    const updated = await statement(operation, () => tx.update(
+      fxSystemDurableTaskComputeCancellationsV1,
+    ).set({
+      deliveryState: "retry_wait",
+      claimOwner: null,
+      claimedAt: null,
+      claimExpiresAt: null,
+      nextAttemptAt,
+      reasonCode: providerReason,
+      settledAt: null,
+      updatedAt: context.databaseTime.now,
+    }).where(cancellationClaimKey(authority.scopeId, state)).returning());
+    const row = updated[0];
+    if (
+      row?.deliveryState !== "retry_wait"
+      || row.claimOwner !== null
+      || row.reasonCode !== providerReason
+      || row.nextAttemptAt === null
+      || row.nextAttemptAt.getTime() !== nextAttemptAt.getTime()
+    ) throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+    return Object.freeze({
+      kind: "retry_scheduled",
+      reason: providerReason,
+      nextAttemptAt: ownedDate(row.nextAttemptAt, operation, state.runId),
+    });
+  }
+  const terminalReason = failure.retryable
+    ? "delivery_attempts_exhausted" as const
+    : providerReason;
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    deliveryState: "rejected",
+    claimOwner: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    nextAttemptAt: null,
+    reasonCode: terminalReason,
+    settledAt: context.databaseTime.now,
+    updatedAt: context.databaseTime.now,
+  }).where(cancellationClaimKey(authority.scopeId, state)).returning());
+  const row = updated[0];
+  if (
+    row?.deliveryState !== "rejected"
+    || row.claimOwner !== null
+    || row.reasonCode !== terminalReason
+    || row.settledAt === null
+  ) throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  return Object.freeze({ kind: "cancellation_rejected", reason: terminalReason });
+}
+
+async function loadCorrelatedCancellationHandleContext(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+  operation: Exclude<
+    TaskComputeDeliveryRepositoryOperationV1,
+    "acquire_dispatch" | "acquire_cancellation"
+  >,
+): Promise<CorrelatedCancellationHandleContextV1> {
+  await statement(operation, () => requireLockedTaskSystemScopeAuthorityV1(
+    tx,
+    authority,
+    target,
+    (mismatch) => rollback(new TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error({
+      operation,
+      runId: state.runId,
+      authority: mismatch,
+    })),
+  ));
+  const runRows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskRunsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRunsV1.scopeId, authority.scopeId),
+    eq(fxSystemDurableTaskRunsV1.runId, state.runId),
+  )).limit(1).for("update"));
+  const runRow = runRows[0];
+  if (runRow === undefined) {
+    throw rollback(new TaskComputeDeliveryRepositoryUnavailableV1Error({
+      operation,
+      runId: state.runId,
+      reason: "run_unavailable",
+    }));
+  }
+  const aggregate = decodeRun(runRow, operation, state.runId);
+  await statement(operation, () => correlateTaskSystemLifecycleLedgerV1(
+    tx,
+    authority.scopeId,
+    state.runId,
+    aggregate,
+    (reason) => rollback(corruption(operation, state.runId, reason)),
+  ));
+  const acquisition = Object.freeze({
+    runId: state.runId,
+    requestedEffectSequence: state.requestedEffectSequence,
+  });
+  const cancellationEffect = decodeCancellationEffect(
+    await loadRequestedEffect(
+      tx,
+      authority.scopeId,
+      acquisition,
+      operation,
+    ),
+    acquisition,
+    operation,
+  );
+  const dispatchEffect = await loadLinkedDispatchEffect(
+    tx,
+    authority.scopeId,
+    cancellationEffect,
+    operation,
+  );
+  await loadImmutablePreparation(
+    tx,
+    authority.scopeId,
+    runRow,
+    dispatchEffect,
+    operation,
+  );
+  const expectedDispatchRequest = buildDispatchRequest(
+    replacementScopeId,
+    aggregate,
+    dispatchEffect,
+    operation,
+  );
+  const dispatchCheckpoint = await loadDispatchCheckpoint(
+    tx,
+    authority.scopeId,
+    Object.freeze({
+      runId: state.runId,
+      requestedEffectSequence: dispatchEffect.sequence,
+    }),
+    operation,
+  );
+  if (dispatchCheckpoint === null || dispatchCheckpoint.deliveryState !== "accepted") {
+    throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+  }
+  const storedDispatchRequest = await decodeAndCorrelateDispatchCheckpoint(
+    dispatchCheckpoint,
+    expectedDispatchRequest,
+    dispatchEffect.effect.acceptedRunVersion,
+    operation,
+    state.runId,
+  );
+  const acceptance = await decodeStoredAcceptance(
+    dispatchCheckpoint,
+    operation,
+    state.runId,
+  );
+  if (!taskSystemPersistedValueEqualV1(
+    acceptance.identity,
+    storedDispatchRequest.identity,
+  )) throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+  const expectedRequest = buildCancellationRequest(
+    cancellationEffect,
+    acceptance,
+    operation,
+  );
+  const checkpoint = await loadCancellationCheckpoint(
+    tx,
+    authority.scopeId,
+    acquisition,
+    operation,
+  );
+  if (checkpoint === null) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  const storedRequest = await decodeAndCorrelateCancellationCheckpoint(
+    checkpoint,
+    cancellationEffect,
+    dispatchEffect.sequence,
+    expectedRequest,
+    operation,
+    state.runId,
+  );
+  if (storedRequest === null) {
+    throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+  }
+  const databaseTime = await readDatabaseTime(
+    tx,
+    authority.scopeId,
+    configuration.claimDurationMilliseconds,
+    operation,
+    state.runId,
+  );
+  return Object.freeze({
+    checkpoint,
+    request: storedRequest,
+    databaseTime,
+    lifecycleCurrent: cancellationLifecycleIsCurrent(
+      aggregate,
+      cancellationEffect,
+    ),
+  });
+}
+
+function requireCurrentCancellationClaim(
+  context: CorrelatedCancellationHandleContextV1,
+  state: MutableHandleStateV1,
+  operation: Exclude<
+    TaskComputeDeliveryRepositoryOperationV1,
+    "acquire_dispatch" | "acquire_cancellation"
+  >,
+): void {
+  const row = context.checkpoint;
+  if (row.claimOwner !== state.claimOwner) {
+    throw rollback(staleClaim(operation, state.runId, "owner_mismatch"));
+  }
+  if (row.claimFence !== state.claimFence) {
+    throw rollback(staleClaim(operation, state.runId, "fence_mismatch"));
+  }
+  if (
+    row.claimExpiresAt === null
+    || row.claimExpiresAt.getTime() <= context.databaseTime.now.getTime()
+  ) throw rollback(staleClaim(operation, state.runId, "claim_expired"));
+}
+
 async function loadCorrelatedHandleContext(
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
@@ -1507,7 +2844,7 @@ async function loadCorrelatedHandleContext(
   state: MutableHandleStateV1,
   operation: Exclude<
     TaskComputeDeliveryRepositoryOperationV1,
-    "acquire_dispatch"
+    "acquire_dispatch" | "acquire_cancellation"
   >,
 ): Promise<CorrelatedHandleContextV1> {
   await statement(operation, () => requireLockedTaskSystemScopeAuthorityV1(
@@ -1586,12 +2923,6 @@ async function loadCorrelatedHandleContext(
     operation,
     state.runId,
   );
-  if (
-    checkpoint.deliveryState !== "delivering"
-    && !taskSystemPersistedValueEqualV1(storedRequest, expectedRequest)
-  ) {
-    throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
-  }
   const databaseTime = await readDatabaseTime(
     tx,
     authority.scopeId,
@@ -1612,7 +2943,7 @@ function requireCurrentClaim(
   state: MutableHandleStateV1,
   operation: Exclude<
     TaskComputeDeliveryRepositoryOperationV1,
-    "acquire_dispatch"
+    "acquire_dispatch" | "acquire_cancellation"
   >,
 ): void {
   const row = context.checkpoint;
@@ -1679,27 +3010,39 @@ function captureConfiguration(
   }));
 }
 
-function captureAcquireRequest(
+function captureAcquireRequest<
+  Operation extends "acquire_dispatch" | "acquire_cancellation",
+>(
   input: TaskComputeDispatchAcquireRequestV1,
+  operation: Operation = "acquire_dispatch" as Operation,
 ): Result.Result<
   CapturedAcquireRequestV1,
-  TaskComputeDeliveryRepositoryInputV1Error<"acquire_dispatch">
+  TaskComputeDeliveryRepositoryInputV1Error<Operation>
 > {
   const record = captureDataRecord(input, [
     "runId",
     "requestedEffectSequence",
   ]);
-  if (record === undefined) return Result.fail(inputFailure("invalid_request"));
+  if (record === undefined) return Result.fail(repositoryInputFailure(
+    operation,
+    "invalid_request",
+  ));
   return Result.gen(function* () {
     const runId = yield* decodeTaskRunIdV1(record.runId).pipe(
-      Result.mapError(() => inputFailure("invalid_request")),
+      Result.mapError(() => repositoryInputFailure(
+        operation,
+        "invalid_request",
+      )),
     );
     const rawSequence = typeof record.requestedEffectSequence === "bigint"
       ? record.requestedEffectSequence.toString()
       : record.requestedEffectSequence;
     const requestedEffectSequence = yield*
       decodeTaskRequestedEffectSequenceV1(rawSequence).pipe(
-        Result.mapError(() => inputFailure("invalid_request")),
+        Result.mapError(() => repositoryInputFailure(
+          operation,
+          "invalid_request",
+        )),
       );
     return Object.freeze({ runId, requestedEffectSequence });
   });
@@ -1808,26 +3151,121 @@ function dispatchFailureReason(
   }
 }
 
+function captureCancellationReceipt(
+  input: unknown,
+): Result.Result<
+  TaskComputeCancellationReceiptV1,
+  TaskComputeDeliveryRepositoryInputV1Error<"record_cancellation_receipt">
+> {
+  return validateTaskComputeCancellationReceiptV1(input).pipe(
+    Result.mapError(() => repositoryInputFailure(
+      "record_cancellation_receipt",
+      "invalid_receipt",
+    )),
+  );
+}
+
+function captureKnownCancellationFailure(
+  input: unknown,
+): Result.Result<
+  CapturedKnownCancellationFailureV1,
+  TaskComputeDeliveryRepositoryInputV1Error<
+    "record_cancellation_known_failure"
+  >
+> {
+  try {
+    if (input instanceof TaskComputeCancellationRejectedError) {
+      const captured = captureOwnDataProperties(input, [
+        "operation",
+        "reason",
+        "retryable",
+      ]);
+      if (
+        captured === undefined
+        || captured.operation !== "request_cancellation"
+        || (
+          captured.reason !== "provider_disabled"
+          && captured.reason !== "execution_not_found"
+          && captured.reason !== "execution_mismatch"
+        )
+        || typeof captured.retryable !== "boolean"
+      ) return Result.fail(repositoryInputFailure(
+        "record_cancellation_known_failure",
+        "invalid_known_failure",
+      ));
+      return Result.succeed(Object.freeze({
+        kind: "rejected" as const,
+        reason: captured.reason,
+        retryable: captured.retryable,
+      }));
+    }
+    if (input instanceof TaskComputeCancellationTransportError) {
+      const captured = captureOwnDataProperties(input, [
+        "operation",
+        "retryable",
+      ]);
+      if (
+        captured === undefined
+        || captured.operation !== "request_cancellation"
+        || typeof captured.retryable !== "boolean"
+      ) return Result.fail(repositoryInputFailure(
+        "record_cancellation_known_failure",
+        "invalid_known_failure",
+      ));
+      return Result.succeed(Object.freeze({
+        kind: "transport" as const,
+        retryable: captured.retryable,
+      }));
+    }
+  } catch {
+    // Hostile proxies and revoked provider values are ordinary invalid input.
+  }
+  return Result.fail(repositoryInputFailure(
+    "record_cancellation_known_failure",
+    "invalid_known_failure",
+  ));
+}
+
+function cancellationFailureReason(
+  failure: CapturedKnownCancellationFailureV1,
+): Exclude<
+  TaskComputeCancellationClosedReasonV1,
+  "lifecycle_obsolete" | "checkpoint_corrupt" | "delivery_attempts_exhausted"
+> {
+  if (failure.kind === "transport") return "provider_transport";
+  switch (failure.reason) {
+    case "provider_disabled":
+      return "provider_disabled";
+    case "execution_not_found":
+      return "provider_execution_not_found";
+    case "execution_mismatch":
+      return "provider_execution_mismatch";
+  }
+}
+
 const allocateClaimOwner = Effect.fn(
   "TaskComputeDeliveryRepository.allocateClaimOwner",
-)(function* (
+)(function* <
+  Operation extends "acquire_dispatch" | "acquire_cancellation",
+>(
+  operation: Operation,
   randomUuid: () => string,
 ): Effect.fn.Return<
   string,
-  TaskComputeDeliveryRepositoryInputV1Error<"acquire_dispatch">
+  TaskComputeDeliveryRepositoryInputV1Error<Operation>
 > {
   let owner: unknown;
   try {
     owner = randomUuid();
   } catch {
-    return yield* inputFailure("claim_owner_invalid");
+    return yield* repositoryInputFailure(operation, "claim_owner_invalid");
   }
   if (
     typeof owner !== "string"
     || !isLowercaseUuidText(owner)
     || !UUID_V4_PATTERN.test(owner)
   ) {
-    return yield* inputFailure("claim_owner_invalid");
+    return yield* repositoryInputFailure(operation, "claim_owner_invalid");
   }
   return owner;
 });
@@ -1907,6 +3345,75 @@ function decodeDispatchEffect(
     sequence: decoded.sequence,
     effect: decoded.effect,
   });
+}
+
+function decodeCancellationEffect(
+  row: RequestedEffectRow,
+  request: CapturedAcquireRequestV1,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): PersistedTaskRequestedEffectV1 & Readonly<{
+  readonly effect: Extract<
+    PersistedTaskRequestedEffectV1["effect"],
+    { readonly kind: "request_execution_cancellation" }
+  >;
+}> {
+  const decoded = Result.getOrThrowWith(
+    decodeAndCorrelateTaskSystemRequestedEffectRowV1(row),
+    () => rollback(corruption(operation, request.runId, "effect_invalid")),
+  );
+  if (
+    decoded.sequence !== request.requestedEffectSequence
+    || decoded.effect.kind !== "request_execution_cancellation"
+  ) throw rollback(corruption(operation, request.runId, "effect_invalid"));
+  return Object.freeze({
+    sequence: decoded.sequence,
+    effect: decoded.effect,
+  });
+}
+
+async function loadLinkedDispatchEffect(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  cancellation: ReturnType<typeof decodeCancellationEffect>,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): Promise<ReturnType<typeof decodeDispatchEffect>> {
+  const rows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskRequestedEffectsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRequestedEffectsV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskRequestedEffectsV1.runId, cancellation.effect.runId),
+    eq(fxSystemDurableTaskRequestedEffectsV1.kind, "dispatch_attempt"),
+  )).orderBy(fxSystemDurableTaskRequestedEffectsV1.sequence));
+  let matched: ReturnType<typeof decodeDispatchEffect> | null = null;
+  for (const row of rows) {
+    const request = Object.freeze({
+      runId: cancellation.effect.runId,
+      requestedEffectSequence: row.sequence,
+    });
+    const decoded = decodeDispatchEffect(row, request, operation);
+    if (
+      decoded.effect.attempt.attemptId === cancellation.effect.attemptId
+      && decoded.effect.attempt.executionFence
+        === cancellation.effect.executionFence
+    ) {
+      if (matched !== null || decoded.sequence >= cancellation.sequence) {
+        throw rollback(corruption(
+          operation,
+          cancellation.effect.runId,
+          "effect_invalid",
+        ));
+      }
+      matched = decoded;
+    }
+  }
+  if (matched === null) {
+    throw rollback(corruption(
+      operation,
+      cancellation.effect.runId,
+      "effect_invalid",
+    ));
+  }
+  return matched;
 }
 
 async function loadImmutablePreparation(
@@ -2099,6 +3606,26 @@ function buildDispatchRequest(
   );
 }
 
+function buildCancellationRequest(
+  cancellation: ReturnType<typeof decodeCancellationEffect>,
+  acceptance: TaskComputeDispatchAcceptanceV1,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): TaskComputeCancellationRequestV1 {
+  return Result.getOrThrowWith(
+    validateTaskComputeCancellationRequestV1({
+      version: TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1,
+      identity: acceptance.identity,
+      execution: acceptance.execution,
+      cancellationGeneration: cancellation.effect.cancellationGeneration,
+    }),
+    () => rollback(corruption(
+      operation,
+      cancellation.effect.runId,
+      "effect_invalid",
+    )),
+  );
+}
+
 function capturePreparedExecution(
   dispatchRequest: TaskComputeDispatchRequestV1,
   runtimeBindingCommitment: TaskDefinitionRuntimeBindingCommitmentV1,
@@ -2127,6 +3654,22 @@ function dispatchLifecycleIsCurrent(
     && aggregate.currentAttempt.lease.version === effect.leaseVersion;
 }
 
+function cancellationLifecycleIsCurrent(
+  aggregate: TaskRunAttemptAggregateV1,
+  cancellation: ReturnType<typeof decodeCancellationEffect>,
+): boolean {
+  if (
+    aggregate.phase !== "attempt_granted"
+    && aggregate.phase !== "executing"
+  ) return false;
+  return aggregate.currentAttempt.attemptId === cancellation.effect.attemptId
+    && aggregate.currentAttempt.executionFence
+      === cancellation.effect.executionFence
+    && aggregate.cancellation.kind === "requested"
+    && aggregate.cancellation.generation
+      === cancellation.effect.cancellationGeneration;
+}
+
 async function loadDispatchCheckpoint(
   tx: AppRowTransaction,
   scopeId: ScopeId,
@@ -2137,6 +3680,97 @@ async function loadDispatchCheckpoint(
     fxSystemDurableTaskComputeDispatchesV1,
   ).where(dispatchPrimaryKey(scopeId, request)).limit(1).for("update"));
   return rows[0] ?? null;
+}
+
+async function loadCancellationCheckpoint(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  request: CapturedAcquireRequestV1,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): Promise<CancellationRow | null> {
+  const rows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).where(cancellationPrimaryKey(scopeId, request)).limit(1).for("update"));
+  return rows[0] ?? null;
+}
+
+async function decodeAndCorrelateCancellationCheckpoint(
+  row: CancellationRow,
+  cancellation: ReturnType<typeof decodeCancellationEffect>,
+  dispatchRequestedEffectSequence: TaskRequestedEffectSequenceV1,
+  expectedRequest: TaskComputeCancellationRequestV1 | null,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  runId: TaskRunIdV1,
+): Promise<TaskComputeCancellationRequestV1 | null> {
+  if (
+    row.scopeId !== expectedRequest?.identity.scopeId
+      && expectedRequest !== null
+    || row.runId !== cancellation.effect.runId
+    || row.requestedEffectSequence !== cancellation.sequence
+    || row.acceptedRunVersion !== cancellation.effect.acceptedRunVersion
+    || row.dispatchRequestedEffectSequence !== dispatchRequestedEffectSequence
+    || row.attemptId !== cancellation.effect.attemptId
+    || row.executionFence !== cancellation.effect.executionFence
+    || row.cancellationGeneration
+      !== cancellation.effect.cancellationGeneration
+  ) throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  validateCancellationCheckpointState(row, operation, runId);
+  const hasNoRequest = row.requestCodecVersion === null
+    && row.requestByteLength === null
+    && row.requestSha256 === null
+    && row.requestBytes === null;
+  if (hasNoRequest) {
+    if (
+      row.deliveryState !== "waiting_dispatch"
+      && row.deliveryState !== "obsolete"
+      && row.deliveryState !== "quarantined"
+    ) throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+    return null;
+  }
+  if (
+    row.requestCodecVersion !== TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1
+    || row.requestByteLength === null
+    || row.requestSha256 === null
+    || row.requestBytes === null
+    || row.requestByteLength !== BigInt(row.requestBytes.byteLength)
+  ) throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  const observed = await sha256(row.requestBytes, operation, runId);
+  const decoded = Result.getOrThrowWith(
+    decodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1({
+      codecVersion: row.requestCodecVersion,
+      byteLength: Number(row.requestByteLength),
+      canonicalBytes: row.requestBytes,
+      sha256: row.requestSha256,
+    }, observed),
+    (error) => rollback(error),
+  );
+  if (
+    expectedRequest === null
+    || !taskSystemPersistedValueEqualV1(decoded, expectedRequest)
+    || decoded.cancellationGeneration !== row.cancellationGeneration
+  ) throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  return decoded;
+}
+
+function validateCancellationCheckpointState(
+  row: CancellationRow,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  runId: TaskRunIdV1,
+): void {
+  const claimedAt = nullableOwnedDate(row.claimedAt, operation, runId);
+  const claimExpiresAt = nullableOwnedDate(row.claimExpiresAt, operation, runId);
+  if (
+    row.claimFence < 0n
+    || row.deliveryAttemptCount < 0n
+    || (
+      row.claimOwner === null
+        ? claimedAt !== null || claimExpiresAt !== null
+        : !isCanonicalUuidV4(row.claimOwner)
+          || claimedAt === null
+          || claimExpiresAt === null
+          || claimExpiresAt.getTime() <= claimedAt.getTime()
+    )
+  ) throw rollback(corruption(operation, runId, "checkpoint_invalid"));
 }
 
 async function decodeAndCorrelateDispatchCheckpoint(
@@ -2234,7 +3868,7 @@ function validateCheckpointState(
 
 async function decodeStoredAcceptance(
   row: DispatchRow,
-  operation: "acquire_dispatch" | "record_dispatch_acceptance",
+  operation: TaskComputeDeliveryRepositoryOperationV1,
   runId: TaskRunIdV1,
 ): Promise<TaskComputeDispatchAcceptanceV1> {
   if (
@@ -2256,6 +3890,77 @@ async function decodeStoredAcceptance(
     }, observed),
     (error) => rollback(error),
   );
+}
+
+async function encodeCancellationRequestEvidence(
+  request: TaskComputeCancellationRequestV1,
+  operation: "acquire_cancellation",
+  runId: TaskRunIdV1,
+): Promise<TaskComputeDeliveryEvidenceV1> {
+  const canonicalBytes = Result.getOrThrowWith(
+    encodeTaskComputeCancellationRequestCanonicalBytesV1(request),
+    (error) => rollback(error),
+  );
+  const observed = await sha256(canonicalBytes, operation, runId);
+  return Result.getOrThrowWith(
+    encodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1(
+      request,
+      observed,
+    ),
+    (error) => rollback(error),
+  );
+}
+
+async function encodeCancellationReceiptEvidence(
+  receipt: TaskComputeCancellationReceiptV1,
+  operation: "record_cancellation_receipt",
+  runId: TaskRunIdV1,
+): Promise<TaskComputeDeliveryEvidenceV1> {
+  const canonicalBytes = Result.getOrThrowWith(
+    encodeTaskComputeCancellationReceiptCanonicalBytesV1(receipt),
+    (error) => rollback(error),
+  );
+  const observed = await sha256(canonicalBytes, operation, runId);
+  return Result.getOrThrowWith(
+    encodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1(
+      receipt,
+      observed,
+    ),
+    (error) => rollback(error),
+  );
+}
+
+async function decodeStoredCancellationReceipt(
+  row: CancellationRow,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  runId: TaskRunIdV1,
+): Promise<TaskComputeCancellationReceiptV1> {
+  if (
+    row.receiptCodecVersion !== TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1
+    || row.receiptByteLength === null
+    || row.receiptSha256 === null
+    || row.receiptBytes === null
+    || row.receiptByteLength !== BigInt(row.receiptBytes.byteLength)
+  ) throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  const observed = await sha256(row.receiptBytes, operation, runId);
+  return Result.getOrThrowWith(
+    decodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1({
+      codecVersion: row.receiptCodecVersion,
+      byteLength: Number(row.receiptByteLength),
+      canonicalBytes: row.receiptBytes,
+      sha256: row.receiptSha256,
+    }, observed),
+    (error) => rollback(error),
+  );
+}
+
+function cancellationReceiptMatchesRequest(
+  receipt: TaskComputeCancellationReceiptV1,
+  request: TaskComputeCancellationRequestV1,
+): boolean {
+  return taskSystemPersistedValueEqualV1(receipt.identity, request.identity)
+    && taskSystemPersistedValueEqualV1(receipt.execution, request.execution)
+    && receipt.cancellationGeneration === request.cancellationGeneration;
 }
 
 async function readDatabaseTime(
@@ -2324,6 +4029,31 @@ function claimedTransactionResult(
   });
 }
 
+function claimedCancellationTransactionResult(
+  row: CancellationRow,
+  request: TaskComputeCancellationRequestV1,
+  deliveryMode: TaskComputeDeliveryModeV1,
+  claimOwner: string,
+  claimExpiresAt: Date,
+  operation: "acquire_cancellation",
+): TransactionCancellationClaimedV1 {
+  if (
+    row.claimOwner !== claimOwner
+    || row.claimFence < 1n
+    || row.claimExpiresAt === null
+    || row.claimExpiresAt.getTime() !== claimExpiresAt.getTime()
+  ) throw rollback(corruption(operation, row.runId, "checkpoint_invalid"));
+  return Object.freeze({
+    kind: "claimed",
+    request,
+    deliveryMode,
+    claimOwner,
+    claimFence: row.claimFence,
+    claimExpiresAt: ownedDate(claimExpiresAt, operation, row.runId),
+    requestedEffectSequence: row.requestedEffectSequence,
+  });
+}
+
 function mintClaim(
   handles: WeakMap<object, MutableHandleStateV1>,
   transaction: TransactionClaimedV1,
@@ -2345,6 +4075,32 @@ function mintClaim(
   return Object.freeze({
     kind: "claimed",
     prepared: transaction.prepared,
+    handle,
+    deliveryMode: transaction.deliveryMode,
+    claimExpiresAt: new Date(transaction.claimExpiresAt),
+  });
+}
+
+function mintCancellationClaim(
+  handles: WeakMap<object, MutableHandleStateV1>,
+  transaction: TransactionCancellationClaimedV1,
+): Extract<TaskComputeCancellationAcquireResultV1, { readonly kind: "claimed" }> {
+  const handle = Object.freeze({
+    [TASK_COMPUTE_CANCELLATION_CLAIM_HANDLE_V1]: true as const,
+  });
+  handles.set(handle, {
+    operation: "cancellation",
+    runId: transaction.request.identity.runId,
+    requestedEffectSequence: transaction.requestedEffectSequence,
+    claimOwner: transaction.claimOwner,
+    claimFence: transaction.claimFence,
+    phase: "claimed",
+    closed: false,
+    operationGate: Semaphore.makeUnsafe(1),
+  });
+  return Object.freeze({
+    kind: "claimed",
+    request: transaction.request,
     handle,
     deliveryMode: transaction.deliveryMode,
     claimExpiresAt: new Date(transaction.claimExpiresAt),
@@ -2376,6 +4132,80 @@ function captureAcquireOutcome(
   }
 }
 
+function captureCancellationAcquireOutcome(
+  result: Exclude<
+    TransactionCancellationAcquireResultV1,
+    TransactionCancellationClaimedV1
+  >,
+): Exclude<TaskComputeCancellationAcquireResultV1, { readonly kind: "claimed" }> {
+  switch (result.kind) {
+    case "waiting_dispatch":
+      return Object.freeze({ kind: "waiting_dispatch" });
+    case "busy":
+      return Object.freeze({
+        kind: "busy",
+        claimExpiresAt: new Date(result.claimExpiresAt),
+      });
+    case "not_due":
+      return Object.freeze({
+        kind: "not_due",
+        nextAttemptAt: new Date(result.nextAttemptAt),
+      });
+    case "delivered":
+      return Object.freeze({
+        kind: "delivered",
+        receipt: result.receipt,
+        disposition: result.disposition,
+      });
+    case "closed":
+      return Object.freeze({ ...result });
+  }
+}
+
+async function settleLifecycleObsoleteCancellationCheckpoint(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  request: CapturedAcquireRequestV1,
+  checkpoint: CancellationRow,
+  settledAt: Date,
+  operation: "acquire_cancellation",
+): Promise<Extract<
+  TaskComputeCancellationAcquireResultV1,
+  { readonly kind: "closed" }
+>> {
+  const deliveryState = checkpoint.deliveryAttemptCount === 0n
+    ? "obsolete" as const
+    : "rejected" as const;
+  const settled = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    deliveryState,
+    claimOwner: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    nextAttemptAt: null,
+    reasonCode: "lifecycle_obsolete",
+    settledAt,
+    updatedAt: settledAt,
+  }).where(cancellationPrimaryKey(scopeId, request)).returning());
+  const row = settled[0];
+  if (row === undefined) {
+    throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+  }
+  return cancellationClosedResult(row, operation, request.runId);
+}
+
+function lifecycleObsoleteCancellationResult(): Extract<
+  TaskComputeCancellationAcquireResultV1,
+  { readonly kind: "closed" }
+> {
+  return Object.freeze({
+    kind: "closed",
+    state: "obsolete",
+    reason: "lifecycle_obsolete",
+  });
+}
+
 function closedResult(
   row: DispatchRow,
   operation: "acquire_dispatch",
@@ -2392,6 +4222,20 @@ function closedResult(
   return Object.freeze({ kind: "closed", state, reason });
 }
 
+function cancellationClosedResult(
+  row: CancellationRow,
+  operation: "acquire_cancellation",
+  runId: TaskRunIdV1,
+): Extract<TaskComputeCancellationAcquireResultV1, { readonly kind: "closed" }> {
+  const state = row.deliveryState;
+  const reason = row.reasonCode;
+  if (
+    (state !== "rejected" && state !== "obsolete" && state !== "quarantined")
+    || !isCancellationClosedReason(reason)
+  ) throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  return Object.freeze({ kind: "closed", state, reason });
+}
+
 function isDispatchClosedReason(
   value: unknown,
 ): value is TaskComputeDispatchClosedReasonV1 {
@@ -2400,6 +4244,18 @@ function isDispatchClosedReason(
     || value === "provider_unsupported_compute_profile"
     || value === "provider_capacity_unavailable"
     || value === "provider_disabled"
+    || value === "provider_transport"
+    || value === "delivery_attempts_exhausted";
+}
+
+function isCancellationClosedReason(
+  value: unknown,
+): value is TaskComputeCancellationClosedReasonV1 {
+  return value === "lifecycle_obsolete"
+    || value === "checkpoint_corrupt"
+    || value === "provider_disabled"
+    || value === "provider_execution_not_found"
+    || value === "provider_execution_mismatch"
     || value === "provider_transport"
     || value === "delivery_attempts_exhausted";
 }
@@ -2434,6 +4290,36 @@ function dispatchClaimKey(
   );
 }
 
+function cancellationPrimaryKey(
+  scopeId: ScopeId,
+  request: CapturedAcquireRequestV1,
+) {
+  return and(
+    eq(fxSystemDurableTaskComputeCancellationsV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskComputeCancellationsV1.runId, request.runId),
+    eq(
+      fxSystemDurableTaskComputeCancellationsV1.requestedEffectSequence,
+      request.requestedEffectSequence,
+    ),
+  );
+}
+
+function cancellationClaimKey(
+  scopeId: ScopeId,
+  state: MutableHandleStateV1,
+) {
+  return and(
+    eq(fxSystemDurableTaskComputeCancellationsV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskComputeCancellationsV1.runId, state.runId),
+    eq(
+      fxSystemDurableTaskComputeCancellationsV1.requestedEffectSequence,
+      state.requestedEffectSequence,
+    ),
+    eq(fxSystemDurableTaskComputeCancellationsV1.claimOwner, state.claimOwner),
+    eq(fxSystemDurableTaskComputeCancellationsV1.claimFence, state.claimFence),
+  );
+}
+
 const withHandleOperation = Effect.fn(function* <
   Value,
   Failure,
@@ -2441,7 +4327,9 @@ const withHandleOperation = Effect.fn(function* <
   Operation extends TaskComputeDeliveryRepositoryHandleOperationV1,
 >(
   handles: WeakMap<object, MutableHandleStateV1>,
-  handle: TaskComputeDispatchClaimHandleV1,
+  handle:
+    | TaskComputeDispatchClaimHandleV1
+    | TaskComputeCancellationClaimHandleV1,
   operation: Operation,
   use: (
     state: MutableHandleStateV1,
@@ -2468,7 +4356,9 @@ function lookupHandleState<
   Operation extends TaskComputeDeliveryRepositoryHandleOperationV1,
 >(
   handles: WeakMap<object, MutableHandleStateV1>,
-  handle: TaskComputeDispatchClaimHandleV1,
+  handle:
+    | TaskComputeDispatchClaimHandleV1
+    | TaskComputeCancellationClaimHandleV1,
   operation: Operation,
 ): Effect.Effect<
   MutableHandleStateV1,
@@ -2717,15 +4607,6 @@ function configurationFailure(
   return new TaskComputeDeliveryRepositoryConfigurationV1Error({ reason });
 }
 
-function inputFailure(
-  reason: "invalid_request" | "claim_owner_invalid",
-): TaskComputeDeliveryRepositoryInputV1Error<"acquire_dispatch"> {
-  return new TaskComputeDeliveryRepositoryInputV1Error<"acquire_dispatch">({
-    operation: "acquire_dispatch",
-    reason,
-  });
-}
-
 function repositoryInputFailure<
   Operation extends TaskComputeDeliveryRepositoryOperationV1,
 >(
@@ -2759,6 +4640,12 @@ function isRepositoryErrorForOperation<
   operation: Operation,
 ): error is TaskComputeDeliveryRepositoryErrorV1<Operation> {
   if (error instanceof TaskComputeDeliveryEvidenceV1Error) {
+    const cancellationOperation = operation === "acquire_cancellation"
+      || operation === "mark_cancellation_delivery_started"
+      || operation === "renew_cancellation_claim"
+      || operation === "release_cancellation_before_delivery"
+      || operation === "record_cancellation_receipt"
+      || operation === "record_cancellation_known_failure";
     return error.operation === "decode_dispatch_request"
       || operation === "acquire_dispatch" && (
         error.operation === "encode_dispatch_request"
@@ -2767,6 +4654,18 @@ function isRepositoryErrorForOperation<
       || operation === "record_dispatch_acceptance" && (
         error.operation === "encode_dispatch_acceptance"
         || error.operation === "decode_dispatch_acceptance"
+      )
+      || cancellationOperation && (
+        error.operation === "decode_dispatch_acceptance"
+        || error.operation === "decode_cancellation_request"
+      )
+      || operation === "acquire_cancellation" && (
+        error.operation === "encode_cancellation_request"
+        || error.operation === "decode_cancellation_receipt"
+      )
+      || operation === "record_cancellation_receipt" && (
+        error.operation === "encode_cancellation_receipt"
+        || error.operation === "decode_cancellation_receipt"
       );
   }
   return error.operation === operation;

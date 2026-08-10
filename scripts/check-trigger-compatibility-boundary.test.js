@@ -375,12 +375,19 @@ describe("Trigger compatibility boundary checker", () => {
         "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts",
       text: `
         import {
+          TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1,
           TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
           TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
+          TaskComputeCancellationRejectedError,
+          TaskComputeCancellationTransportError,
           TaskComputeDispatchRejectedError,
           TaskComputeDispatchTransportError,
+          validateTaskComputeCancellationReceiptV1,
+          validateTaskComputeCancellationRequestV1,
           validateTaskComputeDispatchAcceptanceV1,
           validateTaskComputeDispatchRequestV1,
+          type TaskComputeCancellationReceiptV1,
+          type TaskComputeCancellationRequestV1,
           type TaskComputeDispatchAcceptanceV1,
           type TaskComputeDispatchRequestV1,
         } from "@flarex/durable-task/internal/compute-provider-v1";

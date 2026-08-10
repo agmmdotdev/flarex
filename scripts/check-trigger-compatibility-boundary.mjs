@@ -120,12 +120,19 @@ const admittedPersistenceTaskComputeDeliveryEvidenceSymbolsBySpecifier =
 const admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier =
   new Map([
     ["@flarex/durable-task/internal/compute-provider-v1", new Set([
+      "TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1",
       "TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1",
       "TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1",
+      "TaskComputeCancellationReceiptV1",
+      "TaskComputeCancellationRejectedError",
+      "TaskComputeCancellationRequestV1",
+      "TaskComputeCancellationTransportError",
       "TaskComputeDispatchRejectedError",
       "TaskComputeDispatchTransportError",
       "TaskComputeDispatchAcceptanceV1",
       "TaskComputeDispatchRequestV1",
+      "validateTaskComputeCancellationReceiptV1",
+      "validateTaskComputeCancellationRequestV1",
       "validateTaskComputeDispatchAcceptanceV1",
       "validateTaskComputeDispatchRequestV1",
     ])],

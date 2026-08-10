@@ -175,21 +175,27 @@ const dispatchAcceptanceCodec = makeDeliveryEvidenceCodec(
   dispatchAcceptanceCodecOptions,
 );
 
-const cancellationRequestCodec = makeDeliveryEvidenceCodec({
+const cancellationRequestCodecOptions = Object.freeze({
   encodeOperation: "encode_cancellation_request",
   decodeOperation: "decode_cancellation_request",
   validateValue: validateTaskComputeCancellationRequestV1,
   decodeValue: decodeTaskComputeCancellationRequestV1,
   encodeValue: encodeTaskComputeCancellationRequestV1,
 });
+const cancellationRequestCodec = makeDeliveryEvidenceCodec(
+  cancellationRequestCodecOptions,
+);
 
-const cancellationReceiptCodec = makeDeliveryEvidenceCodec({
+const cancellationReceiptCodecOptions = Object.freeze({
   encodeOperation: "encode_cancellation_receipt",
   decodeOperation: "decode_cancellation_receipt",
   validateValue: validateTaskComputeCancellationReceiptV1,
   decodeValue: decodeTaskComputeCancellationReceiptV1,
   encodeValue: encodeTaskComputeCancellationReceiptV1,
 });
+const cancellationReceiptCodec = makeDeliveryEvidenceCodec(
+  cancellationReceiptCodecOptions,
+);
 const decodeTaskComputeProfileRefResultV1 = Schema.decodeUnknownResult(
   TaskComputeProfileRefV1Schema,
 );
@@ -252,6 +258,46 @@ export function encodeTaskComputeDispatchAcceptanceCanonicalBytesV1(
   );
 }
 
+export function encodeTaskComputeCancellationRequestCanonicalBytesV1(
+  input: unknown,
+): Result.Result<
+  Uint8Array,
+  TaskComputeDeliveryEvidenceV1Error<"encode_cancellation_request">
+> {
+  return validateTaskComputeCancellationRequestV1(input).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      "encode_cancellation_request",
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap((value) => encodeCanonicalDomainBytesResult(
+      value,
+      cancellationRequestCodecOptions,
+      "encode_cancellation_request",
+    )),
+  );
+}
+
+export function encodeTaskComputeCancellationReceiptCanonicalBytesV1(
+  input: unknown,
+): Result.Result<
+  Uint8Array,
+  TaskComputeDeliveryEvidenceV1Error<"encode_cancellation_receipt">
+> {
+  return validateTaskComputeCancellationReceiptV1(input).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      "encode_cancellation_receipt",
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap((value) => encodeCanonicalDomainBytesResult(
+      value,
+      cancellationReceiptCodecOptions,
+      "encode_cancellation_receipt",
+    )),
+  );
+}
+
 /**
  * Captures canonical dispatch evidence after the caller has computed SHA-256
  * over the exact returned canonical bytes. This private seam lets a
@@ -310,6 +356,58 @@ export function encodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1(
   );
 }
 
+export function encodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1(
+  input: unknown,
+  observedSha256: unknown,
+): Result.Result<
+  TaskComputeDeliveryEvidenceV1,
+  TaskComputeDeliveryEvidenceV1Error<"encode_cancellation_request">
+> {
+  return validateTaskComputeCancellationRequestV1(input).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      "encode_cancellation_request",
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap((value) => encodeCanonicalDomainBytesResult(
+      value,
+      cancellationRequestCodecOptions,
+      "encode_cancellation_request",
+    )),
+    Result.flatMap((canonicalBytes) => captureObservedEvidenceResult(
+      canonicalBytes,
+      observedSha256,
+      "encode_cancellation_request",
+    )),
+  );
+}
+
+export function encodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1(
+  input: unknown,
+  observedSha256: unknown,
+): Result.Result<
+  TaskComputeDeliveryEvidenceV1,
+  TaskComputeDeliveryEvidenceV1Error<"encode_cancellation_receipt">
+> {
+  return validateTaskComputeCancellationReceiptV1(input).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      "encode_cancellation_receipt",
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap((value) => encodeCanonicalDomainBytesResult(
+      value,
+      cancellationReceiptCodecOptions,
+      "encode_cancellation_receipt",
+    )),
+    Result.flatMap((canonicalBytes) => captureObservedEvidenceResult(
+      canonicalBytes,
+      observedSha256,
+      "encode_cancellation_receipt",
+    )),
+  );
+}
+
 export function decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
   input: unknown,
   observedSha256: unknown,
@@ -340,6 +438,40 @@ export function decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1(
       observedSha256,
       dispatchAcceptanceCodecOptions,
       "decode_dispatch_acceptance",
+    )),
+  );
+}
+
+export function decodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1(
+  input: unknown,
+  observedSha256: unknown,
+): Result.Result<
+  TaskComputeCancellationRequestV1,
+  TaskComputeDeliveryEvidenceV1Error<"decode_cancellation_request">
+> {
+  return captureEvidenceResult(input, "decode_cancellation_request").pipe(
+    Result.flatMap((evidence) => decodeCanonicalDomainEvidenceResult(
+      evidence,
+      observedSha256,
+      cancellationRequestCodecOptions,
+      "decode_cancellation_request",
+    )),
+  );
+}
+
+export function decodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1(
+  input: unknown,
+  observedSha256: unknown,
+): Result.Result<
+  TaskComputeCancellationReceiptV1,
+  TaskComputeDeliveryEvidenceV1Error<"decode_cancellation_receipt">
+> {
+  return captureEvidenceResult(input, "decode_cancellation_receipt").pipe(
+    Result.flatMap((evidence) => decodeCanonicalDomainEvidenceResult(
+      evidence,
+      observedSha256,
+      cancellationReceiptCodecOptions,
+      "decode_cancellation_receipt",
     )),
   );
 }

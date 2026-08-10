@@ -24,7 +24,9 @@ import {
   TaskComputeProfileStorageV1Error,
   type TaskComputeDeliveryEvidenceV1,
   decodeTaskComputeCancellationReceiptEvidenceV1,
+  decodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1,
   decodeTaskComputeCancellationRequestEvidenceV1,
+  decodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1,
   decodeTaskComputeDispatchAcceptanceEvidenceV1,
   decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
   decodeTaskComputeDispatchRequestEvidenceV1,
@@ -32,7 +34,11 @@ import {
   decodeTaskComputePreparedExecutionV1,
   decodeTaskComputeProfileStorageBytesV1,
   encodeTaskComputeCancellationReceiptEvidenceV1,
+  encodeTaskComputeCancellationReceiptCanonicalBytesV1,
+  encodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1,
   encodeTaskComputeCancellationRequestEvidenceV1,
+  encodeTaskComputeCancellationRequestCanonicalBytesV1,
+  encodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1,
   encodeTaskComputeDispatchAcceptanceEvidenceV1,
   encodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
   encodeTaskComputeDispatchAcceptanceCanonicalBytesV1,
@@ -88,6 +94,20 @@ describe("DTE06-C1 compute delivery evidence", () => {
         ReturnType<typeof successCancellationReceipt>,
         TaskComputeDeliveryEvidenceV1Error<"decode_cancellation_receipt">
       >>();
+    expectTypeOf(encodeTaskComputeCancellationRequestCanonicalBytesV1({}))
+      .toEqualTypeOf<Result.Result<
+        Uint8Array,
+        TaskComputeDeliveryEvidenceV1Error<"encode_cancellation_request">
+      >>();
+    expectTypeOf(
+      decodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1(
+        {},
+        new Uint8Array(32),
+      ),
+    ).toEqualTypeOf<Result.Result<
+      ReturnType<typeof successCancellationReceipt>,
+      TaskComputeDeliveryEvidenceV1Error<"decode_cancellation_receipt">
+    >>();
     expectTypeOf(encodeTaskComputeProfileStorageBytesV1("profile"))
       .toEqualTypeOf<Result.Result<
         Uint8Array,
@@ -183,6 +203,43 @@ describe("DTE06-C1 compute delivery evidence", () => {
         acceptanceEvidence.sha256,
       ),
     )).toEqual(acceptanceEvidence);
+    const cancellationRequestEvidence = await Effect.runPromise(
+      encodeTaskComputeCancellationRequestEvidenceV1(cancellationRequest),
+    );
+    expect(success(
+      encodeTaskComputeCancellationRequestCanonicalBytesV1(cancellationRequest),
+    )).toEqual(cancellationRequestEvidence.canonicalBytes);
+    expect(success(
+      encodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1(
+        cancellationRequest,
+        cancellationRequestEvidence.sha256,
+      ),
+    )).toEqual(cancellationRequestEvidence);
+    expect(success(
+      decodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1(
+        cancellationRequestEvidence,
+        cancellationRequestEvidence.sha256,
+      ),
+    )).toEqual(cancellationRequest);
+
+    const cancellationReceiptEvidence = await Effect.runPromise(
+      encodeTaskComputeCancellationReceiptEvidenceV1(cancellationReceipt),
+    );
+    expect(success(
+      encodeTaskComputeCancellationReceiptCanonicalBytesV1(cancellationReceipt),
+    )).toEqual(cancellationReceiptEvidence.canonicalBytes);
+    expect(success(
+      encodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1(
+        cancellationReceipt,
+        cancellationReceiptEvidence.sha256,
+      ),
+    )).toEqual(cancellationReceiptEvidence);
+    expect(success(
+      decodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1(
+        cancellationReceiptEvidence,
+        cancellationReceiptEvidence.sha256,
+      ),
+    )).toEqual(cancellationReceipt);
   });
 
   it("owns byte evidence and rejects hostile evidence records without reading getters", async () => {
