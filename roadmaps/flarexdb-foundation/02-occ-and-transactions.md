@@ -1650,21 +1650,44 @@ O09-B now supplies the complete contention proof across both sidecar kinds.
 
 ### [ ] O10 — Prove One Exact Indexed Dependency
 
-Outcome:
+Accepted preflight and exact contract:
 
-- After the schema and compiler provide the ordered-key codec and index
-  sidecars, implement one exact indexed dependency including codec version,
-  bounds, empty range, insertion/deletion, key movement, and pagination
-  frontier.
-- Add complete local read-your-writes overlay for that exact supported query
-  shape before enabling it in mutations.
+- [`06-indexed-range-occ.md`](./06-indexed-range-occ.md) owns the first
+  implementation-ready shape and Convex comparison. It moves O10 ahead of
+  relation work without opening R01/R02/S12/C09.
+- Implement only an ascending, bounded developer ordered-index `take(n)` over
+  the existing structured equality-prefix/optional-inequality grammar.
+  `first()` and exhaustion-aware `unique()` may derive from that primitive.
+- Record the canonical composite `(encodedKey, rowId)` interval actually
+  consumed. A partial page ends after its last consumed position; an empty or
+  exhausted query records the complete effective interval.
+- Combine that membership dependency with ordinary point dependencies for
+  returned snapshot documents. Do not infer document-content stability from
+  an unchanged index key.
+- Merge the exact C03 staged final-row overlay with the S10 snapshot stream
+  through the C08 lowerer before applying the limit. No fallback Postgres read
+  may ignore a relevant staged write.
+- Under the existing scope-clock lock, validate immutable S10 live/tombstone
+  revisions in `(snapshotCommitSeq, lockedLastCommitSeq]`. Do not compare only
+  current membership, add a second write log, or create another retry owner.
+- Treat legacy `invoke_session_index_reads`, wall-clock OCC, Durable Object
+  index tables, and the historical freshness predicate as non-authoritative
+  replacement evidence.
 
 Exit gate:
 
-- phantom insert/delete/key-move tests pass on PGlite and real Postgres;
-- unsupported range, relation, scan, or pagination shapes still reject rather
-  than fall back;
-- this turn does not claim all query shapes.
+- empty, insert, delete/reinsert, move-in, move-out, move-within, move-out/back,
+  duplicate-key, returned-content, and exact page-frontier cases pass on
+  PGlite and genuine Postgres;
+- staged insert/delete/patch/replace, coalescing, page refill, replay,
+  interruption, rollback, uncertainty, and O08 conflict replacement pass;
+- genuine Postgres proves the snapshot and negative/positive post-snapshot
+  overlap access paths under populated history and the accepted ceilings;
+- journal/protocol/runtime identities, counters, canonical vectors, generated
+  closure, and any required migration are changed once with no parallel
+  acceptance or fallback; and
+- filter, scan, descending, external-pagination, relation, search, vector, and
+  other unsupported shapes reject before target data I/O.
 
 ### [ ] O10-R — Prove One Exact Relation Adjacency Dependency
 

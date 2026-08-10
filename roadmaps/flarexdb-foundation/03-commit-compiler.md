@@ -198,13 +198,20 @@ that same kernel with durable publication atoms.
 | --- | --- |
 | app `get(id)` | exact local overlay |
 | supported point insert/patch/replace/delete | exact coalesced overlay |
-| one specifically proven indexed query | enabled only after `O10` |
+| ascending developer-index `take(n)` with the exact accepted grammar | enabled only after `O10-B`; merge the bounded staged final-row overlay through the C08 lowerer before limiting and record the consumed composite interval from [`06-indexed-range-occ.md`](./06-indexed-range-occ.md) |
 | other index/range/relation/scan/pagination shapes | typed rejection |
 | Payload operation | Payload adapter lane or rejection |
 | Medusa operation | Medusa transaction lane; never generic fallback |
 
 Falling back to Postgres after a relevant staged write is not read-your-writes:
 Postgres cannot see the private journal.
+
+O10 does not extend `FunctionRuntimePointReaderV1` or reuse the point-read
+dependency counter. Its candidate-bound indexed-query capability, page/query/
+merged-interval budgets, canonical dependency evidence, and compiler input are
+separate exact facets composed into the same database context and the same
+prepared point-commit authority. Returned snapshot documents retain point
+dependencies; the indexed dependency owns membership and ordering only.
 
 ## Turn Checklist
 

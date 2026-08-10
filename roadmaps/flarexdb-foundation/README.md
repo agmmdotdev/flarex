@@ -740,12 +740,15 @@ Dynamic Worker binding baseline before selecting it.
 9. `O09-B` (complete): unique conflicts and complete developer-index/unique
    sidecar ordering, contention, delete/reuse, and rollback are proven on
    PGlite and genuine PostgreSQL.
-10. `R01`: relation identity and semantics.
-11. `R02`: stable relation IDs, immutable semantic definitions, and reusable
+10. `O10`: one exact ascending developer-index dependency, complete staged
+    read-your-writes overlay, consumed-frontier semantics, and phantom-conflict
+    proof. Its accepted preflight is
+    [`06-indexed-range-occ.md`](./06-indexed-range-occ.md).
+11. `R01`: relation identity and semantics.
+12. `R02`: stable relation IDs, immutable semantic definitions, and reusable
    physical edge definitions.
-12. `S12`: stable current edge occurrences; edge history remains deferred.
-13. `C09`: lower stable edge occurrences.
-14. `O10`: one exact indexed dependency and phantom-conflict proof.
+13. `S12`: stable current edge occurrences; edge history remains deferred.
+14. `C09`: lower stable edge occurrences.
 15. `O10-R`: one exact relation adjacency dependency, snapshot-registration
     race, read-your-writes, and phantom-conflict proof. SQL/PGQ remains later
     and optional.
@@ -2004,6 +2007,7 @@ shadowing, dual write, or dual authority is permitted.
 - [`03-commit-compiler.md`](./03-commit-compiler.md)
 - [`04-payload-relational-contract.md`](./04-payload-relational-contract.md)
 - [`05-managed-schema-deployment.md`](./05-managed-schema-deployment.md)
+- [`06-indexed-range-occ.md`](./06-indexed-range-occ.md)
 
 ## Deferred High-Level Plans
 

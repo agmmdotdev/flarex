@@ -457,7 +457,7 @@ cannot see the private journal.
 | --- | --- |
 | App `get(id)` | Exact local overlay |
 | Point insert/patch/replace/delete | Exact deterministic coalesced overlay |
-| One specifically proven indexed query | Enabled only after its overlay and phantom tests pass |
+| Ascending developer-index `take(n)` with the accepted equality-prefix/optional-inequality grammar | Enabled only after `O10-B`; merge the bounded staged final-row overlay before limiting and record the consumed composite interval defined by [`flarexdb-foundation/06-indexed-range-occ.md`](./flarexdb-foundation/06-indexed-range-occ.md) |
 | Other index/range/relation/scan/pagination shapes | Typed rejection |
 | Payload operation | Payload adapter lane or rejection |
 | Medusa operation | Medusa transaction lane; never generic fallback |

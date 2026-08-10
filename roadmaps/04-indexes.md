@@ -951,6 +951,32 @@ corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/postgres.test.ts --testTimeout=30000
 ```
 
+## Replacement Indexed Mutation OCC Authority
+
+The accepted replacement contract is now
+[`flarexdb-foundation/06-indexed-range-occ.md`](./flarexdb-foundation/06-indexed-range-occ.md).
+It owns O10's first exact ascending developer-index `take(n)`, canonical
+consumed composite `(encodedKey, rowId)` interval, complete staged
+read-your-writes overlay, S10 history validation, and existing O08 conflict
+replacement.
+
+The historical freshness and legacy invoke-session work below remains useful
+comparison evidence, but it is not replacement implementation authority. In
+particular, O10 must not reuse:
+
+- wall-clock `beginTs` or legacy numeric `ts` as `SnapshotToken.commitSeq`;
+- `invoke_session_index_reads` or the legacy `indexes`/write-log tables;
+- full-requested-range pagination invalidation when only a consumed prefix was
+  observed;
+- the legacy in-process full-range overlay and sort; or
+- the old key-prefix query-plan receipt as evidence for S10's
+  `(scope, definition, encodedKey, rowId, commitSeq)` history.
+
+O10 must produce new genuine-PostgreSQL snapshot and post-snapshot-overlap
+plans against S10 history. Prefer the existing history plus the smallest
+proven supporting index; do not introduce a second index-membership store,
+global range-version hotspot, alternate commit lane, or dual-write bridge.
+
 ## Legacy Prototype Decision (Superseded For Replacement Work)
 
 Indexes are part of the shard-local authoritative database. A document write
