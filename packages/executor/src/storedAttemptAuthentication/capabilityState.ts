@@ -1,10 +1,12 @@
 import { Encoding } from "effect";
 
-import type { PointCommitPublicationCommandV1 } from
+import type {
+  PointCommitConflictEvidenceV1,
+  PointCommitPublicationCommandV1,
+} from
   "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationSessionAttemptSelectorV1 } from
   "@flarex/persistence-postgres/transaction-session-activation";
-import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { SnapshotToken } from "flarex-protocol/storage-authority";
 
 import type {
@@ -44,11 +46,7 @@ export interface PreparedPointCommitCapabilityStateV1 {
   readonly executionAuthority: AuthenticatedCommitAuthorityStateV1;
 }
 
-export interface CapturedPointMutationOccConflictV1 {
-  readonly documentId: AppDocumentIdV1;
-  readonly snapshotCommitSeq: SnapshotToken["commitSeq"];
-  readonly currentCommitSeq: SnapshotToken["commitSeq"];
-}
+export type CapturedPointMutationOccConflictV1 = PointCommitConflictEvidenceV1;
 
 export interface PointMutationOccConflictTicketStateV1 {
   readonly finishing: FinishingPreparedPointCommitV1;

@@ -109,7 +109,7 @@ export function makePointCommitOutcomeTicketCaptureOperationsV1(
         finishing,
         prepared,
         conflict: Object.freeze({
-          documentId: error.documentId,
+          conflict: Object.freeze(structuredClone(error.conflict)),
           snapshotCommitSeq: error.snapshotCommitSeq,
           currentCommitSeq: error.currentCommitSeq,
         }),
@@ -274,12 +274,20 @@ export function makeStoredPointMutationOccRerunAuthorizationOperationsV1(
       const pins = prepared.plan.authorityPins;
       const previousSnapshot = pins.snapshotToken;
       const conflict = ticket.conflict;
+      const conflictCause = conflict.conflict;
+      const causeIsBound = conflictCause.kind === "appRowPoint"
+        ? prepared.plan.dependencies.some(
+            (dependency) => dependency.documentId === conflictCause.documentId,
+          )
+        : prepared.plan.indexRangeDependencies.some((dependency, ordinal) =>
+            ordinal === conflictCause.dependencyOrdinal &&
+            dependency.tableId === conflictCause.tableId &&
+            dependency.indexDefinitionId === conflictCause.indexDefinitionId
+          );
       if (
         conflict.snapshotCommitSeq !== previousSnapshot.commitSeq ||
         conflict.currentCommitSeq <= conflict.snapshotCommitSeq ||
-        !prepared.plan.dependencies.some(
-          (dependency) => dependency.documentId === conflict.documentId,
-        )
+        !causeIsBound
       ) {
         return yield* Effect.fail(
           new InvalidPointMutationOccConflictV1Error({

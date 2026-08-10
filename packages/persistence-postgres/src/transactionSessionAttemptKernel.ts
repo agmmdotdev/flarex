@@ -1,11 +1,13 @@
 import { Cause, Data, Effect } from "effect";
-import type { CatalogTableId } from "flarex-protocol/catalog";
+import type { CatalogIndexId, CatalogTableId } from "flarex-protocol/catalog";
 import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
 import { reconcileEffectTransactionFailure } from
   "./effectTransactionFailure";
 import type {
+  ResolvePinnedDeveloperIndexIdV1Error,
+  ResolvePinnedDeveloperIndexIdV1Input,
   ResolvePinnedPointTableIdV1Error,
   ResolvePinnedPointTableIdV1Input,
 } from "./pinnedPointTableResolution";
@@ -66,6 +68,9 @@ export const RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1: unique symbol =
 export const RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1: unique symbol = Symbol(
   "FlarexDB/resolvePinnedPointTableIdEffectV1",
 );
+
+export const RESOLVE_PINNED_DEVELOPER_INDEX_ID_EFFECT_V1: unique symbol =
+  Symbol("FlarexDB/resolvePinnedDeveloperIndexIdEffectV1");
 
 export const RUN_LOCATED_REPEATABLE_READ_V1: unique symbol = Symbol(
   "FlarexDB/runLocatedRepeatableReadV1",
@@ -172,6 +177,9 @@ export interface LocatedExactRunningAttemptKernelV1
   readonly [RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1]: (
     input: ResolvePinnedPointTableIdV1Input,
   ) => Effect.Effect<CatalogTableId, ResolvePinnedPointTableIdV1Error>;
+  readonly [RESOLVE_PINNED_DEVELOPER_INDEX_ID_EFFECT_V1]: (
+    input: ResolvePinnedDeveloperIndexIdV1Input,
+  ) => Effect.Effect<CatalogIndexId, ResolvePinnedDeveloperIndexIdV1Error>;
   readonly [RUN_LOCATED_REPEATABLE_READ_V1]: <Result>(
     work: (tx: AppRowTransaction) => Promise<Result>,
   ) => Promise<Result>;
@@ -245,6 +253,10 @@ export function isLocatedExactRunningAttemptKernelV1(
     typeof Reflect.get(
       target,
       RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
+    ) === "function" &&
+    typeof Reflect.get(
+      target,
+      RESOLVE_PINNED_DEVELOPER_INDEX_ID_EFFECT_V1,
     ) === "function"
     && typeof Reflect.get(target, RUN_LOCATED_REPEATABLE_READ_V1) === "function"
     && typeof Reflect.get(target, RUN_LOCATED_READ_COMMITTED_V1) === "function"

@@ -9,12 +9,14 @@ import {
 } from "@flarex/executor/point-mutation-journal-rpc";
 import {
   InvalidPointMutationJournalCapabilityV1Error,
+  type PointMutationJournalIndexV1,
   type PointMutationJournalTableV1,
 } from "../src/pointMutationJournal";
 import type {
   PointMutationOccBoundJournalV1,
 } from "../src/storedAttemptAuthentication";
 import type {
+  RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
@@ -30,6 +32,7 @@ import { ApplicationRevisionSyscallDocumentValidationV1Error } from
 
 type Scenario =
   | "success"
+  | "indexedSuccess"
   | "resultRejected"
   | "operationFailure"
   | "validationFailure"
@@ -46,6 +49,8 @@ interface ScenarioRecord {
   readonly secondError: InvalidPointMutationJournalCapabilityV1Error;
   readonly defect: Error;
   operationCalls: number;
+  indexCalls: number;
+  indexIdentityPreserved: boolean;
   tableIdentityPreserved: boolean;
   closePromise:
     | Promise<
@@ -60,6 +65,16 @@ const EXECUTED_MISSING = Object.freeze({
   delivery: "executed",
   outcome: Object.freeze({ kind: "missing", document: null }),
 } satisfies RunSessionJournalPointOperationV1Result);
+
+const EXECUTED_INDEX_PAGE = Object.freeze({
+  kind: "completed",
+  delivery: "executed",
+  outcome: Object.freeze({
+    kind: "indexRangePage",
+    documents: Object.freeze([{ status: "open" }]),
+    isDone: true,
+  }),
+} satisfies RunSessionJournalIndexedQueryV1Result);
 
 const BUSINESS_REJECTED = Object.freeze({
   kind: "rejected",
@@ -99,6 +114,7 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
     // This fixture represents an already-resolved process-local journal handle.
     // Its nominal brand is intentionally inaccessible outside the journal owner.
     const table = Object.freeze({}) as PointMutationJournalTableV1;
+    const index = Object.freeze({}) as PointMutationJournalIndexV1;
     let record: ScenarioRecord;
     const journal = Object.freeze({
       resolvePointTable: () => Effect.succeed(table),
@@ -107,6 +123,7 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
         record.tableIdentityPreserved &&= _table === table;
         switch (record.scenario) {
           case "success":
+          case "indexedSuccess":
             return Effect.succeed(EXECUTED_MISSING);
           case "resultRejected":
             return Effect.succeed(rejectedResultForOperation(operation));
@@ -159,6 +176,16 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
             return Effect.interrupt;
         }
       },
+      resolveDeveloperIndex: () => record.scenario === "indexedSuccess"
+        ? Effect.succeed(index)
+        : Effect.die(new Error("index resolution must not run")),
+      runIndexedQuery: (_index) => {
+        record.indexCalls += 1;
+        record.indexIdentityPreserved &&= _index === index;
+        return record.scenario === "indexedSuccess"
+          ? Effect.succeed(EXECUTED_INDEX_PAGE)
+          : Effect.die(new Error("indexed query must not run"));
+      },
     } satisfies PointMutationOccBoundJournalV1);
     const session = makePointMutationJournalRpcSessionV1(journal);
     record = {
@@ -168,6 +195,8 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
       secondError,
       defect,
       operationCalls: 0,
+      indexCalls: 0,
+      indexIdentityPreserved: true,
       tableIdentityPreserved: true,
       closePromise: undefined,
       closeFinished: false,
@@ -191,6 +220,8 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
     return Object.freeze({
       closeFinished: record.closeFinished,
       closeStarted: record.closePromise !== undefined,
+      indexCalls: record.indexCalls,
+      indexIdentityPreserved: record.indexIdentityPreserved,
       operationCalls: record.operationCalls,
       tableIdentityPreserved: record.tableIdentityPreserved,
     });

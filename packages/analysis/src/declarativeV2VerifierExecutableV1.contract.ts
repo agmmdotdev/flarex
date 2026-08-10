@@ -491,6 +491,7 @@ export const DECLARATIVE_V2_SAFE_ABI_LOOKUP_V1 = [
   "databaseGet",
   "databaseInsert",
   "databasePatch",
+  "databaseQueryIndexRange",
   "databaseReplace",
   "errorCode",
   "errorCreate",
@@ -562,6 +563,12 @@ export const DECLARATIVE_V2_CONTEXT_MEMBER_ABI_LOWERINGS_V1 = [
     memberPath: ["db", "delete"],
     operation: "databaseDelete",
     argumentCounts: [1],
+  },
+  {
+    id: 9,
+    memberPath: ["db", "queryIndexRange"],
+    operation: "databaseQueryIndexRange",
+    argumentCounts: [4],
   },
   {
     id: 6,

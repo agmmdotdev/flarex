@@ -114,6 +114,24 @@ export default { async fetch() {
   const journal = {
     resolvePointTable() {
       return {
+        resolveDeveloperIndex(indexDescriptor) {
+          operations.push(["resolveIndex", indexDescriptor]);
+          return {
+            async runIndexedQuery(operation) {
+              operations.push([
+                operation.kind,
+                String(operation.syscallSequence),
+                operation.bounds.startInclusive,
+                operation.bounds.endExclusive,
+              ]);
+              return Object.freeze({
+                kind: "indexRangePage",
+                documents: [],
+                isDone: true,
+              });
+            },
+          };
+        },
         async runPointOperation(operation) {
           operations.push([operation.kind, String(operation.syscallSequence)]);
           if (operation.kind === "insert") {
@@ -179,8 +197,23 @@ export async function update(ctx) {
   if (Object.keys(ctx).join(",") !== "auth,db,runQuery" || !Object.isFrozen(ctx)) {
     throw new Error("mutation context shape mismatch");
   }
-  if (Object.keys(ctx.db).join(",") !== "get,insert,patch,replace,delete" || !Object.isFrozen(ctx.db)) {
+  if (Object.keys(ctx.db).join(",") !== "get,insert,patch,replace,delete,queryIndexRange" || !Object.isFrozen(ctx.db)) {
     throw new Error("mutation database shape mismatch");
+  }
+  try {
+    await ctx.db.queryIndexRange("orders", "_reserved", {}, 1);
+    throw new Error("reserved index descriptor was accepted");
+  } catch (error) {
+    if (!String(error?.message).includes("valid developer index descriptor")) throw error;
+  }
+  const empty = await ctx.db.queryIndexRange(
+    "orders",
+    "by_status",
+    { startInclusive: "", endExclusive: "00" },
+    1,
+  );
+  if (empty.documents.length !== 0 || !empty.isDone) {
+    throw new Error("empty index interval mismatch");
   }
   try {
     await ctx.runQuery({ _path: "orders:readInternal" }, {});
@@ -214,7 +247,12 @@ export async function readInternal(ctx, args) {
           _creationTime: 100,
           status: "open",
         },
-        operations: [["insert", "1"], ["get", "2"]],
+        operations: [
+          ["resolveIndex", "by_status"],
+          ["indexRange", "1", "", "00"],
+          ["insert", "2"],
+          ["get", "3"],
+        ],
       } });
     } finally {
       await runtime.dispose();

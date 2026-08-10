@@ -926,6 +926,8 @@ describe("C04A stored-attempt authentication", () => {
             openAttempt: () => neverRun("open a journal"),
             resolvePointTable: () => neverRun("resolve a point table"),
             runPointOperation: () => neverRun("run a point operation"),
+            resolveDeveloperIndex: () => neverRun("resolve an index"),
+            runIndexedQuery: () => neverRun("run an indexed query"),
             sealSuccessfulResult: () => neverRun("seal a result"),
           },
           terminalization: {
@@ -2419,9 +2421,12 @@ describe("C04A stored-attempt authentication", () => {
 
   it("does not retry ordinary, uncertain, OCC, corrupt, structural, or defect failures", async () => {
     const conflict = new PointCommitConflictV1Error({
-      documentId: decodeAppDocumentIdV1(
-        "1:00000000-0000-4000-8000-000000000099",
-      ),
+      conflict: Object.freeze({
+        kind: "appRowPoint",
+        documentId: decodeAppDocumentIdV1(
+          "1:00000000-0000-4000-8000-000000000099",
+        ),
+      }),
       snapshotCommitSeq: CommitSeqSchema.make(1n),
       currentCommitSeq: CommitSeqSchema.make(2n),
     });
@@ -2937,6 +2942,7 @@ describe("C04A stored-attempt authentication", () => {
       },
       returnsValidator: { type: "string" },
     });
+    const directConflict = pointConflictForFixture(current);
     const replacementCommands: PointMutationAttemptReplacementCommandV1[] = [];
     const publicationFailure = new PointCommitCorruptionV1Error({
       reason: "publicationInvariantInvalid",
@@ -2993,7 +2999,10 @@ describe("C04A stored-attempt authentication", () => {
       first.authentication.enterPointCommitFinishing(first.prepared),
     );
     const observation = await runEffect(
-      first.authentication.replaceConflictedPointMutationAttempt(finishing),
+      first.authentication.replaceConflictedPointMutationAttempt(
+        finishing,
+        directConflict,
+      ),
     );
     expect(Object.isFrozen(observation)).toBe(true);
     expect(observation).toMatchObject({
@@ -3016,6 +3025,8 @@ describe("C04A stored-attempt authentication", () => {
     expect(Reflect.ownKeys(command).sort()).toEqual([
       "authorityPins",
       "dependencies",
+      "expectedConflict",
+      "indexRangeDependencies",
       "sealIdentity",
       "session",
     ]);
@@ -3027,7 +3038,10 @@ describe("C04A stored-attempt authentication", () => {
     command.session.requestSha256.fill(0);
     command.sealIdentity.journalSha256.fill(0);
     await runEffect(
-      first.authentication.replaceConflictedPointMutationAttempt(finishing),
+      first.authentication.replaceConflictedPointMutationAttempt(
+        finishing,
+        directConflict,
+      ),
     );
     expect(replacementCommands[1]?.session.requestSha256).not.toEqual(
       new Uint8Array(32),
@@ -3041,6 +3055,7 @@ describe("C04A stored-attempt authentication", () => {
       first.authentication.replaceConflictedPointMutationAttempt(
         // @ts-expect-error O08-A accepts only a finishing capability.
         first.prepared,
+        directConflict,
       ),
     );
     expect(runningFailure).toMatchObject({
@@ -3051,7 +3066,7 @@ describe("C04A stored-attempt authentication", () => {
     const forged = await runFailure(
       first.authentication.replaceConflictedPointMutationAttempt({
         ...finishing,
-      }),
+      }, directConflict),
     );
     expect(forged).toMatchObject({
       _tag: "InvalidPreparedPointCommitV1Error",
@@ -3066,7 +3081,10 @@ describe("C04A stored-attempt authentication", () => {
       replacement,
     );
     const crossFactory = await runFailure(
-      second.authentication.replaceConflictedPointMutationAttempt(finishing),
+      second.authentication.replaceConflictedPointMutationAttempt(
+        finishing,
+        directConflict,
+      ),
     );
     expect(crossFactory).toMatchObject({
       _tag: "InvalidPreparedPointCommitV1Error",
@@ -3152,7 +3170,7 @@ describe("C04A stored-attempt authentication", () => {
     expect(consumed).toBeInstanceOf(InvalidPointMutationOccConflictV1Error);
     expect(consumed).toMatchObject({ reason: "alreadyConsumed" });
     const copied = new PointCommitConflictV1Error({
-      documentId: fixture.conflict.documentId,
+      conflict: Object.freeze(structuredClone(fixture.conflict.conflict)),
       snapshotCommitSeq: fixture.conflict.snapshotCommitSeq,
       currentCommitSeq: fixture.conflict.currentCommitSeq,
     });
@@ -4515,9 +4533,25 @@ describe("C04A stored-attempt authentication", () => {
         ]),
       }),
     } satisfies VerifiedCommitInputStateV1);
-    expect(requirePlanFailure(planPointCommitStateV1(
+    const rangePlan = requirePlanSuccess(planPointCommitStateV1(
       rangeDependencySource,
-    ))).toMatchObject({
+    ));
+    expect(rangePlan.indexRangeDependencies).toEqual(
+      rangeDependencySource.journal.readDependencies.slice(-1),
+    );
+
+    const futureJournalDependencySource = Object.freeze({
+      ...base,
+      journal: Object.freeze({
+        ...base.journal,
+        readDependencies: Object.freeze([{
+          kind: "futureIndexDependency" as const,
+        }]),
+      }),
+    });
+    // @ts-expect-error The runtime guard proves a future dependency fails closed.
+    const futureJournalDependencyResult = planPointCommitStateV1(futureJournalDependencySource);
+    expect(requirePlanFailure(futureJournalDependencyResult)).toMatchObject({
       issue: { reason: "unsupportedReadDependency" },
     });
 
@@ -5413,7 +5447,10 @@ async function pointMutationOccAuthorizationFixture(
     throw new Error("O08-B1 fixture requires one point dependency.");
   }
   const conflict = new PointCommitConflictV1Error({
-    documentId: dependency.documentId,
+    conflict: Object.freeze({
+      kind: "appRowPoint",
+      documentId: dependency.documentId,
+    }),
     snapshotCommitSeq: previousSnapshot.commitSeq,
     currentCommitSeq,
   });
@@ -5578,6 +5615,25 @@ async function pointMutationOccAuthorizationFixture(
     },
     counts: () => ({ outcomeCalls, replacementCalls, loadCalls }),
   };
+}
+
+function pointConflictForFixture(
+  current: CommitAuthorityFixture,
+): PointCommitConflictV1Error {
+  const dependency = current.fixture.journal.journal.readDependencies[0];
+  if (dependency?.kind !== "appRowPoint") {
+    throw new Error("Expected one point dependency.");
+  }
+  return new PointCommitConflictV1Error({
+    conflict: Object.freeze({
+      kind: "appRowPoint",
+      documentId: dependency.documentId,
+    }),
+    snapshotCommitSeq: current.fixture.evidence.lease.snapshotToken.commitSeq,
+    currentCommitSeq: CommitSeqSchema.make(
+      current.fixture.evidence.lease.snapshotToken.commitSeq + 1n,
+    ),
+  });
 }
 
 function unsafeFinishingTransitionResultForTest(

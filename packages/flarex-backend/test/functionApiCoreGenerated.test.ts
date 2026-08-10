@@ -63,6 +63,9 @@ describe("generated function API core", () => {
       "createFunctionRuntimePointDatabaseWriterV1",
     );
     expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
+      "createFunctionRuntimeIndexedPointDatabaseWriterV1",
+    );
+    expect(FUNCTION_API_CORE_SOURCE_V1).toContain(
       "createFunctionRuntimeApplicationErrorRegistryV1",
     );
   });
@@ -123,7 +126,7 @@ describe("generated function API core", () => {
       "createFunctionRuntimePointReaderV1(",
     );
     expect(POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1).toContain(
-      "createFunctionRuntimePointDatabaseWriterV1(",
+      "createFunctionRuntimeIndexedPointDatabaseWriterV1(",
     );
     for (const source of [
       POINT_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1,
@@ -201,7 +204,7 @@ describe("generated function API core", () => {
     expect(POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1)
       .toContain("createFunctionRuntimePointReaderV1(");
     expect(POINT_MUTATION_INTERNAL_QUERY_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1)
-      .toContain("createFunctionRuntimePointDatabaseWriterV1(");
+      .toContain("createFunctionRuntimeIndexedPointDatabaseWriterV1(");
     for (const negativeCapability of [
       'unsupported("ctx.db.query")',
       'unsupported("ctx.db.normalizeId")',

@@ -5,6 +5,7 @@ import {
 } from "flarex-protocol/app-document-id";
 import { SESSION_JOURNAL_FORMAT_V1 } from "flarex-protocol/commit-protocol";
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
@@ -51,6 +52,27 @@ export async function pointMutationAttemptReplacementCommandFromStoredAttemptV1(
     session: command.session,
     sealIdentity: command.sealIdentity,
     dependencies: command.dependencies,
+    indexRangeDependencies: command.indexRangeDependencies,
+    expectedConflict: expectedPointConflict(command),
+  });
+}
+
+function expectedPointConflict(
+  command: PointCommitTransactionCommandV1,
+) {
+  const dependency = command.dependencies[0];
+  if (dependency === undefined) {
+    throw new Error("A replacement test command requires one point dependency.");
+  }
+  return Object.freeze({
+    conflict: Object.freeze({
+      kind: "appRowPoint" as const,
+      documentId: dependency.documentId,
+    }),
+    snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
+    currentCommitSeq: CommitSeqSchema.make(
+      command.authorityPins.snapshotToken.commitSeq + 1n,
+    ),
   });
 }
 
@@ -121,6 +143,7 @@ async function pointCommitCommandForLifecycleFromStoredAttemptV1(
   return Object.freeze({
     ...scalar,
     dependencies,
+    indexRangeDependencies: Object.freeze([]),
     rowIntents: Object.freeze(materialIntents),
   } satisfies PointCommitTransactionCommandV1);
 }

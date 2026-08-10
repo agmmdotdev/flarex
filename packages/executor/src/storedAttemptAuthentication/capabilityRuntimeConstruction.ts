@@ -153,6 +153,8 @@ export function isPointMutationJournalV1(
     typeof value.openAttempt === "function" &&
     typeof value.resolvePointTable === "function" &&
     typeof value.runPointOperation === "function" &&
+    typeof value.resolveDeveloperIndex === "function" &&
+    typeof value.runIndexedQuery === "function" &&
     typeof value.sealSuccessfulResult === "function"
   );
 }

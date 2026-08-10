@@ -12,10 +12,7 @@ import {
   type AppDocumentIdV1,
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
-import {
-  decodeCatalogIndexId,
-  type CatalogTableId,
-} from "flarex-protocol/catalog";
+import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   CommitSyscallSequenceV1Schema,
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
@@ -115,7 +112,6 @@ import {
   SessionJournalPersistenceV1Error,
   SessionJournalSealV1Error,
   SessionJournalStorageCorruptionV1Error,
-  SessionJournalDeveloperIndexUnavailableV1Error,
   createAppDeveloperIndexQueryPortV1,
   createSessionJournalStorePersistenceV1,
   type PinnedDeveloperIndexV1,
@@ -197,6 +193,7 @@ interface ScenarioOptions {
   }>>;
   readonly targetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
   readonly developerIndex?: boolean;
+  readonly developerIndexDescriptor?: unknown;
   readonly journalFaultAfter?: (
     point: "indexedQueryEvidenceWritten",
   ) => void | Promise<void>;
@@ -510,7 +507,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const developerIndex = options.developerIndex === true
       ? await runEffect(store.resolveDeveloperIndexEffect(
           table,
-          decodeCatalogIndexId(1),
+          options.developerIndexDescriptor ?? "by_name",
         ))
       : null;
 
@@ -530,6 +527,27 @@ describe("C03 Postgres SessionJournalStore", () => {
       schemaManifest: publication.manifest,
     });
   }
+
+  it("resolves developer index descriptors through the pinned schema artifact", async () => {
+    await expect(scenario("o10b_index_descriptor", {
+      developerIndex: true,
+      developerIndexDescriptor: "by_name",
+    })).resolves.toMatchObject({ developerIndex: {} });
+    await expect(scenario("o10b_numeric_index_identity_rejected", {
+      developerIndex: true,
+      developerIndexDescriptor: 1,
+    })).rejects.toMatchObject({
+      _tag: "InvalidSessionJournalInputV1Error",
+      reason: "invalidIndexDescriptor",
+    });
+    await expect(scenario("o10b_unknown_index_descriptor", {
+      developerIndex: true,
+      developerIndexDescriptor: "by_missing",
+    })).rejects.toMatchObject({
+      _tag: "SessionJournalDeveloperIndexUnavailableV1Error",
+      reason: "definitionNotFound",
+    });
+  });
 
   it("captures and replays one exact indexed snapshot page", async () => {
     const current = await scenario("o10a_indexed_snapshot", {
@@ -666,7 +684,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
   });
 
-  it("fails closed before indexed I/O when the table has staged rows", async () => {
+  it("overlays a staged patch before recording indexed evidence", async () => {
     const current = await scenario("o10a_staged_overlay", {
       seedFields: { name: "before" },
       developerIndex: true,
@@ -685,7 +703,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       documentId: requireSeededDocumentId(current),
       patch: { name: "after" },
     }, validator));
-    const failure = await runFailure(current.store.runIndexedQueryEffect(
+    const result = await runEffect(current.store.runIndexedQueryEffect(
       current.developerIndex,
       {
         kind: "indexRange",
@@ -694,16 +712,91 @@ describe("C03 Postgres SessionJournalStore", () => {
         limit: 1,
       },
     ));
-    expect(failure).toBeInstanceOf(
-      SessionJournalDeveloperIndexUnavailableV1Error,
-    );
-    expect(failure).toMatchObject({ reason: "stagedOverlayUnsupported" });
+    expect(result).toMatchObject({
+      kind: "completed",
+      delivery: "executed",
+      outcome: {
+        kind: "indexRangePage",
+        documents: [{ name: "after" }],
+        isDone: true,
+      },
+    });
     const ranges = await persistence.query<{ readonly count: number }>(
       `select count(*)::int as count from fx_system_tx_journal_index_range
         where session_id = $1`,
       [current.anchor.sessionId],
     );
-    expect(ranges.rows[0]?.count).toBe(0);
+    expect(ranges.rows[0]?.count).toBe(1);
+  });
+
+  it("orders staged inserts, patches, and deletes before applying the page limit", async () => {
+    const current = await scenario("o10b_staged_overlay_order", {
+      seedFields: { name: "Ada" },
+      additionalSeedFields: { name: "Zoe" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-B developer index handle.");
+    }
+    const validator = issueSetupSeededSyscallValidatorProofV1({
+      scopeId: current.anchor.scopeId,
+      schemaVersionId: current.schemaVersionId,
+      schemaManifest: current.schemaManifest,
+    });
+    await runEffect(current.store.runPointOperationEffect(current.table, {
+      kind: "patch",
+      syscallSequence: syscallSequence(1n),
+      documentId: appDocumentIdV1FromRowIdentity({
+        tableId: current.tableId,
+        rowId: SECOND_ROW_ID,
+      }),
+      patch: { name: "Aaron" },
+    }, validator));
+    await runEffect(current.store.runPointOperationEffect(current.table, {
+      kind: "delete",
+      syscallSequence: syscallSequence(2n),
+      documentId: requireSeededDocumentId(current),
+    }, validator));
+    await runEffect(current.store.runPointOperationEffect(current.table, {
+      kind: "insert",
+      syscallSequence: syscallSequence(3n),
+      fields: { name: "Mia" },
+    }, validator));
+
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(4n),
+        bounds: Object.freeze({}),
+        limit: 1,
+      },
+    ))).resolves.toMatchObject({
+      kind: "completed",
+      delivery: "executed",
+      outcome: {
+        kind: "indexRangePage",
+        documents: [{ name: "Aaron" }],
+        isDone: false,
+      },
+    });
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(5n),
+        bounds: Object.freeze({}),
+        limit: 3,
+      },
+    ))).resolves.toMatchObject({
+      kind: "completed",
+      delivery: "executed",
+      outcome: {
+        kind: "indexRangePage",
+        documents: [{ name: "Aaron" }, { name: "Mia" }],
+        isDone: true,
+      },
+    });
   });
 
   it("captures a composite frontier, then merges an exhausted replay range", async () => {

@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Random, Result, Schema } from "effect";
 import {
   canonicalizeAppDocumentV1,
@@ -23,11 +23,13 @@ import {
   decodeCatalogTableId,
 } from "flarex-protocol/catalog";
 import {
+  decodeOrderedIndexBoundHexV1,
   decodeOrderedIndexRowIdHexV1,
   encodeAppOrderedIndexKeyV1,
   ORDERED_INDEX_MISSING_V1,
   orderedIndexCreationTimeV1,
   orderedIndexValueFromFlarexValueV1,
+  type OrderedIndexBoundsV1,
 } from "flarex-protocol/ordered-index";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
@@ -41,6 +43,10 @@ import {
 import {
   makeGrantRetentionPolicyV1Result,
 } from "flarex-protocol/grant-retention-policy";
+import {
+  INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
+  IndexBuildAttemptFenceSchema,
+} from "flarex-protocol/index-build-state";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
@@ -76,6 +82,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   MAX_PERSISTED_SIGNED_INT64_V1,
   ScopeEpochSchema,
   SnapshotTokenSchema,
@@ -236,6 +243,7 @@ import {
   AppUniqueKeyConflictError,
 } from "../src/appUniqueKeys";
 import {
+  createAppDeveloperIndexQueryPortV1,
   createSessionJournalStorePersistenceV1,
   type PinnedPointTableV1,
   type SessionJournalAttemptV1,
@@ -265,6 +273,7 @@ import {
 import {
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
+  fxSystemIndexBuildStates,
   fxSystemScopeClocks,
 } from "../src/schema";
 import {
@@ -294,6 +303,7 @@ import {
   createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
   createPointMutationAttemptReplacementPortV1,
+  MAX_INDEX_RANGE_OCC_COMMIT_SPAN_V1,
   hasPointCommitUniqueConstraintEligibilityV1,
   hasPointCommitUniqueConstraintMaintenanceV1,
   PointCommitConflictV1Error,
@@ -6027,6 +6037,138 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(exhaustedFailure).toMatchObject({ dimension: "commitSequence" });
   });
 
+  it("detects an indexed phantom and permits a commit outside the captured range", async () => {
+    const conflict = await prepareO08B1Scenario(
+      "o10b_range_overlap",
+      (current, table) => runO10IndexedQuery(current, table),
+      (current) => prepareDeveloperIndexForO06(current),
+    );
+    const inserted = await commitCompetingIndexedUserForO10(
+      conflict.current,
+      "phantom",
+      "22".repeat(16),
+    );
+    const conflictBefore = await o06DurableState(conflict.scopeUuid);
+    const failure = await runFailure(
+      conflict.authentication.publishPointCommit(conflict.plan),
+    );
+    expect(failure).toBeInstanceOf(PointCommitConflictV1Error);
+    expect(failure).toMatchObject({
+      conflict: {
+        kind: "appIndexRange",
+        reason: "overlap",
+        dependencyOrdinal: 0,
+        tableId: decodeCatalogTableId(1),
+        encodedKey: inserted.encodedKey,
+        rowId: decodeOrderedIndexRowIdHexV1("22".repeat(16)),
+      },
+      snapshotCommitSeq: CommitSeqSchema.make(0n),
+      currentCommitSeq: CommitSeqSchema.make(1n),
+    });
+    expect(await o06DurableState(conflict.scopeUuid)).toEqual(conflictBefore);
+    const rerun = await runEffect(
+      conflict.authentication.authorizePointMutationOccRerun(failure).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => 0,
+          nextIntUnsafe: () => 0,
+        }),
+      ),
+    );
+    expect(rerun).toMatchObject({
+      kind: "authorized",
+      backoffUpperBoundMilliseconds: 100,
+      backoffMilliseconds: 0,
+    });
+
+    const overflow = await prepareO08B1Scenario(
+      "o10b_range_window_overflow",
+      (current, table) => runO10IndexedQuery(current, table),
+      (current) => prepareDeveloperIndexForO06(current),
+    );
+    const overflowCommitSeq = MAX_INDEX_RANGE_OCC_COMMIT_SPAN_V1 + 1n;
+    await persistence.query(
+      `update fx_system_scope_clock
+          set last_commit_seq = $2
+        where scope_uuid = $1`,
+      [overflow.scopeUuid, overflowCommitSeq],
+    );
+    const overflowBefore = await o06DurableState(overflow.scopeUuid);
+    const overflowFailure = await runFailure(
+      overflow.authentication.publishPointCommit(overflow.plan),
+    );
+    expect(overflowFailure).toBeInstanceOf(PointCommitConflictV1Error);
+    expect(overflowFailure).toMatchObject({
+      conflict: {
+        kind: "appIndexRange",
+        reason: "validationWindowExceeded",
+        dependencyOrdinal: 0,
+        tableId: decodeCatalogTableId(1),
+      },
+      snapshotCommitSeq: CommitSeqSchema.make(0n),
+      currentCommitSeq: CommitSeqSchema.make(overflowCommitSeq),
+    });
+    expect(await o06DurableState(overflow.scopeUuid)).toEqual(overflowBefore);
+    await expect(runEffect(
+      overflow.authentication.authorizePointMutationOccRerun(
+        overflowFailure,
+      ).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => 0,
+          nextIntUnsafe: () => 0,
+        }),
+      ),
+    )).resolves.toMatchObject({
+      kind: "authorized",
+      backoffUpperBoundMilliseconds: 100,
+      backoffMilliseconds: 0,
+    });
+
+    const outside = await prepareO07BScenario(
+      "o10b_range_no_overlap",
+      async (current, table) => {
+        await prepareDeveloperIndexForO06(current);
+        const definition = await locateDeveloperIndexDefinitionForO10(current);
+        const boundaryRowId = decodeAppRowIdHexV1("33".repeat(16));
+        const boundaryCreationTime = decodeAppCreationTimeV1(3);
+        const boundaryDocument = await canonicalizeAppDocumentV1({
+          tableId: decodeCatalogTableId(1),
+          rowId: boundaryRowId,
+          creationTime: boundaryCreationTime,
+          fields: { name: "middle" },
+        });
+        const endExclusive = decodeOrderedIndexBoundHexV1(
+          Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
+            definition,
+            boundaryDocument,
+            boundaryCreationTime,
+          )),
+        );
+        await runO10IndexedQuery(
+          current,
+          table,
+          Object.freeze({ endExclusive }),
+        );
+      },
+      (current) => prepareDeveloperIndexForO06(current),
+      false,
+      true,
+    );
+    await commitCompetingIndexedUserForO10(
+      outside.current,
+      "zulu",
+      "44".repeat(16),
+    );
+    await expect(runEffect(
+      outside.authentication.publishPointCommit(outside.plan),
+    )).resolves.toMatchObject({ kind: "published" });
+    expect(await o06DurableState(outside.scopeUuid)).toMatchObject({
+      revisions: "1",
+      commit_headers: "2",
+      outcomes: "1",
+      last_commit_seq: "2",
+    });
+  });
+
   it("does not observe interruption until forced rollback settles", async () => {
     const current = await prepareO06Scenario(
       "o06_interruption",
@@ -6665,6 +6807,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const store = createSessionJournalStorePersistenceV1(ports, {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
+      ...(developerIndexCount > 0
+        ? {
+            indexedQueries: createAppDeveloperIndexQueryPortV1(
+              persistence.drizzle,
+              ports,
+              createAppDeveloperIndexDefinitionPortV1(persistence.drizzle),
+            ),
+          }
+        : {}),
     });
     const functionMetadata = target.functions[0];
     if (functionMetadata === undefined) {
@@ -6964,6 +7115,158 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       });
     }
     return Object.freeze({ developerIndexes });
+  }
+
+  async function locateDeveloperIndexDefinitionForO10(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+  ) {
+    const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
+      persistence.drizzle,
+    );
+    const definitions = await runEffect(developerIndexes.locate({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      schemaVersionId: current.schemaVersionId,
+      tableIds: Object.freeze([decodeCatalogTableId(1)]),
+      maximumDefinitions: 256,
+    }));
+    const definition = definitions?.[0];
+    if (definitions?.length !== 1 || definition === undefined) {
+      throw new Error("Missing O10 developer-index definition.");
+    }
+    return definition;
+  }
+
+  async function runO10IndexedQuery(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    table: PinnedPointTableV1,
+    bounds: OrderedIndexBoundsV1 = Object.freeze({}),
+  ): Promise<void> {
+    await prepareDeveloperIndexForO06(current);
+    const definition = await locateDeveloperIndexDefinitionForO10(current);
+    const clock = await persistence.getScopeClock(current.anchor.scopeId);
+    if (clock === null) throw new Error("Missing O10 indexed-query clock.");
+    await persistence.drizzle.insert(fxSystemIndexBuildStates).values({
+      scopeId: current.anchor.scopeId,
+      indexDefinitionId: definition.indexDefinitionId,
+      storageGeneration:
+        FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: clock.storageGenerationFence,
+      epoch: clock.epoch,
+      startCommitSeq: CommitSeqSchema.make(0n),
+      lifecycle: "enabled",
+      cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
+      backfillCursorRowId: null,
+      attemptFence: IndexBuildAttemptFenceSchema.make(1n),
+    }).onConflictDoNothing();
+    await persistence.drizzle.update(fxSystemIndexBuildStates).set({
+      storageGeneration:
+        FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: clock.storageGenerationFence,
+      epoch: clock.epoch,
+      startCommitSeq: CommitSeqSchema.make(0n),
+      lifecycle: "enabled",
+      cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
+      backfillCursorRowId: null,
+      attemptFence: IndexBuildAttemptFenceSchema.make(1n),
+    }).where(and(
+      eq(fxSystemIndexBuildStates.scopeId, current.anchor.scopeId),
+      eq(
+        fxSystemIndexBuildStates.indexDefinitionId,
+        definition.indexDefinitionId,
+      ),
+    ));
+    const index = await runEffect(current.store.resolveDeveloperIndexEffect(
+      table,
+      "byDeveloperField0",
+    ));
+    await expect(runEffect(current.store.runIndexedQueryEffect(index, {
+      kind: "indexRange",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      bounds,
+      limit: 16,
+    }))).resolves.toMatchObject({
+      kind: "completed",
+      outcome: { kind: "indexRangePage", isDone: true },
+    });
+  }
+
+  async function commitCompetingIndexedUserForO10(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    name: string,
+    rowIdHex: string,
+  ): Promise<Readonly<{ readonly encodedKey: string }>> {
+    const definition = await locateDeveloperIndexDefinitionForO10(current);
+    const tableId = decodeCatalogTableId(1);
+    const rowId = decodeAppRowIdHexV1(rowIdHex);
+    const creationTime = decodeAppCreationTimeV1(2);
+    const document = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId,
+      creationTime,
+      fields: { name },
+    });
+    const clock = await persistence.getScopeClock(current.anchor.scopeId);
+    if (clock === null) throw new Error("Missing O10 conflict scope clock.");
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+    const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
+    const scopeUuid = projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid;
+    const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
+      definition,
+      document,
+      creationTime,
+    ));
+    await persistence.drizzle.transaction(async (tx) => {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: current.anchor.scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId: current.schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+      Result.getOrThrow(
+        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+          tx,
+          {
+            kind: "live",
+            scopeId: current.anchor.scopeId,
+            definition,
+            encodedKey,
+            rowId: decodeOrderedIndexRowIdHexV1(rowId),
+            writeEpoch: clock.epoch,
+            commitSeq,
+            prevCommitSeq: null,
+          },
+        ),
+      );
+      await tx.insert(fxSystemCommits).values({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeCount: 1,
+      });
+      await tx.insert(fxSystemCommitAppRowChanges).values({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeOrdinal: 0,
+        tableId,
+        rowId: appRowIdHexV1ToBytes(rowId),
+      });
+      await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
+    });
+    return Object.freeze({ encodedKey });
   }
 
   async function prepareUniqueConstraintForO06(
@@ -7293,6 +7596,65 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     return Object.freeze({
       ...running,
       plan,
+    });
+  }
+
+  async function prepareO08B1Scenario(
+    label: string,
+    operation: (
+      current: Awaited<ReturnType<typeof c04b2Scenario>>,
+      table: PinnedPointTableV1,
+    ) => Promise<void>,
+    options: (
+      current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    ) => Promise<PointCommitTransactionProofOptionsV1>,
+  ) {
+    const current = await c04b2Scenario(
+      label,
+      {},
+      false,
+      undefined,
+      true,
+    );
+    const table = await runEffect(
+      current.store.resolvePointTableEffect(current.attempt, "users"),
+    );
+    await operation(current, table);
+    const proofOptions = await options(current);
+    const envelope = await seal(current);
+    const loadedAttempt = await runEffect(current.loading.load({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      sessionId: current.anchor.sessionId,
+      attemptFence: current.anchor.attemptFence.toString(),
+    }));
+    const authentication = createO08B1Authentication(current, proofOptions);
+    const authority = await runEffect(authentication.deriveAuthority(
+      loadedAttempt,
+      current.executionScope,
+    ));
+    const stored = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(envelope),
+    ));
+    const commitAuthority = await runEffect(
+      authentication.authenticateCommitAuthority(stored),
+    );
+    const verified = await runEffect(
+      authentication.verifyCommitInput(commitAuthority),
+    );
+    const runningPlan = await runEffect(
+      authentication.planPointCommit(verified),
+    );
+    const plan = await runEffect(
+      authentication.enterPointCommitFinishing(runningPlan),
+    );
+    return Object.freeze({
+      current,
+      authentication,
+      proofOptions,
+      plan,
+      scopeUuid: projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
     });
   }
 

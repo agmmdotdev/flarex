@@ -1664,7 +1664,14 @@ Accepted preflight and exact contract:
   mutation caller remains on its `FOR UPDATE` path. Focused PGlite and genuine
   PostgreSQL 18.3 evidence proves stale-authority rejection, rollback,
   interruption settlement, overlapping same-scope readers, and writer blocking
-  until both bounded readers settle. O10-A remains separately approval-gated.
+  until both bounded readers settle.
+- `O10-A` and `O10-B` are complete and production-inert. The exact indexed
+  snapshot syscall records point plus canonical range evidence, staged final
+  rows are merged before pagination, and the existing point-commit lane checks
+  bounded post-snapshot S10 history through the commit-sequence-first index.
+  Range conflicts reuse exact O08 replacement/rerun; spans above 128 commits
+  fail conservatively before history I/O. O10-C remains the acceptance and
+  Standard-application simulation gate.
 - Implement only an ascending, bounded developer ordered-index `take(n)` over
   the existing structured equality-prefix/optional-inequality grammar.
   `first()` and exhaustion-aware `unique()` may derive from that primitive.

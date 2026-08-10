@@ -13,6 +13,7 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+  type LogicalIndexRangeReadDependencyV1,
   type LogicalReadDependencyV1,
 } from "flarex-protocol/commit-protocol";
 
@@ -113,6 +114,9 @@ export interface PreparedPointCommitStateV1 {
   readonly authorityPins: VerifiedCommitInputStateV1["authorityPins"];
   readonly sealIdentity: VerifiedCommitInputStateV1["sealIdentity"];
   readonly dependencies: ReadonlyArray<PreparedPointDependencyV1>;
+  readonly indexRangeDependencies: ReadonlyArray<
+    LogicalIndexRangeReadDependencyV1
+  >;
   readonly rowIntents: ReadonlyArray<PreparedPointRowIntentV1>;
   readonly successfulResult: Readonly<VerifiedSuccessfulResultV1>;
 }
@@ -152,11 +156,9 @@ export function planPointCommitStateV1(
   UnsupportedPointCommitPlanV1Error
 > {
   return Result.gen(function* () {
-    for (const dependency of source.journal.readDependencies) {
-      if (dependency.kind !== "appRowPoint") {
-        return yield* Result.fail(unsupportedReadDependency(dependency));
-      }
-    }
+    const indexRangeDependencies = yield* captureIndexRangeDependencies(
+      source.journal.readDependencies,
+    );
 
     const candidates: OrderedPointCandidateV1[] = [];
     const materialCandidates: OrderedPointCandidateV1[] = [];
@@ -247,12 +249,46 @@ export function planPointCommitStateV1(
       authorityPins: captureAuthorityPins(source.authorityPins),
       sealIdentity: captureSealIdentity(source.sealIdentity),
       dependencies,
+      indexRangeDependencies,
       rowIntents: Object.freeze(
         materialCandidates.map(captureRowIntent),
       ),
       successfulResult: captureSuccessfulResult(source.successfulResult),
     } satisfies PreparedPointCommitStateV1);
   });
+}
+
+function captureIndexRangeDependency(
+  dependency: LogicalIndexRangeReadDependencyV1,
+): LogicalIndexRangeReadDependencyV1 {
+  return Object.freeze({
+    ...dependency,
+    lower: dependency.lower === null ? null : Object.freeze({ ...dependency.lower }),
+    upper: dependency.upper === null ? null : Object.freeze({ ...dependency.upper }),
+  });
+}
+
+function captureIndexRangeDependencies(
+  dependencies: ReadonlyArray<LogicalReadDependencyV1>,
+): Result.Result<
+  ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+  UnsupportedPointCommitPlanV1Error
+> {
+  const ranges: LogicalIndexRangeReadDependencyV1[] = [];
+  for (const dependency of dependencies) {
+    switch (dependency.kind) {
+      case "appRowPoint":
+        break;
+      case "appIndexRange":
+        ranges.push(captureIndexRangeDependency(dependency));
+        break;
+      default:
+        return Result.fail(new UnsupportedPointCommitPlanV1Error({
+          issue: { reason: "unsupportedReadDependency" },
+        }));
+    }
+  }
+  return Result.succeed(Object.freeze(ranges));
 }
 
 function captureLogicalReadDependency(

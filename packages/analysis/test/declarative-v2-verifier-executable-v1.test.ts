@@ -1645,12 +1645,12 @@ describe("Declarative V2 executable verifier asset", () => {
       );
     expect(first.manifest).toMatchObject({
       assetSha256:
-        "82678aea0d2ce3342a8b38ee86e7f09c6035297a6000d191904fbb6d634240de",
-      assetByteLength: 5_287_328,
+        "c2590666298639a7f8fb65c12d1e867961e3e030017db9f3718a129313e803b8",
+      assetByteLength: 5_287_472,
       contractSha256:
-        "72a8edaab3363f3e18f96c4dd44e47dc523815d653a9c490f4f2666511d3123b",
+        "aaf9d437ba884c4e56e808d56c71365cd3bc85b0046c1132f969dbd06dc847ab",
       manifestIdentity:
-        "4928c58d7e71f60fa473f2df12088081d8b3b35f095574c0af93c83ec65c3d3c",
+        "a209840fb8c8295f290d5b1f031639e36b819e4128c4e2003e5baa98aa34a185",
     });
   }, 120_000);
 
@@ -2502,6 +2502,14 @@ describe("Declarative V2 streaming engine", () => {
       "mixed",
     ],
     [
+      "database index-range read",
+      'runtime.db.queryIndexRange("recipes", "by_name", {}, 16)',
+      "queryIndexRange",
+      "databaseQueryIndexRange",
+      "databaseRead",
+      "mixed",
+    ],
+    [
       "database write",
       'runtime.db.insert("recipes", value)',
       "insert",
@@ -2596,6 +2604,12 @@ describe("Declarative V2 streaming engine", () => {
         memberPath: ["db", "delete"],
         operation: "databaseDelete",
         argumentCounts: [1],
+      },
+      {
+        id: 9,
+        memberPath: ["db", "queryIndexRange"],
+        operation: "databaseQueryIndexRange",
+        argumentCounts: [4],
       },
       {
         id: 6,
@@ -3091,6 +3105,11 @@ describe("Declarative V2 streaming engine", () => {
       "ctx.db.replace(id, value)",
     ],
     ["delete", "databaseDelete", "ctx.db.delete(id)"],
+    [
+      "queryIndexRange",
+      "databaseQueryIndexRange",
+      'ctx.db.queryIndexRange("recipes", "by_name", {}, 16)',
+    ],
   ])(
     "emits direct context %s value-flow authority without a private call shim",
     (_member, operation, contextCall) => {
@@ -3112,6 +3131,7 @@ describe("Declarative V2 streaming engine", () => {
     "databasePatch",
     "databaseReplace",
     "databaseDelete",
+    "databaseQueryIndexRange",
     "runQuery",
     "runMutation",
     "errorCreate",
@@ -3147,6 +3167,14 @@ describe("Declarative V2 streaming engine", () => {
     ["spread delete", "ctx.db.delete(...args)"],
     ["spread patch value", "ctx.db.patch(id, ...args)"],
     ["spread replace id", "ctx.db.replace(...args, value)"],
+    [
+      "missing index-range limit",
+      'ctx.db.queryIndexRange("recipes", "by_name", {})',
+    ],
+    [
+      "surplus index-range argument",
+      'ctx.db.queryIndexRange("recipes", "by_name", {}, 16, value)',
+    ],
   ])("rejects unsupported direct context arity: %s", (_label, expression) => {
     const source = UTF8_ENCODER.encode(
       `export function run(ctx, id, value, args) { return ${expression}; }`,
@@ -3667,6 +3695,10 @@ describe("Declarative V2 streaming engine", () => {
     ["databasePatch", "ctx.db.patch(id, {})"],
     ["databaseReplace", "ctx.db.replace(id, {})"],
     ["databaseDelete", "ctx.db.delete(id)"],
+    [
+      "databaseQueryIndexRange",
+      'ctx.db.queryIndexRange("items", "by_name", {}, 16)',
+    ],
     ["runQuery", 'ctx.runQuery({_path:"internal:helper"})'],
     ["runMutation", 'ctx.runMutation({_path:"internal:helper"})'],
   ])("permits direct context mixed catchability for %s", (operation, call) => {

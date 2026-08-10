@@ -84,6 +84,42 @@ export interface FunctionRuntimePointReaderV1<DocumentId, Document> {
   readonly get: FunctionRuntimePointReadV1<DocumentId, Document>;
 }
 
+export interface FunctionRuntimeIndexRangeBoundsV1<EncodedBound> {
+  readonly startInclusive?: EncodedBound;
+  readonly endExclusive?: EncodedBound;
+}
+
+export interface FunctionRuntimeIndexRangePageV1<Document> {
+  readonly documents: ReadonlyArray<Document>;
+  readonly isDone: boolean;
+}
+
+export type FunctionRuntimeIndexRangeQueryV1<
+  TableName,
+  IndexDescriptor,
+  EncodedBound,
+  Document,
+> = (
+  tableName: TableName,
+  indexDescriptor: IndexDescriptor,
+  bounds: FunctionRuntimeIndexRangeBoundsV1<EncodedBound>,
+  limit: number,
+) => Promise<FunctionRuntimeIndexRangePageV1<Document>>;
+
+export interface FunctionRuntimeIndexRangeReaderV1<
+  TableName,
+  IndexDescriptor,
+  EncodedBound,
+  Document,
+> {
+  readonly queryIndexRange: FunctionRuntimeIndexRangeQueryV1<
+    TableName,
+    IndexDescriptor,
+    EncodedBound,
+    Document
+  >;
+}
+
 export type FunctionRuntimePointInsertV1<
   TableName,
   InsertValue,
@@ -163,6 +199,30 @@ export interface FunctionRuntimePointDatabaseWriterV1<
       ReplacementValue
     > {}
 
+export interface FunctionRuntimeIndexedPointDatabaseWriterV1<
+  DocumentId,
+  Document,
+  TableName,
+  IndexDescriptor,
+  EncodedBound,
+  InsertValue,
+  PatchValue,
+  ReplacementValue,
+> extends FunctionRuntimePointDatabaseWriterV1<
+      DocumentId,
+      Document,
+      TableName,
+      InsertValue,
+      PatchValue,
+      ReplacementValue
+    >,
+    FunctionRuntimeIndexRangeReaderV1<
+      TableName,
+      IndexDescriptor,
+      EncodedBound,
+      Document
+    > {}
+
 export function createFunctionRuntimeAuthV1(
   projection: FunctionRuntimeAuthProjectionV1,
 ): Readonly<FunctionRuntimeAuthV1> {
@@ -225,6 +285,46 @@ export function createFunctionRuntimePointDatabaseWriterV1<
     ): Promise<void> => replacePointDocument(documentId, value),
     delete: (documentId: DocumentId): Promise<void> =>
       deletePointDocument(documentId),
+  });
+}
+
+export function createFunctionRuntimeIndexedPointDatabaseWriterV1<
+  DocumentId,
+  Document,
+  TableName,
+  IndexDescriptor,
+  EncodedBound,
+  InsertValue,
+  PatchValue,
+  ReplacementValue,
+>(
+  reader: Readonly<FunctionRuntimePointReaderV1<DocumentId, Document>>,
+  writer: Readonly<FunctionRuntimePointWriterPortV1<
+    DocumentId,
+    TableName,
+    InsertValue,
+    PatchValue,
+    ReplacementValue
+  >>,
+  indexReader: Readonly<FunctionRuntimeIndexRangeReaderV1<
+    TableName,
+    IndexDescriptor,
+    EncodedBound,
+    Document
+  >>,
+): Readonly<FunctionRuntimeIndexedPointDatabaseWriterV1<
+  DocumentId,
+  Document,
+  TableName,
+  IndexDescriptor,
+  EncodedBound,
+  InsertValue,
+  PatchValue,
+  ReplacementValue
+>> {
+  return freeze({
+    ...createFunctionRuntimePointDatabaseWriterV1(reader, writer),
+    queryIndexRange: indexReader.queryIndexRange,
   });
 }
 

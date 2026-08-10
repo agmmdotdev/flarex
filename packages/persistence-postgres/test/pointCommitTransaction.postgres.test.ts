@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { Effect, Exit, Fiber, Result } from "effect";
 import type { PoolClient } from "pg";
 import {
+  canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
@@ -23,10 +24,15 @@ import {
   decodeCatalogTableId,
 } from "flarex-protocol/catalog";
 import {
+  INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
+  IndexBuildAttemptFenceSchema,
+} from "flarex-protocol/index-build-state";
+import {
   CommitSyscallSequenceV1Schema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
+  type LogicalIndexRangeReadDependencyV1,
 } from "flarex-protocol/commit-protocol";
 import {
   CatalogSchemaVersionIdSchema,
@@ -36,12 +42,17 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   encodeAppOrderedIndexKeyV1,
+  decodeOrderedIndexRowIdHexV1,
   ORDERED_INDEX_MISSING_V1,
   orderedIndexCreationTimeV1,
+  orderedIndexBoundHexV1ToBytes,
+  orderedIndexKeyBytesHexV1ToBytes,
+  orderedIndexRowIdHexV1ToBytes,
   orderedIndexValueFromFlarexValueV1,
 } from "flarex-protocol/ordered-index";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   decodeReplacementScopeIdV1,
   projectScopeEpochUuidV1,
 } from "flarex-protocol/storage-authority";
@@ -58,11 +69,15 @@ import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "../src/appRows";
 import {
+  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+} from "../src/appIndexEntries";
+import {
   buildIntrinsicCreationTimeIndexV1Effect,
   createIntrinsicCreationTimeIndexDefinitionPortV1,
 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import {
   createAppDeveloperIndexDefinitionPortV1,
+  lowerAppDeveloperIndexKeyV1,
 } from
   "../src/appDeveloperIndexCommitV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from
@@ -112,9 +127,13 @@ import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTyp
 import {
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
+  fxSystemIndexBuildStates,
   fxSystemScopeClocks,
 } from "../src/schema";
-import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
+import {
+  createAppDeveloperIndexQueryPortV1,
+  createSessionJournalStorePersistenceV1,
+} from "../src/sessionJournalStore";
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceAuthorityV1,
@@ -432,6 +451,62 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       expect(plan).toContain("Index Scan");
       expect(plan).toContain("fx_app_row_current");
       expect(plan).toContain("fx_app_row_rev");
+    });
+  }, 120_000);
+
+  it("detects an indexed phantom through the commit-range index", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96310000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "indexed_occ",
+        true,
+      );
+      const attempt = await createIndexedAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "indexed_occ",
+      );
+      const inserted = await commitCompetingIndexedUser(
+        persistence,
+        scope,
+        attempt,
+        "22".repeat(16),
+      );
+      const failure = await runFailure(createPort(
+        persistence,
+        await prepareDeveloperIndexForPostgres(persistence, scope),
+      ).prove(attempt.command));
+      expect(failure).toBeInstanceOf(PointCommitConflictV1Error);
+      expect(failure).toMatchObject({
+        conflict: {
+          kind: "appIndexRange",
+          reason: "overlap",
+          dependencyOrdinal: 0,
+          tableId: decodeCatalogTableId(1),
+          indexDefinitionId: attempt.definition.indexDefinitionId,
+          encodedKey: inserted.encodedKey,
+          rowId: decodeOrderedIndexRowIdHexV1(inserted.rowId),
+        },
+        snapshotCommitSeq: CommitSeqSchema.make(0n),
+        currentCommitSeq: CommitSeqSchema.make(1n),
+      });
+      const plan = await explainIndexRangeOccLookup(
+        persistence,
+        attempt.command,
+      );
+      expect(plan).toContain("fx_app_index_entry_rev_commit_range_idx");
+      expect(await durableState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toMatchObject({
+        revisions: "1",
+        current_rows: "1",
+        commit_headers: "1",
+        last_commit_seq: "1",
+      });
     });
   }, 120_000);
 
@@ -2486,7 +2561,10 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
       }).replace(replacementCommand(first.command)));
       await entered.promise;
       const secondPromise = runEffect(createReplacementPort(persistence)
-        .replace(replacementCommand(second.command)));
+        .replace(replacementCommand(
+          second.command,
+          CommitSeqSchema.make(2n),
+        )));
       let interruption: Promise<unknown> | undefined;
       try {
         await waitForBlockedPointCommit(persistence, 1);
@@ -3049,6 +3127,223 @@ async function createAttempt(
   });
 }
 
+async function createIndexedAttempt(
+  persistence: PostgresFlarexPersistence,
+  randomUuid: () => string,
+  scope: ScopeScenario,
+  label: string,
+) {
+  const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
+    persistence.drizzle,
+  );
+  await prepareDeveloperIndexForPostgres(persistence, scope);
+  const definitions = await runEffect(developerIndexes.locate({
+    deploymentId: scope.deploymentId,
+    scopeId: scope.scopeId,
+    schemaVersionId: scope.schemaVersionId,
+    tableIds: Object.freeze([decodeCatalogTableId(1)]),
+    maximumDefinitions: 1,
+  }));
+  const definition = definitions?.[0];
+  if (definitions?.length !== 1 || definition === undefined) {
+    throw new Error("Missing PostgreSQL O10 developer-index definition.");
+  }
+  const clock = await persistence.getScopeClock(scope.scopeId);
+  if (clock === null) throw new Error("Missing PostgreSQL O10 scope clock.");
+  await persistence.drizzle.update(fxSystemIndexBuildStates).set({
+    storageGeneration:
+      FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    storageGenerationFence: clock.storageGenerationFence,
+    epoch: clock.epoch,
+    startCommitSeq: CommitSeqSchema.make(0n),
+    lifecycle: "enabled",
+    cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
+    backfillCursorRowId: null,
+    attemptFence: IndexBuildAttemptFenceSchema.make(1n),
+  }).where(eq(
+    fxSystemIndexBuildStates.scopeId,
+    scope.scopeId,
+  ));
+
+  const activation = await activatePointMutationSession(
+    createPointMutationSessionActivationPersistenceV1(
+      scope.ports,
+      { leaseDurationMilliseconds: 300_000, randomUuid },
+    ),
+    pointMutationSessionActivationFixture(
+      scope.deploymentId,
+      scope.scopeId,
+      {
+        evidence: {
+          schemaVersionId: scope.schemaVersionId,
+          requestKey: TransactionRequestKeyV1Schema.make(
+            `request:o10:postgres:${label}`,
+          ),
+        },
+      },
+    ),
+  );
+  const store = createSessionJournalStorePersistenceV1(scope.ports, {
+    grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+    randomUuid,
+    indexedQueries: createAppDeveloperIndexQueryPortV1(
+      persistence.drizzle,
+      scope.ports,
+      developerIndexes,
+    ),
+  });
+  const attempt = await runEffect(store.openAttemptEffect({
+    selector: {
+      deploymentId: scope.deploymentId,
+      scopeId: scope.scopeId,
+      sessionId: activation.anchor.sessionId,
+      attemptFence: activation.anchor.attemptFence,
+    },
+    executionClaim: executionClaimForAnchor(activation.anchor),
+    snapshotToken: activation.anchor.snapshotToken,
+    schemaVersionId: scope.schemaVersionId,
+  }));
+  const table = await runEffect(
+    store.resolvePointTableEffect(attempt, "users"),
+  );
+  const index = await runEffect(
+    store.resolveDeveloperIndexEffect(table, "byName0"),
+  );
+  await runEffect(store.runIndexedQueryEffect(index, {
+    kind: "indexRange",
+    syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+    bounds: Object.freeze({}),
+    limit: 16,
+  }));
+  const prepared = await prepareSeal(store, attempt);
+  const journal = await runEffect(
+    canonicalizeSessionJournalV1Effect(prepared.journal),
+  );
+  const result = await runEffect(
+    canonicalizeSuccessfulResultV1Effect({ ok: true }),
+  );
+  await completeSeal(store, prepared.preparation, journal, result);
+  const authority = authorityFromAnchor(
+    activation.anchor,
+    scope.schemaVersionId,
+    executionClaimForAnchor(activation.anchor),
+  );
+  const loader = createStoredAttemptEvidenceLoaderV1(scope.ports);
+  const running = await runEffect(loader.loadEffect(authority));
+  if (running.kind !== "loaded") {
+    throw new Error(`Expected running O10 evidence, received ${running.kind}.`);
+  }
+  await runEffect(
+    createPointCommitFinishingTransitionPortV1(scope.ports).enterFinishing(
+      await pointCommitFinishingCommandFromStoredAttemptV1(
+        authority,
+        running.evidence,
+      ),
+    ),
+  );
+  const loaded = await runEffect(loader.loadFinishingEffect({
+    deploymentId: activation.anchor.deploymentId,
+    scopeId: activation.anchor.scopeId,
+    sessionId: activation.anchor.sessionId,
+    attemptFence: activation.anchor.attemptFence,
+  }));
+  if (loaded.kind !== "loaded") {
+    throw new Error(`Expected finishing O10 evidence, received ${loaded.kind}.`);
+  }
+  const command = await pointCommitCommandFromStoredAttemptV1(
+    authority,
+    loaded.evidence,
+  );
+  const indexRangeDependencies = Object.freeze(
+    journal.journal.readDependencies.filter(
+      (dependency): dependency is LogicalIndexRangeReadDependencyV1 =>
+        dependency.kind === "appIndexRange",
+    ),
+  );
+  return Object.freeze({
+    anchor: activation.anchor,
+    authority,
+    command: Object.freeze({ ...command, indexRangeDependencies }),
+    definition,
+  });
+}
+
+async function commitCompetingIndexedUser(
+  persistence: PostgresFlarexPersistence,
+  scope: ScopeScenario,
+  attempt: Awaited<ReturnType<typeof createIndexedAttempt>>,
+  rowIdHex: string,
+) {
+  const tableId = decodeCatalogTableId(1);
+  const rowId = decodeAppRowIdHexV1(rowIdHex);
+  const creationTime = decodeAppCreationTimeV1(2);
+  const document = await canonicalizeAppDocumentV1({
+    tableId,
+    rowId,
+    creationTime,
+    fields: { name: "phantom" },
+  });
+  const clock = await persistence.getScopeClock(scope.scopeId);
+  if (clock === null) throw new Error("Missing PostgreSQL O10 conflict clock.");
+  const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+  const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
+    attempt.definition,
+    document,
+    creationTime,
+  ));
+  await persistence.drizzle.transaction(async (tx) => {
+    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+      kind: "live",
+      scopeId: scope.scopeId,
+      tableId,
+      rowId,
+      writeEpoch: clock.epoch,
+      commitSeq,
+      prevCommitSeq: null,
+      schemaVersionId: scope.schemaVersionId,
+      creationTime,
+      value: {
+        codecVersion: document.codecVersion,
+        valueJson: document.valueJson,
+        canonicalBytes: document.canonicalBytes,
+        sha256: document.sha256,
+      },
+    });
+    Result.getOrThrow(
+      await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+        tx,
+        {
+          kind: "live",
+          scopeId: scope.scopeId,
+          definition: attempt.definition,
+          encodedKey,
+          rowId: decodeOrderedIndexRowIdHexV1(rowId),
+          writeEpoch: clock.epoch,
+          commitSeq,
+          prevCommitSeq: null,
+        },
+      ),
+    );
+    await tx.insert(fxSystemCommits).values({
+      scopeUuid: attempt.command.sealIdentity.scopeUuid,
+      epochUuid: projectScopeEpochUuidV1(clock.epoch).epochUuid,
+      commitSeq,
+      changeCount: 1,
+    });
+    await tx.insert(fxSystemCommitAppRowChanges).values({
+      scopeUuid: attempt.command.sealIdentity.scopeUuid,
+      epochUuid: projectScopeEpochUuidV1(clock.epoch).epochUuid,
+      commitSeq,
+      changeOrdinal: 0,
+      tableId,
+      rowId: appRowIdHexV1ToBytes(rowId),
+    });
+    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+      .where(eq(fxSystemScopeClocks.scopeId, scope.scopeId));
+  });
+  return Object.freeze({ encodedKey, rowId });
+}
+
 async function seedCommittedUser(
   persistence: PostgresFlarexPersistence,
   scope: ScopeScenario,
@@ -3537,12 +3832,25 @@ function createReplacementPort(
 
 function replacementCommand(
   command: PointCommitTransactionCommandV1,
+  currentCommitSeq: ReturnType<typeof CommitSeqSchema.make> =
+    CommitSeqSchema.make(
+      command.authorityPins.snapshotToken.commitSeq + 1n,
+    ),
 ): PointMutationAttemptReplacementCommandV1 {
   return Object.freeze({
     authorityPins: command.authorityPins,
     session: command.session,
     sealIdentity: command.sealIdentity,
     dependencies: command.dependencies,
+    indexRangeDependencies: command.indexRangeDependencies,
+    expectedConflict: Object.freeze({
+      conflict: Object.freeze({
+        kind: "appRowPoint",
+        documentId: command.dependencies[0]!.documentId,
+      }),
+      snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
+      currentCommitSeq,
+    }),
   });
 }
 
@@ -4040,6 +4348,87 @@ async function explainHeadLookup(
         dependency.tableId,
         appRowIdHexV1ToBytes(dependency.rowId),
         command.sealIdentity.scopeUuid,
+      ],
+    );
+    return JSON.stringify(result.rows);
+  });
+}
+
+async function explainIndexRangeOccLookup(
+  persistence: PostgresFlarexPersistence,
+  command: PointCommitTransactionCommandV1,
+): Promise<string> {
+  const dependency = command.indexRangeDependencies[0];
+  if (dependency === undefined) {
+    throw new Error("Missing O10 index-range dependency.");
+  }
+  const lower = dependency.lower === null
+    ? null
+    : orderedIndexBoundHexV1ToBytes(dependency.lower.encodedKey);
+  const upper = dependency.upper === null
+    ? null
+    : dependency.upper.kind === "key"
+      ? orderedIndexBoundHexV1ToBytes(dependency.upper.encodedKey)
+      : orderedIndexKeyBytesHexV1ToBytes(dependency.upper.encodedKey);
+  const upperRowId = dependency.upper?.kind === "position"
+    ? orderedIndexRowIdHexV1ToBytes(dependency.upper.rowId)
+    : null;
+  const clock = await persistence.getScopeClock(command.authorityPins.scopeId);
+  if (clock === null) throw new Error("Missing O10 scope clock.");
+  return withPostgresSequentialScansDisabled(persistence, async (client) => {
+    const result = await client.query(
+      `
+        explain (format json)
+        with requested(
+          ordinal,
+          index_definition_id,
+          lower_encoded_key,
+          upper_kind,
+          upper_encoded_key,
+          upper_row_id
+        ) as (values (0::integer, $1::integer, $2::bytea, $3::text,
+          $4::bytea, $5::bytea))
+        select requested.ordinal
+        from requested
+        join fx_app_index_entry_rev as revision
+          on revision.scope_uuid = $6::uuid
+          and revision.index_definition_id = requested.index_definition_id
+          and revision.commit_seq > $7::bigint
+          and revision.commit_seq <= $8::bigint
+          and (
+            requested.lower_encoded_key is null or
+            revision.encoded_key >= requested.lower_encoded_key
+          )
+          and (
+            requested.upper_kind = 'unbounded' or
+            (
+              requested.upper_kind = 'key' and
+              revision.encoded_key < requested.upper_encoded_key
+            ) or
+            (
+              requested.upper_kind = 'position' and
+              (
+                revision.encoded_key < requested.upper_encoded_key or
+                (
+                  revision.encoded_key = requested.upper_encoded_key and
+                  revision.row_id <= requested.upper_row_id
+                )
+              )
+            )
+          )
+        order by requested.ordinal asc, revision.commit_seq asc,
+          revision.encoded_key asc, revision.row_id asc
+        limit 1
+      `,
+      [
+        dependency.indexDefinitionId,
+        lower,
+        dependency.upper?.kind ?? "unbounded",
+        upper,
+        upperRowId,
+        command.sealIdentity.scopeUuid,
+        command.authorityPins.snapshotToken.commitSeq,
+        clock.lastCommitSeq,
       ],
     );
     return JSON.stringify(result.rows);

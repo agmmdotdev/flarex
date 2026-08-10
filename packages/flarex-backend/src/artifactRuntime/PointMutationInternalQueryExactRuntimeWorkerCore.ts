@@ -2,7 +2,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   createFunctionRuntimeAuthV1,
-  createFunctionRuntimePointDatabaseWriterV1,
+  createFunctionRuntimeIndexedPointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
   createFunctionRuntimeRunQueryContextV1,
 } from "flarex:function-api-core/v1";
@@ -157,6 +157,16 @@ interface TableJournalCapability {
   readonly runPointOperation: (
     operation: JournalOperationWithSequence,
   ) => unknown | PromiseLike<unknown>;
+  readonly resolveDeveloperIndex?: (
+    indexDescriptor: string,
+  ) => unknown | PromiseLike<unknown>;
+  readonly [Symbol.dispose]?: () => void;
+}
+
+interface IndexJournalCapability {
+  readonly runIndexedQuery: (
+    operation: IndexRangeOperationWithSequence,
+  ) => unknown | PromiseLike<unknown>;
   readonly [Symbol.dispose]?: () => void;
 }
 
@@ -193,6 +203,17 @@ type JournalOperation =
 type JournalOperationWithSequence = JournalOperation & Readonly<{
   readonly syscallSequence: bigint;
 }>;
+type IndexRangeOperation = Readonly<{
+  readonly kind: "indexRange";
+  readonly bounds: Readonly<{
+    readonly startInclusive?: string;
+    readonly endExclusive?: string;
+  }>;
+  readonly limit: number;
+}>;
+type IndexRangeOperationWithSequence = IndexRangeOperation & Readonly<{
+  readonly syscallSequence: bigint;
+}>;
 
 type AppDocument = CanonicalFlarexRuntimeObjectV1 & Readonly<{
   readonly _id: string;
@@ -211,6 +232,11 @@ type UnitOutcome = Readonly<{
   readonly operation: "patch" | "replace" | "delete";
 }>;
 type JournalOutcome = GetOutcome | InsertOutcome | UnitOutcome;
+type IndexRangeOutcome = Readonly<{
+  readonly kind: "indexRangePage";
+  readonly documents: ReadonlyArray<AppDocument>;
+  readonly isDone: boolean;
+}>;
 
 interface ExactRuntimeDatabase {
   readonly get: (documentId: string) => Promise<AppDocument | null>;
@@ -218,6 +244,18 @@ interface ExactRuntimeDatabase {
   readonly patch: (documentId: string, patch: unknown) => Promise<void>;
   readonly replace: (documentId: string, fields: unknown) => Promise<void>;
   readonly delete: (documentId: string) => Promise<void>;
+  readonly queryIndexRange: (
+    tableName: string,
+    indexDescriptor: string,
+    bounds: Readonly<{
+      readonly startInclusive?: unknown;
+      readonly endExclusive?: unknown;
+    }>,
+    limit: number,
+  ) => Promise<Readonly<{
+    readonly documents: ReadonlyArray<AppDocument>;
+    readonly isDone: boolean;
+  }>>;
 }
 
 interface ExactRuntimeJournal {
@@ -1352,6 +1390,17 @@ function isTableJournalCapability(
   );
 }
 
+function isIndexJournalCapability(
+  value: unknown,
+): value is IndexJournalCapability {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    "runIndexedQuery" in value &&
+    typeof value.runIndexedQuery === "function"
+  );
+}
+
 function isUserIdentity(value: unknown): value is UserIdentity {
   if (!isPlainRecord(value)) return false;
   if (
@@ -1444,6 +1493,8 @@ function databaseForJournal(
     Promise<TableJournalCapability>
   >();
   const receivedTableStubs = new Set<TableJournalCapability>();
+  const indexCapabilities = new Map<string, Promise<IndexJournalCapability>>();
+  const receivedIndexStubs = new Set<IndexJournalCapability>();
   let syscallSequence = 0n;
   let operationTail: Promise<void> = Promise.resolve();
   let firstOperationFailure:
@@ -1474,6 +1525,37 @@ function databaseForJournal(
           return capability;
         });
       tableCapabilities.set(name, capabilityPromise);
+    }
+    return capabilityPromise;
+  };
+  const resolveIndexCapability = async (
+    tableName: string,
+    indexDescriptor: string,
+  ): Promise<IndexJournalCapability> => {
+    const capturedTableName = requireTableName(tableName);
+    const capturedIndexDescriptor = requireIndexDescriptor(indexDescriptor);
+    const cacheKey = `${capturedTableName}\u0000${capturedIndexDescriptor}`;
+    let capabilityPromise = indexCapabilities.get(cacheKey);
+    if (capabilityPromise === undefined) {
+      capabilityPromise = resolveTableCapability(capturedTableName)
+        .then((table) => {
+          if (typeof table.resolveDeveloperIndex !== "function") {
+            throw new Error(
+              "Exact-runtime developer-index capability is unavailable.",
+            );
+          }
+          return table.resolveDeveloperIndex(capturedIndexDescriptor);
+        })
+        .then((capability) => {
+          if (!isIndexJournalCapability(capability)) {
+            throw new Error(
+              "Resolved exact-runtime developer-index capability is invalid.",
+            );
+          }
+          receivedIndexStubs.add(capability);
+          return capability;
+        });
+      indexCapabilities.set(cacheKey, capabilityPromise);
     }
     return capabilityPromise;
   };
@@ -1563,6 +1645,49 @@ function databaseForJournal(
     );
     return execution;
   }
+  function runIndexed(
+    tableName: string,
+    indexDescriptor: string,
+    operation: IndexRangeOperation,
+  ): Promise<IndexRangeOutcome> {
+    if (!acceptingOperations) {
+      const failure = journalBoundaryError(
+        new Error(
+          "Exact-runtime database operation started after handler settlement.",
+        ),
+      );
+      firstOperationFailure ??= { cause: failure };
+      throw failure;
+    }
+    const execution = operationTail.then(async () => {
+      if (firstOperationFailure !== undefined) {
+        throw firstOperationFailure.cause;
+      }
+      try {
+        const index = await resolveIndexCapability(tableName, indexDescriptor);
+        const operationSequence = syscallSequence + 1n;
+        const outcome = await index.runIndexedQuery(Object.freeze({
+          ...operation,
+          syscallSequence: operationSequence,
+        }));
+        syscallSequence = operationSequence;
+        return decodeIndexedQueryOutcome(
+          outcome,
+          idsByName.get(tableName),
+          operation.limit,
+        );
+      } catch (cause) {
+        const failure = journalBoundaryError(cause);
+        firstOperationFailure ??= { cause: failure };
+        throw failure;
+      }
+    });
+    operationTail = execution.then(
+      () => undefined,
+      () => undefined,
+    );
+    return execution;
+  }
   const pointReader = createFunctionRuntimePointReaderV1(
     (documentId: string) =>
       trackCallerPromise(run(
@@ -1572,7 +1697,7 @@ function databaseForJournal(
         outcome.kind === "missing" ? null : outcome.document
       )),
   );
-  const database = createFunctionRuntimePointDatabaseWriterV1(
+  const database = createFunctionRuntimeIndexedPointDatabaseWriterV1(
     pointReader,
     freeze({
       insertPointDocument: (tableName: string, fields: unknown) => {
@@ -1606,6 +1731,22 @@ function databaseForJournal(
           { kind: "delete", documentId },
         ).then(() => undefined)),
     }),
+    freeze({
+      queryIndexRange: (
+        tableName: string,
+        indexDescriptor: string,
+        bounds: unknown,
+        limit: number,
+      ) => trackCallerPromise(runIndexed(
+        requireTableName(tableName),
+        requireIndexDescriptor(indexDescriptor),
+        freeze({
+          kind: "indexRange",
+          bounds: captureIndexRangeBounds(bounds),
+          limit: captureIndexRangeLimit(limit),
+        }),
+      ).then(({ documents, isDone }) => freeze({ documents, isDone }))),
+    }),
   );
   return Object.freeze({
     reader: pointReader,
@@ -1638,6 +1779,14 @@ function databaseForJournal(
           disposalFailure ??= { cause };
         }
       }
+      for (const index of receivedIndexStubs) {
+        try {
+          disposeReceivedRpcStub(index);
+        } catch (cause) {
+          disposalFailure ??= { cause };
+        }
+      }
+      receivedIndexStubs.clear();
       receivedTableStubs.clear();
       if (disposalFailure !== undefined) {
         throw disposalFailure.cause;
@@ -1752,6 +1901,116 @@ function decodeJournalOutcome(
       break;
   }
   throw new Error("Exact-runtime journal returned an invalid outcome.");
+}
+
+function decodeIndexedQueryOutcome(
+  value: unknown,
+  expectedTableId: string | undefined,
+  expectedLimit: number,
+): IndexRangeOutcome {
+  if (!isPlainRecord(value)) {
+    throw new Error("Exact-runtime journal returned an invalid indexed-query outcome.");
+  }
+  exactKeys(
+    value,
+    ["kind", "documents", "isDone"],
+    "exact-runtime indexed-query outcome",
+  );
+  if (
+    value.kind !== "indexRangePage" ||
+    !Array.isArray(value.documents) ||
+    value.documents.length > expectedLimit ||
+    typeof value.isDone !== "boolean"
+  ) {
+    throw new Error("Exact-runtime journal returned an invalid indexed-query outcome.");
+  }
+  validateArrayShape(value.documents, "exact-runtime indexed-query documents");
+  const documents = value.documents.map((document) =>
+    normalizeIndexedQueryDocument(document, expectedTableId)
+  );
+  if (!value.isDone && documents.length !== expectedLimit) {
+    throw new Error("Exact-runtime indexed-query page is inconsistent.");
+  }
+  return freeze({
+    kind: "indexRangePage",
+    documents: freeze(documents),
+    isDone: value.isDone,
+  });
+}
+
+function normalizeIndexedQueryDocument(
+  value: unknown,
+  expectedTableId: string | undefined,
+): AppDocument {
+  if (
+    !isPlainRecord(value) ||
+    !Object.hasOwn(value, "_id") ||
+    typeof value._id !== "string"
+  ) {
+    throw new Error("Exact-runtime indexed-query document is invalid.");
+  }
+  return normalizeJournalDocument(value, value._id, expectedTableId);
+}
+
+function requireIndexDescriptor(value: unknown): string {
+  if (!isDeveloperIndexDescriptor(value)) {
+    throw new Error("A valid developer index descriptor is required.");
+  }
+  return value;
+}
+
+function captureIndexRangeBounds(value: unknown): Readonly<{
+  readonly startInclusive?: string;
+  readonly endExclusive?: string;
+}> {
+  if (!isPlainRecord(value)) throw new Error("Index bounds must be an object.");
+  exactKeys(
+    value,
+    Reflect.ownKeys(value).map(String),
+    "exact-runtime index bounds",
+  );
+  const keys = Reflect.ownKeys(value);
+  if (keys.some((key) => key !== "startInclusive" && key !== "endExclusive")) {
+    throw new Error("Index bounds contain unexpected fields.");
+  }
+  const start = Object.hasOwn(value, "startInclusive")
+    ? value.startInclusive
+    : undefined;
+  const end = Object.hasOwn(value, "endExclusive")
+    ? value.endExclusive
+    : undefined;
+  if (start !== undefined && !isEncodedIndexBound(start)) {
+    throw new Error("Index start bound is invalid.");
+  }
+  if (end !== undefined && !isEncodedIndexBound(end)) {
+    throw new Error("Index end bound is invalid.");
+  }
+  if (start !== undefined && end !== undefined && start >= end) {
+    throw new Error("Index bounds must describe a non-empty interval.");
+  }
+  return freeze({
+    ...(start === undefined ? {} : { startInclusive: start }),
+    ...(end === undefined ? {} : { endExclusive: end }),
+  });
+}
+
+function isEncodedIndexBound(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 4_098 &&
+    /^(?:[0-9a-f]{2})*$/.test(value);
+}
+
+function isDeveloperIndexDescriptor(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 64 &&
+    /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) && /[A-Za-z0-9]/.test(value) &&
+    !value.startsWith("_") && value !== "by_id" &&
+    value !== "by_creation_time";
+}
+
+function captureIndexRangeLimit(value: unknown): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > 128) {
+    throw new Error("Indexed-query limit must be an integer from 1 through 128.");
+  }
+  return Number(value);
 }
 
 async function resolveFunction(path: string): Promise<unknown> {

@@ -12,6 +12,7 @@ import {
   type PointCommitDependencyV1,
   type PointCommitFinishingTransitionCommandV1,
   type PointCommitFinishingTransitionResultV1,
+  type PointCommitConflictEvidenceV1,
   type PointCommitPublicationCommandV1,
   type PointCommitRowIntentV1,
   type PointCommitSealIdentityV1,
@@ -128,6 +129,7 @@ export function rebaseFinishingPreparedPointCommitState(
       dependency: Object.freeze(structuredClone(dependency.dependency)),
     }),
   ));
+  const indexRangeDependencies = capturePointCommitIndexRangeDependencies(state);
   const rowIntents = Object.freeze(
     state.plan.rowIntents.map(capturePreparedPointRowIntent),
   );
@@ -145,6 +147,7 @@ export function rebaseFinishingPreparedPointCommitState(
       resultSha256: copyBytes(seal.resultSha256),
     }),
     dependencies,
+    indexRangeDependencies,
     rowIntents,
     successfulResult: Object.freeze({
       valueCodecVersion: successfulResult.valueCodecVersion,
@@ -266,17 +269,61 @@ export function capturePointCommitTransactionCommand(
   return Object.freeze({
     ...scalar,
     dependencies,
+    indexRangeDependencies: capturePointCommitIndexRangeDependencies(state),
     rowIntents,
   } satisfies PointCommitTransactionCommandV1);
 }
 
 export function capturePointMutationAttemptReplacementCommand(
   state: PreparedPointCommitCapabilityStateV1,
+  expectedConflict: PointCommitConflictEvidenceV1,
 ): PointMutationAttemptReplacementCommandV1 {
   return Object.freeze({
     ...capturePointCommitAttemptScalarCommand(state),
     dependencies: capturePointCommitDependencies(state),
+    indexRangeDependencies: capturePointCommitIndexRangeDependencies(state),
+    expectedConflict: capturePointCommitConflictEvidence(expectedConflict),
   });
+}
+
+function capturePointCommitConflictEvidence(
+  evidence: PointCommitConflictEvidenceV1,
+): PointCommitConflictEvidenceV1 {
+  const conflict = evidence.conflict.kind === "appRowPoint"
+    ? Object.freeze({
+        kind: "appRowPoint" as const,
+        documentId: evidence.conflict.documentId,
+      })
+    : Object.freeze({
+        kind: "appIndexRange" as const,
+        reason: evidence.conflict.reason,
+        dependencyOrdinal: evidence.conflict.dependencyOrdinal,
+        tableId: evidence.conflict.tableId,
+        indexDefinitionId: evidence.conflict.indexDefinitionId,
+        ...(evidence.conflict.encodedKey === undefined
+          ? {}
+          : { encodedKey: evidence.conflict.encodedKey }),
+        ...(evidence.conflict.rowId === undefined
+          ? {}
+          : { rowId: evidence.conflict.rowId }),
+      });
+  return Object.freeze({
+    conflict,
+    snapshotCommitSeq: evidence.snapshotCommitSeq,
+    currentCommitSeq: evidence.currentCommitSeq,
+  });
+}
+
+function capturePointCommitIndexRangeDependencies(
+  state: PreparedPointCommitCapabilityStateV1,
+): PointCommitTransactionCommandV1["indexRangeDependencies"] {
+  return Object.freeze(state.plan.indexRangeDependencies.map((dependency) =>
+    Object.freeze({
+      ...dependency,
+      lower: dependency.lower === null ? null : Object.freeze({ ...dependency.lower }),
+      upper: dependency.upper === null ? null : Object.freeze({ ...dependency.upper }),
+    })
+  ));
 }
 
 function capturePointCommitDependencies(
@@ -394,6 +441,7 @@ export function pointCommitPublicationCommandsEqual(
     | "session"
     | "sealIdentity"
     | "dependencies"
+    | "indexRangeDependencies"
     | "rowIntents"
     | "successfulResult"
   > extends never ? true : never = true;
@@ -420,11 +468,60 @@ export function pointCommitPublicationCommandsEqual(
       !pointCommitDependenciesEqual(leftDependency, rightDependency)
     ) return false;
   }
+  if (!indexRangeDependencyArraysEqual(
+    left.indexRangeDependencies,
+    right.indexRangeDependencies,
+  )) return false;
   return pointCommitRowIntentsEqual(left.rowIntents, right.rowIntents) &&
     pointCommitSuccessfulResultsEqual(
       left.successfulResult,
       right.successfulResult,
     );
+}
+
+function indexRangeDependencyArraysEqual(
+  left: PointCommitPublicationCommandV1["indexRangeDependencies"],
+  right: PointCommitPublicationCommandV1["indexRangeDependencies"],
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const leftDependency = left[index];
+    const rightDependency = right[index];
+    if (leftDependency === undefined || rightDependency === undefined) {
+      return false;
+    }
+    if (
+      leftDependency.tableId !== rightDependency.tableId ||
+      leftDependency.indexDefinitionId !== rightDependency.indexDefinitionId ||
+      leftDependency.keyCodecVersion !== rightDependency.keyCodecVersion ||
+      leftDependency.physicalSpecSha256Hex !==
+        rightDependency.physicalSpecSha256Hex ||
+      leftDependency.direction !== rightDependency.direction ||
+      !indexRangeLowerBoundsEqual(leftDependency.lower, rightDependency.lower) ||
+      !indexRangeUpperBoundsEqual(leftDependency.upper, rightDependency.upper)
+    ) return false;
+  }
+  return true;
+}
+
+function indexRangeLowerBoundsEqual(
+  left: PointCommitPublicationCommandV1["indexRangeDependencies"][number]["lower"],
+  right: PointCommitPublicationCommandV1["indexRangeDependencies"][number]["lower"],
+): boolean {
+  return left === null
+    ? right === null
+    : right !== null && left.encodedKey === right.encodedKey;
+}
+
+function indexRangeUpperBoundsEqual(
+  left: PointCommitPublicationCommandV1["indexRangeDependencies"][number]["upper"],
+  right: PointCommitPublicationCommandV1["indexRangeDependencies"][number]["upper"],
+): boolean {
+  if (left === null) return right === null;
+  if (right === null || left.kind !== right.kind) return false;
+  if (left.encodedKey !== right.encodedKey) return false;
+  return left.kind === "key" ||
+    (right.kind === "position" && left.rowId === right.rowId);
 }
 
 function pointCommitAuthorityPinsEqual(

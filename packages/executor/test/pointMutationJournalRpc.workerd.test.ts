@@ -73,6 +73,26 @@ describe("point-mutation journal RPC adapter in workerd", () => {
     });
   });
 
+  it("returns a disposable index stub and preserves its private capability", async () => {
+    const result = await scenario("/indexed-success");
+
+    expect(result).toMatchObject({
+      disposal: { parent: "function", table: "function", index: "function" },
+      disposedIndex: true,
+      result: {
+        kind: "indexRangePage",
+        documents: [{ status: "open" }],
+        isDone: true,
+      },
+      state: {
+        indexCalls: 1,
+        indexIdentityPreserved: true,
+        operationCalls: 0,
+        tableIdentityPreserved: true,
+      },
+    });
+  });
+
   it("keeps persistence rejection envelopes local and stops the remote capability", async () => {
     const result = await scenario("/result-rejected");
 

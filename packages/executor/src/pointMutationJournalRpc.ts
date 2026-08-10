@@ -1,4 +1,5 @@
 import type {
+  RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
 } from "@flarex/persistence-postgres/session-journal-store";
 import { RpcTarget, type RpcStub } from "cloudflare:workers";
@@ -10,6 +11,8 @@ import {
 import type {
   PointMutationJournalBoundaryV1Error,
   PointMutationJournalLogicalOutcomeV1,
+  PointMutationJournalIndexedQueryLogicalOutcomeV1,
+  PointMutationJournalIndexV1,
   PointMutationJournalTableV1,
 } from "./pointMutationJournal";
 import type {
@@ -22,7 +25,8 @@ const REMOTE_STOP_ERROR_MESSAGE = "The journal RPC capability is unavailable.";
 export class PointMutationJournalResultRejectedV1Error
   extends Data.TaggedError("PointMutationJournalResultRejectedV1Error")<{
     readonly result: Exclude<
-      RunSessionJournalPointOperationV1Result,
+      | RunSessionJournalPointOperationV1Result
+      | RunSessionJournalIndexedQueryV1Result,
       { readonly kind: "completed" }
     >;
   }> {}
@@ -35,7 +39,20 @@ export interface PointMutationJournalRpcTableMethodsV1 {
   readonly runPointOperation: (
     operation: unknown,
   ) => Promise<PointMutationJournalLogicalOutcomeV1>;
+  readonly resolveDeveloperIndex: (
+    indexDescriptor: unknown,
+  ) => Promise<PointMutationJournalRpcIndexTargetV1>;
 }
+
+export interface PointMutationJournalRpcIndexMethodsV1 {
+  readonly runIndexedQuery: (
+    operation: unknown,
+  ) => Promise<PointMutationJournalIndexedQueryLogicalOutcomeV1>;
+}
+
+export type PointMutationJournalRpcIndexTargetV1 =
+  & RpcTarget
+  & PointMutationJournalRpcIndexMethodsV1;
 
 export type PointMutationJournalRpcTableTargetV1 =
   & RpcTarget
@@ -53,6 +70,10 @@ export type PointMutationJournalRpcParentTargetV1 =
 
 export type PointMutationJournalRpcTableStubV1 = RpcStub<
   PointMutationJournalRpcTableTargetV1
+>;
+
+export type PointMutationJournalRpcIndexStubV1 = RpcStub<
+  PointMutationJournalRpcIndexTargetV1
 >;
 
 export type PointMutationJournalRpcParentStubV1 = RpcStub<
@@ -134,6 +155,44 @@ class PointMutationJournalRpcTableTarget
       )
     );
   }
+
+  resolveDeveloperIndex(
+    indexDescriptor: unknown,
+  ): Promise<PointMutationJournalRpcIndexTargetV1> {
+    return this.#state.run(() => this.#state.journal.resolveDeveloperIndex(
+      this.#table,
+      indexDescriptor,
+    )).then(
+      index => new PointMutationJournalRpcIndexTarget(this.#state, index),
+    );
+  }
+}
+
+class PointMutationJournalRpcIndexTarget
+  extends RpcTarget
+  implements PointMutationJournalRpcIndexMethodsV1
+{
+  readonly #state: PointMutationJournalRpcSessionStateV1;
+  readonly #index: PointMutationJournalIndexV1;
+
+  constructor(
+    state: PointMutationJournalRpcSessionStateV1,
+    index: PointMutationJournalIndexV1,
+  ) {
+    super();
+    this.#state = state;
+    this.#index = index;
+  }
+
+  runIndexedQuery(
+    operation: unknown,
+  ): Promise<PointMutationJournalIndexedQueryLogicalOutcomeV1> {
+    return this.#state.run(() =>
+      this.#state.journal.runIndexedQuery(this.#index, operation).pipe(
+        Effect.flatMap(projectPointMutationJournalIndexedQueryRpcOutcomeV1),
+      )
+    );
+  }
 }
 
 const projectPointMutationJournalRpcOutcomeV1 = Effect.fn(
@@ -142,6 +201,26 @@ const projectPointMutationJournalRpcOutcomeV1 = Effect.fn(
   result: RunSessionJournalPointOperationV1Result,
 ): Effect.fn.Return<
   PointMutationJournalLogicalOutcomeV1,
+  PointMutationJournalResultRejectedV1Error
+> {
+  switch (result.kind) {
+    case "completed":
+      return result.outcome;
+    case "rejected":
+    case "sequenceRejected":
+    case "stateRejected":
+      return yield* Effect.fail(
+        new PointMutationJournalResultRejectedV1Error({ result }),
+      );
+  }
+});
+
+const projectPointMutationJournalIndexedQueryRpcOutcomeV1 = Effect.fn(
+  "PointMutationJournalRpc.projectIndexedQueryOutcome",
+)(function* (
+  result: RunSessionJournalIndexedQueryV1Result,
+): Effect.fn.Return<
+  PointMutationJournalIndexedQueryLogicalOutcomeV1,
   PointMutationJournalResultRejectedV1Error
 > {
   switch (result.kind) {

@@ -125,6 +125,28 @@ export default { async fetch() {
   const journal = {
     resolvePointTable() {
       return {
+        resolveDeveloperIndex(indexDescriptor) {
+          operations.push(["resolveIndex", indexDescriptor]);
+          return {
+            async runIndexedQuery(operation) {
+              operations.push([
+                operation.kind,
+                String(operation.syscallSequence),
+                operation.bounds.startInclusive,
+                operation.bounds.endExclusive,
+              ]);
+              settledOperations.push([
+                operation.kind,
+                String(operation.syscallSequence),
+              ]);
+              return Object.freeze({
+                kind: "indexRangePage",
+                documents: [],
+                isDone: true,
+              });
+            },
+          };
+        },
         async runPointOperation(operation) {
           operations.push([operation.kind, String(operation.syscallSequence)]);
           if (operation.kind === "insert") {
@@ -229,10 +251,25 @@ export async function update(ctx) {
   if (Object.keys(ctx).join(",") !== "auth,db,runQuery,runMutation" || "scheduler" in ctx || "storage" in ctx) {
     throw new Error("invalid mutation context shape");
   }
-  if (Object.keys(ctx.db).join(",") !== "get,insert,patch,replace,delete" || "query" in ctx.db || "normalizeId" in ctx.db || "system" in ctx.db) {
+  if (Object.keys(ctx.db).join(",") !== "get,insert,patch,replace,delete,queryIndexRange" || "query" in ctx.db || "normalizeId" in ctx.db || "system" in ctx.db) {
     throw new Error("invalid mutation database shape");
   }
   if (await ctx.auth.getUserIdentity() !== null) throw new Error("invalid anonymous identity");
+  try {
+    await ctx.db.queryIndexRange("orders", "by-id", {}, 1);
+    throw new Error("invalid index descriptor was accepted");
+  } catch (error) {
+    if (!String(error?.message).includes("valid developer index descriptor")) throw error;
+  }
+  const empty = await ctx.db.queryIndexRange(
+    "orders",
+    "by_status",
+    { startInclusive: "", endExclusive: "00" },
+    1,
+  );
+  if (empty.documents.length !== 0 || !empty.isDone) {
+    throw new Error("empty index interval mismatch");
+  }
   let id;
   try {
     await ctx.runMutation({ _path: "orders:mutateInternal" }, {});
@@ -282,21 +319,24 @@ export async function readInternal(ctx, args) {
           status: "open",
         },
         operations: [
-          ["insert", "1"],
-          ["patch", "2"],
-          ["replace", "3"],
-          ["insert", "4"],
-          ["delete", "5"],
-          ["insert", "6"],
-          ["get", "6"],
+          ["resolveIndex", "by_status"],
+          ["indexRange", "1", "", "00"],
+          ["insert", "2"],
+          ["patch", "3"],
+          ["replace", "4"],
+          ["insert", "5"],
+          ["delete", "6"],
+          ["insert", "7"],
+          ["get", "7"],
         ],
         settledOperations: [
-          ["insert", "1"],
-          ["patch", "2"],
-          ["replace", "3"],
-          ["insert", "4"],
-          ["delete", "5"],
-          ["get", "6"],
+          ["indexRange", "1"],
+          ["insert", "2"],
+          ["patch", "3"],
+          ["replace", "4"],
+          ["insert", "5"],
+          ["delete", "6"],
+          ["get", "7"],
         ],
       } });
     } finally {

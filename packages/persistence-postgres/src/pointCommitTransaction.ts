@@ -29,27 +29,39 @@ import {
 import {
   type CatalogIndexDefinitionId,
   type CatalogUniqueConstraintDefinitionId,
+  CatalogIndexDefinitionIdSchema,
   CatalogTableIdSchema,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
+  LogicalIndexRangeReadDependencyV1Schema,
+  MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSuccessfulResultV1Effect,
+  measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
+  normalizeLogicalIndexRangeReadDependenciesV1Result,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
   type LogicalReadDependencyV1,
+  type LogicalIndexRangeReadDependencyV1,
   type SuccessfulResultSha256HexV1,
 } from "flarex-protocol/commit-protocol";
 import {
   encodeAppOrderedIndexKeyV1,
+  orderedIndexBoundHexV1ToBytes,
   orderedIndexCreationTimeV1,
+  orderedIndexKeyBytesHexV1FromBytes,
   orderedIndexKeyBytesHexV1ToBytes,
   orderedIndexRowIdHexV1ToBytes,
   orderedIndexRowIdHexV1FromBytesResult,
+  OrderedIndexKeyBytesHexV1Schema,
+  OrderedIndexRowIdHexV1Schema,
   type OrderedIndexKeyHexV1,
+  type OrderedIndexKeyBytesHexV1,
   type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -403,6 +415,9 @@ export type PointCommitRowIntentV1 =
 export interface PointCommitTransactionCommandV1
   extends PointCommitAttemptScalarCommandV1 {
   readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
+  readonly indexRangeDependencies: ReadonlyArray<
+    LogicalIndexRangeReadDependencyV1
+  >;
   readonly rowIntents: ReadonlyArray<PointCommitRowIntentV1>;
 }
 
@@ -414,6 +429,10 @@ export interface PointCommitTransactionCommandV1
 export interface PointMutationAttemptReplacementCommandV1
   extends PointCommitAttemptScalarCommandV1 {
   readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
+  readonly indexRangeDependencies: ReadonlyArray<
+    LogicalIndexRangeReadDependencyV1
+  >;
+  readonly expectedConflict: PointCommitConflictEvidenceV1;
 }
 
 export class PointMutationAttemptReplacementCommittedOutcomeV1Error
@@ -564,13 +583,32 @@ export interface PointCommitWouldCommitV1 {
   readonly kind: "wouldCommit";
 }
 
-export class PointCommitConflictV1Error extends Data.TaggedError(
-  "PointCommitConflictV1Error",
-)<{
-  readonly documentId: AppDocumentIdV1;
+export const MAX_INDEX_RANGE_OCC_COMMIT_SPAN_V1 = 128n;
+
+export type PointCommitConflictCauseV1 =
+  | Readonly<{
+      readonly kind: "appRowPoint";
+      readonly documentId: AppDocumentIdV1;
+    }>
+  | Readonly<{
+      readonly kind: "appIndexRange";
+      readonly reason: "overlap" | "validationWindowExceeded";
+      readonly dependencyOrdinal: number;
+      readonly tableId: CatalogTableId;
+      readonly indexDefinitionId: CatalogIndexDefinitionId;
+      readonly encodedKey?: OrderedIndexKeyBytesHexV1;
+      readonly rowId?: OrderedIndexRowIdHexV1;
+    }>;
+
+export interface PointCommitConflictEvidenceV1 {
+  readonly conflict: PointCommitConflictCauseV1;
   readonly snapshotCommitSeq: CommitSeq;
   readonly currentCommitSeq: CommitSeq;
-}> {}
+}
+
+export class PointCommitConflictV1Error extends Data.TaggedError(
+  "PointCommitConflictV1Error",
+)<PointCommitConflictEvidenceV1> {}
 
 export type PointCommitStaleAuthorityReasonV1 =
   | "placementChanged"
@@ -699,6 +737,7 @@ export type PointCommitSqlOperationV1 =
   | "enterFinishing"
   | "deleteExecutionClaim"
   | "loadRowHeads"
+  | "validateIndexRanges"
   | "lockIntrinsicIndexBuild"
   | "lockDeveloperIndexBuilds"
   | "loadDeveloperIndexDocuments"
@@ -1201,6 +1240,10 @@ interface PreparedPointCommitPublicationCommandV1
 interface PreparedPointMutationAttemptReplacementCommandV1
   extends PreparedPointCommitAttemptScalarCommandV1 {
   readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
+  readonly indexRangeDependencies: ReadonlyArray<
+    LogicalIndexRangeReadDependencyV1
+  >;
+  readonly expectedConflict: PointCommitConflictEvidenceV1;
 }
 
 type PreparedPointCommitDependencyCommandV1 =
@@ -2000,6 +2043,11 @@ function capturePointCommitCommandResult(
       input.dependencies,
       sealIdentity.pointDependencyCount,
     );
+    const indexRangeDependencies = yield* capturePointCommitIndexRangeDependenciesResult(
+      input.indexRangeDependencies,
+      sealIdentity.indexRangeDependencyCount,
+      sealIdentity.indexRangeDependencyEvidenceBytes,
+    );
     const rowIntents = yield* captureRowIntentsResult(input.rowIntents);
     for (const rowIntent of rowIntents) {
       if (!dependencies.some(
@@ -2013,6 +2061,7 @@ function capturePointCommitCommandResult(
       session,
       sealIdentity,
       dependencies,
+      indexRangeDependencies,
       rowIntents,
     });
   });
@@ -2045,11 +2094,206 @@ function capturePointMutationAttemptReplacementCommandResult(
       input.dependencies,
       sealIdentity.pointDependencyCount,
     );
+    const indexRangeDependencies = yield* capturePointCommitIndexRangeDependenciesResult(
+      input.indexRangeDependencies,
+      sealIdentity.indexRangeDependencyCount,
+      sealIdentity.indexRangeDependencyEvidenceBytes,
+    );
+    const expectedConflict = yield* capturePointCommitConflictEvidenceResult(
+      input.expectedConflict,
+      authorityPins.snapshotToken.commitSeq,
+      dependencies,
+      indexRangeDependencies,
+    );
     return Object.freeze({
       authorityPins,
       session,
       sealIdentity,
       dependencies,
+      indexRangeDependencies,
+      expectedConflict,
+    });
+  });
+}
+
+function capturePointCommitIndexRangeDependenciesResult(
+  input: ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+  expectedCount: number,
+  expectedEvidenceBytes: number,
+): Result.Result<
+  ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+  PointCommitCorruptionV1Error
+> {
+  if (
+    !Array.isArray(input) ||
+    input.length !== expectedCount ||
+    input.length > MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1
+  ) {
+    return Result.fail(corruption("commandInvalid"));
+  }
+  return Result.gen(function* () {
+    const captured: LogicalIndexRangeReadDependencyV1[] = [];
+    let evidenceBytes = 0;
+    for (let index = 0; index < input.length; index += 1) {
+      if (!Object.hasOwn(input, index)) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
+      const dependency = yield* Schema.decodeUnknownResult(
+        LogicalIndexRangeReadDependencyV1Schema,
+      )(input[index]).pipe(Result.mapError(() => corruption("commandInvalid")));
+      captured.push(dependency);
+      evidenceBytes += yield* measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result(
+        dependency,
+      ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    }
+    if (
+      evidenceBytes !== expectedEvidenceBytes ||
+      evidenceBytes > MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const normalized = yield* normalizeLogicalIndexRangeReadDependenciesV1Result(
+      captured,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    if (
+      normalized.length !== captured.length ||
+      normalized.some((dependency, index) =>
+        !indexRangeDependenciesEqual(dependency, captured[index])
+      )
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    return normalized;
+  });
+}
+
+function indexRangeDependenciesEqual(
+  left: LogicalIndexRangeReadDependencyV1,
+  right: LogicalIndexRangeReadDependencyV1 | undefined,
+): boolean {
+  return right !== undefined &&
+    left.tableId === right.tableId &&
+    left.indexDefinitionId === right.indexDefinitionId &&
+    left.keyCodecVersion === right.keyCodecVersion &&
+    left.physicalSpecSha256Hex === right.physicalSpecSha256Hex &&
+    left.direction === right.direction &&
+    indexRangeLowerBoundsEqual(left.lower, right.lower) &&
+    indexRangeUpperBoundsEqual(left.upper, right.upper);
+}
+
+function indexRangeLowerBoundsEqual(
+  left: LogicalIndexRangeReadDependencyV1["lower"],
+  right: LogicalIndexRangeReadDependencyV1["lower"],
+): boolean {
+  return left === null
+    ? right === null
+    : right !== null && left.encodedKey === right.encodedKey;
+}
+
+function indexRangeUpperBoundsEqual(
+  left: LogicalIndexRangeReadDependencyV1["upper"],
+  right: LogicalIndexRangeReadDependencyV1["upper"],
+): boolean {
+  if (left === null) return right === null;
+  if (right === null || left.kind !== right.kind) return false;
+  if (left.encodedKey !== right.encodedKey) return false;
+  return left.kind === "key" ||
+    (right.kind === "position" && left.rowId === right.rowId);
+}
+
+function capturePointCommitConflictEvidenceResult(
+  input: PointCommitConflictEvidenceV1,
+  expectedSnapshotCommitSeq: CommitSeq,
+  pointDependencies: ReadonlyArray<PointCommitDependencyV1>,
+  indexRangeDependencies: ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+): Result.Result<PointCommitConflictEvidenceV1, PointCommitCorruptionV1Error> {
+  return Result.gen(function* () {
+    const captured = yield* Result.try({
+      try: () => structuredClone(input),
+      catch: () => corruption("commandInvalid"),
+    });
+    if (
+      !isNonArrayRecord(captured) ||
+      captured.snapshotCommitSeq !== expectedSnapshotCommitSeq ||
+      !isNonArrayRecord(captured.conflict)
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const cause = captured.conflict;
+    const currentCommitSeq = yield* decodePointCommitSeqResult(
+      captured.currentCommitSeq,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    if (currentCommitSeq <= expectedSnapshotCommitSeq) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    if (cause.kind === "appRowPoint") {
+      const identity = yield* decodeAppDocumentIdentityV1Result(
+        cause.documentId,
+      ).pipe(Result.mapError(() => corruption("commandInvalid")));
+      if (!pointDependencies.some((dependency) =>
+        dependency.documentId === identity.id
+      )) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
+      return Object.freeze({
+        conflict: Object.freeze({
+          kind: "appRowPoint",
+          documentId: identity.id,
+        }),
+        snapshotCommitSeq: expectedSnapshotCommitSeq,
+        currentCommitSeq,
+      });
+    }
+    if (
+      cause.kind !== "appIndexRange" ||
+      (cause.reason !== "overlap" &&
+        cause.reason !== "validationWindowExceeded") ||
+      !isNonNegativeSafeInteger(cause.dependencyOrdinal) ||
+      (cause.reason === "overlap" &&
+        (typeof cause.encodedKey !== "string" || typeof cause.rowId !== "string"))
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const tableId = yield* Schema.decodeUnknownResult(CatalogTableIdSchema)(
+      cause.tableId,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    const indexDefinitionId = yield* Schema.decodeUnknownResult(
+      CatalogIndexDefinitionIdSchema,
+    )(cause.indexDefinitionId).pipe(
+      Result.mapError(() => corruption("commandInvalid")),
+    );
+    const dependency = indexRangeDependencies[cause.dependencyOrdinal];
+    if (
+      dependency === undefined ||
+      dependency.tableId !== tableId ||
+      dependency.indexDefinitionId !== indexDefinitionId
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const overlap = cause.reason === "overlap"
+      ? Result.all({
+          encodedKey: Schema.decodeUnknownResult(
+            OrderedIndexKeyBytesHexV1Schema,
+          )(cause.encodedKey),
+          rowId: Schema.decodeUnknownResult(
+            OrderedIndexRowIdHexV1Schema,
+          )(cause.rowId),
+        }).pipe(Result.mapError(() => corruption("commandInvalid")))
+      : Result.succeed(undefined);
+    const overlapEvidence = yield* overlap;
+    return Object.freeze({
+      conflict: Object.freeze({
+        kind: "appIndexRange",
+        reason: cause.reason,
+        dependencyOrdinal: cause.dependencyOrdinal,
+        tableId,
+        indexDefinitionId,
+        ...(overlapEvidence === undefined
+          ? {}
+          : overlapEvidence),
+      }),
+      snapshotCommitSeq: expectedSnapshotCommitSeq,
+      currentCommitSeq,
     });
   });
 }
@@ -2249,6 +2493,12 @@ function captureSealIdentityResult(
       !isNonNegativeSafeInteger(input.readDocuments) ||
       !isNonNegativeSafeInteger(input.readSemanticBytes) ||
       !isNonNegativeSafeInteger(input.pointDependencyCount) ||
+      !isNonNegativeSafeInteger(input.indexedQuerySyscalls) ||
+      !isNonNegativeSafeInteger(input.indexRangeDependencyCount) ||
+      input.indexRangeDependencyCount > MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 ||
+      !isNonNegativeSafeInteger(input.indexRangeDependencyEvidenceBytes) ||
+      input.indexRangeDependencyEvidenceBytes >
+        MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1 ||
       !isNonNegativeSafeInteger(input.writeOperations) ||
       !isNonNegativeSafeInteger(input.writeSemanticBytes) ||
       !isNonNegativeSafeInteger(input.materialWriteEventEvidenceBytes) ||
@@ -2758,8 +3008,11 @@ async function runPointMutationAttemptReplacement(
       command,
       sharedOptions,
     );
-    projectPointCommitTransactionResult(
-      requireReproduciblePointCommitConflictResult(command, heads),
+    await requireReproduciblePointCommitConflict(
+      tx,
+      clock,
+      command,
+      heads,
     );
     await emitReplacementStep(options, command, "dependenciesValidated");
 
@@ -3653,6 +3906,12 @@ async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(
     validatePointCommitDependenciesResult(command, loadedHeads),
   );
+  const rangeConflict = await findPointCommitIndexRangeConflict(
+    tx,
+    clock,
+    command,
+  );
+  if (rangeConflict !== null) throw rangeConflict;
   await emitTransactionStep(options, command, "dependenciesValidated");
 
   if (mode === "rollbackProof" && command.rowIntents.length === 0) {
@@ -4718,7 +4977,10 @@ function findPointCommitConflictAfterEvidenceValidationResult(
         break;
       case "conflict":
         firstConflict ??= new PointCommitConflictV1Error({
-          documentId: dependency.documentId,
+          conflict: Object.freeze({
+            kind: "appRowPoint",
+            documentId: dependency.documentId,
+          }),
           snapshotCommitSeq: validation.conflict.snapshotCommitSeq,
           currentCommitSeq: validation.conflict.currentState.revisionCommitSeq,
         });
@@ -4730,26 +4992,272 @@ function findPointCommitConflictAfterEvidenceValidationResult(
   return Result.succeed(firstConflict);
 }
 
-function requireReproduciblePointCommitConflictResult(
+async function findPointCommitIndexRangeConflict(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  command: PreparedPointCommitDependencyCommandV1,
+): Promise<PointCommitConflictV1Error | null> {
+  const dependencies = command.indexRangeDependencies;
+  if (dependencies.length === 0) return null;
+  const snapshotCommitSeq = command.authorityPins.snapshotToken.commitSeq;
+  const lastCommitSeq = CommitSeqSchema.make(clock.record.lastCommitSeq);
+  const first = dependencies[0]!;
+  if (
+    snapshotCommitSeq < clock.oldestAvailableCommitSeq ||
+    lastCommitSeq - snapshotCommitSeq > MAX_INDEX_RANGE_OCC_COMMIT_SPAN_V1
+  ) {
+    return new PointCommitConflictV1Error({
+      conflict: Object.freeze({
+        kind: "appIndexRange",
+        reason: "validationWindowExceeded",
+        dependencyOrdinal: 0,
+        tableId: first.tableId,
+        indexDefinitionId: first.indexDefinitionId,
+      }),
+      snapshotCommitSeq,
+      currentCommitSeq: lastCommitSeq,
+    });
+  }
+  if (lastCommitSeq === snapshotCommitSeq) return null;
+
+  const requestedValues = sql.join(dependencies.map((dependency, ordinal) => {
+    const lower = dependency.lower === null
+      ? null
+      : orderedIndexBoundHexV1ToBytes(dependency.lower.encodedKey);
+    const upper = dependency.upper === null
+      ? null
+      : dependency.upper.kind === "key"
+        ? orderedIndexBoundHexV1ToBytes(dependency.upper.encodedKey)
+        : orderedIndexKeyBytesHexV1ToBytes(dependency.upper.encodedKey);
+    const upperRowId = dependency.upper?.kind === "position"
+      ? orderedIndexRowIdHexV1ToBytes(dependency.upper.rowId)
+      : null;
+    return sql`(
+      ${ordinal}::integer,
+      ${dependency.indexDefinitionId}::integer,
+      ${lower}::bytea,
+      ${dependency.upper?.kind ?? "unbounded"}::text,
+      ${upper}::bytea,
+      ${upperRowId}::bytea
+    )`;
+  }), sql`, `);
+  const statement = sql`
+    with requested(
+      ordinal,
+      index_definition_id,
+      lower_encoded_key,
+      upper_kind,
+      upper_encoded_key,
+      upper_row_id
+    ) as (values ${requestedValues})
+    select
+      requested.ordinal::text as "ordinalText",
+      revision.table_id::text as "tableIdText",
+      revision.key_codec_version::text as "keyCodecVersionText",
+      revision.physical_spec_sha256 as "physicalSpecSha256",
+      revision.encoded_key as "encodedKeyBytes",
+      revision.row_id as "rowIdBytes",
+      revision.commit_seq::text as "commitSeqText"
+    from requested
+    join fx_app_index_entry_rev as revision
+      on revision.scope_uuid = ${clock.scopeUuid}
+      and revision.index_definition_id = requested.index_definition_id
+      and revision.commit_seq > ${snapshotCommitSeq}
+      and revision.commit_seq <= ${lastCommitSeq}
+      and (
+        requested.lower_encoded_key is null or
+        revision.encoded_key >= requested.lower_encoded_key
+      )
+      and (
+        requested.upper_kind = 'unbounded' or
+        (
+          requested.upper_kind = 'key' and
+          revision.encoded_key < requested.upper_encoded_key
+        ) or
+        (
+          requested.upper_kind = 'position' and
+          (
+            revision.encoded_key < requested.upper_encoded_key or
+            (
+              revision.encoded_key = requested.upper_encoded_key and
+              revision.row_id <= requested.upper_row_id
+            )
+          )
+        )
+      )
+    order by requested.ordinal asc, revision.commit_seq asc,
+      revision.encoded_key asc, revision.row_id asc
+    limit 1
+  `;
+  const result = await sqlCall(
+    "validateIndexRanges",
+    () => tx.execute(statement),
+  );
+  const rows = rowsFromDriverExecuteResult(result, () => {
+    throw corruption("occEvidenceInvalid");
+  });
+  if (rows.length === 0) return null;
+  if (rows.length !== 1) throw corruption("occEvidenceInvalid");
+  const decoded = projectPointCommitTransactionResult(
+    decodePointCommitIndexRangeConflictRowResult(
+      rows[0],
+      dependencies,
+      snapshotCommitSeq,
+      lastCommitSeq,
+    ),
+  );
+  return new PointCommitConflictV1Error({
+    conflict: Object.freeze({
+      kind: "appIndexRange",
+      reason: "overlap",
+      dependencyOrdinal: decoded.ordinal,
+      tableId: decoded.tableId,
+      indexDefinitionId: decoded.indexDefinitionId,
+      encodedKey: decoded.encodedKey,
+      rowId: decoded.rowId,
+    }),
+    snapshotCommitSeq,
+    currentCommitSeq: decoded.currentCommitSeq,
+  });
+}
+
+function decodePointCommitIndexRangeConflictRowResult(
+  value: unknown,
+  dependencies: PreparedPointCommitDependencyCommandV1[
+    "indexRangeDependencies"
+  ],
+  snapshotCommitSeq: CommitSeq,
+  lastCommitSeq: CommitSeq,
+): Result.Result<
+  Readonly<{
+    readonly ordinal: number;
+    readonly tableId: CatalogTableId;
+    readonly indexDefinitionId: CatalogIndexDefinitionId;
+    readonly currentCommitSeq: CommitSeq;
+    readonly encodedKey: OrderedIndexKeyBytesHexV1;
+    readonly rowId: OrderedIndexRowIdHexV1;
+  }>,
+  PointCommitCorruptionV1Error
+> {
+  return Result.gen(function* () {
+    if (!isNonArrayRecord(value)) {
+      return yield* Result.fail(corruption("occEvidenceInvalid"));
+    }
+    const ordinal = yield* parseNonNegativeIntegerTextResult(
+      value.ordinalText,
+    ).pipe(Result.mapError(() => corruption("occEvidenceInvalid")));
+    const dependency = dependencies[ordinal];
+    if (dependency === undefined) {
+      return yield* Result.fail(corruption("occEvidenceInvalid"));
+    }
+    const tableId = yield* parseNonNegativeIntegerTextResult(
+      value.tableIdText,
+    ).pipe(
+      Result.mapError(() => corruption("occEvidenceInvalid")),
+      Result.filterOrFail(
+        (parsed) => parsed > 0,
+        () => corruption("occEvidenceInvalid"),
+      ),
+      Result.flatMap((parsed) =>
+        Schema.decodeUnknownResult(CatalogTableIdSchema)(parsed).pipe(
+          Result.mapError(() => corruption("occEvidenceInvalid")),
+        )
+      ),
+    );
+    const keyCodecVersion = yield* parseNonNegativeIntegerTextResult(
+      value.keyCodecVersionText,
+    ).pipe(Result.mapError(() => corruption("occEvidenceInvalid")));
+    const currentCommitSeq = yield* parseNullableCommitSeqTextResult(
+      value.commitSeqText,
+    ).pipe(
+      Result.mapError(() => corruption("occEvidenceInvalid")),
+      Result.filterOrFail(
+        (parsed): parsed is CommitSeq => parsed !== null,
+        () => corruption("occEvidenceInvalid"),
+      ),
+    );
+    if (
+      !isUint8Array(value.physicalSpecSha256) ||
+      encodeBytesToLowercaseHex(value.physicalSpecSha256) !==
+        dependency.physicalSpecSha256Hex ||
+      tableId !== dependency.tableId ||
+      keyCodecVersion !== dependency.keyCodecVersion ||
+      currentCommitSeq <= snapshotCommitSeq ||
+      currentCommitSeq > lastCommitSeq ||
+      !isUint8Array(value.encodedKeyBytes) ||
+      !isUint8Array(value.rowIdBytes)
+    ) {
+      return yield* Result.fail(corruption("occEvidenceInvalid"));
+    }
+    const encodedKeyBytes = value.encodedKeyBytes;
+    const rowIdBytes = value.rowIdBytes;
+    const encodedKey = yield* Result.try({
+      try: () => orderedIndexKeyBytesHexV1FromBytes(encodedKeyBytes),
+      catch: () => corruption("occEvidenceInvalid"),
+    });
+    const rowId = yield* orderedIndexRowIdHexV1FromBytesResult(
+      rowIdBytes,
+    ).pipe(Result.mapError(() => corruption("occEvidenceInvalid")));
+    return Object.freeze({
+      ordinal,
+      tableId,
+      indexDefinitionId: dependency.indexDefinitionId,
+      currentCommitSeq,
+      encodedKey,
+      rowId,
+    });
+  });
+}
+
+async function requireReproduciblePointCommitConflict(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
   command: PreparedPointMutationAttemptReplacementCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
-): Result.Result<
-  void,
-  | PointCommitCorruptionV1Error
-  | PointMutationAttemptReplacementConflictNoLongerPresentV1Error
-> {
-  return findPointCommitConflictAfterEvidenceValidationResult(
+): Promise<void> {
+  const pointConflict = projectPointCommitTransactionResult(
+    findPointCommitConflictAfterEvidenceValidationResult(command, heads),
+  );
+  const actual = pointConflict ?? await findPointCommitIndexRangeConflict(
+    tx,
+    clock,
     command,
-    heads,
-  ).pipe(Result.flatMap((conflict) =>
-    conflict === null
-      ? Result.fail(
-          new PointMutationAttemptReplacementConflictNoLongerPresentV1Error({
-            reason: "conflictNoLongerPresent",
-          }),
-        )
-      : Result.succeed(undefined)
-  ));
+  );
+  if (
+    actual === null ||
+    !pointCommitConflictsReproduce(command.expectedConflict, actual)
+  ) {
+    throw new PointMutationAttemptReplacementConflictNoLongerPresentV1Error({
+      reason: "conflictNoLongerPresent",
+    });
+  }
+}
+
+function pointCommitConflictsReproduce(
+  expected: PointCommitConflictEvidenceV1,
+  actual: PointCommitConflictEvidenceV1,
+): boolean {
+  if (
+    expected.snapshotCommitSeq !== actual.snapshotCommitSeq ||
+    expected.conflict.kind !== actual.conflict.kind
+  ) return false;
+  if (expected.conflict.kind === "appRowPoint") {
+    return actual.conflict.kind === "appRowPoint" &&
+      expected.conflict.documentId === actual.conflict.documentId &&
+      expected.currentCommitSeq === actual.currentCommitSeq;
+  }
+  if (actual.conflict.kind !== "appIndexRange") return false;
+  if (
+    expected.conflict.reason !== actual.conflict.reason ||
+    expected.conflict.dependencyOrdinal !== actual.conflict.dependencyOrdinal ||
+    expected.conflict.tableId !== actual.conflict.tableId ||
+    expected.conflict.indexDefinitionId !== actual.conflict.indexDefinitionId
+  ) return false;
+  return expected.conflict.reason === "validationWindowExceeded"
+    ? actual.currentCommitSeq >= expected.currentCommitSeq
+    : expected.currentCommitSeq === actual.currentCommitSeq &&
+      expected.conflict.encodedKey === actual.conflict.encodedKey &&
+      expected.conflict.rowId === actual.conflict.rowId;
 }
 
 async function publishPointCommitInTransaction(

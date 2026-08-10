@@ -12,6 +12,7 @@ import type {
   PointCommitRollbackProofPortV1,
   PointCommitRollbackProofV1Error,
   PointCommitWouldCommitV1,
+  PointCommitConflictEvidenceV1,
   PointMutationAttemptReplacementObservationV1,
   PointMutationAttemptReplacementPortV1,
   PointMutationAttemptReplacementV1Error,
@@ -410,6 +411,14 @@ export interface PointMutationOccBoundJournalV1 {
     table: PointMutationJournalTableV1,
     operation: unknown,
   ) => ReturnType<PointMutationJournalV1["runPointOperation"]>;
+  readonly resolveDeveloperIndex: (
+    table: PointMutationJournalTableV1,
+    indexDescriptor: unknown,
+  ) => ReturnType<PointMutationJournalV1["resolveDeveloperIndex"]>;
+  readonly runIndexedQuery: (
+    index: Parameters<PointMutationJournalV1["runIndexedQuery"]>[0],
+    operation: unknown,
+  ) => ReturnType<PointMutationJournalV1["runIndexedQuery"]>;
 }
 
 export interface PointMutationOccRuntimeNeutralRunnerInputV1 {
@@ -483,7 +492,7 @@ export interface AuthorizedPointMutationOccRerunInspectionV1 {
   readonly attemptFence: TransactionAttemptFence;
   readonly previousSnapshotToken: SnapshotToken;
   readonly snapshotToken: SnapshotToken;
-  readonly conflictDocumentId: AppDocumentIdV1;
+  readonly conflict: PointCommitConflictEvidenceV1;
   readonly conflictingCommitSeq: SnapshotToken["commitSeq"];
 }
 
@@ -1020,6 +1029,7 @@ export interface StoredPointMutationAttemptReplacementV1
   extends StoredPointCommitExecutorV1 {
   readonly replaceConflictedPointMutationAttempt: (
     input: FinishingPreparedPointCommitV1,
+    conflict: PointCommitConflictEvidenceV1,
   ) => Effect.Effect<
     PointMutationAttemptReplacementObservationV1,
     PointMutationAttemptReplacementExecutionV1Error,

@@ -404,6 +404,14 @@ function bindPointMutationOccJournal(
       table: PointMutationJournalTableV1,
       operation: unknown,
     ) => journal.runPointOperation(table, operation),
+    resolveDeveloperIndex: (
+      table: PointMutationJournalTableV1,
+      indexDescriptor: unknown,
+    ) => journal.resolveDeveloperIndex(table, indexDescriptor),
+    runIndexedQuery: (
+      index: Parameters<PointMutationJournalV1["runIndexedQuery"]>[0],
+      operation: unknown,
+    ) => journal.runIndexedQuery(index, operation),
   });
 }
 

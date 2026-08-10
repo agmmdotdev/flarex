@@ -95,7 +95,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     } as const;
     const basis = pointMutationExactRuntimeWorkerGraphBasisV1(input);
     expect(createHash("sha256").update(basis).digest("hex")).toBe(
-      "577996df87bd42abd6762e86c7894f6d21e461039624a04c4960db09910c17e0",
+      "f7bb85b867f5ef2169ffa229ef41a543439e2c4db214bc8257753a1da2007cd9",
     );
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1);
     expect(basis).toContain(POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1);
@@ -163,7 +163,27 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
         "role",
       ]);
       expect(args).toEqual({ orderId });
+      try {
+        ctx.db.queryIndexRange("orders", "_reserved", {}, 1);
+        throw new Error("reserved index descriptor was accepted");
+      } catch (error) {
+        expect(error).toMatchObject({
+          message: expect.stringContaining("valid developer index descriptor"),
+        });
+      }
+      await expect(ctx.db.queryIndexRange(
+        "orders",
+        "by_status",
+        { startInclusive: "", endExclusive: "00" },
+        1,
+      )).resolves.toEqual({ documents: [], isDone: true });
       const get = ctx.db.get(orderId);
+      const indexPage = ctx.db.queryIndexRange(
+        "orders",
+        "by_status",
+        { startInclusive: "00", endExclusive: "ff" },
+        2,
+      );
       const insertFields = { status: "new" };
       const insert = ctx.db.insert("orders", insertFields);
       insertFields.status = "mutated-after-call";
@@ -171,6 +191,14 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
         _id: orderId,
         _creationTime: 100,
         status: "open",
+      });
+      expect(await indexPage).toEqual({
+        documents: [{
+          _id: orderId,
+          _creationTime: 100,
+          status: "open",
+        }],
+        isDone: true,
       });
       expect(await insert).toBe(insertedOrderId);
       const patchFields = { status: "done" };
@@ -196,6 +224,39 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
         tableResolutionCount += 1;
         await new Promise<void>((resolve) => setTimeout(resolve, 5));
         return {
+          resolveDeveloperIndex: async (indexDescriptor: string) => {
+            expect(indexDescriptor).toBe("by_status");
+            return {
+              runIndexedQuery: async (
+                operation: Readonly<Record<string, unknown>>,
+              ) => {
+                calls.push({ table, operation });
+                const bounds = operation.bounds as Readonly<Record<
+                  string,
+                  unknown
+                >>;
+                if (
+                  bounds.startInclusive === "" &&
+                  bounds.endExclusive === "00"
+                ) {
+                  return {
+                    kind: "indexRangePage",
+                    documents: [],
+                    isDone: true,
+                  };
+                }
+                return {
+                  kind: "indexRangePage",
+                  documents: [{
+                    _id: orderId,
+                    _creationTime: 100,
+                    status: "open",
+                  }],
+                  isDone: true,
+                };
+              },
+            };
+          },
           runPointOperation: async (
             operation: Readonly<Record<string, unknown>>,
           ): Promise<PointMutationJournalLogicalOutcomeV1> => {
@@ -249,18 +310,20 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     });
     expect(handler).toHaveBeenCalledOnce();
     expect(tableResolutionCount).toBe(1);
-    expect(calls[1]?.operation.fields).toEqual({ status: "new" });
-    expect(calls[2]?.operation.patch).toEqual({ status: "done" });
+    expect(calls[3]?.operation.fields).toEqual({ status: "new" });
+    expect(calls[4]?.operation.patch).toEqual({ status: "done" });
     expect(calls.map((call) => [
       call.table,
       call.operation.kind,
       call.operation.syscallSequence,
     ])).toEqual([
-      ["orders", "get", 1n],
-      ["orders", "insert", 2n],
-      ["orders", "patch", 3n],
-      ["orders", "replace", 4n],
-      ["orders", "delete", 5n],
+      ["orders", "indexRange", 1n],
+      ["orders", "get", 2n],
+      ["orders", "indexRange", 3n],
+      ["orders", "insert", 4n],
+      ["orders", "patch", 5n],
+      ["orders", "replace", 6n],
+      ["orders", "delete", 7n],
     ]);
   });
 
@@ -380,6 +443,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
           "patch",
           "replace",
           "delete",
+          "queryIndexRange",
         ]);
         const identity = await context.auth.getUserIdentity();
         return context.db.insert("orders", {
@@ -456,6 +520,10 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
             patch: async () => undefined,
             replace: async () => undefined,
             delete: async () => undefined,
+            queryIndexRange: async () => Object.freeze({
+              documents: Object.freeze([]),
+              isDone: true,
+            }),
           },
         },
         journal: {
@@ -963,6 +1031,54 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
     }
   });
 
+  it("rejects malformed indexed pages at the exact-runtime boundary", async () => {
+    const request = await exactRequest(testArtifact());
+    const validDocument = {
+      _id: orderId,
+      _creationTime: 100,
+      status: "open",
+    };
+    const sparseDocuments = new Array<unknown>(1);
+    for (const outcome of [
+      {
+        kind: "indexRangePage",
+        documents: [validDocument, validDocument],
+        isDone: true,
+      },
+      {
+        kind: "indexRangePage",
+        documents: sparseDocuments,
+        isDone: true,
+      },
+      {
+        kind: "indexRangePage",
+        documents: [],
+        isDone: false,
+      },
+    ]) {
+      const Runtime = generatedRuntimeClass(
+        testExactRuntimeWorkerSource(),
+        Object.freeze({
+          isMutation: true,
+          isPublic: true,
+          _handler: (ctx: ExactTestContext) =>
+            ctx.db.queryIndexRange("orders", "by_status", {}, 1),
+        }),
+      );
+
+      await expect(new Runtime().run(request, {
+        resolvePointTable: async () => ({
+          resolveDeveloperIndex: async () => ({
+            runIndexedQuery: async () => outcome,
+          }),
+        }),
+      })).rejects.toMatchObject({
+        name: "PointMutationExactRuntimeJournalBoundaryV1Error",
+        cause: expect.any(Error),
+      });
+    }
+  });
+
   it("classifies user-module evaluation rejection as user code", async () => {
     const request = await exactRequest(testArtifact());
     const source = testExactRuntimeWorkerSource().replace(
@@ -1355,6 +1471,18 @@ interface ExactTestContext {
     readonly patch: (id: string, patch: unknown) => Promise<void>;
     readonly replace: (id: string, fields: unknown) => Promise<void>;
     readonly delete: (id: string) => Promise<void>;
+    readonly queryIndexRange: (
+      tableName: string,
+      indexDescriptor: string,
+      bounds: Readonly<{
+        readonly startInclusive?: string;
+        readonly endExclusive?: string;
+      }>,
+      limit: number,
+    ) => Promise<Readonly<{
+      readonly documents: ReadonlyArray<unknown>;
+      readonly isDone: boolean;
+    }>>;
   };
 }
 
@@ -1469,7 +1597,7 @@ function replaceFunctionApiCoreImportForTest(source: string): string {
   const importedNames = [
     "createFunctionRuntimeAuthV1",
     "createFunctionRuntimeDatabaseContextV1",
-    "createFunctionRuntimePointDatabaseWriterV1",
+    "createFunctionRuntimeIndexedPointDatabaseWriterV1",
     "createFunctionRuntimePointReaderV1",
   ] as const;
   const importSource = `import { ${importedNames.join(", ")} } from "flarex:function-api-core/v1";`;

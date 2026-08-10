@@ -3440,6 +3440,24 @@ scheduling, search, action effects, broader query/database features, or a live
 in-process developer harness require their own preflight and owning roadmap.
 Production routing remains deferred.
 
+### Post-`FAC21` O10-B Indexed Mutation Extension
+
+O10-B later admits one private ascending bounded developer-index range query
+to the exact point-mutation Worker and both accepted mutation internal-call
+profiles. This is an extension through the completed Function API Core
+boundary, not a reopening of `FAC21`: the core owns only the typed
+`queryIndexRange` facade, request capture, positive-capability context member,
+and exact page-shape projection. The host retains the opaque journal table and
+index RPC capabilities, staged read-your-writes overlay, snapshot admission,
+dependency capture, and settlement.
+
+The generated Workers select the same shared facade source and strictly reject
+sparse, oversized, underfilled non-final, or malformed pages. Their candidate
+graph identities and the private analyzer safe-operation release are refreshed
+once. No public authoring package, query-builder surface, persistence adapter,
+OCC/commit authority, relation/filter/scan/search/vector API, activation, route,
+or production behavior moves into `@flarex/function-runtime`.
+
 ### Post-`FAC21` Mutation Application-Error Transport Correction
 
 The completion audit remains closed at the Function API Core ownership

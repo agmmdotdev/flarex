@@ -518,6 +518,7 @@ export const DECLARATIVE_V2_CORE_ABI_OPERATIONS_V1 = [
   { id: 40, name: "databaseDelete", capability: "databaseWrite", catchability: "mixed", semantics: "delete document" },
   { id: 41, name: "runQuery", capability: "nestedCall", catchability: "mixed", semantics: "invoke exact static query reference" },
   { id: 42, name: "runMutation", capability: "nestedCall", catchability: "mixed", semantics: "invoke exact static mutation reference" },
+  { id: 43, name: "databaseQueryIndexRange", capability: "databaseRead", catchability: "mixed", semantics: "read one bounded ascending page from an exact declared index range" },
 ] as const;
 
 export const DECLARATIVE_V2_CORE_FAILURE_CLASSES_V1 = [

@@ -3006,6 +3006,13 @@ export const fxAppIndexEntryRevisions = pgTable(
       table.rowId,
       table.commitSeq.desc(),
     ),
+    index("fx_app_index_entry_rev_commit_range_idx").on(
+      table.scopeUuid,
+      table.indexDefinitionId,
+      table.commitSeq,
+      table.encodedKey,
+      table.rowId,
+    ),
     check(
       "fx_app_index_entry_rev_definition_id_check",
       sql`${table.indexDefinitionId} between 1 and 2147483647`,

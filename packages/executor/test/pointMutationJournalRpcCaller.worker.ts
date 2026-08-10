@@ -4,6 +4,11 @@ interface DisposableRpcStub {
 
 interface JournalTableStub extends DisposableRpcStub {
   runPointOperation(operation: unknown): Promise<unknown>;
+  resolveDeveloperIndex(indexDescriptor: unknown): Promise<JournalIndexStub>;
+}
+
+interface JournalIndexStub extends DisposableRpcStub {
+  runIndexedQuery(operation: unknown): Promise<unknown>;
 }
 
 interface JournalParentStub extends DisposableRpcStub {
@@ -15,6 +20,8 @@ interface JournalProvider {
   inspect(id: string): Promise<Readonly<{
     closeFinished: boolean;
     closeStarted: boolean;
+    indexCalls: number;
+    indexIdentityPreserved: boolean;
     operationCalls: number;
     tableIdentityPreserved: boolean;
   }>>;
@@ -31,6 +38,8 @@ export default {
     switch (path) {
       case "/success":
         return Response.json(await successScenario(env));
+      case "/indexed-success":
+        return Response.json(await indexedSuccessScenario(env));
       case "/result-rejected":
         return Response.json(await resultRejectedScenario(env));
       case "/failure":
@@ -75,6 +84,35 @@ async function successScenario(env: Env) {
     disposedChild: disposedChild.rejected,
     result,
     state: await env.JOURNAL.inspect("success"),
+  };
+}
+
+async function indexedSuccessScenario(env: Env) {
+  const parent = await env.JOURNAL.open("indexed-success", "indexedSuccess");
+  const table = await parent.resolvePointTable("orders");
+  const index = await table.resolveDeveloperIndex("by_status");
+  const result = await index.runIndexedQuery({
+    kind: "indexRange",
+    syscallSequence: 1n,
+    bounds: {},
+    limit: 2,
+  });
+  const disposal = {
+    parent: typeof parent[Symbol.dispose],
+    table: typeof table[Symbol.dispose],
+    index: typeof index[Symbol.dispose],
+  };
+  index[Symbol.dispose]();
+  const disposedIndex = await rejectionReceipt(
+    index.runIndexedQuery({ kind: "indexRange" }),
+  );
+  table[Symbol.dispose]();
+  parent[Symbol.dispose]();
+  return {
+    disposal,
+    disposedIndex: disposedIndex.rejected,
+    result,
+    state: await env.JOURNAL.inspect("indexed-success"),
   };
 }
 
@@ -250,6 +288,8 @@ async function waitForState(
     state: Readonly<{
       closeFinished: boolean;
       closeStarted: boolean;
+      indexCalls: number;
+      indexIdentityPreserved: boolean;
       operationCalls: number;
       tableIdentityPreserved: boolean;
     }>,

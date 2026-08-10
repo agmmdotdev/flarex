@@ -1,0 +1,1 @@
+CREATE INDEX "fx_app_index_entry_rev_commit_range_idx" ON "fx_app_index_entry_rev" USING btree ("scope_uuid","index_definition_id","commit_seq","encoded_key","row_id");

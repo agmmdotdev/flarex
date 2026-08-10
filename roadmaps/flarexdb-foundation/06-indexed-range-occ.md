@@ -1,14 +1,12 @@
 # Indexed Range OCC
 
-Status: Accepted design plus completed `O10-PF2` implementation preflight,
-completed private `O10-P0` shared read-admission prerequisite, and completed
-private production-inert `O10-A` indexed snapshot/journal capability. This
-document freezes the first exact indexed mutation-read contract, the durable
-journal shape, and the first measured PostgreSQL access path. The next
-implementation gate is `O10-B`. No indexed-query developer API or runtime route
-is active, and this checkpoint does not authorize relation, scan, filter,
-search, vector, general pagination, staged-overlay semantics, or commit-time
-phantom validation.
+Status: Accepted design plus completed `O10-PF2`, `O10-P0`, `O10-A`, and
+private production-inert `O10-B`. The exact mutation runtime now admits the one
+bounded ascending developer-index range operation, including durable staged
+overlay and commit-time phantom validation. No public developer API or
+production route is active. The next gate is `O10-C`; this checkpoint does not
+authorize relations, scans, filters, search, vectors, external pagination, or
+production routing.
 
 ## Decision
 
@@ -439,10 +437,66 @@ journal. The current stored-attempt planner explicitly rejects a range
 dependency as unsupported, so it cannot be silently omitted before O10-B owns
 commit-time validation.
 
-O10-A intentionally fails closed when the table has any staged rows. Complete
-read-your-writes overlay, S10 post-snapshot phantom validation, the commit-first
-supporting index, O08 conflict replacement integration, runtime injection, and
-the full acceptance matrix remain O10-B/O10-C work.
+O10-A intentionally failed closed when the table had staged rows. O10-B now
+replaces that temporary refusal with the accepted bounded overlay and owns the
+commit/runtime integration described below. The larger simulation and
+acceptance matrix remains O10-C work.
+
+## O10-B Private Overlay, Commit, And Runtime Checkpoint
+
+O10-B keeps one journal, one planner, one scope-clock commit lane, and one O08
+replacement/rerun owner. It does not create a parallel index-query API, OCC
+validator, commit path, retry policy, or production trigger.
+
+The indexed syscall now loads at most the admitted material-row overlay,
+authenticates each staged point, lowers its final live document through the
+exact C08 developer-index definition, removes replaced or deleted snapshot
+positions, merges staged live positions with the bounded S10 snapshot stream,
+and only then orders and limits the result. Focused evidence covers patch
+movement plus combined staged patch, delete, and insert ordering before a
+truncated page frontier. Returned documents continue to record ordinary point
+dependencies; the consumed composite frontier records the range dependency.
+
+The stored-attempt planner carries canonical range dependencies into the
+existing point-commit command. Under the already-owned scope-clock lock, one
+set-based S10 history query searches only
+`(snapshotCommitSeq, lockedLastCommitSeq]`, deterministically selects the first
+overlap, and returns the stable `appIndexRange` conflict. The validator refuses
+work before history I/O when the snapshot is below retained history or when
+the commit span exceeds `MAX_INDEX_RANGE_OCC_COMMIT_SPAN_V1 = 128`. O08 stores
+and reproduces the exact point-or-range conflict before replacing the attempt;
+the existing full-attempt jitter/backoff policy remains unchanged. A disjoint
+post-snapshot index write publishes successfully.
+
+Migration `0052_last_old_lace.sql` adds only the measured S10 supporting index:
+
+```sql
+(scope_uuid, index_definition_id, commit_seq, encoded_key, row_id)
+```
+
+PGlite and genuine PostgreSQL prove fresh application through the ordinary
+migration path, exact `0051 -> 0052` upgrade, injected post-DDL failure with no
+index or receipt left behind, replay/idempotency, and non-public-schema
+portability. Genuine PostgreSQL `EXPLAIN` for the exact conflict lookup selects
+`fx_app_index_entry_rev_commit_range_idx`; the complete point-commit suite also
+retains its concurrency, rollback, interruption, uncertainty, and replay
+evidence.
+
+The exact mutation Worker and both mutation internal-call profiles expose the
+same private `queryIndexRange(table, indexDescriptor, bounds, limit)` facade from
+the shared Function API Core. The nested service-binding RPC preserves opaque
+table and index capabilities and disposable child stubs. Runtime decoders
+reject sparse, oversized, underfilled non-final, cross-table, or otherwise
+malformed pages before returning them to application code. The analyzer lowers
+only the reserved exact operation and rejects direct private platform access,
+wrong arity, and unsupported shapes. Generated cores and the private analyzer
+release identity are refreshed once; no parallel ABI is accepted.
+
+The focused final validation is 135/135 PGlite persistence cases, 28/28
+genuine-PostgreSQL persistence cases, 72/72 executor cases, 48/48 generated and
+Workerd backend cases, and 52 targeted analyzer ABI cases, with all affected
+package typechecks and deterministic generated-source checks green. Exact
+environment timings remain task/commit evidence rather than roadmap policy.
 
 ## Retention
 
@@ -498,9 +552,10 @@ search, and vector shapes must have explicit rejection tests.
    generated-closure checks are complete. Staged rows and stored-attempt
    planning remain fail-closed, and the capability remains unavailable to
    mutation user code.
-5. **O10-B — overlay and commit integration.** Add the complete staged overlay,
-   S10 history validator, existing O08 conflict replacement, and exact runtime
-   capability. Enable only the accepted shape.
+5. **O10-B — complete.** The bounded staged overlay, set-based S10 history
+   validator, 128-commit refusal, exact O08 conflict replacement, measured
+   supporting index, private analyzer ABI, RPC, and exact runtime capability
+   are integrated without a second OCC/commit/retry owner.
 6. **O10-C — acceptance and simulation.** Close PGlite and genuine-PostgreSQL
    concurrency/plan/rollback evidence and add a Standard cooking-app scenario
    that makes a real business decision from an indexed range.

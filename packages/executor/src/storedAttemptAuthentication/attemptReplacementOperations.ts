@@ -96,6 +96,7 @@ export interface StoredPointMutationAttemptReplacementOperationDependenciesV1 {
     ];
   readonly captureReplacementCommand: (
     state: PreparedPointCommitCapabilityStateV1,
+    conflict: CapturedPointMutationOccConflictV1,
   ) => PointMutationAttemptReplacementCommandV1;
 }
 
@@ -115,7 +116,7 @@ export function makeStoredPointMutationAttemptReplacementOperationsV1(
       "replaceConflictedPointMutationAttempt"
     ] = Effect.fn(
       "StoredAttemptAuthentication.replaceConflictedPointMutationAttempt",
-    )(function* (input) {
+    )(function* (input, conflict) {
       const state = lookupPreparedPointCommitState(
         preparedPointCommitStates,
         input,
@@ -131,7 +132,7 @@ export function makeStoredPointMutationAttemptReplacementOperationsV1(
         }));
       }
       return yield* pointMutationAttemptReplacement.replace(
-        captureReplacementCommand(state),
+        captureReplacementCommand(state, conflict),
       );
     });
 
@@ -211,7 +212,7 @@ export function makeStoredPointMutationFreshAttemptHandoffOperationsV1(
     const previousSnapshot = pins.snapshotToken;
     const previousAttemptFence = pins.attemptFence;
     const replacementObservation =
-      yield* replaceConflictedPointMutationAttempt(finishing);
+      yield* replaceConflictedPointMutationAttempt(finishing, conflict);
     if (!isNonArrayRecord(replacementObservation)) {
       return yield* Effect.fail(
         new PointMutationOccRerunAuthorityCorruptionV1Error({
@@ -309,7 +310,7 @@ export function makeStoredPointMutationFreshAttemptHandoffOperationsV1(
       attemptFence,
       previousSnapshotToken: Object.freeze({ ...previousSnapshot }),
       snapshotToken: Object.freeze({ ...loaded.snapshotToken }),
-      conflictDocumentId: conflict.documentId,
+      conflict: Object.freeze(structuredClone(conflict)),
       conflictingCommitSeq: conflict.currentCommitSeq,
     } satisfies AuthorizedPointMutationOccRerunInspectionV1);
     const rerun: AuthorizedPointMutationOccRerunV1 = Object.freeze({

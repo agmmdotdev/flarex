@@ -106,6 +106,7 @@ import {
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import {
+  resolvePinnedDeveloperIndexIdV1Effect,
   resolvePinnedPointTableIdV1Effect,
 } from "./pinnedPointTableResolution";
 import {
@@ -160,6 +161,7 @@ import {
   type LocatedPointMutationAttemptDiscoveryTargetV1,
 } from "./pointMutationAttemptDiscovery";
 import {
+  RESOLVE_PINNED_DEVELOPER_INDEX_ID_EFFECT_V1,
   RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
   ExactRunningAttemptTransactionV1Error,
@@ -1221,6 +1223,11 @@ export function createLocatedPointMutationSessionActivationTargetV1(
     ),
     [RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1]:
       resolvePinnedPointTableIdV1Effect.bind(
+        undefined,
+        db,
+      ),
+    [RESOLVE_PINNED_DEVELOPER_INDEX_ID_EFFECT_V1]:
+      resolvePinnedDeveloperIndexIdV1Effect.bind(
         undefined,
         db,
       ),
