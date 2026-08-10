@@ -1,5 +1,13 @@
 import { PGlite } from "@electric-sql/pglite";
 import {
+  TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+  TaskComputeDispatchRejectedError,
+  TaskComputeDispatchTransportError,
+  TaskComputeDispatchUncertainError,
+  validateTaskComputeDispatchAcceptanceV1,
+  validateTaskComputeDispatchRequestV1,
+} from "@flarex/durable-task/internal/compute-provider-v1";
+import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
   TaskSystemRunAttemptStore,
@@ -24,7 +32,10 @@ import {
   type TaskComputeDispatchAcquireResultV1,
   type TaskComputeDispatchClaimReleasedV1,
   type TaskComputeDispatchClaimRenewedV1,
+  type TaskComputeDispatchAcceptanceRecordedV1,
   type TaskComputeDispatchDeliveryStartedV1,
+  type TaskComputeDispatchKnownFailureRecordedV1,
+  type TaskComputeDispatchKnownFailureV1,
 } from "../src/taskComputeDeliveryRepositoryV1";
 import { makeTaskSystemRunAttemptStoreV1 } from
   "../src/taskSystemRunAttemptStoreV1";
@@ -74,6 +85,18 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       TaskComputeDispatchClaimReleasedV1,
       TaskComputeDeliveryRepositoryErrorV1<"release_dispatch_before_delivery">
     >>();
+    expectTypeOf<ReturnType<
+      TaskComputeDeliveryRepositoryV1["recordDispatchAcceptance"]
+    >>().toEqualTypeOf<Effect.Effect<
+      TaskComputeDispatchAcceptanceRecordedV1,
+      TaskComputeDeliveryRepositoryErrorV1<"record_dispatch_acceptance">
+    >>();
+    expectTypeOf<ReturnType<
+      TaskComputeDeliveryRepositoryV1["recordDispatchKnownFailure"]
+    >>().toEqualTypeOf<Effect.Effect<
+      TaskComputeDispatchKnownFailureRecordedV1,
+      TaskComputeDeliveryRepositoryErrorV1<"record_dispatch_known_failure">
+    >>();
     expectTypeOf<Extract<
       TaskComputeDeliveryRepositoryErrorV1<"acquire_dispatch">,
       { readonly _tag: "TaskComputeDeliveryRepositoryStaleClaimV1Error" }
@@ -84,6 +107,14 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
     >>().toEqualTypeOf<never>();
     expectTypeOf<Extract<
       TaskComputeDeliveryRepositoryErrorV1<"release_dispatch_before_delivery">,
+      { readonly _tag: "TaskComputeDeliveryRepositoryResourceExhaustedV1Error" }
+    >>().toEqualTypeOf<never>();
+    expectTypeOf<Extract<
+      TaskComputeDeliveryRepositoryErrorV1<"record_dispatch_acceptance">,
+      { readonly _tag: "TaskComputeDeliveryRepositoryResourceExhaustedV1Error" }
+    >>().toEqualTypeOf<never>();
+    expectTypeOf<Extract<
+      TaskComputeDeliveryRepositoryErrorV1<"record_dispatch_known_failure">,
       { readonly _tag: "TaskComputeDeliveryRepositoryResourceExhaustedV1Error" }
     >>().toEqualTypeOf<never>();
   });
@@ -366,6 +397,386 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       });
     });
   });
+
+  it("records canonical acceptance, releases the fence, and replays the exact receipt", async () => {
+    await withFixture(async ({
+      persistence,
+      deliveryLocated,
+      runId,
+      dispatchSequence,
+    }) => {
+      const dispatchRepository = repository(deliveryLocated, CLAIM_OWNER_A);
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+      await runEffect(
+        dispatchRepository.markDispatchDeliveryStarted(acquired.handle),
+      );
+      const acceptance = success(validateTaskComputeDispatchAcceptanceV1({
+        version: TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+        kind: "accepted",
+        identity: acquired.prepared.dispatchRequest.identity,
+        execution: {
+          provider: "test-provider",
+          providerVersion: "v1",
+          executionId: "execution-1",
+        },
+      }));
+      const recorded = await runEffect(
+        dispatchRepository.recordDispatchAcceptance(
+          acquired.handle,
+          acceptance,
+        ),
+      );
+      expect(recorded).toEqual({
+        kind: "dispatch_accepted",
+        acceptance,
+        disposition: "current",
+      });
+      const closed = await runEffectFailure(
+        dispatchRepository.renewDispatchClaim(acquired.handle),
+      );
+      expect(closed).toMatchObject({ reason: "closed_handle" });
+
+      const replayed = await runEffect(dispatchRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      expect(replayed).toEqual({
+        kind: "accepted",
+        acceptance,
+        disposition: "current",
+      });
+      expect(await readSettlement(persistence, runId, dispatchSequence))
+        .toMatchObject({
+          delivery_state: "accepted",
+          claim_owner: null,
+          reason_code: null,
+          acceptance_codec_version: 1,
+        });
+    });
+  });
+
+  it("schedules a known retry and closes at the configured attempt ceiling", async () => {
+    await withFixture(async ({
+      persistence,
+      deliveryLocated,
+      runId,
+      dispatchSequence,
+    }) => {
+      const firstRepository = repositoryWithPolicy(
+        deliveryLocated,
+        CLAIM_OWNER_A,
+        2,
+        [1_000],
+      );
+      const first = await runEffect(firstRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      if (first.kind !== "claimed") throw new Error("dispatch was not claimed");
+      await runEffect(firstRepository.markDispatchDeliveryStarted(first.handle));
+      const knownFailure = new TaskComputeDispatchRejectedError({
+        operation: "dispatch",
+        reason: "capacity_unavailable",
+        retryable: true,
+        computeProfile: first.prepared.dispatchRequest.computeProfile,
+      });
+      const retry = await runEffect(
+        firstRepository.recordDispatchKnownFailure(first.handle, knownFailure),
+      );
+      expect(retry).toMatchObject({
+        kind: "retry_scheduled",
+        reason: "provider_capacity_unavailable",
+      });
+      if (retry.kind !== "retry_scheduled") throw new Error("retry not scheduled");
+      expect(retry.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
+      expect((await runEffect(firstRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }))).kind).toBe("not_due");
+
+      await persistence.query(`
+        update fx_system_durable_task_compute_dispatch_v1
+        set delivery_started_at = created_at,
+            next_attempt_at = created_at + interval '1 millisecond'
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      const secondRepository = repositoryWithPolicy(
+        deliveryLocated,
+        CLAIM_OWNER_B,
+        2,
+        [1_000],
+      );
+      const second = await runEffect(secondRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      if (second.kind !== "claimed") throw new Error("retry was not claimed");
+      expect(second.deliveryMode).toBe("retry");
+      expect((await runEffect(
+        secondRepository.markDispatchDeliveryStarted(second.handle),
+      )).deliveryAttemptCount).toBe(2n);
+      const terminal = await runEffect(
+        secondRepository.recordDispatchKnownFailure(second.handle, knownFailure),
+      );
+      expect(terminal).toEqual({
+        kind: "dispatch_rejected",
+        reason: "delivery_attempts_exhausted",
+      });
+      expect(await runEffect(secondRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }))).toEqual({
+        kind: "closed",
+        state: "rejected",
+        reason: "delivery_attempts_exhausted",
+      });
+    });
+  });
+
+  it("stores only safe transport policy and rejects uncertain outcomes before SQL", async () => {
+    await withFixture(async ({
+      persistence,
+      deliveryLocated,
+      runId,
+      dispatchSequence,
+    }) => {
+      const dispatchRepository = repository(deliveryLocated, CLAIM_OWNER_A);
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+      await runEffect(
+        dispatchRepository.markDispatchDeliveryStarted(acquired.handle),
+      );
+      let causeRead = false;
+      const uncertain = new TaskComputeDispatchUncertainError({
+        operation: "dispatch",
+        identity: acquired.prepared.dispatchRequest.identity,
+        cause: "unknown settlement",
+      });
+      const invalid = await runEffectFailure(
+        dispatchRepository.recordDispatchKnownFailure(
+          acquired.handle,
+          uncertain as unknown as TaskComputeDispatchKnownFailureV1,
+        ),
+      );
+      expect(invalid).toMatchObject({ reason: "invalid_known_failure" });
+      expect((await runEffect(
+        dispatchRepository.renewDispatchClaim(acquired.handle),
+      )).kind).toBe("claim_renewed");
+
+      const providerCause = Object.defineProperty({}, "secret", {
+        get: () => {
+          causeRead = true;
+          throw new Error("cause must remain opaque");
+        },
+      });
+      const transport = new TaskComputeDispatchTransportError({
+        operation: "dispatch",
+        retryable: false,
+        cause: providerCause,
+      });
+      expect(await runEffect(
+        dispatchRepository.recordDispatchKnownFailure(acquired.handle, transport),
+      )).toEqual({
+        kind: "dispatch_rejected",
+        reason: "provider_transport",
+      });
+      expect(causeRead).toBe(false);
+      expect(await readSettlement(persistence, runId, dispatchSequence))
+        .toMatchObject({
+          delivery_state: "rejected",
+          claim_owner: null,
+          reason_code: "provider_transport",
+          acceptance_codec_version: null,
+        });
+    });
+  });
+
+  it("fails closed on acceptance and provider-rejection correlation drift", async () => {
+    await withFixture(async ({
+      persistence,
+      deliveryLocated,
+      runId,
+      dispatchSequence,
+    }) => {
+      const dispatchRepository = repository(deliveryLocated, CLAIM_OWNER_A);
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+      await runEffect(
+        dispatchRepository.markDispatchDeliveryStarted(acquired.handle),
+      );
+      const mismatched = success(validateTaskComputeDispatchAcceptanceV1({
+        version: TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+        kind: "accepted",
+        identity: {
+          ...acquired.prepared.dispatchRequest.identity,
+          runId: "run_73000000-0000-4000-8000-000000000099",
+        },
+        execution: {
+          provider: "test-provider",
+          providerVersion: "v1",
+          executionId: "execution-mismatch",
+        },
+      }));
+      const failure = await runEffectFailure(
+        dispatchRepository.recordDispatchAcceptance(
+          acquired.handle,
+          mismatched,
+        ),
+      );
+      expect(failure).toMatchObject({
+        operation: "record_dispatch_acceptance",
+        reason: "acceptance_correlation_mismatch",
+      });
+      expect(await readClaim(persistence, runId, dispatchSequence)).toEqual({
+        claim_owner: CLAIM_OWNER_A,
+        claim_fence: "1",
+        delivery_state: "delivering",
+        delivery_attempt_count: "1",
+      });
+    });
+
+    await withFixture(async ({
+      persistence,
+      deliveryLocated,
+      runId,
+      dispatchSequence,
+    }) => {
+      const dispatchRepository = repository(deliveryLocated, CLAIM_OWNER_A);
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+      await runEffect(
+        dispatchRepository.markDispatchDeliveryStarted(acquired.handle),
+      );
+      const differentProfile = success(validateTaskComputeDispatchRequestV1({
+        ...acquired.prepared.dispatchRequest,
+        computeProfile: "different-profile",
+      })).computeProfile;
+      const failure = await runEffectFailure(
+        dispatchRepository.recordDispatchKnownFailure(
+          acquired.handle,
+          new TaskComputeDispatchRejectedError({
+            operation: "dispatch",
+            reason: "provider_disabled",
+            retryable: false,
+            computeProfile: differentProfile,
+          }),
+        ),
+      );
+      expect(failure).toMatchObject({
+        operation: "record_dispatch_known_failure",
+        reason: "known_failure_correlation_mismatch",
+      });
+      expect(await readClaim(persistence, runId, dispatchSequence)).toEqual({
+        claim_owner: CLAIM_OWNER_A,
+        claim_fence: "1",
+        delivery_state: "delivering",
+        delivery_attempt_count: "1",
+      });
+    });
+  });
+
+  it("replays a final-attempt uncertain dispatch beyond the known-failure ceiling", async () => {
+    await withFixture(async ({
+      persistence,
+      deliveryLocated,
+      runId,
+      dispatchSequence,
+    }) => {
+      const firstRepository = repositoryWithPolicy(
+        deliveryLocated,
+        CLAIM_OWNER_A,
+        2,
+        [1],
+      );
+      const first = await runEffect(firstRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      if (first.kind !== "claimed") throw new Error("dispatch was not claimed");
+      await runEffect(firstRepository.markDispatchDeliveryStarted(first.handle));
+      await runEffect(firstRepository.recordDispatchKnownFailure(
+        first.handle,
+        new TaskComputeDispatchTransportError({
+          operation: "dispatch",
+          retryable: true,
+          cause: "definite transport failure",
+        }),
+      ));
+      await persistence.query(`
+        update fx_system_durable_task_compute_dispatch_v1
+        set delivery_started_at = created_at,
+            next_attempt_at = created_at + interval '1 millisecond'
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+
+      const secondRepository = repositoryWithPolicy(
+        deliveryLocated,
+        CLAIM_OWNER_B,
+        2,
+        [1],
+      );
+      const second = await runEffect(secondRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      if (second.kind !== "claimed") throw new Error("retry was not claimed");
+      expect((await runEffect(
+        secondRepository.markDispatchDeliveryStarted(second.handle),
+      )).deliveryAttemptCount).toBe(2n);
+      await persistence.query(`
+        update fx_system_durable_task_compute_dispatch_v1
+        set claimed_at = clock_timestamp() - interval '2 minutes',
+            claim_expires_at = clock_timestamp() - interval '1 minute'
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+
+      const recoveryRepository = repositoryWithPolicy(
+        deliveryLocated,
+        CLAIM_OWNER_A,
+        2,
+        [1],
+      );
+      const replay = await runEffect(recoveryRepository.acquireDispatch({
+        runId,
+        requestedEffectSequence: dispatchSequence,
+      }));
+      if (replay.kind !== "claimed") throw new Error("uncertain replay not claimed");
+      expect(replay.deliveryMode).toBe("uncertain_replay");
+      expect((await runEffect(
+        recoveryRepository.markDispatchDeliveryStarted(replay.handle),
+      )).deliveryAttemptCount).toBe(3n);
+      const acceptance = success(validateTaskComputeDispatchAcceptanceV1({
+        version: TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+        kind: "accepted",
+        identity: replay.prepared.dispatchRequest.identity,
+        execution: {
+          provider: "test-provider",
+          providerVersion: "v1",
+          executionId: "recovered-execution",
+        },
+      }));
+      expect(await runEffect(recoveryRepository.recordDispatchAcceptance(
+        replay.handle,
+        acceptance,
+      ))).toMatchObject({ kind: "dispatch_accepted", acceptance });
+    });
+  });
 });
 
 async function readClaim(
@@ -388,6 +799,26 @@ async function readClaim(
   return stored.rows[0];
 }
 
+async function readSettlement(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  runId: string,
+  dispatchSequence: bigint,
+) {
+  const stored = await persistence.query<{
+    delivery_state: string;
+    claim_owner: string | null;
+    reason_code: string | null;
+    acceptance_codec_version: number | null;
+  }>(`
+    select delivery_state, claim_owner::text, reason_code,
+           acceptance_codec_version
+    from fx_system_durable_task_compute_dispatch_v1
+    where scope_id = $1 and run_id = $2
+      and requested_effect_sequence = $3
+  `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+  return stored.rows[0];
+}
+
 function repository(
   located: Parameters<typeof makeTaskComputeDeliveryRepositoryV1>[0],
   claimOwner: string,
@@ -396,6 +827,20 @@ function repository(
     claimDurationMilliseconds: 30_000,
     retryDelayMilliseconds: [1_000, 2_000],
     maximumDeliveryAttempts: 3,
+    randomUuid: () => claimOwner,
+  }));
+}
+
+function repositoryWithPolicy(
+  located: Parameters<typeof makeTaskComputeDeliveryRepositoryV1>[0],
+  claimOwner: string,
+  maximumDeliveryAttempts: number,
+  retryDelayMilliseconds: ReadonlyArray<number>,
+) {
+  return success(makeTaskComputeDeliveryRepositoryV1(located, {
+    claimDurationMilliseconds: 30_000,
+    retryDelayMilliseconds,
+    maximumDeliveryAttempts,
     randomUuid: () => claimOwner,
   }));
 }

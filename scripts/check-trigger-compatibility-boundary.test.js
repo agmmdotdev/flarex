@@ -377,6 +377,9 @@ describe("Trigger compatibility boundary checker", () => {
         import {
           TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
           TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
+          TaskComputeDispatchRejectedError,
+          TaskComputeDispatchTransportError,
+          validateTaskComputeDispatchAcceptanceV1,
           validateTaskComputeDispatchRequestV1,
           type TaskComputeDispatchAcceptanceV1,
           type TaskComputeDispatchRequestV1,

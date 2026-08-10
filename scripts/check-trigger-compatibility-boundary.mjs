@@ -122,8 +122,11 @@ const admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier =
     ["@flarex/durable-task/internal/compute-provider-v1", new Set([
       "TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1",
       "TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1",
+      "TaskComputeDispatchRejectedError",
+      "TaskComputeDispatchTransportError",
       "TaskComputeDispatchAcceptanceV1",
       "TaskComputeDispatchRequestV1",
+      "validateTaskComputeDispatchAcceptanceV1",
       "validateTaskComputeDispatchRequestV1",
     ])],
     ["@flarex/durable-task/internal/run-creation-v1", new Set([

@@ -284,6 +284,32 @@ export function encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
   );
 }
 
+export function encodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1(
+  input: unknown,
+  observedSha256: unknown,
+): Result.Result<
+  TaskComputeDeliveryEvidenceV1,
+  TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_acceptance">
+> {
+  return validateTaskComputeDispatchAcceptanceV1(input).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      "encode_dispatch_acceptance",
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap((value) => encodeCanonicalDomainBytesResult(
+      value,
+      dispatchAcceptanceCodecOptions,
+      "encode_dispatch_acceptance",
+    )),
+    Result.flatMap((canonicalBytes) => captureObservedEvidenceResult(
+      canonicalBytes,
+      observedSha256,
+      "encode_dispatch_acceptance",
+    )),
+  );
+}
+
 export function decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
   input: unknown,
   observedSha256: unknown,

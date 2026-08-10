@@ -23,14 +23,21 @@ acceptance byte encoders for use inside the transaction callback, while
 its Effect APIs continue to own hashing and public evidence snapshots. No C2
 completion gate is satisfied by this progress alone.
 
-The next production-inert repository slice now owns scope-bound dispatch
+The production-inert repository now owns scope-bound dispatch
 preparation, initial/retry/uncertain-replay acquisition, database-time claim
 leases, opaque repository-local handles, delivery-start accounting, renewal,
-and pre-delivery release behind the admitted private persistence subpath. Its
-PGlite proof covers live-claim exclusion, fenced reacquisition, handle closure,
-and expired-delivery takeover. Dispatch acceptance, known-failure transitions,
-all cancellation operations, hostile settlement/corruption coverage, and the
-ordinary-role genuine-PostgreSQL lane remain required before C2 completion.
+pre-delivery release, canonical acceptance settlement, and the closed known-
+failure projection behind the admitted private persistence subpath. Retryable
+provider rejection/transport facets schedule database-time `retry_wait` below
+the configured ceiling; non-retryable failures and exhausted attempts settle
+to closed safe reason codes without retaining foreign causes. Uncertain
+provider outcomes remain outside that mutation boundary. The PGlite proof now
+covers live-claim exclusion, fenced reacquisition, handle closure, expired-
+delivery takeover, exact accepted replay, retry admission, terminal exhaustion,
+safe transport projection, uncertain-outcome rejection, and final-attempt
+uncertain replay beyond the known-failure retry ceiling. All cancellation
+operations, broader hostile settlement/corruption coverage, and the ordinary-
+role genuine-PostgreSQL lane remain required before C2 completion.
 
 This admission changes no runtime code by itself. DTE06-C1 commit `201d85b4`
 is the required storage prerequisite. DTE06-C3 connected discovery and provider

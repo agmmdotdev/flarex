@@ -34,6 +34,7 @@ import {
   encodeTaskComputeCancellationReceiptEvidenceV1,
   encodeTaskComputeCancellationRequestEvidenceV1,
   encodeTaskComputeDispatchAcceptanceEvidenceV1,
+  encodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
   encodeTaskComputeDispatchAcceptanceCanonicalBytesV1,
   encodeTaskComputeDispatchRequestCanonicalBytesV1,
   encodeTaskComputeDispatchRequestEvidenceV1,
@@ -73,6 +74,15 @@ describe("DTE06-C1 compute delivery evidence", () => {
         Uint8Array,
         TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_acceptance">
       >>();
+    expectTypeOf(
+      encodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1(
+        {},
+        new Uint8Array(32),
+      ),
+    ).toEqualTypeOf<Result.Result<
+      TaskComputeDeliveryEvidenceV1,
+      TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_acceptance">
+    >>();
     expectTypeOf(decodeTaskComputeCancellationReceiptEvidenceV1({}))
       .toEqualTypeOf<Effect.Effect<
         ReturnType<typeof successCancellationReceipt>,
@@ -167,6 +177,12 @@ describe("DTE06-C1 compute delivery evidence", () => {
     expect(success(
       encodeTaskComputeDispatchAcceptanceCanonicalBytesV1(acceptance),
     )).toEqual(acceptanceEvidence.canonicalBytes);
+    expect(success(
+      encodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1(
+        acceptance,
+        acceptanceEvidence.sha256,
+      ),
+    )).toEqual(acceptanceEvidence);
   });
 
   it("owns byte evidence and rejects hostile evidence records without reading getters", async () => {

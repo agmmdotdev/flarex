@@ -1,8 +1,11 @@
 import {
   TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
   TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
+  TaskComputeDispatchRejectedError,
+  TaskComputeDispatchTransportError,
   type TaskComputeDispatchAcceptanceV1,
   type TaskComputeDispatchRequestV1,
+  validateTaskComputeDispatchAcceptanceV1,
   validateTaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
 import {
@@ -53,6 +56,8 @@ import {
   decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
   decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   decodeTaskComputeProfileStorageBytesV1,
+  encodeTaskComputeDispatchAcceptanceCanonicalBytesV1,
+  encodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
   encodeTaskComputeDispatchRequestCanonicalBytesV1,
   encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   encodeTaskComputeProfileStorageBytesV1,
@@ -128,7 +133,9 @@ export type TaskComputeDeliveryRepositoryOperationV1 =
   | "acquire_dispatch"
   | "mark_dispatch_delivery_started"
   | "renew_dispatch_claim"
-  | "release_dispatch_before_delivery";
+  | "release_dispatch_before_delivery"
+  | "record_dispatch_acceptance"
+  | "record_dispatch_known_failure";
 type TaskComputeDeliveryRepositoryHandleOperationV1 = Exclude<
   TaskComputeDeliveryRepositoryOperationV1,
   "acquire_dispatch"
@@ -141,12 +148,27 @@ interface TaskComputeDeliveryRepositoryEvidenceOperationByOperationV1 {
   readonly mark_dispatch_delivery_started: "decode_dispatch_request";
   readonly renew_dispatch_claim: "decode_dispatch_request";
   readonly release_dispatch_before_delivery: "decode_dispatch_request";
+  readonly record_dispatch_acceptance:
+    | "decode_dispatch_request"
+    | "encode_dispatch_acceptance"
+    | "decode_dispatch_acceptance";
+  readonly record_dispatch_known_failure: "decode_dispatch_request";
 }
 interface TaskComputeDeliveryRepositoryInputReasonByOperationV1 {
   readonly acquire_dispatch: "invalid_request" | "claim_owner_invalid";
   readonly mark_dispatch_delivery_started: "invalid_handle" | "closed_handle";
   readonly renew_dispatch_claim: "invalid_handle" | "closed_handle";
   readonly release_dispatch_before_delivery: "invalid_handle" | "closed_handle";
+  readonly record_dispatch_acceptance:
+    | "invalid_handle"
+    | "closed_handle"
+    | "invalid_acceptance"
+    | "acceptance_correlation_mismatch";
+  readonly record_dispatch_known_failure:
+    | "invalid_handle"
+    | "closed_handle"
+    | "invalid_known_failure"
+    | "known_failure_correlation_mismatch";
 }
 interface TaskComputeDeliveryRepositoryStaleErrorByOperationV1 {
   readonly acquire_dispatch: never;
@@ -160,6 +182,14 @@ interface TaskComputeDeliveryRepositoryStaleErrorByOperationV1 {
     TaskComputeDeliveryRepositoryStaleClaimV1Error<
       "release_dispatch_before_delivery"
     >;
+  readonly record_dispatch_acceptance:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "record_dispatch_acceptance"
+    >;
+  readonly record_dispatch_known_failure:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "record_dispatch_known_failure"
+    >;
 }
 interface TaskComputeDeliveryRepositoryResourceErrorByOperationV1 {
   readonly acquire_dispatch:
@@ -170,6 +200,8 @@ interface TaskComputeDeliveryRepositoryResourceErrorByOperationV1 {
     >;
   readonly renew_dispatch_claim: never;
   readonly release_dispatch_before_delivery: never;
+  readonly record_dispatch_acceptance: never;
+  readonly record_dispatch_known_failure: never;
 }
 type TaskComputeDeliveryRepositoryEvidenceOperationV1<
   Operation extends TaskComputeDeliveryRepositoryOperationV1,
@@ -404,6 +436,33 @@ export interface TaskComputeDispatchClaimReleasedV1 {
   readonly kind: "claim_released";
 }
 
+export interface TaskComputeDispatchAcceptanceRecordedV1 {
+  readonly kind: "dispatch_accepted";
+  readonly acceptance: TaskComputeDispatchAcceptanceV1;
+  readonly disposition: TaskComputeDeliveryLifecycleDispositionV1;
+}
+
+export type TaskComputeDispatchKnownFailureV1 =
+  | TaskComputeDispatchRejectedError
+  | TaskComputeDispatchTransportError;
+
+export type TaskComputeDispatchKnownFailureRecordedV1 =
+  | Readonly<{
+      readonly kind: "retry_scheduled";
+      readonly reason: Exclude<
+        TaskComputeDispatchClosedReasonV1,
+        "lifecycle_obsolete" | "checkpoint_corrupt" | "delivery_attempts_exhausted"
+      >;
+      readonly nextAttemptAt: Date;
+    }>
+  | Readonly<{
+      readonly kind: "dispatch_rejected";
+      readonly reason: Exclude<
+        TaskComputeDispatchClosedReasonV1,
+        "lifecycle_obsolete" | "checkpoint_corrupt"
+      >;
+    }>;
+
 export interface TaskComputeDeliveryRepositoryV1 {
   readonly acquireDispatch: (
     request: TaskComputeDispatchAcquireRequestV1,
@@ -428,6 +487,20 @@ export interface TaskComputeDeliveryRepositoryV1 {
   ) => Effect.Effect<
     TaskComputeDispatchClaimReleasedV1,
     TaskComputeDeliveryRepositoryErrorV1<"release_dispatch_before_delivery">
+  >;
+  readonly recordDispatchAcceptance: (
+    handle: TaskComputeDispatchClaimHandleV1,
+    acceptance: TaskComputeDispatchAcceptanceV1,
+  ) => Effect.Effect<
+    TaskComputeDispatchAcceptanceRecordedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"record_dispatch_acceptance">
+  >;
+  readonly recordDispatchKnownFailure: (
+    handle: TaskComputeDispatchClaimHandleV1,
+    failure: TaskComputeDispatchKnownFailureV1,
+  ) => Effect.Effect<
+    TaskComputeDispatchKnownFailureRecordedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"record_dispatch_known_failure">
   >;
 }
 
@@ -454,6 +527,21 @@ interface CapturedAcquireRequestV1 {
   readonly runId: TaskRunIdV1;
   readonly requestedEffectSequence: TaskRequestedEffectSequenceV1;
 }
+
+type CapturedKnownDispatchFailureV1 =
+  | Readonly<{
+      readonly kind: "rejected";
+      readonly reason:
+        | "unsupported_compute_profile"
+        | "capacity_unavailable"
+        | "provider_disabled";
+      readonly retryable: boolean;
+      readonly computeProfile: TaskComputeDispatchRequestV1["computeProfile"];
+    }>
+  | Readonly<{
+      readonly kind: "transport";
+      readonly retryable: boolean;
+    }>;
 
 interface MutableHandleStateV1 {
   readonly operation: "dispatch";
@@ -659,11 +747,89 @@ function makeRepository(
     ),
   );
 
+  const recordDispatchAcceptance: TaskComputeDeliveryRepositoryV1[
+    "recordDispatchAcceptance"
+  ] = Effect.fn("TaskComputeDeliveryRepository.recordDispatchAcceptance")(
+    function* (handle, acceptance) {
+      const captured = yield* Effect.fromResult(
+        captureDispatchAcceptance(acceptance),
+      );
+      return yield* withHandleOperation(
+        handles,
+        handle,
+        "record_dispatch_acceptance",
+        (state) => state.phase !== "delivering"
+          ? Effect.fail(staleClaim(
+              "record_dispatch_acceptance",
+              state.runId,
+              "state_mismatch",
+            ))
+          : runClaimOperation(
+              state,
+              "record_dispatch_acceptance",
+              () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+                recordDispatchAcceptanceTransaction(
+                  tx,
+                  authority,
+                  replacementScopeId,
+                  target,
+                  configuration,
+                  state,
+                  captured,
+                )
+              ),
+            ).pipe(
+              Effect.tap(() => Effect.sync(() => closeHandle(state))),
+            ),
+      );
+    },
+  );
+
+  const recordDispatchKnownFailure: TaskComputeDeliveryRepositoryV1[
+    "recordDispatchKnownFailure"
+  ] = Effect.fn("TaskComputeDeliveryRepository.recordDispatchKnownFailure")(
+    function* (handle, failure) {
+      const captured = yield* Effect.fromResult(
+        captureKnownDispatchFailure(failure),
+      );
+      return yield* withHandleOperation(
+        handles,
+        handle,
+        "record_dispatch_known_failure",
+        (state) => state.phase !== "delivering"
+          ? Effect.fail(staleClaim(
+              "record_dispatch_known_failure",
+              state.runId,
+              "state_mismatch",
+            ))
+          : runClaimOperation(
+              state,
+              "record_dispatch_known_failure",
+              () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+                recordDispatchKnownFailureTransaction(
+                  tx,
+                  authority,
+                  replacementScopeId,
+                  target,
+                  configuration,
+                  state,
+                  captured,
+                )
+              ),
+            ).pipe(
+              Effect.tap(() => Effect.sync(() => closeHandle(state))),
+            ),
+      );
+    },
+  );
+
   return Object.freeze({
     acquireDispatch,
     markDispatchDeliveryStarted,
     renewDispatchClaim,
     releaseDispatchBeforeDelivery,
+    recordDispatchAcceptance,
+    recordDispatchKnownFailure,
   });
 }
 
@@ -948,6 +1114,7 @@ async function acquireDispatchTransaction(
 
 interface CorrelatedHandleContextV1 {
   readonly checkpoint: DispatchRow;
+  readonly storedRequest: TaskComputeDispatchRequestV1;
   readonly databaseTime: Readonly<{
     readonly now: Date;
     readonly claimExpiresAt: Date;
@@ -987,21 +1154,23 @@ async function markDispatchDeliveryStartedTransaction(
   ) {
     throw rollback(staleClaim(operation, state.runId, "lifecycle_obsolete"));
   }
-  if (
-    context.checkpoint.deliveryAttemptCount
-      >= BigInt(configuration.maximumDeliveryAttempts)
-  ) {
+  const deliveryAttemptCountBeforeStart =
+    context.checkpoint.deliveryAttemptCount;
+  const deliveryAttemptMaximum = context.checkpoint.deliveryState === "delivering"
+    ? POSTGRES_SIGNED_BIGINT_MAX
+    : BigInt(configuration.maximumDeliveryAttempts);
+  if (deliveryAttemptCountBeforeStart >= deliveryAttemptMaximum) {
     throw rollback(
       new TaskComputeDeliveryRepositoryResourceExhaustedV1Error({
         operation,
         runId: state.runId,
         dimension: "delivery_attempt_count",
-        observed: context.checkpoint.deliveryAttemptCount,
-        maximum: BigInt(configuration.maximumDeliveryAttempts),
+        observed: deliveryAttemptCountBeforeStart,
+        maximum: deliveryAttemptMaximum,
       }),
     );
   }
-  const deliveryAttemptCount = context.checkpoint.deliveryAttemptCount + 1n;
+  const deliveryAttemptCount = deliveryAttemptCountBeforeStart + 1n;
   const updated = await statement(operation, () => tx.update(
     fxSystemDurableTaskComputeDispatchesV1,
   ).set({
@@ -1125,6 +1294,210 @@ async function releaseDispatchBeforeDeliveryTransaction(
   return Object.freeze({ kind: "claim_released" });
 }
 
+async function recordDispatchAcceptanceTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+  acceptance: TaskComputeDispatchAcceptanceV1,
+): Promise<TaskComputeDispatchAcceptanceRecordedV1> {
+  const operation = "record_dispatch_acceptance" as const;
+  const context = await loadCorrelatedHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentClaim(context, state, operation);
+  if (context.checkpoint.deliveryState !== "delivering") {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  if (!taskSystemPersistedValueEqualV1(
+    acceptance.identity,
+    context.storedRequest.identity,
+  )) {
+    throw rollback(repositoryInputFailure(
+      operation,
+      "acceptance_correlation_mismatch",
+    ));
+  }
+  const canonicalBytes = Result.getOrThrowWith(
+    encodeTaskComputeDispatchAcceptanceCanonicalBytesV1(acceptance),
+    (error) => rollback(error),
+  );
+  const observedSha256 = await sha256(canonicalBytes, operation, state.runId);
+  const evidence = Result.getOrThrowWith(
+    encodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1(
+      acceptance,
+      observedSha256,
+    ),
+    (error) => rollback(error),
+  );
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    deliveryState: "accepted",
+    claimOwner: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    nextAttemptAt: null,
+    reasonCode: null,
+    acceptanceCodecVersion: evidence.codecVersion,
+    acceptanceByteLength: BigInt(evidence.byteLength),
+    acceptanceSha256: evidence.sha256,
+    acceptanceBytes: evidence.canonicalBytes,
+    settledAt: context.databaseTime.now,
+    updatedAt: context.databaseTime.now,
+  }).where(dispatchClaimKey(authority.scopeId, state)).returning());
+  const row = updated[0];
+  if (row === undefined || row.deliveryState !== "accepted") {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  const storedAcceptance = await decodeStoredAcceptance(
+    row,
+    operation,
+    state.runId,
+  );
+  if (!taskSystemPersistedValueEqualV1(storedAcceptance, acceptance)) {
+    throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+  }
+  return Object.freeze({
+    kind: "dispatch_accepted",
+    acceptance: storedAcceptance,
+    disposition: context.lifecycleCurrent ? "current" : "cleanup_only",
+  });
+}
+
+async function recordDispatchKnownFailureTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+  failure: CapturedKnownDispatchFailureV1,
+): Promise<TaskComputeDispatchKnownFailureRecordedV1> {
+  const operation = "record_dispatch_known_failure" as const;
+  const context = await loadCorrelatedHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentClaim(context, state, operation);
+  if (context.checkpoint.deliveryState !== "delivering") {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  if (
+    failure.kind === "rejected"
+    && failure.computeProfile !== context.storedRequest.computeProfile
+  ) {
+    throw rollback(repositoryInputFailure(
+      operation,
+      "known_failure_correlation_mismatch",
+    ));
+  }
+  const providerReason = dispatchFailureReason(failure);
+  const attemptCount = context.checkpoint.deliveryAttemptCount;
+  if (attemptCount < 1n) {
+    throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+  }
+  const shouldRetry = failure.retryable
+    && attemptCount < BigInt(configuration.maximumDeliveryAttempts);
+  if (shouldRetry) {
+    const delayIndex = Number(attemptCount - 1n);
+    const delayMilliseconds = configuration.retryDelayMilliseconds[delayIndex];
+    const deliveryStartedAt = context.checkpoint.deliveryStartedAt;
+    if (delayMilliseconds === undefined || deliveryStartedAt === null) {
+      throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+    }
+    const retryBaseMilliseconds = Math.max(
+      context.databaseTime.now.getTime(),
+      deliveryStartedAt.getTime(),
+    );
+    const nextAttemptMilliseconds = retryBaseMilliseconds + delayMilliseconds;
+    const nextAttemptAt = Number.isSafeInteger(nextAttemptMilliseconds)
+      ? copyFiniteDate(new Date(nextAttemptMilliseconds))
+      : undefined;
+    if (
+      nextAttemptAt === undefined
+      || nextAttemptAt.getTime() <= deliveryStartedAt.getTime()
+    ) {
+      throw rollback(corruption(operation, state.runId, "database_clock_invalid"));
+    }
+    const updated = await statement(operation, () => tx.update(
+      fxSystemDurableTaskComputeDispatchesV1,
+    ).set({
+      deliveryState: "retry_wait",
+      claimOwner: null,
+      claimedAt: null,
+      claimExpiresAt: null,
+      nextAttemptAt,
+      reasonCode: providerReason,
+      settledAt: null,
+      updatedAt: context.databaseTime.now,
+    }).where(dispatchClaimKey(authority.scopeId, state)).returning({
+      deliveryState: fxSystemDurableTaskComputeDispatchesV1.deliveryState,
+      nextAttemptAt: fxSystemDurableTaskComputeDispatchesV1.nextAttemptAt,
+      reasonCode: fxSystemDurableTaskComputeDispatchesV1.reasonCode,
+      claimOwner: fxSystemDurableTaskComputeDispatchesV1.claimOwner,
+    }));
+    const row = updated[0];
+    if (
+      row?.deliveryState !== "retry_wait"
+      || row.claimOwner !== null
+      || row.reasonCode !== providerReason
+      || row.nextAttemptAt === null
+      || row.nextAttemptAt.getTime() !== nextAttemptAt.getTime()
+    ) {
+      throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+    }
+    return Object.freeze({
+      kind: "retry_scheduled",
+      reason: providerReason,
+      nextAttemptAt: ownedDate(row.nextAttemptAt, operation, state.runId),
+    });
+  }
+  const terminalReason = failure.retryable
+    ? "delivery_attempts_exhausted" as const
+    : providerReason;
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    deliveryState: "rejected",
+    claimOwner: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    nextAttemptAt: null,
+    reasonCode: terminalReason,
+    settledAt: context.databaseTime.now,
+    updatedAt: context.databaseTime.now,
+  }).where(dispatchClaimKey(authority.scopeId, state)).returning({
+    deliveryState: fxSystemDurableTaskComputeDispatchesV1.deliveryState,
+    reasonCode: fxSystemDurableTaskComputeDispatchesV1.reasonCode,
+    claimOwner: fxSystemDurableTaskComputeDispatchesV1.claimOwner,
+    settledAt: fxSystemDurableTaskComputeDispatchesV1.settledAt,
+  }));
+  const row = updated[0];
+  if (
+    row?.deliveryState !== "rejected"
+    || row.claimOwner !== null
+    || row.reasonCode !== terminalReason
+    || row.settledAt === null
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  return Object.freeze({ kind: "dispatch_rejected", reason: terminalReason });
+}
+
 async function loadCorrelatedHandleContext(
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
@@ -1228,6 +1601,7 @@ async function loadCorrelatedHandleContext(
   );
   return Object.freeze({
     checkpoint,
+    storedRequest,
     databaseTime,
     lifecycleCurrent: dispatchLifecycleIsCurrent(aggregate, persistedEffect),
   });
@@ -1329,6 +1703,109 @@ function captureAcquireRequest(
       );
     return Object.freeze({ runId, requestedEffectSequence });
   });
+}
+
+function captureDispatchAcceptance(
+  input: unknown,
+): Result.Result<
+  TaskComputeDispatchAcceptanceV1,
+  TaskComputeDeliveryRepositoryInputV1Error<"record_dispatch_acceptance">
+> {
+  return validateTaskComputeDispatchAcceptanceV1(input).pipe(
+    Result.mapError(() => repositoryInputFailure(
+      "record_dispatch_acceptance",
+      "invalid_acceptance",
+    )),
+  );
+}
+
+function captureKnownDispatchFailure(
+  input: unknown,
+): Result.Result<
+  CapturedKnownDispatchFailureV1,
+  TaskComputeDeliveryRepositoryInputV1Error<"record_dispatch_known_failure">
+> {
+  try {
+    if (input instanceof TaskComputeDispatchRejectedError) {
+      const captured = captureOwnDataProperties(input, [
+        "operation",
+        "reason",
+        "retryable",
+        "computeProfile",
+      ]);
+      if (
+        captured === undefined
+        || captured.operation !== "dispatch"
+        || (
+          captured.reason !== "unsupported_compute_profile"
+          && captured.reason !== "capacity_unavailable"
+          && captured.reason !== "provider_disabled"
+        )
+        || typeof captured.retryable !== "boolean"
+      ) return Result.fail(repositoryInputFailure(
+        "record_dispatch_known_failure",
+        "invalid_known_failure",
+      ));
+      const reason = captured.reason;
+      const retryable = captured.retryable;
+      return encodeTaskComputeProfileStorageBytesV1(
+        captured.computeProfile,
+      ).pipe(
+        Result.flatMap(decodeTaskComputeProfileStorageBytesV1),
+        Result.mapError(() => repositoryInputFailure(
+          "record_dispatch_known_failure",
+          "invalid_known_failure",
+        )),
+        Result.map((computeProfile) => Object.freeze({
+          kind: "rejected" as const,
+          reason,
+          retryable,
+          computeProfile,
+        })),
+      );
+    }
+    if (input instanceof TaskComputeDispatchTransportError) {
+      const captured = captureOwnDataProperties(input, [
+        "operation",
+        "retryable",
+      ]);
+      if (
+        captured === undefined
+        || captured.operation !== "dispatch"
+        || typeof captured.retryable !== "boolean"
+      ) return Result.fail(repositoryInputFailure(
+        "record_dispatch_known_failure",
+        "invalid_known_failure",
+      ));
+      return Result.succeed(Object.freeze({
+        kind: "transport" as const,
+        retryable: captured.retryable,
+      }));
+    }
+  } catch {
+    // Hostile proxies and revoked provider values are ordinary invalid input.
+  }
+  return Result.fail(repositoryInputFailure(
+    "record_dispatch_known_failure",
+    "invalid_known_failure",
+  ));
+}
+
+function dispatchFailureReason(
+  failure: CapturedKnownDispatchFailureV1,
+): Exclude<
+  TaskComputeDispatchClosedReasonV1,
+  "lifecycle_obsolete" | "checkpoint_corrupt" | "delivery_attempts_exhausted"
+> {
+  if (failure.kind === "transport") return "provider_transport";
+  switch (failure.reason) {
+    case "unsupported_compute_profile":
+      return "provider_unsupported_compute_profile";
+    case "capacity_unavailable":
+      return "provider_capacity_unavailable";
+    case "provider_disabled":
+      return "provider_disabled";
+  }
 }
 
 const allocateClaimOwner = Effect.fn(
@@ -1757,7 +2234,7 @@ function validateCheckpointState(
 
 async function decodeStoredAcceptance(
   row: DispatchRow,
-  operation: "acquire_dispatch",
+  operation: "acquire_dispatch" | "record_dispatch_acceptance",
   runId: TaskRunIdV1,
 ): Promise<TaskComputeDispatchAcceptanceV1> {
   if (
@@ -2249,6 +2726,18 @@ function inputFailure(
   });
 }
 
+function repositoryInputFailure<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1,
+>(
+  operation: Operation,
+  reason: TaskComputeDeliveryRepositoryInputReasonByOperationV1[Operation],
+): TaskComputeDeliveryRepositoryInputV1Error<Operation> {
+  return new TaskComputeDeliveryRepositoryInputV1Error<Operation>({
+    operation,
+    reason,
+  });
+}
+
 function corruption<
   Operation extends TaskComputeDeliveryRepositoryOperationV1,
 >(
@@ -2273,6 +2762,10 @@ function isRepositoryErrorForOperation<
     return error.operation === "decode_dispatch_request"
       || operation === "acquire_dispatch" && (
         error.operation === "encode_dispatch_request"
+        || error.operation === "decode_dispatch_acceptance"
+      )
+      || operation === "record_dispatch_acceptance" && (
+        error.operation === "encode_dispatch_acceptance"
         || error.operation === "decode_dispatch_acceptance"
       );
   }
@@ -2333,6 +2826,25 @@ function captureDataRecord(
         || descriptor.enumerable !== true
         || !("value" in descriptor)
       ) return undefined;
+      captured[key] = descriptor.value;
+    }
+    return Object.freeze(captured);
+  } catch {
+    return undefined;
+  }
+}
+
+function captureOwnDataProperties(
+  input: object,
+  keys: ReadonlyArray<string>,
+): Readonly<Record<string, unknown>> | undefined {
+  try {
+    const captured: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (descriptor === undefined || !("value" in descriptor)) {
+        return undefined;
+      }
       captured[key] = descriptor.value;
     }
     return Object.freeze(captured);
