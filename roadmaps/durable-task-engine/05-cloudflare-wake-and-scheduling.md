@@ -10,10 +10,11 @@ one already-resolved trusted-scope Postgres composition, and DTE05-C2 completes
 the production-inert trusted partition directory. DTE05-D completes the
 private, unwired Queue wake-hint publisher/consumer and fresh partition
 resolver. No Cloudflare binding, cross-scope scheduler host, deployment
-configuration, or production activation is authorized. DTE05-E1 now admits an
-unwired host-neutral repair sweep and repair-tolerant directory; DTE05-E2 and
-DTE05-E3 remain required before a durable or Cloudflare-hosted cron repair
-system exists.
+configuration, or production activation is authorized. DTE05-E1 completes the
+unwired host-neutral repair sweep and repair-tolerant directory, and DTE05-E2
+completes its durable checkpoint, connected runner, and hard PostgreSQL
+deadline/settlement proof. DTE05-E3 remains DTE06-F-gated before a durable or
+Cloudflare-hosted cron repair system exists.
 
 Roadmap 04 remains the durable-state authority. Its due-discovery candidates
 and lifecycle transactions are sufficient to reconstruct missed work. Queue
@@ -322,9 +323,12 @@ host:
   lock and statement cancellation, rollback/reuse, whole-transaction session
   termination,
   checked-out-client error evidence, quarantine, and replacement; and
-- **DTE05-E3 — pending and Roadmap-06-gated:** reuse/generalize the existing
+- **DTE05-E3 — pending and DTE06-F-gated:** after Roadmap 06 proves one private
+  attempt can be idempotently dispatched, supervised, and settled through the
+  existing artifact-runtime/Worker Loader owner, reuse/generalize the existing
   scheduled-event host, then admit the Worker scheduled handler and Wrangler
-  cron binding through their own deployment gate.
+  cron binding through their own deployment gate. DTE06-A fixes that dependency
+  and reuse boundary but adds no compute or host implementation.
 
 - add a bounded scheduled host over trusted scheduler partitions;
 - persist or reconstruct continuation without making it authority;

@@ -50,9 +50,14 @@ deadline policy, database-owned lock/statement/whole-transaction limits,
 checked-out-client termination evidence and quarantine, and genuine
 PostgreSQL 18 proof. Its exact contract is recorded in
 [`preflight/32-dte05-postgres-deadline-policy.md`](./preflight/32-dte05-postgres-deadline-policy.md).
-Cloudflare bindings, a
-scheduled Worker host, public APIs, compute delivery,
-and production activation do not exist yet.
+DTE06-A now records the production-inert ComputeProvider/runtime foundation,
+including the exact Worker Loader reuse boundary, operation-specific dispatch
+and cancellation delivery ownership, and the deterministic in-memory before
+Cloudflare adapter order. Its contract is recorded in
+[`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md) and
+[`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
+Cloudflare task bindings, a scheduled Worker host, public APIs, compute
+delivery, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -377,14 +382,19 @@ files remain candidates:
      boundedness, and final-review admission. Delivery, host integration, and
      runtime activation remain closed;
 5. [`05-cloudflare-wake-and-scheduling.md`](./05-cloudflare-wake-and-scheduling.md)
-   - **active; DTE05-A through DTE05-D complete:** standard
-     scope-bound scheduler contracts, host-neutral bounded recovery,
-     deterministic memory adapters, located-scope Postgres composition, then
-     trusted partition discovery, Queue hints, cron repair, optional alarm
-     acceleration, and fail-closed admission;
-6. `06-compute-provider-and-runtime.md`
-   - Worker Loader reuse, compute assignment, heartbeats, interruption,
-     checkpoints, AgentOS boundary, and restricted user capabilities;
+   - **active; DTE05-A through DTE05-D and DTE05-E1/E2 complete; E3 remains
+     DTE06-F-gated:** standard scope-bound scheduler contracts, host-neutral
+     bounded recovery, deterministic memory adapters, located-scope Postgres
+     composition, trusted partition discovery, Queue hints, durable cron-repair
+     semantics/checkpointing, optional alarm acceleration, and fail-closed
+     admission. No scheduled Worker host or Cron Trigger is active;
+6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
+   - **active; DTE06-A docs-only preflight complete:** Worker Loader reuse,
+     operation-specific dispatch/cancellation delivery, host-neutral provider
+     and in-memory conformance adapter, compute assignment, heartbeats,
+     interruption, result publication, checkpoints, AgentOS boundary, and
+     restricted user capabilities. No provider or runtime integration is
+     implemented yet;
 7. `07-observability-live-apis-and-ui.md`
    - run/attempt read models, traces/logs, cursors, live invalidation, streams,
      authorization, retention, privacy, and dashboard consumption;

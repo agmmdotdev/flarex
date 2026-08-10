@@ -142,14 +142,14 @@ only when two legitimate owners duplicate a stable, coherent abstraction and
 neither existing lower-level package is the correct home. A speculative
 “common” package would obscure authority rather than improve it.
 
-### Accepted Planned Durable Task Package
+### Accepted Private Durable Task Package
 
-The durable-task preflight accepts one future private package,
-`@flarex/durable-task`, with only an
-`./internal/run-attempt-v1` export. It will own the host-neutral run-attempt
-lifecycle domain, pure policy, typed Effect service, Task System store port,
-and domain Layer. Its initial runtime dependency is only the root-catalog
-`effect` package.
+`@flarex/durable-task` is now implemented as a private host-neutral domain
+package with explicit internal subpaths for run creation, run-attempt
+lifecycle, run reads, scheduling, and scheduling test adapters. It owns pure
+policy, typed Effect services, Task System ports, and domain Layers. Its runtime
+dependencies remain dependency-leaf utilities, `effect`, and
+`flarex-protocol`; it does not import a persistence or host owner.
 
 `@flarex/persistence-postgres` now owns the DTE04-A3 five-table Task System
 schema and generated migration plus the DTE04-B scope-bound Task System
@@ -159,6 +159,15 @@ effect delivery, and runtime projection adapters. The durable-task package must
 not import persistence, Drizzle, Prisma, Redis, Node, Cloudflare, backend, apps,
 Trigger packages, or the frozen Trigger source island. It has no package-root,
 public protocol, SDK, or host-adapter export.
+
+DTE06-A reserves the host-neutral Task compute-provider dispatch/cancellation
+contract and deterministic in-memory conformance adapter for future explicit
+private `@flarex/durable-task` subpaths. DTE06-B must approve their exact export
+spellings before implementation. `flarex-backend` retains operation-specific
+requested-effect delivery, trusted definition/runtime/input resolution, and
+provider composition; the existing artifact-runtime owner retains Worker
+Loader/R2/service-binding adaptation. No Cloudflare type or host adapter may
+enter `@flarex/durable-task`.
 
 This package boundary is now admitted by
 [`DTE01-G`](./durable-task-engine/preflight/05-final-package-admission.md).
