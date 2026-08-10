@@ -7,8 +7,9 @@ DTE06-B's private host-neutral provider domain are complete and
 production-inert. DTE06-C0 now completes the docs-only durable-delivery schema
 and transaction preflight, and DTE06-C1 completes its canonical evidence and
 Task-owned storage checkpoint. DTE06-C2's scope-bound fenced repository is now
-admitted but not implemented. The provider contract and DTE06-B implementation
-receipt live in
+admitted but paused on a prepared-subject evidence gap: current durable
+definition evidence cannot reconstruct the full runtime binding required by
+C1. The provider contract and DTE06-B implementation receipt live in
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
 The C0 schema/transaction decision is recorded in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
@@ -397,10 +398,11 @@ timeout behavior without claiming Task lifecycle acknowledgement.
   PostgreSQL; and
 - keep provider execution mocked and production-inert.
 
-C0 and C1 are complete. C1 deliberately adds no claim transaction,
-effect-ledger discovery, provider call, or runtime wiring. C2 is admitted but
-not implemented; C3 still requires the completed C2 receipt and separate
-admission. The durable-delivery contract is
+C0 and C1's original checkpoints are complete. C1 deliberately adds no claim
+transaction, effect-ledger discovery, provider call, or runtime wiring. C2 is
+admitted but paused until the bounded C1 prepared-subject commitment correction
+is separately approved; C3 still requires the completed C2 receipt and
+separate admission. The durable-delivery contract is
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
 and the exact C2 implementation boundary is
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
@@ -488,6 +490,7 @@ Roadmap 06 does not authorize:
 
 DTE06-C1 stops at canonical delivery evidence and production-inert Task-owned
 storage. DTE06-C2 authorizes only the private production-inert repository in
-Preflight 35. This roadmap does not authorize connected effect-ledger delivery,
-provider calls, additional database/application semantics, Worker/runtime
-wiring, routes, bindings, deployment, or production activation.
+Preflight 35 after its recorded C1 evidence gap is explicitly resolved. This
+roadmap does not authorize connected effect-ledger delivery, provider calls,
+additional database/application semantics, Worker/runtime wiring, routes,
+bindings, deployment, or production activation.

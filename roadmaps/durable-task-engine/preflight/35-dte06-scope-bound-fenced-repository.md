@@ -8,6 +8,12 @@ over the DTE06-C1 dispatch and cancellation tables. The implementation is not
 complete until the repository, PGlite and genuine-PostgreSQL proofs, boundary
 gates, and required reviewer receipts all pass.
 
+**Implementation pause:** current source inspection exposed a pre-existing
+prepared-subject evidence gap described below. C2 implementation must not begin
+until the C1 prepared-subject correction is explicitly approved. No fallback,
+schema widening, or process-local binding injection is authorized by this
+preflight.
+
 This admission changes no runtime code by itself. DTE06-C1 commit `201d85b4`
 is the required storage prerequisite. DTE06-C3 connected discovery and provider
 composition, every real provider or Cloudflare adapter, Worker/Queue/cron host
@@ -42,6 +48,78 @@ transaction?
 - the pinned Trigger.dev source only for duplicate delivery, lost response,
   restart, and cancellation race scenarios. No Trigger persistence, Prisma,
   Redis, organization, or compute-host contract is admitted.
+
+## Blocking Prepared-Subject Evidence Gap
+
+### Reproducible Scenario
+
+1. Create a definition revision and run through the current DTE04 storage
+   contracts while the trusted full `TaskDefinitionRuntimeBindingV1` exists in
+   the creating process.
+2. Lose that process and later acquire the persisted `dispatch_attempt` by
+   only `runId` and requested-effect sequence, as C2 requires.
+3. Load the current definition row, run row, requested effect, and C1 delivery
+   tables without consulting an application/runtime host.
+4. Attempt to construct the current
+   `TaskComputePreparedExecutionV1.runtimeBinding` field.
+
+Expected: persistence reconstructs and correlates the complete immutable
+`TaskDefinitionRuntimeBindingV1` from its durable evidence.
+
+Actual:
+
+- `TaskComputePreparedExecutionV1` requires the full runtime binding, including
+  its canonical manifest;
+- `encodeTaskDefinitionRuntimeBindingPreimageV1` deliberately stores the
+  runtime entry, runtime-object references, and digests but omits the full
+  `manifest` value;
+- `fx_system_durable_task_definition_revision_v1` stores those binding bytes
+  and digest columns but no canonical task-manifest bytes;
+- no other PostgreSQL table owns the missing manifest; and
+- the run aggregate retains its bound execution/retry policy but not the
+  payload validator, output validator, and complete original manifest needed
+  to recreate `TaskDefinitionRuntimeBindingV1`.
+
+The current process-local binding supplied to run creation is therefore not a
+durable reconstruction source. A decoder cannot manufacture the omitted
+fields, and accepting a caller-supplied replacement during C2 acquisition
+would violate the trusted, identity-only acquisition contract.
+
+### Affected Owner And Boundary
+
+This is a mismatch between the DTE04 immutable definition evidence and the
+DTE06-C1 prepared-subject contract. It is not a defect in the proposed C2
+claim transaction, the DTE06-B provider contract, or the test harness. C2 may
+not repair it by changing Task lifecycle logic, reading object storage inside
+the transaction, trusting a host-supplied full binding, or silently using the
+run's partial bound policy as a manifest.
+
+### Correction Options
+
+1. **Recommended — commitment handoff:** replace the C1 prepared subject's
+   full `runtimeBinding` field with an owned, decoded immutable runtime-binding
+   commitment derived from the definition row and canonical binding preimage.
+   C2 returns that commitment with the provider request and input reference.
+   DTE06-D's artifact/runtime owner later loads the full binding and manifest,
+   validates every commitment, and only then constructs the runtime ABI. This
+   requires a bounded C1 private-contract and documentation correction but no
+   schema migration.
+2. **Manifest persistence:** add canonical task-manifest bytes and codec/digest
+   evidence to the definition storage owner. This requires a separate schema,
+   migration, definition-write, existing-row/backfill, PGlite, and genuine-
+   PostgreSQL preflight. It is not admitted by C2.
+
+The commitment handoff is smaller and preserves domain ownership: Postgres
+authorizes the exact immutable definition evidence, while the later artifact
+runtime owner reconstructs executable material. It does not weaken provider
+identity or allow DTE06-D to choose a different definition.
+
+### Current Disposition
+
+C2 implementation is paused with no production-code change. Explicit approval
+is required to correct the C1 prepared-subject contract through the commitment
+handoff before the repository implementation resumes. Until then, all C2
+completion claims and C3 admission remain prohibited.
 
 ## Reuse Decision
 

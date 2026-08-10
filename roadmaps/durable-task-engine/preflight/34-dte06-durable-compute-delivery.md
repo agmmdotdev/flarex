@@ -13,7 +13,8 @@ and their focused proofs. It adds no transaction repository, effect consumer,
 provider call, Worker route, binding, deployment configuration, or production
 activation. DTE06-C2 is now admitted by
 [`35-dte06-scope-bound-fenced-repository.md`](./35-dte06-scope-bound-fenced-repository.md),
-but its implementation remains pending.
+but its implementation is paused on the prepared-subject evidence gap recorded
+there.
 
 ## Question
 
@@ -307,7 +308,7 @@ index constraints. Focused codec/ownership/corruption tests, current-head
 PGlite migration and constraint tests, and temporary-schema genuine PostgreSQL
 tests prove this checkpoint without admitting C2 operations.
 
-### DTE06-C2: Scope-Bound Fenced Repository — Admitted, Pending
+### DTE06-C2: Scope-Bound Fenced Repository — Admitted, Paused
 
 - implement acquire/takeover, start marker, renew, exact receipt checkpoint,
   known-failure, and pre-delivery release transactions;
@@ -321,6 +322,8 @@ tests prove this checkpoint without admitting C2 operations.
 The implementation-ready authority, operation/result contracts, lock and state
 tables, settlement policy, validation matrix, and stop boundary are fixed in
 [`35-dte06-scope-bound-fenced-repository.md`](./35-dte06-scope-bound-fenced-repository.md).
+Implementation first requires explicit approval for that preflight's bounded
+C1 prepared-subject commitment correction.
 
 ### DTE06-C3: Bounded Connected Mock Delivery — Not Yet Admitted
 
