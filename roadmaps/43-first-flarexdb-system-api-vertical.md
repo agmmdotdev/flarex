@@ -800,18 +800,17 @@ Implemented truth:
   schema or migration change. The genuine PostgreSQL scenarios remain
   implemented, with the fresh acceptance qualification recorded below.
 
-Fresh PostgreSQL revalidation after the C08-B1 readiness integration found one
-test-boundary defect on 2026-08-10. The FSV05 PostgreSQL fixture injects its
-"lost activation response" into the next located transaction globally. The
-new readiness eligibility replay now owns an earlier share-locked target
-transaction, so that injection is consumed there and produces
-`AppUniqueConstraintSetEligibilityV1Error(reason=targetTransaction)` before
-activation can exercise its intended decision-uncertain settlement. Expected
-behavior is an activation-scoped injected settlement loss; actual behavior is
-an eligibility-transaction failure caused by fixture ordering. Migration and
-the PGlite FSV05 case succeed. This is recorded as system-test/transaction-
-fixture evidence only; no shared readiness, activation, or transaction owner is
-changed until that correction is separately approved.
+Fresh PostgreSQL revalidation after the C08-B1 readiness integration found and
+the approved 2026-08-10 fixture slice resolved one test-boundary defect. The
+FSV05 PostgreSQL fixture had injected its "lost activation response" after the
+second located transaction, but readiness eligibility replay now owns that
+earlier share-locked transaction. The fixture now mirrors the existing PGlite
+lane and injects after the third, activation-owning transaction. FSV04 also
+derives its expected final receipt count from the copied current Drizzle
+journal instead of pinning a stale repository-wide migration total. Fresh
+PostgreSQL 18.3 passes all four FSV04 and both FSV05 cases; their PGlite lanes
+remain green at two and one cases respectively. No shared readiness,
+activation, migration, or transaction owner changed.
 
 ### `[x] C03-V`: Activation-Fenced Syscall Validator Capability
 

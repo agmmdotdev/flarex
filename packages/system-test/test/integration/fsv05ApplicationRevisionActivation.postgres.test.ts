@@ -61,7 +61,7 @@ describePostgres("FSV05 application revision activation - PostgreSQL", () => {
             async work => {
               const result = await run(work);
               transactionCount += 1;
-              if (transactionCount === 2) {
+              if (transactionCount === 3) {
                 injected = true;
                 throw new LocatedReadCommittedTransactionFailureV1({
                   kind: "decisionUncertain",

@@ -122,7 +122,7 @@ describePostgres("FSV04 application revision readiness - PostgreSQL", () => {
             revision_column: "1",
             attempt_target: "fx_system_declarative_v2_verifier_attempt_v2",
             revision_target: "fx_system_application_revision_v1",
-            receipts: "45",
+            receipts: fixture.currentReceiptCount,
           }]);
         } finally {
           await current.close();
@@ -276,6 +276,7 @@ async function makeMigration0043Fixture(label: string) {
     migrationsFolder,
     journalPath,
     currentJournal,
+    currentReceiptCount: String(parsed.entries.length),
     migrationPath: resolve(migrationsFolder, "0043_clever_grim_reaper.sql"),
     dispose: () => rm(root, { recursive: true, force: true }),
   });
