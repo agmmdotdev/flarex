@@ -17,15 +17,16 @@ The C0 schema/transaction decision is recorded in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
 The implementation-ready C2 repository contract is recorded in
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
-The blocked C3 connected-runner preflight and its bounded C2 prerequisite are
-recorded in
+The admitted C3 connected-runner preflight and its resolved bounded C2
+prerequisite are recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
 The provider port, deterministic in-memory conformance adapter, canonical
 evidence boundary, checkpoint tables, and C2 transactions now exist; no
 connected requested-effect delivery operation, task runtime route, Worker
-binding, deployment configuration, or production activation exists. C3 remains
-unadmitted until its provider-stale cancellation-generation prerequisite is
-separately approved and proved; later checkpoints also require approval.
+binding, deployment configuration, or production activation exists. The C2
+repository now records the exact provider-stale cancellation-generation
+outcome as terminal non-receipt evidence. C3 is the next admitted
+production-inert checkpoint; later checkpoints still require approval.
 
 Roadmaps 01 through 05 already establish first-class task definitions,
 scope-bound durable run state, fenced attempts, requested effects, Queue wake
@@ -387,14 +388,15 @@ semantic-conflict rejection, cancellation generations, accepted-but-unknown
 recovery, receiver preservation, hostile input rejection, and interruption and
 timeout behavior without claiming Task lifecycle acknowledgement.
 
-### DTE06-C: Dispatch Preparation And Durable Checkpoint — C2 Complete, C3 Blocked
+### DTE06-C: Dispatch Preparation And Durable Checkpoint — C2 Complete, C3 Admitted
 
 - DTE06-C0 fixes the operation-specific dispatch/cancellation delivery schema,
   prepared execution subject, fenced transaction protocol, uncertainty rules,
   and bounded discovery contract without changing code;
 - DTE06-C1 adds canonical delivery evidence and the two Task-owned tables;
 - DTE06-C2 adds the private scope-bound fenced transaction repository and
-  completes its PGlite and genuine-PostgreSQL transaction proof;
+  completes its PGlite and genuine-PostgreSQL transaction proof, including the
+  approved provider-stale cancellation-generation settlement;
 - DTE06-C3 will add bounded connected delivery against only the deterministic
   provider;
 - freshly correlate scope, effect, run, attempt, fence, lease, cancellation,
@@ -409,13 +411,13 @@ transaction, effect-ledger discovery, provider call, or runtime wiring. The
 approved prepared-subject correction carries only the verified immutable
 runtime-binding commitment; DTE06-D later loads the full binding and manifest
 and verifies it before constructing the runtime ABI. C2 is complete and
-production-inert; C3 remains unadmitted and requires separate approval. The
-durable-delivery contract is
+production-inert; the approved C3 implementation is next and remains unwritten.
+The durable-delivery contract is
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
 and the exact C2 implementation boundary is
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
-Preflight 36 records the connected cancellation-generation gap that must close
-before C3 implementation.
+Preflight 36 records the resolved cancellation-generation prerequisite and the
+admitted C3 implementation boundary.
 
 ### DTE06-D: Worker Loader Task Runtime Adapter — Pending
 
@@ -500,8 +502,8 @@ Roadmap 06 does not authorize:
 
 DTE06-C1 stops at canonical delivery evidence and production-inert Task-owned
 storage. Completed DTE06-C2 adds only the private production-inert repository
-in Preflight 35 after its recorded C1 evidence gap was resolved. Preflight 36
-does not admit its bounded C2 correction or C3 implementation. This roadmap
-does not authorize connected effect-ledger delivery, provider calls,
-additional database/application semantics, Worker/runtime wiring, routes,
-bindings, deployment, or production activation.
+in Preflight 35 after its recorded C1 evidence gap and provider-stale
+cancellation-generation gap were resolved. Preflight 36 admits only its bounded
+C3 connected deterministic-provider implementation. This roadmap does not
+authorize additional database/application semantics, a real provider,
+Worker/runtime wiring, routes, bindings, deployment, or production activation.

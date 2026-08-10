@@ -3,12 +3,14 @@ import {
   TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1,
   TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
   TaskComputeCancellationRejectedError,
+  TaskComputeCancellationStaleError,
   TaskComputeCancellationTransportError,
   TaskComputeDispatchRejectedError,
   TaskComputeDispatchTransportError,
   type TaskComputeCancellationReceiptV1,
   type TaskComputeCancellationRequestV1,
   type TaskComputeDispatchAcceptanceV1,
+  type TaskComputeDispatchIdentityV1,
   type TaskComputeDispatchRequestV1,
   validateTaskComputeCancellationReceiptV1,
   validateTaskComputeCancellationRequestV1,
@@ -21,7 +23,11 @@ import {
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
   decodeTaskRequestedEffectSequenceV1,
+  decodeTaskAttemptIdV1,
+  decodeTaskCancellationGenerationV1,
+  decodeTaskExecutionFenceV1,
   decodeTaskRunIdV1,
+  type TaskCancellationGenerationV1,
   type PersistedTaskRequestedEffectV1,
   type TaskRequestedEffectSequenceV1,
   type TaskRunAttemptAggregateV1,
@@ -236,7 +242,8 @@ interface TaskComputeDeliveryRepositoryInputReasonByOperationV1 {
   readonly record_cancellation_known_failure:
     | "invalid_handle"
     | "closed_handle"
-    | "invalid_known_failure";
+    | "invalid_known_failure"
+    | "known_failure_correlation_mismatch";
 }
 interface TaskComputeDeliveryRepositoryStaleErrorByOperationV1 {
   readonly acquire_dispatch: never;
@@ -583,6 +590,7 @@ export type TaskComputeCancellationClosedReasonV1 =
   | "provider_disabled"
   | "provider_execution_not_found"
   | "provider_execution_mismatch"
+  | "provider_stale_generation"
   | "provider_transport"
   | "delivery_attempts_exhausted";
 
@@ -631,6 +639,7 @@ export interface TaskComputeCancellationReceiptRecordedV1 {
 
 export type TaskComputeCancellationKnownFailureV1 =
   | TaskComputeCancellationRejectedError
+  | TaskComputeCancellationStaleError
   | TaskComputeCancellationTransportError;
 
 export type TaskComputeCancellationKnownFailureRecordedV1 =
@@ -638,7 +647,10 @@ export type TaskComputeCancellationKnownFailureRecordedV1 =
       readonly kind: "retry_scheduled";
       readonly reason: Exclude<
         TaskComputeCancellationClosedReasonV1,
-        "lifecycle_obsolete" | "checkpoint_corrupt" | "delivery_attempts_exhausted"
+        | "lifecycle_obsolete"
+        | "checkpoint_corrupt"
+        | "provider_stale_generation"
+        | "delivery_attempts_exhausted"
       >;
       readonly nextAttemptAt: Date;
     }>
@@ -780,6 +792,12 @@ type CapturedKnownCancellationFailureV1 =
   | Readonly<{
       readonly kind: "transport";
       readonly retryable: boolean;
+    }>
+  | Readonly<{
+      readonly kind: "stale";
+      readonly identity: TaskComputeDispatchIdentityV1;
+      readonly receivedGeneration: TaskCancellationGenerationV1;
+      readonly acceptedGeneration: TaskCancellationGenerationV1;
     }>;
 
 interface MutableHandleStateV1 {
@@ -2591,14 +2609,27 @@ async function recordCancellationKnownFailureTransaction(
   if (context.checkpoint.deliveryState !== "delivering") {
     throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
   }
-  const providerReason = cancellationFailureReason(failure);
+  if (
+    failure.kind === "stale"
+    && (
+      !taskSystemPersistedValueEqualV1(failure.identity, context.request.identity)
+      || failure.receivedGeneration !== context.request.cancellationGeneration
+      || failure.acceptedGeneration <= failure.receivedGeneration
+    )
+  ) throw rollback(repositoryInputFailure(
+    operation,
+    "known_failure_correlation_mismatch",
+  ));
   const attemptCount = context.checkpoint.deliveryAttemptCount;
   if (attemptCount < 1n) {
     throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
   }
-  const shouldRetry = failure.retryable
-    && attemptCount < BigInt(configuration.maximumDeliveryAttempts);
-  if (shouldRetry) {
+  if (
+    failure.kind !== "stale"
+    && failure.retryable
+    && attemptCount < BigInt(configuration.maximumDeliveryAttempts)
+  ) {
+    const retryReason = cancellationRetryFailureReason(failure);
     const delay = configuration.retryDelayMilliseconds[Number(attemptCount - 1n)];
     const startedAt = context.checkpoint.deliveryStartedAt;
     if (delay === undefined || startedAt === null) {
@@ -2623,7 +2654,7 @@ async function recordCancellationKnownFailureTransaction(
       claimedAt: null,
       claimExpiresAt: null,
       nextAttemptAt,
-      reasonCode: providerReason,
+      reasonCode: retryReason,
       settledAt: null,
       updatedAt: context.databaseTime.now,
     }).where(cancellationClaimKey(authority.scopeId, state)).returning());
@@ -2631,17 +2662,18 @@ async function recordCancellationKnownFailureTransaction(
     if (
       row?.deliveryState !== "retry_wait"
       || row.claimOwner !== null
-      || row.reasonCode !== providerReason
+      || row.reasonCode !== retryReason
       || row.nextAttemptAt === null
       || row.nextAttemptAt.getTime() !== nextAttemptAt.getTime()
     ) throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
     return Object.freeze({
       kind: "retry_scheduled",
-      reason: providerReason,
+      reason: retryReason,
       nextAttemptAt: ownedDate(row.nextAttemptAt, operation, state.runId),
     });
   }
-  const terminalReason = failure.retryable
+  const providerReason = cancellationFailureReason(failure);
+  const terminalReason = failure.kind !== "stale" && failure.retryable
     ? "delivery_attempts_exhausted" as const
     : providerReason;
   const updated = await statement(operation, () => tx.update(
@@ -3217,6 +3249,18 @@ function captureKnownCancellationFailure(
         retryable: captured.retryable,
       }));
     }
+    if (input instanceof TaskComputeCancellationStaleError) {
+      const captured = captureOwnDataProperties(input, [
+        "identity",
+        "receivedGeneration",
+        "acceptedGeneration",
+      ]);
+      if (captured === undefined) return Result.fail(repositoryInputFailure(
+        "record_cancellation_known_failure",
+        "invalid_known_failure",
+      ));
+      return captureStaleCancellationFailure(captured);
+    }
   } catch {
     // Hostile proxies and revoked provider values are ordinary invalid input.
   }
@@ -3226,11 +3270,100 @@ function captureKnownCancellationFailure(
   ));
 }
 
+function captureStaleCancellationFailure(
+  captured: Readonly<Record<string, unknown>>,
+): Result.Result<
+  CapturedKnownCancellationFailureV1,
+  TaskComputeDeliveryRepositoryInputV1Error<
+    "record_cancellation_known_failure"
+  >
+> {
+  const invalid = (): TaskComputeDeliveryRepositoryInputV1Error<
+    "record_cancellation_known_failure"
+  > => repositoryInputFailure(
+    "record_cancellation_known_failure",
+    "invalid_known_failure",
+  );
+  const identity = captureDataRecord(captured.identity, [
+    "version",
+    "scopeId",
+    "runId",
+    "requestedEffectSequence",
+    "attemptId",
+    "executionFence",
+  ]);
+  const rawRequestedEffectSequence = identity?.requestedEffectSequence;
+  const rawExecutionFence = identity?.executionFence;
+  const rawReceivedGeneration = captured.receivedGeneration;
+  const rawAcceptedGeneration = captured.acceptedGeneration;
+  if (
+    identity === undefined
+    || identity.version !== TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1
+    || typeof rawReceivedGeneration !== "bigint"
+    || typeof rawAcceptedGeneration !== "bigint"
+    || rawAcceptedGeneration <= rawReceivedGeneration
+    || typeof rawRequestedEffectSequence !== "bigint"
+    || typeof rawExecutionFence !== "bigint"
+  ) return Result.fail(invalid());
+  return Result.gen(function* () {
+    const scopeId = yield* decodeReplacementScopeIdResult(identity.scopeId).pipe(
+      Result.mapError(invalid),
+    );
+    const runId = yield* decodeTaskRunIdV1(identity.runId).pipe(
+      Result.mapError(invalid),
+    );
+    const requestedEffectSequence = yield* decodeTaskRequestedEffectSequenceV1(
+      rawRequestedEffectSequence.toString(),
+    ).pipe(Result.mapError(invalid));
+    const attemptId = yield* decodeTaskAttemptIdV1(identity.attemptId).pipe(
+      Result.mapError(invalid),
+    );
+    const executionFence = yield* decodeTaskExecutionFenceV1(
+      rawExecutionFence.toString(),
+    ).pipe(Result.mapError(invalid));
+    const receivedGeneration = yield* decodeTaskCancellationGenerationV1(
+      rawReceivedGeneration.toString(),
+    ).pipe(Result.mapError(invalid));
+    const acceptedGeneration = yield* decodeTaskCancellationGenerationV1(
+      rawAcceptedGeneration.toString(),
+    ).pipe(Result.mapError(invalid));
+    return Object.freeze({
+      kind: "stale" as const,
+      identity: Object.freeze({
+        version: TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
+        scopeId,
+        runId,
+        requestedEffectSequence,
+        attemptId,
+        executionFence,
+      }),
+      receivedGeneration,
+      acceptedGeneration,
+    });
+  });
+}
+
 function cancellationFailureReason(
   failure: CapturedKnownCancellationFailureV1,
 ): Exclude<
   TaskComputeCancellationClosedReasonV1,
   "lifecycle_obsolete" | "checkpoint_corrupt" | "delivery_attempts_exhausted"
+> {
+  if (failure.kind === "stale") return "provider_stale_generation";
+  return cancellationRetryFailureReason(failure);
+}
+
+function cancellationRetryFailureReason(
+  failure: Exclude<
+    CapturedKnownCancellationFailureV1,
+    { readonly kind: "stale" }
+  >,
+): Exclude<
+  TaskComputeCancellationClosedReasonV1,
+  | "lifecycle_obsolete"
+  | "checkpoint_corrupt"
+  | "provider_stale_generation"
+  | "delivery_attempts_exhausted"
 > {
   if (failure.kind === "transport") return "provider_transport";
   switch (failure.reason) {
@@ -4256,6 +4389,7 @@ function isCancellationClosedReason(
     || value === "provider_disabled"
     || value === "provider_execution_not_found"
     || value === "provider_execution_mismatch"
+    || value === "provider_stale_generation"
     || value === "provider_transport"
     || value === "delivery_attempts_exhausted";
 }

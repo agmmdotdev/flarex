@@ -62,11 +62,13 @@ hands C2 an owned runtime-binding commitment reconstructed from the canonical
 definition bytes; the later runtime owner remains responsible for loading the
 full manifest and verifying that commitment. DTE06-C2 now completes the private
 production-inert scope-bound fenced repository with focused PGlite and
-ordinary-role genuine-PostgreSQL transaction proofs. DTE06-C3 remains
-unadmitted because its connected preflight exposed a missing C2 settlement for
-a provider-stale cancellation generation. The exact scenario, recommended
-bounded correction, discovery contract, continuation, budgets, and stop
-boundary are recorded in
+ordinary-role genuine-PostgreSQL transaction proofs. The approved bounded C2
+correction now durably rejects an older provider-stale cancellation generation
+as `provider_stale_generation`, without a receipt or Task cancellation
+acknowledgement, and proves the outcome in PGlite and genuine PostgreSQL.
+DTE06-C3 is admitted as the next production-inert implementation slice but has
+not begun. Its discovery contract, continuation, budgets, and stop boundary are
+recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
 The exact Worker
 Loader reuse boundary, operation-specific delivery ownership, and

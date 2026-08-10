@@ -379,6 +379,7 @@ describe("Trigger compatibility boundary checker", () => {
           TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
           TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
           TaskComputeCancellationRejectedError,
+          TaskComputeCancellationStaleError,
           TaskComputeCancellationTransportError,
           TaskComputeDispatchRejectedError,
           TaskComputeDispatchTransportError,
@@ -389,6 +390,7 @@ describe("Trigger compatibility boundary checker", () => {
           type TaskComputeCancellationReceiptV1,
           type TaskComputeCancellationRequestV1,
           type TaskComputeDispatchAcceptanceV1,
+          type TaskComputeDispatchIdentityV1,
           type TaskComputeDispatchRequestV1,
         } from "@flarex/durable-task/internal/compute-provider-v1";
         import {
@@ -396,9 +398,13 @@ describe("Trigger compatibility boundary checker", () => {
           type TaskInputReferenceV1,
         } from "@flarex/durable-task/internal/run-creation-v1";
         import {
+          decodeTaskAttemptIdV1,
+          decodeTaskCancellationGenerationV1,
+          decodeTaskExecutionFenceV1,
           decodeTaskRequestedEffectSequenceV1,
           decodeTaskRunIdV1,
           type PersistedTaskRequestedEffectV1,
+          type TaskCancellationGenerationV1,
           type TaskRequestedEffectSequenceV1,
           type TaskRunAttemptAggregateV1,
           type TaskRunIdV1,

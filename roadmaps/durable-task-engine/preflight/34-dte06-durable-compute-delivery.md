@@ -14,9 +14,12 @@ provider call, Worker route, binding, deployment configuration, or production
 activation. DTE06-C2 is complete under
 [`35-dte06-scope-bound-fenced-repository.md`](./35-dte06-scope-bound-fenced-repository.md),
 and the approved prepared-subject commitment correction has removed its
-implementation pause without changing the schema. C3 remains unadmitted;
+implementation pause without changing the schema. The approved bounded C2
+provider-stale cancellation-generation settlement is also complete without
+DDL or Task lifecycle changes. C3 is admitted as the next production-inert
+checkpoint. Its contract is recorded in
 [`36-dte06-connected-mock-delivery.md`](./36-dte06-connected-mock-delivery.md)
-records its connected-flow prerequisite and exact proposed boundary.
+with its connected-flow prerequisite and exact proposed boundary.
 
 ## Question
 
@@ -332,7 +335,7 @@ Its bounded C1 prerequisite is now complete: the prepared subject carries the
 durably reconstructable runtime-binding commitment, while DTE06-D retains full
 binding and manifest materialization authority.
 
-### DTE06-C3: Bounded Connected Mock Delivery — Preflight Blocked
+### DTE06-C3: Bounded Connected Mock Delivery — Admitted
 
 - add operation-specific candidate discovery and canonical continuation;
 - compose fresh trusted scope resolution, the C2 repository, and the existing
@@ -342,9 +345,12 @@ binding and manifest materialization authority.
 - add no Worker Loader route, Cloudflare adapter, scheduled host, Queue consumer,
   deployment configuration, or activation.
 
-Preflight 36 found that C2 has no exact durable settlement for a provider-stale
-cancellation generation. C3 remains blocked until that bounded C2 correction
-is separately approved and proved; no workaround is admitted here.
+Preflight 36 found and bounded the missing provider-stale cancellation-
+generation settlement. That prerequisite now records a terminal
+`provider_stale_generation` outcome in PGlite and genuine PostgreSQL without a
+receipt or Task acknowledgement. C3 may now implement only the connected,
+production-inert boundary fixed by Preflight 36; no wider workaround is
+admitted.
 
 Each checkpoint is intentionally medium-sized: C1 proves storage truth, C2
 proves transaction truth, and C3 proves orchestration truth. A table without
@@ -374,7 +380,7 @@ This preflight does not authorize:
 - a generic effect-delivery/outbox framework;
 - Standard Application types in `@flarex/durable-task` or raw input in the
   provider request;
-- DTE06-C2 implementation outside Preflight 35, or any DTE06-C3, DTE06-D/E/F,
+- additional DTE06-C2 implementation outside Preflight 35, or any DTE06-D/E/F,
   or DTE05-E3 implementation without its own admission;
 - a real provider, Worker Loader task route, service binding, R2 input loader,
   heartbeat, completion, result publication, or observability API; or

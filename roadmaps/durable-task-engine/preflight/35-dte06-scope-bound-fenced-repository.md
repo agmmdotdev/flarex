@@ -5,8 +5,10 @@
 **Decision:** DTE06-C2 is complete and production-inert. It owns only the
 private scope-bound transaction repository over the DTE06-C1 dispatch and
 cancellation tables. The repository, PGlite and genuine-PostgreSQL proofs,
-boundary gates, and required reviewer receipts have passed. DTE06-C3 remains
-unadmitted and requires separate approval.
+boundary gates, and required reviewer receipts have passed. Its separately
+approved stale-generation correction now closes an older provider cancellation
+as terminal non-receipt evidence after exact identity/generation correlation.
+DTE06-C3 is admitted separately under Preflight 36.
 
 **Prerequisite resolved:** the approved bounded C1 correction replaces the
 non-reconstructable full binding in the prepared subject with an owned,
@@ -551,7 +553,9 @@ C2 must prove at least:
   outcomes for both tables;
 - delivery-attempt accounting and database-time backoff with no JavaScript
   clock participation;
-- lower/newer cancellation generation races and cleanup-only late receipts;
+- lower/newer provider cancellation ordering and cleanup-only late receipts;
+- terminal `provider_stale_generation` settlement with no receipt or Task
+  cancellation acknowledgement, plus hostile and correlation rejection;
 - lifecycle-current dominance before start and uncertain replay after start;
 - canonical byte/digest validation, owned snapshots, corruption quarantine,
   and no regeneration/fallback;
@@ -578,7 +582,9 @@ The ordinary-role, temporary-schema PostgreSQL lane must prove:
 - whole-transaction termination produces decision/cleanup evidence, discards
   the checked-out client, and the next operation uses a healthy replacement;
 - a committed-but-response-lost harness returns decision uncertainty rather
-  than a false rollback/success and recovery observes the durable row; and
+  than a false rollback/success and recovery observes the durable row;
+- a provider newer-before-older cancellation outcome closes the older row as
+  `provider_stale_generation` with no receipt and exact closed replay; and
 - all clients and temporary schemas settle and clean up without admin-only
   database creation privileges.
 

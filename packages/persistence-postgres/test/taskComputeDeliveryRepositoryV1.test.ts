@@ -3,6 +3,7 @@ import {
   TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1,
   TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
   TaskComputeCancellationRejectedError,
+  TaskComputeCancellationStaleError,
   TaskComputeCancellationTransportError,
   TaskComputeCancellationUncertainError,
   TaskComputeDispatchRejectedError,
@@ -11,12 +12,16 @@ import {
   validateTaskComputeDispatchAcceptanceV1,
   validateTaskComputeCancellationReceiptV1,
   validateTaskComputeDispatchRequestV1,
+  decodeTaskComputeProviderDescriptorV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
+import { makeInMemoryTaskComputeProviderV1 } from
+  "@flarex/durable-task/internal/compute-provider-testing-v1";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
   TaskSystemRunAttemptStore,
   decodeTaskCancellationGenerationV1,
+  decodeTaskRequestedEffectSequenceV1,
   decodeTaskRunVersionV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { Cause, Effect, Exit, Fiber, Layer, Result } from "effect";
@@ -88,6 +93,16 @@ const runVersionOne = success(decodeTaskRunVersionV1("1"));
 const cancellationGenerationOne = success(
   decodeTaskCancellationGenerationV1("1"),
 );
+const cancellationGenerationTwo = success(
+  decodeTaskCancellationGenerationV1("2"),
+);
+const cancellationGenerationThree = success(
+  decodeTaskCancellationGenerationV1("3"),
+);
+const computeProviderDescriptor = success(decodeTaskComputeProviderDescriptorV1({
+  provider: "test-provider",
+  providerVersion: "v1",
+}));
 
 describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
   it("exposes an exact typed error channel for each operation", () => {
@@ -187,6 +202,17 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
     expectTypeOf<Extract<
       TaskComputeDeliveryRepositoryErrorV1<"record_cancellation_receipt">,
       { readonly _tag: "TaskComputeDeliveryRepositoryResourceExhaustedV1Error" }
+    >>().toEqualTypeOf<never>();
+    expectTypeOf<Extract<
+      TaskComputeCancellationKnownFailureV1,
+      TaskComputeCancellationStaleError
+    >>().toEqualTypeOf<TaskComputeCancellationStaleError>();
+    expectTypeOf<Extract<
+      Extract<
+        TaskComputeCancellationKnownFailureRecordedV1,
+        { readonly kind: "retry_scheduled" }
+      >["reason"],
+      "provider_stale_generation"
     >>().toEqualTypeOf<never>();
   });
 
@@ -1261,6 +1287,238 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         kind: "closed",
         state: "rejected",
         reason: "delivery_attempts_exhausted",
+      });
+    });
+  });
+
+  it("settles a provider stale generation as terminal non-receipt evidence", async () => {
+    await withFixture(async (fixture) => {
+      const deliveryRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      const provider = success(makeInMemoryTaskComputeProviderV1(
+        computeProviderDescriptor,
+      ));
+      const dispatch = await runEffect(deliveryRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (dispatch.kind !== "claimed") throw new Error("dispatch was not claimed");
+      const acceptance = await runEffect(
+        provider.dispatch(dispatch.prepared.dispatchRequest),
+      );
+      await runEffect(
+        deliveryRepository.markDispatchDeliveryStarted(dispatch.handle),
+      );
+      await runEffect(deliveryRepository.recordDispatchAcceptance(
+        dispatch.handle,
+        acceptance,
+      ));
+
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const cancellation = await runEffect(
+        deliveryRepository.acquireCancellation({
+          runId: fixture.runId,
+          requestedEffectSequence: cancellationSequence,
+        }),
+      );
+      if (cancellation.kind !== "claimed") {
+        throw new Error("cancellation was not claimed");
+      }
+      await runEffect(
+        deliveryRepository.markCancellationDeliveryStarted(cancellation.handle),
+      );
+
+      const newerRequest = Object.freeze({
+        ...cancellation.request,
+        cancellationGeneration: cancellationGenerationTwo,
+      });
+      await runEffect(provider.requestCancellation(newerRequest));
+      const stale = await runEffect(
+        provider.requestCancellation(cancellation.request).pipe(Effect.flip),
+      );
+      expect(stale).toBeInstanceOf(TaskComputeCancellationStaleError);
+      expect(stale).toMatchObject({
+        identity: cancellation.request.identity,
+        receivedGeneration: cancellationGenerationOne,
+        acceptedGeneration: cancellationGenerationTwo,
+      });
+      if (!(stale instanceof TaskComputeCancellationStaleError)) {
+        throw new Error("provider did not return a stale-generation result");
+      }
+
+      expect(await runEffect(deliveryRepository.recordCancellationKnownFailure(
+        cancellation.handle,
+        stale,
+      ))).toEqual({
+        kind: "cancellation_rejected",
+        reason: "provider_stale_generation",
+      });
+      expect(await runEffectFailure(
+        deliveryRepository.renewCancellationClaim(cancellation.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(await readCancellationSettlement(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toEqual({
+        delivery_state: "rejected",
+        claim_owner: null,
+        reason_code: "provider_stale_generation",
+        receipt_codec_version: null,
+      });
+      expect(await runEffect(repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+      ).acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).toEqual({
+        kind: "closed",
+        state: "rejected",
+        reason: "provider_stale_generation",
+      });
+      expect((await inspectFixtureAttempt(fixture)).state).toMatchObject({
+        phase: "attempt_granted",
+        cancellation: { kind: "requested", generation: 1n },
+      });
+    });
+  });
+
+  it("rejects hostile and mismatched stale-generation evidence", async () => {
+    await withFixture(async (fixture) => {
+      const deliveryRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      await acceptFixtureDispatch(fixture, deliveryRepository);
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const cancellation = await runEffect(
+        deliveryRepository.acquireCancellation({
+          runId: fixture.runId,
+          requestedEffectSequence: cancellationSequence,
+        }),
+      );
+      if (cancellation.kind !== "claimed") {
+        throw new Error("cancellation was not claimed");
+      }
+      await runEffect(
+        deliveryRepository.markCancellationDeliveryStarted(cancellation.handle),
+      );
+
+      let identityGetterInvoked = false;
+      const hostile = Object.create(
+        TaskComputeCancellationStaleError.prototype,
+        {
+          identity: {
+            get: () => {
+              identityGetterInvoked = true;
+              return cancellation.request.identity;
+            },
+          },
+          receivedGeneration: { value: cancellationGenerationOne },
+          acceptedGeneration: { value: cancellationGenerationTwo },
+        },
+      ) as TaskComputeCancellationStaleError;
+      expect(await runEffectFailure(
+        deliveryRepository.recordCancellationKnownFailure(
+          cancellation.handle,
+          hostile,
+        ),
+      )).toMatchObject({ reason: "invalid_known_failure" });
+      expect(identityGetterInvoked).toBe(false);
+      expect((await runEffect(
+        deliveryRepository.renewCancellationClaim(cancellation.handle),
+      )).kind).toBe("claim_renewed");
+
+      expect(await runEffectFailure(
+        deliveryRepository.recordCancellationKnownFailure(
+          cancellation.handle,
+          new TaskComputeCancellationStaleError({
+            identity: cancellation.request.identity,
+            receivedGeneration: cancellationGenerationTwo,
+            acceptedGeneration: cancellationGenerationOne,
+          }),
+        ),
+      )).toMatchObject({ reason: "invalid_known_failure" });
+      expect((await runEffect(
+        deliveryRepository.renewCancellationClaim(cancellation.handle),
+      )).kind).toBe("claim_renewed");
+
+      const mismatched = new TaskComputeCancellationStaleError({
+        identity: cancellation.request.identity,
+        receivedGeneration: cancellationGenerationTwo,
+        acceptedGeneration: cancellationGenerationThree,
+      });
+      expect(await runEffectFailure(
+        deliveryRepository.recordCancellationKnownFailure(
+          cancellation.handle,
+          mismatched,
+        ),
+      )).toMatchObject({ reason: "known_failure_correlation_mismatch" });
+      expect(await runEffectFailure(
+        deliveryRepository.renewCancellationClaim(cancellation.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(await readCancellationSettlement(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toMatchObject({
+        delivery_state: "delivering",
+        claim_owner: CLAIM_OWNER_A,
+        reason_code: null,
+        receipt_codec_version: null,
+      });
+    });
+
+    await withFixture(async (fixture) => {
+      const deliveryRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      await acceptFixtureDispatch(fixture, deliveryRepository);
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const cancellation = await runEffect(
+        deliveryRepository.acquireCancellation({
+          runId: fixture.runId,
+          requestedEffectSequence: cancellationSequence,
+        }),
+      );
+      if (cancellation.kind !== "claimed") {
+        throw new Error("cancellation was not claimed");
+      }
+      await runEffect(
+        deliveryRepository.markCancellationDeliveryStarted(cancellation.handle),
+      );
+      const otherSequence = success(decodeTaskRequestedEffectSequenceV1(
+        (cancellation.request.identity.requestedEffectSequence + 1n).toString(),
+      ));
+      expect(await runEffectFailure(
+        deliveryRepository.recordCancellationKnownFailure(
+          cancellation.handle,
+          new TaskComputeCancellationStaleError({
+            identity: Object.freeze({
+              ...cancellation.request.identity,
+              requestedEffectSequence: otherSequence,
+            }),
+            receivedGeneration: cancellationGenerationOne,
+            acceptedGeneration: cancellationGenerationTwo,
+          }),
+        ),
+      )).toMatchObject({ reason: "known_failure_correlation_mismatch" });
+      expect(await runEffectFailure(
+        deliveryRepository.renewCancellationClaim(cancellation.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(await readCancellationSettlement(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toMatchObject({
+        delivery_state: "delivering",
+        claim_owner: CLAIM_OWNER_A,
+        reason_code: null,
+        receipt_codec_version: null,
       });
     });
   });

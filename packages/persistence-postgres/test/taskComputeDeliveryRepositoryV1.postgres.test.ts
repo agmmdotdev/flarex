@@ -2,13 +2,18 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import {
   TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+  TaskComputeCancellationStaleError,
+  decodeTaskComputeProviderDescriptorV1,
   validateTaskComputeDispatchAcceptanceV1,
   type TaskComputeDispatchIdentityV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
+import { makeInMemoryTaskComputeProviderV1 } from
+  "@flarex/durable-task/internal/compute-provider-testing-v1";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
   TaskSystemRunAttemptStore,
+  decodeTaskCancellationGenerationV1,
   decodeTaskRunVersionV1,
   type TaskAttemptGrantV1,
   type TaskRequestedEffectSequenceV1,
@@ -80,6 +85,13 @@ const CLAIM_OWNER_D = "73000000-0000-4000-8000-000000000014";
 const LIFECYCLE_BARRIER_LOCK = 6_206_001;
 const ACCEPTANCE_BARRIER_LOCK = 6_206_002;
 const runVersionOne = success(decodeTaskRunVersionV1("1"));
+const cancellationGenerationTwo = success(
+  decodeTaskCancellationGenerationV1("2"),
+);
+const computeProviderDescriptor = success(decodeTaskComputeProviderDescriptorV1({
+  provider: "test-provider",
+  providerVersion: "postgres-v1",
+}));
 
 const concurrencyPolicy = success(createTaskRepairPostgresDeadlinePolicyV1({
   connectionTimeoutMilliseconds: 1_000,
@@ -465,6 +477,85 @@ describePostgres("real PostgreSQL DTE06-C2 compute delivery repository", () => {
       });
     });
   }, 120_000);
+
+  it("durably closes a newer-before-older provider cancellation outcome", async () => {
+    await withDeliveryFixture(concurrencyPolicy, 2, async (fixture) => {
+      const deliveryRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      const provider = success(makeInMemoryTaskComputeProviderV1(
+        computeProviderDescriptor,
+      ));
+      const dispatch = await runEffect(deliveryRepository.acquireDispatch(
+        dispatchRequest(fixture),
+      ));
+      if (dispatch.kind !== "claimed") throw new Error("dispatch was not claimed");
+      const acceptance = await runEffect(
+        provider.dispatch(dispatch.prepared.dispatchRequest),
+      );
+      await runEffect(
+        deliveryRepository.markDispatchDeliveryStarted(dispatch.handle),
+      );
+      await runEffect(deliveryRepository.recordDispatchAcceptance(
+        dispatch.handle,
+        acceptance,
+      ));
+
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const cancellation = await runEffect(
+        deliveryRepository.acquireCancellation({
+          runId: fixture.runId,
+          requestedEffectSequence: cancellationSequence,
+        }),
+      );
+      if (cancellation.kind !== "claimed") {
+        throw new Error("cancellation was not claimed");
+      }
+      await runEffect(
+        deliveryRepository.markCancellationDeliveryStarted(cancellation.handle),
+      );
+      await runEffect(provider.requestCancellation(Object.freeze({
+        ...cancellation.request,
+        cancellationGeneration: cancellationGenerationTwo,
+      })));
+      const stale = await runEffect(
+        provider.requestCancellation(cancellation.request).pipe(Effect.flip),
+      );
+      expect(stale).toBeInstanceOf(TaskComputeCancellationStaleError);
+      if (!(stale instanceof TaskComputeCancellationStaleError)) {
+        throw new Error("provider did not return a stale-generation result");
+      }
+
+      expect(await runEffect(deliveryRepository.recordCancellationKnownFailure(
+        cancellation.handle,
+        stale,
+      ))).toEqual({
+        kind: "cancellation_rejected",
+        reason: "provider_stale_generation",
+      });
+      expect(await readCancellationSettlement(
+        fixture,
+        cancellationSequence,
+      )).toEqual({
+        delivery_state: "rejected",
+        claim_owner: null,
+        reason_code: "provider_stale_generation",
+        receipt_codec_version: null,
+      });
+      expect(await runEffect(repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+      ).acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).toEqual({
+        kind: "closed",
+        state: "rejected",
+        reason: "provider_stale_generation",
+      });
+    });
+  }, 120_000);
 });
 
 interface DeliveryFixture {
@@ -734,6 +825,27 @@ async function dispatchCheckpointCount(fixture: DeliveryFixture) {
       and requested_effect_sequence = $3
   `, [fixture.scopeId, fixture.runId, fixture.dispatchSequence]);
   return result.rows[0]?.count ?? -1;
+}
+
+async function readCancellationSettlement(
+  fixture: DeliveryFixture,
+  cancellationSequence: TaskRequestedEffectSequenceV1,
+) {
+  const result = await fixture.persistence.query<{
+    delivery_state: string;
+    claim_owner: string | null;
+    reason_code: string | null;
+    receipt_codec_version: number | null;
+  }>(`
+    select delivery_state, claim_owner::text, reason_code,
+           receipt_codec_version
+    from fx_system_durable_task_compute_cancellation_v1
+    where scope_id = $1 and run_id = $2
+      and requested_effect_sequence = $3
+  `, [fixture.scopeId, fixture.runId, cancellationSequence]);
+  const row = result.rows[0];
+  if (row === undefined) throw new Error("cancellation checkpoint is missing");
+  return row;
 }
 
 async function waitForDispatchClaimExpiry(fixture: DeliveryFixture) {

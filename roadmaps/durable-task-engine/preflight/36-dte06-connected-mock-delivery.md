@@ -2,22 +2,22 @@
 
 ## Status
 
-**Decision:** the C3 preflight is open, but C3 implementation is not yet
-admitted. The intended production-inert boundary is sound: add operation-
+**Decision:** the C3 preflight is approved and C3 implementation is admitted as
+the next production-inert slice. Add operation-
 specific candidate discovery in `@flarex/persistence-postgres`, then compose
 fresh trusted scope resolution, the completed C2 repository, and only the
 deterministic `TaskComputeProvider` in `flarex-backend`.
 
-One connected-flow prerequisite remains unresolved. C2 cannot durably settle a
-provider `TaskComputeCancellationStaleError` when a newer cancellation
-generation has already been accepted. C3 may not hide that outcome, translate
-it into an unrelated rejection, invent a cancellation receipt, or leave the
-older checkpoint in an endless uncertain-replay loop. The bounded C2 contract
-correction described below requires separate approval before C3 code begins.
+The connected-flow prerequisite is resolved. C2 now captures and correlates a
+provider `TaskComputeCancellationStaleError`, rejects the older checkpoint as
+`provider_stale_generation`, clears its claim, closes its handle, stores no
+receipt, and leaves Task cancellation unacknowledged. Focused PGlite and
+ordinary-role genuine-PostgreSQL 18 lanes prove newer-before-older provider
+ordering and exact closed replay. No DDL or lifecycle change was required.
 
-Completed C2 commit `ff83e5bb` remains valid for its admitted repository
-contract. This preflight records a missing connected outcome, not permission to
-rewrite C2 transactions, the Task lifecycle, or the provider contract.
+Completed C2 commit `ff83e5bb` remains the base repository checkpoint. The
+approved correction adds only the exact connected outcome described below; it
+does not rewrite C2 transactions, the Task lifecycle, or the provider contract.
 
 ## Question
 
@@ -74,15 +74,16 @@ provider call and one permitted repository settlement.
 This is reuse of established control flow at the correct seams, not a rewrite
 of provider, lifecycle, or transaction logic.
 
-## Required C2 Prerequisite
+## Resolved C2 Prerequisite
 
 ### Reproducible Scenario
 
-1. Persist two cancellation requested effects for the same accepted dispatch,
-   with generations `g` and `g + 1`.
-2. Two connected hosts acquire the independent C2 cancellation rows.
-3. The provider accepts generation `g + 1` first.
-4. Delivery of generation `g` returns
+1. A valid provider request for one dispatch identity reaches the provider with
+   cancellation generation `g + 1`.
+2. Before Flarex has recorded or recovered that newer receipt, delivery or
+   uncertain replay of a persisted older row submits generation `g` for the
+   same identity.
+3. Delivery of generation `g` returns
    `TaskComputeCancellationStaleError` with `receivedGeneration = g` and
    `acceptedGeneration = g + 1`.
 
@@ -133,8 +134,10 @@ Extend only the C2 cancellation known-outcome path:
 The reason column already stores bounded snake-case reason codes, so this
 correction should require no DDL or migration. Its focused gate must include
 ordinary success, hostile/accessor input, identity/generation mismatch,
-newer-before-older concurrency, replay after restart, handle closure, and all
-existing C2 PGlite and genuine-PostgreSQL proofs unchanged.
+newer-before-older provider ordering, replay after restart, handle closure, and
+all existing C2 PGlite and genuine-PostgreSQL proofs unchanged. Two-host
+discovery and overlapping connected settlements remain a C3 orchestration gate;
+C2 must not manufacture extra lifecycle-ledger rows to simulate them.
 
 A durable per-execution generation gate is not recommended for this gap. It
 would add schema, migration, lock-order, expiry, and recovery authority merely
@@ -316,7 +319,7 @@ own durable scheduling, fencing, and activation.
 
 ## Validation Gates
 
-The admitted implementation, after its prerequisite, must prove:
+The C3 implementation must prove:
 
 - C2 stale-generation settlement in PGlite and genuine PostgreSQL;
 - dispatch and cancellation discovery unseen/due/expired union semantics;
@@ -337,7 +340,7 @@ The admitted implementation, after its prerequisite, must prove:
 
 ## Implementation Sequence After Approval
 
-1. Correct and prove the bounded C2 stale-generation settlement.
+1. **Complete:** correct and prove the bounded C2 stale-generation settlement.
 2. Add the private persistence discovery models, codecs, SQL, and PGlite plus
    genuine-PostgreSQL proof.
 3. Add the backend trusted directory and exact active-scope continuation codec.
@@ -351,7 +354,7 @@ The admitted implementation, after its prerequisite, must prove:
 
 This preflight does not authorize:
 
-- the C2 prerequisite correction until separately approved;
+- additional C2 transaction, schema, requested-effect, or lifecycle changes;
 - changing requested-effect or Task lifecycle semantics;
 - a generic effect/outbox framework or direct raw Drizzle use in backend;
 - a real provider, Cloudflare adapter, Worker Loader route, R2 input loading,
