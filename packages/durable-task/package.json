@@ -14,7 +14,9 @@
     "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
     "./internal/run-read-v1": "./src/runRead/v1.ts",
     "./internal/scheduling-v1": "./src/scheduling/v1.ts",
-    "./internal/scheduling-testing-v1": "./src/scheduling/testing-v1.ts"
+    "./internal/scheduling-testing-v1": "./src/scheduling/testing-v1.ts",
+    "./internal/compute-provider-v1": "./src/computeProvider/v1.ts",
+    "./internal/compute-provider-testing-v1": "./src/computeProvider/testing-v1.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

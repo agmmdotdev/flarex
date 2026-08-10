@@ -113,6 +113,8 @@ describe("Trigger compatibility boundary checker", () => {
       type: "module",
       files: ["src", "THIRD_PARTY_NOTICES.md", "trigger-source-map.json", "licenses"],
       exports: {
+        "./internal/compute-provider-v1": "./src/computeProvider/v1.ts",
+        "./internal/compute-provider-testing-v1": "./src/computeProvider/testing-v1.ts",
         "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
         "./internal/run-creation-v1": "./src/runCreation/v1.ts",
         "./internal/run-read-v1": "./src/runRead/v1.ts",
@@ -148,7 +150,7 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/durable-task/package.json: version must be 0.0.1 during the private vertical.",
       "packages/durable-task/package.json: private must remain true during the private vertical.",
       "packages/durable-task/package.json: type must be module.",
-      "packages/durable-task/package.json: exports must contain only the admitted run-attempt, run-creation, run-read, scheduling, and scheduling-testing internal subpaths.",
+      "packages/durable-task/package.json: exports must contain only the admitted compute-provider, compute-provider-testing, run-attempt, run-creation, run-read, scheduling, and scheduling-testing internal subpaths.",
       "packages/durable-task/package.json: runtime dependencies must contain only workspace @flarex/utils, root-catalog effect, and workspace flarex-protocol.",
       "packages/durable-task/package.json: scripts must exactly match the admitted build, typecheck, and test commands.",
       "packages/durable-task/package.json: devDependencies must contain only root-catalog typescript and vitest.",
@@ -206,7 +208,7 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
-  it("allows only the admitted protocol JSON subpath in durable-task production", () => {
+  it("allows only the admitted protocol subpaths in durable-task production", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [
       {
         relativePath: "packages/durable-task/src/runAttempt/PersistenceCodec.ts",
@@ -215,6 +217,10 @@ describe("Trigger compatibility boundary checker", () => {
       {
         relativePath: "packages/durable-task/src/runCreation/Schema.ts",
         text: 'import { copyBytes } from "@flarex/utils/bytes";',
+      },
+      {
+        relativePath: "packages/durable-task/src/computeProvider/Model.ts",
+        text: 'import type { ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";',
       },
     ]).errors).toEqual([]);
 

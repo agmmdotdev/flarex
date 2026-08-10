@@ -2,14 +2,14 @@
 
 ## Status
 
-**Decision:** Complete DTE06-A as a docs-only source, ownership, reuse, and
-contract preflight on 2026-08-10. The next proposed implementation checkpoint
-is DTE06-B, a private host-neutral provider contract plus deterministic
-in-memory conformance adapter. DTE06-B is not authorized until separately
-approved.
+**Decision:** DTE06-A completed the docs-only source, ownership, reuse, and
+contract preflight on 2026-08-10. DTE06-B was subsequently approved and is now
+complete as a private host-neutral provider contract plus deterministic
+in-memory conformance adapter.
 
-This preflight adds no TypeScript, schema, migration, package export, Worker
-route, binding, deployment configuration, requested-effect consumer, provider
+DTE06-B adds only TypeScript and the two private package exports owned by
+`@flarex/durable-task`. It adds no database schema/migration, Worker route,
+binding, deployment configuration, requested-effect consumer, Cloudflare
 adapter, or production activation.
 
 ## Question
@@ -192,15 +192,15 @@ The roadmap now fixes these boundaries:
    references/commitments and lifecycle state only.
 10. The first implementation is private, deterministic, and production-inert.
 
-## Proposed DTE06-B Surface
+## Admitted DTE06-B Surface
 
 DTE06-B is confined to `@flarex/durable-task`. The production contract belongs
-at the proposed private
+at the private
 `@flarex/durable-task/internal/compute-provider-v1` subpath, with deterministic
-adapter construction isolated behind a proposed
-`@flarex/durable-task/internal/compute-provider-testing-v1` subpath. Exact
-export names remain subject to the DTE06-B staged review, but neither contract
-may move to `@flarex/executor`, `flarex-backend`, or a generic utility package.
+adapter construction isolated behind the private
+`@flarex/durable-task/internal/compute-provider-testing-v1` subpath. Neither
+contract may move to `@flarex/executor`, `flarex-backend`, or a generic utility
+package.
 
 `flarex-backend` later owns effect delivery, trusted resolution, and provider
 composition. The existing artifact-runtime owner later implements the
@@ -231,13 +231,14 @@ This separation proves the reusable core contract before infrastructure
 composition, while keeping DTE06-C/D/E large enough to prove real behavior
 rather than accumulating isolated helpers.
 
-## Required DTE06-B Tests
+## DTE06-B Completion Receipt
 
-Before DTE06-B can be committed, focused tests must prove:
+The admitted implementation proves:
 
 - exact request/receipt decoding, branding, ownership, and runtime freezing;
 - stable dispatch idempotency across duplicate calls;
-- no aliasing of caller-owned nested values or byte arrays;
+- no aliasing of caller-owned nested values; DTE06-B deliberately carries no
+  payload byte-array field;
 - one-read/receiver-preserving provider method capture;
 - distinct definite rejection, retryable transport, uncertainty, cancellation,
   and malformed-receipt failures;
@@ -251,16 +252,18 @@ Before DTE06-B can be committed, focused tests must prove:
 - no import from persistence, backend apps, Cloudflare Worker types, Wrangler,
   or the Trigger source island.
 
-Because DTE06-B is a significant type/behavior change, both project reviewers
-are required against the final staged diff.
+The compatibility boundary admits only the two new private exports and the
+protocol-owned replacement-scope authority type. It continues to reject
+persistence, backend, Node-host, Cloudflare, Wrangler, Prisma, Redis, and
+Trigger-island imports. Package tests, package typecheck, Effect/source-map
+checks, the compatibility boundary, and both required project reviewers are
+the completion gates.
 
 ## Deferred Decisions
 
 The following are intentionally not fixed by DTE06-A and require their owning
 checkpoint:
 
-- final private compute-provider export spelling after staged boundary review;
-- provider dispatch/cancellation codec field spellings;
 - dispatch checkpoint table shape, claim deadlines, retry ceilings, and GC;
 - whether the deployable artifact-runtime Worker uses a distinct private route
   or Workers RPC after current platform evidence is inspected;
@@ -292,9 +295,9 @@ Neither DTE06-F nor DTE05-E3 automatically activates production scheduling.
 
 ## Stop Boundary
 
-DTE06-A does not authorize:
+DTE06-B does not authorize:
 
-- implementing DTE06-B without explicit approval;
+- implementing DTE06-C without its own preflight and explicit approval;
 - changing the current action/query/mutation runtime behavior;
 - adding a generic effect-delivery engine;
 - adding or changing Task, application, OCC, commit, journal, outbox, or feed

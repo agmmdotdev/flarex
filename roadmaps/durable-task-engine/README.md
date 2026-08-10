@@ -50,14 +50,17 @@ deadline policy, database-owned lock/statement/whole-transaction limits,
 checked-out-client termination evidence and quarantine, and genuine
 PostgreSQL 18 proof. Its exact contract is recorded in
 [`preflight/32-dte05-postgres-deadline-policy.md`](./preflight/32-dte05-postgres-deadline-policy.md).
-DTE06-A now records the production-inert ComputeProvider/runtime foundation,
-including the exact Worker Loader reuse boundary, operation-specific dispatch
-and cancellation delivery ownership, and the deterministic in-memory before
-Cloudflare adapter order. Its contract is recorded in
+DTE06-A records the ComputeProvider/runtime foundation, and DTE06-B now
+completes the private production-inert provider-neutral Effect contract,
+strict dispatch/cancellation codecs and receipt correlation, plus the
+deterministic in-memory conformance adapter. The exact Worker Loader reuse
+boundary, operation-specific delivery ownership, and in-memory-before-
+Cloudflare adapter order remain fixed. Their contract and receipt are recorded in
 [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md) and
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
-Cloudflare task bindings, a scheduled Worker host, public APIs, compute
-delivery, and production activation do not exist yet.
+The provider is not wired to any host. Dispatch checkpointing, Cloudflare task
+bindings, a scheduled Worker host, public APIs, compute delivery, and
+production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,

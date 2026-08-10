@@ -2,12 +2,14 @@
 
 ## Status And Scope
 
-**Status:** Active roadmap foundation. DTE06-A is complete as a docs-only,
-production-inert source and contract preflight in
+**Status:** Active roadmap. DTE06-A's docs-only source/contract preflight and
+DTE06-B's private host-neutral provider domain are complete and
+production-inert. Their contract and implementation receipt live in
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
-No compute provider, requested-effect delivery operation, task runtime route,
-Worker binding, deployment configuration, or production activation is admitted
-by that checkpoint. DTE06-B and later checkpoints require separate approval.
+The provider port and deterministic in-memory conformance adapter now exist;
+no requested-effect delivery operation, database checkpoint, task runtime
+route, Worker binding, deployment configuration, or production activation is
+admitted. DTE06-C and later checkpoints require separate approval.
 
 Roadmaps 01 through 05 already establish first-class task definitions,
 scope-bound durable run state, fenced attempts, requested effects, Queue wake
@@ -349,7 +351,7 @@ database-uncertain lifecycle write into a retryable provider failure.
 The completion receipt is
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
 
-### DTE06-B: Host-Neutral Provider Domain — Pending
+### DTE06-B: Host-Neutral Provider Domain — Complete
 
 - add the private `@flarex/durable-task/internal/compute-provider-v1`
   `TaskComputeProvider` dispatch/cancel contract and a separate testing subpath;
@@ -358,6 +360,16 @@ The completion receipt is
 - prove duplicate dispatch, stable idempotency, cancellation generations,
   receiver preservation, timeout/interrupt semantics, and typed failures; and
 - add no database, app, Worker, route, or deployment wiring.
+
+The admitted private package subpaths are
+`@flarex/durable-task/internal/compute-provider-v1` and
+`@flarex/durable-task/internal/compute-provider-testing-v1`. The contract owns
+strict versioned dispatch/cancellation codecs, provider acceptance and
+interruption-request receipts, typed failure distinctions, receipt correlation,
+and an Effect service. The deterministic adapter proves same-identity replay,
+semantic-conflict rejection, cancellation generations, accepted-but-unknown
+recovery, receiver preservation, hostile input rejection, and interruption and
+timeout behavior without claiming Task lifecycle acknowledgement.
 
 ### DTE06-C: Dispatch Preparation And Durable Checkpoint — Pending
 
@@ -451,7 +463,8 @@ Roadmap 06 does not authorize:
 
 ## Stop Boundary
 
-DTE06-A stops at the written source and contract preflight. No code checkpoint
-is authorized by this document alone. DTE06-B begins only after explicit
-approval of its exact files, package ownership, interface surface, tests, and
-continued production-inert boundary.
+DTE06-B stops at the host-neutral provider contract and deterministic testing
+adapter. DTE06-C requires a separate schema/transaction preflight and explicit
+approval. This roadmap does not authorize effect-ledger delivery, database or
+application changes, Worker/runtime wiring, routes, bindings, deployment, or
+production activation.
