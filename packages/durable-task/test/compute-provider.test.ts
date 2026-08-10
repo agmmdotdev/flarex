@@ -22,6 +22,8 @@ import {
   encodeTaskComputeDispatchAcceptanceV1,
   encodeTaskComputeDispatchRequestV1,
   makeTaskComputeProviderV1,
+  validateTaskComputeDispatchAcceptanceV1,
+  type TaskComputeDispatchAcceptanceV1,
   type TaskComputeCancellationRequestV1,
   type TaskComputeDispatchRequestV1,
   type TaskComputeProviderShape,
@@ -106,6 +108,36 @@ describe("TaskComputeProvider V1", () => {
       ...dispatchWire(),
       maximumDurationMs: 0,
     }))).toBe(true);
+  });
+
+  it("returns typed failures for revoked records at pure and Effect boundaries", async () => {
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+
+    expect(failure(decodeTaskComputeDispatchAcceptanceV1(revoked.proxy)))
+      .toMatchObject({
+        _tag: "InvalidTaskComputeProviderValueError",
+        operation: "decode_dispatch_acceptance",
+      });
+    expect(failure(validateTaskComputeDispatchAcceptanceV1(revoked.proxy)))
+      .toMatchObject({
+        _tag: "InvalidTaskComputeProviderValueError",
+        operation: "decode_dispatch_acceptance",
+      });
+
+    const provider = makeTaskComputeProviderV1({
+      dispatch: () => Effect.succeed(
+        revoked.proxy as unknown as TaskComputeDispatchAcceptanceV1,
+      ),
+      requestCancellation: () => Effect.never,
+    });
+    expect(await Effect.runPromise(
+      provider.dispatch(request()).pipe(Effect.flip),
+    )).toMatchObject({
+      _tag: "TaskComputeDispatchContractError",
+      operation: "dispatch",
+      reason: "malformed_receipt",
+    });
   });
 
   it("attributes invalid runtime values to each encode boundary", async () => {

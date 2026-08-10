@@ -48,9 +48,50 @@ waiting-to-ready promotion, fenced cancellation reacquisition, exact receipt
 replay while Task cancellation remains requested, started terminal-race
 cleanup, lifecycle supersession across waiting/live-prestart/future-retry
 availability, known-failure exhaustion, uncertain-outcome rejection, and
-final-attempt uncertain replay beyond the known-failure ceiling. Broader hostile
-settlement/corruption coverage and the ordinary-role genuine-PostgreSQL lane
-remain required before C2 completion.
+final-attempt uncertain replay beyond the known-failure ceiling. The focused
+23-case PGlite proof now also covers hostile request and acceptance inputs,
+invalid claim-owner UUIDs, forged/cross-operation/cross-repository handles,
+stored dispatch and cancellation digest corruption without evidence
+regeneration, one direct retryable rollback and retry exhaustion, decision
+uncertainty, cleanup failure, raw defects, and interruption that waits for
+transaction settlement before closing the dispatched handle. The ordinary-role
+genuine-PostgreSQL concurrency/deadline lane remains required before C2
+completion.
+
+### Shared C1 Decoder Defect Exposed By C2 Hostile Proof
+
+**Reproducible scenario:** acquire a valid dispatch claim, then call
+`recordDispatchAcceptance` with a revoked `Proxy` as the unknown acceptance
+value. The C2 repository correctly rejects other accessor-backed requests and
+foreign handles before SQL, but the shared
+`validateTaskComputeDispatchAcceptanceV1` path reaches
+`captureExactDataRecord` in `packages/durable-task/src/computeProvider/Schema.ts`.
+That helper evaluates `Array.isArray(input)` before its exception boundary.
+
+**Expected:** the shared compute-provider decoder classifies every hostile
+unknown input as its recoverable typed validation failure. The C2 repository
+then maps it to `invalid_acceptance`, dispatches no SQL, and leaves the current
+claim handle open.
+
+**Actual:** `Array.isArray` throws `TypeError: Cannot perform 'IsArray' on a
+proxy that has been revoked`. The defect escapes the typed error channel, so
+the focused C2 PGlite hostile-input regression fails before the repository can
+apply its admitted invalid-input policy.
+
+**Affected owner and evidence:** this is a DTE06-C1 compute-provider codec
+boundary defect in `@flarex/durable-task`, not a C2 persistence transaction or
+test-harness defect. The failing regression is
+`taskComputeDeliveryRepositoryV1.test.ts` under the case named `rejects hostile
+acquisition values and foreign handles before SQL without closing a current
+handle`; the other 22 focused C2 cases pass.
+
+**Disposition:** the user separately approved the bounded C1 correction. The
+complete initial structural classification, including `Array.isArray`, now
+runs inside the existing capture exception boundary. Direct pure decode and
+validation tests plus the Effect provider-contract test prove a revoked Proxy
+returns the exact typed failure, and the C2 hostile regression proves no SQL is
+dispatched and the current handle remains usable. This correction changes no
+provider, lifecycle, schema, transaction, or activation authority.
 
 This admission changes no runtime code by itself. DTE06-C1 commit `201d85b4`
 is the required storage prerequisite. DTE06-C3 connected discovery and provider

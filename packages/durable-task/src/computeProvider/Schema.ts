@@ -546,10 +546,10 @@ function captureExactDataRecord(
   input: unknown,
   expectedKeys: ReadonlyArray<string>,
 ): Readonly<Record<string, unknown>> | undefined {
-  if (typeof input !== "object" || input === null || Array.isArray(input)) {
-    return undefined;
-  }
   try {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+      return undefined;
+    }
     const keys = Reflect.ownKeys(input);
     if (keys.length !== expectedKeys.length) return undefined;
     const expected = new Set(expectedKeys);

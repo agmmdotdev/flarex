@@ -19,7 +19,7 @@ import {
   decodeTaskCancellationGenerationV1,
   decodeTaskRunVersionV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
-import { Effect, Exit, Layer, Result } from "effect";
+import { Cause, Effect, Exit, Fiber, Layer, Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -27,8 +27,11 @@ import {
   createPGlitePersistence,
 } from "../src/pglite";
 import {
+  TaskComputeDeliveryRepositoryConfirmedRollbackV1Error,
   TaskComputeDeliveryRepositoryInputV1Error,
   TaskComputeDeliveryRepositoryConfigurationV1Error,
+  TaskComputeDeliveryRepositoryDecisionUncertainV1Error,
+  TaskComputeDeliveryRepositorySqlV1Error,
   TaskComputeDeliveryRepositoryStaleClaimV1Error,
   createLocatedTaskComputeDeliveryTargetV1,
   makeTaskComputeDeliveryRepositoryV1,
@@ -50,8 +53,17 @@ import {
   type TaskComputeDispatchKnownFailureRecordedV1,
   type TaskComputeDispatchKnownFailureV1,
 } from "../src/taskComputeDeliveryRepositoryV1";
+import { TaskComputeDeliveryEvidenceV1Error } from
+  "../src/taskComputeDeliveryEvidenceV1";
 import { makeTaskSystemRunAttemptStoreV1 } from
   "../src/taskSystemRunAttemptStoreV1";
+import type { AppRowTransaction } from "../src/appRows";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+  type RunLocatedReadCommittedTransactionV1,
+} from "../src/transactionSessionAttemptKernel";
+import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
+  "../src/transactionSessionActivation";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   ACCEPTED_ATTEMPT_UUID,
@@ -1331,6 +1343,448 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       ))).toMatchObject({ kind: "cancellation_delivered", receipt });
     });
   });
+
+  it("rejects hostile acquisition values and foreign handles before SQL without closing a current handle", async () => {
+    await withFixture(async (fixture) => {
+      const base = createDefaultLocatedReadCommittedTransactionRunnerV1(
+        fixture.persistence.drizzle,
+      );
+      let transactionCalls = 0;
+      const observedRunner: RunLocatedReadCommittedTransactionV1 =
+        async <Value>(work: (tx: AppRowTransaction) => Promise<Value>) => {
+          transactionCalls += 1;
+          return base(work);
+        };
+      const located = deliveryLocatedWithRunner(fixture, observedRunner);
+      const dispatchRepository = repository(located, CLAIM_OWNER_A);
+
+      let getterInvoked = false;
+      const hostileRequest = Object.defineProperties({}, {
+        runId: {
+          enumerable: true,
+          get: () => {
+            getterInvoked = true;
+            return fixture.runId;
+          },
+        },
+        requestedEffectSequence: {
+          enumerable: true,
+          value: fixture.dispatchSequence,
+        },
+      });
+      expect(await runEffectFailure(dispatchRepository.acquireDispatch(
+        hostileRequest as Parameters<
+          TaskComputeDeliveryRepositoryV1["acquireDispatch"]
+        >[0],
+      ))).toMatchObject({
+        operation: "acquire_dispatch",
+        reason: "invalid_request",
+      });
+      expect(getterInvoked).toBe(false);
+      expect(transactionCalls).toBe(0);
+
+      const invalidOwnerRepository = success(
+        makeTaskComputeDeliveryRepositoryV1(located, {
+          claimDurationMilliseconds: 30_000,
+          retryDelayMilliseconds: [1_000, 2_000],
+          maximumDeliveryAttempts: 3,
+          randomUuid: () => "not-a-uuid",
+        }),
+      );
+      expect(await runEffectFailure(invalidOwnerRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }))).toMatchObject({
+        operation: "acquire_dispatch",
+        reason: "claim_owner_invalid",
+      });
+      expect(transactionCalls).toBe(0);
+
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+      expect(transactionCalls).toBe(1);
+
+      const forged = Object.freeze({});
+      expect(await runEffectFailure(dispatchRepository.renewDispatchClaim(
+        forged as Parameters<
+          TaskComputeDeliveryRepositoryV1["renewDispatchClaim"]
+        >[0],
+      ))).toMatchObject({ reason: "invalid_handle" });
+      expect(await runEffectFailure(dispatchRepository.renewCancellationClaim(
+        acquired.handle as unknown as Parameters<
+          TaskComputeDeliveryRepositoryV1["renewCancellationClaim"]
+        >[0],
+      ))).toMatchObject({ reason: "invalid_handle" });
+      expect(await runEffectFailure(repository(
+        located,
+        CLAIM_OWNER_B,
+      ).renewDispatchClaim(acquired.handle))).toMatchObject({
+        reason: "invalid_handle",
+      });
+      expect(transactionCalls).toBe(1);
+
+      const revoked = Proxy.revocable({}, {});
+      revoked.revoke();
+      expect(await runEffectFailure(dispatchRepository.recordDispatchAcceptance(
+        acquired.handle,
+        revoked.proxy as Parameters<
+          TaskComputeDeliveryRepositoryV1["recordDispatchAcceptance"]
+        >[1],
+      ))).toMatchObject({ reason: "invalid_acceptance" });
+      expect(transactionCalls).toBe(1);
+      expect((await runEffect(
+        dispatchRepository.renewDispatchClaim(acquired.handle),
+      )).kind).toBe("claim_renewed");
+      expect(transactionCalls).toBe(2);
+    });
+  });
+
+  it("fails closed on stored dispatch and cancellation digest corruption without regenerating evidence", async () => {
+    await withFixture(async (fixture) => {
+      const dispatchRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+      await runEffect(
+        dispatchRepository.releaseDispatchBeforeDelivery(acquired.handle),
+      );
+      await fixture.persistence.query(`
+        update fx_system_durable_task_compute_dispatch_v1
+        set request_sha256 = $4
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [
+        TASK_SCOPE_ID,
+        fixture.runId,
+        fixture.dispatchSequence,
+        new Uint8Array(32),
+      ]);
+
+      const failure = await runEffectFailure(repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+      ).acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      expect(failure).toBeInstanceOf(TaskComputeDeliveryEvidenceV1Error);
+      expect(failure).toMatchObject({
+        operation: "decode_dispatch_request",
+        reason: "invalid_digest",
+      });
+      expect(await readClaim(
+        fixture.persistence,
+        fixture.runId,
+        fixture.dispatchSequence,
+      )).toEqual({
+        claim_owner: null,
+        claim_fence: "1",
+        delivery_state: "prepared",
+        delivery_attempt_count: "0",
+      });
+    });
+
+    await withFixture(async (fixture) => {
+      const cancellationRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      await acceptFixtureDispatch(fixture, cancellationRepository);
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      const acquired = await runEffect(cancellationRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      if (acquired.kind !== "claimed") {
+        throw new Error("cancellation was not claimed");
+      }
+      await runEffect(
+        cancellationRepository.markCancellationDeliveryStarted(acquired.handle),
+      );
+      await runEffect(cancellationRepository.recordCancellationReceipt(
+        acquired.handle,
+        cancellationReceipt(acquired.request),
+      ));
+      await fixture.persistence.query(`
+        update fx_system_durable_task_compute_cancellation_v1
+        set receipt_sha256 = $4
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [
+        TASK_SCOPE_ID,
+        fixture.runId,
+        cancellationSequence,
+        new Uint8Array(32),
+      ]);
+
+      const failure = await runEffectFailure(repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_B,
+      ).acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }));
+      expect(failure).toBeInstanceOf(TaskComputeDeliveryEvidenceV1Error);
+      expect(failure).toMatchObject({
+        operation: "decode_cancellation_receipt",
+        reason: "invalid_digest",
+      });
+      expect(await readCancellationSettlement(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toMatchObject({
+        delivery_state: "delivered",
+        claim_owner: null,
+        receipt_codec_version: 1,
+      });
+    });
+  });
+
+  it("retries one direct serialization rollback and exposes second rollback exhaustion", async () => {
+    await withFixture(async (fixture) => {
+      const injected = selectFailureRunner(fixture, 1, "40001");
+      const acquired = await runEffect(repository(
+        deliveryLocatedWithRunner(fixture, injected.run),
+        CLAIM_OWNER_A,
+      ).acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      expect(acquired.kind).toBe("claimed");
+      expect(injected.invocations()).toBe(2);
+      expect(injected.failures()).toBe(1);
+    });
+
+    await withFixture(async (fixture) => {
+      const injected = selectFailureRunner(fixture, 2, "40P01");
+      const failure = await runEffectFailure(repository(
+        deliveryLocatedWithRunner(fixture, injected.run),
+        CLAIM_OWNER_A,
+      ).acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      expect(failure).toBeInstanceOf(
+        TaskComputeDeliveryRepositoryConfirmedRollbackV1Error,
+      );
+      expect(failure).toMatchObject({ operation: "acquire_dispatch" });
+      expect(injected.invocations()).toBe(2);
+      expect(injected.failures()).toBe(2);
+      expect(await dispatchCheckpointCount(fixture)).toBe(0);
+    });
+  });
+
+  it("classifies decision uncertainty and cleanup failure while permanently closing dispatched handles", async () => {
+    await withFixture(async (fixture) => {
+      const base = createDefaultLocatedReadCommittedTransactionRunnerV1(
+        fixture.persistence.drizzle,
+      );
+      let calls = 0;
+      const uncertainRunner: RunLocatedReadCommittedTransactionV1 =
+        async <Value>(work: (tx: AppRowTransaction) => Promise<Value>) => {
+          calls += 1;
+          const value = await base(work);
+          if (calls === 2) {
+            throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+              kind: "decisionUncertain",
+              settlementCause: new Error("committed response lost"),
+            }));
+          }
+          return value;
+        };
+      const dispatchRepository = repository(
+        deliveryLocatedWithRunner(fixture, uncertainRunner),
+        CLAIM_OWNER_A,
+      );
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+      const failure = await runEffectFailure(
+        dispatchRepository.markDispatchDeliveryStarted(acquired.handle),
+      );
+      expect(failure).toBeInstanceOf(
+        TaskComputeDeliveryRepositoryDecisionUncertainV1Error,
+      );
+      expect(failure).toMatchObject({
+        operation: "mark_dispatch_delivery_started",
+      });
+      expect(await runEffectFailure(
+        dispatchRepository.renewDispatchClaim(acquired.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(calls).toBe(2);
+      expect(await readClaim(
+        fixture.persistence,
+        fixture.runId,
+        fixture.dispatchSequence,
+      )).toMatchObject({
+        delivery_state: "delivering",
+        delivery_attempt_count: "1",
+      });
+    });
+
+    await withFixture(async (fixture) => {
+      const base = createDefaultLocatedReadCommittedTransactionRunnerV1(
+        fixture.persistence.drizzle,
+      );
+      let calls = 0;
+      const cleanupRunner: RunLocatedReadCommittedTransactionV1 =
+        async <Value>(work: (tx: AppRowTransaction) => Promise<Value>) => {
+          calls += 1;
+          if (calls === 2) {
+            throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+              kind: "callbackCleanupFailed",
+              callbackCause: new Error("callback failed"),
+              transactionCause: new Error("rollback cleanup failed"),
+            }));
+          }
+          return base(work);
+        };
+      const dispatchRepository = repository(
+        deliveryLocatedWithRunner(fixture, cleanupRunner),
+        CLAIM_OWNER_A,
+      );
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+      const failure = await runEffectFailure(
+        dispatchRepository.markDispatchDeliveryStarted(acquired.handle),
+      );
+      expect(failure).toBeInstanceOf(TaskComputeDeliveryRepositorySqlV1Error);
+      expect(failure).toMatchObject({
+        operation: "mark_dispatch_delivery_started",
+        phase: "cleanup",
+      });
+      expect(await runEffectFailure(
+        dispatchRepository.renewDispatchClaim(acquired.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(calls).toBe(2);
+    });
+  });
+
+  it("preserves raw defects and waits for a dispatched transaction before interruption closes the handle", async () => {
+    await withFixture(async (fixture) => {
+      const base = createDefaultLocatedReadCommittedTransactionRunnerV1(
+        fixture.persistence.drizzle,
+      );
+      const defect = new Error("runner defect");
+      let calls = 0;
+      const defectRunner: RunLocatedReadCommittedTransactionV1 =
+        async <Value>(work: (tx: AppRowTransaction) => Promise<Value>) => {
+          calls += 1;
+          if (calls === 2) {
+            return base(async (tx) => {
+              await work(tx);
+              throw defect;
+            });
+          }
+          return base(work);
+        };
+      const dispatchRepository = repository(
+        deliveryLocatedWithRunner(fixture, defectRunner),
+        CLAIM_OWNER_A,
+      );
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+      const exit = await runEffect(Effect.exit(
+        dispatchRepository.markDispatchDeliveryStarted(acquired.handle),
+      ));
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const observed = Cause.findDefect(exit.cause);
+        expect(Result.isSuccess(observed)).toBe(true);
+        if (Result.isSuccess(observed)) expect(observed.success).toBe(defect);
+      }
+      expect(await runEffectFailure(
+        dispatchRepository.renewDispatchClaim(acquired.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(await readClaim(
+        fixture.persistence,
+        fixture.runId,
+        fixture.dispatchSequence,
+      )).toMatchObject({
+        delivery_state: "prepared",
+        delivery_attempt_count: "0",
+      });
+    });
+
+    await withFixture(async (fixture) => {
+      const base = createDefaultLocatedReadCommittedTransactionRunnerV1(
+        fixture.persistence.drizzle,
+      );
+      const entered = latch<void>();
+      const release = latch<void>();
+      let calls = 0;
+      const blockedRunner: RunLocatedReadCommittedTransactionV1 =
+        async <Value>(work: (tx: AppRowTransaction) => Promise<Value>) => {
+          calls += 1;
+          if (calls !== 2) return base(work);
+          return base(async (tx) => {
+            const value = await work(tx);
+            entered.resolve(undefined);
+            await release.promise;
+            return value;
+          });
+        };
+      const dispatchRepository = repository(
+        deliveryLocatedWithRunner(fixture, blockedRunner),
+        CLAIM_OWNER_A,
+      );
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+
+      const interruptedAfterSettlement = await runEffect(Effect.gen(function* () {
+        const operationFiber = yield* dispatchRepository
+          .markDispatchDeliveryStarted(acquired.handle)
+          .pipe(Effect.forkChild);
+        yield* Effect.promise(() => entered.promise);
+        let interruptCompleted = false;
+        const interruptFiber = yield* Fiber.interrupt(operationFiber).pipe(
+            Effect.tap(() => Effect.sync(() => {
+              interruptCompleted = true;
+            })),
+            Effect.forkChild({ startImmediately: true }),
+          );
+        const completedBeforeSettlement = interruptCompleted;
+        release.resolve(undefined);
+        yield* Fiber.join(interruptFiber);
+        return { completedBeforeSettlement, interruptCompleted };
+      }));
+      expect(interruptedAfterSettlement).toEqual({
+        completedBeforeSettlement: false,
+        interruptCompleted: true,
+      });
+      expect(await runEffectFailure(
+        dispatchRepository.renewDispatchClaim(acquired.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(await readClaim(
+        fixture.persistence,
+        fixture.runId,
+        fixture.dispatchSequence,
+      )).toMatchObject({
+        delivery_state: "delivering",
+        delivery_attempt_count: "1",
+      });
+    });
+  });
 });
 
 async function acceptFixtureDispatch(
@@ -1532,6 +1986,80 @@ function repositoryWithPolicy(
     maximumDeliveryAttempts,
     randomUuid: () => claimOwner,
   }));
+}
+
+type DeliveryFixture = Awaited<ReturnType<typeof makeFixture>>;
+
+function deliveryLocatedWithRunner(
+  fixture: DeliveryFixture,
+  runner: RunLocatedReadCommittedTransactionV1,
+) {
+  return Object.freeze({
+    authority: fixture.deliveryLocated.authority,
+    target: createLocatedTaskComputeDeliveryTargetV1(
+      fixture.persistence.drizzle,
+      TASK_LOCATOR,
+      runner,
+    ),
+  });
+}
+
+function selectFailureRunner(
+  fixture: DeliveryFixture,
+  maximumFailures: number,
+  code: "40001" | "40P01",
+) {
+  const base = createDefaultLocatedReadCommittedTransactionRunnerV1(
+    fixture.persistence.drizzle,
+  );
+  let invocationCount = 0;
+  let failureCount = 0;
+  const run: RunLocatedReadCommittedTransactionV1 =
+    async <Value>(work: (tx: AppRowTransaction) => Promise<Value>) => {
+      invocationCount += 1;
+      return base((tx) => {
+        if (failureCount >= maximumFailures) return work(tx);
+        failureCount += 1;
+        return work(new Proxy(tx, {
+          get(target, property) {
+            if (property === "select") {
+              return () => {
+                const failure = new Error("injected retryable conflict");
+                Object.defineProperty(failure, "code", {
+                  value: code,
+                  enumerable: true,
+                });
+                throw failure;
+              };
+            }
+            return Reflect.get(target, property, target);
+          },
+        }));
+      });
+    };
+  return Object.freeze({
+    run,
+    invocations: () => invocationCount,
+    failures: () => failureCount,
+  });
+}
+
+async function dispatchCheckpointCount(fixture: DeliveryFixture) {
+  const result = await fixture.persistence.query<{ count: string }>(`
+    select count(*)::text as count
+    from fx_system_durable_task_compute_dispatch_v1
+    where scope_id = $1 and run_id = $2
+      and requested_effect_sequence = $3
+  `, [TASK_SCOPE_ID, fixture.runId, fixture.dispatchSequence]);
+  return Number(result.rows[0]?.count ?? "-1");
+}
+
+function latch<Value>() {
+  let resolve!: (value: Value | PromiseLike<Value>) => void;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return Object.freeze({ promise, resolve });
 }
 
 async function withFixture(
