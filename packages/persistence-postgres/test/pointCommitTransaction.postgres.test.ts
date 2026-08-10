@@ -15,6 +15,7 @@ import {
 import {
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1ToBytes,
+  decodeAppDocumentIdentityV1,
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
@@ -94,6 +95,7 @@ import {
   type PointCommitPublicationCommandV1,
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
+  type PointCommitTransactionProofStepV1,
 } from "../src/pointCommitTransaction";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
@@ -962,6 +964,345 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         wakes: "0",
         last_commit_seq: "0",
         last_outbox_seq: "0",
+      });
+    });
+  }, 120_000);
+
+  it("orders developer-index and unique sidecars and rolls both back together", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96418c00");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "o09b_combined_rollback",
+        true,
+      );
+      const proofOptions = Object.freeze({
+        ...await prepareDeveloperIndexForPostgres(persistence, scope),
+        ...await prepareUniqueConstraintForPostgres(persistence, scope),
+      });
+      const inserted = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "o09b_combined_seed",
+        { kind: "insert", name: "o09b-seeded" },
+      );
+      await runEffect(createPublisher(persistence, proofOptions).publish(
+        inserted.publicationCommand,
+      ));
+      const insertIntent = inserted.command.rowIntents[0];
+      if (insertIntent?.kind !== "live") {
+        throw new Error("Expected an O09-B inserted document.");
+      }
+      const beforeDeveloper = await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      const beforeUnique = await uniqueKeyState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      const beforeDurable = await durableState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      const moved = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "o09b_combined_move",
+        {
+          kind: "patch",
+          documentId: insertIntent.documentId,
+          name: "o09b-moved",
+        },
+      );
+      const sidecarSteps: PointCommitTransactionProofStepV1[] = [];
+      let uniqueWrites = 0;
+      const failure = await runFailure(createPublisher(persistence, {
+        ...proofOptions,
+        afterTransactionStep: (event) => {
+          if (
+            event.step === "developerIndexEntryWritten" ||
+            event.step === "uniqueKeyWritten"
+          ) {
+            sidecarSteps.push(event.step);
+          }
+          if (event.step === "uniqueKeyWritten") {
+            uniqueWrites += 1;
+            if (uniqueWrites === 2) {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+          }
+          return Promise.resolve();
+        },
+      }).publish(moved.publicationCommand));
+      expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+      expect(sidecarSteps).toEqual([
+        "developerIndexEntryWritten",
+        "developerIndexEntryWritten",
+        "uniqueKeyWritten",
+        "uniqueKeyWritten",
+      ]);
+      expect(await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      )).toEqual(beforeDeveloper);
+      expect(await uniqueKeyState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      )).toEqual(beforeUnique);
+      expect(await durableState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      )).toEqual(beforeDurable);
+
+      await runEffect(createPublisher(persistence, proofOptions).publish(
+        moved.publicationCommand,
+      ));
+      const afterDeveloper = await developerIndexState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      const afterUnique = await uniqueKeyState(
+        persistence,
+        inserted.command.sealIdentity.scopeUuid,
+      );
+      expect(afterDeveloper.revisions).toHaveLength(3);
+      expect(afterDeveloper.current).toMatchObject([{ commitSeq: "2" }]);
+      expect(afterUnique).toMatchObject([{ commitSeq: "2" }]);
+      expect(afterDeveloper.current[0]?.encodedKeyHex).not.toBe(
+        beforeDeveloper.current[0]?.encodedKeyHex,
+      );
+      expect(afterUnique[0]?.encodedKeyHex).not.toBe(
+        beforeUnique[0]?.encodedKeyHex,
+      );
+    });
+  }, 120_000);
+
+  it("linearizes competing unique claims and permits delete then reuse", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96418e00");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "o09b_unique_contention",
+        true,
+      );
+      const sidecarSteps: PointCommitTransactionProofStepV1[] = [];
+      const proofOptions = Object.freeze({
+        ...await prepareDeveloperIndexForPostgres(persistence, scope),
+        ...await prepareUniqueConstraintForPostgres(persistence, scope),
+      });
+      const first = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "o09b_unique_first",
+        { kind: "insert", name: "o09b-shared" },
+      );
+      const second = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "o09b_unique_second",
+        { kind: "insert", name: "o09b-shared" },
+      );
+      const entered = deferredSignal();
+      const release = deferredSignal();
+      const firstPublisher = createPublisher(persistence, {
+        ...proofOptions,
+        afterTransactionStep: async (event) => {
+          if (event.step === "clockLocked") {
+            entered.resolve();
+            await release.promise;
+          }
+          if (
+            event.step === "developerIndexEntryWritten" ||
+            event.step === "uniqueKeyWritten"
+          ) {
+            sidecarSteps.push(event.step);
+          }
+        },
+      });
+      const secondPublisher = createPublisher(persistence, {
+        ...proofOptions,
+        afterTransactionStep: (event) => {
+          if (
+            event.step === "developerIndexEntryWritten" ||
+            event.step === "uniqueKeyWritten"
+          ) {
+            sidecarSteps.push(event.step);
+          }
+          return Promise.resolve();
+        },
+      });
+      const firstPromise = runEffect(
+        firstPublisher.publish(first.publicationCommand),
+      );
+      const entry = await Promise.race([
+        entered.promise.then(() => ({ kind: "entered" } as const)),
+        firstPromise.then(
+          () => ({ kind: "settled", status: "fulfilled" } as const),
+          (cause: unknown) => ({
+            kind: "settled",
+            status: "rejected",
+            cause,
+          } as const),
+        ),
+      ]);
+      if (entry.kind === "settled") {
+        release.resolve();
+        if (entry.status === "rejected") throw entry.cause;
+        throw new Error(
+          "The first O09-B publication completed before locking its scope clock.",
+        );
+      }
+      const secondPromise = runEffect(
+        secondPublisher.publish(second.publicationCommand),
+      );
+      let blockingFailure: unknown;
+      try {
+        await waitForBlockedPointCommit(persistence, 1);
+      } catch (cause) {
+        blockingFailure = cause;
+      } finally {
+        release.resolve();
+      }
+      const settlements = await Promise.allSettled([
+        firstPromise,
+        secondPromise,
+      ]);
+      if (blockingFailure !== undefined) throw blockingFailure;
+      const fulfilled = settlements.filter(
+        (settlement) => settlement.status === "fulfilled",
+      );
+      const rejected = settlements.filter(
+        (settlement) => settlement.status === "rejected",
+      );
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0]?.reason).toBeInstanceOf(AppUniqueKeyConflictError);
+      expect(sidecarSteps).toEqual([
+        "developerIndexEntryWritten",
+        "uniqueKeyWritten",
+        "developerIndexEntryWritten",
+      ]);
+
+      const scopeUuid = first.command.sealIdentity.scopeUuid;
+      expect(settlements[0]?.status).toBe("fulfilled");
+      expect(settlements[1]?.status).toBe("rejected");
+      const winnerIntent = first.command.rowIntents[0];
+      if (winnerIntent?.kind !== "live") {
+        throw new Error("Missing the O09-B winning document.");
+      }
+      const winnerDeveloper = await developerIndexState(
+        persistence,
+        scopeUuid,
+      );
+      const winnerUnique = await uniqueKeyState(persistence, scopeUuid);
+      expect(winnerDeveloper).toMatchObject({
+        revisions: [{ rowIdHex: pointRowIdHex(winnerIntent.documentId) }],
+        current: [{ rowIdHex: pointRowIdHex(winnerIntent.documentId) }],
+      });
+      expect(winnerUnique).toMatchObject([{
+        rowIdHex: pointRowIdHex(winnerIntent.documentId),
+        commitSeq: "1",
+      }]);
+      const winnerDeveloperKey = winnerDeveloper.current[0]?.encodedKeyHex;
+      const winnerUniqueKey = winnerUnique[0]?.encodedKeyHex;
+      if (winnerDeveloperKey === undefined || winnerUniqueKey === undefined) {
+        throw new Error("Missing O09-B winning sidecar keys.");
+      }
+      expect(await durableState(persistence, scopeUuid)).toEqual({
+        revisions: "1",
+        current_rows: "1",
+        commit_headers: "1",
+        commit_changes: "1",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      });
+
+      const publisher = createPublisher(persistence, proofOptions);
+      const deleted = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "o09b_unique_delete",
+        { kind: "delete", documentId: winnerIntent.documentId },
+      );
+      await runEffect(publisher.publish(deleted.publicationCommand));
+      expect(await uniqueKeyState(persistence, scopeUuid)).toEqual([]);
+      const afterDeleteDeveloper = await developerIndexState(
+        persistence,
+        scopeUuid,
+      );
+      expect(afterDeleteDeveloper.current).toEqual([]);
+      expect(afterDeleteDeveloper.revisions).toMatchObject([
+        {
+          encodedKeyHex: winnerDeveloperKey,
+          rowIdHex: pointRowIdHex(winnerIntent.documentId),
+          commitSeq: "1",
+          isTombstone: false,
+        },
+        {
+          encodedKeyHex: winnerDeveloperKey,
+          rowIdHex: pointRowIdHex(winnerIntent.documentId),
+          commitSeq: "2",
+          isTombstone: true,
+        },
+      ]);
+
+      const reused = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "o09b_unique_reuse",
+        { kind: "insert", name: "o09b-shared" },
+      );
+      await runEffect(publisher.publish(reused.publicationCommand));
+      const reusedIntent = reused.command.rowIntents[0];
+      if (reusedIntent?.kind !== "live") {
+        throw new Error("Missing the O09-B reused document.");
+      }
+      expect(reusedIntent.documentId).not.toBe(winnerIntent.documentId);
+      const afterReuseDeveloper = await developerIndexState(
+        persistence,
+        scopeUuid,
+      );
+      expect(afterReuseDeveloper.revisions).toHaveLength(3);
+      expect(afterReuseDeveloper.revisions.map((row) => row.commitSeq).sort())
+        .toEqual(["1", "2", "3"]);
+      expect(afterReuseDeveloper.revisions.filter((row) => row.isTombstone))
+        .toHaveLength(1);
+      expect(afterReuseDeveloper).toMatchObject({
+        current: [{
+          rowIdHex: pointRowIdHex(reusedIntent.documentId),
+          commitSeq: "3",
+        }],
+      });
+      expect(afterReuseDeveloper.current[0]?.encodedKeyHex).not.toBe(
+        winnerDeveloperKey,
+      );
+      expect(await uniqueKeyState(persistence, scopeUuid)).toMatchObject([{
+        encodedKeyHex: winnerUniqueKey,
+        rowIdHex: pointRowIdHex(reusedIntent.documentId),
+        commitSeq: "3",
+      }]);
+      expect(await durableState(persistence, scopeUuid)).toEqual({
+        revisions: "3",
+        current_rows: "2",
+        commit_headers: "3",
+        commit_changes: "3",
+        outcomes: "3",
+        wakes: "3",
+        last_commit_seq: "3",
+        last_outbox_seq: "3",
       });
     });
   }, 120_000);
@@ -2519,6 +2860,10 @@ async function createAttempt(
     | "mixed"
     | "duplicate"
     | Readonly<{
+      readonly kind: "insert";
+      readonly name: string;
+    }>
+    | Readonly<{
       readonly kind: "patch" | "delete";
       readonly documentId: ReturnType<typeof appDocumentIdV1FromRowIdentity>;
       readonly name?: string;
@@ -2611,7 +2956,15 @@ async function createAttempt(
         fields: { name: `${label}_replacement` },
       });
     }
-    if (typeof materialWrite === "object" && materialWrite.kind === "bulkPatch") {
+    if (typeof materialWrite === "object" && materialWrite.kind === "insert") {
+      await runPointOperation(store, table, {
+        kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        fields: { name: materialWrite.name },
+      });
+    } else if (
+      typeof materialWrite === "object" && materialWrite.kind === "bulkPatch"
+    ) {
       for (let index = 0; index < materialWrite.documentIds.length; index += 1) {
         const documentId = materialWrite.documentIds[index];
         if (documentId === undefined) throw new Error("Missing bulk-patch document ID.");
@@ -3509,6 +3862,10 @@ function compareIntrinsicIndexRows(
     : leftCommitSeq > rightCommitSeq
       ? 1
       : 0;
+}
+
+function pointRowIdHex(documentId: string): string {
+  return decodeAppDocumentIdentityV1(documentId).rowId;
 }
 
 async function replacementState(

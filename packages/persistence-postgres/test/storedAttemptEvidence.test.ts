@@ -308,6 +308,7 @@ import {
   type PointCommitPublicationResultV1,
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
+  type PointCommitTransactionProofStepV1,
 } from "../src/pointCommitTransaction";
 import {
   CommittedPointOutcomeSqlErrorV1,
@@ -5144,6 +5145,98 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const after = await uniqueKeyState(prepared.scopeUuid);
     expect(after).toMatchObject([{ commitSeq: "2" }]);
     expect(after[0]?.encodedKeyHex).not.toBe(before[0]?.encodedKeyHex);
+  });
+
+  it("orders developer-index and unique sidecars and rolls both back together", async () => {
+    const sidecarSteps: PointCommitTransactionProofStepV1[] = [];
+    let uniqueWrites = 0;
+    const prepared = await prepareO07BScenario(
+      "o09b_combined_sidecar_rollback",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Expected an O09-B seeded document.");
+        }
+        await runPointOperation(current.store, table, {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+          patch: { name: "o09b-moved" },
+        });
+      },
+      async (current) => ({
+        ...await prepareDeveloperIndexForO06(current, true),
+        ...await prepareUniqueConstraintForO06(current, true),
+        afterTransactionStep: (event) => {
+          if (
+            event.step === "developerIndexEntryWritten" ||
+            event.step === "uniqueKeyWritten"
+          ) {
+            sidecarSteps.push(event.step);
+          }
+          if (event.step === "uniqueKeyWritten") {
+            uniqueWrites += 1;
+            if (uniqueWrites === 2) {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+          }
+          return Promise.resolve();
+        },
+      }),
+      true,
+      true,
+    );
+    const beforeDeveloper = await developerIndexState(prepared.scopeUuid);
+    const beforeUnique = await uniqueKeyState(prepared.scopeUuid);
+    const beforeDurable = await o06DurableState(prepared.scopeUuid);
+
+    expect(await runFailure(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    )).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(sidecarSteps).toEqual([
+      "developerIndexEntryWritten",
+      "developerIndexEntryWritten",
+      "uniqueKeyWritten",
+      "uniqueKeyWritten",
+    ]);
+    expect(await developerIndexState(prepared.scopeUuid)).toEqual(
+      beforeDeveloper,
+    );
+    expect(await uniqueKeyState(prepared.scopeUuid)).toEqual(beforeUnique);
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual(beforeDurable);
+
+    const recovered = createO07BAuthentication(
+      prepared.current,
+      prepared.proofOptions,
+    );
+    await runEffect(recovered.resumePointCommit({
+      deploymentId: prepared.current.anchor.deploymentId,
+      scopeId: prepared.current.anchor.scopeId,
+      sessionId: prepared.current.anchor.sessionId,
+      attemptFence: prepared.current.anchor.attemptFence.toString(),
+    }));
+    const afterDeveloper = await developerIndexState(prepared.scopeUuid);
+    const afterUnique = await uniqueKeyState(prepared.scopeUuid);
+    expect(afterDeveloper.revisions).toHaveLength(3);
+    expect(afterDeveloper.current).toMatchObject([{ commitSeq: "2" }]);
+    expect(afterUnique).toMatchObject([{ commitSeq: "2" }]);
+    expect(afterDeveloper.current[0]?.encodedKeyHex).not.toBe(
+      beforeDeveloper.current[0]?.encodedKeyHex,
+    );
+    expect(afterUnique[0]?.encodedKeyHex).not.toBe(
+      beforeUnique[0]?.encodedKeyHex,
+    );
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "2",
+      current_rows: "1",
+      commit_headers: "1",
+      commit_changes: "1",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "2",
+      last_outbox_seq: "1",
+    });
   });
 
   it("advances same-key claims, releases deletes, and omits sparse keys", async () => {

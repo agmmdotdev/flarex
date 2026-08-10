@@ -1544,7 +1544,7 @@ Exit gate:
   retried;
 - real-Postgres serialization and deadlock tests pass.
 
-### [~] O09 — Add Multi-Row Atomicity And Unique Conflicts
+### [x] O09 — Add Multi-Row Atomicity And Unique Conflicts
 
 #### [x] O09-A — Admit bounded multi-material-row point commits
 
@@ -1581,8 +1581,8 @@ Outcome:
 O09-A did not add unique claims, developer-index maintenance, range or relation
 dependencies, schema/DDL, a second OCC or commit path, a public API, or
 production routing. Developer-index maintenance subsequently completed under
-the separate C08-A owner. Unique claims and the remaining complete sidecar
-contention proof stay in O09-B and keep the overall O09 gate open.
+the separate C08-A owner, unique maintenance completed under C08-B, and O09-B
+has now closed their integrated contention and rollback proof.
 
 Exit gate:
 
@@ -1611,14 +1611,23 @@ Durable acceptance includes:
   120-second aggregate contention budgets. Exact run timings and environment
   receipts belong in the task or commit report rather than this living roadmap.
 
-#### [ ] O09-B — Add unique conflicts and complete sidecar contention proof
+#### [x] O09-B — Add unique conflicts and complete sidecar contention proof
 
 Outcome:
 
-- Validate and publish unique claims in the same transaction.
-- Translate database constraint races into stable typed conflicts/errors.
-- Preserve C08-A's deterministic developer-index actions while proving their
-  interaction with ordered unique-claim acquisition, rollback, and contention.
+- Unique claims are validated and published in the existing point-commit
+  transaction after canonically ordered C08-A developer-index actions.
+- Competing same-scope publications serialize through the existing scope
+  clock; exactly one claim publishes and the loser returns the stable
+  `AppUniqueKeyConflictError` without an application row, index entry, commit
+  feed, outcome, outbox record, or scope-head advance.
+- Combined developer-index key moves and ordered unique release/claim actions
+  are faulted after both sidecar kinds have written and roll back together with
+  the application row and all publication evidence on PGlite and PostgreSQL.
+- Deleting the winning owner releases both live sidecars, and a later row can
+  reuse the exact S11 key. Immutable developer-index history retains the old
+  row's live/tombstone chain and the new row's distinct live key, including its
+  required creation-time ordering component.
 
 Exit gate:
 
@@ -1626,10 +1635,18 @@ Exit gate:
   rollback pass on PGlite and real Postgres;
 - Payload and Medusa behavior remains excluded.
 
+Durable acceptance uses the dedicated `test:o09-b:pglite` and
+`test:o09-b:postgres` lanes. The exact final receipt is 88/88 PGlite cases and
+27/27 isolated genuine-PostgreSQL 18.3 cases, including the integrated sidecar
+rollback/order proof and real concurrent unique-claim loser. The persistence
+package typecheck is green. This checkpoint adds tests and roadmap truth only;
+it changes no schema, migration, production transaction behavior, public API,
+activation, routing, Payload, or Medusa owner.
+
 C04C1 historically rejected more than one material logical row. O09-A owns the
 first accepted multi-row point contract; C08-A now owns bounded deterministic
-developer-index ordering, while O09-B retains unique-lock/write ordering and
-the complete contention proof across both sidecar kinds.
+developer-index ordering, C08-B owns unique lowering and eligibility, and
+O09-B now supplies the complete contention proof across both sidecar kinds.
 
 ### [ ] O10 — Prove One Exact Indexed Dependency
 

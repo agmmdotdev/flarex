@@ -521,7 +521,8 @@ capability is useful. O06 already owns the reusable authority locks,
 revalidation, O05 adaptation, and tentative revision/current lowering. O07-B owns
   sequence/time allocation and durable publication; O09-A now owns multi-row
   point ordering, C08-A owns bounded deterministic developer-index actions,
-  and O09-B retains unique ordering plus complete sidecar contention proof.
+  and O09-B now proves unique ordering plus complete sidecar contention and
+  rollback.
 
 ### [x] C05-A — Enter Finishing And Mint The Private Continuation
 
@@ -932,7 +933,8 @@ exact facet under the existing readiness transaction and preserve the prior
 `indexReadinessRootSha256` formula when no unique bindings exist; it may not
 accept the receipt's own root as proof or widen activation incidentally. A
 binding without closure, enabled build, or the exact B2 facet remains
-ineligible. `O09-B` contention/stress acceptance also remains open. No
+ineligible. `O09-B` contention/stress acceptance is now complete through the
+dedicated PGlite and genuine-PostgreSQL integrated sidecar lanes. No
 activation, active-reader, routing, alternate commit owner, or production
 eligibility is introduced by this checkpoint.
 
