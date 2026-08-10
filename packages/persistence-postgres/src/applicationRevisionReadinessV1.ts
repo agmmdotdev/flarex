@@ -71,6 +71,13 @@ import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "./transactionSessionActivation";
 import {
+  loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect,
+  validatePointCommitUniqueConstraintEligibilityInTransactionV1Effect,
+  type AppUniqueConstraintSetEligibilityResultV1,
+  type LoadPointCommitUniqueConstraintEligibilityV1Error,
+  type ValidatePointCommitUniqueConstraintEligibilityV1Error,
+} from "./pointCommitTransaction";
+import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
@@ -134,6 +141,8 @@ export interface ApplicationRevisionReadinessColdMaterializationPortV1<E> {
 export interface ApplicationRevisionReadinessContextV1<E> {
   readonly deploymentId: string;
   readonly controlDb: FlarexMetadataDatabase;
+  /** Exact C08-B1/B2 point-commit composition; structural copies fail closed. */
+  readonly pointCommit: unknown;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedApplicationRevisionReadinessTargetV1
   >;
@@ -147,7 +156,10 @@ export interface ApplicationRevisionReadinessContextV1<E> {
 export type ApplicationRevisionReadinessNotReadyReasonV1 =
   | "registrationIncomplete"
   | "physicalBuildMissing"
-  | "physicalBuildNotEnabled";
+  | "physicalBuildNotEnabled"
+  | "uniqueConstraintSetNotClosed"
+  | "uniqueConstraintBuildMissing"
+  | "uniqueConstraintBuildNotEnabled";
 
 export type SettleApplicationRevisionReadinessV1Result =
   | Readonly<{
@@ -227,6 +239,8 @@ export type SettleApplicationRevisionReadinessV1Error<E> =
   | ReadAppIndexDefinitionError
   | ReadAppSchemaVersionIndexBindingError
   | DeclarativeV2Sha256V1Error
+  | LoadPointCommitUniqueConstraintEligibilityV1Error
+  | ValidatePointCommitUniqueConstraintEligibilityV1Error
   | E;
 
 type RevisionRow = typeof fxSystemApplicationRevisionsV1.$inferSelect;
@@ -238,6 +252,9 @@ export interface ApplicationRevisionReadinessPreparedEvidenceV1 {
   readonly candidate: DeclarativeV2CandidateFrameV1;
   readonly publication: LoadedCandidateRuntimePublicationV1;
   readonly requirements: PublishedPhysicalRequirementSnapshotV1;
+  readonly pointCommit: unknown;
+  readonly uniqueConstraintEligibility:
+    AppUniqueConstraintSetEligibilityResultV1;
   readonly coldReceipts: ReadonlyArray<ApplicationRevisionReadinessColdReceiptV1>;
   readonly runtimePublicationRootSha256: Uint8Array;
   readonly coldMaterializationRootSha256: Uint8Array;
@@ -258,9 +275,12 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
       reason: "invalidRevisionId",
     });
   }
+  const pointCommit = context.pointCommit;
+  const controlDb = context.controlDb;
+  const authorityPorts = context.authority;
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
     context.deploymentId,
-    context.authority,
+    authorityPorts,
   );
   const db = located.target[READINESS_TARGET_DB];
   const revision = yield* loadRevision(db, revisionId);
@@ -290,7 +310,7 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
     publication,
   ));
   const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(
-    context.controlDb,
+    controlDb,
     Object.freeze({
       deploymentId: revision.deploymentId,
       schemaVersionId: revision.schemaVersionId,
@@ -317,6 +337,17 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
       detail: "the physical definition set exceeds the readiness bound",
     });
   }
+  const uniqueConstraintEligibility = yield*
+    loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect(
+      pointCommit,
+      Object.freeze({
+        deploymentId: revision.deploymentId,
+        scopeId: located.authority.scopeId,
+        schemaVersionId: revision.schemaVersionId,
+      }),
+      controlDb,
+      authorityPorts,
+    );
   const existingVerdict = yield* loadExistingVerdict(
     db,
     located.authority.scopeId,
@@ -330,8 +361,18 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
       publication,
       requirements,
       existingVerdict,
+      pointCommit,
+      uniqueConstraintEligibility,
     );
     return yield* runReadinessTransaction(prepared, context);
+  }
+  if (uniqueConstraintEligibility.status === "not_ready") {
+    return yield* Effect.fromResult(
+      readinessNotReadyFromUniqueConstraintEligibility(
+        revisionId,
+        uniqueConstraintEligibility,
+      ),
+    );
   }
   const runtimePublicationRootSha256 = yield* hashRoot(
     "runtime-publication",
@@ -358,6 +399,8 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
     candidate,
     publication,
     requirements,
+    pointCommit,
+    uniqueConstraintEligibility,
     coldReceipts: normalizedColdReceipts,
     runtimePublicationRootSha256,
     coldMaterializationRootSha256,
@@ -417,6 +460,8 @@ export const prepareStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
   publication: LoadedCandidateRuntimePublicationV1,
   requirements: PublishedPhysicalRequirementSnapshotV1,
   existingVerdict: typeof fxSystemDeclarativeV2Verdicts.$inferSelect,
+  pointCommit: unknown,
+  uniqueConstraintEligibility: AppUniqueConstraintSetEligibilityResultV1,
 ): Effect.fn.Return<
   ApplicationRevisionReadinessPreparedEvidenceV1,
   | ApplicationRevisionReadinessStaleAuthorityV1Error
@@ -501,6 +546,8 @@ export const prepareStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
     candidate: publication.candidate,
     publication,
     requirements,
+    pointCommit,
+    uniqueConstraintEligibility,
     coldReceipts,
     runtimePublicationRootSha256,
     coldMaterializationRootSha256,
@@ -517,7 +564,8 @@ export type LoadStoredApplicationRevisionReadinessEvidenceV1Error =
   | ReadSchemaVersionArtifactError
   | ReadAppIndexDefinitionError
   | ReadAppSchemaVersionIndexBindingError
-  | DeclarativeV2Sha256V1Error;
+  | DeclarativeV2Sha256V1Error
+  | LoadPointCommitUniqueConstraintEligibilityV1Error;
 
 export const loadStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
   "ApplicationRevisionReadiness.loadStoredEvidence",
@@ -525,6 +573,8 @@ export const loadStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
   revisionId: string,
   deploymentId: string,
   controlDb: FlarexMetadataDatabase,
+  pointCommit: unknown,
+  authorityPorts: TrustedScopeAuthorityResolutionPorts,
   located: LocatedTrustedScopeAuthority<
     LocatedApplicationRevisionReadinessTargetV1
   >,
@@ -568,6 +618,17 @@ export const loadStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
     revision.attemptSha256,
   );
   if (existingVerdict === null) return null;
+  const uniqueConstraintEligibility = yield*
+    loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect(
+      pointCommit,
+      Object.freeze({
+        deploymentId: revision.deploymentId,
+        scopeId: located.authority.scopeId,
+        schemaVersionId: revision.schemaVersionId,
+      }),
+      controlDb,
+      authorityPorts,
+    );
   return yield* prepareStoredApplicationRevisionReadinessEvidenceV1(
     revision,
     located.authority,
@@ -575,6 +636,8 @@ export const loadStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
     publication,
     requirements,
     existingVerdict,
+    pointCommit,
+    uniqueConstraintEligibility,
   );
 });
 
@@ -652,6 +715,7 @@ const settleInTransaction = Effect.fn(
   | ApplicationRevisionReadinessStaleAuthorityV1Error
   | ApplicationRevisionReadinessCorruptionV1Error
   | ApplicationRevisionReadinessIntegrationV1Error
+  | ValidatePointCommitUniqueConstraintEligibilityV1Error
   | DeclarativeV2Sha256V1Error
 > {
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
@@ -682,6 +746,7 @@ const settleWithLockedClock = Effect.fn(
   | ApplicationRevisionReadinessStaleAuthorityV1Error
   | ApplicationRevisionReadinessCorruptionV1Error
   | ApplicationRevisionReadinessIntegrationV1Error
+  | ValidatePointCommitUniqueConstraintEligibilityV1Error
   | DeclarativeV2Sha256V1Error
 > {
   const revisionId = prepared.revision.revisionId;
@@ -854,28 +919,45 @@ const settleWithLockedClock = Effect.fn(
       );
     }
   }
+  const uniqueConstraintEligibility = yield*
+    revalidateUniqueConstraintEligibilityWithLockedClock(
+      tx,
+      prepared,
+      clock,
+    );
+  if (uniqueConstraintEligibility.status === "not_ready") {
+    return yield* Effect.fromResult(
+      readinessNotReadyFromUniqueConstraintEligibility(
+        revisionId,
+        uniqueConstraintEligibility,
+      ),
+    );
+  }
   const enabledBuildRootSha256 = yield* hashRoot(
     "enabled-builds",
-    buildRows.flatMap(build => {
-      const definition = prepared.requirements.definitions.find(
-        item => item.indexDefinitionId === build.indexDefinitionId,
-      );
-      if (definition === undefined) return [];
-      return [
-      u64(BigInt(build.indexDefinitionId)),
-      u64(BigInt(definition.physicalSpecCodecVersion)),
-      UTF8.encode(definition.physicalSpecBytesHex),
-      UTF8.encode(definition.physicalSpecSha256Hex),
-      UTF8.encode(build.storageGeneration),
-      u64(build.storageGenerationFence),
-      UTF8.encode(build.epoch),
-      u64(build.startCommitSeq),
-      UTF8.encode(build.lifecycle),
-      u64(BigInt(build.cursorCodecVersion)),
-      build.backfillCursorRowId ?? new Uint8Array(),
-      u64(build.attemptFence),
-      ];
-    }),
+    [
+      ...buildRows.flatMap(build => {
+        const definition = prepared.requirements.definitions.find(
+          item => item.indexDefinitionId === build.indexDefinitionId,
+        );
+        if (definition === undefined) return [];
+        return [
+          u64(BigInt(build.indexDefinitionId)),
+          u64(BigInt(definition.physicalSpecCodecVersion)),
+          UTF8.encode(definition.physicalSpecBytesHex),
+          UTF8.encode(definition.physicalSpecSha256Hex),
+          UTF8.encode(build.storageGeneration),
+          u64(build.storageGenerationFence),
+          UTF8.encode(build.epoch),
+          u64(build.startCommitSeq),
+          UTF8.encode(build.lifecycle),
+          u64(BigInt(build.cursorCodecVersion)),
+          build.backfillCursorRowId ?? new Uint8Array(),
+          u64(build.attemptFence),
+        ];
+      }),
+      ...uniqueConstraintReadinessRootItems(uniqueConstraintEligibility),
+    ],
   );
   const existingRows = yield* query(tx.select()
     .from(fxSystemDeclarativeV2Verdicts)
@@ -969,6 +1051,7 @@ export type ValidateStoredApplicationRevisionReadinessEvidenceV1Error =
   | ApplicationRevisionReadinessStaleAuthorityV1Error
   | ApplicationRevisionReadinessCorruptionV1Error
   | ApplicationRevisionReadinessIntegrationV1Error
+  | ValidatePointCommitUniqueConstraintEligibilityV1Error
   | DeclarativeV2Sha256V1Error;
 
 export const validateStoredApplicationRevisionReadinessEvidenceInTransactionV1 =
@@ -1363,6 +1446,93 @@ function revisionRowsEqual(left: RevisionRow, right: RevisionRow): boolean {
     digests.every(([leftDigest, rightDigest]) =>
       bytesEqualFullScan(leftDigest, rightDigest)
     );
+}
+
+const revalidateUniqueConstraintEligibilityWithLockedClock = Effect.fn(
+  "ApplicationRevisionReadiness.revalidateUniqueConstraintEligibility",
+)(function* (
+  tx: AppRowTransaction,
+  prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
+  clock: ScopeClockRecord,
+): Effect.fn.Return<
+  AppUniqueConstraintSetEligibilityResultV1,
+  ValidatePointCommitUniqueConstraintEligibilityV1Error
+> {
+  const eligibility = prepared.uniqueConstraintEligibility;
+  if (eligibility.status !== "eligible") return eligibility;
+  return yield*
+    validatePointCommitUniqueConstraintEligibilityInTransactionV1Effect(
+      prepared.pointCommit,
+      tx,
+      eligibility.evidence,
+      prepared.authority,
+      clock,
+    );
+});
+
+function uniqueConstraintReadinessRootItems(
+  eligibility: Exclude<
+    AppUniqueConstraintSetEligibilityResultV1,
+    { readonly status: "not_ready" }
+  >,
+): ReadonlyArray<Uint8Array> {
+  if (eligibility.status === "not_required") return [];
+  const evidence = eligibility.evidence;
+  return [
+    UTF8.encode("unique-constraint-set/v1"),
+    UTF8.encode(evidence.deploymentId),
+    UTF8.encode(evidence.scopeId),
+    UTF8.encode(evidence.schemaVersionId),
+    u64(BigInt(evidence.definitionCount)),
+    UTF8.encode(evidence.definitionSetSha256Hex),
+    u64(BigInt(evidence.tableIds.length)),
+    ...evidence.tableIds.map(tableId => u64(BigInt(tableId))),
+    UTF8.encode(evidence.storageGeneration),
+    u64(evidence.storageGenerationFence),
+    UTF8.encode(evidence.epoch),
+    u64(evidence.startCommitSeq),
+    u64(evidence.attemptFence),
+  ];
+}
+
+function readinessNotReadyFromUniqueConstraintEligibility(
+  revisionId: string,
+  eligibility: Extract<
+    AppUniqueConstraintSetEligibilityResultV1,
+    { readonly status: "not_ready" }
+  >,
+): Result.Result<
+  SettleApplicationRevisionReadinessV1Result,
+  ApplicationRevisionReadinessStaleAuthorityV1Error
+> {
+  switch (eligibility.reason) {
+    case "buildStale":
+      return Result.fail(new ApplicationRevisionReadinessStaleAuthorityV1Error({
+        revisionId,
+        reason: "buildState",
+      }));
+    case "setNotClosed":
+      return Result.succeed(notReady(
+        revisionId,
+        "uniqueConstraintSetNotClosed",
+        undefined,
+        eligibility.lifecycle,
+      ));
+    case "buildMissing":
+      return Result.succeed(notReady(
+        revisionId,
+        "uniqueConstraintBuildMissing",
+        undefined,
+        eligibility.lifecycle,
+      ));
+    case "buildNotEnabled":
+      return Result.succeed(notReady(
+        revisionId,
+        "uniqueConstraintBuildNotEnabled",
+        undefined,
+        eligibility.lifecycle,
+      ));
+  }
 }
 
 function readyResult(

@@ -106,6 +106,8 @@ export function createLocatedApplicationRevisionActivationTargetV1(
 export interface ApplicationRevisionActivationContextV1 {
   readonly deploymentId: string;
   readonly controlDb: FlarexMetadataDatabase;
+  /** Exact C08-B1/B2 point-commit composition used by FSV04 replay. */
+  readonly pointCommit: unknown;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedApplicationRevisionActivationTargetV1
   >;
@@ -188,7 +190,10 @@ export class ApplicationRevisionActivationNotReadyV1Error
       | "readinessMissing"
       | "registrationIncomplete"
       | "physicalBuildMissing"
-      | "physicalBuildNotEnabled";
+      | "physicalBuildNotEnabled"
+      | "uniqueConstraintSetNotClosed"
+      | "uniqueConstraintBuildMissing"
+      | "uniqueConstraintBuildNotEnabled";
   }> {}
 
 export class ApplicationRevisionAlreadyActiveV1Error
@@ -317,15 +322,20 @@ export const activateApplicationRevisionV1 = Effect.fn(
   const capturedExpected = yield* Effect.fromResult(
     captureExpectedActiveRevision(expectedActiveRevision),
   );
+  const pointCommit = context.pointCommit;
+  const controlDb = context.controlDb;
+  const authorityPorts = context.authority;
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
     context.deploymentId,
-    context.authority,
+    authorityPorts,
   );
   yield* requireSupportedTarget(located.authority.physicalLocator);
   const prepared = yield* loadStoredApplicationRevisionReadinessEvidenceV1(
     revisionId,
     context.deploymentId,
-    context.controlDb,
+    controlDb,
+    pointCommit,
+    authorityPorts,
     located,
   );
   if (prepared === null) {
@@ -350,9 +360,12 @@ export const readActiveApplicationRevisionV1 = Effect.fn(
   ReadActiveApplicationRevisionV1Error,
   Scope.Scope
 > {
+  const pointCommit = context.pointCommit;
+  const controlDb = context.controlDb;
+  const authorityPorts = context.authority;
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
     context.deploymentId,
-    context.authority,
+    authorityPorts,
   );
   yield* requireSupportedTarget(located.authority.physicalLocator);
   const hint = yield* loadActiveRevisionHint(
@@ -363,7 +376,9 @@ export const readActiveApplicationRevisionV1 = Effect.fn(
   const prepared = yield* loadStoredApplicationRevisionReadinessEvidenceV1(
     hint.applicationRevisionId,
     context.deploymentId,
-    context.controlDb,
+    controlDb,
+    pointCommit,
+    authorityPorts,
     located,
   );
   if (prepared === null) {

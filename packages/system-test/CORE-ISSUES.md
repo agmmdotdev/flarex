@@ -14,6 +14,44 @@ fixture succeeds.
 
 ## Open Issues
 
+### `ST-CORE-018` - SAP06-A2 fixture omits the application-error platform module
+
+- **Status:** Open; reproduced independently during the FSV04/FSV05 C08
+  readiness-fold regression run on 2026-08-10. No runtime owner was changed in
+  that readiness slice.
+- **Reproduction:** Run
+  `pnpm --filter @flarex/system-test test:pglite` or the focused
+  `sap06A2MutationInternalQuery.test.ts` lane. Workerd fails to start because
+  `worker.js` imports `_flarex/application-error-platform-v1.js`, but the test
+  runtime module registry does not provide it.
+- **Expected:** The focused journal-boundary mapping test constructs the same
+  complete generated Worker module graph as the accepted mutation runtime.
+- **Actual:** Miniflare reports `No such module
+  "_flarex/application-error-platform-v1.js"` before dispatch.
+- **Owner and trust boundary:** SAP06-A2 generated-Worker fixture composition
+  and the host-private application-error platform module registry.
+- **Current disposition:** Fix only through that runtime-fixture owner. Do not
+  add a fallback module or weaken the journal-boundary assertion.
+
+### `ST-CORE-017` - FSV03 fixture still emits Host Response V1
+
+- **Status:** Open; reproduced independently during the FSV04/FSV05 C08
+  readiness-fold regression run on 2026-08-10. No executor or host-response
+  owner was changed in that readiness slice.
+- **Reproduction:** Run the focused
+  `fsv03PrivateAnalyzerToPostgres.test.ts` PGlite lane. Its in-process runtime
+  returns `flarex.point-mutation-exact-runtime-host-response` version 1 with a
+  nested V1 result.
+- **Expected:** The fixture returns the current strict Host Response V2 shape
+  consumed by `PointMutationExactRuntimeRunner`.
+- **Actual:** The protocol decoder fails `invalidShape` with `Expected 2, got
+  1` at `version`, before the end-to-end mutation completes.
+- **Owner and trust boundary:** FSV03 test-owned in-process exact-runtime host
+  adapter and the current Host Response V2 protocol boundary.
+- **Current disposition:** Correct the fixture in a separately approved
+  bounded test-maintenance slice; do not reintroduce V1 acceptance or a dual
+  decoder.
+
 ### `ST-CORE-016` — the point commit planner admitted only one material row
 
 - **Status:** Resolved and accepted. PGlite core and real Standard cooking

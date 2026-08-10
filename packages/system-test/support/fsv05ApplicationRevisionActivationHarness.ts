@@ -1,6 +1,7 @@
 import type {
   StandardApplicationDefinitionInputV1,
 } from "@flarex/standard-application-definition/v1";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Cause, Data, Effect, Exit, Result } from "effect";
 import {
   canonicalizeAppDocumentV1,
@@ -18,6 +19,9 @@ import { decodeReplacementScopeIdV1 } from
 import {
   MAX_APPLICATION_REVISION_ACTIVATION_REVISION_V1,
 } from "flarex-protocol/internal/application-revision-activation-request-v1";
+import {
+  decodeApplicationRevisionReadinessReceiptV1,
+} from "flarex-protocol/internal/application-revision-readiness-v1";
 
 import {
   makePrivateApplicationRevisionActivationCoordinatorV1,
@@ -56,6 +60,7 @@ import {
 } from "./fsv03PrivateAnalyzerToPostgresHarness";
 import {
   authorityPorts,
+  prepareReadinessUniqueConstraintSetEffectV1,
   readinessContext,
 } from "./fsv04ApplicationRevisionReadinessHarness";
 import {
@@ -74,6 +79,7 @@ export class Fsv05ReadyRevisionFixtureV1Error extends Data.TaggedError(
 )<{
   readonly phase:
     | "register"
+    | "prepareUniqueConstraintSet"
     | "reconcile"
     | "buildIntrinsicIndex"
     | "settleReadiness";
@@ -106,6 +112,9 @@ export interface Fsv05ApplicationRevisionActivationProofV1 {
   readonly alreadyActiveRejected: true;
   readonly overflowCasRejected: true;
   readonly invalidatedReadinessRejected: true;
+  readonly uniqueConstraintNotReadyRejected: true;
+  readonly uniqueConstraintDriftRejected: true;
+  readonly nonEmptyEnabledBuildRootSha256Hex: string;
   readonly readerDriftStale: true;
   readonly concurrentReplacement: readonly ["inserted", "stale"];
   readonly uncertaintyDisposition: "replayed";
@@ -297,6 +306,29 @@ export async function proveFsv05ApplicationRevisionActivationV1(
   await lane.persistence.query(
     "update fx_system_index_build_state set lifecycle = 'enabled'",
   );
+  await lane.persistence.query(
+    `update fx_system_unique_constraint_set_build
+        set lifecycle = 'validating'
+      where schema_version_id = $1`,
+    [second.schemaVersionId],
+  );
+  const uniqueConstraintNotReady = await Effect.runPromise(
+    Effect.exit(Effect.scoped(coordinator.activate(
+      second.revisionId,
+      firstActive.expectedActiveRevision,
+      second.context,
+    ))),
+  );
+  requireFailureTag(
+    uniqueConstraintNotReady,
+    "ApplicationRevisionActivationNotReadyV1Error",
+  );
+  await lane.persistence.query(
+    `update fx_system_unique_constraint_set_build
+        set lifecycle = 'enabled'
+      where schema_version_id = $1`,
+    [second.schemaVersionId],
+  );
   let driftActivationCompleted = false;
   const driftRead = await Effect.runPromise(Effect.exit(Effect.scoped(
     coordinator.readActive(Object.freeze({
@@ -321,6 +353,25 @@ export async function proveFsv05ApplicationRevisionActivationV1(
   if (secondActive.metadata.applicationRevisionId !== second.revisionId) {
     throw new Error("FSV05 coherent reader did not observe drift activation.");
   }
+  await lane.persistence.query(
+    `update fx_system_unique_constraint_set_build
+        set attempt_fence = attempt_fence + 1
+      where schema_version_id = $1`,
+    [second.schemaVersionId],
+  );
+  const uniqueConstraintDrift = await Effect.runPromise(Effect.exit(
+    Effect.scoped(coordinator.readActive(second.context)),
+  ));
+  requireFailureTag(
+    uniqueConstraintDrift,
+    "ApplicationRevisionReadinessStaleAuthorityV1Error",
+  );
+  await lane.persistence.query(
+    `update fx_system_unique_constraint_set_build
+        set attempt_fence = attempt_fence - 1
+      where schema_version_id = $1`,
+    [second.schemaVersionId],
+  );
 
   const third = await prepareFsv05ReadyRevisionFixtureV1(
     lane,
@@ -378,6 +429,7 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     loser.deploymentId,
     lane.persistence,
     uncertain.target,
+    artifacts,
   );
   const uncertainReceipt = await Effect.runPromise(Effect.scoped(
     activateApplicationRevisionV1(
@@ -406,6 +458,7 @@ export async function proveFsv05ApplicationRevisionActivationV1(
       fifth.deploymentId,
       lane.persistence,
       failedObservationTarget.target,
+      artifacts,
     ),
     faultAfter: (point: "afterActivationRevisionInsert" |
       "afterActivationHeadWrite" | "beforeUncertaintyObservation") => {
@@ -444,6 +497,7 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     fifth.deploymentId,
     lane.persistence,
     coldTarget,
+    artifacts,
   );
   const cold = await Effect.runPromise(Effect.scoped(
     readActiveApplicationRevisionV1(coldContext),
@@ -663,6 +717,10 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     alreadyActiveRejected: true,
     overflowCasRejected: true,
     invalidatedReadinessRejected: true,
+    uniqueConstraintNotReadyRejected: true,
+    uniqueConstraintDriftRejected: true,
+    nonEmptyEnabledBuildRootSha256Hex:
+      first.enabledBuildRootSha256Hex,
     readerDriftStale: true,
     concurrentReplacement: ["inserted", "stale"] as const,
     uncertaintyDisposition: "replayed",
@@ -716,6 +774,18 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
       cause,
     }),
   });
+  yield* prepareReadinessUniqueConstraintSetEffectV1(
+    lane.persistence,
+    registered.deploymentId,
+    registered.registered.schemaVersionId,
+  ).pipe(
+    Effect.mapError(cause => new Fsv05ReadyRevisionFixtureV1Error({
+      phase: "prepareUniqueConstraintSet",
+      message:
+        `FSV05 could not prepare the unique set for ${variant ?? "base"}.`,
+      cause,
+    })),
+  );
   const target = lane.makeActivationTarget();
   const context = readinessContext(
     registered.deploymentId,
@@ -723,13 +793,16 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
     target,
     artifacts,
   );
-  const reconciliation = yield* reconcilePublishedIndexBuildsV1Effect({
+  const reconciliation = yield* reconcilePublishedIndexBuildsV1Effect(
+    {
       controlDb: lane.persistence.drizzle,
       authority: authorityPorts(lane.persistence, target),
-    }, {
+    },
+    {
       deploymentId: registered.deploymentId,
       schemaVersionId: registered.registered.schemaVersionId,
-    });
+    },
+  );
   if (reconciliation.status !== "reconciled") {
     return yield* Effect.fail(new Fsv05ReadyRevisionFixtureV1Error({
       phase: "reconcile",
@@ -739,14 +812,17 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
   }
   for (const indexDefinitionId of reconciliation.definitionIds) {
     for (let step = 0; step < 64; step += 1) {
-      const result = yield* buildIntrinsicCreationTimeIndexV1Effect({
+      const result = yield* buildIntrinsicCreationTimeIndexV1Effect(
+        {
           controlDb: lane.persistence.drizzle,
           authority: authorityPorts(lane.persistence, target),
-        }, {
+        },
+        {
           deploymentId: registered.deploymentId,
           indexDefinitionId,
           pageSize: 4,
-        });
+        },
+      );
       if (result.lifecycle === "enabled") break;
       if (step === 63) {
         return yield* Effect.fail(new Fsv05ReadyRevisionFixtureV1Error({
@@ -770,14 +846,24 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
       cause: new Error(`FSV05 revision remained not ready: ${ready.reason}.`),
     }));
   }
+  const receipt = Result.getOrThrow(
+    decodeApplicationRevisionReadinessReceiptV1(
+      ready.readinessReceiptBytes,
+    ),
+  );
   return Object.freeze({
     deploymentId: registered.deploymentId,
     revisionId: registered.registered.revisionId,
-    context: activationContext(
-      registered.deploymentId,
-      lane.persistence,
-      target,
+    schemaVersionId: registered.registered.schemaVersionId,
+    enabledBuildRootSha256Hex: encodeBytesToLowercaseHex(
+      receipt.frame.enabledBuildRootSha256,
     ),
+    context: Object.freeze({
+      deploymentId: registered.deploymentId,
+      controlDb: lane.persistence.drizzle,
+      pointCommit: context.pointCommit,
+      authority: context.authority,
+    }),
   });
 });
 
@@ -802,11 +888,19 @@ function activationContext(
   deploymentId: string,
   persistence: Persistence,
   target: LocatedApplicationRevisionActivationTargetV1,
+  artifacts: ReturnType<typeof makeMemoryRuntimeArtifactStoreV1>,
 ): ApplicationRevisionActivationContextV1 {
+  const readiness = readinessContext(
+    deploymentId,
+    persistence,
+    target,
+    artifacts,
+  );
   return Object.freeze({
     deploymentId,
     controlDb: persistence.drizzle,
-    authority: authorityPorts(persistence, target),
+    pointCommit: readiness.pointCommit,
+    authority: readiness.authority,
   });
 }
 

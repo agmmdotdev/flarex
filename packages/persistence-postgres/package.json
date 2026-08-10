@@ -33,6 +33,7 @@
     "./internal/index-build-reconciliation-v1": "./src/indexBuildReconciliation.ts",
     "./internal/app-developer-index-commit-v1": "./src/appDeveloperIndexCommitV1.ts",
     "./internal/app-unique-constraint-commit-v1": "./src/appUniqueConstraintCommitV1.ts",
+    "./internal/app-unique-constraint-definitions-v1": "./src/appUniqueConstraintDefinitions.ts",
     "./internal/app-unique-constraint-set-closure-v1": "./src/appUniqueConstraintSetClosureV1.ts",
     "./internal/app-unique-constraint-set-build-v1": "./src/appUniqueConstraintSetBuildV1.ts",
     "./internal/intrinsic-creation-time-index-build-v1": "./src/intrinsicCreationTimeIndexBuildV1.ts",

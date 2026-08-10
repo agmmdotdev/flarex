@@ -38,6 +38,7 @@ import {
   createAppUniqueConstraintSetEligibilityPortV1,
   createLocatedAppUniqueConstraintSetBuildTargetV1,
   hasAppUniqueConstraintSetEligibilityEvidenceV1,
+  loadAppUniqueConstraintSetEligibilityForReadinessV1Effect,
   loadAppUniqueConstraintSetEligibilityV1Effect,
   reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../src/appUniqueConstraintSetBuildV1";
@@ -49,6 +50,7 @@ import {
 } from "../src/appUniqueConstraintSetClosureV1";
 import {
   appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  type AppRowTransaction,
 } from "../src/appRows";
 import { createPGlitePersistence } from "../src/pglite";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
@@ -62,6 +64,53 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("C08-B1 closed unique-set build foundation", () => {
+  it("uses a share lock for readiness while retaining the planner update lock", async () => {
+    const fixture = await closedFixture("eligibility_lock_modes");
+    await reconcile(fixture);
+    await advanceBackfill(fixture, 16);
+    await advanceBackfill(fixture, 16);
+    await advanceBackfill(fixture, 16);
+    await advanceBackfill(fixture, 16);
+    const lockModes: string[] = [];
+    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
+      fixture.persistence.drizzle,
+      LOCATOR,
+      work => fixture.persistence.drizzle.transaction(tx =>
+        work(observeForLockModes(tx, lockModes))
+      ),
+    );
+    const observedPorts = {
+      ...ports(fixture),
+      authority: {
+        ...ports(fixture).authority,
+        scopeClockTargets: { resolve: async () => target },
+      },
+    } as const;
+    const definitions = createAppUniqueConstraintDefinitionPortV1(
+      fixture.persistence.drizzle,
+    );
+    const port = createAppUniqueConstraintSetEligibilityPortV1(
+      observedPorts,
+      definitions,
+    );
+
+    await expect(runEffect(
+      loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+        port,
+        eligibilityInput(fixture),
+      ),
+    )).resolves.toMatchObject({ status: "eligible" });
+    expect(lockModes).toContain("share");
+    expect(lockModes).not.toContain("update");
+
+    lockModes.length = 0;
+    await expect(runEffect(loadAppUniqueConstraintSetEligibilityV1Effect(
+      port,
+      eligibilityInput(fixture),
+    ))).resolves.toMatchObject({ status: "eligible" });
+    expect(lockModes).toContain("update");
+  });
+
   it("mints exact eligibility only for the current enabled closed set", async () => {
     const absent = await fixtureFor("eligibility_absent");
     const absentDefinitions = createAppUniqueConstraintDefinitionPortV1(
@@ -864,6 +913,34 @@ describe("C08-B1 closed unique-set build foundation", () => {
     });
   });
 });
+
+function observeForLockModes<T extends AppRowTransaction>(
+  transaction: T,
+  lockModes: string[],
+): T {
+  const proxies = new WeakMap<object, object>();
+  const wrap = (value: unknown): unknown => {
+    if ((typeof value !== "object" && typeof value !== "function") ||
+      value === null) return value;
+    const existing = proxies.get(value);
+    if (existing !== undefined) return existing;
+    const proxy = new Proxy(value, {
+      get(target, property) {
+        const member = Reflect.get(target, property, target);
+        if (typeof member !== "function") return wrap(member);
+        return (...args: ReadonlyArray<unknown>) => {
+          if (property === "for" && typeof args[0] === "string") {
+            lockModes.push(args[0]);
+          }
+          return wrap(Reflect.apply(member, target, args));
+        };
+      },
+    });
+    proxies.set(value, proxy);
+    return proxy;
+  };
+  return wrap(transaction) as T;
+}
 
 type Persistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
 

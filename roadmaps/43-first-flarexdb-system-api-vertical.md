@@ -706,6 +706,18 @@ V2 attempt plus exact inactive revision, and retains the activation-to-verdict
 digest FK now consumed by FSV05. The first consumer is the private backend
 deployment coordinator; it preserves the settlement owner's exact Effect
 failure and Scope channels and owns no persistence or activation authority.
+The current receipt formula also folds an enabled non-empty C08-B1 unique-set
+build into the existing `enabledBuildRootSha256`. The fold is authorized only
+by the exact B2 point-commit eligibility facet and is revalidated under the
+existing target scope-clock lock. A closed empty set contributes no preimage
+items, so the earlier lower-lane receipt formula is unchanged; an unclosed set,
+missing build, non-enabled build, or changed build pin fails closed.
+The point-commit facet must share exact control-catalog and authority-resolver
+identity with readiness; scalar-equivalent or cross-catalog composition is not
+accepted.
+The preliminary readiness/active-read eligibility observation uses a short
+scope-clock share lock; only the existing point-commit/planner lane retains the
+writer-grade eligibility lock.
 
 The slice must:
 
@@ -775,6 +787,10 @@ Implemented truth:
 - the coherent reader locks the same clock for share, validates the active
   head/revision and complete readiness tuple in one transaction, and returns a
   process-local WeakMap-authenticated selection plus its optimistic CAS token;
+- stored-readiness replay, activation, and coherent reads use the same exact
+  C08-B1/B2 point-commit facet as readiness settlement. PGlite proves an
+  enabled non-empty set, typed refusal after its lifecycle leaves `enabled`,
+  and stale rejection when its attempt fence changes after receipt issuance;
 - the private backend deployment coordinator is the first consumer and owns no
   locator, persistence, readiness, activation, routing, or runtime-selection
   authority; and

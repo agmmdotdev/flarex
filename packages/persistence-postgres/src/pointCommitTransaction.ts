@@ -124,13 +124,20 @@ import {
 } from "./appUniqueConstraintDefinitions";
 import {
   hasAppUniqueConstraintSetEligibilityPortV1,
+  hasAppUniqueConstraintSetEligibilityCompositionV1,
   hasAppUniqueConstraintSetEligibilityForDefinitionPortV1,
   loadAppUniqueConstraintSetEligibilityV1Effect,
+  loadAppUniqueConstraintSetEligibilityForReadinessV1Effect,
+  validateAppUniqueConstraintSetEligibilityEvidenceInTransactionV1Effect,
+  AppUniqueConstraintSetEligibilityV1Error,
   AppUniqueConstraintSetBuildIntegrationV1Error,
   resetAppUniqueConstraintSetValidationInTransactionEffect,
   type AppUniqueConstraintSetEligibilityInputV1,
+  type AppUniqueConstraintSetEligibilityEvidenceV1,
   type AppUniqueConstraintSetEligibilityPortV1,
   type AppUniqueConstraintSetEligibilityResultV1,
+  type AppUniqueConstraintSetBuildStaleAuthorityV1Error,
+  type AppUniqueConstraintSetBuildStateV1Error,
   type LoadAppUniqueConstraintSetEligibilityV1Error,
 } from "./appUniqueConstraintSetBuildV1";
 import {
@@ -162,6 +169,7 @@ import {
   type AppRowPointDependencyV1,
   type AppRowTransaction,
 } from "./appRows";
+import type { FlarexMetadataDatabase } from "./deployments";
 import type {
   IntrinsicCreationTimeIndexDefinitionPortV1,
 } from "./intrinsicCreationTimeIndexBuildV1";
@@ -253,6 +261,9 @@ import {
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
 } from "./transactionSessionActivation";
+import type {
+  TrustedScopeAuthorityResolutionPorts,
+} from "./scopeAuthorityResolution";
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
@@ -264,6 +275,7 @@ export type {
   ResolveCommittedPointOutcomeInputV1,
 } from "./committedPointOutcome";
 export type {
+  AppUniqueConstraintSetEligibilityEvidenceV1,
   AppUniqueConstraintSetEligibilityResultV1,
 } from "./appUniqueConstraintSetBuildV1";
 
@@ -838,12 +850,19 @@ export class PointCommitUniqueConstraintEligibilityUnavailableV1Error
   extends Data.TaggedError(
     "PointCommitUniqueConstraintEligibilityUnavailableV1Error",
   )<{
-    readonly reason: "notSameFactory";
+    readonly reason: "notSameFactory" | "compositionMismatch";
   }> {}
 
 export type LoadPointCommitUniqueConstraintEligibilityV1Error =
   | PointCommitUniqueConstraintEligibilityUnavailableV1Error
   | LoadAppUniqueConstraintSetEligibilityV1Error;
+
+export type ValidatePointCommitUniqueConstraintEligibilityV1Error =
+  | PointCommitUniqueConstraintEligibilityUnavailableV1Error
+  | AppUniqueConstraintSetEligibilityV1Error
+  | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | AppUniqueConstraintSetBuildStateV1Error;
 
 export const loadPointCommitUniqueConstraintEligibilityV1Effect = Effect.fn(
   "PointCommitTransaction.loadUniqueConstraintEligibility",
@@ -869,6 +888,81 @@ export const loadPointCommitUniqueConstraintEligibilityV1Effect = Effect.fn(
     input,
   );
 });
+
+/** Exact FSV04/FSV05 composition over one control catalog and target resolver. */
+export const loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect =
+  Effect.fn(
+    "PointCommitTransaction.loadUniqueConstraintEligibilityForReadiness",
+  )(function* (
+    value: unknown,
+    input: AppUniqueConstraintSetEligibilityInputV1,
+    controlDb: FlarexMetadataDatabase,
+    authority: TrustedScopeAuthorityResolutionPorts,
+  ): Effect.fn.Return<
+    AppUniqueConstraintSetEligibilityResultV1,
+    LoadPointCommitUniqueConstraintEligibilityV1Error
+  > {
+    const eligibility = typeof value === "object" && value !== null
+      ? pointCommitUniqueConstraintEligibilityPortsV1.get(value)
+      : undefined;
+    if (
+      eligibility === undefined ||
+      !hasAppUniqueConstraintSetEligibilityCompositionV1(
+        eligibility,
+        controlDb,
+        authority,
+      )
+    ) {
+      return yield* Effect.fail(
+        new PointCommitUniqueConstraintEligibilityUnavailableV1Error({
+          reason: eligibility === undefined
+            ? "notSameFactory"
+            : "compositionMismatch",
+        }),
+      );
+    }
+    return yield* loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+      eligibility,
+      input,
+    );
+  });
+
+/**
+ * Private FSV04/FSV05 composition seam. The caller owns the transaction and
+ * must already hold the exact scope-clock lock represented by `clock`.
+ */
+export const validatePointCommitUniqueConstraintEligibilityInTransactionV1Effect =
+  Effect.fn(
+    "PointCommitTransaction.validateUniqueConstraintEligibilityInTransaction",
+  )(function* (
+    value: unknown,
+    tx: AppRowTransaction,
+    evidence: AppUniqueConstraintSetEligibilityEvidenceV1,
+    authority: TrustedScopeAuthority,
+    clock: ScopeClockRecord,
+  ): Effect.fn.Return<
+    AppUniqueConstraintSetEligibilityResultV1,
+    ValidatePointCommitUniqueConstraintEligibilityV1Error
+  > {
+    const eligibility = typeof value === "object" && value !== null
+      ? pointCommitUniqueConstraintEligibilityPortsV1.get(value)
+      : undefined;
+    if (eligibility === undefined) {
+      return yield* Effect.fail(
+        new PointCommitUniqueConstraintEligibilityUnavailableV1Error({
+          reason: "notSameFactory",
+        }),
+      );
+    }
+    return yield*
+      validateAppUniqueConstraintSetEligibilityEvidenceInTransactionV1Effect(
+        tx,
+        eligibility,
+        evidence,
+        authority,
+        clock,
+      );
+  });
 
 function registerPointCommitUniqueConstraintEligibilityV1<T extends object>(
   port: T,

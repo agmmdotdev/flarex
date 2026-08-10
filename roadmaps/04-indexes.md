@@ -73,16 +73,25 @@ while any missing closure or B2
 composition with a binding but no closed set, enabled build, or exact facet
 fails closed before point-commit SQL.
 
-Revision-readiness folding is the next separately reviewed checkpoint. It must
-revalidate the same evidence in the existing target transaction and include it
-in the existing `indexReadinessRootSha256`; it must not mint a second receipt
-or root identity. The preflight found that changing this root also affects the
-stored-readiness replay used by activation, so B1 planner work must not silently
-teach that activation validator a weaker or circular compatibility path. The
-readiness checkpoint must carry the same exact facet through stored replay or
-stop for the activation owner before changing the formula. No activation,
-active reader, route,
-trigger, alternate OCC/commit owner, or production behavior is authorized.
+The separately reviewed readiness folding checkpoint is implemented without a
+new receipt, root identity, protocol field, or migration. FSV04 obtains C08-B1
+eligibility only through the exact B2 point-commit facet, revalidates the same
+opaque evidence after taking its existing target scope-clock lock, and appends
+the closed-set digest, exact table membership, scope pins, start commit, and
+attempt fence to the existing `enabledBuildRootSha256` preimage. An exact
+closed empty set appends no items, preserving the previous root byte for byte.
+The facet, readiness catalog, and target-authority resolver must be the exact
+same captured objects; independently reconstructed or cross-catalog
+compositions fail closed before they can authorize a receipt.
+Readiness preparation uses the C08 eligibility reader's dedicated scope-clock
+share-lock path, while point-commit planning retains the existing update-lock
+path; coherent active reads therefore do not acquire a writer-grade lock merely
+to replay readiness.
+Stored readiness replay, FSV05 activation, and the coherent active reader carry
+the same exact point-commit facet and rerun the same in-transaction validator;
+missing closure/build, non-enabled build, and changed build authority fail
+closed. The change remains private and production-inert and adds no activation
+mutation, route, trigger, alternate OCC/commit owner, or compatibility path.
 
 Verification:
 
@@ -96,6 +105,8 @@ FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-post
 corepack pnpm --filter @flarex/executor exec vitest run test/storedAttemptAuthentication.test.ts --no-file-parallelism --testTimeout=180000
 corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/system-test test:fsv04:pglite
+corepack pnpm --filter @flarex/system-test test:fsv05:pglite
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check

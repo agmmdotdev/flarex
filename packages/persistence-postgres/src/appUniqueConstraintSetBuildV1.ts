@@ -67,8 +67,11 @@ import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   getScopeClock,
+  lockScopeClockForShareInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
+  type LockScopeClockForShareError,
   type LockScopeClockForUpdateError,
+  type ScopeClockRecord,
 } from "./scopeClock";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
@@ -322,7 +325,10 @@ const eligibilityPortStates = new WeakMap<
     readonly uniqueConstraints: AppUniqueConstraintDefinitionPortV1;
   }>
 >();
-const eligibilityEvidence = new WeakSet<object>();
+const eligibilityEvidencePorts = new WeakMap<
+  object,
+  AppUniqueConstraintSetEligibilityPortV1
+>();
 
 export function createAppUniqueConstraintSetEligibilityPortV1(
   ports: AppUniqueConstraintSetBuildPortsV1,
@@ -361,6 +367,21 @@ export function hasAppUniqueConstraintSetEligibilityForDefinitionPortV1(
   return state !== undefined && state.uniqueConstraints === uniqueConstraints;
 }
 
+/** Exact readiness composition check; scalar-equivalent catalogs do not pass. */
+export function hasAppUniqueConstraintSetEligibilityCompositionV1(
+  eligibility: unknown,
+  controlDb: FlarexMetadataDatabase,
+  authority: TrustedScopeAuthorityResolutionPorts,
+): eligibility is AppUniqueConstraintSetEligibilityPortV1 {
+  if (typeof eligibility !== "object" || eligibility === null) return false;
+  const state = eligibilityPortStates.get(
+    eligibility as AppUniqueConstraintSetEligibilityPortV1,
+  );
+  return state !== undefined &&
+    state.ports.controlDb === controlDb &&
+    state.ports.authority === authority;
+}
+
 export function hasAppUniqueConstraintSetEligibilityPortV1(
   value: unknown,
 ): value is AppUniqueConstraintSetEligibilityPortV1 {
@@ -372,7 +393,7 @@ export function hasAppUniqueConstraintSetEligibilityEvidenceV1(
   value: unknown,
 ): value is AppUniqueConstraintSetEligibilityEvidenceV1 {
   return typeof value === "object" && value !== null &&
-    eligibilityEvidence.has(value);
+    eligibilityEvidencePorts.has(value);
 }
 
 export const loadAppUniqueConstraintSetEligibilityV1Effect = Effect.fn(
@@ -380,6 +401,33 @@ export const loadAppUniqueConstraintSetEligibilityV1Effect = Effect.fn(
 )(function* (
   port: AppUniqueConstraintSetEligibilityPortV1,
   input: AppUniqueConstraintSetEligibilityInputV1,
+): Effect.fn.Return<
+  AppUniqueConstraintSetEligibilityResultV1,
+  LoadAppUniqueConstraintSetEligibilityV1Error
+> {
+  return yield* loadEligibilityWithClockLock(port, input, "update");
+});
+
+/** Readiness/replay preparation observes eligibility without writer locking. */
+export const loadAppUniqueConstraintSetEligibilityForReadinessV1Effect =
+  Effect.fn(
+    "AppUniqueConstraintSetBuild.loadEligibilityForReadiness",
+  )(function* (
+    port: AppUniqueConstraintSetEligibilityPortV1,
+    input: AppUniqueConstraintSetEligibilityInputV1,
+  ): Effect.fn.Return<
+    AppUniqueConstraintSetEligibilityResultV1,
+    LoadAppUniqueConstraintSetEligibilityV1Error
+  > {
+    return yield* loadEligibilityWithClockLock(port, input, "share");
+  });
+
+const loadEligibilityWithClockLock = Effect.fn(
+  "AppUniqueConstraintSetBuild.loadEligibilityWithClockLock",
+)(function* (
+  port: AppUniqueConstraintSetEligibilityPortV1,
+  input: AppUniqueConstraintSetEligibilityInputV1,
+  clockLock: "share" | "update",
 ): Effect.fn.Return<
   AppUniqueConstraintSetEligibilityResultV1,
   LoadAppUniqueConstraintSetEligibilityV1Error
@@ -421,10 +469,12 @@ export const loadAppUniqueConstraintSetEligibilityV1Effect = Effect.fn(
   const snapshot = buildSnapshot(input, closure);
   const tableIds = uniqueConstraintTableIds(closure);
   return yield* runEligibilityTransaction(
+    port,
     located.target,
     located.authority,
     snapshot,
     tableIds,
+    clockLock,
   );
 });
 
@@ -766,16 +816,19 @@ function uniqueConstraintTableIds(
 const runEligibilityTransaction = Effect.fn(
   "AppUniqueConstraintSetBuild.runEligibilityTransaction",
 )(function* (
+  port: AppUniqueConstraintSetEligibilityPortV1,
   target: LocatedAppUniqueConstraintSetBuildTargetV1,
   authority: TrustedScopeAuthority,
   snapshot: BuildSnapshot,
   tableIds: ReadonlyArray<CatalogTableId>,
+  clockLock: "share" | "update",
 ): Effect.fn.Return<
   AppUniqueConstraintSetEligibilityResultV1,
   | AppUniqueConstraintSetEligibilityV1Error
   | AppUniqueConstraintSetBuildStaleAuthorityV1Error
   | AppUniqueConstraintSetBuildIntegrationV1Error
   | AppUniqueConstraintSetBuildStateV1Error
+  | LockScopeClockForShareError
   | LockScopeClockForUpdateError
 > {
   const started = startLocatedEffectTransaction(
@@ -783,9 +836,11 @@ const runEligibilityTransaction = Effect.fn(
     "C08-B1 unique-set eligibility inspection rolled back.",
     (tx) => inspectEligibilityInTransaction(
       tx,
+      port,
       authority,
       snapshot,
       tableIds,
+      clockLock,
     ),
   );
   const settled = yield* awaitTransactionExit(started.promise);
@@ -824,21 +879,107 @@ const inspectEligibilityInTransaction = Effect.fn(
   "AppUniqueConstraintSetBuild.inspectEligibilityInTransaction",
 )(function* (
   tx: AppRowTransaction,
+  port: AppUniqueConstraintSetEligibilityPortV1,
   authority: TrustedScopeAuthority,
   snapshot: BuildSnapshot,
   tableIds: ReadonlyArray<CatalogTableId>,
+  clockLock: "share" | "update",
 ): Effect.fn.Return<
   AppUniqueConstraintSetEligibilityResultV1,
   | AppUniqueConstraintSetBuildStaleAuthorityV1Error
   | AppUniqueConstraintSetBuildIntegrationV1Error
   | AppUniqueConstraintSetBuildStateV1Error
+  | LockScopeClockForShareError
   | LockScopeClockForUpdateError
 > {
-  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
-    tx,
-    authority.scopeId,
-  );
+  const clock = yield* clockLock === "share"
+    ? lockScopeClockForShareInTransactionEffect(tx, authority.scopeId)
+    : lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId);
   yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+  return yield* inspectEligibilityWithLockedClock(
+    tx,
+    authority,
+    snapshot,
+    tableIds,
+    clock,
+    port,
+  );
+});
+
+/**
+ * Package-private C08-B1 replay validator. The caller must already hold the
+ * scope-clock lock in its owning target transaction.
+ */
+export const validateAppUniqueConstraintSetEligibilityEvidenceInTransactionV1Effect =
+  Effect.fn(
+    "AppUniqueConstraintSetBuild.validateEligibilityEvidenceInTransaction",
+  )(function* (
+    tx: AppRowTransaction,
+    port: AppUniqueConstraintSetEligibilityPortV1,
+    evidence: AppUniqueConstraintSetEligibilityEvidenceV1,
+    authority: TrustedScopeAuthority,
+    clock: ScopeClockRecord,
+  ): Effect.fn.Return<
+    AppUniqueConstraintSetEligibilityResultV1,
+    | AppUniqueConstraintSetEligibilityV1Error
+    | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+    | AppUniqueConstraintSetBuildIntegrationV1Error
+    | AppUniqueConstraintSetBuildStateV1Error
+  > {
+    const state = eligibilityPortStates.get(port);
+    if (
+      state === undefined ||
+      eligibilityEvidencePorts.get(evidence) !== port
+    ) {
+      return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({
+        reason: "invalidPort",
+        retryable: false,
+      }));
+    }
+    if (
+      evidence.scopeId !== authority.scopeId ||
+      evidence.storageGeneration !== authority.storageGeneration ||
+      evidence.storageGenerationFence !== authority.storageGenerationFence ||
+      evidence.epoch !== authority.epoch ||
+      evidence.scopeId !== clock.scopeId
+    ) {
+      return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({
+        reason: "scopeMismatch",
+        retryable: false,
+      }));
+    }
+    yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+    return yield* inspectEligibilityWithLockedClock(
+      tx,
+      authority,
+      Object.freeze({
+        deploymentId: evidence.deploymentId,
+        schemaVersionId: evidence.schemaVersionId,
+        definitionCount: evidence.definitionCount,
+        definitionSetSha256Hex: evidence.definitionSetSha256Hex,
+      }),
+      evidence.tableIds,
+      clock,
+      port,
+      evidence,
+    );
+  });
+
+const inspectEligibilityWithLockedClock = Effect.fn(
+  "AppUniqueConstraintSetBuild.inspectEligibilityWithLockedClock",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  tableIds: ReadonlyArray<CatalogTableId>,
+  clock: ScopeClockRecord,
+  port: AppUniqueConstraintSetEligibilityPortV1,
+  expectedEvidence?: AppUniqueConstraintSetEligibilityEvidenceV1,
+): Effect.fn.Return<
+  AppUniqueConstraintSetEligibilityResultV1,
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | AppUniqueConstraintSetBuildStateV1Error
+> {
   const rows = yield* queryEffect(
     tx.select().from(fxSystemUniqueConstraintSetBuilds).where(and(
       eq(fxSystemUniqueConstraintSetBuilds.scopeId, authority.scopeId),
@@ -881,6 +1022,30 @@ const inspectEligibilityInTransaction = Effect.fn(
       lifecycle: state.lifecycle,
     });
   }
+  if (
+    expectedEvidence !== undefined &&
+    (
+      state.storageGeneration !== expectedEvidence.storageGeneration ||
+      state.storageGenerationFence !== expectedEvidence.storageGenerationFence ||
+      state.epoch !== expectedEvidence.epoch ||
+      state.startCommitSeq !== expectedEvidence.startCommitSeq ||
+      state.attemptFence !== expectedEvidence.attemptFence
+    )
+  ) {
+    return Object.freeze({
+      status: "not_ready" as const,
+      reason: "buildStale" as const,
+      blocksAllTables: false,
+      tableIds,
+      lifecycle: state.lifecycle,
+    });
+  }
+  if (expectedEvidence !== undefined) {
+    return Object.freeze({
+      status: "eligible" as const,
+      evidence: expectedEvidence,
+    });
+  }
   const evidence = Object.freeze({
     deploymentId: snapshot.deploymentId,
     scopeId: authority.scopeId,
@@ -895,7 +1060,7 @@ const inspectEligibilityInTransaction = Effect.fn(
     attemptFence: state.attemptFence,
     [eligibilityEvidenceBrand]: true as const,
   } satisfies AppUniqueConstraintSetEligibilityEvidenceV1);
-  eligibilityEvidence.add(evidence);
+  eligibilityEvidencePorts.set(evidence, port);
   return Object.freeze({ status: "eligible" as const, evidence });
 });
 

@@ -46,7 +46,7 @@ describe("FSV05 application revision activation - PGlite", () => {
           async work => {
             const result = await base[RUN_LOCATED_READ_COMMITTED_V1](work);
             transactionCount += 1;
-            if (transactionCount === 2) {
+            if (transactionCount === 3) {
               injected = true;
               throw new LocatedReadCommittedTransactionFailureV1({
                 kind: "decisionUncertain",
@@ -72,6 +72,8 @@ describe("FSV05 application revision activation - PGlite", () => {
       alreadyActiveRejected: true,
       overflowCasRejected: true,
       invalidatedReadinessRejected: true,
+      uniqueConstraintNotReadyRejected: true,
+      uniqueConstraintDriftRejected: true,
       readerDriftStale: true,
       concurrentReplacement: ["inserted", "stale"],
       uncertaintyDisposition: "replayed",
@@ -94,5 +96,8 @@ describe("FSV05 application revision activation - PGlite", () => {
       postgresVersion: null,
     });
     expect(proof.coldReloadRevision).toBe(5n);
+    expect(proof.nonEmptyEnabledBuildRootSha256Hex).toBe(
+      "8c39c09945de3c6e2271db851558c53f2dcb6f40dad81b16929d309b6eb85b49",
+    );
   }, 480_000);
 });

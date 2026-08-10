@@ -1,15 +1,30 @@
 import { createHash } from "node:crypto";
 
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+
 import {
   makePrivateApplicationRevisionReadinessCoordinatorV1,
 } from "flarex-backend/internal/application-revision-readiness-coordinator-v1";
 import {
   probeDeclarativeV2ColdMaterializationV1,
 } from "flarex-backend/internal/declarative-v2-cold-materialization-probe-v1";
-import { Effect, Exit, Result } from "effect";
+import { Data, Effect, Exit, Result } from "effect";
 import {
   encodeDeclarativeV2PhysicalFrameV1,
 } from "flarex-protocol/internal/declarative-v2-physical-v1";
+import {
+  decodeApplicationRevisionReadinessReceiptV1,
+} from "flarex-protocol/internal/application-revision-readiness-v1";
+import {
+  APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+  APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  decodeAppUniqueConstraintPhysicalSpecV1,
+} from "flarex-protocol/app-unique-constraint-definition";
+import {
+  SchemaManifestAppIndexDescriptorSchema,
+  decodeSchemaManifestAppSchemaV1,
+  type CatalogSchemaVersionId,
+} from "flarex-protocol/schema-manifest";
 
 import {
   settleApplicationRevisionReadinessV1,
@@ -22,8 +37,33 @@ import {
 import {
   reconcilePublishedIndexBuildsV1Effect,
 } from "@flarex/persistence-postgres/internal/system-test/indexBuildReconciliation";
+import {
+  createAppUniqueConstraintDefinitionPortV1,
+} from "@flarex/persistence-postgres/internal/app-unique-constraint-commit-v1";
+import {
+  ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
+  prepareAppUniqueConstraintDefinitionBindingV1Effect,
+} from "@flarex/persistence-postgres/internal/app-unique-constraint-definitions-v1";
+import {
+  closeAppUniqueConstraintSetV1InTransactionEffect,
+  prepareAppUniqueConstraintSetClosureV1Effect,
+} from "@flarex/persistence-postgres/internal/app-unique-constraint-set-closure-v1";
+import {
+  advanceAppUniqueConstraintSetBackfillV1Effect,
+  createAppUniqueConstraintSetEligibilityPortV1,
+  createLocatedAppUniqueConstraintSetBuildTargetV1,
+  reconcileAppUniqueConstraintSetBuildV1Effect,
+} from "@flarex/persistence-postgres/internal/app-unique-constraint-set-build-v1";
+import {
+  createPointCommitPublisherPortV1,
+} from "@flarex/persistence-postgres/internal/system-test/pointCommitTransaction";
 import type { PGliteFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/pglite";
 import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/postgres";
+import type { ScopePhysicalLocator } from
+  "@flarex/persistence-postgres/internal/system-test/scopeMetadataTypes";
+import {
+  readSchemaVersionArtifactByIdEffect,
+} from "@flarex/persistence-postgres/internal/system-test/schemaVersionArtifacts";
 import type { LocatedApplicationRevisionRegistrationTargetV1 } from
   "@flarex/persistence-postgres/internal/system-test/applicationRevisionRegistrationV1";
 import type { LoadedCandidateRuntimePublicationV1 } from
@@ -36,6 +76,28 @@ import {
 } from "./memoryRuntimeArtifactStoreV1";
 
 type Persistence = PGliteFlarexPersistence | PostgresFlarexPersistence;
+
+export class ReadinessUniqueConstraintSetSetupV1Error extends Data.TaggedError(
+  "ReadinessUniqueConstraintSetSetupV1Error",
+)<{
+  readonly phase:
+    | "prepareClosure"
+    | "closeTransaction"
+    | "readSchemaArtifact"
+    | "prepareBinding"
+    | "ensureBindingTransaction"
+    | "reconcileBuild"
+    | "advanceBackfill"
+    | "fixtureInvariant";
+  readonly cause: unknown;
+}> {}
+
+function uniqueConstraintSetupError(
+  phase: ReadinessUniqueConstraintSetSetupV1Error["phase"],
+  cause: unknown,
+): ReadinessUniqueConstraintSetSetupV1Error {
+  return new ReadinessUniqueConstraintSetSetupV1Error({ phase, cause });
+}
 
 export interface Fsv04ApplicationRevisionReadinessLaneV1 {
   readonly name: "pglite" | "postgres";
@@ -72,6 +134,7 @@ export interface Fsv04ApplicationRevisionReadinessProofV1 {
   readonly buildStateInvalidation: true;
   readonly receiptCorruptionRejected: true;
   readonly staleInvalidation: true;
+  readonly closedEmptyEnabledBuildRootSha256Hex: string;
   readonly verdictCount: number;
   readonly activeRevisionCount: number;
   readonly activeHeadCount: number;
@@ -99,6 +162,11 @@ export async function proveFsv04ApplicationRevisionReadinessV1(
     registrationTarget: lane.registrationTarget,
     runtimeArtifacts,
   });
+  await closeReadinessUniqueConstraintSetV1(
+    lane.persistence,
+    registered.deploymentId,
+    registered.registered.schemaVersionId,
+  );
   const target = lane.makeReadinessTarget();
   const baseContext = readinessContext(
     registered.deploymentId,
@@ -277,6 +345,12 @@ export async function proveFsv04ApplicationRevisionReadinessV1(
   if (originalReceiptBytes === undefined) {
     throw new Error("FSV04 stored receipt bytes are missing.");
   }
+  const closedEmptyReceipt = Result.getOrThrow(
+    decodeApplicationRevisionReadinessReceiptV1(originalReceiptBytes),
+  );
+  const closedEmptyEnabledBuildRootSha256Hex = encodeBytesToLowercaseHex(
+    closedEmptyReceipt.frame.enabledBuildRootSha256,
+  );
   const corruptReceiptBytes = new Uint8Array(originalReceiptBytes);
   corruptReceiptBytes[corruptReceiptBytes.byteLength - 1] ^= 1;
   await lane.persistence.query(
@@ -348,6 +422,7 @@ export async function proveFsv04ApplicationRevisionReadinessV1(
     buildStateInvalidation: true,
     receiptCorruptionRejected: true,
     staleInvalidation: true,
+    closedEmptyEnabledBuildRootSha256Hex,
     verdictCount: rows.verdictCount,
     activeRevisionCount: rows.activeRevisionCount,
     activeHeadCount: rows.activeHeadCount,
@@ -376,10 +451,12 @@ export function readinessContext(
 ): ApplicationRevisionReadinessContextV1<unknown> {
   const mode = options.mode ?? "normal";
   let materializationSequence = 0;
+  const authority = authorityPorts(persistence, target);
   return Object.freeze({
     deploymentId,
     controlDb: persistence.drizzle,
-    authority: authorityPorts(persistence, target),
+    pointCommit: createReadinessPointCommitV1(persistence, authority),
+    authority,
     coldMaterialization: {
       probe: (publication: LoadedCandidateRuntimePublicationV1) =>
         mode === "failIfProbed"
@@ -443,6 +520,224 @@ export function readinessContext(
               ]);
             })))),
     },
+  });
+}
+
+export async function closeReadinessUniqueConstraintSetV1(
+  persistence: Persistence,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+): Promise<void> {
+  return Effect.runPromise(
+    closeReadinessUniqueConstraintSetEffectV1(
+      persistence,
+      deploymentId,
+      schemaVersionId,
+    ),
+  );
+}
+
+export const closeReadinessUniqueConstraintSetEffectV1 = Effect.fn(
+  "SystemTest.closeReadinessUniqueConstraintSetV1",
+)(function* (
+  persistence: Persistence,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+): Effect.fn.Return<void, ReadinessUniqueConstraintSetSetupV1Error> {
+  const prepared = yield*
+    prepareAppUniqueConstraintSetClosureV1Effect(
+      persistence.drizzle,
+      { deploymentId, schemaVersionId },
+    ).pipe(Effect.mapError(cause => uniqueConstraintSetupError(
+      "prepareClosure",
+      cause,
+    )));
+  yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () =>
+      persistence.drizzle.transaction(tx =>
+        Effect.runPromise(
+          closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared),
+        ),
+      ),
+    catch: cause => uniqueConstraintSetupError("closeTransaction", cause),
+  }));
+});
+
+export async function prepareReadinessUniqueConstraintSetV1(
+  persistence: Persistence,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+): Promise<void> {
+  return Effect.runPromise(
+    prepareReadinessUniqueConstraintSetEffectV1(
+      persistence,
+      deploymentId,
+      schemaVersionId,
+    ),
+  );
+}
+
+export const prepareReadinessUniqueConstraintSetEffectV1: (
+  persistence: Persistence,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+) => Effect.Effect<void, ReadinessUniqueConstraintSetSetupV1Error> = Effect.fn(
+  "SystemTest.prepareReadinessUniqueConstraintSetV1",
+)(function* (
+  persistence: Persistence,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+): Effect.fn.Return<void, ReadinessUniqueConstraintSetSetupV1Error> {
+  const artifact = yield* readSchemaVersionArtifactByIdEffect(
+    persistence.drizzle,
+    deploymentId,
+    schemaVersionId,
+  ).pipe(Effect.mapError(cause => uniqueConstraintSetupError(
+    "readSchemaArtifact",
+    cause,
+  )));
+  if (artifact === null) {
+    return yield* Effect.fail(uniqueConstraintSetupError(
+      "fixtureInvariant",
+      new Error("System-test unique readiness schema artifact is missing."),
+    ));
+  }
+  const manifest = decodeSchemaManifestAppSchemaV1(artifact.manifestJson);
+  const table = manifest.tableDefinitions.tables[0];
+  if (table === undefined) {
+    return yield* Effect.fail(uniqueConstraintSetupError(
+      "fixtureInvariant",
+      new Error("System-test unique readiness table is missing."),
+    ));
+  }
+  const binding = yield*
+    prepareAppUniqueConstraintDefinitionBindingV1Effect(
+      persistence.drizzle,
+      {
+        deploymentId,
+        schemaVersionId,
+        tableId: table.tableId,
+        descriptor: SchemaManifestAppIndexDescriptorSchema.make(
+          "system_test_unique_probe",
+        ),
+        physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+          kind: "appUniqueConstraint",
+          specVersion: 1,
+          orderedFields: ["__systemTestUniqueProbe"],
+          sparse: true,
+          localePolicy: { kind: "none" },
+          keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+          keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+        }),
+      },
+    ).pipe(Effect.mapError(cause => uniqueConstraintSetupError(
+      "prepareBinding",
+      cause,
+    )));
+  yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () =>
+      persistence.drizzle.transaction(tx =>
+        Effect.runPromise(
+          ensureAppUniqueConstraintDefinitionBindingV1InTransaction(
+            tx,
+            binding,
+          ),
+        ),
+      ),
+    catch: cause => uniqueConstraintSetupError(
+      "ensureBindingTransaction",
+      cause,
+    ),
+  }));
+  yield* closeReadinessUniqueConstraintSetEffectV1(
+    persistence,
+    deploymentId,
+    schemaVersionId,
+  );
+  const ports = uniqueConstraintBuildPorts(persistence);
+  const reconciled = yield*
+    reconcileAppUniqueConstraintSetBuildV1Effect(
+      ports,
+      { deploymentId, schemaVersionId },
+    ).pipe(Effect.mapError(cause => uniqueConstraintSetupError(
+      "reconcileBuild",
+      cause,
+    )));
+  if (reconciled.status !== "reconciled") {
+    return yield* Effect.fail(uniqueConstraintSetupError(
+      "fixtureInvariant",
+      new Error(
+        `System-test unique readiness build was ${reconciled.reason}.`,
+      ),
+    ));
+  }
+  for (let step = 0; step < 16; step += 1) {
+    const advanced = yield*
+      advanceAppUniqueConstraintSetBackfillV1Effect(
+        ports,
+        { deploymentId, schemaVersionId, pageSize: 16 },
+      ).pipe(Effect.mapError(cause => uniqueConstraintSetupError(
+        "advanceBackfill",
+        cause,
+      )));
+    if (advanced.lifecycle === "enabled") return;
+  }
+  return yield* Effect.fail(uniqueConstraintSetupError(
+    "fixtureInvariant",
+    new Error("System-test unique readiness build did not enable."),
+  ));
+});
+
+function uniqueConstraintBuildPorts(persistence: Persistence) {
+  const unavailableProvisioningReceipts = Object.freeze({
+    getScopeAuthorityProvisioningReceipt: async () => {
+      throw new Error("FSV04 shared scope must not read split receipts.");
+    },
+  });
+  return Object.freeze({
+    controlDb: persistence.drizzle,
+    authority: Object.freeze({
+      scopeMetadata: persistence,
+      provisioningReceipts: unavailableProvisioningReceipts,
+      scopeClockTargets: Object.freeze({
+        resolve: async (locator: ScopePhysicalLocator) =>
+          createLocatedAppUniqueConstraintSetBuildTargetV1(
+            persistence.drizzle,
+            locator,
+          ),
+      }),
+    }),
+  });
+}
+
+export function createReadinessPointCommitV1(
+  persistence: Persistence,
+  authority: ApplicationRevisionReadinessContextV1<unknown>["authority"],
+) {
+  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
+    persistence.drizzle,
+  );
+  const unavailableProvisioningReceipts = Object.freeze({
+    getScopeAuthorityProvisioningReceipt: async () => {
+      throw new Error("FSV04 shared scope must not read split receipts.");
+    },
+  });
+  const uniqueConstraintEligibility =
+    createAppUniqueConstraintSetEligibilityPortV1(
+      Object.freeze({ controlDb: persistence.drizzle, authority }),
+      uniqueConstraints,
+    );
+  return createPointCommitPublisherPortV1({
+    scopeMetadata: persistence,
+    provisioningReceipts: unavailableProvisioningReceipts,
+    scopeSessionTargets: {
+      resolve: async () => {
+        throw new Error("FSV04 readiness must not resolve a commit target.");
+      },
+    },
+  }, {
+    uniqueConstraints,
+    uniqueConstraintEligibility,
   });
 }
 

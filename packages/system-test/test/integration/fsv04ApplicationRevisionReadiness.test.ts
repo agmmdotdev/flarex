@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { Cause, Effect, Exit } from "effect";
 
 import {
   createLocatedApplicationRevisionReadinessTargetV1,
+  settleApplicationRevisionReadinessV1,
 } from "@flarex/persistence-postgres/internal/application-revision-readiness-v1";
 import {
   createPGliteLocatedApplicationRevisionReadinessTargetV1,
@@ -12,8 +14,17 @@ import {
   RUN_LOCATED_READ_COMMITTED_V1,
 } from "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
 import {
+  closeReadinessUniqueConstraintSetV1,
+  createReadinessPointCommitV1,
   proveFsv04ApplicationRevisionReadinessV1,
+  readinessContext,
 } from "../../support/fsv04ApplicationRevisionReadinessHarness";
+import {
+  prepareFsv04RegisteredRevisionFixtureV1,
+} from "../../support/fsv03PrivateAnalyzerToPostgresHarness";
+import {
+  makeMemoryRuntimeArtifactStoreV1,
+} from "../../support/memoryRuntimeArtifactStoreV1";
 import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 
 const LOCATOR = Object.freeze({
@@ -86,5 +97,73 @@ describe("FSV04 application revision readiness - PGlite", () => {
       postgresVersion: null,
     });
     expect(proof.buildLifecycles.at(-1)).toBe("enabled");
+    expect(proof.closedEmptyEnabledBuildRootSha256Hex).toBe(
+      "41c34b9e59b4bfb07dd8e1155031468e2a729ea977b4d8bc7cc976f76b3db8ce",
+    );
+  }, 240_000);
+
+  it("rejects point-commit eligibility from another catalog or authority", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const otherPersistence = await createMigratedPGlitePersistence();
+    const artifacts = makeMemoryRuntimeArtifactStoreV1();
+    const registered = await prepareFsv04RegisteredRevisionFixtureV1({
+      name: "pglite",
+      persistence,
+      registrationTarget:
+        createPGliteLocatedApplicationRevisionRegistrationTargetV1(
+          persistence,
+          LOCATOR,
+        ),
+      runtimeArtifacts: artifacts,
+    });
+    await closeReadinessUniqueConstraintSetV1(
+      persistence,
+      registered.deploymentId,
+      registered.registered.schemaVersionId,
+    );
+    const context = readinessContext(
+      registered.deploymentId,
+      persistence,
+      createPGliteLocatedApplicationRevisionReadinessTargetV1(
+        persistence,
+        LOCATOR,
+      ),
+      artifacts,
+    );
+    const otherCatalogPointCommit = createReadinessPointCommitV1(
+      otherPersistence,
+      context.authority,
+    );
+    const otherAuthorityContext = readinessContext(
+      registered.deploymentId,
+      persistence,
+      createPGliteLocatedApplicationRevisionReadinessTargetV1(
+        persistence,
+        LOCATOR,
+      ),
+      artifacts,
+    );
+
+    for (const mixed of [
+      { ...context, pointCommit: otherCatalogPointCommit },
+      { ...otherAuthorityContext, pointCommit: context.pointCommit },
+    ]) {
+      const exit = await Effect.runPromise(Effect.exit(Effect.scoped(
+        settleApplicationRevisionReadinessV1(
+          registered.registered.revisionId,
+          mixed,
+        ),
+      )));
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isSuccess(exit)) continue;
+      const failure = Cause.findErrorOption(exit.cause);
+      expect(failure._tag).toBe("Some");
+      if (failure._tag === "Some") {
+        expect(failure.value).toMatchObject({
+          _tag: "PointCommitUniqueConstraintEligibilityUnavailableV1Error",
+          reason: "compositionMismatch",
+        });
+      }
+    }
   }, 240_000);
 });
