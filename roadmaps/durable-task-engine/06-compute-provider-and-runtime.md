@@ -6,15 +6,20 @@
 DTE06-B's private host-neutral provider domain are complete and
 production-inert. DTE06-C0 now completes the docs-only durable-delivery schema
 and transaction preflight, and DTE06-C1 completes its canonical evidence and
-Task-owned storage checkpoint. Their contracts and implementation receipt live in
+Task-owned storage checkpoint. DTE06-C2's scope-bound fenced repository is now
+admitted but not implemented. The provider contract and DTE06-B implementation
+receipt live in
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
 The C0 schema/transaction decision is recorded in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
+The implementation-ready C2 repository contract is recorded in
+[`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
 The provider port, deterministic in-memory conformance adapter, canonical
 evidence boundary, and checkpoint tables now exist; no requested-effect
 delivery operation, checkpoint transaction, task runtime route, Worker binding,
-deployment configuration, or production activation is admitted. DTE06-C2 and
-later checkpoints require separate approval.
+deployment configuration, or production activation exists. Only the private,
+production-inert C2 repository is admitted for implementation; C3 and later
+checkpoints require separate approval.
 
 Roadmaps 01 through 05 already establish first-class task definitions,
 scope-bound durable run state, fenced attempts, requested effects, Queue wake
@@ -376,13 +381,13 @@ semantic-conflict rejection, cancellation generations, accepted-but-unknown
 recovery, receiver preservation, hostile input rejection, and interruption and
 timeout behavior without claiming Task lifecycle acknowledgement.
 
-### DTE06-C: Dispatch Preparation And Durable Checkpoint — C1 Complete
+### DTE06-C: Dispatch Preparation And Durable Checkpoint — C2 Admitted
 
 - DTE06-C0 fixes the operation-specific dispatch/cancellation delivery schema,
   prepared execution subject, fenced transaction protocol, uncertainty rules,
   and bounded discovery contract without changing code;
 - DTE06-C1 adds canonical delivery evidence and the two Task-owned tables;
-- DTE06-C2 will add the scope-bound fenced transaction repository;
+- DTE06-C2 is admitted to add the scope-bound fenced transaction repository;
 - DTE06-C3 will add bounded connected delivery against only the deterministic
   provider;
 - freshly correlate scope, effect, run, attempt, fence, lease, cancellation,
@@ -393,9 +398,12 @@ timeout behavior without claiming Task lifecycle acknowledgement.
 - keep provider execution mocked and production-inert.
 
 C0 and C1 are complete. C1 deliberately adds no claim transaction,
-effect-ledger discovery, provider call, or runtime wiring. C2 and C3 require
-their preceding receipts and separate admission. The exact contract is
-[`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
+effect-ledger discovery, provider call, or runtime wiring. C2 is admitted but
+not implemented; C3 still requires the completed C2 receipt and separate
+admission. The durable-delivery contract is
+[`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
+and the exact C2 implementation boundary is
+[`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
 
 ### DTE06-D: Worker Loader Task Runtime Adapter — Pending
 
@@ -479,7 +487,7 @@ Roadmap 06 does not authorize:
 ## Stop Boundary
 
 DTE06-C1 stops at canonical delivery evidence and production-inert Task-owned
-storage. DTE06-C2 requires explicit approval. This roadmap does not authorize
-effect-ledger delivery,
-database or application changes, Worker/runtime wiring, routes, bindings,
-deployment, or production activation.
+storage. DTE06-C2 authorizes only the private production-inert repository in
+Preflight 35. This roadmap does not authorize connected effect-ledger delivery,
+provider calls, additional database/application semantics, Worker/runtime
+wiring, routes, bindings, deployment, or production activation.

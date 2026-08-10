@@ -57,16 +57,20 @@ deterministic in-memory conformance adapter. DTE06-C0 completes the docs-only
 operation-specific delivery schema, prepared-execution, fenced-transaction,
 uncertainty, and bounded-discovery preflight. DTE06-C1 now completes the
 canonical dispatch/cancellation evidence boundary and its two Task-owned
-Postgres checkpoint tables. DTE06-C2 remains unadmitted. The exact Worker
+Postgres checkpoint tables. DTE06-C2 is now admitted, but its private
+scope-bound fenced repository is not yet implemented. DTE06-C3 remains
+unadmitted. The exact Worker
 Loader reuse boundary, operation-specific delivery ownership, and
 in-memory-before-Cloudflare adapter order remain fixed. Their contract and receipt are recorded in
 [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md) and
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md),
 with the C0 decision in
-[`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
-The provider is not wired to any host. Dispatch checkpointing, Cloudflare task
-bindings, a scheduled Worker host, public APIs, compute delivery, and
-production activation do not exist yet.
+[`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md)
+and the C2 admission in
+[`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
+The provider is not wired to any host. Transactional dispatch checkpoint
+operations, Cloudflare task bindings, a scheduled Worker host, public APIs,
+compute delivery, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,

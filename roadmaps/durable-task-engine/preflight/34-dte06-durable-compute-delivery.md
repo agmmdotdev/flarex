@@ -11,7 +11,9 @@ connected runner against the deterministic compute provider.
 DTE06-C1 adds only a private evidence export, two Task-owned tables, migration,
 and their focused proofs. It adds no transaction repository, effect consumer,
 provider call, Worker route, binding, deployment configuration, or production
-activation. DTE06-C2 requires explicit approval.
+activation. DTE06-C2 is now admitted by
+[`35-dte06-scope-bound-fenced-repository.md`](./35-dte06-scope-bound-fenced-repository.md),
+but its implementation remains pending.
 
 ## Question
 
@@ -305,7 +307,7 @@ index constraints. Focused codec/ownership/corruption tests, current-head
 PGlite migration and constraint tests, and temporary-schema genuine PostgreSQL
 tests prove this checkpoint without admitting C2 operations.
 
-### DTE06-C2: Scope-Bound Fenced Repository — Not Yet Admitted
+### DTE06-C2: Scope-Bound Fenced Repository — Admitted, Pending
 
 - implement acquire/takeover, start marker, renew, exact receipt checkpoint,
   known-failure, and pre-delivery release transactions;
@@ -315,6 +317,10 @@ tests prove this checkpoint without admitting C2 operations.
   lifecycle-current dominance, and connection settlement in PGlite and genuine
   PostgreSQL; and
 - add no connected sweep or real provider.
+
+The implementation-ready authority, operation/result contracts, lock and state
+tables, settlement policy, validation matrix, and stop boundary are fixed in
+[`35-dte06-scope-bound-fenced-repository.md`](./35-dte06-scope-bound-fenced-repository.md).
 
 ### DTE06-C3: Bounded Connected Mock Delivery — Not Yet Admitted
 
@@ -354,8 +360,8 @@ This preflight does not authorize:
 - a generic effect-delivery/outbox framework;
 - Standard Application types in `@flarex/durable-task` or raw input in the
   provider request;
-- DTE06-C2/C3, DTE06-D/E/F, or DTE05-E3 implementation without their own
-  admission;
+- DTE06-C2 implementation outside Preflight 35, or any DTE06-C3, DTE06-D/E/F,
+  or DTE05-E3 implementation without its own admission;
 - a real provider, Worker Loader task route, service binding, R2 input loader,
   heartbeat, completion, result publication, or observability API; or
 - Queue/cron consumers, Wrangler/deployment changes, public APIs, or production
