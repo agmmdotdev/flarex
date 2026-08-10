@@ -19,10 +19,18 @@ full requested-effect and attempt-identity ledger correlation from the DTE04
 run-attempt store into one package-owned helper with caller-supplied corruption
 mapping. The existing store and C2 therefore share lifecycle evidence mechanics
 without sharing error authority. C1 also exposes pure canonical dispatch and
-acceptance byte encoders for use inside the future transaction callback, while
+acceptance byte encoders for use inside the transaction callback, while
 its Effect APIs continue to own hashing and public evidence snapshots. No C2
-claim transaction, handle, cancellation path, or completion gate is satisfied
-by this progress alone.
+completion gate is satisfied by this progress alone.
+
+The next production-inert repository slice now owns scope-bound dispatch
+preparation, initial/retry/uncertain-replay acquisition, database-time claim
+leases, opaque repository-local handles, delivery-start accounting, renewal,
+and pre-delivery release behind the admitted private persistence subpath. Its
+PGlite proof covers live-claim exclusion, fenced reacquisition, handle closure,
+and expired-delivery takeover. Dispatch acceptance, known-failure transitions,
+all cancellation operations, hostile settlement/corruption coverage, and the
+ordinary-role genuine-PostgreSQL lane remain required before C2 completion.
 
 This admission changes no runtime code by itself. DTE06-C1 commit `201d85b4`
 is the required storage prerequisite. DTE06-C3 connected discovery and provider

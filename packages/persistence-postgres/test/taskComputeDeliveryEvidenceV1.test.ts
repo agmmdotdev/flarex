@@ -26,7 +26,9 @@ import {
   decodeTaskComputeCancellationReceiptEvidenceV1,
   decodeTaskComputeCancellationRequestEvidenceV1,
   decodeTaskComputeDispatchAcceptanceEvidenceV1,
+  decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
   decodeTaskComputeDispatchRequestEvidenceV1,
+  decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   decodeTaskComputePreparedExecutionV1,
   decodeTaskComputeProfileStorageBytesV1,
   encodeTaskComputeCancellationReceiptEvidenceV1,
@@ -197,6 +199,26 @@ describe("DTE06-C1 compute delivery evidence", () => {
     );
     expect(error).toMatchObject({ reason: "invalid_evidence" });
     expect(getterReads).toBe(0);
+
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const pureFailure = decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
+      revoked.proxy,
+      new Uint8Array(32),
+    );
+    expect(Result.isFailure(pureFailure)).toBe(true);
+    const acceptanceFailure =
+      decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1(
+        revoked.proxy,
+        new Uint8Array(32),
+      );
+    expect(Result.isFailure(acceptanceFailure)).toBe(true);
+    const effectFailure = await Effect.runPromise(
+      decodeTaskComputeDispatchRequestEvidenceV1(revoked.proxy).pipe(
+        Effect.flip,
+      ),
+    );
+    expect(effectFailure).toMatchObject({ reason: "invalid_evidence" });
   });
 
   it("rejects digest drift, noncanonical JSON, malformed UTF-8, and oversize evidence", async () => {

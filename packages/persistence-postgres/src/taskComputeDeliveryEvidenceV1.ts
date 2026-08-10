@@ -252,6 +252,72 @@ export function encodeTaskComputeDispatchAcceptanceCanonicalBytesV1(
   );
 }
 
+/**
+ * Captures canonical dispatch evidence after the caller has computed SHA-256
+ * over the exact returned canonical bytes. This private seam lets a
+ * transaction owner retain one canonical codec without running an Effect
+ * runtime inside a foreign Drizzle callback.
+ */
+export function encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
+  input: unknown,
+  observedSha256: unknown,
+): Result.Result<
+  TaskComputeDeliveryEvidenceV1,
+  TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_request">
+> {
+  return validateTaskComputeDispatchRequestV1(input).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      "encode_dispatch_request",
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap((value) => encodeCanonicalDomainBytesResult(
+      value,
+      dispatchRequestCodecOptions,
+      "encode_dispatch_request",
+    )),
+    Result.flatMap((canonicalBytes) => captureObservedEvidenceResult(
+      canonicalBytes,
+      observedSha256,
+      "encode_dispatch_request",
+    )),
+  );
+}
+
+export function decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
+  input: unknown,
+  observedSha256: unknown,
+): Result.Result<
+  TaskComputeDispatchRequestV1,
+  TaskComputeDeliveryEvidenceV1Error<"decode_dispatch_request">
+> {
+  return captureEvidenceResult(input, "decode_dispatch_request").pipe(
+    Result.flatMap((evidence) => decodeCanonicalDomainEvidenceResult(
+      evidence,
+      observedSha256,
+      dispatchRequestCodecOptions,
+      "decode_dispatch_request",
+    )),
+  );
+}
+
+export function decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1(
+  input: unknown,
+  observedSha256: unknown,
+): Result.Result<
+  TaskComputeDispatchAcceptanceV1,
+  TaskComputeDeliveryEvidenceV1Error<"decode_dispatch_acceptance">
+> {
+  return captureEvidenceResult(input, "decode_dispatch_acceptance").pipe(
+    Result.flatMap((evidence) => decodeCanonicalDomainEvidenceResult(
+      evidence,
+      observedSha256,
+      dispatchAcceptanceCodecOptions,
+      "decode_dispatch_acceptance",
+    )),
+  );
+}
+
 export function decodeTaskComputePreparedExecutionV1(
   input: unknown,
 ): Result.Result<
@@ -379,7 +445,11 @@ function makeDeliveryEvidenceCodec<
       ),
     );
     const sha256 = yield* hashEvidence(canonicalBytes, options.encodeOperation);
-    return captureEvidence(canonicalBytes, sha256);
+    return yield* Effect.fromResult(captureObservedEvidenceResult(
+      canonicalBytes,
+      sha256,
+      options.encodeOperation,
+    ));
   });
 
   const decode = Effect.fn(
@@ -394,39 +464,12 @@ function makeDeliveryEvidenceCodec<
       evidence.canonicalBytes,
       options.decodeOperation,
     );
-    if (!bytesEqual(observedDigest, evidence.sha256)) {
-      return yield* Effect.fail(evidenceFailure(
-        options.decodeOperation,
-        "invalid_digest",
-      ));
-    }
-    const parsed = yield* decodeJson(
-      evidence.canonicalBytes,
+    return yield* Effect.fromResult(decodeCanonicalDomainEvidenceResult(
+      evidence,
+      observedDigest,
+      options,
       options.decodeOperation,
-    );
-    const value = yield* Effect.fromResult(
-      options.decodeValue(parsed).pipe(
-        Result.mapError((cause) => evidenceFailure(
-          options.decodeOperation,
-          "invalid_json",
-          { cause },
-        )),
-      ),
-    );
-    const canonicalBytes = yield* Effect.fromResult(
-      encodeCanonicalDomainBytesResult(
-        value,
-        options,
-        options.decodeOperation,
-      ),
-    );
-    if (!bytesEqual(canonicalBytes, evidence.canonicalBytes)) {
-      return yield* Effect.fail(evidenceFailure(
-        options.decodeOperation,
-        "non_canonical",
-      ));
-    }
-    return value;
+    ));
   });
 
   return Object.freeze({ encode, decode });
@@ -536,18 +579,75 @@ function captureEvidenceResult<
   return Result.succeed(captureEvidence(canonicalBytes, sha256));
 }
 
-function decodeJson<Operation extends TaskComputeDeliveryEvidenceOperationV1>(
-  bytes: Uint8Array,
+function captureObservedEvidenceResult<
+  Operation extends TaskComputeDeliveryEvidenceOperationV1,
+>(
+  canonicalBytes: Uint8Array,
+  observedSha256: unknown,
   operation: Operation,
-): Effect.Effect<unknown, TaskComputeDeliveryEvidenceV1Error<Operation>> {
-  return Effect.try({
-    try: () => JSON.parse(FATAL_UTF8_DECODER.decode(bytes)) as unknown,
-    catch: (cause) => evidenceFailure(
+): Result.Result<
+  TaskComputeDeliveryEvidenceV1,
+  TaskComputeDeliveryEvidenceV1Error<Operation>
+> {
+  if (!isUint8Array(observedSha256) || observedSha256.byteLength !== 32) {
+    return Result.fail(evidenceFailure(operation, "invalid_digest"));
+  }
+  return Result.succeed(captureEvidence(canonicalBytes, observedSha256));
+}
+
+function decodeCanonicalDomainEvidenceResult<
+  Value,
+  EncodeOperation extends TaskComputeDeliveryEvidenceOperationV1,
+  DecodeOperation extends TaskComputeDeliveryEvidenceOperationV1,
+  Operation extends TaskComputeDeliveryEvidenceOperationV1,
+>(
+  evidence: TaskComputeDeliveryEvidenceV1,
+  observedSha256: unknown,
+  options: DeliveryEvidenceCodecOptions<
+    Value,
+    EncodeOperation,
+    DecodeOperation
+  >,
+  operation: Operation,
+): Result.Result<Value, TaskComputeDeliveryEvidenceV1Error<Operation>> {
+  if (
+    !isUint8Array(observedSha256)
+    || observedSha256.byteLength !== 32
+    || !bytesEqual(observedSha256, evidence.sha256)
+  ) {
+    return Result.fail(evidenceFailure(operation, "invalid_digest"));
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      FATAL_UTF8_DECODER.decode(evidence.canonicalBytes),
+    ) as unknown;
+  } catch (cause) {
+    return Result.fail(evidenceFailure(
       operation,
       cause instanceof TypeError ? "invalid_utf8" : "invalid_json",
       { cause },
-    ),
-  });
+    ));
+  }
+  return options.decodeValue(parsed).pipe(
+    Result.mapError((cause) => evidenceFailure(
+      operation,
+      "invalid_json",
+      { cause },
+    )),
+    Result.flatMap((value) => encodeCanonicalDomainBytesResult(
+      value,
+      options,
+      operation,
+    ).pipe(
+      Result.flatMap((canonicalBytes) => bytesEqual(
+        canonicalBytes,
+        evidence.canonicalBytes,
+      )
+        ? Result.succeed(value)
+        : Result.fail(evidenceFailure(operation, "non_canonical"))),
+    )),
+  );
 }
 
 function hashEvidence<Operation extends TaskComputeDeliveryEvidenceOperationV1>(
@@ -612,10 +712,10 @@ function captureExactDataRecord(
   input: unknown,
   expectedKeys: ReadonlyArray<string>,
 ): Readonly<Record<string, unknown>> | undefined {
-  if (typeof input !== "object" || input === null || Array.isArray(input)) {
-    return undefined;
-  }
   try {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+      return undefined;
+    }
     const keys = Reflect.ownKeys(input);
     if (keys.length !== expectedKeys.length) return undefined;
     const expected = new Set(expectedKeys);

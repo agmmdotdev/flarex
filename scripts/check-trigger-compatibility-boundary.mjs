@@ -30,6 +30,8 @@ const persistencePostgresTaskSystemRunReadPath =
   "packages/persistence-postgres/src/taskSystemRunReadV1.ts";
 const persistencePostgresTaskComputeDeliveryEvidencePath =
   "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts";
+const persistencePostgresTaskComputeDeliveryRepositoryPath =
+  "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts";
 const persistencePostgresTaskWakeSchedulerPartitionPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
 const persistencePostgresTaskWakeSchedulerDirectoryPath =
@@ -113,6 +115,28 @@ const admittedPersistenceTaskComputeDeliveryEvidenceSymbolsBySpecifier =
     ["@flarex/durable-task/internal/run-attempt-v1", new Set([
       "TaskComputeProfileRefV1",
       "TaskComputeProfileRefV1Schema",
+    ])],
+  ]);
+const admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier =
+  new Map([
+    ["@flarex/durable-task/internal/compute-provider-v1", new Set([
+      "TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1",
+      "TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1",
+      "TaskComputeDispatchAcceptanceV1",
+      "TaskComputeDispatchRequestV1",
+      "validateTaskComputeDispatchRequestV1",
+    ])],
+    ["@flarex/durable-task/internal/run-creation-v1", new Set([
+      "TaskInputReferenceV1",
+      "decodeTaskInputReferenceV1",
+    ])],
+    ["@flarex/durable-task/internal/run-attempt-v1", new Set([
+      "PersistedTaskRequestedEffectV1",
+      "TaskRequestedEffectSequenceV1",
+      "TaskRunAttemptAggregateV1",
+      "TaskRunIdV1",
+      "decodeTaskRequestedEffectSequenceV1",
+      "decodeTaskRunIdV1",
     ])],
   ]);
 const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
@@ -1074,6 +1098,10 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     ? admittedPersistenceTaskSystemRunReadSymbolsBySpecifier.get(specifier)
     : relativePath === persistencePostgresTaskComputeDeliveryEvidencePath
     ? admittedPersistenceTaskComputeDeliveryEvidenceSymbolsBySpecifier.get(
+      specifier,
+    )
+    : relativePath === persistencePostgresTaskComputeDeliveryRepositoryPath
+    ? admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier.get(
       specifier,
     )
     : relativePath === persistencePostgresTaskWakeSchedulerPartitionPath

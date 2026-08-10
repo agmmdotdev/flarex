@@ -372,6 +372,32 @@ describe("Trigger compatibility boundary checker", () => {
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
+        "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts",
+      text: `
+        import {
+          TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
+          TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
+          validateTaskComputeDispatchRequestV1,
+          type TaskComputeDispatchAcceptanceV1,
+          type TaskComputeDispatchRequestV1,
+        } from "@flarex/durable-task/internal/compute-provider-v1";
+        import {
+          decodeTaskInputReferenceV1,
+          type TaskInputReferenceV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+        import {
+          decodeTaskRequestedEffectSequenceV1,
+          decodeTaskRunIdV1,
+          type PersistedTaskRequestedEffectV1,
+          type TaskRequestedEffectSequenceV1,
+          type TaskRunAttemptAggregateV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
         "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts",
       text: `
         import type {
@@ -532,6 +558,12 @@ describe("Trigger compatibility boundary checker", () => {
       text: `
         import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
       `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts",
+      text: `
+        import { TaskComputeProvider } from "@flarex/durable-task/internal/compute-provider-v1";
+      `,
     }]).errors).toEqual([
       `${schemaPath}:2 production source must not activate @flarex/durable-task before host admission.`,
       `${schemaPath}:3 production source must not activate @flarex/durable-task before host admission.`,
@@ -545,6 +577,7 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
     ]);
   });
 

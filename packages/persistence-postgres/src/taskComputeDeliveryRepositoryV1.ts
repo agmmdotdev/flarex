@@ -1,0 +1,2366 @@
+import {
+  TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
+  TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
+  type TaskComputeDispatchAcceptanceV1,
+  type TaskComputeDispatchRequestV1,
+  validateTaskComputeDispatchRequestV1,
+} from "@flarex/durable-task/internal/compute-provider-v1";
+import {
+  decodeTaskInputReferenceV1,
+  type TaskInputReferenceV1,
+} from "@flarex/durable-task/internal/run-creation-v1";
+import {
+  decodeTaskRequestedEffectSequenceV1,
+  decodeTaskRunIdV1,
+  type PersistedTaskRequestedEffectV1,
+  type TaskRequestedEffectSequenceV1,
+  type TaskRunAttemptAggregateV1,
+  type TaskRunIdV1,
+} from "@flarex/durable-task/internal/run-attempt-v1";
+import {
+  decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1,
+  decodeTaskRunCreationAuthorityReceiptPreimageV1,
+  type TaskDefinitionRuntimeBindingCommitmentV1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
+import { bytesEqual } from "@flarex/utils/bytes";
+import { copyFiniteDate } from "@flarex/utils/dates";
+import { isLowercaseUuidText } from "@flarex/utils/strings";
+import { and, eq, sql } from "drizzle-orm";
+import { Cause, Data, Effect, Exit, Result, Schema, Semaphore } from "effect";
+import {
+  ReplacementScopeIdV1Schema,
+  type ReplacementScopeIdV1,
+  type ScopeId,
+} from "flarex-protocol/storage-authority";
+
+import type { AppRowTransaction } from "./appRows";
+import type { FlarexMetadataDatabase } from "./deployments";
+import { getScopeClock } from "./scopeClock";
+import {
+  fxSystemDurableTaskComputeDispatchesV1,
+  fxSystemDurableTaskDefinitionRevisionsV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+  fxSystemDurableTaskRunsV1,
+  fxSystemScopeClocks,
+} from "./schema";
+import type {
+  LocatedTrustedScopeAuthority,
+  TrustedScopeAuthority,
+} from "./scopeAuthorityResolution";
+import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
+import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
+import {
+  decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
+  decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
+  decodeTaskComputeProfileStorageBytesV1,
+  encodeTaskComputeDispatchRequestCanonicalBytesV1,
+  encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
+  encodeTaskComputeProfileStorageBytesV1,
+  TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1,
+  TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
+  TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
+  TaskComputeDeliveryEvidenceV1Error,
+  type TaskComputePreparedExecutionV1,
+} from "./taskComputeDeliveryEvidenceV1";
+import {
+  correlateTaskSystemLifecycleLedgerV1,
+  taskSystemPersistedValueEqualV1,
+} from "./taskSystemLifecycleLedgerCorrelationV1";
+import { decodeAndCorrelateTaskSystemRequestedEffectRowV1 } from
+  "./taskSystemRequestedEffectRowV1";
+import { decodeAndCorrelateTaskSystemRunRowV1 } from
+  "./taskSystemRunRowV1";
+import {
+  captureTaskSystemTrustedScopeAuthorityV1,
+  requireLockedTaskSystemScopeAuthorityV1,
+  type TaskSystemScopeAuthorityMismatchV1,
+} from "./taskSystemScopeAuthorityV1";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "./transactionSessionActivation";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+  RUN_LOCATED_READ_COMMITTED_V1,
+  type LocatedReadCommittedAttemptTargetV1,
+  type RunLocatedReadCommittedTransactionV1,
+} from "./transactionSessionAttemptKernel";
+
+const TARGET_DB: unique symbol = Symbol(
+  "FlarexDB/taskComputeDeliveryRepositoryTargetDbV1",
+);
+const POSTGRES_SIGNED_BIGINT_MAX = 9_223_372_036_854_775_807n;
+const MAXIMUM_DELIVERY_ATTEMPTS_V1 = 250;
+const UUID_V4_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const decodeReplacementScopeIdResult = Schema.decodeUnknownResult(
+  ReplacementScopeIdV1Schema,
+);
+
+type DispatchRow =
+  typeof fxSystemDurableTaskComputeDispatchesV1.$inferSelect;
+type DefinitionRow =
+  typeof fxSystemDurableTaskDefinitionRevisionsV1.$inferSelect;
+type RequestedEffectRow =
+  typeof fxSystemDurableTaskRequestedEffectsV1.$inferSelect;
+type RunRow = typeof fxSystemDurableTaskRunsV1.$inferSelect;
+
+export type TaskComputeDeliveryModeV1 =
+  | "initial"
+  | "retry"
+  | "uncertain_replay";
+export type TaskComputeDeliveryLifecycleDispositionV1 =
+  | "current"
+  | "cleanup_only";
+export type TaskComputeDispatchClosedStateV1 =
+  | "rejected"
+  | "obsolete"
+  | "quarantined";
+export type TaskComputeDispatchClosedReasonV1 =
+  | "lifecycle_obsolete"
+  | "checkpoint_corrupt"
+  | "provider_unsupported_compute_profile"
+  | "provider_capacity_unavailable"
+  | "provider_disabled"
+  | "provider_transport"
+  | "delivery_attempts_exhausted";
+
+export type TaskComputeDeliveryRepositoryOperationV1 =
+  | "acquire_dispatch"
+  | "mark_dispatch_delivery_started"
+  | "renew_dispatch_claim"
+  | "release_dispatch_before_delivery";
+type TaskComputeDeliveryRepositoryHandleOperationV1 = Exclude<
+  TaskComputeDeliveryRepositoryOperationV1,
+  "acquire_dispatch"
+>;
+interface TaskComputeDeliveryRepositoryEvidenceOperationByOperationV1 {
+  readonly acquire_dispatch:
+    | "encode_dispatch_request"
+    | "decode_dispatch_request"
+    | "decode_dispatch_acceptance";
+  readonly mark_dispatch_delivery_started: "decode_dispatch_request";
+  readonly renew_dispatch_claim: "decode_dispatch_request";
+  readonly release_dispatch_before_delivery: "decode_dispatch_request";
+}
+interface TaskComputeDeliveryRepositoryInputReasonByOperationV1 {
+  readonly acquire_dispatch: "invalid_request" | "claim_owner_invalid";
+  readonly mark_dispatch_delivery_started: "invalid_handle" | "closed_handle";
+  readonly renew_dispatch_claim: "invalid_handle" | "closed_handle";
+  readonly release_dispatch_before_delivery: "invalid_handle" | "closed_handle";
+}
+interface TaskComputeDeliveryRepositoryStaleErrorByOperationV1 {
+  readonly acquire_dispatch: never;
+  readonly mark_dispatch_delivery_started:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "mark_dispatch_delivery_started"
+    >;
+  readonly renew_dispatch_claim:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<"renew_dispatch_claim">;
+  readonly release_dispatch_before_delivery:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "release_dispatch_before_delivery"
+    >;
+}
+interface TaskComputeDeliveryRepositoryResourceErrorByOperationV1 {
+  readonly acquire_dispatch:
+    TaskComputeDeliveryRepositoryResourceExhaustedV1Error<"acquire_dispatch">;
+  readonly mark_dispatch_delivery_started:
+    TaskComputeDeliveryRepositoryResourceExhaustedV1Error<
+      "mark_dispatch_delivery_started"
+    >;
+  readonly renew_dispatch_claim: never;
+  readonly release_dispatch_before_delivery: never;
+}
+type TaskComputeDeliveryRepositoryEvidenceOperationV1<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1,
+> = TaskComputeDeliveryRepositoryEvidenceOperationByOperationV1[Operation];
+
+export class TaskComputeDeliveryRepositoryConfigurationV1Error
+  extends Data.TaggedError(
+    "TaskComputeDeliveryRepositoryConfigurationV1Error",
+  )<{
+    readonly reason:
+      | "invalid_options"
+      | "invalid_claim_duration"
+      | "invalid_retry_delays"
+      | "invalid_maximum_delivery_attempts"
+      | "invalid_random_uuid"
+      | "invalid_scope";
+  }> {}
+
+export class TaskComputeDeliveryRepositoryInputV1Error<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1 =
+    TaskComputeDeliveryRepositoryOperationV1,
+>
+  extends Data.TaggedError("TaskComputeDeliveryRepositoryInputV1Error")<{
+    readonly operation: Operation;
+    readonly reason:
+      TaskComputeDeliveryRepositoryInputReasonByOperationV1[Operation];
+  }> {}
+
+export class TaskComputeDeliveryRepositoryUnavailableV1Error<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1 =
+    TaskComputeDeliveryRepositoryOperationV1,
+>
+  extends Data.TaggedError(
+    "TaskComputeDeliveryRepositoryUnavailableV1Error",
+  )<{
+    readonly operation: Operation;
+    readonly runId: TaskRunIdV1;
+    readonly reason: "run_unavailable" | "effect_unavailable";
+  }> {}
+
+export class TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1 =
+    TaskComputeDeliveryRepositoryOperationV1,
+>
+  extends Data.TaggedError(
+    "TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error",
+  )<{
+    readonly operation: Operation;
+    readonly runId: TaskRunIdV1;
+    readonly authority: TaskSystemScopeAuthorityMismatchV1;
+  }> {}
+
+export class TaskComputeDeliveryRepositoryStaleClaimV1Error<
+  Operation extends TaskComputeDeliveryRepositoryHandleOperationV1 =
+    TaskComputeDeliveryRepositoryHandleOperationV1,
+>
+  extends Data.TaggedError("TaskComputeDeliveryRepositoryStaleClaimV1Error")<{
+    readonly operation: Operation;
+    readonly runId: TaskRunIdV1;
+    readonly reason:
+      | "owner_mismatch"
+      | "fence_mismatch"
+      | "state_mismatch"
+      | "claim_expired"
+      | "lifecycle_obsolete";
+  }> {}
+
+export type TaskComputeDeliveryRepositoryCorruptionReasonV1 =
+  | "aggregate_invalid"
+  | "effect_invalid"
+  | "effect_sequence_invalid"
+  | "acceptance_invalid"
+  | "definition_invalid"
+  | "creation_authority_invalid"
+  | "input_invalid"
+  | "checkpoint_invalid"
+  | "database_clock_invalid";
+
+export class TaskComputeDeliveryRepositoryCorruptionV1Error<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1 =
+    TaskComputeDeliveryRepositoryOperationV1,
+>
+  extends Data.TaggedError("TaskComputeDeliveryRepositoryCorruptionV1Error")<{
+    readonly operation: Operation;
+    readonly runId: TaskRunIdV1;
+    readonly reason: TaskComputeDeliveryRepositoryCorruptionReasonV1;
+  }> {}
+
+export class TaskComputeDeliveryRepositoryResourceExhaustedV1Error<
+  Operation extends "acquire_dispatch" | "mark_dispatch_delivery_started" =
+    "acquire_dispatch" | "mark_dispatch_delivery_started",
+>
+  extends Data.TaggedError(
+    "TaskComputeDeliveryRepositoryResourceExhaustedV1Error",
+  )<{
+    readonly operation: Operation;
+    readonly runId: TaskRunIdV1;
+    readonly dimension: Operation extends "acquire_dispatch"
+      ? "claim_fence"
+      : "delivery_attempt_count";
+    readonly observed: bigint;
+    readonly maximum: bigint;
+  }> {}
+
+export class TaskComputeDeliveryRepositoryConfirmedRollbackV1Error<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1 =
+    TaskComputeDeliveryRepositoryOperationV1,
+>
+  extends Data.TaggedError(
+    "TaskComputeDeliveryRepositoryConfirmedRollbackV1Error",
+  )<{
+    readonly operation: Operation;
+    readonly cause: LocatedReadCommittedTransactionFailureV1;
+  }> {}
+
+export class TaskComputeDeliveryRepositoryDecisionUncertainV1Error<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1 =
+    TaskComputeDeliveryRepositoryOperationV1,
+>
+  extends Data.TaggedError(
+    "TaskComputeDeliveryRepositoryDecisionUncertainV1Error",
+  )<{
+    readonly operation: Operation;
+    readonly cause: LocatedReadCommittedTransactionFailureV1;
+  }> {}
+
+export class TaskComputeDeliveryRepositorySqlV1Error<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1 =
+    TaskComputeDeliveryRepositoryOperationV1,
+>
+  extends Data.TaggedError("TaskComputeDeliveryRepositorySqlV1Error")<{
+    readonly operation: Operation;
+    readonly phase: "cleanup" | "infrastructure";
+    readonly cause: unknown;
+  }> {}
+
+export class TaskComputeDeliveryRepositoryCryptoV1Error<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1 =
+    TaskComputeDeliveryRepositoryOperationV1,
+>
+  extends Data.TaggedError("TaskComputeDeliveryRepositoryCryptoV1Error")<{
+    readonly operation: Operation;
+    readonly cause: unknown;
+  }> {}
+
+type TaskComputeDeliveryRepositoryErrorForOperationV1<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1,
+> =
+  | TaskComputeDeliveryRepositoryInputV1Error<Operation>
+  | TaskComputeDeliveryRepositoryUnavailableV1Error<Operation>
+  | TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error<Operation>
+  | TaskComputeDeliveryRepositoryStaleErrorByOperationV1[Operation]
+  | TaskComputeDeliveryRepositoryCorruptionV1Error<Operation>
+  | TaskComputeDeliveryRepositoryResourceErrorByOperationV1[Operation]
+  | TaskComputeDeliveryRepositoryConfirmedRollbackV1Error<Operation>
+  | TaskComputeDeliveryRepositoryDecisionUncertainV1Error<Operation>
+  | TaskComputeDeliveryRepositorySqlV1Error<Operation>
+  | TaskComputeDeliveryRepositoryCryptoV1Error<Operation>
+  | TaskComputeDeliveryEvidenceV1Error<
+      TaskComputeDeliveryRepositoryEvidenceOperationV1<Operation>
+    >;
+
+export type TaskComputeDeliveryRepositoryErrorV1<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1 =
+    TaskComputeDeliveryRepositoryOperationV1,
+> = TaskComputeDeliveryRepositoryErrorForOperationV1<Operation>;
+
+type TaskComputeDeliveryRepositoryBroadErrorV1 =
+  | TaskComputeDeliveryRepositoryInputV1Error
+  | TaskComputeDeliveryRepositoryUnavailableV1Error
+  | TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error
+  | TaskComputeDeliveryRepositoryStaleClaimV1Error
+  | TaskComputeDeliveryRepositoryCorruptionV1Error
+  | TaskComputeDeliveryRepositoryResourceExhaustedV1Error
+  | TaskComputeDeliveryRepositoryConfirmedRollbackV1Error
+  | TaskComputeDeliveryRepositoryDecisionUncertainV1Error
+  | TaskComputeDeliveryRepositorySqlV1Error
+  | TaskComputeDeliveryRepositoryCryptoV1Error
+  | TaskComputeDeliveryEvidenceV1Error;
+
+const TASK_COMPUTE_DISPATCH_CLAIM_HANDLE_V1: unique symbol = Symbol(
+  "FlarexDB/taskComputeDispatchClaimHandleV1",
+);
+export interface TaskComputeDispatchClaimHandleV1 {
+  readonly [TASK_COMPUTE_DISPATCH_CLAIM_HANDLE_V1]: true;
+}
+
+export interface TaskComputeDispatchAcquireRequestV1 {
+  readonly runId: TaskRunIdV1;
+  readonly requestedEffectSequence: TaskRequestedEffectSequenceV1;
+}
+
+export type TaskComputeDispatchAcquireResultV1 =
+  | Readonly<{
+      readonly kind: "claimed";
+      readonly prepared: TaskComputePreparedExecutionV1;
+      readonly handle: TaskComputeDispatchClaimHandleV1;
+      readonly deliveryMode: TaskComputeDeliveryModeV1;
+      readonly claimExpiresAt: Date;
+    }>
+  | Readonly<{
+      readonly kind: "busy";
+      readonly claimExpiresAt: Date;
+    }>
+  | Readonly<{
+      readonly kind: "not_due";
+      readonly nextAttemptAt: Date;
+    }>
+  | Readonly<{
+      readonly kind: "accepted";
+      readonly acceptance: TaskComputeDispatchAcceptanceV1;
+      readonly disposition: TaskComputeDeliveryLifecycleDispositionV1;
+    }>
+  | Readonly<{
+      readonly kind: "closed";
+      readonly state: TaskComputeDispatchClosedStateV1;
+      readonly reason: TaskComputeDispatchClosedReasonV1;
+    }>;
+
+export interface TaskComputeDispatchDeliveryStartedV1 {
+  readonly kind: "delivery_started";
+  readonly deliveryAttemptCount: bigint;
+  readonly deliveryStartedAt: Date;
+}
+
+export interface TaskComputeDispatchClaimRenewedV1 {
+  readonly kind: "claim_renewed";
+  readonly claimExpiresAt: Date;
+}
+
+export interface TaskComputeDispatchClaimReleasedV1 {
+  readonly kind: "claim_released";
+}
+
+export interface TaskComputeDeliveryRepositoryV1 {
+  readonly acquireDispatch: (
+    request: TaskComputeDispatchAcquireRequestV1,
+  ) => Effect.Effect<
+    TaskComputeDispatchAcquireResultV1,
+    TaskComputeDeliveryRepositoryErrorV1<"acquire_dispatch">
+  >;
+  readonly markDispatchDeliveryStarted: (
+    handle: TaskComputeDispatchClaimHandleV1,
+  ) => Effect.Effect<
+    TaskComputeDispatchDeliveryStartedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"mark_dispatch_delivery_started">
+  >;
+  readonly renewDispatchClaim: (
+    handle: TaskComputeDispatchClaimHandleV1,
+  ) => Effect.Effect<
+    TaskComputeDispatchClaimRenewedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"renew_dispatch_claim">
+  >;
+  readonly releaseDispatchBeforeDelivery: (
+    handle: TaskComputeDispatchClaimHandleV1,
+  ) => Effect.Effect<
+    TaskComputeDispatchClaimReleasedV1,
+    TaskComputeDeliveryRepositoryErrorV1<"release_dispatch_before_delivery">
+  >;
+}
+
+export interface LocatedTaskComputeDeliveryTargetV1
+  extends LocatedReadCommittedAttemptTargetV1 {
+  readonly [TARGET_DB]: FlarexMetadataDatabase;
+}
+
+export interface TaskComputeDeliveryRepositoryOptionsV1 {
+  readonly claimDurationMilliseconds: number;
+  readonly retryDelayMilliseconds: ReadonlyArray<number>;
+  readonly maximumDeliveryAttempts: number;
+  readonly randomUuid: () => string;
+}
+
+interface CapturedConfigurationV1 {
+  readonly claimDurationMilliseconds: number;
+  readonly retryDelayMilliseconds: ReadonlyArray<number>;
+  readonly maximumDeliveryAttempts: number;
+  readonly randomUuid: () => string;
+}
+
+interface CapturedAcquireRequestV1 {
+  readonly runId: TaskRunIdV1;
+  readonly requestedEffectSequence: TaskRequestedEffectSequenceV1;
+}
+
+interface MutableHandleStateV1 {
+  readonly operation: "dispatch";
+  readonly runId: TaskRunIdV1;
+  readonly requestedEffectSequence: TaskRequestedEffectSequenceV1;
+  readonly claimOwner: string;
+  readonly claimFence: bigint;
+  phase: "claimed" | "delivering";
+  closed: boolean;
+  readonly operationGate: Semaphore.Semaphore;
+}
+
+interface TransactionClaimedV1 {
+  readonly kind: "claimed";
+  readonly prepared: TaskComputePreparedExecutionV1;
+  readonly deliveryMode: TaskComputeDeliveryModeV1;
+  readonly claimOwner: string;
+  readonly claimFence: bigint;
+  readonly claimExpiresAt: Date;
+}
+
+type TransactionAcquireResultV1 =
+  | TransactionClaimedV1
+  | Exclude<TaskComputeDispatchAcquireResultV1, { readonly kind: "claimed" }>;
+
+export function createLocatedTaskComputeDeliveryTargetV1(
+  db: FlarexMetadataDatabase,
+  physicalLocator: ScopePhysicalLocator,
+  runReadCommitted: RunLocatedReadCommittedTransactionV1 =
+    createDefaultLocatedReadCommittedTransactionRunnerV1(db),
+): LocatedTaskComputeDeliveryTargetV1 {
+  return Object.freeze({
+    physicalLocator: captureScopePhysicalLocator(physicalLocator),
+    getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
+    [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
+    [TARGET_DB]: db,
+  });
+}
+
+export function makeTaskComputeDeliveryRepositoryV1(
+  located: LocatedTrustedScopeAuthority<LocatedTaskComputeDeliveryTargetV1>,
+  options: TaskComputeDeliveryRepositoryOptionsV1,
+): Result.Result<
+  TaskComputeDeliveryRepositoryV1,
+  TaskComputeDeliveryRepositoryConfigurationV1Error
+> {
+  return captureConfiguration(options).pipe(
+    Result.flatMap((configuration) =>
+      decodeReplacementScopeIdResult(located.authority.scopeId).pipe(
+        Result.mapError(() => configurationFailure("invalid_scope")),
+        Result.map((scopeId) => makeRepository(
+          captureTaskSystemTrustedScopeAuthorityV1(located.authority),
+          scopeId,
+          located.target,
+          configuration,
+        )),
+      )
+    ),
+  );
+}
+
+function makeRepository(
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+): TaskComputeDeliveryRepositoryV1 {
+  const handles = new WeakMap<object, MutableHandleStateV1>();
+
+  const acquireDispatch: TaskComputeDeliveryRepositoryV1["acquireDispatch"] =
+    Effect.fn("TaskComputeDeliveryRepository.acquireDispatch")(
+      function* (request) {
+        const captured = yield* Effect.fromResult(captureAcquireRequest(request));
+        const claimOwner = yield* allocateClaimOwner(configuration.randomUuid);
+        for (let execution = 1; execution <= 2; execution += 1) {
+          const transaction = target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+            acquireDispatchTransaction(
+              tx,
+              authority,
+              replacementScopeId,
+              target,
+              configuration,
+              captured,
+              claimOwner,
+            )
+          );
+          const settled = yield* Effect.exit(awaitSettlement(transaction));
+          if (Exit.isSuccess(settled)) {
+            return settled.value.kind === "claimed"
+              ? mintClaim(handles, settled.value)
+              : captureAcquireOutcome(settled.value);
+          }
+          const failure = Cause.findError(settled.cause);
+          if (Result.isFailure(failure)) {
+            return yield* Effect.failCause(failure.failure);
+          }
+          const classified = classifyTransactionFailure(
+            "acquire_dispatch",
+            failure.success,
+            execution,
+          );
+          if (classified.kind === "retry") continue;
+          if (classified.kind === "failure") return yield* classified.error;
+          return yield* Effect.die(classified.cause);
+        }
+        return yield* new TaskComputeDeliveryRepositoryConfirmedRollbackV1Error({
+          operation: "acquire_dispatch",
+          cause: new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "callbackRolledBack",
+            callbackCause: "retry_exhausted",
+          })),
+        });
+      },
+    );
+
+  const markDispatchDeliveryStarted: TaskComputeDeliveryRepositoryV1[
+    "markDispatchDeliveryStarted"
+  ] = Effect.fn("TaskComputeDeliveryRepository.markDispatchDeliveryStarted")(
+    (handle) => withHandleOperation(
+      handles,
+      handle,
+      "mark_dispatch_delivery_started",
+      (state) => state.phase === "delivering"
+        ? Effect.fail(staleClaim(
+            "mark_dispatch_delivery_started",
+            state.runId,
+            "state_mismatch",
+          ))
+        : runClaimOperation(
+            state,
+            "mark_dispatch_delivery_started",
+            () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+              markDispatchDeliveryStartedTransaction(
+                tx,
+                authority,
+                replacementScopeId,
+                target,
+                configuration,
+                state,
+              )
+            ),
+          ).pipe(
+            Effect.tap(() => Effect.sync(() => {
+              state.phase = "delivering";
+            })),
+          ),
+    ),
+  );
+
+  const renewDispatchClaim: TaskComputeDeliveryRepositoryV1[
+    "renewDispatchClaim"
+  ] = Effect.fn("TaskComputeDeliveryRepository.renewDispatchClaim")(
+    (handle) => withHandleOperation(
+      handles,
+      handle,
+      "renew_dispatch_claim",
+      (state) => runClaimOperation(
+        state,
+        "renew_dispatch_claim",
+        () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+          renewDispatchClaimTransaction(
+            tx,
+            authority,
+            replacementScopeId,
+            target,
+            configuration,
+            state,
+          )
+        ),
+      ),
+    ),
+  );
+
+  const releaseDispatchBeforeDelivery: TaskComputeDeliveryRepositoryV1[
+    "releaseDispatchBeforeDelivery"
+  ] = Effect.fn("TaskComputeDeliveryRepository.releaseDispatchBeforeDelivery")(
+    (handle) => withHandleOperation(
+      handles,
+      handle,
+      "release_dispatch_before_delivery",
+      (state) => state.phase === "delivering"
+        ? Effect.fail(new TaskComputeDeliveryRepositoryStaleClaimV1Error({
+            operation: "release_dispatch_before_delivery",
+            runId: state.runId,
+            reason: "state_mismatch",
+          }))
+        : runClaimOperation(
+            state,
+            "release_dispatch_before_delivery",
+            () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+              releaseDispatchBeforeDeliveryTransaction(
+                tx,
+                authority,
+                replacementScopeId,
+                target,
+                configuration,
+                state,
+              )
+            ),
+          ).pipe(
+            Effect.tap(() => Effect.sync(() => closeHandle(state))),
+          ),
+    ),
+  );
+
+  return Object.freeze({
+    acquireDispatch,
+    markDispatchDeliveryStarted,
+    renewDispatchClaim,
+    releaseDispatchBeforeDelivery,
+  });
+}
+
+async function acquireDispatchTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  request: CapturedAcquireRequestV1,
+  claimOwner: string,
+): Promise<TransactionAcquireResultV1> {
+  const operation = "acquire_dispatch" as const;
+  await statement(operation, () => requireLockedTaskSystemScopeAuthorityV1(
+    tx,
+    authority,
+    target,
+    (mismatch) => rollback(new TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error({
+      operation,
+      runId: request.runId,
+      authority: mismatch,
+    })),
+  ));
+  const runRow = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskRunsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRunsV1.scopeId, authority.scopeId),
+    eq(fxSystemDurableTaskRunsV1.runId, request.runId),
+  )).limit(1).for("update"));
+  const storedRun = runRow[0];
+  if (storedRun === undefined) {
+    throw rollback(new TaskComputeDeliveryRepositoryUnavailableV1Error({
+      operation,
+      runId: request.runId,
+      reason: "run_unavailable",
+    }));
+  }
+  const aggregate = decodeRun(storedRun, operation, request.runId);
+  await statement(operation, () => correlateTaskSystemLifecycleLedgerV1(
+    tx,
+    authority.scopeId,
+    request.runId,
+    aggregate,
+    (reason) => rollback(new TaskComputeDeliveryRepositoryCorruptionV1Error({
+      operation,
+      runId: request.runId,
+      reason,
+    })),
+  ));
+  const effectRow = await loadRequestedEffect(
+    tx,
+    authority.scopeId,
+    request,
+    operation,
+  );
+  const persistedEffect = decodeDispatchEffect(effectRow, request, operation);
+  const immutable = await loadImmutablePreparation(
+    tx,
+    authority.scopeId,
+    storedRun,
+    persistedEffect,
+    operation,
+  );
+  const currentRequest = buildDispatchRequest(
+    replacementScopeId,
+    aggregate,
+    persistedEffect,
+    operation,
+  );
+  const currentPrepared = capturePreparedExecution(
+    currentRequest,
+    immutable.runtimeBindingCommitment,
+    immutable.inputReference,
+  );
+  const databaseTime = await readDatabaseTime(
+    tx,
+    authority.scopeId,
+    configuration.claimDurationMilliseconds,
+    operation,
+    request.runId,
+  );
+  let checkpoint = await loadDispatchCheckpoint(
+    tx,
+    authority.scopeId,
+    request,
+    operation,
+  );
+  const lifecycleCurrent = dispatchLifecycleIsCurrent(
+    aggregate,
+    persistedEffect,
+  );
+  if (checkpoint === null) {
+    const canonicalBytes = Result.getOrThrowWith(
+      encodeTaskComputeDispatchRequestCanonicalBytesV1(currentRequest),
+      (error) => rollback(error),
+    );
+    const observedSha256 = await sha256(
+      canonicalBytes,
+      operation,
+      request.runId,
+    );
+    const evidence = Result.getOrThrowWith(
+      encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
+        currentRequest,
+        observedSha256,
+      ),
+      (error) => rollback(error),
+    );
+    const computeProfileBytes = Result.getOrThrowWith(
+      encodeTaskComputeProfileStorageBytesV1(currentRequest.computeProfile),
+      () => rollback(corruption(operation, request.runId, "checkpoint_invalid")),
+    );
+    const inserted = await statement(operation, () => tx.insert(
+      fxSystemDurableTaskComputeDispatchesV1,
+    ).values({
+      scopeId: authority.scopeId,
+      runId: request.runId,
+      requestedEffectSequence: request.requestedEffectSequence,
+      acceptedRunVersion: persistedEffect.effect.acceptedRunVersion,
+      taskDefinitionRevisionId: currentRequest.taskDefinitionRevisionId,
+      attemptId: currentRequest.identity.attemptId,
+      attemptNumber: currentRequest.attemptNumber,
+      executionFence: currentRequest.identity.executionFence,
+      leaseVersion: currentRequest.leaseVersion,
+      computeProfileCodecVersion: TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
+      computeProfileByteLength: computeProfileBytes.byteLength,
+      computeProfileBytes,
+      cancellationKind: currentRequest.cancellation.kind,
+      cancellationGeneration: currentRequest.cancellation.generation,
+      maximumDurationMs: currentRequest.maximumDurationMs,
+      requestCodecVersion: evidence.codecVersion,
+      requestByteLength: BigInt(evidence.byteLength),
+      requestSha256: evidence.sha256,
+      requestBytes: evidence.canonicalBytes,
+      deliveryState: lifecycleCurrent ? "prepared" : "obsolete",
+      claimOwner: lifecycleCurrent ? claimOwner : null,
+      claimFence: lifecycleCurrent ? 1n : 0n,
+      claimedAt: lifecycleCurrent ? databaseTime.now : null,
+      claimExpiresAt: lifecycleCurrent ? databaseTime.claimExpiresAt : null,
+      deliveryAttemptCount: 0n,
+      reasonCode: lifecycleCurrent ? null : "lifecycle_obsolete",
+      settledAt: lifecycleCurrent ? null : databaseTime.now,
+      updatedAt: databaseTime.now,
+    }).returning());
+    checkpoint = inserted[0] ?? null;
+    if (checkpoint === null) {
+      throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+    }
+    return lifecycleCurrent
+      ? claimedTransactionResult(
+          checkpoint,
+          currentPrepared,
+          "initial",
+          claimOwner,
+          databaseTime.claimExpiresAt,
+          operation,
+        )
+      : closedResult(checkpoint, operation, request.runId);
+  }
+
+  const stored = await decodeAndCorrelateDispatchCheckpoint(
+    checkpoint,
+    currentRequest,
+    persistedEffect.effect.acceptedRunVersion,
+    operation,
+    request.runId,
+  );
+  if (checkpoint.deliveryState === "accepted") {
+    const acceptance = await decodeStoredAcceptance(
+      checkpoint,
+      operation,
+      request.runId,
+    );
+    if (!taskSystemPersistedValueEqualV1(
+      acceptance.identity,
+      stored.identity,
+    )) {
+      throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+    }
+    return Object.freeze({
+      kind: "accepted" as const,
+      acceptance,
+      disposition: lifecycleCurrent ? "current" as const : "cleanup_only" as const,
+    });
+  }
+  if (
+    checkpoint.deliveryState === "rejected"
+    || checkpoint.deliveryState === "obsolete"
+    || checkpoint.deliveryState === "quarantined"
+  ) {
+    return closedResult(checkpoint, operation, request.runId);
+  }
+  if (
+    checkpoint.claimOwner !== null
+    && checkpoint.claimExpiresAt !== null
+    && checkpoint.claimExpiresAt.getTime() > databaseTime.now.getTime()
+  ) {
+    return Object.freeze({
+      kind: "busy" as const,
+      claimExpiresAt: ownedDate(checkpoint.claimExpiresAt, operation, request.runId),
+    });
+  }
+  if (
+    checkpoint.deliveryState === "retry_wait"
+    && checkpoint.nextAttemptAt !== null
+    && checkpoint.nextAttemptAt.getTime() > databaseTime.now.getTime()
+  ) {
+    return Object.freeze({
+      kind: "not_due" as const,
+      nextAttemptAt: ownedDate(checkpoint.nextAttemptAt, operation, request.runId),
+    });
+  }
+  if (
+    checkpoint.deliveryState !== "delivering"
+    && !lifecycleCurrent
+  ) {
+    const obsolete = await statement(operation, () => tx.update(
+      fxSystemDurableTaskComputeDispatchesV1,
+    ).set({
+      deliveryState: "obsolete",
+      claimOwner: null,
+      claimedAt: null,
+      claimExpiresAt: null,
+      nextAttemptAt: null,
+      reasonCode: "lifecycle_obsolete",
+      settledAt: databaseTime.now,
+      updatedAt: databaseTime.now,
+    }).where(dispatchPrimaryKey(authority.scopeId, request)).returning());
+    const row = obsolete[0];
+    if (row === undefined) {
+      throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+    }
+    return closedResult(row, operation, request.runId);
+  }
+  if (
+    checkpoint.deliveryState !== "delivering"
+    && !taskSystemPersistedValueEqualV1(stored, currentRequest)
+  ) {
+    throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+  }
+  if (checkpoint.claimFence >= POSTGRES_SIGNED_BIGINT_MAX) {
+    throw rollback(new TaskComputeDeliveryRepositoryResourceExhaustedV1Error({
+      operation,
+      runId: request.runId,
+      dimension: "claim_fence",
+      observed: checkpoint.claimFence,
+      maximum: POSTGRES_SIGNED_BIGINT_MAX,
+    }));
+  }
+  const deliveryMode: TaskComputeDeliveryModeV1 =
+    checkpoint.deliveryState === "delivering"
+      ? "uncertain_replay"
+      : checkpoint.deliveryState === "retry_wait"
+      ? "retry"
+      : "initial";
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    claimOwner,
+    claimFence: checkpoint.claimFence + 1n,
+    claimedAt: databaseTime.now,
+    claimExpiresAt: databaseTime.claimExpiresAt,
+    updatedAt: databaseTime.now,
+  }).where(dispatchPrimaryKey(authority.scopeId, request)).returning());
+  const claimed = updated[0];
+  if (claimed === undefined) {
+    throw rollback(corruption(operation, request.runId, "checkpoint_invalid"));
+  }
+  return claimedTransactionResult(
+    claimed,
+    capturePreparedExecution(
+      stored,
+      immutable.runtimeBindingCommitment,
+      immutable.inputReference,
+    ),
+    deliveryMode,
+    claimOwner,
+    databaseTime.claimExpiresAt,
+    operation,
+  );
+}
+
+interface CorrelatedHandleContextV1 {
+  readonly checkpoint: DispatchRow;
+  readonly databaseTime: Readonly<{
+    readonly now: Date;
+    readonly claimExpiresAt: Date;
+  }>;
+  readonly lifecycleCurrent: boolean;
+}
+
+async function markDispatchDeliveryStartedTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+): Promise<TaskComputeDispatchDeliveryStartedV1> {
+  const operation = "mark_dispatch_delivery_started" as const;
+  const context = await loadCorrelatedHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentClaim(context, state, operation);
+  if (
+    context.checkpoint.deliveryState !== "prepared"
+    && context.checkpoint.deliveryState !== "retry_wait"
+    && context.checkpoint.deliveryState !== "delivering"
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  if (
+    context.checkpoint.deliveryState !== "delivering"
+    && !context.lifecycleCurrent
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "lifecycle_obsolete"));
+  }
+  if (
+    context.checkpoint.deliveryAttemptCount
+      >= BigInt(configuration.maximumDeliveryAttempts)
+  ) {
+    throw rollback(
+      new TaskComputeDeliveryRepositoryResourceExhaustedV1Error({
+        operation,
+        runId: state.runId,
+        dimension: "delivery_attempt_count",
+        observed: context.checkpoint.deliveryAttemptCount,
+        maximum: BigInt(configuration.maximumDeliveryAttempts),
+      }),
+    );
+  }
+  const deliveryAttemptCount = context.checkpoint.deliveryAttemptCount + 1n;
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    deliveryState: "delivering",
+    deliveryAttemptCount,
+    deliveryStartedAt: context.databaseTime.now,
+    nextAttemptAt: null,
+    reasonCode: null,
+    updatedAt: context.databaseTime.now,
+  }).where(dispatchClaimKey(authority.scopeId, state)).returning());
+  const row = updated[0];
+  if (
+    row === undefined
+    || row.deliveryState !== "delivering"
+    || row.deliveryAttemptCount !== deliveryAttemptCount
+    || row.deliveryStartedAt === null
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  return Object.freeze({
+    kind: "delivery_started",
+    deliveryAttemptCount,
+    deliveryStartedAt: ownedDate(row.deliveryStartedAt, operation, state.runId),
+  });
+}
+
+async function renewDispatchClaimTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+): Promise<TaskComputeDispatchClaimRenewedV1> {
+  const operation = "renew_dispatch_claim" as const;
+  const context = await loadCorrelatedHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentClaim(context, state, operation);
+  if (
+    context.checkpoint.deliveryState !== "prepared"
+    && context.checkpoint.deliveryState !== "retry_wait"
+    && context.checkpoint.deliveryState !== "delivering"
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  if (
+    context.checkpoint.deliveryState !== "delivering"
+    && !context.lifecycleCurrent
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "lifecycle_obsolete"));
+  }
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    claimedAt: context.databaseTime.now,
+    claimExpiresAt: context.databaseTime.claimExpiresAt,
+    updatedAt: context.databaseTime.now,
+  }).where(dispatchClaimKey(authority.scopeId, state)).returning());
+  const row = updated[0];
+  if (row?.claimExpiresAt === null || row?.claimExpiresAt === undefined) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  return Object.freeze({
+    kind: "claim_renewed",
+    claimExpiresAt: ownedDate(row.claimExpiresAt, operation, state.runId),
+  });
+}
+
+async function releaseDispatchBeforeDeliveryTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+): Promise<TaskComputeDispatchClaimReleasedV1> {
+  const operation = "release_dispatch_before_delivery" as const;
+  const context = await loadCorrelatedHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentClaim(context, state, operation);
+  if (
+    context.checkpoint.deliveryState !== "prepared"
+    && context.checkpoint.deliveryState !== "retry_wait"
+    && context.checkpoint.deliveryState !== "delivering"
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  if (
+    context.checkpoint.deliveryState !== "delivering"
+    && !context.lifecycleCurrent
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "lifecycle_obsolete"));
+  }
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    claimOwner: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    updatedAt: context.databaseTime.now,
+  }).where(dispatchClaimKey(authority.scopeId, state)).returning({
+    claimOwner: fxSystemDurableTaskComputeDispatchesV1.claimOwner,
+  }));
+  if (updated[0]?.claimOwner !== null) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  return Object.freeze({ kind: "claim_released" });
+}
+
+async function loadCorrelatedHandleContext(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+  operation: Exclude<
+    TaskComputeDeliveryRepositoryOperationV1,
+    "acquire_dispatch"
+  >,
+): Promise<CorrelatedHandleContextV1> {
+  await statement(operation, () => requireLockedTaskSystemScopeAuthorityV1(
+    tx,
+    authority,
+    target,
+    (mismatch) => rollback(new TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error({
+      operation,
+      runId: state.runId,
+      authority: mismatch,
+    })),
+  ));
+  const rows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskRunsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRunsV1.scopeId, authority.scopeId),
+    eq(fxSystemDurableTaskRunsV1.runId, state.runId),
+  )).limit(1).for("update"));
+  const runRow = rows[0];
+  if (runRow === undefined) {
+    throw rollback(new TaskComputeDeliveryRepositoryUnavailableV1Error({
+      operation,
+      runId: state.runId,
+      reason: "run_unavailable",
+    }));
+  }
+  const aggregate = decodeRun(runRow, operation, state.runId);
+  await statement(operation, () => correlateTaskSystemLifecycleLedgerV1(
+    tx,
+    authority.scopeId,
+    state.runId,
+    aggregate,
+    (reason) => rollback(new TaskComputeDeliveryRepositoryCorruptionV1Error({
+      operation,
+      runId: state.runId,
+      reason,
+    })),
+  ));
+  const request = Object.freeze({
+    runId: state.runId,
+    requestedEffectSequence: state.requestedEffectSequence,
+  });
+  const effectRow = await loadRequestedEffect(
+    tx,
+    authority.scopeId,
+    request,
+    operation,
+  );
+  const persistedEffect = decodeDispatchEffect(effectRow, request, operation);
+  await loadImmutablePreparation(
+    tx,
+    authority.scopeId,
+    runRow,
+    persistedEffect,
+    operation,
+  );
+  const expectedRequest = buildDispatchRequest(
+    replacementScopeId,
+    aggregate,
+    persistedEffect,
+    operation,
+  );
+  const checkpoint = await loadDispatchCheckpoint(
+    tx,
+    authority.scopeId,
+    request,
+    operation,
+  );
+  if (checkpoint === null) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  const storedRequest = await decodeAndCorrelateDispatchCheckpoint(
+    checkpoint,
+    expectedRequest,
+    persistedEffect.effect.acceptedRunVersion,
+    operation,
+    state.runId,
+  );
+  if (
+    checkpoint.deliveryState !== "delivering"
+    && !taskSystemPersistedValueEqualV1(storedRequest, expectedRequest)
+  ) {
+    throw rollback(corruption(operation, state.runId, "checkpoint_invalid"));
+  }
+  const databaseTime = await readDatabaseTime(
+    tx,
+    authority.scopeId,
+    configuration.claimDurationMilliseconds,
+    operation,
+    state.runId,
+  );
+  return Object.freeze({
+    checkpoint,
+    databaseTime,
+    lifecycleCurrent: dispatchLifecycleIsCurrent(aggregate, persistedEffect),
+  });
+}
+
+function requireCurrentClaim(
+  context: CorrelatedHandleContextV1,
+  state: MutableHandleStateV1,
+  operation: Exclude<
+    TaskComputeDeliveryRepositoryOperationV1,
+    "acquire_dispatch"
+  >,
+): void {
+  const row = context.checkpoint;
+  if (row.claimOwner !== state.claimOwner) {
+    throw rollback(staleClaim(operation, state.runId, "owner_mismatch"));
+  }
+  if (row.claimFence !== state.claimFence) {
+    throw rollback(staleClaim(operation, state.runId, "fence_mismatch"));
+  }
+  if (
+    row.claimExpiresAt === null
+    || row.claimExpiresAt.getTime() <= context.databaseTime.now.getTime()
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "claim_expired"));
+  }
+}
+
+function captureConfiguration(
+  input: TaskComputeDeliveryRepositoryOptionsV1,
+): Result.Result<
+  CapturedConfigurationV1,
+  TaskComputeDeliveryRepositoryConfigurationV1Error
+> {
+  const record = captureDataRecord(input, [
+    "claimDurationMilliseconds",
+    "retryDelayMilliseconds",
+    "maximumDeliveryAttempts",
+    "randomUuid",
+  ]);
+  if (record === undefined) {
+    return Result.fail(configurationFailure("invalid_options"));
+  }
+  const claimDurationMilliseconds = record.claimDurationMilliseconds;
+  if (!isPositiveSafeInteger(claimDurationMilliseconds)) {
+    return Result.fail(configurationFailure("invalid_claim_duration"));
+  }
+  const maximumDeliveryAttempts = record.maximumDeliveryAttempts;
+  if (
+    !isPositiveSafeInteger(maximumDeliveryAttempts)
+    || maximumDeliveryAttempts < 2
+    || maximumDeliveryAttempts > MAXIMUM_DELIVERY_ATTEMPTS_V1
+  ) {
+    return Result.fail(configurationFailure(
+      "invalid_maximum_delivery_attempts",
+    ));
+  }
+  const retryDelayMilliseconds = capturePositiveSafeIntegerArray(
+    record.retryDelayMilliseconds,
+  );
+  if (
+    retryDelayMilliseconds === undefined
+    || retryDelayMilliseconds.length !== maximumDeliveryAttempts - 1
+  ) {
+    return Result.fail(configurationFailure("invalid_retry_delays"));
+  }
+  if (typeof record.randomUuid !== "function") {
+    return Result.fail(configurationFailure("invalid_random_uuid"));
+  }
+  return Result.succeed(Object.freeze({
+    claimDurationMilliseconds,
+    retryDelayMilliseconds: Object.freeze(retryDelayMilliseconds),
+    maximumDeliveryAttempts,
+    randomUuid: record.randomUuid as () => string,
+  }));
+}
+
+function captureAcquireRequest(
+  input: TaskComputeDispatchAcquireRequestV1,
+): Result.Result<
+  CapturedAcquireRequestV1,
+  TaskComputeDeliveryRepositoryInputV1Error<"acquire_dispatch">
+> {
+  const record = captureDataRecord(input, [
+    "runId",
+    "requestedEffectSequence",
+  ]);
+  if (record === undefined) return Result.fail(inputFailure("invalid_request"));
+  return Result.gen(function* () {
+    const runId = yield* decodeTaskRunIdV1(record.runId).pipe(
+      Result.mapError(() => inputFailure("invalid_request")),
+    );
+    const rawSequence = typeof record.requestedEffectSequence === "bigint"
+      ? record.requestedEffectSequence.toString()
+      : record.requestedEffectSequence;
+    const requestedEffectSequence = yield*
+      decodeTaskRequestedEffectSequenceV1(rawSequence).pipe(
+        Result.mapError(() => inputFailure("invalid_request")),
+      );
+    return Object.freeze({ runId, requestedEffectSequence });
+  });
+}
+
+const allocateClaimOwner = Effect.fn(
+  "TaskComputeDeliveryRepository.allocateClaimOwner",
+)(function* (
+  randomUuid: () => string,
+): Effect.fn.Return<
+  string,
+  TaskComputeDeliveryRepositoryInputV1Error<"acquire_dispatch">
+> {
+  let owner: unknown;
+  try {
+    owner = randomUuid();
+  } catch {
+    return yield* inputFailure("claim_owner_invalid");
+  }
+  if (
+    typeof owner !== "string"
+    || !isLowercaseUuidText(owner)
+    || !UUID_V4_PATTERN.test(owner)
+  ) {
+    return yield* inputFailure("claim_owner_invalid");
+  }
+  return owner;
+});
+
+function decodeRun(
+  row: RunRow,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  runId: TaskRunIdV1,
+): TaskRunAttemptAggregateV1 {
+  if (row.runId !== runId) throw rollback(corruption(
+    operation,
+    runId,
+    "aggregate_invalid",
+  ));
+  return Result.getOrThrowWith(
+    decodeAndCorrelateTaskSystemRunRowV1(row),
+    () => rollback(corruption(operation, runId, "aggregate_invalid")),
+  );
+}
+
+async function loadRequestedEffect(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  request: CapturedAcquireRequestV1,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): Promise<RequestedEffectRow> {
+  const rows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskRequestedEffectsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRequestedEffectsV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskRequestedEffectsV1.runId, request.runId),
+    eq(
+      fxSystemDurableTaskRequestedEffectsV1.sequence,
+      request.requestedEffectSequence,
+    ),
+  )).limit(1));
+  const row = rows[0];
+  if (row === undefined) {
+    throw rollback(new TaskComputeDeliveryRepositoryUnavailableV1Error({
+      operation,
+      runId: request.runId,
+      reason: "effect_unavailable",
+    }));
+  }
+  return row;
+}
+
+function decodeDispatchEffect(
+  row: RequestedEffectRow,
+  request: CapturedAcquireRequestV1,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): PersistedTaskRequestedEffectV1 & Readonly<{
+  readonly effect: Extract<
+    PersistedTaskRequestedEffectV1["effect"],
+    { readonly kind: "dispatch_attempt" }
+  >;
+}> {
+  const decoded = Result.getOrThrowWith(
+    decodeAndCorrelateTaskSystemRequestedEffectRowV1(row),
+    () => rollback(corruption(
+      operation,
+      request.runId,
+      "effect_invalid",
+    )),
+  );
+  if (
+    decoded.sequence !== request.requestedEffectSequence
+    || decoded.effect.kind !== "dispatch_attempt"
+  ) {
+    throw rollback(corruption(
+      operation,
+      request.runId,
+      "effect_invalid",
+    ));
+  }
+  return Object.freeze({
+    sequence: decoded.sequence,
+    effect: decoded.effect,
+  });
+}
+
+async function loadImmutablePreparation(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  run: RunRow,
+  persistedEffect: ReturnType<typeof decodeDispatchEffect>,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): Promise<Readonly<{
+  readonly runtimeBindingCommitment: TaskDefinitionRuntimeBindingCommitmentV1;
+  readonly inputReference: TaskInputReferenceV1;
+}>> {
+  if (
+    run.taskDefinitionRevisionId
+      !== persistedEffect.effect.taskDefinitionRevisionId
+  ) {
+    throw rollback(corruption(
+      operation,
+      run.runId,
+      "definition_invalid",
+    ));
+  }
+  const definitionRows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskDefinitionRevisionsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskDefinitionRevisionsV1.scopeId, scopeId),
+    eq(
+      fxSystemDurableTaskDefinitionRevisionsV1.taskDefinitionRevisionId,
+      run.taskDefinitionRevisionId,
+    ),
+  )).limit(1));
+  const definition = definitionRows[0];
+  if (definition === undefined) {
+    throw rollback(corruption(operation, run.runId, "definition_invalid"));
+  }
+  const bindingObservedSha256 = await sha256(
+    definition.bindingBytes,
+    operation,
+    run.runId,
+  );
+  const commitment = Result.getOrThrowWith(
+    decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(
+      definition.bindingBytes,
+    ),
+    () => rollback(corruption(operation, run.runId, "definition_invalid")),
+  );
+  if (
+    definition.bindingCodecVersion !== 1
+    || definition.bindingByteLength !== BigInt(definition.bindingBytes.byteLength)
+    || !bytesEqual(definition.bindingSha256, bindingObservedSha256)
+    || !definitionMatchesCommitment(definition, commitment)
+  ) {
+    throw rollback(corruption(operation, run.runId, "definition_invalid"));
+  }
+  const authorityObservedSha256 = await sha256(
+    run.creationAuthorityBytes,
+    operation,
+    run.runId,
+  );
+  const creationAuthority = Result.getOrThrowWith(
+    decodeTaskRunCreationAuthorityReceiptPreimageV1(
+      run.creationAuthorityBytes,
+    ),
+    () => rollback(corruption(
+      operation,
+      run.runId,
+      "creation_authority_invalid",
+    )),
+  );
+  if (
+    run.creationAuthorityCodecVersion !== 1
+    || run.creationAuthorityByteLength
+      !== BigInt(run.creationAuthorityBytes.byteLength)
+    || !bytesEqual(run.creationAuthoritySha256, authorityObservedSha256)
+    || creationAuthority.taskDefinitionRevisionId
+      !== run.taskDefinitionRevisionId
+    || creationAuthority.applicationRevisionId
+      !== definition.applicationRevisionId
+    || !bytesEqual(creationAuthority.candidateSha256, definition.candidateSha256)
+    || !bytesEqual(
+      creationAuthority.applicationRevisionTaskBindingSha256,
+      definition.applicationRevisionTaskBindingSha256,
+    )
+  ) {
+    throw rollback(corruption(
+      operation,
+      run.runId,
+      "creation_authority_invalid",
+    ));
+  }
+  const inputByteLength = Number(run.inputByteLength);
+  if (!Number.isSafeInteger(inputByteLength)) {
+    throw rollback(corruption(operation, run.runId, "input_invalid"));
+  }
+  const inputReference = Result.getOrThrowWith(
+    decodeTaskInputReferenceV1({
+      codec: run.inputCodec,
+      store: run.inputStore,
+      valueCodec: run.inputValueCodec,
+      objectKey: run.inputObjectKey,
+      byteLength: inputByteLength,
+      sha256: new Uint8Array(run.inputSha256),
+      retention: { kind: run.inputRetention },
+    }),
+    () => rollback(corruption(operation, run.runId, "input_invalid")),
+  );
+  return Object.freeze({
+    runtimeBindingCommitment: commitment,
+    inputReference,
+  });
+}
+
+function definitionMatchesCommitment(
+  row: DefinitionRow,
+  commitment: TaskDefinitionRuntimeBindingCommitmentV1,
+): boolean {
+  return row.taskId === commitment.taskId
+    && row.applicationRevisionId === commitment.applicationRevisionId
+    && bytesEqual(row.candidateSha256, commitment.candidateSha256)
+    && bytesEqual(
+      row.applicationRevisionTaskBindingSha256,
+      commitment.applicationRevisionTaskBindingSha256,
+    )
+    && bytesEqual(
+      row.canonicalTaskManifestSha256,
+      commitment.canonicalTaskManifestSha256,
+    )
+    && bytesEqual(
+      row.taskRuntimeEntrySha256,
+      commitment.taskRuntimeEntrySha256,
+    )
+    && bytesEqual(row.taskCatalogSha256, commitment.taskCatalogSha256)
+    && bytesEqual(row.taskEntryRootSha256, commitment.taskEntryRootSha256)
+    && bytesEqual(
+      row.taskRuntimeProjectionSha256,
+      commitment.taskRuntimeProjectionSha256,
+    )
+    && bytesEqual(
+      row.taskRuntimeGroupManifestSha256,
+      commitment.taskRuntimeGroupManifestSha256,
+    )
+    && bytesEqual(
+      row.taskRuntimeMaterializationSpecSha256,
+      commitment.taskRuntimeMaterializationSpecSha256,
+    )
+    && bytesEqual(row.packageSha256, commitment.packageSha256)
+    && bytesEqual(row.artifactSha256, commitment.artifactSha256)
+    && bytesEqual(row.sourceRootSha256, commitment.sourceRootSha256)
+    && bytesEqual(row.semanticRootSha256, commitment.semanticRootSha256);
+}
+
+function buildDispatchRequest(
+  scopeId: ReplacementScopeIdV1,
+  aggregate: TaskRunAttemptAggregateV1,
+  persistedEffect: ReturnType<typeof decodeDispatchEffect>,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): TaskComputeDispatchRequestV1 {
+  const effect = persistedEffect.effect;
+  return Result.getOrThrowWith(
+    validateTaskComputeDispatchRequestV1({
+      version: TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
+      identity: {
+        version: TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
+        scopeId,
+        runId: effect.runId,
+        requestedEffectSequence: persistedEffect.sequence,
+        attemptId: effect.attempt.attemptId,
+        executionFence: effect.attempt.executionFence,
+      },
+      taskDefinitionRevisionId: effect.taskDefinitionRevisionId,
+      attemptNumber: effect.attempt.attemptNumber,
+      leaseVersion: effect.leaseVersion,
+      computeProfile: effect.computeProfile,
+      cancellation: aggregate.cancellation.kind === "not_requested"
+        ? {
+            kind: "not_requested" as const,
+            generation: aggregate.cancellation.generation,
+          }
+        : {
+            kind: "requested" as const,
+            generation: aggregate.cancellation.generation,
+          },
+      maximumDurationMs: aggregate.boundPolicy.maximumDurationMs,
+    }),
+    () => rollback(corruption(
+      operation,
+      aggregate.runId,
+      "effect_invalid",
+    )),
+  );
+}
+
+function capturePreparedExecution(
+  dispatchRequest: TaskComputeDispatchRequestV1,
+  runtimeBindingCommitment: TaskDefinitionRuntimeBindingCommitmentV1,
+  inputReference: TaskInputReferenceV1,
+): TaskComputePreparedExecutionV1 {
+  return Object.freeze({
+    version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
+    dispatchRequest,
+    runtimeBindingCommitment,
+    inputReference,
+  });
+}
+
+function dispatchLifecycleIsCurrent(
+  aggregate: TaskRunAttemptAggregateV1,
+  persistedEffect: ReturnType<typeof decodeDispatchEffect>,
+): boolean {
+  if (
+    aggregate.phase !== "attempt_granted"
+    && aggregate.phase !== "executing"
+  ) return false;
+  const effect = persistedEffect.effect;
+  return aggregate.currentAttempt.attemptId === effect.attempt.attemptId
+    && aggregate.currentAttempt.attemptNumber === effect.attempt.attemptNumber
+    && aggregate.currentAttempt.executionFence === effect.attempt.executionFence
+    && aggregate.currentAttempt.lease.version === effect.leaseVersion;
+}
+
+async function loadDispatchCheckpoint(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  request: CapturedAcquireRequestV1,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): Promise<DispatchRow | null> {
+  const rows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).where(dispatchPrimaryKey(scopeId, request)).limit(1).for("update"));
+  return rows[0] ?? null;
+}
+
+async function decodeAndCorrelateDispatchCheckpoint(
+  row: DispatchRow,
+  expected: TaskComputeDispatchRequestV1,
+  expectedAcceptedRunVersion: bigint,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  runId: TaskRunIdV1,
+): Promise<TaskComputeDispatchRequestV1> {
+  if (
+    row.requestCodecVersion !== TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1
+    || row.requestByteLength !== BigInt(row.requestBytes.byteLength)
+    || row.requestSha256.byteLength !== 32
+    || row.computeProfileCodecVersion !== TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1
+    || row.computeProfileByteLength !== row.computeProfileBytes.byteLength
+  ) {
+    throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  }
+  const observedSha256 = await sha256(row.requestBytes, operation, runId);
+  const decoded = Result.getOrThrowWith(
+    decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1({
+      codecVersion: row.requestCodecVersion,
+      byteLength: Number(row.requestByteLength),
+      canonicalBytes: row.requestBytes,
+      sha256: row.requestSha256,
+    }, observedSha256),
+    (error) => rollback(error),
+  );
+  const computeProfile = Result.getOrThrowWith(
+    decodeTaskComputeProfileStorageBytesV1(row.computeProfileBytes),
+    () => rollback(corruption(operation, runId, "checkpoint_invalid")),
+  );
+  if (
+    row.scopeId !== decoded.identity.scopeId
+    || row.runId !== decoded.identity.runId
+    || row.requestedEffectSequence
+      !== decoded.identity.requestedEffectSequence
+    || row.acceptedRunVersion !== expectedAcceptedRunVersion
+    || row.taskDefinitionRevisionId !== decoded.taskDefinitionRevisionId
+    || row.attemptId !== decoded.identity.attemptId
+    || row.attemptNumber !== decoded.attemptNumber
+    || row.executionFence !== decoded.identity.executionFence
+    || row.leaseVersion !== decoded.leaseVersion
+    || computeProfile !== decoded.computeProfile
+    || row.cancellationKind !== decoded.cancellation.kind
+    || row.cancellationGeneration !== decoded.cancellation.generation
+    || row.maximumDurationMs !== decoded.maximumDurationMs
+    || decoded.identity.scopeId !== expected.identity.scopeId
+    || decoded.identity.runId !== expected.identity.runId
+    || decoded.identity.requestedEffectSequence
+      !== expected.identity.requestedEffectSequence
+    || decoded.identity.attemptId !== expected.identity.attemptId
+    || decoded.identity.executionFence !== expected.identity.executionFence
+    || decoded.taskDefinitionRevisionId !== expected.taskDefinitionRevisionId
+    || decoded.attemptNumber !== expected.attemptNumber
+    || decoded.leaseVersion !== expected.leaseVersion
+    || decoded.computeProfile !== expected.computeProfile
+    || decoded.maximumDurationMs !== expected.maximumDurationMs
+    || (
+      decoded.cancellation.kind === "requested"
+      && (
+        expected.cancellation.kind === "not_requested"
+        || decoded.cancellation.generation > expected.cancellation.generation
+      )
+    )
+  ) {
+    throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  }
+  validateCheckpointState(row, operation, runId);
+  return decoded;
+}
+
+function validateCheckpointState(
+  row: DispatchRow,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  runId: TaskRunIdV1,
+): void {
+  const claimedAt = nullableOwnedDate(row.claimedAt, operation, runId);
+  const claimExpiresAt = nullableOwnedDate(row.claimExpiresAt, operation, runId);
+  if (
+    row.claimFence < 0n
+    || row.deliveryAttemptCount < 0n
+    || (
+      row.claimOwner === null
+        ? claimedAt !== null || claimExpiresAt !== null
+        : !isCanonicalUuidV4(row.claimOwner)
+          || claimedAt === null
+          || claimExpiresAt === null
+          || claimExpiresAt.getTime() <= claimedAt.getTime()
+    )
+  ) {
+    throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  }
+}
+
+async function decodeStoredAcceptance(
+  row: DispatchRow,
+  operation: "acquire_dispatch",
+  runId: TaskRunIdV1,
+): Promise<TaskComputeDispatchAcceptanceV1> {
+  if (
+    row.acceptanceCodecVersion !== TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1
+    || row.acceptanceByteLength === null
+    || row.acceptanceSha256 === null
+    || row.acceptanceBytes === null
+    || row.acceptanceByteLength !== BigInt(row.acceptanceBytes.byteLength)
+  ) {
+    throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  }
+  const observed = await sha256(row.acceptanceBytes, operation, runId);
+  return Result.getOrThrowWith(
+    decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1({
+      codecVersion: row.acceptanceCodecVersion,
+      byteLength: Number(row.acceptanceByteLength),
+      canonicalBytes: row.acceptanceBytes,
+      sha256: row.acceptanceSha256,
+    }, observed),
+    (error) => rollback(error),
+  );
+}
+
+async function readDatabaseTime(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  claimDurationMilliseconds: number,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  runId: TaskRunIdV1,
+): Promise<Readonly<{ readonly now: Date; readonly claimExpiresAt: Date }>> {
+  const rows = await statement(operation, () => tx.select({
+    milliseconds: sql<string>`
+      floor(extract(epoch from clock_timestamp()) * 1000)::bigint::text
+    `,
+  }).from(fxSystemScopeClocks).where(
+    eq(fxSystemScopeClocks.scopeId, scopeId),
+  ).limit(1));
+  const row = rows[0];
+  if (
+    row === undefined
+    || !/^(0|[1-9][0-9]*)$/.test(row.milliseconds)
+  ) {
+    throw rollback(corruption(operation, runId, "database_clock_invalid"));
+  }
+  const nowMilliseconds = Number(row.milliseconds);
+  const claimExpiresAtMilliseconds =
+    nowMilliseconds + claimDurationMilliseconds;
+  const now = Number.isSafeInteger(nowMilliseconds)
+    ? copyFiniteDate(new Date(nowMilliseconds))
+    : undefined;
+  const claimExpiresAt = Number.isSafeInteger(claimExpiresAtMilliseconds)
+    ? copyFiniteDate(new Date(claimExpiresAtMilliseconds))
+    : undefined;
+  if (
+    now === undefined
+    || claimExpiresAt === undefined
+    || claimExpiresAt.getTime() <= now.getTime()
+  ) {
+    throw rollback(corruption(operation, runId, "database_clock_invalid"));
+  }
+  return Object.freeze({ now, claimExpiresAt });
+}
+
+function claimedTransactionResult(
+  row: DispatchRow,
+  prepared: TaskComputePreparedExecutionV1,
+  deliveryMode: TaskComputeDeliveryModeV1,
+  claimOwner: string,
+  claimExpiresAt: Date,
+  operation: "acquire_dispatch",
+): TransactionClaimedV1 {
+  if (
+    row.claimOwner !== claimOwner
+    || row.claimFence < 1n
+    || row.claimExpiresAt === null
+    || row.claimExpiresAt.getTime() !== claimExpiresAt.getTime()
+  ) {
+    throw rollback(corruption(operation, row.runId, "checkpoint_invalid"));
+  }
+  return Object.freeze({
+    kind: "claimed",
+    prepared,
+    deliveryMode,
+    claimOwner,
+    claimFence: row.claimFence,
+    claimExpiresAt: ownedDate(claimExpiresAt, operation, row.runId),
+  });
+}
+
+function mintClaim(
+  handles: WeakMap<object, MutableHandleStateV1>,
+  transaction: TransactionClaimedV1,
+): Extract<TaskComputeDispatchAcquireResultV1, { readonly kind: "claimed" }> {
+  const handle = Object.freeze({
+    [TASK_COMPUTE_DISPATCH_CLAIM_HANDLE_V1]: true as const,
+  });
+  handles.set(handle, {
+    operation: "dispatch",
+    runId: transaction.prepared.dispatchRequest.identity.runId,
+    requestedEffectSequence:
+      transaction.prepared.dispatchRequest.identity.requestedEffectSequence,
+    claimOwner: transaction.claimOwner,
+    claimFence: transaction.claimFence,
+    phase: "claimed",
+    closed: false,
+    operationGate: Semaphore.makeUnsafe(1),
+  });
+  return Object.freeze({
+    kind: "claimed",
+    prepared: transaction.prepared,
+    handle,
+    deliveryMode: transaction.deliveryMode,
+    claimExpiresAt: new Date(transaction.claimExpiresAt),
+  });
+}
+
+function captureAcquireOutcome(
+  result: Exclude<TransactionAcquireResultV1, TransactionClaimedV1>,
+): Exclude<TaskComputeDispatchAcquireResultV1, { readonly kind: "claimed" }> {
+  switch (result.kind) {
+    case "busy":
+      return Object.freeze({
+        kind: "busy",
+        claimExpiresAt: new Date(result.claimExpiresAt),
+      });
+    case "not_due":
+      return Object.freeze({
+        kind: "not_due",
+        nextAttemptAt: new Date(result.nextAttemptAt),
+      });
+    case "accepted":
+      return Object.freeze({
+        kind: "accepted",
+        acceptance: result.acceptance,
+        disposition: result.disposition,
+      });
+    case "closed":
+      return Object.freeze({ ...result });
+  }
+}
+
+function closedResult(
+  row: DispatchRow,
+  operation: "acquire_dispatch",
+  runId: TaskRunIdV1,
+): Extract<TaskComputeDispatchAcquireResultV1, { readonly kind: "closed" }> {
+  const state = row.deliveryState;
+  const reason = row.reasonCode;
+  if (
+    (state !== "rejected" && state !== "obsolete" && state !== "quarantined")
+    || !isDispatchClosedReason(reason)
+  ) {
+    throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  }
+  return Object.freeze({ kind: "closed", state, reason });
+}
+
+function isDispatchClosedReason(
+  value: unknown,
+): value is TaskComputeDispatchClosedReasonV1 {
+  return value === "lifecycle_obsolete"
+    || value === "checkpoint_corrupt"
+    || value === "provider_unsupported_compute_profile"
+    || value === "provider_capacity_unavailable"
+    || value === "provider_disabled"
+    || value === "provider_transport"
+    || value === "delivery_attempts_exhausted";
+}
+
+function dispatchPrimaryKey(
+  scopeId: ScopeId,
+  request: CapturedAcquireRequestV1,
+) {
+  return and(
+    eq(fxSystemDurableTaskComputeDispatchesV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskComputeDispatchesV1.runId, request.runId),
+    eq(
+      fxSystemDurableTaskComputeDispatchesV1.requestedEffectSequence,
+      request.requestedEffectSequence,
+    ),
+  );
+}
+
+function dispatchClaimKey(
+  scopeId: ScopeId,
+  state: MutableHandleStateV1,
+) {
+  return and(
+    eq(fxSystemDurableTaskComputeDispatchesV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskComputeDispatchesV1.runId, state.runId),
+    eq(
+      fxSystemDurableTaskComputeDispatchesV1.requestedEffectSequence,
+      state.requestedEffectSequence,
+    ),
+    eq(fxSystemDurableTaskComputeDispatchesV1.claimOwner, state.claimOwner),
+    eq(fxSystemDurableTaskComputeDispatchesV1.claimFence, state.claimFence),
+  );
+}
+
+const withHandleOperation = Effect.fn(function* <
+  Value,
+  Failure,
+  Requirements,
+  Operation extends TaskComputeDeliveryRepositoryHandleOperationV1,
+>(
+  handles: WeakMap<object, MutableHandleStateV1>,
+  handle: TaskComputeDispatchClaimHandleV1,
+  operation: Operation,
+  use: (
+    state: MutableHandleStateV1,
+  ) => Effect.Effect<Value, Failure, Requirements>,
+) {
+  const preliminaryState = yield* lookupHandleState(
+    handles,
+    handle,
+    operation,
+  );
+  return yield* preliminaryState.operationGate.withPermit(
+    Effect.gen(function* () {
+      const currentState = yield* lookupHandleState(
+        handles,
+        handle,
+        operation,
+      );
+      return yield* use(currentState);
+    }),
+  );
+});
+
+function lookupHandleState<
+  Operation extends TaskComputeDeliveryRepositoryHandleOperationV1,
+>(
+  handles: WeakMap<object, MutableHandleStateV1>,
+  handle: TaskComputeDispatchClaimHandleV1,
+  operation: Operation,
+): Effect.Effect<
+  MutableHandleStateV1,
+  TaskComputeDeliveryRepositoryInputV1Error<Operation>
+> {
+  const state = typeof handle === "object" && handle !== null
+    ? handles.get(handle)
+    : undefined;
+  if (state === undefined) {
+    return Effect.fail(new TaskComputeDeliveryRepositoryInputV1Error({
+      operation,
+      reason: "invalid_handle",
+    }));
+  }
+  if (state.closed) {
+    return Effect.fail(new TaskComputeDeliveryRepositoryInputV1Error({
+      operation,
+      reason: "closed_handle",
+    }));
+  }
+  return Effect.succeed(state);
+}
+
+const runClaimOperation = Effect.fn(function* <
+  Value,
+  Operation extends TaskComputeDeliveryRepositoryHandleOperationV1,
+>(
+  state: MutableHandleStateV1,
+  operation: Operation,
+  transactionFactory: () => Promise<Value>,
+) {
+  let transactionDispatched = false;
+  return yield* Effect.gen(function* () {
+    for (let execution = 1; execution <= 2; execution += 1) {
+      transactionDispatched = true;
+      const settled = yield* Effect.exit(
+        awaitSettlement(transactionFactory()),
+      );
+      if (Exit.isSuccess(settled)) return settled.value;
+      const failure = Cause.findError(settled.cause);
+      if (Result.isFailure(failure)) {
+        return yield* Effect.failCause(failure.failure);
+      }
+      const classified = classifyTransactionFailure(
+        operation,
+        failure.success,
+        execution,
+      );
+      if (classified.kind === "retry") continue;
+      if (classified.kind === "failure") return yield* classified.error;
+      return yield* Effect.die(classified.cause);
+    }
+    return yield* new TaskComputeDeliveryRepositoryConfirmedRollbackV1Error({
+      operation,
+      cause: new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+        kind: "callbackRolledBack",
+        callbackCause: "retry_exhausted",
+      })),
+    });
+  }).pipe(
+    Effect.onExit((exit) =>
+      Exit.isFailure(exit) && transactionDispatched
+        ? Effect.sync(() => closeHandle(state))
+        : Effect.void
+    ),
+  );
+});
+
+function closeHandle(state: MutableHandleStateV1): void {
+  state.closed = true;
+}
+
+function staleClaim<
+  Operation extends TaskComputeDeliveryRepositoryHandleOperationV1,
+>(
+  operation: Operation,
+  runId: TaskRunIdV1,
+  reason: TaskComputeDeliveryRepositoryStaleClaimV1Error<Operation>["reason"],
+): TaskComputeDeliveryRepositoryStaleClaimV1Error<Operation> {
+  return new TaskComputeDeliveryRepositoryStaleClaimV1Error<Operation>({
+    operation,
+    runId,
+    reason,
+  });
+}
+
+class RepositoryRollbackV1 {
+  constructor(readonly error: TaskComputeDeliveryRepositoryBroadErrorV1) {}
+}
+
+class RepositoryStatementFailureV1 {
+  constructor(readonly cause: unknown) {}
+}
+
+function rollback(
+  error: TaskComputeDeliveryRepositoryBroadErrorV1,
+): RepositoryRollbackV1 {
+  return new RepositoryRollbackV1(error);
+}
+
+async function statement<Value>(
+  _operation: TaskComputeDeliveryRepositoryOperationV1,
+  run: () => Promise<Value>,
+): Promise<Value> {
+  try {
+    return await run();
+  } catch (cause) {
+    if (cause instanceof RepositoryRollbackV1) throw cause;
+    throw new RepositoryStatementFailureV1(cause);
+  }
+}
+
+function awaitSettlement<Value>(
+  transaction: Promise<Value>,
+): Effect.Effect<Value, unknown> {
+  return Effect.uninterruptibleMask((restore) =>
+    restore(Effect.tryPromise({
+      try: () => transaction,
+      catch: (cause) => cause,
+    })).pipe(
+      Effect.onInterrupt(() => Effect.promise(() =>
+        transaction.then(() => undefined, () => undefined)
+      )),
+    )
+  );
+}
+
+type ClassifiedFailureV1<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1,
+> =
+  | Readonly<{ readonly kind: "retry" }>
+  | Readonly<{
+      readonly kind: "failure";
+      readonly error: Effect.Effect<
+        never,
+        TaskComputeDeliveryRepositoryErrorV1<Operation>
+      >;
+    }>
+  | Readonly<{ readonly kind: "defect"; readonly cause: unknown }>;
+
+function classifyTransactionFailure<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1,
+>(
+  operation: Operation,
+  cause: unknown,
+  execution: number,
+): ClassifiedFailureV1<Operation> {
+  if (!(cause instanceof LocatedReadCommittedTransactionFailureV1)) {
+    return Object.freeze({ kind: "defect", cause });
+  }
+  switch (cause.issue.kind) {
+    case "callbackRolledBack": {
+      const callback = cause.issue.callbackCause;
+      if (callback instanceof RepositoryRollbackV1) {
+        if (!isRepositoryErrorForOperation(callback.error, operation)) {
+          return Object.freeze({ kind: "defect", cause: callback.error });
+        }
+        return Object.freeze({
+          kind: "failure",
+          error: Effect.fail(callback.error),
+        });
+      }
+      if (callback instanceof RepositoryStatementFailureV1) {
+        if (isRetryableSqlConflict(callback.cause) && execution === 1) {
+          return Object.freeze({ kind: "retry" });
+        }
+        return Object.freeze({
+          kind: "failure",
+          error: Effect.fail(
+            new TaskComputeDeliveryRepositoryConfirmedRollbackV1Error({
+              operation,
+              cause,
+            }),
+          ),
+        });
+      }
+      return Object.freeze({ kind: "defect", cause: callback });
+    }
+    case "decisionUncertain":
+      return Object.freeze({
+        kind: "failure",
+        error: Effect.fail(
+          new TaskComputeDeliveryRepositoryDecisionUncertainV1Error({
+            operation,
+            cause,
+          }),
+        ),
+      });
+    case "callbackCleanupFailed":
+      return Object.freeze({
+        kind: "failure",
+        error: Effect.fail(new TaskComputeDeliveryRepositorySqlV1Error({
+          operation,
+          phase: "cleanup",
+          cause,
+        })),
+      });
+    case "infrastructureFailure":
+      return Object.freeze({
+        kind: "failure",
+        error: Effect.fail(new TaskComputeDeliveryRepositorySqlV1Error({
+          operation,
+          phase: "infrastructure",
+          cause,
+        })),
+      });
+  }
+}
+
+async function sha256(
+  bytes: Uint8Array,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  _runId: TaskRunIdV1,
+): Promise<Uint8Array> {
+  try {
+    return new Uint8Array(await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      new Uint8Array(bytes),
+    ));
+  } catch (cause) {
+    throw rollback(new TaskComputeDeliveryRepositoryCryptoV1Error({
+      operation,
+      cause,
+    }));
+  }
+}
+
+function isRetryableSqlConflict(cause: unknown): boolean {
+  const code = sqlState(cause);
+  return code === "40001" || code === "40P01";
+}
+
+function sqlState(cause: unknown): string | undefined {
+  if (typeof cause !== "object" || cause === null) return undefined;
+  try {
+    const code = Reflect.get(cause, "code");
+    return typeof code === "string" ? code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function configurationFailure(
+  reason: TaskComputeDeliveryRepositoryConfigurationV1Error["reason"],
+): TaskComputeDeliveryRepositoryConfigurationV1Error {
+  return new TaskComputeDeliveryRepositoryConfigurationV1Error({ reason });
+}
+
+function inputFailure(
+  reason: "invalid_request" | "claim_owner_invalid",
+): TaskComputeDeliveryRepositoryInputV1Error<"acquire_dispatch"> {
+  return new TaskComputeDeliveryRepositoryInputV1Error<"acquire_dispatch">({
+    operation: "acquire_dispatch",
+    reason,
+  });
+}
+
+function corruption<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1,
+>(
+  operation: Operation,
+  runId: TaskRunIdV1,
+  reason: TaskComputeDeliveryRepositoryCorruptionReasonV1,
+): TaskComputeDeliveryRepositoryCorruptionV1Error<Operation> {
+  return new TaskComputeDeliveryRepositoryCorruptionV1Error<Operation>({
+    operation,
+    runId,
+    reason,
+  });
+}
+
+function isRepositoryErrorForOperation<
+  Operation extends TaskComputeDeliveryRepositoryOperationV1,
+>(
+  error: TaskComputeDeliveryRepositoryBroadErrorV1,
+  operation: Operation,
+): error is TaskComputeDeliveryRepositoryErrorV1<Operation> {
+  if (error instanceof TaskComputeDeliveryEvidenceV1Error) {
+    return error.operation === "decode_dispatch_request"
+      || operation === "acquire_dispatch" && (
+        error.operation === "encode_dispatch_request"
+        || error.operation === "decode_dispatch_acceptance"
+      );
+  }
+  return error.operation === operation;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number"
+    && Number.isSafeInteger(value)
+    && value > 0;
+}
+
+function capturePositiveSafeIntegerArray(
+  value: unknown,
+): number[] | undefined {
+  try {
+    if (!Array.isArray(value)) return undefined;
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+    if (
+      lengthDescriptor === undefined
+      || !("value" in lengthDescriptor)
+      || !Number.isSafeInteger(lengthDescriptor.value)
+      || lengthDescriptor.value < 1
+    ) return undefined;
+    const captured: number[] = [];
+    for (let index = 0; index < lengthDescriptor.value; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, index);
+      if (
+        descriptor === undefined
+        || !("value" in descriptor)
+        || !isPositiveSafeInteger(descriptor.value)
+      ) return undefined;
+      captured.push(descriptor.value);
+    }
+    return captured;
+  } catch {
+    return undefined;
+  }
+}
+
+function captureDataRecord(
+  input: unknown,
+  expectedKeys: ReadonlyArray<string>,
+): Readonly<Record<string, unknown>> | undefined {
+  try {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+      return undefined;
+    }
+    const keys = Reflect.ownKeys(input);
+    if (keys.length !== expectedKeys.length) return undefined;
+    const expected = new Set(expectedKeys);
+    const captured: Record<string, unknown> = {};
+    for (const key of keys) {
+      if (typeof key !== "string" || !expected.has(key)) return undefined;
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (
+        descriptor === undefined
+        || descriptor.enumerable !== true
+        || !("value" in descriptor)
+      ) return undefined;
+      captured[key] = descriptor.value;
+    }
+    return Object.freeze(captured);
+  } catch {
+    return undefined;
+  }
+}
+
+function isCanonicalUuidV4(value: string): boolean {
+  return isLowercaseUuidText(value) && UUID_V4_PATTERN.test(value);
+}
+
+function ownedDate(
+  value: Date,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  runId: TaskRunIdV1,
+): Date {
+  const owned = copyFiniteDate(value);
+  if (owned === undefined) {
+    throw rollback(corruption(operation, runId, "checkpoint_invalid"));
+  }
+  return owned;
+}
+
+function nullableOwnedDate(
+  value: Date | null,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+  runId: TaskRunIdV1,
+): Date | null {
+  return value === null ? null : ownedDate(value, operation, runId);
+}
