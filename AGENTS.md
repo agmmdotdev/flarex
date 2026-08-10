@@ -8,13 +8,18 @@ Keep this file durable. Do not copy milestone status, exact actor names,
 temporary test receipts, or unresolved DDL sketches here; link to the owning
 design note or roadmap and verify its current status instead.
 
-Version suffixes are local contract versions, not automatic migration
-authority. A request to implement or improve a V2 domain does not authorize
-rewriting adjacent legacy/V1 domains, and the Effect guidance below does not
-turn touched-flow cleanup into a product-version migration. Preserve a shipped
-legacy path until its owning roadmap approves an exact replacement and removal
-gate; do not add dual writes, silent fallbacks, or comparison paths merely to
-ease a cutover.
+Use plain, unversioned names for the accepted current implementation of a
+product or capability, and `Legacy...` for a retained displaced implementation.
+Use `V1`, `V2`, and similar suffixes only for concrete compatibility contracts
+that may coexist or require exact decoding or migration, such as wire formats,
+persisted schemas or envelopes, codecs, media types, and storage generations;
+never use them merely to record implementation chronology. Avoid compound
+version names such as `...V2...V1`; express product context through the module
+or package and version only the contract noun. Do not opportunistically rename
+existing symbols: rename them only within an owner-approved bounded slice, and
+preserve any shipped legacy path until its replacement and removal gates pass.
+A versioned-domain request or touched-flow cleanup does not authorize adjacent
+migrations, dual writes, silent fallbacks, or comparison paths.
 
 Declarative V2 analysis, artifact, progress, projection, readiness, and
 activation work must not create a parallel OCC or commit system. Reuse the
