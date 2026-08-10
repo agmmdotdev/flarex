@@ -2,26 +2,25 @@
 
 ## Status
 
-**Decision:** admit DTE06-C2 as one medium, production-inert implementation
-checkpoint. DTE06-C2 owns only the private scope-bound transaction repository
-over the DTE06-C1 dispatch and cancellation tables. The implementation is not
-complete until the repository, PGlite and genuine-PostgreSQL proofs, boundary
-gates, and required reviewer receipts all pass.
+**Decision:** DTE06-C2 is complete and production-inert. It owns only the
+private scope-bound transaction repository over the DTE06-C1 dispatch and
+cancellation tables. The repository, PGlite and genuine-PostgreSQL proofs,
+boundary gates, and required reviewer receipts have passed. DTE06-C3 remains
+unadmitted and requires separate approval.
 
 **Prerequisite resolved:** the approved bounded C1 correction replaces the
 non-reconstructable full binding in the prepared subject with an owned,
 immutable runtime-binding commitment decoded from the durable canonical
 definition bytes. No fallback, schema widening, or process-local binding
-injection was introduced. C2 implementation may proceed.
+injection was introduced.
 
-**Implementation progress:** C2's first internal seam now extracts the exact
+**Implementation receipt:** C2's first internal seam extracts the exact
 full requested-effect and attempt-identity ledger correlation from the DTE04
 run-attempt store into one package-owned helper with caller-supplied corruption
 mapping. The existing store and C2 therefore share lifecycle evidence mechanics
 without sharing error authority. C1 also exposes pure canonical dispatch and
 acceptance byte encoders for use inside the transaction callback, while
-its Effect APIs continue to own hashing and public evidence snapshots. No C2
-completion gate is satisfied by this progress alone.
+its Effect APIs continue to own hashing and public evidence snapshots.
 
 The production-inert repository now owns scope-bound dispatch
 preparation, initial/retry/uncertain-replay acquisition, database-time claim
@@ -54,9 +53,13 @@ invalid claim-owner UUIDs, forged/cross-operation/cross-repository handles,
 stored dispatch and cancellation digest corruption without evidence
 regeneration, one direct retryable rollback and retry exhaustion, decision
 uncertainty, cleanup failure, raw defects, and interruption that waits for
-transaction settlement before closing the dispatched handle. The ordinary-role
-genuine-PostgreSQL concurrency/deadline lane remains required before C2
-completion.
+transaction settlement before closing the dispatched handle. The focused
+7-case genuine-PostgreSQL lane runs under an ordinary role in a temporary
+schema and proves independent claim races, expiry takeover, run-lock lifecycle
+serialization, dispatch-before-cancellation lock order, lock and statement
+timeout rollback with connection reuse, whole-transaction termination with
+client discard and replacement, committed-response-loss uncertainty with
+durable recovery, and cleanup without database-creation privileges.
 
 ### Shared C1 Decoder Defect Exposed By C2 Hostile Proof
 

@@ -60,8 +60,10 @@ canonical dispatch/cancellation evidence boundary and its two Task-owned
 Postgres checkpoint tables. The approved C1 prepared-subject correction now
 hands C2 an owned runtime-binding commitment reconstructed from the canonical
 definition bytes; the later runtime owner remains responsible for loading the
-full manifest and verifying that commitment. DTE06-C2 is admitted and its
-implementation may proceed. DTE06-C3 remains unadmitted. The exact Worker
+full manifest and verifying that commitment. DTE06-C2 now completes the private
+production-inert scope-bound fenced repository with focused PGlite and
+ordinary-role genuine-PostgreSQL transaction proofs. DTE06-C3 remains
+unadmitted. The exact Worker
 Loader reuse boundary, operation-specific delivery ownership, and
 in-memory-before-Cloudflare adapter order remain fixed. Their contract and receipt are recorded in
 [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md) and
