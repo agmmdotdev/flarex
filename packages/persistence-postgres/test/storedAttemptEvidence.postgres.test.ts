@@ -4107,6 +4107,10 @@ function commitAuthorityFromStoredEvidence(
       readDocuments: evidence.root.readDocuments,
       readSemanticBytes: evidence.root.readSemanticBytes,
       pointDependencyCount: evidence.root.pointDependencyCount,
+      indexedQuerySyscalls: evidence.root.indexedQuerySyscalls,
+      indexRangeDependencyCount: evidence.root.indexRangeDependencyCount,
+      indexRangeDependencyEvidenceBytes:
+        evidence.root.indexRangeDependencyEvidenceBytes,
       writeOperations: evidence.root.writeOperations,
       writeSemanticBytes: evidence.root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:

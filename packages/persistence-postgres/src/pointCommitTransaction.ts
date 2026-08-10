@@ -230,6 +230,7 @@ import {
   fxSystemSnapshotLeases,
   fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
@@ -347,6 +348,9 @@ export interface PointCommitSealIdentityV1 {
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
   readonly pointDependencyCount: number;
+  readonly indexedQuerySyscalls: number;
+  readonly indexRangeDependencyCount: number;
+  readonly indexRangeDependencyEvidenceBytes: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
@@ -378,7 +382,10 @@ export interface PointCommitDependencyV1 {
   readonly documentId: AppDocumentIdV1;
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
-  readonly dependency: LogicalReadDependencyV1;
+  readonly dependency: Extract<
+    LogicalReadDependencyV1,
+    { readonly kind: "appRowPoint" }
+  >;
 }
 
 export type PointCommitRowIntentV1 =
@@ -2356,10 +2363,14 @@ function capturePointDependencyResult(
 const INVALID_LOGICAL_DEPENDENCY = Symbol("InvalidLogicalDependency");
 
 function captureLogicalDependencyResult(
-  input: LogicalReadDependencyV1,
-): Result.Result<LogicalReadDependencyV1, PointCommitCorruptionV1Error> {
+  input: Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }>,
+): Result.Result<
+  Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }>,
+  PointCommitCorruptionV1Error
+> {
   const captured: Result.Result<
-    LogicalReadDependencyV1 | typeof INVALID_LOGICAL_DEPENDENCY,
+    | Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }>
+    | typeof INVALID_LOGICAL_DEPENDENCY,
     PointCommitCorruptionV1Error
   > = Result.try({
     try: () => {
@@ -2372,7 +2383,10 @@ function captureLogicalDependencyResult(
               kind: "present",
               revisionCommitSeq: input.observed.revisionCommitSeq,
             }),
-          } satisfies LogicalReadDependencyV1);
+          } satisfies Extract<
+            LogicalReadDependencyV1,
+            { readonly kind: "appRowPoint" }
+          >);
         case "missing":
           switch (input.observed.basis.kind) {
             case "noVisibleRevision":
@@ -2383,7 +2397,10 @@ function captureLogicalDependencyResult(
                   kind: "missing",
                   basis: Object.freeze({ kind: "noVisibleRevision" }),
                 }),
-              } satisfies LogicalReadDependencyV1);
+              } satisfies Extract<
+                LogicalReadDependencyV1,
+                { readonly kind: "appRowPoint" }
+              >);
             case "tombstone":
               return Object.freeze({
                 kind: "appRowPoint",
@@ -2396,7 +2413,10 @@ function captureLogicalDependencyResult(
                       input.observed.basis.revisionCommitSeq,
                   }),
                 }),
-              } satisfies LogicalReadDependencyV1);
+              } satisfies Extract<
+                LogicalReadDependencyV1,
+                { readonly kind: "appRowPoint" }
+              >);
             default:
               return INVALID_LOGICAL_DEPENDENCY;
           }
@@ -3150,6 +3170,14 @@ async function observeReplacedPointMutationAttempt(
         and ${fxSystemTransactionJournalPoints.attemptFence} =
           ${expectedFence}
     )`,
+    indexRangeExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalIndexRanges}
+      where ${fxSystemTransactionJournalIndexRanges.scopeUuid} = ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalIndexRanges.sessionId} =
+          ${command.authorityPins.sessionId}
+        and ${fxSystemTransactionJournalIndexRanges.attemptFence} =
+          ${expectedFence}
+    )`,
     eventExists: sql<boolean>`exists(
       select 1 from ${fxSystemTransactionJournalWriteEvents}
       where ${fxSystemTransactionJournalWriteEvents.scopeUuid} =
@@ -3172,6 +3200,7 @@ async function observeReplacedPointMutationAttempt(
     children.length !== 1 ||
     children[0]?.receiptExists !== false ||
     children[0]?.pointExists !== false ||
+    children[0]?.indexRangeExists !== false ||
     children[0]?.eventExists !== false
   ) {
     throw replacementCorruption("replacementConvergenceInvalid");
@@ -4329,6 +4358,12 @@ async function lockPointCommitJournalRoot(
       readSemanticBytes: fxSystemTransactionJournals.readSemanticBytes,
       pointDependencyCount:
         fxSystemTransactionJournals.pointDependencyCount,
+      indexedQuerySyscalls:
+        fxSystemTransactionJournals.indexedQuerySyscalls,
+      indexRangeDependencyCount:
+        fxSystemTransactionJournals.indexRangeDependencyCount,
+      indexRangeDependencyEvidenceBytes:
+        fxSystemTransactionJournals.indexRangeDependencyEvidenceBytes,
       writeOperations: fxSystemTransactionJournals.writeOperations,
       writeSemanticBytes: fxSystemTransactionJournals.writeSemanticBytes,
       materialWriteEventEvidenceBytes:
@@ -4410,6 +4445,11 @@ async function lockPointCommitJournalRoot(
       row.readDocuments !== expected.readDocuments ||
       row.readSemanticBytes !== expected.readSemanticBytes ||
       row.pointDependencyCount !== expected.pointDependencyCount ||
+      row.indexedQuerySyscalls !== expected.indexedQuerySyscalls ||
+      row.indexRangeDependencyCount !==
+        expected.indexRangeDependencyCount ||
+      row.indexRangeDependencyEvidenceBytes !==
+        expected.indexRangeDependencyEvidenceBytes ||
       row.writeOperations !== expected.writeOperations ||
       row.writeSemanticBytes !== expected.writeSemanticBytes ||
       row.materialWriteEventEvidenceBytes !==

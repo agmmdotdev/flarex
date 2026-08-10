@@ -83,7 +83,10 @@ export interface PreparedPointDependencyV1 {
   readonly documentId: AppDocumentIdV1;
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
-  readonly dependency: LogicalReadDependencyV1;
+  readonly dependency: Extract<
+    LogicalReadDependencyV1,
+    { readonly kind: "appRowPoint" }
+  >;
 }
 
 type PreparedPointRowIntentBaseV1 = PreparedPointDependencyV1;
@@ -149,6 +152,12 @@ export function planPointCommitStateV1(
   UnsupportedPointCommitPlanV1Error
 > {
   return Result.gen(function* () {
+    for (const dependency of source.journal.readDependencies) {
+      if (dependency.kind !== "appRowPoint") {
+        return yield* Result.fail(unsupportedReadDependency(dependency));
+      }
+    }
+
     const candidates: OrderedPointCandidateV1[] = [];
     const materialCandidates: OrderedPointCandidateV1[] = [];
 
@@ -249,7 +258,7 @@ export function planPointCommitStateV1(
 function captureLogicalReadDependency(
   dependency: LogicalReadDependencyV1,
 ): Result.Result<
-  LogicalReadDependencyV1,
+  Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }>,
   UnsupportedPointCommitPlanV1Error
 > {
   switch (dependency.kind) {
@@ -263,7 +272,10 @@ function captureLogicalReadDependency(
               kind: "present",
               revisionCommitSeq: dependency.observed.revisionCommitSeq,
             }),
-          } satisfies LogicalReadDependencyV1));
+          } satisfies Extract<
+            LogicalReadDependencyV1,
+            { readonly kind: "appRowPoint" }
+          >));
         case "missing":
           switch (dependency.observed.basis.kind) {
             case "noVisibleRevision":
@@ -274,7 +286,10 @@ function captureLogicalReadDependency(
                   kind: "missing",
                   basis: Object.freeze({ kind: "noVisibleRevision" }),
                 }),
-              } satisfies LogicalReadDependencyV1));
+              } satisfies Extract<
+                LogicalReadDependencyV1,
+                { readonly kind: "appRowPoint" }
+              >));
             case "tombstone":
               return Result.succeed(Object.freeze({
                 kind: "appRowPoint",
@@ -287,7 +302,10 @@ function captureLogicalReadDependency(
                       dependency.observed.basis.revisionCommitSeq,
                   }),
                 }),
-              } satisfies LogicalReadDependencyV1));
+              } satisfies Extract<
+                LogicalReadDependencyV1,
+                { readonly kind: "appRowPoint" }
+              >));
             default:
               return Result.fail(unsupportedReadDependency(
                 dependency.observed.basis,
@@ -310,7 +328,10 @@ function isNetMaterialPoint(
     case "live":
       return Result.succeed(true);
     case "deleted": {
-      const observed: LogicalReadDependencyV1["observed"] =
+      const observed: Extract<
+        LogicalReadDependencyV1,
+        { readonly kind: "appRowPoint" }
+      >["observed"] =
         point.dependency.observed;
       switch (observed.kind) {
         case "present":

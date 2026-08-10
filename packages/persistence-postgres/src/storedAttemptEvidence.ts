@@ -10,6 +10,9 @@ import { Data, Effect, Result, Schema } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
+  MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
@@ -214,6 +217,9 @@ export interface StoredAttemptSealedRootV1 {
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
   readonly pointDependencyCount: number;
+  readonly indexedQuerySyscalls: number;
+  readonly indexRangeDependencyCount: number;
+  readonly indexRangeDependencyEvidenceBytes: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
@@ -1201,7 +1207,15 @@ function captureSealedRoot(
     updatedAtMilliseconds < createdAtMilliseconds ||
     sealedAtMilliseconds < createdAtMilliseconds ||
     !isUint8ArrayWithByteLength(root.sealedJournalSha256, 32) ||
-    !isUint8ArrayWithByteLength(root.sealedResultSha256, 32)
+    !isUint8ArrayWithByteLength(root.sealedResultSha256, 32) ||
+    !isPositiveSafeInteger(root.indexedQuerySyscalls + 1) ||
+    root.indexedQuerySyscalls > MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1 ||
+    !isPositiveSafeInteger(root.indexRangeDependencyCount + 1) ||
+    root.indexRangeDependencyCount >
+      MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 ||
+    !isPositiveSafeInteger(root.indexRangeDependencyEvidenceBytes + 1) ||
+    root.indexRangeDependencyEvidenceBytes >
+      MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1
   ) {
     return undefined;
   }
@@ -1212,6 +1226,10 @@ function captureSealedRoot(
     readDocuments: root.readDocuments,
     readSemanticBytes: root.readSemanticBytes,
     pointDependencyCount: root.pointDependencyCount,
+    indexedQuerySyscalls: root.indexedQuerySyscalls,
+    indexRangeDependencyCount: root.indexRangeDependencyCount,
+    indexRangeDependencyEvidenceBytes:
+      root.indexRangeDependencyEvidenceBytes,
     writeOperations: root.writeOperations,
     writeSemanticBytes: root.writeSemanticBytes,
     materialWriteEventEvidenceBytes: root.materialWriteEventEvidenceBytes,

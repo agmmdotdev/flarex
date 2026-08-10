@@ -145,6 +145,7 @@ export interface SchemaSizeRow extends Omit<
 export interface AttemptChildExistenceRow {
   readonly receiptExists: boolean;
   readonly pointExists: boolean;
+  readonly indexRangeExists: boolean;
   readonly eventExists: boolean;
 }
 
@@ -628,6 +629,7 @@ function materializeStoredAuthorityEffect(
         children === undefined ||
         typeof children.receiptExists !== "boolean" ||
         typeof children.pointExists !== "boolean" ||
+        typeof children.indexRangeExists !== "boolean" ||
         typeof children.eventExists !== "boolean"
       ) {
         return occExecutionCorrupt("journalRootNotPristine");
@@ -635,6 +637,7 @@ function materializeStoredAuthorityEffect(
       if (
         children.receiptExists ||
         children.pointExists ||
+        children.indexRangeExists ||
         children.eventExists
       ) {
         return occExecutionCorrupt("journalChildrenPresent");
@@ -1046,6 +1049,9 @@ function classifyOpenOccExecutionRoot(
     root.readDocuments,
     root.readSemanticBytes,
     root.pointDependencyCount,
+    root.indexedQuerySyscalls,
+    root.indexRangeDependencyCount,
+    root.indexRangeDependencyEvidenceBytes,
     root.writeOperations,
     root.writeSemanticBytes,
     root.materialWriteEventEvidenceBytes,
@@ -1112,6 +1118,9 @@ function isJournalFailureDimension(
     value === "readDocuments" ||
     value === "readSemanticBytes" ||
     value === "pointReadDependencies" ||
+    value === "indexedQuerySyscalls" ||
+    value === "indexRangeReadDependencies" ||
+    value === "indexRangeDependencyEvidenceBytes" ||
     value === "writeOperations" ||
     value === "writeSemanticBytes" ||
     value === "materialWriteEventEvidenceBytes"
@@ -1166,6 +1175,10 @@ function sameSealIdentity(
     expected.readDocuments === root.readDocuments &&
     expected.readSemanticBytes === root.readSemanticBytes &&
     expected.pointDependencyCount === root.pointDependencyCount &&
+    expected.indexedQuerySyscalls === root.indexedQuerySyscalls &&
+    expected.indexRangeDependencyCount === root.indexRangeDependencyCount &&
+    expected.indexRangeDependencyEvidenceBytes ===
+      root.indexRangeDependencyEvidenceBytes &&
     expected.writeOperations === root.writeOperations &&
     expected.writeSemanticBytes === root.writeSemanticBytes &&
     expected.materialWriteEventEvidenceBytes ===

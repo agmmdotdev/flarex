@@ -215,6 +215,10 @@ function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
       readDocuments: root.readDocuments,
       readSemanticBytes: root.readSemanticBytes,
       pointDependencyCount: root.pointDependencyCount,
+      indexedQuerySyscalls: root.indexedQuerySyscalls,
+      indexRangeDependencyCount: root.indexRangeDependencyCount,
+      indexRangeDependencyEvidenceBytes:
+        root.indexRangeDependencyEvidenceBytes,
       writeOperations: root.writeOperations,
       writeSemanticBytes: root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:

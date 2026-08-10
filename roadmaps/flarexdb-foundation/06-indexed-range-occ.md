@@ -1,12 +1,14 @@
 # Indexed Range OCC
 
-Status: Accepted design plus completed `O10-PF2` implementation preflight and
-completed private `O10-P0` shared read-admission prerequisite. This document
-freezes the first exact indexed mutation-read contract, the durable journal
-shape, and the first measured PostgreSQL access path. The next implementation
-gate is `O10-A`, which still requires explicit approval. No indexed-query API
-or runtime route is active, and this checkpoint does not authorize relation,
-scan, filter, search, vector, or general pagination support.
+Status: Accepted design plus completed `O10-PF2` implementation preflight,
+completed private `O10-P0` shared read-admission prerequisite, and completed
+private production-inert `O10-A` indexed snapshot/journal capability. This
+document freezes the first exact indexed mutation-read contract, the durable
+journal shape, and the first measured PostgreSQL access path. The next
+implementation gate is `O10-B`. No indexed-query developer API or runtime route
+is active, and this checkpoint does not authorize relation, scan, filter,
+search, vector, general pagination, staged-overlay semantics, or commit-time
+phantom validation.
 
 ## Decision
 
@@ -217,9 +219,9 @@ The trusted query operation performs this bounded sequence:
 
 1. Authenticate the session, attempt, snapshot, candidate/schema, exact
    physical definition, enabled build, target authority, and journal owner.
-2. Lock only the attempt journal owner needed to serialize the syscall. Do not
-   lock the scope clock and do not hold a SQL transaction while user code is
-   running.
+2. Enter only the O10-P0 shared scope-clock read admission plus the attempt
+   journal owner needed to serialize the syscall. Do not enter the exclusive
+   commit lane or hold a SQL transaction while user code is running.
 3. Read the S10 index page at `snapshotCommitSeq`.
 4. Read the existing journal's coalesced staged rows for the table. Reject if
    the distinct staged-row overlay exceeds the accepted material-row ceiling.
@@ -393,6 +395,55 @@ blocked after the first reader settles, and it proceeds only after the second
 reader settles. No indexed query, schema, migration, point-operation, commit,
 activation, routing, or production behavior was added.
 
+## O10-A Private Indexed Snapshot And Journal Checkpoint
+
+O10-A now extends the one private candidate-bound point-mutation target and the
+one authoritative logical journal; it does not expose a second index-query API.
+The candidate target commits to operation
+`flarex.system/app-index-range-query/v1`, 32 indexed-query syscalls, a 128-row
+page, 32 merged range dependencies, and 262,144 canonical range-evidence bytes.
+The exact refreshed protocol vector digest is
+`36a0fb8a39e0bc60b147d989189c56aa1b3038b9fa1c5a77aace9fb147f9c98c`.
+Generated function-runtime sources remain byte-identical because this private
+operation is deliberately not injected into mutation user code in O10-A.
+
+The package-internal persistence capability authenticates the exact attempt,
+schema/table/index definition, enabled build, and O10-P0 shared admission. It
+reads one ascending S10 page at the attempt snapshot, fetches returned app-row
+revisions in fixed eight-row set-based batches, re-lowers each document to
+verify its stored composite position, and stops as soon as the cumulative
+16 MiB semantic-read budget is exceeded. This prevents a valid 128-row request
+from materializing up to 128 MiB of document bodies before its deterministic
+limit outcome. Successful calls record ordinary returned-row point evidence
+plus the canonical consumed range in the same syscall transaction. Empty and
+exhausted pages protect the complete requested interval; a truncated page ends
+at its last consumed composite position. Repeated compatible intervals are
+normalized and merged before persistence.
+
+Migration `0051_chemical_gorilla_man.sql` adds the single bounded
+`fx_system_tx_journal_index_range` child plus independent root counters for
+indexed-query calls, range cardinality, and range-evidence bytes. The child
+stores only structured range authority, never user documents or S10 revision
+bodies. Fresh install, exact `0050 -> 0051` upgrade, injected migration failure,
+rollback, replay, six named constraints, and non-public-schema portability are
+proved in PGlite and genuine PostgreSQL 18.3. The complete PGlite migration
+suite passes with 52 exact receipts and five journal-owned tables.
+
+Focused O10-A evidence proves exact replay, frontier capture and merge, empty
+range capture, point/range/root counter agreement, sticky syscall exhaustion
+before index data I/O, staged-overlay refusal, stored document/position mismatch
+rejection, bounded early semantic-budget termination before a later unread
+corrupt row, and transaction rollback after both point and range evidence writes.
+Seal authenticates and emits point and range dependencies in one canonical
+journal. The current stored-attempt planner explicitly rejects a range
+dependency as unsupported, so it cannot be silently omitted before O10-B owns
+commit-time validation.
+
+O10-A intentionally fails closed when the table has any staged rows. Complete
+read-your-writes overlay, S10 post-snapshot phantom validation, the commit-first
+supporting index, O08 conflict replacement integration, runtime injection, and
+the full acceptance matrix remain O10-B/O10-C work.
+
 ## Retention
 
 O10 does not activate history cleanup. O11 must retain enough S10 revision
@@ -441,11 +492,12 @@ search, and vector shapes must have explicit rejection tests.
    read/syscall admission facet and its PGlite/PostgreSQL concurrency,
    authority, rollback, and interruption evidence are complete. Every existing
    caller remains on the update-lock path.
-4. **O10-A — pending explicit approval; private indexed snapshot/journal
-   capability.** Add the exact
-   candidate-bound query operation, composite consumed-interval dependency,
-   durable bounded journal capture, set-based document verification, and
-   protocol/generated closure. It remains unavailable to mutation user code.
+4. **O10-A — complete.** The exact candidate-bound query identity and budgets,
+   composite consumed-interval dependency, durable bounded journal capture,
+   set-based document verification, protocol vectors, migration evidence, and
+   generated-closure checks are complete. Staged rows and stored-attempt
+   planning remain fail-closed, and the capability remains unavailable to
+   mutation user code.
 5. **O10-B — overlay and commit integration.** Add the complete staged overlay,
    S10 history validator, existing O08 conflict replacement, and exact runtime
    capability. Enable only the accepted shape.

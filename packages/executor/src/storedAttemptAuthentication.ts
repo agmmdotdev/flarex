@@ -561,6 +561,9 @@ interface StoredAttemptSealedRootPortV1 {
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
   readonly pointDependencyCount: number;
+  readonly indexedQuerySyscalls: number;
+  readonly indexRangeDependencyCount: number;
+  readonly indexRangeDependencyEvidenceBytes: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
@@ -600,6 +603,9 @@ export interface StoredAttemptSealIdentityPortV1 {
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
   readonly pointDependencyCount: number;
+  readonly indexedQuerySyscalls: number;
+  readonly indexRangeDependencyCount: number;
+  readonly indexRangeDependencyEvidenceBytes: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:

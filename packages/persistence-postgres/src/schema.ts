@@ -52,6 +52,9 @@ import {
   MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
   MAX_COMMIT_READ_DOCUMENTS_V1,
   MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
@@ -104,6 +107,7 @@ import type {
   DeclarativeV2VerifierRestartCommandKindV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
 import {
+  MAX_ORDERED_INDEX_BOUND_BYTES_V1,
   MAX_ORDERED_INDEX_KEY_BYTES_V1,
   type OrderedIndexKeyCodecVersion,
   type AppOrderedIndexPhysicalSpecV1,
@@ -195,6 +199,9 @@ type TransactionJournalOperationalLimitDimensionV1 = Extract<
   | "readDocuments"
   | "readSemanticBytes"
   | "pointReadDependencies"
+  | "indexedQuerySyscalls"
+  | "indexRangeReadDependencies"
+  | "indexRangeDependencyEvidenceBytes"
   | "writeOperations"
   | "writeSemanticBytes"
   | "materialWriteEventEvidenceBytes"
@@ -205,13 +212,15 @@ type TransactionJournalOperationKindV1 =
   | "insert"
   | "patch"
   | "replace"
-  | "delete";
+  | "delete"
+  | "indexRange";
 
 type TransactionJournalOutcomeKindV1 =
   | "missing"
   | "present"
   | "inserted"
   | "unit"
+  | "indexRangePage"
   | "error";
 
 type TransactionJournalDependencyKindV1 =
@@ -2075,6 +2084,12 @@ export const fxSystemTransactionJournals = pgTable(
     readDocuments: integer("read_documents").notNull().default(0),
     readSemanticBytes: integer("read_semantic_bytes").notNull().default(0),
     pointDependencyCount: integer("point_dependency_count").notNull().default(0),
+    indexedQuerySyscalls: integer("indexed_query_syscalls").notNull().default(0),
+    indexRangeDependencyCount: integer("index_range_dependency_count")
+      .notNull().default(0),
+    indexRangeDependencyEvidenceBytes: integer(
+      "index_range_dependency_evidence_bytes",
+    ).notNull().default(0),
     writeOperations: integer("write_operations").notNull().default(0),
     writeSemanticBytes: integer("write_semantic_bytes").notNull().default(0),
     materialWriteEventEvidenceBytes: integer(
@@ -2148,6 +2163,18 @@ export const fxSystemTransactionJournals = pgTable(
       sql`${table.pointDependencyCount} between 0 and ${sql.raw(String(MAX_COMMIT_POINT_READ_DEPENDENCIES_V1))}`,
     ),
     check(
+      "fx_system_tx_journal_indexed_query_count_check",
+      sql`${table.indexedQuerySyscalls} between 0 and ${sql.raw(String(MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_index_range_count_check",
+      sql`${table.indexRangeDependencyCount} between 0 and ${sql.raw(String(MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_index_range_evidence_bytes_check",
+      sql`${table.indexRangeDependencyEvidenceBytes} between 0 and ${sql.raw(String(MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1))}`,
+    ),
+    check(
       "fx_system_tx_journal_write_count_check",
       sql`${table.writeOperations} between 0 and ${sql.raw(String(MAX_COMMIT_WRITE_OPERATIONS_V1))}`,
     ),
@@ -2169,6 +2196,9 @@ export const fxSystemTransactionJournals = pgTable(
             'readDocuments',
             'readSemanticBytes',
             'pointReadDependencies',
+            'indexedQuerySyscalls',
+            'indexRangeReadDependencies',
+            'indexRangeDependencyEvidenceBytes',
             'writeOperations',
             'writeSemanticBytes',
             'materialWriteEventEvidenceBytes'
@@ -2371,7 +2401,7 @@ export const fxSystemTransactionJournalLatestReceipts = pgTable(
     ),
     check(
       "fx_system_tx_journal_receipt_operation_check",
-      sql`${table.operationKind} in ('get', 'insert', 'patch', 'replace', 'delete')`,
+      sql`${table.operationKind} in ('get', 'insert', 'patch', 'replace', 'delete', 'indexRange')`,
     ),
     check(
       "fx_system_tx_journal_receipt_request_check",
@@ -2384,7 +2414,7 @@ export const fxSystemTransactionJournalLatestReceipts = pgTable(
     check(
       "fx_system_tx_journal_receipt_outcome_check",
       sql`
-        ${table.outcomeKind} in ('missing', 'present', 'inserted', 'unit', 'error')
+        ${table.outcomeKind} in ('missing', 'present', 'inserted', 'unit', 'indexRangePage', 'error')
         and ${table.outcomeCodecVersion} = 1
         and octet_length(${table.outcomeBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
         and octet_length(${table.outcomeSha256}) = 32
@@ -2515,6 +2545,114 @@ export const fxSystemTransactionJournalPoints = pgTable(
     ),
     check(
       "fx_system_tx_journal_point_timestamp_check",
+      sql`
+        isfinite(${table.createdAt})
+        and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}
+      `,
+    ),
+  ],
+);
+
+/** Canonically merged, bounded indexed-range OCC dependencies for one attempt. */
+export const fxSystemTransactionJournalIndexRanges = pgTable(
+  "fx_system_tx_journal_index_range",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<TransactionAttemptFence>().notNull(),
+    ordinal: integer("ordinal").notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    indexDefinitionId: integer("index_definition_id")
+      .$type<CatalogIndexDefinitionId>().notNull(),
+    keyCodecVersion: integer("key_codec_version")
+      .$type<OrderedIndexKeyCodecVersion>().notNull(),
+    physicalSpecSha256: bytea("physical_spec_sha256").notNull(),
+    direction: text("direction").$type<"asc">().notNull(),
+    lowerKind: text("lower_kind")
+      .$type<"unbounded" | "key_inclusive">().notNull(),
+    lowerEncodedKey: bytea("lower_encoded_key"),
+    upperKind: text("upper_kind")
+      .$type<"unbounded" | "key_exclusive" | "position_inclusive">()
+      .notNull(),
+    upperEncodedKey: bytea("upper_encoded_key"),
+    upperRowId: bytea("upper_row_id"),
+    evidenceBytes: integer("evidence_bytes").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_tx_journal_index_range_pk",
+      columns: [
+        table.scopeUuid,
+        table.sessionId,
+        table.attemptFence,
+        table.ordinal,
+      ],
+    }),
+    foreignKey({
+      name: "fx_system_tx_journal_index_range_root_fk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+      foreignColumns: [
+        fxSystemTransactionJournals.scopeUuid,
+        fxSystemTransactionJournals.sessionId,
+        fxSystemTransactionJournals.attemptFence,
+      ],
+    }).onUpdate("restrict").onDelete("cascade"),
+    check(
+      "fx_system_tx_journal_index_range_identity_check",
+      sql`
+        ${table.attemptFence} >= 1
+        and ${table.ordinal} between 0 and ${sql.raw(String(MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 - 1))}
+        and ${table.tableId} between 1 and 2147483647
+        and ${table.indexDefinitionId} between 1 and 2147483647
+        and ${table.keyCodecVersion} = 1
+        and octet_length(${table.physicalSpecSha256}) = 32
+        and ${table.direction} = 'asc'
+        and ${table.evidenceBytes} between 1 and ${sql.raw(String(MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1))}
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_index_range_lower_check",
+      sql`
+        (
+          ${table.lowerKind} = 'unbounded'
+          and ${table.lowerEncodedKey} is null
+        )
+        or (
+          ${table.lowerKind} = 'key_inclusive'
+          and ${table.lowerEncodedKey} is not null
+          and octet_length(${table.lowerEncodedKey}) between 0 and ${sql.raw(String(MAX_ORDERED_INDEX_BOUND_BYTES_V1))}
+        )
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_index_range_upper_check",
+      sql`
+        (
+          ${table.upperKind} = 'unbounded'
+          and ${table.upperEncodedKey} is null
+          and ${table.upperRowId} is null
+        )
+        or (
+          ${table.upperKind} = 'key_exclusive'
+          and ${table.upperEncodedKey} is not null
+          and octet_length(${table.upperEncodedKey}) between 0 and ${sql.raw(String(MAX_ORDERED_INDEX_BOUND_BYTES_V1))}
+          and ${table.upperRowId} is null
+        )
+        or (
+          ${table.upperKind} = 'position_inclusive'
+          and ${table.upperEncodedKey} is not null
+          and octet_length(${table.upperEncodedKey}) between 0 and ${sql.raw(String(MAX_ORDERED_INDEX_KEY_BYTES_V1))}
+          and ${table.upperRowId} is not null
+          and octet_length(${table.upperRowId}) = 16
+        )
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_index_range_timestamp_check",
       sql`
         isfinite(${table.createdAt})
         and isfinite(${table.updatedAt})
@@ -6618,6 +6756,7 @@ export const flarexSchema = {
   fxSystemDurableTaskRepairSchedulerV1,
   fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournals,
   fxSystemTransactionJournalWriteEvents,

@@ -6,6 +6,8 @@ import {
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { Data, Effect, Result, Scope } from "effect";
 import {
+  CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1,
+  CANDIDATE_BOUND_INDEXED_QUERY_OPERATION_V1,
   encodeCandidateBoundRuntimeTargetV1,
   type CandidateBoundRuntimeTargetFrameV1,
   type CandidateBoundRuntimeTargetV1Error,
@@ -639,6 +641,15 @@ function targetFrame(
     exactRuntimeProfile: POINT_MUTATION_EXACT_RUNTIME_PROFILE_V1,
     exactRuntimeVersion: POINT_MUTATION_EXACT_RUNTIME_VERSION_V1,
     exactRuntimeGraphBasisSha256,
+    indexedQueryOperation: CANDIDATE_BOUND_INDEXED_QUERY_OPERATION_V1,
+    maximumIndexedQuerySyscalls:
+      CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexedQuerySyscalls,
+    maximumIndexedQueryPageSize:
+      CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexedQueryPageSize,
+    maximumIndexRangeReadDependencies:
+      CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexRangeReadDependencies,
+    maximumIndexRangeDependencyEvidenceBytes:
+      CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexRangeDependencyEvidenceBytes,
     functionOrdinal: authority.function.functionOrdinal,
     functionPath: authority.function.functionPath,
     logicalExecutionModule: authority.function.logicalExecutionModule,

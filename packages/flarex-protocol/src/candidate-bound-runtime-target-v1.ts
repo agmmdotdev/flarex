@@ -19,9 +19,26 @@ import {
   POINT_MUTATION_EXACT_RUNTIME_PROFILE_V1,
   POINT_MUTATION_EXACT_RUNTIME_VERSION_V1,
 } from "./point-mutation-exact-runtime";
+import {
+  MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
+  MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
+} from "./commit-protocol";
 
 export const CANDIDATE_BOUND_RUNTIME_TARGET_IDENTITY_V1 =
   "flarex.system/candidate-bound-runtime-target/v1" as const;
+export const CANDIDATE_BOUND_INDEXED_QUERY_OPERATION_V1 =
+  "flarex.system/app-index-range-query/v1" as const;
+
+export const CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1 = Object.freeze({
+  maximumIndexedQuerySyscalls: BigInt(MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1),
+  maximumIndexedQueryPageSize: BigInt(MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1),
+  maximumIndexRangeReadDependencies:
+    BigInt(MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1),
+  maximumIndexRangeDependencyEvidenceBytes:
+    BigInt(MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1),
+});
 
 const DOMAIN = new TextEncoder().encode(
   `${CANDIDATE_BOUND_RUNTIME_TARGET_IDENTITY_V1}\0`,
@@ -67,6 +84,12 @@ export interface CandidateBoundRuntimeTargetFrameV1 {
   readonly exactRuntimeVersion:
     typeof POINT_MUTATION_EXACT_RUNTIME_VERSION_V1;
   readonly exactRuntimeGraphBasisSha256: Uint8Array;
+  readonly indexedQueryOperation:
+    typeof CANDIDATE_BOUND_INDEXED_QUERY_OPERATION_V1;
+  readonly maximumIndexedQuerySyscalls: bigint;
+  readonly maximumIndexedQueryPageSize: bigint;
+  readonly maximumIndexRangeReadDependencies: bigint;
+  readonly maximumIndexRangeDependencyEvidenceBytes: bigint;
   readonly functionOrdinal: bigint;
   readonly functionPath: string;
   readonly logicalExecutionModule: string;
@@ -131,6 +154,11 @@ const FRAME_FIELDS = [
   "exactRuntimeProfile",
   "exactRuntimeVersion",
   "exactRuntimeGraphBasisSha256",
+  "indexedQueryOperation",
+  "maximumIndexedQuerySyscalls",
+  "maximumIndexedQueryPageSize",
+  "maximumIndexRangeReadDependencies",
+  "maximumIndexRangeDependencyEvidenceBytes",
   "functionOrdinal",
   "functionPath",
   "logicalExecutionModule",
@@ -206,6 +234,11 @@ export function encodeCandidateBoundRuntimeTargetV1(
       text(frame.exactRuntimeProfile),
       u32(frame.exactRuntimeVersion),
       frame.exactRuntimeGraphBasisSha256,
+      text(frame.indexedQueryOperation),
+      u64(frame.maximumIndexedQuerySyscalls),
+      u64(frame.maximumIndexedQueryPageSize),
+      u64(frame.maximumIndexRangeReadDependencies),
+      u64(frame.maximumIndexRangeDependencyEvidenceBytes),
       u64(frame.functionOrdinal),
       text(frame.functionPath),
       text(frame.logicalExecutionModule),
@@ -340,6 +373,29 @@ function captureFrame(
     if (value.exactRuntimeVersion !== POINT_MUTATION_EXACT_RUNTIME_VERSION_V1) {
       return yield* fail("invalidInput", "exactRuntimeVersion");
     }
+    if (value.indexedQueryOperation !== CANDIDATE_BOUND_INDEXED_QUERY_OPERATION_V1) {
+      return yield* fail("invalidInput", "indexedQueryOperation");
+    }
+    const maximumIndexedQuerySyscalls = yield* exactPositiveU64(
+      value.maximumIndexedQuerySyscalls,
+      CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexedQuerySyscalls,
+      "maximumIndexedQuerySyscalls",
+    );
+    const maximumIndexedQueryPageSize = yield* exactPositiveU64(
+      value.maximumIndexedQueryPageSize,
+      CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexedQueryPageSize,
+      "maximumIndexedQueryPageSize",
+    );
+    const maximumIndexRangeReadDependencies = yield* exactPositiveU64(
+      value.maximumIndexRangeReadDependencies,
+      CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexRangeReadDependencies,
+      "maximumIndexRangeReadDependencies",
+    );
+    const maximumIndexRangeDependencyEvidenceBytes = yield* exactPositiveU64(
+      value.maximumIndexRangeDependencyEvidenceBytes,
+      CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexRangeDependencyEvidenceBytes,
+      "maximumIndexRangeDependencyEvidenceBytes",
+    );
     const functionOrdinal = yield* nonNegativeU64(
       value.functionOrdinal,
       "functionOrdinal",
@@ -441,6 +497,11 @@ function captureFrame(
       exactRuntimeProfile: POINT_MUTATION_EXACT_RUNTIME_PROFILE_V1,
       exactRuntimeVersion: POINT_MUTATION_EXACT_RUNTIME_VERSION_V1,
       exactRuntimeGraphBasisSha256: digests.exactRuntimeGraphBasisSha256,
+      indexedQueryOperation: CANDIDATE_BOUND_INDEXED_QUERY_OPERATION_V1,
+      maximumIndexedQuerySyscalls,
+      maximumIndexedQueryPageSize,
+      maximumIndexRangeReadDependencies,
+      maximumIndexRangeDependencyEvidenceBytes,
       projectionSha256: digests.projectionSha256,
       functionOrdinal,
       functionPath,
@@ -600,6 +661,22 @@ function positiveU64(
   return typeof input === "bigint" && input >= 1n && input <= MAX_U64
     ? Result.succeed(input)
     : fail("invalidInput", path);
+}
+
+function exactPositiveU64(
+  input: unknown,
+  expected: bigint,
+  path: string,
+): Result.Result<bigint, CandidateBoundRuntimeTargetV1Error> {
+  return positiveU64(input, path).pipe(
+    Result.filterOrFail(
+      (value) => value === expected,
+      () => new CandidateBoundRuntimeTargetV1Error({
+        reason: "invalidInput",
+        path,
+      }),
+    ),
+  );
 }
 
 function exactRecord<Keys extends readonly string[]>(

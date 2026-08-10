@@ -5,14 +5,21 @@ import {
 } from "flarex-protocol/app-document";
 import {
   appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1ToBytes,
   decodeAppDocumentIdV1,
   decodeAppDocumentIdentityV1,
   decodeAppRowIdHexV1,
   type AppDocumentIdV1,
+  type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
-import type { CatalogTableId } from "flarex-protocol/catalog";
+import {
+  decodeCatalogIndexId,
+  type CatalogTableId,
+} from "flarex-protocol/catalog";
 import {
   CommitSyscallSequenceV1Schema,
+  MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
   MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
@@ -41,7 +48,9 @@ import {
 } from "../src/applicationRevisionSyscallValidatorV1";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   decodeReplacementScopeIdV1,
+  projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
 import {
   TransactionGrantDeploymentIdV1Schema,
@@ -65,6 +74,14 @@ import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
   type AppRowValueEvidenceV1,
 } from "../src/appRows";
+import {
+  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+} from "../src/appIndexEntries";
+import {
+  createAppDeveloperIndexDefinitionPortV1,
+  lowerAppDeveloperIndexKeyV1,
+} from "../src/appDeveloperIndexCommitV1";
+import type { LocatedAppIndexDefinitionV1 } from "../src/appIndexDefinitions";
 import {
   PinnedPointTablePersistenceV1Error,
   resolvePinnedPointTableIdV1Effect,
@@ -98,13 +115,26 @@ import {
   SessionJournalPersistenceV1Error,
   SessionJournalSealV1Error,
   SessionJournalStorageCorruptionV1Error,
+  SessionJournalDeveloperIndexUnavailableV1Error,
+  createAppDeveloperIndexQueryPortV1,
   createSessionJournalStorePersistenceV1,
+  type PinnedDeveloperIndexV1,
   type PinnedPointTableV1,
   type RunSessionJournalPointOperationV1Result,
   type SessionJournalAttemptV1,
+  type SessionJournalIndexedQueryOperationV1,
   type SessionJournalPointOperationV1,
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
+import { fxSystemIndexBuildStates } from "../src/schema";
+import {
+  INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
+  IndexBuildAttemptFenceSchema,
+} from "flarex-protocol/index-build-state";
+import {
+  decodeOrderedIndexBoundHexV1,
+  decodeOrderedIndexRowIdHexV1,
+} from "flarex-protocol/ordered-index";
 import {
   createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionActivationPersistenceV1,
@@ -150,12 +180,26 @@ const SEEDED_ROW_ID = decodeAppRowIdHexV1(
   "83000000000000000000000000000001",
 );
 const SEEDED_CREATION_TIME = decodeAppCreationTimeV1(1_725_000_000_000.25);
+const SECOND_ROW_ID = decodeAppRowIdHexV1(
+  "83000000000040008000000000000002",
+);
+const SECOND_CREATION_TIME = decodeAppCreationTimeV1(1_725_000_000_001.25);
 
 interface ScenarioOptions {
   readonly grantRetentionPolicy?: GrantRetentionPolicyV1;
   readonly randomUuid?: () => string;
   readonly seedFields?: unknown;
+  readonly additionalSeedFields?: unknown;
+  readonly extraIndexedSeeds?: ReadonlyArray<Readonly<{
+    readonly fields: unknown;
+    readonly rowId: AppRowIdHexV1;
+    readonly creationTime: AppCreationTimeV1;
+  }>>;
   readonly targetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
+  readonly developerIndex?: boolean;
+  readonly journalFaultAfter?: (
+    point: "indexedQueryEvidenceWritten",
+  ) => void | Promise<void>;
 }
 
 interface JournalScenario {
@@ -170,6 +214,8 @@ interface JournalScenario {
   readonly store: SessionJournalStorePersistenceV1;
   readonly attempt: SessionJournalAttemptV1;
   readonly table: PinnedPointTableV1;
+  readonly developerIndex: PinnedDeveloperIndexV1 | null;
+  readonly developerIndexDefinition: LocatedAppIndexDefinitionV1 | null;
   readonly seededDocumentId: AppDocumentIdV1 | null;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
 }
@@ -190,6 +236,9 @@ interface JournalRootState extends Record<string, unknown> {
   readonly read_documents: number;
   readonly read_semantic_bytes: number;
   readonly point_dependency_count: number;
+  readonly indexed_query_syscalls: number;
+  readonly index_range_dependency_count: number;
+  readonly index_range_dependency_evidence_bytes: number;
   readonly write_operations: number;
   readonly write_semantic_bytes: number;
   readonly material_write_event_evidence_bytes: number;
@@ -271,7 +320,11 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
     const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
     await setFlarexActivationClock(persistence, scopeId, {
-      lastCommitSeq: options.seedFields === undefined ? 0n : 1n,
+      lastCommitSeq: options.seedFields === undefined &&
+          options.additionalSeedFields === undefined &&
+          (options.extraIndexedSeeds?.length ?? 0) === 0
+        ? 0n
+        : 1n,
     });
 
     const publication = await persistence.publishAppSchemaV1({
@@ -279,7 +332,13 @@ describe("C03 Postgres SessionJournalStore", () => {
       schemaVersionId,
       version: CatalogSchemaVersionSchema.make(1),
       tables: [appTable("users"), appTable("posts")],
-      indexes: [],
+      indexes: options.developerIndex === true
+        ? [{
+            tableLogicalName: "users",
+            descriptor: "by_name",
+            fields: ["name"],
+          }]
+        : [],
     });
     const tableId = requirePublishedTableId(publication.manifest, "users");
     const otherTableId = requirePublishedTableId(
@@ -295,6 +354,111 @@ describe("C03 Postgres SessionJournalStore", () => {
         schemaVersionId,
         options.seedFields,
       );
+    if (options.additionalSeedFields !== undefined) {
+      await seedSnapshotDocument(
+        persistence,
+        scopeId,
+        tableId,
+        schemaVersionId,
+        options.additionalSeedFields,
+        SECOND_ROW_ID,
+        SECOND_CREATION_TIME,
+      );
+    }
+    for (const seed of options.extraIndexedSeeds ?? []) {
+      await seedSnapshotDocument(
+        persistence,
+        scopeId,
+        tableId,
+        schemaVersionId,
+        seed.fields,
+        seed.rowId,
+        seed.creationTime,
+      );
+    }
+
+    const definitions = createAppDeveloperIndexDefinitionPortV1(
+      persistence.drizzle,
+    );
+    const locatedDefinitions = options.developerIndex === true
+      ? await runEffect(definitions.locate({
+          deploymentId,
+          scopeId,
+          schemaVersionId,
+          tableIds: Object.freeze([tableId]),
+          maximumDefinitions: 1,
+        }))
+      : null;
+    const locatedDefinition = locatedDefinitions?.[0];
+    if (options.developerIndex === true) {
+      if (
+        locatedDefinitions?.length !== 1 ||
+        locatedDefinition === undefined
+      ) {
+        throw new Error("Expected one published developer index definition.");
+      }
+      const clock = await persistence.getScopeClock(scopeId);
+      if (clock === null) throw new Error("Missing indexed-query scope clock.");
+      await persistence.drizzle.insert(fxSystemIndexBuildStates).values({
+        scopeId,
+        indexDefinitionId: locatedDefinition.indexDefinitionId,
+        storageGeneration:
+          FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+        storageGenerationFence: clock.storageGenerationFence,
+        epoch: clock.epoch,
+        startCommitSeq: CommitSeqSchema.make(1n),
+        lifecycle: "enabled",
+        cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
+        backfillCursorRowId: null,
+        attemptFence: IndexBuildAttemptFenceSchema.make(1n),
+      });
+      const indexedSeeds = [
+        ...(options.seedFields === undefined
+          ? []
+          : [{
+              fields: options.seedFields,
+              rowId: SEEDED_ROW_ID,
+              creationTime: SEEDED_CREATION_TIME,
+            }]),
+        ...(options.additionalSeedFields === undefined
+          ? []
+          : [{
+              fields: options.additionalSeedFields,
+              rowId: SECOND_ROW_ID,
+              creationTime: SECOND_CREATION_TIME,
+            }]),
+        ...(options.extraIndexedSeeds ?? []),
+      ];
+      for (const seed of indexedSeeds) {
+        const canonical = await canonicalizeAppDocumentV1({
+          tableId,
+          rowId: seed.rowId,
+          creationTime: seed.creationTime,
+          fields: seed.fields,
+        });
+        Result.getOrThrow(
+          await persistence.drizzle.transaction((tx) =>
+            appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+              tx,
+              {
+                kind: "live",
+                scopeId,
+                definition: locatedDefinition,
+                encodedKey: Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
+                  locatedDefinition,
+                  canonical,
+                  seed.creationTime,
+                )),
+                rowId: decodeOrderedIndexRowIdHexV1(seed.rowId),
+                writeEpoch: clock.epoch,
+                commitSeq: CommitSeqSchema.make(1n),
+                prevCommitSeq: null,
+              },
+            )
+          ),
+        );
+      }
+    }
 
     const ports = resolutionPorts(persistence, options.targetOptions);
     const activation = await activatePointMutationSession(
@@ -319,6 +483,18 @@ describe("C03 Postgres SessionJournalStore", () => {
       grantRetentionPolicy:
         options.grantRetentionPolicy ?? TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid,
+      ...(options.journalFaultAfter === undefined
+        ? {}
+        : { faultAfter: options.journalFaultAfter }),
+      ...(options.developerIndex === true
+        ? {
+            indexedQueries: createAppDeveloperIndexQueryPortV1(
+              persistence.drizzle,
+              ports,
+              definitions,
+            ),
+          }
+        : {}),
     });
     const attempt = await runEffect(
       store.openAttemptEffect({
@@ -331,6 +507,12 @@ describe("C03 Postgres SessionJournalStore", () => {
     const table = await runEffect(
       store.resolvePointTableEffect(attempt, "users"),
     );
+    const developerIndex = options.developerIndex === true
+      ? await runEffect(store.resolveDeveloperIndexEffect(
+          table,
+          decodeCatalogIndexId(1),
+        ))
+      : null;
 
     return Object.freeze({
       deploymentId,
@@ -342,10 +524,818 @@ describe("C03 Postgres SessionJournalStore", () => {
       store,
       attempt,
       table,
+      developerIndex,
+      developerIndexDefinition: locatedDefinition ?? null,
       seededDocumentId,
       schemaManifest: publication.manifest,
     });
   }
+
+  it("captures and replays one exact indexed snapshot page", async () => {
+    const current = await scenario("o10a_indexed_snapshot", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index handle.");
+    }
+    const operation = Object.freeze({
+      kind: "indexRange" as const,
+      syscallSequence: syscallSequence(1n),
+      bounds: Object.freeze({}),
+      limit: 1,
+    });
+    const executed = await runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      operation,
+    ));
+    expect(executed).toMatchObject({
+      kind: "completed",
+      delivery: "executed",
+      outcome: {
+        kind: "indexRangePage",
+        documents: [{ name: "Ada" }],
+        isDone: true,
+      },
+    });
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      operation,
+    ))).resolves.toMatchObject({
+      kind: "completed",
+      delivery: "replayed",
+      outcome: { kind: "indexRangePage", isDone: true },
+    });
+
+    const state = await persistence.query<Readonly<Record<string, unknown>>>(
+      `select indexed_query_syscalls, index_range_dependency_count,
+              index_range_dependency_evidence_bytes
+         from fx_system_tx_journal where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    expect(state.rows[0]).toMatchObject({
+      indexed_query_syscalls: 1,
+      index_range_dependency_count: 1,
+    });
+    const ranges = await persistence.query<Readonly<Record<string, unknown>>>(
+      `select ordinal, lower_kind, upper_kind, evidence_bytes
+         from fx_system_tx_journal_index_range
+        where session_id = $1 order by ordinal`,
+      [current.anchor.sessionId],
+    );
+    expect(ranges.rows).toMatchObject([{
+      ordinal: 0,
+      lower_kind: "unbounded",
+      upper_kind: "unbounded",
+    }]);
+    expect(state.rows[0]?.index_range_dependency_evidence_bytes).toBe(
+      ranges.rows[0]?.evidence_bytes,
+    );
+
+    const prepared = await prepareSeal(current.store, current.attempt);
+    expect(prepared.journal.readDependencies).toMatchObject([
+      { kind: "appRowPoint", observed: { kind: "present" } },
+      {
+        kind: "appIndexRange",
+        tableId: current.tableId,
+        direction: "asc",
+        lower: null,
+        upper: null,
+      },
+    ]);
+  });
+
+  it("stops bounded page materialization when the semantic budget is exceeded", async () => {
+    const seeds = Array.from({ length: 9 }, (_, index) => Object.freeze({
+      fields: Object.freeze({ name: `batch-${index.toString().padStart(2, "0")}` }),
+      rowId: decodeAppRowIdHexV1(
+        `84000000000040008000${index.toString(16).padStart(12, "0")}`,
+      ),
+      creationTime: decodeAppCreationTimeV1(1_725_000_001_000.25 + index),
+    }));
+    const current = await scenario("o10a_bounded_materialization", {
+      developerIndex: true,
+      extraIndexedSeeds: seeds,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index handle.");
+    }
+    const unreadCorruptRow = seeds.at(-1)!;
+    await persistence.query(
+      `update fx_app_row_rev
+          set value_sha256 = $4
+        where scope_uuid = $1 and table_id = $2 and row_id = $3`,
+      [
+        projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+        current.tableId,
+        appRowIdHexV1ToBytes(unreadCorruptRow.rowId),
+        new Uint8Array(32),
+      ],
+    );
+    await persistence.query(
+      `update fx_system_tx_journal
+          set read_semantic_bytes = $2
+        where session_id = $1`,
+      [current.anchor.sessionId, MAX_COMMIT_READ_SEMANTIC_BYTES_V1 - 1],
+    );
+
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(1n),
+        bounds: Object.freeze({}),
+        limit: MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
+      },
+    ))).resolves.toMatchObject({
+      kind: "rejected",
+      delivery: "executed",
+      issue: {
+        reason: "limitExceeded",
+        dimension: "readSemanticBytes",
+        maximum: MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
+      },
+    });
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      state: "failed",
+      read_semantic_bytes: MAX_COMMIT_READ_SEMANTIC_BYTES_V1 - 1,
+      point_dependency_count: 0,
+      indexed_query_syscalls: 0,
+      index_range_dependency_count: 0,
+      failure_dimension: "readSemanticBytes",
+    });
+  });
+
+  it("fails closed before indexed I/O when the table has staged rows", async () => {
+    const current = await scenario("o10a_staged_overlay", {
+      seedFields: { name: "before" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index handle.");
+    }
+    const validator = issueSetupSeededSyscallValidatorProofV1({
+      scopeId: current.anchor.scopeId,
+      schemaVersionId: current.schemaVersionId,
+      schemaManifest: current.schemaManifest,
+    });
+    await runEffect(current.store.runPointOperationEffect(current.table, {
+      kind: "patch",
+      syscallSequence: syscallSequence(1n),
+      documentId: requireSeededDocumentId(current),
+      patch: { name: "after" },
+    }, validator));
+    const failure = await runFailure(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(2n),
+        bounds: Object.freeze({}),
+        limit: 1,
+      },
+    ));
+    expect(failure).toBeInstanceOf(
+      SessionJournalDeveloperIndexUnavailableV1Error,
+    );
+    expect(failure).toMatchObject({ reason: "stagedOverlayUnsupported" });
+    const ranges = await persistence.query<{ readonly count: number }>(
+      `select count(*)::int as count from fx_system_tx_journal_index_range
+        where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    expect(ranges.rows[0]?.count).toBe(0);
+  });
+
+  it("captures a composite frontier, then merges an exhausted replay range", async () => {
+    const current = await scenario("o10a_frontier_merge", {
+      seedFields: { name: "Ada" },
+      additionalSeedFields: { name: "Zoe" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index handle.");
+    }
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(1n),
+        bounds: Object.freeze({}),
+        limit: 1,
+      },
+    ))).resolves.toMatchObject({
+      kind: "completed",
+      delivery: "executed",
+      outcome: {
+        documents: [{ name: "Ada" }],
+        isDone: false,
+      },
+    });
+    const frontier = await persistence.query<Readonly<Record<string, unknown>>>(
+      `select upper_kind, upper_encoded_key, upper_row_id
+         from fx_system_tx_journal_index_range
+        where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    expect(frontier.rows).toMatchObject([{
+      upper_kind: "position_inclusive",
+    }]);
+    expect(frontier.rows[0]?.upper_encoded_key).toBeInstanceOf(Uint8Array);
+    expect(frontier.rows[0]?.upper_row_id).toBeInstanceOf(Uint8Array);
+
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(2n),
+        bounds: Object.freeze({}),
+        limit: 2,
+      },
+    ))).resolves.toMatchObject({
+      kind: "completed",
+      delivery: "executed",
+      outcome: {
+        documents: [{ name: "Ada" }, { name: "Zoe" }],
+        isDone: true,
+      },
+    });
+    const merged = await persistence.query<Readonly<Record<string, unknown>>>(
+      `select ordinal, lower_kind, upper_kind
+         from fx_system_tx_journal_index_range
+        where session_id = $1 order by ordinal`,
+      [current.anchor.sessionId],
+    );
+    expect(merged.rows).toEqual([{
+      ordinal: 0,
+      lower_kind: "unbounded",
+      upper_kind: "unbounded",
+    }]);
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      indexed_query_syscalls: 2,
+      index_range_dependency_count: 1,
+      point_dependency_count: 2,
+    });
+  });
+
+  it("records the complete requested interval for an empty indexed page", async () => {
+    const current = await scenario("o10a_empty_range", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index handle.");
+    }
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(1n),
+        bounds: Object.freeze({
+          startInclusive: decodeOrderedIndexBoundHexV1("ff"),
+        }),
+        limit: 1,
+      },
+    ))).resolves.toMatchObject({
+      kind: "completed",
+      outcome: { documents: [], isDone: true },
+    });
+    const ranges = await persistence.query<Readonly<Record<string, unknown>>>(
+      `select lower_kind, lower_encoded_key, upper_kind
+         from fx_system_tx_journal_index_range
+        where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    expect(ranges.rows).toMatchObject([{
+      lower_kind: "key_inclusive",
+      upper_kind: "unbounded",
+    }]);
+    expect(ranges.rows[0]?.lower_encoded_key).toEqual(new Uint8Array([255]));
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      point_dependency_count: 0,
+      read_documents: 0,
+      indexed_query_syscalls: 1,
+    });
+  });
+
+  it("fails the indexed-call ceiling before build or index data I/O and replays it", async () => {
+    const current = await scenario("o10a_query_ceiling", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index handle.");
+    }
+    await persistence.query(
+      `update fx_system_tx_journal
+          set indexed_query_syscalls = $2
+        where session_id = $1`,
+      [current.anchor.sessionId, MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1],
+    );
+    await persistence.query(
+      `update fx_system_index_build_state
+          set lifecycle = 'declared'
+        where scope_id = $1`,
+      [current.anchor.scopeId],
+    );
+    const request = Object.freeze({
+      kind: "indexRange" as const,
+      syscallSequence: syscallSequence(1n),
+      bounds: Object.freeze({}),
+      limit: 1,
+    });
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      request,
+    ))).resolves.toMatchObject({
+      kind: "rejected",
+      delivery: "executed",
+      issue: {
+        reason: "limitExceeded",
+        dimension: "indexedQuerySyscalls",
+        observed: MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1 + 1,
+      },
+    });
+    await expect(runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      request,
+    ))).resolves.toMatchObject({
+      kind: "rejected",
+      delivery: "replayed",
+    });
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      state: "failed",
+      last_syscall_sequence: "1",
+      failure_dimension: "indexedQuerySyscalls",
+    });
+    const ranges = await persistence.query<{ readonly count: number }>(
+      `select count(*)::int as count
+         from fx_system_tx_journal_index_range
+        where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    expect(ranges.rows).toEqual([{ count: 0 }]);
+  });
+
+  it("rejects indexed replay and sticky receipts that disagree with the root", async () => {
+    const replay = await scenario("o10a_replay_root_mismatch", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (replay.developerIndex === null) {
+      throw new Error("Missing O10-A developer index authority.");
+    }
+    const operation = Object.freeze({
+      kind: "indexRange" as const,
+      syscallSequence: syscallSequence(1n),
+      bounds: Object.freeze({}),
+      limit: 1,
+    });
+    await runEffect(replay.store.runIndexedQueryEffect(
+      replay.developerIndex,
+      operation,
+    ));
+    await persistence.query(
+      `update fx_system_tx_journal
+          set state = 'failed', failure_dimension = 'indexedQuerySyscalls'
+        where session_id = $1`,
+      [replay.anchor.sessionId],
+    );
+    const replayFailure = await runFailure(
+      replay.store.runIndexedQueryEffect(replay.developerIndex, operation),
+    );
+    expect(replayFailure).toBeInstanceOf(SessionJournalStorageCorruptionV1Error);
+    expect(replayFailure).toMatchObject({
+      reason: "failedJournalReceiptInvalid",
+    });
+
+    const sticky = await scenario("o10a_sticky_root_mismatch", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (sticky.developerIndex === null) {
+      throw new Error("Missing O10-A developer index authority.");
+    }
+    await persistence.query(
+      `update fx_system_tx_journal
+          set indexed_query_syscalls = $2
+        where session_id = $1`,
+      [sticky.anchor.sessionId, MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1],
+    );
+    await runEffect(sticky.store.runIndexedQueryEffect(
+      sticky.developerIndex,
+      operation,
+    ));
+    const wrongLimit = await canonicalizeFlarexValueV1({
+      kind: "error",
+      reason: "limitExceeded",
+      dimension: "readDocuments",
+      observed: MAX_COMMIT_READ_DOCUMENTS_V1 + 1,
+      maximum: MAX_COMMIT_READ_DOCUMENTS_V1,
+    });
+    await persistence.query(
+      `update fx_system_tx_journal_latest_receipt
+          set outcome_bytes = $2, outcome_sha256 = $3
+        where session_id = $1`,
+      [
+        sticky.anchor.sessionId,
+        wrongLimit.canonicalBytes,
+        wrongLimit.sha256,
+      ],
+    );
+    const stickyFailure = await runFailure(
+      sticky.store.runIndexedQueryEffect(sticky.developerIndex, {
+        ...operation,
+        syscallSequence: syscallSequence(2n),
+      }),
+    );
+    expect(stickyFailure).toBeInstanceOf(SessionJournalStorageCorruptionV1Error);
+    expect(stickyFailure).toMatchObject({
+      reason: "failedJournalReceiptInvalid",
+    });
+  });
+
+  it("rejects indexed page receipts that violate the requested page shape", async () => {
+    const current = await scenario("o10a_receipt_page_shape", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index authority.");
+    }
+    const operation = Object.freeze({
+      kind: "indexRange" as const,
+      syscallSequence: syscallSequence(1n),
+      bounds: Object.freeze({}),
+      limit: 1,
+    });
+    await runEffect(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      operation,
+    ));
+    const malformedPages = [
+      {
+        kind: "indexRangePage",
+        documentsValueJson: [{ name: "one" }, { name: "two" }],
+        isDone: true,
+      },
+      {
+        kind: "indexRangePage",
+        documentsValueJson: [],
+        isDone: false,
+      },
+    ] as const;
+    for (const malformedPage of malformedPages) {
+      const evidence = await canonicalizeFlarexValueV1(malformedPage);
+      await persistence.query(
+        `update fx_system_tx_journal_latest_receipt
+            set outcome_bytes = $2, outcome_sha256 = $3
+          where session_id = $1`,
+        [
+          current.anchor.sessionId,
+          evidence.canonicalBytes,
+          evidence.sha256,
+        ],
+      );
+      const failure = await runFailure(current.store.runIndexedQueryEffect(
+        current.developerIndex,
+        operation,
+      ));
+      expect(failure).toBeInstanceOf(SessionJournalStorageCorruptionV1Error);
+      expect(failure).toMatchObject({ reason: "latestReceiptEvidenceInvalid" });
+    }
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      state: "open",
+      last_syscall_sequence: "1",
+      indexed_query_syscalls: 1,
+    });
+  });
+
+  it("rejects a snapshot document that no longer lowers to its stored index position", async () => {
+    const current = await scenario("o10a_snapshot_position_mismatch", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index authority.");
+    }
+    const mismatched = await canonicalizeAppDocumentV1({
+      tableId: current.tableId,
+      rowId: SEEDED_ROW_ID,
+      creationTime: SEEDED_CREATION_TIME,
+      fields: { name: "Zoe" },
+    });
+    await persistence.query(
+      `update fx_app_row_rev
+          set value_codec_version = $5,
+              value_json = $6,
+              value_bytes = $7,
+              value_sha256 = $8
+        where scope_uuid = (
+          select scope_uuid from fx_system_tx_session where session_id = $1
+        )
+          and table_id = $2
+          and row_id = $3
+          and commit_seq = $4`,
+      [
+        current.anchor.sessionId,
+        current.tableId,
+        appRowIdHexV1ToBytes(SEEDED_ROW_ID),
+        1n,
+        mismatched.codecVersion,
+        mismatched.valueJson,
+        mismatched.canonicalBytes,
+        mismatched.sha256,
+      ],
+    );
+    const failure = await runFailure(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(1n),
+        bounds: Object.freeze({}),
+        limit: 1,
+      },
+    ));
+    expect(failure).toBeInstanceOf(SessionJournalStorageCorruptionV1Error);
+    expect(failure).toMatchObject({ reason: "indexedSnapshotPositionMismatch" });
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      state: "open",
+      last_syscall_sequence: "0",
+    });
+    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({
+      receipts: 0,
+      points: 0,
+    });
+  });
+
+  it("rejects an index entry whose stored table identity changed", async () => {
+    const current = await scenario("o10a_index_table_mismatch", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (
+      current.developerIndex === null ||
+      current.developerIndexDefinition === null
+    ) {
+      throw new Error("Missing O10-A developer index authority.");
+    }
+    await seedSnapshotDocument(
+      persistence,
+      current.anchor.scopeId,
+      current.otherTableId,
+      current.schemaVersionId,
+      { name: "Ada" },
+    );
+    await persistence.query(
+      `update fx_app_index_entry_rev
+          set table_id = $2
+        where scope_uuid = (
+          select scope_uuid from fx_system_tx_session where session_id = $1
+        )
+          and index_definition_id = $3`,
+      [
+        current.anchor.sessionId,
+        current.otherTableId,
+        current.developerIndexDefinition.indexDefinitionId,
+      ],
+    );
+    const failure = await runFailure(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(1n),
+        bounds: Object.freeze({}),
+        limit: 1,
+      },
+    ));
+    expect(failure).toBeInstanceOf(SessionJournalStorageCorruptionV1Error);
+    expect(failure).toMatchObject({ reason: "indexedSnapshotPositionMismatch" });
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      state: "open",
+      last_syscall_sequence: "0",
+      indexed_query_syscalls: 0,
+    });
+  });
+
+  it("rolls back point and range evidence when the indexed query transaction fails", async () => {
+    const current = await scenario("o10a_indexed_query_rollback", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+      journalFaultAfter: (point) => {
+        if (point === "indexedQueryEvidenceWritten") {
+          throw new Error("injected indexed-query evidence failure");
+        }
+      },
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index authority.");
+    }
+    const failure = await runFailure(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(1n),
+        bounds: Object.freeze({}),
+        limit: 1,
+      },
+    ));
+    expect(failure).toBeInstanceOf(SessionJournalPersistenceV1Error);
+    expect(failure).toMatchObject({ operation: "runIndexedQuery" });
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      state: "open",
+      last_syscall_sequence: "0",
+      read_documents: 0,
+      point_dependency_count: 0,
+      indexed_query_syscalls: 0,
+      index_range_dependency_count: 0,
+      index_range_dependency_evidence_bytes: 0,
+    });
+    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({
+      receipts: 0,
+      points: 0,
+    });
+    const ranges = await persistence.query<{ readonly count: number }>(
+      `select count(*)::int as count
+         from fx_system_tx_journal_index_range
+        where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    expect(ranges.rows).toEqual([{ count: 0 }]);
+  });
+
+  it("rejects root range counters that disagree with durable child evidence", async () => {
+    const cases = [
+      {
+        label: "count",
+        column: "index_range_dependency_count",
+        reason: "indexRangeDependencyCountMismatch",
+      },
+      {
+        label: "bytes",
+        column: "index_range_dependency_evidence_bytes",
+        reason: "indexRangeDependencyEvidenceBytesMismatch",
+      },
+    ] as const;
+    for (const testCase of cases) {
+      const current = await scenario(`o10a_range_root_${testCase.label}`, {
+        seedFields: { name: "Ada" },
+        developerIndex: true,
+      });
+      if (current.developerIndex === null) {
+        throw new Error("Missing O10-A developer index authority.");
+      }
+      await persistence.query(
+        `update fx_system_tx_journal
+            set ${testCase.column} = 1
+          where session_id = $1`,
+        [current.anchor.sessionId],
+      );
+      const failure = await runFailure(current.store.runIndexedQueryEffect(
+        current.developerIndex,
+        {
+          kind: "indexRange",
+          syscallSequence: syscallSequence(1n),
+          bounds: Object.freeze({}),
+          limit: 1,
+        },
+      ));
+      expect(failure).toBeInstanceOf(SessionJournalStorageCorruptionV1Error);
+      expect(failure).toMatchObject({ reason: testCase.reason });
+      expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+        state: "open",
+        last_syscall_sequence: "0",
+        indexed_query_syscalls: 0,
+        index_range_dependency_count: testCase.label === "count" ? 1 : 0,
+        index_range_dependency_evidence_bytes:
+          testCase.label === "bytes" ? 1 : 0,
+      });
+      expect(await journalCounts(current.anchor.sessionId)).toMatchObject({
+        receipts: 0,
+        points: 0,
+      });
+    }
+  });
+
+  it("rejects durable range rows stored outside canonical ordinal order", async () => {
+    const current = await scenario("o10a_range_order", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index authority.");
+    }
+    for (const [offset, bounds] of [
+      { startInclusive: "10", endExclusive: "20" },
+      { startInclusive: "30", endExclusive: "40" },
+    ].entries()) {
+      await runEffect(current.store.runIndexedQueryEffect(
+        current.developerIndex,
+        {
+          kind: "indexRange",
+          syscallSequence: syscallSequence(BigInt(offset + 1)),
+          bounds: Object.freeze({
+            startInclusive: decodeOrderedIndexBoundHexV1(bounds.startInclusive),
+            endExclusive: decodeOrderedIndexBoundHexV1(bounds.endExclusive),
+          }),
+          limit: 1,
+        },
+      ));
+    }
+    await persistence.query(
+      `update fx_system_tx_journal_index_range
+          set ordinal = 31
+        where session_id = $1 and ordinal = 0`,
+      [current.anchor.sessionId],
+    );
+    await persistence.query(
+      `update fx_system_tx_journal_index_range
+          set ordinal = 0
+        where session_id = $1 and ordinal = 1`,
+      [current.anchor.sessionId],
+    );
+    await persistence.query(
+      `update fx_system_tx_journal_index_range
+          set ordinal = 1
+        where session_id = $1 and ordinal = 31`,
+      [current.anchor.sessionId],
+    );
+    const queryFailure = await runFailure(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      {
+        kind: "indexRange",
+        syscallSequence: syscallSequence(3n),
+        bounds: Object.freeze({}),
+        limit: 1,
+      },
+    ));
+    expect(queryFailure).toBeInstanceOf(SessionJournalStorageCorruptionV1Error);
+    expect(queryFailure).toMatchObject({ reason: "indexRangeDependencyInvalid" });
+    const sealFailure = await runFailure(
+      current.store.prepareSealEffect(current.attempt),
+    );
+    expect(sealFailure).toBeInstanceOf(SessionJournalStorageCorruptionV1Error);
+    expect(sealFailure).toMatchObject({ reason: "indexRangeDependencyInvalid" });
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      state: "open",
+      last_syscall_sequence: "2",
+      index_range_dependency_count: 2,
+    });
+  });
+
+  it("maps malformed or throwing indexed bounds to invalid input", async () => {
+    const current = await scenario("o10a_invalid_bounds", {
+      seedFields: { name: "Ada" },
+      developerIndex: true,
+    });
+    if (current.developerIndex === null) {
+      throw new Error("Missing O10-A developer index authority.");
+    }
+    const common = {
+      kind: "indexRange" as const,
+      syscallSequence: syscallSequence(1n),
+      limit: 1,
+    };
+    const nullBounds = {
+      ...common,
+      bounds: null,
+    } as unknown as SessionJournalIndexedQueryOperationV1;
+    const nullFailure = await runFailure(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      nullBounds,
+    ));
+    expect(nullFailure).toBeInstanceOf(InvalidSessionJournalInputV1Error);
+    expect(nullFailure).toMatchObject({
+      operation: "indexRange",
+      reason: "invalidOperation",
+    });
+
+    const getterFailure = new Error("injected bound getter failure");
+    const throwingBounds = Object.defineProperty({}, "startInclusive", {
+      enumerable: true,
+      get: () => {
+        throw getterFailure;
+      },
+    });
+    const throwingOperation = {
+      ...common,
+      bounds: throwingBounds,
+    } as unknown as SessionJournalIndexedQueryOperationV1;
+    const thrownFailure = await runFailure(current.store.runIndexedQueryEffect(
+      current.developerIndex,
+      throwingOperation,
+    ));
+    expect(thrownFailure).toBeInstanceOf(InvalidSessionJournalInputV1Error);
+    expect(thrownFailure).toMatchObject({
+      operation: "indexRange",
+      reason: "invalidOperation",
+      cause: getterFailure,
+    });
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      state: "open",
+      last_syscall_sequence: "0",
+      indexed_query_syscalls: 0,
+    });
+  });
 
   it("rejects invalid insert, patch, and replace before journal acceptance", async () => {
     const cases = ["insert", "patch", "replace"] as const;
@@ -2858,6 +3848,9 @@ describe("C03 Postgres SessionJournalStore", () => {
                read_documents,
                read_semantic_bytes,
                point_dependency_count,
+               indexed_query_syscalls,
+               index_range_dependency_count,
+               index_range_dependency_evidence_bytes,
                write_operations,
                write_semantic_bytes,
                material_write_event_evidence_bytes,
@@ -3069,13 +4062,15 @@ async function seedSnapshotDocument(
   tableId: CatalogTableId,
   schemaVersionId: CatalogSchemaVersionId,
   fields: unknown,
+  rowId = SEEDED_ROW_ID,
+  creationTime = SEEDED_CREATION_TIME,
 ): Promise<AppDocumentIdV1> {
   const clock = await persistence.getScopeClock(scopeId);
   if (clock === null) throw new Error("Missing seeded scope clock.");
   const canonical = await canonicalizeAppDocumentV1({
     tableId,
-    rowId: SEEDED_ROW_ID,
-    creationTime: SEEDED_CREATION_TIME,
+    rowId,
+    creationTime,
     fields,
   });
   const value = {
@@ -3089,16 +4084,16 @@ async function seedSnapshotDocument(
       kind: "live",
       scopeId,
       tableId,
-      rowId: SEEDED_ROW_ID,
+      rowId,
       writeEpoch: clock.epoch,
       commitSeq: CommitSeqSchema.make(1n),
       prevCommitSeq: null,
       schemaVersionId,
-      creationTime: SEEDED_CREATION_TIME,
+      creationTime,
       value,
     })
   );
-  return appDocumentIdV1FromRowIdentity({ tableId, rowId: SEEDED_ROW_ID });
+  return appDocumentIdV1FromRowIdentity({ tableId, rowId });
 }
 
 function requireSeededDocumentId(scenario: JournalScenario): AppDocumentIdV1 {

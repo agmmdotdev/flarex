@@ -7,9 +7,10 @@ import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { and, asc, eq, sql } from "drizzle-orm";
-import { Data, Effect, Result, Schema } from "effect";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { Data, Effect, Option, Result, Schema } from "effect";
 
 import {
   AppDocumentSystemFieldV1Error,
@@ -30,7 +31,10 @@ import {
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
+  CatalogIndexDefinitionIdSchema,
+  CatalogIndexIdSchema,
   CatalogTableIdSchema,
+  type CatalogIndexId,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
@@ -45,6 +49,10 @@ import {
   LogicalAppWriteV1Schema,
   LogicalPatchFieldV1Schema,
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
+  MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
   MAX_COMMIT_READ_DOCUMENTS_V1,
   MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
@@ -52,6 +60,8 @@ import {
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
   SESSION_JOURNAL_FORMAT_V1,
   SessionJournalV1Schema,
+  LogicalIndexRangeReadDependencyV1Schema,
+  normalizeLogicalIndexRangeReadDependenciesV1Result,
   verifySuccessfulResultEvidenceV1Effect,
   type CanonicalSessionJournalV1,
   type CanonicalSuccessfulResultV1,
@@ -61,9 +71,31 @@ import {
   type LogicalAppWriteV1,
   type LogicalPatchFieldV1,
   type LogicalReadDependencyV1,
+  type LogicalIndexRangeReadDependencyV1,
   type SessionJournalV1,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
+import {
+  AppIndexPhysicalSpecSha256HexV1Schema,
+  appIndexPhysicalSpecSha256HexV1FromBytes,
+  appIndexPhysicalSpecSha256HexV1ToBytes,
+} from "flarex-protocol/index-definition";
+import {
+  ORDERED_INDEX_KEY_CODEC_VERSION_V1,
+  OrderedIndexBoundHexV1Schema,
+  OrderedIndexKeyBytesHexV1Schema,
+  OrderedIndexRowIdHexV1Schema,
+  orderedIndexBoundHexV1ToBytes,
+  orderedIndexBoundHexV1FromBytes,
+  orderedIndexKeyBytesHexV1FromBytes,
+  orderedIndexKeyBytesHexV1ToBytes,
+  orderedIndexRowIdHexV1FromBytesResult,
+  orderedIndexRowIdHexV1ToBytes,
+  OrderedIndexKeyTooLargeError,
+  type OrderedIndexBoundsV1,
+  type OrderedIndexKeyBytesHexV1,
+  type OrderedIndexRowIdHexV1,
+} from "flarex-protocol/ordered-index";
 import {
   encodeCanonicalJson,
   isJson,
@@ -76,6 +108,7 @@ import {
 import type { GrantRetentionPolicyV1 } from "flarex-protocol/grant-retention-policy";
 import {
   CatalogSchemaVersionIdSchema,
+  MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE,
   SchemaManifestAppTableNameSchema,
   type CatalogSchemaVersionId,
   type SchemaManifestAppTableName,
@@ -120,9 +153,29 @@ import {
 
 import {
   getAppRowAtSnapshotInTransactionEffect,
+  readLiveAppRowsAtSnapshotInTransactionEffect,
   type AppRowPointDependencyV1,
   type AppRowTransaction,
+  type LiveAppRowRevisionV1,
+  type ReadAppRowError,
 } from "./appRows";
+import {
+  scanAppIndexAtSnapshotInTransactionEffect,
+  type AppIndexRangeEntryV1,
+  type ReadAppIndexRangeV1Error,
+} from "./appIndexEntries";
+import {
+  hasAppDeveloperIndexDefinitionAuthorityForControlDbV1,
+  lowerAppDeveloperIndexKeyV1,
+  type AppDeveloperIndexDefinitionPortV1,
+  type LocateAppDeveloperIndexDefinitionsV1Error,
+} from "./appDeveloperIndexCommitV1";
+import type { LocatedAppIndexDefinitionV1 } from "./appIndexDefinitions";
+import type { FlarexMetadataDatabase } from "./deployments";
+import {
+  readFencedIndexBuildStateEffect,
+  type ReadFencedIndexBuildStateError,
+} from "./indexBuildStates";
 import {
   validateApplicationRevisionSyscallDocumentInTransactionV1,
   type ApplicationRevisionSyscallValidatorV1,
@@ -145,6 +198,7 @@ import {
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
   fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournals,
   fxSystemTransactionJournalWriteEvents,
@@ -171,6 +225,11 @@ import {
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "./transactionSessionActivation";
 import {
+  RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
+  isLocatedExactRunningAttemptReadSyscallKernelV1,
+  type LocatedExactRunningAttemptReadSyscallKernelV1,
+} from "./transactionSessionReadSyscallKernel";
+import {
   decodeTransactionExecutionClaimFenceV1,
   decodeTransactionExecutionClaimOwnerV1,
   type TransactionExecutionClaimPinV1,
@@ -183,21 +242,34 @@ const StrictStructOptions: {
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const TEXT_ENCODER = new TextEncoder();
-
 type SessionJournalIncrementalLimitDimensionV1 = Extract<
   CommitProtocolV1LimitDimension,
   | "readDocuments"
   | "readSemanticBytes"
   | "pointReadDependencies"
+  | "indexedQuerySyscalls"
+  | "indexRangeReadDependencies"
+  | "indexRangeDependencyEvidenceBytes"
   | "writeOperations"
   | "writeSemanticBytes"
   | "materialWriteEventEvidenceBytes"
+>;
+type SessionJournalIncrementalLimitIssueV1 = Omit<
+  Extract<
+    SessionJournalPersistedPointIssueV1,
+    { readonly reason: "limitExceeded" }
+  >,
+  "reason"
 >;
 
 const SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1 = Object.freeze({
   readDocuments: MAX_COMMIT_READ_DOCUMENTS_V1,
   readSemanticBytes: MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
   pointReadDependencies: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  indexedQuerySyscalls: MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  indexRangeReadDependencies: MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  indexRangeDependencyEvidenceBytes:
+    MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   writeOperations: MAX_COMMIT_WRITE_OPERATIONS_V1,
   writeSemanticBytes: MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
   materialWriteEventEvidenceBytes:
@@ -206,12 +278,31 @@ const SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1 = Object.freeze({
   Record<SessionJournalIncrementalLimitDimensionV1, number>
 >);
 
+/**
+ * Keep duplicate JSONB/canonical-byte materialization below the attempt-wide
+ * read budget while retaining a small, fixed number of set-based reads.
+ */
+const INDEXED_QUERY_DOCUMENT_MATERIALIZATION_BATCH_SIZE_V1 = 8;
+
 export type SessionJournalPointOperationKindV1 =
   | "get"
   | "insert"
   | "patch"
   | "replace"
   | "delete";
+
+export interface SessionJournalIndexedQueryOperationV1 {
+  readonly kind: "indexRange";
+  readonly syscallSequence: CommitSyscallSequenceV1;
+  readonly bounds: OrderedIndexBoundsV1;
+  readonly limit: number;
+}
+
+export interface SessionJournalIndexedQuerySuccessV1 {
+  readonly kind: "indexRangePage";
+  readonly documents: ReadonlyArray<CanonicalFlarexRuntimeValueV1>;
+  readonly isDone: boolean;
+}
 
 export type SessionJournalPersistedPointIssueV1 =
   | Readonly<{
@@ -321,6 +412,31 @@ export type RunSessionJournalPointOperationV1Result =
       }>;
     }>;
 
+export type RunSessionJournalIndexedQueryV1Result =
+  | Readonly<{
+      readonly kind: "completed";
+      readonly delivery: "executed" | "replayed";
+      readonly outcome: SessionJournalIndexedQuerySuccessV1;
+    }>
+  | Readonly<{
+      readonly kind: "rejected";
+      readonly delivery: "executed" | "replayed" | "sticky";
+      readonly issue: Extract<
+        SessionJournalPersistedPointIssueV1,
+        { readonly reason: "limitExceeded" }
+      >;
+    }>
+  | Readonly<{
+      readonly kind: "sequenceRejected";
+      readonly issue: SessionJournalSequenceIssueV1;
+    }>
+  | Readonly<{
+      readonly kind: "stateRejected";
+      readonly issue: Readonly<{
+        readonly reason: "journalSealed" | "journalFailed";
+      }>;
+    }>;
+
 const sessionJournalAttemptBrand: unique symbol = Symbol(
   "FlarexDB/SessionJournalAttemptV1",
 );
@@ -337,6 +453,54 @@ const pinnedPointTableBrand: unique symbol = Symbol(
 /** Opaque C03A table identity resolved only from the pinned schema artifact. */
 export interface PinnedPointTableV1 {
   readonly [pinnedPointTableBrand]: true;
+}
+
+const pinnedDeveloperIndexBrand: unique symbol = Symbol(
+  "FlarexDB/PinnedDeveloperIndexV1",
+);
+
+export interface PinnedDeveloperIndexV1 {
+  readonly [pinnedDeveloperIndexBrand]: true;
+}
+
+const appDeveloperIndexQueryPortBrand: unique symbol = Symbol(
+  "FlarexDB/AppDeveloperIndexQueryPortV1",
+);
+
+export interface AppDeveloperIndexQueryPortV1 {
+  readonly [appDeveloperIndexQueryPortBrand]: true;
+}
+
+interface AppDeveloperIndexQueryPortStateV1 {
+  readonly controlDb: FlarexMetadataDatabase;
+  readonly authority: PointMutationSessionAuthorityResolutionPortsV1;
+  readonly definitions: AppDeveloperIndexDefinitionPortV1;
+}
+
+const appDeveloperIndexQueryPortStatesV1 = new WeakMap<
+  AppDeveloperIndexQueryPortV1,
+  AppDeveloperIndexQueryPortStateV1
+>();
+
+export function createAppDeveloperIndexQueryPortV1(
+  controlDb: FlarexMetadataDatabase,
+  authority: PointMutationSessionAuthorityResolutionPortsV1,
+  definitions: AppDeveloperIndexDefinitionPortV1,
+): AppDeveloperIndexQueryPortV1 {
+  const port = Object.freeze({
+    [appDeveloperIndexQueryPortBrand]: true as const,
+  });
+  if (hasAppDeveloperIndexDefinitionAuthorityForControlDbV1(
+    definitions,
+    controlDb,
+  )) {
+    appDeveloperIndexQueryPortStatesV1.set(port, Object.freeze({
+      controlDb,
+      authority,
+      definitions,
+    }));
+  }
+  return port;
 }
 
 const preparedSessionJournalSealBrand: unique symbol = Symbol(
@@ -385,6 +549,20 @@ export interface SessionJournalStorePersistenceV1 {
     RunSessionJournalPointOperationV1Result,
     SessionJournalRunPointOperationV1Error
   >;
+  readonly resolveDeveloperIndexEffect: (
+    table: PinnedPointTableV1,
+    logicalIndexId: unknown,
+  ) => Effect.Effect<
+    PinnedDeveloperIndexV1,
+    SessionJournalResolveDeveloperIndexV1Error
+  >;
+  readonly runIndexedQueryEffect: (
+    index: PinnedDeveloperIndexV1,
+    operation: SessionJournalIndexedQueryOperationV1,
+  ) => Effect.Effect<
+    RunSessionJournalIndexedQueryV1Result,
+    SessionJournalRunIndexedQueryV1Error
+  >;
   readonly prepareSealEffect: (
     attempt: SessionJournalAttemptV1,
   ) => Effect.Effect<
@@ -406,12 +584,21 @@ export interface SessionJournalStorePersistenceOptionsV1 {
   readonly grantRetentionPolicy: GrantRetentionPolicyV1;
   /** Construction-bound server randomness; exposed only for deterministic tests. */
   readonly randomUuid?: () => string;
+  readonly indexedQueries?: AppDeveloperIndexQueryPortV1;
+  /** Package-internal deterministic fault seam used by the persistence proof. */
+  readonly faultAfter?: (
+    point: "indexedQueryEvidenceWritten",
+  ) => void | Promise<void>;
 }
 
 export class InvalidSessionJournalCapabilityV1Error extends Data.TaggedError(
   "InvalidSessionJournalCapabilityV1Error",
 )<{
-  readonly capability: "attempt" | "pointTable" | "sealPreparation";
+  readonly capability:
+    | "attempt"
+    | "pointTable"
+    | "developerIndex"
+    | "sealPreparation";
 }> {}
 
 export class InvalidSessionJournalInputV1Error extends Data.TaggedError(
@@ -419,9 +606,15 @@ export class InvalidSessionJournalInputV1Error extends Data.TaggedError(
 )<{
   readonly operation:
     | SessionJournalPointOperationKindV1
+    | "indexRange"
     | "openAttempt"
-    | "resolvePointTable";
-  readonly reason: "invalidAttemptPins" | "invalidTableName" | "invalidOperation";
+    | "resolvePointTable"
+    | "resolveDeveloperIndex";
+  readonly reason:
+    | "invalidAttemptPins"
+    | "invalidTableName"
+    | "invalidLogicalIndexId"
+    | "invalidOperation";
   readonly cause?: unknown;
 }> {}
 
@@ -441,14 +634,16 @@ export class SessionJournalPersistenceV1Error extends Data.TaggedError(
   "SessionJournalPersistenceV1Error",
 )<{
   readonly operation:
-    | "canonicalizePointRequest"
+    | "canonicalizeRequest"
     | "completeSealTransaction"
     | "hashSealJournal"
     | "openAttempt"
     | "prepareSealSnapshot"
-    | "resolveJournalTarget"
-    | "resolvePinnedPointTable"
-    | "runPointOperation";
+      | "resolveJournalTarget"
+      | "resolvePinnedPointTable"
+      | "resolveDeveloperIndex"
+      | "runPointOperation"
+      | "runIndexedQuery";
   readonly cause: unknown;
 }> {}
 
@@ -471,6 +666,37 @@ export type SessionJournalRunPointOperationV1Error =
   | SessionJournalStorageCorruptionV1Error
   | SessionJournalTargetUnavailableV1Error
   | ApplicationRevisionSyscallValidatorV1Error;
+
+export class SessionJournalDeveloperIndexUnavailableV1Error
+  extends Data.TaggedError("SessionJournalDeveloperIndexUnavailableV1Error")<{
+    readonly reason:
+      | "invalidComposition"
+      | "definitionNotFound"
+      | "definitionMismatch"
+      | "buildNotEnabled"
+      | "stagedOverlayUnsupported";
+  }> {}
+
+export type SessionJournalResolveDeveloperIndexV1Error =
+  | InvalidSessionJournalCapabilityV1Error
+  | InvalidSessionJournalInputV1Error
+  | SessionJournalDeveloperIndexUnavailableV1Error
+  | SessionJournalPersistenceV1Error
+  | SessionJournalTargetUnavailableV1Error
+  | LocateAppDeveloperIndexDefinitionsV1Error;
+
+export type SessionJournalRunIndexedQueryV1Error =
+  | InvalidSessionJournalCapabilityV1Error
+  | InvalidSessionJournalInputV1Error
+  | SessionJournalAttemptUnavailableV1Error
+  | SessionJournalDeveloperIndexUnavailableV1Error
+  | SessionJournalPersistenceV1Error
+  | SessionJournalStorageCorruptionV1Error
+  | SessionJournalTargetUnavailableV1Error
+  | ReadFencedIndexBuildStateError
+  | ReadAppIndexRangeV1Error
+  | ReadAppRowError
+  | OrderedIndexKeyTooLargeError;
 
 export type SessionJournalPrepareSealV1Error =
   | InvalidSessionJournalCapabilityV1Error
@@ -511,6 +737,10 @@ type SessionJournalStorageCorruptionReasonV1 =
   | "missingDependencyUnexpectedRevision"
   | "pointDependencyChangedAtSnapshot"
   | "pointDependencyCountMismatch"
+  | "indexRangeDependencyCountMismatch"
+  | "indexRangeDependencyEvidenceBytesMismatch"
+  | "indexRangeDependencyInvalid"
+  | "indexedSnapshotPositionMismatch"
   | "presentDependencyRevisionMissing"
   | "requestTableCapabilityMismatch"
   | "scopeClockMissingOrDuplicate"
@@ -583,6 +813,13 @@ interface PinnedPointTableStateV1 {
   readonly tableId: CatalogTableId;
 }
 
+interface PinnedDeveloperIndexStateV1 {
+  readonly attempt: SessionJournalAttemptStateV1;
+  readonly tableId: CatalogTableId;
+  readonly logicalIndexId: CatalogIndexId;
+  readonly definition: LocatedAppIndexDefinitionV1;
+}
+
 interface PreparedSessionJournalSealStateV1 {
   readonly attempt: SessionJournalAttemptStateV1;
   readonly candidate: SessionJournalSealCandidateV1;
@@ -635,15 +872,33 @@ const SessionJournalDeleteRequestV1Schema = Schema.Struct({
   documentId: AppDocumentIdV1Schema,
 }).annotate(StrictStructOptions);
 
+const SessionJournalIndexRangeRequestV1Schema = Schema.Struct({
+  format: Schema.Literal("flarex.session-journal-syscall"),
+  codecVersion: Schema.Literal(1),
+  kind: Schema.Literal("indexRange"),
+  syscallSequence: CommitSyscallSequenceV1Schema,
+  tableId: CatalogTableIdSchema,
+  logicalIndexId: CatalogIndexIdSchema,
+  indexDefinitionId: CatalogIndexDefinitionIdSchema,
+  startInclusive: Schema.NullOr(OrderedIndexBoundHexV1Schema),
+  endExclusive: Schema.NullOr(OrderedIndexBoundHexV1Schema),
+  limit: Schema.Int,
+}).annotate(StrictStructOptions);
+
 const SessionJournalStoredRequestV1Schema = Schema.Union([
   SessionJournalGetRequestV1Schema,
   SessionJournalInsertRequestV1Schema,
   SessionJournalPatchRequestV1Schema,
   SessionJournalReplaceRequestV1Schema,
   SessionJournalDeleteRequestV1Schema,
+  SessionJournalIndexRangeRequestV1Schema,
 ]);
 type SessionJournalStoredRequestV1 =
   typeof SessionJournalStoredRequestV1Schema.Type;
+type SessionJournalStoredPointRequestV1 = Exclude<
+  SessionJournalStoredRequestV1,
+  { readonly kind: "indexRange" }
+>;
 
 const SessionJournalMissingOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("missing"),
@@ -664,6 +919,11 @@ const SessionJournalUnitOutcomeV1Schema = Schema.Struct({
     Schema.Literal("replace"),
     Schema.Literal("delete"),
   ]),
+}).annotate(StrictStructOptions);
+const SessionJournalIndexRangePageOutcomeV1Schema = Schema.Struct({
+  kind: Schema.Literal("indexRangePage"),
+  documentsValueJson: Schema.Array(JsonValue),
+  isDone: Schema.Boolean,
 }).annotate(StrictStructOptions);
 const SessionJournalNotFoundOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("error"),
@@ -699,6 +959,9 @@ const SessionJournalLimitOutcomeV1Schema = Schema.Struct({
     Schema.Literal("writeOperations"),
     Schema.Literal("writeSemanticBytes"),
     Schema.Literal("materialWriteEventEvidenceBytes"),
+    Schema.Literal("indexedQuerySyscalls"),
+    Schema.Literal("indexRangeReadDependencies"),
+    Schema.Literal("indexRangeDependencyEvidenceBytes"),
   ]),
   observed: Schema.Int,
   maximum: Schema.Int,
@@ -709,6 +972,7 @@ const SessionJournalStoredOutcomeV1Schema = Schema.Union([
   SessionJournalPresentOutcomeV1Schema,
   SessionJournalInsertedOutcomeV1Schema,
   SessionJournalUnitOutcomeV1Schema,
+  SessionJournalIndexRangePageOutcomeV1Schema,
   SessionJournalNotFoundOutcomeV1Schema,
   SessionJournalCollisionOutcomeV1Schema,
   SessionJournalInvalidDocumentOutcomeV1Schema,
@@ -731,6 +995,13 @@ const decodeStoredOutcomeResult = Schema.decodeUnknownResult(
   SessionJournalStoredOutcomeV1Schema,
   { onExcessProperty: "error" },
 );
+const encodeIndexRangeDependency = Schema.encodeSync(
+  LogicalIndexRangeReadDependencyV1Schema,
+);
+const decodeIndexRangeDependencyResult = Schema.decodeUnknownResult(
+  LogicalIndexRangeReadDependencyV1Schema,
+  { onExcessProperty: "error" },
+);
 const encodeLogicalAppWrite = Schema.encodeSync(LogicalAppWriteV1Schema);
 const decodeLogicalAppWriteResult = Schema.decodeUnknownResult(
   LogicalAppWriteV1Schema,
@@ -742,6 +1013,16 @@ const decodeCommitFinalSyscallSequenceResult = Schema.decodeUnknownResult(
 const decodeCommitSyscallSequenceResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSyscallSequenceV1Schema),
 );
+
+function nextCommitSyscallSequence(
+  last: CommitFinalSyscallSequenceV1,
+): Option.Option<CommitSyscallSequenceV1> {
+  return decodeCommitSyscallSequenceResult(last + 1n).pipe(Result.match({
+    onFailure: () => Option.none(),
+    onSuccess: Option.some,
+  }));
+}
+
 const encodeSessionJournal = Schema.encodeSync(SessionJournalV1Schema);
 const encodeSessionJournalResult = Schema.encodeResult(SessionJournalV1Schema);
 const decodeSchemaManifestAppTableNameEffect = Schema.decodeUnknownEffect(
@@ -759,6 +1040,12 @@ const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
 const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogSchemaVersionIdSchema),
 );
+const decodeCatalogIndexIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogIndexIdSchema),
+);
+const decodeOrderedIndexBoundHexV1Result = Schema.decodeUnknownResult(
+  Schema.toType(OrderedIndexBoundHexV1Schema),
+);
 const decodeExecutionClaimOwnerResult = decodeTransactionExecutionClaimOwnerV1;
 const decodeExecutionClaimFenceResult = decodeTransactionExecutionClaimFenceV1;
 
@@ -767,10 +1054,16 @@ export function createSessionJournalStorePersistenceV1(
   options: SessionJournalStorePersistenceOptionsV1,
 ): SessionJournalStorePersistenceV1 {
   const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
+  const indexedQueryPort = options.indexedQueries;
+  const faultAfter = options.faultAfter;
+  const indexedQueryPortState = indexedQueryPort === undefined
+    ? undefined
+    : appDeveloperIndexQueryPortStatesV1.get(indexedQueryPort);
   const maximumLiveSnapshotRetentionMilliseconds =
     options.grantRetentionPolicy.maximumLiveSnapshotRetentionMilliseconds;
   const attemptStates = new WeakMap<object, SessionJournalAttemptStateV1>();
   const tableStates = new WeakMap<object, PinnedPointTableStateV1>();
+  const indexStates = new WeakMap<object, PinnedDeveloperIndexStateV1>();
   const sealStates = new WeakMap<
     object,
     PreparedSessionJournalSealStateV1
@@ -946,6 +1239,123 @@ export function createSessionJournalStorePersistenceV1(
     return projectPointOperationResult(applied);
   });
 
+  const resolveDeveloperIndexEffect: SessionJournalStorePersistenceV1[
+    "resolveDeveloperIndexEffect"
+  ] = Effect.fn("SessionJournalStore.resolveDeveloperIndex")(function* (
+    table,
+    logicalIndexIdInput,
+  ) {
+    const tableState = typeof table === "object" && table !== null
+      ? tableStates.get(table)
+      : undefined;
+    if (tableState === undefined) {
+      return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
+        capability: "pointTable",
+      }));
+    }
+    const logicalIndexId = yield* Schema.decodeUnknownEffect(
+      Schema.toType(CatalogIndexIdSchema),
+    )(logicalIndexIdInput).pipe(
+      Effect.mapError((cause) => new InvalidSessionJournalInputV1Error({
+        operation: "resolveDeveloperIndex",
+        reason: "invalidLogicalIndexId",
+        cause,
+      })),
+    );
+    if (
+      indexedQueryPortState === undefined ||
+      indexedQueryPortState.authority !== ports
+    ) {
+      return yield* Effect.fail(
+        new SessionJournalDeveloperIndexUnavailableV1Error({
+          reason: "invalidComposition",
+        }),
+      );
+    }
+    const definitions = yield* indexedQueryPortState.definitions.locate({
+      deploymentId: tableState.attempt.selector.deploymentId,
+      scopeId: tableState.attempt.selector.scopeId,
+      schemaVersionId: tableState.attempt.schemaVersionId,
+      tableIds: Object.freeze([tableState.tableId]),
+      maximumDefinitions: MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE,
+    });
+    const matches = definitions?.filter((definition) =>
+      definition.access.kind === "developer" &&
+      definition.access.logicalIndexId === logicalIndexId &&
+      definition.access.tableId === tableState.tableId
+    ) ?? [];
+    if (matches.length !== 1) {
+      return yield* Effect.fail(
+        new SessionJournalDeveloperIndexUnavailableV1Error({
+          reason: matches.length === 0
+            ? "definitionNotFound"
+            : "definitionMismatch",
+        }),
+      );
+    }
+    const state = Object.freeze({
+      attempt: tableState.attempt,
+      tableId: tableState.tableId,
+      logicalIndexId,
+      definition: matches[0]!,
+    } satisfies PinnedDeveloperIndexStateV1);
+    const handle = Object.freeze({
+      [pinnedDeveloperIndexBrand]: true as const,
+    });
+    indexStates.set(handle, state);
+    return handle;
+  });
+
+  const runIndexedQueryEffect: SessionJournalStorePersistenceV1[
+    "runIndexedQueryEffect"
+  ] = Effect.fn("SessionJournalStore.runIndexedQuery")(function* (
+    index,
+    operation,
+  ) {
+    const state = typeof index === "object" && index !== null
+      ? indexStates.get(index)
+      : undefined;
+    if (state === undefined) {
+      return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
+        capability: "developerIndex",
+      }));
+    }
+    const request = yield* Effect.fromResult(
+      captureIndexedQueryRequestResult(state, operation),
+    );
+    const requestEvidence = yield* canonicalizeStoredRequestEffect(request);
+    const resolved = yield* resolveJournalTargetEffect(state.attempt);
+    if (!isLocatedExactRunningAttemptReadSyscallKernelV1(resolved.target)) {
+      return yield* Effect.fail(new SessionJournalTargetUnavailableV1Error({
+        scopeId: state.attempt.selector.scopeId,
+      }));
+    }
+    const applied = yield* resolved.target[
+      RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
+    ](
+      {
+        selector: state.attempt.selector,
+        preliminaryAuthority: resolved.authority,
+        executionClaim: state.attempt.executionClaim,
+      },
+      (tx, context) => runIndexedQueryInTransactionEffect(
+        tx,
+        context,
+        state,
+        request,
+        requestEvidence,
+        faultAfter,
+      ),
+    ).pipe(
+      Effect.mapError((error) =>
+        error instanceof ExactRunningAttemptTransactionV1Error
+          ? mapExactRunningIndexedQueryFailure(error)
+          : error
+      ),
+    );
+    return projectIndexedQueryResult(applied);
+  });
+
   const prepareSealEffect: SessionJournalStorePersistenceV1[
     "prepareSealEffect"
   ] = Effect.fn("SessionJournalStore.prepareSeal")(function* (attempt) {
@@ -1044,6 +1454,8 @@ export function createSessionJournalStorePersistenceV1(
     openAttemptEffect,
     resolvePointTableEffect,
     runPointOperationEffect,
+    resolveDeveloperIndexEffect,
+    runIndexedQueryEffect,
     prepareSealEffect,
     completeSealEffect,
   });
@@ -1256,7 +1668,7 @@ function captureStoredRequestResult(
   table: PinnedPointTableStateV1,
   operation: SessionJournalPointOperationV1,
 ): Result.Result<
-  SessionJournalStoredRequestV1,
+  SessionJournalStoredPointRequestV1,
   InvalidSessionJournalInputV1Error
 > {
   return Result.gen(function* () {
@@ -1388,6 +1800,95 @@ function captureStoredRequestResult(
         });
       }
     }
+  });
+}
+
+function captureIndexedQueryRequestResult(
+  index: PinnedDeveloperIndexStateV1,
+  operation: SessionJournalIndexedQueryOperationV1,
+): Result.Result<
+  Extract<SessionJournalStoredRequestV1, { readonly kind: "indexRange" }>,
+  InvalidSessionJournalInputV1Error
+> {
+  return Result.gen(function* () {
+    const syscallSequence = yield* Result.try({
+      try: () => operation.syscallSequence,
+      catch: (cause) => invalidIndexedQueryOperation(cause),
+    }).pipe(
+      Result.flatMap(decodeCommitSyscallSequenceResult),
+      Result.mapError(invalidIndexedQueryOperation),
+    );
+    const bounds = yield* Result.try({
+      try: () => operation.bounds,
+      catch: (cause) => invalidIndexedQueryOperation(cause),
+    });
+    if (!isNonArrayRecord(bounds)) {
+      return yield* Result.fail(invalidIndexedQueryOperation(
+        new Error("Indexed query bounds must be an object."),
+      ));
+    }
+    const capturedBounds = yield* Result.try({
+      try: () => ({
+        startInclusive: bounds.startInclusive,
+        endExclusive: bounds.endExclusive,
+      }),
+      catch: (cause) => invalidIndexedQueryOperation(cause),
+    });
+    const startInclusive = capturedBounds.startInclusive === undefined
+      ? null
+      : yield* decodeOrderedIndexBoundHexV1Result(
+        capturedBounds.startInclusive,
+      ).pipe(Result.mapError(invalidIndexedQueryOperation));
+    const endExclusive = capturedBounds.endExclusive === undefined
+      ? null
+      : yield* decodeOrderedIndexBoundHexV1Result(
+        capturedBounds.endExclusive,
+      ).pipe(Result.mapError(invalidIndexedQueryOperation));
+    if (
+      startInclusive !== null &&
+      endExclusive !== null &&
+      compareUtf16Strings(startInclusive, endExclusive) >= 0
+    ) {
+      return yield* Result.fail(invalidIndexedQueryOperation(
+        new Error("Indexed query bounds must describe a non-empty interval."),
+      ));
+    }
+    const limit = yield* Result.try({
+      try: () => operation.limit,
+      catch: (cause) => invalidIndexedQueryOperation(cause),
+    });
+    if (
+      !isPositiveSafeInteger(limit) ||
+      limit > MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1
+    ) {
+      return yield* Result.fail(invalidIndexedQueryOperation(
+        new Error(
+          `Indexed query limit must be between 1 and ${MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1}.`,
+        ),
+      ));
+    }
+    return Object.freeze({
+      format: "flarex.session-journal-syscall" as const,
+      codecVersion: 1 as const,
+      kind: "indexRange" as const,
+      syscallSequence,
+      tableId: index.tableId,
+      logicalIndexId: index.logicalIndexId,
+      indexDefinitionId: index.definition.indexDefinitionId,
+      startInclusive,
+      endExclusive,
+      limit,
+    });
+  });
+}
+
+function invalidIndexedQueryOperation(
+  cause: unknown,
+): InvalidSessionJournalInputV1Error {
+  return new InvalidSessionJournalInputV1Error({
+    operation: "indexRange",
+    reason: "invalidOperation",
+    cause,
   });
 }
 
@@ -1609,7 +2110,7 @@ const canonicalizeStoredRequestEffect = Effect.fn(
   return yield* Effect.tryPromise({
     try: () => canonicalizeFlarexValueJsonV1(json),
     catch: (cause) => new SessionJournalPersistenceV1Error({
-      operation: "canonicalizePointRequest",
+      operation: "canonicalizeRequest",
       cause,
     }),
   });
@@ -1676,6 +2177,52 @@ function mapExactRunningAttemptTransactionFailure(
   }
   return new SessionJournalPersistenceV1Error({
     operation: "runPointOperation",
+    cause: failure,
+  });
+}
+
+function mapRunIndexedQueryFailure(
+  cause: unknown,
+): SessionJournalRunIndexedQueryV1Error {
+  if (cause instanceof PointMutationSessionAuthorityCorruptionV1Error) {
+    return mapSessionAuthorityCorruption(cause);
+  }
+  if (cause instanceof PointMutationSessionAttemptLoadV1Error) {
+    return new SessionJournalAttemptUnavailableV1Error({ issue: cause.issue });
+  }
+  if (
+    cause instanceof InvalidSessionJournalCapabilityV1Error ||
+    cause instanceof InvalidSessionJournalInputV1Error ||
+    cause instanceof SessionJournalAttemptUnavailableV1Error ||
+    cause instanceof SessionJournalDeveloperIndexUnavailableV1Error ||
+    cause instanceof SessionJournalPersistenceV1Error ||
+    cause instanceof SessionJournalStorageCorruptionV1Error ||
+    cause instanceof SessionJournalTargetUnavailableV1Error ||
+    cause instanceof OrderedIndexKeyTooLargeError
+  ) return cause;
+  return new SessionJournalPersistenceV1Error({
+    operation: "runIndexedQuery",
+    cause,
+  });
+}
+
+function fromIndexedQueryPromise<A>(
+  run: () => PromiseLike<A>,
+): Effect.Effect<A, SessionJournalRunIndexedQueryV1Error> {
+  return Effect.uninterruptible(Effect.tryPromise({
+    try: run,
+    catch: mapRunIndexedQueryFailure,
+  }));
+}
+
+function mapExactRunningIndexedQueryFailure(
+  failure: ExactRunningAttemptTransactionV1Error,
+): SessionJournalRunIndexedQueryV1Error {
+  if (failure.callbackCause === undefined) {
+    return mapRunIndexedQueryFailure(failure.cause);
+  }
+  return new SessionJournalPersistenceV1Error({
+    operation: "runIndexedQuery",
     cause: failure,
   });
 }
@@ -1762,6 +2309,9 @@ interface SessionJournalCountersV1 {
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
   readonly pointDependencyCount: number;
+  readonly indexedQuerySyscalls: number;
+  readonly indexRangeDependencyCount: number;
+  readonly indexRangeDependencyEvidenceBytes: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes: number;
@@ -1771,6 +2321,9 @@ interface SessionJournalCounterDeltasV1 {
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
   readonly pointDependencyCount: number;
+  readonly indexedQuerySyscalls: number;
+  readonly indexRangeDependencyCount: number;
+  readonly indexRangeDependencyEvidenceBytes: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes: number;
@@ -1780,6 +2333,9 @@ const ZERO_COUNTER_DELTAS = Object.freeze({
   readDocuments: 0,
   readSemanticBytes: 0,
   pointDependencyCount: 0,
+  indexedQuerySyscalls: 0,
+  indexRangeDependencyCount: 0,
+  indexRangeDependencyEvidenceBytes: 0,
   writeOperations: 0,
   writeSemanticBytes: 0,
   materialWriteEventEvidenceBytes: 0,
@@ -1848,7 +2404,7 @@ const runPointOperationInTransactionEffect = Effect.fn(
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   table: PinnedPointTableStateV1,
-  request: SessionJournalStoredRequestV1,
+  request: SessionJournalStoredPointRequestV1,
   requestEvidence: CanonicalFlarexValueV1,
   randomUuid: () => string,
   validator: ApplicationRevisionSyscallValidatorV1,
@@ -1943,11 +2499,8 @@ const runPointOperationInTransactionEffect = Effect.fn(
     });
   }
 
-  const expectedNextValue = last + 1n;
-  const expectedNextResult = decodeCommitSyscallSequenceResult(
-    expectedNextValue,
-  );
-  if (Result.isFailure(expectedNextResult)) {
+  const nextSequence = nextCommitSyscallSequence(last);
+  if (Option.isNone(nextSequence)) {
     return Object.freeze({
       kind: "sequenceRejected",
       issue: Object.freeze({
@@ -1956,7 +2509,7 @@ const runPointOperationInTransactionEffect = Effect.fn(
       }),
     });
   }
-  const expectedNext = expectedNextResult.success;
+  const expectedNext = nextSequence.value;
   if (actual !== expectedNext) {
     return Object.freeze({
       kind: "sequenceRejected",
@@ -2099,13 +2652,726 @@ const runPointOperationInTransactionEffect = Effect.fn(
   });
 });
 
+const runIndexedQueryInTransactionEffect = Effect.fn(
+  "SessionJournalStore.runIndexedQueryInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  index: PinnedDeveloperIndexStateV1,
+  request: Extract<SessionJournalStoredRequestV1, {
+    readonly kind: "indexRange";
+  }>,
+  requestEvidence: CanonicalFlarexValueV1,
+  faultAfter: SessionJournalStorePersistenceOptionsV1["faultAfter"],
+): Effect.fn.Return<
+  AppliedSessionJournalOperationV1,
+  SessionJournalRunIndexedQueryV1Error
+> {
+  if (!kernelContextMatchesAttempt(context, index.attempt)) {
+    return yield* Effect.fail(corruption(
+      index.attempt,
+      "exactAttemptPinsChanged",
+    ));
+  }
+  if (
+    request.tableId !== index.tableId ||
+    request.logicalIndexId !== index.logicalIndexId ||
+    request.indexDefinitionId !== index.definition.indexDefinitionId
+  ) {
+    return yield* Effect.fail(corruption(
+      index.attempt,
+      "requestTableCapabilityMismatch",
+    ));
+  }
+  const root = context.journalRoot;
+  const counters = yield* Effect.fromResult(
+    decodeJournalCountersResult(index.attempt, root),
+  );
+  const receipt = yield* fromIndexedQueryPromise(() =>
+    loadLatestReceipt(tx, context)
+  );
+  yield* Effect.fromResult(validateReceiptCardinalityResult(
+    index.attempt,
+    root.lastSyscallSequence,
+    receipt,
+  ));
+  const last = yield* Effect.fromResult(
+    decodeCommitFinalSyscallSequenceResult(root.lastSyscallSequence).pipe(
+      Result.mapError(mapRunIndexedQueryFailure),
+    ),
+  );
+  const actual = request.syscallSequence;
+  if (root.state === "sealed") {
+    return Object.freeze({ kind: "stateRejected", reason: "journalSealed" });
+  }
+  if (actual < last) {
+    return Object.freeze({
+      kind: "sequenceRejected",
+      issue: Object.freeze({
+        reason: "staleSequence",
+        actual,
+        lastAccepted: last,
+      }),
+    });
+  }
+  if (BigInt(actual) === BigInt(last)) {
+    if (receipt === undefined) {
+      return yield* Effect.fail(corruption(
+        index.attempt,
+        "latestReceiptMissing",
+      ));
+    }
+    if (!bytesEqual(receipt.requestBytes, requestEvidence.canonicalBytes)) {
+      return Object.freeze({
+        kind: "sequenceRejected",
+        issue: Object.freeze({
+          reason: "requestMismatch",
+          syscallSequence: actual,
+        }),
+      });
+    }
+    if (!bytesEqual(receipt.requestSha256, requestEvidence.sha256)) {
+      return yield* Effect.fail(corruption(
+        index.attempt,
+        "latestReceiptRequestDigestMismatch",
+      ));
+    }
+    const replayed = yield* decodeAndVerifyLatestReceiptEffect(
+      index.attempt,
+      receipt,
+      request,
+    );
+    if (replayed.kind !== "indexRangePage" && !isLimitOutcome(replayed)) {
+      return yield* Effect.fail(corruption(
+        index.attempt,
+        "latestReceiptEvidenceInvalid",
+      ));
+    }
+    yield* Effect.fromResult(validateReceiptOutcomeMatchesJournalRootResult(
+      index.attempt,
+      root,
+      replayed,
+    ));
+    return Object.freeze({
+      kind: "outcome",
+      delivery: "replayed",
+      outcome: replayed,
+    });
+  }
+  const nextSequence = nextCommitSyscallSequence(last);
+  if (Option.isNone(nextSequence)) {
+    return Object.freeze({
+      kind: "sequenceRejected",
+      issue: Object.freeze({ reason: "sequenceExhausted", lastAccepted: last }),
+    });
+  }
+  const expectedNext = nextSequence.value;
+  if (actual !== expectedNext) {
+    return Object.freeze({
+      kind: "sequenceRejected",
+      issue: Object.freeze({
+        reason: "sequenceGap",
+        actual,
+        expectedNext,
+      }),
+    });
+  }
+  if (root.state === "failed") {
+    if (receipt === undefined) {
+      return yield* Effect.fail(corruption(
+        index.attempt,
+        "failedJournalEvidenceInvalid",
+      ));
+    }
+    const sticky = yield* decodeAndVerifyLatestReceiptEffect(
+      index.attempt,
+      receipt,
+      undefined,
+    );
+    if (!isLimitOutcome(sticky)) {
+      return yield* Effect.fail(corruption(
+        index.attempt,
+        "failedJournalReceiptInvalid",
+      ));
+    }
+    yield* Effect.fromResult(validateReceiptOutcomeMatchesJournalRootResult(
+      index.attempt,
+      root,
+      sticky,
+    ));
+    return Object.freeze({ kind: "outcome", delivery: "sticky", outcome: sticky });
+  }
+  if (root.state !== "open") {
+    return yield* Effect.fail(corruption(index.attempt, "journalStateInvalid"));
+  }
+  const currentRanges = yield* loadIndexRangeDependenciesForUpdateEffect(
+    tx,
+    context,
+    index.attempt,
+  );
+  const currentPreparedRanges = prepareStoredIndexRanges(currentRanges);
+  if (currentRanges.length !== counters.indexRangeDependencyCount) {
+    return yield* Effect.fail(corruption(
+      index.attempt,
+      "indexRangeDependencyCountMismatch",
+    ));
+  }
+  const currentRangeEvidenceBytes = currentPreparedRanges.reduce(
+    (total, range) => total + range.evidenceBytes,
+    0,
+  );
+  if (
+    currentRangeEvidenceBytes !==
+      counters.indexRangeDependencyEvidenceBytes
+  ) {
+    return yield* Effect.fail(corruption(
+      index.attempt,
+      "indexRangeDependencyEvidenceBytesMismatch",
+    ));
+  }
+  if (counters.indexedQuerySyscalls >= MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1) {
+    const outcome = Object.freeze({
+      kind: "error",
+      reason: "limitExceeded",
+      dimension: "indexedQuerySyscalls",
+      observed: counters.indexedQuerySyscalls + 1,
+      maximum: MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+    } satisfies SessionJournalStoredOutcomeV1);
+    yield* fromIndexedQueryPromise(() => persistAcceptedOperation(
+      tx,
+      context,
+      request,
+      requestEvidence,
+      outcome,
+      counters,
+      ZERO_COUNTER_DELTAS,
+      { state: "failed", failureDimension: "indexedQuerySyscalls" },
+    ));
+    return Object.freeze({ kind: "outcome", delivery: "executed", outcome });
+  }
+
+  const staged = yield* fromIndexedQueryPromise(() =>
+    tx.select({ tableId: fxSystemTransactionJournalPoints.tableId })
+      .from(fxSystemTransactionJournalPoints)
+      .where(and(
+        eq(fxSystemTransactionJournalPoints.scopeUuid, context.scopeUuid),
+        eq(fxSystemTransactionJournalPoints.sessionId, context.anchor.sessionId),
+        eq(fxSystemTransactionJournalPoints.attemptFence, context.anchor.attemptFence),
+        eq(fxSystemTransactionJournalPoints.tableId, index.tableId),
+        ne(fxSystemTransactionJournalPoints.overlayKind, "none"),
+      ))
+      .limit(1)
+  );
+  if (staged.length !== 0) {
+    return yield* Effect.fail(
+      new SessionJournalDeveloperIndexUnavailableV1Error({
+        reason: "stagedOverlayUnsupported",
+      }),
+    );
+  }
+
+  const build = yield* readFencedIndexBuildStateEffect(tx, {
+    scopeId: index.attempt.selector.scopeId,
+    indexDefinitionId: index.definition.indexDefinitionId,
+  });
+  if (
+    build.status !== "current" ||
+    build.buildState.lifecycle !== "enabled"
+  ) {
+    return yield* Effect.fail(
+      new SessionJournalDeveloperIndexUnavailableV1Error({
+        reason: "buildNotEnabled",
+      }),
+    );
+  }
+  const bounds: OrderedIndexBoundsV1 = Object.freeze({
+    ...(request.startInclusive === null
+      ? {}
+      : { startInclusive: request.startInclusive }),
+    ...(request.endExclusive === null
+      ? {}
+      : { endExclusive: request.endExclusive }),
+  });
+  const page = yield* scanAppIndexAtSnapshotInTransactionEffect(tx, {
+    scopeId: index.attempt.selector.scopeId,
+    definition: index.definition,
+    bounds,
+    limit: request.limit,
+    snapshotCommitSeq: index.attempt.snapshotToken.commitSeq,
+  });
+  const readDocumentLimitIssue = firstExceededLimit(counters, {
+    ...ZERO_COUNTER_DELTAS,
+    readDocuments: page.entries.length,
+  });
+  if (readDocumentLimitIssue !== undefined) {
+    return yield* persistIndexedQueryLimitOutcomeEffect(
+      tx,
+      context,
+      request,
+      requestEvidence,
+      counters,
+      readDocumentLimitIssue,
+    );
+  }
+  const revisions: LiveAppRowRevisionV1[] = [];
+  let readSemanticBytes = 0;
+  for (
+    let batchStart = 0;
+    batchStart < page.entries.length;
+    batchStart += INDEXED_QUERY_DOCUMENT_MATERIALIZATION_BATCH_SIZE_V1
+  ) {
+    const batchEntries = page.entries.slice(
+      batchStart,
+      batchStart + INDEXED_QUERY_DOCUMENT_MATERIALIZATION_BATCH_SIZE_V1,
+    );
+    const batchRevisions =
+      yield* readLiveAppRowsAtSnapshotInTransactionEffect(tx, {
+        scopeId: index.attempt.selector.scopeId,
+        tableId: index.tableId,
+        rowIds: Object.freeze(batchEntries.map((entry) => entry.rowId)),
+        snapshotCommitSeq: index.attempt.snapshotToken.commitSeq,
+      });
+    for (let batchOffset = 0; batchOffset < batchEntries.length; batchOffset += 1) {
+      const entry = batchEntries[batchOffset]!;
+      const revision = batchRevisions[batchOffset]!;
+      const lowered = yield* Effect.fromResult(
+        lowerAppDeveloperIndexKeyV1(
+          index.definition,
+          revision.document,
+          revision.creationTime,
+        ),
+      );
+      if (
+        entry.tableId !== index.tableId ||
+        lowered !== entry.encodedKey ||
+        revision.rowId !== entry.rowId
+      ) {
+        return yield* Effect.fail(corruption(
+          index.attempt,
+          "indexedSnapshotPositionMismatch",
+        ));
+      }
+      const nextReadSemanticBytes = readSemanticBytes +
+        revision.document.semanticSizeBytes;
+      const readSemanticLimitIssue = firstExceededLimit(counters, {
+        ...ZERO_COUNTER_DELTAS,
+        readSemanticBytes: nextReadSemanticBytes,
+      });
+      if (readSemanticLimitIssue !== undefined) {
+        return yield* persistIndexedQueryLimitOutcomeEffect(
+          tx,
+          context,
+          request,
+          requestEvidence,
+          counters,
+          readSemanticLimitIssue,
+        );
+      }
+      revisions.push(revision);
+      readSemanticBytes = nextReadSemanticBytes;
+    }
+  }
+
+  const pointRows = page.entries.length === 0
+    ? []
+    : yield* fromIndexedQueryPromise(() =>
+      tx.select()
+        .from(fxSystemTransactionJournalPoints)
+        .where(and(
+          eq(fxSystemTransactionJournalPoints.scopeUuid, context.scopeUuid),
+          eq(fxSystemTransactionJournalPoints.sessionId, context.anchor.sessionId),
+          eq(fxSystemTransactionJournalPoints.attemptFence, context.anchor.attemptFence),
+          eq(fxSystemTransactionJournalPoints.tableId, index.tableId),
+          inArray(
+            fxSystemTransactionJournalPoints.rowId,
+            page.entries.map((entry) => orderedIndexRowIdHexV1ToBytes(entry.rowId)),
+          ),
+        ))
+        .for("update")
+    );
+  const existingByRowId = new Map<OrderedIndexRowIdHexV1,
+    typeof fxSystemTransactionJournalPoints.$inferSelect>();
+  for (const row of pointRows) {
+    const rowId = yield* Effect.fromResult(
+      orderedIndexRowIdHexV1FromBytesResult(row.rowId).pipe(
+        Result.mapError((cause) => corruption(
+          index.attempt,
+          "pointDependencyCountMismatch",
+          cause,
+        )),
+      ),
+    );
+    existingByRowId.set(rowId, row);
+  }
+  const newPointRows: Array<typeof fxSystemTransactionJournalPoints.$inferInsert> = [];
+  for (let offset = 0; offset < revisions.length; offset += 1) {
+    const revision = revisions[offset]!;
+    const existing = existingByRowId.get(revision.rowId);
+    if (existing !== undefined) {
+      const dependency = yield* Effect.fromResult(
+        decodePointDependencyResult(index.attempt, existing),
+      );
+      if (
+        dependency.kind !== "present" ||
+        dependency.revisionCommitSeq !== revision.commitSeq ||
+        existing.overlayKind !== "none"
+      ) {
+        return yield* Effect.fail(corruption(
+          index.attempt,
+          "pointDependencyChangedAtSnapshot",
+        ));
+      }
+      continue;
+    }
+    newPointRows.push({
+      scopeUuid: context.scopeUuid,
+      sessionId: context.anchor.sessionId,
+      attemptFence: context.anchor.attemptFence,
+      tableId: index.tableId,
+      rowId: orderedIndexRowIdHexV1ToBytes(revision.rowId),
+      dependencyKind: "present",
+      dependencyRevisionCommitSeq: revision.commitSeq,
+      overlayKind: "none",
+      createdAt: context.databaseNow,
+      updatedAt: context.databaseNow,
+    });
+  }
+
+  const dependency = indexRangeDependencyFromPage(index, request, page.entries, page.isDone);
+  const nextRanges = yield* Effect.fromResult(
+    normalizeLogicalIndexRangeReadDependenciesV1Result([
+      ...currentRanges,
+      dependency,
+    ]).pipe(
+      Result.mapError((cause) => corruption(
+        index.attempt,
+        "indexRangeDependencyInvalid",
+        cause,
+      )),
+    ),
+  );
+  const preparedRanges = prepareStoredIndexRanges(nextRanges);
+  const evidenceBytes = preparedRanges.reduce(
+    (total, range) => total + range.evidenceBytes,
+    0,
+  );
+  const deltas = Object.freeze({
+    ...ZERO_COUNTER_DELTAS,
+    readDocuments: revisions.length,
+    readSemanticBytes,
+    pointDependencyCount: newPointRows.length,
+    indexedQuerySyscalls: 1,
+    indexRangeDependencyCount:
+      nextRanges.length - counters.indexRangeDependencyCount,
+    indexRangeDependencyEvidenceBytes:
+      evidenceBytes - counters.indexRangeDependencyEvidenceBytes,
+  } satisfies SessionJournalCounterDeltasV1);
+  const limitIssue = firstExceededLimit(counters, deltas);
+  if (limitIssue !== undefined) {
+    return yield* persistIndexedQueryLimitOutcomeEffect(
+      tx,
+      context,
+      request,
+      requestEvidence,
+      counters,
+      limitIssue,
+    );
+  }
+  const outcome = Object.freeze({
+    kind: "indexRangePage",
+    documentsValueJson: Object.freeze(
+      revisions.map((revision) => structuredClone(revision.document.valueJson)),
+    ),
+    isDone: page.isDone,
+  } satisfies SessionJournalStoredOutcomeV1);
+  yield* fromIndexedQueryPromise(async () => {
+    if (newPointRows.length > 0) {
+      await tx.insert(fxSystemTransactionJournalPoints).values(newPointRows);
+    }
+    await replaceStoredIndexRanges(tx, context, preparedRanges);
+    await faultAfter?.("indexedQueryEvidenceWritten");
+    await persistAcceptedOperation(
+      tx,
+      context,
+      request,
+      requestEvidence,
+      outcome,
+      counters,
+      deltas,
+      { state: "open", failureDimension: null },
+    );
+  });
+  return Object.freeze({ kind: "outcome", delivery: "executed", outcome });
+});
+
+function indexRangeDependencyFromPage(
+  index: PinnedDeveloperIndexStateV1,
+  request: Extract<SessionJournalStoredRequestV1, {
+    readonly kind: "indexRange";
+  }>,
+  entries: ReadonlyArray<AppIndexRangeEntryV1>,
+  isDone: boolean,
+): LogicalIndexRangeReadDependencyV1 {
+  const last = entries.at(-1);
+  if (!isDone && last === undefined) {
+    throw new Error("A non-final indexed page must contain a consumed position.");
+  }
+  return Object.freeze({
+    kind: "appIndexRange",
+    tableId: index.tableId,
+    indexDefinitionId: index.definition.indexDefinitionId,
+    keyCodecVersion: ORDERED_INDEX_KEY_CODEC_VERSION_V1,
+    physicalSpecSha256Hex: index.definition.physicalSpecSha256Hex,
+    direction: "asc",
+    lower: request.startInclusive === null
+      ? null
+      : Object.freeze({
+          kind: "key",
+          encodedKey: request.startInclusive,
+          inclusive: true,
+        }),
+    upper: isDone
+      ? request.endExclusive === null
+        ? null
+        : Object.freeze({
+            kind: "key",
+            encodedKey: request.endExclusive,
+            inclusive: false,
+          })
+      : Object.freeze({
+          kind: "position",
+          encodedKey: last!.encodedKey,
+          rowId: last!.rowId,
+          inclusive: true,
+        }),
+  });
+}
+
+interface PreparedStoredIndexRangeV1 {
+  readonly dependency: LogicalIndexRangeReadDependencyV1;
+  readonly evidenceBytes: number;
+}
+
+function prepareStoredIndexRanges(
+  dependencies: ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+): ReadonlyArray<PreparedStoredIndexRangeV1> {
+  return Object.freeze(dependencies.map((dependency) => {
+    const encoded = requireJson(encodeIndexRangeDependency(dependency));
+    const canonicalText = encodeCanonicalJson(encoded, () => {
+      throw new Error("Index-range dependency violated canonical JSON invariants.");
+    });
+    return Object.freeze({
+      dependency,
+      evidenceBytes: TEXT_ENCODER.encode(canonicalText).byteLength,
+    });
+  }));
+}
+
+const loadIndexRangeDependenciesForUpdateEffect = Effect.fn(
+  "SessionJournalStore.loadIndexRangeDependenciesForUpdate",
+)(function* (
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  attempt: SessionJournalAttemptStateV1,
+): Effect.fn.Return<
+  ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+  SessionJournalRunIndexedQueryV1Error
+> {
+  const rows = yield* fromIndexedQueryPromise(() =>
+    tx.select()
+      .from(fxSystemTransactionJournalIndexRanges)
+      .where(and(
+        eq(fxSystemTransactionJournalIndexRanges.scopeUuid, context.scopeUuid),
+        eq(fxSystemTransactionJournalIndexRanges.sessionId, context.anchor.sessionId),
+        eq(fxSystemTransactionJournalIndexRanges.attemptFence, context.anchor.attemptFence),
+      ))
+      .orderBy(asc(fxSystemTransactionJournalIndexRanges.ordinal))
+      .limit(MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 + 1)
+      .for("update")
+  );
+  return yield* decodeStoredIndexRangeRowsEffect(attempt, rows);
+});
+
+const decodeStoredIndexRangeRowsEffect = Effect.fn(
+  "SessionJournalStore.decodeStoredIndexRangeRows",
+)(function* (
+  attempt: SessionJournalAttemptStateV1,
+  rows: ReadonlyArray<
+    typeof fxSystemTransactionJournalIndexRanges.$inferSelect
+  >,
+): Effect.fn.Return<
+  ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+  SessionJournalStorageCorruptionV1Error
+> {
+  if (rows.length > MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1) {
+    return yield* Effect.fail(corruption(
+      attempt,
+      "indexRangeDependencyCountMismatch",
+    ));
+  }
+  const dependencies: LogicalIndexRangeReadDependencyV1[] = [];
+  for (let ordinal = 0; ordinal < rows.length; ordinal += 1) {
+    const row = rows[ordinal]!;
+    if (row.ordinal !== ordinal) {
+      return yield* Effect.fail(corruption(
+        attempt,
+        "indexRangeDependencyInvalid",
+      ));
+    }
+    const candidate = yield* Effect.try({
+      try: () => ({
+        kind: "appIndexRange",
+        tableId: row.tableId,
+        indexDefinitionId: row.indexDefinitionId,
+        keyCodecVersion: row.keyCodecVersion,
+        physicalSpecSha256Hex: appIndexPhysicalSpecSha256HexV1FromBytes(
+          row.physicalSpecSha256,
+        ),
+        direction: row.direction,
+        lower: row.lowerKind === "unbounded"
+          ? null
+          : {
+              kind: "key",
+              encodedKey: orderedIndexBoundHexV1FromBytes(row.lowerEncodedKey!),
+              inclusive: true,
+            },
+        upper: row.upperKind === "unbounded"
+          ? null
+          : row.upperKind === "key_exclusive"
+            ? {
+                kind: "key",
+                encodedKey: orderedIndexBoundHexV1FromBytes(row.upperEncodedKey!),
+                inclusive: false,
+              }
+            : {
+                kind: "position",
+                encodedKey: orderedIndexKeyBytesHexV1FromBytes(row.upperEncodedKey!),
+                rowId: Result.getOrThrow(
+                  orderedIndexRowIdHexV1FromBytesResult(row.upperRowId!),
+                ),
+                inclusive: true,
+              },
+      }),
+      catch: (cause) => corruption(
+        attempt,
+        "indexRangeDependencyInvalid",
+        cause,
+      ),
+    });
+    const dependency = yield* Effect.fromResult(
+      decodeIndexRangeDependencyResult(candidate).pipe(
+        Result.mapError((cause) => corruption(
+          attempt,
+          "indexRangeDependencyInvalid",
+          cause,
+        )),
+      ),
+    );
+    const prepared = prepareStoredIndexRanges([dependency])[0]!;
+    if (prepared.evidenceBytes !== row.evidenceBytes) {
+      return yield* Effect.fail(corruption(
+        attempt,
+        "indexRangeDependencyEvidenceBytesMismatch",
+      ));
+    }
+    dependencies.push(dependency);
+  }
+  const normalized = yield* Effect.fromResult(
+    normalizeLogicalIndexRangeReadDependenciesV1Result(dependencies).pipe(
+      Result.mapError((cause) => corruption(
+        attempt,
+        "indexRangeDependencyInvalid",
+        cause,
+      )),
+    ),
+  );
+  if (
+    normalized.length !== dependencies.length ||
+    normalized.some((dependency, ordinal) =>
+      !storedIndexRangeDependenciesEqual(
+        dependency,
+        dependencies[ordinal]!,
+      )
+    )
+  ) {
+    return yield* Effect.fail(corruption(
+      attempt,
+      "indexRangeDependencyInvalid",
+    ));
+  }
+  return normalized;
+});
+
+function storedIndexRangeDependenciesEqual(
+  left: LogicalIndexRangeReadDependencyV1,
+  right: LogicalIndexRangeReadDependencyV1,
+): boolean {
+  return jsonEqual(
+    requireJson(encodeIndexRangeDependency(left)),
+    requireJson(encodeIndexRangeDependency(right)),
+  );
+}
+
+async function replaceStoredIndexRanges(
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  ranges: ReadonlyArray<PreparedStoredIndexRangeV1>,
+): Promise<void> {
+  await tx.delete(fxSystemTransactionJournalIndexRanges).where(and(
+    eq(fxSystemTransactionJournalIndexRanges.scopeUuid, context.scopeUuid),
+    eq(fxSystemTransactionJournalIndexRanges.sessionId, context.anchor.sessionId),
+    eq(fxSystemTransactionJournalIndexRanges.attemptFence, context.anchor.attemptFence),
+  ));
+  if (ranges.length === 0) return;
+  await tx.insert(fxSystemTransactionJournalIndexRanges).values(
+    ranges.map((range, ordinal) => {
+      const dependency = range.dependency;
+      return {
+        scopeUuid: context.scopeUuid,
+        sessionId: context.anchor.sessionId,
+        attemptFence: context.anchor.attemptFence,
+        ordinal,
+        tableId: dependency.tableId,
+        indexDefinitionId: dependency.indexDefinitionId,
+        keyCodecVersion: dependency.keyCodecVersion,
+        physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+          dependency.physicalSpecSha256Hex,
+        ),
+        direction: dependency.direction,
+        lowerKind: dependency.lower === null
+          ? "unbounded" as const
+          : "key_inclusive" as const,
+        lowerEncodedKey: dependency.lower === null
+          ? null
+          : orderedIndexBoundHexV1ToBytes(dependency.lower.encodedKey),
+        upperKind: dependency.upper === null
+          ? "unbounded" as const
+          : dependency.upper.kind === "key"
+            ? "key_exclusive" as const
+            : "position_inclusive" as const,
+        upperEncodedKey: dependency.upper === null
+          ? null
+          : dependency.upper.kind === "key"
+            ? orderedIndexBoundHexV1ToBytes(dependency.upper.encodedKey)
+            : orderedIndexKeyBytesHexV1ToBytes(dependency.upper.encodedKey),
+        upperRowId: dependency.upper?.kind === "position"
+          ? orderedIndexRowIdHexV1ToBytes(dependency.upper.rowId)
+          : null,
+        evidenceBytes: range.evidenceBytes,
+        createdAt: context.databaseNow,
+        updatedAt: context.databaseNow,
+      };
+    }),
+  );
+}
+
 const planFreshPointOperationEffect = Effect.fn(
   "SessionJournalStore.planFreshPointOperation",
 )(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   table: PinnedPointTableStateV1,
-  request: SessionJournalStoredRequestV1,
+  request: SessionJournalStoredPointRequestV1,
   randomUuid: () => string,
 ): Effect.fn.Return<
   SessionJournalOperationPlanV1,
@@ -2888,13 +4154,7 @@ function nextAppCreationTime(value: AppCreationTimeV1): AppCreationTimeV1 {
 function firstExceededLimit(
   current: SessionJournalCountersV1,
   deltas: SessionJournalCounterDeltasV1,
-): Omit<
-  Extract<
-    SessionJournalPersistedPointIssueV1,
-    { readonly reason: "limitExceeded" }
-  >,
-  "reason"
-> | undefined {
+): SessionJournalIncrementalLimitIssueV1 | undefined {
   const candidates: ReadonlyArray<Readonly<{
     dimension: SessionJournalIncrementalLimitDimensionV1;
     observed: number;
@@ -2918,6 +4178,26 @@ function firstExceededLimit(
         SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.pointReadDependencies,
     },
     {
+      dimension: "indexedQuerySyscalls",
+      observed: current.indexedQuerySyscalls + deltas.indexedQuerySyscalls,
+      maximum: SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1
+        .indexedQuerySyscalls,
+    },
+    {
+      dimension: "indexRangeReadDependencies",
+      observed: current.indexRangeDependencyCount +
+        deltas.indexRangeDependencyCount,
+      maximum: SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1
+        .indexRangeReadDependencies,
+    },
+    {
+      dimension: "indexRangeDependencyEvidenceBytes",
+      observed: current.indexRangeDependencyEvidenceBytes +
+        deltas.indexRangeDependencyEvidenceBytes,
+      maximum: SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1
+        .indexRangeDependencyEvidenceBytes,
+    },
+    {
       dimension: "writeOperations",
       observed: current.writeOperations + deltas.writeOperations,
       maximum: SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.writeOperations,
@@ -2939,6 +4219,41 @@ function firstExceededLimit(
   return candidates.find((candidate) => candidate.observed > candidate.maximum);
 }
 
+const persistIndexedQueryLimitOutcomeEffect = Effect.fn(
+  "SessionJournalStore.persistIndexedQueryLimitOutcome",
+)(function (
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  request: Extract<SessionJournalStoredRequestV1, {
+    readonly kind: "indexRange";
+  }>,
+  requestEvidence: CanonicalFlarexValueV1,
+  counters: SessionJournalCountersV1,
+  issue: SessionJournalIncrementalLimitIssueV1,
+) {
+  const outcome = Object.freeze({
+    kind: "error",
+    reason: "limitExceeded",
+    ...issue,
+  } satisfies SessionJournalStoredOutcomeV1);
+  return fromIndexedQueryPromise(() => persistAcceptedOperation(
+    tx,
+    context,
+    request,
+    requestEvidence,
+    outcome,
+    counters,
+    ZERO_COUNTER_DELTAS,
+    { state: "failed", failureDimension: issue.dimension },
+  )).pipe(
+    Effect.map(() => Object.freeze({
+      kind: "outcome",
+      delivery: "executed",
+      outcome,
+    } as const)),
+  );
+});
+
 function decodeJournalCountersResult(
   attempt: SessionJournalAttemptStateV1,
   root: typeof fxSystemTransactionJournals.$inferSelect,
@@ -2950,6 +4265,10 @@ function decodeJournalCountersResult(
     readDocuments: root.readDocuments,
     readSemanticBytes: root.readSemanticBytes,
     pointDependencyCount: root.pointDependencyCount,
+    indexedQuerySyscalls: root.indexedQuerySyscalls,
+    indexRangeDependencyCount: root.indexRangeDependencyCount,
+    indexRangeDependencyEvidenceBytes:
+      root.indexRangeDependencyEvidenceBytes,
     writeOperations: root.writeOperations,
     writeSemanticBytes: root.writeSemanticBytes,
     materialWriteEventEvidenceBytes: root.materialWriteEventEvidenceBytes,
@@ -2966,6 +4285,20 @@ function decodeJournalCountersResult(
     [
       counters.pointDependencyCount,
       SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.pointReadDependencies,
+    ],
+    [
+      counters.indexedQuerySyscalls,
+      SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.indexedQuerySyscalls,
+    ],
+    [
+      counters.indexRangeDependencyCount,
+      SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1
+        .indexRangeReadDependencies,
+    ],
+    [
+      counters.indexRangeDependencyEvidenceBytes,
+      SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1
+        .indexRangeDependencyEvidenceBytes,
     ],
     [
       counters.writeOperations,
@@ -3171,6 +4504,12 @@ function requestOutcomeCorrelates(
             outcome.reason === "limitExceeded"))
       ) return true;
       break;
+    case "indexRange":
+      return isLimitOutcome(outcome) ||
+        (outcome.kind === "indexRangePage" &&
+          outcome.documentsValueJson.length <= request.limit &&
+          (outcome.isDone ||
+            outcome.documentsValueJson.length === request.limit));
   }
   return false;
 }
@@ -3281,6 +4620,13 @@ async function persistAcceptedOperation(
         current.readSemanticBytes + deltas.readSemanticBytes,
       pointDependencyCount:
         current.pointDependencyCount + deltas.pointDependencyCount,
+      indexedQuerySyscalls:
+        current.indexedQuerySyscalls + deltas.indexedQuerySyscalls,
+      indexRangeDependencyCount:
+        current.indexRangeDependencyCount + deltas.indexRangeDependencyCount,
+      indexRangeDependencyEvidenceBytes:
+        current.indexRangeDependencyEvidenceBytes +
+        deltas.indexRangeDependencyEvidenceBytes,
       writeOperations: current.writeOperations + deltas.writeOperations,
       writeSemanticBytes:
         current.writeSemanticBytes + deltas.writeSemanticBytes,
@@ -3489,6 +4835,56 @@ function projectPointOperationResult(
   }
 }
 
+function projectIndexedQueryResult(
+  applied: AppliedSessionJournalOperationV1,
+): RunSessionJournalIndexedQueryV1Result {
+  switch (applied.kind) {
+    case "sequenceRejected":
+      return Object.freeze({ kind: "sequenceRejected", issue: applied.issue });
+    case "stateRejected":
+      return Object.freeze({
+        kind: "stateRejected",
+        issue: Object.freeze({ reason: applied.reason }),
+      });
+    case "outcome": {
+      if (applied.outcome.kind === "error") {
+        if (applied.outcome.reason !== "limitExceeded") {
+          throw new Error("Indexed query receipt contains a point-only error.");
+        }
+        return Object.freeze({
+          kind: "rejected",
+          delivery: applied.delivery,
+          issue: Object.freeze({
+            reason: "limitExceeded",
+            dimension: applied.outcome.dimension,
+            observed: applied.outcome.observed,
+            maximum: applied.outcome.maximum,
+          }),
+        });
+      }
+      if (applied.outcome.kind !== "indexRangePage") {
+        throw new Error("Indexed query receipt contains a point-only success.");
+      }
+      return Object.freeze({
+        kind: "completed",
+        delivery: applied.delivery === "sticky"
+          ? "replayed"
+          : applied.delivery,
+        outcome: Object.freeze({
+          kind: "indexRangePage",
+          documents: Object.freeze(applied.outcome.documentsValueJson.map(
+            (document) => normalizeFlarexValueJsonV1(
+              document,
+              "appDocument",
+            ).value,
+          )),
+          isDone: applied.outcome.isDone,
+        }),
+      });
+    }
+  }
+}
+
 function issueFromStoredOutcome(
   outcome: Extract<SessionJournalStoredOutcomeV1, { readonly kind: "error" }>,
 ): SessionJournalPersistedPointIssueV1 {
@@ -3548,6 +4944,8 @@ function projectSuccessfulStoredOutcome(
         kind: "unit",
         operation: outcome.operation,
       });
+    case "indexRangePage":
+      throw new Error("Point operation received an indexed-query outcome.");
   }
 }
 
@@ -3621,6 +5019,9 @@ interface SessionJournalSealRowsV1 {
   readonly points: ReadonlyArray<
     typeof fxSystemTransactionJournalPoints.$inferSelect
   >;
+  readonly indexRanges: ReadonlyArray<
+    typeof fxSystemTransactionJournalIndexRanges.$inferSelect
+  >;
   readonly events: ReadonlyArray<
     typeof fxSystemTransactionJournalWriteEvents.$inferSelect
   >;
@@ -3666,6 +5067,22 @@ async function captureSealRowsInRepeatableRead(
       asc(fxSystemTransactionJournalPoints.rowId),
     )
     .limit(MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 + 1);
+  const indexRanges = await tx
+    .select()
+    .from(fxSystemTransactionJournalIndexRanges)
+    .where(and(
+      eq(fxSystemTransactionJournalIndexRanges.scopeUuid, authority.scopeUuid),
+      eq(
+        fxSystemTransactionJournalIndexRanges.sessionId,
+        attempt.selector.sessionId,
+      ),
+      eq(
+        fxSystemTransactionJournalIndexRanges.attemptFence,
+        attempt.selector.attemptFence,
+      ),
+    ))
+    .orderBy(asc(fxSystemTransactionJournalIndexRanges.ordinal))
+    .limit(MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 + 1);
   const events = await tx
     .select()
     .from(fxSystemTransactionJournalWriteEvents)
@@ -3689,6 +5106,7 @@ async function captureSealRowsInRepeatableRead(
     root: structuredClone(authority.root),
     ...(receipt === undefined ? {} : { receipt: structuredClone(receipt) }),
     points: Object.freeze(structuredClone(points)),
+    indexRanges: Object.freeze(structuredClone(indexRanges)),
     events: Object.freeze(structuredClone(events)),
   });
 }
@@ -3723,6 +5141,14 @@ const materializeSealCandidateEffect = Effect.fn(
       "writeOperationCountMismatch",
     ));
   }
+  if (
+    snapshot.indexRanges.length > MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1
+  ) {
+    return yield* Effect.fail(corruption(
+      attempt,
+      "indexRangeDependencyCountMismatch",
+    ));
+  }
   const counters = yield* Effect.fromResult(
     decodeJournalCountersResult(attempt, root),
   );
@@ -3755,16 +5181,48 @@ const materializeSealCandidateEffect = Effect.fn(
       "pointDependencyCountMismatch",
     ));
   }
-  const dependencies: LogicalReadDependencyV1[] = [];
+  const pointDependencies: Array<Extract<
+    LogicalReadDependencyV1,
+    { readonly kind: "appRowPoint" }
+  >> = [];
   for (const point of pointRows) {
     const dependency = yield* Effect.fromResult(
       decodePointDependencyResult(attempt, point),
     );
     yield* verifyPointOverlayEvidenceEffect(attempt, point);
-    dependencies.push(logicalDependencyFromPoint(dependency));
+    pointDependencies.push(logicalDependencyFromPoint(dependency));
   }
-  dependencies.sort((left, right) =>
+  pointDependencies.sort((left, right) =>
     compareUtf16Strings(left.documentId, right.documentId));
+  const indexRangeDependencies = yield* decodeStoredIndexRangeRowsEffect(
+    attempt,
+    snapshot.indexRanges,
+  );
+  if (
+    indexRangeDependencies.length !== counters.indexRangeDependencyCount
+  ) {
+    return yield* Effect.fail(corruption(
+      attempt,
+      "indexRangeDependencyCountMismatch",
+    ));
+  }
+  const computedIndexRangeEvidenceBytes = snapshot.indexRanges.reduce(
+    (total, row) => total + row.evidenceBytes,
+    0,
+  );
+  if (
+    computedIndexRangeEvidenceBytes !==
+      counters.indexRangeDependencyEvidenceBytes
+  ) {
+    return yield* Effect.fail(corruption(
+      attempt,
+      "indexRangeDependencyEvidenceBytesMismatch",
+    ));
+  }
+  const dependencies: LogicalReadDependencyV1[] = [
+    ...pointDependencies,
+    ...indexRangeDependencies,
+  ];
 
   const eventRows = snapshot.events;
   if (eventRows.length !== counters.writeOperations) {
@@ -4147,7 +5605,7 @@ const verifyPointOverlayEvidenceEffect = Effect.fn(function* (
 
 function logicalDependencyFromPoint(
   dependency: AppRowPointDependencyV1,
-): LogicalReadDependencyV1 {
+): Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }> {
   const documentId = appDocumentIdV1FromRowIdentity({
     tableId: dependency.identity.tableId,
     rowId: dependency.identity.rowId,

@@ -33,7 +33,10 @@ import {
   decodeAppDocumentIdentityV1,
   type AppDocumentIdV1,
 } from "flarex-protocol/app-document-id";
-import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import {
+  decodeCatalogIndexDefinitionId,
+  decodeCatalogTableId,
+} from "flarex-protocol/catalog";
 import {
   COMMIT_ENVELOPE_FORMAT_V1,
   CanonicalSessionJournalBase64UrlV1Schema,
@@ -56,6 +59,8 @@ import {
   type LogicalReadDependencyV1,
   type SessionJournalV1,
 } from "flarex-protocol/commit-protocol";
+import { decodeAppIndexPhysicalSpecSha256HexV1 } from "flarex-protocol/index-definition";
+import { decodeOrderedIndexKeyCodecVersion } from "flarex-protocol/ordered-index";
 import {
   makeGrantRetentionPolicyV1Result,
 } from "flarex-protocol/grant-retention-policy";
@@ -4490,6 +4495,32 @@ describe("C04A stored-attempt authentication", () => {
     ))).toBe(true);
 
     const base = await plannerSourceForTest([indexedRead]);
+    const rangeDependencySource = Object.freeze({
+      ...base,
+      journal: Object.freeze({
+        ...base.journal,
+        readDependencies: Object.freeze([
+          ...base.journal.readDependencies,
+          Object.freeze({
+            kind: "appIndexRange" as const,
+            tableId: decodeAppDocumentIdentityV1(indexedRead.documentId).tableId,
+            indexDefinitionId: decodeCatalogIndexDefinitionId(1),
+            keyCodecVersion: decodeOrderedIndexKeyCodecVersion(1),
+            physicalSpecSha256Hex:
+              decodeAppIndexPhysicalSpecSha256HexV1("1".repeat(64)),
+            direction: "asc" as const,
+            lower: null,
+            upper: null,
+          }),
+        ]),
+      }),
+    } satisfies VerifiedCommitInputStateV1);
+    expect(requirePlanFailure(planPointCommitStateV1(
+      rangeDependencySource,
+    ))).toMatchObject({
+      issue: { reason: "unsupportedReadDependency" },
+    });
+
     const futurePoint = Object.freeze({ ...indexedRead, kind: "future" });
     const futurePointSource = Object.freeze({
       ...base,
@@ -5619,6 +5650,10 @@ function commitInputSourceForTest(
       readDocuments: evidence.root.readDocuments,
       readSemanticBytes: evidence.root.readSemanticBytes,
       pointDependencyCount: evidence.root.pointDependencyCount,
+      indexedQuerySyscalls: evidence.root.indexedQuerySyscalls,
+      indexRangeDependencyCount: evidence.root.indexRangeDependencyCount,
+      indexRangeDependencyEvidenceBytes:
+        evidence.root.indexRangeDependencyEvidenceBytes,
       writeOperations: evidence.root.writeOperations,
       writeSemanticBytes: evidence.root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:
@@ -5693,7 +5728,10 @@ async function plannerSourceForTest(
 
 function unchangedPlannerPoint(
   documentId: AppDocumentIdV1,
-  observed: LogicalReadDependencyV1["observed"] = Object.freeze({
+  observed: Extract<
+    LogicalReadDependencyV1,
+    { readonly kind: "appRowPoint" }
+  >["observed"] = Object.freeze({
     kind: "missing",
     basis: Object.freeze({ kind: "noVisibleRevision" }),
   }),
@@ -5761,8 +5799,11 @@ async function livePlannerPoint(
 
 function logicalPointDependency(
   documentId: AppDocumentIdV1,
-  observed: LogicalReadDependencyV1["observed"],
-): LogicalReadDependencyV1 {
+  observed: Extract<
+    LogicalReadDependencyV1,
+    { readonly kind: "appRowPoint" }
+  >["observed"],
+): Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }> {
   if (observed.kind === "present") {
     return Object.freeze({
       kind: "appRowPoint",
@@ -6171,6 +6212,9 @@ async function fixtureForJournal(
       readDocuments: journal.journal.readUsage.documentsRead,
       readSemanticBytes: journal.journal.readUsage.semanticBytesRead,
       pointDependencyCount: journal.journal.readDependencies.length,
+      indexedQuerySyscalls: 0,
+      indexRangeDependencyCount: 0,
+      indexRangeDependencyEvidenceBytes: 0,
       writeOperations: journal.journal.writes.length,
       writeSemanticBytes: journal.journal.writes.reduce(
         (total, write) => total +

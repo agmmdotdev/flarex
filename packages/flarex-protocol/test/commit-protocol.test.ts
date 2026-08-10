@@ -1,4 +1,4 @@
-import { Effect, Encoding, Schema } from "effect";
+import { Effect, Encoding, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import * as protocolRoot from "../src/index";
@@ -17,6 +17,8 @@ import {
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
   MAX_COMMIT_READ_DOCUMENTS_V1,
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
@@ -30,6 +32,8 @@ import {
   decodeCommitEnvelopeV1Effect,
   inspectInlineUntrustedJournalIntegrityV1Effect,
   makeCommitEnvelopeV1Effect,
+  measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
+  normalizeLogicalIndexRangeReadDependenciesV1Result,
   requireStoredForSessionAttemptCommitEnvelopeV1Effect,
   verifySuccessfulResultEvidenceV1Effect,
   type CanonicalSessionJournalV1,
@@ -42,10 +46,21 @@ import {
 } from "../src/commit-protocol";
 import {
   decodeAppDocumentIdV1,
+  decodeAppDocumentIdentityV1,
   type AppDocumentIdV1,
 } from "../src/app-document-id";
 import { AppCreationTimeV1Schema } from "../src/app-document";
+import {
+  decodeCatalogIndexDefinitionId,
+  decodeCatalogTableId,
+} from "../src/catalog";
+import { decodeAppIndexPhysicalSpecSha256HexV1 } from "../src/index-definition";
 import type { JsonObject } from "../src/json";
+import {
+  decodeOrderedIndexBoundHexV1,
+  decodeOrderedIndexKeyBytesHexV1,
+  decodeOrderedIndexKeyCodecVersion,
+} from "../src/ordered-index";
 import { CommitSeqSchema } from "../src/storage-authority";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
@@ -140,6 +155,152 @@ describe("commit protocol C02", () => {
 
     expect(first.canonicalBytes).toEqual(second.canonicalBytes);
     expect(first.sha256Hex).toBe(second.sha256Hex);
+  });
+
+  it("pins, merges, measures, validates, and bounds indexed-range evidence", async () => {
+    const range = indexRangeDependency({
+      lower: {
+        kind: "key",
+        encodedKey: decodeOrderedIndexBoundHexV1("10"),
+        inclusive: true,
+      },
+      upper: {
+        kind: "position",
+        encodedKey: decodeOrderedIndexKeyBytesHexV1("20"),
+        rowId: decodeAppDocumentIdentityV1(DOCUMENT_A).rowId,
+        inclusive: true,
+      },
+    });
+    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+      sessionJournal({
+        finalSyscallSequence: 1n,
+        readDependencies: [range],
+      }),
+    ));
+    const rangeCanonicalText =
+      '{"direction":"asc","indexDefinitionId":1,"keyCodecVersion":1,' +
+      '"kind":"appIndexRange","lower":{"encodedKey":"10",' +
+      '"inclusive":true,"kind":"key"},"physicalSpecSha256Hex":' +
+      `"${"1".repeat(64)}","tableId":1,"upper":` +
+      '{"encodedKey":"20","inclusive":true,"kind":"position",' +
+      '"rowId":"00000000000000000000000000000001"}}';
+    expect(canonical.canonicalText).toBe(
+      '{"finalSyscallSequence":"1","format":"flarex.session-journal",' +
+      '"protocolVersion":1,"readDependencies":[' + rangeCanonicalText +
+      '],"readUsage":{"documentsRead":0,"semanticBytesRead":0},' +
+      '"valueCodecVersion":1,"writes":[]}',
+    );
+    expect(canonical.sha256Hex).toBe(
+      "8b8d2f789bcb0abd94757402d338dd2514ae9070ae7822f1ecba36abdb58ed3a",
+    );
+
+    const measured = measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result(
+      range,
+    );
+    expect(Result.getOrThrow(measured)).toBe(
+      new TextEncoder().encode(rangeCanonicalText).byteLength,
+    );
+
+    const merged = Result.getOrThrow(
+      normalizeLogicalIndexRangeReadDependenciesV1Result([
+        range,
+        indexRangeDependency({
+          lower: {
+            kind: "key",
+            encodedKey: decodeOrderedIndexBoundHexV1("20"),
+            inclusive: true,
+          },
+          upper: {
+            kind: "key",
+            encodedKey: decodeOrderedIndexBoundHexV1("30"),
+            inclusive: false,
+          },
+        }),
+      ]),
+    );
+    expect(merged).toEqual([{
+      ...range,
+      upper: {
+        kind: "key",
+        encodedKey: decodeOrderedIndexBoundHexV1("30"),
+        inclusive: false,
+      },
+    }]);
+
+    const invalid = normalizeLogicalIndexRangeReadDependenciesV1Result([
+      indexRangeDependency({
+        lower: {
+          kind: "key",
+          encodedKey: decodeOrderedIndexBoundHexV1("20"),
+          inclusive: true,
+        },
+        upper: {
+          kind: "key",
+          encodedKey: decodeOrderedIndexBoundHexV1("10"),
+          inclusive: false,
+        },
+      }),
+    ]);
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isSuccess(invalid)) throw new Error("expected invalid range");
+    expect(invalid.failure.issue).toMatchObject({
+      reason: "invalidIndexRangeDependency",
+    });
+
+    const overLimit = await runFailure(canonicalizeSessionJournalV1Effect(
+      sessionJournal({
+        finalSyscallSequence: 1n,
+        readDependencies: Array.from(
+          { length: MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 + 1 },
+          (_, index) => indexRangeDependency({
+            indexDefinitionId: index + 1,
+          }),
+        ),
+      }),
+    ));
+    expect(overLimit.issue).toMatchObject({
+      reason: "limitExceeded",
+      dimension: "indexRangeReadDependencies",
+      observed: MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 + 1,
+    });
+
+    const maximumLowerBound = decodeOrderedIndexBoundHexV1(
+      "00".repeat(2_049),
+    );
+    const maximumUpperBound = decodeOrderedIndexBoundHexV1(
+      "ff".repeat(2_049),
+    );
+    const evidenceFailure = await runFailure(
+      canonicalizeSessionJournalV1Effect(sessionJournal({
+        finalSyscallSequence: 1n,
+        readDependencies: Array.from(
+          { length: MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 },
+          (_, index) => indexRangeDependency({
+            indexDefinitionId: index + 1,
+            lower: {
+              kind: "key",
+              encodedKey: maximumLowerBound,
+              inclusive: true,
+            },
+            upper: {
+              kind: "key",
+              encodedKey: maximumUpperBound,
+              inclusive: false,
+            },
+          }),
+        ),
+      })),
+    );
+    expect(evidenceFailure.issue).toMatchObject({
+      reason: "limitExceeded",
+      dimension: "indexRangeDependencyEvidenceBytes",
+      maximum: MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
+    });
+    if (evidenceFailure.issue.reason === "limitExceeded") {
+      expect(evidenceFailure.issue.observed).toBeGreaterThan(
+        MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
+      );
+    }
   });
 
   it("binds insert creation time into stable canonical journal evidence", async () => {
@@ -298,7 +459,12 @@ describe("commit protocol C02", () => {
       }),
     ));
 
-    expect(canonical.journal.readDependencies.map(item => item.observed)).toEqual([
+    expect(canonical.journal.readDependencies.map((item) => {
+      if (item.kind !== "appRowPoint") {
+        throw new Error("Expected only point dependencies in this fixture.");
+      }
+      return item.observed;
+    })).toEqual([
       { kind: "present", revisionCommitSeq: CommitSeqSchema.make(5n) },
       {
         kind: "missing",
@@ -401,11 +567,14 @@ describe("commit protocol C02", () => {
     });
   });
 
-  it("ports the exact Convex execution limits without a syscall or lease limit", async () => {
+  it("keeps Convex execution limits and adds bounded private indexed reads", async () => {
     expect(COMMIT_PROTOCOL_EXECUTION_LIMITS_V1).toEqual({
       readDocuments: 32_000,
       readSemanticBytes: 16_777_216,
       pointReadDependencies: 4_096,
+      indexedQuerySyscalls: 32,
+      indexedQueryPageSize: 128,
+      indexRangeReadDependencies: 32,
       writeOperations: 16_000,
       writeSemanticBytes: 16_777_216,
       resultSemanticBytes: 16_777_216,
@@ -418,6 +587,7 @@ describe("commit protocol C02", () => {
     );
     expect(COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1).toEqual({
       canonicalEvidenceBytes: 67_108_864,
+      indexRangeDependencyEvidenceBytes: 262_144,
       materialWriteEventEvidenceBytes: 67_108_864,
     });
     expect(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1).toBe(
@@ -449,7 +619,10 @@ describe("commit protocol C02", () => {
     await expect(runEffect(canonicalizeSessionJournalV1Effect(
       sessionJournal({
         finalSyscallSequence: 1n,
-        readDependencies: exactDependencies,
+        readDependencies: [
+          ...exactDependencies,
+          indexRangeDependency(),
+        ],
       }),
     ))).resolves.toBeDefined();
     const dependencyFailure = await runFailure(
@@ -703,6 +876,35 @@ function missingDependency(
       kind: "missing",
       basis: { kind: "noVisibleRevision" },
     },
+  };
+}
+
+function indexRangeDependency(options: {
+  readonly indexDefinitionId?: number;
+  readonly lower?: Extract<
+    LogicalReadDependencyV1,
+    { readonly kind: "appIndexRange" }
+  >["lower"];
+  readonly upper?: Extract<
+    LogicalReadDependencyV1,
+    { readonly kind: "appIndexRange" }
+  >["upper"];
+} = {}): Extract<
+  LogicalReadDependencyV1,
+  { readonly kind: "appIndexRange" }
+> {
+  return {
+    kind: "appIndexRange",
+    tableId: decodeCatalogTableId(1),
+    indexDefinitionId: decodeCatalogIndexDefinitionId(
+      options.indexDefinitionId ?? 1,
+    ),
+    keyCodecVersion: decodeOrderedIndexKeyCodecVersion(1),
+    physicalSpecSha256Hex:
+      decodeAppIndexPhysicalSpecSha256HexV1("1".repeat(64)),
+    direction: "asc",
+    lower: options.lower ?? null,
+    upper: options.upper ?? null,
   };
 }
 

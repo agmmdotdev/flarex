@@ -114,6 +114,7 @@ import {
   fxSystemSnapshotLeases,
   fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
@@ -2365,6 +2366,9 @@ async function createSession(
     readDocuments: 0,
     readSemanticBytes: 0,
     pointDependencyCount: 0,
+    indexedQuerySyscalls: 0,
+    indexRangeDependencyCount: 0,
+    indexRangeDependencyEvidenceBytes: 0,
     writeOperations: 0,
     writeSemanticBytes: 0,
     materialWriteEventEvidenceBytes:
@@ -2841,6 +2845,15 @@ async function observePointMutationSessionAttemptFacet(
         and ${fxSystemTransactionJournalPoints.attemptFence} =
           ${locked.attemptFence}
     )`,
+    indexRangeExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalIndexRanges}
+      where ${fxSystemTransactionJournalIndexRanges.scopeUuid} =
+        ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalIndexRanges.sessionId} =
+          ${locked.sessionId}
+        and ${fxSystemTransactionJournalIndexRanges.attemptFence} =
+          ${locked.attemptFence}
+    )`,
     eventExists: sql<boolean>`exists(
       select 1 from ${fxSystemTransactionJournalWriteEvents}
       where ${fxSystemTransactionJournalWriteEvents.scopeUuid} =
@@ -2860,6 +2873,7 @@ async function observePointMutationSessionAttemptFacet(
     observation === undefined ||
     typeof observation.receiptExists !== "boolean" ||
     typeof observation.pointExists !== "boolean" ||
+    typeof observation.indexRangeExists !== "boolean" ||
     typeof observation.eventExists !== "boolean"
   ) {
     throw corruptionError(clock.record.scopeId, "journalRootInvalid");
@@ -2867,6 +2881,7 @@ async function observePointMutationSessionAttemptFacet(
   return Object.freeze({
     kind: observation.receiptExists ||
         observation.pointExists ||
+        observation.indexRangeExists ||
         observation.eventExists
       ? "nonPristine"
       : "pristineOpen",

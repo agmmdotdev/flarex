@@ -53,11 +53,16 @@ export interface AppDeveloperIndexDefinitionPortV1 {
   >;
 }
 
+const appDeveloperIndexDefinitionControlDbsV1 = new WeakMap<
+  AppDeveloperIndexDefinitionPortV1,
+  FlarexMetadataDatabase
+>();
+
 /** Control-catalog adapter for C08-A's private point-commit composition. */
 export function createAppDeveloperIndexDefinitionPortV1(
   controlDb: FlarexMetadataDatabase,
 ): AppDeveloperIndexDefinitionPortV1 {
-  return Object.freeze({
+  const port = Object.freeze({
     locate: Effect.fn("AppDeveloperIndexDefinition.locate")(
       (input: LocateAppDeveloperIndexDefinitionsV1Input) =>
         locateAppDeveloperIndexDefinitionsForSchemaEffect(
@@ -70,6 +75,19 @@ export function createAppDeveloperIndexDefinitionPortV1(
         ),
     ),
   });
+  appDeveloperIndexDefinitionControlDbsV1.set(port, controlDb);
+  return port;
+}
+
+/** Exact control-catalog composition guard for private index-read owners. */
+export function hasAppDeveloperIndexDefinitionAuthorityForControlDbV1(
+  value: unknown,
+  controlDb: FlarexMetadataDatabase,
+): value is AppDeveloperIndexDefinitionPortV1 {
+  return typeof value === "object" && value !== null &&
+    appDeveloperIndexDefinitionControlDbsV1.get(
+      value as AppDeveloperIndexDefinitionPortV1,
+    ) === controlDb;
 }
 
 /**

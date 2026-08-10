@@ -5,13 +5,25 @@ import {
 } from "@flarex/utils/bytes";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Data, Effect, Encoding, Schema } from "effect";
+import { Data, Effect, Encoding, Result, Schema } from "effect";
 
 import { AppCreationTimeV1Schema } from "./app-document";
 import {
   AppDocumentIdV1Schema,
   type AppDocumentIdV1,
 } from "./app-document-id";
+import {
+  CatalogIndexDefinitionIdSchema,
+  CatalogTableIdSchema,
+  type CatalogIndexDefinitionId,
+} from "./catalog";
+import { AppIndexPhysicalSpecSha256HexV1Schema } from "./index-definition";
+import {
+  OrderedIndexBoundHexV1Schema,
+  OrderedIndexKeyBytesHexV1Schema,
+  OrderedIndexKeyCodecVersionSchema,
+  OrderedIndexRowIdHexV1Schema,
+} from "./ordered-index";
 import { freezeOwnedProtocolProjection } from "./owned-protocol-projection";
 import {
   encodeCanonicalJson,
@@ -84,6 +96,10 @@ export const COMMIT_ENVELOPE_FORMAT_V1 = "flarex.commit-envelope";
 export const MAX_COMMIT_READ_DOCUMENTS_V1 = 32_000;
 export const MAX_COMMIT_READ_SEMANTIC_BYTES_V1 = 1 << 24;
 export const MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 = 4_096;
+export const MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1 = 32;
+export const MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 = 128;
+export const MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 = 32;
+export const MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1 = 1 << 18;
 /**
  * Operational ceiling for net application-row revisions lowered by the
  * current point-commit transaction owner. Unlike point reads, every material
@@ -100,6 +116,9 @@ export interface CommitProtocolExecutionLimitsV1 {
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
   readonly pointReadDependencies: number;
+  readonly indexedQuerySyscalls: number;
+  readonly indexedQueryPageSize: number;
+  readonly indexRangeReadDependencies: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly resultSemanticBytes: number;
@@ -109,6 +128,9 @@ export const COMMIT_PROTOCOL_EXECUTION_LIMITS_V1 = Object.freeze({
   readDocuments: MAX_COMMIT_READ_DOCUMENTS_V1,
   readSemanticBytes: MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
   pointReadDependencies: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  indexedQuerySyscalls: MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  indexedQueryPageSize: MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
+  indexRangeReadDependencies: MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
   writeOperations: MAX_COMMIT_WRITE_OPERATIONS_V1,
   writeSemanticBytes: MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
   resultSemanticBytes: MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
@@ -131,11 +153,14 @@ export const MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1 = 1 << 26;
 
 export interface CommitProtocolOperationalLimitsV1 {
   readonly canonicalEvidenceBytes: number;
+  readonly indexRangeDependencyEvidenceBytes: number;
   readonly materialWriteEventEvidenceBytes: number;
 }
 
 export const COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1 = Object.freeze({
   canonicalEvidenceBytes: MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
+  indexRangeDependencyEvidenceBytes:
+    MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   materialWriteEventEvidenceBytes:
     MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
 } satisfies CommitProtocolOperationalLimitsV1);
@@ -224,7 +249,7 @@ const MissingReadObservationV1Schema = Schema.Struct({
   ]),
 }).annotate(StrictStructOptions);
 
-export const LogicalReadDependencyV1Schema = Schema.Struct({
+const LogicalPointReadDependencyV1Schema = Schema.Struct({
   kind: Schema.Literal("appRowPoint"),
   documentId: AppDocumentIdV1Schema,
   observed: Schema.Union([
@@ -232,6 +257,46 @@ export const LogicalReadDependencyV1Schema = Schema.Struct({
     MissingReadObservationV1Schema,
   ]),
 }).annotate(StrictStructOptions);
+
+const LogicalIndexRangeLowerBoundV1Schema = Schema.Struct({
+  kind: Schema.Literal("key"),
+  encodedKey: OrderedIndexBoundHexV1Schema,
+  inclusive: Schema.Literal(true),
+}).annotate(StrictStructOptions);
+
+const LogicalIndexRangeUpperKeyBoundV1Schema = Schema.Struct({
+  kind: Schema.Literal("key"),
+  encodedKey: OrderedIndexBoundHexV1Schema,
+  inclusive: Schema.Literal(false),
+}).annotate(StrictStructOptions);
+
+const LogicalIndexRangeUpperPositionBoundV1Schema = Schema.Struct({
+  kind: Schema.Literal("position"),
+  encodedKey: OrderedIndexKeyBytesHexV1Schema,
+  rowId: OrderedIndexRowIdHexV1Schema,
+  inclusive: Schema.Literal(true),
+}).annotate(StrictStructOptions);
+
+export const LogicalIndexRangeReadDependencyV1Schema = Schema.Struct({
+  kind: Schema.Literal("appIndexRange"),
+  tableId: CatalogTableIdSchema,
+  indexDefinitionId: CatalogIndexDefinitionIdSchema,
+  keyCodecVersion: OrderedIndexKeyCodecVersionSchema,
+  physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1Schema,
+  direction: Schema.Literal("asc"),
+  lower: Schema.NullOr(LogicalIndexRangeLowerBoundV1Schema),
+  upper: Schema.NullOr(Schema.Union([
+    LogicalIndexRangeUpperKeyBoundV1Schema,
+    LogicalIndexRangeUpperPositionBoundV1Schema,
+  ])),
+}).annotate(StrictStructOptions);
+export type LogicalIndexRangeReadDependencyV1 =
+  typeof LogicalIndexRangeReadDependencyV1Schema.Type;
+
+export const LogicalReadDependencyV1Schema = Schema.Union([
+  LogicalPointReadDependencyV1Schema,
+  LogicalIndexRangeReadDependencyV1Schema,
+]);
 export type LogicalReadDependencyV1 =
   typeof LogicalReadDependencyV1Schema.Type;
 
@@ -438,6 +503,9 @@ export type CommitProtocolV1LimitDimension =
   | "readDocuments"
   | "readSemanticBytes"
   | "pointReadDependencies"
+  | "indexedQuerySyscalls"
+  | "indexRangeReadDependencies"
+  | "indexRangeDependencyEvidenceBytes"
   | "writeOperations"
   | "patchFields"
   | "writeSemanticBytes"
@@ -479,6 +547,10 @@ export type CommitProtocolV1Issue =
   | {
       readonly reason: "duplicateReadDependency";
       readonly documentId: AppDocumentIdV1;
+    }
+  | {
+      readonly reason: "invalidIndexRangeDependency";
+      readonly indexDefinitionId: CatalogIndexDefinitionId;
     }
   | {
       readonly reason: "duplicateWriteSequence";
@@ -533,6 +605,12 @@ const encodeUnknownSessionJournalV1 = Schema.encodeUnknownEffect(
   SessionJournalV1Schema,
   StrictParseOptions,
 );
+const encodeUnknownLogicalIndexRangeReadDependencyV1Result =
+  Schema.encodeUnknownResult(
+    LogicalIndexRangeReadDependencyV1Schema,
+    StrictParseOptions,
+  );
+const decodeUnknownJsonValueResult = Schema.decodeUnknownResult(JsonValue);
 const decodeUnknownCanonicalSessionJournalBytesV1 =
   Schema.decodeUnknownEffect(CanonicalSessionJournalBytesV1Schema);
 const decodeUnknownSessionJournalSha256HexV1 = Schema.decodeUnknownEffect(
@@ -803,21 +881,33 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
     MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
   );
   yield* enforceLimitEffect(
-    "pointReadDependencies",
-    journal.readDependencies.length,
-    MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
-  );
-  yield* enforceLimitEffect(
     "writeOperations",
     journal.writes.length,
     MAX_COMMIT_WRITE_OPERATIONS_V1,
   );
 
-  const readDependencies = [...journal.readDependencies].sort((left, right) =>
+  const pointDependencies = journal.readDependencies.filter(
+    (dependency) => dependency.kind === "appRowPoint",
+  );
+  const indexedDependencies = journal.readDependencies.filter(
+    (dependency) => dependency.kind === "appIndexRange",
+  );
+  yield* enforceLimitEffect(
+    "pointReadDependencies",
+    pointDependencies.length,
+    MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  );
+  yield* enforceLimitEffect(
+    "indexRangeReadDependencies",
+    indexedDependencies.length,
+    MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  );
+
+  pointDependencies.sort((left, right) =>
     compareUtf16Strings(left.documentId, right.documentId)
   );
   const seenDependencies = new Set<AppDocumentIdV1>();
-  for (const dependency of readDependencies) {
+  for (const dependency of pointDependencies) {
     if (seenDependencies.has(dependency.documentId)) {
       return yield* protocolFailureEffect({
         reason: "duplicateReadDependency",
@@ -838,6 +928,29 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
       });
     }
   }
+  const mergedIndexedDependencies = yield* Effect.fromResult(
+    normalizeLogicalIndexRangeReadDependenciesV1Result(indexedDependencies),
+  );
+  yield* enforceLimitEffect(
+    "indexRangeReadDependencies",
+    mergedIndexedDependencies.length,
+    MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  );
+  let indexedDependencyEvidenceBytes = 0;
+  for (const dependency of mergedIndexedDependencies) {
+    indexedDependencyEvidenceBytes += yield* Effect.fromResult(
+      measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result(dependency),
+    );
+  }
+  yield* enforceLimitEffect(
+    "indexRangeDependencyEvidenceBytes",
+    indexedDependencyEvidenceBytes,
+    MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
+  );
+  const readDependencies: LogicalReadDependencyV1[] = [
+    ...pointDependencies,
+    ...mergedIndexedDependencies,
+  ];
 
   const orderedWrites = [...journal.writes].sort((left, right) =>
     left.syscallSequence < right.syscallSequence
@@ -900,6 +1013,124 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
     writes,
   } satisfies SessionJournalV1);
 });
+
+export function normalizeLogicalIndexRangeReadDependenciesV1Result(
+  input: ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+): Result.Result<
+  ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+  CommitProtocolV1Error
+> {
+  const indexedDependencies = [...input].sort(compareIndexRangeDependenciesV1);
+  const merged: LogicalIndexRangeReadDependencyV1[] = [];
+  for (const dependency of indexedDependencies) {
+    if (!isValidIndexRangeDependencyV1(dependency)) {
+      return Result.fail(new CommitProtocolV1Error({
+        issue: {
+          reason: "invalidIndexRangeDependency",
+          indexDefinitionId: dependency.indexDefinitionId,
+        },
+      }));
+    }
+    const previous = merged.at(-1);
+    if (
+      previous !== undefined &&
+      sameIndexRangeAuthorityV1(previous, dependency) &&
+      indexRangeDependenciesTouchOrOverlapV1(previous, dependency)
+    ) {
+      merged[merged.length - 1] = Object.freeze({
+        ...previous,
+        upper: maximumIndexRangeUpperBoundV1(
+          previous.upper,
+          dependency.upper,
+        ),
+      });
+    } else {
+      merged.push(Object.freeze({ ...dependency }));
+    }
+  }
+  return Result.succeed(Object.freeze(merged));
+}
+
+export function measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result(
+  dependency: LogicalIndexRangeReadDependencyV1,
+): Result.Result<number, CommitProtocolV1Error> {
+  return encodeUnknownLogicalIndexRangeReadDependencyV1Result(dependency).pipe(
+    Result.mapError(() => invalidSchemaError("journal")),
+    Result.flatMap((encoded) =>
+      decodeUnknownJsonValueResult(encoded).pipe(
+        Result.mapError(() => invalidSchemaError("journal")),
+      )
+    ),
+    Result.map((json) =>
+      TEXT_ENCODER.encode(
+        encodeCanonicalJson(json, commitJsonEncodingInvariantFailure),
+      ).byteLength
+    ),
+  );
+}
+
+function compareIndexRangeDependenciesV1(
+  left: LogicalIndexRangeReadDependencyV1,
+  right: LogicalIndexRangeReadDependencyV1,
+): number {
+  if (left.tableId !== right.tableId) return left.tableId - right.tableId;
+  if (left.indexDefinitionId !== right.indexDefinitionId) {
+    return left.indexDefinitionId - right.indexDefinitionId;
+  }
+  const digestOrder = compareUtf16Strings(
+    left.physicalSpecSha256Hex,
+    right.physicalSpecSha256Hex,
+  );
+  if (digestOrder !== 0) return digestOrder;
+  if (left.lower === null) return right.lower === null ? 0 : -1;
+  if (right.lower === null) return 1;
+  return compareUtf16Strings(left.lower.encodedKey, right.lower.encodedKey);
+}
+
+function sameIndexRangeAuthorityV1(
+  left: LogicalIndexRangeReadDependencyV1,
+  right: LogicalIndexRangeReadDependencyV1,
+): boolean {
+  return left.tableId === right.tableId &&
+    left.indexDefinitionId === right.indexDefinitionId &&
+    left.keyCodecVersion === right.keyCodecVersion &&
+    left.physicalSpecSha256Hex === right.physicalSpecSha256Hex &&
+    left.direction === right.direction;
+}
+
+function isValidIndexRangeDependencyV1(
+  dependency: LogicalIndexRangeReadDependencyV1,
+): boolean {
+  if (dependency.upper === null || dependency.lower === null) return true;
+  const keyOrder = compareUtf16Strings(
+    dependency.lower.encodedKey,
+    dependency.upper.encodedKey,
+  );
+  return dependency.upper.kind === "position" ? keyOrder <= 0 : keyOrder < 0;
+}
+
+function indexRangeDependenciesTouchOrOverlapV1(
+  left: LogicalIndexRangeReadDependencyV1,
+  right: LogicalIndexRangeReadDependencyV1,
+): boolean {
+  if (left.upper === null || right.lower === null) return true;
+  return compareUtf16Strings(
+    left.upper.encodedKey,
+    right.lower.encodedKey,
+  ) >= 0;
+}
+
+function maximumIndexRangeUpperBoundV1(
+  left: LogicalIndexRangeReadDependencyV1["upper"],
+  right: LogicalIndexRangeReadDependencyV1["upper"],
+): LogicalIndexRangeReadDependencyV1["upper"] {
+  if (left === null || right === null) return null;
+  const keyOrder = compareUtf16Strings(left.encodedKey, right.encodedKey);
+  if (keyOrder !== 0) return keyOrder > 0 ? left : right;
+  if (left.kind === "key") return right;
+  if (right.kind === "key") return left;
+  return compareUtf16Strings(left.rowId, right.rowId) >= 0 ? left : right;
+}
 
 const normalizeLogicalAppWriteV1Effect = Effect.fn(function* (
   write: LogicalAppWriteV1,
@@ -1313,13 +1544,13 @@ function preflightSessionJournalCandidate(
 
   if (
     Array.isArray(input.readDependencies) &&
-    input.readDependencies.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1
+    input.readDependencies.length >
+      MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 +
+        MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1
   ) {
     return {
-      reason: "limitExceeded",
-      dimension: "pointReadDependencies",
-      observed: input.readDependencies.length,
-      maximum: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+      reason: "invalidSchema",
+      component: "journal",
     };
   }
   if (

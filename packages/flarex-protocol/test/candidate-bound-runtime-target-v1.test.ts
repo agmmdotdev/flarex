@@ -4,6 +4,8 @@ import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1,
+  CANDIDATE_BOUND_INDEXED_QUERY_OPERATION_V1,
   CANDIDATE_BOUND_RUNTIME_TARGET_IDENTITY_V1,
   encodeCandidateBoundRuntimeTargetV1,
   type CandidateBoundRuntimeTargetFrameV1,
@@ -58,6 +60,15 @@ const FRAME = Object.freeze({
   exactRuntimeProfile: "point-mutation-exact-runtime-v1" as const,
   exactRuntimeVersion: 1 as const,
   exactRuntimeGraphBasisSha256: digest(25),
+  indexedQueryOperation: CANDIDATE_BOUND_INDEXED_QUERY_OPERATION_V1,
+  maximumIndexedQuerySyscalls:
+    CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexedQuerySyscalls,
+  maximumIndexedQueryPageSize:
+    CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexedQueryPageSize,
+  maximumIndexRangeReadDependencies:
+    CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexRangeReadDependencies,
+  maximumIndexRangeDependencyEvidenceBytes:
+    CANDIDATE_BOUND_INDEXED_QUERY_LIMITS_V1.maximumIndexRangeDependencyEvidenceBytes,
   functionOrdinal: 0n,
   functionPath: "orders:place",
   logicalExecutionModule: "orders",
@@ -87,6 +98,9 @@ describe("candidate-bound runtime target V1", () => {
     expect(CANDIDATE_BOUND_RUNTIME_TARGET_IDENTITY_V1).toBe(
       "flarex.system/candidate-bound-runtime-target/v1",
     );
+    expect(CANDIDATE_BOUND_INDEXED_QUERY_OPERATION_V1).toBe(
+      "flarex.system/app-index-range-query/v1",
+    );
     const first = Result.getOrThrow(
       encodeCandidateBoundRuntimeTargetV1(FRAME, BUDGET),
     );
@@ -95,7 +109,7 @@ describe("candidate-bound runtime target V1", () => {
     );
     expect(replay.canonicalBytes).toEqual(first.canonicalBytes);
     expect(createHash("sha256").update(first.canonicalBytes).digest("hex"))
-      .toBe("ce7d1c318e04226cc603ba9e3091dd3a4b5da3963d663c97e161c0ab520df369");
+      .toBe("36a0fb8a39e0bc60b147d989189c56aa1b3038b9fa1c5a77aace9fb147f9c98c");
   });
 
   it("changes the preimage for every authority class", () => {
@@ -131,6 +145,14 @@ describe("candidate-bound runtime target V1", () => {
     ))).toBe(true);
     expect(Result.isFailure(encodeCandidateBoundRuntimeTargetV1(
       { ...FRAME, handlerKind: "query" },
+      BUDGET,
+    ))).toBe(true);
+    expect(Result.isFailure(encodeCandidateBoundRuntimeTargetV1(
+      { ...FRAME, indexedQueryOperation: "flarex.system/other-query/v1" },
+      BUDGET,
+    ))).toBe(true);
+    expect(Result.isFailure(encodeCandidateBoundRuntimeTargetV1(
+      { ...FRAME, maximumIndexedQueryPageSize: 129n },
       BUDGET,
     ))).toBe(true);
     expect(Result.isFailure(encodeCandidateBoundRuntimeTargetV1(

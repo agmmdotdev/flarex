@@ -4,7 +4,7 @@ import {
   encodeBytesToLowercaseHex,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
-import { Effect, Encoding, Schema } from "effect";
+import { Effect, Encoding, Result, Schema } from "effect";
 
 import type { PointMutationSessionAttemptSelectorV1 } from
   "@flarex/persistence-postgres/transaction-session-activation";
@@ -26,6 +26,8 @@ import {
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   decodeCanonicalSessionJournalV1Effect,
+  MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
   verifySuccessfulResultEvidenceV1Effect,
   type CanonicalSuccessfulResultV1,
   type LogicalAppWriteV1,
@@ -361,38 +363,68 @@ function journalCounterMismatch(
   journal: SessionJournalV1,
 ): StoredAttemptStorageCorruptionV1Error | undefined {
   let writeSemanticBytes = 0;
+  let pointDependencyCount = 0;
+  const indexedDependencies = journal.readDependencies.filter(
+    (dependency) => dependency.kind === "appIndexRange",
+  );
+  for (const dependency of journal.readDependencies) {
+    if (dependency.kind === "appRowPoint") {
+      pointDependencyCount += 1;
+    }
+  }
+  const indexRangeDependencyEvidenceBytes = Result.all(
+    indexedDependencies.map(
+      measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
+    ),
+  ).pipe(
+    Result.map((measurements) =>
+      measurements.reduce((total, bytes) => total + bytes, 0)
+    ),
+  );
   for (const write of journal.writes) {
     if (write.kind !== "delete") {
       writeSemanticBytes += write.resultingDocumentSemanticBytes;
     }
   }
-  if (
-    journal.protocolVersion !== evidence.session.protocolVersion ||
-    journal.finalSyscallSequence !==
-      evidence.root.sealedFinalSyscallSequence ||
-    evidence.root.lastSyscallSequence !==
-      evidence.root.sealedFinalSyscallSequence ||
-    journal.readUsage.documentsRead !== evidence.root.readDocuments ||
-    journal.readUsage.semanticBytesRead !==
-      evidence.root.readSemanticBytes ||
-    journal.readDependencies.length !==
-      evidence.root.pointDependencyCount ||
-    journal.writes.length !== evidence.root.writeOperations ||
-    writeSemanticBytes !== evidence.root.writeSemanticBytes ||
-    evidence.points.length !== evidence.root.pointDependencyCount
-  ) {
-    return new StoredAttemptStorageCorruptionV1Error({
+  return Result.match(indexRangeDependencyEvidenceBytes, {
+    onFailure: () => new StoredAttemptStorageCorruptionV1Error({
       reason: "journalCounterMismatch",
-    });
-  }
-  return undefined;
+    }),
+    onSuccess: (measuredIndexRangeEvidenceBytes) =>
+      journal.protocolVersion !== evidence.session.protocolVersion ||
+        journal.finalSyscallSequence !==
+          evidence.root.sealedFinalSyscallSequence ||
+        evidence.root.lastSyscallSequence !==
+          evidence.root.sealedFinalSyscallSequence ||
+        journal.readUsage.documentsRead !== evidence.root.readDocuments ||
+        journal.readUsage.semanticBytesRead !==
+          evidence.root.readSemanticBytes ||
+        pointDependencyCount !== evidence.root.pointDependencyCount ||
+        indexedDependencies.length !==
+          evidence.root.indexRangeDependencyCount ||
+        measuredIndexRangeEvidenceBytes !==
+          evidence.root.indexRangeDependencyEvidenceBytes ||
+        evidence.root.indexedQuerySyscalls < indexedDependencies.length ||
+        evidence.root.indexedQuerySyscalls >
+          MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1 ||
+        journal.writes.length !== evidence.root.writeOperations ||
+        writeSemanticBytes !== evidence.root.writeSemanticBytes ||
+        evidence.points.length !== evidence.root.pointDependencyCount
+        ? new StoredAttemptStorageCorruptionV1Error({
+            reason: "journalCounterMismatch",
+          })
+        : undefined,
+  });
 }
 
 export interface AuthenticatedStoredAttemptPointV1 {
   readonly documentId: AppDocumentIdV1;
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
-  readonly dependency: LogicalReadDependencyV1;
+  readonly dependency: Extract<
+    LogicalReadDependencyV1,
+    { readonly kind: "appRowPoint" }
+  >;
   readonly overlayKind: "none" | "live" | "deleted";
   readonly overlayCreationTime: AppCreationTimeV1 | null;
   readonly overlayValue: CanonicalFlarexRuntimeValueV1 | null;
@@ -409,9 +441,14 @@ const verifyPointCorrelationEffect = Effect.fn(
   ReadonlyArray<AuthenticatedStoredAttemptPointV1>,
   StoredAttemptStorageCorruptionV1Error
 > {
-  const dependencies = new Map<AppDocumentIdV1, LogicalReadDependencyV1>();
+  const dependencies = new Map<
+    AppDocumentIdV1,
+    Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }>
+  >();
   for (const dependency of journal.readDependencies) {
-    dependencies.set(dependency.documentId, dependency);
+    if (dependency.kind === "appRowPoint") {
+      dependencies.set(dependency.documentId, dependency);
+    }
   }
   const points = new Map<
     AppDocumentIdV1,
@@ -549,7 +586,7 @@ const dependencyFromPointEffect = Effect.fn(function* (
   row: StoredAttemptPointEvidencePortV1,
   documentId: AppDocumentIdV1,
 ): Effect.fn.Return<
-  LogicalReadDependencyV1,
+  Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }>,
   StoredAttemptStorageCorruptionV1Error
 > {
   switch (row.dependencyKind) {
@@ -804,8 +841,8 @@ const copyRuntimeDocumentEffect = Effect.fn(function* (
 });
 
 export function dependenciesEqual(
-  left: LogicalReadDependencyV1,
-  right: LogicalReadDependencyV1,
+  left: Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }>,
+  right: Extract<LogicalReadDependencyV1, { readonly kind: "appRowPoint" }>,
 ): boolean {
   if (
     left.documentId !== right.documentId ||
@@ -867,6 +904,10 @@ function captureAuthenticatedState(
       readDocuments: root.readDocuments,
       readSemanticBytes: root.readSemanticBytes,
       pointDependencyCount: root.pointDependencyCount,
+      indexedQuerySyscalls: root.indexedQuerySyscalls,
+      indexRangeDependencyCount: root.indexRangeDependencyCount,
+      indexRangeDependencyEvidenceBytes:
+        root.indexRangeDependencyEvidenceBytes,
       writeOperations: root.writeOperations,
       writeSemanticBytes: root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:

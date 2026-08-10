@@ -1,4 +1,4 @@
-import { and, desc, eq, lte } from "drizzle-orm";
+import { and, desc, eq, inArray, lte } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   AppDocumentSystemFieldV1Error,
@@ -24,6 +24,7 @@ import {
   decodeCatalogSchemaVersionId,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
+import { MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 } from "flarex-protocol/commit-protocol";
 import {
   CommitSeqSchema,
   ScopeEpochUuidV1Schema,
@@ -75,6 +76,13 @@ export interface GetAppRowAtSnapshotV1Input {
   readonly snapshotToken: SnapshotToken;
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
+}
+
+export interface ReadAppRowsAtSnapshotV1Input {
+  readonly scopeId: ScopeId;
+  readonly tableId: CatalogTableId;
+  readonly rowIds: ReadonlyArray<AppRowIdHexV1>;
+  readonly snapshotCommitSeq: CommitSeq;
 }
 
 export interface PresentAppRowPointDependencyV1 {
@@ -301,6 +309,7 @@ export type InvalidAppRowReadInputIssue =
   | Readonly<{ readonly reason: "invalidScopeId"; readonly cause: unknown }>
   | Readonly<{ readonly reason: "invalidTableId"; readonly cause: unknown }>
   | Readonly<{ readonly reason: "invalidRowId"; readonly cause: unknown }>
+  | Readonly<{ readonly reason: "rowLimitExceeded"; readonly cause: unknown }>
   | Readonly<{
       readonly reason: "invalidSnapshotCommitSeq";
       readonly cause: unknown;
@@ -396,6 +405,116 @@ export const readAppRowAtSnapshotInTransactionEffect = Effect.fn(
     decodedIdentity,
     snapshotCommitSeq,
   );
+});
+
+/**
+ * Bounded set-based snapshot materialization for positions already selected by
+ * an authenticated ordered index. The result follows caller row-id order and
+ * requires one visible live revision for every requested identity.
+ */
+export const readLiveAppRowsAtSnapshotInTransactionEffect = Effect.fn(
+  "AppRows.readLiveSetAtSnapshotInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  input: ReadAppRowsAtSnapshotV1Input,
+): Effect.fn.Return<ReadonlyArray<LiveAppRowRevisionV1>, ReadAppRowError> {
+  if (input.rowIds.length > MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1) {
+    return yield* Effect.fail(new InvalidAppRowReadInputError({
+      reason: "rowLimitExceeded",
+      cause: new Error(
+        `Expected at most ${MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1} row identities.`,
+      ),
+    }));
+  }
+  if (input.rowIds.length === 0) return Object.freeze([]);
+  const decodedIdentity = yield* Effect.fromResult(
+    decodeReadIdentityResult({
+      scopeId: input.scopeId,
+      tableId: input.tableId,
+      rowId: input.rowIds[0],
+    }),
+  );
+  const rowIds = yield* Effect.all(
+    input.rowIds.map((rowId) =>
+      Effect.fromResult(decodeReadFieldResult(
+        decodeAppRowIdHexV1Result(rowId),
+        "invalidRowId",
+      ))
+    ),
+    { concurrency: 1 },
+  );
+  if (new Set(rowIds).size !== rowIds.length) {
+    return yield* Effect.fail(new InvalidAppRowReadInputError({
+      reason: "invalidRowId",
+      cause: new Error("Expected distinct row identities."),
+    }));
+  }
+  const snapshotCommitSeq = yield* Effect.fromResult(
+    decodeReadFieldResult(
+      decodeCommitSeqResult(input.snapshotCommitSeq),
+      "invalidSnapshotCommitSeq",
+    ),
+  );
+  const scopeUuid = yield* requireScopeUuidInTransactionEffect(
+    tx,
+    decodedIdentity,
+  );
+  const rows = yield* readAppRowRowsEffect(
+    tx.selectDistinctOn([fxAppRowRevisions.rowId])
+      .from(fxAppRowRevisions)
+      .where(and(
+        eq(fxAppRowRevisions.scopeUuid, scopeUuid),
+        eq(fxAppRowRevisions.tableId, input.tableId),
+        inArray(
+          fxAppRowRevisions.rowId,
+          rowIds.map(appRowIdHexV1ToBytes),
+        ),
+        lte(fxAppRowRevisions.commitSeq, snapshotCommitSeq),
+      ))
+      .orderBy(fxAppRowRevisions.rowId, desc(fxAppRowRevisions.commitSeq)),
+    "readSnapshotRevision",
+  );
+  const byRowId = new Map<AppRowIdHexV1, AppRowRevisionRow>();
+  for (const row of rows) {
+    const rowId = yield* Effect.fromResult(
+      appRowIdHexV1FromBytesResult(row.rowId).pipe(
+        Result.mapError((cause) => new AppRowStorageCorruptionError(
+          decodedIdentity.identity,
+          "set-based snapshot row identity is invalid",
+          { cause },
+        )),
+      ),
+    );
+    if (byRowId.has(rowId)) {
+      return yield* Effect.fail(new AppRowStorageCorruptionError(
+        { ...decodedIdentity.identity, rowId },
+        "set-based snapshot returned duplicate row identity",
+      ));
+    }
+    byRowId.set(rowId, row);
+  }
+  const revisions: LiveAppRowRevisionV1[] = [];
+  for (const rowId of rowIds) {
+    const row = byRowId.get(rowId);
+    if (row === undefined) {
+      return yield* Effect.fail(new AppRowStorageCorruptionError(
+        { ...decodedIdentity.identity, rowId },
+        "index position references no visible row revision",
+      ));
+    }
+    const revision = yield* decodeRevisionRowEffect(
+      { ...decodedIdentity.identity, rowId },
+      row,
+    );
+    if (revision.kind !== "live") {
+      return yield* Effect.fail(new AppRowStorageCorruptionError(
+        { ...decodedIdentity.identity, rowId },
+        "index position references a tombstone row revision",
+      ));
+    }
+    revisions.push(revision);
+  }
+  return Object.freeze(revisions);
 });
 
 const readDecodedAppRowAtSnapshotInTransactionEffect = Effect.fn(

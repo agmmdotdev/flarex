@@ -130,6 +130,9 @@ export function buildFreshTransactionAttemptFacetV1(
           readDocuments: 0,
           readSemanticBytes: 0,
           pointDependencyCount: 0,
+          indexedQuerySyscalls: 0,
+          indexRangeDependencyCount: 0,
+          indexRangeDependencyEvidenceBytes: 0,
           writeOperations: 0,
           writeSemanticBytes: 0,
           materialWriteEventEvidenceBytes:
@@ -161,6 +164,9 @@ export function isPristineFreshTransactionAttemptJournalRootV1(
     root.readDocuments === 0 &&
     root.readSemanticBytes === 0 &&
     root.pointDependencyCount === 0 &&
+    root.indexedQuerySyscalls === 0 &&
+    root.indexRangeDependencyCount === 0 &&
+    root.indexRangeDependencyEvidenceBytes === 0 &&
     root.writeOperations === 0 &&
     root.writeSemanticBytes === 0 &&
     root.materialWriteEventEvidenceBytes === 0 &&
