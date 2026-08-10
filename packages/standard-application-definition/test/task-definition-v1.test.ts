@@ -1,5 +1,5 @@
 import { Result, Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import * as DefinitionRoot from "../src/v1";
 import {
@@ -10,9 +10,12 @@ import {
   TASK_RUN_CREATION_AUTHORITY_RECEIPT_CODEC_V1,
   TASK_RUNTIME_ENTRY_CODEC_V1,
   TASK_RUNTIME_OBJECT_STORE_V1,
+  InvalidStandardApplicationTaskDefinitionV1Error,
   decodeApplicationRevisionTaskBindingFrameV1,
   decodeCanonicalTaskCatalogV1,
   decodeCanonicalTaskManifestV1,
+  decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1,
+  decodeTaskDefinitionRuntimeBindingCommitmentV1,
   decodeTaskDefinitionRuntimeBindingV1,
   decodeTaskIdV1,
   decodeTaskRunCreationAuthorityReceiptPreimageV1,
@@ -21,6 +24,7 @@ import {
   encodeApplicationRevisionTaskBindingPreimageV1,
   encodeCanonicalTaskManifestPreimageV1,
   encodeHashedCanonicalTaskCatalogPreimageV1,
+  encodeTaskDefinitionRuntimeBindingCommitmentPreimageV1,
   encodeTaskDefinitionRuntimeBindingPreimageV1,
   encodeTaskRunCreationAuthorityReceiptPreimageV1,
   encodeTaskRuntimeEntryPreimageV1,
@@ -35,6 +39,7 @@ import {
   type CanonicalTaskManifestV1,
   type HashedCanonicalTaskCatalogV1,
   type StandardApplicationTaskSha256V1,
+  type TaskDefinitionRuntimeBindingCommitmentV1,
   type TaskDefinitionRuntimeBindingV1,
   type TaskDefinitionSha256V1,
   type TaskRuntimeEntryFrameV1,
@@ -286,6 +291,60 @@ describe("Standard Application task definition V1", () => {
       encodeTaskDefinitionRuntimeBindingPreimageV1(decoded),
     ));
     expect(preimage).toBe(expectedRuntimeBindingText(decoded));
+    const commitment = success(
+      decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(
+        UTF8_ENCODER.encode(preimage),
+      ),
+    );
+    expectTypeOf(decodeTaskDefinitionRuntimeBindingCommitmentV1(commitment))
+      .toEqualTypeOf<Result.Result<
+        TaskDefinitionRuntimeBindingCommitmentV1,
+        InvalidStandardApplicationTaskDefinitionV1Error<
+          "decode_runtime_binding_commitment"
+        >
+      >>();
+    expectTypeOf(
+      encodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(commitment),
+    ).toEqualTypeOf<Result.Result<
+      Uint8Array,
+      InvalidStandardApplicationTaskDefinitionV1Error<
+        "encode_runtime_binding_commitment"
+      >
+    >>();
+    expectTypeOf(
+      decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(
+        UTF8_ENCODER.encode(preimage),
+      ),
+    ).toEqualTypeOf<Result.Result<
+      TaskDefinitionRuntimeBindingCommitmentV1,
+      InvalidStandardApplicationTaskDefinitionV1Error<
+        "decode_runtime_binding_commitment_preimage"
+      >
+    >>();
+    expect("manifest" in commitment).toBe(false);
+    expect(commitment.taskId).toBe(decoded.taskId);
+    expect(commitment.runtimeObjects).toEqual(decoded.runtimeObjects);
+    expect(UTF8.decode(success(
+      encodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(commitment),
+    ))).toBe(preimage);
+    expect(success(decodeTaskDefinitionRuntimeBindingCommitmentV1(
+      commitment,
+    ))).toEqual(commitment);
+    expect(failure(decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(
+      UTF8_ENCODER.encode(`${preimage} `),
+    ))).toMatchObject({
+      operation: "decode_runtime_binding_commitment_preimage",
+      reason: "inconsistent_binding",
+    });
+    expect(failure(decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(
+      UTF8_ENCODER.encode(preimage.replace(
+        '"taskOrdinal":"0"',
+        '"taskOrdinal":"00"',
+      )),
+    ))).toMatchObject({
+      operation: "decode_runtime_binding_commitment_preimage",
+      reason: "invalid_shape",
+    });
     expect(preimage).not.toContain("activationRevision");
     expect(preimage).not.toContain("activationHeadSha256");
     expect((await Effect.runPromise(
@@ -295,6 +354,25 @@ describe("Standard Application task definition V1", () => {
 
   it("rejects handler, claimed digest, and runtime-object contradictions", async () => {
     const fixture = await makeRuntimeBindingFixture();
+    expect(failure(decodeTaskDefinitionRuntimeBindingV1({
+      ...fixture.binding,
+      manifest: {},
+      taskRuntimeEntry: {},
+    }))).toMatchObject({
+      reason: "invalid_shape",
+      path: "manifest",
+    });
+    expect(failure(decodeTaskDefinitionRuntimeBindingV1({
+      ...fixture.binding,
+      manifest: {
+        ...fixture.binding.manifest,
+        handler: {
+          ...fixture.binding.manifest.handler,
+          exportName: "other",
+        },
+      },
+      candidateSha256: new Uint8Array(1),
+    }))).toMatchObject({ reason: "inconsistent_binding" });
     expect(failure(decodeTaskDefinitionRuntimeBindingV1({
       ...fixture.binding,
       taskRuntimeEntry: {
@@ -510,7 +588,7 @@ async function makeRuntimeBindingFixture(): Promise<{
 }
 
 function expectedRuntimeBindingText(
-  binding: TaskDefinitionRuntimeBindingV1,
+  binding: TaskDefinitionRuntimeBindingCommitmentV1,
 ): string {
   const entry = binding.taskRuntimeEntry;
   const runtimeObjects = binding.runtimeObjects.map((reference) =>

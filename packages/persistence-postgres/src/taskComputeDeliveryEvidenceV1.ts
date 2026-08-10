@@ -25,8 +25,8 @@ import {
   type TaskComputeProfileRefV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
-  decodeTaskDefinitionRuntimeBindingV1,
-  type TaskDefinitionRuntimeBindingV1,
+  decodeTaskDefinitionRuntimeBindingCommitmentV1,
+  type TaskDefinitionRuntimeBindingCommitmentV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import { bytesEqual, isUint8Array } from "@flarex/utils/bytes";
 import { Data, Effect, Result, Schema } from "effect";
@@ -102,7 +102,7 @@ export class InvalidTaskComputePreparedExecutionV1Error extends Data.TaggedError
   readonly reason:
     | "invalid_shape"
     | "invalid_dispatch_request"
-    | "invalid_runtime_binding"
+    | "invalid_runtime_binding_commitment"
     | "invalid_input_reference";
 }> {}
 
@@ -130,7 +130,7 @@ export interface TaskComputeDeliveryEvidenceV1 {
 export interface TaskComputePreparedExecutionV1 {
   readonly version: typeof TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1;
   readonly dispatchRequest: TaskComputeDispatchRequestV1;
-  readonly runtimeBinding: TaskDefinitionRuntimeBindingV1;
+  readonly runtimeBindingCommitment: TaskDefinitionRuntimeBindingCommitmentV1;
   readonly inputReference: TaskInputReferenceV1;
 }
 
@@ -214,7 +214,7 @@ export function decodeTaskComputePreparedExecutionV1(
   const outer = captureExactDataRecord(input, [
     "version",
     "dispatchRequest",
-    "runtimeBinding",
+    "runtimeBindingCommitment",
     "inputReference",
   ]);
   if (
@@ -229,11 +229,14 @@ export function decodeTaskComputePreparedExecutionV1(
     ).pipe(
       Result.mapError(() => preparedFailure("invalid_dispatch_request")),
     );
-    const runtimeBinding = yield* decodeTaskDefinitionRuntimeBindingV1(
-      outer.runtimeBinding,
-    ).pipe(
-      Result.mapError(() => preparedFailure("invalid_runtime_binding")),
-    );
+    const runtimeBindingCommitment = yield*
+      decodeTaskDefinitionRuntimeBindingCommitmentV1(
+        outer.runtimeBindingCommitment,
+      ).pipe(
+        Result.mapError(() => preparedFailure(
+          "invalid_runtime_binding_commitment",
+        )),
+      );
     const inputReference = yield* decodeTaskInputReferenceV1(
       outer.inputReference,
     ).pipe(
@@ -242,7 +245,7 @@ export function decodeTaskComputePreparedExecutionV1(
     return Object.freeze({
       version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
       dispatchRequest,
-      runtimeBinding,
+      runtimeBindingCommitment,
       inputReference,
     });
   });

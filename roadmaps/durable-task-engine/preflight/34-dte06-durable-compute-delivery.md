@@ -13,8 +13,8 @@ and their focused proofs. It adds no transaction repository, effect consumer,
 provider call, Worker route, binding, deployment configuration, or production
 activation. DTE06-C2 is now admitted by
 [`35-dte06-scope-bound-fenced-repository.md`](./35-dte06-scope-bound-fenced-repository.md),
-but its implementation is paused on the prepared-subject evidence gap recorded
-there.
+and the approved prepared-subject commitment correction has removed its
+implementation pause without changing the schema.
 
 ## Question
 
@@ -76,7 +76,9 @@ and correlate the immutable definition binding and the run's input reference.
 The transaction returns an owned private **prepared execution subject** with:
 
 - the exact frozen provider dispatch request;
-- the decoded, correlated Standard Application task runtime binding;
+- the decoded, correlated Standard Application
+  `runtimeBindingCommitment`, reconstructed from canonical definition bytes
+  without the full manifest;
 - the immutable `TaskInputReferenceV1`;
 - the delivery checkpoint identity and fenced process-local claim handle; and
 - only the content commitments needed to prove those values match stored
@@ -84,8 +86,10 @@ The transaction returns an owned private **prepared execution subject** with:
 
 This subject belongs to the private persistence/backend composition seam, not
 the public provider wire contract. DTE06-D will consume it at the existing
-artifact-runtime owner and define the private task runtime ABI. C1-C3 must not
-invent that ABI or send raw task input through the provider request.
+artifact-runtime owner, load the full binding and manifest, verify every
+commitment, and define the private task runtime ABI. C1-C3 must not materialize
+that binding, invent that ABI, or send raw task input through the provider
+request.
 
 ### 3. Dispatch And Cancellation Need Distinct Evidence
 
@@ -308,7 +312,7 @@ index constraints. Focused codec/ownership/corruption tests, current-head
 PGlite migration and constraint tests, and temporary-schema genuine PostgreSQL
 tests prove this checkpoint without admitting C2 operations.
 
-### DTE06-C2: Scope-Bound Fenced Repository — Admitted, Paused
+### DTE06-C2: Scope-Bound Fenced Repository — Admitted
 
 - implement acquire/takeover, start marker, renew, exact receipt checkpoint,
   known-failure, and pre-delivery release transactions;
@@ -322,8 +326,9 @@ tests prove this checkpoint without admitting C2 operations.
 The implementation-ready authority, operation/result contracts, lock and state
 tables, settlement policy, validation matrix, and stop boundary are fixed in
 [`35-dte06-scope-bound-fenced-repository.md`](./35-dte06-scope-bound-fenced-repository.md).
-Implementation first requires explicit approval for that preflight's bounded
-C1 prepared-subject commitment correction.
+Its bounded C1 prerequisite is now complete: the prepared subject carries the
+durably reconstructable runtime-binding commitment, while DTE06-D retains full
+binding and manifest materialization authority.
 
 ### DTE06-C3: Bounded Connected Mock Delivery — Not Yet Admitted
 

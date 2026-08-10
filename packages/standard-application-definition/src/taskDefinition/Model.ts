@@ -114,13 +114,16 @@ export interface TaskRuntimeObjectReferenceV1 {
   readonly sha256: TaskDefinitionSha256V1;
 }
 
-export interface TaskDefinitionRuntimeBindingV1 {
+/**
+ * Durable immutable evidence needed to identify one runtime binding. The full
+ * manifest remains owned by the later artifact/runtime reconstruction boundary.
+ */
+export interface TaskDefinitionRuntimeBindingCommitmentV1 {
   readonly version: 1;
   readonly applicationRevisionId: string;
   readonly candidateSha256: TaskDefinitionSha256V1;
   readonly applicationRevisionTaskBindingSha256: TaskDefinitionSha256V1;
   readonly taskId: TaskIdV1;
-  readonly manifest: CanonicalTaskManifestV1;
   readonly canonicalTaskManifestSha256: TaskDefinitionSha256V1;
   readonly taskRuntimeEntrySha256: TaskDefinitionSha256V1;
   readonly taskRuntimeEntry: TaskRuntimeEntryFrameV1;
@@ -134,6 +137,11 @@ export interface TaskDefinitionRuntimeBindingV1 {
   readonly sourceRootSha256: TaskDefinitionSha256V1;
   readonly semanticRootSha256: TaskDefinitionSha256V1;
   readonly runtimeObjects: ReadonlyArray<TaskRuntimeObjectReferenceV1>;
+}
+
+export interface TaskDefinitionRuntimeBindingV1
+  extends TaskDefinitionRuntimeBindingCommitmentV1 {
+  readonly manifest: CanonicalTaskManifestV1;
 }
 
 export interface TaskRunCreationAuthorityReceiptV1 {

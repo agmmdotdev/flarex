@@ -35,6 +35,7 @@ import {
   type CanonicalTaskCatalogV1,
   type CanonicalTaskHandlerBindingV1,
   type CanonicalTaskManifestV1,
+  type TaskDefinitionRuntimeBindingCommitmentV1,
   type TaskDefinitionRuntimeBindingV1,
   type TaskDefinitionSha256V1,
   type TaskIdV1,
@@ -309,6 +310,48 @@ export function decodeApplicationRevisionTaskBindingFrameV1(
   });
 }
 
+const TASK_RUNTIME_BINDING_COMMITMENT_KEYS_V1 = [
+  "version",
+  "applicationRevisionId",
+  "candidateSha256",
+  "applicationRevisionTaskBindingSha256",
+  "taskId",
+  "canonicalTaskManifestSha256",
+  "taskRuntimeEntrySha256",
+  "taskRuntimeEntry",
+  "taskCatalogSha256",
+  "taskEntryRootSha256",
+  "taskRuntimeProjectionSha256",
+  "taskRuntimeGroupManifestSha256",
+  "taskRuntimeMaterializationSpecSha256",
+  "packageSha256",
+  "artifactSha256",
+  "sourceRootSha256",
+  "semanticRootSha256",
+  "runtimeObjects",
+] as const;
+
+export function decodeTaskDefinitionRuntimeBindingCommitmentV1(
+  input: unknown,
+): Result.Result<
+  TaskDefinitionRuntimeBindingCommitmentV1,
+  InvalidStandardApplicationTaskDefinitionV1Error<
+    "decode_runtime_binding_commitment"
+  >
+> {
+  const operation = "decode_runtime_binding_commitment" as const;
+  const outer = captureExactDataRecord(
+    input,
+    TASK_RUNTIME_BINDING_COMMITMENT_KEYS_V1,
+  );
+  if (outer === undefined || outer.version !== 1) {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  return decodeRuntimeBindingCommitmentCapturedV1(outer, operation).pipe(
+    Result.mapError((failure) => reoperation(failure, operation)),
+  );
+}
+
 export function decodeTaskDefinitionRuntimeBindingV1(
   input: unknown,
 ): Result.Result<
@@ -356,21 +399,95 @@ export function decodeTaskDefinitionRuntimeBindingV1(
       operation,
       "manifest",
     );
-    const taskRuntimeEntry = yield* decodeTaskRuntimeEntryFrameV1(
+    const taskRuntimeEntry = yield* decodeRuntimeBindingTaskEntryCapturedV1(
       outer.taskRuntimeEntry,
-    ).pipe(Result.mapError((failure) => invalid(
       operation,
-      failure.reason,
-      failure.path === undefined ? "taskRuntimeEntry" : `taskRuntimeEntry.${failure.path}`,
-    )));
+    );
     if (
       manifest.taskId !== taskId || taskRuntimeEntry.taskId !== taskId ||
-      taskRuntimeEntry.logicalExecutionModule !== manifest.handler.logicalModulePath ||
-      taskRuntimeEntry.artifactExecutionModule !== manifest.handler.artifactModulePath ||
+      taskRuntimeEntry.logicalExecutionModule
+        !== manifest.handler.logicalModulePath ||
+      taskRuntimeEntry.artifactExecutionModule
+        !== manifest.handler.artifactModulePath ||
       taskRuntimeEntry.exportName !== manifest.handler.exportName
     ) {
       return yield* Result.fail(invalid(operation, "inconsistent_binding"));
     }
+    const commitment = yield* decodeRuntimeBindingCommitmentEvidenceCapturedV1(
+      outer,
+      operation,
+      applicationRevisionId,
+      taskId,
+      taskRuntimeEntry,
+    );
+    return Object.freeze({ ...commitment, manifest });
+  });
+}
+
+function decodeRuntimeBindingCommitmentCapturedV1(
+  outer: Readonly<Record<string, unknown>>,
+  operation: StandardApplicationTaskDefinitionOperationV1,
+): Result.Result<
+  TaskDefinitionRuntimeBindingCommitmentV1,
+  InvalidStandardApplicationTaskDefinitionV1Error
+> {
+  return Result.gen(function* () {
+    const applicationRevisionId = yield* decodeBoundedText(
+      outer.applicationRevisionId,
+      operation,
+      "invalid_application_revision",
+      "applicationRevisionId",
+      MAX_TASK_HANDLER_FIELD_UTF8_BYTES_V1,
+    );
+    const taskId = yield* decodeTaskIdV1(outer.taskId).pipe(
+      Result.mapError(() => invalid(operation, "invalid_task_id", "taskId")),
+    );
+    const taskRuntimeEntry = yield* decodeRuntimeBindingTaskEntryCapturedV1(
+      outer.taskRuntimeEntry,
+      operation,
+    );
+    if (taskRuntimeEntry.taskId !== taskId) {
+      return yield* Result.fail(invalid(operation, "inconsistent_binding"));
+    }
+    return yield* decodeRuntimeBindingCommitmentEvidenceCapturedV1(
+      outer,
+      operation,
+      applicationRevisionId,
+      taskId,
+      taskRuntimeEntry,
+    );
+  });
+}
+
+function decodeRuntimeBindingTaskEntryCapturedV1(
+  input: unknown,
+  operation: StandardApplicationTaskDefinitionOperationV1,
+): Result.Result<
+  TaskRuntimeEntryFrameV1,
+  InvalidStandardApplicationTaskDefinitionV1Error
+> {
+  return decodeTaskRuntimeEntryFrameV1(input).pipe(
+    Result.mapError((failure) => invalid(
+      operation,
+      failure.reason,
+      failure.path === undefined
+        ? "taskRuntimeEntry"
+        : `taskRuntimeEntry.${failure.path}`,
+    )),
+  );
+}
+
+function decodeRuntimeBindingCommitmentEvidenceCapturedV1(
+  outer: Readonly<Record<string, unknown>>,
+  operation: StandardApplicationTaskDefinitionOperationV1,
+  applicationRevisionId: string,
+  taskId: TaskIdV1,
+  taskRuntimeEntry: TaskRuntimeEntryFrameV1,
+): Result.Result<
+  TaskDefinitionRuntimeBindingCommitmentV1,
+  InvalidStandardApplicationTaskDefinitionV1Error
+> {
+  return Result.gen(function* () {
     const digestFields = [
       "candidateSha256",
       "applicationRevisionTaskBindingSha256",
@@ -426,7 +543,6 @@ export function decodeTaskDefinitionRuntimeBindingV1(
       applicationRevisionTaskBindingSha256:
         digests.get("applicationRevisionTaskBindingSha256")!,
       taskId,
-      manifest,
       canonicalTaskManifestSha256:
         digests.get("canonicalTaskManifestSha256")!,
       taskRuntimeEntrySha256: digests.get("taskRuntimeEntrySha256")!,
@@ -1042,18 +1158,33 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
-function invalid(
-  operation: StandardApplicationTaskDefinitionOperationV1,
+function invalid<Operation extends StandardApplicationTaskDefinitionOperationV1>(
+  operation: Operation,
   reason: StandardApplicationTaskDefinitionReasonV1,
   path?: string,
   observed?: number,
   maximum?: number,
-): InvalidStandardApplicationTaskDefinitionV1Error {
+): InvalidStandardApplicationTaskDefinitionV1Error<Operation> {
   return new InvalidStandardApplicationTaskDefinitionV1Error({
     operation,
     reason,
     ...(path === undefined ? {} : { path }),
     ...(observed === undefined ? {} : { observed }),
     ...(maximum === undefined ? {} : { maximum }),
+  });
+}
+
+function reoperation<
+  Operation extends StandardApplicationTaskDefinitionOperationV1,
+>(
+  failure: InvalidStandardApplicationTaskDefinitionV1Error,
+  operation: Operation,
+): InvalidStandardApplicationTaskDefinitionV1Error<Operation> {
+  return new InvalidStandardApplicationTaskDefinitionV1Error({
+    operation,
+    reason: failure.reason,
+    ...(failure.path === undefined ? {} : { path: failure.path }),
+    ...(failure.observed === undefined ? {} : { observed: failure.observed }),
+    ...(failure.maximum === undefined ? {} : { maximum: failure.maximum }),
   });
 }

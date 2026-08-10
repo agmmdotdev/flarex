@@ -8,11 +8,11 @@ over the DTE06-C1 dispatch and cancellation tables. The implementation is not
 complete until the repository, PGlite and genuine-PostgreSQL proofs, boundary
 gates, and required reviewer receipts all pass.
 
-**Implementation pause:** current source inspection exposed a pre-existing
-prepared-subject evidence gap described below. C2 implementation must not begin
-until the C1 prepared-subject correction is explicitly approved. No fallback,
-schema widening, or process-local binding injection is authorized by this
-preflight.
+**Prerequisite resolved:** the approved bounded C1 correction replaces the
+non-reconstructable full binding in the prepared subject with an owned,
+immutable runtime-binding commitment decoded from the durable canonical
+definition bytes. No fallback, schema widening, or process-local binding
+injection was introduced. C2 implementation may proceed.
 
 This admission changes no runtime code by itself. DTE06-C1 commit `201d85b4`
 is the required storage prerequisite. DTE06-C3 connected discovery and provider
@@ -49,7 +49,7 @@ transaction?
   restart, and cancellation race scenarios. No Trigger persistence, Prisma,
   Redis, organization, or compute-host contract is admitted.
 
-## Blocking Prepared-Subject Evidence Gap
+## Resolved Prepared-Subject Evidence Gap
 
 ### Reproducible Scenario
 
@@ -60,7 +60,7 @@ transaction?
    only `runId` and requested-effect sequence, as C2 requires.
 3. Load the current definition row, run row, requested effect, and C1 delivery
    tables without consulting an application/runtime host.
-4. Attempt to construct the current
+4. Attempt to construct the then-current
    `TaskComputePreparedExecutionV1.runtimeBinding` field.
 
 Expected: persistence reconstructs and correlates the complete immutable
@@ -68,7 +68,7 @@ Expected: persistence reconstructs and correlates the complete immutable
 
 Actual:
 
-- `TaskComputePreparedExecutionV1` requires the full runtime binding, including
+- the then-current `TaskComputePreparedExecutionV1` required the full runtime binding, including
   its canonical manifest;
 - `encodeTaskDefinitionRuntimeBindingPreimageV1` deliberately stores the
   runtime entry, runtime-object references, and digests but omits the full
@@ -116,10 +116,13 @@ identity or allow DTE06-D to choose a different definition.
 
 ### Current Disposition
 
-C2 implementation is paused with no production-code change. Explicit approval
-is required to correct the C1 prepared-subject contract through the commitment
-handoff before the repository implementation resumes. Until then, all C2
-completion claims and C3 admission remain prohibited.
+The commitment-handoff correction is complete. Standard Application now owns
+the canonical commitment encoder/decoder; C1's prepared execution carries that
+owned commitment and no manifest. C2 may reconstruct and correlate it from the
+definition row. DTE06-D remains the only future owner allowed to load the full
+binding and manifest and must verify every commitment before constructing the
+runtime ABI. C2 completion claims and C3 admission remain prohibited until the
+repository's own completion gate passes.
 
 ## Reuse Decision
 
@@ -288,7 +291,7 @@ Every acquire transaction proves the following from current stored owners:
 | cancellation projection | Current aggregate and the generation applicable to that exact dispatch |
 | definition revision | Run row, dispatch effect, immutable definition row, and creation authority |
 | compute profile and maximum duration | Exact dispatch/lifecycle evidence and definition policy already admitted by the Task domain |
-| runtime binding | Canonical immutable definition binding bytes plus all stored digest commitments |
+| `runtimeBindingCommitment` | Decode the canonical immutable definition binding bytes and correlate every stored digest commitment; do not load or construct the full binding or manifest, which remains DTE06-D authority |
 | input reference | Immutable run input columns and creation authority |
 | cancellation execution reference | Exact accepted dispatch evidence for the linked dispatch checkpoint |
 

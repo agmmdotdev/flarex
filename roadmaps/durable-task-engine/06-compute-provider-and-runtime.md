@@ -6,10 +6,11 @@
 DTE06-B's private host-neutral provider domain are complete and
 production-inert. DTE06-C0 now completes the docs-only durable-delivery schema
 and transaction preflight, and DTE06-C1 completes its canonical evidence and
-Task-owned storage checkpoint. DTE06-C2's scope-bound fenced repository is now
-admitted but paused on a prepared-subject evidence gap: current durable
-definition evidence cannot reconstruct the full runtime binding required by
-C1. The provider contract and DTE06-B implementation receipt live in
+Task-owned storage checkpoint. The approved C1 correction now exposes an owned
+runtime-binding commitment reconstructed from durable canonical definition
+bytes, leaving full manifest loading and commitment verification with the
+later runtime owner. DTE06-C2's scope-bound fenced repository is admitted for
+implementation. The provider contract and DTE06-B implementation receipt live in
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
 The C0 schema/transaction decision is recorded in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
@@ -399,9 +400,11 @@ timeout behavior without claiming Task lifecycle acknowledgement.
 - keep provider execution mocked and production-inert.
 
 C0 and C1's original checkpoints are complete. C1 deliberately adds no claim
-transaction, effect-ledger discovery, provider call, or runtime wiring. C2 is
-admitted but paused until the bounded C1 prepared-subject commitment correction
-is separately approved; C3 still requires the completed C2 receipt and
+transaction, effect-ledger discovery, provider call, or runtime wiring. The
+approved prepared-subject correction carries only the verified immutable
+runtime-binding commitment; DTE06-D later loads the full binding and manifest
+and verifies it before constructing the runtime ABI. C2 is admitted and may
+proceed; C3 still requires the completed C2 receipt and
 separate admission. The durable-delivery contract is
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
 and the exact C2 implementation boundary is

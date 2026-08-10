@@ -28,7 +28,7 @@ import {
   TASK_RUN_CREATION_AUTHORITY_RECEIPT_CODEC_V1,
   TASK_RUNTIME_ENTRY_CODEC_V1,
   type HashedCanonicalTaskCatalogV1,
-  type TaskDefinitionRuntimeBindingV1,
+  type TaskDefinitionRuntimeBindingCommitmentV1,
   type TaskDefinitionSha256V1,
   type TaskRunCreationAuthorityReceiptV1,
   type TaskRuntimeEntryFrameV1,
@@ -37,6 +37,7 @@ import {
 import {
   decodeApplicationRevisionTaskBindingFrameV1,
   decodeCanonicalTaskManifestV1,
+  decodeTaskDefinitionRuntimeBindingCommitmentV1,
   decodeTaskDefinitionRuntimeBindingV1,
   decodeTaskRunCreationAuthorityReceiptV1,
   decodeTaskRuntimeEntryFrameV1,
@@ -163,6 +164,143 @@ export function encodeTaskDefinitionRuntimeBindingPreimageV1(
   );
 }
 
+export function encodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(
+  input: unknown,
+): Result.Result<
+  Uint8Array,
+  InvalidStandardApplicationTaskDefinitionV1Error<
+    "encode_runtime_binding_commitment"
+  >
+> {
+  return decodeTaskDefinitionRuntimeBindingCommitmentV1(input).pipe(
+    Result.mapError((failure) => reoperation(
+      failure,
+      "encode_runtime_binding_commitment",
+    )),
+    Result.flatMap((binding) => canonicalBytes({
+      binding: taskDefinitionRuntimeBindingJson(binding),
+      codec: TASK_DEFINITION_RUNTIME_BINDING_CODEC_V1,
+    }, "encode_runtime_binding_commitment")),
+  );
+}
+
+export function decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(
+  input: unknown,
+): Result.Result<
+  TaskDefinitionRuntimeBindingCommitmentV1,
+  InvalidStandardApplicationTaskDefinitionV1Error<
+    "decode_runtime_binding_commitment_preimage"
+  >
+> {
+  const operation = "decode_runtime_binding_commitment_preimage" as const;
+  if (
+    !isUint8Array(input)
+    || input.byteLength > MAX_TASK_DEFINITION_CANONICAL_BYTES_V1
+  ) {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(FATAL_UTF8.decode(input));
+  } catch {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  if (
+    !isJsonObjectFromUnknown(parsed)
+    || !hasExactKeys(parsed, ["binding", "codec"])
+    || parsed.codec !== TASK_DEFINITION_RUNTIME_BINDING_CODEC_V1
+    || !isJsonObjectFromUnknown(parsed.binding)
+    || !hasExactKeys(parsed.binding, [
+      "applicationRevisionId",
+      "applicationRevisionTaskBindingSha256",
+      "artifactSha256",
+      "candidateSha256",
+      "canonicalTaskManifestSha256",
+      "packageSha256",
+      "runtimeObjects",
+      "semanticRootSha256",
+      "sourceRootSha256",
+      "taskCatalogSha256",
+      "taskEntryRootSha256",
+      "taskId",
+      "taskRuntimeEntry",
+      "taskRuntimeEntrySha256",
+      "taskRuntimeGroupManifestSha256",
+      "taskRuntimeMaterializationSpecSha256",
+      "taskRuntimeProjectionSha256",
+      "version",
+    ])
+  ) {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  const binding = parsed.binding;
+  const digestFields = [
+    "applicationRevisionTaskBindingSha256",
+    "artifactSha256",
+    "candidateSha256",
+    "canonicalTaskManifestSha256",
+    "packageSha256",
+    "semanticRootSha256",
+    "sourceRootSha256",
+    "taskCatalogSha256",
+    "taskEntryRootSha256",
+    "taskRuntimeEntrySha256",
+    "taskRuntimeGroupManifestSha256",
+    "taskRuntimeMaterializationSpecSha256",
+    "taskRuntimeProjectionSha256",
+  ] as const;
+  const digests = new Map<string, Uint8Array>();
+  for (const field of digestFields) {
+    const digest = decodeCanonicalDigest(binding[field]);
+    if (digest === undefined) {
+      return Result.fail(invalid(operation, "invalid_shape", field));
+    }
+    digests.set(field, digest);
+  }
+  const taskRuntimeEntry = decodeCanonicalTaskRuntimeEntry(
+    binding.taskRuntimeEntry,
+  );
+  const runtimeObjects = decodeCanonicalRuntimeObjects(binding.runtimeObjects);
+  if (taskRuntimeEntry === undefined || runtimeObjects === undefined) {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  return decodeTaskDefinitionRuntimeBindingCommitmentV1({
+    version: binding.version,
+    applicationRevisionId: binding.applicationRevisionId,
+    candidateSha256: digests.get("candidateSha256"),
+    applicationRevisionTaskBindingSha256:
+      digests.get("applicationRevisionTaskBindingSha256"),
+    taskId: binding.taskId,
+    canonicalTaskManifestSha256:
+      digests.get("canonicalTaskManifestSha256"),
+    taskRuntimeEntrySha256: digests.get("taskRuntimeEntrySha256"),
+    taskRuntimeEntry,
+    taskCatalogSha256: digests.get("taskCatalogSha256"),
+    taskEntryRootSha256: digests.get("taskEntryRootSha256"),
+    taskRuntimeProjectionSha256:
+      digests.get("taskRuntimeProjectionSha256"),
+    taskRuntimeGroupManifestSha256:
+      digests.get("taskRuntimeGroupManifestSha256"),
+    taskRuntimeMaterializationSpecSha256:
+      digests.get("taskRuntimeMaterializationSpecSha256"),
+    packageSha256: digests.get("packageSha256"),
+    artifactSha256: digests.get("artifactSha256"),
+    sourceRootSha256: digests.get("sourceRootSha256"),
+    semanticRootSha256: digests.get("semanticRootSha256"),
+    runtimeObjects,
+  }).pipe(
+    Result.mapError((failure) => reoperation(failure, operation)),
+    Result.flatMap((commitment) =>
+      encodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(commitment).pipe(
+        Result.mapError((failure) => reoperation(failure, operation)),
+        Result.flatMap((canonical) => bytesEqual(canonical, input)
+          ? Result.succeed(commitment)
+          : Result.fail(invalid(operation, "inconsistent_binding"))),
+      )
+    ),
+  );
+}
+
 export function encodeTaskRunCreationAuthorityReceiptPreimageV1(
   input: unknown,
 ): Result.Result<Uint8Array, InvalidStandardApplicationTaskDefinitionV1Error> {
@@ -258,7 +396,7 @@ export function decodeTaskRunCreationAuthorityReceiptPreimageV1(
 }
 
 function taskDefinitionRuntimeBindingJson(
-  binding: TaskDefinitionRuntimeBindingV1,
+  binding: TaskDefinitionRuntimeBindingCommitmentV1,
 ): Json {
   return {
     applicationRevisionId: binding.applicationRevisionId,
@@ -283,6 +421,64 @@ function taskDefinitionRuntimeBindingJson(
     taskRuntimeProjectionSha256: hex(binding.taskRuntimeProjectionSha256),
     version: 1,
   };
+}
+
+function decodeCanonicalTaskRuntimeEntry(
+  input: Json | undefined,
+): Readonly<Record<string, unknown>> | undefined {
+  if (
+    !isJsonObjectFromUnknown(input)
+    || !hasExactKeys(input, [
+      "artifactExecutionModule",
+      "canonicalTaskManifestSha256",
+      "exportName",
+      "group",
+      "kind",
+      "logicalExecutionModule",
+      "projectionSha256",
+      "taskId",
+      "taskOrdinal",
+    ])
+  ) return undefined;
+  const canonicalTaskManifestSha256 = decodeCanonicalDigest(
+    input.canonicalTaskManifestSha256,
+  );
+  const projectionSha256 = decodeCanonicalDigest(input.projectionSha256);
+  const taskOrdinal = decodeCanonicalNonNegativeBigInt(input.taskOrdinal);
+  return canonicalTaskManifestSha256 === undefined
+      || projectionSha256 === undefined
+      || taskOrdinal === undefined
+    ? undefined
+    : {
+      ...input,
+      canonicalTaskManifestSha256,
+      projectionSha256,
+      taskOrdinal,
+    };
+}
+
+function decodeCanonicalRuntimeObjects(
+  input: Json | undefined,
+): ReadonlyArray<Readonly<Record<string, unknown>>> | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const references: Array<Readonly<Record<string, unknown>>> = [];
+  for (const item of input) {
+    if (
+      !isJsonObjectFromUnknown(item)
+      || !hasExactKeys(item, [
+        "byteLength",
+        "objectKey",
+        "role",
+        "sha256",
+        "storeIdentity",
+      ])
+    ) return undefined;
+    const byteLength = decodeCanonicalPositiveBigInt(item.byteLength);
+    const sha256 = decodeCanonicalDigest(item.sha256);
+    if (byteLength === undefined || sha256 === undefined) return undefined;
+    references.push({ ...item, byteLength, sha256 });
+  }
+  return references;
 }
 
 function taskRuntimeEntryJson(entry: TaskRuntimeEntryFrameV1): Json {
@@ -377,6 +573,19 @@ function decodeCanonicalPositiveBigInt(value: Json | undefined): bigint | undefi
   }
 }
 
+function decodeCanonicalNonNegativeBigInt(
+  value: Json | undefined,
+): bigint | undefined {
+  if (typeof value !== "string" || !/^(?:0|[1-9][0-9]*)$/u.test(value)) {
+    return undefined;
+  }
+  try {
+    return BigInt(value);
+  } catch {
+    return undefined;
+  }
+}
+
 function decodeCanonicalDigest(value: Json | undefined): Uint8Array | undefined {
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
     return undefined;
@@ -432,10 +641,15 @@ function validatorJson(
   }
 }
 
-function canonicalBytes(
+function canonicalBytes<
+  Operation extends StandardApplicationTaskDefinitionOperationV1,
+>(
   value: Json,
-  operation: StandardApplicationTaskDefinitionOperationV1,
-): Result.Result<Uint8Array, InvalidStandardApplicationTaskDefinitionV1Error> {
+  operation: Operation,
+): Result.Result<
+  Uint8Array,
+  InvalidStandardApplicationTaskDefinitionV1Error<Operation>
+> {
   const bytes = UTF8.encode(encodeCanonicalJson(value, (issue) => {
     throw new StandardApplicationTaskCanonicalEncodingV1Defect({
       operation,
@@ -460,10 +674,12 @@ function nullableHex(digest: TaskDefinitionSha256V1 | null): string | null {
   return digest === null ? null : hex(digest);
 }
 
-function reoperation(
+function reoperation<
+  Operation extends StandardApplicationTaskDefinitionOperationV1,
+>(
   failure: InvalidStandardApplicationTaskDefinitionV1Error,
-  operation: StandardApplicationTaskDefinitionOperationV1,
-): InvalidStandardApplicationTaskDefinitionV1Error {
+  operation: Operation,
+): InvalidStandardApplicationTaskDefinitionV1Error<Operation> {
   return new InvalidStandardApplicationTaskDefinitionV1Error({
     operation,
     reason: failure.reason,
@@ -473,11 +689,11 @@ function reoperation(
   });
 }
 
-function invalid(
-  operation: StandardApplicationTaskDefinitionOperationV1,
+function invalid<Operation extends StandardApplicationTaskDefinitionOperationV1>(
+  operation: Operation,
   reason: InvalidStandardApplicationTaskDefinitionV1Error["reason"],
   path?: string,
-): InvalidStandardApplicationTaskDefinitionV1Error {
+): InvalidStandardApplicationTaskDefinitionV1Error<Operation> {
   return new InvalidStandardApplicationTaskDefinitionV1Error({
     operation,
     reason,

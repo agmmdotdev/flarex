@@ -57,11 +57,11 @@ deterministic in-memory conformance adapter. DTE06-C0 completes the docs-only
 operation-specific delivery schema, prepared-execution, fenced-transaction,
 uncertainty, and bounded-discovery preflight. DTE06-C1 now completes the
 canonical dispatch/cancellation evidence boundary and its two Task-owned
-Postgres checkpoint tables. DTE06-C2 is now admitted, but its private
-scope-bound fenced repository is paused on a recorded prepared-subject evidence
-gap: the current definition row cannot reconstruct C1's full runtime-binding
-field after process loss. The recommended commitment-handoff correction still
-requires explicit approval. DTE06-C3 remains unadmitted. The exact Worker
+Postgres checkpoint tables. The approved C1 prepared-subject correction now
+hands C2 an owned runtime-binding commitment reconstructed from the canonical
+definition bytes; the later runtime owner remains responsible for loading the
+full manifest and verifying that commitment. DTE06-C2 is admitted and its
+implementation may proceed. DTE06-C3 remains unadmitted. The exact Worker
 Loader reuse boundary, operation-specific delivery ownership, and
 in-memory-before-Cloudflare adapter order remain fixed. Their contract and receipt are recorded in
 [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md) and

@@ -9,6 +9,10 @@ import {
 } from "@flarex/durable-task/internal/compute-provider-v1";
 import type { TaskComputeProfileRefV1 } from
   "@flarex/durable-task/internal/run-attempt-v1";
+import {
+  decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1,
+  encodeTaskDefinitionRuntimeBindingPreimageV1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
 import { Effect, Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
@@ -210,6 +214,11 @@ describe("DTE06-C1 compute delivery evidence", () => {
 
   it("captures a frozen prepared subject without creating authority", async () => {
     const runtimeBinding = await makeTaskSystemCreationRuntimeBindingV1();
+    const runtimeBindingCommitment = success(
+      decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1(success(
+        encodeTaskDefinitionRuntimeBindingPreimageV1(runtimeBinding),
+      )),
+    );
     const inputReference = makeTaskSystemCreationRequestV1(
       "delivery-evidence",
       0x71,
@@ -218,15 +227,20 @@ describe("DTE06-C1 compute delivery evidence", () => {
     const prepared = success(decodeTaskComputePreparedExecutionV1({
       version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
       dispatchRequest: dispatch,
-      runtimeBinding,
+      runtimeBindingCommitment,
       inputReference,
     }));
 
     expect(Object.isFrozen(prepared)).toBe(true);
     expect(prepared.dispatchRequest).toEqual(dispatch);
-    expect(prepared.runtimeBinding).toEqual(runtimeBinding);
+    expect(prepared.runtimeBindingCommitment).toEqual(
+      runtimeBindingCommitment,
+    );
+    expect("manifest" in prepared.runtimeBindingCommitment).toBe(false);
     expect(prepared.inputReference).toEqual(inputReference);
-    expect(prepared.runtimeBinding).not.toBe(runtimeBinding);
+    expect(prepared.runtimeBindingCommitment).not.toBe(
+      runtimeBindingCommitment,
+    );
     expect(prepared.inputReference).not.toBe(inputReference);
 
     expect(Result.isFailure(decodeTaskComputePreparedExecutionV1({

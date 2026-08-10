@@ -14,7 +14,10 @@ export type StandardApplicationTaskDefinitionOperationV1 =
   | "decode_application_revision_task_binding"
   | "encode_application_revision_task_binding"
   | "decode_runtime_binding"
+  | "decode_runtime_binding_commitment"
+  | "decode_runtime_binding_commitment_preimage"
   | "encode_runtime_binding"
+  | "encode_runtime_binding_commitment"
   | "decode_creation_authority"
   | "decode_creation_authority_preimage"
   | "encode_creation_authority"
@@ -47,9 +50,12 @@ export type StandardApplicationTaskDefinitionReasonV1 =
   | "inconsistent_binding"
   | "canonical_bytes_exceeded";
 
-export class InvalidStandardApplicationTaskDefinitionV1Error
+export class InvalidStandardApplicationTaskDefinitionV1Error<
+  Operation extends StandardApplicationTaskDefinitionOperationV1 =
+    StandardApplicationTaskDefinitionOperationV1,
+>
   extends Data.TaggedError("InvalidStandardApplicationTaskDefinitionV1Error")<{
-    readonly operation: StandardApplicationTaskDefinitionOperationV1;
+    readonly operation: Operation;
     readonly reason: StandardApplicationTaskDefinitionReasonV1;
     readonly path?: string;
     readonly observed?: number;
