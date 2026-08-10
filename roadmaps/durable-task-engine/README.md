@@ -63,18 +63,23 @@ definition bytes; the later runtime owner remains responsible for loading the
 full manifest and verifying that commitment. DTE06-C2 now completes the private
 production-inert scope-bound fenced repository with focused PGlite and
 ordinary-role genuine-PostgreSQL transaction proofs. DTE06-C3 remains
-unadmitted. The exact Worker
+unadmitted because its connected preflight exposed a missing C2 settlement for
+a provider-stale cancellation generation. The exact scenario, recommended
+bounded correction, discovery contract, continuation, budgets, and stop
+boundary are recorded in
+[`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
+The exact Worker
 Loader reuse boundary, operation-specific delivery ownership, and
 in-memory-before-Cloudflare adapter order remain fixed. Their contract and receipt are recorded in
 [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md) and
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md),
 with the C0 decision in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md)
-and the C2 admission in
+and the C2 contract and receipt in
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
-The provider is not wired to any host. Transactional dispatch checkpoint
-operations, Cloudflare task bindings, a scheduled Worker host, public APIs,
-compute delivery, and production activation do not exist yet.
+The provider is not wired to any host. Connected discovery/provider calls,
+Cloudflare task bindings, a scheduled Worker host, public APIs, compute
+delivery, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,

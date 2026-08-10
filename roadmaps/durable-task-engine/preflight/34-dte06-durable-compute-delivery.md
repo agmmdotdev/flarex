@@ -11,10 +11,12 @@ connected runner against the deterministic compute provider.
 DTE06-C1 adds only a private evidence export, two Task-owned tables, migration,
 and their focused proofs. It adds no transaction repository, effect consumer,
 provider call, Worker route, binding, deployment configuration, or production
-activation. DTE06-C2 is now admitted by
+activation. DTE06-C2 is complete under
 [`35-dte06-scope-bound-fenced-repository.md`](./35-dte06-scope-bound-fenced-repository.md),
 and the approved prepared-subject commitment correction has removed its
-implementation pause without changing the schema.
+implementation pause without changing the schema. C3 remains unadmitted;
+[`36-dte06-connected-mock-delivery.md`](./36-dte06-connected-mock-delivery.md)
+records its connected-flow prerequisite and exact proposed boundary.
 
 ## Question
 
@@ -330,7 +332,7 @@ Its bounded C1 prerequisite is now complete: the prepared subject carries the
 durably reconstructable runtime-binding commitment, while DTE06-D retains full
 binding and manifest materialization authority.
 
-### DTE06-C3: Bounded Connected Mock Delivery — Not Yet Admitted
+### DTE06-C3: Bounded Connected Mock Delivery — Preflight Blocked
 
 - add operation-specific candidate discovery and canonical continuation;
 - compose fresh trusted scope resolution, the C2 repository, and the existing
@@ -339,6 +341,10 @@ binding and manifest materialization authority.
   resume, and conservative budgets; and
 - add no Worker Loader route, Cloudflare adapter, scheduled host, Queue consumer,
   deployment configuration, or activation.
+
+Preflight 36 found that C2 has no exact durable settlement for a provider-stale
+cancellation generation. C3 remains blocked until that bounded C2 correction
+is separately approved and proved; no workaround is admitted here.
 
 Each checkpoint is intentionally medium-sized: C1 proves storage truth, C2
 proves transaction truth, and C3 proves orchestration truth. A table without
