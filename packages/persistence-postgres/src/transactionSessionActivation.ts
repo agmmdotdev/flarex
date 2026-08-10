@@ -175,6 +175,10 @@ import {
   type LocatedPointCommitPublicationTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "./transactionSessionAttemptKernel";
+import {
+  RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
+  type LocatedExactRunningAttemptReadSyscallKernelV1,
+} from "./transactionSessionReadSyscallKernel";
 
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -878,6 +882,7 @@ interface LocatedPointMutationSessionTargetV1
     LocatedPointMutationAttemptDiscoveryTargetV1,
     LocatedPointMutationExecutionClaimLivenessTargetV1,
     LocatedExactRunningAttemptKernelV1,
+    LocatedExactRunningAttemptReadSyscallKernelV1,
     LocatedPointCommitPublicationTargetV1 {}
 
 interface LocatedPointMutationSessionActivationInputV1 {
@@ -1195,6 +1200,23 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       input,
       work,
       afterLoadLock,
+      "update",
+    ),
+    [RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1]: <
+      Result,
+      Failure,
+    >(
+      input: ExactRunningAttemptKernelInputV1,
+      work: ExactRunningAttemptEffectWorkV1<Result, Failure>,
+    ): Effect.Effect<
+      Result,
+      Failure | ExactRunningAttemptTransactionV1Error
+    > => runExactRunningAttemptEffectTransaction(
+      db,
+      input,
+      work,
+      afterLoadLock,
+      "share",
     ),
     [RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1]:
       resolvePinnedPointTableIdV1Effect.bind(
@@ -2175,6 +2197,7 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
   afterLoadLock:
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
+  scopeClockLockMode: "share" | "update",
 ): Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error> {
   return Effect.suspend(() => {
     let callbackCause: Cause<Failure> | undefined;
@@ -2188,6 +2211,7 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
             tx,
             input,
             afterLoadLock,
+            scopeClockLockMode,
           );
           const exit = await Effect.runPromise(Effect.exit(
             Effect.uninterruptible(Effect.suspend(() => work(tx, context))),
@@ -2432,6 +2456,7 @@ async function loadAttemptInTransaction(
     tx,
     input,
     afterLoadLock,
+    "update",
   );
   return attemptLoadResult(loaded);
 }
@@ -2444,9 +2469,12 @@ async function loadExactRunningAttemptForKernelInTransaction(
   afterLoadLock:
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
+  scopeClockLockMode: "share" | "update",
 ): Promise<ExactRunningAttemptKernelContextV1> {
   const selector = input.selector;
-  const clock = await lockPointMutationSessionClock(tx, selector.scopeId);
+  const clock = scopeClockLockMode === "share"
+    ? await lockPointMutationSessionClockForShare(tx, selector.scopeId)
+    : await lockPointMutationSessionClock(tx, selector.scopeId);
   await afterLoadLock?.("clockLocked");
   requireStableAttemptLoadAuthority(clock, input);
   const session = await lockExactPointMutationSession(
@@ -3333,12 +3361,29 @@ async function lockPointMutationSessionClock(
   tx: FlarexMetadataDatabase,
   scopeId: ReplacementScopeIdV1,
 ): Promise<LockedPointMutationSessionClockV1> {
-  const rows = await tx
+  return lockPointMutationSessionClockWithMode(tx, scopeId, "update");
+}
+
+async function lockPointMutationSessionClockForShare(
+  tx: FlarexMetadataDatabase,
+  scopeId: ReplacementScopeIdV1,
+): Promise<LockedPointMutationSessionClockV1> {
+  return lockPointMutationSessionClockWithMode(tx, scopeId, "share");
+}
+
+async function lockPointMutationSessionClockWithMode(
+  tx: FlarexMetadataDatabase,
+  scopeId: ReplacementScopeIdV1,
+  lockMode: "share" | "update",
+): Promise<LockedPointMutationSessionClockV1> {
+  const query = tx
     .select()
     .from(fxSystemScopeClocks)
     .where(eq(fxSystemScopeClocks.scopeId, scopeId))
-    .limit(1)
-    .for("update");
+    .limit(1);
+  const rows = lockMode === "share"
+    ? await query.for("share")
+    : await query.for("update");
   const row = rows[0];
   if (row === undefined) throw new ScopeClockNotFoundError(scopeId);
   const record = decodeScopeClockRecord(row);

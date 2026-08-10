@@ -1658,9 +1658,13 @@ Accepted preflight and exact contract:
 - `O10-PF2` is complete. It selects one bounded journal child rather than a
   root blob, admits the S10 commit-sequence-first supporting index, freezes a
   128-commit conservative validation span, and records populated PostgreSQL
-  18.3 plans. The current exact-syscall kernel also revealed an exclusive
-  scope-clock lock, so `O10-P0` must add the separately approved shared
-  read-admission mode before O10-A.
+  18.3 plans.
+- `O10-P0` is complete. A separate package-internal exact-attempt read-syscall
+  facet takes the scope clock `FOR SHARE`, while every existing point and
+  mutation caller remains on its `FOR UPDATE` path. Focused PGlite and genuine
+  PostgreSQL 18.3 evidence proves stale-authority rejection, rollback,
+  interruption settlement, overlapping same-scope readers, and writer blocking
+  until both bounded readers settle. O10-A remains separately approval-gated.
 - Implement only an ascending, bounded developer ordered-index `take(n)` over
   the existing structured equality-prefix/optional-inequality grammar.
   `first()` and exhaustion-aware `unique()` may derive from that primitive.

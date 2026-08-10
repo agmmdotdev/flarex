@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import {
   ReplacementScopeIdV1Schema,
+  ScopeEpochSchema,
   decodeReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
@@ -17,7 +18,10 @@ import {
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
-import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
+import {
+  resolveLocatedTrustedScopeAuthorityEffect,
+  type LocatedScopeClockReader,
+} from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   fxSystemSnapshotLeases,
@@ -40,6 +44,13 @@ import {
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAttemptSelectorV1,
 } from "../src/transactionSessionActivation";
+import {
+  ExactRunningAttemptTransactionV1Error,
+} from "../src/transactionSessionAttemptKernel";
+import {
+  RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
+  isLocatedExactRunningAttemptReadSyscallKernelV1,
+} from "../src/transactionSessionReadSyscallKernel";
 import {
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
@@ -68,6 +79,11 @@ type RootAttemptLoadExport = Extract<
 type RootAttemptTerminalizationExport = Extract<
   keyof typeof import("../src"),
   "createPointMutationSessionAttemptTerminalizationPersistenceV1"
+>;
+
+type ExportedAttemptKernelReadSyscallFacet = Extract<
+  keyof typeof import("../src/transactionSessionAttemptKernel"),
+  "RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1"
 >;
 
 interface AttemptLoadContext {
@@ -210,6 +226,222 @@ describe("O03-B exact point-mutation attempt authority", () => {
       selector,
     );
     expect(afterCommitAdvance.anchor.snapshotToken.commitSeq).toBe(0n);
+  });
+
+  it("admits a private exact-attempt read syscall and rolls back callback failure", async () => {
+    expectTypeOf<ExportedAttemptKernelReadSyscallFacet>().toEqualTypeOf<never>();
+    const context = await provisionContext("read_syscall_admission");
+    const activated = await activate(context);
+    if (activated.status !== "created") {
+      throw new Error("Expected a newly created read-syscall attempt.");
+    }
+    const lockSteps: string[] = [];
+    const target = createPGliteLocatedPointMutationSessionActivationTargetV1(
+      persistence,
+      sharedLocator,
+      {
+        afterLoadLock: (step) => {
+          lockSteps.push(step);
+        },
+      },
+    );
+    const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+      context.deploymentId,
+      {
+        scopeMetadata: persistence,
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => {
+            throw new Error("Shared read admission must not read receipts.");
+          },
+        },
+        scopeClockTargets: { resolve: async () => target },
+      },
+    ));
+    expect(
+      isLocatedExactRunningAttemptReadSyscallKernelV1(located.target),
+    ).toBe(true);
+    if (!isLocatedExactRunningAttemptReadSyscallKernelV1(located.target)) {
+      throw new Error("Expected the private read-syscall admission facet.");
+    }
+    const input = {
+      selector: selectorFromAnchor(activated.anchor),
+      executionClaim: activated.executionClaim,
+      preliminaryAuthority: located.authority,
+    };
+    await expect(runEffect(located.target[
+      RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
+    ](input, (_tx, exact) => Effect.succeed({
+      sessionId: exact.anchor.sessionId,
+      attemptFence: exact.anchor.attemptFence,
+    })))).resolves.toEqual({
+      sessionId: activated.anchor.sessionId,
+      attemptFence: activated.anchor.attemptFence,
+    });
+    expect(lockSteps).toEqual([
+      "clockLocked",
+      "sessionLocked",
+      "leaseLocked",
+      "journalRootLocked",
+      "executionClaimLocked",
+    ]);
+
+    const callbackFailure = new Error("read syscall callback rejected");
+    await expect(runFailure(located.target[
+      RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
+    ](input, (tx) => Effect.gen(function*() {
+      yield* Effect.promise(() => tx
+        .update(fxSystemTransactionJournals)
+        .set({ readDocuments: 1 })
+        .where(eq(
+          fxSystemTransactionJournals.sessionId,
+          activated.anchor.sessionId,
+        )));
+      return yield* Effect.fail(callbackFailure);
+    })))).resolves.toBe(callbackFailure);
+    const root = await persistence.query<{ read_documents: number }>(
+      `select read_documents from fx_system_tx_journal where session_id = $1`,
+      [activated.anchor.sessionId],
+    );
+    expect(root.rows).toEqual([{ read_documents: 0 }]);
+  });
+
+  it("defers read-syscall interruption until its bounded transaction settles", async () => {
+    const context = await provisionContext("read_syscall_interruption");
+    const activated = await activate(context);
+    if (activated.status !== "created") {
+      throw new Error("Expected a newly created interruption attempt.");
+    }
+    const target = createPGliteLocatedPointMutationSessionActivationTargetV1(
+      persistence,
+      sharedLocator,
+    );
+    const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+      context.deploymentId,
+      {
+        scopeMetadata: persistence,
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => {
+            throw new Error("Shared read admission must not read receipts.");
+          },
+        },
+        scopeClockTargets: { resolve: async () => target },
+      },
+    ));
+    if (!isLocatedExactRunningAttemptReadSyscallKernelV1(located.target)) {
+      throw new Error("Expected the private read-syscall admission facet.");
+    }
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    const fiber = Effect.runFork(located.target[
+      RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
+    ]({
+      selector: selectorFromAnchor(activated.anchor),
+      executionClaim: activated.executionClaim,
+      preliminaryAuthority: located.authority,
+    }, () => Effect.promise(async () => {
+      entered.resolve();
+      await release.promise;
+    })));
+    await entered.promise;
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+    expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
+  });
+
+  it("rejects stale epoch, generation fence, and revocation on read admission", async () => {
+    const cases = [
+      {
+        label: "epoch",
+        reason: "scopeEpochChanged",
+        mutate: async (scopeId: AttemptLoadContext["scopeId"]) => {
+          const epoch = ScopeEpochSchema.make(
+            "epoch_72000000-0000-4000-8000-999999999991",
+          );
+          await persistence.query(
+            `update fx_system_scope_clock
+             set epoch = $2
+             where scope_id = $1`,
+            [scopeId, epoch],
+          );
+        },
+      },
+      {
+        label: "generation",
+        reason: "storageGenerationFenceChanged",
+        mutate: async (scopeId: AttemptLoadContext["scopeId"]) => {
+          await persistence.query(
+            `update fx_system_scope_clock
+             set storage_generation_fence = storage_generation_fence + 1
+             where scope_id = $1`,
+            [scopeId],
+          );
+        },
+      },
+      {
+        label: "revocation",
+        reason: "authorizationRevocationEpochChanged",
+        mutate: async (scopeId: AttemptLoadContext["scopeId"]) => {
+          await persistence.query(
+            `update fx_system_scope_clock
+             set authorization_revocation_epoch =
+               authorization_revocation_epoch + 1
+             where scope_id = $1`,
+            [scopeId],
+          );
+        },
+      },
+    ] as const;
+
+    for (const current of cases) {
+      const context = await provisionContext(`read_syscall_${current.label}`);
+      const activated = await activate(context);
+      if (activated.status !== "created") {
+        throw new Error("Expected a newly created stale-authority attempt.");
+      }
+      const target = createPGliteLocatedPointMutationSessionActivationTargetV1(
+        persistence,
+        sharedLocator,
+      );
+      const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+        context.deploymentId,
+        {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => {
+              throw new Error("Shared read admission must not read receipts.");
+            },
+          },
+          scopeClockTargets: { resolve: async () => target },
+        },
+      ));
+      if (!isLocatedExactRunningAttemptReadSyscallKernelV1(located.target)) {
+        throw new Error("Expected the private read-syscall admission facet.");
+      }
+      await current.mutate(context.scopeId);
+      const failure = await runFailure(located.target[
+        RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
+      ]({
+        selector: selectorFromAnchor(activated.anchor),
+        executionClaim: activated.executionClaim,
+        preliminaryAuthority: located.authority,
+      }, () => Effect.void));
+      expect(failure).toBeInstanceOf(ExactRunningAttemptTransactionV1Error);
+      expect(failure).toMatchObject({
+        cause: { issue: { reason: current.reason } },
+        callbackCause: undefined,
+      });
+    }
   });
 
   it("classifies an exact open root with hidden child evidence as non-pristine", async () => {

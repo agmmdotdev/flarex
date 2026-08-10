@@ -1,10 +1,13 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { sql } from "drizzle-orm";
+import { Effect } from "effect";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
   TransactionAttemptFenceSchema,
   TransactionPackageIdV1Schema,
+  TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
 import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
@@ -14,11 +17,16 @@ import {
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
+import type { AppRowTransaction } from "../src/appRows";
+import { rowsFromDriverExecuteResult } from "../src/driverExecuteResult";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
   type PostgresLocatedReadCommittedRunnerOptionsV1,
 } from "../src/postgresLocatedReadCommitted";
-import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
+import {
+  resolveLocatedTrustedScopeAuthorityEffect,
+  type LocatedScopeClockReader,
+} from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   PointMutationSessionActivationV1Error,
@@ -35,8 +43,15 @@ import {
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAttemptSelectorV1,
 } from "../src/transactionSessionActivation";
-import { LOCATED_READ_COMMITTED_RUNNER_V1 } from
-  "../src/transactionSessionAttemptKernel";
+import {
+  LOCATED_READ_COMMITTED_RUNNER_V1,
+  RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
+  isLocatedExactRunningAttemptKernelV1,
+} from "../src/transactionSessionAttemptKernel";
+import {
+  RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
+  isLocatedExactRunningAttemptReadSyscallKernelV1,
+} from "../src/transactionSessionReadSyscallKernel";
 import {
   postgresUrl,
   rollbackAndReleasePostgresClient,
@@ -69,6 +84,147 @@ interface ActivationContext {
 
 describePostgres("real Postgres O03-B session authority", () => {
   const withPostgresPersistence = useFileScopedPostgresPersistence();
+
+  it("shares same-scope read admission while preserving the update-lock writer lane", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const context = await provisionContext(
+        persistence,
+        "read_admission_concurrency",
+        sharedLocator("read-admission-concurrency"),
+        ids,
+      );
+      const activation = createActivationPersistence(persistence, ids);
+      const created = await Promise.all([
+        "read-one",
+        "read-two",
+        "writer",
+      ].map((requestKey) => activatePointMutationSession(
+        activation,
+        pointMutationSessionActivationFixture(
+          context.deploymentId,
+          context.scopeId,
+          {
+            evidence: {
+              requestKey: TransactionRequestKeyV1Schema.make(requestKey),
+            },
+          },
+        ),
+      )));
+      if (created.some((result) => result.status !== "created")) {
+        throw new Error("Expected three independent running attempts.");
+      }
+      const [first, second, writerAttempt] = created;
+      if (
+        first?.status !== "created" ||
+        second?.status !== "created" ||
+        writerAttempt?.status !== "created"
+      ) {
+        throw new Error("Expected exact created-attempt evidence.");
+      }
+
+      const target = createPostgresLocatedPointMutationSessionActivationTargetV1(
+        persistence,
+        context.physicalLocator,
+      );
+      const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+        context.deploymentId,
+        {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => {
+              throw new Error("Shared read admission must not read receipts.");
+            },
+          },
+          scopeClockTargets: { resolve: async () => target },
+        },
+      ));
+      if (!isLocatedExactRunningAttemptReadSyscallKernelV1(located.target)) {
+        throw new Error("Expected the read exact-attempt facet.");
+      }
+      const exactTarget = located.target;
+      if (!isLocatedExactRunningAttemptKernelV1(exactTarget)) {
+        throw new Error("Expected the mutation exact-attempt facet.");
+      }
+
+      const firstEntered = deferred<number>();
+      const secondEntered = deferred<number>();
+      const writerEntered = deferred<void>();
+      const releaseFirst = deferred<void>();
+      const releaseSecond = deferred<void>();
+      let writerDidEnter = false;
+      const runRead = (
+        attempt: typeof first,
+        entered: ReturnType<typeof deferred<number>>,
+        release: ReturnType<typeof deferred<void>>,
+      ) => runEffect(exactTarget[
+        RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
+      ]({
+        selector: selectorFromAnchor(attempt.anchor),
+        executionClaim: attempt.executionClaim,
+        preliminaryAuthority: located.authority,
+      }, (tx) => Effect.promise(async () => {
+        entered.resolve(await transactionBackendPid(tx));
+        await release.promise;
+      })));
+      const firstRead = runRead(first, firstEntered, releaseFirst);
+      const secondRead = runRead(second, secondEntered, releaseSecond);
+      let writer: Promise<void> | undefined;
+      try {
+        const [firstPid, secondPid] = await Promise.all([
+          waitForTransactionEntryOrFailure(
+            firstEntered.promise,
+            firstRead,
+            "first shared reader",
+          ),
+          waitForTransactionEntryOrFailure(
+            secondEntered.promise,
+            secondRead,
+            "second shared reader",
+          ),
+        ]);
+        writer = runEffect(exactTarget[
+          RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
+        ]({
+          selector: selectorFromAnchor(writerAttempt.anchor),
+          executionClaim: writerAttempt.executionClaim,
+          preliminaryAuthority: located.authority,
+        }, () => Effect.sync(() => {
+          writerDidEnter = true;
+          writerEntered.resolve(undefined);
+        })));
+        const blocked = await waitForBlockedSharedScopeClockWriter(
+          persistence,
+          [firstPid, secondPid],
+        );
+        expect(
+          blocked.blockers.some((pid) =>
+            pid === firstPid || pid === secondPid
+          ),
+        ).toBe(true);
+        expect(writerDidEnter).toBe(false);
+        releaseFirst.resolve(undefined);
+        await firstRead;
+        const stillBlocked = await waitForBlockedSharedScopeClockWriter(
+          persistence,
+          [secondPid],
+          blocked.pid,
+        );
+        expect(stillBlocked.blockers).not.toContain(firstPid);
+        expect(writerDidEnter).toBe(false);
+        releaseSecond.resolve(undefined);
+        await Promise.all([secondRead, writer, writerEntered.promise]);
+      } finally {
+        releaseFirst.resolve(undefined);
+        releaseSecond.resolve(undefined);
+        await Promise.allSettled([
+          firstRead,
+          secondRead,
+          ...(writer === undefined ? [] : [writer]),
+        ]);
+      }
+    });
+  }, 120_000);
 
   it("serializes exact same-request activation into one created and one busy anchor", async () => {
     await withPostgresPersistence(async (persistence) => {
@@ -1371,6 +1527,94 @@ async function waitForBlockedScopeClock(
     await delay(25);
   }
   throw new Error("Timed out waiting for a blocked scope-clock lock.");
+}
+
+interface BlockedPostgresWriter {
+  readonly pid: number;
+  readonly blockers: readonly number[];
+}
+
+async function waitForBlockedSharedScopeClockWriter(
+  persistence: PostgresFlarexPersistence,
+  candidateBlockerPids: readonly number[],
+  expectedWriterPid?: number,
+): Promise<BlockedPostgresWriter> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await persistence.query<{
+      pid: number;
+      blockers: number[];
+    }>(
+      `select pid::int as pid, pg_blocking_pids(pid)::int[] as blockers
+       from pg_stat_activity
+       where datname = current_database()
+         and wait_event_type = 'Lock'
+         and cardinality(pg_blocking_pids(pid)) > 0
+         and query like '%fx_system_scope_clock%'
+         and ($1::int is null or pid = $1::int)
+         and exists (
+           select 1
+           from unnest($2::int[]) candidate(blocker_pid)
+           where candidate.blocker_pid = any(pg_blocking_pids(pid))
+         )`,
+      [expectedWriterPid ?? null, candidateBlockerPids],
+    );
+    if (result.rows.length === 1) {
+      const row = result.rows[0];
+      if (
+        row !== undefined &&
+        Number.isInteger(row.pid) &&
+        row.pid > 0 &&
+        Array.isArray(row.blockers) &&
+        row.blockers.every((pid) => Number.isInteger(pid) && pid > 0)
+      ) {
+        return Object.freeze({
+          pid: row.pid,
+          blockers: Object.freeze([...row.blockers]),
+        });
+      }
+      throw new Error("Postgres returned invalid blocked-writer evidence.");
+    }
+    await delay(25);
+  }
+  throw new Error("Timed out waiting for the shared scope-clock writer.");
+}
+
+async function transactionBackendPid(
+  tx: AppRowTransaction,
+): Promise<number> {
+  const result = await tx.execute<{ pid: number }>(
+    sql`select pg_backend_pid()::int as pid`,
+  );
+  const rows = rowsFromDriverExecuteResult(result, () => {
+    throw new Error("Postgres returned an invalid backend PID row set.");
+  });
+  const row: unknown = rows[0];
+  if (typeof row !== "object" || row === null) {
+    throw new Error("Postgres did not return a backend PID.");
+  }
+  const pid = Reflect.get(row, "pid");
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
+    throw new Error("Postgres returned an invalid backend PID.");
+  }
+  return pid;
+}
+
+async function waitForTransactionEntryOrFailure<Result>(
+  entry: Promise<Result>,
+  operation: Promise<unknown>,
+  label: string,
+): Promise<Result> {
+  return Promise.race([
+    entry,
+    operation.then(
+      () => Promise.reject(new Error(`${label} settled before admission.`)),
+      (cause) => Promise.reject(cause),
+    ),
+    delay(5_000).then(() => Promise.reject(
+      new Error(`Timed out waiting for ${label} admission.`),
+    )),
+  ]);
 }
 
 function installClientQueryFault(

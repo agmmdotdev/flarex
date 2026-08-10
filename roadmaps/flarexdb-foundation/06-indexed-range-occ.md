@@ -1,14 +1,12 @@
 # Indexed Range OCC
 
-Status: Accepted design plus completed `O10-PF2` implementation preflight for
-the private, production-inert `O10` replacement lane. This document freezes
-the first exact indexed mutation-read contract, the durable journal shape, and
-the first measured PostgreSQL access path. Implementation is blocked on the
-separately bounded `O10-P0` shared read-admission prerequisite described below;
-that transaction-kernel change still requires explicit approval. This document
-does not implement or activate a runtime API, alter production routing, or
-authorize relation, scan, filter, search, vector, or general pagination
-support.
+Status: Accepted design plus completed `O10-PF2` implementation preflight and
+completed private `O10-P0` shared read-admission prerequisite. This document
+freezes the first exact indexed mutation-read contract, the durable journal
+shape, and the first measured PostgreSQL access path. The next implementation
+gate is `O10-A`, which still requires explicit approval. No indexed-query API
+or runtime route is active, and this checkpoint does not authorize relation,
+scan, filter, search, vector, or general pagination support.
 
 ## Decision
 
@@ -362,12 +360,13 @@ all reads and commits in the scope. That is not an acceptable hidden cost and
 contradicts this roadmap's requirement that a snapshot query not enter the
 exclusive commit lane.
 
-Before O10-A, implement one bounded `O10-P0` transaction-kernel capability:
+O10-P0 now supplies one bounded transaction-kernel capability:
 
 1. add an exact running-attempt **read/syscall admission** mode that takes the
    scope clock `FOR SHARE`, then preserves the existing session, lease, journal,
    execution-claim, epoch, fence, revocation, and database-clock checks;
-2. use that mode only for the new indexed query syscall in this gate;
+2. expose it only as a package-internal facet reserved for the future indexed
+   query syscall;
 3. leave every existing point CRUD, activation, terminalization, replacement,
    commit, OCC, and lock-order behavior unchanged; and
 4. hold the shared lock only for the bounded syscall transaction, never while
@@ -378,12 +377,21 @@ epoch, generation, revocation, and commit writers cannot cross the admission
 transaction. Removing the scope lock entirely would weaken current read
 authorization semantics and is not approved.
 
-PGlite plus genuine PostgreSQL must prove same-scope indexed read concurrency,
-writer blocking until the bounded read transaction settles, stale
-epoch/generation/revocation rejection, interruption/rollback, and unchanged
-existing point-operation lock behavior. This is a transaction-kernel change,
-so it is not silently folded into O10-A and requires explicit approval, both
-mandatory reviewers, and its own commit.
+The implementation keeps the existing mutation symbol on `FOR UPDATE` and adds
+the separate
+`RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1` facet on `FOR SHARE`.
+Both paths reuse the same exact session, lease, journal-root, execution-claim,
+authority, and database-clock checks. The factory snapshots no weaker parallel
+authority, and the new facet remains absent from public package exports.
+
+Focused PGlite evidence proves exact context, unchanged lock order after the
+scope clock, callback-failure rollback, deferred interruption settlement, and
+stale epoch, storage-generation-fence, and revocation rejection. Genuine
+PostgreSQL 18.3 proves two different attempts in one scope can hold read
+admission concurrently, an existing update-lock exact-attempt writer remains
+blocked after the first reader settles, and it proceeds only after the second
+reader settles. No indexed query, schema, migration, point-operation, commit,
+activation, routing, or production behavior was added.
 
 ## Retention
 
@@ -429,10 +437,12 @@ search, and vector shapes must have explicit rejection tests.
    bounded journal child, confirms repository-level production inaccessibility,
    selects the commit-first supporting index and 128-commit validation span,
    records PostgreSQL 18.3 plans, and identifies the exclusive-lock blocker.
-3. **O10-P0 — pending explicit approval.** Add only the shared exact-attempt
-   read/syscall admission mode and its concurrency/authority evidence. Preserve
-   every existing caller and transaction owner.
-4. **O10-A — private indexed snapshot/journal capability.** Add the exact
+3. **O10-P0 — complete.** The separate package-internal shared exact-attempt
+   read/syscall admission facet and its PGlite/PostgreSQL concurrency,
+   authority, rollback, and interruption evidence are complete. Every existing
+   caller remains on the update-lock path.
+4. **O10-A — pending explicit approval; private indexed snapshot/journal
+   capability.** Add the exact
    candidate-bound query operation, composite consumed-interval dependency,
    durable bounded journal capture, set-based document verification, and
    protocol/generated closure. It remains unavailable to mutation user code.
