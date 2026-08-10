@@ -336,6 +336,8 @@ describe("Trigger compatibility boundary checker", () => {
       text: `
         import {
           MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1,
+          type TaskAttemptNumberV1,
+          type TaskDurationMsV1,
           type TaskRequestedEffectV1,
           type TaskRunAttemptPersistenceProjectionV1,
           type TaskRunIdV1,
@@ -344,6 +346,27 @@ describe("Trigger compatibility boundary checker", () => {
           MAX_TASK_INPUT_CANONICAL_BYTES_V1,
           type TaskInputSha256V1,
         } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts",
+      text: `
+        import {
+          decodeTaskComputeDispatchRequestV1,
+          encodeTaskComputeCancellationReceiptV1,
+          type TaskComputeCancellationReceiptV1,
+          type TaskComputeDispatchRequestV1,
+        } from "@flarex/durable-task/internal/compute-provider-v1";
+        import {
+          decodeTaskInputReferenceV1,
+          type TaskInputReferenceV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+        import {
+          TaskComputeProfileRefV1Schema,
+          type TaskComputeProfileRefV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
       `,
     }]).errors).toEqual([]);
 
@@ -482,6 +505,12 @@ describe("Trigger compatibility boundary checker", () => {
       text: `
         import { makeTaskWakeSchedulerV1 } from "@flarex/durable-task/internal/scheduling-v1";
       `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts",
+      text: `
+        import { TaskComputeProvider } from "@flarex/durable-task/internal/compute-provider-v1";
+      `,
     }]).errors).toEqual([
       `${schemaPath}:2 production source must not activate @flarex/durable-task before host admission.`,
       `${schemaPath}:3 production source must not activate @flarex/durable-task before host admission.`,
@@ -493,6 +522,7 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts:3 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskSystemWakeSchedulerDirectoryV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
     ]);
   });
 

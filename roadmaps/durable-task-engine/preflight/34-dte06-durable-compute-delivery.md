@@ -2,15 +2,16 @@
 
 ## Status
 
-**Decision:** Complete the docs-only DTE06-C0 schema and transaction preflight.
-Admit no implementation yet. DTE06-C is divided into three separately
-reviewed, production-inert checkpoints: C1 owns canonical delivery evidence and
-schema, C2 owns the scope-bound fenced transaction repository, and C3 owns a
-bounded connected runner against the deterministic compute provider.
+**Decision:** DTE06-C0's docs-only schema and transaction preflight and
+DTE06-C1's canonical delivery evidence and schema checkpoint are complete.
+DTE06-C remains divided into separately reviewed, production-inert checkpoints:
+C2 owns the scope-bound fenced transaction repository, and C3 owns a bounded
+connected runner against the deterministic compute provider.
 
-This preflight adds no schema, migration, package export, effect consumer,
+DTE06-C1 adds only a private evidence export, two Task-owned tables, migration,
+and their focused proofs. It adds no transaction repository, effect consumer,
 provider call, Worker route, binding, deployment configuration, or production
-activation. DTE06-C1 requires explicit approval.
+activation. DTE06-C2 requires explicit approval.
 
 ## Question
 
@@ -279,7 +280,7 @@ guarantee.
 
 ## Planned Implementation Sequence
 
-### DTE06-C1: Canonical Delivery Evidence And Schema — Pending Approval
+### DTE06-C1: Canonical Delivery Evidence And Schema — Complete
 
 - add private prepared-subject and dispatch/cancellation checkpoint models,
   strict codecs, typed failures, and bounded canonical evidence;
@@ -288,6 +289,21 @@ guarantee.
 - prove seed/constraint/corruption behavior in PGlite and ordinary-role genuine
   PostgreSQL using temporary-schema isolation; and
 - add no transaction repository, effect discovery, provider call, or host.
+
+Implementation receipt: the private
+`@flarex/persistence-postgres/internal/task-compute-delivery-evidence-v1`
+boundary owns canonical JSON/UTF-8/SHA-256 evidence capped at 16 KiB for the
+four provider delivery values plus the prepared execution subject. Immutable
+compute-profile correlation uses a versioned, lossless big-endian UTF-16
+code-unit representation so every domain-valid JavaScript string round-trips
+through PostgreSQL without narrowing the DTE06-B contract. Migration
+`0050_absurd_terror.sql` adds
+`fx_system_durable_task_compute_dispatch_v1` and
+`fx_system_durable_task_compute_cancellation_v1` with identity, correlation,
+evidence, claim, delivery-state, reason, time, foreign-key, uniqueness, and due
+index constraints. Focused codec/ownership/corruption tests, current-head
+PGlite migration and constraint tests, and temporary-schema genuine PostgreSQL
+tests prove this checkpoint without admitting C2 operations.
 
 ### DTE06-C2: Scope-Bound Fenced Repository — Not Yet Admitted
 
@@ -334,12 +350,12 @@ Every applicable implementation checkpoint requires:
 
 This preflight does not authorize:
 
-- DTE06-C1 implementation without explicit approval;
 - changing the requested-effect ledger or Task lifecycle transitions;
 - a generic effect-delivery/outbox framework;
 - Standard Application types in `@flarex/durable-task` or raw input in the
   provider request;
-- DTE06-C2/C3, DTE06-D/E/F, or DTE05-E3 implementation;
+- DTE06-C2/C3, DTE06-D/E/F, or DTE05-E3 implementation without their own
+  admission;
 - a real provider, Worker Loader task route, service binding, R2 input loader,
   heartbeat, completion, result publication, or observability API; or
 - Queue/cron consumers, Wrangler/deployment changes, public APIs, or production

@@ -26,6 +26,8 @@ const persistencePostgresTaskSystemRequestedEffectRowPath =
   "packages/persistence-postgres/src/taskSystemRequestedEffectRowV1.ts";
 const persistencePostgresTaskSystemRunReadPath =
   "packages/persistence-postgres/src/taskSystemRunReadV1.ts";
+const persistencePostgresTaskComputeDeliveryEvidencePath =
+  "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts";
 const persistencePostgresTaskWakeSchedulerPartitionPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
 const persistencePostgresTaskWakeSchedulerDirectoryPath =
@@ -61,8 +63,10 @@ const admittedPersistenceDurableTaskSymbolsBySpecifier = new Map([
     "MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1",
     "MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1",
     "TaskAttemptIdV1",
+    "TaskAttemptNumberV1",
     "TaskCancellationGenerationV1",
     "TaskDefinitionRevisionIdV1",
+    "TaskDurationMsV1",
     "TaskExecutionFenceV1",
     "TaskLeaseVersionV1",
     "TaskRequestedEffectPersistenceCursorV1",
@@ -80,6 +84,35 @@ const admittedPersistenceDurableTaskSymbolsBySpecifier = new Map([
     "TaskRunCreationRequestSha256V1",
   ])],
 ]);
+const admittedPersistenceTaskComputeDeliveryEvidenceSymbolsBySpecifier =
+  new Map([
+    ["@flarex/durable-task/internal/compute-provider-v1", new Set([
+      "TaskComputeCancellationReceiptV1",
+      "TaskComputeCancellationRequestV1",
+      "TaskComputeDispatchAcceptanceV1",
+      "TaskComputeDispatchRequestV1",
+      "decodeTaskComputeCancellationReceiptV1",
+      "decodeTaskComputeCancellationRequestV1",
+      "decodeTaskComputeDispatchAcceptanceV1",
+      "decodeTaskComputeDispatchRequestV1",
+      "encodeTaskComputeCancellationReceiptV1",
+      "encodeTaskComputeCancellationRequestV1",
+      "encodeTaskComputeDispatchAcceptanceV1",
+      "encodeTaskComputeDispatchRequestV1",
+      "validateTaskComputeCancellationReceiptV1",
+      "validateTaskComputeCancellationRequestV1",
+      "validateTaskComputeDispatchAcceptanceV1",
+      "validateTaskComputeDispatchRequestV1",
+    ])],
+    ["@flarex/durable-task/internal/run-creation-v1", new Set([
+      "TaskInputReferenceV1",
+      "decodeTaskInputReferenceV1",
+    ])],
+    ["@flarex/durable-task/internal/run-attempt-v1", new Set([
+      "TaskComputeProfileRefV1",
+      "TaskComputeProfileRefV1Schema",
+    ])],
+  ]);
 const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "InvalidRunAttemptTransitionError",
   "PersistedTaskRequestedEffectV1",
@@ -1026,6 +1059,10 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     ? admittedPersistenceTaskSystemRequestedEffectRowSymbols
     : relativePath === persistencePostgresTaskSystemRunReadPath
     ? admittedPersistenceTaskSystemRunReadSymbolsBySpecifier.get(specifier)
+    : relativePath === persistencePostgresTaskComputeDeliveryEvidencePath
+    ? admittedPersistenceTaskComputeDeliveryEvidenceSymbolsBySpecifier.get(
+      specifier,
+    )
     : relativePath === persistencePostgresTaskWakeSchedulerPartitionPath
     ? admittedPersistenceTaskWakeSchedulerSymbolsBySpecifier.get(specifier)
     : relativePath === persistencePostgresTaskWakeSchedulerDirectoryPath

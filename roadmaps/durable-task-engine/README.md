@@ -53,12 +53,13 @@ PostgreSQL 18 proof. Its exact contract is recorded in
 DTE06-A records the ComputeProvider/runtime foundation, and DTE06-B now
 completes the private production-inert provider-neutral Effect contract,
 strict dispatch/cancellation codecs and receipt correlation, plus the
-deterministic in-memory conformance adapter. DTE06-C0 now completes the
-docs-only operation-specific delivery schema, prepared-execution, fenced
-transaction, uncertainty, and bounded-discovery preflight; C1 implementation
-still requires explicit approval. The exact Worker Loader reuse
-boundary, operation-specific delivery ownership, and in-memory-before-
-Cloudflare adapter order remain fixed. Their contract and receipt are recorded in
+deterministic in-memory conformance adapter. DTE06-C0 completes the docs-only
+operation-specific delivery schema, prepared-execution, fenced-transaction,
+uncertainty, and bounded-discovery preflight. DTE06-C1 now completes the
+canonical dispatch/cancellation evidence boundary and its two Task-owned
+Postgres checkpoint tables. DTE06-C2 remains unadmitted. The exact Worker
+Loader reuse boundary, operation-specific delivery ownership, and
+in-memory-before-Cloudflare adapter order remain fixed. Their contract and receipt are recorded in
 [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md) and
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md),
 with the C0 decision in
@@ -397,11 +398,11 @@ files remain candidates:
      semantics/checkpointing, optional alarm acceleration, and fail-closed
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
-   - **active; DTE06-A docs-only preflight complete:** Worker Loader reuse,
+   - **active; DTE06-A/B and DTE06-C0/C1 complete:** Worker Loader reuse,
      operation-specific dispatch/cancellation delivery, host-neutral provider
-     and in-memory conformance adapter, compute assignment, heartbeats,
-     interruption, result publication, checkpoints, AgentOS boundary, and
-     restricted user capabilities. No provider or runtime integration is
+     and in-memory conformance adapter, canonical bounded evidence, and the two
+     production-inert Task-owned delivery checkpoint tables. No transaction
+     repository, connected provider delivery, runtime integration, or host is
      implemented yet;
 7. `07-observability-live-apis-and-ui.md`
    - run/attempt read models, traces/logs, cursors, live invalidation, streams,
