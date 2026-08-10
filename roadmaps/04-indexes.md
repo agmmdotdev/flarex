@@ -112,19 +112,17 @@ corepack pnpm check:effect-boundaries
 git diff --check
 ```
 
-The focused B1C-plus-eligibility PGlite lane passes 97 tests, and the pure
+The focused B1C-plus-eligibility PGlite lane passes 98 tests, and the pure
 stored-attempt planner lane passes 61 tests. It proves exact capability
 anti-forgery, one-time option capture, closed-empty lower-lane preservation,
 unclosed-set global refusal, same-object planner/executor composition,
 no-material eligibility laziness,
 B2-without-eligibility refusal, closed-set/build lifecycle and scope-clock
 staleness rejection, affected-table refusal, and eligible planning before any
-point-commit SQL. Its genuine-PostgreSQL cases are implemented; the local
-command skips without `FLAREX_POSTGRES_DATABASE_URL`, while the latest fresh
-isolated PostgreSQL 18 receipt stops during migration `0047` before reaching
-B1C behavior because of the already-recorded migration-isolation defect below.
-This checkpoint does not claim a live PostgreSQL acceptance receipt until that
-separate owner is corrected and the lane is rerun.
+point-commit SQL. The approved migration-isolation correction below now lets
+the genuine-PostgreSQL lane reach its test bodies. A fresh isolated PostgreSQL
+18.3 run passes the two direct C08-B0 definition cases and all 26 C08-B1C
+build/eligibility/point-commit cases.
 
 ### Recorded PostgreSQL Migration-Isolation Defect
 
@@ -138,12 +136,18 @@ PostgreSQL 18 cluster therefore fails with SQLSTATE `42P01` because those parent
 tables exist in the isolated schema rather than `public`.
 
 Expected behavior is replay-safe migration inside the helper-owned temporary
-schema. Actual behavior crosses that isolation boundary through the hardcoded
+schema. Actual behavior crossed that isolation boundary through the hardcoded
 schema qualification. This is a C08-B0 migration-owner defect, not scheduling
-authority. Its disposition is **recorded; correction not authorized by the
-DTE05 continuation slice**. The focused E2C1 PostgreSQL lane remains green;
-broader C2 PostgreSQL migration proof remains blocked until this owner is
-separately corrected and the affected lanes are rerun.
+authority. Its disposition is **resolved under the separately approved
+2026-08-10 migration-portability repair**. Because `flarexdb_v1` is still the
+explicitly unshipped, runtime-unreachable first-shippable generation, the
+repair corrects the generated history in place: four `0047` and two `0049`
+foreign-key parents are now search-path-relative. It changes no table,
+constraint identity, snapshot, journal receipt, protocol, transaction owner,
+or post-migration application-runtime behavior. A fresh disposable
+PostgreSQL 18.3 cluster migrates through both files and passes the two-case
+C08-B0 plus 26-case C08-B1C PostgreSQL suites. The corresponding focused
+PGlite B1C lane passes 98 cases.
 
 ## Maintain Unique Claims In The Existing Point Commit
 

@@ -794,10 +794,24 @@ Implemented truth:
 - the private backend deployment coordinator is the first consumer and owns no
   locator, persistence, readiness, activation, routing, or runtime-selection
   authority; and
-- PGlite and genuine PostgreSQL 18.3 cover first activation, replacement,
-  concurrent replay/stale behavior, invalidated readiness, rollback,
-  decision uncertainty, cold reload, corruption, mixed evidence, and forged
-  selection rejection without any schema or migration change.
+- PGlite covers first activation, replacement, concurrent replay/stale
+  behavior, invalidated readiness, rollback, decision uncertainty, cold reload,
+  corruption, mixed evidence, and forged selection rejection without any
+  schema or migration change. The genuine PostgreSQL scenarios remain
+  implemented, with the fresh acceptance qualification recorded below.
+
+Fresh PostgreSQL revalidation after the C08-B1 readiness integration found one
+test-boundary defect on 2026-08-10. The FSV05 PostgreSQL fixture injects its
+"lost activation response" into the next located transaction globally. The
+new readiness eligibility replay now owns an earlier share-locked target
+transaction, so that injection is consumed there and produces
+`AppUniqueConstraintSetEligibilityV1Error(reason=targetTransaction)` before
+activation can exercise its intended decision-uncertain settlement. Expected
+behavior is an activation-scoped injected settlement loss; actual behavior is
+an eligibility-transaction failure caused by fixture ordering. Migration and
+the PGlite FSV05 case succeed. This is recorded as system-test/transaction-
+fixture evidence only; no shared readiness, activation, or transaction owner is
+changed until that correction is separately approved.
 
 ### `[x] C03-V`: Activation-Fenced Syscall Validator Capability
 

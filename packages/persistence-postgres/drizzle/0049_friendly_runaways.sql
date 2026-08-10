@@ -53,5 +53,5 @@ CREATE TABLE "fx_system_unique_constraint_set_build" (
         and "fx_system_unique_constraint_set_build"."updated_at" >= "fx_system_unique_constraint_set_build"."created_at")
 );
 --> statement-breakpoint
-ALTER TABLE "fx_control_schema_unique_constraint_set" ADD CONSTRAINT "fx_control_schema_unique_set_schema_fk" FOREIGN KEY ("deployment_id","schema_version_id") REFERENCES "public"."fx_control_schema_version"("deployment_id","schema_version_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "fx_system_unique_constraint_set_build" ADD CONSTRAINT "fx_system_unique_set_build_scope_fk" FOREIGN KEY ("scope_id") REFERENCES "public"."fx_system_scope_clock"("scope_id") ON DELETE restrict ON UPDATE no action;
+ALTER TABLE "fx_control_schema_unique_constraint_set" ADD CONSTRAINT "fx_control_schema_unique_set_schema_fk" FOREIGN KEY ("deployment_id","schema_version_id") REFERENCES "fx_control_schema_version"("deployment_id","schema_version_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "fx_system_unique_constraint_set_build" ADD CONSTRAINT "fx_system_unique_set_build_scope_fk" FOREIGN KEY ("scope_id") REFERENCES "fx_system_scope_clock"("scope_id") ON DELETE restrict ON UPDATE no action;

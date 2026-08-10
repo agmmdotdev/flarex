@@ -844,8 +844,9 @@ missing-path lowering, key movement, mixed unchanged/material dependency
 ordering, oversized-key refusal, fault after the second sidecar write, exact
 rollback/retry, pre-transaction ceiling refusal, and action-derived ceiling
 rollback.
-`C08-B0` is implemented and locally validated but awaits a live genuine-
-PostgreSQL acceptance receipt. It supplies a canonical non-localized unique physical specification,
+`C08-B0` is implemented and has a live genuine-PostgreSQL 18.3 acceptance
+receipt after the approved search-path portability correction to migration
+`0047`. It supplies a canonical non-localized unique physical specification,
 stable logical constraint identity, immutable physical definition identity,
 and exact schema-version binding. Migration `0047` stores only this compact
 authority and canonical commitments; it does not store user code or artifact
@@ -902,10 +903,11 @@ atomically rejects row 33, while point commits remain writable at exactly 32.
 PGlite proves
 bounded progress, claim-only and malformed-dimension rejection, no-port and
 cross-schema reset, directory admission and exact-ceiling behavior,
-invalidation-ceiling rollback, fault rollback, and replay. Genuine
-PostgreSQL scenarios are implemented, but local execution remains blocked
-before their test bodies by the separately recorded migration `0047`
-temporary-schema isolation defect.
+invalidation-ceiling rollback, fault rollback, and replay. A fresh isolated
+PostgreSQL 18.3 run now migrates through `0047` and `0049`, passes the two
+direct C08-B0 definition cases, and passes all 26 C08-B1C build/eligibility/
+point-commit scenarios; the migration-isolation defect is resolved in the
+owning index roadmap.
 
 General C08 remains production-inert. The private B1 planner-eligibility gate is
 an opaque facet of the exact B2 point-commit port, not a new public manifest or
@@ -914,16 +916,15 @@ build, carries only the set digest, table membership, and scope-clock pins into
 the pure stored-attempt planner, and makes B2-only or unready composition fail
 closed before point-commit SQL. A schema version with no unique bindings keeps
 the lower planner path only after that exact empty set is closed; every missing
-closure blocks all material planning. The focused PGlite lane passes 97 tests
+closure blocks all material planning. The focused PGlite lane passes 98 tests
 and the pure executor planner lane passes 61 tests, covering exact-facet
 anti-forgery, one-time factory capture, same-object planner/executor
 composition, no-material eligibility laziness, missing-facet and unclosed-set
 refusal, closed-set/build lifecycle and scope-clock staleness, affected-table
 refusal, and eligible planning. The
-genuine-PostgreSQL eligibility scenario is implemented; the local command
-skips without `FLAREX_POSTGRES_DATABASE_URL`, and the latest fresh isolated
-receipt is still blocked before its test body by the recorded `0047`
-temporary-schema isolation defect.
+genuine-PostgreSQL eligibility scenario now participates in the green 26-case
+C08-B1C PostgreSQL 18.3 receipt after the approved search-path correction
+removed its former `0047` migration blocker.
 
 FSV04 root folding remains a separate checkpoint because its stored-readiness
 replay is also consumed by activation. That checkpoint must revalidate the same
