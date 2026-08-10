@@ -972,10 +972,15 @@ particular, O10 must not reuse:
 - the old key-prefix query-plan receipt as evidence for S10's
   `(scope, definition, encodedKey, rowId, commitSeq)` history.
 
-O10 must produce new genuine-PostgreSQL snapshot and post-snapshot-overlap
-plans against S10 history. Prefer the existing history plus the smallest
-proven supporting index; do not introduce a second index-membership store,
-global range-version hotspot, alternate commit lane, or dual-write bridge.
+O10-PF2 has now produced genuine-PostgreSQL 18.3 post-snapshot-overlap plans
+against populated S10-shaped history. It retains the existing key-first index
+for snapshot pages and selects the supporting order
+`(scope_uuid,index_definition_id,commit_seq,encoded_key,row_id)` for bounded
+history validation, with a conservative 128-commit span and a 32-dependency
+ceiling. Exact measurements, query-shape cautions, and the required O10-P0
+shared read-admission prerequisite live in the owning foundation roadmap. Do
+not introduce a second index-membership store, global range-version hotspot,
+alternate commit lane, or dual-write bridge.
 
 ## Legacy Prototype Decision (Superseded For Replacement Work)
 

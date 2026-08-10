@@ -742,8 +742,10 @@ Dynamic Worker binding baseline before selecting it.
    PGlite and genuine PostgreSQL.
 10. `O10`: one exact ascending developer-index dependency, complete staged
     read-your-writes overlay, consumed-frontier semantics, and phantom-conflict
-    proof. Its accepted preflight is
-    [`06-indexed-range-occ.md`](./06-indexed-range-occ.md).
+    proof. PF1/PF2 are complete in
+    [`06-indexed-range-occ.md`](./06-indexed-range-occ.md); the next gate is the
+    separately approved `O10-P0` shared exact-attempt read-admission
+    prerequisite, not O10-A implementation yet.
 11. `R01`: relation identity and semantics.
 12. `R02`: stable relation IDs, immutable semantic definitions, and reusable
    physical edge definitions.

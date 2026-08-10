@@ -1,12 +1,14 @@
 # Indexed Range OCC
 
-Status: Accepted design preflight for the private, production-inert `O10`
-replacement lane. This document freezes the first exact indexed mutation-read
-contract. The implementation preflight still must inventory the private
-journal/runtime identities and capture genuine-PostgreSQL baseline plans. This
-document does not implement or activate a runtime API, alter production
-routing, or authorize relation, scan, filter, search, vector, or general
-pagination support.
+Status: Accepted design plus completed `O10-PF2` implementation preflight for
+the private, production-inert `O10` replacement lane. This document freezes
+the first exact indexed mutation-read contract, the durable journal shape, and
+the first measured PostgreSQL access path. Implementation is blocked on the
+separately bounded `O10-P0` shared read-admission prerequisite described below;
+that transaction-kernel change still requires explicit approval. This document
+does not implement or activate a runtime API, alter production routing, or
+authorize relation, scan, filter, search, vector, or general pagination
+support.
 
 ## Decision
 
@@ -147,6 +149,70 @@ The candidate-bound runtime projection must also commit the indexed-query
 shape and its budgets. Do not smuggle index queries through
 `maximumPointReads` or add them to `FunctionRuntimePointReaderV1`.
 
+## O10-PF2 Identity Inventory
+
+The 2026-08-10 implementation inventory found one existing authority chain,
+not an empty integration surface:
+
+| Concern | Exact current owner and consequence |
+| --- | --- |
+| Canonical logical journal | `flarex-protocol/commit-protocol` owns `SessionJournalV1`, whose `LogicalReadDependencyV1` currently has only `appRowPoint`. O10 directly extends that one private union and refreshes its canonical vectors; it does not add a parallel range journal. |
+| Open-attempt storage | Migration `0028_glossy_galactus` and `sessionJournalStore` own `fx_system_tx_journal`, the coalesced `fx_system_tx_journal_point` overlay/dependency set, ordered write events, the latest-syscall replay receipt, counters, and seal materialization. |
+| Syscall replay | `fx_system_tx_journal_latest_receipt` is intentionally one overwritten row per attempt. It can authenticate only the latest syscall and therefore cannot own the complete indexed dependency set. |
+| Attempt admission | `transactionSessionActivation` owns the exact running-attempt transaction, lock order, lease/claim checks, and journal-root lock. Its current path locks the scope clock `FOR UPDATE` for every point syscall. |
+| Stored-attempt and planning | `storedAttemptEvidence`, `storedCommitAuthority`, and `executor/storedAttemptAuthentication` authenticate, decode, normalize, and plan the one sealed journal. O10 must extend this chain rather than bypass it with SQL-owned dependencies. |
+| Final publication | `pointCommitTransaction` owns the existing scope-clock lane, OCC decision, allocation, row/index/unique sidecars, result, feed, outbox, and outcome publication. O10 adds one validation input to this transaction and no alternate commit owner. |
+| Runtime API | `function-runtime/functionApiCore` and the candidate-bound runtime target currently expose only point CRUD and `maximumPointReads`. O10 needs a separately committed indexed-query capability and budget. |
+| Index history | Migration `0040_lush_tenebrous`, `fx_app_index_entry_rev`, and `appIndexEntries` own immutable S10 history and snapshot range access. The existing supporting order is key-first: `(scope_uuid,index_definition_id,encoded_key,row_id,commit_seq desc)`. |
+| Routed generation | `executor/appDataEngines` registers only `legacy_v1`; the foundation README records `flarexdb_v1` as private and runtime-unreachable. Repository evidence therefore supports direct replacement of the private journal contract, but does not claim knowledge of manually populated external databases. |
+
+Because the existing point-only journal values remain valid members of the
+expanded union and all new counters default to zero, O10 does not need dual
+acceptance or a body migration. The implementation migration remains additive.
+If deployment evidence later shows a production-routed `flarexdb_v1` consumer,
+stop and reopen this conclusion before changing the journal identity.
+
+## Durable Indexed Dependency Storage
+
+Use one necessary bounded child table,
+`fx_system_tx_journal_index_range`, rather than storing interval bodies in the
+journal root or abusing the latest receipt.
+
+The reasons are structural:
+
+- the latest receipt is constant-cardinality and is deleted/replaced on every
+  accepted syscall;
+- the exact running-attempt kernel currently selects the complete journal root
+  on every syscall, so a growing root byte blob would repeatedly fetch and
+  rewrite toasted interval evidence even for unrelated point operations; and
+- an indexed dependency is a distinct bounded collection with its own
+  cardinality, ordering, corruption checks, and seal projection. It is not a
+  second copy of app rows, source bytes, index-entry history, or query results.
+
+The child is owned by the existing journal root through a restrictive update
+and cascading-delete foreign key. It stores at most 32 canonical merged rows
+ordered by a contiguous small ordinal. Each row stores only structured
+authority: table ID, immutable physical index-definition ID, key-codec version,
+physical-spec SHA-256, ascending direction, and nullable typed lower/upper
+composite endpoints with explicit inclusive/exclusive/unbounded kinds. Keys and
+row IDs retain the existing 2,048-byte and 16-byte bounds. It stores no
+documents, result pages, SQL, developer names, or S10 revision copies.
+
+The journal root adds three independent bounded counters:
+
+- indexed-query syscall count, maximum 32;
+- canonical merged indexed-dependency count, maximum 32; and
+- canonical indexed-dependency evidence bytes, with a protocol-owned ceiling
+  selected and pinned by O10-A vectors.
+
+One indexed syscall holds the existing exact-attempt transaction, verifies the
+current child rows and root counters, merges the new interval canonically,
+rewrites at most 32 child rows in ordinal order, records returned-document point
+dependencies, replaces the latest receipt, and advances all counters in the
+same transaction. Seal loads at most 33 child rows, rejects count/order/bound
+or digest mismatches, and emits the single canonical journal. This is one
+authority and one atomic replay boundary.
+
 ## Snapshot Query And Read-Your-Writes
 
 The trusted query operation performs this bounded sequence:
@@ -243,6 +309,82 @@ Validation must remain bounded while the scope lock is held. Use set-based
 queries or a materially small dependency ceiling; do not issue one unbounded
 history scan or thousands of sequential statements.
 
+### O10-PF2 PostgreSQL 18.3 Evidence
+
+The preflight used an isolated local PostgreSQL 18.3 cluster and a standalone
+table with the exact relevant S10 column/index order. The populated history had
+400,000 old in-range revisions plus bounded recent out-of-range revisions. The
+numbers are diagnostic local evidence, not an SLA.
+
+| Negative-overlap case | Access path | Buffers | Execution time |
+| --- | --- | ---: | ---: |
+| One broad interval, existing key-first index only | `o10_s10_key_first_idx` | 5,618 hits | 39.752 ms |
+| Same broad interval, with commit-first support | `o10_s10_commit_first_idx` | 201 hits + 105 reads | 1.223 ms |
+| One narrow interval, key-first only | key-first | 58 hits | 0.361 ms |
+| Same narrow interval, commit-first available | commit-first | 300 hits | 0.194 ms |
+
+The accepted maximum-work fixture then populated exactly 128 post-snapshot
+commit sequences with 256 S10 revisions per commit and validated 32 disjoint
+canonical dependencies. PostgreSQL used 4,096 bounded index searches over the
+commit-first index. The warm run used 12,294 buffer hits and 5.416 ms; after a
+server restart it used 12,168 hits plus 138 reads and 13.379 ms. A naive
+per-dependency lateral shape was also observed choosing the key-first index and
+doing substantially more work, so plan shape and chosen index must be asserted,
+not inferred from index presence.
+
+The admitted O10 supporting index is therefore:
+
+```sql
+(scope_uuid, index_definition_id, commit_seq, encoded_key, row_id)
+```
+
+Retain the existing key-first index for snapshot page reads. Use the new index
+only as the post-snapshot history-validation access path. O10-B must use one
+set-based dependency relation, assert the genuine-PostgreSQL plan, and preserve
+deterministic conflict ordering.
+
+The measured bound also freezes
+`MAX_INDEX_RANGE_OCC_COMMIT_SPAN_V1 = 128`. If
+`lockedLastCommitSeq - snapshotCommitSeq` exceeds 128, validation reports a
+conservative OCC conflict before reading S10 history and enters the existing
+O08 full-attempt replacement/rerun policy. With C08's existing maximum of 256
+developer-index entry revisions per commit, this caps candidate history at
+32,768 revisions before the 32-dependency join. Raising either ceiling requires
+new populated-history and lock-hold evidence.
+
+## O10-P0 Shared Read-Admission Prerequisite
+
+PF2 found a conflict between the accepted query contract and the current
+kernel: `lockPointMutationSessionClock` uses `FOR UPDATE`, and every exact point
+syscall reaches it before locking the session, attempt structure, journal root,
+and execution claim. Reusing that path would serialize every indexed read with
+all reads and commits in the scope. That is not an acceptable hidden cost and
+contradicts this roadmap's requirement that a snapshot query not enter the
+exclusive commit lane.
+
+Before O10-A, implement one bounded `O10-P0` transaction-kernel capability:
+
+1. add an exact running-attempt **read/syscall admission** mode that takes the
+   scope clock `FOR SHARE`, then preserves the existing session, lease, journal,
+   execution-claim, epoch, fence, revocation, and database-clock checks;
+2. use that mode only for the new indexed query syscall in this gate;
+3. leave every existing point CRUD, activation, terminalization, replacement,
+   commit, OCC, and lock-order behavior unchanged; and
+4. hold the shared lock only for the bounded syscall transaction, never while
+   user code runs.
+
+`FOR SHARE` is deliberate: concurrent read syscalls may proceed together while
+epoch, generation, revocation, and commit writers cannot cross the admission
+transaction. Removing the scope lock entirely would weaken current read
+authorization semantics and is not approved.
+
+PGlite plus genuine PostgreSQL must prove same-scope indexed read concurrency,
+writer blocking until the bounded read transaction settles, stale
+epoch/generation/revocation rejection, interruption/rollback, and unchanged
+existing point-operation lock behavior. This is a transaction-kernel change,
+so it is not silently folded into O10-A and requires explicit approval, both
+mandatory reviewers, and its own commit.
+
 ## Retention
 
 O10 does not activate history cleanup. O11 must retain enough S10 revision
@@ -283,19 +425,21 @@ search, and vector shapes must have explicit rejection tests.
 
 1. **O10-PF1 — complete with this accepted design.** Reconcile roadmap truth
    and freeze the first exact shape without adding behavior.
-2. **O10-PF2 — implementation preflight.** Inventory private protocol/storage
-   identity, verify the no-shipped-row assumption, choose the durable bounded
-   interval-set representation, and capture genuine-Postgres baseline plans.
-   Stop if compatibility data, a second authority, or materially broader DDL
-   is discovered.
-3. **O10-A — private indexed snapshot/journal capability.** Add the exact
+2. **O10-PF2 — complete with this checkpoint.** The inventory selects one
+   bounded journal child, confirms repository-level production inaccessibility,
+   selects the commit-first supporting index and 128-commit validation span,
+   records PostgreSQL 18.3 plans, and identifies the exclusive-lock blocker.
+3. **O10-P0 — pending explicit approval.** Add only the shared exact-attempt
+   read/syscall admission mode and its concurrency/authority evidence. Preserve
+   every existing caller and transaction owner.
+4. **O10-A — private indexed snapshot/journal capability.** Add the exact
    candidate-bound query operation, composite consumed-interval dependency,
    durable bounded journal capture, set-based document verification, and
    protocol/generated closure. It remains unavailable to mutation user code.
-4. **O10-B — overlay and commit integration.** Add the complete staged overlay,
+5. **O10-B — overlay and commit integration.** Add the complete staged overlay,
    S10 history validator, existing O08 conflict replacement, and exact runtime
    capability. Enable only the accepted shape.
-5. **O10-C — acceptance and simulation.** Close PGlite and genuine-PostgreSQL
+6. **O10-C — acceptance and simulation.** Close PGlite and genuine-PostgreSQL
    concurrency/plan/rollback evidence and add a Standard cooking-app scenario
    that makes a real business decision from an indexed range.
 

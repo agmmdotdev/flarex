@@ -1655,6 +1655,12 @@ Accepted preflight and exact contract:
 - [`06-indexed-range-occ.md`](./06-indexed-range-occ.md) owns the first
   implementation-ready shape and Convex comparison. It moves O10 ahead of
   relation work without opening R01/R02/S12/C09.
+- `O10-PF2` is complete. It selects one bounded journal child rather than a
+  root blob, admits the S10 commit-sequence-first supporting index, freezes a
+  128-commit conservative validation span, and records populated PostgreSQL
+  18.3 plans. The current exact-syscall kernel also revealed an exclusive
+  scope-clock lock, so `O10-P0` must add the separately approved shared
+  read-admission mode before O10-A.
 - Implement only an ascending, bounded developer ordered-index `take(n)` over
   the existing structured equality-prefix/optional-inequality grammar.
   `first()` and exhaustion-aware `unique()` may derive from that primitive.
@@ -1683,6 +1689,9 @@ Exit gate:
   interruption, rollback, uncertainty, and O08 conflict replacement pass;
 - genuine Postgres proves the snapshot and negative/positive post-snapshot
   overlap access paths under populated history and the accepted ceilings;
+- the shared O10 read-admission mode permits same-scope readers to overlap,
+  blocks authority/commit writers only for the bounded syscall transaction,
+  and leaves every existing point caller on its current lock path;
 - journal/protocol/runtime identities, counters, canonical vectors, generated
   closure, and any required migration are changed once with no parallel
   acceptance or fallback; and
