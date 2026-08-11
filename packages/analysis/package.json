@@ -7,6 +7,7 @@
   ],
   "exports": {
     ".": "./src/index.ts",
+    "./application-analysis": "./src/applicationAnalysisV1.ts",
     "./internal/canonical-declarative-program-v1": "./src/canonicalDeclarativeProgramV1.ts",
     "./internal/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",
     "./internal/private-analyzer-verification-v1": "./src/privateAnalyzerVerificationV1.ts",
