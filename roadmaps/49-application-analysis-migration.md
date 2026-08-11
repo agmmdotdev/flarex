@@ -1554,7 +1554,14 @@ schema-version identifier from the canonical Application schema digest, but it
 may not relabel that digest as a readiness verdict. After publication it must
 compare the resulting manifest's table names, validators, index declarations,
 and relationships with the analyzed schema before any readiness work. The
-analyzer's numeric table and index IDs are dense canonical ordinals within the
+catalog's numeric schema `version` is a separate deployment-local monotonic
+identity: reserve it under the deployment row lock after comparing the active,
+published, and already-reserved maxima. Never truncate the schema digest into
+that integer, and never reuse the Application Manifest's `schema.version = 1`,
+which is only the analyzed schema codec version. Exhausting the existing
+catalog range fails closed without publishing a partial binding.
+
+The analyzer's numeric table and index IDs are dense canonical ordinals within the
 Application Manifest, not deployment-stable storage IDs. The bridge must record
 their complete name-based mapping to the bound catalog IDs and commit the bound
 schema-manifest digest; it must not require the two numeric domains to be equal
