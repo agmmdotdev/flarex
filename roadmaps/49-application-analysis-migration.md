@@ -567,6 +567,63 @@ migration head and concurrent worktree:
 Do not modify old row meanings, write both generations, or add activation in
 the same transaction merely for test convenience.
 
+#### AA-R5 persistence preflight and accepted cut — 2026-08-11
+
+The preflight re-read the current schema and migration journal at committed
+head `0053_sleepy_morgan_stark`. Concurrent managed-schema work modifies package
+metadata and its own code but does not currently add a Postgres table or
+migration. The main thread must recheck that head immediately before generation
+and must not hand-write a conflicting journal entry.
+
+The new persisted generation is deliberately three tables:
+
+1. `fx_system_application_candidate_v1` owns a backend-issued candidate ID and
+   request key, one immutable Source Artifact V2 root, and the exact trusted
+   scope storage generation, fence, and epoch observed when it was admitted.
+2. `fx_system_application_analysis_v1` owns one backend-issued analysis ID per
+   candidate. It starts `pending` and settles once to `analyzed` or `rejected`.
+   Terminal rows store exact canonical receipt bytes and digest. Analyzed rows
+   additionally store exact canonical manifest bytes and digest; rejected rows
+   store only the bounded stable failure and detail carried by their receipt.
+3. `fx_system_application_revision_v2` is the new inactive revision generation.
+   It has a backend-issued revision ID and a composite foreign key to the same
+   analyzed application-analysis row, Source Artifact root, and manifest digest.
+   It has no readiness or activation fields and no relationship to an old
+   candidate, verifier attempt, Semantic Artifact, verdict, revision, or
+   activation table.
+
+One scope-clock-locked admission transaction makes request-key replay exact.
+The same key with the same source root and analyzer identities returns the
+existing candidate/analysis; reuse with different input is a conflict. The host
+runs outside that transaction. A retryable host or transport failure leaves the
+analysis pending, so retry invokes the same candidate rather than recording a
+false rejection or minting a second authority.
+
+One scope-clock-locked settlement transaction accepts only a terminal host
+result whose Source Artifact root and analyzer identities match the pending
+row. It decodes and re-canonicalizes an analyzed manifest, requires byte-for-byte
+agreement with the host canonical text, constructs the backend-owned canonical
+receipt using database time, hashes both through the existing package-owned
+SHA-256 boundary, settles the row, and inserts the inactive revision only for an
+analyzed receipt. If a terminal row already exists, the operation validates and
+returns the first durable receipt and revision projection; it never overwrites
+the terminal timestamp, turns a rejection into success, or mints another
+revision.
+
+Stored replay re-decodes canonical receipt and manifest bytes and verifies their
+digests and cross-row identities before returning them. Database/driver/resource
+failures remain retryable integration failures; invalid terminal input,
+request-key reuse, stale scope authority, and durable correlation failures are
+typed and distinct. Unexpected decoder or platform defects are not converted
+to ordinary rejection receipts.
+
+**Self-review decision: accepted for implementation.** The cut is additive,
+transactionally fenced, first-terminal-wins, and smaller than adapting the old
+registration pipeline. It preserves one authority per candidate, gives rejected
+analysis a durable replay without creating a revision, and creates no dual
+write, fallback, runtime publication, readiness, activation, OCC, commit, row,
+feed, outbox, route, binding, or deployment behavior.
+
 ### `AA-R6` — executable producer, publication, and authority migration
 
 This gate is larger than a receipt-table change and is divided into two medium
