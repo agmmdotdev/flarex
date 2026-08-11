@@ -2,10 +2,11 @@
 
 ## Status And Scope
 
-**Status:** Active capability-sized execution plan. `FSV00` accepted the
-documentation boundary, `FSV01` completed `SAP02` through the accepted
-replacement-analyzer port, and `FSV02` completes the first implementation-
-bearing System operation plus `SAP03`: authenticated, durable, idempotent,
+**Status:** Completed private vertical with an analysis-replacement migration
+open. `FSV00` accepted the documentation boundary, `FSV01` completed `SAP02`
+through the then-accepted static-verifier analyzer port, and `FSV02` completes
+the first implementation-bearing System operation plus `SAP03`: authenticated,
+durable, idempotent,
 inactive application-revision registration. A1b2-S1 closes durable
 intent/terminal settlement, and A1b2-S2 closes opaque reservation minting plus
 durable analyzer restart evidence. A1b2-S3 directly replaces the former
@@ -28,8 +29,17 @@ composes those owners into the first private System Application Data operation
 and the thin SAP04 Standard consumer. Production routing remains the separate
 `FSV07` gate.
 
+Roadmap 17 now accepts Application Analysis and displaces the A1b2 static-
+verifier authority used by FSV01-FSV06. The completed vertical remains strong
+evidence for registration, readiness, activation, runtime, executor, OCC,
+commit, and Postgres composition, but it is not evidence that the new analysis
+boundary is implemented. AA-R6 must recompose registration/readiness over
+`ApplicationManifestV1` and `ApplicationAnalysisReceiptV1`; AA-R7 must rerun
+the private PGlite and genuine-PostgreSQL vertical before FSV07 can be
+reconsidered.
+
 This roadmap owns the first function-first, implementation-bearing composition
-from the replacement analyzer and Standard Application APIs into the existing
+from Application Analysis and Standard Application APIs into the existing
 FlarexDB schema, activation, runtime, executor, transaction, commit, and
 Postgres owners.
 
@@ -37,7 +47,7 @@ The target is one honest end-to-end vertical:
 
 ```text
 prepared application definition
-  -> accepted complete replacement analysis
+  -> canonical application manifest and analysis receipt
   -> inactive registered application revision
   -> evidence-backed readiness
   -> explicit activation
@@ -61,7 +71,7 @@ The first vertical is not:
 - a Payload or Medusa database adapter;
 - a broad relational-schema or migration system;
 - a production routing or legacy-retirement authorization; or
-- evidence that the current replacement analyzer, `C07`, activation,
+- evidence that Application Analysis, `C07`, activation,
   or hosted composition is already complete.
 
 ## Current Truth
@@ -70,8 +80,8 @@ Current implementation truth:
 
 - `SAP01-A` through `SAP01-D` provide and enforce Standard definition
   preparation;
-- A1b2 exposes the accepted replacement-analyzer semantic factory and private
-  Effect host;
+- A1b2 exposes the completed historical static-verifier semantic factory and
+  private Effect host; Application Analysis is not yet implemented;
 - `SAP02` exposes `analyzeStandardApplicationV1` through the narrow
   `@flarex/standard-application-analysis/v1` package and preserves the exact
   accepted registration-complete result;
@@ -291,8 +301,8 @@ consumer in the same slice.
 ```text
 developer producer or private test producer
   -> Standard definition preparation
-  -> analyzeStandardApplicationV1                         SAP02
-  -> authenticated verified analysis
+  -> Application Analysis                                SAP02 replacement
+  -> ApplicationManifestV1 + ApplicationAnalysisReceiptV1
   -> registerApplicationRevisionV1                       System Schema
   -> inactive candidate + schema/functions/artifacts
   -> settleApplicationRevisionReadinessV1                System Schema
@@ -311,16 +321,17 @@ remain the only correctness implementations below both layers.
 
 ## Cross-Slice Invariants
 
-1. **One analyzer path.** SAP02 uses the accepted complete replacement analyzer
-   port. It does not preserve or create a partial fallback analyzer.
+1. **One analyzer path.** After AA-R6, SAP02 uses only the accepted Application
+   Analysis port. It does not preserve the displaced static verifier as a
+   fallback, comparison path, or second authority.
 2. **Authenticated server-owned evidence.** Untrusted definitions and analyzer
    response bytes cannot directly become registration, readiness, activation,
    or execution authority.
 3. **Registration is inert.** Candidate and schema publication never move the
    active head.
 4. **Readiness is target-native.** Readiness is derived from the real located
-   scope, scope clock, target rows, physical state, candidate/verifier
-   evidence, and required runtime evidence.
+   scope, scope clock, target rows, physical state, candidate analysis receipt,
+   application manifest, and required runtime evidence.
 5. **Activation is explicit and fenced.** Activation revalidates readiness and
    CASes one coherent target-local head. Failure preserves the previous active
    revision.
@@ -343,6 +354,12 @@ remain the only correctness implementations below both layers.
 
 ## Ordered Slices
 
+The completed slices below are historical receipts for the then-accepted A1b2
+analysis boundary. Their database/runtime conclusions remain evidence; their
+analyzer inputs and outputs are superseded. Do not reopen or extend these slices
+to implement Application Analysis. AA-R1-AA-R7 in roadmap 17 own that migration
+and must preserve the no-fallback invariants recorded here.
+
 ### `[x] FSV00`: Accept The Focused Boundary
 
 Record:
@@ -355,17 +372,17 @@ Record:
 This gate changes documentation only. It authorizes no package, route, binding,
 schema, migration, or activation change.
 
-### `[x] FSV01`: Complete SAP02 Through The Accepted Analyzer Port
+### `[x] FSV01`: Historical SAP02 Static-Verifier Analyzer Port
 
 Entry gate:
 
-- A1b2 is complete and exposes one accepted complete replacement analyzer port
+- A1b2 was complete and exposed the then-accepted analyzer port
   with authenticated input, verified output, diagnostics, progress, and
   cancellation/lifecycle behavior; and
 - the analysis, Standard-definition, backend, and direct host packages in the
   slice have a green typecheck and focused test baseline.
 
-The accepted analyzer handoff is the start authority for this capability.
+The then-accepted analyzer handoff was the start authority for this capability.
 After verifying the named entry point, channels, ownership, and validation
 receipts, begin `FSV01`/SAP02 without another broad or ceremonial preflight.
 Stop only if the handoff is missing, stale, or crosses a materially new
@@ -1006,6 +1023,10 @@ The following gates block that caller:
 7. The authoritative SAP04 committed outcome is not the existing
    `InvokeResponse`. A backend-owned response/error adapter needs explicit
    parity proof; the route may not expose private persistence or commit shapes.
+8. Roadmap 17 AA-R1-AA-R7 have not replaced the private static-verifier
+   analysis, registration, and readiness evidence with
+   `ApplicationManifestV1` and `ApplicationAnalysisReceiptV1` or rerun this
+   vertical through the new sole authority.
 
 Fail-closed rollback and recovery:
 
@@ -1038,15 +1059,17 @@ scope isolation, pooled cleanup, response/error compatibility, commit/change
 feed, result, and outbox facts. Query and action retirement additionally require
 their own routed parity decisions.
 
-The next executable prerequisite is `H05-B`, not an FSV07 route edit. Running
-that proof changes external staging state and remains outside this no-mutation
-preflight. After `H05-B`, complete `S02-D2`, `S02-E`, and the roadmap 37 hosted
-soak before returning here for an implementation-bearing routing decision.
+The next executable analysis prerequisite is roadmap 17 AA-R1, not an FSV07
+route edit. `H05-B`, `S02-D2`, `S02-E`, and the roadmap 37 hosted soak remain
+independent routing prerequisites and are not waived by the analysis redesign.
+Return here for an implementation-bearing routing decision only after both the
+AA-R7 replacement proof and those hosted/runtime gates are green.
 
-## Completed FSV01 And FSV02 Handoff
+## Historical Completed FSV01 And FSV02 Handoff
 
-The analyzer handoff was received and reverified before `FSV01` implementation.
-The accepted owners remain:
+The static-verifier analyzer handoff was received and reverified before `FSV01`
+implementation. These owners remain historical migration/removal evidence, not
+the accepted Application Analysis target:
 
 - `makeDeclarativeV2AnalyzerPortFactoryV1` for semantic analysis;
 - `makePrivateDeclarativeV2AnalyzerHostV1` for dependency-inverted Effect host
@@ -1061,15 +1084,16 @@ SAP03 boundary described in its completed slice. Neither capability authorizes
 readiness, activation, point mutation, public routing, framework adapters, or
 production wiring.
 
-The first relation-free private vertical now ends at FSV06/SAP04. FSV05
+The historical relation-free private vertical ends at FSV06/SAP04. FSV05
 consumes FSV04's exact readiness receipt and existing activation storage,
 C03-V supplies scope-lifetime syscall-time validation, FSV06-A1 supplies the
 candidate-bound exact runtime target, FSV06-A2 supplies the existing mixed-ABI
 catchability semantics, and FSV06 composes them without creating a route,
 trigger, hosted-redelivery authority, public SDK, or production caller. The
 FSV07-P records the separate production-routing preflight as a no-go decision.
-The next executable prerequisite is foundation `H05-B`; production routing
-remains unchanged.
+The next executable analysis gate is AA-R1; `H05-B` and the other hosted
+routing prerequisites remain independently open, and production routing remains
+unchanged.
 
 ## Overall Completion Criteria
 
@@ -1086,8 +1110,8 @@ The first vertical is complete only when:
 - returned outcome, stored row, result, feed, and outbox agree;
 - failures preserve the previous active revision or the prior committed
   outcome without partial state;
-- the private A1b2 plus `C07` harness proof precedes readiness, activation, and
-  active-revision invocation;
+- the AA-R7 Application Analysis plus `C07` harness proof precedes any new
+  readiness, activation, active-revision invocation, or routing claim;
 - all required PGlite, real-Postgres, Worker/Cloudflare, typecheck, Effect
   boundary, and focused test lanes pass; and
 - production routing remains unchanged until `FSV07` is separately approved.

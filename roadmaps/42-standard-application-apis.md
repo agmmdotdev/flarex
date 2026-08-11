@@ -24,7 +24,7 @@ is unchanged, and no registration, activation, runtime, persistence, route, or
 public SDK surface is enabled.
 `@flarex/standard-application-analysis/v1` exposes the function-first analysis
 operation over a request-scoped context, and the analyzer app provides the
-first private implementation over the accepted replacement host.
+first private implementation over the then-accepted static-verifier host.
 `@flarex/standard-application-registration/v1` exposes the narrow inactive
 registration result over the persistence-owned `FSV02` System operation, and
 the private SAP04 consumer now reaches one authoritative point mutation. The
@@ -58,6 +58,16 @@ private `SAP07` operation is accepted and complete, and both mandatory exact-
 final reviewers reported no findings: one
 route-independent public action composes the existing active reader, AAV-A1,
 AAV-A2, and R2 body ownership without adding a route or another lifecycle.
+
+Roadmap 17 now displaces the static-verifier implementation behind the current
+Standard analysis operation. That operation and its exact registration-
+complete result remain historical compatibility during migration; they must
+not be reinterpreted as the new cold-load result. The accepted Standard target
+stays in the existing `@flarex/standard-application-analysis` package and
+exposes the new `ApplicationManifestV1` plus
+`ApplicationAnalysisReceiptV1` authority only after AA-R2 settles the exact
+export and migration contract. Do not create a version-named replacement
+package or allow both results to authorize one candidate.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:
@@ -218,7 +228,7 @@ obvious:
 | Stage | Standard responsibility | Existing authority retained below it |
 | --- | --- | --- |
 | Definition preparation | Normalize explicit schema/function intent and materialize the prebuilt module graph | canonical declarative program and declarative materializer |
-| Analysis | Submit one admitted immutable artifact to the supported replacement analyzer port | analyzer engine/host, verifier, evidence, and progress owners |
+| Analysis | Submit one admitted immutable bundle to the trusted capability-free cold-load analyzer and return its canonical manifest and receipt | analysis contract/core/host owners; runtime capability enforcement remains below the runtime |
 | Registration | Request registration of one verified application revision | deployment, schema/catalog, readiness, and activation owners |
 | Invocation | Invoke one admitted function through an approved host-neutral contract | function runtime, executor, journal, OCC, commit, and persistence |
 
@@ -513,7 +523,7 @@ Build Standard Application APIs capability by capability:
 ```text
 explicit definition
   -> prepared canonical program and artifact ingress
-  -> authenticated analysis result
+  -> authenticated application manifest and analysis receipt
   -> verified registered revision
   -> admitted function invocation
   -> bounded runtime and authoritative outcome
@@ -522,6 +532,36 @@ explicit definition
 Each arrow is a separately owned transition with its own typed failures and
 trust boundary. Developer and test APIs share these transitions without
 sharing ergonomics, fault policy, or lifecycle ownership.
+
+For the analysis transition, simplicity is a correctness requirement: handler
+bodies remain opaque; the Standard API does not expose parser, linker, ABI,
+call-graph, evidence-page, progress, or restart concepts. A retry starts from
+the same immutable bundle. Registration consumes the canonical manifest and
+receipt, while runtime kinds and request-scoped syscall capabilities enforce
+what executing code may do.
+
+### Application Analysis Migration Gate
+
+The next Standard analysis work is roadmap 17 AA-R1/AA-R2, not another SAP
+chronology version:
+
+1. inventory all consumers of `@flarex/standard-application-analysis/v1` and
+   its exact aliased registration-complete result;
+2. decide whether that internal compatibility export must coexist temporarily
+   or can be replaced atomically;
+3. add the minimal replacement operation in the same package without importing
+   persistence, backend, executor, runtime-host, or test policy;
+4. return only the new manifest/receipt projection and typed Standard mapping;
+5. migrate SAP03, the private harness, and developer/test producers in one
+   authority-ordered sequence; and
+6. delete the displaced export after its consumer gate closes rather than
+   retaining fallback or comparison behavior.
+
+The exact export spelling is deliberately deferred to AA-R2 because the
+compatibility inventory decides whether a versioned wire/contract subpath must
+coexist. The product and operation names remain plain Application Analysis;
+version suffixes apply only to the concrete manifest, receipt, request, or
+transport contract.
 
 ## Next Correctness Gates
 

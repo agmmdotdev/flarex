@@ -1,15 +1,24 @@
-# Declarative V2 External Analyzer Compute Contingency
+# Declarative V2 External Analyzer Compute Contingency (Superseded)
 
 ## Status
 
-This note records a future portability option if measured Cloudflare limits make
-the private Declarative V2 analyzer unsuitable for the required correctness,
-stress, or production workload. It is not approval to add an external compute
-service, route, binding, deployment, fallback, or second analyzer path.
+**Superseded:** Roadmap 17 now accepts capability-free cold-load Application
+Analysis and treats handler bodies as opaque JavaScript. The static parser,
+linker, call-graph, ABI, value-flow, progress, and restart system described here
+is no longer the production target, so moving that computation to an external
+service is not an authorized contingency.
 
-The current milestone remains the private real-system correctness and stress
-harness. Any decision to move analyzer computation must be based on measurements
-from that harness rather than an assumption that Cloudflare is insufficient.
+This note is retained only as historical architecture and removal-audit
+evidence. It is not approval to add an external compute service, route, binding,
+deployment, fallback, second analyzer path, or to continue pending Declarative
+V2 work. If measured hosted limits later make whole-bundle cold loading
+infeasible, stop and amend roadmap 17 with those measurements; do not revive
+this protocol implicitly.
+
+The next executable analysis milestone is roadmap 17 AA-R1, followed by its
+contract, host, migration, and private proof gates. The remainder of this note
+describes the displaced design in the present tense only to preserve its exact
+historical boundary.
 
 ## The Boundary In One Picture
 

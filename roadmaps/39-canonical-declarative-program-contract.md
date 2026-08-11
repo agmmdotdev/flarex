@@ -10,6 +10,11 @@ M8 is complete: the protocol contracts, host-neutral materializer core, direct
 prebuild adapter are implemented and validated below. The test-only M9
 upload-core correlation proof is also complete. No production producer,
 consumer, upload route, stored artifact, or activation path has been migrated.
+Roadmap 17 now supersedes Semantic Artifact V1 plus static verification as the
+production-analysis target. The canonical program remains a useful pure
+definition/build input, but its current Semantic Artifact V1 materialization is
+historical private compatibility until the Application Analysis migration
+decides whether any non-verifier consumer remains.
 
 This record owns the proposed standard contract boundary between:
 
@@ -17,9 +22,10 @@ This record owns the proposed standard contract boundary between:
 - direct, minimal program fixtures used to develop and test downstream domains
   before the developer APIs are mature;
 - developer-machine or CI compilation and artifact generation;
-- Declarative V2 source and semantic artifact production;
-- analyzer and verifier inputs; and
-- the later verified runtime projection consumed by a function runtime host.
+- immutable application bundle production;
+- Application Analysis registration inputs; and
+- the later manifest-selected runtime artifact consumed by a function runtime
+  host.
 
 The decision is to create stable inter-domain contracts rather than let one
 domain consume another domain's classes, builders, incidental object layout, or
@@ -56,22 +62,22 @@ ergonomic developer API                 direct test/tool fixture
                                  |
                    compile / bundle / materialize
                                  |
-              +------------------+------------------+
-              |                                     |
-              v                                     v
-      immutable Source Artifact V2       Semantic Artifact V1
-              |                                     |
-              +-------------- verify ---------------+
+                                 v
+                    immutable JavaScript bundle
+                                 |
+                     trusted capability-free cold load
                                  |
                                  v
-                    verified runtime projection
+             canonical manifest + analysis receipt
+                                 |
+                    candidate, readiness, activation
                                  |
                                  v
                        function runtime host
 ```
 
 The canonical program input is not deployment authority. Source artifacts,
-semantic artifacts, analyzer evidence, verified projections, activation
+analysis receipts, application manifests, runtime artifacts, activation
 records, and execution requests retain their own contracts and authority
 owners.
 
@@ -92,13 +98,16 @@ Current behavior must be verified against:
 - [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md)
   for deployment analysis, artifact, readiness, and activation sequencing;
 - [`38-declarative-v2-external-analyzer-compute.md`](./38-declarative-v2-external-analyzer-compute.md)
-  for the portable ESM, analyzer-compute, and trust boundary; and
+  for historical static-verifier compute and trust-boundary evidence only; and
 - [`16-package-boundaries.md`](./16-package-boundaries.md) for dependency
   direction and public-versus-internal ownership.
 
-Current naming remains **Declarative V2 + Source Artifact V2 + Semantic Artifact
-V1**. A future in-memory program contract must not be called Semantic Artifact
-V2 or imply a new artifact generation without a separate versioning decision.
+The implemented private lane retains the historical names **Declarative V2 +
+Source Artifact V2 + Semantic Artifact V1**. Do not rename or reinterpret those
+contracts during migration. The accepted replacement capability is plain
+**Application Analysis**, with concrete `ApplicationManifestV1` and
+`ApplicationAnalysisReceiptV1` contracts. Do not create Semantic Artifact V2,
+Declarative V3, or an analysis-v3 package merely to record chronology.
 
 ## Current Architecture
 
@@ -107,11 +116,19 @@ markers, validators, partition policy, and handlers. The current analysis
 package can inspect loaded execution-module exports and a live schema
 definition. It lowers those values into deployment analysis and codegen shapes.
 
-Declarative V2 is a separate private path. Its finalized source and Semantic
-Artifact V1 bytes are immutable evidence. Authenticated backend capabilities
+Declarative V2 is a separate private historical path. Its finalized source and
+Semantic Artifact V1 bytes are immutable evidence. Authenticated backend capabilities
 produce bounded inert analyzer commands; the analyzer/verifier cannot acquire
 backend, persistence, readiness, activation, or application transaction
 authority from those values.
+
+The accepted replacement does not consume the canonical program as analysis
+authority. Developer tooling uses the program to validate explicit intent and
+build the immutable JavaScript bundle. The backend then derives registration
+truth by cold-loading the exact finalized bundle in a trusted capability-free
+analyzer, inspecting registration metadata, and producing the canonical
+manifest and receipt defined by roadmap 17. This preserves SDK independence
+without maintaining a second semantic representation of handler bodies.
 
 No single canonical in-memory program model currently allows both:
 
@@ -135,9 +152,9 @@ Each transition owns a value with claims appropriate to that transition:
 DeveloperDefinition
   -> CanonicalProgramInput
   -> BuildInputs
-  -> SourceArtifactV2 + SemanticArtifactV1
-  -> AnalyzerEvidence
-  -> VerifiedRuntimeProjection
+  -> ImmutableApplicationBundle
+  -> ApplicationManifestV1 + ApplicationAnalysisReceiptV1
+  -> ManifestSelectedRuntimeArtifact
   -> FunctionExecutionRequest
 ```
 
@@ -1371,13 +1388,10 @@ compiler tests
   -> canonical program fixture -> deterministic artifacts
 
 analyzer tests
-  -> canonical artifacts -> evidence and diagnostics
-
-verifier tests
-  -> authenticated artifact fixtures -> verified projection
+  -> exact immutable bundle -> canonical manifest, receipt, and diagnostics
 
 runtime tests
-  -> verified projection fixture -> function execution
+  -> manifest-selected runtime fixture -> function execution
 
 internal application tests
   -> explicit Standard definition inputs
@@ -1402,22 +1416,19 @@ a builder, canonical field, or downstream authority to this owner.
 
 ## Next Correctness Gate
 
-M8, the M9 correlation proof, and the production-upload U1 portable protocol
-are complete. The private protocol now defines canonical commands,
-checkpoints, bounded binary framing, safe wire errors, retry dispositions, and
-golden vectors in `flarex-protocol`. It adds no backend route, Durable Object
-mutation host, `flarex-dev` client, production dependency, or candidate
-handoff.
+M8, M9, and the old U1 protocol remain completed historical receipts. Their
+pending U2-U5 static-verifier/upload stages are superseded and are not
+authorized implementation work.
 
-The next upload gate is the separately authorized U2 private `DeploymentDO`
-host. Before implementation it must close the five confirmed host blockers in
-roadmap 17: bounded source observation, same-isolate semantic proof
-issue/claim, source retry limitations, neutral source-drift naming, and
-fail-closed R2/configuration composition. Do not promote the test fixture,
-hard-code its one-block policy, add backend routes, deploy new bindings, write
-production state, or cut over a producer as part of that preparation. U3-U5
-separately own authenticated public dispatch, resumable client behavior, and
-verifier/candidate handoff.
+The next gate is roadmap 17 `AA-R1`: inventory canonical-program and
+materializer consumers, Source Artifact V2 and Semantic Artifact V1 consumers,
+all persisted verifier/evidence dependencies, and every Standard definition
+shape that currently requires `artifactIngressPlan`. `AA-R2` must then decide
+the smallest build output accepted by Application Analysis. Preserve the
+canonical program only for real definition/build consumers; do not retain
+Semantic Artifact V1 or its materializer merely because the implementation
+exists, and do not remove either before the consumer and persisted-row audit is
+complete.
 
 The host-neutral function-runtime work in roadmap 40 does not wait for that
 materializer merely to obtain an execution fixture. Its first exact

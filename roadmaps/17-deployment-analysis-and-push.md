@@ -3,30 +3,28 @@
 ## Status And Scope
 
 **Status:** Dynamic V1 has an implemented local/backend compatibility baseline.
-Declarative V2 is the accepted production metadata direction. Its private S0
-physical foundation, S1 durable verifier progress, Semantic Artifact V1
-provenance, generated bounded-verifier foundation, and durable verifier-progress
-repository mechanics are implemented and inert. Authenticated source/semantic
-readers and the earlier request-scoped monolithic private analyzer dispatch are
-also implemented and inert. That dispatch consumes the earlier whole-request
-analyzer protocol, not A1b2c0b0 admitted-command capabilities, and therefore
-does not prove A1b2 composition. The later private A1b2/FSV01-FSV03 lane now
-does prove authenticated analyzer-to-Postgres composition. PAM-A0b1/A1-RP
-publishes candidate-bound runtime projections, the exact function-group
-manifest, and private cold-materialization receipts, all inert and
-production-unreachable. Target build reconciliation, readiness, activation,
-production ingress/binding, and final cutover remain incomplete. The production
-upload-orchestration preflight is accepted below. Its U1 portable protocol and
-the bounded U2 reader,
-same-isolate authority, fail-closed host-construction, and checkpoint-boundary
-prerequisites are implemented and remain private and inert; the
-route-independent dispatcher, route, client, and candidate handoff are not
-implemented.
+The previously accepted Declarative V2 static-verifier lane is substantially
+implemented as a private, inert, production-unreachable system, including its
+artifact, progress, evidence, registration, readiness, activation, and private
+system-test composition. It is no longer the accepted production-analysis
+target. The accepted replacement is the simpler **Application Analysis**
+boundary defined below: cold-load the exact immutable JavaScript bundle in a
+trusted capability-free analyzer, inspect registration metadata, emit one
+canonical `ApplicationManifestV1`, and bind that result in one
+`ApplicationAnalysisReceiptV1`. Handler bodies remain opaque JavaScript and
+runtime capability enforcement remains with the runtime and syscall owners.
+
+This is a replacement decision, not an in-place reinterpretation. Existing
+Declarative V2 contract names, Semantic Artifact V1 bytes, verifier attempts,
+progress rows, registration roots, and completed receipts keep their historical
+meaning until explicit migration and removal gates pass. They must not become
+aliases for cold-load success, and no production caller may choose between the
+two analysis authorities. Production routing and cutover remain unapproved.
 
 This roadmap owns:
 
-- the dynamic V1 source-package compatibility contract and Declarative V2
-  prebuilt-ESM plus canonical-NDJSON input contract;
+- the dynamic V1 source-package compatibility contract, the retained private
+  Declarative V2 contracts, and their replacement by Application Analysis;
 - local-feedback versus backend-authoritative analysis;
 - the push candidate lifecycle;
 - the relationship between analysis, final codegen, artifact persistence, and
@@ -109,6 +107,11 @@ Use these terms consistently:
   function path, kind, visibility, validators, positions, and routing policy;
 - **codegen analysis**: grouped module/schema metadata returned to tooling for
   `_generated` output;
+- **application manifest**: the canonical registration metadata derived by
+  cold-loading one exact immutable bundle in the trusted analyzer;
+- **application analysis receipt**: backend-owned evidence binding the exact
+  artifact, analyzer identity, policy, limits, manifest digest, and accepted or
+  rejected cold-load outcome;
 - **candidate push**: validated but inactive source package, analysis, codegen
   analysis, diagnostics, and derived artifact identity;
 - **execution artifact**: an internal Flarex runtime shell/materialization for a
@@ -467,7 +470,156 @@ activation without readiness.
   explicit immutable ceiling has a measured worst-case concurrent-allocation
   proof for the analyzer host envelope.
 
-## Target Direction
+## Accepted Application Analysis Replacement
+
+The product capability is **Application Analysis**. Keep it in the existing
+`@flarex/analysis` ownership boundary. Do not create an
+`@flarex/analysis-v3` package and do not name the product `Declarative V3`.
+Version only concrete compatibility contracts that may be persisted or decoded.
+The first replacement contracts are expected to be:
+
+- `ApplicationAnalysisRequestV1`, if a persisted or transported request shape
+  is required;
+- `ApplicationManifestV1`, the canonical registration manifest;
+- `ApplicationAnalysisReceiptV1`, the durable accepted/rejected analysis
+  evidence; and
+- `ApplicationAnalysisError`, a typed domain error family whose variants are
+  settled during contract preflight rather than versioned for chronology.
+
+Keep `SourceArtifactV2` only if the replacement consumes its exact existing
+immutable-byte identity without changing that wire or storage contract. Do not
+invent `SemanticArtifactV2`. Semantic Artifact V1 remains historical input to
+the displaced verifier and should be retired if the replacement has no real
+consumer for it.
+
+The accepted target lifecycle is:
+
+```text
+developer or CI builds one immutable JavaScript bundle
+  -> untrusted upload boundary
+  -> backend authenticates the exact finalized artifact identity
+  -> trusted isolated analyzer cold-loads those exact bytes
+  -> import-time database, network, executor, deployment, and host capabilities
+     are absent
+  -> analyzer inspects only registration metadata and validator exports
+  -> canonical ApplicationManifestV1
+  -> backend-owned ApplicationAnalysisReceiptV1
+  -> inactive candidate registration
+  -> target-native cold readiness
+  -> atomic activation
+  -> strict runtime capability and syscall enforcement
+```
+
+The analyzer treats handler bodies as opaque JavaScript. It does not implement
+a JavaScript grammar, static call graph, value-flow analysis, catchability
+analysis, transitive ABI proof, or a parallel language runtime. It may reject a
+bundle for bounded cold-load failures, forbidden import-time effects, invalid or
+duplicate registration metadata, unsupported function kinds, invalid
+validators, nondeterministic registration, or resource-limit exhaustion. It
+does not prove what arbitrary handler code will call later. Runtime kinds and
+fresh request-scoped capabilities enforce that boundary when a handler runs.
+
+Cold-load analysis must be deterministic for the accepted inputs and analyzer
+identity. At minimum, the manifest records canonical function path, kind,
+visibility, validator references or canonical validator data, and exact runtime
+entry/module identity. Any execution-group or runtime-projection field belongs
+only when a current consumer requires it and its owner can derive it
+deterministically. Do not carry verifier-internal arenas, parser states, command
+ranges, evidence pages, or restart cursors into the new contract.
+
+Retries restart analysis from the immutable artifact bytes. The first accepted
+design has no durable mid-parser or mid-link checkpoint protocol. Use simple
+whole-attempt limits sized to the admitted artifact envelope; if measurement
+later proves that one cold load cannot fit the hosted envelope, stop and amend
+this roadmap with evidence before introducing resumable analysis.
+
+The trusted analyzer host owns isolation, timeout, interruption, resource
+ceilings, deterministic environment inputs, complete foreign-cause handling,
+and release. Evaluated application modules receive no database, executor, R2
+mutation, deployment, activation, network-egress, secret, clock, randomness,
+or ambient environment capability unless a separately versioned analyzer
+policy explicitly admits a deterministic substitute. Host-internal clocks and
+cancellation capabilities may enforce the envelope without being exposed to
+application code. Cloudflare Worker Loader may own engine-specific compilation
+and isolate construction; compiled bytecode and isolate state are never
+application artifacts or authority.
+
+This replacement changes only deployment analysis and its evidence lifecycle.
+It must reuse existing narrow owners for candidate rows, schema publication,
+readiness, activation, runtime selection, executor access, OCC, commit
+compilation/execution, journals, idempotency outcomes, feeds, outbox, and
+authoritative application rows. It creates no alternate transaction or commit
+path.
+
+### Replacement Roadmap
+
+0. **AA-R0 — complete: freeze and rebaseline.** This replacement is recorded
+   in roadmaps 17, 38, 39, 41, 42, and 43. Every old production gate remains
+   closed. Treat the displaced implementation as historical private state, not
+   precedent for the replacement contracts.
+1. **AA-R1 — compatibility and persistence inventory.** Enumerate every
+   production and test consumer of the analyzer root and private subpaths;
+   every Source Artifact V2 and Semantic Artifact V1 consumer; every verifier,
+   registration, readiness, projection, and activation table/foreign key; and
+   every potentially preserved row in named environments. A row or supported
+   compatibility consumer blocks destructive retirement. Do not rewrite
+   migration history.
+2. **AA-R2 — minimal contract preflight.** Settle the manifest, receipt,
+   request if needed, typed failures, canonical encoding, byte/count/time
+   limits, analyzer identity, artifact correlation, and nondeterminism policy.
+   Prove that registration and readiness can consume the new evidence without
+   reinterpreting any old digest or row.
+3. **AA-R3 — host-neutral analyzer core.** Implement the smallest pure
+   registration normalization and projection logic inside `@flarex/analysis`.
+   Reuse the existing portable analyzer semantics where they match the new
+   contract. Do not copy the displaced grammar, linker, ABI catalog, progress,
+   or evidence protocols.
+4. **AA-R4 — trusted cold-load host.** Implement the analyzer-app adapter over
+   exact immutable bytes using a fresh capability-free Worker Loader/isolate
+   boundary. Prove forbidden import-time effects, deterministic output,
+   bounded resources, timeout, cancellation, cold isolation, and complete
+   cleanup. Do not add a public route or production binding.
+5. **AA-R5 — simple durable analysis lifecycle.** Add a guarded migration only
+   after AA-R1/AA-R2. Persist a small candidate analysis state such as
+   `pending -> analyzed | rejected` plus the exact receipt and manifest
+   reference. Do not dual-write old and new evidence and do not use old
+   verifier tables as the new schema.
+6. **AA-R6 — registration and readiness recomposition.** Move Standard
+   Application Analysis, inactive registration, projection publication, and
+   readiness to the new manifest/receipt authority. Keep activation and all
+   runtime/executor owners unchanged. One candidate uses exactly one analysis
+   authority.
+7. **AA-R7 — private end-to-end proof.** Prove PGlite and zero-skip genuine
+   PostgreSQL paths from exact artifact through analysis, inactive
+   registration, cold readiness, activation, and the existing point
+   mutation/query runtime. Cover invalid metadata, import-time syscall denial,
+   nondeterminism, timeout, cancellation, cold restart from bytes, corruption,
+   stale candidate evidence, and runtime capability rejection.
+8. **AA-R8 — displaced-system removal.** After all consumers move and the
+   inventory proves no preservation duty, remove the private static verifier,
+   grammar/parser/linker, ABI/call-graph analysis, progress/restart/evidence
+   protocols, obsolete internal exports, and Semantic Artifact V1 production
+   if it is orphaned. Retire tables only through new guarded migrations that
+   refuse nonempty or still-referenced state.
+9. **AA-R9 — separate production cutover.** Only after hosted proofs and the
+   existing readiness/routing prerequisites are green, switch the production
+   caller atomically without fallback, shadow analysis, comparison authority,
+   or dual writes. Retire Dynamic V1 compatibility separately after its own
+   consumer and behavior audit.
+
+Temporary code coexistence is allowed only to make the migration mechanically
+reviewable. It must never become request-time fallback, comparison acceptance,
+or two valid authorities for one candidate. AA-R1 is the next executable gate;
+AA-R2 through AA-R9 require their own bounded implementation preflights.
+
+## Superseded Declarative V2 Static-Verifier Direction
+
+The remainder of this section and the historical implementation ledger below
+describe the displaced private static-verifier design and completed evidence.
+They remain useful provenance for compatibility and removal audits, but their
+uncompleted stages are no longer authorized work. When this historical text
+conflicts with the accepted Application Analysis replacement above, the
+replacement governs.
 
 Declarative V2 is a deliberate programming-model boundary, not a bounded
 implementation of the dynamic V1 analyzer:
@@ -598,7 +750,7 @@ operation-specific retry; decision uncertainty mints no root, cursor, receipt,
 readiness, activation, or retry permission until authoritative durable state is
 freshly observed.
 
-## Declarative V2 Production Upload Orchestration Preflight
+## Historical Declarative V2 Production Upload Orchestration Preflight
 
 ### Decision
 
@@ -1099,7 +1251,12 @@ exhaustive internal-to-wire error projection. The four U2 prerequisites above
 are current implemented private foundations, not evidence that this dispatcher
 or any upload route, client, or candidate handoff exists.
 
-## Next Correctness Gates
+## Historical Declarative V2 Implementation Ledger (Superseded)
+
+The implemented entries below are factual receipts for the private inert
+system. Pending entries are not the next work and must not be executed unless a
+new owner-approved decision explicitly reverses the Application Analysis
+replacement. The next executable analysis gate is AA-R1 above.
 
 The approved work is one staged atomic vertical for the currently composed
 shared `primary/public` target only. Mechanically reviewable intermediate

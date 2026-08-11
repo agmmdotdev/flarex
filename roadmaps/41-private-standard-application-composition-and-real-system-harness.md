@@ -40,6 +40,15 @@ multi-application environment, reference model, or simulator. Genuine-
 PostgreSQL acceptance, broader invocation families, a serializable scenario
 language, and live production composition remain open.
 
+Roadmap 17 now replaces the private static-verifier analysis authority used by
+these completed receipts with the simpler Application Analysis boundary. The
+existing FSV03-FSV06 and SAC01 proofs remain valid evidence about the composed
+runtime, executor, OCC, commit, and application-row owners; they do not approve
+the old analyzer for production. Their analysis/registration setup must be
+recomposed over `ApplicationManifestV1` and
+`ApplicationAnalysisReceiptV1` during AA-R6/AA-R7 before they can support a
+production cutover claim.
+
 `SAC01-G` moves the reusable composition, logical inspector, database-lane
 constructors, unified `defineStandardApplicationSimulationV1` config, and
 independent cooking and English-learning simulations into private
@@ -337,10 +346,11 @@ The artifact upload owner stores the immutable, content-addressed bundle in R2
 and returns bounded storage evidence. R2 is artifact storage, not application
 row authority, a deployment registry, or a source of runtime capability.
 
-The analyzer consumes a freshly authenticated immutable artifact and produces
-bounded semantic, verifier, progress, evidence, and registration outputs. It
-must not gain R2 publication, deployment activation, transaction, OCC, commit,
-or application-row authority merely because it verifies the artifact.
+The analyzer consumes a freshly authenticated immutable JavaScript artifact,
+cold-loads it without ambient capabilities, and produces one canonical
+application manifest plus one bounded analysis receipt. It must not gain R2
+publication, deployment activation, transaction, OCC, commit, or
+application-row authority merely because it analyzes the artifact.
 
 The deployment or function registry records which verified artifact and
 execution projection belong to an application revision. Activation and public
@@ -348,30 +358,30 @@ routing remain later explicit gates.
 
 ## Standard Analyzer Boundary
 
-The current repository contains important private analyzer components, but not
-one complete replacement analyzer operation suitable for this standard layer.
-The existing monolithic analyzer path remains a compatibility path and must not
-silently become the new standard contract.
+The current repository contains a complete private static-verifier analyzer
+operation used by the historical proofs below. Roadmap 17 displaces it as the
+target Standard analysis contract; it must not silently become production
+authority merely because those proofs are green.
 
-The target boundary is:
+The replacement boundary is:
 
-1. a pure analyzer engine consumes an already admitted, same-factory,
-   result-bound command view, an authenticated command plan, and an optional
-   claimed restart source;
-2. the engine returns only a bounded inert result cursor using the accepted
-   analyzer-to-executor response contract;
-3. an Effect-owned analyzer host supplies the fresh release handshake,
-   request `Scope`, cancellation/interruption, full foreign `Cause`, resources,
-   uncertainty handling, release, and finalization; and
-4. a narrow adapter exposes that host as the analyzer port used by this
-   composition pipeline.
+1. the backend supplies an authenticated exact immutable bundle identity and
+   admitted bytes to a fresh trusted analyzer host;
+2. that host cold-loads the bundle while evaluated application modules receive
+   no database, executor, deployment, activation, network, secret, clock,
+   randomness, or ambient environment capabilities;
+3. pure normalization converts inspected registration metadata into one
+   canonical `ApplicationManifestV1`;
+4. the host returns one bounded `ApplicationAnalysisReceiptV1` with the exact
+   artifact, analyzer, policy, limits, manifest digest, and outcome; and
+5. a narrow adapter exposes this operation to Standard Application Analysis.
 
-The current private request, response, restart-input, claimed-source,
-settled-page-readback, progress, parse-sizing, source-page, and resumable-frame
-owners are prerequisites. Link-page authority, registration-page authority,
-the complete command plan and companion, the pure command engine, the Effect
-host, and executor composition remain incomplete until their owning roadmaps
-say otherwise.
+Handler bodies are opaque. There is no analyzer command paging, static
+call-graph/ABI proof, durable parser/linker restart, or Semantic Artifact V1
+authority in the replacement boundary. Retrying means reopening the exact
+immutable bytes in a fresh cold analyzer. The host still owns request `Scope`,
+cancellation/interruption, full foreign `Cause`, resource limits, release, and
+cleanup.
 
 Do not make the private application-definition API or later SDK depend directly
 on the current collection of low-level cursors and codecs. The composition
@@ -424,13 +434,13 @@ verified function invocation
 Tests may observe bounded receipts and authoritative readback. They must not
 write application rows directly or synthesize successful commit outcomes.
 
-## Relationship Between A1b2 And C07
+## Relationship Between Application Analysis And C07
 
-`A1b2` and `C07` are separate prerequisites that converge in the private
-real-system proof:
+Application Analysis and `C07` are separate prerequisites that converge in the
+private real-system proof:
 
-- `A1b2` supplies authenticated Declarative V2 artifact analysis, durable
-  verifier progress, restart, response, and executor-host composition.
+- Application Analysis supplies authenticated immutable-bundle cold loading,
+  the canonical manifest, the bounded receipt, and analyzer-host composition.
 - `C07` supplies the private real point-mutation journal, OCC, commit
   compilation/execution, and authoritative PostgreSQL result proof.
 
@@ -438,9 +448,10 @@ Neither proves the other. Do not move analyzer authority into the commit
 system, and do not create a second transaction or commit path inside the
 analyzer, function runtime, test harness, or artifact pipeline.
 
-The composition connects these owners through their existing narrow contracts
-and capabilities; it does not merge their authority or assume another universal
-contract.
+The historical A1b2 composition remains migration evidence only. The
+replacement connects the new analysis contracts to the existing C07 owners
+through narrow adapters; it does not merge their authority, change C07, or
+assume another universal contract.
 
 ## Private Real-System Harness
 
@@ -453,8 +464,8 @@ public test SDK. It must be able to:
    scheduled trigger descriptors;
 2. compile and materialize the canonical program and bundle;
 3. upload the immutable bundle through the real artifact-storage owner;
-4. authenticate and analyze it through the replacement analyzer;
-5. register the verified execution projection without activating public
+4. authenticate and analyze it through Application Analysis;
+5. register the manifest-selected runtime artifact without activating public
    routing;
 6. invoke functions through an approved host adapter;
 7. exercise real runtime database calls, journals, OCC, commit
@@ -516,7 +527,9 @@ Passing an earlier step does not authorize a later one.
 
 ## Current Repository Truth
 
-At the time this direction was recorded:
+At the time the completed static-verifier receipts were recorded (the A1b2
+entries below are historical implementation truth, not the accepted future
+analysis authority):
 
 - the canonical declarative-program and first materialization contracts exist
   under their owning roadmap;
@@ -644,19 +657,21 @@ The accepted starting separation, updated by roadmap 42, is:
    `flarex-backend/test/privateStandardApplication/`;
 6. migrate those tests onto the Standard definition operation without moving
    test policy into its package;
-7. leave the future live cross-domain harness owner undecided until the
-   replacement analyzer and `C07` expose the exact adapters it must compose;
-   do not force it into `flarex-backend` if that requires backend-to-persistence
-   or backend-to-executor-worker ownership reversal; and
+7. keep the live cross-domain harness dependent on narrow analysis and `C07`
+   adapters; during AA-R6 replace its A1b2 adapter with the Application Analysis
+   adapter without moving either authority into the harness or forcing a
+   backend-to-persistence or backend-to-executor-worker ownership reversal; and
 8. extract a dedicated private system-harness package only when the
    package-separation gate above is satisfied.
 
 `flarex-backend` already has development-only dependencies on the canonical
 program and materializer, so it can own a pure application seed and its
-upload-lane use without a manifest change. The executor application is the
-accepted production composition owner for A1b2 and already owns executor and
-persistence dependencies. Neither fact alone proves the correct home for the
-eventual end-to-end test root.
+upload-lane use without a manifest change. The executor application was the
+accepted private composition owner for A1b2 and already owns executor and
+persistence dependencies. That historical placement does not decide the
+Application Analysis host or justify preserving the verifier persistence
+lifecycle. Neither fact alone proves the correct home for the eventual end-to-
+end test root.
 
 ## SAC01-P Preflight Checklist
 
@@ -718,7 +733,8 @@ conditions follow.
 | Deterministic semantic records | materializer output plus analysis semantic decoder | Usable for pure corpus and compatibility-consumption tests; not proof of the replacement analyzer. |
 | Content-addressed source and semantic upload | backend Declarative V2 artifact-upload host and cores | Implemented for private tests and real R2 adapters, but upload receipts alone are not verified registration. |
 | Authenticated verifier reads | backend request-bound verifier read-session owner plus A1b2-S1 scoped preparation, A1b2-S2 opaque reservation binding, and A1b2-S3 per-command lineage ownership | Implemented as private prerequisites. Preparation captures authenticated facts once; persistence proposes lineage and claims the backend-derived six commitments without exposing repository authority. Each reservation, rather than the stable analyzer session, owns its exact range/lineage digest. |
-| Replacement analyzer | accepted A1b2 command producer, executor-HTTP transports, persistence readback, Effect host, A1b2-S1 terminal settlement, A1b2-S2 exact-result restart bridge, and A1b2-S3 stable-session refactor | Complete as private capabilities and consumed by FSV01. Exact parse/link completions can produce scoped restart evidence and cold rehydrate from authenticated settled evidence; historical link bindings retain their own link-reservation range independently of registration. The provisional command plan remains deleted and no production caller or route is implied. |
+| Displaced static-verifier analyzer | accepted-at-the-time A1b2 command producer, executor-HTTP transports, persistence readback, Effect host, A1b2-S1 terminal settlement, A1b2-S2 exact-result restart bridge, and A1b2-S3 stable-session refactor | Complete as historical private capabilities and consumed by FSV01. These facts are migration/removal evidence, not authorization for a production caller or route. |
+| Application Analysis replacement | roadmap 17 AA-R2 contract plus AA-R3/AA-R4 core and cold-load host | Accepted direction, not implemented. It must emit `ApplicationManifestV1` and `ApplicationAnalysisReceiptV1` from exact immutable bytes without the verifier progress/evidence lifecycle. |
 | Verified application/function registration | FSV02 private System registration context plus SAP03 wrapper | Complete only for durable inactive idempotent revision registration. It is not readiness or activation authority. |
 | Schema/catalog lifecycle | persistence schema publication, manifest, binding, index, FSV02 registration, FSV04 readiness, FSV05 activation, and C03-V validator owners | Private target-native readiness, shared-primary activation/coherent reads, scoped syscall validation, and the bounded FSV06/SAP04 mutation are composed. Routing and unsupported target layouts remain separate gates. |
 | Portable function execution | `@flarex/function-runtime/point-mutation` plus private FSV06 composition | One exact public Standard point mutation is composed privately. Query builders, nested calls, general mutation capabilities, actions, and scheduling are not present. |
@@ -890,7 +906,9 @@ success type.
 The B1 slice itself made no upload-correlation, analyzer, executor,
 persistence, runtime, manifest, export-map, route, binding, configuration, or
 activation change. `SAC01-C` was the first gate allowed to adapt that corpus to
-the replacement analyzer and is now closed through the accepted FSV03 chain.
+the then-accepted static-verifier analyzer and is closed as a historical FSV03
+receipt. AA-R7 must rerun the corpus through Application Analysis before the
+same chain supports the replacement.
 
 ### Gate Ledger
 
@@ -919,10 +937,10 @@ recheck the working tree for overlap.
 
 Stop and run a new preflight if the work would:
 
-- edit or depend on the active analyzer implementation or its provisional
-  command-plan shape;
+- edit or depend on an analysis implementation before its owning AA-R2-AA-R4
+  gate, or copy the displaced command-plan shape;
 - use the monolithic verifier dispatch or V1 deployment service as the
-  replacement analyzer or registration port;
+  Application Analysis or registration port;
 - add a production dependency, package, export, route, binding, or activation;
 - require backend production code to import executor-worker or persistence
   internals;
