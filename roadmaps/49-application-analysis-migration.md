@@ -1044,6 +1044,69 @@ and action worker contracts. No current task consumer may read this generation,
 and no old task binding may be reinterpreted before final readiness and selection
 migration.
 
+#### AA-R6 Application worker-contract implementation preflight — 2026-08-11
+
+The current exact-runtime request families are not reusable contracts for the
+Application runtime. Their artifact and function members require an
+`artifactId`, `sourcePackageHash`, artifact execution module, and, in several
+cases, a public-only function shape. The separately named internal-call profiles
+still reuse those same root envelopes. Replacing those fields with a source root
+or publication digest would not be an adapter; it would relabel different
+authority as shipped artifact evidence. The existing Standard invocation
+services also still select the displaced active generation and are consumers,
+not protocol owners for this slice.
+
+The accepted implementation is one private transaction-worker wire contract
+and one private action-worker wire contract in `flarex-protocol`. Both carry one
+owned canonical `ApplicationRuntimeTargetV1` and never carry an artifact
+reference, candidate frame, semantic root, projection, stored module body, or a
+second function definition. The transaction contract admits query and mutation
+or workflow-mutation targets at public or internal visibility and rejects
+action targets. Its context is an exact discriminated query-versus-write union:
+query retains snapshot execution context, while mutation and workflow mutation
+retain transaction execution context. Internal query/mutation calls are
+capabilities of the eventual transaction worker, not new target kinds or a
+reason to duplicate the root request contract.
+
+The action contract admits only public or internal action targets. It retains
+the action invocation generation, time/deadline, random seed, authenticated
+caller, canonical arguments, and host-policy commitment needed by the existing
+action authority. The callback capability remains a separate Worker RPC
+capability supplied by the trusted host; it is not serialized into the wire
+value and the protocol package does not import Cloudflare runtime types.
+The two operation families share one private normalized worker-result envelope
+because its complete meaning is exactly the validated returned Flarex value;
+action lifecycle and transaction commit disposition remain outside the worker.
+
+Both decoders must establish ownership at the unknown-input boundary, enforce
+exact own-data shapes and byte/value budgets, canonicalize arguments and the
+embedded target, and verify argument semantic size. Structural decoding proves
+only a well-formed operation-family request. A backend-owned target claim must
+separately compare the canonical target and its path, kind, and visibility with
+the trusted selected authority before Worker Loader evaluation. This avoids the
+false claim that an untrusted request authorizes itself merely by repeating a
+valid target. Result envelopes normalize only the returned Flarex value.
+
+This checkpoint is contract-only and inert. It may add protocol exports, pure
+claim helpers, and focused tests, but no Worker Loader call, route, dispatcher,
+Standard invocation consumer, persistence write, readiness row, activation,
+task run, callback execution, OCC behavior, or commit behavior. The following
+bounded host slice may build the two worker definitions from authenticated
+whole-bundle bytes and reuse lower-level Function API, syscall, validation,
+transaction, and action-host mechanics without widening their authority.
+Workflow mutation remains a contract kind only until its separately accepted
+execution semantics exist; this slice does not reinterpret ordinary mutation
+execution as workflow execution.
+
+Self-review accepts this cut because it produces two predictable operation
+families rather than cloning the five artifact-era exact-runtime envelopes, and
+because it keeps wire validation, trusted authority comparison, host
+capabilities, and production selection as separate owners. Stop and amend the
+roadmap if implementation needs an artifact identity, treats internal calls as
+new authority, serializes a callback, executes workflow mutation through the
+ordinary mutation path, reads old active/task state, or changes an OCC, commit,
+action-lifecycle, or Worker Loader owner.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
