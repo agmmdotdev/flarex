@@ -624,6 +624,40 @@ analysis a durable replay without creating a revision, and creates no dual
 write, fallback, runtime publication, readiness, activation, OCC, commit, row,
 feed, outbox, route, binding, or deployment behavior.
 
+#### AA-R5 implementation checkpoint — 2026-08-11
+
+**Completed by `d119d756`.** Migration `0054_material_la_nuit` adds exactly the
+three accepted Application Analysis tables on committed head
+`0053_sleepy_morgan_stark`. Its generated snapshot points to the exact `0053`
+snapshot identity and differs only by those three tables; no concurrent schema
+work entered the migration.
+
+The package-local repository now owns scope-clock-locked `begin`, `settle`, and
+`inspect` operations. It enforces the candidate's captured storage generation,
+fence, and epoch on every replay and settlement; exact request, source-root,
+analyzer, and policy correlation; one immutable terminal; canonical stored
+receipt and manifest bytes plus recomputed SHA-256; rejected replay without a
+revision; and analyzed-only creation of one inactive V2 revision. It writes no
+old Declarative V2 candidate, verifier, verdict, readiness, activation, or V1
+revision row.
+
+The final review challenge found and corrected four substantive boundary risks:
+fresh authority could initially settle a stale-fence candidate, caller-owned
+terminal input could change after validation, interruption cleanup could hide an
+unexpected settlement failure, and a failing cleanup initially replaced rather
+than combined the interruption cause. Direct regressions now prove captured
+input, concurrent request and terminal serialization, post-update rollback and
+retry, stale-candidate rejection by a fresh caller, interruption plus settlement
+defect preservation, and correlated rollback-sentinel handling.
+
+Validation receipts are persistence typecheck, Drizzle migration check, the
+workspace Effect-boundary check, staged diff check, and 36 focused PGlite
+migration/repository tests. Both required final reviewers approved the exact
+committed diff with no findings. This is deliberately PGlite evidence only;
+zero-skip genuine PostgreSQL concurrency and migration proof remains mandatory
+at `AA-R7`. The repository remains package-local until the first cross-package
+consumer is introduced by `AA-R6`.
+
 ### `AA-R6` — executable producer, publication, and authority migration
 
 This gate is larger than a receipt-table change and is divided into two medium
