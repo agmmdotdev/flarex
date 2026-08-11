@@ -12,8 +12,15 @@ production-inert after approval of the connected-runtime source audit in
 The canonical active-scope continuation is implemented and production-inert.
 The bounded multi-scope runner core is implemented and production-inert. Its
 deadline-owned control-directory prerequisite is now complete in PGlite and
-genuine PostgreSQL. Connected runner restart, two-host, and fairness proof
-against the real C2/C3 owners remains next.
+genuine PostgreSQL. The connected PGlite composition now proves exact-scope
+runner restart, two-host live-claim exclusion, and fair later-scope progress
+with alternating dispatch/cancellation work across two real scope databases.
+A controlled lost-receipt case proves persistence-backed unknown progress:
+the dispatch settles as accepted while the runner conservatively charges but
+does not confirm candidate/provider work. The equivalent ordinary-role genuine-
+PostgreSQL 18 lane now proves two-scope transaction/provider delivery, exact
+fresh-runner resume, and final stored settlement. The connected C3 persistence
+gate is complete and production-inert.
 
 The connected-flow prerequisite is resolved. C2 now captures and correlates a
 provider `TaskComputeCancellationStaleError`, rejects the older checkpoint as
@@ -516,11 +523,21 @@ The C3 implementation must prove:
    exact service/Layer, policy, aggregate receipt, restart, fairness,
    conservative-charge, timeout, receiver, and hostile-page behavior in
    deterministic tests. Its deadline-owned control-directory persistence
-   prerequisite is complete. Connect that same runner to the real C2/C3
-   repository and discovery owners in PGlite and genuine PostgreSQL next.
-8. Run the connected persistence gates, final reviewers, update the roadmap
-   receipt, and commit while
-   leaving every host and activation path absent.
+   prerequisite is complete. The connected PGlite composition now proves
+   two-host live-claim exclusion, fresh-runner exact-scope resume, dispatch
+   acceptance, lifecycle-owned cancellation settlement, and fair progress
+   across two real scope databases through the existing C2/C3 owners and
+   deterministic provider. A controlled lost-receipt case also proves
+   persistence-backed unknown-progress accounting. The ordinary-role genuine-
+   PostgreSQL 18 lane proves equivalent two-scope transaction/provider delivery
+   and exact resume. The connected persistence gate is complete; no Worker,
+   route, schedule, binding, or activation path was added.
+8. **Complete:** run the connected persistence gates and final reviewers,
+   update the roadmap receipt, and leave every host and activation path absent.
+9. **Next private subgate:** give the runner ownership of the mapped
+   verification probe and Trigger-derived moved/unchanged/probe-uncertain
+   decision, then prove exact dispatch/cancellation replay and post-start
+   uncertainty before admitting Worker Loader work.
 
 ## Stop Boundary
 
@@ -536,5 +553,6 @@ This preflight does not authorize:
 - public SDK, management, observability, log, trace, or output-stream APIs; or
 - DTE06-D/E/F or DTE05-E3 implementation.
 
-Preflight 37 admits only the recorded sequence. Steps 7 and 8 remain private,
-production-inert checkpoints and do not authorize DTE06-D/E/F or DTE05-E3.
+Preflight 37 admits only the recorded sequence. Steps 7 through 9 remain
+private, production-inert checkpoints and do not authorize DTE06-D/E/F or
+DTE05-E3.

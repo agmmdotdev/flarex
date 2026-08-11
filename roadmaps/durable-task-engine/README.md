@@ -76,9 +76,16 @@ large checkpointed history with `EXPLAIN ANALYZE (BUFFERS)`. Provider
 composition now exists through the private single-candidate operation and
 deterministic bounded multi-scope runner core. Its private deadline-owned
 control-directory adapter now proves stable PGlite pagination and genuine-
-PostgreSQL server timeout, settled rollback, and safe pool reuse; no connected
-repository/discovery/provider proof or host exists. The mandatory connected-
-runtime reuse audit in
+PostgreSQL server timeout, settled rollback, and safe pool reuse. The connected
+PGlite system test now composes the existing lifecycle, control directory, C3
+discovery, C2 repository, backend runners, and deterministic provider. It
+proves two-host live-claim exclusion, fresh-runner exact-scope resume, dispatch
+acceptance, lifecycle-owned cancellation delivery, fair progress across two
+real scope databases, and conservative charged-versus-confirmed accounting
+when an accepted dispatch receipt is lost. The ordinary-role genuine-
+PostgreSQL 18 lane proves the equivalent two-scope connected transaction path,
+exact resume, alternating delivery, and stored settlement; no host exists. The
+mandatory connected-runtime reuse audit in
 [`preflight/37-dte06-connected-runtime-reuse-audit.md`](./preflight/37-dte06-connected-runtime-reuse-audit.md)
 maps the exact Trigger dispatch, supervision, heartbeat, cancellation,
 settlement, and recovery sources and admits one connected vertical. Its first
@@ -86,9 +93,11 @@ approved implementation checkpoint now supplies the trusted directory,
 Trigger-derived recovery decision, and single-candidate provider operations.
 The canonical active-scope continuation is now implemented with strict
 canonical evidence, exact directory/operation correlation, and restart-stable
-per-operation fairness charges. The deterministic bounded runner core is now
-implemented; connected PGlite/PostgreSQL restart and fairness proof remains
-next.
+per-operation fairness charges. The deterministic bounded runner core and its
+connected PGlite transaction/provider proof across two real scopes are now
+implemented, including a persistence-backed lost-receipt case and ordinary-role
+genuine-PostgreSQL 18 parity. The connected C3 persistence gate is complete and
+production-inert.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -101,9 +110,10 @@ with the C0 decision in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md)
 and the C2 contract and receipt in
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
-The provider is not wired to any host. Connected provider calls,
-Cloudflare task bindings, a scheduled Worker host, public APIs, compute
-delivery, and production activation do not exist yet.
+The provider is not wired to any host. Connected provider calls exist only in
+the private system-test composition; Cloudflare task bindings, a scheduled
+Worker host, public APIs, production compute delivery, and activation do not
+exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -468,11 +478,14 @@ files remain candidates:
      operation-specific delivery evidence and tables, fenced repository, and
      bounded pending discovery are production-inert. The connected runtime
      reuse audit in Preflight 37 is approved. The backend trusted directory and
-     single-candidate provider delivery and canonical active-scope continuation
-      and deterministic bounded multi-scope runner core are implemented but
-      unwired. The deadline-owned control-directory prerequisite is complete.
-      Connected repository/discovery/provider proof, the Worker Loader task adapter,
-     supervision, end-to-end proof, and host remain unwritten;
+     single-candidate provider delivery, canonical active-scope continuation,
+     and deterministic bounded multi-scope runner core are implemented but
+     unwired. The deadline-owned control-directory prerequisite and connected
+     PGlite repository/discovery/provider proof across two real scopes are
+     complete, including conservative persistence-backed lost-receipt
+     accounting and ordinary-role genuine-PostgreSQL 18 parity. The Worker
+     Loader task adapter, fenced settlement, supervision, end-to-end proof, and
+     host remain unwritten;
 7. `07-observability-live-apis-and-ui.md`
    - run/attempt read models, traces/logs, cursors, live invalidation, streams,
      authorization, retention, privacy, and dashboard consumption;

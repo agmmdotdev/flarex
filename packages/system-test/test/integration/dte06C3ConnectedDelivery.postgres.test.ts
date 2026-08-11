@@ -1,0 +1,571 @@
+import {
+  TaskComputeProvider,
+  decodeTaskComputeProviderDescriptorV1,
+  type TaskComputeProviderShape,
+} from "../../../durable-task/src/computeProvider/v1.js";
+import {
+  RunAttemptLifecycle,
+  RunAttemptLifecycleLive,
+  TaskSystemRunAttemptStore,
+  decodeTaskRunVersionV1,
+} from "../../../durable-task/src/runAttempt/v1.js";
+import {
+  makeInMemoryTaskComputeProviderV1,
+} from "../../../durable-task/src/computeProvider/testing-v1.js";
+import {
+  resolveLocatedTrustedScopeAuthorityEffect,
+  type LocatedScopeClockReader,
+  type ScopePhysicalLocator,
+  type TrustedScopeAuthorityResolutionPorts,
+} from "@flarex/persistence-postgres";
+import {
+  createLocatedTaskComputeDeliveryTargetV1,
+  type LocatedTaskComputeDeliveryTargetV1,
+} from "@flarex/persistence-postgres/internal/task-compute-delivery-repository-v1";
+import {
+  createPostgresTaskComputeDeliveryControlDirectoryResource,
+} from "@flarex/persistence-postgres/internal/system-test/postgres-task-compute-delivery-control-directory";
+import {
+  createPostgresLocatedTaskSystemRunAttemptTargetV1,
+  createPostgresPersistence,
+  makeTaskSystemRunAttemptStoreV1,
+  type PostgresFlarexPersistence,
+} from "@flarex/persistence-postgres/postgres";
+import {
+  TaskComputeDeliveryCandidateRunnerLive,
+  TaskComputeDeliveryConnectedRunner,
+  makeTaskComputeDeliveryConnectedRunnerLayer,
+  makeTaskComputeDeliveryTrustedDirectoryLayer,
+  type EncodedTaskComputeDeliveryConnectedContinuationV1,
+  type TaskComputeDeliveryConnectedRunnerOptions,
+} from "flarex-backend/internal/task-compute-delivery";
+import { Effect, Layer, Result } from "effect";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { describe, expect, it } from "vitest";
+
+import {
+  ACCEPTED_ATTEMPT_UUID,
+  TASK_LOCATOR,
+  seedTaskSystemRunAttemptStoreV1,
+} from "../../../persistence-postgres/test/taskSystemRunAttemptStoreTestSupport.js";
+import {
+  TASK_SYSTEM_CREATION_RUN_UUID_A,
+  TASK_SYSTEM_CREATION_RUN_UUID_B,
+  installTaskSystemCreationRuntimeBindingV1,
+  makeTaskSystemCreationAuthorityV1,
+  makeTaskSystemCreationRequestV1,
+  makeTaskSystemCreationRuntimeBindingV1,
+  makeTaskSystemCreationStoreForTestV1,
+  taskSystemCreationRetryJitterV1,
+} from "../../../persistence-postgres/test/taskSystemRunCreationTestSupport.js";
+import {
+  postgresUrl,
+  withTemporaryPostgresSchema,
+} from "../support/databaseFixturesV1";
+
+const describePostgres = postgresUrl === null ? describe.skip : describe;
+const DEADLINE_POLICY = Object.freeze({
+  connectionTimeoutMilliseconds: 250,
+  lockTimeoutMilliseconds: 150,
+  statementTimeoutMilliseconds: 500,
+  transactionTimeoutMilliseconds: 1_000,
+  settlementReserveMilliseconds: 1_500,
+});
+const PROVIDER_DESCRIPTOR = Result.getOrThrow(
+  decodeTaskComputeProviderDescriptorV1({
+    provider: "memory",
+    providerVersion: "connected-postgres-v1",
+  }),
+);
+const PRIMARY_FIXTURE = Object.freeze({
+  scopeId: ScopeIdSchema.make(
+    "scope_72000000-0000-4000-8000-000000000001",
+  ),
+  deploymentId: "deployment_task_store_v1",
+  applicationRevisionId: "apprev_task_store_v1",
+  candidateSha256Hex: "31".repeat(32),
+  schemaVersionId: "schema_task_store_v1",
+  locator: TASK_LOCATOR,
+  projectId: "project_dte06_c3_connected_postgres_primary",
+  runUuid: TASK_SYSTEM_CREATION_RUN_UUID_A,
+});
+const SECONDARY_FIXTURE = Object.freeze({
+  scopeId: ScopeIdSchema.make(
+    "scope_72000000-0000-4000-8000-000000000011",
+  ),
+  deploymentId: "deployment_task_store_v1_secondary",
+  applicationRevisionId: "apprev_task_store_v1_secondary",
+  candidateSha256Hex: "51".repeat(32),
+  schemaVersionId: "schema_task_store_v1_secondary",
+  locator: Object.freeze({
+    kind: "shared_database",
+    databaseKey: "dte06-c3-postgres-secondary",
+    schemaName: "public",
+  } satisfies ScopePhysicalLocator),
+  projectId: "project_dte06_c3_connected_postgres_secondary",
+  runUuid: TASK_SYSTEM_CREATION_RUN_UUID_B,
+});
+type DeliveryFixtureIdentity = typeof PRIMARY_FIXTURE | typeof SECONDARY_FIXTURE;
+
+describe("DTE06-C3 PostgreSQL connected delivery acceptance environment", () => {
+  it("requires an authenticated ordinary-role PostgreSQL 18 URL", () => {
+    expect(
+      postgresUrl,
+      "Set FLAREX_POSTGRES_DATABASE_URL before accepting DTE06-C3.",
+    ).not.toBeNull();
+  });
+});
+
+describePostgres("DTE06-C3 connected delivery - PostgreSQL", () => {
+  it("advances fairly across two scopes and resumes the exact later scope", async () => {
+    await withTemporaryPostgresSchema(async (databaseOptions) => {
+      const persistence = await createPostgresPersistence({
+        migrationsSchema: databaseOptions.migrationsSchema,
+        poolConfig: {
+          ...databaseOptions.poolConfig,
+          connectionString: databaseOptions.connectionString,
+        },
+      });
+      try {
+        await persistence.migrate();
+        const controlResource = Result.getOrThrow(
+          createPostgresTaskComputeDeliveryControlDirectoryResource({
+            ...databaseOptions.poolConfig,
+            connectionString: databaseOptions.connectionString,
+            max: 1,
+          }, DEADLINE_POLICY),
+        );
+        try {
+          await expectOrdinaryPostgres18(persistence);
+          const primary = await createDeliveryFixture(
+            persistence,
+            PRIMARY_FIXTURE,
+          );
+          const secondary = await createDeliveryFixture(
+            persistence,
+            SECONDARY_FIXTURE,
+          );
+          await requestCancellation(primary.lifecycleLayer, primary.runId);
+          await requestCancellation(secondary.lifecycleLayer, secondary.runId);
+
+          const provider = Result.getOrThrow(
+            makeInMemoryTaskComputeProviderV1(PROVIDER_DESCRIPTOR),
+          );
+          const deliveryTargets = new Map<
+            string,
+            LocatedTaskComputeDeliveryTargetV1
+          >([
+            [PRIMARY_FIXTURE.locator.databaseKey, primary.deliveryTarget],
+            [SECONDARY_FIXTURE.locator.databaseKey, secondary.deliveryTarget],
+          ]);
+          const authority = authorityPorts(
+            persistence,
+            async (locator) => {
+              const target = deliveryTargets.get(locator.databaseKey);
+              if (target === undefined) {
+                throw new Error(`unexpected scope target: ${locator.databaseKey}`);
+              }
+              return target;
+            },
+          );
+          const firstHost = connectedLayer(
+            controlResource.target,
+            authority,
+            provider,
+            "a3000000-0000-4000-8000-000000000031",
+            policy({ maximumTotalOperations: 2 }),
+          );
+
+          const first = await runConnected(firstHost, null);
+          expect(first).toMatchObject({
+            stopReason: "total_operation_budget",
+            confirmedDispatchCandidatesHandled: 1,
+            confirmedDispatchProviderCalls: 1,
+            confirmedCancellationCandidatesHandled: 1,
+            confirmedCancellationProviderCalls: 1,
+          });
+          expect(first.continuation).not.toBeNull();
+          expect(provider.acceptedDispatches()).toHaveLength(1);
+          expect(provider.acceptedCancellations()).toHaveLength(1);
+          await expectSettledDelivery(persistence, primary);
+          expect(await readDeliveryState(persistence, secondary)).toBeNull();
+
+          const resumedHost = connectedLayer(
+            controlResource.target,
+            authority,
+            provider,
+            "a3000000-0000-4000-8000-000000000032",
+            policy({}),
+          );
+          const resumed = await runConnected(
+            resumedHost,
+            first.continuation,
+          );
+          expect(resumed).toMatchObject({
+            stopReason: "cycle_exhausted",
+            directoryPagesCharged: 0,
+            scopeVisits: 1,
+            confirmedDispatchCandidatesHandled: 1,
+            confirmedDispatchProviderCalls: 1,
+            confirmedCancellationCandidatesHandled: 1,
+            confirmedCancellationProviderCalls: 1,
+            continuation: null,
+          });
+          expect(provider.acceptedDispatches()).toHaveLength(2);
+          expect(provider.acceptedCancellations()).toHaveLength(2);
+          await expectSettledDelivery(persistence, secondary);
+        } finally {
+          await controlResource.close();
+        }
+      } finally {
+        await persistence.close();
+      }
+    });
+  });
+});
+
+async function expectOrdinaryPostgres18(
+  persistence: PostgresFlarexPersistence,
+): Promise<void> {
+  const role = await persistence.query<{
+    is_superuser: boolean;
+    can_create_database: boolean;
+    can_create_role: boolean;
+  }>(`
+    select rolsuper as is_superuser,
+           rolcreatedb as can_create_database,
+           rolcreaterole as can_create_role
+    from pg_roles
+    where rolname = current_user
+  `);
+  expect(role.rows[0]).toMatchObject({
+    is_superuser: false,
+    can_create_database: false,
+    can_create_role: false,
+  });
+  const version = await persistence.query<{ server_version: string }>(
+    "show server_version",
+  );
+  expect(version.rows[0]?.server_version).toMatch(/^18\./);
+}
+
+async function createDeliveryFixture(
+  persistence: PostgresFlarexPersistence,
+  identity: DeliveryFixtureIdentity,
+) {
+  await persistence.insertDeploymentMetadata({
+    deploymentId: identity.deploymentId,
+    projectId: identity.projectId,
+  });
+  await seedTaskParentAuthorityFixture(persistence, identity);
+  const seeded = await seedTaskSystemRunAttemptStoreV1(
+    persistence,
+    { parent: identity },
+  );
+  await persistence.query(`
+    delete from fx_system_durable_task_run_v1
+    where scope_id = $1
+  `, [seeded.scopeId]);
+  const candidateSha256 = Uint8Array.from(
+    Buffer.from(identity.candidateSha256Hex, "hex"),
+  );
+  const runtimeBinding = await makeTaskSystemCreationRuntimeBindingV1({
+    applicationRevisionId: identity.applicationRevisionId,
+    candidateSha256,
+  });
+  const creationAuthority = makeTaskSystemCreationAuthorityV1({
+    applicationRevisionId: identity.applicationRevisionId,
+    candidateSha256,
+  });
+  await installTaskSystemCreationRuntimeBindingV1(
+    persistence.drizzle,
+    runtimeBinding,
+    creationAuthority,
+    identity.scopeId,
+  );
+  const lifecycleTarget = createPostgresLocatedTaskSystemRunAttemptTargetV1(
+    persistence,
+    identity.locator,
+  );
+  const deliveryTarget = createLocatedTaskComputeDeliveryTargetV1(
+    persistence.drizzle,
+    identity.locator,
+  );
+  await persistence.insertScopeMetadata({
+    scopeId: identity.scopeId,
+    deploymentId: identity.deploymentId,
+    physicalLocator: identity.locator,
+  });
+  const located = await Effect.runPromise(
+    resolveLocatedTrustedScopeAuthorityEffect(
+      identity.deploymentId,
+      authorityPorts(persistence, async () => lifecycleTarget),
+    ),
+  );
+  const creationStore = makeTaskSystemCreationStoreForTestV1({
+    located,
+    runtimeBinding,
+    creationAuthority,
+  }, {
+    randomUuid: () => identity.runUuid,
+  });
+  const created = await Effect.runPromise(creationStore.createRun(
+    makeTaskSystemCreationRequestV1("connected-delivery", 0x73),
+  ));
+  const lifecycleStore = makeTaskSystemRunAttemptStoreV1(located, {
+    randomUuid: () => ACCEPTED_ATTEMPT_UUID,
+  });
+  const lifecycleLayer = RunAttemptLifecycleLive.pipe(
+    Layer.provide(Layer.succeed(TaskSystemRunAttemptStore, lifecycleStore)),
+  );
+  const started = await Effect.runPromise(Effect.gen(function* () {
+    const lifecycle = yield* RunAttemptLifecycle;
+    return yield* lifecycle.startAttempt({
+      type: "start_attempt",
+      runId: created.runId,
+      expectedRunVersion: Result.getOrThrow(decodeTaskRunVersionV1("1")),
+      retryJitter: taskSystemCreationRetryJitterV1,
+    });
+  }).pipe(Effect.provide(lifecycleLayer)));
+  if (
+    started.outcome.kind !== "attempt_granted"
+    || !started.requestedEffects.some(
+      ({ effect }) => effect.kind === "dispatch_attempt",
+    )
+  ) {
+    throw new Error("connected delivery fixture did not start an attempt");
+  }
+  return Object.freeze({
+    scopeId: located.authority.scopeId,
+    runId: created.runId,
+    lifecycleLayer,
+    deliveryTarget,
+  });
+}
+
+async function seedTaskParentAuthorityFixture(
+  persistence: PostgresFlarexPersistence,
+  parent: DeliveryFixtureIdentity,
+): Promise<void> {
+  await persistence.query(`
+    insert into fx_system_scope_clock
+      (scope_id, storage_generation, epoch)
+    values ($1, 'flarexdb_v1',
+      'epoch_72000000-0000-4000-8000-000000000016')
+  `, [parent.scopeId]);
+  await persistence.query(`
+    insert into fx_system_declarative_v2_candidate (
+      scope_id, candidate_sha256, storage_generation,
+      storage_generation_fence, epoch, frame_codec_version,
+      frame_byte_length, frame_sha256, frame_bytes
+    ) values (
+      $1, decode($2, 'hex'), 'flarexdb_v1', 1,
+      'epoch_72000000-0000-4000-8000-000000000016',
+      1, 1, decode($2, 'hex'), decode('01', 'hex')
+    )
+  `, [parent.scopeId, parent.candidateSha256Hex]);
+  await persistence.query(`
+    insert into fx_system_declarative_v2_verifier_attempt_v2 (
+      scope_id, attempt_sha256, candidate_sha256, lifecycle,
+      identity_codec_version, identity_byte_length, identity_sha256,
+      identity_bytes, ceilings_codec_version, ceilings_byte_length,
+      ceilings_sha256, ceilings_bytes, usage_codec_version,
+      usage_byte_length, usage_sha256, usage_bytes, progress_codec_version,
+      progress_byte_length, progress_sha256, progress_bytes
+    ) values (
+      $1, decode(repeat('32', 32), 'hex'), decode($2, 'hex'), 'ready',
+      2, 1, decode(repeat('32', 32), 'hex'), decode('01', 'hex'),
+      2, 1, decode(repeat('33', 32), 'hex'), decode('01', 'hex'),
+      2, 1, decode(repeat('34', 32), 'hex'), decode('01', 'hex'),
+      2, 1, decode(repeat('35', 32), 'hex'), decode('01', 'hex')
+    )
+  `, [parent.scopeId, parent.candidateSha256Hex]);
+  await persistence.query(`
+    insert into fx_control_schema_version (
+      deployment_id, schema_version_id, version,
+      manifest_codec_version, manifest_json, manifest_bytes, manifest_sha256
+    ) values (
+      $1, $2, 1, 1, '{}'::jsonb, decode('01', 'hex'),
+      decode(repeat('37', 32), 'hex')
+    )
+  `, [parent.deploymentId, parent.schemaVersionId]);
+  await persistence.query(`
+    insert into fx_system_application_revision_v1 (
+      scope_id, candidate_sha256, revision_id, deployment_id,
+      attempt_sha256, registration_input_sha256,
+      semantic_attempt_identity_sha256, source_codec_identity,
+      package_sha256, artifact_runtime_identity, artifact_sha256,
+      schema_version_id, schema_version, manifest_codec_version,
+      manifest_byte_length, schema_artifact_sha256, schema_binding_sha256,
+      function_metadata_codec_version, function_metadata_byte_length,
+      function_metadata_sha256, function_metadata_bytes,
+      validator_root_sha256, declared_handler_set_sha256,
+      registration_root_sha256, registration_frame_count,
+      registration_frames_byte_length, registration_frames_bytes,
+      output_manifest_sha256, output_manifest_bytes, next_progress_sha256,
+      next_progress_bytes, receipt_sha256, receipt_bytes, status
+    ) values (
+      $1, decode($2, 'hex'), $3, $4,
+      decode(repeat('32', 32), 'hex'), decode(repeat('33', 32), 'hex'),
+      decode(repeat('34', 32), 'hex'),
+      'flarex.source-artifact-v2/codec-v1',
+      decode(repeat('35', 32), 'hex'), 'dynamic-worker',
+      decode(repeat('36', 32), 'hex'), $5,
+      1, 1, 1, decode(repeat('37', 32), 'hex'),
+      decode(repeat('38', 32), 'hex'), 1, 1,
+      decode(repeat('39', 32), 'hex'), decode('01', 'hex'),
+      decode(repeat('3a', 32), 'hex'), decode(repeat('3b', 32), 'hex'),
+      decode(repeat('3c', 32), 'hex'), 0, 0, decode('', 'hex'),
+      decode(repeat('3d', 32), 'hex'), decode('01', 'hex'),
+      decode(repeat('3e', 32), 'hex'), decode('01', 'hex'),
+      decode(repeat('3f', 32), 'hex'), decode('01', 'hex'), 'inactive'
+    )
+  `, [
+    parent.scopeId,
+    parent.candidateSha256Hex,
+    parent.applicationRevisionId,
+    parent.deploymentId,
+    parent.schemaVersionId,
+  ]);
+}
+
+async function requestCancellation(
+  lifecycleLayer: Awaited<ReturnType<typeof createDeliveryFixture>>["lifecycleLayer"],
+  runId: Awaited<ReturnType<typeof createDeliveryFixture>>["runId"],
+): Promise<void> {
+  const result = await Effect.runPromise(Effect.gen(function* () {
+    const lifecycle = yield* RunAttemptLifecycle;
+    return yield* lifecycle.requestCancellation({
+      type: "request_cancellation",
+      runId,
+      reason: { code: "requested", message: null },
+    });
+  }).pipe(Effect.provide(lifecycleLayer)));
+  if (!result.requestedEffects.some(
+    ({ effect }) => effect.kind === "request_execution_cancellation",
+  )) {
+    throw new Error("connected delivery cancellation was not requested");
+  }
+}
+
+function connectedLayer(
+  controlTarget: Parameters<
+    typeof makeTaskComputeDeliveryTrustedDirectoryLayer
+  >[0],
+  authority: TrustedScopeAuthorityResolutionPorts<
+    LocatedTaskComputeDeliveryTargetV1
+  >,
+  provider: TaskComputeProviderShape,
+  claimOwner: string,
+  runnerPolicy: TaskComputeDeliveryConnectedRunnerOptions,
+) {
+  const directory = makeTaskComputeDeliveryTrustedDirectoryLayer(
+    controlTarget,
+    {
+      authority,
+      repository: {
+        claimDurationMilliseconds: 30_000,
+        retryDelayMilliseconds: [1_000, 2_000],
+        maximumDeliveryAttempts: 3,
+        randomUuid: () => claimOwner,
+      },
+      discoveryDeadline: DEADLINE_POLICY,
+      resolutionTimeoutMilliseconds: 100,
+    },
+  );
+  const candidateRunner = TaskComputeDeliveryCandidateRunnerLive.pipe(
+    Layer.provide(Layer.succeed(TaskComputeProvider, provider)),
+  );
+  return makeTaskComputeDeliveryConnectedRunnerLayer(runnerPolicy).pipe(
+    Layer.provide(Layer.merge(directory, candidateRunner)),
+  );
+}
+
+function authorityPorts<Target extends LocatedScopeClockReader>(
+  persistence: PostgresFlarexPersistence,
+  resolveTarget: (physicalLocator: ScopePhysicalLocator) => Promise<Target>,
+): TrustedScopeAuthorityResolutionPorts<Target> {
+  return Object.freeze({
+    scopeMetadata: Object.freeze({
+      getScopeMetadataByDeploymentId: (deploymentId: string) =>
+        persistence.getScopeMetadataByDeploymentId(deploymentId),
+    }),
+    provisioningReceipts: Object.freeze({
+      getScopeAuthorityProvisioningReceipt: async () => {
+        throw new Error("shared scope must not read split provisioning");
+      },
+    }),
+    scopeClockTargets: Object.freeze({ resolve: resolveTarget }),
+  });
+}
+
+function policy(
+  overrides: Partial<TaskComputeDeliveryConnectedRunnerOptions>,
+): TaskComputeDeliveryConnectedRunnerOptions {
+  return Object.freeze({
+    maximumDirectoryPages: 4,
+    maximumScopeVisits: 4,
+    maximumDispatchPages: 4,
+    maximumCancellationPages: 4,
+    maximumDispatchCandidates: 4,
+    maximumCancellationCandidates: 4,
+    maximumDispatchProviderCalls: 4,
+    maximumCancellationProviderCalls: 4,
+    maximumTotalOperations: 4,
+    maximumDispatchPagesPerScope: 1,
+    maximumCancellationPagesPerScope: 1,
+    candidatesPerPage: 1,
+    maximumRunMilliseconds: 10_000,
+    maximumOperationMilliseconds: 3_000,
+    settlementReserveMilliseconds: 2_000,
+    ...overrides,
+  });
+}
+
+function runConnected(
+  layer: ReturnType<typeof connectedLayer>,
+  continuation: EncodedTaskComputeDeliveryConnectedContinuationV1 | null,
+) {
+  return Effect.runPromise(Effect.gen(function* () {
+    const runner = yield* TaskComputeDeliveryConnectedRunner;
+    return yield* runner.run(continuation);
+  }).pipe(Effect.provide(layer)));
+}
+
+async function expectSettledDelivery(
+  persistence: PostgresFlarexPersistence,
+  fixture: Awaited<ReturnType<typeof createDeliveryFixture>>,
+): Promise<void> {
+  expect(await readDeliveryState(persistence, fixture)).toEqual({
+    dispatch_state: "accepted",
+    cancellation_state: "delivered",
+  });
+}
+
+async function readDeliveryState(
+  persistence: PostgresFlarexPersistence,
+  fixture: Awaited<ReturnType<typeof createDeliveryFixture>>,
+): Promise<Readonly<{
+  readonly dispatch_state: string;
+  readonly cancellation_state: string;
+}> | null> {
+  const rows = await persistence.query<{
+    dispatch_state: string;
+    cancellation_state: string;
+  }>(`
+    select d.delivery_state as dispatch_state,
+           c.delivery_state as cancellation_state
+    from fx_system_durable_task_compute_dispatch_v1 d
+    join fx_system_durable_task_compute_cancellation_v1 c
+      on c.scope_id = d.scope_id
+     and c.run_id = d.run_id
+     and c.dispatch_requested_effect_sequence = d.requested_effect_sequence
+    where d.scope_id = $1 and d.run_id = $2
+  `, [fixture.scopeId, fixture.runId]);
+  if (rows.rows.length === 0) return null;
+  if (rows.rows.length !== 1 || rows.rows[0] === undefined) {
+    throw new Error("connected delivery fixture had multiple state rows");
+  }
+  return Object.freeze({ ...rows.rows[0] });
+}
+import { Buffer } from "node:buffer";

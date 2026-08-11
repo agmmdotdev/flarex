@@ -9,8 +9,9 @@ composes the backend trusted directory, Trigger-derived recovery decision, and
 single-candidate dispatch/cancellation operation from the existing provider and
 persistence owners. The second completes the canonical active-scope
 continuation. The third completes the deterministic bounded multi-scope runner
-core. All remain private and hostless. Connected persistence proof, the Worker
-Loader task adapter, supervision, and private end-to-end proof remain pending.
+core. All remain private and hostless. Connected persistence proof is complete.
+Unknown-delivery replay/recovery, the Worker Loader task adapter, supervision,
+and private end-to-end proof remain pending.
 
 The audit itself changed no code or runtime configuration. Its approved first
 implementation checkpoint adds only private package code and private package
@@ -301,6 +302,34 @@ post-timeout progress. This still does not close the bounded connected runner
 gate or claim connected PGlite/PostgreSQL restart, two-host exclusion, or
 transaction/provider composition; those are the next C3 gate.
 
+The fourth checkpoint adds the first real connected PGlite vertical in
+`@flarex/system-test`. It composes the deadline-owned control directory, fresh
+scope-authority resolution, the existing C3 operation discovery, the existing
+C2 repository, the backend candidate and connected runners, the admitted Task
+lifecycle, and the deterministic in-memory provider. The test holds host A at
+the provider seam after its fenced delivery-start transaction has settled,
+proves host B discovers no eligible duplicate and makes zero provider calls,
+then settles A's dispatch. A fresh host resumes the exact active scope without
+rereading the directory, observes a cancellation requested through the real
+Task lifecycle, calls the same provider once, and leaves the stored dispatch
+and cancellation checkpoints `accepted` and `delivered`. The same PGlite lane
+now composes a second migrated scope database under the real control directory,
+requests cancellation for both scopes, spends the first receipt on one
+dispatch/cancellation pair, and proves a fresh runner resumes the exact later
+scope without rereading the directory. Both scope-local checkpoints settle as
+`accepted` and `delivered`. A third PGlite case lets the real candidate runner
+settle provider acceptance and the C2 repository transaction, then withholds
+that receipt from the connected runner. The stored dispatch is `accepted`, but
+the runner conservatively charges the page, candidate, and provider call while
+confirming only the page. The focused PGlite command passes one file and three
+tests. The ordinary-role genuine-PostgreSQL 18 lane then proves the equivalent
+two-scope budget stop, exact fresh-runner resume without directory reread,
+alternating dispatch/cancellation provider delivery, and both scopes stored as
+`accepted` and `delivered`; its focused command passes one file and two tests.
+The fixture establishes real candidate, verifier-attempt, schema-version, and
+application-revision parent rows and does not use `session_replication_role`.
+The bounded connected persistence gate is complete and production-inert.
+
 ## Stop Boundary
 
 The approved source map authorizes only the implementation sequence above. It
@@ -317,14 +346,20 @@ does not authorize work beyond the current Roadmap 06 checkpoint:
 
 ## Next After This Gate
 
-The trusted backend directory, candidate-local authority timeout, freshly
-resolved single-candidate provider operations, canonical active-scope
-continuation, and deterministic bounded alternating runner core are complete.
-Next, prove runner restart, fairness, two-host exclusion, and conservative
-unknown-progress accounting against the real C2/C3 persistence owners. The
-deadline-owned control-directory prerequisite is complete; the next test must
-compose that owner with the existing C2 repository, C3 operation discovery, and
-deterministic provider. Only after that checkpoint may the mapped Trigger
-orchestration continue through Worker Loader execution and fenced settlement.
+The connected PGlite composition now proves exact-scope restart, live-claim
+two-host exclusion, dispatch acceptance, lifecycle-owned cancellation request,
+cancellation settlement, alternating later-scope progress across two real
+scope databases, conservative persistence-backed accounting for a lost
+accepted-dispatch receipt, and equivalent ordinary-role genuine-PostgreSQL 18
+transaction/provider behavior. The connected persistence gate is complete.
+Next, close the mapped unknown-delivery recovery subgate before Worker Loader:
+the runner must own the verification probe and the Trigger-derived
+moved/unchanged/probe-uncertain decision, and tests must prove exact dispatch
+and cancellation replay plus post-start uncertainty. The lost-receipt test in
+this checkpoint proves conservative accounting after durable acceptance; it
+does not by itself prove provider-outcome recovery. Only after that subgate may
+the roadmap continue through the still-private Worker Loader task adapter and
+fenced settlement composition. This does not authorize a Worker host, route,
+schedule, binding, deployment, public API, or production activation.
 Only blockers discovered by that vertical may justify another foundation
 preflight.

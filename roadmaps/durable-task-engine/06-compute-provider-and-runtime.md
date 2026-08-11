@@ -36,8 +36,13 @@ and production-inert under the approved Preflight 37 map. The canonical
 active-scope continuation and deterministic bounded multi-scope runner core are
 also complete with restart-stable fairness charges. The separately approved
 deadline-owned control-directory adapter now closes its PGlite and genuine-
-PostgreSQL settlement prerequisite. Connected runner restart, two-host, and
-fairness proof against the real C2/C3 owners is next.
+PostgreSQL settlement prerequisite. Connected PGlite proof now covers
+two-host exclusion, exact active-scope restart, and fair progress across two
+real scopes. A controlled lost-receipt case now proves conservative charges
+when the provider and persistence settle but the runner confirms no candidate
+or provider call. The equivalent ordinary-role genuine-PostgreSQL 18 lane now
+proves the two-scope transaction/provider path and exact resume. The connected
+C3 persistence gate is complete and remains production-inert.
 
 Roadmaps 01 through 05 already establish first-class task definitions,
 scope-bound durable run state, fenced attempts, requested effects, Queue wake
@@ -444,11 +449,21 @@ transaction, effect-ledger discovery, provider call, or runtime wiring. The
 approved prepared-subject correction carries only the verified immutable
 runtime-binding commitment; DTE06-D later loads the full binding and manifest
 and verifies it before constructing the runtime ABI. C2 is complete and
-production-inert. C3 persistence discovery remains unwired; the backend trusted
-directory, single-candidate provider composition, and canonical active-scope
-continuation and deterministic bounded multi-scope runner core are implemented
-and unwired. Its control-directory settlement prerequisite is complete;
-connected repository/discovery/provider proof remains open.
+production-inert. C3 persistence discovery remains production-unwired; the
+backend trusted directory, single-candidate provider composition, canonical
+active-scope continuation, and deterministic bounded multi-scope runner core
+are implemented. Its control-directory settlement prerequisite is complete.
+The connected PGlite system test now composes those owners with C2/C3
+persistence and the deterministic provider. It proves two-host live-claim
+exclusion, exact active-scope restart, dispatch acceptance, lifecycle-owned
+cancellation delivery, and later-scope progress with alternating dispatch and
+cancellation work across two real scope databases. A controlled lost-receipt
+case also proves persistence-backed unknown-progress accounting: the dispatch
+is stored as accepted while the runner reports charged but unconfirmed
+candidate/provider work. The ordinary-role genuine-PostgreSQL 18 lane now
+proves the same two-scope budget stop, exact fresh-runner resume, alternating
+dispatch/cancellation delivery, and final stored states. The connected C3
+persistence gate is complete; no host or activation path exists.
 The durable-delivery contract is
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
 and the exact C2 implementation boundary is
@@ -575,8 +590,18 @@ and the implementation completes only the trusted backend directory,
 Trigger-derived recovery decision, and single-candidate deterministic-provider
 operations, canonical active-scope continuation, and deterministic bounded
 multi-scope runner core, plus the private deadline-owned control-directory
-adapter. Connected C2/C3 repository/discovery/provider proof remains next. This
-does not authorize additional
+adapter. A connected PGlite system test now proves the C2/C3
+repository/discovery/provider transaction flow, exact continuation resume,
+two-host exclusion, fair later-scope progress across two real scopes, and
+conservative persistence-backed accounting when an accepted dispatch receipt
+is lost before the runner observes it. Ordinary-role genuine-PostgreSQL 18
+parity now proves the same two-scope connected transaction path. The next
+roadmapped work is the still-private unknown-delivery recovery subgate: wire
+the mapped verification probe and Trigger-derived three-way recovery decision,
+then prove exact dispatch/cancellation replay and post-start uncertainty. The
+Worker Loader task adapter and fenced settlement composition follow that gate;
+host activation does not.
+This does not authorize additional
 database/application semantics, a real provider, Worker/runtime wiring,
 routes, bindings, deployment, or production
 activation.

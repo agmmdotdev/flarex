@@ -23,7 +23,7 @@ import {
   type TaskRuntimeObjectReferenceV1,
   type TaskRuntimeObjectRoleV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../src/deployments";
@@ -239,6 +239,9 @@ export async function installTaskSystemCreationRuntimeBindingV1(
   db: FlarexMetadataDatabase,
   runtimeBinding: TaskDefinitionRuntimeBindingV1,
   creationAuthority: TaskRunCreationAuthorityReceiptV1,
+  scopeId?: (
+    typeof fxSystemDurableTaskDefinitionRevisionsV1.$inferSelect
+  )["scopeId"],
 ): Promise<void> {
   const bindingBytes = taskSystemCreationSuccessV1(
     encodeTaskDefinitionRuntimeBindingPreimageV1(runtimeBinding),
@@ -274,10 +277,18 @@ export async function installTaskSystemCreationRuntimeBindingV1(
     artifactSha256: runtimeBinding.artifactSha256,
     sourceRootSha256: runtimeBinding.sourceRootSha256,
     semanticRootSha256: runtimeBinding.semanticRootSha256,
-  }).where(eq(
-    fxSystemDurableTaskDefinitionRevisionsV1.taskDefinitionRevisionId,
-    creationAuthority.taskDefinitionRevisionId,
-  ));
+  }).where(scopeId === undefined
+    ? eq(
+      fxSystemDurableTaskDefinitionRevisionsV1.taskDefinitionRevisionId,
+      creationAuthority.taskDefinitionRevisionId,
+    )
+    : and(
+      eq(fxSystemDurableTaskDefinitionRevisionsV1.scopeId, scopeId),
+      eq(
+        fxSystemDurableTaskDefinitionRevisionsV1.taskDefinitionRevisionId,
+        creationAuthority.taskDefinitionRevisionId,
+      ),
+    ));
 }
 
 export async function taskSystemCreationCountsV1(
