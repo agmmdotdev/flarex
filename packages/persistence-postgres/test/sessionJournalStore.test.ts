@@ -194,6 +194,11 @@ interface ScenarioOptions {
   readonly targetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
   readonly developerIndex?: boolean;
   readonly developerIndexDescriptor?: unknown;
+  readonly indexedQueryComposition?:
+    | "exact"
+    | "missing"
+    | "foreignControl"
+    | "mismatchedAuthority";
   readonly journalFaultAfter?: (
     point: "indexedQueryEvidenceWritten",
   ) => void | Promise<void>;
@@ -476,6 +481,18 @@ describe("C03 Postgres SessionJournalStore", () => {
     if (activation.status !== "created") {
       throw new Error("Expected a newly created journal scenario attempt.");
     }
+    const indexedQueries = options.developerIndex !== true ||
+        options.indexedQueryComposition === "missing"
+      ? undefined
+      : createAppDeveloperIndexQueryPortV1(
+          options.indexedQueryComposition === "foreignControl"
+            ? new Proxy(persistence.drizzle, {})
+            : persistence.drizzle,
+          options.indexedQueryComposition === "mismatchedAuthority"
+            ? Object.freeze({ ...ports })
+            : ports,
+          definitions,
+        );
     const store = createSessionJournalStorePersistenceV1(ports, {
       grantRetentionPolicy:
         options.grantRetentionPolicy ?? TEST_GRANT_RETENTION_POLICY_V1,
@@ -483,15 +500,10 @@ describe("C03 Postgres SessionJournalStore", () => {
       ...(options.journalFaultAfter === undefined
         ? {}
         : { faultAfter: options.journalFaultAfter }),
-      ...(options.developerIndex === true
-        ? {
-            indexedQueries: createAppDeveloperIndexQueryPortV1(
-              persistence.drizzle,
-              ports,
-              definitions,
-            ),
-          }
-        : {}),
+      ...(indexedQueries === undefined
+        ? {}
+        : { indexedQueries }
+      ),
     });
     const attempt = await runEffect(
       store.openAttemptEffect({
@@ -547,6 +559,19 @@ describe("C03 Postgres SessionJournalStore", () => {
       _tag: "SessionJournalDeveloperIndexUnavailableV1Error",
       reason: "definitionNotFound",
     });
+    for (const indexedQueryComposition of [
+      "missing",
+      "foreignControl",
+      "mismatchedAuthority",
+    ] as const) {
+      await expect(scenario(
+        `o10b_${indexedQueryComposition}_query_authority`,
+        { developerIndex: true, indexedQueryComposition },
+      )).rejects.toMatchObject({
+        _tag: "SessionJournalDeveloperIndexUnavailableV1Error",
+        reason: "invalidComposition",
+      });
+    }
   });
 
   it("captures and replays one exact indexed snapshot page", async () => {

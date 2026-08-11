@@ -468,6 +468,13 @@ Named Flarex differences are:
   production-inert C08 developer ordered-index build prerequisite is required
   before the cooking scenario can honestly prove indexed business decisions,
   phantom conflict, O08 rerun, rollback, and PostgreSQL plan behavior.
+- O10-C closed `ST-CORE-020` through the Standard composition owner. Trusted
+  host setup constructs one authenticated indexed-query port from the exact
+  control database, session authority, and developer-index definition
+  authority and passes it to the existing journal owner. The cooking simulation
+  now proves a real indexed business decision, phantom-triggered replacement,
+  losing-write rollback, replay, and terminal journal cleanup in PGlite and
+  genuine PostgreSQL without a test-owned resolver.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate

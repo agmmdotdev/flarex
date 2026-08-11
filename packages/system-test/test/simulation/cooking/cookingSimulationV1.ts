@@ -45,6 +45,7 @@ import { makeCreateAndReadDefinitionV1 } from
 export interface CookingWorkloadProofV1 {
   readonly documentId: string;
   readonly secondaryDocumentId: string;
+  readonly indexedPhantomDocumentId: string;
   readonly racePrimaryDocumentId: string;
   readonly raceCompetitorDocumentId: string;
   readonly pantryDocumentId: string;
@@ -76,6 +77,9 @@ export interface CookingWorkloadProofV1 {
   readonly deleteReplay: true;
   readonly pointMutationLifecycle: true;
   readonly deletedDocumentReadsNull: true;
+  readonly indexedRangeDecisionReran: true;
+  readonly indexedRangeDecisionReplay: true;
+  readonly losingIndexedDecisionWriteRolledBack: true;
   readonly pantryConflictReran: true;
   readonly singleStockReservationCommitted: true;
   readonly stockNeverNegative: true;
@@ -178,6 +182,10 @@ const COOKING_REJECTED_PUBLISH_REQUEST_KEY =
 const COOKING_DELETE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:delete",
 );
+const COOKING_INDEXED_DECISION_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make("sac01:cooking:publish-smallest-batch");
+const COOKING_INDEXED_PHANTOM_CREATE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make("sac01:cooking:indexed-phantom-create");
 const COOKING_RACE_PRIMARY_CREATE_REQUEST_KEY =
   TransactionRequestKeyV1Schema.make("sac01:cooking:race-primary-create");
 const COOKING_RACE_COMPETITOR_CREATE_REQUEST_KEY =
@@ -223,6 +231,10 @@ const COOKING_FUNCTION_SOURCES = {
   )),
   publishWorkflow: readFileSync(new URL(
     "./functions/recipePublishWorkflow.js",
+    import.meta.url,
+  )),
+  servingSelection: readFileSync(new URL(
+    "./functions/recipeServingSelection.js",
     import.meta.url,
   )),
   pantryCreate: readFileSync(new URL(
@@ -378,6 +390,14 @@ const COOKING_RACE_PRIMARY_RECIPE = {
   localizedTitles: { en: "Pantry race primary" },
   source: "Concurrency fixture",
 } as const;
+const COOKING_INDEXED_PHANTOM_RECIPE = {
+  ...COOKING_REPLACEMENT_RECIPE,
+  title: "Solo omelette",
+  servings: 1,
+  difficulty: "easy",
+  localizedTitles: { en: "Solo omelette" },
+  source: "Indexed decision fixture",
+} as const;
 const COOKING_RACE_COMPETITOR_RECIPE = {
   ...COOKING_REPLACEMENT_RECIPE,
   title: "Pantry race competitor",
@@ -497,6 +517,13 @@ const COOKING_RESERVATION_RECEIPT_VALIDATOR = standardV1.nullable(
     remainingStock: standardV1.number(),
   }),
 );
+const COOKING_INDEXED_DECISION_RECEIPT_VALIDATOR = standardV1.nullable(
+  standardV1.object({
+    recipeId: standardV1.id("recipes"),
+    servings: standardV1.number(),
+    pageExhausted: standardV1.boolean(),
+  }),
+);
 const COOKING_MUTATION_MODULE = standardV1.module("recipeCommands", {
   create: standardV1.publicMutation({
     args: standardV1.object(COOKING_FIELDS),
@@ -581,6 +608,15 @@ const COOKING_WORKFLOW_MODULE = standardV1.module("recipeWorkflows", {
     returns: COOKING_PUBLISH_RECEIPT_VALIDATOR,
   }),
 });
+const COOKING_INDEXED_DECISION_MODULE = standardV1.module(
+  "recipeServingSelection",
+  {
+    publishSmallestBatch: standardV1.publicMutation({
+      args: standardV1.object({}),
+      returns: COOKING_INDEXED_DECISION_RECEIPT_VALIDATOR,
+    }),
+  },
+);
 const COOKING_PANTRY_COMMAND_MODULE = standardV1.module("pantryCommands", {
   create: standardV1.publicMutation({
     args: standardV1.object(COOKING_PANTRY_FIELDS),
@@ -614,6 +650,8 @@ const COOKING_GET = COOKING_QUERY_MODULE.reference("get");
 const COOKING_ASSESSMENT_FUNCTION =
   COOKING_ASSESSMENT_VIEW_MODULE.reference("assessment");
 const COOKING_PUBLISH = COOKING_WORKFLOW_MODULE.reference("publish");
+const COOKING_PUBLISH_SMALLEST_BATCH =
+  COOKING_INDEXED_DECISION_MODULE.reference("publishSmallestBatch");
 const COOKING_PANTRY_CREATE =
   COOKING_PANTRY_COMMAND_MODULE.reference("create");
 const COOKING_PANTRY_GET = COOKING_PANTRY_QUERY_MODULE.reference("get");
@@ -1016,6 +1054,90 @@ const runCookingWorkloadV1 = Effect.fn(
     COOKING_SECOND_RECIPE,
   );
 
+  const beforeIndexedDecisionRace = yield* client.inspectAuthoritativeState();
+  let indexedPhantomCreation: CookingTypedMutationResultV1 | undefined;
+  yield* client.scheduleAfterNextMutationRuntime(() =>
+    Effect.result(client.mutation(
+      COOKING_CREATE,
+      COOKING_INDEXED_PHANTOM_RECIPE,
+      COOKING_INDEXED_PHANTOM_CREATE_REQUEST_KEY,
+    )).pipe(
+      Effect.tap(result => Effect.sync(() => {
+        indexedPhantomCreation = result;
+      })),
+      Effect.asVoid,
+    )
+  );
+  const indexedDecision = yield* client.mutation(
+    COOKING_PUBLISH_SMALLEST_BATCH,
+    {},
+    COOKING_INDEXED_DECISION_REQUEST_KEY,
+  );
+  if (indexedPhantomCreation === undefined) {
+    return yield* Effect.die(new Error(
+      "The cooking indexed phantom did not settle during the interleaving.",
+    ));
+  }
+  const indexedPhantomOutcome = requireSuccessfulMutationResult(
+    indexedPhantomCreation,
+    "indexed phantom creation",
+  );
+  const indexedPhantomDocumentId = requireCreatedDocumentId(
+    indexedPhantomOutcome,
+    "indexed phantom recipe",
+    setup.commitSeq + 6n,
+    [setup.documentId, secondaryDocumentId],
+  );
+  const indexedDecisionReceipt = {
+    recipeId: indexedPhantomDocumentId,
+    servings: 1,
+    pageExhausted: false,
+  } as const;
+  requireValueMutation(
+    indexedDecision,
+    "indexed smallest-batch decision",
+    "published",
+    setup.commitSeq + 7n,
+    indexedDecisionReceipt,
+  );
+  const replayedIndexedDecision = yield* client.mutation(
+    COOKING_PUBLISH_SMALLEST_BATCH,
+    {},
+    COOKING_INDEXED_DECISION_REQUEST_KEY,
+  );
+  requireValueMutation(
+    replayedIndexedDecision,
+    "indexed smallest-batch decision replay",
+    "replayed",
+    indexedDecision.commitSeq,
+    indexedDecisionReceipt,
+  );
+  const secondaryAfterIndexedDecision = yield* client.query(
+    COOKING_GET,
+    { id: secondaryDocumentId },
+  );
+  requireRecipeDocument(
+    secondaryAfterIndexedDecision,
+    secondaryDocumentId,
+    COOKING_SECOND_RECIPE,
+  );
+  const indexedPhantomAfterDecision = yield* client.query(
+    COOKING_GET,
+    { id: indexedPhantomDocumentId },
+  );
+  requireRecipeDocument(
+    indexedPhantomAfterDecision,
+    indexedPhantomDocumentId,
+    { ...COOKING_INDEXED_PHANTOM_RECIPE, published: true },
+  );
+  const afterIndexedDecisionRace = yield* client.inspectAuthoritativeState();
+  requireIndexedDecisionRaceInspection(
+    beforeIndexedDecisionRace,
+    afterIndexedDecisionRace,
+    String(indexedPhantomOutcome.commitSeq),
+    String(indexedDecision.commitSeq),
+  );
+
   const racePrimaryInserted = yield* client.mutation(
     COOKING_CREATE,
     COOKING_RACE_PRIMARY_RECIPE,
@@ -1024,8 +1146,8 @@ const runCookingWorkloadV1 = Effect.fn(
   const racePrimaryDocumentId = requireCreatedDocumentId(
     racePrimaryInserted,
     "race primary recipe",
-    setup.commitSeq + 6n,
-    [setup.documentId, secondaryDocumentId],
+    setup.commitSeq + 8n,
+    [setup.documentId, secondaryDocumentId, indexedPhantomDocumentId],
   );
   const raceCompetitorInserted = yield* client.mutation(
     COOKING_CREATE,
@@ -1035,8 +1157,13 @@ const runCookingWorkloadV1 = Effect.fn(
   const raceCompetitorDocumentId = requireCreatedDocumentId(
     raceCompetitorInserted,
     "race competitor recipe",
-    setup.commitSeq + 7n,
-    [setup.documentId, secondaryDocumentId, racePrimaryDocumentId],
+    setup.commitSeq + 9n,
+    [
+      setup.documentId,
+      secondaryDocumentId,
+      indexedPhantomDocumentId,
+      racePrimaryDocumentId,
+    ],
   );
   const pantryInserted = yield* client.mutation(
     COOKING_PANTRY_CREATE,
@@ -1046,10 +1173,11 @@ const runCookingWorkloadV1 = Effect.fn(
   const pantryDocumentId = requireCreatedDocumentId(
     pantryInserted,
     "shared pantry stock",
-    setup.commitSeq + 8n,
+    setup.commitSeq + 10n,
     [
       setup.documentId,
       secondaryDocumentId,
+      indexedPhantomDocumentId,
       racePrimaryDocumentId,
       raceCompetitorDocumentId,
     ],
@@ -1098,7 +1226,7 @@ const runCookingWorkloadV1 = Effect.fn(
     publishedCompetitorReservation,
     "pantry competitor reservation",
     "published",
-    setup.commitSeq + 9n,
+    setup.commitSeq + 11n,
     competitorReceipt,
   );
   const replayedCompetitorReservation = yield* client.mutation(
@@ -1153,6 +1281,7 @@ const runCookingWorkloadV1 = Effect.fn(
   return {
     documentId: setup.documentId,
     secondaryDocumentId,
+    indexedPhantomDocumentId,
     racePrimaryDocumentId,
     raceCompetitorDocumentId,
     pantryDocumentId,
@@ -1184,6 +1313,9 @@ const runCookingWorkloadV1 = Effect.fn(
     deleteReplay: true,
     pointMutationLifecycle: true,
     deletedDocumentReadsNull: true,
+    indexedRangeDecisionReran: true,
+    indexedRangeDecisionReplay: true,
+    losingIndexedDecisionWriteRolledBack: true,
     pantryConflictReran: true,
     singleStockReservationCommitted: true,
     stockNeverNegative: true,
@@ -1493,6 +1625,45 @@ function sameStrings(
     left.every((value, index) => right[index] === value);
 }
 
+function requireIndexedDecisionRaceInspection(
+  before: StandardApplicationAuthoritativeInspectionV1,
+  after: StandardApplicationAuthoritativeInspectionV1,
+  phantomCommitSeq: string,
+  decisionCommitSeq: string,
+): void {
+  if (
+    after.currentRowCount !== before.currentRowCount + 1 ||
+    after.liveRowCount !== before.liveRowCount + 1 ||
+    after.revisionRowCount !== before.revisionRowCount + 2 ||
+    after.mutationRuntimeExecutions !== before.mutationRuntimeExecutions + 3 ||
+    after.queryRuntimeExecutions !== before.queryRuntimeExecutions + 2 ||
+    !sameStrings(
+      after.commitSeqs,
+      [...before.commitSeqs, phantomCommitSeq, decisionCommitSeq],
+    ) ||
+    !sameStrings(
+      after.idempotencyOutcomeCommitSeqs,
+      [
+        ...before.idempotencyOutcomeCommitSeqs,
+        phantomCommitSeq,
+        decisionCommitSeq,
+      ],
+    ) ||
+    !sameStrings(
+      after.commitFeedCommitSeqs,
+      [...before.commitFeedCommitSeqs, phantomCommitSeq, decisionCommitSeq],
+    ) ||
+    !sameStrings(
+      after.outboxCommitSeqs,
+      [...before.outboxCommitSeqs, phantomCommitSeq, decisionCommitSeq],
+    )
+  ) {
+    throw new Error(
+      "The cooking indexed decision violated phantom OCC, rollback, or publication evidence.",
+    );
+  }
+}
+
 function requirePantryRaceInspection(
   before: StandardApplicationAuthoritativeInspectionV1,
   after: StandardApplicationAuthoritativeInspectionV1,
@@ -1639,6 +1810,10 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
         artifactModulePath: "recipePublishWorkflow",
         sourceBytes: COOKING_FUNCTION_SOURCES.publishWorkflow,
       }, {
+        module: COOKING_INDEXED_DECISION_MODULE,
+        artifactModulePath: "recipeServingSelection",
+        sourceBytes: COOKING_FUNCTION_SOURCES.servingSelection,
+      }, {
         module: COOKING_PANTRY_COMMAND_MODULE,
         artifactModulePath: "pantryCreate",
         sourceBytes: COOKING_FUNCTION_SOURCES.pantryCreate,
@@ -1659,6 +1834,10 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
         tableLogicalName: "recipes",
         descriptor: "by_difficulty",
         fields: ["difficulty"],
+      }, {
+        tableLogicalName: "recipes",
+        descriptor: "by_servings",
+        fields: ["servings"],
       }],
       fields: COOKING_FIELDS,
     }),
@@ -1666,7 +1845,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 15,
-    queries: 14,
+    mutations: 18,
+    queries: 16,
   },
 });

@@ -48,6 +48,8 @@ import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/system-test/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/system-test/appDeveloperIndexCommitV1";
+import { createAppDeveloperIndexQueryPortV1 } from
+  "@flarex/persistence-postgres/session-journal-store";
 import type { PGliteFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/pglite";
 import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/internal/system-test/postgres";
 import type { PointCommitTransactionProofStepV1 } from
@@ -1071,6 +1073,14 @@ function systemLive(
     }),
     grantRetentionPolicy: RETENTION,
   });
+  const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
+    lane.persistence.drizzle,
+  );
+  const indexedQueries = createAppDeveloperIndexQueryPortV1(
+    lane.persistence.drizzle,
+    sessionAuthority,
+    developerIndexes,
+  );
   let executionSequence = 0;
   return Object.freeze({
     deploymentId,
@@ -1078,9 +1088,8 @@ function systemLive(
       createIntrinsicCreationTimeIndexDefinitionPortV1(
         lane.persistence.drizzle,
       ),
-    developerIndexes: createAppDeveloperIndexDefinitionPortV1(
-      lane.persistence.drizzle,
-    ),
+    developerIndexes,
+    indexedQueries,
     sessionAuthority,
     currentEpochAuthority,
     grantRetentionPolicy: RETENTION,
@@ -1172,7 +1181,9 @@ function testRuntimeDispatcher(
             serviceBindings: {
               JOURNAL: async (input: Request) => {
                 const body = JSON.parse(await input.text()) as Readonly<{
+                  readonly kind: "point" | "indexed";
                   readonly tableName: string;
+                  readonly indexDescriptor?: unknown;
                   readonly operation: object;
                 }>;
                 try {
@@ -1187,9 +1198,11 @@ function testRuntimeDispatcher(
                     );
                   }
                   const table = await journal.resolvePointTable(body.tableName);
-                  const result = await table.runPointOperation(
-                    body.operation as never,
-                  );
+                  const result = body.kind === "indexed"
+                    ? await (await table.resolveDeveloperIndex(
+                        body.indexDescriptor,
+                      )).runIndexedQuery(body.operation)
+                    : await table.runPointOperation(body.operation);
                   return pointMutationRpcResponse({ ok: true, result });
                 } catch (cause) {
                   return pointMutationRpcResponse({
@@ -1274,7 +1287,7 @@ export default {
           async runPointOperation(operation) {
             const response = await env.JOURNAL.fetch("https://journal/point", {
               method: "POST",
-              body: encode({ tableName, operation }),
+              body: encode({ kind: "point", tableName, operation }),
             });
             const envelope = JSON.parse(await response.text());
             if (!envelope.ok) {
@@ -1288,6 +1301,36 @@ export default {
               throw error;
             }
             return envelope.result;
+          },
+          resolveDeveloperIndex(indexDescriptor) {
+            return {
+              async runIndexedQuery(operation) {
+                const response = await env.JOURNAL.fetch(
+                  "https://journal/indexed",
+                  {
+                    method: "POST",
+                    body: encode({
+                      kind: "indexed",
+                      tableName,
+                      indexDescriptor,
+                      operation,
+                    }),
+                  },
+                );
+                const envelope = JSON.parse(await response.text());
+                if (!envelope.ok) {
+                  const error = new Error(envelope.message);
+                  Object.defineProperty(error, "name", {
+                    value: envelope.name,
+                    enumerable: false,
+                    configurable: false,
+                    writable: false,
+                  });
+                  throw error;
+                }
+                return envelope.result;
+              },
+            };
           },
         };
       },

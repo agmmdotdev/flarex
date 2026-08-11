@@ -1,13 +1,13 @@
 # Indexed Range OCC
 
-Status: Accepted design plus completed `O10-PF2`, `O10-P0`, `O10-A`, and
-private production-inert `O10-B`. The exact mutation runtime now admits the one
+Status: Accepted design plus completed `O10-PF2`, `O10-P0`, `O10-A`, private
+production-inert `O10-B`, and production-inert Standard cooking `O10-C`.
+The exact mutation runtime now admits the one
 bounded ascending developer-index range operation, including durable staged
 overlay and commit-time phantom validation. No public developer API or
-production route is active. The `O10-C` preflight gap recorded as
-`ST-CORE-019` is closed by the accepted production-inert C08 developer
-ordered-index build prerequisite, so O10-C may resume as the next separately
-approved capability. This checkpoint does
+production route is active. The O10-C prerequisites recorded as `ST-CORE-019`
+and `ST-CORE-020` are closed by the accepted C08 developer ordered-index build
+and exact Standard indexed-query composition. This checkpoint does
 not authorize relations, scans, filters, search, vectors, external pagination,
 or production routing.
 
@@ -501,6 +501,44 @@ Workerd backend cases, and 52 targeted analyzer ABI cases, with all affected
 package typechecks and deterministic generated-source checks green. Exact
 environment timings remain task/commit evidence rather than roadmap policy.
 
+## O10-C Standard Application Preflight Decision
+
+The first O10-C slice is one production-inert Standard cooking-app mutation,
+not a second index test adapter. The application declares a numeric
+`recipes.by_servings` developer ordered index, and setup must reconcile and
+build that index through C08 before the existing readiness and activation
+owners run. The mutation performs the private exact-runtime bounded ascending
+range operation, uses the first returned recipe to decide which recipe to
+publish, and commits through the existing journal, O08 replacement/rerun, and
+point-commit owners.
+
+The deterministic interleaving inserts a smaller-serving recipe after the
+first runtime attempt. That insertion is a phantom before the consumed page
+frontier: the first attempt must lose indexed-range OCC, its staged publication
+must remain invisible, and the replacement attempt must re-read the index,
+choose the new recipe, and publish exactly once. Replay must return the same
+committed decision without executing user code again. PGlite and genuine
+PostgreSQL must inspect the terminal session at attempt fence two and prove
+that replacement/publication removed both attempts' transient journals and
+range children. Runtime and application-state evidence must prove both exact
+indexed executions, the phantom-selected replacement decision, and that the
+losing staged write did not leak.
+
+This slice adds no public query-builder API, encoded-bound ergonomics, scan or
+filter fallback, alternate retry/commit owner, seeded build state, production
+route, or relation behavior. Full-range `{}` bounds are deliberate here: the
+business decision tests index ordering and phantom protection without making
+application code construct the private ordered-key codec.
+
+The first diagnostic execution reached the exact Worker's journal binding and
+failed closed before indexed I/O, exposing `ST-CORE-020`. The accepted
+correction requires `ApplicationPointMutationSystemLiveV1` to receive the
+persistence-owned opaque indexed-query port and binds that port from the exact
+same control database, session authority, and developer-definition authority
+used by the existing owners. The Workerd system-test bridge transports the
+existing RPC operations without implementing a resolver. Missing,
+foreign-control, and mismatched-authority composition remains fail closed.
+
 ## Retention
 
 O10 does not activate history cleanup. O11 must retain enough S10 revision
@@ -559,12 +597,14 @@ search, and vector shapes must have explicit rejection tests.
    validator, 128-commit refusal, exact O08 conflict replacement, measured
    supporting index, private analyzer ABI, RPC, and exact runtime capability
    are integrated without a second OCC/commit/retry owner.
-6. **O10-C — ready for its next approved slice.** `ST-CORE-019` is closed by
-   the accepted C08 developer ordered-index build prerequisite. Continue with
-   PGlite and genuine-PostgreSQL concurrency/plan/rollback evidence and a
-   Standard cooking-app scenario that makes a real business decision from an
-   indexed range. The simulation must continue through the real build and
-   readiness owners and may not seed enabled C4 state.
+6. **O10-C — complete.** `ST-CORE-019` is closed by the accepted C08 developer
+   ordered-index build prerequisite, and `ST-CORE-020` is closed by the exact
+   Standard indexed-query composition. The cooking scenario continues through
+   real build and readiness owners, makes a business decision from
+   `recipes.by_servings`, proves phantom-triggered O08 replacement, losing-write
+   rollback, replay, sidecar maintenance, attempt fence two, and terminal
+   journal cleanup in PGlite and genuine PostgreSQL. It seeds no enabled C4
+   state and adds no alternate resolver, OCC, commit, or retry owner.
 
 Each implementation-bearing capability owns one commit, focused validation,
 both mandatory exact-final reviewers, fixes, and re-review. No slice activates

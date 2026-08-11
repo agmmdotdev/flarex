@@ -55,14 +55,17 @@ it("runs the cooking simulation through the real Standard path", async () => {
       deleteReplay: true,
       pointMutationLifecycle: true,
       deletedDocumentReadsNull: true,
+      indexedRangeDecisionReran: true,
+      indexedRangeDecisionReplay: true,
+      losingIndexedDecisionWriteRolledBack: true,
       pantryConflictReran: true,
       singleStockReservationCommitted: true,
       stockNeverNegative: true,
       losingReservationWritesRolledBack: true,
       competitorReservationReplay: true,
     },
-    mutationRuntimeExecutions: 15,
-    queryRuntimeExecutions: 14,
+    mutationRuntimeExecutions: 18,
+    queryRuntimeExecutions: 16,
     postgresVersion: null,
   });
   expect(proof.workloadProof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
@@ -73,6 +76,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
   for (const documentId of [
     proof.workloadProof.racePrimaryDocumentId,
     proof.workloadProof.raceCompetitorDocumentId,
+    proof.workloadProof.indexedPhantomDocumentId,
     proof.workloadProof.pantryDocumentId,
   ]) {
     expect(documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
@@ -96,38 +100,45 @@ it("runs the cooking simulation through the real Standard path", async () => {
     valueState: "live",
   }, {
     tableName: "recipes",
+    documentId: proof.workloadProof.indexedPhantomDocumentId,
+    commitSeq: "8",
+    valueState: "live",
+  }, {
+    tableName: "recipes",
     documentId: proof.workloadProof.racePrimaryDocumentId,
-    commitSeq: "7",
+    commitSeq: "9",
     valueState: "live",
   }, {
     tableName: "recipes",
     documentId: proof.workloadProof.raceCompetitorDocumentId,
-    commitSeq: "10",
+    commitSeq: "12",
     valueState: "live",
   }, {
     tableName: "pantryStock",
     documentId: proof.workloadProof.pantryDocumentId,
-    commitSeq: "10",
+    commitSeq: "12",
     valueState: "live",
   }].sort((left, right) => left.documentId < right.documentId ? -1 : 1);
   const lifecycleInspection = {
     version: 1,
     currentRows,
-    currentRowCount: 5,
-    liveRowCount: 4,
-    revisionRowCount: 11,
-    commitSeqs: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+    currentRowCount: 6,
+    liveRowCount: 5,
+    revisionRowCount: 13,
+    commitSeqs: [
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12",
+    ],
     idempotencyOutcomeCommitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12",
     ],
     commitFeedCommitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "10",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12",
     ],
     outboxCommitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12",
     ],
-    mutationRuntimeExecutions: 15,
-    queryRuntimeExecutions: 14,
+    mutationRuntimeExecutions: 18,
+    queryRuntimeExecutions: 16,
   } as const;
   expect(proof.workloadProof.workloadInspection).toEqual(lifecycleInspection);
   expect(proof.finalInspection).toEqual(lifecycleInspection);
@@ -138,9 +149,38 @@ it("runs the cooking simulation through the real Standard path", async () => {
     (select count(*)::text from fx_app_index_entry_rev) as revisions,
     (select count(*)::text from fx_app_index_entry_current) as current_rows`);
   expect(sidecarCounts.rows[0]).toEqual({
-    revisions: "21",
-    current_rows: "7",
+    revisions: "38",
+    current_rows: "13",
   });
+  const indexedDecisionEvidence = await persistence.query<{
+    lifecycle: string;
+    current_attempt_fence: string;
+    journal_count: string;
+    indexed_query_syscalls: string;
+    range_count: string;
+  }>(`select session.lifecycle,
+      session.attempt_fence::text as current_attempt_fence,
+      (select count(*)::text
+         from fx_system_tx_journal as journal
+        where journal.scope_uuid = session.scope_uuid
+          and journal.session_id = session.session_id) as journal_count,
+      (select coalesce(sum(journal.indexed_query_syscalls), 0)::text
+         from fx_system_tx_journal as journal
+        where journal.scope_uuid = session.scope_uuid
+          and journal.session_id = session.session_id) as indexed_query_syscalls,
+      (select count(*)::text
+         from fx_system_tx_journal_index_range as dependency
+        where dependency.scope_uuid = session.scope_uuid
+          and dependency.session_id = session.session_id) as range_count
+    from fx_system_tx_session as session
+    where session.request_key = $1`, ["sac01:cooking:publish-smallest-batch"]);
+  expect(indexedDecisionEvidence.rows).toEqual([{
+    lifecycle: "committed",
+    current_attempt_fence: "2",
+    journal_count: "0",
+    indexed_query_syscalls: "0",
+    range_count: "0",
+  }]);
   const crossTableSidecars = await persistence.query<{
     access_kind: string;
     table_id: string;
@@ -163,27 +203,34 @@ it("runs the cooking simulation through the real Standard path", async () => {
      and current_entry.encoded_key = revision.encoded_key
      and current_entry.row_id = revision.row_id
      and current_entry.commit_seq = revision.commit_seq
-    where revision.commit_seq = 10
+    where revision.commit_seq = 12
     order by definition.access_kind, revision.table_id`);
   expect(crossTableSidecars.rows).toEqual([{
     access_kind: "by_creation_time",
     table_id: "1",
     row_id_hex: pointRowIdHex(proof.workloadProof.pantryDocumentId),
-    commit_seq: "10",
+    commit_seq: "12",
     is_tombstone: false,
     is_current: true,
   }, {
     access_kind: "by_creation_time",
     table_id: "2",
     row_id_hex: pointRowIdHex(proof.workloadProof.raceCompetitorDocumentId),
-    commit_seq: "10",
+    commit_seq: "12",
     is_tombstone: false,
     is_current: true,
   }, {
     access_kind: "developer",
     table_id: "2",
     row_id_hex: pointRowIdHex(proof.workloadProof.raceCompetitorDocumentId),
-    commit_seq: "10",
+    commit_seq: "12",
+    is_tombstone: false,
+    is_current: true,
+  }, {
+    access_kind: "developer",
+    table_id: "2",
+    row_id_hex: pointRowIdHex(proof.workloadProof.raceCompetitorDocumentId),
+    commit_seq: "12",
     is_tombstone: false,
     is_current: true,
   }]);

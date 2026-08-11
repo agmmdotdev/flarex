@@ -113,6 +113,28 @@ None.
 
 ## Resolved Issues
 
+### `ST-CORE-020` - Standard mutation composition omitted indexed-query authority
+
+- **Status:** Resolved by the production-inert O10-C Standard composition
+  correction.
+- **Root cause:** `ApplicationPointMutationSystemLiveV1` supplied the developer
+  index definition authority to point commit but omitted the exact
+  persistence-owned indexed-query port from the session-journal store. The
+  system-test Workerd transport bridge likewise exposed point operations only.
+- **Correction:** Trusted host composition now constructs one opaque query port
+  from the captured control database, session authority, and developer-index
+  definition authority; Standard invocation requires and passes that exact port
+  to the journal. The existing bridge transports index resolution and indexed
+  operations without reproducing persistence or OCC logic. Missing,
+  foreign-control, and mismatched-authority ports remain fail closed.
+- **Evidence:** The cooking simulation declares and builds
+  `recipes.by_servings`, executes the analyzed exact-runtime indexed decision,
+  admits a deterministic phantom, reruns at attempt fence two, rolls back the
+  losing patch, publishes the replacement decision once, and replays without
+  user-code execution in both PGlite and genuine PostgreSQL. Terminal
+  inspection also proves replacement/publication removed transient journal and
+  range rows.
+
 ### `ST-CORE-019` - Developer ordered indexes had no enabling build owner
 
 - **Status:** Resolved by the accepted production-inert C08 developer

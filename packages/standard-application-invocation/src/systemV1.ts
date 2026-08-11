@@ -68,7 +68,10 @@ import {
   type PointCommitOutcomeResolutionV1Error,
   type PointCommitTransactionProofOptionsV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
-import { createSessionJournalStorePersistenceV1 } from
+import {
+  createSessionJournalStorePersistenceV1,
+  type AppDeveloperIndexQueryPortV1,
+} from
   "@flarex/persistence-postgres/session-journal-store";
 import { createStoredOccExecutionEvidenceLoaderV1 } from
   "@flarex/persistence-postgres/stored-occ-execution";
@@ -179,6 +182,7 @@ export interface ApplicationPointMutationSystemLiveV1 {
   readonly intrinsicCreationTimeIndexes:
     IntrinsicCreationTimeIndexDefinitionPortV1;
   readonly developerIndexes: AppDeveloperIndexDefinitionPortV1;
+  readonly indexedQueries: AppDeveloperIndexQueryPortV1;
   readonly sessionAuthority: PointMutationSessionAuthorityResolutionPortsV1;
   readonly currentEpochAuthority: CurrentScopeAuthorizationEpochResolutionPorts;
   readonly grantRetentionPolicy: GrantRetentionPolicyV1;
@@ -431,6 +435,7 @@ function makeInvoke(
     live.sessionAuthority,
     {
       grantRetentionPolicy: live.grantRetentionPolicy,
+      indexedQueries: live.indexedQueries,
       randomUuid: live.randomUuid,
     },
   );
