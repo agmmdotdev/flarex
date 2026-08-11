@@ -151,8 +151,11 @@ These decisions are durable and are not re-opened by each implementation turn:
   policy; persistence and current commit/readiness owners receive only narrow
   adapters. `M01-A` provides only the pure bounded compatibility classifier;
   `M01-B` adds protocol-owned canonical progress, bounded failure-evidence,
-  and final-receipt contracts without storage. Persistence, scanning, commit,
-  readiness, activation, and every adapter remain separately gated.
+  and final-receipt contracts without storage. `M02` adds a storage-free,
+  read-only plan identity with exact active/candidate artifact and data-frontier
+  pins, stable-ID-preserving rename intent, bounded non-sensitive evidence, and
+  remediation/prerequisite data. Persistence, scanning, commit, readiness,
+  activation, and every adapter remain separately gated.
 - The immutable manifest is the only versioned table-definition authority.
   Names in normalized catalogs are verified assertions, not competing copies.
 - Physical index definitions are normalized because runtime build identity and

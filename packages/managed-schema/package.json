@@ -6,7 +6,8 @@
     "src"
   ],
   "exports": {
-    "./compatibility": "./src/Compatibility.ts"
+    "./compatibility": "./src/Compatibility.ts",
+    "./planning": "./src/Planning.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -15,6 +16,8 @@
     "test": "pnpm check:boundary && vitest run"
   },
   "dependencies": {
+    "@flarex/utils": "workspace:*",
+    "effect": "catalog:",
     "flarex-protocol": "workspace:*"
   },
   "devDependencies": {

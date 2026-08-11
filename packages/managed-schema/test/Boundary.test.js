@@ -13,7 +13,11 @@ describe("managed schema package boundary", () => {
       relativePath: sourcePath,
       text: `
         import type { SchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
+        import type { ScopeId } from "flarex-protocol/storage-authority";
         import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+        import { encodeCanonicalJson } from "flarex-protocol/json";
+        import { copyBytes } from "@flarex/utils/bytes";
+        import { Effect } from "effect";
         export type { Model } from "./Model";
       `,
     }]).errors).toEqual([]);
@@ -39,8 +43,11 @@ describe("managed schema package boundary", () => {
       `,
     }]);
     expect(report.errors).toEqual([
-      "Managed schema package exports must be exactly: ./compatibility.",
-      "Managed schema package runtime dependencies must be exactly: flarex-protocol.",
+      "Managed schema package exports must be exactly: ./compatibility, ./planning.",
+      "Managed schema package exports entry ./planning must be ./src/Planning.ts.",
+      "Managed schema package runtime dependencies must be exactly: @flarex/utils, effect, flarex-protocol.",
+      "Managed schema package runtime dependencies entry @flarex/utils must be workspace:*.",
+      "Managed schema package runtime dependencies entry effect must be catalog:.",
       `${sourcePath}:2 imports forbidden module "@flarex/persistence-postgres".`,
       `${sourcePath}:3 imports forbidden module "@flarex/standard-application-invocation/v1".`,
     ]);
@@ -129,8 +136,15 @@ describe("managed schema package boundary", () => {
 function validManifest() {
   return {
     name: "@flarex/managed-schema",
-    exports: { "./compatibility": "./src/Compatibility.ts" },
-    dependencies: { "flarex-protocol": "workspace:*" },
+    exports: {
+      "./compatibility": "./src/Compatibility.ts",
+      "./planning": "./src/Planning.ts",
+    },
+    dependencies: {
+      "@flarex/utils": "workspace:*",
+      effect: "catalog:",
+      "flarex-protocol": "workspace:*",
+    },
     devDependencies: {
       typescript: "catalog:",
       vitest: "catalog:",

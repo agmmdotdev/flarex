@@ -1,11 +1,12 @@
 # Managed Schema Deployment And Migrationless DX
 
-Status: Accepted deferred foundation contract with `M01-A` and `M01-B`
-complete. The private, pure, storage-free `@flarex/managed-schema`
-compatibility foundation and the protocol-owned canonical candidate-validation
-frames now exist. No validation persistence, DDL, repository, scanner, commit
-hook, readiness, activation, CLI, backfill runner, or destructive cleanup is
-implemented or authorized by those completions. `M02` is next; the later
+Status: Accepted deferred foundation contract with `M01-A`, `M01-B`, and
+`M02` complete. The private, storage-free `@flarex/managed-schema`
+compatibility and read-only planning foundations plus the protocol-owned
+canonical candidate-validation frames now exist. No validation persistence,
+DDL, repository, scanner, commit hook, readiness, activation, CLI, backfill
+runner, or destructive cleanup is implemented or authorized by those
+completions. `M03-A` is next; the later
 `M03-A` through `M03-C` slices separately introduce target-local validation
 state, point-commit integration, and readiness and activation consumption.
 
@@ -116,10 +117,9 @@ boundary check will reject those reverse dependencies. The package uses plain
 unversioned names for the accepted implementation; only canonical persisted or
 wire contracts receive compatibility versions.
 
-`M01-A` implements only the first pure portion of this boundary. The package
-currently exports `./compatibility`, declares only `flarex-protocol` as a
-production dependency, and classifies decoded manifests without Effect,
-storage, host, or runtime work. It reports document compatibility, physical-
+`M01-A` implements the first pure portion of this boundary. The package
+exports `./compatibility` and classifies decoded manifests without storage,
+host, or runtime work. It reports document compatibility, physical-
 requirement drift, and stable-identity ambiguity as separate facets; neither a
 safe document verdict nor the aggregate result is a readiness or activation
 capability. Unknown/narrowing comparisons and exhausted bounded comparison
@@ -136,6 +136,20 @@ The contract owns row/page/semantic-byte/slice-time and frame/evidence ceilings
 and fail-closed canonical decoding. Corruption, supersession, interruption,
 confirmed rollback, and decision uncertainty retain distinct recovery
 dispositions. This completion adds no storage owner or runtime integration.
+
+`M02` adds the package's private `./planning` contract and the exact inward
+dependencies already allowed by this roadmap: `flarex-protocol`, Effect, and
+domain-neutral byte utilities. It produces a deterministic read-only
+`flarex.managed-schema/evolution-plan/v1` identity over active and candidate
+artifact digests, scope generation/fence/epoch, and a data-frontier commit
+sequence. Operations remain canonically ordered and independently classified;
+incompatibility evidence is document-body-free and capped; and remediation,
+activation, and rollback prerequisites are data rather than executable
+authority. Explicit rename intent can acknowledge only a logical rename that
+already preserves the stable table or logical-index ID in the immutable
+candidate artifact. It cannot reinterpret a different-ID remove/add or an
+index move across tables. The plan is not a persisted validation frame,
+readiness receipt, apply token, or activation capability.
 
 The package is organized by domain rather than adapter:
 
@@ -438,7 +452,7 @@ These are separate later goals, not one giant deployment goal:
    ceilings. Settle exact corruption, supersession, interruption, rollback,
    and uncertainty errors before DDL. This is a private protocol-only contract;
    it creates no table, repository, scanner, or runtime authority.
-3. `M02` - implement read-only planning with explicit rename maps, bounded
+3. `M02` - **complete**: implement read-only planning with explicit rename maps, bounded
    non-sensitive incompatibility evidence, remediation actions, active-schema
    and data-frontier pins, and stale-plan identity.
 4. `M03-A` - add the guarded target-local single non-active schema-validation
@@ -466,14 +480,14 @@ The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
 
-`M01-A` and `M01-B` are complete without DDL, row scans, readiness changes, or
-point-commit integration. The next implementation-bearing request should
-authorize only `M02`: read-only planning with explicit rename intent, bounded
-non-sensitive incompatibility evidence, remediation actions, exact active-
-schema and data-frontier pins, and stale-plan identity. It must not add
-persistence or runtime integration. Each later turn stops if it discovers
-another authority, migration, transaction, activation, or production-routing
-change beyond the named gate.
+`M01-A`, `M01-B`, and `M02` are complete without DDL, row scans, readiness
+changes, or point-commit integration. The next implementation-bearing request
+must preflight and authorize only `M03-A`: the guarded target-local single
+non-active schema-validation head and bounded exact-frontier scanner. That is a
+new schema/migration and repository owner and therefore requires explicit
+PGlite and genuine-PostgreSQL fresh/upgrade/replay/refusal/rollback/concurrency
+evidence. Each later turn stops if it discovers another authority, migration,
+transaction, activation, or production-routing change beyond the named gate.
 
 ## Multi-Revision Cooking Acceptance Matrix
 

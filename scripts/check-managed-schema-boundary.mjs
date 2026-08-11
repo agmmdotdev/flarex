@@ -10,11 +10,23 @@ const packageRoot = path.join(repoRoot, "packages", "managed-schema");
 const sourceRoot = path.join(packageRoot, "src");
 const normalizedSourceRoot = "packages/managed-schema/src";
 const supportedExtensions = new Set([".ts", ".tsx", ".mts", ".cts"]);
-const allowedImports = new Set([
+const typeOnlyProtocolImports = new Set([
   "flarex-protocol/schema-manifest",
+  "flarex-protocol/storage-authority",
   "flarex-protocol/validator-json",
 ]);
+const allowedValueImports = new Set([
+  "@flarex/utils/bytes",
+  "effect",
+  "flarex-protocol/json",
+]);
+const allowedImports = new Set([
+  ...typeOnlyProtocolImports,
+  ...allowedValueImports,
+]);
 const expectedDependencies = Object.freeze({
+  "@flarex/utils": "workspace:*",
+  effect: "catalog:",
   "flarex-protocol": "workspace:*",
 });
 const expectedDevDependencies = Object.freeze({
@@ -63,8 +75,8 @@ if (isCliEntrypoint()) {
     process.exitCode = 1;
   } else {
     console.log("Managed schema package boundary check passed.");
-    console.log("Allowed package export: ./compatibility");
-    console.log("Allowed production dependency: flarex-protocol");
+    console.log("Allowed package exports: ./compatibility, ./planning");
+    console.log("Allowed production dependencies: @flarex/utils, effect, flarex-protocol");
   }
 }
 
@@ -84,7 +96,10 @@ export function analyzeManagedSchemaBoundary(manifest, sources) {
   }
   collectExactRecordErrors(
     manifest.exports,
-    { "./compatibility": "./src/Compatibility.ts" },
+    {
+      "./compatibility": "./src/Compatibility.ts",
+      "./planning": "./src/Planning.ts",
+    },
     "exports",
     errors,
   );
@@ -256,7 +271,7 @@ function collectSourceErrors(source, errors) {
 
   /** @param {ts.Node} node @param {string} specifier */
   function collectProtocolReferenceKindError(node, specifier) {
-    if (!allowedImports.has(specifier)) return;
+    if (!typeOnlyProtocolImports.has(specifier)) return;
     const { line } = sourceFile.getLineAndCharacterOfPosition(
       node.getStart(sourceFile),
     );
