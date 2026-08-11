@@ -514,6 +514,44 @@ deadline and two-load policy, creates no alternate runtime or persistence
 authority, and authorizes no bucket creation, route, preview URL, deployment,
 OCC, commit, executor, or authoritative-row change.
 
+#### Completed lifecycle correction and hosted receipt — 2026-08-11
+
+**AA-R4 is completed by `d6883020`.** The correction removes the unsupported
+entrypoint-stub release attempt and leaves that non-disposable fetcher's
+lifetime with the Cloudflare execution context. Returned RPC objects are still
+detached and explicitly disposed, including results arriving after local
+deadline interruption. The fake and Miniflare harnesses now model that same
+ownership, and each acquired Miniflare result has its own partial-failure-safe
+finalizer.
+
+The final proof receipt is:
+
+- a temporary, uniquely named remote Worker Loader preview returned two equal
+  results from two uncached loads; both returned objects exposed callable
+  `Symbol.dispose` operations, and both explicit releases completed;
+- a separate request returned `timeout` after 10 milliseconds while its child
+  RPC was still slow, followed immediately by a successful fresh two-load
+  request with both result disposers present;
+- no direct isolate destructor was called or claimed, and all temporary proof
+  processes, source, logs, Wrangler cache, and port `8811` were removed;
+- 24 focused host/core/Miniflare/identity tests pass, generated-core verification
+  remains `949b5cf2809b12dfa6f6000280e40b617640114e1b6b091bae912e24ea26fedd`,
+  and the regenerated private analyzer identity is
+  `9fd549d245a42ef119e0dbf7c56c11449a9f5faed86323fd45fed5458d2c92c2`;
+- the workspace Effect-boundary check passes; analyzer typecheck still reaches
+  only the separately owned concurrent error at
+  `packages/persistence-postgres/src/appRows.ts:434`; and
+- the complete analyzer suite is 62 of 63 tests, with the unchanged legacy
+  Declarative V2 long-path nested-cause assertion failing. Both required final
+  reviewers approved the exact corrected five-file diff after the Miniflare
+  partial-failure cleanup was added.
+
+The absent account R2 bucket still prevents uploading the accepted analyzer
+configuration. No bucket, route, preview URL, or production deployment was
+created. That operational prerequisite remains fail-closed for later deployment
+and AA-R9; it does not reopen this private host implementation gate. AA-R5 may
+now begin from the then-current migration and persistence head.
+
 ### `AA-R5` — durable analysis and inactive registration generation
 
 Implement one cohesive persistence slice after rechecking the then-current
