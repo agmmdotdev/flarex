@@ -1248,6 +1248,98 @@ the pre-existing stale edge-action generated-kernel check; this checkpoint did
 not change or regenerate that owner. Both required final reviewers approved the
 exact staged implementation without findings.
 
+#### AA-R6 Application worker-host preflight — 2026-08-11
+
+The backend audit rejects the artifact-era `HostKit` worker graph and every
+exact query, mutation, internal-call, and edge-action worker core. Those owners
+pin Source Package or artifact identities, public-root assumptions, generated
+configuration envelopes, and compatibility profiles that the Application
+target does not carry. Reusing them would either manufacture authority or make
+the new runtime depend on the displaced system. The reusable owner is the
+Application Runtime materializer's whole-bundle module graph: canonical source
+modules are remapped under `__flarex_application_modules`, framework shims are
+sticky to each importing module, trusted modules are derived from the Source
+Artifact root, and source/framework collisions fail before Worker Loader use.
+
+The accepted backend slice first extracts that pure Application module-graph
+mechanic behind one Application-owned helper and makes the existing cold
+materializer delegate to it without changing its definition bytes or receipt.
+The same helper then builds one new private executable worker definition with
+two explicit entrypoints, transaction and action, and one generated self-
+contained core. It receives canonical target, manifest, Source Artifact bytes,
+and host policy from trusted backend inputs; no manifest, catalog, module body,
+or policy is accepted from the worker request. The definition is pure code and
+configuration: it never stores an RPC capability or outbound gateway.
+
+Target authority is checked twice at distinct boundaries. Before definition
+construction, the backend reuses the current Application publication proof:
+canonical manifest digest, schema and function-catalog frames, exact function
+entry, publication commitment, Source Artifact identity, module list, and
+source bytes must all agree with the request target. Inside the worker, the
+decoded request target must equal the single embedded canonical target before
+module import or capability use. The runtime root ordinal is its zero-based
+position in the already-canonical manifest function array. The internal catalog
+uses the same positions and contains only exact internal query or mutation
+members; it is not inferred from calls and is not supplied over RPC.
+
+Each invocation uses `WorkerLoader.load()` and a fresh entrypoint stub; cached
+`get()` is forbidden. The transaction entrypoint accepts exactly one decoded
+Application transaction request plus one query-read or mutation-journal RPC
+capability chosen from the target kind. The action entrypoint accepts exactly
+one decoded action request plus the existing callback capability and an out-of-
+band host policy whose digest must equal `context.hostPolicySha256`. Query and
+mutation internal calls use the private fixed budget of 64 calls, depth 8,
+8 MiB aggregate arguments, and 8 MiB aggregate child results. Action limits,
+CPU, wall time, callback sizes, and cleanup drain remain owned by the existing
+action host-policy contract. Workflow mutation reaches the worker only to return
+the function-runtime's explicit unsupported contract failure.
+
+The outer host converts the pure definition to invocation-owned Worker Loader
+code. Transaction and workflow invocations set `globalOutbound: null`. Action
+invocations receive only the trusted outbound gateway already claimed by the
+existing action coordinator, exactly as the current exact action host does;
+ambient `fetch` therefore cannot manufacture or widen network authority. The
+first private Worker proof may use `null` or a bounded fake gateway, but the
+production action adapter must preserve this gateway and its host-policy limits
+instead of silently denying or bypassing an already-authorized outbound call.
+
+The generated core may bridge the Effect protocol decoders at its Worker
+entrypoint, but Function API handlers and RPC capabilities remain native
+Promises. This is one deliberate runtime bridge, not a service or Layer.
+Expected request/result and runtime failures are translated once into the
+Application host's typed error family. Unexpected protocol or core defects
+remain defects. Query read, mutation journal, and action callback capabilities
+retain their current close, drain, sticky-failure, and exactly-once disposal
+semantics; the worker must not implement OCC, commit, transaction retry,
+idempotency, or action scheduling.
+
+The outer host owns interruption and transport settlement. It applies Worker
+Loader CPU/subrequest limits, a bounded wall deadline, and the action request's
+deadline constrained by the trusted host policy. On interruption it rejects the
+Effect, still observes the detached RPC promise, disposes any late RPC result,
+and never lets a capability outlive its request owner. On success it detaches
+and disposes the RPC value, then decodes the Application worker-result contract
+before returning the canonical value. No raw RPC object crosses the host
+boundary.
+
+The first medium implementation checkpoint covers the shared Application graph,
+generated executable core, definition builder, unit proof, and Miniflare proof
+with fake read, journal, and callback capabilities. It remains private and
+unwired; its action case uses either denied outbound or an explicit bounded fake
+gateway. A following medium checkpoint owns the outer execution host, the
+invocation-scoped Worker Loader code, and its real capability adapters. Neither
+checkpoint changes production selection, readiness, activation, persistence,
+transaction execution, or action lifecycle.
+
+Self-review accepts this split because module construction plus a real Worker
+execution proof is independently substantial, while combining it immediately
+with OCC/journal/callback production adapters would hide ownership mistakes.
+Stop if implementation changes the cold materializer's emitted graph, needs an
+artifact/package identity, accepts a second catalog from RPC, caches a Worker
+stub, widens outbound/subrequest authority, executes workflow mutation, or
+moves read, journal, callback, OCC, commit, retry, or scheduling authority into
+the new host.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
