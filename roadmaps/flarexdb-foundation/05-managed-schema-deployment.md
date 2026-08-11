@@ -8,9 +8,12 @@ authenticated point-commit write guard now exist. M03-B remains private and
 production-inert: no Standard live composition, readiness or activation
 consumer, CLI, backfill runner, destructive cleanup, route, or trigger uses it.
 `M03-C` is complete: readiness and first activation are separately gated on
-the exact schema-validation receipt. `M03-D` is next and adds the isolated
-multi-revision cooking scenario without changing the existing single-revision
-runner.
+the exact schema-validation receipt. `M03-D` remains the isolated
+multi-revision cooking scenario, but it is sequenced after the Application
+Analysis `AA-R6` capability-composition and private-consumer cut. The existing
+single-revision runner still selects the displaced Application Revision V1
+readiness/activation generation, so extending it now would prove a legacy
+authority and violate the accepted one-way migration.
 
 ## Decision
 
@@ -75,25 +78,29 @@ Flarex adopts those semantics, not Convex's physical system-table shapes. Its
 scope clock, immutable schema artifacts, stable table IDs, row-revision model,
 point-commit owner, readiness receipt, and activation CAS remain authoritative.
 
-## Current Implementation Gap
+## Current Composition Gap
 
-The current private Flarex lifecycle already publishes immutable schema
-artifacts, keeps stable table and logical-index identities across versions,
-builds required physical indexes and unique sets, settles readiness, and
-atomically activates one complete application revision. C03-V validates new
-insert/patch/replace values against the active activation-fenced schema.
+The managed-schema owners now publish immutable schema artifacts, preserve
+stable table and logical-index identities, validate candidate rows at an exact
+frontier, guard active-valid writes against the pending candidate, require the
+exact validation receipt for readiness, and consume it through the existing
+activation CAS.
 
-It does **not** yet prove that every existing live application row satisfies a
-candidate schema. `applicationRevisionReadinessV1` currently folds physical
-index builds, unique-set eligibility, runtime publication, and cold
-materialization into readiness, but has no candidate-schema row-validation
-receipt. The reusable system-test environment likewise prepares and activates
-exactly one relation-free revision.
+The reusable system-test environment still prepares one relation-free revision
+through `prepareFsv05ReadyRevisionFixtureEffectV1` and selects the displaced
+Application Revision V1 readiness and activation generation. Roadmap 49 has
+accepted Application Revision V2 analysis, publication, runtime materialization,
+schema authority, readiness, activation, selection, and private-consumer
+migration as a one-way replacement. Until that consumer cut exists, there is no
+truthful system-test composition root that can run schemas A, B, and C through
+the accepted current Application authority.
 
-Therefore the next cooking tests cannot honestly activate a narrowed or
-required-field schema merely by registering a second revision. A test-owned
-scan, direct readiness row, seeded activation, or second validator would create
-false authority and is forbidden.
+Therefore `M03-D` must not create a test-owned scanner, schema publication,
+readiness receipt, activation pointer, consumer adapter, or dual old/new runner.
+Its implementation resumes only after `AA-R6` capability composition has moved
+the private Standard invocation consumer to the new active selection. The
+existing single-revision cooking evidence remains historical regression
+coverage; it is not the authority base for the new multi-revision scenario.
 
 ## Approved Code And Package Ownership
 
@@ -609,9 +616,10 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - extend `@flarex/system-test` with a separate multi-revision
-   cooking scenario. The existing single-revision runner remains unchanged
-   until the lifecycle owner exists.
+7. `M03-D` - after the `AA-R6` capability-composition/private-consumer cut,
+   extend `@flarex/system-test` with a separate multi-revision cooking
+   scenario. The existing single-revision runner remains unchanged and is not
+   a fallback or comparison authority.
 8. `M04` - expose plan/apply through developer CLI and AI tooling with
    non-interactive machine-readable output.
 9. `M05` - add explicit retirement/purge policy after rollback, snapshot,
@@ -622,12 +630,14 @@ goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
 
 `M01-A`, `M01-B`, `M02`, and production-inert `M03-A` through `M03-C` are
-complete. The next implementation-bearing request must preflight and authorize
-only `M03-D`: add the isolated multi-revision cooking scenario over the accepted
-owners. It may not create another active-schema authority, transaction owner,
-route, trigger, or public deployment path. Each later turn stops if it
-discovers another authority, migration, transaction, activation, or
-production-routing change beyond the named gate.
+complete. `M03-D` is blocked only on roadmap 49's `AA-R6` replacement consumer
+cut; no additional managed-schema protocol, schema, migration, transaction, or
+activation owner is authorized here. Once that cut is complete, the next
+managed-schema implementation request may add the isolated multi-revision
+cooking scenario over those accepted current owners. It may not revive the
+displaced runner, add dual selection or fallback, or create another
+active-schema authority, transaction owner, route, trigger, or public
+deployment path.
 
 ## Multi-Revision Cooking Acceptance Matrix
 

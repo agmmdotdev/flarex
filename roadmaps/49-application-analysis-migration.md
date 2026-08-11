@@ -1548,6 +1548,15 @@ individually committed checkpoints while preserving one-way migration:
    remain solely where historical evidence still requires their exact
    contracts.
 
+The managed-schema `M03-D` multi-revision cooking scenario follows checkpoint
+3, not the displaced Standard runner. Its accepted matrix requires real
+analysis, schema publication, readiness, activation, Workerd execution, and
+journal/OCC/commit evidence for several revisions. Until private Standard
+invocation selects only the new Application authority, implementing that matrix
+would either bless Application Revision V1 again or introduce a forbidden
+test-owned/dual lifecycle adapter. The earlier single-revision cooking suite
+remains regression evidence only and is not a fallback or comparison authority.
+
 The schema bridge is deliberately a caller of the existing app-schema
 publication and build owners. It may derive a stable PostgreSQL-safe
 schema-version identifier from the canonical Application schema digest, but it
