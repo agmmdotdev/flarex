@@ -14,6 +14,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import {
@@ -87,6 +88,12 @@ import type {
   AppUniqueConstraintSetBuildLifecycleV1,
   AppUniqueConstraintSetCodecVersionV1,
 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import {
+  MAX_APP_SCHEMA_CANDIDATE_VALIDATION_CANONICAL_FRAME_BYTES_V1,
+  type AppSchemaCandidateValidationAttemptFenceV1,
+  type AppSchemaCandidateValidationCodecVersionV1,
+  type AppSchemaCandidateValidationFrameV1,
+} from "flarex-protocol/internal/app-schema-candidate-validation-v1";
 import {
   MAX_CANONICAL_APP_INDEX_PHYSICAL_SPEC_BYTES_V1,
   type AppIndexPhysicalSpecCodecVersion,
@@ -2769,6 +2776,11 @@ export const fxAppRowRevisions = pgTable(
       table.writeEpochUuid,
       table.commitSeq,
     ),
+    uniqueIndex("fx_app_row_rev_first_identity_unique").on(
+      table.scopeUuid,
+      table.tableId,
+      table.rowId,
+    ).where(sql`${table.prevCommitSeq} is null`),
     foreignKey({
       name: "fx_app_row_rev_scope_clock_fk",
       columns: [table.scopeUuid],
@@ -3439,6 +3451,97 @@ export const fxSystemUniqueConstraintSetBuilds = pgTable(
     ),
     check(
       "fx_system_unique_set_build_time_check",
+      sql`isfinite(${table.createdAt}) and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}`,
+    ),
+  ],
+);
+
+/**
+ * One target-local non-active app-schema validation head per scope.
+ *
+ * The canonical frame is the semantic authority. Scalar columns are bounded
+ * lock/CAS and metadata-first admission evidence only; user documents remain
+ * exclusively in authoritative app-row revision storage.
+ */
+export const fxSystemAppSchemaCandidateValidations = pgTable(
+  "fx_system_app_schema_candidate_validation",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    deploymentId: text("deployment_id").notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    schemaManifestSha256: bytea("schema_manifest_sha256").notNull(),
+    storageGeneration: text("storage_generation")
+      .$type<FlarexDbV1StorageGeneration>()
+      .notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    }).$type<StorageGenerationFence>().notNull(),
+    epoch: text("epoch").$type<ScopeEpoch>().notNull(),
+    frontierCommitSeq: bigint("frontier_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<AppSchemaCandidateValidationAttemptFenceV1>()
+      .notNull(),
+    frameCodecVersion: integer("frame_codec_version")
+      .$type<AppSchemaCandidateValidationCodecVersionV1>()
+      .notNull(),
+    frameKind: text("frame_kind")
+      .$type<AppSchemaCandidateValidationFrameV1["kind"]>()
+      .notNull(),
+    frameByteLength: bigint("frame_byte_length", { mode: "bigint" })
+      .notNull(),
+    frameSha256: bytea("frame_sha256").notNull(),
+    frameBytes: bytea("frame_bytes").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_app_schema_candidate_validation_pk",
+      columns: [table.scopeId],
+    }),
+    foreignKey({
+      name: "fx_system_app_schema_candidate_validation_scope_fk",
+      columns: [table.scopeId],
+      foreignColumns: [fxSystemScopeClocks.scopeId],
+    }).onDelete("restrict"),
+    check(
+      "fx_system_app_schema_candidate_validation_identity_check",
+      sql`${nonBlankText(table.scopeId)}
+        and ${nonBlankText(table.deploymentId)}
+        and ${nonBlankText(table.schemaVersionId)}
+        and octet_length(${table.schemaManifestSha256}) = 32`,
+    ),
+    check(
+      "fx_system_app_schema_candidate_validation_clock_check",
+      sql`${table.storageGeneration} = 'flarexdb_v1'
+        and ${table.storageGenerationFence} >= 1
+        and ${nonBlankText(table.epoch)}
+        and ${table.frontierCommitSeq} >= 0
+        and ${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_app_schema_candidate_validation_frame_check",
+      sql`${table.frameCodecVersion} = 1
+        and ${table.frameKind} in (
+          'app_schema_candidate_validation_progress',
+          'app_schema_candidate_validation_failure_evidence',
+          'app_schema_candidate_validation_receipt'
+        )
+        and ${table.frameByteLength} between 1 and ${sql.raw(String(MAX_APP_SCHEMA_CANDIDATE_VALIDATION_CANONICAL_FRAME_BYTES_V1))}
+        and octet_length(${table.frameBytes}) = ${table.frameByteLength}
+        and octet_length(${table.frameSha256}) = 32`,
+    ),
+    check(
+      "fx_system_app_schema_candidate_validation_time_check",
       sql`isfinite(${table.createdAt}) and isfinite(${table.updatedAt})
         and ${table.updatedAt} >= ${table.createdAt}`,
     ),
@@ -7342,6 +7445,7 @@ export const flarexSchema = {
   fxSystemDurableTaskRunRequestsV1,
   fxSystemDurableTaskRunsV1,
   fxSystemIndexBuildStates,
+  fxSystemAppSchemaCandidateValidations,
   fxSystemUniqueConstraintSetBuilds,
   fxSystemExternalEffectAttemptsV1,
   fxSystemSnapshotLeases,

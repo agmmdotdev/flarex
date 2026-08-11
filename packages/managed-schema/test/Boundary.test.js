@@ -28,6 +28,7 @@ describe("managed schema package boundary", () => {
       ...validManifest(),
       exports: {
         ".": "./src/index.ts",
+        "./candidate-document": "./src/CandidateDocument.ts",
         "./compatibility": "./src/Compatibility.ts",
       },
       dependencies: {
@@ -43,7 +44,7 @@ describe("managed schema package boundary", () => {
       `,
     }]);
     expect(report.errors).toEqual([
-      "Managed schema package exports must be exactly: ./compatibility, ./planning.",
+      "Managed schema package exports must be exactly: ./candidate-document, ./compatibility, ./planning.",
       "Managed schema package exports entry ./planning must be ./src/Planning.ts.",
       "Managed schema package runtime dependencies must be exactly: @flarex/utils, effect, flarex-protocol.",
       "Managed schema package runtime dependencies entry @flarex/utils must be workspace:*.",
@@ -137,6 +138,7 @@ function validManifest() {
   return {
     name: "@flarex/managed-schema",
     exports: {
+      "./candidate-document": "./src/CandidateDocument.ts",
       "./compatibility": "./src/Compatibility.ts",
       "./planning": "./src/Planning.ts",
     },

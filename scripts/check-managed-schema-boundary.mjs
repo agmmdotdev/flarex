@@ -11,14 +11,19 @@ const sourceRoot = path.join(packageRoot, "src");
 const normalizedSourceRoot = "packages/managed-schema/src";
 const supportedExtensions = new Set([".ts", ".tsx", ".mts", ".cts"]);
 const typeOnlyProtocolImports = new Set([
+  "flarex-protocol/catalog",
   "flarex-protocol/schema-manifest",
   "flarex-protocol/storage-authority",
+  "flarex-protocol/value",
   "flarex-protocol/validator-json",
 ]);
 const allowedValueImports = new Set([
   "@flarex/utils/bytes",
   "effect",
+  "flarex-protocol/app-document-id",
+  "flarex-protocol/internal/app-schema-candidate-validation-v1",
   "flarex-protocol/json",
+  "flarex-protocol/validator-engine",
 ]);
 const allowedImports = new Set([
   ...typeOnlyProtocolImports,
@@ -75,7 +80,9 @@ if (isCliEntrypoint()) {
     process.exitCode = 1;
   } else {
     console.log("Managed schema package boundary check passed.");
-    console.log("Allowed package exports: ./compatibility, ./planning");
+    console.log(
+      "Allowed package exports: ./candidate-document, ./compatibility, ./planning",
+    );
     console.log("Allowed production dependencies: @flarex/utils, effect, flarex-protocol");
   }
 }
@@ -97,6 +104,7 @@ export function analyzeManagedSchemaBoundary(manifest, sources) {
   collectExactRecordErrors(
     manifest.exports,
     {
+      "./candidate-document": "./src/CandidateDocument.ts",
       "./compatibility": "./src/Compatibility.ts",
       "./planning": "./src/Planning.ts",
     },

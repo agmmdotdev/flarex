@@ -82,6 +82,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.invoke"), 1],
   [siteKey("packages/flarex-protocol/src/auth.ts", "decodeAuthConfigPromise"), 1],
   [siteKey("packages/persistence-postgres/src/appSchemaPublication.ts", "runPreparedAppSchemaPublicationTransactionEffect"), 1],
+  [siteKey("packages/persistence-postgres/src/appSchemaCandidateValidation.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/appTableDefinitionsArtifacts.ts", "runPreparedAppTableDefinitionsArtifactTransactionEffect"), 1],
   [siteKey("packages/persistence-postgres/src/applicationRevisionRegistrationV1.ts", "runRegistrationTransactionAttempt"), 1],
   [siteKey("packages/persistence-postgres/src/indexBuildReconciliation.ts", "startLocatedEffectTransaction"), 1],

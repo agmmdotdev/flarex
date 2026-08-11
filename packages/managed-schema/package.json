@@ -6,6 +6,7 @@
     "src"
   ],
   "exports": {
+    "./candidate-document": "./src/CandidateDocument.ts",
     "./compatibility": "./src/Compatibility.ts",
     "./planning": "./src/Planning.ts"
   },

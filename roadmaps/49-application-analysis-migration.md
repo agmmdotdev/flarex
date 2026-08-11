@@ -626,6 +626,15 @@ feed, outbox, route, binding, or deployment behavior.
 
 #### AA-R5 implementation checkpoint — 2026-08-11
 
+**Migration-portability correction complete.** A genuine-PostgreSQL M03-A
+upgrade probe against the repository-standard isolated non-public `search_path`
+found hard-coded `public` parent references in migrations `0054` through
+`0056`. Their bounded unshipped-history repair is committed: the seven foreign
+keys retain their exact names, column tuples, actions, and ordering while parent
+lookup is now search-path-relative. Fresh and upgrade migration lanes can
+therefore create the same schema outside `public`; the new M03-A migration also
+uses an unqualified parent reference.
+
 **Completed by `d119d756`.** Migration `0054_material_la_nuit` adds exactly the
 three accepted Application Analysis tables on committed head
 `0053_sleepy_morgan_stark`. Its generated snapshot points to the exact `0053`

@@ -1,14 +1,13 @@
 # Managed Schema Deployment And Migrationless DX
 
 Status: Accepted deferred foundation contract with `M01-A`, `M01-B`, and
-`M02` complete. The private, storage-free `@flarex/managed-schema`
-compatibility and read-only planning foundations plus the protocol-owned
-canonical candidate-validation frames now exist. No validation persistence,
-DDL, repository, scanner, commit hook, readiness, activation, CLI, backfill
-runner, or destructive cleanup is implemented or authorized by those
-completions. `M03-A` is next; the later
-`M03-A` through `M03-C` slices separately introduce target-local validation
-state, point-commit integration, and readiness and activation consumption.
+`M03-A` complete. The private managed-schema compatibility, read-only planning,
+candidate-document policy, canonical validation frames, guarded target-local
+single candidate head, and bounded exact-frontier scanner now exist. M03-A is
+production-inert: it adds no point-commit hook, readiness or activation
+consumer, CLI, backfill runner, destructive cleanup, route, or trigger. `M03-B`
+is next and separately integrates one authenticated candidate-validation facet
+into the existing point-commit transaction.
 
 ## Decision
 
@@ -151,6 +150,34 @@ candidate artifact. It cannot reinterpret a different-ID remove/add or an
 index move across tables. The plan is not a persisted validation frame,
 readiness receipt, apply token, or activation capability.
 
+`M03-A` adds the package's private `./candidate-document` policy and one
+target-local persistence owner. PostgreSQL stores only the one canonical
+progress, bounded body-free failure, or final receipt frame plus scalar
+identity/lock commitments; authoritative app-document bodies remain in app-row
+revision storage. Installation locks the scope clock before the one per-scope
+head, authenticates the immutable candidate artifact outside the target write
+transaction, and pins the current commit frontier. A different schema replaces
+the head with a monotonically increasing attempt fence; exact replay is
+idempotent for progress, receipt, and an unchanged-frontier failure. A matching
+failure restarts only after the scope clock advances to a possible remediation
+frontier. The scanner walks the current identity directory in stable
+`(table_id,row_id)` pages and authenticates each identity's unique first
+revision before materializing and validating the latest authoritative revision
+at or before the pinned frontier. A missing or duplicate history root fails
+closed. Metadata pages, live-row chunks, semantic bytes, elapsed slice time,
+and failure evidence are bounded. Post-frontier identities never enter
+validation, although they can consume bounded directory pages. Progress is
+predecessor-linked; exact-frontier exhaustion is recorded with a terminal
+cursor so later inserts cannot change the completed scan. Settlement
+reacquires the scope clock and rechecks every
+identity/authority pin, and interruption, confirmed rollback, uncertainty,
+supersession, and corruption remain fail-closed. Migration `0057` adds only this
+head plus a unique partial first-identity invariant over existing app-row
+history. Its ordinary index build is bounded by migration-local lock and statement timeouts while
+the `flarexdb_v1` application runtime remains production-inert; populated
+history preservation and duplicate-root rollback are proved separately. The
+migration remains portable to a selected non-public PostgreSQL `search_path`.
+
 The package is organized by domain rather than adapter:
 
 - pure compatibility and validator-subsumption policy;
@@ -218,7 +245,7 @@ absent
 
 validating | validated
   -> failed(bounded incompatibility evidence)
-  -> superseded
+  -> superseded, or failed -> restarted at a newer remediation frontier
 ```
 
 The exact persisted contract and DDL remain an implementation preflight, but
@@ -227,9 +254,12 @@ the following transaction semantics are fixed:
 1. Installing a validation head locks the scope clock, authenticates the exact
    immutable candidate schema artifact, records the current commit frontier,
    and makes all later material commits observe that head.
-2. A bounded scanner validates every live row at that exact frontier in stable
-   `(table_id, row_id)` order. It reads authoritative row revisions rather than
-   treating mutable current pointers as a historical snapshot.
+2. A bounded scanner walks the current identity directory in stable
+   `(table_id, row_id)` order, authenticates one unique history root for every
+   identity, and validates every live row at that exact frontier. It reads
+   authoritative row revisions rather than treating mutable current pointers
+   as a historical snapshot; post-frontier identities are skipped without
+   contributing validation evidence.
 3. Every later successful point commit continues to validate its final live
    documents against the active schema. In the same existing scope-clock-first
    commit transaction, it also checks the one non-active schema head.
@@ -455,7 +485,7 @@ These are separate later goals, not one giant deployment goal:
 3. `M02` - **complete**: implement read-only planning with explicit rename maps, bounded
    non-sensitive incompatibility evidence, remediation actions, active-schema
    and data-frontier pins, and stale-plan identity.
-4. `M03-A` - add the guarded target-local single non-active schema-validation
+4. `M03-A` - **complete**: add the guarded target-local single non-active schema-validation
    head and bounded exact-frontier scanner. This is one new schema/migration
    owner and requires PGlite plus genuine-PostgreSQL fresh/upgrade/replay/
    refusal/rollback/concurrency evidence.
@@ -480,14 +510,16 @@ The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
 
-`M01-A`, `M01-B`, and `M02` are complete without DDL, row scans, readiness
-changes, or point-commit integration. The next implementation-bearing request
-must preflight and authorize only `M03-A`: the guarded target-local single
-non-active schema-validation head and bounded exact-frontier scanner. That is a
-new schema/migration and repository owner and therefore requires explicit
-PGlite and genuine-PostgreSQL fresh/upgrade/replay/refusal/rollback/concurrency
-evidence. Each later turn stops if it discovers another authority, migration,
-transaction, activation, or production-routing change beyond the named gate.
+`M01-A`, `M01-B`, `M02`, and production-inert `M03-A` are complete. The next
+implementation-bearing request must preflight and authorize only `M03-B`: one
+opaque authenticated candidate-schema write-guard facet inside the existing
+point-commit transaction. It may validate final material live documents and
+atomically fail the one exact candidate head; it may not publish a commit,
+replace active-schema validation, reject an active-valid mutation merely for
+candidate incompatibility, create another transaction owner, or consume the
+receipt for readiness or activation. Each later turn stops if it discovers
+another authority, migration, transaction, activation, or production-routing
+change beyond the named gate.
 
 ## Multi-Revision Cooking Acceptance Matrix
 

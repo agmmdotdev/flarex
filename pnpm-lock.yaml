@@ -701,6 +701,9 @@ importers:
       '@flarex/durable-task':
         specifier: workspace:*
         version: link:../durable-task
+      '@flarex/managed-schema':
+        specifier: workspace:*
+        version: link:../managed-schema
       '@flarex/standard-application-analysis':
         specifier: workspace:*
         version: link:../standard-application-analysis
