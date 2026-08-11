@@ -1505,6 +1505,79 @@ idempotency, action-settlement, or scheduling authority. The next authorized
 medium checkpoint is the final AA-R6 readiness, activation, active-selection,
 capability-composition, and private-consumer migration preflight.
 
+#### AA-R6 final-authority preflight and accepted decomposition — 2026-08-12
+
+The post-host source audit rejects implementing the remaining authority as one
+code checkpoint. Application Revision V2 currently stores no
+`schemaVersionId`, and Application publication stores canonical analyzed schema
+bytes without publishing them through the existing app-schema catalog. The
+physical-index readiness owner is keyed by an immutable app-schema version and
+its bound table/index definitions. Consequently, a readiness implementation
+that checks only `schemaSha256`, trusts a caller-supplied index verdict, or
+declares an empty physical set would not prove that the analyzed schema can run.
+This is a missing authority bridge, not a reason to add another index system.
+
+The remaining AA-R6 slice is therefore decomposed into three medium,
+individually committed checkpoints while preserving one-way migration:
+
+1. **Schema authority and readiness.** Deterministically lower the accepted
+   Application Manifest schema into the existing app-schema publication input,
+   derive its immutable schema-version identity from the canonical Application
+   schema digest, publish or replay it through the existing schema catalog, and
+   verify that the resulting bound table/index identities agree exactly with
+   the analyzed manifest. Add a new Application readiness receipt and tables
+   that correlate Application Revision V2, analysis, whole-bundle publication,
+   the bound app-schema artifact, current scope clock, an explicit Application
+   task catalog, every published function's cold materialization receipt, and
+   the existing physical-index/unique-constraint readiness owner. This
+   checkpoint remains inert and creates no active head.
+2. **Activation and active selection.** Add new Application activation-history
+   and head tables plus a process-local issuer-backed selection. Activation
+   locks the scope clock before the Application head, validates the exact new
+   readiness evidence again inside the transaction, applies an explicit CAS
+   token, and writes no displaced Declarative V2 activation or verdict row. The
+   selection carries only current scope authority, Application manifest and
+   publication identity, bound app-schema identity, and the explicit task
+   catalog authority required by later consumers.
+3. **Capability composition and private consumers.** Compose the selected
+   Application target with the existing query snapshot, mutation journal/OCC,
+   and action callback/outbound owners through their narrow ports and the
+   committed `ApplicationExecutionHost`. Migrate the private Standard
+   invocation and Task System consumers without dual selection or fallback.
+   Old V1 systems become `Legacy...` only within this bounded consumer cut and
+   remain solely where historical evidence still requires their exact
+   contracts.
+
+The schema bridge is deliberately a caller of the existing app-schema
+publication and build owners. It may derive a stable PostgreSQL-safe
+schema-version identifier from the canonical Application schema digest, but it
+may not relabel that digest as a readiness verdict. After publication it must
+compare the resulting manifest's table names, validators, index declarations,
+and bound logical IDs with the analyzed schema before any readiness work. The
+existing catalog remains the sole stable table, index-definition, build-state,
+and unique-constraint authority.
+
+Readiness requires exactly one Application task-catalog row for every revision,
+including an explicitly empty catalog. This closes an ambiguity in the earlier
+wording: absence means incomplete publication, never "no tasks." The readiness
+receipt commits the task-catalog binding digest and the ordered set of function
+target/cold-receipt digests. It stores no module body and does not rerun
+analysis. Cold proof uses the committed Application Runtime materializer over
+authenticated Source Artifact V2 bytes. A changed function catalog, source
+root, runtime-host policy, schema binding, task binding, scope fence, or build
+state must fail closed.
+
+Self-review accepts this decomposition because each checkpoint ends in a
+durable authority boundary and removes a previously hidden assumption. It does
+not authorize a second schema/index planner, mutation of Application Revision
+V2's immutable `inactive` row, old/new dual writes, caller-authored readiness,
+route installation, OCC or commit changes, action lifecycle changes, or task
+run reinterpretation. Stop and record an owner issue if exact schema lowering
+cannot preserve the analyzed table/index identities, if existing readiness
+cannot expose a narrow authenticated snapshot, or if consumer composition
+requires changing an existing journal, commit, callback, outbound, scheduler,
+or run-evidence contract.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
@@ -1572,10 +1645,14 @@ or `AA-R9` cutover.
    `AA-R6`.
 5. **Whole-bundle runtime materialization and new task-binding generation:**
    second slice of `AA-R6`.
-6. **Readiness, activation, active selection, and private consumer migration:**
-   final slice of `AA-R6`.
-7. **Private system proof:** `AA-R7`.
-8. **Removal and guarded retirement migration:** `AA-R8`, then stop.
+6. **Schema authority bridge and Application readiness:** first checkpoint of
+   the final slice of `AA-R6`.
+7. **Application activation and issuer-backed active selection:** second
+   checkpoint of the final slice of `AA-R6`.
+8. **Capability composition and private consumer migration:** third checkpoint
+   of the final slice of `AA-R6`.
+9. **Private system proof:** `AA-R7`.
+10. **Removal and guarded retirement migration:** `AA-R8`, then stop.
 
 Each slice is reviewed against this plan before implementation and again
 against its final diff. Significant code checkpoints require both repository
