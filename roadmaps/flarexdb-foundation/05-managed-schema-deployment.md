@@ -1,13 +1,13 @@
 # Managed Schema Deployment And Migrationless DX
 
 Status: Accepted deferred foundation contract with the first app-document
-schema-evolution preflight complete. No protocol, DDL, repository, commit-hook,
-readiness, activation, CLI, backfill-runner, or destructive-cleanup
-implementation is authorized by this record. The first implementation slice
-still requires explicit approval. `M01-A` is deliberately pure and
-storage-free; the later `M03-A` through `M03-C` slices separately introduce
-target-local validation state, point-commit integration, and readiness and
-activation consumption.
+schema-evolution preflight and private package boundary approved. No protocol,
+DDL, repository, commit-hook, readiness, activation, CLI, backfill-runner, or
+destructive-cleanup implementation is authorized by this record. The first
+implementation slice still requires explicit approval. `M01-A` is deliberately
+pure and storage-free; the later `M03-A` through `M03-C` slices separately
+introduce target-local validation state, point-commit integration, and
+readiness and activation consumption.
 
 ## Decision
 
@@ -91,6 +91,77 @@ Therefore the next cooking tests cannot honestly activate a narrowed or
 required-field schema merely by registering a second revision. A test-owned
 scan, direct readiness row, seeded activation, or second validator would create
 false authority and is forbidden.
+
+## Approved Code And Package Ownership
+
+Managed schema evolution is a separate private domain capability, not another
+block of policy inside persistence, point commit, readiness, generated Worker
+source, or the system-test package. Its accepted package owner is
+`@flarex/managed-schema`.
+
+The dependency and authority boundary is:
+
+| Owner | Responsibility | Must not own |
+| --- | --- | --- |
+| `flarex-protocol` | Existing immutable schema-manifest types plus any canonical persisted validation frame/receipt codecs and budgets | Diff orchestration, PostgreSQL, scanning, readiness, or activation |
+| `@flarex/managed-schema` | Pure conservative compatibility classification, candidate-document policy, lifecycle transitions, planning policy, Effect service contracts, and live/test Layer interfaces | SQL, migrations, scope-clock implementation, point-commit publication, active pointers, or test-only authority |
+| `@flarex/persistence-postgres` | Guarded DDL/migrations, fixed-frontier repository and scanner, transaction/lock mechanics, durable progress/receipts, and exact authenticated adapter facets | Independent compatibility semantics, a second commit owner, or activation |
+| `@flarex/standard-application-registration` | Private composition root that installs the managed-schema service with exact schema, persistence, commit, readiness, and authority dependencies | Reimplementing validation or exposing raw repository mutation as a developer API |
+| `@flarex/system-test` | Production-compatible scenario configuration and assertions through the live composed service | Candidate-table mutation, synthetic validation receipts, direct activation, or a fake commit path |
+
+`@flarex/managed-schema` depends inward on `flarex-protocol`, Effect, and only
+approved domain-neutral utilities. It must not depend on persistence,
+invocation, registration, or system-test packages. A machine-enforced package
+boundary check will reject those reverse dependencies. The package uses plain
+unversioned names for the accepted implementation; only canonical persisted or
+wire contracts receive compatibility versions.
+
+The package is organized by domain rather than adapter:
+
+- pure compatibility and validator-subsumption policy;
+- pure candidate-document validation and bounded diagnostic projection;
+- pure candidate lifecycle transitions and settlement rules;
+- a `ManagedSchemaService` contract for planning, starting, advancing,
+  inspecting, superseding, and settling validation; and
+- a deterministic in-memory test Layer for service contract and state-machine
+  tests. That Layer is test infrastructure, not authority used by end-to-end
+  simulations.
+
+Two narrow authenticated integrations connect the domain to current core
+owners:
+
+1. Point commit receives one opaque candidate-schema write-guard facet. After
+   it has derived final material rows and before publication, it invokes the
+   guard inside the existing transaction. The guard may leave the candidate
+   unchanged or atomically fail it; it cannot publish a commit, replace active
+   validation, or reject an active-valid write merely because the candidate is
+   incompatible. Storage, corruption, or composition uncertainty still fails
+   the whole transaction closed.
+2. Readiness receives one opaque validation-evidence facet. It loads and
+   authenticates the exact settled receipt and contributes its commitment to
+   the existing readiness root. Readiness does not scan rows, advance cursors,
+   classify validators, or mutate candidate state.
+
+The facets must be constructed from one captured control database, target
+locator/resolver, and trusted scope authority, following the existing exact-
+composition pattern. Structural copies, accessors that swap dependencies, and
+cross-control or cross-target composition fail closed. No schema-evolution
+logic or manifest body is generated into the user-function Worker runtime.
+
+This separation permits four fast test layers before the cooking scenario:
+
+1. table-driven and bounded generated tests for pure compatibility policy,
+   including the invariant that every classification of
+   `universallyCompatible` admits no generated old-valid/new-invalid witness;
+2. pure lifecycle/model tests for replay, supersession, failure, interruption,
+   uncertainty, and settlement;
+3. golden protocol vectors for persisted frames, canonical bytes, digests,
+   budgets, and corruption rejection; and
+4. one repository contract suite run against PGlite and genuine PostgreSQL,
+   followed by focused point-commit and readiness integration suites.
+
+Only after those layers pass does `@flarex/system-test` exercise the same live
+composition end to end.
 
 ## Accepted First App-Document Concurrency Model
 
@@ -335,10 +406,12 @@ deployments.
 
 These are separate later goals, not one giant deployment goal:
 
-1. `M01-A` - freeze a pure conservative app-document schema diff and
-   compatibility-classification contract over two authenticated immutable
-   schema artifacts. It creates no storage and cannot declare an unknown
-   validator transformation universally compatible.
+1. `M01-A` - create the private `@flarex/managed-schema` domain package,
+   machine-enforce its inward-only dependency boundary, and freeze a pure
+   conservative app-document schema diff and compatibility-classification
+   contract over two authenticated immutable schema artifacts. Include direct
+   table-driven and bounded generated safety tests. It creates no storage and
+   cannot declare an unknown validator transformation universally compatible.
 2. `M01-B` - freeze the candidate row-validation progress, failure evidence,
    and final receipt contracts plus count/byte/page/time ceilings. Settle exact
    corruption, supersession, interruption, rollback, and uncertainty errors
@@ -371,7 +444,8 @@ The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
 
-The first implementation-bearing request should authorize only `M01-A`. It
+The first implementation-bearing request should authorize only `M01-A`, whose
+package extraction and dependency boundary are approved by this record. It
 must not opportunistically add DDL, scan rows, alter readiness, or touch point
 commit. Each later turn stops if it discovers another authority, migration,
 transaction, activation, or production-routing change beyond the named gate.

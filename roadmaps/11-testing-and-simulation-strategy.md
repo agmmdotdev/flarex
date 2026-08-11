@@ -487,7 +487,8 @@ Named Flarex differences are:
   it, and moves all three index sidecars to the deletion revision in PGlite and
   genuine PostgreSQL. This remains one active relation-free revision and does
   not yet authorize multi-revision schema compatibility or managed deployment.
-- `SAC01-F2l` has a completed preflight but no implementation authority. After
+- `SAC01-F2l` has a completed preflight and approved separate private
+  `@flarex/managed-schema` ownership boundary but no implementation yet. After
   managed-schema gates `M01-A` through `M03-C` exist, a separate cooking
   scenario must prove populated-field removal refusal and remediation,
   required-field expand/backfill/contract, validator tightening, concurrent
@@ -495,7 +496,9 @@ Named Flarex differences are:
   and stale-attempt retry through the real analysis, runtime, journal/OCC,
   commit, storage, and inspection owners. The system-test package must not
   supply its own schema scanner, readiness receipt, activation pointer, or
-  commit path to make those cases pass.
+  commit path to make those cases pass. Pure policy/model tests, golden
+  protocol vectors, and one PGlite/PostgreSQL repository contract suite precede
+  that end-to-end scenario.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate

@@ -793,8 +793,16 @@ new validation against current data rather than a pointer reversal. The
 detailed bounded lifecycle and implementation gates live in
 `roadmaps/flarexdb-foundation/05-managed-schema-deployment.md`.
 
-There is one
-authoritative active schema pointer per scope;
+The accepted implementation owner for compatibility, candidate-document
+policy, lifecycle transitions, and service contracts is the separate private
+`@flarex/managed-schema` domain package. It has no PostgreSQL, Worker-runtime,
+point-commit, readiness, activation, or system-test authority. Persistence
+implements its repository and opaque transaction/evidence facets; the existing
+point-commit and readiness owners consume only those narrow authenticated
+facets. System simulations use the live composition and cannot mint schema-
+validation state or receipts.
+
+There is one authoritative active schema pointer per scope;
 deployment metadata may reference it, but must not create a second authority.
 
 S05-B freezes Flarex Value Codec V1 before `jsonb` is used as a complete Flarex
