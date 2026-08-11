@@ -30,6 +30,7 @@ import {
   RUN_LOCATED_READ_COMMITTED_V1,
 } from "./transactionSessionAttemptKernel";
 import {
+  configureTaskRepairPostgresTransactionDeadlinesV1,
   createTaskRepairPostgresDeadlinePolicyV1,
   type TaskRepairPostgresDeadlinePolicyInputV1,
   type TaskRepairPostgresDeadlinePolicyV1,
@@ -415,7 +416,7 @@ function makeDiscoveryOperation<Operation extends TaskComputeDeliveryOperation>(
       operation,
       runLocatedTransaction,
       async (tx) => {
-        await configureTaskComputeDeliveryDiscoveryDeadlines(
+        await configureTaskRepairPostgresTransactionDeadlinesV1(
           tx,
           deadlinePolicy,
         );
@@ -589,30 +590,6 @@ function captureDiscoveryInput<Operation extends TaskComputeDeliveryOperation>(
       );
     }),
   );
-}
-
-async function configureTaskComputeDeliveryDiscoveryDeadlines(
-  tx: AppRowTransaction,
-  policy: TaskRepairPostgresDeadlinePolicyV1,
-): Promise<void> {
-  await tx.execute(sql`
-    select
-      set_config(
-        'lock_timeout',
-        ${`${policy.lockTimeoutMilliseconds}ms`},
-        true
-      ),
-      set_config(
-        'statement_timeout',
-        ${`${policy.statementTimeoutMilliseconds}ms`},
-        true
-      ),
-      set_config(
-        'transaction_timeout',
-        ${`${policy.transactionTimeoutMilliseconds}ms`},
-        true
-      )
-  `);
 }
 
 export function buildTaskComputeDispatchDiscoveryStatement(

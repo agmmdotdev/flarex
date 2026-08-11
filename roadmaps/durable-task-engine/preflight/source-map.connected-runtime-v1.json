@@ -2,7 +2,8 @@
   "schemaVersion": 1,
   "upstreamCommit": "f10bc23785e569e5d917318cf2033aabdbe96a0b",
   "capability": "connected-runtime-v1",
-  "decisionStatus": "candidate-awaiting-user-approval",
+  "decisionStatus": "approved",
+  "approvedAt": "2026-08-11",
   "sourceVerification": "third_party/trigger.dev/SOURCE_SHA256SUMS",
   "licensePolicy": {
     "repositoryDefault": "Apache-2.0",
@@ -39,7 +40,8 @@
       "targetOwners": [
         "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts",
         "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts",
-        "packages/flarex-backend/src/taskComputeDelivery/Runner.ts (planned)"
+        "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts",
+        "packages/flarex-backend/src/taskComputeDelivery/ConnectedRunner.ts"
       ],
       "reuseClass": "T",
       "retainedControlFlow": [
@@ -77,7 +79,8 @@
         "Supervisor.createWorkload"
       ],
       "targetOwners": [
-        "packages/flarex-backend/src/taskComputeDelivery/Runner.ts (planned)",
+        "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts",
+        "packages/flarex-backend/src/taskComputeDelivery/ConnectedRunner.ts",
         "packages/flarex-backend/src/artifactRuntime/DurableTaskComputeProvider.ts (planned)"
       ],
       "reuseClass": "T",
@@ -113,8 +116,8 @@
         "WarmStartVerificationService.verify"
       ],
       "targetOwners": [
-        "packages/flarex-backend/src/taskComputeDelivery/DispatchRecoveryDecision.ts (planned)",
-        "packages/flarex-backend/src/taskComputeDelivery/Runner.ts (planned)"
+        "packages/flarex-backend/src/taskComputeDelivery/DispatchRecoveryDecision.ts",
+        "packages/flarex-backend/src/taskComputeDelivery/ConnectedRunner.ts (planned private ABI)"
       ],
       "reuseClass": "S",
       "retainedControlFlow": [

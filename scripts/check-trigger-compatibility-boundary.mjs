@@ -14,6 +14,11 @@ const standardApplicationDefinitionManifestPath =
   "packages/standard-application-definition/package.json";
 const persistencePostgresManifestPath =
   "packages/persistence-postgres/package.json";
+const flarexBackendManifestPath = "packages/flarex-backend/package.json";
+const flarexBackendTaskComputeDeliveryCandidateRunnerPath =
+  "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts";
+const flarexBackendTaskComputeDeliverySourcePrefix =
+  "packages/flarex-backend/src/taskComputeDelivery/";
 const persistencePostgresSchemaPath =
   "packages/persistence-postgres/src/schema.ts";
 const persistencePostgresTaskRunAttemptStorePath =
@@ -34,6 +39,18 @@ const persistencePostgresTaskComputeDeliveryRepositoryPath =
   "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts";
 const persistencePostgresTaskComputeDeliveryDiscoveryPath =
   "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts";
+const persistencePostgresTaskComputeDeliveryControlDirectoryPath =
+  "packages/persistence-postgres/src/taskComputeDeliveryControlDirectory.ts";
+const persistencePostgresTaskComputeDeliveryControlDirectoryTargetPath =
+  "packages/persistence-postgres/src/taskComputeDeliveryControlDirectoryTarget.ts";
+const persistencePostgresTaskComputeDeliveryControlDirectoryTargetSystemTestPath =
+  "packages/persistence-postgres/src/taskComputeDeliveryControlDirectoryTargetSystemTest.ts";
+const persistencePostgresPostgresTaskComputeDeliveryControlDirectoryPath =
+  "packages/persistence-postgres/src/postgresTaskComputeDeliveryControlDirectory.ts";
+const persistencePostgresPGlitePath =
+  "packages/persistence-postgres/src/pglite.ts";
+const flarexBackendTaskComputeDeliveryTrustedDirectoryPath =
+  "packages/flarex-backend/src/taskComputeDelivery/TrustedDirectory.ts";
 const persistencePostgresTaskWakeSchedulerPartitionPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
 const persistencePostgresTaskWakeSchedulerDirectoryPath =
@@ -163,6 +180,17 @@ const admittedPersistenceTaskComputeDeliveryDiscoverySymbols = new Set([
   "TaskRunIdV1",
   "decodeTaskRequestedEffectSequenceV1",
 ]);
+const admittedFlarexBackendTaskComputeDeliveryCandidateRunnerSymbols =
+  new Set([
+    "TaskComputeCancellationErrorV1",
+    "TaskComputeCancellationRejectedError",
+    "TaskComputeCancellationStaleError",
+    "TaskComputeCancellationTransportError",
+    "TaskComputeDispatchErrorV1",
+    "TaskComputeDispatchRejectedError",
+    "TaskComputeDispatchTransportError",
+    "TaskComputeProvider",
+  ]);
 const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "InvalidRunAttemptTransitionError",
   "PersistedTaskRequestedEffectV1",
@@ -547,6 +575,39 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
           node.getStart(sourceFile),
         ).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate the Task Queue wake adapter before Worker admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isTaskComputeDeliveryControlDirectorySpecifier(
+          specifier,
+          relativePath,
+        )
+        && !isAdmittedTaskComputeDeliveryControlDirectoryConsumer(
+          relativePath,
+          specifier,
+        )
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task compute-delivery control directory before host admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isFlarexBackendTaskComputeDeliverySpecifier(
+          specifier,
+          relativePath,
+        )
+        && !relativePath.startsWith(
+          flarexBackendTaskComputeDeliverySourcePrefix,
+        )
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the connected Task compute-delivery runtime before host admission.`);
       }
       if (
         specifier !== undefined
@@ -1024,15 +1085,86 @@ function isTaskRepairSchedulerRunSpecifier(specifier, relativePath) {
     || resolved === `${targetWithoutExtension}.js`;
 }
 
+/** @param {string} specifier @param {string} relativePath */
+function isFlarexBackendTaskComputeDeliverySpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return normalized === "flarex-backend/internal/task-compute-delivery"
+    || resolved.startsWith(flarexBackendTaskComputeDeliverySourcePrefix);
+}
+
+/** @param {string} specifier @param {string} relativePath */
+function isTaskComputeDeliveryControlDirectorySpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const targets = [
+    persistencePostgresTaskComputeDeliveryControlDirectoryPath,
+    persistencePostgresTaskComputeDeliveryControlDirectoryTargetPath,
+    persistencePostgresTaskComputeDeliveryControlDirectoryTargetSystemTestPath,
+    persistencePostgresPostgresTaskComputeDeliveryControlDirectoryPath,
+  ];
+  return normalized ===
+      "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory"
+    || normalized ===
+      "@flarex/persistence-postgres/internal/system-test/task-compute-delivery-control-directory"
+    || normalized ===
+      "@flarex/persistence-postgres/internal/system-test/postgres-task-compute-delivery-control-directory"
+    || targets.some((target) => {
+      const withoutExtension = target.slice(0, -3);
+      return resolved === target
+        || resolved === withoutExtension
+        || resolved === `${withoutExtension}.js`;
+    });
+}
+
+/** @param {string} relativePath @param {string} specifier */
+function isAdmittedTaskComputeDeliveryControlDirectoryConsumer(
+  relativePath,
+  specifier,
+) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  if (relativePath === flarexBackendTaskComputeDeliveryTrustedDirectoryPath) {
+    return normalized ===
+        "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory"
+      || matchesRepositoryModule(
+        resolved,
+        persistencePostgresTaskComputeDeliveryControlDirectoryPath,
+      );
+  }
+  if (
+    relativePath === persistencePostgresTaskComputeDeliveryControlDirectoryPath
+    || relativePath ===
+      persistencePostgresPostgresTaskComputeDeliveryControlDirectoryPath
+    || relativePath === persistencePostgresPGlitePath
+    || relativePath ===
+      persistencePostgresTaskComputeDeliveryControlDirectoryTargetSystemTestPath
+  ) {
+    return matchesRepositoryModule(
+      resolved,
+      persistencePostgresTaskComputeDeliveryControlDirectoryTargetPath,
+    );
+  }
+  return false;
+}
+
+/** @param {string} resolved @param {string} target */
+function matchesRepositoryModule(resolved, target) {
+  const withoutExtension = target.slice(0, -3);
+  return resolved === target
+    || resolved === withoutExtension
+    || resolved === `${withoutExtension}.js`;
+}
+
 /** @param {string} specifier */
 function isDurableTaskPackageSpecifier(specifier) {
   return specifier === expectedTargetPackage || specifier.startsWith(`${expectedTargetPackage}/`);
 }
 
 /**
- * DTE04-A2b through DTE04-B admit only the two exact workspace consumers.
- * These are definition/schema/private-adapter ownership edges, not host
- * activation.
+ * DTE04-A2b through DTE04-B and the production-inert DTE06-C3 checkpoint admit
+ * only the exact workspace consumers below. These are
+ * definition/schema/private-adapter ownership edges, not host activation.
  *
  * @param {string} relativePath
  * @param {string} name
@@ -1046,6 +1178,7 @@ function isAdmittedDurableTaskConsumerDependency(
   return (
     relativePath === standardApplicationDefinitionManifestPath
     || relativePath === persistencePostgresManifestPath
+    || relativePath === flarexBackendManifestPath
   )
     && name === expectedTargetPackage
     && value === "workspace:*";
@@ -1061,7 +1194,50 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
     relativePath,
     specifier,
     node,
-  ) || isAdmittedPersistenceTaskImport(relativePath, specifier, node);
+  ) || isAdmittedPersistenceTaskImport(relativePath, specifier, node)
+    || isAdmittedFlarexBackendTaskComputeDeliveryImport(
+      relativePath,
+      specifier,
+      node,
+    );
+}
+
+/**
+ * DTE06-C3 admits only the private connected candidate runner as a host-neutral
+ * consumer of the provider contract. It does not admit Worker, route, Queue,
+ * cron, or public backend activation.
+ *
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function isAdmittedFlarexBackendTaskComputeDeliveryImport(
+  relativePath,
+  specifier,
+  node,
+) {
+  if (
+    relativePath !== flarexBackendTaskComputeDeliveryCandidateRunnerPath
+    || specifier !== "@flarex/durable-task/internal/compute-provider-v1"
+    || !ts.isImportDeclaration(node)
+  ) {
+    return false;
+  }
+  const clause = node.importClause;
+  if (
+    clause === undefined || clause.name !== undefined
+    || clause.namedBindings === undefined
+    || !ts.isNamedImports(clause.namedBindings)
+    || clause.namedBindings.elements.length === 0
+  ) {
+    return false;
+  }
+  return clause.namedBindings.elements.every((element) => {
+    const importedName = element.propertyName?.text ?? element.name.text;
+    return admittedFlarexBackendTaskComputeDeliveryCandidateRunnerSymbols.has(
+      importedName,
+    );
+  });
 }
 
 /**

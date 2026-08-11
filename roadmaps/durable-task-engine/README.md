@@ -73,14 +73,24 @@ behavior. Its accepted pending-membership amendment now atomically projects
 compute requested effects, consumes membership with C2 checkpoint creation,
 backfills legacy unmaterialized effects, and proves bounded discovery over
 large checkpointed history with `EXPLAIN ANALYZE (BUFFERS)`. Provider
-composition and the connected runner remain absent. Before the previously
-planned backend trusted directory may continue, the mandatory connected-runtime
-reuse audit in
+composition now exists through the private single-candidate operation and
+deterministic bounded multi-scope runner core. Its private deadline-owned
+control-directory adapter now proves stable PGlite pagination and genuine-
+PostgreSQL server timeout, settled rollback, and safe pool reuse; no connected
+repository/discovery/provider proof or host exists. The mandatory connected-
+runtime reuse audit in
 [`preflight/37-dte06-connected-runtime-reuse-audit.md`](./preflight/37-dte06-connected-runtime-reuse-audit.md)
-now maps the exact Trigger dispatch, supervision, heartbeat, cancellation,
-settlement, and recovery sources and recommends one connected vertical. Its
-candidate admission decision awaits explicit user approval. The full discovery,
-continuation, budget, and original stop boundary are recorded in
+maps the exact Trigger dispatch, supervision, heartbeat, cancellation,
+settlement, and recovery sources and admits one connected vertical. Its first
+approved implementation checkpoint now supplies the trusted directory,
+Trigger-derived recovery decision, and single-candidate provider operations.
+The canonical active-scope continuation is now implemented with strict
+canonical evidence, exact directory/operation correlation, and restart-stable
+per-operation fairness charges. The deterministic bounded runner core is now
+implemented; connected PGlite/PostgreSQL restart and fairness proof remains
+next.
+The full discovery, continuation, budget, and original stop boundary are
+recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
 The exact Worker
 Loader reuse boundary, operation-specific delivery ownership, and
@@ -457,10 +467,12 @@ files remain candidates:
      complete:** the provider contract, in-memory conformance adapter,
      operation-specific delivery evidence and tables, fenced repository, and
      bounded pending discovery are production-inert. The connected runtime
-     reuse audit in Preflight 37 is complete as a candidate decision and awaits
-     explicit approval. The backend trusted directory, connected provider
-     delivery, Worker Loader task adapter, supervision, end-to-end proof, and
-     host remain unwritten;
+     reuse audit in Preflight 37 is approved. The backend trusted directory and
+     single-candidate provider delivery and canonical active-scope continuation
+      and deterministic bounded multi-scope runner core are implemented but
+      unwired. The deadline-owned control-directory prerequisite is complete.
+      Connected repository/discovery/provider proof, the Worker Loader task adapter,
+     supervision, end-to-end proof, and host remain unwritten;
 7. `07-observability-live-apis-and-ui.md`
    - run/attempt read models, traces/logs, cursors, live invalidation, streams,
      authorization, retention, privacy, and dashboard consumption;

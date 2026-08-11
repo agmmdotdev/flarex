@@ -6,9 +6,14 @@
 approved. The first implementation checkpoint is complete: operation-specific
 discovery reads the indexed projection and closes its migration, transaction,
 high-cardinality, PGlite, and ordinary-role PostgreSQL gates. The backend
-trusted directory was the next planned production-inert checkpoint. It is now
-paused behind the mandatory connected-runtime source audit in
+trusted directory and single-candidate provider operations are now complete and
+production-inert after approval of the connected-runtime source audit in
 [`37-dte06-connected-runtime-reuse-audit.md`](./37-dte06-connected-runtime-reuse-audit.md).
+The canonical active-scope continuation is implemented and production-inert.
+The bounded multi-scope runner core is implemented and production-inert. Its
+deadline-owned control-directory prerequisite is now complete in PGlite and
+genuine PostgreSQL. Connected runner restart, two-host, and fairness proof
+against the real C2/C3 owners remains next.
 
 The connected-flow prerequisite is resolved. C2 now captures and correlates a
 provider `TaskComputeCancellationStaleError`, rejects the older checkpoint as
@@ -390,15 +395,43 @@ next scope only after both operation snapshots exhaust or their per-scope visit
 ceilings are charged. A later fresh cycle can revisit still-due work.
 
 Unknown progress is charged conservatively. Once a database page or provider
-operation is admitted, its full configured maximum is reserved. A typed
-failure, timeout, interruption, or missing receipt does not refund that
+operation is admitted, its full configured maximum is reserved. A cooperative
+typed failure or timeout that returns a runner receipt does not refund that
 reservation. Confirmed work counters remain separate from budget charges so
 operational receipts never report worst-case reservations as completed work.
 
+This production-inert checkpoint cannot retain a process-local reservation
+across an external interruption, defect, or lost runner receipt: those paths
+preserve their Cause and return no newer continuation. Activation therefore
+remains gated on a later host-owned atomic durable checkpoint or equivalent
+interruption handoff that stores the admitted continuation before work can be
+lost. C3 must not claim missing-receipt fairness until that owner is present.
+
 The Effect timeout is cooperative orchestration admission, not a claim that an
 uninterruptible driver transaction was stopped. C3 reuses the proven
-PostgreSQL deadline/disposition owner beneath C2 and does not add a second
+PostgreSQL deadline/disposition owner beneath C2 and must not add a second
 timeout authority.
+
+### Resolved prerequisite: control-directory settlement
+
+The trusted directory no longer calls the replacement-scope identity query
+through a bare control-database `execute` Promise. Persistence now adapts that
+existing query behind an opaque control-directory target and the already proven
+read-committed PostgreSQL transaction runner. Its dedicated pool applies the
+shared connection/startup deadline policy, every transaction installs local
+lock, statement, and transaction deadlines, and the runner owns rollback plus
+unsafe-client disposition before it settles.
+
+The directory advertises that owner's settlement reserve; backend composition
+adds the separate candidate-local authority-resolution deadline and one
+millisecond of ordering margin. PGlite proves the reused query, stable
+high-water pagination, exact continuation, and deferred fresh-cycle scope.
+An ordinary-role genuine PostgreSQL 18 lane holds an access-exclusive control-
+table lock and proves server-side `lock_timeout`, settled rollback, zero pool
+waiters, an idle reusable connection, and a successful read after release. This
+closes the control-read ownership blocker without adding a second cooperative
+timeout or changing the replacement-scope query, schema, lifecycle, host,
+route, or activation.
 
 ## Canonical Continuation
 
@@ -410,7 +443,10 @@ The private continuation records:
 - directory position after that active scope;
 - next operation turn;
 - dispatch discovery cursor or exhausted marker; and
-- cancellation discovery cursor or exhausted marker.
+- cancellation discovery cursor or exhausted marker; and
+- separate dispatch and cancellation page charges retained across restart so a
+  restart from the latest returned receipt cannot reset the per-scope fairness
+  ceiling.
 
 Encoding and decoding use one strict canonical codec. An active continuation
 is never trusted as authority: resume freshly resolves the expected candidate
@@ -419,9 +455,21 @@ codec validates outer/inner high-water correlation, operation correlation,
 explicit-null versus legacy-missing semantics if compatibility is admitted,
 and all bounds before returning an owned frozen value.
 
-No continuation is persisted or scheduled in C3. Tests pass encoded evidence
-between separate runner instances to prove restart. A later checkpoint must
-own durable scheduling, fencing, and activation.
+No continuation is persisted or scheduled in C3. The runner checkpoint must
+pass encoded evidence between separate runner instances to prove restart. A
+later checkpoint must own durable scheduling, fencing, and activation.
+
+The continuation-codec checkpoint is complete as of 2026-08-11. It adds one
+strict 16 KiB canonical JSON and SHA-256 evidence boundary, owns and freezes
+decoded continuation data, returns defensive byte snapshots, preserves exact
+encode/decode error channels, safely owns intrinsic byte views, and rejects
+hostile objects, excess properties,
+operation drift, directory/active-scope drift, a trusted cursor with a reset
+charge, noncanonical bytes, digest drift, and out-of-range fairness charges.
+Unknown-progress reservations may retain a nonzero charge without a cursor.
+The bounded runner now consumes and emits this continuation, correlates resumed
+directory and candidate snapshots, and rejects nonadvancing or malformed page
+evidence. Persistence or scheduling of that evidence remains absent.
 
 ## Validation Gates
 
@@ -440,6 +488,8 @@ The C3 implementation must prove:
   conservative unknown-progress accounting;
 - receiver preservation and caller-owned input capture;
 - typed failures, defects, interruption, and settlement behavior;
+- deadline-owned control-directory pagination in PGlite and server-side
+  timeout, transaction settlement, and safe connection reuse in PostgreSQL;
 - durable-task, persistence, and backend focused typechecks/tests;
 - lifecycle, source-map, Effect, and Trigger-compatibility boundary gates; and
 - both required project reviewers against the final significant code diff.
@@ -450,15 +500,26 @@ The C3 implementation must prove:
 2. **Complete:** the pending projection, atomic lifecycle write and C2
    consumption, backfill migration, indexed private discovery SQL, V1
    continuation, and deadline policy pass their focused gates.
-3. **Complete as a candidate decision; approval pending:** Preflight 37 now
-   records the Trigger connected-runtime source map, retained-test inventory,
-   and one-vertical reuse decision.
-4. **Next after explicit approval:** add the backend trusted directory and exact
-   active-scope continuation codec.
-5. Add the Effect service/Layer and single-candidate dispatch/cancellation
-   operations against the existing provider and repository.
-6. Add the bounded connected runner and deterministic restart/fairness suite.
-7. Run final gates, reviewers, update the roadmap receipt, and commit while
+3. **Complete and approved:** Preflight 37 records the Trigger connected-runtime
+   source map, retained-test inventory, and one-vertical reuse decision.
+4. **Complete:** the backend trusted directory freshly resolves the
+   candidate and constructs the existing discovery and repository from the
+   same located target. A per-candidate authority deadline turns a stalled
+   resolver into local failure so the page and later scopes still advance.
+5. **Complete:** the Effect service/Layer and single-candidate
+   dispatch/cancellation operations call the existing provider outside C2
+   transactions, settle only exact known outcomes, and preserve uncertainty,
+   defects, and interruption for expiry replay.
+6. **Complete:** add the canonical active-scope continuation codec with exact
+   directory/operation correlation and persisted per-scope fairness charges.
+7. **Partially complete:** the bounded alternating connected runner now owns
+   exact service/Layer, policy, aggregate receipt, restart, fairness,
+   conservative-charge, timeout, receiver, and hostile-page behavior in
+   deterministic tests. Its deadline-owned control-directory persistence
+   prerequisite is complete. Connect that same runner to the real C2/C3
+   repository and discovery owners in PGlite and genuine PostgreSQL next.
+8. Run the connected persistence gates, final reviewers, update the roadmap
+   receipt, and commit while
    leaving every host and activation path absent.
 
 ## Stop Boundary
@@ -475,5 +536,5 @@ This preflight does not authorize:
 - public SDK, management, observability, log, trace, or output-stream APIs; or
 - DTE06-D/E/F or DTE05-E3 implementation.
 
-It also does not authorize steps 4 through 7 above until Preflight 37 is
-complete and explicitly admits the connected source closure.
+Preflight 37 admits only the recorded sequence. Steps 7 and 8 remain private,
+production-inert checkpoints and do not authorize DTE06-D/E/F or DTE05-E3.

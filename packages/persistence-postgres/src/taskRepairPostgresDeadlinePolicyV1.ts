@@ -1,6 +1,9 @@
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import { sql } from "drizzle-orm";
 import { Data, Result } from "effect";
 import type { PoolConfig } from "pg";
+
+import type { AppRowTransaction } from "./appRows";
 
 export const MAX_TASK_REPAIR_POSTGRES_DEADLINE_MILLISECONDS_V1 =
   2_147_483_647;
@@ -153,6 +156,30 @@ export function applyTaskRepairPostgresDeadlinePolicyV1(
       }));
     }),
   );
+}
+
+export async function configureTaskRepairPostgresTransactionDeadlinesV1(
+  tx: AppRowTransaction,
+  policy: TaskRepairPostgresDeadlinePolicyV1,
+): Promise<void> {
+  await tx.execute(sql`
+    select
+      set_config(
+        'lock_timeout',
+        ${`${policy.lockTimeoutMilliseconds}ms`},
+        true
+      ),
+      set_config(
+        'statement_timeout',
+        ${`${policy.statementTimeoutMilliseconds}ms`},
+        true
+      ),
+      set_config(
+        'transaction_timeout',
+        ${`${policy.transactionTimeoutMilliseconds}ms`},
+        true
+      )
+  `);
 }
 
 function isPostgresDeadlineMilliseconds(value: unknown): value is number {

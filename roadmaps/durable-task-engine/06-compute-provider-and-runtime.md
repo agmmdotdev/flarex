@@ -31,8 +31,13 @@ repository now records the exact provider-stale cancellation-generation
 outcome as terminal non-receipt evidence. C3's private persistence discovery is
 production-inert and accepted: its Task-owned pending projection removes the
 history-linear anti-join and proves bounded operation-specific scans. The
-trusted backend directory and connected runner are now paused until the
-completed Preflight 37 candidate map receives explicit approval.
+trusted backend directory and single-candidate provider runner are now complete
+and production-inert under the approved Preflight 37 map. The canonical
+active-scope continuation and deterministic bounded multi-scope runner core are
+also complete with restart-stable fairness charges. The separately approved
+deadline-owned control-directory adapter now closes its PGlite and genuine-
+PostgreSQL settlement prerequisite. Connected runner restart, two-host, and
+fairness proof against the real C2/C3 owners is next.
 
 Roadmaps 01 through 05 already establish first-class task definitions,
 scope-bound durable run state, fenced attempts, requested effects, Queue wake
@@ -424,6 +429,9 @@ timeout behavior without claiming Task lifecycle acknowledgement.
   a strict V1 continuation, a Task-owned indexed pending projection,
   database-owned deadlines, and PGlite plus genuine-PostgreSQL migration and
   high-cardinality plan proof;
+- the trusted scope directory now reuses its existing replacement-scope query
+  through a private deadline-owned control transaction, with PGlite pagination
+  and genuine-PostgreSQL timeout/settlement proof;
 - freshly correlate scope, effect, run, attempt, fence, lease, cancellation,
   definition, runtime binding, and input reference;
 - prove claim exclusion, expiry takeover, uncertain replay, fairness,
@@ -437,8 +445,10 @@ approved prepared-subject correction carries only the verified immutable
 runtime-binding commitment; DTE06-D later loads the full binding and manifest
 and verifies it before constructing the runtime ABI. C2 is complete and
 production-inert. C3 persistence discovery remains unwired; the backend trusted
-directory, provider composition, and connected runner remain unwritten and are
-paused behind Preflight 37.
+directory, single-candidate provider composition, and canonical active-scope
+continuation and deterministic bounded multi-scope runner core are implemented
+and unwired. Its control-directory settlement prerequisite is complete;
+connected repository/discovery/provider proof remains open.
 The durable-delivery contract is
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
 and the exact C2 implementation boundary is
@@ -446,7 +456,7 @@ and the exact C2 implementation boundary is
 Preflight 36 records the resolved cancellation-generation prerequisite and the
 admitted C3 persistence boundary.
 
-### DTE06-C3 Reuse Hold: Source Audit Complete, Awaiting Approval
+### DTE06-C3 Reuse Hold: Approved, Deterministic Runner Core Complete
 
 Preflight 37 now:
 
@@ -462,13 +472,16 @@ Preflight 37 now:
   Prisma/Redis, host, authority, or runtime incompatibility; and
 - recommends the smallest connected private vertical before any further code.
 
-The candidate map contains no legitimate unchanged transplant: it seam-adapts
+The approved map contains no legitimate unchanged transplant: it seam-adapts
 one portable recovery decision, adapter-translates six connected boundaries,
 rejects three conflicting Trigger host/wire owners, and references the already
-admitted lifecycle core without counting it again. Until the user explicitly
-approves that decision, Preflight 36's backend directory and connected-runner
-sequence remains held. This hold changes no existing code, schema, migration,
-or completed admission receipt.
+admitted lifecycle core without counting it again. The first implementation
+checkpoint now preserves the recovery decision, constructs one trusted located
+directory item, and sequences one dispatch or cancellation through the existing
+provider and C2 settlement APIs. The later continuation and deterministic
+runner checkpoints add bounded alternating orchestration without adding a
+Worker Loader runtime, host, schema, migration, route, binding, or production
+activation.
 
 ### DTE06-D: Worker Loader Task Runtime Adapter — Pending
 
@@ -557,8 +570,13 @@ DTE06-C1 stops at canonical delivery evidence and production-inert Task-owned
 storage. Completed DTE06-C2 adds only the private production-inert repository
 in Preflight 35 after its recorded C1 evidence gap and provider-stale
 cancellation-generation gap were resolved. Preflight 36 admits only its bounded
-C3 persistence discovery checkpoint. Its backend directory and connected
-deterministic-provider runner are paused until Preflight 37 completes and its
-source map is approved. Preflight 37 is docs-only and does not itself authorize
-additional database/application semantics, a real provider, Worker/runtime
-wiring, routes, bindings, deployment, or production activation.
+C3 persistence discovery checkpoint. The approved Preflight 37 map now admits
+and the implementation completes only the trusted backend directory,
+Trigger-derived recovery decision, and single-candidate deterministic-provider
+operations, canonical active-scope continuation, and deterministic bounded
+multi-scope runner core, plus the private deadline-owned control-directory
+adapter. Connected C2/C3 repository/discovery/provider proof remains next. This
+does not authorize additional
+database/application semantics, a real provider, Worker/runtime wiring,
+routes, bindings, deployment, or production
+activation.

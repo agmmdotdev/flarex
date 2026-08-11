@@ -63,6 +63,10 @@ export interface ReplacementScopeDirectoryDiscoveryV1<DeploymentId, Failure> {
   ) => Effect.Effect<ReplacementScopeDirectoryPageV1<DeploymentId>, Failure>;
 }
 
+export type ReplacementScopeDirectoryExecuteV1 = (
+  statement: SQL,
+) => PromiseLike<unknown>;
+
 const ReplacementScopeDirectoryContinuationSchema = Schema.Struct({
   codecVersion: Schema.Literal(1),
   highWaterScopeId: ScopeIdSchema,
@@ -128,6 +132,19 @@ export function createReplacementScopeDirectoryDiscoveryV1<
   db: FlarexMetadataDatabase,
   policy: ReplacementScopeDirectoryPolicyV1<DeploymentId, Failure>,
 ): ReplacementScopeDirectoryDiscoveryV1<DeploymentId, Failure> {
+  return createReplacementScopeDirectoryDiscoveryFromExecuteV1(
+    (statement) => db.execute(statement),
+    policy,
+  );
+}
+
+export function createReplacementScopeDirectoryDiscoveryFromExecuteV1<
+  DeploymentId,
+  Failure,
+>(
+  execute: ReplacementScopeDirectoryExecuteV1,
+  policy: ReplacementScopeDirectoryPolicyV1<DeploymentId, Failure>,
+): ReplacementScopeDirectoryDiscoveryV1<DeploymentId, Failure> {
   const operationName = policy.operationName;
   const inputError = policy.input;
   const corruptionError = policy.corruption;
@@ -154,7 +171,7 @@ export function createReplacementScopeDirectoryDiscoveryV1<
       ...(continuation === undefined ? {} : { continuation }),
     });
     const driverResult = yield* Effect.tryPromise({
-      try: () => db.execute(statement),
+      try: () => execute(statement),
       catch: sqlError,
     });
     const driverRows = yield* Effect.try({

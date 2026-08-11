@@ -6,8 +6,12 @@
 in [`../roadmaps/durable-task-engine/README.md`](../roadmaps/durable-task-engine/README.md).
 The private lifecycle, Task System Postgres, scheduling/repair, provider, and
 compute-delivery persistence foundations are implemented but production-inert.
-The connected runtime is paused pending approval of the completed candidate
-source-reuse audit in
+The connected runtime source-reuse audit is approved. Its private trusted
+directory, single-candidate delivery, canonical active-scope continuation, and
+deterministic bounded multi-scope runner checkpoints are implemented. The
+deadline-owned control-directory persistence prerequisite is complete in
+PGlite and genuine PostgreSQL. Connected repository/discovery/provider proof
+and the runtime vertical remain pending under
 [`../roadmaps/durable-task-engine/preflight/37-dte06-connected-runtime-reuse-audit.md`](../roadmaps/durable-task-engine/preflight/37-dte06-connected-runtime-reuse-audit.md).
 
 This note defines how the pinned Trigger.dev compatibility island may inform a

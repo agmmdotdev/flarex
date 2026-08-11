@@ -1,6 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
+import { Result } from "effect";
 
 import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
 import {
@@ -51,6 +52,7 @@ import {
   createLocatedScopeAuthorizationEpochTarget,
 } from "./scopeAuthorizationEpochAuthority";
 import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
   createLocatedPointMutationSessionActivationTargetV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
 } from "./transactionSessionActivation";
@@ -58,6 +60,14 @@ import {
   createLocatedTaskSystemRunAttemptTargetV1,
   type LocatedTaskSystemRunAttemptTargetV1,
 } from "./taskSystemRunAttemptStoreV1";
+import {
+  createTaskComputeDeliveryControlDirectoryTargetInternal,
+  type TaskComputeDeliveryControlDirectoryConfigurationError,
+  type TaskComputeDeliveryControlDirectoryTarget,
+} from "./taskComputeDeliveryControlDirectoryTarget";
+import {
+  type TaskRepairPostgresDeadlinePolicyInputV1,
+} from "./taskRepairPostgresDeadlinePolicyV1";
 import type { LocatedScopeClockReader } from "./scopeAuthorityResolution";
 import type {
   ScopePhysicalLocator,
@@ -173,6 +183,23 @@ export function createPGliteLocatedTaskSystemRunAttemptTargetV1(
   return createLocatedTaskSystemRunAttemptTargetV1(
     persistence.drizzle,
     physicalLocator,
+  );
+}
+
+export function createPGliteTaskComputeDeliveryControlDirectoryTarget(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  deadlineInput: TaskRepairPostgresDeadlinePolicyInputV1,
+): Result.Result<
+  TaskComputeDeliveryControlDirectoryTarget,
+  TaskComputeDeliveryControlDirectoryConfigurationError<
+    "invalid_deadline_policy"
+  >
+> {
+  return createTaskComputeDeliveryControlDirectoryTargetInternal(
+    createDefaultLocatedReadCommittedTransactionRunnerV1(
+      persistence.drizzle,
+    ),
+    deadlineInput,
   );
 }
 

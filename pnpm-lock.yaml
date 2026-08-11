@@ -490,12 +490,18 @@ importers:
       '@flarex/analysis':
         specifier: workspace:*
         version: link:../analysis
+      '@flarex/durable-task':
+        specifier: workspace:*
+        version: link:../durable-task
       '@flarex/executor-http':
         specifier: workspace:*
         version: link:../executor-http
       '@flarex/function-runtime':
         specifier: workspace:*
         version: link:../function-runtime
+      '@flarex/persistence-postgres':
+        specifier: workspace:*
+        version: link:../persistence-postgres
       '@flarex/utils':
         specifier: workspace:*
         version: link:../utils

@@ -2,15 +2,20 @@
 
 ## Status
 
-**Decision:** source audit complete; candidate **admit** decision awaits explicit
-user approval. Roadmap 06's completed provider, delivery evidence, checkpoint,
-fenced repository, and persistence-discovery work remains admitted and
-production-inert. The backend trusted directory, connected provider runner,
-Worker Loader task adapter, supervision, and private end-to-end proof remain
-paused until that approval.
+**Decision:** **admit approved** on 2026-08-11. Roadmap 06's provider, delivery
+evidence, checkpoint, fenced repository, and persistence discovery remain
+admitted and production-inert. The first approved implementation checkpoint
+composes the backend trusted directory, Trigger-derived recovery decision, and
+single-candidate dispatch/cancellation operation from the existing provider and
+persistence owners. The second completes the canonical active-scope
+continuation. The third completes the deterministic bounded multi-scope runner
+core. All remain private and hostless. Connected persistence proof, the Worker
+Loader task adapter, supervision, and private end-to-end proof remain pending.
 
-This preflight changes no code, schema, migration, package export, route,
-binding, host, or deployment configuration.
+The audit itself changed no code or runtime configuration. Its approved first
+implementation checkpoint adds only private package code and private package
+exports. It changes no schema, migration, route, binding, host, or deployment
+configuration.
 
 ## Why This Gate Exists
 
@@ -120,7 +125,7 @@ PGlite/Postgres transaction tests, Miniflare runtime tests, and the existing
 
 ## Candidate Admission Decision
 
-Recommend **admit** the following connected closure after explicit approval:
+The approved **admit** decision is:
 
 1. seam-adapt `WarmStartVerificationService.verify` into one pure
    `DispatchRecoveryDecision` with the same moved, unchanged, and uncertain
@@ -239,8 +244,8 @@ foundation layer or a duplicated lifecycle/runtime path.
 
 ## Completion Evidence
 
-The source investigation and candidate map now satisfy every evidence item
-below except the final explicit approval. This preflight is complete only when:
+The source investigation, candidate map, and explicit approval satisfy every
+evidence item below:
 
 - the connected upstream dependency and test closure is recorded;
 - every selected unit has an exact reuse class and target owner;
@@ -251,14 +256,56 @@ below except the final explicit approval. This preflight is complete only when:
   demonstrated blocker;
 - provenance and boundary gates are identified; and
 - the user explicitly approves the resulting source map and implementation
-  checkpoint.
+  checkpoint. **Complete 2026-08-11.**
+
+The first connected checkpoint is verified by:
+
+- `pnpm --filter flarex-backend typecheck`;
+- `pnpm --filter @flarex/persistence-postgres typecheck`;
+- `pnpm --filter flarex-backend test:dte06-c3` (three files, 13 tests);
+- the Trigger compatibility boundary test (25 tests) and live checker; and
+- the connected-runtime source-map checker, including pinned upstream hashes,
+  approval, implemented targets, license notices, and backend provenance.
+
+These are focused unit, type, provenance, and package-boundary receipts. They do
+not claim the still-pending connected continuation/restart behavior against
+PGlite or genuine PostgreSQL.
+
+The second backend checkpoint adds the strict canonical active-scope
+continuation. `pnpm --filter flarex-backend typecheck` and
+`pnpm --filter flarex-backend test:dte06-c3` passed five files and 32 tests at
+that checkpoint,
+including operation-exact error typing, hostile/excess input rejection,
+canonical-byte and digest checks, intrinsic/detached byte-view handling, exact
+directory/operation correlation, and
+restart-stable per-operation page charges, including conservative charges when
+an admitted page returns no trusted cursor. This pure-codec receipt does not
+claim runner restart, fairness, or connected database behavior.
+
+The third backend checkpoint implements the private bounded alternating runner
+core and updates the applicable approved source-map targets from planned to
+implemented. Unknown-delivery recovery remains planned until the runner owns
+the mapped verification probe and three-way recovery decision.
+Its deterministic suite proves exact active-scope resume through a fresh Layer,
+later-scope progress, independent dispatch/cancellation turns and ceilings,
+conservative unknown-progress and timeout charges, separate confirmed counters,
+receiver preservation, hostile directory-page failure, fail-closed scope
+re-resolution, strict resumed snapshot/page correlation, deterministic timeout
+settlement, and preservation of external interruption without a receipt. The
+current focused command passes five files and 42 tests. The separately approved
+control-directory persistence correction now reuses the replacement-scope query
+behind an opaque deadline-owned transaction target. Its focused PGlite test
+passes three tests, and its ordinary-role genuine PostgreSQL 18 lane passes two
+tests including server-side lock timeout, settled rollback, pool reuse, and
+post-timeout progress. This still does not close the bounded connected runner
+gate or claim connected PGlite/PostgreSQL restart, two-host exclusion, or
+transaction/provider composition; those are the next C3 gate.
 
 ## Stop Boundary
 
-This docs-only audit does not authorize implementation. Until it is complete:
+The approved source map authorizes only the implementation sequence above. It
+does not authorize work beyond the current Roadmap 06 checkpoint:
 
-- do not add the Roadmap 06 backend trusted directory or connected provider
-  runner;
 - do not add a task Worker Loader route, runtime ABI, supervisor, heartbeat,
   result publisher, or settlement composition;
 - do not change the admitted Task lifecycle, schema, migration, repository, or
@@ -270,9 +317,14 @@ This docs-only audit does not authorize implementation. Until it is complete:
 
 ## Next After This Gate
 
-After approval, resume with the smallest admitted connected slice: the trusted
-backend directory plus one freshly resolved single-candidate provider operation
-using the existing discovery and repository owners. Then adapt the mapped
-Trigger orchestration through Worker Loader execution and fenced settlement
-until the first private end-to-end proof closes. Only blockers discovered by
-that vertical may justify another foundation preflight.
+The trusted backend directory, candidate-local authority timeout, freshly
+resolved single-candidate provider operations, canonical active-scope
+continuation, and deterministic bounded alternating runner core are complete.
+Next, prove runner restart, fairness, two-host exclusion, and conservative
+unknown-progress accounting against the real C2/C3 persistence owners. The
+deadline-owned control-directory prerequisite is complete; the next test must
+compose that owner with the existing C2 repository, C3 operation discovery, and
+deterministic provider. Only after that checkpoint may the mapped Trigger
+orchestration continue through Worker Loader execution and fenced settlement.
+Only blockers discovered by that vertical may justify another foundation
+preflight.

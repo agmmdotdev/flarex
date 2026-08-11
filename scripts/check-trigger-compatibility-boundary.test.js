@@ -324,6 +324,67 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the private backend compute-delivery candidate runner", () => {
+    const runnerPath =
+      "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts";
+    expect(analyzeTriggerCompatibilityBoundary([{
+      relativePath: "packages/flarex-backend/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }], [{
+      relativePath: runnerPath,
+      text: `
+        import {
+          TaskComputeCancellationRejectedError,
+          TaskComputeCancellationStaleError,
+          TaskComputeCancellationTransportError,
+          TaskComputeDispatchRejectedError,
+          TaskComputeDispatchTransportError,
+          TaskComputeProvider,
+          type TaskComputeCancellationErrorV1,
+          type TaskComputeDispatchErrorV1,
+        } from "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: runnerPath,
+      text: `
+        import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
+        import { makeInMemoryTaskComputeProviderV1 } from "@flarex/durable-task/internal/compute-provider-testing-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { TaskComputeProvider } from "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }]).errors).toEqual([
+      `${runnerPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+      `${runnerPath}:3 production source must not activate @flarex/durable-task before host admission.`,
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate @flarex/durable-task before host admission.",
+    ]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/flarex-backend/src/taskComputeDelivery/index.ts",
+      text: `
+        export * from "./CandidateRunner.js";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { TaskComputeDeliveryCandidateRunner } from "flarex-backend/internal/task-compute-delivery";
+        import { TaskComputeDeliveryTrustedDirectory } from "./taskComputeDelivery/index.js";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the connected Task compute-delivery runtime before host admission.",
+      "packages/flarex-backend/src/worker.ts:3 production source must not activate the connected Task compute-delivery runtime before host admission.",
+    ]);
+  });
+
   it("admits only the checkpoint-owned persistence task symbols", () => {
     const schemaPath = "packages/persistence-postgres/src/schema.ts";
     expect(analyzeTriggerCompatibilityBoundary([{
@@ -614,6 +675,54 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts:2 production source must not activate @flarex/durable-task before host admission.",
+    ]);
+  });
+
+  it("keeps the control-directory adapter inside its inert composition owners", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/flarex-backend/src/taskComputeDelivery/TrustedDirectory.ts",
+      text: `
+        import { makeTaskComputeDeliveryControlDirectory } from "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory";
+      `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/postgresTaskComputeDeliveryControlDirectory.ts",
+      text: `
+        import { createTaskComputeDeliveryControlDirectoryTargetFromPolicyInternal } from "./taskComputeDeliveryControlDirectoryTarget.js";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeTaskComputeDeliveryControlDirectory } from "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory";
+        import { createPostgresTaskComputeDeliveryControlDirectoryResource } from "@flarex/persistence-postgres/internal/system-test/postgres-task-compute-delivery-control-directory";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task compute-delivery control directory before host admission.",
+      "packages/flarex-backend/src/worker.ts:3 production source must not activate the Task compute-delivery control directory before host admission.",
+    ]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/flarex-backend/src/taskComputeDelivery/TrustedDirectory.ts",
+      text: `
+        import { createPostgresTaskComputeDeliveryControlDirectoryResource } from "@flarex/persistence-postgres/internal/system-test/postgres-task-compute-delivery-control-directory";
+        import { createTaskComputeDeliveryControlDirectoryTargetForSystemTest } from "@flarex/persistence-postgres/internal/system-test/task-compute-delivery-control-directory";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/taskComputeDelivery/TrustedDirectory.ts:2 production source must not activate the Task compute-delivery control directory before host admission.",
+      "packages/flarex-backend/src/taskComputeDelivery/TrustedDirectory.ts:3 production source must not activate the Task compute-delivery control directory before host admission.",
+    ]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      text: `
+        import { createTaskComputeDeliveryControlDirectoryTargetForSystemTest } from "./taskComputeDeliveryControlDirectoryTargetSystemTest.js";
+      `,
+    }]).errors).toEqual([
+      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate the Task compute-delivery control directory before host admission.",
     ]);
   });
 
