@@ -38,6 +38,12 @@ boundary is implemented. AA-R6 must recompose registration/readiness over
 the private PGlite and genuine-PostgreSQL vertical before FSV07 can be
 reconsidered.
 
+The challenged contract and consumer migration are governed by
+[`49-application-analysis-migration.md`](./49-application-analysis-migration.md).
+In particular, this vertical must migrate to executable registration/schema
+modules and honest new runtime-target, readiness, and activation contract
+generations; old semantic-root fields cannot be relabeled as manifest hashes.
+
 This roadmap owns the first function-first, implementation-bearing composition
 from Application Analysis and Standard Application APIs into the existing
 FlarexDB schema, activation, runtime, executor, transaction, commit, and

@@ -93,12 +93,12 @@ with domain rationale in
 | [`14-local-dev-server.md`](./14-local-dev-server.md) | Local runtime composition, Vite lifecycle, reload cutover, persistence, cleanup, and legacy/Postgres mode selection. |
 | [`15-test-sdk.md`](./15-test-sdk.md) | Public real-runtime test harness, typed invocation helpers, client/WebSocket bridge, lifecycle/reset, and trusted test-authority limits. |
 | [`16-package-boundaries.md`](./16-package-boundaries.md) | Workspace package ownership, dependency direction, public/internal surfaces, host composition, and boundary enforcement. |
-| [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md) | Source-package analysis authority, candidate push lifecycle, final codegen, artifact validation, and activation gates. |
+| [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md) | Application Analysis authority, immutable source-artifact correlation, candidate lifecycle, readiness, activation, and the separate production-cutover gate. |
 | [`18-react-client-hooks.md`](./18-react-client-hooks.md) | React provider/hooks, query state and subscription lifecycle, mutation ergonomics, routing boundaries, and parity gates. |
 | [`20-postgres-executor.md`](./20-postgres-executor.md) | Trusted Postgres executor, hosted Worker, storage generations, and replacement data authority. |
 | [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) | Postgres-authoritative sync, per-scope coordination, recovery, delivery boundaries, and deferred caches. |
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
-| [`42-standard-application-apis.md`](./42-standard-application-apis.md) | Stable workspace-internal application stage APIs; definition preparation and request-scoped authenticated analysis are implemented, with registration and invocation still gated. |
+| [`42-standard-application-apis.md`](./42-standard-application-apis.md) | Stable workspace-internal application stage APIs. Definition preparation and the historical static-verifier analysis path are implemented; Application Analysis replacement is governed by AA-R1 through AA-R8. |
 
 ## Cross-Cutting Engineering Guidance
 
@@ -135,6 +135,7 @@ consumers.
 | [`46-private-standard-edge-action-vertical.md`](./46-private-standard-edge-action-vertical.md) | AAV-A1/AAV-A2/SAP07 accepted and complete privately | One private route-independent public action composes active selection, AAV-A1 durable request/outcome and expiry-recovery authority, the AAV-A2 candidate-bound host, and R2 result replay. It adds no route, schedule, durable-task lifecycle, or production caller. |
 | [`47-aav-a1-direct-action-and-shared-effect-authority.md`](./47-aav-a1-direct-action-and-shared-effect-authority.md) | Accepted and complete privately | Direct action request/outcome authority uses one invocation row; shared external-effect uncertainty uses one evidence row and distinct parent subjects. Canonical bodies remain in R2, Task System lifecycle is not duplicated, and AAV-A2/SAP07/routes remain excluded. |
 | [`48-aav-a2-candidate-bound-edge-action-runtime.md`](./48-aav-a2-candidate-bound-edge-action-runtime.md) | Accepted and complete privately | Implements the private candidate-bound action target/profile/ABI, host-owned canonical egress policy, fresh Worker Loader isolation, authenticated outbound/callback bridges, and resource ceilings with no schema, SAP07, route, or production behavior. |
+| [`49-application-analysis-migration.md`](./49-application-analysis-migration.md) | Accepted active focused execution plan | Replaces the private static verifier with exact-byte cold-load Application Analysis through additive contracts, hosted isolation, new persistence/readiness/activation generations, private system proof, and guarded old-system removal; stops before production cutover. |
 | [`flarexdb-foundation/04-payload-relational-contract.md`](./flarexdb-foundation/04-payload-relational-contract.md) | Accepted deferred contract | Relation semantics and stable occurrence identity required before `R01`/`R02`/`S12`/`C09`. |
 | [`flarexdb-foundation/05-managed-schema-deployment.md`](./flarexdb-foundation/05-managed-schema-deployment.md) | Accepted deferred contract | Migrationless developer experience and managed schema safety classes; implementation remains deferred. |
 

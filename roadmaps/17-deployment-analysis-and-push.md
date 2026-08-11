@@ -553,6 +553,12 @@ path.
 
 ### Replacement Roadmap
 
+The challenged compatibility inventory, accepted minimal contract, migration
+amendments, medium implementation slices, and stop condition are owned by
+[`49-application-analysis-migration.md`](./49-application-analysis-migration.md).
+That focused plan accepts the docs-first preflight and governs `AA-R1` through
+`AA-R8`; this roadmap remains the domain authority.
+
 0. **AA-R0 — complete: freeze and rebaseline.** This replacement is recorded
    in roadmaps 17, 38, 39, 41, 42, and 43. Every old production gate remains
    closed. Treat the displaced implementation as historical private state, not
@@ -563,7 +569,9 @@ path.
    registration, readiness, projection, and activation table/foreign key; and
    every potentially preserved row in named environments. A row or supported
    compatibility consumer blocks destructive retirement. Do not rewrite
-   migration history.
+   migration history. The repository inventory is accepted for additive work;
+   named-environment row proof remains a destructive `AA-R8` subgate because
+   no database connection is configured in the current workspace.
 2. **AA-R2 — minimal contract preflight.** Settle the manifest, receipt,
    request if needed, typed failures, canonical encoding, byte/count/time
    limits, analyzer identity, artifact correlation, and nondeterminism policy.
@@ -585,10 +593,12 @@ path.
    reference. Do not dual-write old and new evidence and do not use old
    verifier tables as the new schema.
 6. **AA-R6 — registration and readiness recomposition.** Move Standard
-   Application Analysis, inactive registration, projection publication, and
-   readiness to the new manifest/receipt authority. Keep activation and all
-   runtime/executor owners unchanged. One candidate uses exactly one analysis
-   authority.
+   Application Analysis, its executable registration/schema modules, inactive
+   registration, whole-bundle projection publication, readiness, activation,
+   active selection, runtime-target contracts, and task-binding contracts to
+   honest new generations over the manifest/receipt authority. Keep the
+   activation operation and all runtime/executor/OCC/commit owners unchanged.
+   One candidate uses exactly one analysis authority.
 7. **AA-R7 — private end-to-end proof.** Prove PGlite and zero-skip genuine
    PostgreSQL paths from exact artifact through analysis, inactive
    registration, cold readiness, activation, and the existing point

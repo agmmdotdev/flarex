@@ -543,7 +543,10 @@ what executing code may do.
 ### Application Analysis Migration Gate
 
 The next Standard analysis work is roadmap 17 AA-R1/AA-R2, not another SAP
-chronology version:
+chronology version. The accepted inventory, exact first manifest/receipt cut,
+executable-bundle requirement, and migration sequence are in
+[`49-application-analysis-migration.md`](./49-application-analysis-migration.md).
+The Standard migration order is:
 
 1. inventory all consumers of `@flarex/standard-application-analysis/v1` and
    its exact aliased registration-complete result;
