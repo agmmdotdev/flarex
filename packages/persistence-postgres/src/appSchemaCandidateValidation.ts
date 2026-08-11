@@ -130,6 +130,12 @@ const POINT_COMMIT_AUTHORITY_KEYS = Object.freeze([
 const appSchemaCandidateValidationPortBrand: unique symbol = Symbol(
   "Flarex/AppSchemaCandidateValidationPort",
 );
+const appSchemaCandidateReadinessPortBrand: unique symbol = Symbol(
+  "Flarex/AppSchemaCandidateReadinessPort",
+);
+const appSchemaCandidateReadinessEvidenceBrand: unique symbol = Symbol(
+  "Flarex/AppSchemaCandidateReadinessEvidence",
+);
 const MAX_LIVE_ROWS_PER_MATERIALIZATION_CHUNK = 8;
 const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
 const SLICE_NANOSECONDS =
@@ -258,6 +264,343 @@ export function hasAppSchemaCandidateValidationComposition(
     state.controlDb === controlDb &&
     state.authority === authority;
 }
+
+/** Private process-local M03-C readiness capability. */
+export interface AppSchemaCandidateReadinessPort {
+  readonly [appSchemaCandidateReadinessPortBrand]: true;
+}
+
+export interface AppSchemaCandidateReadinessInput {
+  readonly deploymentId: string;
+  readonly scopeId: ScopeId;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly schemaManifestSha256Hex: ReturnType<
+    typeof AppSchemaCandidateManifestSha256HexV1Schema.make
+  >;
+}
+
+export interface AppSchemaCandidateReadinessEvidence {
+  readonly deploymentId: string;
+  readonly scopeId: ScopeId;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly schemaManifestSha256Hex: ReturnType<
+    typeof AppSchemaCandidateManifestSha256HexV1Schema.make
+  >;
+  readonly receiptSha256Hex: ReturnType<
+    typeof AppSchemaCandidateValidationFrameSha256HexV1Schema.make
+  >;
+  readonly [appSchemaCandidateReadinessEvidenceBrand]: true;
+}
+
+export interface AppSchemaCandidateReadinessReceiptExpectation
+  extends AppSchemaCandidateReadinessInput {
+  readonly receiptSha256Hex: ReturnType<
+    typeof AppSchemaCandidateValidationFrameSha256HexV1Schema.make
+  >;
+}
+
+export type AppSchemaCandidateReadinessResult =
+  | Readonly<{
+      readonly status: "not_ready";
+      readonly reason: "missing" | "inProgress" | "failed" | "wrongSchema";
+    }>
+  | Readonly<{
+      readonly status: "ready";
+      readonly evidence: AppSchemaCandidateReadinessEvidence;
+    }>;
+
+export class AppSchemaCandidateReadinessError extends Data.TaggedError(
+  "AppSchemaCandidateReadinessError",
+)<{
+  readonly reason:
+    | "invalidPort"
+    | "scopeMismatch"
+    | "concurrentStateChange"
+    | "corruption";
+}> {}
+
+export type LoadAppSchemaCandidateReadinessError =
+  | AppSchemaCandidateReadinessError
+  | AppSchemaCandidateValidationOperationV1Error
+  | AppSchemaCandidateValidationPersistenceError
+  | TrustedScopeAuthorityError
+  | LockScopeClockForShareError;
+
+export type ValidateAppSchemaCandidateReadinessError =
+  | AppSchemaCandidateReadinessError
+  | AppSchemaCandidateValidationOperationV1Error
+  | AppSchemaCandidateValidationPersistenceError;
+
+const candidateReadinessPortStates = new WeakMap<
+  AppSchemaCandidateReadinessPort,
+  Readonly<AppSchemaCandidateValidationPortDependencies>
+>();
+const candidateReadinessEvidenceStates = new WeakMap<
+  AppSchemaCandidateReadinessEvidence,
+  Readonly<{
+    readonly port: AppSchemaCandidateReadinessPort;
+  }>
+>();
+
+export function createAppSchemaCandidateReadinessPort(
+  candidateValidation: AppSchemaCandidateValidationPort,
+): AppSchemaCandidateReadinessPort {
+  const port = Object.freeze({
+    [appSchemaCandidateReadinessPortBrand]: true as const,
+  });
+  const state = portStates.get(candidateValidation);
+  if (state !== undefined) candidateReadinessPortStates.set(port, state);
+  return port;
+}
+
+export function hasAppSchemaCandidateReadinessComposition(
+  port: unknown,
+  controlDb: FlarexMetadataDatabase,
+  authority: TrustedScopeAuthorityResolutionPorts,
+): port is AppSchemaCandidateReadinessPort {
+  if (typeof port !== "object" || port === null) return false;
+  const state = candidateReadinessPortStates.get(
+    port as AppSchemaCandidateReadinessPort,
+  );
+  return state !== undefined &&
+    state.controlDb === controlDb &&
+    state.authority === authority;
+}
+
+export const loadAppSchemaCandidateReadinessEffect = Effect.fn(
+  "AppSchemaCandidateValidation.loadReadiness",
+)(function* (
+  port: AppSchemaCandidateReadinessPort,
+  input: AppSchemaCandidateReadinessInput,
+): Effect.fn.Return<
+  AppSchemaCandidateReadinessResult,
+  LoadAppSchemaCandidateReadinessError
+> {
+  const state = candidateReadinessPortStates.get(port);
+  if (state === undefined) {
+    return yield* new AppSchemaCandidateReadinessError({
+      reason: "invalidPort",
+    });
+  }
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+    input.deploymentId,
+    state.authority,
+  );
+  if (located.authority.scopeId !== input.scopeId) {
+    return yield* new AppSchemaCandidateReadinessError({
+      reason: "scopeMismatch",
+    });
+  }
+  const loadOnce = () => runLocatedTransaction(
+    located.target,
+    "load",
+    (tx) => Effect.gen(function* () {
+      const clock = yield* lockScopeClockForShareInTransactionEffect(
+        tx,
+        input.scopeId,
+      );
+      yield* Effect.fromResult(requireExactAuthorityResult(
+        located.authority,
+        clock,
+        "load",
+      ));
+      const head = yield* readHeadWithLockEffect(
+        tx,
+        input.scopeId,
+        "share",
+      );
+      return yield* inspectCandidateReadinessHead(
+        port,
+        input,
+        clock,
+        head,
+      );
+    }),
+  );
+  return yield* loadOnce().pipe(Effect.catchTag(
+    "AppSchemaCandidateValidationOperationV1Error",
+    error => error.operation === "load" && error.reason === "decisionUncertain"
+      ? loadOnce()
+      : Effect.fail(error),
+  ));
+});
+
+/** Caller already owns the exact scope-clock lock in its readiness transaction. */
+export const validateAppSchemaCandidateReadinessInTransactionEffect = Effect.fn(
+  "AppSchemaCandidateValidation.validateReadinessInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  port: AppSchemaCandidateReadinessPort,
+  evidence: AppSchemaCandidateReadinessEvidence,
+  authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord,
+  evidenceLock: "share" | "update",
+): Effect.fn.Return<
+  AppSchemaCandidateReadinessResult,
+  ValidateAppSchemaCandidateReadinessError
+> {
+  const portState = candidateReadinessPortStates.get(port);
+  const evidenceState = candidateReadinessEvidenceStates.get(evidence);
+  if (portState === undefined || evidenceState?.port !== port) {
+    return yield* new AppSchemaCandidateReadinessError({
+      reason: "invalidPort",
+    });
+  }
+  if (
+    evidence.scopeId !== authority.scopeId ||
+    evidence.scopeId !== clock.scopeId ||
+    authority.storageGeneration !== clock.storageGeneration ||
+    authority.storageGenerationFence !== clock.storageGenerationFence ||
+    authority.epoch !== clock.epoch
+  ) {
+    return yield* new AppSchemaCandidateReadinessError({
+      reason: "scopeMismatch",
+    });
+  }
+  return yield* validateExpectedCandidateReadinessInTransaction(
+    tx,
+    port,
+    evidence,
+    evidence.receiptSha256Hex,
+    clock,
+    evidenceLock,
+  ).pipe(Effect.map(result => result.status === "ready"
+    ? Object.freeze({ status: "ready" as const, evidence })
+    : result));
+});
+
+/** First activation can recheck a digest already committed by readiness. */
+export const validateAppSchemaCandidateReadinessReceiptInTransactionEffect =
+  Effect.fn(
+    "AppSchemaCandidateValidation.validateReadinessReceiptInTransaction",
+  )(function* (
+    tx: AppRowTransaction,
+    port: AppSchemaCandidateReadinessPort,
+    expectation: AppSchemaCandidateReadinessReceiptExpectation,
+    authority: TrustedScopeAuthority,
+    clock: ScopeClockRecord,
+    evidenceLock: "share" | "update",
+  ): Effect.fn.Return<
+    AppSchemaCandidateReadinessResult,
+    ValidateAppSchemaCandidateReadinessError
+  > {
+    if (!candidateReadinessPortStates.has(port)) {
+      return yield* new AppSchemaCandidateReadinessError({
+        reason: "invalidPort",
+      });
+    }
+    if (
+      expectation.scopeId !== authority.scopeId ||
+      expectation.scopeId !== clock.scopeId ||
+      authority.storageGeneration !== clock.storageGeneration ||
+      authority.storageGenerationFence !== clock.storageGenerationFence ||
+      authority.epoch !== clock.epoch
+    ) {
+      return yield* new AppSchemaCandidateReadinessError({
+        reason: "scopeMismatch",
+      });
+    }
+    return yield* validateExpectedCandidateReadinessInTransaction(
+      tx,
+      port,
+      expectation,
+      expectation.receiptSha256Hex,
+      clock,
+      evidenceLock,
+    );
+  });
+
+const validateExpectedCandidateReadinessInTransaction = Effect.fn(
+  "AppSchemaCandidateValidation.validateExpectedReadinessInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  port: AppSchemaCandidateReadinessPort,
+  input: AppSchemaCandidateReadinessInput,
+  expectedReceiptSha256Hex: ReturnType<
+    typeof AppSchemaCandidateValidationFrameSha256HexV1Schema.make
+  >,
+  clock: ScopeClockRecord,
+  evidenceLock: "share" | "update",
+): Effect.fn.Return<
+  AppSchemaCandidateReadinessResult,
+  ValidateAppSchemaCandidateReadinessError
+> {
+  const current = yield* readHeadWithLockEffect(
+    tx,
+    input.scopeId,
+    evidenceLock,
+  );
+  const inspected = yield* inspectCandidateReadinessHead(
+    port,
+    input,
+    clock,
+    current,
+  );
+  if (inspected.status !== "ready") return inspected;
+  if (inspected.evidence.receiptSha256Hex !== expectedReceiptSha256Hex) {
+    return yield* new AppSchemaCandidateReadinessError({
+      reason: "concurrentStateChange",
+    });
+  }
+  return inspected;
+});
+
+const inspectCandidateReadinessHead = Effect.fn(
+  "AppSchemaCandidateValidation.inspectReadinessHead",
+)(function* (
+  port: AppSchemaCandidateReadinessPort,
+  input: AppSchemaCandidateReadinessInput,
+  clock: ScopeClockRecord,
+  head: StoredAppSchemaCandidateValidationHead | null,
+): Effect.fn.Return<
+  AppSchemaCandidateReadinessResult,
+  AppSchemaCandidateReadinessError | AppSchemaCandidateValidationOperationV1Error
+> {
+  if (head === null) {
+    return Object.freeze({ status: "not_ready" as const, reason: "missing" as const });
+  }
+  yield* Effect.fromResult(requireHeadAuthorityResult(head, clock, "load"));
+  if (head.deploymentId !== input.deploymentId || head.scopeId !== input.scopeId) {
+    return yield* new AppSchemaCandidateReadinessError({ reason: "corruption" });
+  }
+  if (
+    head.schemaVersionId !== input.schemaVersionId ||
+    head.frame.schemaManifestSha256Hex !== input.schemaManifestSha256Hex
+  ) {
+    return Object.freeze({
+      status: "not_ready" as const,
+      reason: "wrongSchema" as const,
+    });
+  }
+  switch (head.frame.kind) {
+    case "app_schema_candidate_validation_progress":
+      return Object.freeze({
+        status: "not_ready" as const,
+        reason: "inProgress" as const,
+      });
+    case "app_schema_candidate_validation_failure_evidence":
+      return Object.freeze({
+        status: "not_ready" as const,
+        reason: "failed" as const,
+      });
+    case "app_schema_candidate_validation_receipt": {
+      const evidence = Object.freeze({
+        deploymentId: head.deploymentId,
+        scopeId: head.scopeId,
+        schemaVersionId: head.schemaVersionId,
+        schemaManifestSha256Hex: head.frame.schemaManifestSha256Hex,
+        receiptSha256Hex: head.frameSha256Hex,
+        [appSchemaCandidateReadinessEvidenceBrand]: true as const,
+      } satisfies AppSchemaCandidateReadinessEvidence);
+      candidateReadinessEvidenceStates.set(evidence, Object.freeze({ port }));
+      return Object.freeze({ status: "ready" as const, evidence });
+    }
+    default: {
+      const unreachable: never = head.frame;
+      return unreachable;
+    }
+  }
+});
 
 const appSchemaCandidateWriteGuardBrand: unique symbol = Symbol(
   "Flarex/AppSchemaCandidateWriteGuard",
@@ -1766,6 +2109,24 @@ const readHeadForShareEffect = Effect.fn(
   return rows[0] === undefined
     ? null
     : yield* decodeHeadRowEffect(rows[0], operation);
+});
+
+const readHeadWithLockEffect = Effect.fn(
+  "AppSchemaCandidateValidation.readHeadWithLock",
+)(function* (
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  lock: "share" | "update",
+) {
+  const rows = yield* queryEffect(
+    "readHead",
+    tx.select().from(fxSystemAppSchemaCandidateValidations).where(
+      eq(fxSystemAppSchemaCandidateValidations.scopeId, scopeId),
+    ).limit(1).for(lock),
+  );
+  return rows[0] === undefined
+    ? null
+    : yield* decodeHeadRowEffect(rows[0], "load");
 });
 
 type HeadRow = typeof fxSystemAppSchemaCandidateValidations.$inferSelect;

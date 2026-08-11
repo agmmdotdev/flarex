@@ -32,6 +32,13 @@ import {
   type LocatedApplicationRevisionReadinessTargetV1,
 } from "@flarex/persistence-postgres/internal/system-test/applicationRevisionReadinessV1";
 import {
+  advanceAppSchemaCandidateValidationEffect,
+  createAppSchemaCandidateReadinessPort,
+  createAppSchemaCandidateValidationPort,
+  installAppSchemaCandidateValidationEffect,
+  settleAppSchemaCandidateValidationEffect,
+} from "@flarex/persistence-postgres/internal/system-test/appSchemaCandidateValidation";
+import {
   buildIntrinsicCreationTimeIndexV1Effect,
 } from "@flarex/persistence-postgres/internal/system-test/intrinsicCreationTimeIndexBuildV1";
 import {
@@ -179,6 +186,39 @@ export async function proveFsv04ApplicationRevisionReadinessV1(
       registered.registered.revisionId,
       context,
     ),
+  );
+  const missingValidation = await Effect.runPromise(settle());
+  if (
+    missingValidation.status !== "not_ready" ||
+    missingValidation.reason !== "schemaValidationMissing"
+  ) {
+    throw new Error("FSV04 did not require candidate-schema validation.");
+  }
+  const pendingCandidatePort = createAppSchemaCandidateValidationPort(
+    Object.freeze({
+      controlDb: lane.persistence.drizzle,
+      authority: authorityPorts(lane.persistence, target),
+    }),
+  );
+  await Effect.runPromise(installAppSchemaCandidateValidationEffect(
+    pendingCandidatePort,
+    {
+      deploymentId: registered.deploymentId,
+      schemaVersionId: registered.registered.schemaVersionId,
+    },
+  ));
+  const pendingValidation = await Effect.runPromise(settle());
+  if (
+    pendingValidation.status !== "not_ready" ||
+    pendingValidation.reason !== "schemaValidationInProgress"
+  ) {
+    throw new Error("FSV04 treated candidate scan progress as settled.");
+  }
+  await settleReadinessCandidateValidationV1(
+    lane.persistence,
+    target,
+    registered.deploymentId,
+    registered.registered.schemaVersionId,
   );
   const initial = await Effect.runPromise(settle());
   if (initial.status !== "not_ready" ||
@@ -452,10 +492,17 @@ export function readinessContext(
   const mode = options.mode ?? "normal";
   let materializationSequence = 0;
   const authority = authorityPorts(persistence, target);
+  const candidateValidation = createAppSchemaCandidateReadinessPort(
+    createAppSchemaCandidateValidationPort(Object.freeze({
+      controlDb: persistence.drizzle,
+      authority,
+    })),
+  );
   return Object.freeze({
     deploymentId,
     controlDb: persistence.drizzle,
     pointCommit: createReadinessPointCommitV1(persistence, authority),
+    candidateValidation,
     authority,
     coldMaterialization: {
       probe: (publication: LoadedCandidateRuntimePublicationV1) =>
@@ -769,6 +816,37 @@ export function authorityPorts(
     },
     scopeClockTargets: { resolve: async () => target },
   });
+}
+
+export async function settleReadinessCandidateValidationV1(
+  persistence: Persistence,
+  target: LocatedApplicationRevisionReadinessTargetV1,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+): Promise<void> {
+  const port = createAppSchemaCandidateValidationPort(Object.freeze({
+    controlDb: persistence.drizzle,
+    authority: authorityPorts(persistence, target),
+  }));
+  await Effect.runPromise(installAppSchemaCandidateValidationEffect(port, {
+    deploymentId,
+    schemaVersionId,
+  }));
+  for (let step = 0; step < 64; step += 1) {
+    const advanced = await Effect.runPromise(
+      advanceAppSchemaCandidateValidationEffect(port, {
+        deploymentId,
+        schemaVersionId,
+      }),
+    );
+    if (advanced.disposition !== "readyToSettle") continue;
+    await Effect.runPromise(settleAppSchemaCandidateValidationEffect(port, {
+      deploymentId,
+      schemaVersionId,
+    }));
+    return;
+  }
+  throw new Error("FSV04 candidate validation did not settle.");
 }
 
 async function readinessRows(persistence: Persistence) {

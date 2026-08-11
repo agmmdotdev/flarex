@@ -102,7 +102,7 @@ describe("FSV04 application revision readiness - PGlite", () => {
     );
   }, 240_000);
 
-  it("rejects point-commit eligibility from another catalog or authority", async () => {
+  it("rejects foreign or copied readiness capabilities", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const otherPersistence = await createMigratedPGlitePersistence();
     const artifacts = makeMemoryRuntimeArtifactStoreV1();
@@ -144,10 +144,34 @@ describe("FSV04 application revision readiness - PGlite", () => {
       artifacts,
     );
 
-    for (const mixed of [
-      { ...context, pointCommit: otherCatalogPointCommit },
-      { ...otherAuthorityContext, pointCommit: context.pointCommit },
-    ]) {
+    for (const [mixed, expectedTag, expectedReason] of [
+      [
+        { ...context, pointCommit: otherCatalogPointCommit },
+        "PointCommitUniqueConstraintEligibilityUnavailableV1Error",
+        "compositionMismatch",
+      ],
+      [
+        { ...otherAuthorityContext, pointCommit: context.pointCommit },
+        "PointCommitUniqueConstraintEligibilityUnavailableV1Error",
+        "compositionMismatch",
+      ],
+      [
+        {
+          ...context,
+          candidateValidation: otherAuthorityContext.candidateValidation,
+        },
+        "AppSchemaCandidateReadinessError",
+        "invalidPort",
+      ],
+      [
+        {
+          ...context,
+          candidateValidation: { ...context.candidateValidation },
+        },
+        "AppSchemaCandidateReadinessError",
+        "invalidPort",
+      ],
+    ] as const) {
       const exit = await Effect.runPromise(Effect.exit(Effect.scoped(
         settleApplicationRevisionReadinessV1(
           registered.registered.revisionId,
@@ -160,8 +184,8 @@ describe("FSV04 application revision readiness - PGlite", () => {
       expect(failure._tag).toBe("Some");
       if (failure._tag === "Some") {
         expect(failure.value).toMatchObject({
-          _tag: "PointCommitUniqueConstraintEligibilityUnavailableV1Error",
-          reason: "compositionMismatch",
+          _tag: expectedTag,
+          reason: expectedReason,
         });
       }
     }

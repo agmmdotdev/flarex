@@ -22,13 +22,17 @@ import {
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
+import type { AppSchemaCandidateReadinessPort } from
+  "./appSchemaCandidateValidation";
 import {
   createLocatedApplicationRevisionReadinessTargetV1,
   getApplicationRevisionReadinessTargetDatabaseV1,
   loadStoredApplicationRevisionReadinessEvidenceV1,
   type LoadStoredApplicationRevisionReadinessEvidenceV1Error,
   type LocatedApplicationRevisionReadinessTargetV1,
+  type ValidateStoredApplicationRevisionReadinessEvidenceForActivationV1Error,
   type ValidateStoredApplicationRevisionReadinessEvidenceV1Error,
+  validateStoredApplicationRevisionReadinessEvidenceForActivationInTransactionV1,
   validateStoredApplicationRevisionReadinessEvidenceInTransactionV1,
 } from "./applicationRevisionReadinessV1";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -108,6 +112,8 @@ export interface ApplicationRevisionActivationContextV1 {
   readonly controlDb: FlarexMetadataDatabase;
   /** Exact C08-B1/B2 point-commit composition used by FSV04 replay. */
   readonly pointCommit: unknown;
+  /** Exact M03-C candidate-validation readiness composition. */
+  readonly candidateValidation: AppSchemaCandidateReadinessPort;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedApplicationRevisionActivationTargetV1
   >;
@@ -189,6 +195,10 @@ export class ApplicationRevisionActivationNotReadyV1Error
     readonly reason:
       | "readinessMissing"
       | "registrationIncomplete"
+      | "schemaValidationMissing"
+      | "schemaValidationInProgress"
+      | "schemaValidationFailed"
+      | "schemaValidationWrongSchema"
       | "physicalBuildMissing"
       | "physicalBuildNotEnabled"
       | "uniqueConstraintSetNotClosed"
@@ -251,7 +261,7 @@ export type ActivateApplicationRevisionV1Error =
   | TrustedScopeAuthorityError
   | LockScopeClockForUpdateError
   | LoadStoredApplicationRevisionReadinessEvidenceV1Error
-  | ValidateStoredApplicationRevisionReadinessEvidenceV1Error;
+  | ValidateStoredApplicationRevisionReadinessEvidenceForActivationV1Error;
 
 export type ReadActiveApplicationRevisionV1Error =
   | UnsupportedApplicationRevisionActivationTargetV1Error
@@ -323,6 +333,7 @@ export const activateApplicationRevisionV1 = Effect.fn(
     captureExpectedActiveRevision(expectedActiveRevision),
   );
   const pointCommit = context.pointCommit;
+  const candidateValidation = context.candidateValidation;
   const controlDb = context.controlDb;
   const authorityPorts = context.authority;
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
@@ -335,6 +346,7 @@ export const activateApplicationRevisionV1 = Effect.fn(
     context.deploymentId,
     controlDb,
     pointCommit,
+    candidateValidation,
     authorityPorts,
     located,
   );
@@ -361,6 +373,7 @@ export const readActiveApplicationRevisionV1 = Effect.fn(
   Scope.Scope
 > {
   const pointCommit = context.pointCommit;
+  const candidateValidation = context.candidateValidation;
   const controlDb = context.controlDb;
   const authorityPorts = context.authority;
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
@@ -378,6 +391,7 @@ export const readActiveApplicationRevisionV1 = Effect.fn(
     context.deploymentId,
     controlDb,
     pointCommit,
+    candidateValidation,
     authorityPorts,
     located,
   );
@@ -657,24 +671,18 @@ const activateInTransaction = Effect.fn(
   const decodedHead = head === undefined
     ? null
     : yield* decodeStoredHead(revisionId, head);
-  const readiness = yield*
-    validateStoredApplicationRevisionReadinessEvidenceInTransactionV1(
-      tx,
-      prepared,
-      clock,
-      "update",
-    );
-  if (readiness.status !== "ready") {
-    return yield* new ApplicationRevisionActivationNotReadyV1Error({
+  const readinessReceiptSha256Hint = prepared.readinessReceiptSha256Hint;
+  if (readinessReceiptSha256Hint === null) {
+    return yield* corruption(
       revisionId,
-      reason: readiness.reason,
-    });
+      "stored readiness preparation omitted its receipt digest",
+    );
   }
   const request = yield* encodeAndHashActivationRequest(
     prepared.authority.scopeId,
     revisionId,
     prepared.revision.candidateSha256,
-    readiness.readinessReceiptSha256,
+    readinessReceiptSha256Hint,
     expected,
   );
   const replayRows = yield* query(tx.select()
@@ -691,6 +699,25 @@ const activateInTransaction = Effect.fn(
     ))
     .limit(1)
     .for("update"));
+  const readiness = yield* replayRows[0] === undefined
+    ? validateStoredApplicationRevisionReadinessEvidenceForActivationInTransactionV1(
+      tx,
+      prepared,
+      clock,
+      "update",
+    )
+    : validateStoredApplicationRevisionReadinessEvidenceInTransactionV1(
+      tx,
+      prepared,
+      clock,
+      "update",
+    );
+  if (readiness.status !== "ready") {
+    return yield* new ApplicationRevisionActivationNotReadyV1Error({
+      revisionId,
+      reason: readiness.reason,
+    });
+  }
   if (replayRows[0] !== undefined) {
     return yield* replayActivationRevision(
       replayRows[0],

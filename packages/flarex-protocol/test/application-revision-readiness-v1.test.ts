@@ -17,13 +17,13 @@ describe("application revision readiness receipt v1", () => {
     const encoded = Result.getOrThrow(
       encodeApplicationRevisionReadinessReceiptV1(frame),
     );
-    expect(encoded.canonicalBytes.byteLength).toBe(1_279);
+    expect(encoded.canonicalBytes.byteLength).toBe(1_311);
     expect(Array.from(encoded.canonicalBytes.slice(0, 64))).toEqual([
       102, 108, 97, 114, 101, 120, 46, 115, 121, 115, 116, 101, 109,
       47, 97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 45, 114,
       101, 118, 105, 115, 105, 111, 110, 45, 114, 101, 97, 100, 105,
       110, 101, 115, 115, 45, 114, 101, 99, 101, 105, 112, 116, 47,
-      118, 49, 0, 0, 0, 0, 24, 0, 0, 0, 68,
+      118, 49, 0, 0, 0, 0, 25, 0, 0, 0, 68,
     ]);
     const decoded = Result.getOrThrow(
       decodeApplicationRevisionReadinessReceiptV1(encoded.canonicalBytes),
@@ -100,7 +100,7 @@ describe("application revision readiness receipt v1", () => {
 
 function receipt(): ApplicationRevisionReadinessReceiptFrameV1 {
   const candidateSha256 = digest(1);
-  const manifestSha256 = digest(14);
+  const manifestSha256 = digest(15);
   const cold = (["transaction", "edge_action"] as const).map((group, index) => {
     const encoded = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1({
       kind: "cold_materialization_receipt",
@@ -140,11 +140,12 @@ function receipt(): ApplicationRevisionReadinessReceiptFrameV1 {
     validatorRootSha256: digest(9),
     declaredHandlerSetSha256: digest(10),
     registrationRootSha256: digest(11),
-    enabledBuildRootSha256: digest(12),
-    runtimeProjectionSetSha256: digest(13),
+    schemaValidationReceiptSha256: digest(12),
+    enabledBuildRootSha256: digest(13),
+    runtimeProjectionSetSha256: digest(14),
     functionGroupManifestSha256: manifestSha256,
-    runtimePublicationRootSha256: digest(15),
-    coldMaterializationRootSha256: digest(16),
+    runtimePublicationRootSha256: digest(16),
+    coldMaterializationRootSha256: digest(17),
     coldMaterializationReceipts: Object.freeze(cold),
     readyAt: "2026-08-01T00:00:00.000Z",
   });

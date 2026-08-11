@@ -7,8 +7,10 @@ guarded target-local single candidate head, bounded exact-frontier scanner, and
 authenticated point-commit write guard now exist. M03-B remains private and
 production-inert: no Standard live composition, readiness or activation
 consumer, CLI, backfill runner, destructive cleanup, route, or trigger uses it.
-`M03-C` is next and separately gates readiness and activation on the exact
-schema-validation receipt.
+`M03-C` is complete: readiness and first activation are separately gated on
+the exact schema-validation receipt. `M03-D` is next and adds the isolated
+multi-revision cooking scenario without changing the existing single-revision
+runner.
 
 ## Decision
 
@@ -338,6 +340,62 @@ outcome recovery all reuse the existing point-commit transaction and outcome
 owners. The capability is not composed into the Standard live application path
 and its failure or receipt is not readiness, activation, or routing authority.
 
+### M03-C readiness and activation preflight
+
+`M03-C` adds one process-local opaque candidate-validation evidence facet to
+the existing readiness composition. The facet is issued only from the exact
+candidate-validation control database and trusted scope-authority resolver used
+by readiness. Structural copies, accessor-swapped dependencies, foreign control
+catalogs, and differently located targets fail closed. It does not expose the
+candidate-head repository or grant installation, scanning, settlement,
+readiness, or activation authority by itself.
+
+Readiness preparation share-locks the scope clock and authenticates the one
+current candidate head. An absent head, a head for another schema version, an
+in-progress scan, or failure evidence returns a typed not-ready result. Only a
+canonical settled receipt whose schema-manifest digest, generation, fence,
+epoch, frontier, attempt fence, counts, settlement sequence, and frame digest
+match the registered revision becomes opaque evidence. The existing readiness
+transaction revalidates that exact evidence under its already-owned scope-clock
+lock before inserting or replaying the readiness verdict. It does not scan app
+rows, advance the candidate cursor, or mutate candidate state.
+
+The readiness receipt directly commits the exact candidate-validation receipt
+digest. This is an in-place refresh of the private, production-inert readiness
+receipt contract: old private receipts without the commitment fail closed and
+there is no dual decoder, fallback, or second verdict format. No PostgreSQL
+schema or migration changes are required because the canonical readiness body
+already lives in the existing verdict frame columns.
+
+The existing activation CAS must revalidate the current candidate receipt when
+first activating a revision, closing the race between readiness settlement and
+activation. Once that revision is already active, its activation revision and
+readiness receipt preserve the transitive candidate-receipt commitment. A
+coherent active read or exact activation replay validates that immutable chain
+without consulting the mutable single candidate head, because installing the
+next candidate must not invalidate the current active application. A not-yet-
+active revision can never use that stable-replay exception.
+
+Focused acceptance requires missing, in-progress, failed, wrong-schema,
+corrupt, stale-authority, and exact-receipt cases; receipt replacement between
+preparation and readiness; candidate invalidation between readiness and first
+activation; active-read and activation replay after the head is repurposed;
+rollback, decision uncertainty, cold reload, exact root/vector stability, and
+PGlite plus genuine-PostgreSQL transaction/lock evidence. M03-C does not wire
+Standard live registration, expose a developer API, activate a route, create a
+second active-schema owner, or begin the M03-D multi-revision cooking scenario.
+
+`M03-C` is complete at this private checkpoint. The readiness receipt now
+commits the exact candidate-validation receipt digest, readiness revalidates
+opaque current evidence in its existing transaction, and a first activation
+revalidates the receipt under the activation CAS lock. Repurposing the mutable
+candidate head blocks a new activation request for the displaced schema but
+does not invalidate the already-active reader or an exact historical
+activation replay. The contract, direct lifecycle checks, PGlite composition,
+and genuine-PostgreSQL readiness/activation paths prove the fail-closed
+boundary without a new table, migration, transaction owner, activation owner,
+route, or Standard live wiring.
+
 Old attempts remain pinned to their activation revision. Once a replacement is
 activated, an attempt pinned to the prior active head must fail/retry through
 the existing active-head revalidation; it cannot publish under the new schema
@@ -547,7 +605,7 @@ These are separate later goals, not one giant deployment goal:
    rows, marks an incompatible candidate failed without rejecting an
    active-valid write, preserves the current transaction/OCC/commit owners,
    and proves same-table/cross-table multi-row rollback and bounded work.
-6. `M03-C` - make application readiness require the exact schema-validation
+6. `M03-C` - **complete**: make application readiness require the exact schema-validation
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
@@ -563,13 +621,13 @@ The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
 
-`M01-A`, `M01-B`, `M02`, and production-inert `M03-A`/`M03-B` are complete. The
-next implementation-bearing request must preflight and authorize only `M03-C`:
-make readiness require the exact schema-validation receipt and let the existing
-activation CAS consume it. It may not create another active-schema authority,
-transaction owner, route, trigger, or public deployment path. Each later turn
-stops if it discovers another authority, migration, transaction, activation,
-or production-routing change beyond the named gate.
+`M01-A`, `M01-B`, `M02`, and production-inert `M03-A` through `M03-C` are
+complete. The next implementation-bearing request must preflight and authorize
+only `M03-D`: add the isolated multi-revision cooking scenario over the accepted
+owners. It may not create another active-schema authority, transaction owner,
+route, trigger, or public deployment path. Each later turn stops if it
+discovers another authority, migration, transaction, activation, or
+production-routing change beyond the named gate.
 
 ## Multi-Revision Cooking Acceptance Matrix
 

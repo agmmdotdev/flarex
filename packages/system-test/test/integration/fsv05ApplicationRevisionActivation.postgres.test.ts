@@ -78,6 +78,9 @@ describePostgres("FSV05 application revision activation - PostgreSQL", () => {
       });
       expect(proof).toMatchObject({
         lane: "postgres",
+        candidateValidationInvalidationRejected: true,
+        activeReadSurvivesCandidateReplacement: true,
+        exactReplaySurvivesCandidateReplacement: true,
         concurrentReplacement: ["inserted", "stale"],
         uncertaintyDisposition: "replayed",
         decisionUncertaintyInjected: true,

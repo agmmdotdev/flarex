@@ -49,6 +49,7 @@ const DIGEST_FIELDS = [
   "validatorRootSha256",
   "declaredHandlerSetSha256",
   "registrationRootSha256",
+  "schemaValidationReceiptSha256",
   "enabledBuildRootSha256",
   "runtimeProjectionSetSha256",
   "functionGroupManifestSha256",
@@ -101,6 +102,7 @@ export interface ApplicationRevisionReadinessReceiptFrameV1 {
   readonly validatorRootSha256: Uint8Array;
   readonly declaredHandlerSetSha256: Uint8Array;
   readonly registrationRootSha256: Uint8Array;
+  readonly schemaValidationReceiptSha256: Uint8Array;
   readonly enabledBuildRootSha256: Uint8Array;
   readonly runtimeProjectionSetSha256: Uint8Array;
   readonly functionGroupManifestSha256: Uint8Array;

@@ -1,10 +1,12 @@
 import {
   bytesEqualFullScan,
   copyBytes,
+  encodeBytesToLowercaseHex,
+  isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { Cause, Data, Effect, Exit, Result, Scope } from "effect";
+import { Cause, Data, Effect, Encoding, Exit, Result, Schema, Scope } from "effect";
 import {
   APPLICATION_REVISION_READINESS_RECEIPT_CODEC_VERSION_V1,
   decodeApplicationRevisionReadinessReceiptV1,
@@ -19,9 +21,26 @@ import {
 import {
   decodeDeclarativeV2VerifierProgressFrameV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
+import {
+  appSchemaCandidateManifestSha256HexV1FromBytes,
+  AppSchemaCandidateValidationFrameSha256HexV1Schema,
+} from "flarex-protocol/internal/app-schema-candidate-validation-v1";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
+import {
+  AppSchemaCandidateReadinessError,
+  hasAppSchemaCandidateReadinessComposition,
+  loadAppSchemaCandidateReadinessEffect,
+  validateAppSchemaCandidateReadinessInTransactionEffect,
+  validateAppSchemaCandidateReadinessReceiptInTransactionEffect,
+  type AppSchemaCandidateReadinessEvidence,
+  type AppSchemaCandidateReadinessPort,
+  type AppSchemaCandidateReadinessReceiptExpectation,
+  type AppSchemaCandidateReadinessResult,
+  type LoadAppSchemaCandidateReadinessError,
+  type ValidateAppSchemaCandidateReadinessError,
+} from "./appSchemaCandidateValidation";
 import {
   makeCandidateRuntimePublicationRepositoryV1,
   type CandidateRuntimePublicationRepositoryV1Error,
@@ -101,6 +120,9 @@ const ROOT_DOMAIN = new TextEncoder().encode(
 );
 const UTF8 = new TextEncoder();
 const MAX_REQUIRED_BUILDS = 256;
+const decodeCandidateValidationFrameSha256HexResult = Schema.decodeUnknownResult(
+  AppSchemaCandidateValidationFrameSha256HexV1Schema,
+);
 
 export interface LocatedApplicationRevisionReadinessTargetV1
   extends LocatedReadCommittedAttemptTargetV1 {
@@ -143,6 +165,8 @@ export interface ApplicationRevisionReadinessContextV1<E> {
   readonly controlDb: FlarexMetadataDatabase;
   /** Exact C08-B1/B2 point-commit composition; structural copies fail closed. */
   readonly pointCommit: unknown;
+  /** Exact M03-C candidate-validation evidence composition. */
+  readonly candidateValidation: AppSchemaCandidateReadinessPort;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedApplicationRevisionReadinessTargetV1
   >;
@@ -155,6 +179,10 @@ export interface ApplicationRevisionReadinessContextV1<E> {
 
 export type ApplicationRevisionReadinessNotReadyReasonV1 =
   | "registrationIncomplete"
+  | "schemaValidationMissing"
+  | "schemaValidationInProgress"
+  | "schemaValidationFailed"
+  | "schemaValidationWrongSchema"
   | "physicalBuildMissing"
   | "physicalBuildNotEnabled"
   | "uniqueConstraintSetNotClosed"
@@ -241,6 +269,8 @@ export type SettleApplicationRevisionReadinessV1Error<E> =
   | DeclarativeV2Sha256V1Error
   | LoadPointCommitUniqueConstraintEligibilityV1Error
   | ValidatePointCommitUniqueConstraintEligibilityV1Error
+  | LoadAppSchemaCandidateReadinessError
+  | ValidateAppSchemaCandidateReadinessError
   | E;
 
 type RevisionRow = typeof fxSystemApplicationRevisionsV1.$inferSelect;
@@ -253,6 +283,12 @@ export interface ApplicationRevisionReadinessPreparedEvidenceV1 {
   readonly publication: LoadedCandidateRuntimePublicationV1;
   readonly requirements: PublishedPhysicalRequirementSnapshotV1;
   readonly pointCommit: unknown;
+  readonly candidateValidation: AppSchemaCandidateReadinessPort;
+  readonly schemaValidationCurrent: AppSchemaCandidateReadinessResult | null;
+  readonly schemaValidationExpectation:
+    AppSchemaCandidateReadinessReceiptExpectation;
+  readonly schemaValidationReceiptSha256: Uint8Array;
+  readonly readinessReceiptSha256Hint: Uint8Array | null;
   readonly uniqueConstraintEligibility:
     AppUniqueConstraintSetEligibilityResultV1;
   readonly coldReceipts: ReadonlyArray<ApplicationRevisionReadinessColdReceiptV1>;
@@ -276,8 +312,18 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
     });
   }
   const pointCommit = context.pointCommit;
+  const candidateValidation = context.candidateValidation;
   const controlDb = context.controlDb;
   const authorityPorts = context.authority;
+  if (!hasAppSchemaCandidateReadinessComposition(
+    candidateValidation,
+    controlDb,
+    authorityPorts,
+  )) {
+    return yield* new AppSchemaCandidateReadinessError({
+      reason: "invalidPort",
+    });
+  }
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
     context.deploymentId,
     authorityPorts,
@@ -348,6 +394,24 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
       controlDb,
       authorityPorts,
     );
+  const schemaValidationCurrent = yield* loadAppSchemaCandidateReadinessEffect(
+    candidateValidation,
+    Object.freeze({
+      deploymentId: revision.deploymentId,
+      scopeId: located.authority.scopeId,
+      schemaVersionId: revision.schemaVersionId,
+      schemaManifestSha256Hex:
+        appSchemaCandidateManifestSha256HexV1FromBytes(
+          requirements.manifestSha256,
+        ),
+    }),
+  );
+  if (schemaValidationCurrent.status !== "ready") {
+    return readinessNotReadyFromSchemaValidation(
+      revisionId,
+      schemaValidationCurrent,
+    );
+  }
   const existingVerdict = yield* loadExistingVerdict(
     db,
     located.authority.scopeId,
@@ -363,6 +427,8 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
       existingVerdict,
       pointCommit,
       uniqueConstraintEligibility,
+      candidateValidation,
+      schemaValidationCurrent,
     );
     return yield* runReadinessTransaction(prepared, context);
   }
@@ -400,6 +466,21 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
     publication,
     requirements,
     pointCommit,
+    candidateValidation,
+    schemaValidationCurrent,
+    schemaValidationExpectation: Object.freeze({
+      deploymentId: schemaValidationCurrent.evidence.deploymentId,
+      scopeId: schemaValidationCurrent.evidence.scopeId,
+      schemaVersionId: schemaValidationCurrent.evidence.schemaVersionId,
+      schemaManifestSha256Hex:
+        schemaValidationCurrent.evidence.schemaManifestSha256Hex,
+      receiptSha256Hex: schemaValidationCurrent.evidence.receiptSha256Hex,
+    }),
+    schemaValidationReceiptSha256: yield* schemaValidationReceiptSha256(
+      revisionId,
+      schemaValidationCurrent.evidence,
+    ),
+    readinessReceiptSha256Hint: null,
     uniqueConstraintEligibility,
     coldReceipts: normalizedColdReceipts,
     runtimePublicationRootSha256,
@@ -462,6 +543,8 @@ export const prepareStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
   existingVerdict: typeof fxSystemDeclarativeV2Verdicts.$inferSelect,
   pointCommit: unknown,
   uniqueConstraintEligibility: AppUniqueConstraintSetEligibilityResultV1,
+  candidateValidation: AppSchemaCandidateReadinessPort,
+  schemaValidationCurrent: AppSchemaCandidateReadinessResult | null,
 ): Effect.fn.Return<
   ApplicationRevisionReadinessPreparedEvidenceV1,
   | ApplicationRevisionReadinessStaleAuthorityV1Error
@@ -503,6 +586,19 @@ export const prepareStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
     })
   ));
   const frame = decoded.frame;
+  if (
+    schemaValidationCurrent?.status === "ready" &&
+    !bytesEqualFullScan(
+      frame.schemaValidationReceiptSha256,
+      yield* schemaValidationReceiptSha256(
+        revisionId,
+        schemaValidationCurrent.evidence,
+      ),
+    )
+  ) return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
+    revisionId,
+    reason: "evidence",
+  });
   if (
     frame.revisionId !== revisionId ||
     frame.scopeId !== authority.scopeId ||
@@ -547,6 +643,25 @@ export const prepareStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
     publication,
     requirements,
     pointCommit,
+    candidateValidation,
+    schemaValidationCurrent,
+    schemaValidationExpectation: Object.freeze({
+      deploymentId: revision.deploymentId,
+      scopeId: authority.scopeId,
+      schemaVersionId: revision.schemaVersionId,
+      schemaManifestSha256Hex:
+        appSchemaCandidateManifestSha256HexV1FromBytes(
+          requirements.manifestSha256,
+        ),
+      receiptSha256Hex: yield* candidateValidationReceiptSha256Hex(
+        revisionId,
+        frame.schemaValidationReceiptSha256,
+      ),
+    }),
+    schemaValidationReceiptSha256: copyBytes(
+      frame.schemaValidationReceiptSha256,
+    ),
+    readinessReceiptSha256Hint: copyBytes(existingVerdict.frameSha256),
     uniqueConstraintEligibility,
     coldReceipts,
     runtimePublicationRootSha256,
@@ -565,7 +680,8 @@ export type LoadStoredApplicationRevisionReadinessEvidenceV1Error =
   | ReadAppIndexDefinitionError
   | ReadAppSchemaVersionIndexBindingError
   | DeclarativeV2Sha256V1Error
-  | LoadPointCommitUniqueConstraintEligibilityV1Error;
+  | LoadPointCommitUniqueConstraintEligibilityV1Error
+  | AppSchemaCandidateReadinessError;
 
 export const loadStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
   "ApplicationRevisionReadiness.loadStoredEvidence",
@@ -574,6 +690,7 @@ export const loadStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
   deploymentId: string,
   controlDb: FlarexMetadataDatabase,
   pointCommit: unknown,
+  candidateValidation: AppSchemaCandidateReadinessPort,
   authorityPorts: TrustedScopeAuthorityResolutionPorts,
   located: LocatedTrustedScopeAuthority<
     LocatedApplicationRevisionReadinessTargetV1
@@ -582,6 +699,15 @@ export const loadStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
   ApplicationRevisionReadinessPreparedEvidenceV1 | null,
   LoadStoredApplicationRevisionReadinessEvidenceV1Error
 > {
+  if (!hasAppSchemaCandidateReadinessComposition(
+    candidateValidation,
+    controlDb,
+    authorityPorts,
+  )) {
+    return yield* new AppSchemaCandidateReadinessError({
+      reason: "invalidPort",
+    });
+  }
   const db = located.target[READINESS_TARGET_DB];
   const revision = yield* loadRevision(db, revisionId);
   if (revision === null) {
@@ -638,6 +764,8 @@ export const loadStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
     existingVerdict,
     pointCommit,
     uniqueConstraintEligibility,
+    candidateValidation,
+    null,
   );
 });
 
@@ -716,6 +844,7 @@ const settleInTransaction = Effect.fn(
   | ApplicationRevisionReadinessCorruptionV1Error
   | ApplicationRevisionReadinessIntegrationV1Error
   | ValidatePointCommitUniqueConstraintEligibilityV1Error
+  | ValidateAppSchemaCandidateReadinessError
   | DeclarativeV2Sha256V1Error
 > {
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
@@ -729,24 +858,35 @@ const settleInTransaction = Effect.fn(
     clock,
     "update",
     false,
+    validateRequiredSchemaValidation,
   );
 });
 
 const settleWithLockedClock = Effect.fn(
   "ApplicationRevisionReadiness.settleWithLockedClock",
-)(function* <E>(
+)(function* <E, SchemaValidationError>(
   tx: AppRowTransaction,
   prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
   context: ApplicationRevisionReadinessContextV1<E> | undefined,
   clock: ScopeClockRecord,
   evidenceLock: "update" | "share",
   requireExisting: boolean,
+  validateSchema: (
+    tx: AppRowTransaction,
+    prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
+    clock: ScopeClockRecord,
+    evidenceLock: "update" | "share",
+  ) => Effect.Effect<
+    SettleApplicationRevisionReadinessV1Result | null,
+    SchemaValidationError
+  >,
 ): Effect.fn.Return<
   SettleApplicationRevisionReadinessV1Result,
   | ApplicationRevisionReadinessStaleAuthorityV1Error
   | ApplicationRevisionReadinessCorruptionV1Error
   | ApplicationRevisionReadinessIntegrationV1Error
   | ValidatePointCommitUniqueConstraintEligibilityV1Error
+  | SchemaValidationError
   | DeclarativeV2Sha256V1Error
 > {
   const revisionId = prepared.revision.revisionId;
@@ -788,6 +928,14 @@ const settleWithLockedClock = Effect.fn(
     revisionId,
     reason: "candidate",
   });
+
+  const schemaValidation = yield* validateSchema(
+    tx,
+    prepared,
+    clock,
+    evidenceLock,
+  );
+  if (schemaValidation !== null) return schemaValidation;
 
   const attemptRows = yield* query(tx.select()
     .from(fxSystemDeclarativeV2VerifierAttemptsV2)
@@ -1047,12 +1195,67 @@ const settleWithLockedClock = Effect.fn(
   return readyResult("inserted", prepared, receipt.sha256, receipt.bytes, readyAt.toISOString());
 });
 
+const validateRequiredSchemaValidation = Effect.fn(
+  "ApplicationRevisionReadiness.validateRequiredSchemaValidation",
+)(function* (
+  tx: AppRowTransaction,
+  prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
+  clock: ScopeClockRecord,
+  evidenceLock: "update" | "share",
+): Effect.fn.Return<
+  SettleApplicationRevisionReadinessV1Result | null,
+  | ValidateAppSchemaCandidateReadinessError
+  | ApplicationRevisionReadinessStaleAuthorityV1Error
+  | ApplicationRevisionReadinessCorruptionV1Error
+  | DeclarativeV2Sha256V1Error
+> {
+  const revisionId = prepared.revision.revisionId;
+  const current = prepared.schemaValidationCurrent;
+  if (current !== null && current.status !== "ready") {
+    return readinessNotReadyFromSchemaValidation(revisionId, current);
+  }
+  const validated = yield* current === null
+    ? validateAppSchemaCandidateReadinessReceiptInTransactionEffect(
+      tx,
+      prepared.candidateValidation,
+      prepared.schemaValidationExpectation,
+      prepared.authority,
+      clock,
+      evidenceLock,
+    )
+    : validateAppSchemaCandidateReadinessInTransactionEffect(
+      tx,
+      prepared.candidateValidation,
+      current.evidence,
+      prepared.authority,
+      clock,
+      evidenceLock,
+    );
+  if (validated.status !== "ready") {
+    return readinessNotReadyFromSchemaValidation(revisionId, validated);
+  }
+  if (!bytesEqualFullScan(
+    prepared.schemaValidationReceiptSha256,
+    yield* schemaValidationReceiptSha256(revisionId, validated.evidence),
+  )) {
+    return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
+      revisionId,
+      reason: "evidence",
+    });
+  }
+  return null;
+});
+
 export type ValidateStoredApplicationRevisionReadinessEvidenceV1Error =
   | ApplicationRevisionReadinessStaleAuthorityV1Error
   | ApplicationRevisionReadinessCorruptionV1Error
   | ApplicationRevisionReadinessIntegrationV1Error
   | ValidatePointCommitUniqueConstraintEligibilityV1Error
   | DeclarativeV2Sha256V1Error;
+
+export type ValidateStoredApplicationRevisionReadinessEvidenceForActivationV1Error =
+  | ValidateStoredApplicationRevisionReadinessEvidenceV1Error
+  | ValidateAppSchemaCandidateReadinessError;
 
 export const validateStoredApplicationRevisionReadinessEvidenceInTransactionV1 =
   Effect.fn("ApplicationRevisionReadiness.validateStoredEvidenceInTransaction")(
@@ -1069,9 +1272,33 @@ export const validateStoredApplicationRevisionReadinessEvidenceInTransactionV1 =
         lockedClock,
         evidenceLock,
         true,
+        () => Effect.succeed(null),
       );
     },
   );
+
+export const validateStoredApplicationRevisionReadinessEvidenceForActivationInTransactionV1 =
+  Effect.fn(
+    "ApplicationRevisionReadiness.validateStoredEvidenceForActivationInTransaction",
+  )(function* (
+    tx: AppRowTransaction,
+    prepared: ApplicationRevisionReadinessPreparedEvidenceV1,
+    lockedClock: ScopeClockRecord,
+    evidenceLock: "update" | "share",
+  ): Effect.fn.Return<
+    SettleApplicationRevisionReadinessV1Result,
+    ValidateStoredApplicationRevisionReadinessEvidenceForActivationV1Error
+  > {
+    return yield* settleWithLockedClock(
+      tx,
+      prepared,
+      undefined,
+      lockedClock,
+      evidenceLock,
+      true,
+      validateRequiredSchemaValidation,
+    );
+  });
 
 function requireCandidateCorrelation(
   revision: RevisionRow,
@@ -1260,6 +1487,8 @@ const encodeAndHashReceipt = Effect.fn(
       validatorRootSha256: revision.validatorRootSha256,
       declaredHandlerSetSha256: revision.declaredHandlerSetSha256,
       registrationRootSha256: revision.registrationRootSha256,
+      schemaValidationReceiptSha256:
+        prepared.schemaValidationReceiptSha256,
       enabledBuildRootSha256,
       runtimeProjectionSetSha256:
         prepared.candidate.runtimeProjectionSetSha256,
@@ -1534,6 +1763,69 @@ function readinessNotReadyFromUniqueConstraintEligibility(
       ));
   }
 }
+
+function readinessNotReadyFromSchemaValidation(
+  revisionId: string,
+  result: Extract<
+    AppSchemaCandidateReadinessResult,
+    { readonly status: "not_ready" }
+  >,
+): SettleApplicationRevisionReadinessV1Result {
+  switch (result.reason) {
+    case "missing":
+      return notReady(revisionId, "schemaValidationMissing");
+    case "inProgress":
+      return notReady(revisionId, "schemaValidationInProgress");
+    case "failed":
+      return notReady(revisionId, "schemaValidationFailed");
+    case "wrongSchema":
+      return notReady(revisionId, "schemaValidationWrongSchema");
+    default: {
+      const unreachable: never = result.reason;
+      return unreachable;
+    }
+  }
+}
+
+const candidateValidationReceiptSha256Hex = Effect.fn(
+  "ApplicationRevisionReadiness.candidateValidationReceiptSha256Hex",
+)(function* (revisionId: string, bytes: Uint8Array) {
+  return yield* Effect.fromResult(
+    decodeCandidateValidationFrameSha256HexResult(
+      encodeBytesToLowercaseHex(bytes),
+    ),
+  ).pipe(Effect.mapError(cause =>
+    new ApplicationRevisionReadinessCorruptionV1Error({
+      revisionId,
+      detail: "the candidate-validation receipt digest is invalid",
+      cause,
+    })
+  ));
+});
+
+const schemaValidationReceiptSha256 = Effect.fn(
+  "ApplicationRevisionReadiness.schemaValidationReceiptSha256",
+)(function* (
+  revisionId: string,
+  evidence: AppSchemaCandidateReadinessEvidence,
+) {
+  const bytes = yield* Effect.fromResult(
+    Encoding.decodeHex(evidence.receiptSha256Hex),
+  ).pipe(Effect.mapError(cause =>
+    new ApplicationRevisionReadinessCorruptionV1Error({
+      revisionId,
+      detail: "the candidate-validation receipt digest is invalid",
+      cause,
+    })
+  ));
+  if (!isUint8ArrayWithByteLength(bytes, 32)) {
+    return yield* new ApplicationRevisionReadinessCorruptionV1Error({
+      revisionId,
+      detail: "the candidate-validation receipt digest has an invalid length",
+    });
+  }
+  return copyBytes(bytes);
+});
 
 function readyResult(
   disposition: "inserted" | "replayed",

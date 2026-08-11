@@ -11,6 +11,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
+  appSchemaCandidateManifestSha256HexV1FromBytes,
   AppSchemaCandidateValidationOperationV1Error,
   MAX_APP_SCHEMA_CANDIDATE_VALIDATION_FAILURE_FRAME_BYTES_V1,
 } from
@@ -27,21 +28,26 @@ import {
   advanceAppSchemaCandidateValidationEffect,
   applyAppSchemaCandidateWriteGuardInTransactionEffect,
   canonicalizeBoundedFailureEvidenceFrameEffect,
+  createAppSchemaCandidateReadinessPort,
   createAppSchemaCandidateValidationPort,
   createAppSchemaCandidateWriteGuardPort,
   createLocatedAppSchemaCandidateValidationTarget,
   hasAppSchemaCandidateValidationComposition,
   hasAppSchemaCandidateWriteGuardComposition,
   installAppSchemaCandidateValidationEffect,
+  loadAppSchemaCandidateReadinessEffect,
   loadAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
   prepareAppSchemaCandidateWriteGuardEffect,
+  validateAppSchemaCandidateReadinessInTransactionEffect,
 } from "../src/appSchemaCandidateValidation";
 import {
   appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
 } from "../src/appRows";
 import { createPGlitePersistence } from "../src/pglite";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import { lockScopeClockForUpdateInTransactionEffect } from
+  "../src/scopeClock";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
   "../src/transactionSessionActivation";
 import { LocatedReadCommittedTransactionFailureV1 } from
@@ -56,6 +62,128 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("M03-A app-schema candidate validation", () => {
+  it("projects exact missing, progress, receipt, failure, and replacement readiness", async () => {
+    const fixture = await fixtureFor("readiness");
+    const validation = port(fixture);
+    const readiness = createAppSchemaCandidateReadinessPort(validation);
+
+    await expect(runEffect(loadAppSchemaCandidateReadinessEffect(
+      readiness,
+      readinessInput(
+        fixture,
+        fixture.schemaVersionId,
+        fixture.schemaManifestSha256Hex,
+      ),
+    ))).resolves.toEqual({ status: "not_ready", reason: "missing" });
+
+    await runEffect(installAppSchemaCandidateValidationEffect(
+      validation,
+      input(fixture, fixture.schemaVersionId),
+    ));
+    await expect(runEffect(loadAppSchemaCandidateReadinessEffect(
+      readiness,
+      readinessInput(
+        fixture,
+        fixture.schemaVersionId,
+        fixture.schemaManifestSha256Hex,
+      ),
+    ))).resolves.toEqual({ status: "not_ready", reason: "inProgress" });
+
+    await runEffect(advanceAppSchemaCandidateValidationEffect(
+      validation,
+      input(fixture, fixture.schemaVersionId),
+    ));
+    const receipt = await runEffect(settleAppSchemaCandidateValidationEffect(
+      validation,
+      input(fixture, fixture.schemaVersionId),
+    ));
+    const ready = await runEffect(loadAppSchemaCandidateReadinessEffect(
+      readiness,
+      readinessInput(
+        fixture,
+        fixture.schemaVersionId,
+        fixture.schemaManifestSha256Hex,
+      ),
+    ));
+    expect(ready).toMatchObject({
+      status: "ready",
+      evidence: {
+        schemaVersionId: fixture.schemaVersionId,
+        receiptSha256Hex: receipt.frameSha256Hex,
+      },
+    });
+    if (ready.status !== "ready") {
+      throw new Error("Candidate readiness receipt was not available.");
+    }
+
+    const copiedReadiness = { ...readiness } as typeof readiness;
+    await expect(runEffectFailure(loadAppSchemaCandidateReadinessEffect(
+      copiedReadiness,
+      readinessInput(
+        fixture,
+        fixture.schemaVersionId,
+        fixture.schemaManifestSha256Hex,
+      ),
+    ))).resolves.toMatchObject({
+      _tag: "AppSchemaCandidateReadinessError",
+      reason: "invalidPort",
+    });
+
+    await appendLive(fixture, rowId(1), 1n, null, { name: 42 });
+    await setClockCommit(fixture, 1n);
+    await runEffect(installAppSchemaCandidateValidationEffect(
+      validation,
+      input(fixture, fixture.replacementSchemaVersionId),
+    ));
+    const currentClock = await fixture.target.getCurrentClock(fixture.scopeId);
+    if (currentClock === null) throw new Error("Missing scope clock.");
+    const authority = Object.freeze({
+      deploymentId: fixture.deploymentId,
+      scopeId: fixture.scopeId,
+      physicalLocator: LOCATOR,
+      storageGeneration: currentClock.storageGeneration,
+      storageGenerationFence: currentClock.storageGenerationFence,
+      epoch: currentClock.epoch,
+      lastCommitSeq: currentClock.lastCommitSeq,
+      lastOutboxSeq: currentClock.lastOutboxSeq,
+    });
+    await expect(fixture.persistence.drizzle.transaction(tx => runEffect(
+      Effect.gen(function* () {
+        const lockedClock = yield*
+          lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+        return yield* validateAppSchemaCandidateReadinessInTransactionEffect(
+          tx,
+          readiness,
+          ready.evidence,
+          authority,
+          lockedClock,
+          "update",
+        );
+      }),
+    ))).resolves.toEqual({ status: "not_ready", reason: "wrongSchema" });
+    await expect(runEffect(loadAppSchemaCandidateReadinessEffect(
+      readiness,
+      readinessInput(
+        fixture,
+        fixture.schemaVersionId,
+        fixture.schemaManifestSha256Hex,
+      ),
+    ))).resolves.toEqual({ status: "not_ready", reason: "wrongSchema" });
+
+    await runEffect(advanceAppSchemaCandidateValidationEffect(
+      validation,
+      input(fixture, fixture.replacementSchemaVersionId),
+    ));
+    await expect(runEffect(loadAppSchemaCandidateReadinessEffect(
+      readiness,
+      readinessInput(
+        fixture,
+        fixture.replacementSchemaVersionId,
+        fixture.replacementSchemaManifestSha256Hex,
+      ),
+    ))).resolves.toEqual({ status: "not_ready", reason: "failed" });
+  });
+
   it("installs one head, replays exactly, and supersedes a different candidate", async () => {
     const fixture = await fixtureFor("install");
     const first = await install(fixture, fixture.schemaVersionId);
@@ -918,7 +1046,13 @@ interface Fixture {
   readonly scopeId: ReturnType<typeof ScopeIdSchema.make>;
   readonly epoch: ReturnType<typeof ScopeEpochSchema.make>;
   readonly schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>;
+  readonly schemaManifestSha256Hex: ReturnType<
+    typeof appSchemaCandidateManifestSha256HexV1FromBytes
+  >;
   readonly replacementSchemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>;
+  readonly replacementSchemaManifestSha256Hex: ReturnType<
+    typeof appSchemaCandidateManifestSha256HexV1FromBytes
+  >;
   readonly emptySchemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>;
   readonly tableId: CatalogTableId;
   readonly secondaryTableId: CatalogTableId;
@@ -965,7 +1099,7 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     tables: [appTable("recipes", false), appTable("ingredients", false)],
     indexes: [],
   });
-  await persistence.publishAppSchemaV1({
+  const replacement = await persistence.publishAppSchemaV1({
     deploymentId,
     schemaVersionId: replacementSchemaVersionId,
     version: CatalogSchemaVersionSchema.make(2),
@@ -989,7 +1123,15 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     scopeId,
     epoch,
     schemaVersionId,
+    schemaManifestSha256Hex:
+      appSchemaCandidateManifestSha256HexV1FromBytes(
+        first.artifact.manifestSha256,
+      ),
     replacementSchemaVersionId,
+    replacementSchemaManifestSha256Hex:
+      appSchemaCandidateManifestSha256HexV1FromBytes(
+        replacement.artifact.manifestSha256,
+      ),
     emptySchemaVersionId,
     tableId: table.tableId,
     secondaryTableId: secondaryTable.tableId,
@@ -1033,6 +1175,19 @@ function input(
   schemaVersionId: Fixture["schemaVersionId"],
 ) {
   return Object.freeze({ deploymentId: fixture.deploymentId, schemaVersionId });
+}
+
+function readinessInput(
+  fixture: Fixture,
+  schemaVersionId: Fixture["schemaVersionId"],
+  schemaManifestSha256Hex: Fixture["schemaManifestSha256Hex"],
+) {
+  return Object.freeze({
+    deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
+    schemaVersionId,
+    schemaManifestSha256Hex,
+  });
 }
 
 function install(fixture: Fixture, schemaVersionId: Fixture["schemaVersionId"]) {

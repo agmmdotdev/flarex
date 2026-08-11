@@ -11,7 +11,10 @@ import {
   appDocumentIdV1FromRowIdentity,
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
-import { decodeCatalogSchemaVersionId } from
+import {
+  CatalogSchemaVersionSchema,
+  decodeCatalogSchemaVersionId,
+} from
   "flarex-protocol/schema-manifest";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { decodeReplacementScopeIdV1 } from
@@ -65,6 +68,7 @@ import {
   authorityPorts,
   prepareReadinessUniqueConstraintSetEffectV1,
   readinessContext,
+  settleReadinessCandidateValidationV1,
 } from "./fsv04ApplicationRevisionReadinessHarness";
 import {
   makeMemoryRuntimeArtifactStoreV1,
@@ -114,6 +118,9 @@ export interface Fsv05ApplicationRevisionActivationProofV1 {
   readonly sameRequestDispositions: readonly ["replayed", "replayed"];
   readonly alreadyActiveRejected: true;
   readonly overflowCasRejected: true;
+  readonly candidateValidationInvalidationRejected: true;
+  readonly activeReadSurvivesCandidateReplacement: true;
+  readonly exactReplaySurvivesCandidateReplacement: true;
   readonly invalidatedReadinessRejected: true;
   readonly uniqueConstraintNotReadyRejected: true;
   readonly uniqueConstraintDriftRejected: true;
@@ -659,6 +666,56 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     throw new Error("C03-V syscall-validator authority proof did not close.");
   }
 
+  const currentAfterSyscallReplacement = await Effect.runPromise(
+    Effect.scoped(coordinator.readActive(first.context)),
+  );
+  const replacementSchemaVersionId = decodeCatalogSchemaVersionId(
+    "fsv05_candidate_validation_replacement",
+  );
+  await lane.persistence.publishAppSchemaV1({
+    deploymentId: fifth.deploymentId,
+    schemaVersionId: replacementSchemaVersionId,
+    version: CatalogSchemaVersionSchema.make(99),
+    tables: [],
+    indexes: [],
+  });
+  await settleReadinessCandidateValidationV1(
+    lane.persistence,
+    lane.makeActivationTarget(),
+    fifth.deploymentId,
+    replacementSchemaVersionId,
+  );
+  const candidateInvalidated = await Effect.runPromise(Effect.exit(
+    Effect.scoped(coordinator.activate(
+      fifth.revisionId,
+      currentAfterSyscallReplacement.expectedActiveRevision,
+      fifth.context,
+    )),
+  ));
+  requireFailureTag(
+    candidateInvalidated,
+    "ApplicationRevisionActivationNotReadyV1Error",
+  );
+  const activeAfterCandidateReplacement = await Effect.runPromise(
+    Effect.scoped(coordinator.readActive(first.context)),
+  );
+  if (
+    activeAfterCandidateReplacement.metadata.applicationRevisionId !==
+      first.revisionId
+  ) {
+    throw new Error(
+      "FSV05 mutable candidate replacement invalidated the active reader.",
+    );
+  }
+  const replayAfterCandidateReplacement = await Effect.runPromise(
+    Effect.scoped(coordinator.activate(first.revisionId, null, first.context)),
+  );
+  if (replayAfterCandidateReplacement.disposition !== "replayed") {
+    throw new Error(
+      "FSV05 mutable candidate replacement invalidated exact activation replay.",
+    );
+  }
+
   const storedHead = await lane.persistence.query<{
     frame_bytes: Uint8Array;
   }>("select frame_bytes from fx_system_declarative_v2_activation_head");
@@ -719,6 +776,9 @@ export async function proveFsv05ApplicationRevisionActivationV1(
     sameRequestDispositions: ["replayed", "replayed"] as const,
     alreadyActiveRejected: true,
     overflowCasRejected: true,
+    candidateValidationInvalidationRejected: true,
+    activeReadSurvivesCandidateReplacement: true,
+    exactReplaySurvivesCandidateReplacement: true,
     invalidatedReadinessRejected: true,
     uniqueConstraintNotReadyRejected: true,
     uniqueConstraintDriftRejected: true,
@@ -790,6 +850,19 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
     })),
   );
   const target = lane.makeActivationTarget();
+  yield* Effect.tryPromise({
+    try: () => settleReadinessCandidateValidationV1(
+      lane.persistence,
+      target,
+      registered.deploymentId,
+      registered.registered.schemaVersionId,
+    ),
+    catch: cause => new Fsv05ReadyRevisionFixtureV1Error({
+      phase: "settleReadiness",
+      message: `FSV05 candidate validation did not settle for ${variant ?? "base"}.`,
+      cause,
+    }),
+  });
   const context = readinessContext(
     registered.deploymentId,
     lane.persistence,
@@ -886,6 +959,7 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
       deploymentId: registered.deploymentId,
       controlDb: lane.persistence.drizzle,
       pointCommit: context.pointCommit,
+      candidateValidation: context.candidateValidation,
       authority: context.authority,
     }),
   });
@@ -924,6 +998,7 @@ function activationContext(
     deploymentId,
     controlDb: persistence.drizzle,
     pointCommit: readiness.pointCommit,
+    candidateValidation: readiness.candidateValidation,
     authority: readiness.authority,
   });
 }
