@@ -820,12 +820,18 @@ The next medium slice is accepted with this cut:
    paths, roles, byte lengths, and source digests with the manifest, and builds
    Worker Loader code from those bytes. It does not store or republish a module
    body.
-2. Reuse the existing exact-runtime worker cores and invocation capability
-   owners through new narrow definition adapters. Point mutation, query,
-   internal-call, and edge-action adapters accept the one application target
-   and reject the wrong kind or visibility. They may add host configuration and
-   invocation envelopes, but they must not manufacture candidate, semantic,
-   projection, package, artifact, or static-call-graph evidence.
+2. Do not feed the application target into an existing exact-runtime worker
+   core. Those concrete request contracts require an `artifactId`,
+   `sourcePackageHash`, and artifact execution identity; deriving those names
+   from the source or publication digest would create semantically false
+   evidence. Add one application transaction worker contract for query,
+   mutation, workflow mutation, and internal calls, and one application action
+   worker contract for action plus its callback capabilities. Reuse the existing
+   lower-level Function API, syscall, validation, transaction, and action-host
+   capability owners only where their inputs retain the same meaning. Both new
+   workers accept the one application target and reject the wrong kind or
+   visibility. They must not manufacture candidate, semantic, projection,
+   package, artifact, or static-call-graph evidence.
 3. Cold proof means Worker Loader evaluates the authenticated whole bundle with
    outbound networking disabled and resolves the exact registered function from
    the generated execution module. It is not a second analysis pass and does
@@ -872,6 +878,15 @@ write both task generations, infer a dependency graph, or treat an old
 readiness/activation/selection/task value as new evidence. A defect exposed in
 one of those shared owners is recorded and stopped at its boundary under the
 repository rule.
+
+The subsequent exact-runtime ABI trace strengthens that decision. Existing
+worker-definition builders do accept caller-supplied source modules, but their
+configuration and request decoders still pin the displaced artifact reference.
+Therefore "reuse the worker cores through adapters" is rejected; only the
+lower-level capability mechanics may be reused. This correction does not widen
+runtime or transaction authority. It prevents a source-root or publication
+digest from being relabeled as a source-package hash merely to satisfy an old
+type.
 
 First migrate executable authority and publication:
 
