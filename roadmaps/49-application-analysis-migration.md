@@ -926,6 +926,56 @@ action worker contracts plus the separate Application task-binding generation
 and private persistence remain required. No new task row may be selected and no
 old task binding may be reinterpreted while that work is incomplete.
 
+#### AA-R6 Application task-binding implementation preflight — 2026-08-11
+
+The concrete producer and storage trace rejects adapting
+`TaskDefinitionRuntimeBindingV1`. That contract is not merely an inconvenient
+container: its canonical bytes commit the displaced Application Revision V1,
+candidate digest, semantic root, package/artifact identities, runtime
+projection objects, and activation authority. Field deletion, placeholder
+digests, or an adapter that silently supplies those fields would create false
+evidence. The existing Canonical Task Catalog V1 and Canonical Task Manifest V1
+remain reusable because they own task intent, validators, attempt policy,
+compute profile, queue, and the logical/source handler mapping rather than
+application activation or artifact authority.
+
+The accepted implementation cut is:
+
+1. Add new versioned Application task-catalog and task-definition binding
+   contracts beside, not inside, the displaced runtime-binding contract. The
+   catalog binding commits scope, inactive Application Revision V2,
+   candidate/analysis identities, publication digest, Source Artifact V2 root,
+   canonical task-catalog digest and count, runtime-host identity, and
+   compatibility date. Each definition binding additionally commits its task
+   identity, canonical manifest digest, and exact logical module, authenticated
+   source module, and export name.
+2. The Standard producer accepts an already canonical hashed task catalog and
+   a prepared Standard Application definition. For every task it proves that
+   the logical-to-source module pair exactly matches
+   `artifactIngressPlan.source.functionEntries`, that the source module exists,
+   and that task IDs remain unique and canonically ordered. It does not infer a
+   dependency graph or claim that an export executed successfully; final
+   readiness owns cold runtime proof.
+3. Persist one immutable catalog header and immutable child definition rows.
+   The header is required even for an empty catalog, avoiding an absence that
+   could mean either "no tasks" or "tasks not generated." Child rows reference
+   the exact header and retain canonical manifest and binding bytes for later
+   verified decoding. Both generations foreign-key to the exact inactive
+   Application Revision/publication authority and contain no module body.
+4. Keep the repository private and registration-only. It supports idempotent
+   exact replay and rejects conflicting replay. It does not export a public task
+   API, write `fx_system_durable_task_definition_revision_v1`, create a task
+   run, publish compute-delivery evidence, select an active revision, or add a
+   fallback between task generations.
+
+Self-review accepts this cut because the catalog header makes empty intent
+explicit, the child rows keep lookup simple, and the canonical commitments are
+smaller than the displaced runtime-projection model while retaining every
+authority needed by later readiness and selection. The stop conditions are any
+need to reinterpret an old task digest, manufacture artifact or semantic
+identity, inspect user code statically to prove an export, dual-write task
+generations, or change current run-creation/compute-delivery semantics.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
