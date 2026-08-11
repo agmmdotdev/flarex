@@ -31,8 +31,11 @@ import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
   createPGlitePersistence,
 } from "../src/pglite";
+import { makeTaskComputeDeliveryCandidateDiscovery } from
+  "../src/taskComputeDeliveryDiscovery";
 import {
   TaskComputeDeliveryRepositoryConfirmedRollbackV1Error,
+  TaskComputeDeliveryRepositoryCorruptionV1Error,
   TaskComputeDeliveryRepositoryInputV1Error,
   TaskComputeDeliveryRepositoryConfigurationV1Error,
   TaskComputeDeliveryRepositoryDecisionUncertainV1Error,
@@ -88,6 +91,13 @@ import {
 } from "./taskSystemRunCreationTestSupport";
 
 const CLAIM_OWNER_A = "73000000-0000-4000-8000-000000000001";
+const DISCOVERY_DEADLINE_POLICY = Object.freeze({
+  connectionTimeoutMilliseconds: 1_000,
+  lockTimeoutMilliseconds: 250,
+  statementTimeoutMilliseconds: 10_000,
+  transactionTimeoutMilliseconds: 20_000,
+  settlementReserveMilliseconds: 30_000,
+});
 const CLAIM_OWNER_B = "73000000-0000-4000-8000-000000000002";
 const runVersionOne = success(decodeTaskRunVersionV1("1"));
 const cancellationGenerationOne = success(
@@ -272,6 +282,12 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       const firstRepository = repository(deliveryLocated, CLAIM_OWNER_A);
       const secondRepository = repository(deliveryLocated, CLAIM_OWNER_B);
 
+      expect(await pendingDeliveryCount(
+        persistence,
+        runId,
+        dispatchSequence,
+      )).toBe(1);
+
       const first = await runEffect(firstRepository.acquireDispatch({
         runId,
         requestedEffectSequence: dispatchSequence,
@@ -299,6 +315,11 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       });
       expect("manifest" in first.prepared.runtimeBindingCommitment).toBe(false);
       expect(Object.isFrozen(first.handle)).toBe(true);
+      expect(await pendingDeliveryCount(
+        persistence,
+        runId,
+        dispatchSequence,
+      )).toBe(0);
 
       const second = await runEffect(secondRepository.acquireDispatch({
         runId,
@@ -327,6 +348,52 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         claim_fence: "1",
         delivery_state: "prepared",
         delivery_attempt_count: "0",
+      }]);
+    });
+  });
+
+  it("rolls back checkpoint creation when pending membership has the wrong kind", async () => {
+    await withFixture(async ({
+      persistence,
+      deliveryLocated,
+      runId,
+      dispatchSequence,
+    }) => {
+      await persistence.query(`
+        update fx_system_durable_task_compute_pending_v1
+        set kind = 'request_execution_cancellation'
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+
+      const failure = await runEffectFailure(
+        repository(deliveryLocated, CLAIM_OWNER_A).acquireDispatch({
+          runId,
+          requestedEffectSequence: dispatchSequence,
+        }),
+      );
+      expect(failure).toBeInstanceOf(
+        TaskComputeDeliveryRepositoryCorruptionV1Error,
+      );
+      expect(failure).toMatchObject({
+        operation: "acquire_dispatch",
+        reason: "pending_membership_invalid",
+      });
+      const checkpoints = await persistence.query<{ count: string }>(`
+        select count(*)::text as count
+        from fx_system_durable_task_compute_dispatch_v1
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      expect(checkpoints.rows).toEqual([{ count: "0" }]);
+      const pending = await persistence.query<{ kind: string }>(`
+        select kind
+        from fx_system_durable_task_compute_pending_v1
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      expect(pending.rows).toEqual([{
+        kind: "request_execution_cancellation",
       }]);
     });
   });
@@ -872,6 +939,74 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         replay.handle,
         acceptance,
       ))).toMatchObject({ kind: "dispatch_accepted", acceptance });
+    });
+  });
+
+  it("keeps cancellation discoverable until dispatch creates its checkpoint", async () => {
+    await withFixture(async (fixture) => {
+      const deliveryRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      const cancellationSequence = await requestFixtureCancellation(fixture);
+      expect(await runEffect(deliveryRepository.acquireCancellation({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      }))).toEqual({ kind: "waiting_dispatch" });
+      expect(await pendingDeliveryCount(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toBe(1);
+
+      const discovery = success(makeTaskComputeDeliveryCandidateDiscovery(
+        fixture.deliveryLocated,
+        DISCOVERY_DEADLINE_POLICY,
+      ));
+      const beforeDispatch = await runEffect(
+        discovery.discoverCancellationCandidates({ limit: 10 }),
+      );
+      expect(beforeDispatch.candidates).toHaveLength(1);
+      expect(beforeDispatch.candidates[0]).toMatchObject({
+        runId: fixture.runId,
+        requestedEffectSequence: cancellationSequence,
+      });
+
+      const dispatch = await runEffect(deliveryRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (dispatch.kind !== "claimed") throw new Error("dispatch was not claimed");
+      await runEffect(
+        deliveryRepository.markDispatchDeliveryStarted(dispatch.handle),
+      );
+      const acceptance = success(validateTaskComputeDispatchAcceptanceV1({
+        version: TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+        kind: "accepted",
+        identity: dispatch.prepared.dispatchRequest.identity,
+        execution: {
+          provider: "test-provider",
+          providerVersion: "v1",
+          executionId: "pre-dispatch-cancellation-race",
+        },
+      }));
+      await runEffect(deliveryRepository.recordDispatchAcceptance(
+        dispatch.handle,
+        acceptance,
+      ));
+
+      const cancellation = await runEffect(
+        deliveryRepository.acquireCancellation({
+          runId: fixture.runId,
+          requestedEffectSequence: cancellationSequence,
+        }),
+      );
+      expect(cancellation.kind).toBe("claimed");
+      expect(await pendingDeliveryCount(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toBe(0);
     });
   });
 
@@ -2309,6 +2444,20 @@ async function dispatchCheckpointCount(fixture: DeliveryFixture) {
     where scope_id = $1 and run_id = $2
       and requested_effect_sequence = $3
   `, [TASK_SCOPE_ID, fixture.runId, fixture.dispatchSequence]);
+  return Number(result.rows[0]?.count ?? "-1");
+}
+
+async function pendingDeliveryCount(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  runId: string,
+  requestedEffectSequence: bigint,
+) {
+  const result = await persistence.query<{ count: string }>(`
+    select count(*)::text as count
+    from fx_system_durable_task_compute_pending_v1
+    where scope_id = $1 and run_id = $2
+      and requested_effect_sequence = $3
+  `, [TASK_SCOPE_ID, runId, requestedEffectSequence]);
   return Number(result.rows[0]?.count ?? "-1");
 }
 

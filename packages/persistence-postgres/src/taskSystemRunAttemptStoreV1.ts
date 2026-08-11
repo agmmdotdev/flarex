@@ -40,6 +40,7 @@ import {
 } from "./scopeClock";
 import {
   fxSystemDurableTaskAttemptIdentitiesV1,
+  fxSystemDurableTaskComputePendingV1,
   fxSystemDurableTaskRequestedEffectsV1,
   fxSystemDurableTaskRunsV1,
   fxSystemScopeClocks,
@@ -593,6 +594,28 @@ async function applyDecision<Outcome>(
         notBeforeMs: taskSystemRequestedEffectNotBeforeMsV1(persisted),
       })),
     );
+    const pendingComputeEffects: Array<
+      typeof fxSystemDurableTaskComputePendingV1.$inferInsert
+    > = [];
+    for (const { persisted } of prepared.effects) {
+      if (
+        persisted.effect.kind === "dispatch_attempt" ||
+        persisted.effect.kind === "request_execution_cancellation"
+      ) {
+        pendingComputeEffects.push({
+          scopeId,
+          runId: request.runId,
+          requestedEffectSequence: persisted.sequence,
+          kind: persisted.effect.kind,
+          eligibleAt: new Date(databaseNowMs),
+        });
+      }
+    }
+    if (pendingComputeEffects.length > 0) {
+      await tx.insert(fxSystemDurableTaskComputePendingV1).values(
+        pendingComputeEffects,
+      );
+    }
   }
   return Object.freeze({
     disposition: "accepted",

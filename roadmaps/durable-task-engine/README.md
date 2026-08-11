@@ -66,9 +66,16 @@ ordinary-role genuine-PostgreSQL transaction proofs. The approved bounded C2
 correction now durably rejects an older provider-stale cancellation generation
 as `provider_stale_generation`, without a receipt or Task cancellation
 acknowledgement, and proves the outcome in PGlite and genuine PostgreSQL.
-DTE06-C3 is admitted as the next production-inert implementation slice but has
-not begun. Its discovery contract, continuation, budgets, and stop boundary are
-recorded in
+DTE06-C3 is active and production-inert. Its candidate persistence-discovery
+implementation now proves the strict V1 cursor, operation-specific semantics,
+database-owned deadlines, and PGlite plus ordinary-role genuine-PostgreSQL
+behavior. Its accepted pending-membership amendment now atomically projects
+compute requested effects, consumes membership with C2 checkpoint creation,
+backfills legacy unmaterialized effects, and proves bounded discovery over
+large checkpointed history with `EXPLAIN ANALYZE (BUFFERS)`. The backend trusted
+directory is the next admitted checkpoint; provider composition and the
+connected runner remain absent. The full discovery, continuation, budget, and
+stop boundary are recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
 The exact Worker
 Loader reuse boundary, operation-specific delivery ownership, and
@@ -79,7 +86,7 @@ with the C0 decision in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md)
 and the C2 contract and receipt in
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
-The provider is not wired to any host. Connected discovery/provider calls,
+The provider is not wired to any host. Connected provider calls,
 Cloudflare task bindings, a scheduled Worker host, public APIs, compute
 delivery, and production activation do not exist yet.
 

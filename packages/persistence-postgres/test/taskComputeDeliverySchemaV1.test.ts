@@ -5,9 +5,12 @@ import { createPGlitePersistence } from "../src/pglite";
 import { fxSystemDurableTaskComputeDispatchesV1 } from "../src/schema";
 import {
   decodeStoredTaskComputeDeliveryEvidenceV1,
+  deleteTaskComputePendingConstraintRowV1,
+  invalidTaskComputePendingStatementsV1,
   invalidTaskComputeDeliveryStatementsV1,
   proveLosslessComputeProfileStorageV1,
   seedTaskComputeDeliverySchemaV1,
+  seedTaskComputePendingConstraintRowV1,
   settleTaskComputeDeliverySchemaV1,
 } from "./taskComputeDeliverySchemaV1TestSupport";
 
@@ -34,6 +37,19 @@ describe("DTE06-C1 compute delivery schema", () => {
       for (const statement of invalidTaskComputeDeliveryStatementsV1) {
         await expect(persistence.query(statement)).rejects.toThrow();
       }
+      await seedTaskComputePendingConstraintRowV1(
+        persistence,
+        seeded.scopeId,
+        seeded.runId,
+      );
+      for (const statement of invalidTaskComputePendingStatementsV1) {
+        await expect(persistence.query(statement)).rejects.toThrow();
+      }
+      await deleteTaskComputePendingConstraintRowV1(
+        persistence,
+        seeded.scopeId,
+        seeded.runId,
+      );
 
       await settleTaskComputeDeliverySchemaV1(persistence, seeded.evidence);
       const decoded = await decodeStoredTaskComputeDeliveryEvidenceV1(

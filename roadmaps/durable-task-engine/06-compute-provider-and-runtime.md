@@ -17,16 +17,18 @@ The C0 schema/transaction decision is recorded in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
 The implementation-ready C2 repository contract is recorded in
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
-The admitted C3 connected-runner preflight and its resolved bounded C2
-prerequisite are recorded in
+The active C3 connected-runner preflight, its resolved bounded C2 prerequisite,
+and its accepted indexed pending-membership discovery are recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
 The provider port, deterministic in-memory conformance adapter, canonical
 evidence boundary, checkpoint tables, and C2 transactions now exist; no
 connected requested-effect delivery operation, task runtime route, Worker
 binding, deployment configuration, or production activation exists. The C2
 repository now records the exact provider-stale cancellation-generation
-outcome as terminal non-receipt evidence. C3 is the next admitted
-production-inert checkpoint; later checkpoints still require approval.
+outcome as terminal non-receipt evidence. C3's private persistence discovery is
+production-inert and accepted: its Task-owned pending projection removes the
+history-linear anti-join and proves bounded operation-specific scans. The
+trusted backend directory is the next admitted checkpoint.
 
 Roadmaps 01 through 05 already establish first-class task definitions,
 scope-bound durable run state, fenced attempts, requested effects, Queue wake
@@ -388,7 +390,7 @@ semantic-conflict rejection, cancellation generations, accepted-but-unknown
 recovery, receiver preservation, hostile input rejection, and interruption and
 timeout behavior without claiming Task lifecycle acknowledgement.
 
-### DTE06-C: Dispatch Preparation And Durable Checkpoint — C2 Complete, C3 Admitted
+### DTE06-C: Dispatch Preparation And Durable Checkpoint — C3 Discovery Complete
 
 - DTE06-C0 fixes the operation-specific dispatch/cancellation delivery schema,
   prepared execution subject, fenced transaction protocol, uncertainty rules,
@@ -397,8 +399,10 @@ timeout behavior without claiming Task lifecycle acknowledgement.
 - DTE06-C2 adds the private scope-bound fenced transaction repository and
   completes its PGlite and genuine-PostgreSQL transaction proof, including the
   approved provider-stale cancellation-generation settlement;
-- DTE06-C3 will add bounded connected delivery against only the deterministic
-  provider;
+- DTE06-C3 now has accepted private operation-specific persistence discovery,
+  a strict V1 continuation, a Task-owned indexed pending projection,
+  database-owned deadlines, and PGlite plus genuine-PostgreSQL migration and
+  high-cardinality plan proof;
 - freshly correlate scope, effect, run, attempt, fence, lease, cancellation,
   definition, runtime binding, and input reference;
 - prove claim exclusion, expiry takeover, uncertain replay, fairness,
@@ -411,7 +415,9 @@ transaction, effect-ledger discovery, provider call, or runtime wiring. The
 approved prepared-subject correction carries only the verified immutable
 runtime-binding commitment; DTE06-D later loads the full binding and manifest
 and verifies it before constructing the runtime ABI. C2 is complete and
-production-inert; the approved C3 implementation is next and remains unwritten.
+production-inert. C3 persistence discovery remains unwired; the backend trusted
+directory is next, while provider composition and the connected runner remain
+unwritten.
 The durable-delivery contract is
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
 and the exact C2 implementation boundary is

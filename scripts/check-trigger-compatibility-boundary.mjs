@@ -32,6 +32,8 @@ const persistencePostgresTaskComputeDeliveryEvidencePath =
   "packages/persistence-postgres/src/taskComputeDeliveryEvidenceV1.ts";
 const persistencePostgresTaskComputeDeliveryRepositoryPath =
   "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts";
+const persistencePostgresTaskComputeDeliveryDiscoveryPath =
+  "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts";
 const persistencePostgresTaskWakeSchedulerPartitionPath =
   "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
 const persistencePostgresTaskWakeSchedulerDirectoryPath =
@@ -155,6 +157,12 @@ const admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier =
       "decodeTaskRunIdV1",
     ])],
   ]);
+const admittedPersistenceTaskComputeDeliveryDiscoverySymbols = new Set([
+  "TaskRunIdV1Schema",
+  "TaskRequestedEffectSequenceV1",
+  "TaskRunIdV1",
+  "decodeTaskRequestedEffectSequenceV1",
+]);
 const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "InvalidRunAttemptTransitionError",
   "PersistedTaskRequestedEffectV1",
@@ -1120,6 +1128,9 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     ? admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier.get(
       specifier,
     )
+    : relativePath === persistencePostgresTaskComputeDeliveryDiscoveryPath
+      && specifier === "@flarex/durable-task/internal/run-attempt-v1"
+    ? admittedPersistenceTaskComputeDeliveryDiscoverySymbols
     : relativePath === persistencePostgresTaskWakeSchedulerPartitionPath
     ? admittedPersistenceTaskWakeSchedulerSymbolsBySpecifier.get(specifier)
     : relativePath === persistencePostgresTaskWakeSchedulerDirectoryPath

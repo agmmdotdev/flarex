@@ -164,7 +164,11 @@ describe("DTE04-B scope-bound Task System lifecycle store - PGlite", () => {
       });
       expect(forbiddenAllocations).toBe(0);
       expect(Object.isFrozen(result.inspection)).toBe(true);
-      expect(await counts(persistence)).toEqual({ attempts: 1, effects: 15 });
+      expect(await counts(persistence)).toEqual({
+        attempts: 1,
+        effects: 15,
+        pendingComputeDeliveries: 2,
+      });
     });
   });
 
@@ -212,7 +216,11 @@ describe("DTE04-B scope-bound Task System lifecycle store - PGlite", () => {
         run_version: "2",
         current_attempt_id: acceptedAttemptId,
       });
-      expect(await counts(persistence)).toEqual({ attempts: 2, effects: 4 });
+      expect(await counts(persistence)).toEqual({
+        attempts: 2,
+        effects: 4,
+        pendingComputeDeliveries: 1,
+      });
     });
   });
 
@@ -229,7 +237,11 @@ describe("DTE04-B scope-bound Task System lifecycle store - PGlite", () => {
         decide: () => Result.fail(expected),
       }));
       expect(failure).toBe(expected);
-      expect(await counts(persistence)).toEqual({ attempts: 0, effects: 0 });
+      expect(await counts(persistence)).toEqual({
+        attempts: 0,
+        effects: 0,
+        pendingComputeDeliveries: 0,
+      });
       expect(await runState(persistence)).toMatchObject({ run_version: "1" });
 
       const missingRun = Result.getOrThrow(
@@ -585,6 +597,11 @@ describe("DTE04-B scope-bound Task System lifecycle store - PGlite", () => {
       const encodedJson = JSON.stringify(encoded);
       const byteLength = new TextEncoder().encode(encodedJson).byteLength;
       await persistence.query(`
+        delete from fx_system_durable_task_compute_pending_v1
+        where scope_id = '${TASK_SCOPE_ID}' and run_id = '${TASK_RUN_ID}'
+          and requested_effect_sequence = ${row.sequence}
+      `);
+      await persistence.query(`
         update fx_system_durable_task_requested_effect_v1
         set sequence = ${forgedSequence}, payload_json = $1::jsonb,
           payload_byte_length = ${byteLength}
@@ -639,16 +656,23 @@ async function counts(
   const result = await persistence.query<{
     attempts: string;
     effects: string;
+    pending_compute_deliveries: string;
   }>(`
     select
       (select count(*)::text
        from fx_system_durable_task_attempt_identity_v1) as attempts,
       (select count(*)::text
-       from fx_system_durable_task_requested_effect_v1) as effects
+       from fx_system_durable_task_requested_effect_v1) as effects,
+      (select count(*)::text
+       from fx_system_durable_task_compute_pending_v1)
+        as pending_compute_deliveries
   `);
   return {
     attempts: Number(result.rows[0]?.attempts ?? "-1"),
     effects: Number(result.rows[0]?.effects ?? "-1"),
+    pendingComputeDeliveries: Number(
+      result.rows[0]?.pending_compute_deliveries ?? "-1",
+    ),
   };
 }
 

@@ -55,6 +55,7 @@ import { getScopeClock } from "./scopeClock";
 import {
   fxSystemDurableTaskComputeDispatchesV1,
   fxSystemDurableTaskComputeCancellationsV1,
+  fxSystemDurableTaskComputePendingV1,
   fxSystemDurableTaskDefinitionRevisionsV1,
   fxSystemDurableTaskRequestedEffectsV1,
   fxSystemDurableTaskRunsV1,
@@ -384,6 +385,7 @@ export type TaskComputeDeliveryRepositoryCorruptionReasonV1 =
   | "creation_authority_invalid"
   | "input_invalid"
   | "checkpoint_invalid"
+  | "pending_membership_invalid"
   | "database_clock_invalid";
 
 export class TaskComputeDeliveryRepositoryCorruptionV1Error<
@@ -1392,6 +1394,13 @@ async function acquireDispatchTransaction(
     operation,
   );
   const persistedEffect = decodeDispatchEffect(effectRow, request, operation);
+  await consumePendingComputeDelivery(
+    tx,
+    authority.scopeId,
+    request,
+    "dispatch_attempt",
+    operation,
+  );
   const immutable = await loadImmutablePreparation(
     tx,
     authority.scopeId,
@@ -2089,10 +2098,23 @@ async function acquireCancellationTransaction(
     operation,
   );
   if (dispatchCheckpoint === null) {
-    return lifecycleCurrent
-      ? Object.freeze({ kind: "waiting_dispatch" })
-      : lifecycleObsoleteCancellationResult();
+    if (lifecycleCurrent) return Object.freeze({ kind: "waiting_dispatch" });
+    await consumePendingComputeDelivery(
+      tx,
+      authority.scopeId,
+      request,
+      "request_execution_cancellation",
+      operation,
+    );
+    return lifecycleObsoleteCancellationResult();
   }
+  await consumePendingComputeDelivery(
+    tx,
+    authority.scopeId,
+    request,
+    "request_execution_cancellation",
+    operation,
+  );
   const storedDispatchRequest = await decodeAndCorrelateDispatchCheckpoint(
     dispatchCheckpoint,
     expectedDispatchRequest,
@@ -3444,6 +3466,35 @@ async function loadRequestedEffect(
     }));
   }
   return row;
+}
+
+async function consumePendingComputeDelivery(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  request: CapturedAcquireRequestV1,
+  expectedKind: typeof fxSystemDurableTaskComputePendingV1.$inferSelect["kind"],
+  operation: "acquire_dispatch" | "acquire_cancellation",
+): Promise<void> {
+  const deleted = await statement(operation, () => tx.delete(
+    fxSystemDurableTaskComputePendingV1,
+  ).where(and(
+    eq(fxSystemDurableTaskComputePendingV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskComputePendingV1.runId, request.runId),
+    eq(
+      fxSystemDurableTaskComputePendingV1.requestedEffectSequence,
+      request.requestedEffectSequence,
+    ),
+  )).returning({ kind: fxSystemDurableTaskComputePendingV1.kind }));
+  if (
+    deleted.length > 1 ||
+    (deleted[0] !== undefined && deleted[0].kind !== expectedKind)
+  ) {
+    throw rollback(corruption(
+      operation,
+      request.runId,
+      "pending_membership_invalid",
+    ));
+  }
 }
 
 function decodeDispatchEffect(

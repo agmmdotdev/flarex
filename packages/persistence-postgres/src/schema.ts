@@ -6143,6 +6143,70 @@ export const fxSystemDurableTaskRequestedEffectsV1 = pgTable(
   ],
 );
 
+type TaskComputePendingRequestedEffectKindV1 = Extract<
+  TaskRequestedEffectV1["kind"],
+  "dispatch_attempt" | "request_execution_cancellation"
+>;
+
+/** Indexed membership only; the immutable requested effect remains authority. */
+export const fxSystemDurableTaskComputePendingV1 = pgTable(
+  "fx_system_durable_task_compute_pending_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    runId: text("run_id").$type<TaskRunIdV1>().notNull(),
+    requestedEffectSequence: bigint("requested_effect_sequence", {
+      mode: "bigint",
+    }).$type<TaskRequestedEffectSequenceV1>().notNull(),
+    kind: text("kind").$type<TaskComputePendingRequestedEffectKindV1>()
+      .notNull(),
+    eligibleAt: timestamp("eligible_at", { withTimezone: true }).notNull(),
+  },
+  table => [
+    primaryKey({
+      columns: [
+        table.scopeId,
+        table.runId,
+        table.requestedEffectSequence,
+      ],
+      name: "fx_task_compute_pending_v1_pk",
+    }),
+    foreignKey({
+      name: "fx_task_compute_pending_v1_effect_fk",
+      columns: [
+        table.scopeId,
+        table.runId,
+        table.requestedEffectSequence,
+      ],
+      foreignColumns: [
+        fxSystemDurableTaskRequestedEffectsV1.scopeId,
+        fxSystemDurableTaskRequestedEffectsV1.runId,
+        fxSystemDurableTaskRequestedEffectsV1.sequence,
+      ],
+    }).onDelete("restrict"),
+    index("fx_task_compute_pending_v1_discovery_idx").on(
+      table.scopeId,
+      table.kind,
+      table.eligibleAt,
+      table.runId,
+      table.requestedEffectSequence,
+    ),
+    check(
+      "fx_task_compute_pending_v1_identity_check",
+      sql`${table.runId} ~ '^run_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        and ${table.requestedEffectSequence} >= 1
+        and ${table.kind} in (
+          'dispatch_attempt',
+          'request_execution_cancellation'
+        )`,
+    ),
+    check(
+      "fx_task_compute_pending_v1_eligible_at_check",
+      sql`isfinite(${table.eligibleAt})
+        and ${table.eligibleAt} = date_trunc('milliseconds', ${table.eligibleAt})`,
+    ),
+  ],
+);
+
 /** Subordinate, operation-specific evidence for one exact dispatch effect. */
 export const fxSystemDurableTaskComputeDispatchesV1 = pgTable(
   "fx_system_durable_task_compute_dispatch_v1",
@@ -6266,7 +6330,7 @@ export const fxSystemDurableTaskComputeDispatchesV1 = pgTable(
       table.nextAttemptAt,
       table.runId,
       table.requestedEffectSequence,
-    ),
+    ).where(sql`${table.claimOwner} is null`),
     index("fx_task_compute_dispatch_v1_claim_idx").on(
       table.scopeId,
       table.claimExpiresAt,
@@ -6539,7 +6603,7 @@ export const fxSystemDurableTaskComputeCancellationsV1 = pgTable(
       table.nextAttemptAt,
       table.runId,
       table.requestedEffectSequence,
-    ),
+    ).where(sql`${table.claimOwner} is null`),
     index("fx_task_compute_cancel_v1_claim_idx").on(
       table.scopeId,
       table.claimExpiresAt,
@@ -6750,6 +6814,7 @@ export const flarexSchema = {
   fxSystemDurableTaskAttemptIdentitiesV1,
   fxSystemDurableTaskComputeCancellationsV1,
   fxSystemDurableTaskComputeDispatchesV1,
+  fxSystemDurableTaskComputePendingV1,
   fxSystemDurableTaskDefinitionRevisionsV1,
   fxSystemDurableTaskRequestedEffectsV1,
   fxSystemDurableTaskRunRequestsV1,

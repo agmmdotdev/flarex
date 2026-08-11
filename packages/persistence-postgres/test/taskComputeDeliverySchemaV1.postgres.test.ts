@@ -7,9 +7,12 @@ import {
 import { fxSystemDurableTaskComputeDispatchesV1 } from "../src/schema";
 import {
   decodeStoredTaskComputeDeliveryEvidenceV1,
+  deleteTaskComputePendingConstraintRowV1,
+  invalidTaskComputePendingStatementsV1,
   invalidTaskComputeDeliveryStatementsV1,
   proveLosslessComputeProfileStorageV1,
   seedTaskComputeDeliverySchemaV1,
+  seedTaskComputePendingConstraintRowV1,
   settleTaskComputeDeliverySchemaV1,
 } from "./taskComputeDeliverySchemaV1TestSupport";
 import { seedRegisteredTaskSystemParentV1 } from
@@ -47,6 +50,19 @@ describePostgres("real PostgreSQL DTE06-C1 compute delivery schema", () => {
       for (const statement of invalidTaskComputeDeliveryStatementsV1) {
         await expect(persistence.query(statement)).rejects.toThrow();
       }
+      await seedTaskComputePendingConstraintRowV1(
+        persistence,
+        seeded.scopeId,
+        seeded.runId,
+      );
+      for (const statement of invalidTaskComputePendingStatementsV1) {
+        await expect(persistence.query(statement)).rejects.toThrow();
+      }
+      await deleteTaskComputePendingConstraintRowV1(
+        persistence,
+        seeded.scopeId,
+        seeded.runId,
+      );
       await settleTaskComputeDeliverySchemaV1(persistence, seeded.evidence);
       const decoded = await decodeStoredTaskComputeDeliveryEvidenceV1(
         persistence,
@@ -63,10 +79,11 @@ describePostgres("real PostgreSQL DTE06-C1 compute delivery schema", () => {
         where table_schema = current_schema()
           and table_name in (
             'fx_system_durable_task_compute_dispatch_v1',
-            'fx_system_durable_task_compute_cancellation_v1'
+            'fx_system_durable_task_compute_cancellation_v1',
+            'fx_system_durable_task_compute_pending_v1'
           )
       `);
-      expect(result.rows).toEqual([{ count: 2 }]);
+      expect(result.rows).toEqual([{ count: 3 }]);
     });
   }, 480_000);
 });

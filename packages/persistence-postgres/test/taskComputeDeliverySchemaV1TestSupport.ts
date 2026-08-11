@@ -97,6 +97,7 @@ export async function seedTaskComputeDeliverySchemaV1(
   `, [seeded.scopeId, TASK_RUN_ID]);
   return Object.freeze({
     scopeId: seeded.scopeId,
+    deploymentId: seeded.deploymentId,
     runId: TASK_RUN_ID,
     evidence,
   });
@@ -135,6 +136,46 @@ export const invalidTaskComputeDeliveryStatementsV1 = Object.freeze([
   `update fx_system_durable_task_compute_cancellation_v1
    set claim_expires_at = '-infinity'::timestamptz`,
 ]);
+
+export const invalidTaskComputePendingStatementsV1 = Object.freeze([
+  `update fx_system_durable_task_compute_pending_v1
+   set kind = 'wake_retry'`,
+  `update fx_system_durable_task_compute_pending_v1
+   set eligible_at = '2026-08-11T00:00:00.000001Z'`,
+  `insert into fx_system_durable_task_compute_pending_v1 (
+     scope_id, run_id, requested_effect_sequence, kind, eligible_at
+   )
+   select scope_id, run_id, 99, 'dispatch_attempt',
+          date_trunc('milliseconds', statement_timestamp())
+   from fx_system_durable_task_run_v1
+   limit 1`,
+]);
+
+export async function seedTaskComputePendingConstraintRowV1(
+  persistence: Pick<FlarexSqlClient, "query">,
+  scopeId: string,
+  runId: string,
+): Promise<void> {
+  await persistence.query(`
+    insert into fx_system_durable_task_compute_pending_v1 (
+      scope_id, run_id, requested_effect_sequence, kind, eligible_at
+    ) values (
+      $1, $2, 1, 'dispatch_attempt',
+      date_trunc('milliseconds', statement_timestamp())
+    )
+  `, [scopeId, runId]);
+}
+
+export async function deleteTaskComputePendingConstraintRowV1(
+  persistence: Pick<FlarexSqlClient, "query">,
+  scopeId: string,
+  runId: string,
+): Promise<void> {
+  await persistence.query(`
+    delete from fx_system_durable_task_compute_pending_v1
+    where scope_id = $1 and run_id = $2
+  `, [scopeId, runId]);
+}
 
 export async function settleTaskComputeDeliverySchemaV1(
   persistence: Pick<FlarexSqlClient, "query">,

@@ -16,8 +16,9 @@ activation. DTE06-C2 is complete under
 and the approved prepared-subject commitment correction has removed its
 implementation pause without changing the schema. The approved bounded C2
 provider-stale cancellation-generation settlement is also complete without
-DDL or Task lifecycle changes. C3 is admitted as the next production-inert
-checkpoint. Its contract is recorded in
+DDL or Task lifecycle changes. C3's private persistence discovery and approved
+Task-owned pending-membership projection are complete and production-inert.
+The full C3 contract and next trusted-directory checkpoint are recorded in
 [`36-dte06-connected-mock-delivery.md`](./36-dte06-connected-mock-delivery.md)
 with its connected-flow prerequisite and exact proposed boundary.
 
@@ -335,9 +336,11 @@ Its bounded C1 prerequisite is now complete: the prepared subject carries the
 durably reconstructable runtime-binding commitment, while DTE06-D retains full
 binding and manifest materialization authority.
 
-### DTE06-C3: Bounded Connected Mock Delivery — Admitted
+### DTE06-C3: Bounded Connected Mock Delivery — Discovery Complete
 
-- add operation-specific candidate discovery and canonical continuation;
+- **Complete:** operation-specific persistence candidate discovery, its strict
+  V1 continuation, and indexed pending membership exist under the unversioned
+  private capability subpath;
 - compose fresh trusted scope resolution, the C2 repository, and the existing
   deterministic provider only;
 - prove fairness, crash/restart, uncertain replay, cancellation ordering, exact
@@ -350,7 +353,9 @@ generation settlement. That prerequisite now records a terminal
 `provider_stale_generation` outcome in PGlite and genuine PostgreSQL without a
 receipt or Task acknowledgement. C3 may now implement only the connected,
 production-inert boundary fixed by Preflight 36; no wider workaround is
-admitted.
+admitted. The approved schema/write-path amendment now materializes pending
+delivery membership and closes the persistence checkpoint. Fresh backend
+directory resolution is next; no provider call or host path exists.
 
 Each checkpoint is intentionally medium-sized: C1 proves storage truth, C2
 proves transaction truth, and C3 proves orchestration truth. A table without

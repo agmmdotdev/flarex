@@ -2,11 +2,11 @@
 
 ## Status
 
-**Decision:** the C3 preflight is approved and C3 implementation is admitted as
-the next production-inert slice. Add operation-
-specific candidate discovery in `@flarex/persistence-postgres`, then compose
-fresh trusted scope resolution, the completed C2 repository, and only the
-deterministic `TaskComputeProvider` in `flarex-backend`.
+**Decision:** the C3 preflight and its bounded pending-membership amendment are
+approved. The first implementation checkpoint is complete: operation-specific
+discovery reads the indexed projection and closes its migration, transaction,
+high-cardinality, PGlite, and ordinary-role PostgreSQL gates. The backend
+trusted directory is the next admitted production-inert checkpoint.
 
 The connected-flow prerequisite is resolved. C2 now captures and correlates a
 provider `TaskComputeCancellationStaleError`, rejects the older checkpoint as
@@ -15,9 +15,9 @@ receipt, and leaves Task cancellation unacknowledged. Focused PGlite and
 ordinary-role genuine-PostgreSQL 18 lanes prove newer-before-older provider
 ordering and exact closed replay. No DDL or lifecycle change was required.
 
-Completed C2 commit `ff83e5bb` remains the base repository checkpoint. The
-approved correction adds only the exact connected outcome described below; it
-does not rewrite C2 transactions, the Task lifecycle, or the provider contract.
+Completed C2 commit `ff83e5bb` remains the base repository checkpoint, and
+correction commit `a1f2d296` adds only the exact connected outcome described
+below. Neither rewrites the Task lifecycle or the provider contract.
 
 ## Question
 
@@ -145,17 +145,18 @@ to avoid recording an exact provider outcome that already exists.
 
 ## C3 Persistence Discovery Contract
 
-After the prerequisite is complete, persistence adds one private located-scope
-subpath, tentatively
-`@flarex/persistence-postgres/internal/task-compute-delivery-discovery-v1`.
+Persistence now owns one private located-scope subpath,
+`@flarex/persistence-postgres/internal/task-compute-delivery-discovery`.
+The capability and product names are unversioned; only the concrete
+continuation compatibility contract carries `V1`.
 It exposes two operations rather than a generic effect query:
 
 ```ts
-interface TaskComputeDeliveryCandidateDiscoveryV1 {
+interface TaskComputeDeliveryCandidateDiscovery {
   readonly discoverDispatchCandidates: (input: unknown) =>
-    Effect.Effect<TaskComputeDeliveryCandidatePageV1, DiscoveryErrorV1>;
+    Effect.Effect<TaskComputeDeliveryCandidatePage, DiscoveryError>;
   readonly discoverCancellationCandidates: (input: unknown) =>
-    Effect.Effect<TaskComputeDeliveryCandidatePageV1, DiscoveryErrorV1>;
+    Effect.Effect<TaskComputeDeliveryCandidatePage, DiscoveryError>;
 }
 ```
 
@@ -174,7 +175,8 @@ freshly revalidates all authoritative state.
 
 Each operation-specific query unions exactly two sources:
 
-1. an unseen requested effect of the matching kind with no operation checkpoint;
+1. an indexed pending membership for an unmaterialized requested effect of the
+   matching kind;
 2. a nonterminal checkpoint whose initial/retry/expired-claim eligibility is at
    or before the captured database-time bound.
 
@@ -182,6 +184,11 @@ Accepted, delivered, rejected, and obsolete rows are excluded. Active claims
 are visible only at their database-owned expiry. Retry rows are visible only at
 `next_attempt_at`. A waiting cancellation remains discoverable so dispatch
 acceptance can promote it, but it receives only the cancellation budget.
+Pending membership retains its database-derived, millisecond-aligned
+`eligible_at`. Initial legacy checkpoints receive the first page's captured
+database-time bound as their stable eligibility position. Retry and claimed
+checkpoints retain their millisecond-aligned `next_attempt_at` and
+`claim_expires_at` positions respectively.
 
 ### Ordering And Continuation
 
@@ -205,6 +212,97 @@ The page limit is a validated positive safe integer with a small package-owned
 ceiling. The query requests `limit + 1`, validates row count and exact ordering,
 detaches driver rows, and returns frozen owned candidates. SQL, stale authority,
 invalid input, and stored-row corruption remain distinct typed failures.
+
+### Persistence Discovery And Pending-Membership Receipt
+
+The candidate first checkpoint now provides:
+
+- an unversioned private located-scope capability with separate dispatch and
+  cancellation Effects and exact operation-specific error channels;
+- a strict owned `TaskComputeDeliveryContinuationV1` codec that rejects excess
+  fields, malformed brands and timestamps, operation mismatch, future bounds,
+  backward positions, and driver/cursor correlation failure;
+- one locked-authority READ COMMITTED query per page, with database-owned lock,
+  statement, and transaction deadlines, raw indexed timestamp keysets, a
+  `limit + 1` merge, a retained database-time bound, and an exact high-water
+  tuple;
+- inert candidates containing only operation, eligibility position, branded
+  run ID, and branded requested-effect sequence; and
+- focused PGlite proof plus genuine PostgreSQL 18 ordinary-role migration,
+  transaction, and `EXPLAIN ANALYZE (BUFFERS)` proof for the pending, due, and
+  claim indexes over large checkpointed history.
+
+The capability remains unwired. It creates no claim, provider call, backend
+service, host, route, checkpoint, schedule, or lifecycle transition. Cloned
+pagination fixtures deliberately exercise only inert identity ordering; C2
+still performs the complete aggregate/effect correlation before authority can
+be acquired.
+
+#### Resolved boundedness evidence
+
+- **Scenario:** a mature scope has a large number of dispatch or cancellation
+  requested effects whose operation checkpoints already exist, with no unseen
+  effect currently pending.
+- **Expected:** each empty or fresh discovery query performs index-bounded work
+  before returning an empty page or the next pending effect.
+- **Previous actual:** the requested-effect kind index enumerated matching history and
+  the checkpoint anti-join rejects rows afterward; `limit` cannot stop the scan
+  until enough absent checkpoints are found. The same work occurs in the
+  high-water and page branches and can repeatedly hit the statement deadline.
+- **Owner boundary:** exact pending membership must be materialized by the
+  requested-effect/checkpoint schema and write transaction owner. SQL-only C3
+  discovery cannot index absence across the two tables.
+- **Evidence:** the final systems review rejected the one-row index-name plan
+  assertion as insufficient; a high-cardinality checkpointed-history case
+  remains unprovable with the current representation.
+- **Disposition:** resolved by the purpose-built pending-delivery projection
+  below. The final ordinary-role PostgreSQL plan reads the pending covering
+  index without touching requested-effect history and keeps observed rows and
+  buffers within the admitted page bound.
+
+#### Approved pending-membership amendment
+
+The Task System lifecycle transaction adds one Task-owned persisted projection,
+`fx_system_durable_task_compute_pending_v1`. This is not a second requested-
+effect ledger and grants no delivery authority. It contains only:
+
+- trusted `scope_id`, branded `run_id`, and requested-effect sequence;
+- the exact requested kind, limited to `dispatch_attempt` or
+  `request_execution_cancellation`; and
+- a database-derived, millisecond-aligned `eligible_at` ordering position.
+
+Its primary key is the requested-effect identity. A covering discovery index
+orders `(scope_id, kind, eligible_at, run_id, requested_effect_sequence)`, and
+an exact foreign key binds each row to the immutable requested effect.
+
+The existing lifecycle transaction inserts the projection in the same commit
+as each admitted compute requested effect. A failure to insert either rolls
+back both. It does not decode provider evidence, create a compute checkpoint,
+claim work, or call a provider. Other requested-effect kinds never receive a
+row.
+
+C2 acquisition deletes the exact pending row inside the same located,
+authority-locked transaction that validates the requested effect and creates or
+observes its operation checkpoint. Any later rollback restores the pending row;
+a committed checkpoint and pending row cannot be produced by the amended write
+path. A missing row remains compatible with already-materialized checkpoints
+and legacy pre-amendment recovery, while a present row with a mismatched kind is
+stored corruption and rolls back.
+
+Migration backfills only compute requested effects that do not already have
+their operation checkpoint. All backfilled rows share the migration's captured
+millisecond database time; tuple identity still gives a total order. The
+migration must be atomic and idempotent through the Drizzle journal, preserve
+all historical requested effects and checkpoints, and prove constraints plus
+backfill on PGlite and genuine PostgreSQL.
+
+Discovery removes the requested-effect/checkpoint anti-join. Its unseen branch
+reads only the pending projection through the covering index; retry and expired-
+claim branches read the checkpoint indexes, with initial/retry scans restricted
+to partial `claim_owner is null` due indexes. A populated genuine-PostgreSQL
+`EXPLAIN ANALYZE (BUFFERS)` lane must prove nonempty pending, initial, retry, and
+expired-claim branch work stays bounded when checkpointed requested-effect
+history is much larger than the pending set.
 
 ## C3 Trusted Directory
 
@@ -341,9 +439,11 @@ The C3 implementation must prove:
 ## Implementation Sequence After Approval
 
 1. **Complete:** correct and prove the bounded C2 stale-generation settlement.
-2. Add the private persistence discovery models, codecs, SQL, and PGlite plus
-   genuine-PostgreSQL proof.
-3. Add the backend trusted directory and exact active-scope continuation codec.
+2. **Complete:** the pending projection, atomic lifecycle write and C2
+   consumption, backfill migration, indexed private discovery SQL, V1
+   continuation, and deadline policy pass their focused gates.
+3. **Next:** add the backend trusted directory and exact active-scope
+   continuation codec.
 4. Add the Effect service/Layer and single-candidate dispatch/cancellation
    operations against the existing provider and repository.
 5. Add the bounded connected runner and deterministic restart/fairness suite.
