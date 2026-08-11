@@ -888,6 +888,44 @@ runtime or transaction authority. It prevents a source-root or publication
 digest from being relabeled as a source-package hash merely to satisfy an old
 type.
 
+#### AA-R6 runtime-materialization checkpoint — 2026-08-11
+
+Commit `1eaa5f4b` completes the runtime-materialization portion of the accepted
+second slice. A private Application Runtime materializer now authenticates and
+rereads the complete Source Artifact V2 graph, verifies its exact ordered
+agreement with the stored Application Manifest V1, replays the canonical
+schema, catalog, function-entry, and whole-publication commitments, and asks
+Worker Loader to cold-resolve the exact Application Runtime Target V1. It stores
+no module body and changes no OCC, commit, readiness, activation, or active
+selection authority.
+
+Analyzer admission and cold runtime loading now share one deterministic, sticky
+import policy. The generated runtime core evaluates application modules inside
+that policy and compares the registered kind, visibility, arguments, return
+validator, and partition metadata with the accepted target. The cold receipt
+binds the runtime-host identity, compatibility date, source root, manifest and
+publication digests, and exact target digest. Framework shims expose only their
+owned export surfaces, application paths cannot overwrite them, outbound
+networking is disabled, and interrupted Worker Loader RPC results are disposed
+exactly once even when they settle late.
+
+Focused validation passed all four affected package typechecks, 25 analyzer
+tests, seven backend materializer tests, two protocol receipt tests, six
+persistence publication tests, both deterministic generated-core checks, the
+private analyzer identity check, and the Effect runtime-boundary check. The
+generated Application Runtime core identity is
+`87592eba2b544223f59312d64f5d42847ca1dc5e4f1ca95015fdf0874fc076ae`.
+Both required final reviewers approved the exact committed diff with no
+actionable findings. The broader backend build reached and passed the new
+runtime-core check, then stopped at an unrelated pre-existing stale
+edge-action runtime-kernel check; this checkpoint did not regenerate or modify
+that displaced owner.
+
+This does not close the second slice. The new application transaction and
+action worker contracts plus the separate Application task-binding generation
+and private persistence remain required. No new task row may be selected and no
+old task binding may be reinterpreted while that work is incomplete.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
