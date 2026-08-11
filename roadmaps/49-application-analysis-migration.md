@@ -1107,6 +1107,41 @@ new authority, serializes a callback, executes workflow mutation through the
 ordinary mutation path, reads old active/task state, or changes an OCC, commit,
 action-lifecycle, or Worker Loader owner.
 
+#### AA-R6 Application worker-contract implementation checkpoint — 2026-08-11
+
+**Completed by `9da527b5`.** `flarex-protocol` now exposes one private
+transaction-worker request, one private action-worker request, and one shared
+worker-result envelope. The requests carry only the canonical Application
+runtime target, owned auth and arguments, exact operation context, and the
+transaction table catalog where applicable. They reject the wrong function
+family and do not carry artifact-era identity, source modules, callbacks,
+runtime selection, or commit disposition.
+
+The challenged decoder now rejects over-advertised transaction arguments before
+context traversal, establishes an owned snapshot before canonicalization, and
+bounds all operation work: query and action arguments are limited to 1 MiB,
+write arguments retain the existing mutation ceiling, results are limited to
+8 MiB, auth is limited to 64 KiB, and one request may visit at most 65,536 value
+nodes and inspect 131,072 container members. Those independent ceilings close
+large-buffer copying, repeated-alias expansion, undefined-member traversal,
+late descriptor reflection, and caller-mutation gaps without changing the
+shared Value Codec or any generated runtime identity. Expected codec failures
+remain typed; unexpected codec or platform failures remain defects.
+
+Protocol typecheck, all 26 focused contract tests, all 533 protocol tests, the
+Effect boundary check, and the byte-identical Application Runtime core check
+passed. Both required reviewers approved the final staged snapshot after the
+resource and hostile-reflection regressions were added. The contract remains
+inert: it loads no Worker, claims no trusted target, invokes no callback, opens
+no transaction, writes no persistence, and changes no OCC, commit, readiness,
+activation, task-run, route, or production-selection owner.
+
+The next bounded AA-R6 host slice may consume these contracts only after its own
+preflight identifies the existing lower-level Function API, syscall,
+validation, transaction, action-host, and Worker Loader capabilities it will
+reuse. Workflow mutation remains contract-only until separately accepted
+execution semantics exist.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
