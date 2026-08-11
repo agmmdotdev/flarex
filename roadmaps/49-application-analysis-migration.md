@@ -663,6 +663,75 @@ consumer is introduced by `AA-R6`.
 This gate is larger than a receipt-table change and is divided into two medium
 slices.
 
+#### AA-R6 executable-authority preflight and accepted cut — 2026-08-11
+
+The source and consumer inventory challenges two unnecessarily complex readings
+of the original gate. First, whole-bundle publication does not require copying
+the authenticated module bodies into a second R2 namespace. Source Artifact V2
+already owns immutable content-addressed module bytes and Application Analysis
+already authenticates their root and per-module identities. A second runtime
+blob store would create two byte authorities, another settlement protocol, and
+another corruption surface without changing the executable graph. Second,
+point mutation, point query, internal calls, and edge action do not require four
+new descriptions of the same selected application function. Their hosts differ
+in capabilities and invocation envelopes, not in application-revision
+authority.
+
+The first medium slice is therefore accepted with this exact cut:
+
+1. The Standard Application definition owner adds a private executable-source
+   producer. During migration it may consume the decoded Canonical Declarative
+   Program V1 and prebuilt source graph as code-generation input, but it emits
+   real handler imports, real Flarex registrations, and a real schema module.
+   The generated execution and schema paths are reserved, collisions fail, raw
+   handler modules remain byte-exact, and the output is an inert Source Artifact
+   V2 upload input. Once uploaded, only the cold-loaded source registrations are
+   analyzer authority. The analyzer never receives the Canonical Declarative
+   Program or Semantic Artifact as a second acceptance input.
+2. The Standard Application Analysis owner adds one plain, unversioned current
+   facade whose exact success contains `ApplicationManifestV1` and
+   `ApplicationAnalysisReceiptV1`. Its injected context owns host and durable
+   registration composition. The existing `./v1` API remains an exact legacy
+   compatibility surface until its consumers are removed; it is not renamed or
+   reinterpreted.
+3. Persistence adds `fx_system_application_publication_v1` and
+   `fx_system_application_function_v1`. One publication row is correlated by
+   foreign key to the exact inactive Application Revision V2 and analyzed
+   Application Analysis V1 identities. It stores canonical schema and function
+   catalog bytes plus their SHA-256 digests and one publication commitment.
+   Function rows are derived only from the accepted manifest and bind their
+   exact canonical entry digest. Publication is idempotent for byte-identical
+   input and rejects conflicting replay. It does not write old candidate,
+   projection, function-group, revision, readiness, or activation tables.
+4. Runtime code reuses Source Artifact V2 as the only module-body store. The
+   publication commitment binds scope, revision, candidate, analysis, source
+   root, manifest digest, schema digest, and function-catalog digest. A single
+   `ApplicationRuntimeTargetV1` contract binds that publication, the manifest
+   execution path, and one exact function entry. Point mutation, query,
+   internal-call, and edge-action adapters must later narrow the function kind
+   and visibility required by their own envelope; they must not fork the
+   application authority contract.
+5. This slice remains private and inactive. It proves producer output by real
+   cold analysis, proves canonical publication and conflicting-replay behavior
+   in PGlite, and proves runtime-target encode/decode and identity changes. It
+   does not select an active revision, adapt a production runtime, change an
+   OCC or commit owner, deploy the analyzer, or claim genuine PostgreSQL proof.
+
+The second medium slice consumes these exact outputs. It adds new readiness and
+activation generations, an active-selection generation, runtime-host adapters,
+and task binding without a semantic root. Readiness proves the stored schema and
+function catalog, every manifest module's authenticated Source Artifact V2
+identity, cold materialization, and existing index readiness. It does not
+introduce a second bundle object or static call graph.
+
+Preflight self-review found no owner-boundary exception requiring wider
+approval. The implementation is additive, keeps Source Artifact V2 and the
+existing runtime hosts in their current ownership, and reduces rather than
+duplicates authority. The accepted stop conditions are any need to reinterpret
+an old persisted row, copy runtime module bytes into a new store, infer a static
+dependency graph, change transaction or executor semantics, or repair a shared
+runtime defect discovered by the new proof.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
