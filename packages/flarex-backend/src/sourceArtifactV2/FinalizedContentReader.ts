@@ -488,8 +488,10 @@ function projectFrameFailure(
 
 export function makeSourceArtifactV2FinalizedContentReader(options: {
   readonly r2: SourceArtifactV2R2Store;
+  readonly sourceMaps?: "reject" | "ignore";
 }): SourceArtifactV2FinalizedContentReader {
   const pathFactory = DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1;
+  const sourceMaps = options.sourceMaps ?? "reject";
 
   const readObject = Effect.fn("SourceArtifactV2FinalizedContent.readObject")(
     function* (
@@ -671,7 +673,7 @@ export function makeSourceArtifactV2FinalizedContentReader(options: {
         );
       }
       const root = decodedRoot.success.value;
-      if (root.totalSourceMapBytes !== 0n) {
+      if (sourceMaps === "reject" && root.totalSourceMapBytes !== 0n) {
         return yield* Effect.fail(corruption("sourceMapUnsupported"));
       }
       yield* charge(budget, "modules", root.moduleCount);
@@ -685,6 +687,7 @@ export function makeSourceArtifactV2FinalizedContentReader(options: {
       );
       const modules: SourceArtifactV2FinalizedModuleContent[] = [];
       let totalSourceBytes = 0n;
+      let totalSourceMapBytes = 0n;
       for (let ordinal = 0; ordinal < moduleObjects.length; ordinal += 1) {
         const object = moduleObjects[ordinal]!;
         const decoded = decodeSourceArtifactV2ModuleFrame(object.bytes, {
@@ -703,15 +706,16 @@ export function makeSourceArtifactV2FinalizedContentReader(options: {
             corruption("rangeMismatch", module.ordinal),
           );
         }
-        if (
+        if (sourceMaps === "reject" && (
           module.sourceMapByteLength !== 0n ||
           module.sourceMapBlockCount !== 0n ||
           module.sourceMapTreeDigest !== null
-        ) {
+        )) {
           return yield* Effect.fail(
             corruption("sourceMapUnsupported", module.ordinal),
           );
         }
+        totalSourceMapBytes += module.sourceMapByteLength;
         const path = yield* decodePath(module.path, budget).pipe(
           Effect.catchTag(
             "DeclarativeV2ArtifactModulePathV1Error",
@@ -775,6 +779,9 @@ export function makeSourceArtifactV2FinalizedContentReader(options: {
         }));
       }
       if (totalSourceBytes !== root.totalSourceBytes) {
+        return yield* Effect.fail(corruption("byteLengthMismatch"));
+      }
+      if (totalSourceMapBytes !== root.totalSourceMapBytes) {
         return yield* Effect.fail(corruption("byteLengthMismatch"));
       }
       if (

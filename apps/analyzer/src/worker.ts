@@ -3,6 +3,8 @@ import { makePrivateAnalyzerHandshakeHostV1 } from "./Handshake";
 import { installedPrivateAnalyzerIdentityV1 } from "./Identity";
 import { makePrivateAnalyzerVerificationHostV1 } from "./Verification";
 
+export { FlarexApplicationAnalysisHost } from "./ApplicationAnalysisEntrypoint";
+
 const installed = installedPrivateAnalyzerIdentityV1();
 const configured = makePrivateAnalyzerHandshakeHostV1({
   configuration: installed.configuration,

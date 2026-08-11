@@ -44,6 +44,8 @@ const WRANGLER_CONFIGURATION_KEYS = Object.freeze([
   "name",
   "main",
   "compatibility_date",
+  "r2_buckets",
+  "worker_loaders",
   "workers_dev",
   "preview_urls",
 ] as const);
@@ -216,6 +218,25 @@ export function validatePrivateAnalyzerWranglerConfigurationV1(
   }
   if (value.compatibility_date !== "2026-06-14") {
     throw new Error("Private analyzer Wrangler compatibility date is invalid.");
+  }
+  if (
+    !Array.isArray(value.r2_buckets) ||
+    value.r2_buckets.length !== 1 ||
+    !isNonArrayRecord(value.r2_buckets[0]) ||
+    Object.keys(value.r2_buckets[0]).length !== 2 ||
+    value.r2_buckets[0].binding !== "ARTIFACTS" ||
+    value.r2_buckets[0].bucket_name !== "flarex-artifacts"
+  ) {
+    throw new Error("Private analyzer Wrangler R2 binding is invalid.");
+  }
+  if (
+    !Array.isArray(value.worker_loaders) ||
+    value.worker_loaders.length !== 1 ||
+    !isNonArrayRecord(value.worker_loaders[0]) ||
+    Object.keys(value.worker_loaders[0]).length !== 1 ||
+    value.worker_loaders[0].binding !== "LOADER"
+  ) {
+    throw new Error("Private analyzer Wrangler Worker Loader binding is invalid.");
   }
   if (value.workers_dev !== false) {
     throw new Error("Private analyzer Wrangler workers_dev must remain false.");
@@ -419,7 +440,6 @@ function verifyMetafile(value: unknown): number {
   }
   const names = Object.keys(inputs);
   const forbidden = [
-    "flarex-backend",
     "flarex-dev",
     "@flarex/executor",
     "persistence-postgres",
@@ -430,6 +450,12 @@ function verifyMetafile(value: unknown): number {
   ];
   for (const name of names) {
     const portable = name.replaceAll("\\", "/").toLowerCase();
+    if (
+      portable.includes("/packages/flarex-backend/src/") &&
+      !portable.includes("/packages/flarex-backend/src/sourceartifactv2/")
+    ) {
+      throw new Error(`Private analyzer bundle includes non-source-read backend input ${name}.`);
+    }
     if (forbidden.some(fragment => portable.includes(fragment))) {
       throw new Error(`Private analyzer bundle includes forbidden input ${name}.`);
     }

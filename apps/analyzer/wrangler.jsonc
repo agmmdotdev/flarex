@@ -3,6 +3,17 @@
   "name": "flarex-source-analyzer-v2",
   "main": "src/worker.ts",
   "compatibility_date": "2026-06-14",
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "flarex-artifacts"
+    }
+  ],
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
   "workers_dev": false,
   "preview_urls": false
 }

@@ -20,6 +20,7 @@
     "./internal/point-mutation-internal-call-exact-runtime-host-v1": "./src/artifactRuntime/PointMutationInternalCallExactRuntimeHost.ts",
     "./internal/point-query-internal-call-exact-runtime-host-v1": "./src/artifactRuntime/PointQueryInternalCallExactRuntimeHost.ts",
     "./internal/declarative-v2-authenticated-verifier-read-session-v1": "./src/declarativeV2/AuthenticatedVerifierReadSession.ts",
+    "./internal/application-analysis-source-reader": "./src/sourceArtifactV2/ApplicationAnalysisReader.ts",
     "./internal/semantic-artifact-v1-finalized-source-proof": "./src/semanticArtifactV1/FinalizedSourceProof.ts",
     "./internal/execution-evidence-body-r2-v1": "./src/executionEvidence/ExecutionEvidenceBodyStoreV1.ts",
     "./internal/candidate-bound-point-mutation-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationRuntimeTargetV1.ts",

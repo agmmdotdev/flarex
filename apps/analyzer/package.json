@@ -8,7 +8,9 @@
     "./internal/private-application-revision-registration-evidence-v1": "./src/PrivateApplicationRevisionRegistrationEvidence.ts"
   },
   "scripts": {
-    "build": "pnpm typecheck && pnpm check:identity",
+    "application-analysis-core:check": "tsx scripts/buildApplicationAnalysisWorkerCore.ts check",
+    "application-analysis-core:update": "tsx scripts/buildApplicationAnalysisWorkerCore.ts update",
+    "build": "pnpm typecheck && pnpm application-analysis-core:check && pnpm check:identity",
     "check:bundle": "tsx scripts/buildIdentity.ts check",
     "check:identity": "tsx scripts/buildIdentity.ts check",
     "deploy:dry-run": "pnpm check:identity",
@@ -24,6 +26,8 @@
     "@flarex/standard-application-definition": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
+    "flarex": "workspace:*",
+    "flarex-backend": "workspace:*",
     "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
@@ -34,6 +38,7 @@
     "miniflare": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:",
     "wrangler": "catalog:"
   }

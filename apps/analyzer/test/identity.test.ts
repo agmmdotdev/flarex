@@ -21,11 +21,11 @@ describe("private analyzer deterministic identity", () => {
     expect(installed.identity).toEqual({
       protocolIdentity: "flarex.private-source-analyzer-handshake.v1",
       protocolVersion: 1,
-      implementationIdentity: "7322c6a6a4927424377752794ab11840d17f49dbbbeb34741a5ef5149a7253e9",
-      configurationIdentity: "c0ffa918d2cbfe69cc6193807caecdccf6d50c391bc2525db300b5a4cc4ce795",
+      implementationIdentity: "60404b4c64c9227fce6bde9badffc82d882252b59b9f33701df7143594a0364e",
+      configurationIdentity: "20ffcd819f39a5e2e7a338c79b51144f524a7f19e20317e1328c10e378a46c19",
     });
     expect(canonicalPrivateAnalyzerHostConfigurationV1(installed.configuration)).toBe(
-      '{"compatibilityDate":"2026-06-14","compatibilityFlags":[],"deploymentPosture":{"format":"flarex.private-source-analyzer-deployment-posture","previewUrls":false,"resourceBindings":[],"routes":[],"version":1,"workersDev":false},"format":"flarex.private-source-analyzer-host-configuration","handshake":{"contentType":"application/json","framing":"canonical-json-utf8-full-scan-v1","maximumBodyReadMilliseconds":5000,"method":"POST","path":"/__flarex_private/source-analyzer-v2/identity","redaction":"private-code-only-v1","statuses":{"bodyReadFailed":400,"bodyReadTimedOut":408,"identityMismatch":409,"malformed":400,"methodNotAllowed":405,"notFound":404,"payloadTooLarge":413,"success":200,"unsupportedMediaType":415}},"handshakeCodecVersion":1,"protocolIdentity":"flarex.private-source-analyzer-handshake.v1","protocolVersion":1,"toolchain":{"effect":"4.0.0-beta.90","esbuild":"0.27.3","typescript":"7.0.2","workersTypes":"4.20260613.1","wrangler":"4.100.0"},"verification":{"contentType":"application/x-flarex-declarative-v2-verification-v1","maximumBodyReadMilliseconds":30000,"maximumFrameBytes":65536,"method":"POST","path":"/__flarex_private/source-analyzer-v2/verify","protocolIdentity":"flarex.private-source-analyzer-verification.v1","protocolVersion":1,"transitionQuantum":1024},"version":1}',
+      '{"compatibilityDate":"2026-06-14","compatibilityFlags":[],"deploymentPosture":{"format":"flarex.private-source-analyzer-deployment-posture","previewUrls":false,"resourceBindings":["ARTIFACTS:r2","LOADER:worker-loader"],"routes":[],"version":1,"workersDev":false},"format":"flarex.private-source-analyzer-host-configuration","handshake":{"contentType":"application/json","framing":"canonical-json-utf8-full-scan-v1","maximumBodyReadMilliseconds":5000,"method":"POST","path":"/__flarex_private/source-analyzer-v2/identity","redaction":"private-code-only-v1","statuses":{"bodyReadFailed":400,"bodyReadTimedOut":408,"identityMismatch":409,"malformed":400,"methodNotAllowed":405,"notFound":404,"payloadTooLarge":413,"success":200,"unsupportedMediaType":415}},"handshakeCodecVersion":1,"protocolIdentity":"flarex.private-source-analyzer-handshake.v1","protocolVersion":1,"toolchain":{"effect":"4.0.0-beta.90","esbuild":"0.27.3","typescript":"7.0.2","workersTypes":"4.20260613.1","wrangler":"4.100.0"},"verification":{"contentType":"application/x-flarex-declarative-v2-verification-v1","maximumBodyReadMilliseconds":30000,"maximumFrameBytes":65536,"method":"POST","path":"/__flarex_private/source-analyzer-v2/verify","protocolIdentity":"flarex.private-source-analyzer-verification.v1","protocolVersion":1,"transitionQuantum":1024},"version":1}',
     );
   });
 
@@ -94,6 +94,8 @@ describe("private analyzer deterministic identity", () => {
       "@flarex/standard-application-definition": "workspace:*",
       "@flarex/utils": "workspace:*",
       effect: "catalog:",
+      flarex: "workspace:*",
+      "flarex-backend": "workspace:*",
       "flarex-protocol": "workspace:*",
     });
 
@@ -102,6 +104,7 @@ describe("private analyzer deterministic identity", () => {
     ) as { readonly exports?: unknown };
     expect(analysisPackageJson.exports).toEqual({
       ".": "./src/index.ts",
+      "./application-analysis": "./src/applicationAnalysisV1.ts",
       "./internal/canonical-declarative-program-v1":
         "./src/canonicalDeclarativeProgramV1.ts",
       "./internal/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",
@@ -116,6 +119,11 @@ describe("private analyzer deterministic identity", () => {
       name: "flarex-source-analyzer-v2",
       main: "src/worker.ts",
       compatibility_date: "2026-06-14",
+      r2_buckets: [{
+        binding: "ARTIFACTS",
+        bucket_name: "flarex-artifacts",
+      }],
+      worker_loaders: [{ binding: "LOADER" }],
       workers_dev: false,
       preview_urls: false,
     });
@@ -148,7 +156,10 @@ describe("private analyzer deterministic identity", () => {
     const callerPosture = {
       ...PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1,
       routes: [] as unknown[],
-      resourceBindings: [] as unknown[],
+      resourceBindings: [
+        "ARTIFACTS:r2",
+        "LOADER:worker-loader",
+      ] as unknown[],
     } as unknown as PrivateAnalyzerDeploymentPostureV1;
     const configuration = privateAnalyzerHostConfigurationV1(
       installedPrivateAnalyzerIdentityV1().configuration.toolchain,

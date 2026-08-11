@@ -1,5 +1,8 @@
-import { copyBytes } from "@flarex/utils/bytes";
+import { copyBytes, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Cause, Effect, Exit, Result } from "effect";
+import {
+  makeApplicationAnalysisSourceReader,
+} from "../src/sourceArtifactV2/ApplicationAnalysisReader";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   type DeclarativeV2VerifierBudgetFrameV2,
@@ -9,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+  SOURCE_ARTIFACT_V2_ROLE_AUTH,
   sourceArtifactV2BlockFrame,
   sourceArtifactV2CompletedRootFrame,
   sourceArtifactV2ModuleFrame,
@@ -19,6 +23,9 @@ import {
 } from "../src/sourceArtifactV2/FinalizedContentReader";
 import {
   makeSourceArtifactV2R2Store,
+  SourceArtifactV2R2InputError,
+  SourceArtifactV2R2NotFoundError,
+  SourceArtifactV2R2ResourceError,
   type SourceArtifactV2R2Bucket,
 } from "../src/sourceArtifactV2/R2Store";
 import {
@@ -29,6 +36,193 @@ import {
 const FRAME_BUDGET = { maximumFrameBytesMaterialized: 100_000 };
 
 describe("Source Artifact V2 finalized content reader", () => {
+  it("projects authenticated exact bytes through the analysis-neutral adapter", async () => {
+    const fixture = await makeSourceFixture("functions/main.js", true);
+    const bundle = await Effect.runPromise(
+      makeApplicationAnalysisSourceReader({
+        source: makeSourceArtifactV2FinalizedContentReader({
+          r2: fixture.store,
+          sourceMaps: "ignore",
+        }),
+      }).read(encodeBytesToLowercaseHex(fixture.rootDigest)),
+    );
+
+    expect(bundle.sourceArtifact).toMatchObject({
+      rootSha256: encodeBytesToLowercaseHex(fixture.rootDigest),
+      executionModulePath: "functions/main.js",
+      schemaModulePath: null,
+    });
+    expect(bundle.modules).toEqual([{
+      path: "functions/main.js",
+      roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION |
+        SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+      sourceSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      sourceByteLength: 33,
+      source: "export default function main() {}",
+    }]);
+    expect("budget" in bundle).toBe(false);
+    expect("progress" in bundle).toBe(false);
+    expect(fixture.bucket.lookupCount).toBe(3);
+    expect(fixture.bucket.bodyAccesses).toBe(3);
+  });
+
+  it("rejects inconsistent root-role correlation before projection", async () => {
+    const missingSchema = await makeSourceFixture(
+      "functions/main.js",
+      false,
+      { schemaPath: "schema.js" },
+    );
+    const missingSchemaExit = await Effect.runPromiseExit(
+      analysisReader(missingSchema).read(
+        encodeBytesToLowercaseHex(missingSchema.rootDigest),
+      ),
+    );
+    expect(Exit.isFailure(missingSchemaExit)).toBe(true);
+    if (Exit.isFailure(missingSchemaExit)) {
+      expect(Cause.findErrorOption(missingSchemaExit.cause)).toMatchObject({
+        _tag: "Some",
+        value: { reason: "invalidSourceArtifact", path: "schema.js" },
+      });
+    }
+
+    const hiddenAuth = await makeSourceFixture(
+      "functions/main.js",
+      false,
+      {
+        roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION |
+          SOURCE_ARTIFACT_V2_ROLE_AUTH,
+      },
+    );
+    const hiddenAuthExit = await Effect.runPromiseExit(
+      analysisReader(hiddenAuth).read(
+        encodeBytesToLowercaseHex(hiddenAuth.rootDigest),
+      ),
+    );
+    expect(Exit.isFailure(hiddenAuthExit)).toBe(true);
+    if (Exit.isFailure(hiddenAuthExit)) {
+      expect(Cause.findErrorOption(hiddenAuthExit.cause)).toMatchObject({
+        _tag: "Some",
+        value: { reason: "unsupportedAuth", path: "functions/main.js" },
+      });
+    }
+
+    const inconsistentFunctionCount = await makeSourceFixture(
+      "functions/main.js",
+      false,
+      { functionModuleCount: 0n },
+    );
+    const inconsistentCountExit = await Effect.runPromiseExit(
+      analysisReader(inconsistentFunctionCount).read(
+        encodeBytesToLowercaseHex(inconsistentFunctionCount.rootDigest),
+      ),
+    );
+    expect(Exit.isFailure(inconsistentCountExit)).toBe(true);
+    if (Exit.isFailure(inconsistentCountExit)) {
+      expect(Cause.findErrorOption(inconsistentCountExit.cause)).toMatchObject({
+        _tag: "Some",
+        value: {
+          reason: "invalidSourceArtifact",
+          path: "functionModuleCount",
+        },
+      });
+    }
+  });
+
+  it("preserves an authenticated initial byte-order mark in source text", async () => {
+    const source = "\uFEFFexport default {};";
+    const fixture = await makeSourceFixture(
+      "functions/main.js",
+      false,
+      { source },
+    );
+    const bundle = await Effect.runPromise(
+      analysisReader(fixture).read(
+        encodeBytesToLowercaseHex(fixture.rootDigest),
+      ),
+    );
+
+    expect(bundle.modules[0]?.source).toBe(source);
+    expect(bundle.modules[0]?.sourceByteLength).toBe(
+      new TextEncoder().encode(source).byteLength,
+    );
+  });
+
+  it("separates deterministic missing content from transient R2 failure", async () => {
+    const rootSha256 = "a".repeat(64);
+    const missingExit = await Effect.runPromiseExit(
+      makeApplicationAnalysisSourceReader({
+        source: {
+          read: () => Effect.fail(
+            new SourceArtifactV2R2NotFoundError({ key: "missing" }),
+          ),
+        },
+      }).read(rootSha256),
+    );
+    expect(Exit.isFailure(missingExit)).toBe(true);
+    if (Exit.isFailure(missingExit)) {
+      expect(Cause.findErrorOption(missingExit.cause)).toMatchObject({
+        _tag: "Some",
+        value: { reason: "invalidSourceArtifact" },
+      });
+    }
+
+    const resourceExit = await Effect.runPromiseExit(
+      makeApplicationAnalysisSourceReader({
+        source: {
+          read: () => Effect.fail(new SourceArtifactV2R2ResourceError({
+            operation: "get",
+            key: "unavailable",
+          })),
+        },
+      }).read(rootSha256),
+    );
+    expect(Exit.isFailure(resourceExit)).toBe(true);
+    if (Exit.isFailure(resourceExit)) {
+      expect(Cause.findErrorOption(resourceExit.cause)).toMatchObject({
+        _tag: "Some",
+        value: { reason: "sourceReadFailed" },
+      });
+    }
+
+    const invariantExit = await Effect.runPromiseExit(
+      makeApplicationAnalysisSourceReader({
+        source: {
+          read: () => Effect.fail(new SourceArtifactV2R2InputError({
+            operation: "readImmutableAdmitted",
+            field: "budget",
+            reason: "invalidBudget",
+          })),
+        },
+      }).read(rootSha256),
+    );
+    expect(Exit.isFailure(invariantExit)).toBe(true);
+    if (Exit.isFailure(invariantExit)) {
+      expect(Cause.findErrorOption(invariantExit.cause)).toMatchObject({
+        _tag: "Some",
+        value: { reason: "internalFailure" },
+      });
+    }
+
+    const ownedDigestExit = await Effect.runPromiseExit(
+      makeApplicationAnalysisSourceReader({
+        source: {
+          read: () => Effect.fail(new SourceArtifactV2R2InputError({
+            operation: "readImmutableAdmitted",
+            field: "digest",
+            reason: "invalidDigest",
+          })),
+        },
+      }).read(rootSha256),
+    );
+    expect(Exit.isFailure(ownedDigestExit)).toBe(true);
+    if (Exit.isFailure(ownedDigestExit)) {
+      expect(Cause.findErrorOption(ownedDigestExit.cause)).toMatchObject({
+        _tag: "Some",
+        value: { reason: "internalFailure" },
+      });
+    }
+  });
+
   it("reads one canonical module through metadata-first admitted R2 access", async () => {
     const fixture = await makeSourceFixture();
     const tracker = budgetTracker();
@@ -98,6 +292,27 @@ describe("Source Artifact V2 finalized content reader", () => {
     expect(String(exit.cause)).toContain(
       "SourceArtifactV2FinalizedContentCorruptionError",
     );
+  });
+
+  it("can validate and ignore source-map metadata without reading its bodies", async () => {
+    const fixture = await makeSourceFixture("functions/main.js", true);
+    const rejected = await Effect.runPromiseExit(
+      fixture.reader.read(fixture.rootDigest, budgetTracker()),
+    );
+    expect(Exit.isFailure(rejected)).toBe(true);
+
+    fixture.bucket.lookupCount = 0;
+    fixture.bucket.bodyAccesses = 0;
+    const ignored = await Effect.runPromise(
+      makeSourceArtifactV2FinalizedContentReader({
+        r2: fixture.store,
+        sourceMaps: "ignore",
+      }).read(fixture.rootDigest, budgetTracker()),
+    );
+    expect(ignored.root.totalSourceMapBytes).toBe(10n);
+    expect(ignored.modules).toHaveLength(1);
+    expect(fixture.bucket.lookupCount).toBe(3);
+    expect(fixture.bucket.bodyAccesses).toBe(3);
   });
 
   it("classifies hostile and non-intrinsic root digests as typed invalidRoot", async () => {
@@ -174,7 +389,16 @@ class SourceFixtureBucket implements SourceArtifactV2R2Bucket {
   }
 }
 
-async function makeSourceFixture(path = "functions/main.js") {
+async function makeSourceFixture(
+  path = "functions/main.js",
+  withSourceMap = false,
+  options: Readonly<{
+    readonly roles?: number;
+    readonly schemaPath?: string;
+    readonly functionModuleCount?: bigint;
+    readonly source?: string;
+  }> = {},
+) {
   const bucket = new SourceFixtureBucket();
   const hashCalls = { value: 0 };
   const sha256 = makeSourceArtifactV2Sha256(input => {
@@ -183,7 +407,7 @@ async function makeSourceFixture(path = "functions/main.js") {
   });
   const store = makeSourceArtifactV2R2Store(bucket, sha256);
   const sourceBytes = new TextEncoder().encode(
-    "export default function main() {}",
+    options.source ?? "export default function main() {}",
   );
   const sourceFrame = success(sourceArtifactV2BlockFrame(
     "source",
@@ -197,26 +421,28 @@ async function makeSourceFixture(path = "functions/main.js") {
   const moduleFrame = success(sourceArtifactV2ModuleFrame({
     ordinal: 0n,
     path,
-    roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION |
-      SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+    roles: options.roles ?? (
+      SOURCE_ARTIFACT_V2_ROLE_EXECUTION |
+      SOURCE_ARTIFACT_V2_ROLE_FUNCTION
+    ),
     sourceByteLength: BigInt(sourceBytes.byteLength),
     sourceBlockCount: 1n,
     sourceTreeDigest: sourceDigest,
-    sourceMapByteLength: 0n,
-    sourceMapBlockCount: 0n,
-    sourceMapTreeDigest: null,
+    sourceMapByteLength: withSourceMap ? 10n : 0n,
+    sourceMapBlockCount: withSourceMap ? 1n : 0n,
+    sourceMapTreeDigest: withSourceMap ? new Uint8Array(32).fill(7) : null,
   }, FRAME_BUDGET)).bytes;
   const moduleDigest = await digest(sha256, moduleFrame);
   await put(store, "module", moduleDigest, moduleFrame);
 
   const rootFrame = success(sourceArtifactV2CompletedRootFrame({
     moduleCount: 1n,
-    functionModuleCount: 1n,
+    functionModuleCount: options.functionModuleCount ?? 1n,
     totalSourceBytes: BigInt(sourceBytes.byteLength),
-    totalSourceMapBytes: 0n,
+    totalSourceMapBytes: withSourceMap ? 10n : 0n,
     moduleTreeDigest: moduleDigest,
     executionPath: path,
-    schemaPath: null,
+    schemaPath: options.schemaPath ?? null,
     authPath: null,
   }, FRAME_BUDGET)).bytes;
   const rootDigest = await digest(sha256, rootFrame);
@@ -229,8 +455,20 @@ async function makeSourceFixture(path = "functions/main.js") {
     hashCalls,
     rootDigest,
     rootFrame,
+    store,
     reader: makeSourceArtifactV2FinalizedContentReader({ r2: store }),
   };
+}
+
+function analysisReader(
+  fixture: Awaited<ReturnType<typeof makeSourceFixture>>,
+) {
+  return makeApplicationAnalysisSourceReader({
+    source: makeSourceArtifactV2FinalizedContentReader({
+      r2: fixture.store,
+      sourceMaps: "ignore",
+    }),
+  });
 }
 
 async function put(

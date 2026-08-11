@@ -21,7 +21,10 @@ export const PRIVATE_ANALYZER_HANDSHAKE_PATH_V1 =
   "/__flarex_private/source-analyzer-v2/identity";
 const PRIVATE_ANALYZER_COMPATIBILITY_FLAGS_V1: readonly [] = Object.freeze([]);
 const PRIVATE_ANALYZER_DEPLOYMENT_ROUTES_V1: readonly [] = Object.freeze([]);
-const PRIVATE_ANALYZER_DEPLOYMENT_RESOURCE_BINDINGS_V1: readonly [] = Object.freeze([]);
+const PRIVATE_ANALYZER_DEPLOYMENT_RESOURCE_BINDINGS_V1 = Object.freeze([
+  "ARTIFACTS:r2",
+  "LOADER:worker-loader",
+] as const);
 
 export interface PrivateAnalyzerDeploymentPostureV1 {
   readonly format: "flarex.private-source-analyzer-deployment-posture";
@@ -29,7 +32,7 @@ export interface PrivateAnalyzerDeploymentPostureV1 {
   readonly workersDev: false;
   readonly previewUrls: false;
   readonly routes: readonly [];
-  readonly resourceBindings: readonly [];
+  readonly resourceBindings: readonly ["ARTIFACTS:r2", "LOADER:worker-loader"];
 }
 
 export const PRIVATE_ANALYZER_DEPLOYMENT_POSTURE_V1: PrivateAnalyzerDeploymentPostureV1 =
@@ -164,12 +167,14 @@ function capturePrivateAnalyzerDeploymentPostureV1(
     workersDev !== false ||
     previewUrls !== false ||
     routesLength !== 0 ||
-    resourceBindingsLength !== 0
+    resourceBindingsLength !== 2 ||
+    value.resourceBindings[0] !== "ARTIFACTS:r2" ||
+    value.resourceBindings[1] !== "LOADER:worker-loader"
   ) {
     throw new Error("Private analyzer deployment posture lost its configuration invariant.");
   }
   const routes: readonly [] = Object.freeze([]);
-  const resourceBindings: readonly [] = Object.freeze([]);
+  const resourceBindings = PRIVATE_ANALYZER_DEPLOYMENT_RESOURCE_BINDINGS_V1;
   return Object.freeze({
     format,
     version,
