@@ -1430,9 +1430,10 @@ before loading code, verifies the request family against the definition target,
 uses `WorkerLoader.load()` exactly once per invocation, obtains only the named
 transaction or action entrypoint, and never calls `get()` or caches a stub. It
 settles the RPC call under interruption and the bounded wall deadline, observes
-late settlement, disposes a late or consumed RPC result and the entrypoint
-lease, detaches the result into owned data, and decodes the shared Application
-worker-result contract before returning its canonical value. Expected named
+late settlement, registers an owned RPC-result lease before the wait, disposes
+a late or consumed RPC result, detaches the result into owned data, and decodes
+the shared Application worker-result contract before returning its canonical
+value. Expected named
 worker failures map once into an Application execution-host error family;
 unknown remote rejections remain defects because Workers RPC cannot
 authenticate arbitrary error names beyond this private generated entrypoint.
@@ -1443,15 +1444,16 @@ attempt, settles an action invocation, nor closes/drains the callback and
 outbound pair. Its caller must keep the capability lease alive until host
 settlement and then perform the existing uninterruptible close/drain protocol.
 The worker still disposes its received RPC endpoint exactly once. This split
-prevents double ownership while making late-result disposal and entrypoint
-release the host's explicit responsibility.
+prevents double ownership while making late-result disposal the host's explicit
+responsibility. Worker Loader entrypoint handles remain execution-context-owned
+under the installed Cloudflare contract and are not treated as Disposable.
 
 Focused proof must cover both Worker Loader definitions, fresh load and exact
 entrypoint selection, query/mutation/action success, request-family rejection
 before load, target and host-policy mismatch, named worker failure projection,
 unknown rejection as defect, invalid detached result, interruption/timeout with
-late-result disposal, entrypoint disposal, transaction outbound denial, and
-action outbound identity plus CPU/subrequest limits. A local fake Worker Loader
+late-result disposal and timer/listener cleanup, transaction outbound denial,
+and action outbound identity plus CPU/subrequest limits. A local fake Worker Loader
 proves settlement mechanics; Miniflare already proves the generated worker and
 capability behavior and need not be duplicated unless the host implementation
 changes that graph.

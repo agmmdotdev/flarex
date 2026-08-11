@@ -5,8 +5,10 @@ import type {
   ApplicationFunctionRuntimeFunctionV1,
 } from "@flarex/function-runtime/internal/application-function-runtime-v1";
 import { isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
-import type {
-  ApplicationRuntimeTargetV1,
+import { Result } from "effect";
+import {
+  canonicalizeApplicationRuntimeTargetV1,
+  type ApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import type { EdgeActionHostPolicyFrameV1 } from
   "flarex-protocol/internal/edge-action-host-policy-v1";
@@ -30,8 +32,13 @@ export const APPLICATION_ACTION_WORKER_ENTRYPOINT =
   "FlarexApplicationActionWorker" as const;
 export const APPLICATION_WORKER_COMPATIBILITY_DATE = "2026-06-14" as const;
 export const APPLICATION_TRANSACTION_WORKER_CPU_MILLISECONDS = 10_000;
+export const APPLICATION_TRANSACTION_WORKER_WALL_MILLISECONDS = 30_000;
 
 export interface ApplicationWorkerDefinition {
+  readonly targetCanonicalText: string;
+  readonly hostPolicySha256Hex: string;
+  readonly transactionWallMilliseconds: number;
+  readonly actionWallMilliseconds: number;
   readonly compatibilityDate: string;
   readonly transactionLimits: Readonly<{
     readonly cpuMs: number;
@@ -65,16 +72,22 @@ export function makeApplicationWorkerDefinition(input: {
   if (!isUint8ArrayWithByteLength(input.hostPolicySha256, 32)) {
     throw new Error("Application worker host policy digest is invalid.");
   }
-  requireSourceAuthority(input.source, input.target, input.manifest);
+  const canonicalTarget = canonicalizeApplicationRuntimeTargetV1(
+    input.target,
+  ).pipe(Result.getOrThrow);
+  requireSourceAuthority(input.source, canonicalTarget.target, input.manifest);
   const rootOrdinal = input.manifest.functions.findIndex(
-    fn => fn.path === input.target.function.path,
+    fn => fn.path === canonicalTarget.target.function.path,
   );
   const manifestRoot = input.manifest.functions[rootOrdinal];
   if (
     rootOrdinal < 0 || manifestRoot === undefined ||
-    !functionMatchesTarget(manifestRoot, input.target.function)
+    !functionMatchesTarget(manifestRoot, canonicalTarget.target.function)
   ) throw new Error("Application worker root function authority mismatches.");
-  const rootFunction = runtimeFunction(input.target.function, rootOrdinal);
+  const rootFunction = runtimeFunction(
+    canonicalTarget.target.function,
+    rootOrdinal,
+  );
   const internalFunctionCatalog = Object.freeze(
     input.manifest.functions.flatMap((fn, ordinal) =>
       fn.visibility === "internal" &&
@@ -84,7 +97,7 @@ export function makeApplicationWorkerDefinition(input: {
     ),
   );
   const definition = Object.freeze({
-    target: input.target,
+    target: canonicalTarget.target,
     rootFunction,
     internalFunctionCatalog,
     hostPolicy: input.hostPolicy,
@@ -102,6 +115,11 @@ export function makeApplicationWorkerDefinition(input: {
     ),
   });
   return Object.freeze({
+    targetCanonicalText: canonicalTarget.canonicalText,
+    hostPolicySha256Hex: hex(input.hostPolicySha256),
+    transactionWallMilliseconds:
+      APPLICATION_TRANSACTION_WORKER_WALL_MILLISECONDS,
+    actionWallMilliseconds: input.hostPolicy.wallMilliseconds,
     compatibilityDate,
     transactionLimits: Object.freeze({
       cpuMs: APPLICATION_TRANSACTION_WORKER_CPU_MILLISECONDS,
